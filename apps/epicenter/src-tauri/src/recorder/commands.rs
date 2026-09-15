@@ -1,55 +1,13 @@
-//! The recording command surface: the whole thing an application can reach.
-//!
-//! `start`, `stop`, `cancel`, `current`, and device enumeration. There is no
-//! session to open or close, no lease object, and no handle: the host owns the
-//! one recorder, and a recording is named by the blob id `start` returns.
-//!
-//! Every lifecycle command takes an injected `WebviewWindow`. Tauri supplies it
-//! from the invoking window and specta renders it as nothing at all (its
-//! `FunctionArg::to_datatype` returns `None`, `tauri/src/lib.rs:1130`), so the
-//! caller's identity costs zero TypeScript surface and cannot be spoofed from
-//! JS: window labels are assigned in Rust and the frontend never supplies one.
-//!
-//! Ownership here is resource correctness, not isolation. ADR-0179 grants an
-//! admitted app broad same-origin and device authority on purpose; what these
-//! rules prevent is one window destroying, stopping, or collecting the blob of
-//! a recording another window started.
-
-use crate::blobs::{mint_blob_id, BlobDestination};
+//! One-shot IPC for document-owned capture and library-owned publication.
+use crate::blobs::{mint_blob_id, AttachmentContent, BlobDestination};
 use crate::recorder::ended::{EndedReason, RecordingEndedEvent};
 use crate::recorder::error::RecorderError;
 use crate::recorder::recorder::{HostRecording, Recorder, Result};
-use log::{debug, info, warn};
-use serde::Serialize;
+use crate::recorder::sessions::StoppedRecording;
+use log::{debug, warn};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tauri_specta::Event;
-
-/// What `stop_recording` hands back: the committed blob's id and the two facts
-/// only the host can state exactly.
-///
-/// Both are computed here rather than in JS, where they used to be a wall-clock
-/// subtraction and a follow-up `stat` round trip. Wall clock measures how long
-/// the user held the button, which is not the same as how much audio the blob
-/// contains, and it had no answer at all after a reload.
-///
-/// Both are `u32` because the blob is a RIFF WAV and RIFF states its own sizes
-/// in 32 bits: the staged writer already refuses anything larger. So `u32` is
-/// the format's real bound rather than a convenient cap, and it renders in
-/// TypeScript as a plain `number` (specta widens `f64` to `number | null` to
-/// leave room for NaN, a value neither of these can hold).
-#[derive(Debug, Clone, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct StoppedRecording {
-    pub audio_blob_id: String,
-    /// Exact duration of the committed audio: the file's own sample count over
-    /// the rate it was captured at. This is the blob's length rather than how
-    /// long the button was held, so a sub-second clip padded at finalize reports
-    /// the padded duration, which is what the file actually holds.
-    pub duration_ms: u32,
-    /// Exact length of the published file on disk.
-    pub byte_length: u32,
-}
 
 /// Bring the tray's recording indicator up to date with the recorder.
 ///
@@ -112,224 +70,146 @@ pub async fn enumerate_recording_devices(
     lock(&recorder)?.enumerate_devices()
 }
 
-/// Start recording, returning the blob id the recording will be published
-/// under and the microphone it opened.
-///
-/// The id exists before its blob does: `stop` publishes the blob under it and
-/// `cancel` burns it with no blob ever written. The host mints it so ownership
-/// is decided here rather than asserted by a caller.
-///
-/// `device_identifier` is optional; `None` records from the system default, and
-/// a name that is no longer present falls back to the default rather than
-/// failing. Either way `device` reports what actually opened, so the caller
-/// never has to enumerate devices just to discover what it got. Fails with
-/// `Busy` when another window is already recording.
+#[tauri::command]
+#[specta::specta]
+pub async fn register_recording_session(
+    session_id: String,
+    recorder: State<'_, Mutex<Recorder>>,
+    window: WebviewWindow,
+) -> Result<()> {
+    lock(&recorder)?.register_session(window.label(), &session_id)
+}
+
+/// Read only this document's live capture. No file or journal is recovered.
+#[tauri::command]
+#[specta::specta]
+pub async fn current_recording(
+    session_id: String,
+    recorder: State<'_, Mutex<Recorder>>,
+    window: WebviewWindow,
+) -> Result<Option<HostRecording>> {
+    let recorder = lock(&recorder)?;
+    recorder.require_session(window.label(), &session_id)?;
+    Ok(recorder.current(window.label()))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn resolve_recording_start(
+    session_id: String,
+    request_id: String,
+    recorder: State<'_, Mutex<Recorder>>,
+    window: WebviewWindow,
+) -> Result<Option<HostRecording>> {
+    lock(&recorder)?.resolve_start(window.label(), &session_id, &request_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn close_recording_session(
+    session_id: String,
+    recorder: State<'_, Mutex<Recorder>>,
+    app_handle: AppHandle,
+    window: WebviewWindow,
+) -> Result<()> {
+    lock(&recorder)?.close_session(window.label(), &session_id);
+    refresh_recording_indicator(&app_handle);
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn start_recording(
     device_identifier: Option<String>,
-    destination: BlobDestination,
-    attachment: super::recovery::RecordingAttachment,
+    session_id: String,
+    request_id: String,
     recorder: State<'_, Mutex<Recorder>>,
     app_handle: AppHandle,
     window: WebviewWindow,
 ) -> Result<HostRecording> {
-    if matches!(destination.replica, crate::blobs::LibraryReplica::Local {})
-        != attachment.generation.is_none()
-    {
-        return Err(RecorderError::failed(
-            "Local capture has no generation; account capture requires its generation",
-        ));
-    }
-    let owner_label = window.label().to_string();
-    let audio_blob_id = mint_blob_id()?;
-    info!(
-        "Starting recording: id={audio_blob_id}, owner={owner_label}, device={device_identifier:?}",
-    );
-
     let started = {
         let mut recorder = lock(&recorder)?;
-        if super::recovery::current(
-            &super::recovery::root(&app_handle, &destination)?,
-            &destination,
-        )?
-        .is_some()
-        {
-            return Err(RecorderError::failed(
-                "resolve the saved capture before starting another",
-            ));
+        if let Some(current) = recorder.prepare_start(window.label(), &session_id, &request_id)? {
+            return Ok(current);
         }
-        recorder.start(
+        let audio_blob_id = mint_blob_id()?;
+        let started = recorder.start(
             device_identifier.as_deref(),
             audio_blob_id,
-            owner_label,
+            window.label().into(),
             app_handle.clone(),
-            destination,
-            attachment,
-        )?
+        )?;
+        recorder.remember_start(
+            window.label(),
+            &session_id,
+            &request_id,
+            &started.audio_blob_id,
+        );
+        started
     };
     refresh_recording_indicator(&app_handle);
     Ok(started)
 }
 
-/// Stop the recording named by `audio_blob_id`, publish its blob, and report
-/// the committed audio.
-///
-/// Restricted to the window that started it: only the owner can turn its
-/// recording into bytes it can then read. A caller that names a recording which
-/// has already ended, is not the live one, or belongs to another window gets
-/// `NotRecording`, which makes an idempotent stop (push-to-talk releasing after
-/// its recording was already supplanted) a clean typed no-op.
 #[tauri::command]
 #[specta::specta]
 pub async fn stop_recording(
     audio_blob_id: String,
-    destination: BlobDestination,
+    session_id: String,
     recorder: State<'_, Mutex<Recorder>>,
     app_handle: AppHandle,
     window: WebviewWindow,
 ) -> Result<StoppedRecording> {
-    info!("Stopping recording {audio_blob_id}");
-    let root = super::recovery::root(&app_handle, &destination)?;
-    let published = (|| {
-        let mut recorder = lock(&recorder)?;
-        let saved = super::recovery::read(&root, &audio_blob_id, &destination)?;
-        // Retirement shares this lock. Its staging deletion must not race the
-        // rename that makes these bytes an immutable published attachment.
-        if recorder.holds(&audio_blob_id) {
-            let recorded = recorder.stop(&audio_blob_id, window.label())?.publish()?;
-            Ok((recorded.duration_ms, recorded.byte_length))
-        } else {
-            super::recovery::publish(&root, &saved)
-        }
-    })();
-    // Refreshed whether or not the stop succeeded, because the two disagree: an
-    // ownership refusal leaves the recording running while a successful stop
-    // ends it, and the closure reads the recorder rather than trusting either.
-    refresh_recording_indicator(&app_handle);
-    let (duration_ms, byte_length) = published?;
-
-    info!(
-        "Recording stopped: id={audio_blob_id}, {} ms, {} bytes",
-        duration_ms, byte_length
-    );
-    Ok(StoppedRecording {
-        audio_blob_id,
-        duration_ms,
-        byte_length,
-    })
-}
-
-/// Cancel the named capture and discard unfinished staging.
-/// Already-published attachment bytes survive, including after a lost acknowledgment.
-#[tauri::command]
-#[specta::specta]
-pub async fn cancel_recording(
-    audio_blob_id: String,
-    destination: BlobDestination,
-    recorder: State<'_, Mutex<Recorder>>,
-    app_handle: AppHandle,
-    window: WebviewWindow,
-) -> Result<()> {
-    info!("Cancelling recording {audio_blob_id}");
-    let root = super::recovery::root(&app_handle, &destination)?;
-    let result = (|| {
-        let mut recorder = lock(&recorder)?;
-        if recorder.holds(&audio_blob_id) {
-            if !recorder.holds_destination(&destination) {
-                return Err(RecorderError::not_recording(
-                    "capture belongs to another destination",
-                ));
-            }
-            recorder.cancel(&audio_blob_id, window.label())?;
-        }
-        // Share publication's lock so cleanup cannot race its staged rename.
-        super::recovery::discard(&root, &audio_blob_id, &destination)
-    })();
+    let result = lock(&recorder)?.stop_session(window.label(), &session_id, &audio_blob_id);
     refresh_recording_indicator(&app_handle);
     result
 }
 
-/// The recording this window owns, or `null`.
-///
-/// Reload does not destroy a window, so a window that reloads mid-recording
-/// still owns that recording and would otherwise have no way to name it. This
-/// is the only reason the single recorder cannot wedge until the owner window
-/// is destroyed.
-///
-/// A pure read, and the same shape `start` returns, so a recovered recording is
-/// not a different kind of thing from a freshly started one: the caller learns
-/// which microphone it opened without having been the one that opened it, and
-/// learns from `endedReason` whether that microphone is still running. A
-/// recording whose capture died while the JS was gone is found here and stopped
-/// like any other, which publishes what it captured.
 #[tauri::command]
 #[specta::specta]
-pub async fn current_recording(
-    destination: BlobDestination,
+pub async fn cancel_recording(
+    audio_blob_id: String,
+    session_id: String,
     recorder: State<'_, Mutex<Recorder>>,
     app_handle: AppHandle,
     window: WebviewWindow,
-) -> Result<Option<HostRecording>> {
-    debug!("Reading the current recording for {}", window.label());
-    let recorder = lock(&recorder)?;
-    if recorder.holds_destination(&destination) {
-        return Ok(recorder
-            .current(window.label())
-            .filter(|value| value.destination == destination));
-    }
-    super::recovery::current(
-        &super::recovery::root(&app_handle, &destination)?,
+) -> Result<()> {
+    let result = lock(&recorder)?.cancel_session(window.label(), &session_id, &audio_blob_id);
+    refresh_recording_indicator(&app_handle);
+    result
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn publish_recording_file(
+    file_id: String,
+    destination: BlobDestination,
+    storage_id: String,
+    origin_generation: Option<u32>,
+    recorder: State<'_, Mutex<Recorder>>,
+    app_handle: AppHandle,
+    window: WebviewWindow,
+) -> Result<AttachmentContent> {
+    // Retirement takes this same lock. A transfer that wins it publishes
+    // immutable bytes; a retirement that wins it revokes the token first.
+    lock(&recorder)?.publish_file(
+        window.label(),
+        &file_id,
+        &app_handle.state::<crate::app_data::DesktopPaths>().data_dir,
         &destination,
+        &storage_id,
+        origin_generation,
     )
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn release_recording(
-    audio_blob_id: String,
-    destination: BlobDestination,
+pub async fn discard_recording_file(
+    file_id: String,
     recorder: State<'_, Mutex<Recorder>>,
-    app_handle: AppHandle,
     window: WebviewWindow,
 ) -> Result<()> {
-    let result = lock(&recorder)?.release(&audio_blob_id, &destination, window.label());
-    refresh_recording_indicator(&app_handle);
-    result
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn acknowledge_recording(
-    audio_blob_id: String,
-    destination: BlobDestination,
-    recorder: State<'_, Mutex<Recorder>>,
-    app_handle: AppHandle,
-) -> Result<()> {
-    let recorder = lock(&recorder)?;
-    if recorder.holds(&audio_blob_id) {
-        return Err(RecorderError::failed(
-            "cannot acknowledge an active capture",
-        ));
-    }
-    let root = super::recovery::root(&app_handle, &destination)?;
-    super::recovery::acknowledge_published(&root, &audio_blob_id, &destination)
-}
-
-/// Release retired capture work without reclaiming immutable published attachments.
-#[tauri::command]
-#[specta::specta]
-pub async fn retire_recording(
-    audio_blob_id: String,
-    destination: BlobDestination,
-    recorder: State<'_, Mutex<Recorder>>,
-    app_handle: AppHandle,
-    window: WebviewWindow,
-) -> Result<()> {
-    let root = super::recovery::root(&app_handle, &destination)?;
-    let result = lock(&recorder)?.retire(&audio_blob_id, &destination, window.label(), &root);
-    refresh_recording_indicator(&app_handle);
-    result
+    lock(&recorder)?.discard_file(window.label(), &file_id)
 }
 
 /// End a recording's capture because its stream died, and tell the owner why.
@@ -342,15 +222,14 @@ pub async fn retire_recording(
 ///
 /// The microphone is released and the recording stays exactly where it was:
 /// holding the one recorder slot, owned by the same window, with its audio
-/// intact. The owner claims it by calling `stop`, which publishes what was
+/// intact. The owner claims it by calling `stop`, which finishes what was
 /// captured before the stream died, or throws it away by calling `cancel`.
 ///
 /// So [`RecordingEndedEvent`] is a signal and nothing more. It carries no audio,
 /// no blob, and no result, because a second way to deliver a recording is a
 /// second result channel to keep correct, and the owner already has the first
-/// one. It is also best-effort: a window that misses the event (it was reloading,
-/// it was gone, the emit failed) finds the same ended recording through
-/// `current_recording` and resolves it identically.
+/// one. A live document that misses the event reconciles it through its
+/// session-scoped `current_recording`; document departure discards capture.
 pub fn end_recording_capture(app: &AppHandle, audio_blob_id: &str, reason: EndedReason) {
     let Some(recorder) = app.try_state::<Mutex<Recorder>>() else {
         return;
@@ -410,7 +289,7 @@ pub fn cancel_recording_owned_by(app: &AppHandle, owner_label: &str) {
         let Ok(mut recorder) = recorder.lock() else {
             return;
         };
-        recorder.release_owned_by(owner_label);
+        recorder.close_document(owner_label);
     }
     refresh_recording_indicator(app);
 }

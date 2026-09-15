@@ -1378,7 +1378,7 @@ test.each([
 	true,
 ])('failed data opening authorizes recorder recovery and retains the opening error when cleanup fails=%s', async (cleanupFails) => {
 	const appId = `test.${crypto.randomUUID()}`;
-	let recoveryAllowed: boolean | undefined;
+	let cleanupAttempted = false;
 	let sqlClosed = false;
 	const cleanupFailure = new Error('Capture release failed');
 	const account: Account = {
@@ -1413,7 +1413,7 @@ test.each([
 			recording: (id, identity, options) => ({
 				...createBrowserRecording(id, identity, options),
 				async close() {
-					recoveryAllowed = options?.canRecover?.();
+					cleanupAttempted = true;
 					if (cleanupFails) throw cleanupFailure;
 				},
 			}),
@@ -1423,7 +1423,7 @@ test.each([
 	const app = application.openPersonal(account);
 	const failure = expectErr(await app.ready);
 	expect(failure).not.toBe(cleanupFailure);
-	expect(recoveryAllowed).toBe(true);
+	expect(cleanupAttempted).toBe(true);
 	if (cleanupFails) {
 		await expect(app.close()).rejects.toBe(cleanupFailure);
 		expect(sqlClosed).toBe(false);

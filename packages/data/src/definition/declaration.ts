@@ -12,7 +12,7 @@
  * checked in `compile.ts`.
  */
 
-import type { BlobId } from '@epicenter/blobs';
+import type { BlobId, FinishedFile } from '@epicenter/blobs';
 import type * as Y from '@y/y';
 import { type Static, type TSchema, Type } from 'typebox';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
@@ -288,7 +288,7 @@ export type RowOf<T extends TableDeclaration> = {
  */
 export type CreateRowOf<T extends TableDeclaration> = {
 	[K in keyof TableFields<T>]: K extends AttachmentFieldNames<T>
-		? null
+		? FinishedFile
 		: K extends BlobFieldNames<T>
 			? BlobId | Blob | Extract<Static<TableFields<T>[K]>, null>
 			: Static<TableFields<T>[K]>;

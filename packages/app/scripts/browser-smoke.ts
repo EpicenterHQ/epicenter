@@ -72,11 +72,10 @@ try {
 		await (
 			globalThis as unknown as { disconnectForAcceptance(): Promise<void> }
 		).disconnectForAcceptance();
-		const row = app.tables.recordings.create({ audio: null });
-		const into = app.tables.recordings.attachment(row.id);
-		const started = await bounded('start', app.recording.start({ into }));
+		const table = app.tables.recordings;
+		const started = await bounded('start', app.recording.start({}));
 		if (started.error) throw new Error(JSON.stringify(started.error));
-		const rejected = await app.recording.start({ into });
+		const rejected = await app.recording.start({});
 		if (rejected.error?.name !== 'AlreadyRecording')
 			throw new Error('Competing capture admitted');
 		let meterTicks = 0;
@@ -87,6 +86,16 @@ try {
 		const stopped = await bounded('stop', started.data.stop());
 		unlevel();
 		if (stopped.error) throw new Error(JSON.stringify(stopped.error));
+		if (table.ids().length !== 0)
+			throw new Error('Capture created a row before save');
+		const saved = await bounded(
+			'save',
+			table.create({ audio: stopped.data.file }),
+		);
+		if (saved.error) throw new Error(JSON.stringify(saved.error));
+		const row = saved.data;
+		const into = table.attachment(row.id);
+		await app.recording.discard(stopped.data.file);
 		const bytes = await bounded('read', into.read());
 		if (bytes.error) throw new Error(JSON.stringify(bytes.error));
 		const playback = await into.source();
@@ -111,18 +120,11 @@ try {
 		) {
 			throw new Error('Recording could not be decoded or metered');
 		}
-		const nextRow = app.tables.recordings.create({ audio: null });
-		const nextInto = app.tables.recordings.attachment(nextRow.id);
-		const next = await bounded(
-			'restart',
-			app.recording.start({ into: nextInto }),
-		);
+		const next = await bounded('restart', app.recording.start({}));
 		if (next.error) throw new Error(JSON.stringify(next.error));
 		const cancelled = await bounded('cancel', next.data.cancel());
 		if (cancelled.error) throw new Error(JSON.stringify(cancelled.error));
-		const absent = await nextInto.read();
-		if (absent.error?.name !== 'Unavailable')
-			throw new Error('Cancel published audio');
+		if (table.ids().length !== 1) throw new Error('Cancel created a row');
 		await bounded('close app', app.close());
 		const reopened = application.openLocal();
 		const reopenedReady = await bounded('reopen ready', reopened.ready);

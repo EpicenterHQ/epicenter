@@ -143,13 +143,9 @@ export async function read(id: string) {
 }
 
 export async function capture(title: string) {
-	const row = app.tables.recordings.create({
-		title,
-		actor: app.account?.principalId ?? 'local',
-		audio: null,
-	});
-	const into = app.tables.recordings.attachment(row.id);
-	const recording = expectOk(await bounded(app.recording.start({ into })));
+	const table = app.tables.recordings;
+	const actor = app.account?.principalId ?? 'local';
+	const recording = expectOk(await bounded(app.recording.start({})));
 	assert(
 		recording.replica.library === library,
 		'Recording selected a different library',
@@ -161,13 +157,18 @@ export async function capture(title: string) {
 		);
 	}
 	assert(
-		expectErr(await app.recording.start({ into })).name === 'AlreadyRecording',
+		expectErr(await app.recording.start({})).name === 'AlreadyRecording',
 		'Competing capture was admitted',
 	);
 	let meterTicks = 0;
 	const unlevel = recording.onLevel(() => meterTicks++);
 	await new Promise((resolve) => setTimeout(resolve, 450));
 	const stopped = expectOk(await bounded(recording.stop()));
+	const row = expectOk(
+		await bounded(table.create({ title, actor, audio: stopped.file })),
+	);
+	expectOk(await app.recording.discard(stopped.file));
+	const into = table.attachment(row.id);
 	unlevel();
 	assert(meterTicks > 0, 'Capture produced no meter events');
 	const source = expectOk(await bounded(into.read()));
@@ -206,29 +207,18 @@ export async function absent(id: string) {
 }
 
 export async function closeWithCapture(id: string) {
+	const rowsBefore = app.tables.recordings.ids();
 	const playback = expectOk(
 		await app.tables.recordings.attachment(id).source(),
 	);
-	const pending = app.tables.recordings.create({
-		title: 'Cancel',
-		actor: 'local',
-		audio: null,
-	});
-	const cancelled = expectOk(
-		await app.recording.start({
-			into: app.tables.recordings.attachment(pending.id),
-		}),
-	);
+	const cancelled = expectOk(await app.recording.start({}));
 	await new Promise((resolve) => setTimeout(resolve, 100));
 	expectOk(await cancelled.cancel());
-	await absent(cancelled.into.rowId);
-	const active = app.tables.recordings.create({
-		title: 'Close',
-		actor: 'local',
-		audio: null,
-	});
-	const into = app.tables.recordings.attachment(active.id);
-	const recording = expectOk(await app.recording.start({ into }));
+	assert(
+		JSON.stringify(app.tables.recordings.ids()) === JSON.stringify(rowsBefore),
+		'Cancel created a row',
+	);
+	const recording = expectOk(await app.recording.start({}));
 	let ticks = 0;
 	recording.onLevel(() => ticks++);
 	await new Promise((resolve) => setTimeout(resolve, 100));
@@ -239,7 +229,7 @@ export async function closeWithCapture(id: string) {
 	assert(app.signal.aborted, 'Close did not revoke App admission');
 	let refused = false;
 	try {
-		await retainedStart({ into });
+		await retainedStart({});
 	} catch {
 		refused = true;
 	}
@@ -254,10 +244,17 @@ export async function closeWithCapture(id: string) {
 	assert(playbackReleased, 'Close retained a playback URL');
 	playback[Symbol.dispose]();
 	return {
-		cancelled: cancelled.into.rowId,
-		closedCapture: recording.into.rowId,
+		rowsBefore,
 		retainedStartRefused: refused,
 		meterStopped: true,
 		playbackReleased,
 	};
+}
+
+export function unchangedRows(ids: string[]) {
+	assert(
+		JSON.stringify(app.tables.recordings.ids()) === JSON.stringify(ids),
+		'Unfinished capture created a durable row',
+	);
+	return true;
 }

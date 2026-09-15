@@ -1379,6 +1379,54 @@ describe("Local Mail's desktop authorization callback", () => {
 });
 
 describe('local blob routes', () => {
+	test('attachment publication retries verify bytes and receipts persist through actual local HTTP', async () => {
+		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
+		const server = await serveHost(host);
+		const { cookie, origin } = authenticationFor(server);
+		const id = 'attachment.recordings.' + 'a'.repeat(24);
+		const url = `${server.url.origin}/api/apps/${TEST_APP_ID}/local/blobs/${id}`;
+		const headers = {
+			cookie,
+			origin,
+			'content-type': 'audio/wav',
+			'x-epicenter-attachment-origin': '7',
+		};
+		try {
+			const first = await fetch(url, { method: 'PUT', headers, body: 'audio' });
+			expect(first.status).toBe(201);
+			const evidence = await first.json();
+			expect(evidence.sha256).toBe(
+				new Bun.CryptoHasher('sha256').update('audio').digest('hex'),
+			);
+			const retry = await fetch(url, { method: 'PUT', headers, body: 'audio' });
+			expect(retry.status).toBe(201);
+			const conflict = await fetch(url, {
+				method: 'PUT',
+				headers,
+				body: 'other',
+			});
+			expect(conflict.status).toBe(409);
+			const before = await fetch(url, { method: 'HEAD', headers: { cookie } });
+			expect(
+				JSON.parse(before.headers.get('x-epicenter-attachment')!),
+			).toMatchObject({ originGeneration: 7, pendingUpload: true });
+			const ack = await fetch(`${url}/acknowledge`, {
+				method: 'POST',
+				headers: { cookie, origin, 'content-type': 'application/json' },
+				body: JSON.stringify({ expected: evidence, generation: 7 }),
+			});
+			expect(ack.status).toBe(204);
+			const after = await fetch(url, { method: 'HEAD', headers: { cookie } });
+			expect(
+				JSON.parse(after.headers.get('x-epicenter-attachment')!),
+			).toMatchObject({ originGeneration: 7, pendingUpload: false });
+			expect(await (await fetch(url, { headers: { cookie } })).text()).toBe(
+				'audio',
+			);
+		} finally {
+			await server.stop(true);
+		}
+	});
 	test('row-addressed attachments stream locally and remain isolated by library', async () => {
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
 		const server = await serveHost(host);

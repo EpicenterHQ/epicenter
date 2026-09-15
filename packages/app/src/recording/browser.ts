@@ -1,7 +1,6 @@
 import { captureLibraryReplica } from '@epicenter/principal';
-import { attachmentEngineOf } from '@epicenter/data/store';
 import { createLogger } from 'wellcrafted/logger';
-import { Err, Ok } from 'wellcrafted/result';
+import { Ok } from 'wellcrafted/result';
 import {
 	enumerateDevices,
 	getRecordingStream,
@@ -26,7 +25,7 @@ function acquisitionError(error: DeviceStreamError) {
 
 /** Browser capture belongs to this document; construction acquires no resources. */
 export function createBrowserRecording(
-	appId: string,
+	_appId: string,
 	input: RecordingReplica,
 	{ assertUsable }: RecordingOptions,
 ): RecordingOwner {
@@ -89,6 +88,9 @@ export function createBrowserRecording(
 			return closing;
 		},
 		value: {
+			async discard() {
+				return Ok(undefined);
+			},
 			current() {
 				return run(async () => {
 					if (pending) return RecorderError.AlreadyRecording();
@@ -106,28 +108,9 @@ export function createBrowserRecording(
 			start(params) {
 				return run(async () => {
 					if (pending || current) return RecorderError.AlreadyRecording();
-					const into = params.into;
-					const attachment = attachmentEngineOf(into);
-					const destination = attachment.destination;
-					const target = destination?.replica;
-					if (
-						destination?.appId !== appId ||
-						!target ||
-						(target.library === 'local'
-							? replica.library !== 'local'
-							: replica.library !== target.library ||
-								target.account.authorityId !== replica.account.authorityId ||
-								target.account.principalId !== replica.account.principalId)
-					)
-						return RecorderError.RecorderFailed({
-							cause: new Error('The attachment belongs to another library.'),
-						});
 					pending = true;
 					let release: () => void | Promise<void> = () => {};
 					try {
-						const prepared = await attachment.prepare();
-						if (prepared.error)
-							return RecorderError.RecorderFailed({ cause: prepared.error });
 						const acquired = await getRecordingStream({
 							selectedDeviceId: params.selectedDeviceId ?? null,
 						});
@@ -142,6 +125,10 @@ export function createBrowserRecording(
 								}
 							}
 						};
+						if (closed) {
+							await release();
+							return RecorderError.NoActiveRecording();
+						}
 						const recorder = new MediaRecorder(stream);
 						const chunks: Blob[] = [];
 						const levels = new Set<(level: number) => void>();
@@ -274,7 +261,6 @@ export function createBrowserRecording(
 						const id = crypto.randomUUID();
 						const session: Recording = {
 							id,
-							into,
 							replica,
 							device: deviceOutcome,
 							get endedReason() {
@@ -290,14 +276,13 @@ export function createBrowserRecording(
 										const blob = new Blob(chunks, {
 											type: recorder.mimeType || chunks[0]?.type,
 										});
-										const result = await into.complete(blob);
-										if (result.error) return Err(result.error);
 										await cleanup();
 										if (current === session) {
 											current = null;
 											cancelCurrent = undefined;
 										}
 										return Ok({
+											file: blob,
 											durationMs,
 											byteLength: blob.size,
 										});

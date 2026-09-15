@@ -46,6 +46,10 @@ pub enum RecorderError {
     #[error("{message}")]
     NotRecording { message: String },
 
+    /// Stop consumed this capture, but no finished temporary file exists.
+    #[error("{message}")]
+    CaptureLost { message: String },
+
     /// Any other recording failure (device config, stream build, filesystem,
     /// internal). The frontend does not branch on these.
     #[error("{message}")]
@@ -108,6 +112,7 @@ mod tests {
             RecorderError::NoInputDevice { .. } => "NoInputDevice",
             RecorderError::Busy { .. } => "Busy",
             RecorderError::NotRecording { .. } => "NotRecording",
+            RecorderError::CaptureLost { .. } => "CaptureLost",
             RecorderError::Failed { .. } => "Failed",
         }
     }

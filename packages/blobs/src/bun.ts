@@ -1,11 +1,22 @@
-import { mkdir, mkdtemp, readFile, rename, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import {
+	mkdir,
+	mkdtemp,
+	open,
+	readFile,
+	rename,
+	rm,
+	stat,
+} from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { dirname, join, resolve } from 'node:path';
 import { type } from 'arktype';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type BlobId } from './blob-id.js';
 import { parseBlobStorageId } from './attachment-key.js';
+import { sameAttachmentContent } from './attachment-content.js';
 import {
 	type BlobAlreadyExists,
+	type AttachmentContent,
 	type BlobNotFound,
 	type BlobStat,
 	type BlobStore,
@@ -19,7 +30,11 @@ const STAGING_DIRECTORY = '.staging';
 const BUN_STAGING_DIRECTORY = 'bun';
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 
-type StoredMetadata = BlobStat;
+type StoredMetadata = {
+	size: number;
+	contentType: string;
+	attachment?: AttachmentContent & { originGeneration?: number | null };
+};
 
 /**
  * Parse on-disk metadata at the JSON boundary: `metadata.json` is untrusted
@@ -29,9 +44,17 @@ type StoredMetadata = BlobStat;
 const StoredMetadata = type({
 	contentType: 'string',
 	size: 'number',
+	'attachment?': {
+		sha256: /^[a-f0-9]{64}$/,
+		size: 'number.integer >= 0',
+		contentType: 'string',
+		'originGeneration?': 'number.integer >= 0 | null',
+	},
 }).narrow(
 	(metadata) =>
-		Object.keys(metadata).length === 2 &&
+		Object.keys(metadata).every((key) =>
+			['size', 'contentType', 'attachment'].includes(key),
+		) &&
 		Number.isSafeInteger(metadata.size) &&
 		metadata.size >= 0 &&
 		normalizeContentType(metadata.contentType) === metadata.contentType,
@@ -107,16 +130,18 @@ export function createBunBlobStore({ directory }: { directory: string }) {
 		id: BlobId,
 		data: PutData,
 		contentType: string,
+		attachmentOrigin?: { generation?: number | null },
 	): Promise<Result<void, BlobAlreadyExists | BlobStoreFailed>> {
 		const validatedId = validateId(id);
 		if (validatedId.error !== null) return Err(validatedId.error);
 		id = validatedId.data;
 		let stagedDirectory: string | undefined;
+		let stagedMetadata: StoredMetadata | undefined;
 		try {
 			await mkdir(stagingDirectory, { recursive: true });
 			try {
 				await stat(blobDirectory(id));
-				return BlobStoreError.BlobAlreadyExists({ id });
+				if (!attachmentOrigin) return BlobStoreError.BlobAlreadyExists({ id });
 			} catch (cause) {
 				if (!isFileSystemError(cause, 'ENOENT')) throw cause;
 			}
@@ -128,17 +153,52 @@ export function createBunBlobStore({ directory }: { directory: string }) {
 			const metadata = {
 				contentType: normalizeContentType(contentType),
 				size,
+				...(attachmentOrigin
+					? {
+							attachment: {
+								sha256: await digestFile(dataPath),
+								size,
+								contentType: normalizeContentType(contentType),
+								...(attachmentOrigin.generation === undefined
+									? {}
+									: { originGeneration: attachmentOrigin.generation }),
+							},
+						}
+					: {}),
 			} satisfies StoredMetadata;
+			stagedMetadata = metadata;
 			await Bun.write(
 				join(stagedDirectory, METADATA_FILE),
 				JSON.stringify(metadata),
 			);
+			await syncFile(dataPath);
+			await syncFile(join(stagedDirectory, METADATA_FILE));
+			await syncFile(stagedDirectory);
 			await rename(stagedDirectory, blobDirectory(id));
 			stagedDirectory = undefined;
+			await syncPublication(blobDirectory(id));
 			return Ok(undefined);
 		} catch (cause) {
 			try {
 				await stat(blobDirectory(id));
+				if (stagedMetadata?.attachment) {
+					const existing = await readCompleteMetadata(id);
+					if (
+						!existing.error &&
+						existing.data.attachment &&
+						existing.data.attachment.originGeneration ===
+							stagedMetadata.attachment.originGeneration &&
+						sameAttachmentContent(
+							existing.data.attachment,
+							stagedMetadata.attachment,
+						) &&
+						(await digestFile(join(blobDirectory(id), DATA_FILE))) ===
+							stagedMetadata.attachment.sha256
+					) {
+						await syncPublication(blobDirectory(id));
+						return Ok(undefined);
+					}
+				}
 				return BlobStoreError.BlobAlreadyExists({ id });
 			} catch (statCause) {
 				if (!isFileSystemError(statCause, 'ENOENT')) {
@@ -175,17 +235,44 @@ export function createBunBlobStore({ directory }: { directory: string }) {
 		return metadata;
 	}
 
-	async function statBlob(id: BlobId) {
+	async function statBlob(
+		id: BlobId,
+	): Promise<Result<BlobStat, BlobReadError>> {
 		const validatedId = validateId(id);
 		if (validatedId.error !== null) return Err(validatedId.error);
-		return readCompleteMetadata(validatedId.data);
+		const result = await readCompleteMetadata(validatedId.data);
+		if (result.error) return result;
+		const metadata = result.data;
+		if (!metadata.attachment)
+			return Ok({ size: metadata.size, contentType: metadata.contentType });
+		let acknowledged = false;
+		try {
+			const receipt = JSON.parse(
+				await readFile(join(blobDirectory(id), 'attachment-ack.json'), 'utf8'),
+			);
+			acknowledged =
+				receipt.generation === metadata.attachment.originGeneration &&
+				sameAttachmentContent(receipt, metadata.attachment);
+		} catch (cause) {
+			if (!isFileSystemError(cause, 'ENOENT'))
+				return BlobStoreError.BlobStoreFailed({ id, cause });
+		}
+		return Ok({
+			...metadata,
+			attachment: {
+				...metadata.attachment,
+				pendingUpload:
+					typeof metadata.attachment.originGeneration === 'number' &&
+					!acknowledged,
+			},
+		} satisfies BlobStat);
 	}
 
 	async function openBlob(id: BlobId) {
 		const validatedId = validateId(id);
 		if (validatedId.error !== null) return Err(validatedId.error);
 		id = validatedId.data;
-		const metadata = await readCompleteMetadata(id);
+		const metadata = await statBlob(id);
 		if (metadata.error !== null) return Err(metadata.error);
 		const dataPath = join(blobDirectory(id), DATA_FILE);
 		const file = Bun.file(dataPath, {
@@ -195,6 +282,76 @@ export function createBunBlobStore({ directory }: { directory: string }) {
 	}
 
 	const store = {
+		attachments: {
+			async put(id, file, originGeneration) {
+				if (!(file instanceof Blob))
+					return BlobStoreError.BlobStoreFailed({
+						id,
+						cause: 'Native tokens must be consumed by the native publisher.',
+					});
+				const published = await putData(id, file, file.type, {
+					generation: originGeneration,
+				});
+				if (published.error?.name === 'BlobAlreadyExists') {
+					const existing = await readCompleteMetadata(id);
+					if (existing.error)
+						return BlobStoreError.BlobStoreFailed({
+							id,
+							cause: existing.error,
+						});
+					try {
+						const expected = {
+							sha256: await digestBlob(file),
+							size: file.size,
+							contentType: normalizeContentType(file.type),
+						};
+						if (
+							existing.data.attachment &&
+							existing.data.attachment.originGeneration === originGeneration &&
+							sameAttachmentContent(existing.data.attachment, expected) &&
+							(await digestFile(join(blobDirectory(id), DATA_FILE))) ===
+								expected.sha256
+						) {
+							await syncPublication(blobDirectory(id));
+							return Ok(expected);
+						}
+					} catch (cause) {
+						return BlobStoreError.BlobStoreFailed({ id, cause });
+					}
+				}
+				if (published.error) return published;
+				const metadata = await readCompleteMetadata(id);
+				return metadata.error
+					? BlobStoreError.BlobStoreFailed({ id, cause: metadata.error })
+					: Ok(metadata.data.attachment!);
+			},
+			async acknowledge(id, expected, generation) {
+				const metadata = await statBlob(id);
+				if (metadata.error) return metadata;
+				if (
+					!metadata.data.attachment ||
+					metadata.data.attachment.originGeneration !== generation ||
+					!sameAttachmentContent(expected, metadata.data.attachment)
+				)
+					return BlobStoreError.BlobStoreFailed({
+						id,
+						cause: 'Acknowledgment does not match this local publication.',
+					});
+				try {
+					const receipt = join(
+						blobDirectory(id),
+						`attachment-ack-${crypto.randomUUID()}.tmp`,
+					);
+					await Bun.write(receipt, JSON.stringify({ ...expected, generation }));
+					await syncFile(receipt);
+					await rename(receipt, join(blobDirectory(id), 'attachment-ack.json'));
+					await syncFile(blobDirectory(id));
+					return Ok(undefined);
+				} catch (cause) {
+					return BlobStoreError.BlobStoreFailed({ id, cause });
+				}
+			},
+		},
 		put(id, blob) {
 			return putData(id, blob, blob.type);
 		},
@@ -216,11 +373,16 @@ export function createBunBlobStore({ directory }: { directory: string }) {
 		},
 
 		/** Store an HTTP request body without first materializing it as a Blob. */
-		putRequest(id: BlobId, request: Request) {
+		putRequest(
+			id: BlobId,
+			request: Request,
+			attachmentOrigin?: { generation?: number | null },
+		) {
 			return putData(
 				id,
 				request,
 				request.headers.get('content-type') ?? DEFAULT_CONTENT_TYPE,
+				attachmentOrigin,
 			);
 		},
 
@@ -268,6 +430,7 @@ export function createBunBlobStore({ directory }: { directory: string }) {
 		putRequest(
 			id: BlobId,
 			request: Request,
+			attachmentOrigin?: { generation?: number | null },
 		): Promise<Result<void, BlobAlreadyExists | BlobStoreFailed>>;
 		putResponse(
 			id: BlobId,
@@ -328,5 +491,47 @@ async function writeData(path: string, data: PutData): Promise<void> {
 		throw cause;
 	} finally {
 		reader.releaseLock();
+	}
+}
+
+async function digestFile(path: string) {
+	return digestBlob(Bun.file(path));
+}
+
+async function digestBlob(blob: Blob) {
+	const hash = createHash('sha256');
+	const reader = blob.stream().getReader();
+	try {
+		while (true) {
+			const next = await reader.read();
+			if (next.done) break;
+			hash.update(next.value);
+		}
+	} finally {
+		reader.releaseLock();
+	}
+	return hash.digest('hex');
+}
+
+async function syncFile(path: string) {
+	const file = await open(path, 'r');
+	try {
+		await file.sync();
+	} finally {
+		await file.close();
+	}
+}
+
+async function syncPublication(directory: string) {
+	await syncFile(join(directory, DATA_FILE));
+	await syncFile(join(directory, METADATA_FILE));
+	// A reopened publisher cannot know which ancestors an unconfirmed attempt
+	// created. Repeat every directory barrier, including the existing root.
+	let current = resolve(directory);
+	while (true) {
+		await syncFile(current);
+		const parent = dirname(current);
+		if (parent === current) return;
+		current = parent;
 	}
 }

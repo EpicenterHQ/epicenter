@@ -157,17 +157,12 @@ const attachmentFields = defineTable({
 	audio: field.attachment(),
 });
 declare const attachmentTable: TypedTableHandle<typeof attachmentFields>;
-const pendingAttachment = attachmentTable.create({
-	title: 'capture',
-	audio: null,
-});
+// @ts-expect-error: an unfinished capture cannot create an attachment row.
+attachmentTable.create({ title: 'capture', audio: null });
 const completedAttachment = attachmentTable.create({
 	title: 'file',
 	audio: new Blob(['audio']),
 });
-export type _PendingAttachmentIsSynchronous = Expect<
-	Equal<typeof pendingAttachment, RowOf<typeof attachmentFields>>
->;
 export type _CompletedAttachmentIsDurableResult = Expect<
 	Equal<
 		typeof completedAttachment,
@@ -175,6 +170,6 @@ export type _CompletedAttachmentIsDurableResult = Expect<
 	>
 >;
 // @ts-expect-error: only the attachment owner can complete the cell.
-attachmentTable.update(pendingAttachment.id, { audio: 'audio/wav' });
+attachmentTable.update('a'.repeat(24), { audio: 'audio/wav' });
 // @ts-expect-error: a MIME string is completion metadata, not creation input.
 attachmentTable.create({ title: 'invalid', audio: 'audio/wav' });

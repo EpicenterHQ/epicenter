@@ -4,6 +4,43 @@ import {
 	RESERVED_ATTRIBUTE_PREFIX,
 } from '@epicenter/data/definition';
 import * as Y from '@y/y';
+import type { AttachmentContent } from '@epicenter/blobs';
+
+const ATTACHMENT_ATTRIBUTE = '!attachment';
+
+/** Private evidence travels with the owning row through synchronization and snapshots. */
+export function readAttachmentContent(
+	root: Y.Type,
+	rowId: string,
+): AttachmentContent | undefined {
+	const value = rowType(root, rowId)?.getAttr(ATTACHMENT_ATTRIBUTE);
+	if (!value || typeof value !== 'object' || Array.isArray(value))
+		return undefined;
+	if (
+		typeof value.sha256 !== 'string' ||
+		!/^[a-f0-9]{64}$/.test(value.sha256) ||
+		typeof value.size !== 'number' ||
+		!Number.isSafeInteger(value.size) ||
+		value.size < 0 ||
+		typeof value.contentType !== 'string'
+	)
+		return undefined;
+	return {
+		sha256: value.sha256,
+		size: value.size,
+		contentType: value.contentType,
+	};
+}
+
+export function writeAttachmentContent(
+	root: Y.Type,
+	rowId: string,
+	content: AttachmentContent,
+) {
+	const row = rowType(root, rowId);
+	if (!row) throw new Error('Attachment evidence requires its owning row.');
+	row.setAttr(ATTACHMENT_ATTRIBUTE, { ...content });
+}
 
 /**
  * A database's document: one per database, holding every table's rows and

@@ -43,7 +43,7 @@ export type RecordingId = string;
 export type RecipeId = string;
 
 const recordingsTable = defineTable({
-	/** Null until the owning attachment confirms durable local audio. */
+	/** Finished audio published durably with its recording row. */
 	audio: field.attachment(),
 	/** Read compatibility for recordings written before row-owned attachments. */
 	audioBlobId: field.nullable(

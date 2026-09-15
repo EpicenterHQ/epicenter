@@ -166,6 +166,8 @@ const PersistenceError = defineErrors({
 });
 
 export type PersistenceController = {
+	/** Finish an already admitted write while the public owner closes. */
+	save(): Promise<boolean>;
 	/** End the retired in-memory queue without submitting or retrying its work. */
 	discard(): Promise<void>;
 	close(): Promise<void>;
@@ -372,6 +374,10 @@ export function createPersistenceController({
 	}
 
 	return {
+		async save() {
+			await flush();
+			return !discarded && status() === 'saved';
+		},
 		discard() {
 			discarded = true;
 			closed = true;

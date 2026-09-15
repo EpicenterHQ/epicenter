@@ -739,8 +739,32 @@ export function createHomeServer({
 	blobApi.put('/:blobId', async (c) => {
 		const store = blobs(c.var.appId, c.var.replica);
 		const id = c.var.id;
-		const result = await store.putRequest(id, c.req.raw);
-		if (result.error === null) return c.body(null, 201);
+		const origin = c.req.header('x-epicenter-attachment-origin');
+		const generation =
+			origin === 'null'
+				? null
+				: origin === 'download'
+					? undefined
+					: Number(origin);
+		if (
+			origin !== undefined &&
+			origin !== 'download' &&
+			origin !== 'null' &&
+			(!Number.isSafeInteger(generation) || Number(generation) < 0)
+		)
+			return c.text('Invalid attachment origin', 400);
+		const result = await store.putRequest(
+			id,
+			c.req.raw,
+			origin === undefined ? undefined : { generation },
+		);
+		if (result.error === null) {
+			if (origin === undefined) return c.body(null, 201);
+			const metadata = await store.stat(id);
+			return metadata.error
+				? c.text('Blob store failed', 500)
+				: c.json(metadata.data.attachment!, 201);
+		}
 		switch (result.error.name) {
 			case 'BlobAlreadyExists':
 				return c.text('Blob already exists', 409);
@@ -749,6 +773,26 @@ export function createHomeServer({
 			default:
 				return result.error satisfies never;
 		}
+	});
+
+	blobApi.post('/:blobId/acknowledge', async (c) => {
+		const input = await c.req.json().catch(() => undefined);
+		if (
+			!input ||
+			!Number.isSafeInteger(input.generation) ||
+			input.generation < 0 ||
+			!input.expected ||
+			!/^[a-f0-9]{64}$/.test(input.expected.sha256) ||
+			!Number.isSafeInteger(input.expected.size) ||
+			input.expected.size < 0 ||
+			typeof input.expected.contentType !== 'string'
+		)
+			return c.text('Invalid attachment acknowledgment', 400);
+		const result = await blobs(
+			c.var.appId,
+			c.var.replica,
+		).attachments.acknowledge(c.var.id, input.expected, input.generation);
+		return result.error ? c.text('Blob store failed', 500) : c.body(null, 204);
 	});
 
 	// Hono derives HEAD from GET before considering explicit HEAD routes. A
@@ -775,6 +819,9 @@ export function createHomeServer({
 			headers: {
 				...blobResponseHeaders(result.data.contentType),
 				'content-length': String(result.data.size),
+				...(result.data.attachment
+					? { 'x-epicenter-attachment': JSON.stringify(result.data.attachment) }
+					: {}),
 			},
 		});
 	});

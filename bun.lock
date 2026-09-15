@@ -525,6 +525,7 @@
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
+        "@epicenter/sqlite": "workspace:*",
         "@epicenter/sync": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@epicenter/vite-config": "workspace:*",

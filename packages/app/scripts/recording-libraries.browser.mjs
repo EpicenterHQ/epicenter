@@ -288,8 +288,7 @@ try {
 	);
 	await local.reload();
 	await ready(local, 'local');
-	await invoke(local, 'absent', report.checks.localClosure.cancelled);
-	await invoke(local, 'absent', report.checks.localClosure.closedCapture);
+	await invoke(local, 'unchangedRows', report.checks.localClosure.rowsBefore);
 	assert.equal(
 		(await invoke(local, 'read', report.recordings.local.rowId)).sha256,
 		report.recordings.local.sha256,
@@ -398,7 +397,7 @@ try {
 	);
 	await alice.reload();
 	await ready(alice, 'shared');
-	await invoke(alice, 'absent', report.checks.sharedClosure.closedCapture);
+	await invoke(alice, 'unchangedRows', report.checks.sharedClosure.rowsBefore);
 	assert.equal(
 		(await invoke(alice, 'read', report.recordings.aliceShared.rowId)).sha256,
 		report.recordings.aliceShared.sha256,

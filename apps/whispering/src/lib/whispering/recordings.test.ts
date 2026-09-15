@@ -1,19 +1,26 @@
 /** Recordings domain tests over the real Bun @epicenter/data stack. */
 import { expect, test } from 'bun:test';
+import { Database } from 'bun:sqlite';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
 	type BlobRemote,
 	type BlobId,
 	BlobRemoteError,
 	type BlobStore,
+	type BlobStat,
 	BlobStoreError,
 	generateBlobId,
 } from '@epicenter/blobs';
 import type { AppBlobs } from '@epicenter/app';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
+import { createBunBlobStore } from '@epicenter/blobs/bun';
+import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { InstantString } from '@epicenter/data/field';
 import { defineData, defineTable, field } from '@epicenter/data/definition';
 import { createMemoryRecord } from '@epicenter/data/memory';
-import { openAccountStore } from '@epicenter/data/direct';
+import { openAccountStore, syncEngineOf } from '@epicenter/data/direct';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { type RecordingId, whisperingDefinition } from '../data';
@@ -21,6 +28,7 @@ import { asRecording, type NewRecording } from './recording';
 import { createWhisperingRecordings } from './recordings';
 
 function stubLocalStore(overrides: Partial<BlobStore> = {}): BlobStore {
+	const publications = new Map<BlobId, BlobStat>();
 	const store: BlobStore = {
 		async copy() {
 			return Ok(undefined);
@@ -41,6 +49,44 @@ function stubLocalStore(overrides: Partial<BlobStore> = {}): BlobStore {
 			return Promise.all(ids.map((id) => store.stat(id)));
 		},
 		...overrides,
+	};
+	const stat = store.stat;
+	store.stat = async (id) => {
+		const result = await stat(id);
+		if (result.error) return result;
+		return Ok(publications.get(id) ?? result.data);
+	};
+	store.attachments = {
+		async put(id, file, originGeneration) {
+			if (!(file instanceof Blob))
+				return BlobStoreError.BlobStoreFailed({
+					id,
+					cause: 'Expected browser file',
+				});
+			const result = await store.put(id, file);
+			if (result.error) return result;
+			const hash = await crypto.subtle.digest(
+				'SHA-256',
+				await file.arrayBuffer(),
+			);
+			const content = {
+				sha256: Buffer.from(hash).toString('hex'),
+				size: file.size,
+				contentType: file.type,
+			};
+			publications.set(id, {
+				...content,
+				attachment: {
+					...content,
+					originGeneration,
+					pendingUpload: typeof originGeneration === 'number',
+				},
+			});
+			return Ok(content);
+		},
+		async acknowledge() {
+			return Ok(undefined);
+		},
 	};
 	return store;
 }
@@ -100,7 +146,7 @@ function storedRow(row: NewRecording) {
 		...row,
 		audio: null,
 		audioBlobId: generateBlobId(),
-		uploadedAt: null,
+		uploadedAt: null as InstantString | null,
 		transcriptionStatus: 'pending',
 		transcriptionCompletedAt: null,
 		transcriptionError: null,
@@ -124,7 +170,29 @@ async function setup({
 		dispose: record.close,
 	});
 	const table = data.tables.recordings;
-	for (const row of seed) table.create(storedRow(row));
+	// Historical writers can still send existing rows. New callers cannot create
+	// unfinished attachments through the current table contract.
+	const historicalRecord = createMemoryRecord();
+	const historical = await openAccountStore({
+		definition: defineData({
+			...whisperingDefinition,
+			tables: {
+				...whisperingDefinition.tables,
+				recordings: defineTable({
+					...whisperingDefinition.tables.recordings,
+					audio: field.nullable(field.string()),
+				}),
+			},
+		}),
+		sqlite: historicalRecord.sqlite,
+		dispose: historicalRecord.close,
+	});
+	function createLegacyFields(fields: ReturnType<typeof storedRow>) {
+		const row = historical.tables.recordings.create(fields);
+		expectOk(syncEngineOf(data).applyRemote(historical.encodeStateSince()));
+		return table.get(row.id)!;
+	}
+	for (const row of seed) createLegacyFields(storedRow(row));
 	const domain = createWhisperingRecordings({
 		table,
 		blobs: appBlobs(local, remote),
@@ -132,12 +200,14 @@ async function setup({
 	});
 	return {
 		table,
+		createLegacyFields,
 		createLegacy: (row: NewRecording) =>
-			Ok(asRecording(table.create(storedRow(row)))),
+			Ok(asRecording(createLegacyFields(storedRow(row)))),
 		recordings: domain.recordings,
 		async dispose() {
 			domain[Symbol.dispose]();
 			await data[Symbol.asyncDispose]();
+			await historical[Symbol.asyncDispose]();
 		},
 	};
 }
@@ -232,7 +302,7 @@ test('deletion removes remote, local, then row', async () => {
 		}),
 	});
 	try {
-		const row = context.table.create({
+		const row = context.createLegacyFields({
 			...storedRow(recording()),
 			uploadedAt: InstantString.now(),
 		});
@@ -259,8 +329,8 @@ test('deletion preflights remote availability for the whole selection', async ()
 		// One local-only recording and one with an online copy. `uploadedAt` is
 		// written through the table rather than the domain, because the audio
 		// workflows are its only writer and there is no remote to upload to here.
-		context.table.create(storedRow(recording()));
-		context.table.create({
+		context.createLegacyFields(storedRow(recording()));
+		context.createLegacyFields({
 			...storedRow(recording()),
 			uploadedAt: InstantString.now(),
 		});
@@ -695,7 +765,7 @@ test('reopening older recordings preserves their legacy read and update path wit
 	}
 });
 
-test('pending row stays unsaved after completion failure and never enters legacy backup', async () => {
+test('failed finished-file save creates no row or legacy backup work', async () => {
 	const context = await setup({
 		local: stubLocalStore({
 			put: async (id) =>
@@ -703,24 +773,9 @@ test('pending row stays unsaved after completion failure and never enters legacy
 		}),
 	});
 	try {
-		const row = expectOk(
-			await context.recordings.create(recording({ audio: null })),
-		);
-		expectErr(
-			await context.recordings.attachment(row.id).complete(new Blob(['audio'])),
-		);
-		expect(context.recordings.get(row.id)?.audio).toBeNull();
-		expect(expectErr(await context.recordings.readAudio(row.id))).toMatchObject(
-			{ name: 'Unavailable', reason: 'incomplete' },
-		);
+		expectErr(await context.recordings.create(recording()));
+		expect(context.recordings.count).toBe(0);
 		expect(context.recordings.backup.pending).toBe(0);
-		expectOk(await context.recordings.delete(row.id));
-		expectErr(
-			await context.recordings
-				.attachment(row.id)
-				.complete(new Blob(['late audio'])),
-		);
-		expect(context.recordings.get(row.id)).toBeUndefined();
 	} finally {
 		await context.dispose();
 	}
@@ -753,5 +808,71 @@ test('availability checks metadata and preserves storage failures', async () => 
 		).toBe('Failed');
 	} finally {
 		await context.dispose();
+	}
+});
+
+test('finished imports reopen from disk and play or export locally through Whispering', async () => {
+	const directory = await mkdtemp(join(tmpdir(), 'whispering-finished-save-'));
+	async function open() {
+		const sqlite = new Database(join(directory, 'rows.sqlite'));
+		const local = createBunBlobStore({ directory: join(directory, 'bytes') });
+		const data = await openAccountStore({
+			definition: whisperingDefinition,
+			sqlite: createBunSqliteAdapter(sqlite),
+			blobStore: local,
+			dispose: () => sqlite.close(),
+		});
+		const domain = createWhisperingRecordings({
+			table: data.tables.recordings,
+			blobs: appBlobs(local, null),
+			remoteConfigured: false,
+		});
+		return {
+			data,
+			recordings: domain.recordings,
+			async close() {
+				domain[Symbol.dispose]();
+				await data[Symbol.asyncDispose]();
+			},
+		};
+	}
+	let current = await open();
+	try {
+		const saved: { id: RecordingId; size: number; digest: string }[] = [];
+		for (const size of [96_044, 17_280_044]) {
+			const bytes = new Uint8Array(size).fill(47);
+			const audio = new Blob([bytes], { type: 'audio/wav' });
+			const row = expectOk(
+				await current.recordings.create(
+					recording({ audio, duration: size === 96_044 ? 1_000 : 180_000 }),
+				),
+			);
+			expect(current.data.persistence.get()).toBe('saved');
+			expect(row.audioBlobId).toBeNull();
+			expect(current.recordings.backup.pending).toBe(0);
+			saved.push({ id: row.id, size, digest: Bun.hash(bytes).toString() });
+		}
+		await current.close();
+		current = await open();
+		for (const row of saved) {
+			expect(expectOk(await current.recordings.audioAvailability(row.id))).toBe(
+				'local-only',
+			);
+			const playback = expectOk(await current.recordings.openAudio(row.id));
+			try {
+				const bytes = await (await fetch(playback.url)).arrayBuffer();
+				expect(bytes.byteLength).toBe(row.size);
+				expect(Bun.hash(bytes).toString()).toBe(row.digest);
+			} finally {
+				playback[Symbol.dispose]();
+			}
+			const exported = expectOk(await current.recordings.readAudio(row.id));
+			expect(Bun.hash(await exported.arrayBuffer()).toString()).toBe(
+				row.digest,
+			);
+		}
+	} finally {
+		await current.close();
+		await rm(directory, { recursive: true, force: true });
 	}
 });

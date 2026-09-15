@@ -19,7 +19,7 @@ let pipelineFailure: Error | undefined;
 let vadFailure: Error | undefined;
 const capture = {
 	id: crypto.randomUUID(),
-	into: { rowId: 'original-row' },
+	device: { outcome: 'success' },
 	onEnded: () => () => {},
 	onLevel: () => () => {},
 	state: 'IDLE',
@@ -27,8 +27,13 @@ const capture = {
 	async stop() {
 		events.push('finalize');
 		await finalized.promise;
-		return Ok({ durationMs: 100, byteLength: 10 });
+		return Ok({
+			file: new Blob(['audio'], { type: 'audio/wav' }),
+			durationMs: 100,
+			byteLength: 10,
+		});
 	},
+	cancel: async () => Ok(undefined),
 };
 let speechEnd: ((blob: Blob) => Promise<void>) | undefined;
 const vadRecorder = {
@@ -64,10 +69,11 @@ mock.module('$lib/operations/media', () => ({
 }));
 mock.module('$lib/operations/pipeline', () => ({
 	processRecordingPipeline: async () => {
-		events.push('save');
-		await saved.promise;
 		if (pipelineFailure) throw pipelineFailure;
 	},
+}));
+mock.module('$lib/operations/transcribe', () => ({
+	captureTranscription: () => async () => Ok('captured'),
 }));
 mock.module('$lib/operations/sound', () => ({ playSoundIfEnabled: mock() }));
 mock.module('$lib/report', () => ({ report: { info: mock(), error: mock() } }));
@@ -94,16 +100,23 @@ const {
 function recordingApp<T extends object>(
 	options: T,
 	service = {
-		current: async () => Ok(capture as unknown as Recording),
+		start: async () => Ok(capture as unknown as Recording),
+		discard: async () => Ok(undefined),
+		current: async () => Ok(null),
+		enumerateDevices: async () => Ok([]),
 	} as RecordingService,
 ) {
 	const app = {
 		signal: new AbortController().signal,
+		settings: { set: mock() },
 		recordings: {
 			get: () => ({ id: 'original-row' }),
 			patch: mock(),
-			create: async () => Ok({ id: 'original-row' }),
-			attachment: () => capture.into,
+			create: async () => {
+				events.push('save');
+				await saved.promise;
+				return Ok({ id: 'original-row' });
+			},
 		},
 		...options,
 	} as T & WhisperingApp;
@@ -118,17 +131,18 @@ test('recording work owns close eligibility through native finalization and row 
 		recordingEnabled: true,
 		blobs: { removeLocal: async () => Ok(undefined) },
 	});
+	await app.recording.start();
 	const stopping = app.recording.stop();
-	app.recordingEnabled = false;
-	const closing = closeRecordingWork().then(() => {
-		events.push('producers closed');
-	});
 	expect(recordingActive(app as unknown as WhisperingApp)).toBe(true);
 	await Bun.sleep(0);
 	expect(events).toEqual(['finalize']);
 	finalized.resolve();
 	await Bun.sleep(0);
 	expect(events).toEqual(['finalize', 'save']);
+	app.recordingEnabled = false;
+	const closing = closeRecordingWork().then(() => {
+		events.push('producers closed');
+	});
 	expect(recordingActive(app as unknown as WhisperingApp)).toBe(true);
 	saved.resolve();
 	await stopping;
@@ -181,7 +195,7 @@ test('a late VAD frame cannot save through its retired App', async () => {
 	expect(recordingActive(app as unknown as WhisperingApp)).toBe(false);
 });
 
-test('failed row saving preserves the published capture source', async () => {
+test('a pipeline failure after saving does not delete published audio', async () => {
 	finalized.resolve();
 	saved.resolve();
 	const removeLocal = mock(async () => Ok(undefined));
@@ -189,8 +203,9 @@ test('failed row saving preserves the published capture source', async () => {
 		recordingEnabled: true,
 		blobs: { removeLocal },
 	});
-	pipelineFailure = new Error('Row creation failed');
+	pipelineFailure = new Error('Post-save pipeline failed');
 	try {
+		await app.recording.start();
 		await expect(app.recording.stop()).rejects.toBe(pipelineFailure);
 		expect(removeLocal).not.toHaveBeenCalled();
 		expect(recordingActive(app as unknown as WhisperingApp)).toBe(false);
@@ -207,14 +222,15 @@ test('completed saving leaves attachment cleanup to its owner', async () => {
 		recordingEnabled: true,
 		blobs: { removeLocal },
 	});
+	await app.recording.start();
 	await app.recording.stop();
 	expect(removeLocal).not.toHaveBeenCalled();
 });
 
-test('a stale push-to-talk ID cannot stop the recovered recording', async () => {
+test('a stale push-to-talk ID cannot stop the current recording', async () => {
 	const removeLocal = mock(async () => Ok(undefined));
 	const app = recordingApp({ recordingEnabled: true, blobs: { removeLocal } });
-	await app.recording.recover();
+	await app.recording.start();
 	const before = events.length;
 	await app.recording.stop(generateBlobId());
 	expect(events).toHaveLength(before);
@@ -230,6 +246,7 @@ test('push-to-talk release during startup saves through the composed workflow', 
 		enumerateDevices: async () => Ok([]),
 		current: async () => Ok(null),
 		start: () => acquired.promise,
+		discard: async () => Ok(undefined),
 	} as RecordingService;
 	const removeLocal = mock(async () => Ok(undefined));
 	const app = recordingApp(

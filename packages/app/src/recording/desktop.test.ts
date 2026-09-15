@@ -1,15 +1,14 @@
 /**
- * Native recording transport tests.
- * Pins captured destinations, recovered owner checks, one-shot resolution,
- * listener cleanup, and typed IPC failures without opening a microphone.
+ * Disposable native capture transport tests.
+ * Verifies document/request identity, token-only Stop, lost response retries,
+ * exact cleanup, and listener drainage. Physical evidence lives in Rust.
  */
 import { expect, mock, test } from 'bun:test';
 import { generateBlobId } from '@epicenter/blobs';
-import { attachmentEngineOf } from '@epicenter/data/store';
 import { asPrincipalId } from '@epicenter/principal';
+import { asDeviceIdentifier } from '@epicenter/recorder';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { NativeRecording, RecordingOptions } from '../recorder.js';
-import { createRecordingAttachment } from './attachment.test-support.js';
 
 let perform: (
 	command: string,
@@ -41,654 +40,634 @@ mock.module('@tauri-apps/api/event', () => ({
 }));
 const { createDesktopRecording } = await import('./desktop.js');
 
-async function setup(options: RecordingOptions = {}) {
+function setup(options: RecordingOptions = {}) {
 	invoke.mockClear();
 	registration = undefined;
 	unlistenFailure = undefined;
 	nativeUnlisten = undefined;
 	listeners.clear();
 	released.length = 0;
-	const { into, table, blobStore } = await createRecordingAttachment({
-		appId: 'so.epicenter.test',
-		replica: { library: 'local' },
-	});
 	const live: NativeRecording = {
 		audioBlobId: generateBlobId(),
-		attachment: {
-			tableName: into.tableName,
-			rowId: into.rowId,
-			generation: null,
-		},
-		destination: { appId: 'so.epicenter.test', replica: { library: 'local' } },
 		device: { outcome: 'success', deviceId: 'mic' },
 		endedReason: null,
 	};
+	let active = false;
 	perform = async (command) => {
 		switch (command) {
 			case 'request_microphone_permission':
 			case 'get_microphone_permission':
 				return 'granted';
+			case 'register_recording_session':
+			case 'discard_recording_file':
+				return;
 			case 'start_recording':
-			case 'current_recording':
+				active = true;
 				return live;
+			case 'current_recording':
+			case 'resolve_recording_start':
+				return active ? live : null;
 			case 'stop_recording':
-				if ((await blobStore.stat(attachmentEngineOf(into).storageId)).error)
-					expectOk(
-						await blobStore.put(
-							attachmentEngineOf(into).storageId,
-							new Blob(['native'], { type: 'audio/wav' }),
-						),
-					);
+				active = false;
 				return {
-					audioBlobId: live.audioBlobId,
-					durationMs: 100,
-					byteLength: 3200,
+					file: { kind: 'native-capture', id: live.audioBlobId },
+					durationMs: 1000,
+					byteLength: 96044,
 				};
-			case 'release_recording':
-			case 'retire_recording':
-			case 'acknowledge_recording':
+			case 'close_recording_session':
 			case 'cancel_recording':
+				active = false;
 				return;
 			case 'enumerate_recording_devices':
 				return ['mic'];
 			default:
-				throw new Error(`Unexpected command: ${command}`);
+				throw new Error('Unexpected native command: ' + command);
 		}
 	};
 	return {
-		into,
-		table,
-		blobStore,
 		owner: createDesktopRecording(
 			'so.epicenter.test',
 			{ library: 'local' },
-			{
-				resolveAttachment: (_tableName, rowId) => table.attachment(rowId),
-				...options,
-			},
+			options,
 		),
 		live,
 	};
 }
 
-test('construction is inert and start captures destination before permission completes', async () => {
-	const { live } = await setup();
-	const accountDestination = {
-		appId: 'so.epicenter.test',
-		replica: {
-			library: 'personal' as const,
-			account: { authorityId: 'first', principalId: 'alice' },
-		},
-	};
-	const { into } = await createRecordingAttachment(accountDestination);
-	live.audioBlobId = generateBlobId();
-	live.attachment = {
-		tableName: into.tableName,
-		rowId: into.rowId,
-		generation: null,
-	};
+test('construction and construction-only close acquire no native session', async () => {
+	const { owner } = setup();
+	expect(expectOk(await owner.value.current())).toBeNull();
+	await owner.close();
 	expect(invoke).not.toHaveBeenCalled();
-	const permission = Promise.withResolvers<string>();
+});
+
+test('start retains its original replica but passes no library or row to native capture', async () => {
+	setup();
 	const account = { authorityId: 'first', principalId: asPrincipalId('alice') };
-	const original = perform;
-	perform = async (command, args) => {
-		if (command === 'request_microphone_permission') return permission.promise;
-		if (command === 'start_recording') {
-			expect(args?.destination).toEqual({
-				appId: 'so.epicenter.test',
-				replica: {
-					library: 'personal',
-					account: { authorityId: 'first', principalId: 'alice' },
-				},
-			});
-			live.destination = args?.destination as NativeRecording['destination'];
-		}
-		return original(command, args);
-	};
 	const owner = createDesktopRecording(
 		'so.epicenter.test',
 		{ library: 'personal', account },
 		{},
 	);
 	account.authorityId = 'second';
-	const started = owner.value.start({ into });
-	permission.resolve('granted');
-	const recording = expectOk(await started);
-	expect(
-		recording.replica.library === 'local'
-			? undefined
-			: recording.replica.account.authorityId,
-	).toBe('first');
-	expect(Reflect.set(recording, 'replica', { library: 'local' })).toBe(false);
-	expectOk(await recording.cancel());
-});
-
-test('recovery refuses a different app or account without ending the host capture', async () => {
-	const { owner, live } = await setup();
-	live.destination.appId = 'so.epicenter.another';
-	expect(expectErr(await owner.value.current()).name).toBe('AlreadyRecording');
-	live.destination.appId = 'so.epicenter.test';
-	live.destination.replica = {
+	const recording = expectOk(await owner.value.start({}));
+	expect(recording.replica).toEqual({
 		library: 'personal',
-		account: { authorityId: 'authority', principalId: 'alice' },
-	};
-	expect(expectErr(await owner.value.current()).name).toBe('AlreadyRecording');
-	expect(
-		invoke.mock.calls.every(([command]) => command === 'current_recording'),
-	).toBe(true);
-});
-
-test('stop consumes the session once and releases subscriptions', async () => {
-	const { into, owner } = await setup();
-	const recording = expectOk(await owner.value.start({ into }));
-	recording.onLevel(() => {});
-	const stopping = recording.stop();
-	expect(expectErr(await recording.stop()).name).toBe('NoActiveRecording');
-	expect(expectErr(await recording.cancel()).name).toBe('NoActiveRecording');
-	expectOk(await stopping);
-	expect(
-		invoke.mock.calls.filter(([command]) => command === 'stop_recording'),
-	).toHaveLength(1);
-	expect(released).toContain('mic-level');
-});
-
-test('reconciliation delivers an ending missed before subscription and preserves stop', async () => {
-	const { into, owner, live } = await setup();
-	const recording = expectOk(await owner.value.start({ into }));
-	live.endedReason = 'deviceDisconnected';
-	const ended = Promise.withResolvers<string>();
-	recording.onEnded((reason) => ended.resolve(reason));
-	expect(await ended.promise).toBe('deviceDisconnected');
-	expect(recording.endedReason).toBe('deviceDisconnected');
-	expectOk(await recording.stop());
-	expect(released).toContain('recording-ended-event');
-});
-
-test('native permission errors retain their actionable category', async () => {
-	const { into, owner } = await setup();
-	perform = async () => {
-		throw { name: 'PermissionDenied', message: 'Denied' };
-	};
-	expect(expectErr(await owner.value.start({ into })).name).toBe(
-		'MicrophonePermissionDenied',
+		account: { authorityId: 'first', principalId: asPrincipalId('alice') },
+	});
+	expect(Reflect.set(recording, 'replica', { library: 'local' })).toBe(false);
+	const args = invoke.mock.calls.find(
+		([name]) => name === 'start_recording',
+	)?.[1];
+	expect(Object.keys(args ?? {}).toSorted()).toEqual([
+		'deviceIdentifier',
+		'requestId',
+		'sessionId',
+	]);
+	expect(args?.sessionId).toBe(
+		invoke.mock.calls.find(
+			([name]) => name === 'register_recording_session',
+		)?.[1]?.sessionId,
 	);
-	expect(invoke).toHaveBeenCalledTimes(1);
-});
-
-test('current refreshes the held session after capture ends without a subscriber', async () => {
-	const { into, owner, live } = await setup();
-	const recording = expectOk(await owner.value.start({ into }));
-	live.endedReason = 'deviceDisconnected';
-	expect(expectOk(await owner.value.current())).toBe(recording);
-	expect(recording.endedReason).toBe('deviceDisconnected');
 	expectOk(await recording.cancel());
+	await owner.close();
 });
 
-test('close waits for native startup and preserves the late capture', async () => {
-	const { into, owner } = await setup();
-	const permission = Promise.withResolvers<string>();
+test('lost start reply reconciles inside the original admitted start', async () => {
+	const { owner, live } = setup();
 	const original = perform;
-	perform = (command, args) =>
-		command === 'request_microphone_permission'
-			? permission.promise
-			: original(command, args);
-	const starting = owner.value.start({ into });
-	const closing = owner.close();
-	expect(owner.close()).toBe(closing);
-	expect(() => owner.value.start({ into })).toThrow('closed');
-	expect(() => owner.value.current()).toThrow('closed');
-	expect(() => owner.value.enumerateDevices()).toThrow('closed');
-	permission.resolve('granted');
-	const recording = expectOk(await starting);
-	await closing;
+	let starts = 0;
+	perform = async (command, args) => {
+		const result = await original(command, args);
+		if (command === 'start_recording' && ++starts === 1)
+			throw new Error('reply lost after acquisition');
+		return result;
+	};
+	const recording = expectOk(await owner.value.start({}));
+	expect(recording.id).toBe(live.audioBlobId);
+	const requests = invoke.mock.calls.filter(
+		([name]) => name === 'start_recording',
+	);
+	expect(requests).toHaveLength(1);
 	expect(
-		invoke.mock.calls.filter(([command]) => command === 'release_recording'),
+		invoke.mock.calls.filter(([name]) => name === 'resolve_recording_start'),
 	).toHaveLength(1);
-	expect(() => recording.stop()).toThrow('closed');
-	expect(() => recording.cancel()).toThrow('closed');
-	expect(() => recording.onLevel(() => {})).toThrow('closed');
-	expect(() => recording.onEnded(() => {})).toThrow('closed');
+	expectOk(await recording.cancel());
+	await owner.close();
 });
 
-test('close drains an admitted native stop before recovery or cancellation', async () => {
-	const { into, owner } = await setup();
-	const recording = expectOk(await owner.value.start({ into }));
-	const publication = Promise.withResolvers<void>();
+test('lost registration reply still closes the exact pending document', async () => {
+	const { owner } = setup();
 	const original = perform;
 	perform = async (command, args) => {
-		if (command === 'stop_recording') await publication.promise;
-		if (command === 'current_recording') return null;
+		if (command === 'register_recording_session')
+			throw new Error('registration reply lost');
 		return original(command, args);
 	};
-	const stopping = recording.stop();
-	const closing = owner.close();
-	let finished = false;
-	void closing.then(() => {
-		finished = true;
-	});
-	await Promise.resolve();
-	expect(finished).toBe(false);
-	expect(
-		invoke.mock.calls.some(([command]) => command === 'current_recording'),
-	).toBe(false);
-	publication.resolve();
-	expectOk(await stopping);
-	await closing;
-	expect(
-		invoke.mock.calls.some(([command]) => command === 'cancel_recording'),
-	).toBe(false);
-});
-
-test('refused recovery performs no native calls but own capture is still released', async () => {
-	const { into } = await setup();
-	const refused = createDesktopRecording(
-		'so.epicenter.test',
-		{ library: 'local' },
-		{
-			canRecover: () => false,
-		},
-	);
-	await refused.close();
-	expect(invoke).not.toHaveBeenCalled();
-	const owner = createDesktopRecording(
-		'so.epicenter.test',
-		{ library: 'local' },
-		{
-			canRecover: () => false,
-		},
-	);
-	expectOk(await owner.value.start({ into }));
+	expect(expectErr(await owner.value.start({})).name).toBe('RecorderFailed');
 	await owner.close();
-	expect(
-		invoke.mock.calls.filter(([command]) => command === 'release_recording'),
-	).toHaveLength(1);
+	expect(invoke.mock.calls.map(([name]) => name)).toEqual([
+		'register_recording_session',
+		'close_recording_session',
+	]);
+	expect(invoke.mock.calls[1]?.[1]).toEqual(invoke.mock.calls[0]?.[1]);
 });
 
-test('close waits for late listener registration and unlistens before completing', async () => {
-	const { into, owner } = await setup();
-	const pending = Promise.withResolvers<void>();
-	registration = pending.promise;
-	const recording = expectOk(await owner.value.start({ into }));
-	recording.onLevel(() => {});
-	const closing = owner.close();
-	let finished = false;
-	void closing.then(() => {
-		finished = true;
-	});
-	await Promise.resolve();
-	expect(finished).toBe(false);
-	pending.resolve();
-	await closing;
-	expect(released).toEqual(['mic-level']);
-	expect(listeners.size).toBe(0);
-});
-
-test('failed native release rejects the same terminal close promise', async () => {
-	const { into, owner } = await setup();
-	expectOk(await owner.value.start({ into }));
+test('stop returns only finished output and retries its exact lost response', async () => {
+	const { owner, live } = setup();
+	const recording = expectOk(await owner.value.start({}));
 	const original = perform;
+	let stops = 0;
 	perform = async (command, args) => {
-		if (command === 'release_recording') throw new Error('cancel failed');
-		return original(command, args);
-	};
-	const closing = owner.close();
-	await expect(closing).rejects.toMatchObject({ name: 'RecorderFailed' });
-	expect(owner.close()).toBe(closing);
-});
-
-test('failed unlisten rejects close after attempting every listener release', async () => {
-	const { into, owner } = await setup();
-	const recording = expectOk(await owner.value.start({ into }));
-	recording.onLevel(() => {});
-	recording.onEnded(() => {});
-	unlistenFailure = new Error('unlisten failed');
-	await expect(owner.close()).rejects.toThrow('cleanup failed');
-	expect(released.toSorted()).toEqual(['mic-level', 'recording-ended-event']);
-});
-
-test('native readiness checks retained operations synchronously and close bypasses readiness', async () => {
-	const { into } = await setup();
-	let usable = false;
-	const owner = createDesktopRecording(
-		'so.epicenter.test',
-		{ library: 'local' },
-		{
-			assertUsable() {
-				if (!usable) throw new Error('not ready');
-			},
-		},
-	);
-	const start = owner.value.start;
-	expect(() => start({ into })).toThrow('not ready');
-	usable = true;
-	const recording = expectOk(await start({ into }));
-	const cancel = recording.cancel;
-	usable = false;
-	expect(() => cancel()).toThrow('not ready');
-	expect(() => recording.onLevel(() => {})).toThrow('not ready');
-	await owner.close();
-});
-
-test('close awaits the promise returned by native unlisten despite its void type', async () => {
-	const { into, owner } = await setup();
-	const pending = Promise.withResolvers<void>();
-	nativeUnlisten = pending.promise;
-	const recording = expectOk(await owner.value.start({ into }));
-	recording.onLevel(() => {});
-	const closing = owner.close();
-	let finished = false;
-	void closing.then(() => {
-		finished = true;
-	});
-	await new Promise((resolve) => setTimeout(resolve, 0));
-	expect(released).toEqual(['mic-level']);
-	expect(finished).toBe(false);
-	pending.resolve();
-	await closing;
-});
-
-test('construction-only close cannot recover native capture without authorization', async () => {
-	const { owner } = await setup();
-	await owner.close();
-	expect(invoke).not.toHaveBeenCalled();
-});
-
-test('authorized close ignores capture owned by another destination', async () => {
-	const { live } = await setup();
-	live.destination.appId = 'so.epicenter.another';
-	const owner = createDesktopRecording(
-		'so.epicenter.test',
-		{ library: 'local' },
-		{
-			canRecover: () => true,
-		},
-	);
-	expect(expectErr(await owner.value.current()).name).toBe('AlreadyRecording');
-	await owner.close();
-	expect(
-		invoke.mock.calls.every(([command]) => command === 'current_recording'),
-	).toBe(true);
-});
-
-test('close succeeds when its held native capture has already disappeared', async () => {
-	const { into, owner } = await setup();
-	expectOk(await owner.value.start({ into }));
-	const original = perform;
-	perform = async (command, args) => {
-		if (command === 'release_recording') throw { name: 'NotRecording' };
-		return original(command, args);
-	};
-	await owner.close();
-	expect(
-		invoke.mock.calls.filter(([command]) => command === 'release_recording'),
-	).toHaveLength(1);
-});
-
-test('cancel retains its native failure when listener release also fails', async () => {
-	const { into, owner } = await setup();
-	const recording = expectOk(await owner.value.start({ into }));
-	recording.onLevel(() => {});
-	unlistenFailure = new Error('unlisten failed');
-	const original = perform;
-	perform = async (command, args) => {
-		if (command === 'cancel_recording') throw { name: 'NotRecording' };
-		return original(command, args);
-	};
-	expect(expectErr(await recording.cancel()).name).toBe('NoActiveRecording');
-	await expect(owner.close()).rejects.toThrow('cleanup failed');
-});
-
-test('recovery binds the original row and completes its already-published local bytes', async () => {
-	const { owner, into, table, blobStore } = await setup();
-	const id = attachmentEngineOf(into).storageId;
-	expectOk(
-		await blobStore.put(id, new Blob(['recovered'], { type: 'audio/wav' })),
-	);
-	const recovered = expectOk(await owner.value.current());
-	expect(recovered?.into.rowId).toBe(into.rowId);
-	expectOk(await recovered!.stop());
-	expect(table.get(into.rowId)?.audio).toBe('audio/wav');
-	expect(await expectOk(await into.read()).text()).toBe('recovered');
-	expect(
-		invoke.mock.calls.some(([command]) => command === 'acknowledge_recording'),
-	).toBe(true);
-});
-
-test('deleting a captured row refuses completion and leaves the next row empty', async () => {
-	const { owner, into, table } = await setup();
-	const recording = expectOk(await owner.value.start({ into }));
-	table.delete(into.rowId);
-	const next = table.create({ audio: null });
-	expect(expectErr(await recording.stop())).toMatchObject({
-		name: 'Unavailable',
-		reason: 'row-absent',
-	});
-	expect(table.get(into.rowId)).toBeUndefined();
-	expect(table.get(next.id)?.audio).toBeNull();
-	expect(
-		invoke.mock.calls.some(([command]) => command === 'acknowledge_recording'),
-	).toBe(false);
-});
-
-test.each([
-	false,
-	true,
-])('cancelling completed audio after a lost acknowledgment delegates preservation to native cleanup, deleted row=%s', async (deleted) => {
-	const { owner, into, table, blobStore } = await setup();
-	const recording = expectOk(await owner.value.start({ into }));
-	const original = perform;
-	perform = async (command, args) => {
-		if (command === 'acknowledge_recording')
-			throw new Error('lost acknowledgment');
-		return original(command, args);
+		const result = await original(command, args);
+		if (command === 'stop_recording' && ++stops === 1)
+			throw new Error('stop reply lost');
+		return result;
 	};
 	expect(expectErr(await recording.stop()).name).toBe('RecorderFailed');
-	expect(table.get(into.rowId)?.audio).toBe('audio/wav');
-	if (deleted) table.delete(into.rowId);
-	const recovered = expectOk(await owner.value.current());
-	expect(recovered).toBe(recording);
-	invoke.mockClear();
-	expectOk(await recovered!.cancel());
+	const finished = expectOk(await recording.stop());
+	expect(finished).toEqual({
+		file: { kind: 'native-capture', id: live.audioBlobId },
+		durationMs: 1000,
+		byteLength: 96044,
+	});
+	expect(expectOk(await recording.stop())).toBe(finished);
 	expect(
-		invoke.mock.calls.some(([command]) => command === 'cancel_recording'),
-	).toBe(true);
+		invoke.mock.calls.filter(([name]) => name === 'stop_recording'),
+	).toHaveLength(2);
 	expect(
-		invoke.mock.calls.some(([command]) => command === 'acknowledge_recording'),
+		invoke.mock.calls.some(([name]) => name === 'publish_recording_file'),
 	).toBe(false);
-	expect(
-		await expectOk(
-			await blobStore.get(attachmentEngineOf(into).storageId),
-		).text(),
-	).toBe('native');
-	if (deleted) expect(table.get(into.rowId)).toBeUndefined();
+	expectOk(await owner.value.discard(finished.file));
+	expect(invoke.mock.calls.at(-1)).toEqual([
+		'discard_recording_file',
+		{ fileId: live.audioBlobId },
+	]);
 	await owner.close();
 });
 
-test('failed cancellation remains retryable on the recovered session and permits its successor', async () => {
-	const { owner, into, table, live } = await setup();
-	const recording = expectOk(await owner.value.start({ into }));
+test('concurrent stop and cancel cannot resolve the same capture twice', async () => {
+	const { owner } = setup();
+	const recording = expectOk(await owner.value.start({}));
+	const pending = Promise.withResolvers<void>();
+	const entered = Promise.withResolvers<void>();
+	const original = perform;
+	perform = async (command, args) => {
+		if (command === 'stop_recording') {
+			entered.resolve();
+			await pending.promise;
+		}
+		return original(command, args);
+	};
+	const stop = recording.stop();
+	await entered.promise;
+	expect(expectErr(await recording.stop()).name).toBe('NoActiveRecording');
+	expect(expectErr(await recording.cancel()).name).toBe('NoActiveRecording');
+	pending.resolve();
+	expectOk(await stop);
+	await owner.close();
+});
+
+test('lost cancel reply remains retryable and stale controls cannot cancel its successor', async () => {
+	const { owner, live } = setup();
+	const recording = expectOk(await owner.value.start({}));
 	const original = perform;
 	let cancellations = 0;
 	perform = async (command, args) => {
+		const result = await original(command, args);
 		if (command === 'cancel_recording' && ++cancellations === 1)
-			throw new Error('temporary IPC failure');
-		return original(command, args);
+			throw new Error('cancel reply lost');
+		return result;
 	};
 	expect(expectErr(await recording.cancel()).name).toBe('RecorderFailed');
-	const recovered = expectOk(await owner.value.current());
-	expect(recovered).toBe(recording);
-	expectOk(await recovered!.cancel());
-	expect(cancellations).toBe(2);
-	const nextRow = table.create({ audio: null });
-	const nextInto = table.attachment(nextRow.id);
+	expectOk(await recording.cancel());
 	live.audioBlobId = generateBlobId();
-	live.attachment.rowId = nextRow.id;
-	const next = expectOk(await owner.value.start({ into: nextInto }));
-	expect(next.into.rowId).toBe(nextRow.id);
+	const next = expectOk(await owner.value.start({}));
+	expect(next.id).not.toBe(recording.id);
 	expect(expectErr(await recording.cancel()).name).toBe('NoActiveRecording');
 	expect(cancellations).toBe(2);
 	expectOk(await next.cancel());
 	await owner.close();
 });
 
-test('close preserves an undiscovered native capture without resolving a closed row handle', async () => {
-	await setup();
-	const owner = createDesktopRecording(
-		'so.epicenter.test',
-		{ library: 'local' },
-		{
-			canRecover: () => true,
-			resolveAttachment() {
-				throw new Error('the document is already closed');
-			},
-		},
+test('close during permission prevents late microphone acquisition', async () => {
+	const { owner } = setup();
+	const pending = Promise.withResolvers<string>();
+	const entered = Promise.withResolvers<void>();
+	const original = perform;
+	perform = async (command, args) => {
+		if (command === 'request_microphone_permission') {
+			entered.resolve();
+			return pending.promise;
+		}
+		return original(command, args);
+	};
+	const start = owner.value.start({});
+	await entered.promise;
+	const closing = owner.close();
+	expect(owner.close()).toBe(closing);
+	expect(() => owner.value.start({})).toThrow('closed');
+	pending.resolve('granted');
+	expect(expectErr(await start).name).toBe('NoActiveRecording');
+	await closing;
+	expect(invoke.mock.calls.some(([name]) => name === 'start_recording')).toBe(
+		false,
 	);
-	await owner.close();
-	expect(invoke.mock.calls.map(([command]) => command)).toEqual([
-		'current_recording',
-		'release_recording',
-	]);
-});
-
-test('lost cancellation response can reconcile absence and close without a capture journal', async () => {
-	const { owner, into } = await setup();
-	const recording = expectOk(await owner.value.start({ into }));
-	const original = perform;
-	let nativePresent = true;
-	perform = async (command, args) => {
-		if (command === 'cancel_recording') {
-			nativePresent = false;
-			throw new Error('response lost after native cancellation');
-		}
-		if (command === 'current_recording' && !nativePresent) return null;
-		// Release is a no-op after the exact session and its journal are gone.
-		return original(command, args);
-	};
-	expect(expectErr(await recording.cancel()).name).toBe('RecorderFailed');
-	expect(expectOk(await owner.value.current())).toBeNull();
-	await owner.close();
-	expect(invoke.mock.calls.at(-1)).toEqual([
-		'release_recording',
-		{
-			audioBlobId: recording.id,
-			destination: {
-				appId: 'so.epicenter.test',
-				replica: { library: 'local' },
-			},
-		},
-	]);
-});
-
-test('retirement of saved but unacknowledged capture preserves published bytes', async () => {
-	let retired = false;
-	const { owner, into, blobStore } = await setup({ isRetired: () => retired });
-	const recording = expectOk(await owner.value.start({ into }));
-	const original = perform;
-	perform = async (command, args) => {
-		if (command === 'acknowledge_recording')
-			throw new Error('lost acknowledgment');
-		return original(command, args);
-	};
-	expect(expectErr(await recording.stop()).name).toBe('RecorderFailed');
-	expectOk(await into.read());
-	retired = true;
-	await owner.close();
 	expect(
-		invoke.mock.calls.some(([command]) => command === 'retire_recording'),
-	).toBe(true);
-	expect(
-		invoke.mock.calls.some(([command]) => command === 'cancel_recording'),
-	).toBe(false);
-	expect(
-		await expectOk(
-			await blobStore.get(attachmentEngineOf(into).storageId),
-		).text(),
-	).toBe('native');
-});
-
-test('an opened generation retires an obsolete journal without resolving deleted rows or removed tables', async () => {
-	const { live } = await setup();
-	const replica = {
-		library: 'personal' as const,
-		account: { authorityId: 'authority', principalId: asPrincipalId('alice') },
-	};
-	live.destination.replica = replica;
-	live.attachment.generation = 3;
-	live.attachment.tableName = 'removed-table';
-	let journal: NativeRecording | null = live;
-	const original = perform;
-	perform = async (command, args) => {
-		if (command === 'current_recording') return journal;
-		if (command === 'retire_recording') {
-			journal = null;
-			return;
-		}
-		return original(command, args);
-	};
-	const owner = createDesktopRecording('so.epicenter.test', replica, {
-		generation: () => 4,
-		resolveAttachment() {
-			throw new Error('removed table must not be resolved');
-		},
-	});
-	expect(expectOk(await owner.value.current())).toBeNull();
-	expect(expectOk(await owner.value.current())).toBeNull();
-	expect(
-		invoke.mock.calls.filter(([command]) => command === 'retire_recording'),
+		invoke.mock.calls.filter(([name]) => name === 'close_recording_session'),
 	).toHaveLength(1);
+});
+
+test('close drains admitted native start and revokes its returned handle', async () => {
+	const { owner } = setup();
+	const pending = Promise.withResolvers<void>();
+	const entered = Promise.withResolvers<void>();
+	const original = perform;
+	perform = async (command, args) => {
+		if (command === 'start_recording') {
+			entered.resolve();
+			await pending.promise;
+		}
+		return original(command, args);
+	};
+	const start = owner.value.start({});
+	await entered.promise;
+	const closing = owner.close();
 	expect(
-		invoke.mock.calls.some(([command]) => command === 'cancel_recording'),
+		invoke.mock.calls.some(([name]) => name === 'close_recording_session'),
 	).toBe(false);
+	pending.resolve();
+	const recording = expectOk(await start);
+	await closing;
+	expect(() => recording.stop()).toThrow('closed');
+	expect(invoke.mock.calls.at(-1)?.[0]).toBe('close_recording_session');
+});
+
+test('close drains admitted stop before discarding temporary native output', async () => {
+	const { owner } = setup();
+	const recording = expectOk(await owner.value.start({}));
+	const pending = Promise.withResolvers<void>();
+	const entered = Promise.withResolvers<void>();
+	const original = perform;
+	perform = async (command, args) => {
+		if (command === 'stop_recording') {
+			entered.resolve();
+			await pending.promise;
+		}
+		return original(command, args);
+	};
+	const stop = recording.stop();
+	await entered.promise;
+	const closing = owner.close();
+	expect(
+		invoke.mock.calls.some(([name]) => name === 'close_recording_session'),
+	).toBe(false);
+	pending.resolve();
+	expectOk(await stop);
+	await closing;
+	expect(invoke.mock.calls.at(-1)?.[0]).toBe('close_recording_session');
+});
+
+test('level and ending events target only the held native identity', async () => {
+	const { owner, live } = setup();
+	const recording = expectOk(await owner.value.start({}));
+	const levels: number[] = [];
+	const endings: string[] = [];
+	recording.onLevel((level) => levels.push(level));
+	recording.onEnded((reason) => endings.push(reason));
+	await Promise.resolve();
+	listeners.get('mic-level')?.({ payload: { audioBlobId: 'other', level: 1 } });
+	listeners.get('recording-ended-event')?.({
+		payload: { audioBlobId: 'other', reason: 'streamFailed' },
+	});
+	expect(levels).toEqual([]);
+	expect(endings).toEqual([]);
+	listeners.get('mic-level')?.({
+		payload: { audioBlobId: live.audioBlobId, level: 0.5 },
+	});
+	listeners.get('recording-ended-event')?.({
+		payload: { audioBlobId: live.audioBlobId, reason: 'deviceDisconnected' },
+	});
+	listeners.get('recording-ended-event')?.({
+		payload: { audioBlobId: live.audioBlobId, reason: 'streamFailed' },
+	});
+	expect(levels).toEqual([0.5]);
+	expect(endings).toEqual(['deviceDisconnected']);
+	expectOk(await recording.stop());
+	await owner.close();
+	expect(listeners.size).toBe(0);
+});
+
+test('close waits for late listener registration and its asynchronous release', async () => {
+	const { owner } = setup();
+	const registering = Promise.withResolvers<void>();
+	const releasing = Promise.withResolvers<void>();
+	registration = registering.promise;
+	nativeUnlisten = releasing.promise;
+	const recording = expectOk(await owner.value.start({}));
+	recording.onLevel(() => {});
+	let closed = false;
+	const closing = owner.close().then(() => {
+		closed = true;
+	});
+	registering.resolve();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(released).toContain('mic-level');
+	expect(closed).toBe(false);
+	releasing.resolve();
+	await closing;
+	expect(closed).toBe(true);
+	expect(listeners.size).toBe(0);
+});
+
+test('failed listener release attempts every cleanup and rejects terminal close', async () => {
+	const { owner } = setup();
+	const recording = expectOk(await owner.value.start({}));
+	recording.onLevel(() => {});
+	recording.onEnded(() => {});
+	unlistenFailure = new Error('unlisten failed');
+	const closing = owner.close();
+	await expect(closing).rejects.toThrow('cleanup failed');
+	expect(released.toSorted()).toEqual(['mic-level', 'recording-ended-event']);
+	expect(owner.close()).toBe(closing);
+});
+
+test('failed native close rejects after listener cleanup and is terminal', async () => {
+	const { owner } = setup();
+	const recording = expectOk(await owner.value.start({}));
+	recording.onLevel(() => {});
+	const original = perform;
+	perform = async (command, args) => {
+		if (command === 'close_recording_session')
+			throw new Error('native close failed');
+		return original(command, args);
+	};
+	const closing = owner.close();
+	await expect(closing).rejects.toThrow('cleanup failed');
+	expect(released).toContain('mic-level');
+	expect(owner.close()).toBe(closing);
 });
 
 test.each([
-	undefined,
-	null,
-	2,
-	3,
-])('unknown, older, or matching opened generation %s preserves an unresolved journal', async (generation) => {
-	const { live } = await setup();
-	const replica = {
-		library: 'personal' as const,
-		account: { authorityId: 'authority', principalId: asPrincipalId('alice') },
+	['PermissionDenied', 'MicrophonePermissionDenied'],
+	['NoInputDevice', 'NoInputDevice'],
+	['Busy', 'AlreadyRecording'],
+	['Failed', 'RecorderFailed'],
+] as const)('native %s start failure remains %s', async (native, expected) => {
+	const { owner } = setup();
+	const original = perform;
+	perform = async (command, args) => {
+		if (command === 'start_recording')
+			throw { name: native, message: 'native refusal' };
+		return original(command, args);
 	};
-	live.destination.replica = replica;
-	live.attachment.generation = 3;
-	const owner = createDesktopRecording('so.epicenter.test', replica, {
-		generation: () => generation,
-		resolveAttachment() {
-			throw new Error('table unavailable');
+	expect(expectErr(await owner.value.start({})).name).toBe(expected);
+	await owner.close();
+});
+
+test('readiness fences retained operations synchronously while close still cleans up', async () => {
+	let usable = true;
+	const { owner } = setup({
+		assertUsable() {
+			if (!usable) throw new Error('not ready');
 		},
 	});
-	expect(expectErr(await owner.value.current()).name).toBe('RecorderFailed');
-	expect(invoke.mock.calls.map(([command]) => command)).toEqual([
-		'current_recording',
-	]);
+	const recording = expectOk(await owner.value.start({}));
+	const stop = recording.stop;
+	usable = false;
+	expect(() => stop()).toThrow('not ready');
+	expect(() => recording.onLevel(() => {})).toThrow('not ready');
+	await owner.close();
+	expect(invoke.mock.calls.at(-1)?.[0]).toBe('close_recording_session');
 });
 
-test('same-generation deletion remains an explicit unavailable row and never authorizes retirement', async () => {
-	const { owner, table, into } = await setup({ generation: () => null });
-	table.delete(into.rowId);
-	const recovered = expectOk(await owner.value.current());
-	expect(expectErr(await recovered!.stop())).toMatchObject({
-		name: 'Unavailable',
-		reason: 'row-absent',
-	});
-	expect(
-		invoke.mock.calls.some(([command]) => command === 'retire_recording'),
-	).toBe(false);
-	expect(
-		invoke.mock.calls.some(([command]) => command === 'cancel_recording'),
-	).toBe(false);
+test('a missed ending is reconciled after the native listener registers', async () => {
+	const { owner, live } = setup();
+	const recording = expectOk(await owner.value.start({}));
+	const registered = Promise.withResolvers<void>();
+	registration = registered.promise;
+	const ended = Promise.withResolvers<string>();
+	recording.onEnded((reason) => ended.resolve(reason));
+	live.endedReason = 'deviceDisconnected';
+	registered.resolve();
+	expect(await ended.promise).toBe('deviceDisconnected');
+	expect(recording.endedReason).toBe('deviceDisconnected');
+	expectOk(await recording.stop());
+	await owner.close();
 });
 
-test('a failed current query cannot authorize retiring staged audio', async () => {
-	const { owner } = await setup({ generation: () => 4 });
-	perform = async () => {
-		throw new Error('IPC unavailable');
+test('current reconciles lost cancellation but preserves a retryable lost stop', async () => {
+	const { owner, live } = setup();
+	const first = expectOk(await owner.value.start({}));
+	const original = perform;
+	let lost = 'cancel_recording';
+	perform = async (command, args) => {
+		const result = await original(command, args);
+		if (command === lost) {
+			lost = '';
+			throw new Error('native reply lost');
+		}
+		return result;
 	};
-	expect(expectErr(await owner.value.current()).name).toBe('RecorderFailed');
-	expect(invoke.mock.calls.map(([command]) => command)).toEqual([
-		'current_recording',
-	]);
+	expect(expectErr(await first.cancel()).name).toBe('RecorderFailed');
+	expect(expectOk(await owner.value.current())).toBeNull();
+	live.audioBlobId = generateBlobId();
+	const second = expectOk(await owner.value.start({}));
+	lost = 'stop_recording';
+	expect(expectErr(await second.stop()).name).toBe('RecorderFailed');
+	expect(expectOk(await owner.value.current())).toBe(second);
+	expectOk(await second.stop());
+	await owner.close();
+});
+
+test('unconfirmed start preserves its original device and request until retry resolves it', async () => {
+	const { owner, live } = setup();
+	const original = perform;
+	let starts = 0;
+	perform = async (command, args) => {
+		if (command === 'resolve_recording_start')
+			throw new Error('reconciliation unavailable');
+		const result = await original(command, args);
+		if (command === 'start_recording' && ++starts === 1)
+			throw new Error('start reply lost');
+		return result;
+	};
+	expect(
+		expectErr(
+			await owner.value.start({
+				selectedDeviceId: asDeviceIdentifier('original'),
+			}),
+		).name,
+	).toBe('StartUnconfirmed');
+	const recording = expectOk(
+		await owner.value.start({
+			selectedDeviceId: asDeviceIdentifier('changed'),
+		}),
+	);
+	expect(recording.id).toBe(live.audioBlobId);
+	const requests = invoke.mock.calls.filter(
+		([name]) => name === 'start_recording',
+	);
+	expect(requests).toHaveLength(2);
+	expect(requests[1]?.[1]).toEqual(requests[0]?.[1]);
+	expect(requests[1]?.[1]?.deviceIdentifier).toBe('original');
+	expectOk(await recording.cancel());
+	await owner.close();
+});
+
+test('current exposes an unconfirmed native start for exact cancellation', async () => {
+	const { owner, live } = setup();
+	const original = perform;
+	let failCurrent = true;
+	perform = async (command, args) => {
+		if (command === 'resolve_recording_start' && failCurrent)
+			throw new Error('reconciliation unavailable');
+		const result = await original(command, args);
+		if (command === 'start_recording') throw new Error('start reply lost');
+		return result;
+	};
+	expect(expectErr(await owner.value.start({})).name).toBe('StartUnconfirmed');
+	failCurrent = false;
+	const recording = expectOk(await owner.value.current());
+	expect(recording?.id).toBe(live.audioBlobId);
+	expectOk(await recording!.cancel());
+	expect(invoke.mock.calls.at(-1)?.[1]?.audioBlobId).toBe(live.audioBlobId);
+	await owner.close();
+});
+
+for (const reply of ['success', 'failure'] as const) {
+	for (const resolution of ['live', 'cancelled', 'absent'] as const) {
+		test(`concurrent current ${resolution} owns resolution before retry ${reply}`, async () => {
+			const { owner, live } = setup();
+			const original = perform;
+			perform = async (command, args) => {
+				if (command === 'resolve_recording_start')
+					throw new Error('resolve lost');
+				const result = await original(command, args);
+				if (command === 'start_recording') throw new Error('start lost');
+				return result;
+			};
+			expect(expectErr(await owner.value.start({})).name).toBe(
+				'StartUnconfirmed',
+			);
+			const entered = Promise.withResolvers<void>();
+			const response = Promise.withResolvers<NativeRecording>();
+			perform = async (command, args) => {
+				if (command === 'start_recording') {
+					entered.resolve();
+					return response.promise;
+				}
+				if (command === 'resolve_recording_start' && resolution === 'absent')
+					return null;
+				return original(command, args);
+			};
+			const retry = owner.value.start({});
+			await entered.promise;
+			const recording = expectOk(await owner.value.current());
+			if (resolution === 'absent') expect(recording).toBeNull();
+			else expect(recording?.id).toBe(live.audioBlobId);
+			if (resolution === 'cancelled') expectOk(await recording!.cancel());
+			if (reply === 'success') response.resolve({ ...live });
+			else response.reject(new Error('retry response lost'));
+			if (resolution === 'live') {
+				expect(expectOk(await retry)).toBe(recording!);
+				expectOk(await recording!.cancel());
+			} else expect(expectErr(await retry).name).toBe('NoActiveRecording');
+			perform = original;
+			live.audioBlobId = generateBlobId();
+			const successor = expectOk(await owner.value.start({}));
+			expect(expectOk(await owner.value.current())).toBe(successor);
+			expectOk(await successor.cancel());
+			await owner.close();
+		});
+	}
+}
+
+test('late current cannot replace a retry handle or resurrect a cancelled capture', async () => {
+	const { owner, live } = setup();
+	const original = perform;
+	perform = async (command, args) => {
+		if (command === 'resolve_recording_start') throw new Error('resolve lost');
+		const result = await original(command, args);
+		if (command === 'start_recording') throw new Error('start lost');
+		return result;
+	};
+	expect(expectErr(await owner.value.start({})).name).toBe('StartUnconfirmed');
+	const entered = Promise.withResolvers<void>();
+	const response = Promise.withResolvers<NativeRecording>();
+	perform = async (command, args) => {
+		if (command === 'resolve_recording_start') {
+			entered.resolve();
+			return response.promise;
+		}
+		return original(command, args);
+	};
+	const current = owner.value.current();
+	await entered.promise;
+	const first = expectOk(await owner.value.start({}));
+	const stale = { ...live };
+	expectOk(await first.cancel());
+	live.audioBlobId = generateBlobId();
+	const successor = expectOk(await owner.value.start({}));
+	response.resolve(stale);
+	expect(expectOk(await current)).toBe(successor);
+	expect(expectOk(await owner.value.current())).toBe(successor);
+	expectOk(await successor.cancel());
+	await owner.close();
+});
+
+test('confirmed absence clears an unresolved start before a newly selected device', async () => {
+	const { owner } = setup();
+	const original = perform;
+	perform = async (command, args) => {
+		if (command === 'start_recording' || command === 'resolve_recording_start')
+			throw new Error('IPC unavailable');
+		return original(command, args);
+	};
+	expect(
+		expectErr(
+			await owner.value.start({
+				selectedDeviceId: asDeviceIdentifier('original'),
+			}),
+		).name,
+	).toBe('StartUnconfirmed');
+	perform = original;
+	expect(expectOk(await owner.value.current())).toBeNull();
+	const recording = expectOk(
+		await owner.value.start({ selectedDeviceId: asDeviceIdentifier('new') }),
+	);
+	const requests = invoke.mock.calls.filter(
+		([name]) => name === 'start_recording',
+	);
+	expect(requests[1]?.[1]?.requestId).not.toBe(requests[0]?.[1]?.requestId);
+	expect(requests[1]?.[1]?.deviceIdentifier).toBe('new');
+	expectOk(await recording.cancel());
+	await owner.close();
+});
+
+test.each([
+	'CaptureLost',
+	'NotRecording',
+] as const)('definitive native stop %s releases held controls and listeners', async (failure) => {
+	const { owner, live } = setup();
+	const original = perform;
+	const recording = expectOk(await owner.value.start({}));
+	recording.onLevel(() => {});
+	perform = async (command, args) => {
+		const result = await original(command, args);
+		if (command === 'stop_recording')
+			throw { name: failure, message: 'capture consumed' };
+		return result;
+	};
+	expect(expectErr(await recording.stop()).name).toBe(
+		failure === 'CaptureLost' ? 'CaptureLost' : 'NoActiveRecording',
+	);
+	expect(expectOk(await owner.value.current())).toBeNull();
+	expect(released).toContain('mic-level');
+	live.audioBlobId = generateBlobId();
+	const next = expectOk(await owner.value.start({}));
+	expect(next.id).not.toBe(recording.id);
+	expect(expectErr(await recording.stop()).name).toBe('NoActiveRecording');
+	expectOk(await next.cancel());
+	await owner.close();
 });

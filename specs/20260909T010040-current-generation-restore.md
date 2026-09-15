@@ -47,6 +47,154 @@ Restore replaces the library's current generation; devices invalidate retired
 IndexedDB replicas and reload, while ordinary use stays cache-first and
 offline-capable.
 
+## Bounded attachment synchronization checkpoint, 2026-09-16
+
+Status: In Progress. This checkpoint implements waves 1 through 3 only as needed
+for the saved-file delivery journey. Recovery, reclamation, account copying,
+the full App scopes migration, concurrent microphones, and production migration
+remain outside it. Existing planning corrections and generation edits belong
+to their current workstreams; this checkpoint does not stage them.
+
+| Checkpoint | Implemented behavior | Verification evidence | Remaining acceptance gaps | Next dependency |
+| --- | --- | --- | --- | --- |
+| 1. Local save | Finished-file creation, disposable capture/import, durable Saved and original inference selection implemented. Independent cumulative review and exact-request race follow-up resolved; no further App restructuring required | App 102 pass / 401 assertions; blobs and attachment 107 / 1,563; host HTTP 46 / 408. Whispering domain 20 / 77, capture 17 / 67, closure 10 / 34, inference 9 / 32, pipeline 12 / 43. Native 157 pass / 2 ignored. App, blobs, data DOM, both Whispering leaves and recursive Epicenter typechecks pass. Chromium offline capture/save/reopen/playback smoke passes; physical microphone, real WKWebView reload and owned-process interruption/reopen probes pass | Full Whispering UI/account A/B journey remains incomplete. Native probes are bounded hardware evidence, not whole-product acceptance. Windows directory durability and folder-codec reconstruction are unproved; the latter belongs to excluded recovery | Implement reviewed publication protocol and library-owned transfer |
+| 2. Account transfer | Unmounted publication/transport draft; focused design review selects verification followed by atomic publication, without unverified reservations | Actual workerd full-object verification benchmark completed; no replacement delivery journey verified | Authenticated A/B transport, durable retries, provider enforcement and native streaming | Apply publication decision, then mount transfer behind the library owner |
+| 3. Failure/race and API review | Not started | Historical counts are not replacement acceptance | Failure matrix and cumulative capture/import/playback/export/inference review | Reviewed checkpoint 2 |
+
+The library owns one attachment synchronizer for its captured account, library,
+and generation. Local opens no transfer worker and keeps its existing persistent
+namespace across account changes. Capture and inference retain their original
+destinations. Explicit remote inference remains available for local audio.
+
+Prerequisite at task start: the checkout created null attachment rows before
+capture. `store/attachment.ts` exposed completion and rolled its cell back after
+a failed flush; the desktop recorder published through its recovery journal.
+Replace and prove this joint local-save boundary before mounting automatic delivery. The
+replacement creates an internally allocated owner from finished bytes, persists
+private content-verification evidence with that owner, and leaves unknown save
+outcomes intact. Native temporary output must enter library publication without
+an audio-sized WebView transfer. Coordinate ownership of this prerequisite
+before overlapping another implementation.
+
+Persistence and retry boundaries:
+
+- Durable local publication records local origin and the admitted generation.
+  Persisted current rows plus that evidence reconstruct upload obligations on
+  reopen. Mere file existence, a restored row, or downloaded bytes do not grant
+  upload authority. Acknowledgment follows verified remote publication.
+- Downloads derive from current completed owners and observed local absence.
+  Presence begins unknown; storage failure is distinct from absence. Reads and
+  playback perform local I/O only.
+- The worker bounds concurrency, wakes on open, completion and reconnect, and
+  schedules capped backoff after recoverable failures, including remote 404.
+  Device-local Pause affects downloads only. Resume, Retry and prioritization
+  use that same worker. Storage, authorization and quota failures remain visible.
+
+Retirement protocol: both transfer admission and publication must check the
+captured generation at the current-library authority. The historical generation
+ledger is not that authority. A transfer crossing confirmed retirement cannot
+publish into the replacement or recreate a deleted row. Staged or already
+written immutable bytes may remain conservatively retained; they grant neither
+current-row presence nor new upload authority. Ordinary account closure stops
+and drains admitted work while preserving retry obligations. Confirmed retirement
+abandons old-generation obligations, preserves reusable matching files, and
+never triggers a blanket byte-store erase. Final transport details must prove
+this fence before integration; an independently valid presigned PUT is insufficient.
+
+Immutable retries verify actual content against retained owner evidence and any
+occupied address. A 409/412, size, MIME type or ETag alone cannot establish
+equality. One-shot browser and native adapters must preserve this invariant,
+with native hashing and transfer streamed outside the WebView.
+
+Publication protocol review: replace the provisional reservation with full
+verification followed by atomic publication. The independent review reproduced
+an unverified reservation blocking the correct content before any object
+existed. No capture, import, playback, export, or inference caller needs that
+claim. None should coordinate the transport's request sequence.
+
+The retained states each enforce a different invariant:
+
+- Local immutable content evidence and origin distinguish an authored upload
+  from a download. A separate durable acknowledgment lets restart retry a lost
+  publication response without manufacturing new work.
+- The completed row's private content evidence tells another client exactly
+  which bytes belong to that row. Local absence remains a device observation,
+  not a synchronized row mutation.
+- The authority retains only verified address, SHA-256, size, and MIME type.
+  Row existence in that private index means published; remove `reserve()` and
+  the `published` flag. Atomic compare-or-insert shares the transaction owner
+  with current-generation admission. The evidence survives replacement because
+  the immutable address cannot acquire different content in a later generation.
+- Attempts, concurrency slots, and retry deadlines need no durable server
+  reservation. The client reconstructs obligations from current completed rows
+  and local origin, then retries after restart.
+
+The request sequence remains ticket, create-only object PUT, and finalize.
+Ticket issuance writes no publication state. Sign `content-type`,
+`if-none-match: *`, and the base64 SHA-256 checksum header. Finalize streams and
+hashes the entire object, then atomically admits and publishes. An already
+verified identical publication returns success after current admission without
+another full-object read. A 409/412 or ETag never supplies this proof. Bind the
+authenticated storage prefix and authority together when constructing the
+transport, not as independently replaceable arguments on each call.
+
+Deletion during transfer removes the client obligation and prevents late local
+publication or row resurrection. The opaque update authority does not decode
+CRDT row deletion: a previously accepted remote operation can leave retained
+bytes. Retirement rejects old-generation finalize even if a signed PUT already
+landed. Different bytes at an immutable address cause an explicit conflict;
+never acknowledge, overwrite, or serve them as the expected content. Repair or
+reclamation of that address is outside this checkpoint.
+
+Verification costs one additional object GET and one SHA-256 pass: for an
+N-byte A-to-B delivery, upload, verification, and download transfer 3N bytes
+before retries. Two concurrent 5 GiB verifications read 10 GiB. The provisional
+transport benchmark runs the actual verifier in workerd against a backpressured
+HTTP source. Two 172,800,044-byte objects took 782 ms; two 5 GiB objects took
+24,253 ms. Sampled worker allocated memory peaked at 45,159,445 and 43,842,793
+bytes respectively; source buffering peaked at 65,538 bytes and observed worker
+chunks at 4,096 bytes. These are local runtime measurements, not production CPU
+or latency guarantees, RSS measurements, or authenticated delivery acceptance.
+
+Native finished-file hashing uses one 64 KiB buffer and has streamed size tests
+through 345,600,044 bytes. Native network transfer is not implemented or proved
+bounded yet. Keep this acceptance gate: no audio-sized IPC or whole-file native
+network buffer, bounded upload/download streams, verified temporary download,
+and retirement/deletion checks before local publication. S3 checksum and
+create-only enforcement also need actual provider evidence; signing tests alone
+cannot establish provider behavior or bucket CORS configuration.
+
+Consumers: switch Whispering capture and imports through finished-file creation,
+then playback, export and inference through local attachment reads. Replace its
+legacy upload policy and manual copy controls only after their actual consumers
+use the replacement. Show audio availability and a library transfer summary;
+Saved continues to mean durable local row and audio, not account delivery.
+
+Verification: use actual authenticated transport and separately persisted A/B
+clients. Record offline on A, reopen if needed, reconnect and upload, receive
+automatically on B without Play, disconnect B and play locally. Exercise lost
+responses, delayed remote bytes without a new row event, storage failure,
+account closure, deletion during transfer and retirement at each publication
+boundary. Measure representative recording sizes and native streaming. Physical
+microphone, whole-host interruption and native WebView recovery need actual
+runtime evidence; fixtures and synthetic SIGKILL are not acceptance.
+
+Pre-edit baseline rechecked: library-ownership foundation has 7 pass / 2 fail
+(initial fetch 404; unadmitted socket expected 404, received 403). Data's main
+typecheck reports eight DOM-boundary errors; its DOM leaf passes. The historical
+393 Bun and 154 native passes have not been rerun for this checkpoint and do
+not establish the replacement contract. Independent review must assess each
+implemented boundary before dependent work and selective checkpoint commits.
+
+Local review repairs: repeated file and ancestor-directory durability barriers
+also apply to identical retries; native confirmed capture loss releases controls;
+uncertain Start retains its original timestamp and inference selection. The
+native exact-request resolver prevents a delayed Start after confirmed absence.
+The adapter fences late Start/current replies, and Whispering excludes Retry
+while Cancel resolves the original capture. Independent follow-up found no
+remaining blocker. Final domain verification exposed two stale metadata stubs;
+the fixtures now retain publication evidence, and all 20 domain tests pass.
+
 ## Superseding decisions, 2026-09-12
 
 The recovery design below the "Settled product contract" heading was replaced

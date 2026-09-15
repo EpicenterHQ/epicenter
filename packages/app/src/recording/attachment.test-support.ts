@@ -66,6 +66,5 @@ export async function createRecordingAttachment({
 		await data[Symbol.asyncDispose]();
 	});
 	const table = data.tables.recordings;
-	const row = table.create({ audio: null });
-	return { data, table, into: table.attachment(row.id), blobStore };
+	return { data, table, blobStore };
 }

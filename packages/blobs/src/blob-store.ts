@@ -54,6 +54,35 @@ export type BlobStoreFailed = InferError<typeof BlobStoreError.BlobStoreFailed>;
 export type BlobStat = {
 	size: number;
 	contentType: string;
+	attachment?: AttachmentContent & {
+		/** Absent on downloads; null denotes a Local publication. */
+		originGeneration?: number | null;
+		pendingUpload: boolean;
+	};
+};
+
+/** Immutable evidence computed from the complete file at publication. */
+export type AttachmentContent = {
+	sha256: string;
+	size: number;
+	contentType: string;
+};
+
+/** A finished host capture, never a path or an audio-sized WebView payload. */
+export type NativeFinishedFile = { kind: 'native-capture'; id: string };
+export type FinishedFile = Blob | NativeFinishedFile;
+
+export type AttachmentBytes = {
+	put(
+		id: BlobId,
+		file: FinishedFile,
+		originGeneration?: number | null,
+	): Promise<Result<AttachmentContent, BlobAlreadyExists | BlobStoreFailed>>;
+	acknowledge(
+		id: BlobId,
+		expected: AttachmentContent,
+		generation: number,
+	): Promise<Result<void, BlobNotFound | BlobStoreFailed>>;
 };
 
 /**
@@ -62,6 +91,8 @@ export type BlobStat = {
  * this contract is what callers and the remote compose over.
  */
 export type BlobStore = {
+	/** Library-owned attachment publication; legacy ID readers do not use it. */
+	attachments?: AttachmentBytes;
 	/**
 	 * Store bytes under a freshly minted id. Blob ids are immutable:
 	 * implementations return `BlobAlreadyExists` instead of replacing bytes.

@@ -37,6 +37,7 @@ export function recordingActive(
 	return (
 		pendingWork > 0 ||
 		app.recording.isStarting ||
+		app.recording.isUncertain ||
 		app.recording.state === 'RECORDING' ||
 		vadRecorder.state !== 'IDLE'
 	);

@@ -18,73 +18,34 @@ export const commands = {
 	/**  Simulates the platform copy shortcut with layout-independent key codes. */
 	simulateCopyKeystroke: () => typedError<null, string>(__TAURI_INVOKE("simulate_copy_keystroke")),
 	enumerateRecordingDevices: () => typedError<string[], RecorderError>(__TAURI_INVOKE("enumerate_recording_devices")),
-	/**
-	 *  Start recording, returning the blob id the recording will be published
-	 *  under and the microphone it opened.
-	 * 
-	 *  The id exists before its blob does: `stop` publishes the blob under it and
-	 *  `cancel` burns it with no blob ever written. The host mints it so ownership
-	 *  is decided here rather than asserted by a caller.
-	 * 
-	 *  `device_identifier` is optional; `None` records from the system default, and
-	 *  a name that is no longer present falls back to the default rather than
-	 *  failing. Either way `device` reports what actually opened, so the caller
-	 *  never has to enumerate devices just to discover what it got. Fails with
-	 *  `Busy` when another window is already recording.
-	 */
-	startRecording: (deviceIdentifier: string | null, destination: BlobDestination, attachment: RecordingAttachment) => typedError<HostRecording, RecorderError>(__TAURI_INVOKE("start_recording", { deviceIdentifier, destination, attachment })),
-	/**
-	 *  Stop the recording named by `audio_blob_id`, publish its blob, and report
-	 *  the committed audio.
-	 * 
-	 *  Restricted to the window that started it: only the owner can turn its
-	 *  recording into bytes it can then read. A caller that names a recording which
-	 *  has already ended, is not the live one, or belongs to another window gets
-	 *  `NotRecording`, which makes an idempotent stop (push-to-talk releasing after
-	 *  its recording was already supplanted) a clean typed no-op.
-	 */
-	stopRecording: (audioBlobId: string, destination: BlobDestination) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("stop_recording", { audioBlobId, destination })),
-	/**
-	 *  Cancel the named capture and discard unfinished staging.
-	 *  Already-published attachment bytes survive, including after a lost acknowledgment.
-	 */
-	cancelRecording: (audioBlobId: string, destination: BlobDestination) => typedError<null, RecorderError>(__TAURI_INVOKE("cancel_recording", { audioBlobId, destination })),
-	/**
-	 *  The recording this window owns, or `null`.
-	 * 
-	 *  Reload does not destroy a window, so a window that reloads mid-recording
-	 *  still owns that recording and would otherwise have no way to name it. This
-	 *  is the only reason the single recorder cannot wedge until the owner window
-	 *  is destroyed.
-	 * 
-	 *  A pure read, and the same shape `start` returns, so a recovered recording is
-	 *  not a different kind of thing from a freshly started one: the caller learns
-	 *  which microphone it opened without having been the one that opened it, and
-	 *  learns from `endedReason` whether that microphone is still running. A
-	 *  recording whose capture died while the JS was gone is found here and stopped
-	 *  like any other, which publishes what it captured.
-	 */
-	currentRecording: (destination: BlobDestination) => typedError<{
+	startRecording: (deviceIdentifier: string | null, sessionId: string, requestId: string) => typedError<HostRecording, RecorderError>(__TAURI_INVOKE("start_recording", { deviceIdentifier, sessionId, requestId })),
+	stopRecording: (audioBlobId: string, sessionId: string) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("stop_recording", { audioBlobId, sessionId })),
+	cancelRecording: (audioBlobId: string, sessionId: string) => typedError<null, RecorderError>(__TAURI_INVOKE("cancel_recording", { audioBlobId, sessionId })),
+	registerRecordingSession: (sessionId: string) => typedError<null, RecorderError>(__TAURI_INVOKE("register_recording_session", { sessionId })),
+	/**  Read only this document's live capture. No file or journal is recovered. */
+	currentRecording: (sessionId: string) => typedError<{
 	audioBlobId: string,
-	/**
-	 *  Dataset selected when the host minted this recording. It must travel
-	 *  through reload recovery; the requesting window is not enough to recover
-	 *  which blob partition owns the staged bytes.
-	 */
-	destination: BlobDestination,
-	attachment: RecordingAttachment,
 	device: DeviceAcquisition,
 	/**
 	 *  `None` while capture is running. `Some` means capture is over and this
-	 *  recording is waiting to be stopped (publishing what it captured) or
+	 *  recording is waiting to be stopped (finishing its temporary file) or
 	 *  cancelled (discarding it).
 	 */
 	endedReason: EndedReason | null,
-} | null, RecorderError>(__TAURI_INVOKE("current_recording", { destination })),
-	releaseRecording: (audioBlobId: string, destination: BlobDestination) => typedError<null, RecorderError>(__TAURI_INVOKE("release_recording", { audioBlobId, destination })),
-	acknowledgeRecording: (audioBlobId: string, destination: BlobDestination) => typedError<null, RecorderError>(__TAURI_INVOKE("acknowledge_recording", { audioBlobId, destination })),
-	/**  Release retired capture work without reclaiming immutable published attachments. */
-	retireRecording: (audioBlobId: string, destination: BlobDestination) => typedError<null, RecorderError>(__TAURI_INVOKE("retire_recording", { audioBlobId, destination })),
+} | null, RecorderError>(__TAURI_INVOKE("current_recording", { sessionId })),
+	resolveRecordingStart: (sessionId: string, requestId: string) => typedError<{
+	audioBlobId: string,
+	device: DeviceAcquisition,
+	/**
+	 *  `None` while capture is running. `Some` means capture is over and this
+	 *  recording is waiting to be stopped (finishing its temporary file) or
+	 *  cancelled (discarding it).
+	 */
+	endedReason: EndedReason | null,
+} | null, RecorderError>(__TAURI_INVOKE("resolve_recording_start", { sessionId, requestId })),
+	closeRecordingSession: (sessionId: string) => typedError<null, RecorderError>(__TAURI_INVOKE("close_recording_session", { sessionId })),
+	publishRecordingFile: (fileId: string, destination: BlobDestination, storageId: string, originGeneration: number | null) => typedError<AttachmentContent, RecorderError>(__TAURI_INVOKE("publish_recording_file", { fileId, destination, storageId, originGeneration })),
+	discardRecordingFile: (fileId: string) => typedError<null, RecorderError>(__TAURI_INVOKE("discard_recording_file", { fileId })),
 	/**
 	 *  Canonical transcribe-by-id path. Resolves the canonical local blob, decodes
 	 *  it, then runs inference on the **active** model with the caller's advisory
@@ -382,6 +343,12 @@ export type AppliedHints = {
 	initialPrompt: boolean,
 };
 
+export type AttachmentContent = {
+	sha256: string,
+	size: number,
+	contentType: string,
+};
+
 /**  The app and dataset captured before a native writer opens its staging file. */
 export type BlobDestination = {
 	appId: string,
@@ -521,6 +488,8 @@ export type FallbackReason =
 /**  The requested device is not present, so the system default was used. */
 "preferred-device-unavailable";
 
+export type FinishedFile = { kind: "native-capture"; id: string };
+
 export type GlobalShortcutRegistration = {
 	commandId: string,
 	accelerator: string,
@@ -553,26 +522,15 @@ export type HomeSection =
 export type HomeSectionPending = null;
 
 /**
- *  The recording a window holds: the id it will publish under, the microphone
- *  it opened, and whether its capture has already ended.
- * 
- *  One shape for both `start` and `current`, so a recording recovered after a
- *  reload is not a different kind of thing from one just started. `ended_reason`
- *  is the one fact a fresh start can never carry and a recovered one might.
+ *  The document's live capture identity, opened microphone, and terminal event.
+ *  `current` reconciles a missed event while that same document remains alive.
  */
 export type HostRecording = {
 	audioBlobId: string,
-	/**
-	 *  Dataset selected when the host minted this recording. It must travel
-	 *  through reload recovery; the requesting window is not enough to recover
-	 *  which blob partition owns the staged bytes.
-	 */
-	destination: BlobDestination,
-	attachment: RecordingAttachment,
 	device: DeviceAcquisition,
 	/**
 	 *  `None` while capture is running. `Some` means capture is over and this
-	 *  recording is waiting to be stopped (publishing what it captured) or
+	 *  recording is waiting to be stopped (finishing its temporary file) or
 	 *  cancelled (discarding it).
 	 */
 	endedReason: EndedReason | null,
@@ -674,17 +632,13 @@ export type RecorderError =
  *  and the distinguishing detail travels in `message`.
  */
 { name: "NotRecording"; message: string } | 
+/**  Stop consumed this capture, but no finished temporary file exists. */
+{ name: "CaptureLost"; message: string } |
 /**
  *  Any other recording failure (device config, stream build, filesystem,
  *  internal). The frontend does not branch on these.
  */
 { name: "Failed"; message: string };
-
-export type RecordingAttachment = {
-	tableName: string,
-	rowId: string,
-	generation: number | null,
-};
 
 /**
  *  Pushed to the window that owns a recording when the host ends its capture
@@ -715,31 +669,9 @@ export type ReplicaAccount = {
  */
 export type SettingsError = { name: "UnknownModel"; message: string } | { name: "SaveFailed"; message: string };
 
-/**
- *  What `stop_recording` hands back: the committed blob's id and the two facts
- *  only the host can state exactly.
- * 
- *  Both are computed here rather than in JS, where they used to be a wall-clock
- *  subtraction and a follow-up `stat` round trip. Wall clock measures how long
- *  the user held the button, which is not the same as how much audio the blob
- *  contains, and it had no answer at all after a reload.
- * 
- *  Both are `u32` because the blob is a RIFF WAV and RIFF states its own sizes
- *  in 32 bits: the staged writer already refuses anything larger. So `u32` is
- *  the format's real bound rather than a convenient cap, and it renders in
- *  TypeScript as a plain `number` (specta widens `f64` to `number | null` to
- *  leave room for NaN, a value neither of these can hold).
- */
 export type StoppedRecording = {
-	audioBlobId: string,
-	/**
-	 *  Exact duration of the committed audio: the file's own sample count over
-	 *  the rate it was captured at. This is the blob's length rather than how
-	 *  long the button was held, so a sub-second clip padded at finalize reports
-	 *  the padded duration, which is what the file actually holds.
-	 */
+	file: FinishedFile,
 	durationMs: number,
-	/**  Exact length of the published file on disk. */
 	byteLength: number,
 };
 
@@ -855,4 +787,3 @@ function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deseria
 
     return Object.assign(fn, base);
 }
-

@@ -168,7 +168,6 @@ function buildApp<const TDefinition extends DataDefinition>(
 		},
 	});
 	const acquisition = Promise.withResolvers<void>();
-	let acquired = false;
 	let dataReleased = true;
 	const document = createStoreOverPort({
 		definition: parsed.data,
@@ -187,7 +186,6 @@ function buildApp<const TDefinition extends DataDefinition>(
 						? Err(error)
 						: StoreError.StorageFailed({ cause: error });
 				}
-				acquired = true;
 				dataReleased = false;
 				const opened = await acquireAppData(parsed.data, {
 					appId,
@@ -232,7 +230,11 @@ function buildApp<const TDefinition extends DataDefinition>(
 				Promise.resolve().then(() => blobAccess?.close()),
 				Promise.resolve().then(() => secretAccess?.close()),
 				Promise.resolve().then(() => inference?.close()),
-				acquisition.promise.then(() => recorder?.close()),
+				// An admitted save may still consume a native finished-file token.
+				// Drain it before recorder cleanup discards temporary output.
+				Promise.allSettled([acquisition.promise, documentClosed]).then(() =>
+					recorder?.close(),
+				),
 			]);
 			const failures = results.filter((result) => result.status === 'rejected');
 			// A reported callback failure can coexist with confirmed physical release.
@@ -284,15 +286,7 @@ function buildApp<const TDefinition extends DataDefinition>(
 			assertUsable: document.lifetime.assertUsable,
 		});
 		recorder = recording(appId, replica, {
-			resolveAttachment(tableName, rowId) {
-				const table = document.view.tables[tableName];
-				if (!table) throw new Error('The recording table is unavailable.');
-				return table.attachment(rowId);
-			},
-			isRetired: () => document.isRetired,
-			generation: () => document.generation,
 			assertUsable: document.lifetime.assertUsable,
-			canRecover: () => acquired,
 		});
 		// Capture must stop while cache invalidation is still pending. The owner
 		// retains a failed close; final App closure observes it before releasing

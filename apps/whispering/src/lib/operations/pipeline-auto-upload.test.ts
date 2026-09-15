@@ -71,6 +71,7 @@ mock.module('$lib/operations/sound', () => ({
 	playSoundIfEnabled: mock(async () => Ok(undefined)),
 }));
 mock.module('$lib/operations/transcribe', () => ({
+	captureTranscription: () => async () => Ok('captured transcription'),
 	transcribeAndPersist: async (_app: unknown, recordingId: string) => {
 		await finishTranscription?.();
 		persistedTranscriptions.push(recordingId);

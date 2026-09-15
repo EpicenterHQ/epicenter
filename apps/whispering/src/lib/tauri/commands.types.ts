@@ -24,7 +24,8 @@ export type IpcRecorderError =
 	 * live one, or owned by another window.
 	 */
 	| { name: 'NotRecording'; message: string }
-	| { name: 'Failed'; message: string };
+	| { name: 'Failed'; message: string }
+	| { name: 'CaptureLost'; message: string };
 
 /** Why the local transcription route cannot run right now. */
 export type UnavailableReason = 'no-active-model' | 'active-model-unavailable';

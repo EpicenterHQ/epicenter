@@ -6,7 +6,10 @@ import {
 } from '$lib/operations/delivery';
 import { polishWillRun, runPolish } from '$lib/operations/run-polish';
 import { playSoundIfEnabled } from '$lib/operations/sound';
-import { transcribeAndPersist } from '$lib/operations/transcribe';
+import {
+	captureTranscription,
+	transcribeAndPersist,
+} from '$lib/operations/transcribe';
 import { saveRecordingHistory } from '$lib/operations/transcription-history';
 import { report } from '$lib/report';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
@@ -27,10 +30,11 @@ type PipelineInput = {
 	durationMs: number | null;
 	deliverySource?: TranscriptionSource;
 	isCurrentAttempt?: () => boolean;
+	transcribe?: ReturnType<typeof captureTranscription>;
 };
 
 /**
- * Completes imported audio when needed, then transcribes and polishes the row.
+ * Saves finished imported audio when needed, then transcribes and polishes the row.
  *
  * `deliverySource` only shapes the success copy (recording vs file import).
  */
@@ -42,6 +46,7 @@ export async function processRecordingPipeline(
 		durationMs,
 		deliverySource = 'recording',
 		isCurrentAttempt,
+		transcribe = captureTranscription(app),
 	}: PipelineInput,
 ) {
 	const lifetime = app.signal;
@@ -55,9 +60,11 @@ export async function processRecordingPipeline(
 	const isDictation = deliverySource === 'recording';
 	const ownsFeedback =
 		isCurrentAttempt ?? (isDictation ? dictationLifecycle.reset() : () => true);
-	// The table owns local completion for imports; manual capture already filled its row.
+	// The table owns finished-file publication; manual capture already saved its row.
 	if (audio === undefined && recordingId === undefined)
-		throw new Error('Recording pipeline requires audio bytes or a recording row id.');
+		throw new Error(
+			'Recording pipeline requires audio bytes or a recording row id.',
+		);
 	const existing =
 		recordingId === undefined ? undefined : app.recordings.get(recordingId);
 	if (recordingId !== undefined && !existing) return;
@@ -112,7 +119,7 @@ export async function processRecordingPipeline(
 			});
 
 	const { data: transcription, error: transcribeError } =
-		await transcribeAndPersist(app, recording.id);
+		await transcribeAndPersist(app, recording.id, transcribe);
 	if (lifetime.aborted || !app.recordingEnabled) return;
 
 	if (transcribeError) {

@@ -14,6 +14,7 @@ import type {
 	BlobAlreadyExists,
 	BlobNotFound,
 	BlobStoreFailed,
+	FinishedFile,
 } from '@epicenter/blobs';
 import type {
 	AttachmentFieldNames,
@@ -79,7 +80,6 @@ export type TableHandle<
 	TInput = RowInput,
 	TPatch = JsonObject,
 	TCreated = TRow,
-	TAttachmentInput = never,
 > = {
 	/** The immutable byte owner of an existing row in this opened library. */
 	attachment(rowId: string): Attachment;
@@ -116,14 +116,7 @@ export type TableHandle<
 	 * It persists bytes before accepting the row, outside synchronous `transact`.
 	 * Success means row acceptance, not a cross-store atomic durability guarantee.
 	 */
-	create: [TAttachmentInput] extends [never]
-		? { create(fields: TInput): TCreated }['create']
-		: {
-				create(fields: TInput): TCreated;
-				create(
-					fields: TAttachmentInput,
-				): Promise<Result<TRow, AttachmentError>>;
-			}['create'];
+	create(fields: TInput): TCreated;
 	/**
 	 * One row, whole, or nothing.
 	 *
@@ -275,20 +268,15 @@ export type TypedTableHandle<TFields extends TableDeclaration> = TableHandle<
 		>
 	>,
 	[BlobFieldNames<TFields>] extends [never]
-		? RowOf<TFields>
+		? [AttachmentFieldNames<TFields>] extends [never]
+			? RowOf<TFields>
+			: Promise<Result<RowOf<TFields>, AttachmentError>>
 		: Promise<
 				Result<
 					RowOf<TFields>,
 					BlobAlreadyExists | BlobNotFound | BlobStoreFailed
 				>
-			>,
-	[AttachmentFieldNames<TFields>] extends [never]
-		? never
-		: {
-				[K in keyof CreateRowOf<TFields>]: K extends AttachmentFieldNames<TFields>
-					? Blob
-					: CreateRowOf<TFields>[K];
-			}
+			>
 >;
 
 /**
@@ -489,7 +477,7 @@ export type UntypedDeclaredData = {
 			string,
 			TableHandle<
 				Row,
-				Record<string, JsonValue | Y.Type | Blob>,
+				Record<string, JsonValue | Y.Type | FinishedFile>,
 				JsonObject,
 				| Row
 				| Promise<

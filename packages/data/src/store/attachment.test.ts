@@ -1,11 +1,15 @@
 /**
- * Row-owned attachment completion and local reads.
- * Uses the real SQLite persistence controller to verify row-before-bytes ordering,
- * failure reporting, immutable completion, deletion fences, and explicit recovery.
+ * Finished-file creation and local playback through independent durable stores.
+ * Verifies bytes-before-row publication, immutable evidence, unknown saves,
+ * restart, storage failure, and deletion/closure fences without network reads.
  */
 import { Database } from 'bun:sqlite';
-import { expect, test } from 'bun:test';
-import { type BlobId, type BlobStore, BlobStoreError } from '@epicenter/blobs';
+import { afterEach, expect, test } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { type BlobStore, BlobStoreError } from '@epicenter/blobs';
+import { createBunBlobStore } from '@epicenter/blobs/bun';
 import {
 	compileData,
 	defineData,
@@ -18,7 +22,13 @@ import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { attachmentEngineOf } from './attachment.js';
 import { createSqliteDurablePort } from './log.js';
-import { createStoreOverPort, type DeclaredData } from './store.js';
+import {
+	createStoreOverPort,
+	type DeclaredData,
+	syncEngineOf,
+} from './store.js';
+import { captureArchive, prepareArchive } from '../artifact/archive.js';
+import { encodeFrame } from '../sync/frames.js';
 
 const definition = defineData({
 	id: 'so.epicenter.attachment-test',
@@ -30,221 +40,269 @@ const definition = defineData({
 		}),
 	},
 });
-
-async function setup({
-	raw = new Database(':memory:'),
-	bytes = new Map<BlobId, Blob>(),
-} = {}) {
+const cleanups: (() => Promise<void>)[] = [];
+afterEach(async () => {
+	for (const close of cleanups.splice(0).reverse()) await close();
+});
+async function setup(directory?: string, retirable = false) {
+	const root = directory ?? (await mkdtemp(join(tmpdir(), 'attachment-save-')));
+	if (!directory)
+		cleanups.push(() => rm(root, { recursive: true, force: true }));
+	const raw = new Database(join(root, 'rows.sqlite'));
 	const port = createSqliteDurablePort({ sqlite: createBunSqliteAdapter(raw) });
-	const blobStore: BlobStore = {
-		async put(id, blob) {
-			if (bytes.has(id)) return BlobStoreError.BlobAlreadyExists({ id });
-			bytes.set(id, blob);
-			return Ok(undefined);
-		},
-		async get(id) {
-			const blob = bytes.get(id);
-			return blob ? Ok(blob) : BlobStoreError.BlobNotFound({ id });
-		},
-		async stat(id) {
-			const blob = bytes.get(id);
-			return blob
-				? Ok({ size: blob.size, contentType: blob.type })
-				: BlobStoreError.BlobNotFound({ id });
-		},
-		async statMany(ids) {
-			return Promise.all(ids.map((id) => blobStore.stat(id)));
-		},
-		async copy(source, into) {
-			const blob = await blobStore.get(source);
-			return blob.error ? blob : blobStore.put(into, blob.data);
-		},
-		async delete(id) {
-			bytes.delete(id);
-			return Ok(undefined);
-		},
-	};
+	const blobStore: BlobStore = createBunBlobStore({
+		directory: join(root, 'bytes'),
+	});
 	const { sink } = memorySink();
+	const events = new EventTarget();
+	const socket = {
+		readyState: 1,
+		binaryType: '',
+		addEventListener: events.addEventListener.bind(events),
+		send() {},
+		close() {},
+	} as unknown as WebSocket;
 	const parts = createStoreOverPort({
 		definition: expectOk(compileData(definition)),
-		local: true,
 		blobStore,
 		log: createLogger('attachment-test', sink),
 		async acquire() {
-			return Ok({ durable: port, loaded: port.load() });
+			return Ok({
+				durable: port,
+				loaded: port.load(),
+				...(retirable
+					? {
+							replication: {
+								address: {
+									baseURL: 'https://example.test',
+									dataId: definition.id,
+									generation: 1,
+								},
+								transport: {
+									async openWebSocket() {
+										return socket;
+									},
+								},
+							},
+							async discard() {
+								raw.run('DELETE FROM _updates');
+							},
+						}
+					: {}),
+			});
 		},
 	});
 	expectOk(await parts.ready);
+	let closed = false;
+	const close = async () => {
+		if (closed) return;
+		closed = true;
+		await parts.close();
+		raw.close();
+	};
+	cleanups.push(close);
 	const table = (parts.view as DeclaredData<typeof definition>).tables
 		.recordings;
-	const row = table.create({ title: 'recording', audio: null });
 	return {
 		...parts,
+		close,
 		table,
-		row,
-		attachment: table.attachment(row.id),
 		blobStore,
-		bytes,
+		root,
 		port,
-		raw,
+		retire() {
+			events.dispatchEvent(
+				new MessageEvent('message', {
+					data: encodeFrame({ kind: 'retired' }).buffer,
+				}),
+			);
+		},
 	};
 }
+const audio = () => new Blob(['audio'], { type: 'audio/wav' });
 
-test('completion persists the row before bytes and plays locally after close/reopen', async () => {
-	const { attachment, table, row, blobStore, port, raw, bytes, close } =
-		await setup();
-	const originalPut = blobStore.put;
-	blobStore.put = async (id, blob) => {
-		expect(port.load().updates.length).toBeGreaterThan(0);
-		expect(table.get(row.id)?.audio).toBeNull();
-		return originalPut(id, blob);
+test('creation publishes bytes before the row and reopens with the same private content evidence', async () => {
+	const first = await setup();
+	const put = first.blobStore.attachments!.put;
+	first.blobStore.attachments!.put = async (...args) => {
+		expect(first.table.ids()).toEqual([]);
+		expect(first.port.load().updates).toHaveLength(0);
+		return put(...args);
 	};
-	expectOk(
-		await attachment.complete(new Blob(['audio'], { type: 'audio/wav' })),
+	const row = expectOk(
+		await first.table.create({ title: 'saved', audio: audio() }),
 	);
-	expect(table.get(row.id)?.audio).toBe('audio/wav');
+	const evidence = attachmentEngineOf(
+		first.table.attachment(row.id),
+	).evidence();
+	expect(evidence?.sha256).toHaveLength(64);
+	expect(first.table.get(row.id)).not.toHaveProperty('!attachment');
+	expect(first.store.persistence.get()).toBe('saved');
+	await first.close();
+	const second = await setup(first.root);
+	const attachment = second.table.attachment(row.id);
+	expect(attachmentEngineOf(attachment).evidence()).toEqual(evidence);
 	const source = expectOk(await attachment.source());
 	expect(await (await fetch(source.url)).text()).toBe('audio');
 	source[Symbol.dispose]();
-	await close();
-	const reopened = await setup({ raw, bytes });
+});
+
+test('byte-storage failure creates no recording row', async () => {
+	const current = await setup();
+	current.blobStore.attachments!.put = async (id) =>
+		BlobStoreError.BlobStoreFailed({ id, cause: 'disk full' });
+	expect(
+		expectErr(await current.table.create({ title: 'failed', audio: audio() }))
+			.name,
+	).toBe('Failed');
+	expect(current.table.ids()).toEqual([]);
+});
+
+test('a lost local publication response retries the same address and creates one durable row', async () => {
+	const current = await setup();
+	const put = current.blobStore.attachments!.put;
+	const addresses: string[] = [];
+	current.blobStore.attachments!.put = async (...args) => {
+		addresses.push(args[0]);
+		const result = await put(...args);
+		return addresses.length === 1 && !result.error
+			? BlobStoreError.BlobStoreFailed({
+					id: args[0],
+					cause: 'response lost after durable publication',
+				})
+			: result;
+	};
+	const row = expectOk(
+		await current.table.create({ title: 'retried', audio: audio() }),
+	);
+	expect(addresses).toHaveLength(2);
+	expect(addresses[0]).toBe(addresses[1]);
+	expect(current.table.ids()).toEqual([row.id]);
+	await current.close();
+	const reopened = await setup(current.root);
 	expect(
 		await expectOk(await reopened.table.attachment(row.id).read()).text(),
 	).toBe('audio');
-	await reopened.close();
-	raw.close();
 });
 
-test('a failed initial row flush does not write bytes or report saved audio', async () => {
-	const { table, bytes, port, close, raw } = await setup();
-	const commit = port.commit;
-	port.commit = () => {
+test('two lost publication responses retain immutable bytes and report an unconfirmed address without a row', async () => {
+	const current = await setup();
+	const put = current.blobStore.attachments!.put;
+	current.blobStore.attachments!.put = async (...args) => {
+		expectOk(await put(...args));
+		return BlobStoreError.BlobStoreFailed({
+			id: args[0],
+			cause: 'response lost',
+		});
+	};
+	const failure = expectErr(
+		await current.table.create({ title: 'unknown', audio: audio() }),
+	);
+	expect(failure.name).toBe('SaveUnconfirmed');
+	expect(current.table.ids()).toEqual([]);
+	if (failure.name !== 'SaveUnconfirmed')
+		throw new Error('Expected unknown publication');
+	const address = attachmentEngineOf(
+		current.table.attachment(failure.rowId),
+	).storageId;
+	expect(await expectOk(await current.blobStore.get(address)).text()).toBe(
+		'audio',
+	);
+});
+
+test('unknown row persistence keeps its completed row and bytes and confirms after retry', async () => {
+	const current = await setup();
+	const commit = current.port.commit;
+	current.port.commit = () => {
 		throw new Error('disk full');
 	};
-	const row = table.create({ title: 'blocked', audio: null });
-	const attachment = table.attachment(row.id);
-	expect(expectErr(await attachment.complete(new Blob(['audio']))).name).toBe(
-		'PersistenceBlocked',
+	const failure = expectErr(
+		await current.table.create({ title: 'unconfirmed', audio: audio() }),
 	);
-	expect(bytes.size).toBe(0);
-	expect(table.get(row.id)?.audio).toBeNull();
-	port.commit = commit;
-	await close();
-	raw.close();
+	expect(failure.name).toBe('SaveUnconfirmed');
+	if (failure.name !== 'SaveUnconfirmed')
+		throw new Error('Expected unresolved save');
+	expect(current.table.ids()).toEqual([failure.rowId]);
+	expect(current.table.get(failure.rowId)?.audio).toBe('audio/wav');
+	expect(
+		await expectOk(await current.table.attachment(failure.rowId).read()).text(),
+	).toBe('audio');
+	current.port.commit = commit;
+	await current.store.persistence.flush();
+	expect(current.store.persistence.get()).toBe('saved');
+	await current.close();
+	const reopened = await setup(current.root);
+	expect(reopened.table.ids()).toEqual([failure.rowId]);
 });
 
-test('a failed completion flush preserves bytes and retries only identical audio on the admitted handle', async () => {
-	const { attachment, table, row, bytes, port, blobStore, close, raw } =
-		await setup();
-	const commit = port.commit;
-	const put = blobStore.put;
-	blobStore.put = async (id, blob) => {
-		const result = await put(id, blob);
-		port.commit = () => {
-			throw new Error('disk full');
-		};
-		return result;
-	};
-	expect(
-		expectErr(
-			await attachment.complete(new Blob(['audio'], { type: 'audio/wav' })),
-		).name,
-	).toBe('PersistenceBlocked');
-	expect(bytes.size).toBe(1);
-	expect(table.get(row.id)?.audio).toBeNull();
-	port.commit = commit;
-	expect(
-		expectErr(
-			await attachment.complete(new Blob(['other'], { type: 'audio/wav' })),
-		).name,
-	).toBe('AlreadyCompleted');
-	expectOk(
-		await attachment.complete(new Blob(['audio'], { type: 'audio/wav' })),
-	);
-	expect(table.get(row.id)?.audio).toBe('audio/wav');
-	await close();
-	raw.close();
-});
-
-test('deleting the row during byte publication cannot resurrect it or affect another row', async () => {
-	const { attachment, table, row, blobStore, close, raw } = await setup();
-	const put = blobStore.put;
+test('ordinary close drains an admitted save through durable row publication', async () => {
+	const current = await setup();
 	const entered = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
-	blobStore.put = async (id, blob) => {
+	const put = current.blobStore.attachments!.put;
+	current.blobStore.attachments!.put = async (...args) => {
 		entered.resolve();
 		await release.promise;
-		return put(id, blob);
+		return put(...args);
 	};
-	const pending = attachment.complete(new Blob(['old']));
+	const saving = current.table.create({ title: 'closing', audio: audio() });
 	await entered.promise;
-	table.delete(row.id);
-	const next = table.create({ title: 'next', audio: null });
+	const closing = current.close();
 	release.resolve();
-	expect(expectErr(await pending)).toMatchObject({
-		name: 'Unavailable',
-		reason: 'row-absent',
-	});
-	expect(table.get(row.id)).toBeUndefined();
-	expect(table.get(next.id)?.audio).toBeNull();
-	await close();
-	raw.close();
+	const row = expectOk(await saving);
+	await closing;
+	const reopened = await setup(current.root);
+	expect(
+		await expectOk(await reopened.table.attachment(row.id).read()).text(),
+	).toBe('audio');
 });
 
-test('close fences a delayed completion while preserving its published bytes', async () => {
-	const { attachment, blobStore, bytes, close, raw } = await setup();
-	const put = blobStore.put;
+test('retirement during byte publication retains bytes but publishes no old-generation row', async () => {
+	const current = await setup(undefined, true);
+	await new Promise<void>((resolve) => setImmediate(resolve));
 	const entered = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
-	blobStore.put = async (id, blob) => {
+	const put = current.blobStore.attachments!.put;
+	let address: Parameters<typeof put>[0] | undefined;
+	current.blobStore.attachments!.put = async (...args) => {
+		address = args[0];
 		entered.resolve();
 		await release.promise;
-		return put(id, blob);
+		return put(...args);
 	};
-	const pending = attachment.complete(new Blob(['audio']));
+	const saving = current.table.create({ title: 'retired', audio: audio() });
 	await entered.promise;
-	const closing = close();
+	current.retire();
 	release.resolve();
-	expect(expectErr(await pending)).toMatchObject({
+	expect(expectErr(await saving)).toMatchObject({
 		name: 'Unavailable',
 		reason: 'closed',
 	});
-	await closing;
-	expect(bytes.size).toBe(1);
-	raw.close();
+	await current.close();
+	const reopened = await setup(current.root);
+	expect(reopened.table.ids()).toEqual([]);
+	if (!address) throw new Error('Publication was never admitted');
+	expect(
+		expectOk(await reopened.blobStore.stat(address)).attachment,
+	).toMatchObject({ originGeneration: 1, pendingUpload: true });
 });
 
-test('null cells do not adopt local bytes on reopen; a capture journal can explicitly finish the original row', async () => {
-	const { attachment, row, bytes, blobStore, close, raw } = await setup();
-	const engine = attachmentEngineOf(attachment);
-	expectOk(await engine.prepare());
+test('completed rows synchronize evidence but missing bytes stay unavailable and read-only', async () => {
+	const first = await setup();
+	const second = await setup();
+	const row = expectOk(
+		await first.table.create({ title: 'remote', audio: audio() }),
+	);
 	expectOk(
-		await blobStore.put(
-			engine.storageId,
-			new Blob(['staged'], { type: 'audio/wav' }),
+		syncEngineOf(second.store).applyRemote(
+			syncEngineOf(first.store).encodeSnapshot(),
 		),
 	);
-	await close();
-	const reopened = await setup({ raw, bytes });
-	const original = reopened.table.attachment(row.id);
-	expect(expectErr(await original.read())).toMatchObject({
-		name: 'Unavailable',
-		reason: 'incomplete',
-	});
-	expect(expectErr(await attachmentEngineOf(original).prepare()).name).toBe(
-		'AlreadyCompleted',
+	const attachment = second.table.attachment(row.id);
+	expect(attachmentEngineOf(attachment).evidence()).toEqual(
+		attachmentEngineOf(first.table.attachment(row.id)).evidence(),
 	);
-	expectOk(await attachmentEngineOf(original).completeFromLocal('audio/wav'));
-	expectOk(await attachmentEngineOf(original).completeFromLocal('audio/wav'));
-	expect(await expectOk(await original.read()).text()).toBe('staged');
-	await reopened.close();
-	raw.close();
-});
-
-test('missing local bytes are explicit even when the row records completion', async () => {
-	const { attachment, bytes, close, raw } = await setup();
-	expectOk(await attachment.complete(new Blob(['audio'])));
-	bytes.clear();
+	expect(attachment).not.toHaveProperty('complete');
 	expect(expectErr(await attachment.read())).toMatchObject({
 		name: 'Unavailable',
 		reason: 'local-bytes',
@@ -253,15 +311,124 @@ test('missing local bytes are explicit even when the row records completion', as
 		name: 'Unavailable',
 		reason: 'local-bytes',
 	});
-	await close();
-	raw.close();
 });
 
-test('attachment cells cannot be patched and declarations cannot give a row two attachments', async () => {
-	const { table, row, close, raw } = await setup();
-	expect(() => table.update(row.id, { audio: 'audio/wav' } as never)).toThrow(
-		'cannot be patched',
+test('structural reconstruction preserves private attachment evidence without granting local upload origin', async () => {
+	const first = await setup();
+	const second = await setup();
+	const row = expectOk(
+		await first.table.create({ title: 'restore', audio: audio() }),
 	);
+	const archive = expectOk(
+		await captureArchive(
+			{
+				generation: 1,
+				head: 1,
+				snapshot: {
+					position: 1,
+					bytes: syncEngineOf(first.store).encodeSnapshot(),
+				},
+				tail: [],
+			},
+			first.blobStore,
+			{ appId: 'so.epicenter.attachment-test', dataId: definition.id },
+		),
+	);
+	const rebuilt = expectOk(await prepareArchive(archive));
+	expectOk(syncEngineOf(second.store).applyRemote(rebuilt.bytes));
+	const attachment = second.table.attachment(row.id);
+	expect(attachmentEngineOf(attachment).evidence()).toEqual(
+		attachmentEngineOf(first.table.attachment(row.id)).evidence(),
+	);
+	expect(expectErr(await attachment.stat())).toMatchObject({
+		reason: 'local-bytes',
+	});
+});
+
+test('deletion during a local read cannot publish a source or resurrect its row', async () => {
+	const current = await setup();
+	const row = expectOk(
+		await current.table.create({ title: 'deleted', audio: audio() }),
+	);
+	const attachment = current.table.attachment(row.id);
+	const get = current.blobStore.get;
+	current.blobStore.get = async (id) => {
+		const result = await get(id);
+		current.table.delete(row.id);
+		return result;
+	};
+	expect(expectErr(await attachment.source())).toMatchObject({
+		name: 'Unavailable',
+		reason: 'row-absent',
+	});
+	expect(current.table.ids()).toEqual([]);
+});
+
+test('metadata presence does not load bytes and storage failure is distinct from absence', async () => {
+	const current = await setup();
+	const row = expectOk(
+		await current.table.create({ title: 'metadata', audio: audio() }),
+	);
+	current.blobStore.get = async () => {
+		throw new Error('metadata must not load bytes');
+	};
+	const attachment = current.table.attachment(row.id);
+	expect(expectOk(await attachment.stat())).toMatchObject({
+		size: 5,
+		contentType: 'audio/wav',
+	});
+	current.blobStore.stat = async (id) =>
+		BlobStoreError.BlobStoreFailed({ id, cause: 'disk failed' });
+	expect(expectErr(await attachment.stat()).name).toBe('Failed');
+});
+
+test('local evidence differing from the row cannot report presence or become playback', async () => {
+	const current = await setup();
+	const row = expectOk(
+		await current.table.create({ title: 'mismatch', audio: audio() }),
+	);
+	const stat = current.blobStore.stat;
+	current.blobStore.stat = async (id) => {
+		const result = expectOk(await stat(id));
+		return Ok({
+			...result,
+			attachment: { ...result.attachment!, sha256: '0'.repeat(64) },
+		});
+	};
+	const attachment = current.table.attachment(row.id);
+	expect(expectErr(await attachment.stat()).name).toBe('Failed');
+	expect(expectErr(await attachment.read()).name).toBe('Failed');
+	expect(expectErr(await attachment.source()).name).toBe('Failed');
+});
+
+test('closing releases local playback and refuses later reads and creates', async () => {
+	const current = await setup();
+	const row = expectOk(
+		await current.table.create({ title: 'playback', audio: audio() }),
+	);
+	const attachment = current.table.attachment(row.id);
+	const source = expectOk(await attachment.source());
+	await current.close();
+	await expect(fetch(source.url)).rejects.toThrow();
+	expect(expectErr(await attachment.read())).toMatchObject({
+		reason: 'closed',
+	});
+	expect(() =>
+		current.table.create({ title: 'late', audio: audio() }),
+	).toThrow();
+});
+
+test('creation refuses unfinished bytes and patching cannot change attachment ownership', async () => {
+	const current = await setup();
+	expect(() =>
+		current.table.create({ title: 'unfinished', audio: null } as never),
+	).toThrow('finished file');
+	const row = expectOk(
+		await current.table.create({ title: 'fixed', audio: audio() }),
+	);
+	expect(() =>
+		current.table.update(row.id, { audio: 'audio/webm' } as never),
+	).toThrow('cannot be patched');
 	expect(() =>
 		defineData({
 			id: 'so.epicenter.invalid',
@@ -281,78 +448,4 @@ test('attachment cells cannot be patched and declarations cannot give a row two 
 			tables: {},
 		}),
 	).toThrow('KV');
-	await close();
-	raw.close();
-});
-
-test('creating with a file uses the same completion owner and returns a durable playable row', async () => {
-	const { table, store, close, raw } = await setup();
-	const created = expectOk(
-		await table.create({
-			title: 'import',
-			audio: new Blob(['imported'], { type: 'audio/wav' }),
-		}),
-	);
-	expect(created.audio).toBe('audio/wav');
-	expect(store.persistence.get()).toBe('saved');
-	expect(await expectOk(await table.attachment(created.id).read()).text()).toBe(
-		'imported',
-	);
-	await close();
-	raw.close();
-});
-
-test('attachment metadata checks presence without reading audio bytes', async () => {
-	const { attachment, blobStore, bytes, close, raw } = await setup();
-	expectOk(
-		await attachment.complete(new Blob(['audio'], { type: 'audio/wav' })),
-	);
-	blobStore.get = async () => {
-		throw new Error('metadata must not materialize audio');
-	};
-	expect(expectOk(await attachment.stat())).toEqual({
-		size: 5,
-		contentType: 'audio/wav',
-	});
-	bytes.clear();
-	expect(expectErr(await attachment.stat())).toMatchObject({
-		name: 'Unavailable',
-		reason: 'local-bytes',
-	});
-	await close();
-	raw.close();
-});
-
-test('closing a library disposes retained local playback sources', async () => {
-	const { attachment, close, raw } = await setup();
-	expectOk(await attachment.complete(new Blob(['audio'])));
-	const source = expectOk(await attachment.source());
-	await close();
-	await expect(fetch(source.url)).rejects.toThrow();
-	source[Symbol.dispose]();
-	raw.close();
-});
-
-test('native completion refuses missing bytes and mismatched publication metadata', async () => {
-	const { attachment, blobStore, close, raw } = await setup();
-	const engine = attachmentEngineOf(attachment);
-	expect(expectErr(await engine.completeFromLocal('audio/wav'))).toMatchObject({
-		name: 'Unavailable',
-		reason: 'local-bytes',
-	});
-	expectOk(
-		await blobStore.put(
-			engine.storageId,
-			new Blob(['wrong format'], { type: 'audio/webm' }),
-		),
-	);
-	expect(expectErr(await engine.completeFromLocal('audio/wav')).name).toBe(
-		'Failed',
-	);
-	expect(expectErr(await attachment.read())).toMatchObject({
-		name: 'Unavailable',
-		reason: 'incomplete',
-	});
-	await close();
-	raw.close();
 });

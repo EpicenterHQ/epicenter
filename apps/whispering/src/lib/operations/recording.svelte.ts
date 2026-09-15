@@ -8,7 +8,7 @@ import type { DeviceAcquisitionOutcome } from '@epicenter/recorder';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { defineKeys, resultQueryOptions } from 'wellcrafted/query';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, tryAsync } from 'wellcrafted/result';
 import { manualRecorderConfig } from '#platform/manual-recorder-config';
 import { reportRecordingMicLevel } from '#platform/recording-mic-level';
 import { goto } from '$app/navigation';
@@ -20,6 +20,7 @@ import type {
 import { logAnalyticsEvent } from '$lib/operations/analytics';
 import { recordingMedia } from '$lib/operations/media';
 import { processRecordingPipeline } from '$lib/operations/pipeline';
+import { captureTranscription } from '$lib/operations/transcribe';
 import { playSoundIfEnabled } from '$lib/operations/sound';
 import { report } from '$lib/report';
 import { captureSurface } from '$lib/state/capture-surface.svelte';
@@ -113,15 +114,29 @@ export function createWhisperingRecording(
 	let disposed = false;
 	let currentCapture = $state.raw<Recording | null>(null);
 	let pendingStart = $state.raw<Promise<void> | null>(null);
+	let uncertainStart = $state(false);
+	let cancelling = false;
 	let stopEndedListener: (() => void) | null = null;
 	let stopLevelListener: (() => void) | null = null;
 	let currentFeedback: (() => boolean) | undefined;
+	const recordings = app.recordings;
+	let captured:
+		| {
+				recordedAt: ReturnType<typeof InstantString.now>;
+				recordedAtZone: string;
+				transcribe: ReturnType<typeof captureTranscription>;
+		  }
+		| undefined;
+	let finishing = $state(false);
+	let saveStatus = $state<
+		'idle' | 'saving' | 'saved' | 'unconfirmed' | 'failed'
+	>('idle');
 
 	function hold(recording: Recording, feedback = dictationLifecycle.reset()) {
 		release();
 		currentCapture = recording;
 		currentFeedback = feedback;
-		// New and recovered captures attach the same page-owned feedback.
+		// Feedback follows the exact live session.
 		stopLevelListener = recording.onLevel(reportRecordingMicLevel);
 		// The one ending a live caller cannot infer from its own calls: the
 		// capture died. Everything else that clears `currentCapture` is a consequence
@@ -154,63 +169,39 @@ export function createWhisperingRecording(
 		currentCapture = null;
 	}
 
-	// Recover once per UI session. Failed recovery can be retried.
-	let recovery: Promise<Result<void, RecorderError>> | null = null;
-	function recover(): Promise<Result<void, RecorderError>> {
-		if (disposed) return Promise.resolve(RecorderError.NoActiveRecording());
-		recovery ??= service.current().then(
-			(result) => {
-				if (disposed) return RecorderError.NoActiveRecording();
-				if (result.error) {
-					recovery = null;
-					return Err(result.error);
-				}
-				if (result.data) hold(result.data);
-				return Ok(undefined);
-			},
-			(cause) => {
-				recovery = null;
-				throw cause;
-			},
-		);
-		return recovery;
-	}
-
 	async function startCapture(feedback: () => boolean) {
 		if (disposed) return RecorderError.NoActiveRecording();
-		if (pendingStart !== null || currentCapture)
+		if (pendingStart !== null || currentCapture || finishing || cancelling)
 			return RecorderError.AlreadyRecording();
 		const completion = Promise.withResolvers<void>();
 		pendingStart = completion.promise;
 		try {
-			// Recovery may rehydrate a host recording that outlived a reload,
-			// so the `currentCapture` check has to come after it too.
-			const { error: recoveryError } = await recover();
-			if (recoveryError) return Err(recoveryError);
-			if (disposed) return RecorderError.NoActiveRecording();
-			if (currentCapture) return RecorderError.AlreadyRecording();
-
 			const params = manualRecorderConfig.resolveStartParams();
-			const created = await app.recordings.create({
-				audio: null,
-				title: '',
-				recordedAt: InstantString.now(),
-				recordedAtZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-				transcript: '',
-				polishedTranscript: null,
-				duration: null,
-			});
-			if (created.error)
-				return RecorderError.RecorderFailed({ cause: created.error });
+			if (!uncertainStart || !captured)
+				captured = {
+					recordedAt: InstantString.now(),
+					recordedAtZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					transcribe: captureTranscription(app),
+				};
+			saveStatus = 'idle';
 			if (disposed || !app.recordingEnabled)
 				return RecorderError.NoActiveRecording();
 			const { data: recording, error: startError } = await service.start({
 				...params,
-				into: app.recordings.attachment(created.data.id),
 			});
-			if (startError) return Err(startError);
+			if (startError) {
+				uncertainStart = startError.name === 'StartUnconfirmed';
+				if (!uncertainStart) captured = undefined;
+				return Err(startError);
+			}
+			uncertainStart = false;
 
-			if (disposed) return RecorderError.NoActiveRecording();
+			if (disposed || !app.recordingEnabled) {
+				const cleanup = await recording.cancel();
+				return cleanup.error
+					? Err(cleanup.error)
+					: RecorderError.NoActiveRecording();
+			}
 			hold(recording, feedback);
 			return Ok(recording);
 		} finally {
@@ -221,34 +212,75 @@ export function createWhisperingRecording(
 
 	async function stopCapture() {
 		if (pendingStart !== null) await pendingStart;
-		const { error: recoveryError } = await recover();
-		if (recoveryError) return Err(recoveryError);
-		if (disposed) return RecorderError.NoActiveRecording();
+		if (disposed || finishing || cancelling)
+			return RecorderError.NoActiveRecording();
 		const recording = currentCapture;
-		if (!recording) return RecorderError.NoActiveRecording();
+		const metadata = captured;
+		if (!recording || !metadata) return RecorderError.NoActiveRecording();
 		const isCurrentAttempt = currentFeedback;
-		// Released before the call resolves: this recording is over either
-		// way, and letting it linger would let a second stop address it.
-		release();
-		const result = await recording.stop();
-		if (result.error) {
-			recovery = null;
-			return result;
+		finishing = true;
+		try {
+			const result = await recording.stop();
+			if (result.error) {
+				if (
+					result.error.name === 'CaptureLost' ||
+					result.error.name === 'NoActiveRecording'
+				) {
+					release();
+					captured = undefined;
+					saveStatus = 'failed';
+				}
+				return result;
+			}
+			release();
+			captured = undefined;
+			saveStatus = 'saving';
+			try {
+				if (disposed || app.signal.aborted || !app.recordingEnabled) {
+					saveStatus = 'unconfirmed';
+					return RecorderError.NoActiveRecording();
+				}
+				const saved = await recordings.create({
+					audio: result.data.file,
+					title: '',
+					recordedAt: metadata.recordedAt,
+					recordedAtZone: metadata.recordedAtZone,
+					transcript: '',
+					polishedTranscript: null,
+					duration: result.data.durationMs,
+				});
+				if (saved.error) {
+					saveStatus = 'unconfirmed';
+					return saved;
+				}
+				saveStatus = 'saved';
+				return Ok({
+					durationMs: result.data.durationMs,
+					byteLength: result.data.byteLength,
+					recordingId: saved.data.id,
+					isCurrentAttempt,
+					transcribe: metadata.transcribe,
+				});
+			} finally {
+				if (saveStatus === 'saving') saveStatus = 'unconfirmed';
+				// The recorder also owns terminal cleanup. Its closure can race this
+				// best-effort release, but cannot change an already confirmed save.
+				const discarded = await tryAsync({
+					try: () => service.discard(result.data.file),
+					catch: (cause) => RecorderError.RecorderFailed({ cause }),
+				});
+				const cleanupError = discarded.error ?? discarded.data?.error;
+				if (cleanupError) log.warn(cleanupError);
+			}
+		} finally {
+			finishing = false;
 		}
-		if (app.recordings.get(recording.into.rowId))
-			app.recordings.patch(recording.into.rowId, {
-				duration: result.data.durationMs,
-			});
-		return Ok({
-			...result.data,
-			recordingId: recording.into.rowId,
-			isCurrentAttempt,
-		});
 	}
 
 	async function start(): Promise<string | null> {
 		if (!app.recordingEnabled) return null;
-		if (pendingStart !== null || currentCapture) return null;
+		if (pendingStart !== null || currentCapture || finishing || cancelling)
+			return null;
 		return trackRecordingWork(async () => {
 			app.settings.set('recordingTrigger', 'manual');
 			// A new dictation is starting: clear any lingering failed/delivered state so
@@ -267,9 +299,20 @@ export function createWhisperingRecording(
 
 			if (error) {
 				void recordingMedia.resume();
-				// The recording never started, so there is no blob to recover: the
-				// loudest tier. The pill glances it and the OS notification always fires, so
-				// there is no toast.
+				if (uncertainStart)
+					report.error({
+						title: 'Microphone status unknown',
+						description: 'Retry to check the recording, or cancel it.',
+						cause: error,
+						action: {
+							label: 'Cancel recording',
+							onClick: () => {
+								void cancel();
+							},
+						},
+					});
+				// An unresolved start retains this workflow until retry or Cancel.
+				// No start failure is a confirmed saved recording.
 				if (feedback() && !app.signal.aborted)
 					dictationLifecycle.markFailed({ tier: 'silent-loss', error });
 				return null;
@@ -295,12 +338,15 @@ export function createWhisperingRecording(
 			return;
 		if (!app.recordingEnabled) return;
 		return trackRecordingWork(async () => {
-			await recover();
 			const feedback = currentFeedback;
 			const { data: source, error } = await stopCapture();
 
 			if (error) {
 				void recordingMedia.resume();
+				if (saveStatus === 'failed')
+					report.error({ title: 'Recording could not be saved', cause: error });
+				if (saveStatus === 'unconfirmed')
+					report.error({ title: 'Recording save not confirmed', cause: error });
 				// Finalizing failed, so the captured audio never reached a row: treat it
 				// as a silent loss rather than a retryable transcription.
 				if (feedback?.() && !app.signal.aborted)
@@ -326,8 +372,55 @@ export function createWhisperingRecording(
 				recordingId: rowId,
 				durationMs,
 				isCurrentAttempt: source.isCurrentAttempt,
+				transcribe: source.transcribe,
 			});
 		});
+	}
+
+	/** Resolve an uncertain native start before cancelling its original capture. */
+	async function cancel(): Promise<boolean> {
+		if (!app.recordingEnabled) return false;
+		if (cancelling) return true;
+		cancelling = true;
+		try {
+			return await trackRecordingWork(async () => {
+				if (pendingStart !== null) await pendingStart;
+				if (disposed || finishing) return true;
+				let recording = currentCapture;
+				if (!recording && uncertainStart) {
+					const current = await service.current();
+					if (current.error) {
+						report.error({
+							title: 'Could not check the microphone',
+							cause: current.error,
+						});
+						return true;
+					}
+					recording = current.data;
+					if (recording) hold(recording);
+					else {
+						uncertainStart = false;
+						captured = undefined;
+						return true;
+					}
+				}
+				if (!recording) return false;
+				const { error } = await recording.cancel();
+				if (error && error.name !== 'NoActiveRecording') {
+					report.error({ title: 'Failed to cancel recording', cause: error });
+					return true;
+				}
+				release();
+				uncertainStart = false;
+				captured = undefined;
+				void recordingMedia.resume();
+				void playSoundIfEnabled(app, 'manual-cancel');
+				log.info('Recording cancelled');
+				return true;
+			});
+		} finally {
+			cancelling = false;
+		}
 	}
 
 	return {
@@ -338,7 +431,15 @@ export function createWhisperingRecording(
 			get isStarting() {
 				return pendingStart !== null;
 			},
-			recover,
+			get isUncertain() {
+				return uncertainStart;
+			},
+			get saveStatus() {
+				return saveStatus;
+			},
+			get isSaving() {
+				return finishing;
+			},
 			enumerateDevices() {
 				return resultQueryOptions({
 					queryKey: recordingKeys.devices,
@@ -360,38 +461,7 @@ export function createWhisperingRecording(
 				return currentCapture ? stop() : start();
 			},
 			/** Discard saved-recording capture. False means there was none to cancel. */
-			async cancel(): Promise<boolean> {
-				if (!app.recordingEnabled) return false;
-				return trackRecordingWork(async () => {
-					if (pendingStart !== null) await pendingStart;
-					const { error: recoveryError } = await recover();
-					if (recoveryError) {
-						report.error({
-							title: 'Failed to cancel recording',
-							cause: recoveryError,
-						});
-						return true;
-					}
-					if (disposed) return true;
-					const recording = currentCapture;
-					if (!recording) return false;
-					release();
-					const { error } = await recording.cancel();
-					if (error) {
-						recovery = null;
-						report.error({ title: 'Failed to cancel recording', cause: error });
-						return true;
-					}
-					// Recovery may find local completion whose host acknowledgement was
-					// interrupted. Cancelling that host journal must not delete saved work.
-					if (app.recordings.get(recording.into.rowId)?.audio === null)
-						await app.recordings.delete(recording.into.rowId);
-					void recordingMedia.resume();
-					void playSoundIfEnabled(app, 'manual-cancel');
-					log.info('Recording cancelled');
-					return true;
-				});
-			},
+			cancel,
 		},
 		[Symbol.dispose]() {
 			disposed = true;
@@ -481,6 +551,7 @@ export async function startVadRecording(app: WhisperingApp) {
 		app.settings.set('recordingTrigger', 'vad');
 		// A new dictation session is starting: clear any lingering terminal state.
 		let feedback = dictationLifecycle.reset();
+		let transcribe = captureTranscription(app);
 		// A capture just started, so leave the import overlay if it was open (see
 		// recording.start).
 		captureSurface.dismissImport();
@@ -494,6 +565,7 @@ export async function startVadRecording(app: WhisperingApp) {
 			onSpeechStart: () => {
 				if (!app.recordingEnabled) return;
 				feedback = dictationLifecycle.reset();
+				transcribe = captureTranscription(app);
 				// Speaking window opened: pause whatever is playing. The pill's meter
 				// tint shows speech was detected, so there is no toast.
 				pausePlaybackForSpeech(app);
@@ -501,6 +573,7 @@ export async function startVadRecording(app: WhisperingApp) {
 			onSpeechEnd: async (blob) => {
 				if (!app.recordingEnabled) return;
 				const isCurrentAttempt = feedback;
+				const capturedTranscription = transcribe;
 				return trackRecordingWork(async () => {
 					// Speaking window closed: resume after a short debounce so a quick
 					// next utterance does not flutter the music.
@@ -517,6 +590,7 @@ export async function startVadRecording(app: WhisperingApp) {
 						audio: blob,
 						durationMs: null,
 						isCurrentAttempt,
+						transcribe: capturedTranscription,
 					});
 				});
 			},

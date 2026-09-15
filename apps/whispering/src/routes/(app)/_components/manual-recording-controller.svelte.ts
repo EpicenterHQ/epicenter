@@ -35,9 +35,17 @@ export function createManualRecordingController(
 	const shortcutLabel = $derived(getRecordingShortcutLabel(app, 'manual'));
 
 	const description = $derived.by(() => {
+		if (app.recording.isUncertain)
+			return 'Microphone status unknown. Retry or cancel.';
+		if (app.recording.saveStatus === 'failed')
+			return 'Recording could not be saved';
+		if (app.recording.saveStatus === 'saving') return 'Saving recording';
+		if (app.recording.saveStatus === 'unconfirmed')
+			return 'Save not confirmed. Reopen to check saved recordings.';
 		if (isStarting) return 'Opening microphone input';
 		if (isStopping) return 'Stopping recording';
 		if (isRecording) return 'Click again to stop';
+		if (app.recording.saveStatus === 'saved') return 'Saved on this device';
 		return shortcutLabel ? 'Click or press shortcut' : 'Click to record';
 	});
 	const tooltip = $derived.by(() => {

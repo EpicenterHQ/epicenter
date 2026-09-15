@@ -2,8 +2,6 @@
 	import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
 	import { recordingActive } from '$lib/state/recording-active.svelte';
 	import type { Account } from "@epicenter/auth";
-	import { Button } from '@epicenter/ui/button';
-	import { Loading } from '@epicenter/ui/loading';
 	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
 	import { fromData } from '@epicenter/svelte';
 	import * as Sidebar from '@epicenter/ui/sidebar';
@@ -59,17 +57,7 @@
 
 	setWhisperingContext({ app: session.app, queries: session.queries });
 
-	async function recoverRecording(): Promise<void> {
-		if (!session.app.recordingEnabled) return;
-		const recovered = await session.app.recording.recover();
-		if (session.app.recordingEnabled && recovered.error) throw recovered.error;
-	}
-
-	// Do not mount controls or shortcuts until the host recording is known.
-	let recordingReady = $state.raw(recoverRecording());
-
 	export async function preflight(): Promise<void> {
-		await recoverRecording();
 		if (session.app.recordingEnabled && recordingActive(session.app))
 			throw new Error('Finish recording and wait for it to save before closing Whispering.');
 	}
@@ -92,9 +80,6 @@
 
 <PersistenceNotice persistence={view.persistence} />
 
-{#await recordingReady}
-	<Loading class="h-dvh" label="Checking for an active recording…" />
-{:then}
 	<QueryClientProvider client={session.queryClient}>
 		<!-- Uses UI package defaults (300ms delay, 150ms skip) -->
 		<Tooltip.Provider>
@@ -122,9 +107,3 @@
 			<DictationIndicator />
 		</Tooltip.Provider>
 	</QueryClientProvider>
-{:catch}
-	<div class="flex h-dvh flex-col items-center justify-center gap-4 p-6">
-		<p role="alert">Could not check whether a recording is running.</p>
-		<Button onclick={() => { recordingReady = recoverRecording(); }}>Try again</Button>
-	</div>
-{/await}

@@ -51,7 +51,7 @@
 //!
 //! That is the whole interruption design. There is no pending-interruption
 //! inbox, no acknowledgement, no restore call, and no second channel that pushes
-//! audio at the owner. `stop` remains the one path that publishes a blob and
+//! audio at the owner. `stop` remains the one path that finishes a file and
 //! `cancel` remains the one path that deletes staging, whether or not capture is
 //! still running when they are called. A competing `start` stays [`Busy`] until
 //! the owner resolves it, or until the owning window is destroyed.
@@ -79,7 +79,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
-use crate::blobs::{BlobDestination, StagedBlob};
+use crate::blobs::StagedBlob;
 use crate::recorder::ended::EndedReason;
 use crate::recorder::error::RecorderError;
 
@@ -164,7 +164,6 @@ const MIC_LEVEL_EMIT_INTERVAL: Duration = Duration::from_millis(50);
 #[derive(Debug)]
 enum RecorderCmd {
     Stop(mpsc::Sender<Result<FinalizedRecording>>),
-    Release,
     Cancel,
     EndCapture,
 }
@@ -180,6 +179,7 @@ struct StagedCapture {
     /// without leaving a half-alive one behind.
     writer: Option<WavWriter<BufWriter<std::fs::File>>>,
     device_rate: u32,
+    write_failed: bool,
 }
 
 impl StagedCapture {
@@ -195,6 +195,7 @@ impl StagedCapture {
                 staged,
                 writer: Some(writer),
                 device_rate,
+                write_failed: false,
             }),
             // A staging directory nothing can write to is debris, not a
             // recording waiting to happen.
@@ -232,9 +233,16 @@ impl StagedCapture {
 
     /// Append one callback's worth of mono PCM16.
     ///
-    /// Checkpoint the WAV header and buffered samples on the writer thread.
-    /// CPAL only enqueues samples; it performs no file work.
+    /// The worker buffers samples; only Stop finalizes the WAV header.
     fn write(&mut self, samples: &[i16]) -> Result<()> {
+        let result = self.write_samples(samples);
+        if result.is_err() {
+            self.write_failed = true;
+        }
+        result
+    }
+
+    fn write_samples(&mut self, samples: &[i16]) -> Result<()> {
         let Some(writer) = self.writer.as_mut() else {
             return Err(RecorderError::failed(
                 "the staged capture is already finalized",
@@ -250,9 +258,6 @@ impl StagedCapture {
                 .write_sample(sample)
                 .map_err(|error| RecorderError::failed(format!("write staged capture: {error}")))?;
         }
-        writer
-            .flush()
-            .map_err(|error| RecorderError::failed(format!("checkpoint capture: {error}")))?;
         Ok(())
     }
 
@@ -281,9 +286,14 @@ impl StagedCapture {
 
     /// Finalize the WAV and hand the staged bytes back to be published.
     ///
-    /// Consumes the writer either way. A failed finalize leaves staging and its
-    /// descriptor for recovery; it never reports a completed attachment.
+    /// A failed finalize discards temporary output and reports no finished file.
     fn finish(mut self) -> Result<FinalizedRecording> {
+        if self.write_failed {
+            self.discard();
+            return Err(RecorderError::failed(
+                "capture storage failed; no finished file was produced",
+            ));
+        }
         match self.finalize_wav() {
             Ok(sample_count) => Ok(FinalizedRecording {
                 staged: self.staged,
@@ -294,21 +304,14 @@ impl StagedCapture {
                     as u32,
             }),
             Err(error) => {
-                // The durable descriptor retains the accepted prefix for recovery.
+                self.staged.discard();
                 Err(error)
             }
         }
     }
 
     fn finalize_wav(&mut self) -> Result<u32> {
-        // Best effort, deliberately. Padding is a nicety for the transcriber,
-        // and a capture that ended because the disk filled will fail to write
-        // its silence too. Failing the whole stop over that would throw away
-        // speech that is already on disk, which is the exact loss this path
-        // exists to prevent.
-        if let Err(error) = self.pad_if_short() {
-            warn!("Could not pad a short recording, publishing it as captured: {error}");
-        }
+        self.pad_if_short()?;
         let Some(writer) = self.writer.take() else {
             return Err(RecorderError::failed(
                 "the staged capture is already finalized",
@@ -346,8 +349,8 @@ impl StagedCapture {
 /// is why this can safely cross out of the recorder lock.
 #[derive(Debug)]
 pub struct FinalizedRecording {
-    staged: StagedBlob,
-    duration_ms: u32,
+    pub(super) staged: StagedBlob,
+    pub(super) duration_ms: u32,
 }
 
 impl FinalizedRecording {
@@ -398,11 +401,7 @@ struct HeldRecording {
     audio_blob_id: String,
     /// Label of the window that called `start`. Stop is restricted to it.
     owner_label: String,
-    /// Dataset selected at start, retained for reload recovery.
-    destination: BlobDestination,
-    attachment: super::recovery::RecordingAttachment,
-    /// Which microphone this recording opened, so a window that reloads can be
-    /// told what it is recording from without reopening anything.
+    /// Which microphone this recording opened, for the owning document's UI.
     device: DeviceAcquisition,
     /// `None` while capture is running. `Some` once capture ended on its own,
     /// which is a fact about this recording and not a separate state machine:
@@ -422,26 +421,18 @@ struct HeldRecording {
 #[derive(Default)]
 pub struct Recorder {
     active: Option<HeldRecording>,
+    pub(super) sessions: super::sessions::Sessions,
 }
 
-/// The recording a window holds: the id it will publish under, the microphone
-/// it opened, and whether its capture has already ended.
-///
-/// One shape for both `start` and `current`, so a recording recovered after a
-/// reload is not a different kind of thing from one just started. `ended_reason`
-/// is the one fact a fresh start can never carry and a recovered one might.
+/// The document's live capture identity, opened microphone, and terminal event.
+/// `current` reconciles a missed event while that same document remains alive.
 #[derive(Debug, Clone, Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct HostRecording {
     pub audio_blob_id: String,
-    /// Dataset selected when the host minted this recording. It must travel
-    /// through reload recovery; the requesting window is not enough to recover
-    /// which blob partition owns the staged bytes.
-    pub destination: BlobDestination,
-    pub attachment: super::recovery::RecordingAttachment,
     pub device: DeviceAcquisition,
     /// `None` while capture is running. `Some` means capture is over and this
-    /// recording is waiting to be stopped (publishing what it captured) or
+    /// recording is waiting to be stopped (finishing its temporary file) or
     /// cancelled (discarding it).
     pub ended_reason: Option<EndedReason>,
 }
@@ -492,8 +483,6 @@ impl Recorder {
         audio_blob_id: String,
         owner_label: String,
         app_handle: AppHandle,
-        destination: BlobDestination,
-        attachment: super::recovery::RecordingAttachment,
     ) -> Result<HostRecording> {
         self.require_free_slot()?;
 
@@ -512,26 +501,10 @@ impl Recorder {
 
         // Staging is opened before the microphone, so a recording that cannot be
         // written fails now rather than after an hour of captured speech.
-        let key = attachment.key()?;
         let capture = StagedCapture::open(
-            StagedBlob::create(&app_handle, &key, &destination)?,
+            StagedBlob::disposable(&app_handle, &audio_blob_id)?,
             device_rate,
         )?;
-        let recovery_root = super::recovery::root(&app_handle, &destination)?;
-        if let Err(error) = super::recovery::save(
-            &recovery_root,
-            &HostRecording {
-                audio_blob_id: audio_blob_id.clone(),
-                destination: destination.clone(),
-                attachment: attachment.clone(),
-                device: acquisition.clone(),
-                ended_reason: None,
-            },
-            &capture.staged,
-        ) {
-            capture.discard();
-            return Err(error);
-        }
 
         let (sample_tx, sample_rx) = mpsc::sync_channel::<Vec<i16>>(CAPTURE_QUEUE_CHUNKS);
         let (cmd_tx, cmd_rx) = mpsc::channel::<RecorderCmd>();
@@ -603,7 +576,6 @@ impl Recorder {
             Ok(Ok(())) => {}
             Ok(Err(error)) => {
                 let _ = worker.join();
-                super::recovery::acknowledge(&recovery_root, &audio_blob_id)?;
                 return Err(error);
             }
             Err(error) => {
@@ -621,8 +593,6 @@ impl Recorder {
         self.active = Some(HeldRecording {
             audio_blob_id: audio_blob_id.clone(),
             owner_label,
-            destination: destination.clone(),
-            attachment: attachment.clone(),
             device: acquisition.clone(),
             ended_reason: None,
             cmd_tx,
@@ -630,8 +600,6 @@ impl Recorder {
         });
         Ok(HostRecording {
             audio_blob_id,
-            destination,
-            attachment,
             device: acquisition,
             ended_reason: None,
         })
@@ -689,11 +657,14 @@ impl Recorder {
 
         let (reply_tx, reply_rx) = mpsc::channel();
         let finalized = match active.cmd_tx.send(RecorderCmd::Stop(reply_tx)) {
-            Ok(()) => reply_rx.recv().map_err(|e| {
-                RecorderError::failed(format!(
-                    "Worker dropped the stop reply for {audio_blob_id}: {e}"
-                ))
-            })?,
+            Ok(()) => reply_rx
+                .recv()
+                .map_err(|e| {
+                    RecorderError::failed(format!(
+                        "Worker dropped the stop reply for {audio_blob_id}: {e}"
+                    ))
+                })
+                .and_then(|result| result),
             Err(e) => Err(RecorderError::failed(format!(
                 "Failed to send stop command: {e}"
             ))),
@@ -738,20 +709,14 @@ impl Recorder {
     /// rather than global, so a window learns about its own recording and
     /// nothing else.
     ///
-    /// This is load-bearing, not recovery sugar. Reloading a window does not
-    /// destroy it, so a window that reloads mid-recording still owns that
-    /// recording and needs it back to stop or cancel it. The same call is how a
-    /// reload finds a recording whose capture died while the JS was gone: the
-    /// answer carries `ended_reason`, and stopping it still publishes what it
-    /// captured.
+    /// The IPC boundary additionally verifies the document's session. Reload
+    /// retires that document; this read cannot adopt its abandoned capture.
     pub fn current(&self, caller_label: &str) -> Option<HostRecording> {
         self.active
             .as_ref()
             .filter(|active| active.owner_label == caller_label)
             .map(|active| HostRecording {
                 audio_blob_id: active.audio_blob_id.clone(),
-                destination: active.destination.clone(),
-                attachment: active.attachment.clone(),
                 device: active.device.clone(),
                 ended_reason: active.ended_reason,
             })
@@ -772,49 +737,6 @@ impl Recorder {
         self.active
             .as_ref()
             .is_some_and(|active| active.audio_blob_id == id)
-    }
-    pub fn holds_destination(&self, destination: &BlobDestination) -> bool {
-        self.active
-            .as_ref()
-            .is_some_and(|active| &active.destination == destination)
-    }
-
-    /// Release this exact capture, preserving recovery. An absent session is already released.
-    pub fn release(&mut self, id: &str, destination: &BlobDestination, owner: &str) -> Result<()> {
-        if !self.holds(id) {
-            return Ok(());
-        }
-        self.require_owned(id, owner)?;
-        if !self.holds_destination(destination) {
-            return Err(RecorderError::not_recording(
-                "capture belongs to another destination",
-            ));
-        }
-        let active = self.active.take().unwrap();
-        let _ = active.cmd_tx.send(RecorderCmd::Release);
-        active
-            .worker
-            .join()
-            .map_err(|_| RecorderError::failed("capture worker panicked during release"))?;
-        Ok(())
-    }
-
-    pub fn release_owned_by(&mut self, owner: &str) {
-        if let Some(recording) = self.current(owner) {
-            let _ = self.release(&recording.audio_blob_id, &recording.destination, owner);
-        }
-    }
-
-    pub fn retire(
-        &mut self,
-        id: &str,
-        destination: &BlobDestination,
-        owner: &str,
-        root: &std::path::Path,
-    ) -> Result<()> {
-        // Teardown drains and finalizes staging without publishing it.
-        self.release(id, destination, owner)?;
-        super::recovery::discard(root, id, destination)
     }
 
     /// The one admission rule, in one place: the slot must be empty.
@@ -882,9 +804,9 @@ fn discard(active: HeldRecording) {
 impl Drop for Recorder {
     fn drop(&mut self) {
         if let Some(active) = self.active.take() {
-            let _ = active.cmd_tx.send(RecorderCmd::Release);
-            let _ = active.worker.join();
+            discard(active);
         }
+        self.discard_all_finished();
     }
 }
 
@@ -948,11 +870,6 @@ fn run_capture<S>(
         // Command channel has priority. Stop should respond fast even
         // when audio frames are arriving back-to-back.
         match cmd_rx.try_recv() {
-            Ok(RecorderCmd::Release) => {
-                close_capture_and_drain(stream, &mut capture, &sample_rx);
-                let _ = capture.finish();
-                return CaptureOutcome::Resolved;
-            }
             Ok(RecorderCmd::Stop(reply)) => {
                 close_capture_and_drain(stream, &mut capture, &sample_rx);
                 report_dropped_chunks(dropped_chunks, audio_blob_id);
@@ -1142,8 +1059,8 @@ fn report_dropped_chunks(dropped_chunks: &AtomicU32, audio_blob_id: &str) {
 fn await_resolution(capture: StagedCapture, cmd_rx: &mpsc::Receiver<RecorderCmd>) {
     loop {
         match cmd_rx.recv() {
-            Ok(RecorderCmd::Release) | Err(_) => {
-                let _ = capture.finish();
+            Err(_) => {
+                capture.discard();
                 return;
             }
             Ok(RecorderCmd::Stop(reply)) => {
@@ -1529,307 +1446,117 @@ mod tests {
     /// capture and transcription happen to agree.
     const TEST_RATE: u32 = 48_000;
 
-    fn attachment_recording() -> HostRecording {
-        HostRecording {
-            audio_blob_id: "blob_aaaaaaaaaaaaaaaaaaaaa".into(),
-            destination: BlobDestination {
-                app_id: "com.epicenter.whispering".into(),
-                replica: crate::blobs::LibraryReplica::Local {},
-            },
-            attachment: super::super::recovery::RecordingAttachment {
-                table_name: "recordings".into(),
-                row_id: "aaaaaaaaaaaaaaaaaaaaaaaa".into(),
-                generation: None,
-            },
-            device: DeviceAcquisition::Success {
-                device_id: "process-test-input".into(),
-            },
-            ended_reason: None,
-        }
-    }
-
-    #[test]
-    #[ignore = "subprocess entry point for the process-death test"]
-    fn recoverable_capture_child() {
-        let root =
-            std::path::PathBuf::from(std::env::var_os("EPICENTER_CAPTURE_CRASH_ROOT").unwrap());
-        let recording = attachment_recording();
-        let staged = StagedBlob::stage(root.clone(), &recording.attachment.key().unwrap()).unwrap();
-        let mut capture = StagedCapture::open(staged, TEST_RATE).unwrap();
-        super::super::recovery::save(&root, &recording, &capture.staged).unwrap();
-        capture.write(&tone(TEST_RATE, 1)).unwrap();
-        std::fs::write(root.join("ready"), b"checkpointed").unwrap();
-        // The parent kills this process: no Rust destructor/finalizer runs.
-        loop {
-            std::thread::park();
-        }
-    }
-
-    #[test]
-    fn killed_process_preserves_row_library_and_playable_staged_audio_until_acknowledged() {
-        let root = staging_root();
-        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "recorder::recorder::tests::recoverable_capture_child",
-                "--ignored",
-            ])
-            .env("EPICENTER_CAPTURE_CRASH_ROOT", root.path())
-            .stdout(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while !root.path().join("ready").exists() {
-            if Instant::now() >= deadline || child.try_wait().unwrap().is_some() {
-                let _ = child.kill();
-                let _ = child.wait();
-                panic!("child failed to checkpoint capture");
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-        child.kill().unwrap();
-        assert!(!child.wait().unwrap().success());
-        crate::blobs::delete_staging_root(root.path());
-        let recording = attachment_recording();
-        let recovered = super::super::recovery::current(root.path(), &recording.destination)
-            .unwrap()
-            .unwrap();
-        assert_eq!(recovered.audio_blob_id, recording.audio_blob_id);
-        assert_eq!(recovered.attachment, recording.attachment);
-        assert_eq!(recovered.destination, recording.destination);
-        let saved = super::super::recovery::read(
-            root.path(),
-            &recording.audio_blob_id,
-            &recording.destination,
-        )
-        .unwrap();
-        let (duration, length) = super::super::recovery::publish(root.path(), &saved).unwrap();
-        assert_eq!(duration, 1000);
-        assert!(length > 44);
-        let path = root
-            .path()
-            .join(recording.attachment.key().unwrap())
-            .join("data");
-        let samples = decode_to_pcm16k_mono(&std::fs::read(&path).unwrap()).unwrap();
-        assert!(samples.len().abs_diff(16_000) <= 1);
-        assert!(samples.iter().any(|sample| sample.abs() > 0.4));
+    #[tokio::test]
+    #[ignore = "opens the physical default microphone for two seconds; run only for explicit native acceptance"]
+    async fn physical_microphone_finishes_and_reopens_without_a_webview_audio_buffer() {
+        let permission = crate::command::get_microphone_permission().await;
+        let devices = Recorder::new().enumerate_devices().unwrap();
+        eprintln!("NATIVE_CAPTURE_ENV permission={permission:?}, inputs={devices:?}");
         assert!(
-            super::super::recovery::current(root.path(), &recording.destination)
-                .unwrap()
-                .is_some()
+            matches!(
+                permission,
+                crate::command::MicrophonePermission::Granted
+                    | crate::command::MicrophonePermission::Unknown
+            ),
+            "physical capture requires microphone authorization for this executable"
         );
-        assert_eq!(
-            super::super::recovery::publish(root.path(), &saved).unwrap(),
-            (duration, length)
-        );
-        super::super::recovery::acknowledge(root.path(), &recording.audio_blob_id).unwrap();
-        assert!(
-            super::super::recovery::current(root.path(), &recording.destination)
-                .unwrap()
-                .is_none()
-        );
-        assert!(path.exists());
-    }
-
-    #[test]
-    fn failed_attachment_publication_retains_capture_and_cancel_preserves_another_writer() {
         let root = staging_root();
-        let recording = attachment_recording();
-        let key = recording.attachment.key().unwrap();
-        let staged = StagedBlob::stage(root.path().into(), &key).unwrap();
-        let mut capture = StagedCapture::open(staged, TEST_RATE).unwrap();
-        super::super::recovery::save(root.path(), &recording, &capture.staged).unwrap();
-        capture.write(&tone(TEST_RATE, 1)).unwrap();
-        let staged_data = capture.staged.data_path();
-        let finalized = capture.finish().unwrap();
-        // A competing local writer has completed this row in the meantime.
-        std::fs::create_dir(root.path().join(&key)).unwrap();
-        std::fs::write(root.path().join(&key).join("data"), b"another writer").unwrap();
-        assert!(finalized.publish().is_err());
-        assert!(staged_data.exists());
-        let saved = super::super::recovery::read(
-            root.path(),
-            &recording.audio_blob_id,
-            &recording.destination,
-        )
-        .unwrap();
-        assert!(super::super::recovery::publish(root.path(), &saved).is_err());
-        super::super::recovery::discard(
-            root.path(),
-            &recording.audio_blob_id,
-            &recording.destination,
-        )
-        .unwrap();
-        assert!(!staged_data.exists());
-        assert_eq!(
-            std::fs::read(root.path().join(&key).join("data")).unwrap(),
-            b"another writer"
-        );
-    }
-
-    #[test]
-    fn cancellation_discards_staging_but_preserves_publication_after_lost_acknowledgment() {
-        for published in [false, true] {
-            let root = staging_root();
-            let recording = attachment_recording();
-            let key = recording.attachment.key().unwrap();
-            let staged = StagedBlob::stage(root.path().into(), &key).unwrap();
-            let mut capture = StagedCapture::open(staged, TEST_RATE).unwrap();
-            super::super::recovery::save(root.path(), &recording, &capture.staged).unwrap();
-            capture.write(&tone(TEST_RATE, 1)).unwrap();
-            let staged_data = capture.staged.data_path();
-            let finalized = capture.finish().unwrap();
-            if published {
-                finalized.publish().unwrap();
-            }
-            // Native cleanup cannot infer row completion or deletion from a lost acknowledgment.
-            for _ in 0..2 {
-                super::super::recovery::discard(
-                    root.path(),
-                    &recording.audio_blob_id,
-                    &recording.destination,
-                )
-                .unwrap();
-            }
-            assert!(!staged_data.exists());
-            assert!(
-                super::super::recovery::current(root.path(), &recording.destination)
-                    .unwrap()
-                    .is_none()
-            );
-            let published_data = root.path().join(&key).join("data");
-            assert_eq!(published_data.exists(), published);
-            if published {
-                assert!(decode_to_pcm16k_mono(&std::fs::read(published_data).unwrap()).is_ok());
-            }
-        }
-    }
-
-    #[test]
-    fn retirement_removes_staging_and_journal_but_preserves_unacknowledged_publication() {
-        for published in [false, true] {
-            let root = staging_root();
-            let recording = attachment_recording();
-            let key = recording.attachment.key().unwrap();
-            let staged = StagedBlob::stage(root.path().into(), &key).unwrap();
-            let mut capture = StagedCapture::open(staged, TEST_RATE).unwrap();
-            super::super::recovery::save(root.path(), &recording, &capture.staged).unwrap();
-            capture.write(&tone(TEST_RATE, 1)).unwrap();
-            let staged_path = capture.staged.data_path();
-            let finalized = capture.finish().unwrap();
-            if published {
-                finalized.publish().unwrap();
-            }
-            let wrong_destination = BlobDestination {
-                app_id: "com.epicenter.other".into(),
-                ..recording.destination.clone()
-            };
-            assert!(super::super::recovery::discard(
-                root.path(),
-                &recording.audio_blob_id,
-                &wrong_destination
+        for id in ["blob_aaaaaaaaaaaaaaaaaaaaa", "blob_bbbbbbbbbbbbbbbbbbbbb"] {
+            let (device, acquisition) = resolve_device(&cpal::default_host(), None).unwrap();
+            let config = get_optimal_config(&device).unwrap();
+            let rate = config.sample_rate();
+            let staged = StagedBlob::stage(root.path().into(), id).unwrap();
+            let mut capture = StagedCapture::open(staged, rate).unwrap();
+            let (tx, rx) = mpsc::sync_channel(CAPTURE_QUEUE_CHUNKS);
+            let dropped = Arc::new(AtomicU32::new(0));
+            let stream = build_input_stream(
+                &device,
+                cpal::StreamConfig {
+                    channels: config.channels(),
+                    sample_rate: rate,
+                    buffer_size: cpal::BufferSize::Default,
+                },
+                config.sample_format(),
+                config.channels(),
+                ChunkSink {
+                    sample_tx: tx,
+                    dropped_chunks: dropped.clone(),
+                },
+                |error| eprintln!("NATIVE_CAPTURE_STREAM_ERROR {error}"),
             )
-            .is_err());
-            assert!(
-                super::super::recovery::current(root.path(), &recording.destination)
-                    .unwrap()
-                    .is_some()
-            );
-            for _ in 0..2 {
-                super::super::recovery::discard(
-                    root.path(),
-                    &recording.audio_blob_id,
-                    &recording.destination,
-                )
-                .unwrap();
+            .unwrap();
+            stream.play().unwrap();
+            let until = Instant::now() + Duration::from_secs(1);
+            while Instant::now() < until {
+                if let Ok(samples) = rx.recv_timeout(Duration::from_millis(20)) {
+                    capture.write(&samples).unwrap();
+                }
             }
-            assert!(!staged_path.exists());
-            assert!(
-                super::super::recovery::current(root.path(), &recording.destination)
-                    .unwrap()
-                    .is_none()
-            );
-            let published_data = root.path().join(&key).join("data");
-            assert_eq!(published_data.exists(), published);
-            if published {
-                assert!(decode_to_pcm16k_mono(&std::fs::read(published_data).unwrap()).is_ok());
-            }
+            close_capture_and_drain(stream, &mut capture, &rx);
+            let finished = capture.finish().unwrap();
+            let bytes = std::fs::read(finished.staged.data_path()).unwrap();
+            let samples = decode_to_pcm16k_mono(&bytes).unwrap();
+            assert!(!samples.is_empty(), "physical input delivered no audio");
+            assert_eq!(dropped.load(Ordering::Relaxed), 0);
+            eprintln!("NATIVE_CAPTURE_RESULT device={}, rate={rate}, duration_ms={}, bytes={}, decoded_samples={}", acquisition.device_id(), finished.duration_ms, bytes.len(), samples.len());
+            finished.staged.discard();
         }
     }
 
     #[test]
-    fn held_retirement_fences_window_destination_and_successor_capture() {
+    fn a_real_capture_write_failure_cannot_be_finished_as_success() {
         let root = staging_root();
-        let recording = attachment_recording();
-        let key = recording.attachment.key().unwrap();
-        let staged = StagedBlob::stage(root.path().into(), &key).unwrap();
-        let mut capture = StagedCapture::open(staged, TEST_RATE).unwrap();
-        super::super::recovery::save(root.path(), &recording, &capture.staged).unwrap();
-        capture.write(&tone(TEST_RATE, 1)).unwrap();
-        let staged_path = capture.staged.data_path();
+        let staged = StagedBlob::stage(root.path().into(), "blob_aaaaaaaaaaaaaaaaaaaaa").unwrap();
+        std::fs::write(staged.data_path(), []).unwrap();
+        let file = std::fs::File::open(staged.data_path()).unwrap();
+        let writer = WavWriter::new(
+            BufWriter::new(file),
+            WavSpec {
+                channels: 1,
+                sample_rate: TEST_RATE,
+                bits_per_sample: 16,
+                sample_format: WavSampleFormat::Int,
+            },
+        )
+        .unwrap();
+        let mut capture = StagedCapture {
+            staged,
+            writer: Some(writer),
+            device_rate: TEST_RATE,
+            write_failed: false,
+        };
+        assert!(capture.write(&tone(TEST_RATE, 1)).is_err());
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let worker = thread::spawn(move || await_resolution(capture, &cmd_rx));
-        let mut recorder = Recorder {
-            active: Some(HeldRecording {
-                audio_blob_id: recording.audio_blob_id.clone(),
-                owner_label: "owner".into(),
-                destination: recording.destination.clone(),
-                attachment: recording.attachment.clone(),
-                device: recording.device.clone(),
-                ended_reason: None,
-                cmd_tx,
-                worker,
-            }),
-        };
-        let wrong_destination = BlobDestination {
-            app_id: "com.epicenter.other".into(),
-            ..recording.destination.clone()
-        };
-        assert!(recorder
-            .retire(
-                &recording.audio_blob_id,
-                &wrong_destination,
-                "owner",
-                root.path()
-            )
-            .is_err());
-        assert!(recorder
-            .retire(
-                &recording.audio_blob_id,
-                &recording.destination,
-                "other-window",
-                root.path()
-            )
-            .is_err());
-        assert!(recorder.holds(&recording.audio_blob_id));
-        assert!(staged_path.exists());
-        recorder
-            .retire(
-                &recording.audio_blob_id,
-                &recording.destination,
-                "owner",
-                root.path(),
-            )
-            .unwrap();
-        assert!(!recorder.holds(&recording.audio_blob_id));
-        assert!(!staged_path.exists());
-        assert!(!root.path().join(key).exists());
-        recording_owned_by(
-            &mut recorder,
-            &root,
-            "blob_bbbbbbbbbbbbbbbbbbbbb",
-            "successor",
+        let mut recorder = Recorder::new();
+        recorder.register_session("owner", "document").unwrap();
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
+        recorder.active = Some(HeldRecording {
+            audio_blob_id: id.into(),
+            owner_label: "owner".into(),
+            device: DeviceAcquisition::Success {
+                device_id: "storage-failure-fixture".into(),
+            },
+            ended_reason: Some(EndedReason::StorageFailed),
+            cmd_tx,
+            worker,
+        });
+        assert!(matches!(
+            recorder.stop_session("owner", "document", id),
+            Err(RecorderError::CaptureLost { .. })
+        ));
+        assert!(recorder.current("owner").is_none());
+        assert!(matches!(
+            recorder.stop_session("owner", "document", id),
+            Err(RecorderError::NotRecording { .. })
+        ));
+        recorder.require_free_slot().unwrap();
+        assert_eq!(
+            std::fs::read_dir(root.path().join(".staging/rust"))
+                .unwrap()
+                .count(),
+            0
         );
-        recorder
-            .retire(
-                &recording.audio_blob_id,
-                &recording.destination,
-                "owner",
-                root.path(),
-            )
-            .unwrap();
-        assert!(recorder.holds("blob_bbbbbbbbbbbbbbbbbbbbb"));
-        assert!(recorder.current("successor").is_some());
     }
 
     #[test]
@@ -1899,13 +1626,8 @@ mod tests {
         let (cmd_tx, cmd_rx) = mpsc::channel::<RecorderCmd>();
         let worker = thread::spawn(move || await_resolution(capture, &cmd_rx));
         recorder.active = Some(HeldRecording {
-            attachment: attachment_recording().attachment,
             audio_blob_id: audio_blob_id.to_string(),
             owner_label: owner_label.to_string(),
-            destination: BlobDestination {
-                app_id: "so.epicenter.notes".into(),
-                replica: crate::blobs::LibraryReplica::Local {},
-            },
             device: DeviceAcquisition::Success {
                 device_id: "Test Microphone".to_string(),
             },
@@ -1931,6 +1653,7 @@ mod tests {
             RecorderError::NoInputDevice { .. } => "NoInputDevice",
             RecorderError::Busy { .. } => "Busy",
             RecorderError::NotRecording { .. } => "NotRecording",
+            RecorderError::CaptureLost { .. } => "CaptureLost",
             RecorderError::Failed { .. } => "Failed",
         }
     }
@@ -1944,30 +1667,6 @@ mod tests {
     }
 
     #[test]
-    fn release_is_idempotent_without_a_journal_and_fences_live_ownership() {
-        let root = staging_root();
-        let mut recorder = Recorder::new();
-        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
-        recording_owned_by(&mut recorder, &root, id, "owner");
-        let destination = recorder.current("owner").unwrap().destination;
-        let foreign = BlobDestination {
-            app_id: "so.epicenter.other".into(),
-            ..destination.clone()
-        };
-        assert!(recorder.release(id, &foreign, "owner").is_err());
-        assert!(recorder.release(id, &destination, "other-window").is_err());
-        assert!(recorder.holds(id));
-        recorder.release(id, &destination, "owner").unwrap();
-        recorder.release(id, &destination, "owner").unwrap();
-        assert!(!recorder.holds(id));
-        let next = "blob_bbbbbbbbbbbbbbbbbbbbb";
-        recording_owned_by(&mut recorder, &root, next, "successor");
-        recorder.release(id, &destination, "owner").unwrap();
-        assert!(recorder.holds(next));
-        recorder.release(next, &destination, "successor").unwrap();
-    }
-
-    #[test]
     fn a_fresh_recorder_is_idle_and_owns_nothing() {
         let recorder = Recorder::new();
         assert!(!recorder.is_capturing());
@@ -1975,6 +1674,178 @@ mod tests {
         recorder
             .require_free_slot()
             .expect("an idle recorder admits a start");
+    }
+
+    #[test]
+    fn resolving_absence_fences_a_late_start_without_touching_a_successor_or_finished_file() {
+        let root = staging_root();
+        let mut recorder = Recorder::new();
+        recorder.register_session("window", "document").unwrap();
+        assert!(recorder
+            .resolve_start("window", "document", "late")
+            .unwrap()
+            .is_none());
+        assert!(recorder
+            .prepare_start("window", "document", "late")
+            .is_err());
+        assert!(recorder
+            .prepare_start("window", "document", "next")
+            .unwrap()
+            .is_none());
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
+        recording_owned_by(&mut recorder, &root, id, "window");
+        recorder.remember_start("window", "document", "next", id);
+        assert!(recorder
+            .resolve_start("window", "document", "late")
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            recorder
+                .resolve_start("window", "document", "next")
+                .unwrap()
+                .unwrap()
+                .audio_blob_id,
+            id
+        );
+        recorder.stop_session("window", "document", id).unwrap();
+        assert!(recorder
+            .resolve_start("window", "document", "next")
+            .unwrap()
+            .is_none());
+        assert!(recorder.stop_session("window", "document", id).is_ok());
+        recorder.close_document("window");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn document_departure_discards_output_and_stale_commands_cannot_touch_successor() {
+        let root = staging_root();
+        let mut recorder = Recorder::new();
+        let old = "blob_aaaaaaaaaaaaaaaaaaaaa";
+        let next = "blob_bbbbbbbbbbbbbbbbbbbbb";
+        recorder.register_session("window", "document-1").unwrap();
+        recording_owned_by(&mut recorder, &root, old, "window");
+        recorder.remember_start("window", "document-1", "request-1", old);
+        assert_eq!(
+            recorder
+                .prepare_start("window", "document-1", "request-1")
+                .unwrap()
+                .unwrap()
+                .audio_blob_id,
+            old
+        );
+        let stopped = recorder.stop_session("window", "document-1", old).unwrap();
+        assert_eq!(stopped.byte_length, 96_044);
+        assert_eq!(
+            recorder
+                .stop_session("window", "document-1", old)
+                .unwrap()
+                .byte_length,
+            stopped.byte_length
+        );
+        assert!(recorder
+            .prepare_start("window", "document-1", "request-2")
+            .is_err());
+        assert!(recorder
+            .stop_session("intruder", "document-1", old)
+            .is_err());
+        recorder.close_document("window");
+        assert!(recorder.register_session("window", "document-1").is_err());
+        recorder.register_session("window", "document-2").unwrap();
+        recording_owned_by(&mut recorder, &root, next, "window");
+        recorder.close_session("window", "document-1");
+        assert!(recorder
+            .cancel_session("window", "document-1", next)
+            .is_err());
+        assert!(recorder.stop_session("window", "document-1", old).is_err());
+        assert!(recorder.holds(next));
+        recorder.close_document("window");
+        assert!(!recorder.is_capturing());
+        assert_eq!(
+            std::fs::read_dir(root.path().join(".staging/rust"))
+                .unwrap()
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn native_finished_publication_preserves_origin_after_lost_reply_and_retirement() {
+        let root = staging_root();
+        let mut recorder = Recorder::new();
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
+        let key = "attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa";
+        let destination = crate::blobs::BlobDestination {
+            app_id: "so.epicenter.notes".into(),
+            replica: crate::blobs::LibraryReplica::Personal {
+                account: crate::blobs::ReplicaAccount {
+                    authority_id: "server-a".into(),
+                    principal_id: "owner-a".into(),
+                },
+            },
+        };
+        recorder.register_session("window", "document").unwrap();
+        recording_owned_by(&mut recorder, &root, id, "window");
+        recorder.stop_session("window", "document", id).unwrap();
+        assert!(recorder
+            .publish_file("foreign", id, root.path(), &destination, key, Some(7))
+            .is_err());
+        let first = recorder
+            .publish_file("window", id, root.path(), &destination, key, Some(7))
+            .unwrap();
+        assert_eq!(first.size, 96_044);
+        let retry = recorder
+            .publish_file("window", id, root.path(), &destination, key, Some(7))
+            .unwrap();
+        assert_eq!(first, retry);
+        assert!(recorder
+            .publish_file("window", id, root.path(), &destination, key, Some(8))
+            .is_err());
+        let published = crate::blobs::blobs_directory(root.path(), &destination)
+            .unwrap()
+            .join(key);
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(published.join("metadata.json")).unwrap())
+                .unwrap();
+        assert_eq!(metadata["attachment"]["originGeneration"], 7);
+        recorder.close_document("window");
+        assert!(recorder
+            .publish_file("window", id, root.path(), &destination, key, Some(7))
+            .is_err());
+        assert_eq!(
+            std::fs::metadata(published.join("data")).unwrap().len(),
+            u64::from(first.size)
+        );
+        let bytes = std::fs::read(published.join("data")).unwrap();
+        assert!(!decode_to_pcm16k_mono(&bytes).unwrap().is_empty());
+    }
+
+    #[test]
+    fn retirement_before_native_publication_refuses_without_creating_an_attachment() {
+        let root = staging_root();
+        let mut recorder = Recorder::new();
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
+        let destination = crate::blobs::BlobDestination {
+            app_id: "so.epicenter.notes".into(),
+            replica: crate::blobs::LibraryReplica::Local {},
+        };
+        recorder.register_session("window", "document").unwrap();
+        recording_owned_by(&mut recorder, &root, id, "window");
+        recorder.stop_session("window", "document", id).unwrap();
+        recorder.close_document("window");
+        assert!(recorder
+            .publish_file(
+                "window",
+                id,
+                root.path(),
+                &destination,
+                "attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa",
+                None
+            )
+            .is_err());
+        assert!(!crate::blobs::blobs_directory(root.path(), &destination)
+            .unwrap()
+            .exists());
     }
 
     #[test]
@@ -1996,36 +1867,8 @@ mod tests {
         assert!(recorder.current("whispering").is_none());
     }
 
-    #[test]
-    fn recovery_reports_the_original_dataset_even_after_capture_ends() {
-        let root = staging_root();
-        let mut recorder = Recorder::new();
-        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
-        recording_owned_by(&mut recorder, &root, id, "app-notes");
-        assert_eq!(
-            recorder.current("app-notes").unwrap().destination.replica,
-            crate::blobs::LibraryReplica::Local {}
-        );
-        let account = BlobDestination {
-            app_id: "so.epicenter.whispering".into(),
-            replica: crate::blobs::LibraryReplica::Personal {
-                account: crate::blobs::ReplicaAccount {
-                    authority_id: "authority-a".into(),
-                    principal_id: "principal".into(),
-                },
-            },
-        };
-        recorder.active.as_mut().unwrap().destination = account.clone();
-        recorder.end_capture(id, EndedReason::DeviceDisconnected);
-        for _ in 0..2 {
-            assert_eq!(recorder.current("app-notes").unwrap().destination, account);
-        }
-        assert!(recorder.current("another-window").is_none());
-        recorder.cancel(id, "app-notes").unwrap();
-    }
-
     /// `current` is a read, not a claim. Two calls answer twice, because a
-    /// window that reloads twice must find the same recording both times.
+    /// document that queries twice must find the same recording both times.
     #[test]
     fn reading_the_current_recording_never_consumes_it() {
         let root = staging_root();

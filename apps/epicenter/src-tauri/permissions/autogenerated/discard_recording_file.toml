@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-discard-recording-file"
+description = "Enables the discard_recording_file command without any pre-configured scope."
+commands.allow = ["discard_recording_file"]
+
+[[permission]]
+identifier = "deny-discard-recording-file"
+description = "Denies the discard_recording_file command without any pre-configured scope."
+commands.deny = ["discard_recording_file"]

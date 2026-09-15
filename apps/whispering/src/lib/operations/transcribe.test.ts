@@ -35,9 +35,8 @@ mock.module('../services/transcription/cloud/mistral.js', () => ({
 mock.module('../services/transcription/cloud/elevenlabs.js', () => ({
 	ElevenLabsTranscriptionServiceLive: { transcribe: () => bespoke() },
 }));
-const { transcribeAudio, transcribeAndPersist } = await import(
-	'./transcribe.js'
-);
+const { transcribeAudio, transcribeAndPersist, captureTranscription } =
+	await import('./transcribe.js');
 
 async function setup({
 	response = () => Response.json({ text: '  spoken words  ' }),
@@ -132,7 +131,10 @@ async function setup({
 		run: () =>
 			transcribeAudio('recording-id', {
 				signal: controller.signal,
-				recordings: { readAudio: () => load() },
+				recordings: {
+					get: () => ({ id: 'recording-id' }),
+					readAudio: () => load(),
+				},
 			} as unknown as WhisperingApp),
 		close: async () => {
 			selections[Symbol.dispose]();
@@ -264,6 +266,47 @@ test('malformed output fails and a retained operation sends nothing after closur
 	}
 });
 
+test('capture retains the original inference target before recording exists', async () => {
+	const fixture = await setup();
+	const domain = {
+		signal: fixture.controller.signal,
+		recordings: {
+			get: () => ({ id: 'recording-id' }),
+			readAudio: async () => Ok(fixture.audio),
+		},
+	} as unknown as WhisperingApp;
+	const transcribe = captureTranscription(domain);
+	fixture.values.set('transcriptionModel', 'changed-model');
+	fixture.selections.set('transcription', {
+		connectionId: fixture.id,
+		model: 'changed-model',
+	});
+	expectOk(await transcribe('recording-id'));
+	const sent = await fixture.requests[0]!.formData();
+	expect(sent.get('model')).toBe('saved-model');
+	await fixture.close();
+});
+
+test('row deletion during local read prevents sending audio to inference', async () => {
+	const fixture = await setup();
+	let exists = true;
+	const domain = {
+		signal: fixture.controller.signal,
+		recordings: {
+			get: () => (exists ? { id: 'recording-id' } : undefined),
+			readAudio: async () => {
+				exists = false;
+				return Ok(fixture.audio);
+			},
+		},
+	} as unknown as WhisperingApp;
+	expect(
+		expectErr(await captureTranscription(domain)('recording-id')).name,
+	).toBe('Closed');
+	expect(fixture.requests).toHaveLength(0);
+	await fixture.close();
+});
+
 test('bespoke completion after retirement cannot publish transcript or history', async () => {
 	const fixture = await setup();
 	fixture.values.set('transcriptionService', 'Deepgram');
@@ -276,7 +319,11 @@ test('bespoke completion after retirement cannot publish transcript or history',
 	const patch = mock();
 	const domain = {
 		signal: fixture.controller.signal,
-		recordings: { patch, readAudio: async () => Ok(fixture.audio) },
+		recordings: {
+			get: () => ({ id: 'recording-id' }),
+			patch,
+			readAudio: async () => Ok(fixture.audio),
+		},
 	} as unknown as WhisperingApp;
 	const pending = transcribeAndPersist(domain, 'recording-id');
 	await started.promise;

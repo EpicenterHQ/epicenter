@@ -13,7 +13,6 @@ import {
 } from '@epicenter/app/recorder';
 import type { Account } from '@epicenter/auth';
 import { generateBlobId } from '@epicenter/blobs';
-import type { Attachment } from '@epicenter/data/store';
 import {
 	defineData,
 	defineTable,
@@ -35,7 +34,7 @@ function setup({
 	startGate = Promise.resolve(),
 	stopGate = Promise.resolve(),
 	cancelGate = Promise.resolve(),
-	recovered = false,
+	saveGate = Promise.resolve(),
 	recoveryFailsAfterStart = false,
 	recoveryFails = false,
 	cancelFails = false,
@@ -46,6 +45,8 @@ function setup({
 	let cancels = 0;
 	let stops = 0;
 	let releases = 0;
+	let recorderCloses = 0;
+	const savingEntered = Promise.withResolvers<void>();
 	const recording: RecordingFactory = (appId, replica, options) => {
 		bindings.push({ appId, replica });
 		let active: Recording | null = null;
@@ -81,12 +82,8 @@ function setup({
 				: Ok(active);
 		}
 		const audioBlobId = generateBlobId();
-		let into: Attachment;
 		const session: Recording = {
 			id: audioBlobId,
-			get into() {
-				return into;
-			},
 			replica,
 			device: { outcome: 'success', deviceId: asDeviceIdentifier('mic') },
 			endedReason: null,
@@ -95,21 +92,24 @@ function setup({
 					stops++;
 					await stopGate;
 					active = null;
-					return Ok({ audioBlobId, durationMs: 100, byteLength: 32 });
+					return Ok({
+						file: new Blob(['audio']),
+						durationMs: 100,
+						byteLength: 5,
+					});
 				}),
 			cancel: () => run(cancel),
 			onLevel: () => () => {},
 			onEnded: () => () => {},
 		};
-		if (recovered) active = session;
 		return {
 			value: {
+				discard: async () => Ok(undefined),
 				current: () => run(current),
 				enumerateDevices: () => run(async () => Ok([])),
-				start: (params) =>
+				start: () =>
 					run(async () => {
 						starts++;
-						into = params.into;
 						if (active) return RecorderError.AlreadyRecording();
 						await startGate;
 						active = session;
@@ -117,14 +117,15 @@ function setup({
 					}),
 			},
 			close() {
+				recorderCloses++;
 				closed = true;
 				return (closing ??= (async () => {
 					await Promise.allSettled(pending);
-					if (active === null && (options.canRecover?.() ?? true)) {
+					if (active === null) {
 						const result = await current();
 						if (result.error) throw result.error;
 					}
-					if (active !== null && (options.canRecover?.() ?? true)) {
+					if (active !== null) {
 						const result = await cancel();
 						if (result.error) throw result.error;
 					}
@@ -158,7 +159,16 @@ function setup({
 					},
 				}),
 			},
-			blobs: createBrowserAppBlobs(),
+			blobs(input) {
+				const blobs = createBrowserAppBlobs()(input);
+				const put = blobs.local.attachments!.put;
+				blobs.local.attachments!.put = async (...args) => {
+					savingEntered.resolve();
+					await saveGate;
+					return put(...args);
+				};
+				return blobs;
+			},
 			recording,
 		},
 		ai: { runtime: null, account: null },
@@ -171,6 +181,8 @@ function setup({
 		cancels: () => cancels,
 		stops: () => stops,
 		releases: () => releases,
+		recorderCloses: () => recorderCloses,
+		savingEntered: savingEntered.promise,
 	};
 }
 
@@ -180,27 +192,15 @@ test('opening binds recording once and readiness gates microphone acquisition', 
 	expect(Object.hasOwn(epicenter, 'recording')).toBe(false);
 	const app = epicenter.openLocal();
 	expect(bindings).toEqual([{ appId, replica: { library: 'local' } }]);
-	expect(() =>
-		app.recording.start({
-			into: app.tables.recordings.attachment('a'.repeat(24)),
-		}),
-	).toThrow('not ready');
+	expect(() => app.recording.start({})).toThrow('not ready');
 	expect(starts()).toBe(0);
 	expectOk(await app.ready);
-	const session = expectOk(
-		await app.recording.start({
-			into: app.tables.recordings.attachment('a'.repeat(24)),
-		}),
-	);
+	const session = expectOk(await app.recording.start({}));
 	expect(expectOk(await app.recording.current())).toBe(session);
 	expect(session.replica).toEqual({ library: 'local' });
 	expectOk(await session.cancel());
 	await app.close();
-	expect(() =>
-		app.recording.start({
-			into: app.tables.recordings.attachment('a'.repeat(24)),
-		}),
-	).toThrow();
+	expect(() => app.recording.start({})).toThrow();
 });
 
 test('account recording keeps the opened identity when the supplied account changes', async () => {
@@ -232,11 +232,7 @@ test('account recording keeps the opened identity when the supplied account chan
 	const app = epicenter.openPersonal(account);
 	Reflect.set(account, 'authorityId', 'replacement');
 	expectOk(await app.ready);
-	const session = expectOk(
-		await app.recording.start({
-			into: app.tables.recordings.attachment('a'.repeat(24)),
-		}),
-	);
+	const session = expectOk(await app.recording.start({}));
 	expect(session.replica).toEqual({
 		library: 'personal',
 		account: { authorityId: 'original', principalId: asPrincipalId('alice') },
@@ -254,9 +250,7 @@ test('close waits for an admitted start and cancels its late capture', async () 
 	});
 	const app = epicenter.openLocal();
 	expectOk(await app.ready);
-	const pending = app.recording.start({
-		into: app.tables.recordings.attachment('a'.repeat(24)),
-	});
+	const pending = app.recording.start({});
 	let closed = false;
 	const closing = app.close().then(() => {
 		closed = true;
@@ -279,11 +273,7 @@ test('close drains admitted publication without cancelling it', async () => {
 	});
 	const app = epicenter.openLocal();
 	expectOk(await app.ready);
-	const session = expectOk(
-		await app.recording.start({
-			into: app.tables.recordings.attachment('a'.repeat(24)),
-		}),
-	);
+	const session = expectOk(await app.recording.start({}));
 	const pending = session.stop();
 	let closed = false;
 	const closing = app.close().then(() => {
@@ -298,18 +288,46 @@ test('close drains admitted publication without cancelling it', async () => {
 	expect(cancels()).toBe(0);
 });
 
-test('close recovers and releases a native capture even without a prior current call', async () => {
-	const { epicenter, cancels } = setup({ recovered: true });
+test('App close drains admitted library save before recorder cleanup can discard its temporary file', async () => {
+	const release = Promise.withResolvers<void>();
+	const context = setup({ saveGate: release.promise });
+	const app = context.epicenter.openLocal();
+	expectOk(await app.ready);
+	const saving = app.tables.recordings.create({
+		audio: new Blob(['saved'], { type: 'audio/wav' }),
+	});
+	await context.savingEntered;
+	const closing = app.close();
+	await Promise.resolve();
+	expect(context.recorderCloses()).toBe(0);
+	release.resolve();
+	const row = expectOk(await saving);
+	await closing;
+	expect(context.recorderCloses()).toBe(1);
+	const reopened = context.epicenter.openLocal();
+	expectOk(await reopened.ready);
+	expect(
+		await expectOk(
+			await reopened.tables.recordings.attachment(row.id).read(),
+		).text(),
+	).toBe('saved');
+	await reopened.close();
+});
+
+test('close releases a session owned by its recorder even without a prior current call', async () => {
+	const { epicenter, cancels } = setup();
 	const app = epicenter.openLocal();
 	expectOk(await app.ready);
+	expectOk(await app.recording.start({}));
 	await app.close();
 	expect(cancels()).toBe(1);
 });
 
 test('a refused duplicate open cannot cancel the owning app capture', async () => {
-	const { epicenter, cancels } = setup({ recovered: true });
+	const { epicenter, cancels } = setup();
 	const owner = epicenter.openLocal();
 	expectOk(await owner.ready);
+	expectOk(await owner.recording.start({}));
 	const duplicate = epicenter.openLocal();
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	await duplicate.close();
@@ -319,9 +337,10 @@ test('a refused duplicate open cannot cancel the owning app capture', async () =
 });
 
 test('closing a duplicate before acquisition cannot cancel the owning app capture', async () => {
-	const { epicenter, cancels } = setup({ recovered: true });
+	const { epicenter, cancels } = setup();
 	const owner = epicenter.openLocal();
 	expectOk(await owner.ready);
+	expectOk(await owner.recording.start({}));
 	const duplicate = epicenter.openLocal();
 	await duplicate.close();
 	expectErr(await duplicate.ready);
@@ -334,11 +353,7 @@ test('close cancels a held capture without depending on a recovery read', async 
 	const { epicenter, cancels } = setup({ recoveryFailsAfterStart: true });
 	const app = epicenter.openLocal();
 	expectOk(await app.ready);
-	expectOk(
-		await app.recording.start({
-			into: app.tables.recordings.attachment('a'.repeat(24)),
-		}),
-	);
+	expectOk(await app.recording.start({}));
 	await app.close();
 	expect(cancels()).toBe(1);
 });
@@ -348,27 +363,17 @@ test('closing before readiness never admits a new recording', async () => {
 	const app = epicenter.openLocal();
 	await app.close();
 	expect(starts()).toBe(0);
-	expect(() =>
-		app.recording.start({
-			into: app.tables.recordings.attachment('a'.repeat(24)),
-		}),
-	).toThrow();
+	expect(() => app.recording.start({})).toThrow();
 });
 
-for (const failure of ['recovery', 'cancellation'] as const) {
+for (const failure of ['cancellation'] as const) {
 	test(`failed ${failure} retains ownership while other libraries remain usable`, async () => {
 		const { epicenter, releases } = setup({
-			recoveryFails: failure === 'recovery',
 			cancelFails: failure === 'cancellation',
 		});
 		const app = epicenter.openLocal();
 		expectOk(await app.ready);
-		if (failure === 'cancellation')
-			expectOk(
-				await app.recording.start({
-					into: app.tables.recordings.attachment('a'.repeat(24)),
-				}),
-			);
+		if (failure === 'cancellation') expectOk(await app.recording.start({}));
 		await expect(app.close()).rejects.toMatchObject({ name: 'RecorderFailed' });
 		expect(releases()).toBe(0);
 		const duplicate = epicenter.openLocal();

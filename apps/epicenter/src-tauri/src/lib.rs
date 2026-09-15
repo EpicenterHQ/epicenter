@@ -40,8 +40,9 @@ use audio::encode_recording_for_upload;
 pub mod blobs;
 pub mod recorder;
 use recorder::commands::{
-    acknowledge_recording, cancel_recording, cancel_recording_owned_by, current_recording,
-    enumerate_recording_devices, release_recording, retire_recording, start_recording, stop_recording,
+    cancel_recording, cancel_recording_owned_by, close_recording_session, current_recording,
+    discard_recording_file, enumerate_recording_devices, publish_recording_file,
+    register_recording_session, resolve_recording_start, start_recording, stop_recording,
 };
 use recorder::recorder::Recorder;
 
@@ -414,10 +415,12 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             start_recording,
             stop_recording,
             cancel_recording,
+            register_recording_session,
             current_recording,
-            release_recording,
-            acknowledge_recording,
-            retire_recording,
+            resolve_recording_start,
+            close_recording_session,
+            publish_recording_file,
+            discard_recording_file,
             transcribe_recording,
             transcribe_audio_bytes,
             list_inference_models,
@@ -726,11 +729,8 @@ fn ensure_app_window(app: &DesktopAppHandle, id: &str, port: u16, token: &str) -
 
 /// Release the host resources a window owns once it is destroyed.
 ///
-/// Only destruction, never hide or navigation: a hidden window still owns its
-/// recording (push-to-talk from the tray depends on that), and reload keeps the
-/// same label, which is exactly why `current_recording` exists. A destroyed
-/// window can no longer stop or cancel anything, so its recording would hold
-/// the one host recorder until the process exits.
+/// A hidden window keeps capture. Destruction releases its document; the
+/// builder's page-load hook also releases it before a replacement page loads.
 ///
 /// Built-in windows are hidden rather than destroyed when the user closes them,
 /// so this fires for them only on a host restart teardown. App windows have no
@@ -768,6 +768,11 @@ pub fn run() {
         .build();
 
     let builder = tauri::Builder::default()
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                cancel_recording_owned_by(webview.app_handle(), webview.label());
+            }
+        })
         // This must remain the first plugin: later plugins and setup must only run
         // in the process that owns the application instance.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -1387,11 +1392,12 @@ fn handle_native_frame(
             let development_origin = std::env::var("EPICENTER_API_URL").ok();
             #[cfg(not(debug_assertions))]
             let development_origin: Option<String> = None;
-            let result = validate_hosted_auth_url(&url, development_origin.as_deref()).and_then(|()| {
-                app.opener()
-                    .open_url(url, None::<String>)
-                    .map_err(Into::into)
-            });
+            let result =
+                validate_hosted_auth_url(&url, development_origin.as_deref()).and_then(|()| {
+                    app.opener()
+                        .open_url(url, None::<String>)
+                        .map_err(Into::into)
+                });
             send_native_result(app, generation, &request_id, result)
         }
         BunToRustNativeFrame::PutAppSecret {
@@ -1989,7 +1995,10 @@ mod tests {
             assert!(validate_hosted_auth_url(url, origin).is_err());
         }
         assert!(validate_hosted_auth_url("http://localhost:8787/sign-in", None).is_err());
-        assert!(validate_hosted_auth_url("https://evil.test/sign-in", Some("https://evil.test")).is_err());
+        assert!(
+            validate_hosted_auth_url("https://evil.test/sign-in", Some("https://evil.test"))
+                .is_err()
+        );
     }
 
     #[test]
@@ -2451,9 +2460,11 @@ mod tests {
         "stop_recording",
         "cancel_recording",
         "current_recording",
-        "release_recording",
-        "acknowledge_recording",
-        "retire_recording",
+        "resolve_recording_start",
+        "register_recording_session",
+        "close_recording_session",
+        "publish_recording_file",
+        "discard_recording_file",
         "transcribe_recording",
         "transcribe_audio_bytes",
         "list_inference_models",

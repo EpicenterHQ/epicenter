@@ -9,7 +9,12 @@ import { Err, Ok, tryAsync } from 'wellcrafted/result';
 import type { BlobId } from './blob-id.js';
 import { type BlobRemote, BlobRemoteError } from './blob-remote.js';
 import type { BlobSources } from './blob-source.js';
-import { type BlobStore, BlobStoreError } from './blob-store.js';
+import {
+	type BlobStore,
+	BlobStoreError,
+	type AttachmentContent,
+	type BlobStat,
+} from './blob-store.js';
 
 /** Canonical collection paths shared with the desktop host's route mounts. */
 export const BLOB_PATHS = {
@@ -50,11 +55,17 @@ export function createWebviewBlobs({
 	replica: input,
 	remote: selectedRemote,
 	fetch: fetcher = globalThis.fetch,
+	publishNative,
 }: {
 	appId: string;
 	replica: LibraryReplicaIdentity;
 	remote: { baseURL: string; fetch: HttpFetch } | null;
 	fetch?: HttpFetch;
+	publishNative?(
+		fileId: string,
+		storageId: BlobId,
+		originGeneration: number | null,
+	): Promise<AttachmentContent>;
 }): { local: BlobStore; sources: BlobSources; remote: BlobRemote | null } {
 	if (typeof appId !== 'string' || appId.trim() !== appId || !isAppId(appId)) {
 		throw new TypeError(
@@ -80,6 +91,61 @@ export function createWebviewBlobs({
 	}
 
 	const local: BlobStore = {
+		attachments: {
+			async put(id, file, originGeneration) {
+				if (!(file instanceof Blob)) {
+					return tryAsync({
+						try: async () => {
+							if (!publishNative || originGeneration === undefined)
+								throw new Error('Native publication is unavailable.');
+							return publishNative(file.id, id, originGeneration);
+						},
+						catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
+					});
+				}
+				const response = await request(id, {
+					method: 'PUT',
+					headers: {
+						'content-type': file.type || 'application/octet-stream',
+						'x-epicenter-attachment-origin':
+							originGeneration === undefined
+								? 'download'
+								: String(originGeneration),
+					},
+					body: file,
+				});
+				if (response.error) return response;
+				if (response.data.status === 409)
+					return BlobStoreError.BlobAlreadyExists({ id });
+				if (!response.data.ok)
+					return BlobStoreError.BlobStoreFailed({
+						id,
+						cause: `Attachment publication returned ${response.data.status}.`,
+					});
+				return tryAsync({
+					try: () => response.data.json() as Promise<AttachmentContent>,
+					catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
+				});
+			},
+			async acknowledge(id, expected, generation) {
+				const response = await request(
+					id,
+					{
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({ expected, generation }),
+					},
+					'/acknowledge',
+				);
+				if (response.error) return response;
+				return response.data.ok
+					? Ok(undefined)
+					: BlobStoreError.BlobStoreFailed({
+							id,
+							cause: `Attachment acknowledgment returned ${response.data.status}.`,
+						});
+			},
+		},
 		async copy(sourceId, destinationId) {
 			const response = await request(
 				destinationId,
@@ -163,6 +229,24 @@ export function createWebviewBlobs({
 					id,
 					cause: new Error('Local blob HEAD returned invalid metadata.'),
 				});
+			}
+			const header = response.data.headers.get('x-epicenter-attachment');
+			if (header !== null) {
+				try {
+					const attachment = JSON.parse(header) as NonNullable<
+						BlobStat['attachment']
+					>;
+					if (
+						!/^[a-f0-9]{64}$/.test(attachment.sha256) ||
+						attachment.size !== size ||
+						attachment.contentType !== contentType ||
+						typeof attachment.pendingUpload !== 'boolean'
+					)
+						throw new Error('Invalid attachment metadata.');
+					return Ok({ contentType, size, attachment });
+				} catch (cause) {
+					return BlobStoreError.BlobStoreFailed({ id, cause });
+				}
 			}
 			return Ok({ contentType, size });
 		},

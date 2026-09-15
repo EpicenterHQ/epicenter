@@ -12,6 +12,10 @@ import {
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 import type { BlobId } from './blob-id.js';
 import {
+	attachmentContent,
+	sameAttachmentContent,
+} from './attachment-content.js';
+import {
 	type BlobSource,
 	BlobSourceError,
 	type BlobSources,
@@ -223,6 +227,14 @@ export function createBrowserBlobStore(
 		return result.data;
 	}
 	return {
+		attachments: {
+			put: (id, file, generation) =>
+				operate(id, () => store.attachments!.put(id, file, generation)),
+			acknowledge: (id, expected, generation) =>
+				operate(id, () =>
+					store.attachments!.acknowledge(id, expected, generation),
+				),
+		},
 		put: (id, blob) => operate(id, () => store.put(id, blob)),
 		copy: (sourceId, destinationId) =>
 			operate(destinationId, () => store.copy(sourceId, destinationId)),
@@ -246,7 +258,110 @@ export function createBrowserBlobStore(
 
 /** The store over one database, whatever it is named. */
 function createStoreAt(databaseName: string, indexedDb: IDBFactory): BlobStore {
+	async function publish(
+		id: BlobId,
+		blob: Blob,
+		attachment?: BlobStat['attachment'],
+	) {
+		return tryAsync({
+			try: async () => {
+				const bytes = await blob.arrayBuffer();
+				return withDatabase(indexedDb, databaseName, async (database) => {
+					const transaction = database.transaction(
+						[DATA_STORE, METADATA_STORE],
+						'readwrite',
+					);
+					const completed = whenTransactionCompletes(transaction);
+					transaction
+						.objectStore(DATA_STORE)
+						.add({ id, bytes } satisfies StoredBlob);
+					transaction.objectStore(METADATA_STORE).add({
+						id,
+						size: blob.size,
+						contentType: attachment?.contentType ?? blob.type,
+						...(attachment ? { attachment } : {}),
+					} satisfies StoredBlobMetadata);
+					await completed;
+				});
+			},
+			catch: (cause) =>
+				isConstraintError(cause)
+					? BlobStoreError.BlobAlreadyExists({ id })
+					: BlobStoreError.BlobStoreFailed({ id, cause }),
+		});
+	}
 	const store: BlobStore = {
+		attachments: {
+			async put(id, file, originGeneration) {
+				if (!(file instanceof Blob))
+					return BlobStoreError.BlobStoreFailed({
+						id,
+						cause: 'A native capture cannot be saved in browser storage.',
+					});
+				try {
+					const evidence = await attachmentContent(file);
+					const result = await publish(id, file, {
+						...evidence,
+						...(originGeneration === undefined ? {} : { originGeneration }),
+						pendingUpload: typeof originGeneration === 'number',
+					});
+					if (result.error?.name === 'BlobAlreadyExists') {
+						const existing = await store.get(id);
+						const metadata = await store.stat(id);
+						if (existing.error || metadata.error)
+							return BlobStoreError.BlobStoreFailed({
+								id,
+								cause: existing.error ?? metadata.error,
+							});
+						if (
+							metadata.data.attachment &&
+							metadata.data.attachment.originGeneration === originGeneration &&
+							sameAttachmentContent(evidence, metadata.data.attachment) &&
+							sameAttachmentContent(
+								evidence,
+								await attachmentContent(existing.data),
+							)
+						)
+							return Ok(evidence);
+					}
+					return result.error ? result : Ok(evidence);
+				} catch (cause) {
+					return BlobStoreError.BlobStoreFailed({ id, cause });
+				}
+			},
+			acknowledge(id, expected, generation) {
+				return tryAsync({
+					try: () =>
+						withDatabase(indexedDb, databaseName, async (database) => {
+							const transaction = database.transaction(
+								METADATA_STORE,
+								'readwrite',
+							);
+							const completed = whenTransactionCompletes(transaction);
+							const metadata = transaction.objectStore(METADATA_STORE);
+							const stored = (await requestResult(metadata.get(id))) as
+								| StoredBlobMetadata
+								| undefined;
+							if (
+								!stored?.attachment ||
+								stored.attachment.originGeneration !== generation ||
+								!sameAttachmentContent(stored.attachment, expected)
+							) {
+								await completed;
+								throw new Error(
+									'Acknowledgment does not match this local publication.',
+								);
+							}
+							metadata.put({
+								...stored,
+								attachment: { ...stored.attachment, pendingUpload: false },
+							});
+							await completed;
+						}),
+					catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
+				});
+			},
+		},
 		async copy(sourceId, destinationId) {
 			const source = await store.get(sourceId);
 			if (source.error !== null) return source;
@@ -335,7 +450,11 @@ function createStoreAt(databaseName: string, indexedDb: IDBFactory): BlobStore {
 			});
 			if (error !== null) return Err(error);
 			if (data === undefined) return BlobStoreError.BlobNotFound({ id });
-			return Ok({ size: data.size, contentType: data.contentType });
+			return Ok({
+				size: data.size,
+				contentType: data.contentType,
+				...(data.attachment ? { attachment: data.attachment } : {}),
+			});
 		},
 
 		async statMany(ids) {
@@ -372,7 +491,13 @@ function createStoreAt(databaseName: string, indexedDb: IDBFactory): BlobStore {
 				const metadata = result.data[index];
 				return metadata === undefined
 					? BlobStoreError.BlobNotFound({ id })
-					: Ok({ size: metadata.size, contentType: metadata.contentType });
+					: Ok({
+							size: metadata.size,
+							contentType: metadata.contentType,
+							...(metadata.attachment
+								? { attachment: metadata.attachment }
+								: {}),
+						});
 			});
 		},
 

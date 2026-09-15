@@ -1,16 +1,17 @@
 /**
- * The recording workflow binds one service and coordinates deferred capture.
- * Runes are shimmed for imperative assertions; UI invalidation is typechecked separately.
+ * Disposable capture saves finished output in its captured library. Deferred
+ * acquisition, save, cancellation and stale callbacks exercise caller ordering;
+ * actual storage durability is covered by the store and native adapter suites.
  */
-import { expect, mock, test } from 'bun:test';
+import { expect, mock, setSystemTime, test } from 'bun:test';
 import {
 	RecorderError,
 	type Recording,
 	type RecordingService,
 } from '@epicenter/app/recorder';
 import { asDeviceIdentifier } from '@epicenter/recorder';
+import { InstantString } from '@epicenter/data/field';
 import { Ok, type Result } from 'wellcrafted/result';
-import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { WhisperingApp } from '$lib/whispering/app';
 
 Reflect.set(
@@ -24,9 +25,8 @@ mock.module('$lib/state/vad-recorder.svelte', () => ({ vadRecorder }));
 mock.module('#platform/manual-recorder-config', () => ({
 	manualRecorderConfig: { resolveStartParams: () => ({}) },
 }));
-const reportRecordingMicLevel = mock();
 mock.module('#platform/recording-mic-level', () => ({
-	reportRecordingMicLevel,
+	reportRecordingMicLevel: mock(),
 }));
 mock.module('$app/navigation', () => ({ goto: mock() }));
 mock.module('$app/paths', () => ({ resolve: (path: string) => path }));
@@ -35,16 +35,20 @@ mock.module('$lib/operations/media', () => ({
 	recordingMedia: { resume: mock(), pause: mock() },
 }));
 const pipeline = mock(
-	async (
-		_app: WhisperingApp,
-		_input: { recordingId: string; durationMs: number },
-	) => {},
+	async (_app: WhisperingApp, _input: Record<string, unknown>) => {},
 );
 mock.module('$lib/operations/pipeline', () => ({
 	processRecordingPipeline: pipeline,
 }));
+let inference = async () => Ok('original');
+mock.module('$lib/operations/transcribe', () => ({
+	captureTranscription: () => inference,
+}));
 mock.module('$lib/operations/sound', () => ({ playSoundIfEnabled: mock() }));
-mock.module('$lib/report', () => ({ report: { info: mock(), error: mock() } }));
+const reportError = mock();
+mock.module('$lib/report', () => ({
+	report: { info: mock(), error: reportError },
+}));
 mock.module('$lib/state/capture-surface.svelte', () => ({
 	captureSurface: { dismissImport: mock() },
 }));
@@ -54,292 +58,442 @@ mock.module('$lib/state/device-config.svelte', () => ({
 mock.module('$lib/state/dictation-lifecycle.svelte', () => ({
 	dictationLifecycle: { reset: mock(() => () => true), markFailed: mock() },
 }));
-
 const activity = await import('../state/recording-active.svelte');
 mock.module('$lib/state/recording-active.svelte', () => activity);
 const { createWhisperingRecording } = await import('./recording.svelte.js');
 
-function setup() {
-	const id = crypto.randomUUID();
-	const into = { rowId: crypto.randomUUID() } as Recording['into'];
-	const unsubscribe = mock();
-	const unlevel = mock();
-	const onLevel = mock(() => unlevel);
-	let ended: ((reason: 'deviceDisconnected') => void) | undefined;
+let nativeInvoke: (
+	command: string,
+	args?: Record<string, unknown>,
+) => Promise<unknown>;
+mock.module('@tauri-apps/api/core', () => ({
+	invoke: (command: string, args?: Record<string, unknown>) =>
+		nativeInvoke(command, args),
+}));
+mock.module('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
+const { createDesktopRecording } = await import(
+	'../../../../../packages/app/src/recording/desktop.js'
+);
+
+function setup(service?: RecordingService) {
+	const file = new Blob(['finished audio'], { type: 'audio/wav' });
+	const stop = mock<Recording['stop']>(async () =>
+		Ok({ file, durationMs: 1250, byteLength: file.size }),
+	);
 	const cancel = mock<Recording['cancel']>(async () => Ok(undefined));
-	const stop = mock(async () => Ok({ durationMs: 1, byteLength: 2 }));
+	const unlevel = mock();
+	const unsubscribe = mock();
+	let ended: (() => void) | undefined;
 	const recording: Recording = {
-		id,
-		into,
+		id: crypto.randomUUID(),
 		replica: { library: 'local' },
 		device: { outcome: 'success', deviceId: asDeviceIdentifier('mic') },
 		endedReason: null,
 		stop,
 		cancel,
-		onLevel,
+		onLevel: () => unlevel,
 		onEnded: (handler) => {
-			ended = handler;
+			ended = () => handler('deviceDisconnected');
 			return unsubscribe;
 		},
 	};
-	const current = mock<RecordingService['current']>(async () => Ok(null));
 	const start = mock<RecordingService['start']>(async () => Ok(recording));
-	const create = mock(async () => Ok({ id: into.rowId }));
-	const get = mock(() => ({ id: into.rowId, audio: null as string | null }));
-	const remove = mock(async () => Ok(undefined));
+	const current = mock<RecordingService['current']>(async () => Ok(null));
+	const discard = mock<RecordingService['discard']>(async () => Ok(undefined));
+	const create = mock<WhisperingApp['recordings']['create']>(async () =>
+		Ok({ id: 'saved-row' } as never),
+	);
+	const remove = mock();
+	const controller = new AbortController();
 	const app = {
-		signal: new AbortController().signal,
+		signal: controller.signal,
 		recordingEnabled: true,
-		recordings: {
-			create,
-			attachment: () => into,
-			get,
-			patch: mock(),
-			delete: remove,
-		},
+		recordings: { create, delete: remove, get: () => ({ id: 'saved-row' }) },
 		settings: { set: mock() },
-		blobs: { removeLocal: async () => Ok(undefined) },
 	} as unknown as WhisperingApp;
-	const session = createWhisperingRecording(app, {
-		current,
-		start,
-		enumerateDevices: async () => Ok([]),
-	});
+	const session = createWhisperingRecording(
+		app,
+		service ?? {
+			current,
+			start,
+			discard,
+			enumerateDevices: async () => Ok([]),
+		},
+	);
 	Object.defineProperty(app, 'recording', { value: session.recording });
-	const recorder = session.recording;
 	return {
 		app,
-		create,
-		get,
-		remove,
-		recorder,
+		controller,
 		session,
-		current,
-		start,
+		recorder: session.recording,
 		recording,
+		file,
+		start,
+		current,
 		stop,
 		cancel,
-		unsubscribe,
-		onLevel,
+		create,
+		remove,
+		discard,
 		unlevel,
-		end: () => ended?.('deviceDisconnected'),
+		unsubscribe,
+		end: () => ended?.(),
 	};
 }
 
-test('constructing workflows acquires nothing and they cannot retarget each other', async () => {
-	const old = setup();
-	const next = setup();
-	expect(old.current).not.toHaveBeenCalled();
-	expect(old.start).not.toHaveBeenCalled();
-	const recovery =
-		Promise.withResolvers<Result<Recording | null, RecorderError>>();
-	old.current.mockImplementationOnce(() => recovery.promise);
-	const oldRecovery = old.recorder.recover();
-	expect(await next.recorder.start()).toBe(next.recording.id);
-	recovery.resolve(Ok(old.recording));
-	expectOk(await oldRecovery);
-	expect(await old.recorder.cancel()).toBe(true);
-	expect(old.cancel).toHaveBeenCalledTimes(1);
-	expect(next.cancel).not.toHaveBeenCalled();
-	expect(next.recorder.state).toBe('RECORDING');
+test('capture creates no row and stop saves finished bytes and duration before original inference', async () => {
+	const f = setup();
+	const original = inference;
+	expect(await f.recorder.start()).toBe(f.recording.id);
+	expect(f.create).not.toHaveBeenCalled();
+	expect(f.current).not.toHaveBeenCalled();
+	inference = async () => Ok('changed');
+	await f.recorder.stop();
+	expect(f.create).toHaveBeenCalledWith(
+		expect.objectContaining({ audio: f.file, duration: 1250 }),
+	);
+	expect(pipeline).toHaveBeenLastCalledWith(
+		f.app,
+		expect.objectContaining({ recordingId: 'saved-row', transcribe: original }),
+	);
+	expect(f.recorder.saveStatus).toBe('saved');
+	expect(f.discard).toHaveBeenCalledWith(f.file);
 });
 
-test('duplicate starts are refused while startup is pending', async () => {
-	const { recorder, start, recording } = setup();
-	const startup = Promise.withResolvers<Result<Recording, RecorderError>>();
-	start.mockImplementationOnce(() => startup.promise);
-	const pending = recorder.start();
-	expect(recorder.isStarting).toBe(true);
-	expect(await recorder.start()).toBeNull();
-	startup.resolve(Ok(recording));
-	expect(await pending).toBe(recording.id);
-	expect(recorder.isStarting).toBe(false);
+test('duplicate starts are refused during acquisition', async () => {
+	const f = setup();
+	const started = Promise.withResolvers<Result<Recording, RecorderError>>();
+	f.start.mockImplementationOnce(() => started.promise);
+	const pending = f.recorder.start();
+	expect(f.recorder.isStarting).toBe(true);
+	expect(await f.recorder.start()).toBeNull();
+	started.resolve(Ok(f.recording));
+	expect(await pending).toBe(f.recording.id);
+	await f.recorder.cancel();
+});
+
+test('temporary cleanup racing recorder closure cannot revoke a confirmed save', async () => {
+	const f = setup();
+	f.discard.mockImplementationOnce(async () => {
+		throw new Error('Recorder closed');
+	});
+	await f.recorder.start();
+	await f.recorder.stop();
+	expect(f.recorder.saveStatus).toBe('saved');
+	expect(pipeline).toHaveBeenLastCalledWith(
+		f.app,
+		expect.objectContaining({ recordingId: 'saved-row' }),
+	);
 });
 
 for (const action of ['stop', 'cancel'] as const) {
-	test(`${action} waits for startup and resolves the captured recording once`, async () => {
-		const { recorder, start, recording, stop, cancel } = setup();
-		const startup = Promise.withResolvers<Result<Recording, RecorderError>>();
-		start.mockImplementationOnce(() => startup.promise);
-		const pendingStart = recorder.start();
-		let finished = false;
-		const pendingEnd = recorder[action]().then((result) => {
-			expect(result).toBe(action === 'cancel' ? true : undefined);
-			finished = true;
-		});
-		await Promise.resolve();
-		expect(finished).toBe(false);
-		startup.resolve(Ok(recording));
-		expect(await pendingStart).toBe(recording.id);
-		await pendingEnd;
-		expect(action === 'stop' ? stop : cancel).toHaveBeenCalledTimes(1);
-		expect(recorder.state).toBe('IDLE');
-	});
+	test(
+		action + ' waits for acquisition and acts on the original capture',
+		async () => {
+			const f = setup();
+			const started = Promise.withResolvers<Result<Recording, RecorderError>>();
+			f.start.mockImplementationOnce(() => started.promise);
+			const pending = f.recorder.start();
+			const ending = f.recorder[action]();
+			started.resolve(Ok(f.recording));
+			await pending;
+			await ending;
+			expect(action === 'stop' ? f.stop : f.cancel).toHaveBeenCalledTimes(1);
+			expect(f.recorder.state).toBe('IDLE');
+		},
+	);
 }
 
-test('recovery failure can be retried and recovered capture can be stopped', async () => {
-	const { recorder, current, recording, stop } = setup();
-	current.mockImplementationOnce(async () => RecorderError.AlreadyRecording());
-	expectErr(await recorder.recover());
-	current.mockImplementationOnce(async () => Ok(recording));
-	await recorder.stop();
-	expect(stop).toHaveBeenCalledTimes(1);
+test('late acquisition after disposal releases its session and creates no row', async () => {
+	const f = setup();
+	const started = Promise.withResolvers<Result<Recording, RecorderError>>();
+	f.start.mockImplementationOnce(() => started.promise);
+	const pending = f.recorder.start();
+	f.session[Symbol.dispose]();
+	started.resolve(Ok(f.recording));
+	expect(await pending).toBeNull();
+	expect(f.cancel).toHaveBeenCalledTimes(1);
+	expect(f.create).not.toHaveBeenCalled();
 });
 
-test('disposal releases UI subscriptions without cancelling App-owned capture', async () => {
-	const { recorder, session, current, recording, unsubscribe, cancel } =
-		setup();
-	current.mockImplementationOnce(async () => Ok(recording));
-	expectOk(await recorder.recover());
-	session[Symbol.dispose]();
-	session[Symbol.dispose]();
-	expect(unsubscribe).toHaveBeenCalledTimes(1);
-	expect(cancel).not.toHaveBeenCalled();
-	expect(await recorder.start()).toBeNull();
-	expect(recorder.state).toBe('IDLE');
-});
-
-test('late recovery cannot attach capture to a disposed UI session', async () => {
-	const { recorder, session, current, recording, unsubscribe } = setup();
-	const recovery =
-		Promise.withResolvers<Result<Recording | null, RecorderError>>();
-	current.mockImplementationOnce(() => recovery.promise);
-	const pending = recorder.recover();
-	session[Symbol.dispose]();
-	recovery.resolve(Ok(recording));
-	expectErr(await pending);
-	expect(recorder.state).toBe('IDLE');
-	expect(unsubscribe).not.toHaveBeenCalled();
-});
-
-test('unexpected capture termination runs the same stop-and-save workflow', async () => {
-	const { recorder, recording, stop, end, unsubscribe } = setup();
-	expect(await recorder.start()).toBe(recording.id);
-	end();
+test('Saved waits for persistence and another capture cannot bypass the save bound', async () => {
+	const f = setup();
+	const saved =
+		Promise.withResolvers<
+			Awaited<ReturnType<typeof f.app.recordings.create>>
+		>();
+	f.create.mockImplementationOnce(() => saved.promise);
+	await f.recorder.start();
+	const pending = f.recorder.stop();
 	await Bun.sleep(0);
-	expect(stop).toHaveBeenCalledTimes(1);
-	expect(unsubscribe).toHaveBeenCalledTimes(1);
-	expect(recorder.state).toBe('IDLE');
+	expect(f.recorder.saveStatus).toBe('saving');
+	expect(await f.recorder.start()).toBeNull();
+	saved.resolve(Ok({ id: 'saved-row' } as never));
+	await pending;
+	expect(f.recorder.saveStatus).toBe('saved');
 });
 
-test('recovery restores recording state and meter once without starting another capture', async () => {
-	const { recorder, session, current, recording, start, onLevel, unlevel } =
-		setup();
-	const recovery =
-		Promise.withResolvers<Result<Recording | null, RecorderError>>();
-	current.mockImplementationOnce(() => recovery.promise);
-	const pending = recorder.recover();
-	expect(recorder.recover()).toBe(pending);
-	recovery.resolve(Ok(recording));
-	expectOk(await pending);
-	expect(recorder.state).toBe('RECORDING');
-	expect(start).not.toHaveBeenCalled();
-	expect(onLevel).toHaveBeenCalledTimes(1);
-	expect(onLevel).toHaveBeenCalledWith(reportRecordingMicLevel);
-	expectOk(await recorder.recover());
-	expect(onLevel).toHaveBeenCalledTimes(1);
-	session[Symbol.dispose]();
-	expect(unlevel).toHaveBeenCalledTimes(1);
-});
-
-test('cancelling recovered capture releases its meter subscription', async () => {
-	const { recorder, current, recording, unlevel } = setup();
-	current.mockImplementationOnce(async () => Ok(recording));
-	expectOk(await recorder.recover());
-	expect(await recorder.cancel()).toBe(true);
-	expect(unlevel).toHaveBeenCalledTimes(1);
-	expect(recorder.state).toBe('IDLE');
-});
-
-test('recovery saves capture that ended while the page was absent once', async () => {
-	const { recorder, current, recording, stop, unlevel } = setup();
-	const ended = {
-		...recording,
-		endedReason: 'deviceDisconnected' as const,
-		onEnded(handler: Parameters<Recording['onEnded']>[0]) {
-			queueMicrotask(() => handler('deviceDisconnected'));
-			return () => {};
-		},
-	};
-	current.mockImplementationOnce(async () => Ok(ended));
-	expectOk(await recorder.recover());
-	await Bun.sleep(0);
-	expect(stop).toHaveBeenCalledTimes(1);
-	expect(unlevel).toHaveBeenCalledTimes(1);
-	expect(recorder.state).toBe('IDLE');
-	expectOk(await recorder.recover());
-	expect(stop).toHaveBeenCalledTimes(1);
-});
-
-test('capture starts only after its row exists and stop transcribes that same row', async () => {
-	const fixture = setup();
-	const created =
-		Promise.withResolvers<ReturnType<typeof Ok<{ id: string }>>>();
-	fixture.create.mockImplementationOnce(() => created.promise);
-	const starting = fixture.recorder.start();
-	await Bun.sleep(0);
-	expect(fixture.start).not.toHaveBeenCalled();
-	created.resolve(Ok({ id: fixture.recording.into.rowId }));
-	await starting;
-	expect(fixture.start).toHaveBeenCalledWith({ into: fixture.recording.into });
-	await fixture.recorder.stop(fixture.recording.id);
-	expect(pipeline).toHaveBeenLastCalledWith(fixture.app, {
-		recordingId: fixture.recording.into.rowId,
-		durationMs: 1,
-		isCurrentAttempt: expect.any(Function),
-	});
-	expect(fixture.create).toHaveBeenCalledTimes(1);
-});
-
-test('an ended callback retained from the prior capture cannot stop its replacement', async () => {
-	const fixture = setup();
-	await fixture.recorder.start();
-	const oldEnd = fixture.end;
-	await fixture.recorder.stop(fixture.recording.id);
-	const nextStop = mock(async () => Ok({ durationMs: 1, byteLength: 2 }));
-	fixture.start.mockImplementationOnce(async () =>
-		Ok({
-			...fixture.recording,
-			id: 'next-capture',
-			stop: nextStop,
-			onEnded: () => () => {},
+test('unconfirmed save never remints, deletes a row, or starts inference', async () => {
+	const f = setup();
+	const { RecordingCreationError } = await import(
+		'../whispering/recordings.js'
+	);
+	f.create.mockImplementationOnce(async () =>
+		RecordingCreationError.RowCreateFailed({
+			audio: f.file,
+			cause: 'disk full',
 		}),
 	);
-	await fixture.recorder.start();
-	oldEnd();
-	await Bun.sleep(0);
-	expect(nextStop).not.toHaveBeenCalled();
-	expect(fixture.recorder.state).toBe('RECORDING');
-	fixture.session[Symbol.dispose]();
+	await f.recorder.start();
+	const count = pipeline.mock.calls.length;
+	await f.recorder.stop();
+	await f.recorder.stop();
+	expect(f.recorder.saveStatus).toBe('unconfirmed');
+	expect(f.create).toHaveBeenCalledTimes(1);
+	expect(f.remove).not.toHaveBeenCalled();
+	expect(pipeline.mock.calls.length).toBe(count);
 });
 
-test('cancelling recovery after local completion preserves its saved row', async () => {
-	const fixture = setup();
-	fixture.current.mockImplementationOnce(async () => Ok(fixture.recording));
-	fixture.get.mockImplementation(() => ({
-		id: fixture.recording.into.rowId,
-		audio: 'audio/wav',
-	}));
-	await fixture.recorder.recover();
-	await fixture.recorder.cancel();
-	expect(fixture.cancel).toHaveBeenCalledTimes(1);
-	expect(fixture.remove).not.toHaveBeenCalled();
-});
-
-test('failed cancellation can recover and retry through the same controls before starting again', async () => {
-	const fixture = setup();
-	await fixture.recorder.start();
-	fixture.cancel.mockImplementationOnce(async () =>
-		RecorderError.RecorderFailed({ cause: new Error('temporary IPC failure') }),
+test('failed cancellation retains its session for retry without deleting saved work', async () => {
+	const f = setup();
+	await f.recorder.start();
+	f.cancel.mockImplementationOnce(async () =>
+		RecorderError.RecorderFailed({ cause: 'lost response' }),
 	);
-	fixture.current.mockImplementationOnce(async () => Ok(fixture.recording));
-	expect(await fixture.recorder.cancel()).toBe(true);
-	expect(fixture.remove).not.toHaveBeenCalled();
-	expect(await fixture.recorder.cancel()).toBe(true);
-	expect(fixture.current).toHaveBeenCalledTimes(2);
-	expect(fixture.cancel).toHaveBeenCalledTimes(2);
-	expect(fixture.remove).toHaveBeenCalledWith(fixture.recording.into.rowId);
-	expect(await fixture.recorder.start()).toBe(fixture.recording.id);
-	expect(fixture.start).toHaveBeenCalledTimes(2);
-	fixture.session[Symbol.dispose]();
+	await f.recorder.cancel();
+	expect(f.recorder.state).toBe('RECORDING');
+	await f.recorder.cancel();
+	expect(f.cancel).toHaveBeenCalledTimes(2);
+	expect(f.remove).not.toHaveBeenCalled();
+});
+
+test('stop failure permits exact-session retry and saves once', async () => {
+	const f = setup();
+	await f.recorder.start();
+	f.stop.mockImplementationOnce(async () =>
+		RecorderError.RecorderFailed({ cause: 'lost response' }),
+	);
+	await f.recorder.stop();
+	expect(f.recorder.state).toBe('RECORDING');
+	await f.recorder.stop();
+	expect(f.create).toHaveBeenCalledTimes(1);
+});
+
+test('unexpected capture termination uses the same finished-file save operation', async () => {
+	const f = setup();
+	await f.recorder.start();
+	f.end();
+	await Bun.sleep(0);
+	expect(f.create).toHaveBeenCalledTimes(1);
+	expect(f.unlevel).toHaveBeenCalledTimes(1);
+	expect(f.unsubscribe).toHaveBeenCalledTimes(1);
+});
+
+test('old callbacks and stale push-to-talk releases cannot stop the next capture', async () => {
+	const f = setup();
+	await f.recorder.start();
+	const oldEnd = f.end;
+	await f.recorder.stop();
+	const nextStop = mock<Recording['stop']>(async () =>
+		Ok({ file: f.file, durationMs: 1, byteLength: 2 }),
+	);
+	f.start.mockImplementationOnce(async () =>
+		Ok({ ...f.recording, id: 'next', stop: nextStop, onEnded: () => () => {} }),
+	);
+	await f.recorder.start();
+	oldEnd();
+	await f.recorder.stop(f.recording.id);
+	expect(nextStop).not.toHaveBeenCalled();
+	await f.recorder.cancel();
+});
+
+function nativeWorkflow({
+	lostStartReplies = 0,
+	lostChecks = 0,
+	terminalStop = false,
+	lostStopReply = false,
+} = {}) {
+	let active = false;
+	const live = {
+		audioBlobId: 'native-original',
+		device: { outcome: 'success', deviceId: 'mic' },
+		endedReason: null,
+	};
+	const finished = {
+		file: { kind: 'native-capture', id: 'native-original' },
+		durationMs: 1_000,
+		byteLength: 96_044,
+	};
+	const requests: unknown[] = [];
+	let cancellations = 0;
+	nativeInvoke = async (command, args) => {
+		switch (command) {
+			case 'register_recording_session':
+				return;
+			case 'request_microphone_permission':
+				return 'granted';
+			case 'start_recording':
+				requests.push(args?.requestId);
+				active = true;
+				if (lostStartReplies-- > 0) throw new Error('Lost Start response');
+				return live;
+			case 'current_recording':
+			case 'resolve_recording_start':
+				if (lostChecks-- > 0) throw new Error('Lost status response');
+				return active ? live : null;
+			case 'stop_recording':
+				active = false;
+				if (terminalStop)
+					throw {
+						name: 'CaptureLost',
+						message: 'Finalization failed; no output remains.',
+					};
+				if (lostStopReply) {
+					lostStopReply = false;
+					throw new Error('Lost Stop response');
+				}
+				return finished;
+			case 'cancel_recording':
+				active = false;
+				cancellations++;
+				return;
+			case 'discard_recording_file':
+				return;
+			case 'close_recording_session':
+				active = false;
+				return;
+			default:
+				throw new Error('Unexpected IPC: ' + command);
+		}
+	};
+	const owner = createDesktopRecording(
+		'so.epicenter.test',
+		{ library: 'local' },
+		{},
+	);
+	return {
+		...setup(owner.value),
+		owner,
+		requests,
+		get cancellations() {
+			return cancellations;
+		},
+	};
+}
+
+test('desktop reconciliation keeps a lost Start reply inside the original workflow', async () => {
+	const f = nativeWorkflow({ lostStartReplies: 1 });
+	const original = inference;
+	try {
+		expect(await f.recorder.start()).toBe('native-original');
+		inference = async () => Ok('changed');
+		await f.recorder.stop();
+		expect(f.create).toHaveBeenCalledTimes(1);
+		expect(pipeline).toHaveBeenLastCalledWith(
+			f.app,
+			expect.objectContaining({ transcribe: original }),
+		);
+	} finally {
+		await f.owner.close();
+		inference = original;
+	}
+});
+
+test('uncertain native Start retains original inference and timestamp through a later retry', async () => {
+	const f = nativeWorkflow({ lostStartReplies: 1, lostChecks: 1 });
+	const original = inference;
+	try {
+		setSystemTime(new Date('2026-09-16T01:00:00.000Z'));
+		expect(await f.recorder.start()).toBeNull();
+		expect(f.recorder.isUncertain).toBe(true);
+		setSystemTime(new Date('2026-09-16T02:00:00.000Z'));
+		expect(activity.recordingActive(f.app)).toBe(true);
+		inference = async () => Ok('changed');
+		expect(await f.recorder.start()).toBe('native-original');
+		await f.recorder.stop();
+		expect(new Set(f.requests).size).toBe(1);
+		expect(f.create).toHaveBeenCalledTimes(1);
+		expect(f.create.mock.calls[0]?.[0].recordedAt).toBe(
+			InstantString.fromDate(new Date('2026-09-16T01:00:00.000Z')),
+		);
+		expect(pipeline).toHaveBeenLastCalledWith(
+			f.app,
+			expect.objectContaining({ transcribe: original }),
+		);
+	} finally {
+		setSystemTime();
+		await f.owner.close();
+		inference = original;
+	}
+});
+
+test('Cancel resolves an uncertain desktop Start without saving a row', async () => {
+	const f = nativeWorkflow({ lostStartReplies: 1, lostChecks: 1 });
+	try {
+		await f.recorder.start();
+		expect(f.recorder.isUncertain).toBe(true);
+		expect(await f.recorder.cancel()).toBe(true);
+		expect(f.cancellations).toBe(1);
+		expect(f.recorder.isUncertain).toBe(false);
+		expect(activity.recordingActive(f.app)).toBe(false);
+		expect(f.create).not.toHaveBeenCalled();
+	} finally {
+		await f.owner.close();
+	}
+});
+
+test('uncertain Cancel excludes Retry until the original native capture is cancelled', async () => {
+	const f = nativeWorkflow({ lostStartReplies: 1, lostChecks: 1 });
+	const resolving = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	try {
+		await f.recorder.start();
+		const invoke = nativeInvoke;
+		nativeInvoke = async (command, args) => {
+			if (command === 'resolve_recording_start') {
+				resolving.resolve();
+				await release.promise;
+			}
+			return invoke(command, args);
+		};
+		const cancellation = f.recorder.cancel();
+		await resolving.promise;
+		expect(await f.recorder.start()).toBeNull();
+		expect(f.requests).toHaveLength(1);
+		release.resolve();
+		expect(await cancellation).toBe(true);
+		expect(f.recorder.state).toBe('IDLE');
+		expect(f.recorder.isUncertain).toBe(false);
+		expect(f.cancellations).toBe(1);
+		expect(f.create).not.toHaveBeenCalled();
+		expect(await f.recorder.start()).toBe('native-original');
+	} finally {
+		release.resolve();
+		await f.owner.close();
+	}
+});
+
+test('definite desktop Stop loss clears recording state while a lost reply stays retryable', async () => {
+	const lost = nativeWorkflow({ terminalStop: true });
+	try {
+		await lost.recorder.start();
+		await lost.recorder.stop();
+		expect(lost.recorder.state).toBe('IDLE');
+		expect(lost.recorder.saveStatus).toBe('failed');
+		expect(lost.create).not.toHaveBeenCalled();
+		expect(await lost.recorder.start()).toBe('native-original');
+	} finally {
+		await lost.owner.close();
+	}
+	const retried = nativeWorkflow({ lostStopReply: true });
+	try {
+		await retried.recorder.start();
+		await retried.recorder.stop();
+		expect(retried.recorder.state).toBe('RECORDING');
+		await retried.recorder.stop();
+		expect(retried.recorder.saveStatus).toBe('saved');
+		expect(retried.create).toHaveBeenCalledTimes(1);
+	} finally {
+		await retried.owner.close();
+	}
 });

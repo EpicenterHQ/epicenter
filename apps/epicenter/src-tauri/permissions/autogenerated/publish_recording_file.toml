@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-publish-recording-file"
+description = "Enables the publish_recording_file command without any pre-configured scope."
+commands.allow = ["publish_recording_file"]
+
+[[permission]]
+identifier = "deny-publish-recording-file"
+description = "Denies the publish_recording_file command without any pre-configured scope."
+commands.deny = ["publish_recording_file"]

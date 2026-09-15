@@ -7,6 +7,7 @@ import {
 	type BlobSource,
 	type BlobSourceFailed,
 	type RemoteBlobNotFound,
+	type FinishedFile,
 } from '@epicenter/blobs';
 import type { AppBlobs } from '@epicenter/app';
 import type {
@@ -30,10 +31,11 @@ export const RecordingCreationError = defineErrors({
 		audio,
 		cause,
 	}: {
-		audio: Blob | null;
+		audio: FinishedFile;
 		cause: unknown;
 	}) => ({
-		message: 'Could not create the recording.',
+		message:
+			'Recording save was not confirmed. Reopen the library to check what was saved.',
 		audio,
 		cause,
 	}),
@@ -92,7 +94,12 @@ export type WhisperingRecordings = {
 	): Promise<Result<Blob, BlobNotFound | BlobStoreFailed | AttachmentError>>;
 	openAudio(
 		id: Recording['id'],
-	): Promise<Result<BlobSource, BlobNotFound | BlobStoreFailed | BlobSourceFailed | AttachmentError>>;
+	): Promise<
+		Result<
+			BlobSource,
+			BlobNotFound | BlobStoreFailed | BlobSourceFailed | AttachmentError
+		>
+	>;
 	create(
 		value: NewRecording,
 	): Promise<Result<Recording, RecordingCreationError>>;
@@ -465,8 +472,8 @@ export function createWhisperingRecordings({
 			return resolve(id);
 		},
 		async create(value) {
-			// The owning table copies the attachment and compensates failed creation.
-			// Whispering supplies recording defaults and translates the failure.
+			// The library publishes bytes and persists the row. An unknown outcome
+			// stays intact; Whispering never remints or deletes an unconfirmed save.
 			if (disposed) throw new Error('The recording session is closed.');
 			const input = {
 				...value,
@@ -476,10 +483,7 @@ export function createWhisperingRecordings({
 				transcriptionCompletedAt: null,
 				transcriptionError: null,
 			};
-			const { data: written, error } =
-				value.audio === null
-					? Ok(table.create({ ...input, audio: null }))
-					: await table.create({ ...input, audio: value.audio });
+			const { data: written, error } = await table.create(input);
 			if (error !== null) {
 				return RecordingCreationError.RowCreateFailed({
 					audio: value.audio,

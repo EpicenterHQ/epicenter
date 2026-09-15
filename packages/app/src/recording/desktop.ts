@@ -1,27 +1,19 @@
-import { parseBlobId } from '@epicenter/blobs';
-import { blobDestination } from '@epicenter/blobs/native';
 import { isAppId } from '@epicenter/constants/app-id';
-import { type Attachment, attachmentEngineOf } from '@epicenter/data/store';
 import { captureLibraryReplica } from '@epicenter/principal';
-import {
-	asDeviceIdentifier,
-	type DeviceAcquisitionOutcome,
-} from '@epicenter/recorder';
+import { asDeviceIdentifier } from '@epicenter/recorder';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { createLogger } from 'wellcrafted/logger';
-import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
+import { Err, Ok, tryAsync } from 'wellcrafted/result';
 import {
 	type NativeRecording,
 	RecorderError,
+	type RecorderStopResult,
 	type Recording,
 	type RecordingEndedReason,
 	type RecordingOptions,
 	type RecordingOwner,
 	type RecordingReplica,
 } from '../recorder.js';
-
-const log = createLogger('recorder/desktop');
 
 function nativeFailure(cause: unknown) {
 	const name =
@@ -37,11 +29,12 @@ function nativeFailure(cause: unknown) {
 			return RecorderError.AlreadyRecording({ cause });
 		case 'NotRecording':
 			return RecorderError.NoActiveRecording({ cause });
+		case 'CaptureLost':
+			return RecorderError.CaptureLost({ cause });
 		default:
 			return RecorderError.RecorderFailed({ cause });
 	}
 }
-
 function call<T>(command: string, args?: Record<string, unknown>) {
 	return tryAsync({
 		try: () => invoke<T>(command, args),
@@ -49,430 +42,388 @@ function call<T>(command: string, args?: Record<string, unknown>) {
 	});
 }
 
-/** Bind the existing host recorder to one application without acquiring resources. */
+/** One document owns capture tokens. Library publication happens after Stop. */
 export function createDesktopRecording(
 	appId: string,
 	input: RecordingReplica,
-	{
-		assertUsable,
-		canRecover = () => false,
-		resolveAttachment,
-		isRetired = () => false,
-		generation,
-	}: RecordingOptions,
+	{ assertUsable }: RecordingOptions,
 ): RecordingOwner {
 	if (!isAppId(appId)) throw new Error(`Invalid recording app ID '${appId}'.`);
 	const replica = captureLibraryReplica(input);
+	const sessionId = crypto.randomUUID();
+	let registered = false;
+	let registrationAttempted = false;
 	let closed = false;
 	let closing: Promise<void> | undefined;
+	let pendingRequest:
+		| {
+				requestId: string;
+				deviceIdentifier: string | null;
+				resolved?: Recording | null;
+		  }
+		| undefined;
+	let starting = false;
+	let held: Recording | null = null;
+	let reconcileHeld:
+		| ((reason: RecordingEndedReason | null) => void)
+		| undefined;
+	let releaseHeld: (() => void) | undefined;
+	let uncertainCancel = false;
 	const operations = new Set<Promise<unknown>>();
+	const listeners = new Set<Promise<UnlistenFn>>();
 	const cleanupErrors: unknown[] = [];
 	function assertOpen() {
 		if (closed) throw new Error('Recording is closed.');
 		assertUsable?.();
 	}
-	function run<T>(operation: () => Promise<T>): Promise<T> {
+	function run<T>(operation: () => Promise<T>) {
 		assertOpen();
-		const completion = Promise.withResolvers<T>();
-		operations.add(completion.promise);
-		void completion.promise.then(
-			() => operations.delete(completion.promise),
-			(cause) => {
-				operations.delete(completion.promise);
-				cleanupErrors.push(cause);
-			},
+		const pending = Promise.resolve().then(operation);
+		operations.add(pending);
+		void pending.then(
+			() => operations.delete(pending),
+			() => operations.delete(pending),
 		);
-		try {
-			completion.resolve(operation());
-		} catch (cause) {
-			completion.reject(cause);
-		}
-		return completion.promise;
+		return pending;
 	}
-
-	const destination = blobDestination(appId, replica);
-	function owns(live: NativeRecording) {
-		const captured = live.destination.replica;
-		return (
-			live.destination.appId === appId &&
-			(captured.library === 'local'
-				? replica.library === 'local'
-				: replica.library === captured.library &&
-					captured.account.authorityId === replica.account.authorityId &&
-					captured.account.principalId === replica.account.principalId)
-		);
-	}
-	let held:
-		| {
-				recording: Recording;
-				reconcile(reason: RecordingEndedReason | null): void;
-				releaseCapture(): Promise<Result<void, RecorderError>>;
-				retireCapture(): Promise<Result<void, RecorderError>>;
-		  }
-		| undefined;
-
-	function wrap(
-		live: NativeRecording,
-		selected?: Attachment,
-	): Result<Recording, RecorderError> {
-		const audioBlobId = parseBlobId(live.audioBlobId);
-		if (audioBlobId === undefined)
-			return RecorderError.RecorderFailed({
-				cause: new Error('The host returned an invalid blob ID.'),
-			});
-		if (!owns(live)) {
-			return RecorderError.AlreadyRecording({
-				cause: new Error('The recording belongs to another dataset.'),
-			});
-		}
-		const device: DeviceAcquisitionOutcome = {
-			...live.device,
-			deviceId: asDeviceIdentifier(live.device.deviceId),
-		};
-		if (held?.recording.id === audioBlobId) {
-			held.reconcile(live.endedReason);
-			return Ok(held.recording);
-		}
-		let into: Attachment;
-		try {
-			const found =
-				selected ??
-				resolveAttachment?.(live.attachment.tableName, live.attachment.rowId);
-			if (!found)
-				throw new Error('The recording attachment cannot be resolved.');
-			into = found;
-			const engine = attachmentEngineOf(into);
-			if (
-				into.tableName !== live.attachment.tableName ||
-				into.rowId !== live.attachment.rowId ||
-				engine.generation() !== live.attachment.generation
-			)
-				throw new Error('The recording belongs to another row or generation.');
-		} catch (cause) {
-			return RecorderError.RecorderFailed({ cause });
-		}
-		let endedReason = live.endedReason;
-		let resolved = false;
-		const unlisteners = new Set<Promise<UnlistenFn>>();
-
-		const releases = new Set<Promise<void>>();
-		function unlisten(promise: Promise<UnlistenFn>) {
-			const release = promise.then((stop) => stop());
-			releases.add(release);
-			void release.then(
-				() => releases.delete(release),
+	function subscribe<T>(
+		event: string,
+		handler: (payload: T) => void,
+		ready?: () => Promise<void>,
+	) {
+		let active = true;
+		const pending = listen<T>(event, ({ payload }) => {
+			if (!closed && active) handler(payload);
+		});
+		listeners.add(pending);
+		void pending.catch((cause) => cleanupErrors.push(cause));
+		if (ready) {
+			const reconciliation = pending.then(ready);
+			operations.add(reconciliation);
+			void reconciliation.then(
+				() => operations.delete(reconciliation),
 				(cause) => {
-					releases.delete(release);
+					operations.delete(reconciliation);
 					cleanupErrors.push(cause);
 				},
 			);
 		}
-		async function release() {
-			for (const listener of unlisteners) unlisten(listener);
-			unlisteners.clear();
-			await Promise.allSettled(releases);
-		}
-		function track(promise: Promise<UnlistenFn>) {
-			unlisteners.add(promise);
-			void promise.catch(() => {}); // release owns registration failures.
-			return () => {
-				if (unlisteners.delete(promise)) unlisten(promise);
-			};
-		}
-		async function cancel(retire = isRetired()) {
-			resolved = true;
-			const command = retire ? 'retire_recording' : 'cancel_recording';
-			const result = await call<void>(command, { audioBlobId, destination });
-			await release();
-			if (
-				(result.error === null || result.error.name === 'NoActiveRecording') &&
-				held?.recording.id === audioBlobId
-			) {
-				held = undefined;
-			} else if (result.error) {
-				resolved = false;
+		return () => {
+			active = false;
+			if (listeners.delete(pending)) {
+				const release = pending.then((stop) => stop());
+				operations.add(release);
+				void release.then(
+					() => operations.delete(release),
+					(cause) => {
+						operations.delete(release);
+						cleanupErrors.push(cause);
+					},
+				);
 			}
-			return result;
+		};
+	}
+	function wrap(live: NativeRecording): Recording {
+		let endedReason = live.endedReason;
+		reconcileHeld = (reason) => {
+			endedReason ??= reason;
+		};
+		uncertainCancel = false;
+		let resolving = false;
+		let finished: RecorderStopResult | undefined;
+		const subscriptions = new Set<() => void>();
+		function release() {
+			for (const stop of subscriptions) stop();
+			subscriptions.clear();
 		}
-		const recording = Object.freeze({
-			id: audioBlobId,
-			into,
+		releaseHeld = release;
+		const recording: Recording = Object.freeze({
+			id: live.audioBlobId,
 			replica,
-			device,
+			device: {
+				...live.device,
+				deviceId: asDeviceIdentifier(live.device.deviceId),
+			},
 			get endedReason() {
 				return endedReason;
 			},
 			stop() {
 				return run(async () => {
-					if (resolved) return RecorderError.NoActiveRecording();
-					resolved = true;
-					const result = await call<{
-						audioBlobId: string;
-						durationMs: number;
-						byteLength: number;
-					}>('stop_recording', { audioBlobId, destination });
-					await release();
-					if (result.error) {
-						resolved = false;
-						return Err(result.error);
-					}
-					if (result.data.audioBlobId !== audioBlobId)
-						return RecorderError.RecorderFailed({
-							cause: new Error('The host stopped a different recording.'),
+					if (finished) return Ok(finished);
+					if (resolving || held !== recording)
+						return RecorderError.NoActiveRecording();
+					resolving = true;
+					try {
+						const result = await call<RecorderStopResult>('stop_recording', {
+							sessionId,
+							audioBlobId: recording.id,
 						});
-					const completed =
-						await attachmentEngineOf(into).completeFromLocal('audio/wav');
-					if (completed.error) {
-						resolved = false;
-						return Err(completed.error);
+						if (result.error) {
+							if (
+								result.error.name === 'CaptureLost' ||
+								result.error.name === 'NoActiveRecording'
+							) {
+								held = null;
+								release();
+							}
+							return result;
+						}
+						if (
+							result.data.file instanceof Blob ||
+							result.data.file.kind !== 'native-capture' ||
+							!result.data.file.id
+						)
+							return RecorderError.RecorderFailed({
+								cause: 'The host returned an invalid finished capture.',
+							});
+						finished = result.data;
+						held = null;
+						release();
+						return Ok(finished);
+					} finally {
+						resolving = false;
 					}
-					const acknowledged = await call<void>('acknowledge_recording', {
-						audioBlobId,
-						destination,
-					});
-					if (acknowledged.error) {
-						resolved = false;
-						return Err(acknowledged.error);
-					}
-					if (held?.recording.id === audioBlobId) held = undefined;
-					return Ok({
-						durationMs: result.data.durationMs,
-						byteLength: result.data.byteLength,
-					});
 				});
 			},
 			cancel() {
 				return run(async () => {
-					if (resolved) return RecorderError.NoActiveRecording();
-					return cancel();
+					if (resolving || held !== recording)
+						return RecorderError.NoActiveRecording();
+					resolving = true;
+					try {
+						const result = await call<void>('cancel_recording', {
+							sessionId,
+							audioBlobId: recording.id,
+						});
+						uncertainCancel =
+							result.error !== null &&
+							result.error.name !== 'NoActiveRecording';
+						if (!result.error || result.error.name === 'NoActiveRecording') {
+							held = null;
+							release();
+						}
+						return result;
+					} finally {
+						resolving = false;
+					}
 				});
 			},
 			onLevel(handler) {
 				assertOpen();
-				if (resolved || endedReason !== null) return () => {};
-				let subscribed = true;
-				const stop = track(
-					listen<{ audioBlobId: string; level: number }>(
-						'mic-level',
-						(event) => {
-							if (
-								!closed &&
-								subscribed &&
-								!resolved &&
-								endedReason === null &&
-								event.payload.audioBlobId === audioBlobId
-							)
-								handler(event.payload.level);
-						},
-					),
+				if (held !== recording) return () => {};
+				const stop = subscribe<{ audioBlobId: string; level: number }>(
+					'mic-level',
+					(event) => {
+						if (held === recording && event.audioBlobId === recording.id)
+							handler(event.level);
+					},
 				);
+				subscriptions.add(stop);
 				return () => {
-					subscribed = false;
+					subscriptions.delete(stop);
 					stop();
 				};
 			},
 			onEnded(handler) {
 				assertOpen();
-				if (resolved) return () => {};
-				let subscribed = true;
+				if (held !== recording) return () => {};
+				let active = true;
 				let announced = false;
-				const announce = (reason: RecordingEndedReason) => {
-					if (closed || !subscribed || resolved || announced) return;
+				function announce(reason: RecordingEndedReason) {
+					if (closed || !active || announced || held !== recording) return;
 					announced = true;
 					endedReason = reason;
 					handler(reason);
-				};
-				if (endedReason !== null) {
-					const reason = endedReason;
-					queueMicrotask(() => announce(reason));
-					return () => {
-						subscribed = false;
-					};
 				}
-				const listening = listen<{
+				const stop = subscribe<{
 					audioBlobId: string;
 					reason: RecordingEndedReason;
-				}>('recording-ended-event', ({ payload }) => {
-					if (payload.audioBlobId === audioBlobId) announce(payload.reason);
-				});
-				const stop = track(listening);
-				// Reconcile after installing the listener: capture may have ended in the gap.
-				const reconciliation = listening
-					.then(async () => {
-						if (closed || !subscribed || resolved || announced) return;
-						const current = await call<NativeRecording | null>(
+				}>(
+					'recording-ended-event',
+					(event) => {
+						if (event.audioBlobId === recording.id) announce(event.reason);
+					},
+					async () => {
+						if (closed || !active || held !== recording) return;
+						const result = await call<NativeRecording | null>(
 							'current_recording',
-							{ destination },
+							{ sessionId },
 						);
 						if (
-							current.data?.audioBlobId === audioBlobId &&
-							current.data.endedReason !== null
-						) {
-							announce(current.data.endedReason);
-						}
-					})
-					.catch((cause) =>
-						log.warn(RecorderError.RecorderFailed({ cause }).error),
-					);
-				operations.add(reconciliation);
-				void reconciliation.finally(() => operations.delete(reconciliation));
+							result.data?.audioBlobId === recording.id &&
+							result.data.endedReason
+						)
+							announce(result.data.endedReason);
+					},
+				);
+				subscriptions.add(stop);
+				if (endedReason) {
+					const reason = endedReason;
+					queueMicrotask(() => announce(reason));
+				}
 				return () => {
-					subscribed = false;
+					active = false;
+					subscriptions.delete(stop);
 					stop();
 				};
 			},
-		} satisfies Recording);
-		held = {
-			recording,
-			retireCapture: () => cancel(true),
-			async releaseCapture() {
-				if (isRetired()) return cancel();
-				resolved = true;
-				const result = await call<void>('release_recording', {
-					audioBlobId,
-					destination,
-				});
-				await release();
-				return result;
-			},
-			reconcile(reason) {
-				endedReason ??= reason;
-			},
-		};
-		return Ok(recording);
+		});
+		return recording;
 	}
-
-	async function permission(command: string) {
-		const result = await call<string>(command);
-		if (result.error) return Err(result.error);
-		return result.data === 'granted' || result.data === 'unknown'
-			? Ok(undefined)
-			: RecorderError.MicrophonePermissionDenied();
-	}
-
 	return {
 		close() {
 			if (closing) return closing;
 			closed = true;
-			const completion = Promise.withResolvers<void>();
-			closing = completion.promise;
-			completion.resolve(
-				(async () => {
-					while (operations.size) await Promise.allSettled(operations);
-					if (!held && canRecover()) {
-						const result = await call<NativeRecording | null>(
-							'current_recording',
-							{ destination },
-						);
-						if (result.error !== null) throw result.error;
-						if (result.data !== null && owns(result.data)) {
-							// The App has already closed its document. Release the native
-							// session without reopening or resolving its attachment.
-							const recovered = await call<void>(
-								isRetired() ? 'retire_recording' : 'release_recording',
-								{ audioBlobId: result.data.audioBlobId, destination },
-							);
-							if (
-								recovered.error !== null &&
-								recovered.error.name !== 'NoActiveRecording'
-							)
-								throw recovered.error;
-						}
+			closing = (async () => {
+				while (operations.size) await Promise.allSettled(operations);
+				if (registrationAttempted) {
+					const result = await call<void>('close_recording_session', {
+						sessionId,
+					});
+					if (result.error) cleanupErrors.push(result.error);
+				}
+				for (const pending of listeners) {
+					try {
+						await (await pending)();
+					} catch (cause) {
+						cleanupErrors.push(cause);
 					}
-					if (held) {
-						const result = await held.releaseCapture();
-						if (
-							result.error !== null &&
-							result.error.name !== 'NoActiveRecording'
-						) {
-							if (!cleanupErrors.length) throw result.error;
-							cleanupErrors.push(result.error);
-						}
-					}
-					if (cleanupErrors.length)
-						throw new AggregateError(
-							cleanupErrors,
-							'Recording cleanup failed.',
-						);
-				})(),
-			);
+				}
+				listeners.clear();
+				held = null;
+				if (cleanupErrors.length)
+					throw new AggregateError(cleanupErrors, 'Recording cleanup failed.');
+			})();
 			return closing;
 		},
 		value: {
 			current() {
 				return run(async () => {
+					if (!registered) return Ok(null);
+					const request = pendingRequest;
+					const observed = held;
 					const result = await call<NativeRecording | null>(
-						'current_recording',
-						{ destination },
+						request ? 'resolve_recording_start' : 'current_recording',
+						request
+							? { sessionId, requestId: request.requestId }
+							: { sessionId },
 					);
-					if (result.error) return Err(result.error);
-					if (result.data === null) return Ok(null);
-					const live = result.data;
-					if (owns(live)) {
-						let obsolete: boolean;
-						try {
-							const openedGeneration = generation?.();
-							obsolete =
-								isRetired() ||
-								(typeof openedGeneration === 'number' &&
-									typeof live.attachment.generation === 'number' &&
-									openedGeneration > live.attachment.generation);
-						} catch (cause) {
-							return RecorderError.RecorderFailed({ cause });
-						}
-						if (obsolete) {
-							const retired =
-								held?.recording.id === live.audioBlobId
-									? await held.retireCapture()
-									: await call<void>('retire_recording', {
-											audioBlobId: live.audioBlobId,
-											destination,
-										});
-							return retired.error ? Err(retired.error) : Ok(null);
-						}
+					if (pendingRequest !== request || held !== observed) return Ok(held);
+					if (result.error)
+						return request
+							? RecorderError.StartUnconfirmed({ cause: result.error })
+							: result;
+					if (request) {
+						if (result.data) held = wrap(result.data);
+						request.resolved = held;
+						pendingRequest = undefined;
 					}
-					return wrap(live);
+					if (result.data && result.data.audioBlobId === held?.id)
+						reconcileHeld?.(result.data.endedReason);
+					if (result.data === null && uncertainCancel) {
+						held = null;
+						releaseHeld?.();
+						uncertainCancel = false;
+					}
+					return Ok(held);
 				});
+			},
+			discard(file) {
+				if (closed)
+					return tryAsync({
+						try: async () => {
+							await closing;
+						},
+						catch: nativeFailure,
+					});
+				return run(async () =>
+					file instanceof Blob
+						? Ok(undefined)
+						: call<void>('discard_recording_file', { fileId: file.id }),
+				);
 			},
 			enumerateDevices() {
 				return run(async () => {
-					const permitted = await permission('get_microphone_permission');
-					if (permitted.error) return permitted;
 					const result = await call<string[]>('enumerate_recording_devices');
-					if (result.error) return Err(result.error);
-					return Ok(
-						result.data.map((name) => ({
-							id: asDeviceIdentifier(name),
-							label: name,
-						})),
-					);
+					return result.error
+						? Err(result.error)
+						: Ok(
+								result.data.map((name) => ({
+									id: asDeviceIdentifier(name),
+									label: name,
+								})),
+							);
 				});
 			},
-			start({ into, selectedDeviceId = null }) {
+			start({ selectedDeviceId = null }) {
 				return run(async () => {
-					const engine = attachmentEngineOf(into);
-					if (
-						JSON.stringify(engine.destination) !== JSON.stringify(destination)
-					)
-						return RecorderError.RecorderFailed({
-							cause: new Error('The attachment belongs to another library.'),
+					if (starting || held) return RecorderError.AlreadyRecording();
+					starting = true;
+					try {
+						if (!registered) {
+							registrationAttempted = true;
+							const result = await call<void>('register_recording_session', {
+								sessionId,
+							});
+							if (result.error) return result;
+							registered = true;
+						}
+						if (closed) return RecorderError.NoActiveRecording();
+						if (!pendingRequest) {
+							const permission = await call<string>(
+								'request_microphone_permission',
+							);
+							if (permission.error) return permission;
+							if (
+								permission.data !== 'granted' &&
+								permission.data !== 'unknown'
+							)
+								return RecorderError.MicrophonePermissionDenied();
+							if (closed) return RecorderError.NoActiveRecording();
+							pendingRequest = {
+								requestId: crypto.randomUUID(),
+								deviceIdentifier: selectedDeviceId,
+							};
+						}
+						const request = pendingRequest;
+						const resolvedElsewhere = () =>
+							request.resolved && held === request.resolved
+								? Ok(request.resolved)
+								: RecorderError.NoActiveRecording();
+						const result = await call<NativeRecording>('start_recording', {
+							sessionId,
+							requestId: request.requestId,
+							deviceIdentifier: request.deviceIdentifier,
 						});
-					const prepared = await engine.prepare();
-					if (prepared.error)
-						return RecorderError.RecorderFailed({ cause: prepared.error });
-					const permitted = await permission('request_microphone_permission');
-					if (permitted.error) return permitted;
-					const result = await call<NativeRecording>('start_recording', {
-						deviceIdentifier: selectedDeviceId,
-						destination,
-						attachment: {
-							tableName: into.tableName,
-							rowId: into.rowId,
-							generation: engine.generation(),
-						},
-					});
-					if (result.error) return Err(result.error);
-					return wrap(result.data, into);
+						if (pendingRequest !== request) return resolvedElsewhere();
+						if (result.error) {
+							if (result.error.name !== 'RecorderFailed') {
+								pendingRequest = undefined;
+								return result;
+							}
+							const current = await call<NativeRecording | null>(
+								'resolve_recording_start',
+								{ sessionId, requestId: request.requestId },
+							);
+							if (pendingRequest !== request) return resolvedElsewhere();
+							if (current.error)
+								return RecorderError.StartUnconfirmed({
+									cause: new AggregateError(
+										[result.error, current.error],
+										'Native start and its reconciliation failed.',
+									),
+								});
+							pendingRequest = undefined;
+							if (!current.data) return result;
+							held = wrap(current.data);
+							return Ok(held);
+						}
+						pendingRequest = undefined;
+						held = wrap(result.data);
+						return Ok(held);
+					} finally {
+						starting = false;
+					}
 				});
 			},
 		},

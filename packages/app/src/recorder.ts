@@ -1,5 +1,4 @@
-import type { BlobDestination } from '@epicenter/blobs/native';
-import type { Attachment, AttachmentError } from '@epicenter/data/store';
+import type { FinishedFile } from '@epicenter/blobs';
 import { type LibraryReplicaIdentity } from '@epicenter/principal';
 import type {
 	Device,
@@ -13,7 +12,7 @@ import {
 } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 
-/** The library whose local bytes receive the completed recording. */
+/** The App context captured by this recorder; it does not select a save destination. */
 export type RecordingReplica = LibraryReplicaIdentity;
 
 export const RecorderError = defineErrors({
@@ -33,6 +32,14 @@ export const RecorderError = defineErrors({
 		message: 'This recording is no longer active.',
 		cause,
 	}),
+	StartUnconfirmed: ({ cause }: { cause: unknown }) => ({
+		message: `Could not confirm whether recording started: ${extractErrorMessage(cause)}`,
+		cause,
+	}),
+	CaptureLost: ({ cause }: { cause: unknown }) => ({
+		message: `Recording ended without a finished file: ${extractErrorMessage(cause)}`,
+		cause,
+	}),
 	RecorderFailed: ({ cause }: { cause: unknown }) => ({
 		message: `Recording failed: ${extractErrorMessage(cause)}`,
 		cause,
@@ -41,29 +48,28 @@ export const RecorderError = defineErrors({
 export type RecorderError = InferErrors<typeof RecorderError>;
 
 export type RecordingParams = {
-	into: Attachment;
 	selectedDeviceId?: DeviceIdentifier | null;
 };
 
 export type RecorderStopResult = {
+	file: FinishedFile;
 	durationMs: number;
 	byteLength: number;
 };
-export type RecorderStopError = RecorderError | AttachmentError;
+export type RecorderStopError = RecorderError;
 export type RecordingEndedReason =
 	| 'deviceDisconnected'
 	| 'permissionRevoked'
 	| 'streamFailed'
 	| 'storageFailed';
 
-/** One capture, permanently bound to its original dataset and owner. */
+/** One document-owned capture. The workflow separately retains its chosen table. */
 export type Recording = {
 	readonly id: string;
-	readonly into: Attachment;
 	readonly replica: RecordingReplica;
 	readonly device: DeviceAcquisitionOutcome;
 	readonly endedReason: RecordingEndedReason | null;
-	/** Stop capture and publish complete local bytes. A session resolves once. */
+	/** Stop capture and return a disposable finished file. Library creation saves it. */
 	stop(): Promise<Result<RecorderStopResult, RecorderStopError>>;
 	/** Discard captured bytes and release capture. */
 	cancel(): Promise<Result<void, RecorderError>>;
@@ -73,7 +79,8 @@ export type Recording = {
 };
 
 export type RecordingService = {
-	/** Recover this owner's capture, refusing a different destination. */
+	discard(file: FinishedFile): Promise<Result<void, RecorderError>>;
+	/** Reconcile this document's live capture; never recover a prior document. */
 	current(): Promise<Result<Recording | null, RecorderError>>;
 	enumerateDevices(): Promise<Result<Device[], RecorderError>>;
 	start(params: RecordingParams): Promise<Result<Recording, RecorderError>>;
@@ -87,12 +94,7 @@ export type RecordingOwner = {
 };
 
 export type RecordingOptions = {
-	resolveAttachment?(tableName: string, rowId: string): Attachment;
-	isRetired?(): boolean;
-	/** Only an opened numeric generation can prove a capture journal obsolete. */
-	generation?(): number | null | undefined;
 	assertUsable?(): void;
-	canRecover?(): boolean;
 };
 
 /** Runtime composition is inert; acquisition happens only on start. */
@@ -105,8 +107,6 @@ export type RecordingFactory = (
 /** Wire shape pinned against the host's generated bindings by the consumer check. */
 export type NativeRecording = {
 	audioBlobId: string;
-	attachment: { tableName: string; rowId: string; generation: number | null };
-	destination: BlobDestination;
 	device:
 		| { outcome: 'success'; deviceId: string }
 		| {

@@ -5,7 +5,7 @@ import {
 	defineErrors,
 	extractErrorMessage,
 } from 'wellcrafted/error';
-import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
+import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 import { getApp, getSelections } from '../application.js';
 import { isSupportedLanguage } from '../constants/languages.js';
 import type { RecordingId } from '../data.js';
@@ -65,14 +65,11 @@ export function resolveTranscriptionState() {
 	};
 }
 
-/** Read saved audio through the page App and capture all inference inputs before I/O. */
-export async function transcribeAudio(
-	recordingId: RecordingId,
-	owner: WhisperingApp,
-): Promise<Result<string, TranscriptionError>> {
+/** Capture the workflow's inference selection before capture, import, or local I/O. */
+export function captureTranscription(owner: WhisperingApp) {
 	let usesAccount = false;
-	const result = await tryAsync({
-		try: async (): Promise<Result<string, TranscriptionError>> => {
+	const prepared = trySync({
+		try: () => {
 			const app = getApp();
 			if (app.signal !== owner.signal)
 				return TranscriptionOperationError.Closed();
@@ -133,38 +130,63 @@ export async function transcribeAudio(
 						: TranscriptionOperationError.Malformed();
 				};
 			}
-			const audio = await owner.recordings.readAudio(recordingId);
-			app.signal.throwIfAborted();
-			if (audio.error) return Err(audio.error);
-			const transcription = await transcribe(audio.data);
-			// Bespoke transports can finish after retirement. They cannot publish output.
-			app.signal.throwIfAborted();
-			return transcription;
+			return Ok(transcribe);
 		},
-		catch: (cause) => {
-			if (cause instanceof APIError && cause.status !== undefined) {
-				if (usesAccount && cause.status === 402)
-					return TranscriptionOperationError.InsufficientCredits();
-				return TranscriptionOperationError.RequestFailed({
-					status: cause.status,
-					detail: cause.message,
-				});
-			}
-			if (cause instanceof SyntaxError)
-				return TranscriptionOperationError.Malformed();
-			return TranscriptionOperationError.TransportFailed({ cause });
-		},
+		catch: (cause) => TranscriptionOperationError.TransportFailed({ cause }),
 	});
-	return result.error ? Err(result.error) : result.data;
+	return async (
+		recordingId: RecordingId,
+	): Promise<Result<string, TranscriptionError>> => {
+		if (prepared.error) return Err(prepared.error);
+		const selected = prepared.data;
+		if (selected.error) return Err(selected.error);
+		const result = await tryAsync({
+			try: async () => {
+				if (owner.signal.aborted || !owner.recordings.get(recordingId))
+					return TranscriptionOperationError.Closed();
+				const audio = await owner.recordings.readAudio(recordingId);
+				if (owner.signal.aborted || !owner.recordings.get(recordingId))
+					return TranscriptionOperationError.Closed();
+				if (audio.error) return Err(audio.error);
+				const transcription = await selected.data(audio.data);
+				if (owner.signal.aborted || !owner.recordings.get(recordingId))
+					return TranscriptionOperationError.Closed();
+				return transcription;
+			},
+			catch: (cause) => {
+				if (cause instanceof APIError && cause.status !== undefined) {
+					if (usesAccount && cause.status === 402)
+						return TranscriptionOperationError.InsufficientCredits();
+					return TranscriptionOperationError.RequestFailed({
+						status: cause.status,
+						detail: cause.message,
+					});
+				}
+				if (cause instanceof SyntaxError)
+					return TranscriptionOperationError.Malformed();
+				return TranscriptionOperationError.TransportFailed({ cause });
+			},
+		});
+		return result.error ? Err(result.error) : result.data;
+	};
+}
+
+/** A deliberate transcription captures its selection when invoked. */
+export function transcribeAudio(
+	recordingId: RecordingId,
+	owner: WhisperingApp,
+) {
+	return captureTranscription(owner)(recordingId);
 }
 
 /** Every saved transcription attempts history only while its captured App is alive. */
 export async function transcribeAndPersist(
 	app: WhisperingApp,
 	recordingId: RecordingId,
+	transcribe = captureTranscription(app),
 ): Promise<Result<TranscriptionSuccess, TranscriptionError>> {
 	const signal = app.signal;
-	const result = await transcribeAudio(recordingId, app);
+	const result = await transcribe(recordingId);
 	if (signal.aborted) return TranscriptionOperationError.Closed();
 	return recordTranscriptionOutcome(app, recordingId, result);
 }

@@ -94,11 +94,7 @@ type _SharedContracts = Expect<
 type _StartRecordingArgs = Expect<
 	Equal<
 		Parameters<typeof commands.startRecording>,
-		[
-			string | null,
-			import('./bindings.gen').BlobDestination,
-			import('./bindings.gen').RecordingAttachment,
-		]
+		[string | null, string, string]
 	>
 >;
 
@@ -109,16 +105,12 @@ type _StartRecording = Expect<
 	>
 >;
 
-// One shape for a started recording and a recovered one. `endedReason` is what
-// makes that possible: a recording whose capture died is the same recording with
-// a reason attached, not a second kind of thing arriving down a second channel.
+// Capture is disposable and carries no library or row destination.
 type _HostRecordingShape = Expect<
 	Equal<
 		HostRecording,
 		{
 			audioBlobId: string;
-			destination: import('./bindings.gen').BlobDestination;
-			attachment: import('./bindings.gen').RecordingAttachment;
 			device: DeviceAcquisition;
 			endedReason: EndedReason | null;
 		}
@@ -139,14 +131,9 @@ type _DeviceAcquisitionShape = Expect<
 	>
 >;
 
-// stop_recording: names the recording to end, and answers with the committed
-// blob plus the host's exact duration and byte length. Neither is nullable,
-// because a stop that returns at all has already published the file.
+// Stop returns a temporary finished-file token, not a published library row.
 type _StopRecordingArgs = Expect<
-	Equal<
-		Parameters<typeof commands.stopRecording>,
-		[string, import('./bindings.gen').BlobDestination]
-	>
+	Equal<Parameters<typeof commands.stopRecording>, [string, string]>
 >;
 
 type _StopRecording = Expect<
@@ -159,7 +146,11 @@ type _StopRecording = Expect<
 type _StoppedRecordingShape = Expect<
 	Equal<
 		StoppedRecording,
-		{ audioBlobId: string; durationMs: number; byteLength: number }
+		{
+			file: import('./bindings.gen').FinishedFile;
+			durationMs: number;
+			byteLength: number;
+		}
 	>
 >;
 
@@ -167,10 +158,7 @@ type _StoppedRecordingShape = Expect<
 // absence of a result type is the invariant: a cancel can never hand anyone a
 // blob.
 type _CancelRecordingArgs = Expect<
-	Equal<
-		Parameters<typeof commands.cancelRecording>,
-		[string, import('./bindings.gen').BlobDestination]
-	>
+	Equal<Parameters<typeof commands.cancelRecording>, [string, string]>
 >;
 
 type _CancelRecording = Expect<
@@ -180,25 +168,21 @@ type _CancelRecording = Expect<
 	>
 >;
 
-// current_recording: takes nothing, because the only window it could be asked
-// about is the one asking. That scoping lives in Rust with the injected window,
-// which is why there is no label parameter here to get wrong.
-//
-// It answers in the same shape `start` does, which is what lets a recording
-// recovered after a reload be as capable as one just started rather than a
-// degraded stand-in, including one whose capture already ended.
-type _CurrentRecordingArgs = Expect<
-	Equal<
-		Parameters<typeof commands.currentRecording>,
-		[import('./bindings.gen').BlobDestination]
-	>
+// Session registration replaces cross-document capture recovery.
+type _RegisterRecordingSession = Expect<
+	Equal<Parameters<typeof commands.registerRecordingSession>, [string]>
 >;
-
-type _CurrentRecording = Expect<
+type _ResolveRecordingStart = Expect<
+	Equal<Parameters<typeof commands.resolveRecordingStart>, [string, string]>
+>;
+type _ResolvedRecordingStart = Expect<
 	Equal<
-		ReturnType<typeof commands.currentRecording>,
+		ReturnType<typeof commands.resolveRecordingStart>,
 		Promise<Result<HostRecording | null, IpcRecorderError>>
 	>
+>;
+type _CurrentDocumentRecording = Expect<
+	Equal<Parameters<typeof commands.currentRecording>, [string]>
 >;
 
 // The recorder contract is platform-neutral, so it cannot import the native

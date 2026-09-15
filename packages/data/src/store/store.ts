@@ -2,6 +2,8 @@ import {
 	type BlobId,
 	type BlobSources,
 	type BlobStore,
+	attachmentStorageId,
+	type FinishedFile,
 	BlobStoreError,
 	generateBlobId,
 	parseBlobId,
@@ -43,6 +45,8 @@ import {
 	type RowInput,
 	readRow,
 	readRowContent,
+	readAttachmentContent,
+	writeAttachmentContent,
 	storedTableNames,
 	tableRoot,
 	updateRow,
@@ -455,7 +459,6 @@ export function createStoreOverPort<
 	let connection: SyncConnection | undefined;
 	let stopHideFlush: (() => void) | undefined;
 	const operations = new Set<Promise<unknown>>();
-	const completingAttachments = new Set<string>();
 
 	function onRetired(): void {
 		if (retired || held?.replication === undefined) return;
@@ -1021,7 +1024,6 @@ export function createStoreOverPort<
 			} catch (cause) {
 				failures.push(cause);
 			}
-			const flushing = initialized && !retired ? controller.close() : undefined;
 			await release(() => acquisition);
 			if (retired) {
 				try {
@@ -1034,8 +1036,10 @@ export function createStoreOverPort<
 				}
 				await release(() => discarded);
 			}
-			await release(() => flushing);
 			await Promise.allSettled(operations);
+			await release(() =>
+				initialized && !retired ? controller.close() : undefined,
+			);
 			await release(() => database.destroy());
 			await release(() => held?.dispose?.());
 			if (failures.length === 1) throw failures[0];
@@ -1303,20 +1307,12 @@ export function createStoreOverPort<
 					signal: lifetime.signal,
 					bytes: blobStore,
 					sources: options.blobSources,
-					destination: options.attachmentDestination,
-					generation: () => held?.replication?.address.generation ?? null,
-					persistence: controller.persistence,
 					exists: () =>
 						originalRow !== undefined &&
 						root.getAttr(rowId as never) === originalRow,
 					cell: () => readRow(root, rowId)?.[attachmentField.name],
-					commit: (contentType) => {
-						transact(() =>
-							updateRow(root, rowId, { [attachmentField.name]: contentType }),
-						);
-					},
+					evidence: () => readAttachmentContent(root, rowId),
 					run: runOperation,
-					busy: completingAttachments,
 				});
 			},
 			create(fields) {
@@ -1326,11 +1322,16 @@ export function createStoreOverPort<
 					: undefined;
 				if (
 					attachmentField &&
-					attachmentInput !== null &&
-					!(attachmentInput instanceof Blob)
+					!(attachmentInput instanceof Blob) &&
+					!(
+						attachmentInput &&
+						typeof attachmentInput === 'object' &&
+						'kind' in attachmentInput &&
+						attachmentInput.kind === 'native-capture'
+					)
 				)
 					throw new TypeError(
-						`'${attachmentField.name}' requires null or Blob bytes.`,
+						`'${attachmentField.name}' requires a finished file.`,
 					);
 				const values: RowInput = {};
 				for (const [name, value] of Object.entries(fields)) {
@@ -1345,21 +1346,55 @@ export function createStoreOverPort<
 				}
 				if (blobFields.length === 0) {
 					const rowId = mintRowId();
-					transact(() => createRow(root, rowId, values));
-					if (attachmentInput instanceof Blob) {
-						return handle
-							.attachment(rowId)
-							.complete(attachmentInput)
-							.then((result) => {
-								if (result.error) return result;
-								if (lifetime.signal.aborted)
-									return AttachmentError.Unavailable({ reason: 'closed' });
-								const payload = readRow(root, rowId);
-								return payload
-									? Ok(withContent({ id: rowId, ...payload }))
-									: AttachmentError.Unavailable({ reason: 'row-absent' });
-							});
+					if (attachmentField) {
+						if (database._transaction !== null)
+							throw new Error(
+								'Attachment creation cannot run inside a synchronous transaction.',
+							);
+						const generation = held?.replication?.address.generation ?? null;
+						return runOperation(async () => {
+							if (!blobStore?.attachments)
+								return AttachmentError.Unavailable({
+									reason: 'storage-unconfigured',
+								});
+							const storageId = attachmentStorageId(tableName, rowId);
+							let published = await blobStore.attachments.put(
+								storageId,
+								attachmentInput as FinishedFile,
+								generation,
+							);
+							if (published.error && !retired)
+								published = await blobStore.attachments.put(
+									storageId,
+									attachmentInput as FinishedFile,
+									generation,
+								);
+							if (published.error) {
+								const present = await blobStore.stat(storageId);
+								return present.error?.name === 'BlobNotFound'
+									? AttachmentError.Failed({ cause: published.error })
+									: AttachmentError.SaveUnconfirmed({ rowId });
+							}
+							if (retired)
+								return AttachmentError.Unavailable({ reason: 'closed' });
+							// Admission owns this commit even while ordinary close drains it.
+							database.transact(() => {
+								createRow(root, rowId, {
+									...values,
+									[attachmentField.name]: published.data.contentType,
+								});
+								writeAttachmentContent(root, rowId, published.data);
+							}, localOrigin);
+							const saved = await controller.save();
+							if (retired || !saved)
+								return AttachmentError.SaveUnconfirmed({ rowId });
+							const payload = readRow(root, rowId);
+							return payload
+								? Ok(withContent({ id: rowId, ...payload }))
+								: AttachmentError.Unavailable({ reason: 'row-absent' });
+						});
 					}
+					transact(() => createRow(root, rowId, values));
 					// Read the integrated content node, never echo its detached input.
 					return withContent({ id: rowId, ...readRow(root, rowId) });
 				}
