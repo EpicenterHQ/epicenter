@@ -11,7 +11,6 @@ import {
 	createInferenceSelections,
 	type InferenceSelections,
 } from '@epicenter/app-shell/inference-selections';
-import type { BlobId } from '@epicenter/blobs';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { WhisperingApp, WhisperingAppHandle } from '../whispering/app.js';
@@ -29,6 +28,12 @@ mock.module('../state/secrets.svelte.js', () => ({
 }));
 mock.module('../services/transcription/cloud/deepgram.js', () => ({
 	DeepgramTranscriptionServiceLive: { transcribe: () => bespoke() },
+}));
+mock.module('../services/transcription/cloud/mistral.js', () => ({
+	MistralTranscriptionServiceLive: { transcribe: () => bespoke() },
+}));
+mock.module('../services/transcription/cloud/elevenlabs.js', () => ({
+	ElevenLabsTranscriptionServiceLive: { transcribe: () => bespoke() },
 }));
 const { transcribeAudio, transcribeAndPersist } = await import(
 	'./transcribe.js'
@@ -124,7 +129,11 @@ async function setup({
 		setLoad(next: typeof load) {
 			load = next;
 		},
-		run: () => transcribeAudio('audio-id' as BlobId),
+		run: () =>
+			transcribeAudio('recording-id', {
+				signal: controller.signal,
+				recordings: { readAudio: () => load() },
+			} as unknown as WhisperingApp),
 		close: async () => {
 			selections[Symbol.dispose]();
 			controller.abort();
@@ -230,7 +239,7 @@ test('account credit failures stay credit-aware while configured 402 remains a r
 		});
 		if (account)
 			fixture.selections.set('transcription', {
-				connectionId: 'account:["server","alice"]',
+				connectionId: 'account:["https://account.example","me"]',
 				model: 'saved-model',
 			});
 		expect(expectErr(await fixture.run()).name).toBe(
@@ -265,12 +274,11 @@ test('bespoke completion after retirement cannot publish transcript or history',
 		return finished.promise;
 	};
 	const patch = mock();
-	const domain = { recordings: { patch } } as unknown as WhisperingApp;
-	const pending = transcribeAndPersist(
-		domain,
-		'recording-id',
-		'audio-id' as BlobId,
-	);
+	const domain = {
+		signal: fixture.controller.signal,
+		recordings: { patch, readAudio: async () => Ok(fixture.audio) },
+	} as unknown as WhisperingApp;
+	const pending = transcribeAndPersist(domain, 'recording-id');
 	await started.promise;
 	await fixture.close();
 	finished.resolve(Ok('late words'));

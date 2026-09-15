@@ -1,4 +1,5 @@
 import { APPS } from '@epicenter/constants/apps';
+import { BLOB_ID_ROUTE_REGEX } from '@epicenter/blobs';
 import { field } from '@epicenter/data/definition';
 /**
  * Whispering's inert data definition.
@@ -42,8 +43,12 @@ export type RecordingId = string;
 export type RecipeId = string;
 
 const recordingsTable = defineTable({
-	/** Immutable audio bytes owned by this recording and addressed by BlobId. */
-	audioBlobId: field.blob(),
+	/** Null until the owning attachment confirms durable local audio. */
+	audio: field.attachment(),
+	/** Read compatibility for recordings written before row-owned attachments. */
+	audioBlobId: field.nullable(
+		field.string({ pattern: `^${BLOB_ID_ROUTE_REGEX}$` }),
+	),
 	/** Set only after an explicit replica upload succeeds. */
 	uploadedAt: field.nullable(field.instant()),
 	title: field.string(),

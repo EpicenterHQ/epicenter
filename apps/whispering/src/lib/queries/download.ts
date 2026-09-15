@@ -1,4 +1,5 @@
 import type { BlobNotFound, BlobStoreFailed } from '@epicenter/blobs';
+import type { AttachmentError } from '@epicenter/data';
 import { defineKeys } from 'wellcrafted/query';
 import { Err, type Result } from 'wellcrafted/result';
 import type { DownloadError } from '#platform/download';
@@ -21,10 +22,13 @@ export function createDownloadQueries(
 			mutationFn: async (
 				recording: Recording,
 			): Promise<
-				Result<void, BlobNotFound | BlobStoreFailed | DownloadError>
+				Result<
+					void,
+					BlobNotFound | BlobStoreFailed | AttachmentError | DownloadError
+				>
 			> => {
 				const { data: audioBlob, error: getAudioBlobError } =
-					await app.blobs.get(recording.audioBlobId);
+					await app.recordings.readAudio(recording.id);
 
 				if (getAudioBlobError) return Err(getAudioBlobError);
 

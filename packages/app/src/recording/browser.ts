@@ -1,5 +1,5 @@
 import { captureLibraryReplica } from '@epicenter/principal';
-import { generateBlobId } from '@epicenter/blobs';
+import { attachmentEngineOf } from '@epicenter/data/store';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok } from 'wellcrafted/result';
 import {
@@ -26,9 +26,9 @@ function acquisitionError(error: DeviceStreamError) {
 
 /** Browser capture belongs to this document; construction acquires no resources. */
 export function createBrowserRecording(
-	_appId: string,
+	appId: string,
 	input: RecordingReplica,
-	{ assertUsable, local: store }: RecordingOptions,
+	{ assertUsable }: RecordingOptions,
 ): RecordingOwner {
 	const replica = captureLibraryReplica(input);
 	let closed = false;
@@ -103,12 +103,31 @@ export function createBrowserRecording(
 						: Ok(result.data);
 				});
 			},
-			start(params = {}) {
+			start(params) {
 				return run(async () => {
 					if (pending || current) return RecorderError.AlreadyRecording();
+					const into = params.into;
+					const attachment = attachmentEngineOf(into);
+					const destination = attachment.destination;
+					const target = destination?.replica;
+					if (
+						destination?.appId !== appId ||
+						!target ||
+						(target.library === 'local'
+							? replica.library !== 'local'
+							: replica.library !== target.library ||
+								target.account.authorityId !== replica.account.authorityId ||
+								target.account.principalId !== replica.account.principalId)
+					)
+						return RecorderError.RecorderFailed({
+							cause: new Error('The attachment belongs to another library.'),
+						});
 					pending = true;
 					let release: () => void | Promise<void> = () => {};
 					try {
+						const prepared = await attachment.prepare();
+						if (prepared.error)
+							return RecorderError.RecorderFailed({ cause: prepared.error });
 						const acquired = await getRecordingStream({
 							selectedDeviceId: params.selectedDeviceId ?? null,
 						});
@@ -252,9 +271,10 @@ export function createBrowserRecording(
 							if (!stopped && recorder.state !== 'inactive') recorder.stop();
 							await completion.promise;
 						}
-						const audioBlobId = generateBlobId();
+						const id = crypto.randomUUID();
 						const session: Recording = {
-							audioBlobId,
+							id,
+							into,
 							replica,
 							device: deviceOutcome,
 							get endedReason() {
@@ -270,21 +290,22 @@ export function createBrowserRecording(
 										const blob = new Blob(chunks, {
 											type: recorder.mimeType || chunks[0]?.type,
 										});
-										const result = await store.put(audioBlobId, blob);
+										const result = await into.complete(blob);
 										if (result.error) return Err(result.error);
+										await cleanup();
+										if (current === session) {
+											current = null;
+											cancelCurrent = undefined;
+										}
 										return Ok({
-											audioBlobId,
 											durationMs,
 											byteLength: blob.size,
 										});
 									} catch (cause) {
 										return RecorderError.RecorderFailed({ cause });
 									} finally {
-										await cleanup();
-										if (current === session) {
-											current = null;
-											cancelCurrent = undefined;
-										}
+										// Failed completion retains accepted chunks for an explicit retry.
+										resolving = false;
 									}
 								});
 							},

@@ -655,6 +655,148 @@ is allowed to create another backup even when restoring the same source.
 
 ### Implementation waves
 
+#### Local attachment checkpoint, 2026-09-15
+
+Continuation review, 2026-09-15: this checkout already contained the local
+owner, recorder integration, and the earlier checkpoint below. Those changes
+and the concurrent generation work are preserved. The attachment owner remains the
+completion authority: row flush, immutable byte publication, and completion
+flush are separate failure boundaries. Native staging retains the original
+library, generation, row, and session until acknowledgment.
+
+The new independent adversarial review found and verified cancellation repairs:
+
+- Native cancellation and retirement now share `recovery::discard`, which
+  removes staging and journal ownership while preserving published bytes. A
+  deleted row cannot turn a lost completion acknowledgment into byte reclamation.
+  The desktop adapter no longer reads the cell to choose its cleanup command;
+  `AttachmentEngine.isCompleted` was removed with replacement regression coverage.
+- Failed cancellation remains retryable through the desktop session and
+  Whispering controls. The original handle recovers and retries. A stale handle
+  cannot cancel the next capture.
+- A lost cancellation response no longer prevents App close. Native release
+  needs no journal and succeeds when the exact session has already gone. Live
+  capture still checks window and destination before teardown.
+
+Regression tests reproduced the original publication deletion and both retry
+failures before the repairs. Follow-up review found the lost-response closure
+case; its repair and tests passed a final independent review with no further
+blockers. The attachment owner and native journal remain separate owners of
+completion and capture recovery. No transfer, App-scope, or reclamation work was
+added.
+
+The table's attachment owner commits local completion. It first makes the
+existing row durable, then saves immutable bytes at the library/table/row
+address, then records and flushes the completion cell. Reads inspect local
+bytes and retain platform playback disposal. A failed byte write or row flush
+cannot report saved audio. Completion rechecks row existence and the captured
+store lifetime after I/O; it never creates a missing row.
+
+Recorder integration is part of this checkpoint. Browser capture supplies
+bytes to that owner. Native capture retains a separate session identity and
+durable staging descriptor naming its original library, generation, table,
+and row. Native publication and row completion need acknowledgment so a crash
+between them retains recoverable evidence. Ordinary closure and cancellation
+must remain distinct from confirmed generation retirement.
+
+The affected consumers are App recorder composition and both recorder
+adapters, their capture fixtures, and Whispering's recording creation,
+playback, save-file, and transcription inputs. Existing blob-ID readers stay
+until replacement consumers pass; no production migration is included.
+Account transfer, App scopes, copying, concurrent microphones, and restore
+execution remain subsequent work. This checkpoint does not claim automatic
+account delivery before the library synchronizer exists.
+
+Task-start evidence: the library-ownership foundation suite still reports
+7 pass and 2 fail (initial-generation fetch 404 and socket refusal 403 rather
+than 404). Existing generation and planning changes belong to concurrent work.
+Native fixtures establish storage behavior only; host termination and actual
+microphone/playback acceptance require separate runtime evidence.
+
+The local checkpoint now has `field.attachment()`, synchronous null-first row
+creation, asynchronous create-with-file, and row-owned `complete`, `read`,
+`stat`, and disposable `source` operations. Whispering records into its existing
+row and reads that row for playback, export, and inference. Legacy rows retain
+their old reader; new attachments do not enter the legacy upload runner.
+
+Runtime evidence on 2026-09-15: Chromium captured synthetic microphone input,
+played and decoded the completed attachment with network access disabled, then
+closed and reopened the Local App with identical bytes. The native Rust probe
+killed a child process with SIGKILL after writing staged WAV audio, reopened its
+exact library/row/session journal, published and decoded the audio, retried, and
+acknowledged without deleting it. This establishes process-interruption recovery,
+not physical microphone recovery, native WebView playback, or power-loss safety.
+Browser capture has no durable journal across page termination: same-handle
+save retry is implemented, but an old null cell never automatically adopts bytes.
+
+Independent review retained the attachment owner and native journal boundaries.
+It found four required repairs: reject foreign browser destinations before
+microphone acquisition; retire native staging and journals without reclaiming
+published bytes; reconcile journals proven obsolete by an opened generation;
+and fence shared dictation feedback against older inference. These repairs and
+their focused follow-up review are part of this checkpoint, not a new App or
+restore implementation wave.
+
+All four review findings are repaired. Follow-up review required one further
+guard: only a strictly newer opened generation proves an older capture journal
+obsolete. An older cached generation preserves a future journal. Equal,
+unknown, unavailable, and failed-to-read generations do not authorize retirement.
+The added preservation test passes. Native retirement never reclaims published
+bytes; restored null cells still cannot adopt them. Older inference retains its
+original row and delivery, but cannot change a newer capture's shared feedback.
+
+Final focused verification, 2026-09-15:
+
+| Scope | Result |
+| --- | --- |
+| Data attachment owner, legacy attachments, field declarations, browser and desktop recorder Bun suites | 163 pass, 0 fail, 439 assertions |
+| App lifecycle, App recording composition, Bun byte adapter, host server Bun suites | 117 pass, 0 fail, 703 assertions |
+| Browser/WebView byte adapters and attachment address Bun suites | 49 pass, 0 fail, 293 assertions |
+| Whispering recording, closure, pipeline, transcription, row domain, query retry; six isolated Bun processes | 64 pass, 0 fail, 241 assertions |
+| Native `cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml --lib --quiet` | 154 pass, 0 fail, 2 ignored helper/platform tests |
+| App browser/host, Whispering browser/host, host UI, data DOM, blobs typechecks | Pass; Whispering has 0 warnings |
+| Native `cargo check` and `export_types` | Pass; generated command bindings updated |
+| `git diff --check` | Pass |
+| Library-ownership foundation recheck | 7 pass, 2 fail: same failures as task start |
+| Data `tsconfig.json` typecheck | 8 DOM-boundary errors in browser/evidence imports, reproduced before continuation edits; DOM leaf passes |
+| Documentation hygiene script | 57 ADR dependent-list issues; continuation changes no ADRs |
+
+Commit preparation also exported the staged index into an isolated directory,
+installed its locked dependencies, and reran all 393 focused Bun tests
+(1,676 assertions) plus both App typecheck leaves successfully. That snapshot
+excludes the concurrent generation changes. Its foundation suite still has
+7 pass and 2 fail: initial-generation fetch 404, and socket refusal 403 versus
+the committed fixture's expected 409. The live concurrent fixture expects 404
+instead. Neither foundation result is an attachment regression.
+
+Reproduce the joint owner/recorder checkpoint from the repository root:
+
+```sh
+bun test packages/data/src/store/attachment.test.ts packages/data/src/store/store-attachments.test.ts packages/data/src/field/field.test.ts packages/app/src/recording/browser.test.ts packages/app/src/recording/desktop.test.ts
+bun packages/app/scripts/browser-smoke.ts
+```
+
+Remaining acceptance: run physical microphone capture, host termination, restart,
+and offline playback in the native WebView. Browser page-crash capture recovery
+is unimplemented. Completed browser attachments do survive App close/reopen.
+Automatic account attachment synchronization is unimplemented and the UI says
+new audio remains on this device. Local storage does not disable explicitly
+configured remote inference; the existing Local opener still has no account AI
+gateway. This checkpoint does not add the proposed multi-library App scopes.
+
+The continuation reran the Chromium offline journey: 245 bytes of Opus audio,
+0.36 seconds decoded, 22 meter ticks, successful cancellation, and identical
+bytes after Local close/reopen. The native suite reran the SIGKILL recovery
+probe. `system_profiler SPAudioDataType` reports only Mac Studio Speakers and
+no input device, so this machine cannot provide the physical microphone proof.
+No power-loss or native WebView playback claim follows from the process probe.
+
+Next bounded implementation slice: library-owned upload and download for completed
+row attachments, with generation-fenced admission, restart/retry evidence, and
+offline playback on a second device. Keep account copying and reclamation out.
+Before calling native capture recovery accepted, close the hardware/WebView gap
+above. The broader waves below remain in progress.
+
 Rewritten 2026-09-13 backward from ADR-0393's eager attachment synchronization
 and honest local reads. The outcome is a recording made offline on device A,
 uploaded after reconnect, automatically downloaded on device B, then played
@@ -769,7 +911,10 @@ reclamation before wave 5's evidence.
    - [ ] Re-run affected checks and the full two-device journey. Delete this
      spec only after its recovery and retention obligations are complete.
 
-### Execution decisions still requiring evidence
+### Historical execution decisions before ADR-0393 through ADR-0395
+
+This checklist records the superseded archive/catalog design. It is not remaining
+work; the current Implementation waves above own execution and proof obligations.
 
 - Application compatibility and archive provenance: v2 requires application/data
   identity and preserves source generation/head. It supplies no capture date.

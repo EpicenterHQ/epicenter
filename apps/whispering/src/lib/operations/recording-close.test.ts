@@ -18,7 +18,8 @@ const events: string[] = [];
 let pipelineFailure: Error | undefined;
 let vadFailure: Error | undefined;
 const capture = {
-	audioBlobId: generateBlobId(),
+	id: crypto.randomUUID(),
+	into: { rowId: 'original-row' },
 	onEnded: () => () => {},
 	onLevel: () => () => {},
 	state: 'IDLE',
@@ -26,7 +27,7 @@ const capture = {
 	async stop() {
 		events.push('finalize');
 		await finalized.promise;
-		return Ok({ audioBlobId: 'source', durationMs: 100, byteLength: 10 });
+		return Ok({ durationMs: 100, byteLength: 10 });
 	},
 };
 let speechEnd: ((blob: Blob) => Promise<void>) | undefined;
@@ -77,7 +78,7 @@ mock.module('$lib/state/device-config.svelte', () => ({
 	deviceConfig: { set: mock() },
 }));
 mock.module('$lib/state/dictation-lifecycle.svelte', () => ({
-	dictationLifecycle: { reset: mock(), markFailed: mock() },
+	dictationLifecycle: { reset: mock(() => () => true), markFailed: mock() },
 }));
 const activity = await import('../state/recording-active.svelte');
 const { recordingActive } = activity;
@@ -96,7 +97,16 @@ function recordingApp<T extends object>(
 		current: async () => Ok(capture as unknown as Recording),
 	} as RecordingService,
 ) {
-	const app = options as T & WhisperingApp;
+	const app = {
+		signal: new AbortController().signal,
+		recordings: {
+			get: () => ({ id: 'original-row' }),
+			patch: mock(),
+			create: async () => Ok({ id: 'original-row' }),
+			attachment: () => capture.into,
+		},
+		...options,
+	} as T & WhisperingApp;
 	const session = createWhisperingRecording(app, service);
 	Object.defineProperty(app, 'recording', { value: session.recording });
 	return app;
@@ -189,7 +199,7 @@ test('failed row saving preserves the published capture source', async () => {
 	}
 });
 
-test('completed saving releases the capture source once', async () => {
+test('completed saving leaves attachment cleanup to its owner', async () => {
 	finalized.resolve();
 	saved.resolve();
 	const removeLocal = mock(async () => Ok(undefined));
@@ -198,8 +208,7 @@ test('completed saving releases the capture source once', async () => {
 		blobs: { removeLocal },
 	});
 	await app.recording.stop();
-	expect(removeLocal).toHaveBeenCalledTimes(1);
-	expect(removeLocal).toHaveBeenCalledWith('source');
+	expect(removeLocal).not.toHaveBeenCalled();
 });
 
 test('a stale push-to-talk ID cannot stop the recovered recording', async () => {
@@ -210,14 +219,15 @@ test('a stale push-to-talk ID cannot stop the recovered recording', async () => 
 	await app.recording.stop(generateBlobId());
 	expect(events).toHaveLength(before);
 	expect(app.recording.state).toBe('RECORDING');
-	await app.recording.stop(capture.audioBlobId);
-	expect(removeLocal).toHaveBeenCalledTimes(1);
+	await app.recording.stop(capture.id);
+	expect(removeLocal).not.toHaveBeenCalled();
 });
 
 test('push-to-talk release during startup saves through the composed workflow', async () => {
 	const { pushToTalk } = await import('./push-to-talk');
 	const acquired = Promise.withResolvers<ReturnType<typeof Ok<Recording>>>();
 	const service = {
+		enumerateDevices: async () => Ok([]),
 		current: async () => Ok(null),
 		start: () => acquired.promise,
 	} as RecordingService;
@@ -242,7 +252,7 @@ test('push-to-talk release during startup saves through the composed workflow', 
 	);
 	await starting;
 	expect(app.recording.state).toBe('IDLE');
-	expect(removeLocal).toHaveBeenCalledTimes(1);
+	expect(removeLocal).not.toHaveBeenCalled();
 	expect(recordingActive(app)).toBe(false);
 });
 

@@ -13,7 +13,7 @@ export function createManualRecorderConfig(
 		set deviceId(value: string | null) {
 			deviceConfig.set(key, value);
 		},
-		resolveStartParams(): RecordingParams {
+		resolveStartParams(): Pick<RecordingParams, 'selectedDeviceId'> {
 			const deviceId = this.deviceId;
 			return {
 				selectedDeviceId: deviceId ? asDeviceIdentifier(deviceId) : null,

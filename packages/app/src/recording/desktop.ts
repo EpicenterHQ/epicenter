@@ -1,23 +1,24 @@
-import { captureLibraryReplica } from '@epicenter/principal';
 import { parseBlobId } from '@epicenter/blobs';
 import { blobDestination } from '@epicenter/blobs/native';
 import { isAppId } from '@epicenter/constants/app-id';
+import { type Attachment, attachmentEngineOf } from '@epicenter/data/store';
+import { captureLibraryReplica } from '@epicenter/principal';
+import {
+	asDeviceIdentifier,
+	type DeviceAcquisitionOutcome,
+} from '@epicenter/recorder';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import {
-	asDeviceIdentifier,
-	type DeviceAcquisitionOutcome,
-} from '@epicenter/recorder';
-import {
+	type NativeRecording,
 	RecorderError,
-	type RecordingReplica,
 	type Recording,
 	type RecordingEndedReason,
-	type RecordingOwner,
 	type RecordingOptions,
-	type NativeRecording,
+	type RecordingOwner,
+	type RecordingReplica,
 } from '../recorder.js';
 
 const log = createLogger('recorder/desktop');
@@ -52,7 +53,13 @@ function call<T>(command: string, args?: Record<string, unknown>) {
 export function createDesktopRecording(
 	appId: string,
 	input: RecordingReplica,
-	{ assertUsable, canRecover = () => false }: RecordingOptions,
+	{
+		assertUsable,
+		canRecover = () => false,
+		resolveAttachment,
+		isRetired = () => false,
+		generation,
+	}: RecordingOptions,
 ): RecordingOwner {
 	if (!isAppId(appId)) throw new Error(`Invalid recording app ID '${appId}'.`);
 	const replica = captureLibraryReplica(input);
@@ -84,28 +91,36 @@ export function createDesktopRecording(
 	}
 
 	const destination = blobDestination(appId, replica);
+	function owns(live: NativeRecording) {
+		const captured = live.destination.replica;
+		return (
+			live.destination.appId === appId &&
+			(captured.library === 'local'
+				? replica.library === 'local'
+				: replica.library === captured.library &&
+					captured.account.authorityId === replica.account.authorityId &&
+					captured.account.principalId === replica.account.principalId)
+		);
+	}
 	let held:
 		| {
 				recording: Recording;
 				reconcile(reason: RecordingEndedReason | null): void;
-				cancel(): Promise<Result<void, RecorderError>>;
+				releaseCapture(): Promise<Result<void, RecorderError>>;
+				retireCapture(): Promise<Result<void, RecorderError>>;
 		  }
 		| undefined;
 
-	function wrap(live: NativeRecording): Result<Recording, RecorderError> {
+	function wrap(
+		live: NativeRecording,
+		selected?: Attachment,
+	): Result<Recording, RecorderError> {
 		const audioBlobId = parseBlobId(live.audioBlobId);
 		if (audioBlobId === undefined)
 			return RecorderError.RecorderFailed({
 				cause: new Error('The host returned an invalid blob ID.'),
 			});
-		const captured = live.destination.replica;
-		const matches =
-			captured.library === 'local'
-				? replica.library === 'local'
-				: replica.library === captured.library &&
-					captured.account.authorityId === replica.account.authorityId &&
-					captured.account.principalId === replica.account.principalId;
-		if (live.destination.appId !== appId || !matches) {
+		if (!owns(live)) {
 			return RecorderError.AlreadyRecording({
 				cause: new Error('The recording belongs to another dataset.'),
 			});
@@ -114,9 +129,27 @@ export function createDesktopRecording(
 			...live.device,
 			deviceId: asDeviceIdentifier(live.device.deviceId),
 		};
-		if (held?.recording.audioBlobId === audioBlobId) {
+		if (held?.recording.id === audioBlobId) {
 			held.reconcile(live.endedReason);
 			return Ok(held.recording);
+		}
+		let into: Attachment;
+		try {
+			const found =
+				selected ??
+				resolveAttachment?.(live.attachment.tableName, live.attachment.rowId);
+			if (!found)
+				throw new Error('The recording attachment cannot be resolved.');
+			into = found;
+			const engine = attachmentEngineOf(into);
+			if (
+				into.tableName !== live.attachment.tableName ||
+				into.rowId !== live.attachment.rowId ||
+				engine.generation() !== live.attachment.generation
+			)
+				throw new Error('The recording belongs to another row or generation.');
+		} catch (cause) {
+			return RecorderError.RecorderFailed({ cause });
 		}
 		let endedReason = live.endedReason;
 		let resolved = false;
@@ -146,19 +179,24 @@ export function createDesktopRecording(
 				if (unlisteners.delete(promise)) unlisten(promise);
 			};
 		}
-		async function cancel() {
+		async function cancel(retire = isRetired()) {
 			resolved = true;
-			const result = await call<void>('cancel_recording', { audioBlobId });
+			const command = retire ? 'retire_recording' : 'cancel_recording';
+			const result = await call<void>(command, { audioBlobId, destination });
 			await release();
 			if (
 				(result.error === null || result.error.name === 'NoActiveRecording') &&
-				held?.recording.audioBlobId === audioBlobId
-			)
+				held?.recording.id === audioBlobId
+			) {
 				held = undefined;
+			} else if (result.error) {
+				resolved = false;
+			}
 			return result;
 		}
 		const recording = Object.freeze({
-			audioBlobId,
+			id: audioBlobId,
+			into,
 			replica,
 			device,
 			get endedReason() {
@@ -172,15 +210,35 @@ export function createDesktopRecording(
 						audioBlobId: string;
 						durationMs: number;
 						byteLength: number;
-					}>('stop_recording', { audioBlobId });
+					}>('stop_recording', { audioBlobId, destination });
 					await release();
-					if (result.error) return Err(result.error);
+					if (result.error) {
+						resolved = false;
+						return Err(result.error);
+					}
 					if (result.data.audioBlobId !== audioBlobId)
 						return RecorderError.RecorderFailed({
 							cause: new Error('The host stopped a different recording.'),
 						});
-					if (held?.recording.audioBlobId === audioBlobId) held = undefined;
-					return Ok({ ...result.data, audioBlobId });
+					const completed =
+						await attachmentEngineOf(into).completeFromLocal('audio/wav');
+					if (completed.error) {
+						resolved = false;
+						return Err(completed.error);
+					}
+					const acknowledged = await call<void>('acknowledge_recording', {
+						audioBlobId,
+						destination,
+					});
+					if (acknowledged.error) {
+						resolved = false;
+						return Err(acknowledged.error);
+					}
+					if (held?.recording.id === audioBlobId) held = undefined;
+					return Ok({
+						durationMs: result.data.durationMs,
+						byteLength: result.data.byteLength,
+					});
 				});
 			},
 			cancel() {
@@ -194,10 +252,19 @@ export function createDesktopRecording(
 				if (resolved || endedReason !== null) return () => {};
 				let subscribed = true;
 				const stop = track(
-					listen<number>('mic-level', (event) => {
-						if (!closed && subscribed && !resolved && endedReason === null)
-							handler(event.payload);
-					}),
+					listen<{ audioBlobId: string; level: number }>(
+						'mic-level',
+						(event) => {
+							if (
+								!closed &&
+								subscribed &&
+								!resolved &&
+								endedReason === null &&
+								event.payload.audioBlobId === audioBlobId
+							)
+								handler(event.payload.level);
+						},
+					),
 				);
 				return () => {
 					subscribed = false;
@@ -235,6 +302,7 @@ export function createDesktopRecording(
 						if (closed || !subscribed || resolved || announced) return;
 						const current = await call<NativeRecording | null>(
 							'current_recording',
+							{ destination },
 						);
 						if (
 							current.data?.audioBlobId === audioBlobId &&
@@ -256,7 +324,17 @@ export function createDesktopRecording(
 		} satisfies Recording);
 		held = {
 			recording,
-			cancel,
+			retireCapture: () => cancel(true),
+			async releaseCapture() {
+				if (isRetired()) return cancel();
+				resolved = true;
+				const result = await call<void>('release_recording', {
+					audioBlobId,
+					destination,
+				});
+				await release();
+				return result;
+			},
 			reconcile(reason) {
 				endedReason ??= reason;
 			},
@@ -284,19 +362,25 @@ export function createDesktopRecording(
 					if (!held && canRecover()) {
 						const result = await call<NativeRecording | null>(
 							'current_recording',
+							{ destination },
 						);
 						if (result.error !== null) throw result.error;
-						if (result.data !== null) {
-							const recovered = wrap(result.data);
+						if (result.data !== null && owns(result.data)) {
+							// The App has already closed its document. Release the native
+							// session without reopening or resolving its attachment.
+							const recovered = await call<void>(
+								isRetired() ? 'retire_recording' : 'release_recording',
+								{ audioBlobId: result.data.audioBlobId, destination },
+							);
 							if (
 								recovered.error !== null &&
-								recovered.error.name !== 'AlreadyRecording'
+								recovered.error.name !== 'NoActiveRecording'
 							)
 								throw recovered.error;
 						}
 					}
 					if (held) {
-						const result = await held.cancel();
+						const result = await held.releaseCapture();
 						if (
 							result.error !== null &&
 							result.error.name !== 'NoActiveRecording'
@@ -319,9 +403,35 @@ export function createDesktopRecording(
 				return run(async () => {
 					const result = await call<NativeRecording | null>(
 						'current_recording',
+						{ destination },
 					);
 					if (result.error) return Err(result.error);
-					return result.data === null ? Ok(null) : wrap(result.data);
+					if (result.data === null) return Ok(null);
+					const live = result.data;
+					if (owns(live)) {
+						let obsolete: boolean;
+						try {
+							const openedGeneration = generation?.();
+							obsolete =
+								isRetired() ||
+								(typeof openedGeneration === 'number' &&
+									typeof live.attachment.generation === 'number' &&
+									openedGeneration > live.attachment.generation);
+						} catch (cause) {
+							return RecorderError.RecorderFailed({ cause });
+						}
+						if (obsolete) {
+							const retired =
+								held?.recording.id === live.audioBlobId
+									? await held.retireCapture()
+									: await call<void>('retire_recording', {
+											audioBlobId: live.audioBlobId,
+											destination,
+										});
+							return retired.error ? Err(retired.error) : Ok(null);
+						}
+					}
+					return wrap(live);
 				});
 			},
 			enumerateDevices() {
@@ -338,16 +448,31 @@ export function createDesktopRecording(
 					);
 				});
 			},
-			start({ selectedDeviceId = null } = {}) {
+			start({ into, selectedDeviceId = null }) {
 				return run(async () => {
+					const engine = attachmentEngineOf(into);
+					if (
+						JSON.stringify(engine.destination) !== JSON.stringify(destination)
+					)
+						return RecorderError.RecorderFailed({
+							cause: new Error('The attachment belongs to another library.'),
+						});
+					const prepared = await engine.prepare();
+					if (prepared.error)
+						return RecorderError.RecorderFailed({ cause: prepared.error });
 					const permitted = await permission('request_microphone_permission');
 					if (permitted.error) return permitted;
 					const result = await call<NativeRecording>('start_recording', {
 						deviceIdentifier: selectedDeviceId,
 						destination,
+						attachment: {
+							tableName: into.tableName,
+							rowId: into.rowId,
+							generation: engine.generation(),
+						},
 					});
 					if (result.error) return Err(result.error);
-					return wrap(result.data);
+					return wrap(result.data, into);
 				});
 			},
 		},

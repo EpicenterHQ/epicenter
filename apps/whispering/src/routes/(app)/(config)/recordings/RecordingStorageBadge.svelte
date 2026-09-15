@@ -9,7 +9,7 @@
 	let {
 		recording,
 	}: {
-		recording: Pick<Recording, 'id' | 'audioBlobId' | 'uploadedAt'>;
+		recording: Pick<Recording, 'id' | 'audio' | 'audioBlobId' | 'uploadedAt'>;
 	} = $props();
 
 	const availability = createQuery(

@@ -15,6 +15,9 @@ Reflect.set(globalThis, '$state', <T>(value: T) => value);
 mock.module('$lib/state/vad-recorder.svelte', () => ({
 	vadRecorder: { state: 'IDLE' },
 }));
+mock.module('../state/vad-recorder.svelte', () => ({
+	vadRecorder: { state: 'IDLE' },
+}));
 const admitted: Array<
 	ReturnType<typeof Promise.withResolvers<ReturnType<typeof Ok<void>>>>
 > = [];

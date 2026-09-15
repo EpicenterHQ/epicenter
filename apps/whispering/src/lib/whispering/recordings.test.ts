@@ -11,12 +11,13 @@ import {
 import type { AppBlobs } from '@epicenter/app';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { InstantString } from '@epicenter/data/field';
+import { defineData, defineTable, field } from '@epicenter/data/definition';
 import { createMemoryRecord } from '@epicenter/data/memory';
 import { openAccountStore } from '@epicenter/data/direct';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { type RecordingId, whisperingDefinition } from '../data';
-import type { NewRecording } from './recording';
+import { asRecording, type NewRecording } from './recording';
 import { createWhisperingRecordings } from './recordings';
 
 function stubLocalStore(overrides: Partial<BlobStore> = {}): BlobStore {
@@ -82,7 +83,7 @@ function appBlobs(local: BlobStore, remote: BlobRemote | null): AppBlobs {
 
 function recording(overrides: Partial<NewRecording> = {}): NewRecording {
 	return {
-		audioBlobId: new Blob(['audio'], { type: 'audio/wav' }),
+		audio: new Blob(['audio'], { type: 'audio/wav' }),
 		title: '',
 		recordedAt: InstantString.now(),
 		recordedAtZone: 'UTC',
@@ -97,7 +98,8 @@ function recording(overrides: Partial<NewRecording> = {}): NewRecording {
 function storedRow(row: NewRecording) {
 	return {
 		...row,
-		audioBlobId: row.audioBlobId,
+		audio: null,
+		audioBlobId: generateBlobId(),
 		uploadedAt: null,
 		transcriptionStatus: 'pending',
 		transcriptionCompletedAt: null,
@@ -122,7 +124,7 @@ async function setup({
 		dispose: record.close,
 	});
 	const table = data.tables.recordings;
-	for (const row of seed) expectOk(await table.create(storedRow(row)));
+	for (const row of seed) table.create(storedRow(row));
 	const domain = createWhisperingRecordings({
 		table,
 		blobs: appBlobs(local, remote),
@@ -130,6 +132,8 @@ async function setup({
 	});
 	return {
 		table,
+		createLegacy: (row: NewRecording) =>
+			Ok(asRecording(table.create(storedRow(row)))),
 		recordings: domain.recordings,
 		async dispose() {
 			domain[Symbol.dispose]();
@@ -202,7 +206,7 @@ test('upload writes uploadedAt only after the remote copy succeeds', async () =>
 		}),
 	});
 	try {
-		const row = expectOk(await context.recordings.create(recording()));
+		const row = expectOk(context.createLegacy(recording()));
 		expectOk(await context.recordings.uploadAudio(row.id));
 		expect(uploaded).toBe(true);
 		expect(context.recordings.get(row.id)?.uploadedAt).not.toBeNull();
@@ -228,10 +232,10 @@ test('deletion removes remote, local, then row', async () => {
 		}),
 	});
 	try {
-		const row = expectOk(await context.table.create({
+		const row = context.table.create({
 			...storedRow(recording()),
 			uploadedAt: InstantString.now(),
-		}));
+		});
 		expectOk(await context.recordings.delete(row.id as RecordingId));
 		order.push(context.table.get(row.id) === undefined ? 'row' : 'live');
 		expect(order).toEqual(['remote', 'local', 'row']);
@@ -255,11 +259,11 @@ test('deletion preflights remote availability for the whole selection', async ()
 		// One local-only recording and one with an online copy. `uploadedAt` is
 		// written through the table rather than the domain, because the audio
 		// workflows are its only writer and there is no remote to upload to here.
-		expectOk(await context.table.create(storedRow(recording())));
-		expectOk(await context.table.create({
+		context.table.create(storedRow(recording()));
+		context.table.create({
 			...storedRow(recording()),
 			uploadedAt: InstantString.now(),
-		}));
+		});
 		const error = expectErr(
 			await context.recordings.delete(
 				context.recordings.sorted.map(({ id }) => id),
@@ -275,14 +279,15 @@ test('deletion preflights remote availability for the whole selection', async ()
 	}
 });
 
-test('row creation admits bytes and returns its generated BlobId', async () => {
+test('row creation completes its attachment without a public blob id', async () => {
 	const context = await setup();
 	try {
 		const created = expectOk(await context.recordings.create(recording()));
-		expect(created.audioBlobId).toMatch(/^blob_[a-z0-9]{21}$/);
-		expect(await expectOk(await context.recordings.audioAvailability(created.id))).toBe(
-			'local-only',
-		);
+		expect(created.audioBlobId).toBeNull();
+		expect(created.audio).toBe('audio/wav');
+		expect(
+			await expectOk(await context.recordings.audioAvailability(created.id)),
+		).toBe('local-only');
 	} finally {
 		await context.dispose();
 	}
@@ -305,16 +310,13 @@ test('backup sends what this device holds, counts what it does not, and coalesce
 				return Ok(undefined);
 			},
 		}),
-		seed: [
-			recording(),
-			recording(),
-		],
+		seed: [recording(), recording()],
 	});
 	try {
 		const [here, missing] = context.recordings.sorted;
 		if (here === undefined || missing === undefined)
 			throw new Error('seeded two recordings');
-		elsewhere = missing.audioBlobId;
+		elsewhere = missing.audioBlobId!;
 		expect(context.recordings.backup.pending).toBe(2);
 
 		// Two kicks at once are one pass followed by one more, and both callers
@@ -330,7 +332,7 @@ test('backup sends what this device holds, counts what it does not, and coalesce
 			failed: 0,
 			aborted: false,
 		});
-		expect(uploaded).toEqual([here.audioBlobId]);
+		expect(uploaded).toEqual([here.audioBlobId!]);
 		expect(context.recordings.backup.pending).toBe(1);
 	} finally {
 		await context.dispose();
@@ -414,7 +416,7 @@ test('a recording deleted mid-pass is not reported as backed up, and its online 
 		const report = await pass;
 		expect(report.uploaded).toBe(0);
 		expect(report.failed).toBe(1);
-		expect(purged).toContain(target.audioBlobId);
+		expect(purged).toContain(target.audioBlobId!);
 		expect(context.recordings.backup.pending).toBe(0);
 	} finally {
 		await context.dispose();
@@ -431,7 +433,7 @@ test('automatic kicks batch discovery once and remember missing bytes for the se
 				return requested.map((id) => BlobStoreError.BlobNotFound({ id }));
 			},
 		}),
-		seed: ids.map((audioBlobId) => recording({ audioBlobId: new Blob([audioBlobId]) })),
+		seed: ids.map((id) => recording({ audio: new Blob([id]) })),
 	});
 	try {
 		expect(context.recordings.backup.pending).toBe(100);
@@ -496,7 +498,7 @@ test('new rows during a suspended upload join the same flight and its report', a
 	try {
 		const first = context.recordings.backup.kick();
 		await started.promise;
-		expectOk(await context.recordings.create(recording()));
+		expectOk(context.createLegacy(recording()));
 		const second = context.recordings.backup.kick();
 		expect(second).toBe(first);
 		finish.resolve();
@@ -606,7 +608,9 @@ test('early upload failures do not discard missing-byte discoveries later in the
 		}),
 	});
 	try {
-		const ids = context.recordings.sorted.map(({ audioBlobId }) => audioBlobId);
+		const ids = context.recordings.sorted.map(
+			({ audioBlobId }) => audioBlobId!,
+		);
 		localIds = ids.slice(0, 2);
 		missing = ids.slice(2);
 		expect((await context.recordings.backup.kick()).failed).toBe(2);
@@ -630,9 +634,123 @@ test('recording creation reports the owning table failure without a second clean
 		}),
 	});
 	try {
-		expect(expectErr(await context.recordings.create(recording()))).toMatchObject({
-		name: 'RowCreateFailed',
+		expect(
+			expectErr(await context.recordings.create(recording())),
+		).toMatchObject({
+			name: 'RowCreateFailed',
 		});
+	} finally {
+		await context.dispose();
+	}
+});
+
+test('reopening older recordings preserves their legacy read and update path without adopting bytes', async () => {
+	const record = createMemoryRecord();
+	const local = stubLocalStore();
+	const { audio: _audio, ...legacyFields } =
+		whisperingDefinition.tables.recordings;
+	const legacy = defineData({
+		...whisperingDefinition,
+		tables: {
+			...whisperingDefinition.tables,
+			recordings: defineTable({ ...legacyFields, audioBlobId: field.blob() }),
+		},
+	});
+	const old = await openAccountStore({
+		definition: legacy,
+		sqlite: record.sqlite,
+		blobStore: local,
+	});
+	const { audio: _pending, ...fields } = storedRow(recording());
+	const row = expectOk(
+		await old.tables.recordings.create({
+			...fields,
+			audioBlobId: new Blob(['old audio']),
+		}),
+	);
+	await old[Symbol.asyncDispose]();
+	const opened = await openAccountStore({
+		definition: whisperingDefinition,
+		sqlite: record.sqlite,
+		blobStore: local,
+	});
+	const domain = createWhisperingRecordings({
+		table: opened.tables.recordings,
+		blobs: appBlobs(local, null),
+		remoteConfigured: false,
+	});
+	try {
+		expect(domain.recordings.get(row.id)?.audioBlobId).toBe(row.audioBlobId);
+		expect(domain.recordings.nonconforming).toEqual([]);
+		expectOk(await domain.recordings.readAudio(row.id));
+		domain.recordings.patch(row.id, { title: 'Still editable' });
+		expect(domain.recordings.get(row.id)?.title).toBe('Still editable');
+		expect(
+			opened.tables.recordings.nonconforming[0]?.raw.audio,
+		).toBeUndefined();
+	} finally {
+		domain[Symbol.dispose]();
+		await opened[Symbol.asyncDispose]();
+		record.close();
+	}
+});
+
+test('pending row stays unsaved after completion failure and never enters legacy backup', async () => {
+	const context = await setup({
+		local: stubLocalStore({
+			put: async (id) =>
+				BlobStoreError.BlobStoreFailed({ id, cause: 'disk full' }),
+		}),
+	});
+	try {
+		const row = expectOk(
+			await context.recordings.create(recording({ audio: null })),
+		);
+		expectErr(
+			await context.recordings.attachment(row.id).complete(new Blob(['audio'])),
+		);
+		expect(context.recordings.get(row.id)?.audio).toBeNull();
+		expect(expectErr(await context.recordings.readAudio(row.id))).toMatchObject(
+			{ name: 'Unavailable', reason: 'incomplete' },
+		);
+		expect(context.recordings.backup.pending).toBe(0);
+		expectOk(await context.recordings.delete(row.id));
+		expectErr(
+			await context.recordings
+				.attachment(row.id)
+				.complete(new Blob(['late audio'])),
+		);
+		expect(context.recordings.get(row.id)).toBeUndefined();
+	} finally {
+		await context.dispose();
+	}
+});
+
+test('availability checks metadata and preserves storage failures', async () => {
+	let reads = 0;
+	let failed = false;
+	const context = await setup({
+		local: stubLocalStore({
+			get: async () => {
+				reads++;
+				return Ok(new Blob());
+			},
+			stat: async (id) =>
+				failed
+					? BlobStoreError.BlobStoreFailed({ id, cause: 'device unavailable' })
+					: Ok({ size: 5, contentType: 'audio/wav' }),
+		}),
+	});
+	try {
+		const row = expectOk(await context.recordings.create(recording()));
+		expect(expectOk(await context.recordings.audioAvailability(row.id))).toBe(
+			'local-only',
+		);
+		expect(reads).toBe(0);
+		failed = true;
+		expect(
+			expectErr(await context.recordings.audioAvailability(row.id)).name,
+		).toBe('Failed');
 	} finally {
 		await context.dispose();
 	}

@@ -1,5 +1,4 @@
 import { matchInferenceTarget } from '@epicenter/app-shell/inference-selections';
-import type { BlobId } from '@epicenter/blobs';
 import { APIError } from 'openai';
 import {
 	type AnyTaggedError,
@@ -68,12 +67,15 @@ export function resolveTranscriptionState() {
 
 /** Read saved audio through the page App and capture all inference inputs before I/O. */
 export async function transcribeAudio(
-	audioBlobId: BlobId,
+	recordingId: RecordingId,
+	owner: WhisperingApp,
 ): Promise<Result<string, TranscriptionError>> {
 	let usesAccount = false;
 	const result = await tryAsync({
 		try: async (): Promise<Result<string, TranscriptionError>> => {
 			const app = getApp();
+			if (app.signal !== owner.signal)
+				return TranscriptionOperationError.Closed();
 			app.signal.throwIfAborted();
 			const service = settings.get('transcriptionService');
 			const language = settings.get('transcriptionLanguage');
@@ -131,7 +133,7 @@ export async function transcribeAudio(
 						: TranscriptionOperationError.Malformed();
 				};
 			}
-			const audio = await app.blobs.get(audioBlobId);
+			const audio = await owner.recordings.readAudio(recordingId);
 			app.signal.throwIfAborted();
 			if (audio.error) return Err(audio.error);
 			const transcription = await transcribe(audio.data);
@@ -160,10 +162,9 @@ export async function transcribeAudio(
 export async function transcribeAndPersist(
 	app: WhisperingApp,
 	recordingId: RecordingId,
-	audioBlobId: BlobId,
 ): Promise<Result<TranscriptionSuccess, TranscriptionError>> {
-	const signal = getApp().signal;
-	const result = await transcribeAudio(audioBlobId);
+	const signal = app.signal;
+	const result = await transcribeAudio(recordingId, app);
 	if (signal.aborted) return TranscriptionOperationError.Closed();
 	return recordTranscriptionOutcome(app, recordingId, result);
 }

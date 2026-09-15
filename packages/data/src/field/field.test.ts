@@ -55,6 +55,7 @@ const kindOf = (schema: unknown): Kind | null =>
 
 /** One representative builder call per kind. The convergence proof iterates these. */
 const BUILT: Record<Kind, TSchema> = {
+	attachment: field.attachment().anyOf[0],
 	blob: field.blob(),
 	string: field.string(),
 	reference: field.reference('pages'),
@@ -113,8 +114,9 @@ describe('round-trip: the native enum wire-form', () => {
 // ============================================================================
 
 describe('the palette catalog', () => {
-	test('exactly the fourteen kinds, including blob, date, instant, json, and reference', () => {
+	test('the catalog includes every declared field kind', () => {
 		const expected: Kind[] = [
+			'attachment',
 			'blob',
 			'boolean',
 			'date',
@@ -142,6 +144,7 @@ describe('the palette catalog', () => {
 
 /** Canonical at-rest shape per kind: the minimal schema that should recognize as it. */
 const CANONICAL: Record<Kind, unknown> = {
+	attachment: { type: 'string', 'x-attachment': true },
 	blob: { type: 'string', 'x-blob': true },
 	string: { type: 'string' },
 	reference: { type: 'string', 'x-ref': 'pages' },

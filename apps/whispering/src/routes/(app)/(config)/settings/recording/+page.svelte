@@ -57,8 +57,8 @@
 		{#if app.recordings.remoteAvailable}
 			<SettingSwitch
 				key="recordingAutoUpload"
-				label="Back up recordings"
-				description="Copy each new recording's audio to your online storage, and send anything still waiting when Whispering opens or comes back online. The Recordings page shows what is waiting and has a Back up now button. This is an account setting: every device signed in to this account follows it, and each sends what it holds."
+				label="Back up older recordings"
+				description="Continue online backup for recordings saved by earlier versions. New recordings save audio on this device; online audio sync for them is not available yet."
 			/>
 		{/if}
 

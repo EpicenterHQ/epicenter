@@ -1,12 +1,11 @@
 /**
- * Recording Pipeline Auto-Upload Tests
+ * Recording pipeline ownership tests.
  *
- * Verifies the intentionally small automatic policy at the row-creation seam.
+ * Verifies row-owned saving, retained inference, and current-attempt feedback.
  *
  * Key behaviors:
- * - An enabled setting kicks the reconciler after the row exists
- * - A disabled setting performs no upload and no kick
- * - Upload remains best-effort and does not block transcription
+ * - New attachments never enter the legacy upload runner
+ * - Older inference cannot overwrite newer capture feedback
  * - History failure warns only after usable text is delivered
  * - Credit failures offer account management without delivering or resuming work
  */
@@ -20,14 +19,14 @@ let autoUpload = true;
 let remoteAvailable = true;
 let creationError: { name: string; message: string } | null = null;
 let transcriptionError: { name: string; message: string } | null = null;
-const markFailed = mock();
-const markTranscribing = mock();
 let willPolish = false;
 let lifetime = new AbortController();
 let finishPolish: (() => Promise<void>) | undefined;
 let finishTranscription: (() => Promise<void>) | undefined;
 let recordingEnabled = true;
 let createdRows = 0;
+const persistedTranscriptions: string[] = [];
+const polishSignals: (AbortSignal | undefined)[] = [];
 mock.module('$lib/application', () => ({
 	getApp: () => ({ signal: lifetime.signal }),
 }));
@@ -56,7 +55,14 @@ mock.module('$lib/operations/delivery', () => ({
 }));
 mock.module('$lib/operations/run-polish', () => ({
 	polishWillRun: () => willPolish,
-	runPolish: async ({ input }: { input: string }) => {
+	runPolish: async ({
+		input,
+		signal,
+	}: {
+		input: string;
+		signal?: AbortSignal;
+	}) => {
+		polishSignals.push(signal);
 		await finishPolish?.();
 		return Ok(willPolish ? 'polished transcript' : input);
 	},
@@ -65,8 +71,9 @@ mock.module('$lib/operations/sound', () => ({
 	playSoundIfEnabled: mock(async () => Ok(undefined)),
 }));
 mock.module('$lib/operations/transcribe', () => ({
-	transcribeAndPersist: async () => {
+	transcribeAndPersist: async (_app: unknown, recordingId: string) => {
 		await finishTranscription?.();
+		persistedTranscriptions.push(recordingId);
 		return transcriptionError !== null
 			? Err(transcriptionError)
 			: Ok({
@@ -86,32 +93,51 @@ mock.module('$lib/report', () => ({
 		loading: () => ({ resolve: mock(), reject: rejectLoading }),
 	},
 }));
+Reflect.set(
+	globalThis,
+	'$state',
+	Object.assign(<T>(value: T) => value, { raw: <T>(value: T) => value }),
+);
+mock.module('$lib/state/vad-recorder.svelte', () => ({
+	vadRecorder: { state: 'IDLE' },
+}));
+const { dictationLifecycle } = await import(
+	'../state/dictation-lifecycle.svelte'
+);
+const markFailed = mock(dictationLifecycle.markFailed);
+const markTranscribing = mock(dictationLifecycle.markTranscribing);
 mock.module('$lib/state/dictation-lifecycle.svelte', () => ({
 	dictationLifecycle: {
+		...dictationLifecycle,
 		markTranscribing,
 		markFailed,
-		markPolishing: mock(),
-		markDelivered: mock(),
 	},
 }));
-mock.module('$lib/state/polish-hud.svelte', () => ({
-	polishHud: { begin: mock(), end: mock() },
-}));
+const { polishHud } = await import('../state/polish-hud.svelte');
+mock.module('$lib/state/polish-hud.svelte', () => ({ polishHud }));
 const { processRecordingPipeline } = await import('./pipeline.js');
 type WhisperingApp = import('$lib/whispering/app').WhisperingApp;
 
 const app = {
+	get signal() {
+		return lifetime.signal;
+	},
 	get recordingEnabled() {
 		return recordingEnabled;
 	},
 	account: { baseURL: 'https://api.example.test', principalId: 'alice' },
 	settings: { get: () => autoUpload },
 	recordings: {
+		get: (id: string) => ({ id, audioBlobId: null }),
 		// The row commits before the promise settles; failed creation awaits cleanup.
 		async create(fields: Record<string, unknown>) {
 			if (creationError !== null) return Err(creationError);
 			createdRows++;
-			return Ok({ ...fields, id: 'recording-1' as RecordingId });
+			return Ok({
+				...fields,
+				audioBlobId: null,
+				id: 'recording-1' as RecordingId,
+			});
 		},
 		uploadAudio,
 		get remoteAvailable() {
@@ -123,6 +149,7 @@ const app = {
 } as unknown as WhisperingApp;
 
 afterEach(() => {
+	dictationLifecycle.reset();
 	autoUpload = true;
 	remoteAvailable = true;
 	creationError = null;
@@ -134,6 +161,69 @@ afterEach(() => {
 	finishPolish = undefined;
 	finishTranscription = undefined;
 	recordingEnabled = true;
+});
+
+test('A inference finishes into its row while B retains current feedback', async () => {
+	willPolish = true;
+	const entered = Promise.withResolvers<void>();
+	const released = Promise.withResolvers<void>();
+	finishTranscription = () => {
+		entered.resolve();
+		return released.promise;
+	};
+	const attemptA = dictationLifecycle.reset();
+	const processing = processRecordingPipeline(app, {
+		recordingId: 'row-A',
+		durationMs: 100,
+		isCurrentAttempt: attemptA,
+	});
+	await entered.promise;
+	const attemptB = dictationLifecycle.reset();
+	expect(dictationLifecycle.outcome.kind).toBe('none');
+	released.resolve();
+	await processing;
+	expect(attemptA()).toBe(false);
+	expect(attemptB()).toBe(true);
+	expect(dictationLifecycle.outcome.kind).toBe('none');
+	expect(persistedTranscriptions).toContain('row-A');
+	expect(saveRecordingHistory).toHaveBeenLastCalledWith(app, 'row-A', {
+		polishedTranscript: 'polished transcript',
+	});
+	expect(deliverTranscriptionResult).toHaveBeenLastCalledWith(app, {
+		text: 'polished transcript',
+		source: 'recording',
+	});
+});
+
+test('A polish completion cannot clear or cancel the B polish controller', async () => {
+	willPolish = true;
+	const entered = Promise.withResolvers<void>();
+	const released = Promise.withResolvers<void>();
+	finishPolish = () => {
+		entered.resolve();
+		return released.promise;
+	};
+	const attemptA = dictationLifecycle.reset();
+	const processing = processRecordingPipeline(app, {
+		recordingId: 'polish-A',
+		durationMs: 100,
+		isCurrentAttempt: attemptA,
+	});
+	await entered.promise;
+	const signalA = polishSignals.at(-1)!;
+	const attemptB = dictationLifecycle.reset();
+	// A remains in flight but is no longer reachable through B's ship-raw control.
+	polishHud.shipRaw();
+	expect(signalA.aborted).toBe(false);
+	dictationLifecycle.markPolishing();
+	const signalB = polishHud.begin(attemptB);
+	released.resolve();
+	await processing;
+	expect(dictationLifecycle.outcome.kind).toBe('polishing');
+	polishHud.shipRaw();
+	expect(signalB.aborted).toBe(true);
+	expect(signalA.aborted).toBe(false);
+	polishHud.end(signalB);
 });
 
 test('an admitted stop still saves after UI admission closes and failed saving still rejects', async () => {
@@ -248,7 +338,7 @@ test('failed creation reports dictation loss without entering transcription', as
 	expect(markTranscribing).toHaveBeenCalledTimes(transcribingBefore);
 });
 
-test('auto-upload kicks only under policy with a remote, without bypassing the runner', async () => {
+test('new attachments never enter the legacy app upload runner', async () => {
 	await processRecordingPipeline(app, {
 		audio: new Blob(['audio']),
 		durationMs: 100,
@@ -256,7 +346,7 @@ test('auto-upload kicks only under policy with a remote, without bypassing the r
 	});
 	await new Promise((settle) => setTimeout(settle, 0));
 	expect(uploadAudio).not.toHaveBeenCalled();
-	expect(kick).toHaveBeenCalledTimes(1);
+	expect(kick).not.toHaveBeenCalled();
 
 	autoUpload = false;
 	await processRecordingPipeline(app, {
@@ -266,7 +356,7 @@ test('auto-upload kicks only under policy with a remote, without bypassing the r
 	});
 	await new Promise((settle) => setTimeout(settle, 0));
 	expect(uploadAudio).not.toHaveBeenCalled();
-	expect(kick).toHaveBeenCalledTimes(1);
+	expect(kick).not.toHaveBeenCalled();
 	autoUpload = true;
 	remoteAvailable = false;
 	await processRecordingPipeline(app, {
@@ -274,7 +364,7 @@ test('auto-upload kicks only under policy with a remote, without bypassing the r
 		durationMs: 100,
 		deliverySource: 'import',
 	});
-	expect(kick).toHaveBeenCalledTimes(1);
+	expect(kick).not.toHaveBeenCalled();
 });
 
 test('history failure warns after delivering the usable transcription', async () => {

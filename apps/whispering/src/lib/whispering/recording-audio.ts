@@ -143,6 +143,7 @@ export function createRecordingAudio({
 		async availability(
 			recording: AudioState,
 		): Promise<Result<RecordingAudioAvailability, BlobStoreFailed>> {
+			if (recording.audioBlobId === null) return Ok('unavailable');
 			const { error } = await blobs.stat(recording.audioBlobId);
 			if (error === null) {
 				return Ok(
@@ -167,6 +168,10 @@ export function createRecordingAudio({
 			>
 		> {
 			if (recording.uploadedAt !== null) return Ok(undefined);
+			if (recording.audioBlobId === null)
+				return RecordingAudioError.RemoteUnavailable({
+					recordingId: recording.id,
+				});
 			const remote = blobs.remote;
 
 			const { error: uploadError } = await remote.upload(recording.audioBlobId);
@@ -199,7 +204,7 @@ export function createRecordingAudio({
 				| RecordingAudioError
 			>
 		> {
-			if (recording.uploadedAt === null) {
+			if (recording.audioBlobId === null || recording.uploadedAt === null) {
 				return RecordingAudioError.RemoteAudioUnavailable({
 					recordingId: recording.id,
 				});
@@ -242,7 +247,7 @@ export function createRecordingAudio({
 				BlobNotFound | BlobStoreFailed | BlobRemoteFailed | RecordingAudioError
 			>
 		> {
-			if (recording.uploadedAt === null) {
+			if (recording.audioBlobId === null || recording.uploadedAt === null) {
 				return RecordingAudioError.RemoteAudioUnavailable({
 					recordingId: recording.id,
 				});
@@ -270,6 +275,10 @@ export function createRecordingAudio({
 			recording: AudioState,
 		): Promise<Result<void, BlobRemoteFailed | RecordingAudioError>> {
 			if (recording.uploadedAt === null) return Ok(undefined);
+			if (recording.audioBlobId === null)
+				return RecordingAudioError.RemoteUnavailable({
+					recordingId: recording.id,
+				});
 			const remote = blobs.remote;
 
 			const { error: purgeError } = await remote.purge(recording.audioBlobId);

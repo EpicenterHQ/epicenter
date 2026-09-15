@@ -7,9 +7,10 @@ import type { WhisperingApp } from '$lib/whispering/app';
 export const audioKeys = defineKeys({
 	availability: (
 		id: Recording['id'],
+		audio: Recording['audio'],
 		audioBlobId: Recording['audioBlobId'],
 		uploadedAt: Recording['uploadedAt'],
-	) => ['audio', 'availability', id, audioBlobId, uploadedAt] as const,
+	) => ['audio', 'availability', id, audio, audioBlobId, uploadedAt] as const,
 });
 
 export function createAudioQueries(
@@ -18,12 +19,15 @@ export function createAudioQueries(
 ) {
 	return {
 		availability: (
-			recording: Accessor<Pick<Recording, 'id' | 'audioBlobId' | 'uploadedAt'>>,
+			recording: Accessor<
+				Pick<Recording, 'id' | 'audio' | 'audioBlobId' | 'uploadedAt'>
+			>,
 		) => {
 			const current = recording();
 			return defineQuery({
 				queryKey: audioKeys.availability(
 					current.id,
+					current.audio,
 					current.audioBlobId,
 					current.uploadedAt,
 				),

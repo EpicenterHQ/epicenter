@@ -90,6 +90,7 @@ function createDictationLifecycle() {
 	// attempt.
 	let outcome = $state.raw<DictationOutcome>({ kind: 'none' });
 	let deliveredTimer: ReturnType<typeof setTimeout> | undefined;
+	let attempt = {};
 
 	function clearDeliveredTimer() {
 		clearTimeout(deliveredTimer);
@@ -118,11 +119,15 @@ function createDictationLifecycle() {
 
 		/**
 		 * A new dictation is starting: clear any terminal outcome from the last one
-		 * so it does not linger into this attempt.
+		 * and return the predicate that lets this attempt publish feedback. A newer
+		 * reset retires feedback without cancelling the older inference or history.
 		 */
-		reset(): void {
+		reset(): () => boolean {
+			const started = {};
+			attempt = started;
 			clearDeliveredTimer();
 			outcome = { kind: 'none' };
+			return () => attempt === started;
 		},
 
 		/** The recorder stopped (or a VAD utterance ended); now transcribing. */

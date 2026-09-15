@@ -39,6 +39,8 @@
  * kinds, never an emptiness policy.
  */
 
+import type { BlobId } from '@epicenter/blobs';
+import { BLOB_ID_ROUTE_REGEX } from '@epicenter/blobs';
 import {
 	type Static,
 	type TArray,
@@ -50,13 +52,12 @@ import {
 	type TUnsafe,
 	Type,
 } from 'typebox';
-import { BLOB_ID_ROUTE_REGEX } from '@epicenter/blobs';
-import type { BlobId } from '@epicenter/blobs';
 import type { Brand } from 'wellcrafted/brand';
 import type { JsonValue } from 'wellcrafted/json';
 import type { CalendarDateString } from './calendar-date-string.js';
 import type { DateTimeString } from './datetime-string.js';
 import {
+	ATTACHMENT_KEYWORD,
 	BLOB_KEYWORD,
 	JSON_SCHEMA_KEYWORD,
 	REFERENCE_KEYWORD,
@@ -139,6 +140,16 @@ function blob() {
 		}),
 		{ [BLOB_KEYWORD]: true as const },
 	);
+}
+
+/** A row-owned immutable attachment: null until locally completed, then its MIME type. */
+function attachment() {
+	return Type.Union([
+		Object.assign(Type.String({ minLength: 1 }), {
+			[ATTACHMENT_KEYWORD]: true as const,
+		}),
+		Type.Null(),
+	]);
 }
 
 /**
@@ -301,6 +312,7 @@ export const field = {
 	string,
 	reference,
 	blob,
+	attachment,
 	url,
 	number,
 	integer,

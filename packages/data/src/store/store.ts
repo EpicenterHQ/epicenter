@@ -1,10 +1,20 @@
 import {
-	generateBlobId,
-	parseBlobId,
 	type BlobId,
+	type BlobSources,
 	type BlobStore,
 	BlobStoreError,
+	generateBlobId,
+	parseBlobId,
 } from '@epicenter/blobs';
+import type { BlobDestination } from '@epicenter/blobs/native';
+import { AttachmentError, createAttachment } from './attachment.js';
+
+export {
+	type Attachment,
+	AttachmentError,
+	attachmentEngineOf,
+} from './attachment.js';
+
 import {
 	type ConformanceIssue,
 	compileData,
@@ -20,7 +30,10 @@ import { customAlphabet } from 'nanoid';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Err, isErr, isOk, Ok, type Result, trySync } from 'wellcrafted/result';
-
+import {
+	type AttachStoreSyncOptions,
+	attachStoreSync,
+} from '../sync/attach.js';
 import {
 	createDatabaseDocument,
 	createRow,
@@ -34,17 +47,13 @@ import {
 	tableRoot,
 	updateRow,
 } from './document.js';
-import {
-	attachStoreSync,
-	type AttachStoreSyncOptions,
-} from '../sync/attach.js';
 import { persistOnHide } from './flush-on-hide.js';
 import { copyBytes, createSqliteDurablePort, NO_AUTHORITY } from './log.js';
 import {
 	createPersistenceController,
-	type PersistenceController,
 	type DurablePort,
 	type DurableSnapshot,
+	type PersistenceController,
 } from './persistence.js';
 
 export type {
@@ -314,6 +323,8 @@ type StoreEngineOptions<
 	definition: ParsedDataDefinition;
 	/** Local bytes used by owning table fields and the app's blob capabilities. */
 	blobStore?: BlobStore;
+	blobSources?: BlobSources;
+	attachmentDestination?: BlobDestination;
 	/**
 	 * Where a subscriber's own failure and a failed durable flush go.
 	 *
@@ -334,6 +345,8 @@ export type CreateStoreOptions<TDatabase extends DataDefinition> = {
 	sqlite: SqliteDatabase;
 	/** Optional local bytes for owning table fields; data-only readers need none. */
 	blobStore?: BlobStore;
+	blobSources?: BlobSources;
+	attachmentDestination?: BlobDestination;
 	dispose?: () => void | Promise<void>;
 	log?: Logger;
 };
@@ -442,6 +455,7 @@ export function createStoreOverPort<
 	let connection: SyncConnection | undefined;
 	let stopHideFlush: (() => void) | undefined;
 	const operations = new Set<Promise<unknown>>();
+	const completingAttachments = new Set<string>();
 
 	function onRetired(): void {
 		if (retired || held?.replication === undefined) return;
@@ -1088,6 +1102,10 @@ export function createStoreOverPort<
 		get isRetired() {
 			return retired;
 		},
+		/** The opened replica's generation, without consulting row handles during close. */
+		get generation() {
+			return held?.replication?.address.generation ?? null;
+		},
 		close,
 		ready,
 		view,
@@ -1231,6 +1249,9 @@ export function createStoreOverPort<
 		const blobFields = [...table.fields.values()].filter(
 			(field) => field.kind === 'blob',
 		);
+		const attachmentField = [...table.fields.values()].find(
+			(field) => field.kind === 'attachment',
+		);
 
 		/** One stored payload, read through the declaration the way every read reads. */
 		function conformRow(
@@ -1271,10 +1292,52 @@ export function createStoreOverPort<
 		}
 
 		const handle: UntypedDeclaredData['tables'][string] = {
+			attachment(rowId) {
+				assertUsable();
+				if (!attachmentField)
+					throw new TypeError(`Table '${tableName}' declares no attachment.`);
+				const originalRow = root.getAttr(rowId as never);
+				return createAttachment({
+					tableName,
+					rowId,
+					signal: lifetime.signal,
+					bytes: blobStore,
+					sources: options.blobSources,
+					destination: options.attachmentDestination,
+					generation: () => held?.replication?.address.generation ?? null,
+					persistence: controller.persistence,
+					exists: () =>
+						originalRow !== undefined &&
+						root.getAttr(rowId as never) === originalRow,
+					cell: () => readRow(root, rowId)?.[attachmentField.name],
+					commit: (contentType) => {
+						transact(() =>
+							updateRow(root, rowId, { [attachmentField.name]: contentType }),
+						);
+					},
+					run: runOperation,
+					busy: completingAttachments,
+				});
+			},
 			create(fields) {
 				assertUsable();
+				const attachmentInput = attachmentField
+					? fields[attachmentField.name]
+					: undefined;
+				if (
+					attachmentField &&
+					attachmentInput !== null &&
+					!(attachmentInput instanceof Blob)
+				)
+					throw new TypeError(
+						`'${attachmentField.name}' requires null or Blob bytes.`,
+					);
 				const values: RowInput = {};
 				for (const [name, value] of Object.entries(fields)) {
+					if (name === attachmentField?.name) {
+						values[name] = null;
+						continue;
+					}
 					if (table.fields.get(name)?.kind === 'blob') continue;
 					if (value instanceof Blob)
 						throw new TypeError(`'${name}' is not a blob field.`);
@@ -1283,6 +1346,20 @@ export function createStoreOverPort<
 				if (blobFields.length === 0) {
 					const rowId = mintRowId();
 					transact(() => createRow(root, rowId, values));
+					if (attachmentInput instanceof Blob) {
+						return handle
+							.attachment(rowId)
+							.complete(attachmentInput)
+							.then((result) => {
+								if (result.error) return result;
+								if (lifetime.signal.aborted)
+									return AttachmentError.Unavailable({ reason: 'closed' });
+								const payload = readRow(root, rowId);
+								return payload
+									? Ok(withContent({ id: rowId, ...payload }))
+									: AttachmentError.Unavailable({ reason: 'row-absent' });
+							});
+					}
 					// Read the integrated content node, never echo its detached input.
 					return withContent({ id: rowId, ...readRow(root, rowId) });
 				}
@@ -1362,6 +1439,10 @@ export function createStoreOverPort<
 			},
 			update(rowId: string, fields: JsonObject): Result<void, RowAbsentError> {
 				assertUsable();
+				if (attachmentField && Object.hasOwn(fields, attachmentField.name))
+					throw new TypeError(
+						`'${attachmentField.name}' is an attachment and cannot be patched.`,
+					);
 				for (const field of blobFields) {
 					if (Object.hasOwn(fields, field.name))
 						throw new TypeError(

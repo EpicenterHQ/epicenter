@@ -94,7 +94,11 @@ type _SharedContracts = Expect<
 type _StartRecordingArgs = Expect<
 	Equal<
 		Parameters<typeof commands.startRecording>,
-		[string | null, import('./bindings.gen').BlobDestination]
+		[
+			string | null,
+			import('./bindings.gen').BlobDestination,
+			import('./bindings.gen').RecordingAttachment,
+		]
 	>
 >;
 
@@ -114,6 +118,7 @@ type _HostRecordingShape = Expect<
 		{
 			audioBlobId: string;
 			destination: import('./bindings.gen').BlobDestination;
+			attachment: import('./bindings.gen').RecordingAttachment;
 			device: DeviceAcquisition;
 			endedReason: EndedReason | null;
 		}
@@ -138,7 +143,10 @@ type _DeviceAcquisitionShape = Expect<
 // blob plus the host's exact duration and byte length. Neither is nullable,
 // because a stop that returns at all has already published the file.
 type _StopRecordingArgs = Expect<
-	Equal<Parameters<typeof commands.stopRecording>, [string]>
+	Equal<
+		Parameters<typeof commands.stopRecording>,
+		[string, import('./bindings.gen').BlobDestination]
+	>
 >;
 
 type _StopRecording = Expect<
@@ -159,7 +167,10 @@ type _StoppedRecordingShape = Expect<
 // absence of a result type is the invariant: a cancel can never hand anyone a
 // blob.
 type _CancelRecordingArgs = Expect<
-	Equal<Parameters<typeof commands.cancelRecording>, [string]>
+	Equal<
+		Parameters<typeof commands.cancelRecording>,
+		[string, import('./bindings.gen').BlobDestination]
+	>
 >;
 
 type _CancelRecording = Expect<
@@ -177,7 +188,10 @@ type _CancelRecording = Expect<
 // recovered after a reload be as capable as one just started rather than a
 // degraded stand-in, including one whose capture already ended.
 type _CurrentRecordingArgs = Expect<
-	Equal<Parameters<typeof commands.currentRecording>, []>
+	Equal<
+		Parameters<typeof commands.currentRecording>,
+		[import('./bindings.gen').BlobDestination]
+	>
 >;
 
 type _CurrentRecording = Expect<

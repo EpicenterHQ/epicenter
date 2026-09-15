@@ -40,8 +40,8 @@ use audio::encode_recording_for_upload;
 pub mod blobs;
 pub mod recorder;
 use recorder::commands::{
-    cancel_recording, cancel_recording_owned_by, current_recording, enumerate_recording_devices,
-    start_recording, stop_recording,
+    acknowledge_recording, cancel_recording, cancel_recording_owned_by, current_recording,
+    enumerate_recording_devices, release_recording, retire_recording, start_recording, stop_recording,
 };
 use recorder::recorder::Recorder;
 
@@ -415,6 +415,9 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             stop_recording,
             cancel_recording,
             current_recording,
+            release_recording,
+            acknowledge_recording,
+            retire_recording,
             transcribe_recording,
             transcribe_audio_bytes,
             list_inference_models,
@@ -805,8 +808,7 @@ pub fn run() {
 
             app.manage(app_data::DesktopPaths::resolve(app.handle())?);
 
-            // Remove incomplete native writes across app datasets before admitting
-            // capture. Published blobs and Bun's staging remain untouched.
+            // Remove abandoned non-recording writes. Saved capture staging survives.
             crate::blobs::delete_stale_staging(app.handle());
 
             // The active local model and the unload policy are device-local host
@@ -2449,6 +2451,9 @@ mod tests {
         "stop_recording",
         "cancel_recording",
         "current_recording",
+        "release_recording",
+        "acknowledge_recording",
+        "retire_recording",
         "transcribe_recording",
         "transcribe_audio_bytes",
         "list_inference_models",

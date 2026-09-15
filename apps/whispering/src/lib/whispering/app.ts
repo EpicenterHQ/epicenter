@@ -41,6 +41,7 @@ export type WhisperingSettings = {
 };
 
 export type WhisperingApp = {
+	readonly signal: AbortSignal;
 	/** The UI lifetime still accepts new capture. */
 	readonly recordingEnabled: boolean;
 	readonly account: Account | null;
@@ -90,6 +91,7 @@ export function createWhisperingDomains({
 
 	let disposed = false;
 	return Object.freeze({
+		signal: openedApp.signal,
 		account,
 		settings: settingsDomain.settings,
 		recordings: recordingsDomain.recordings,

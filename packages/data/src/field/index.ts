@@ -15,11 +15,12 @@ export { field, jsonValue } from './builders.js';
 export { CalendarDateString } from './calendar-date-string.js';
 export { DateTimeString } from './datetime-string.js';
 export {
+	ATTACHMENT_KEYWORD,
+	BLOB_KEYWORD,
 	compile,
 	type Field,
 	type FieldOf,
 	type Kind,
-	BLOB_KEYWORD,
 	REFERENCE_KEYWORD,
 	recognize,
 	referenceTargetOf,

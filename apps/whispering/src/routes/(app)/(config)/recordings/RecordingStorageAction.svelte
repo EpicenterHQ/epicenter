@@ -60,7 +60,9 @@
 
 </script>
 
-{#if availability.data === 'local-only'}
+{#if recording.audioBlobId === null}
+	<span class="text-muted-foreground text-sm">Audio stays on this device</span>
+{:else if availability.data === 'local-only'}
 	<Button
 		variant="outline"
 		size="icon-sm"

@@ -284,14 +284,14 @@ try {
 	report.checks.localClosure = await invoke(
 		local,
 		'closeWithCapture',
-		report.recordings.local.audioBlobId,
+		report.recordings.local.rowId,
 	);
 	await local.reload();
 	await ready(local, 'local');
 	await invoke(local, 'absent', report.checks.localClosure.cancelled);
 	await invoke(local, 'absent', report.checks.localClosure.closedCapture);
 	assert.equal(
-		(await invoke(local, 'read', report.recordings.local.audioBlobId)).sha256,
+		(await invoke(local, 'read', report.recordings.local.rowId)).sha256,
 		report.recordings.local.sha256,
 	);
 	assert.equal(localAuthorityRequests, 0);
@@ -311,8 +311,8 @@ try {
 		'capture',
 		'Bob Personal recording',
 	);
-	await invoke(bob, 'absent', report.recordings.alicePersonal.audioBlobId);
-	await invoke(alice, 'absent', report.recordings.bobPersonal.audioBlobId);
+	await invoke(bob, 'absent', report.recordings.alicePersonal.rowId);
+	await invoke(alice, 'absent', report.recordings.bobPersonal.rowId);
 	for (const [page, recording] of [
 		[bob, report.recordings.alicePersonal],
 		[alice, report.recordings.bobPersonal],
@@ -343,8 +343,7 @@ try {
 	report.checks.personalOwnerOverride = refused;
 	await reload(alice, 'personal');
 	assert.equal(
-		(await invoke(alice, 'read', report.recordings.alicePersonal.audioBlobId))
-			.sha256,
+		(await invoke(alice, 'read', report.recordings.alicePersonal.rowId)).sha256,
 		report.recordings.alicePersonal.sha256,
 	);
 	console.log(
@@ -354,8 +353,8 @@ try {
 		select(alice, 'shared', 'personal'),
 		select(bob, 'shared', 'personal'),
 	]);
-	await invoke(alice, 'absent', report.recordings.alicePersonal.audioBlobId);
-	await invoke(bob, 'absent', report.recordings.bobPersonal.audioBlobId);
+	await invoke(alice, 'absent', report.recordings.alicePersonal.rowId);
+	await invoke(bob, 'absent', report.recordings.bobPersonal.rowId);
 	report.recordings.aliceShared = await invoke(
 		alice,
 		'capture',
@@ -390,31 +389,29 @@ try {
 	assert.equal(report.recordings.bobShared.replica.account.principalId, 'bob');
 	assert.equal(report.recordings.aliceShared.replica.library, 'shared');
 	assert.equal(report.recordings.bobShared.replica.library, 'shared');
-	await invoke(bob, 'absent', report.recordings.aliceShared.audioBlobId);
+	await invoke(bob, 'absent', report.recordings.aliceShared.rowId);
 	report.checks.sharedRowsConverged = true;
 	report.checks.sharedClosure = await invoke(
 		alice,
 		'closeWithCapture',
-		report.recordings.aliceShared.audioBlobId,
+		report.recordings.aliceShared.rowId,
 	);
 	await alice.reload();
 	await ready(alice, 'shared');
 	await invoke(alice, 'absent', report.checks.sharedClosure.closedCapture);
 	assert.equal(
-		(await invoke(alice, 'read', report.recordings.aliceShared.audioBlobId))
-			.sha256,
+		(await invoke(alice, 'read', report.recordings.aliceShared.rowId)).sha256,
 		report.recordings.aliceShared.sha256,
 	);
 	await select(alice, 'personal', 'shared');
-	await invoke(alice, 'absent', report.recordings.aliceShared.audioBlobId);
+	await invoke(alice, 'absent', report.recordings.aliceShared.rowId);
 	assert.equal(
-		(await invoke(alice, 'read', report.recordings.alicePersonal.audioBlobId))
-			.sha256,
+		(await invoke(alice, 'read', report.recordings.alicePersonal.rowId)).sha256,
 		report.recordings.alicePersonal.sha256,
 	);
 	await select(alice, 'local', 'personal');
-	await invoke(alice, 'absent', report.recordings.alicePersonal.audioBlobId);
-	await invoke(alice, 'absent', report.recordings.local.audioBlobId);
+	await invoke(alice, 'absent', report.recordings.alicePersonal.rowId);
+	await invoke(alice, 'absent', report.recordings.local.rowId);
 	console.log(
 		'PASS Shared: Alice/Bob actor identity, recording rows converge, scope isolation, playback, closure and byte-identical reopen',
 	);

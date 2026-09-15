@@ -38,9 +38,9 @@
 
 <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
 	{#if pending === 0}
-		<span>All recordings are backed up to your account.</span>
+		<span>No older recordings waiting for backup.</span>
 	{:else}
-		<span>{pending} {noun(pending)} not backed up</span>
+		<span>{pending} older {noun(pending)} not backed up</span>
 		<Button
 			variant="outline"
 			size="sm"
@@ -56,4 +56,5 @@
 			<span>Last attempt: {backUp.data.absent} {noun(backUp.data.absent)} had no audio on this device.</span>
 		{/if}
 	{/if}
+	<span>New recordings save audio on this device. Online audio sync is not available yet.</span>
 </div>

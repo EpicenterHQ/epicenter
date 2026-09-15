@@ -102,6 +102,7 @@ export const REFERENCE_KEYWORD = 'x-ref';
 
 /** Marker that distinguishes an owning blob reference from an ordinary string. */
 export const BLOB_KEYWORD = 'x-blob';
+export const ATTACHMENT_KEYWORD = 'x-attachment';
 
 /**
  * Bucket 3: ANNOTATIONS. Inert standard metadata, whitelisted into EVERY closed meta
@@ -254,6 +255,17 @@ const FIELDS = {
 			{
 				type: Type.Literal('string'),
 				[BLOB_KEYWORD]: Type.Literal(true),
+				...STRING_REFINE,
+				...ANNOT,
+			},
+			CLOSED,
+		),
+	},
+	attachment: {
+		meta: Type.Object(
+			{
+				type: Type.Literal('string'),
+				[ATTACHMENT_KEYWORD]: Type.Literal(true),
 				...STRING_REFINE,
 				...ANNOT,
 			},

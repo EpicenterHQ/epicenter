@@ -1,17 +1,17 @@
 import type { BlobDestination } from '@epicenter/blobs/native';
+import type { Attachment, AttachmentError } from '@epicenter/data/store';
 import { type LibraryReplicaIdentity } from '@epicenter/principal';
-import type { BlobId, BlobStore } from '@epicenter/blobs';
+import type {
+	Device,
+	DeviceAcquisitionOutcome,
+	DeviceIdentifier,
+} from '@epicenter/recorder';
 import {
 	defineErrors,
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-import type {
-	Device,
-	DeviceAcquisitionOutcome,
-	DeviceIdentifier,
-} from '@epicenter/recorder';
 
 /** The library whose local bytes receive the completed recording. */
 export type RecordingReplica = LibraryReplicaIdentity;
@@ -41,17 +41,15 @@ export const RecorderError = defineErrors({
 export type RecorderError = InferErrors<typeof RecorderError>;
 
 export type RecordingParams = {
+	into: Attachment;
 	selectedDeviceId?: DeviceIdentifier | null;
 };
 
 export type RecorderStopResult = {
-	audioBlobId: BlobId;
 	durationMs: number;
 	byteLength: number;
 };
-export type RecorderStopError =
-	| RecorderError
-	| NonNullable<Awaited<ReturnType<BlobStore['put']>>['error']>;
+export type RecorderStopError = RecorderError | AttachmentError;
 export type RecordingEndedReason =
 	| 'deviceDisconnected'
 	| 'permissionRevoked'
@@ -60,7 +58,8 @@ export type RecordingEndedReason =
 
 /** One capture, permanently bound to its original dataset and owner. */
 export type Recording = {
-	readonly audioBlobId: BlobId;
+	readonly id: string;
+	readonly into: Attachment;
 	readonly replica: RecordingReplica;
 	readonly device: DeviceAcquisitionOutcome;
 	readonly endedReason: RecordingEndedReason | null;
@@ -77,7 +76,7 @@ export type RecordingService = {
 	/** Recover this owner's capture, refusing a different destination. */
 	current(): Promise<Result<Recording | null, RecorderError>>;
 	enumerateDevices(): Promise<Result<Device[], RecorderError>>;
-	start(params?: RecordingParams): Promise<Result<Recording, RecorderError>>;
+	start(params: RecordingParams): Promise<Result<Recording, RecorderError>>;
 };
 
 /** The constructed recorder owns capture and all pending cleanup. */
@@ -88,7 +87,10 @@ export type RecordingOwner = {
 };
 
 export type RecordingOptions = {
-	local: BlobStore;
+	resolveAttachment?(tableName: string, rowId: string): Attachment;
+	isRetired?(): boolean;
+	/** Only an opened numeric generation can prove a capture journal obsolete. */
+	generation?(): number | null | undefined;
 	assertUsable?(): void;
 	canRecover?(): boolean;
 };
@@ -103,6 +105,7 @@ export type RecordingFactory = (
 /** Wire shape pinned against the host's generated bindings by the consumer check. */
 export type NativeRecording = {
 	audioBlobId: string;
+	attachment: { tableName: string; rowId: string; generation: number | null };
 	destination: BlobDestination;
 	device:
 		| { outcome: 'success'; deviceId: string }

@@ -3,7 +3,7 @@ import {
 	RecorderError,
 	type RecordingEndedReason,
 } from '@epicenter/app/recorder';
-import type { BlobId } from '@epicenter/blobs';
+import { InstantString } from '@epicenter/data/field';
 import type { DeviceAcquisitionOutcome } from '@epicenter/recorder';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
@@ -115,10 +115,12 @@ export function createWhisperingRecording(
 	let pendingStart = $state.raw<Promise<void> | null>(null);
 	let stopEndedListener: (() => void) | null = null;
 	let stopLevelListener: (() => void) | null = null;
+	let currentFeedback: (() => boolean) | undefined;
 
-	function hold(recording: Recording) {
+	function hold(recording: Recording, feedback = dictationLifecycle.reset()) {
 		release();
 		currentCapture = recording;
+		currentFeedback = feedback;
 		// New and recovered captures attach the same page-owned feedback.
 		stopLevelListener = recording.onLevel(reportRecordingMicLevel);
 		// The one ending a live caller cannot infer from its own calls: the
@@ -134,12 +136,13 @@ export function createWhisperingRecording(
 		// already had when this recording was handed over: `onEnded` announces
 		// that too, so nothing here has to ask which way it found out.
 		stopEndedListener = recording.onEnded((reason) => {
-			if (disposed || !app.recordingEnabled) return;
+			if (disposed || !app.recordingEnabled || currentCapture !== recording)
+				return;
 			const { error } = RecorderError.RecorderFailed({
 				cause: ENDED_NOTICE[reason],
 			});
 			report.error({ title: 'Recording stopped', cause: error });
-			void stop();
+			void stop(recording.id);
 		});
 	}
 
@@ -173,7 +176,7 @@ export function createWhisperingRecording(
 		return recovery;
 	}
 
-	async function startCapture() {
+	async function startCapture(feedback: () => boolean) {
 		if (disposed) return RecorderError.NoActiveRecording();
 		if (pendingStart !== null || currentCapture)
 			return RecorderError.AlreadyRecording();
@@ -188,12 +191,27 @@ export function createWhisperingRecording(
 			if (currentCapture) return RecorderError.AlreadyRecording();
 
 			const params = manualRecorderConfig.resolveStartParams();
-			const { data: recording, error: startError } =
-				await service.start(params);
+			const created = await app.recordings.create({
+				audio: null,
+				title: '',
+				recordedAt: InstantString.now(),
+				recordedAtZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+				transcript: '',
+				polishedTranscript: null,
+				duration: null,
+			});
+			if (created.error)
+				return RecorderError.RecorderFailed({ cause: created.error });
+			if (disposed || !app.recordingEnabled)
+				return RecorderError.NoActiveRecording();
+			const { data: recording, error: startError } = await service.start({
+				...params,
+				into: app.recordings.attachment(created.data.id),
+			});
 			if (startError) return Err(startError);
 
 			if (disposed) return RecorderError.NoActiveRecording();
-			hold(recording);
+			hold(recording, feedback);
 			return Ok(recording);
 		} finally {
 			pendingStart = null;
@@ -208,19 +226,34 @@ export function createWhisperingRecording(
 		if (disposed) return RecorderError.NoActiveRecording();
 		const recording = currentCapture;
 		if (!recording) return RecorderError.NoActiveRecording();
+		const isCurrentAttempt = currentFeedback;
 		// Released before the call resolves: this recording is over either
 		// way, and letting it linger would let a second stop address it.
 		release();
-		return recording.stop();
+		const result = await recording.stop();
+		if (result.error) {
+			recovery = null;
+			return result;
+		}
+		if (app.recordings.get(recording.into.rowId))
+			app.recordings.patch(recording.into.rowId, {
+				duration: result.data.durationMs,
+			});
+		return Ok({
+			...result.data,
+			recordingId: recording.into.rowId,
+			isCurrentAttempt,
+		});
 	}
 
-	async function start(): Promise<BlobId | null> {
+	async function start(): Promise<string | null> {
 		if (!app.recordingEnabled) return null;
+		if (pendingStart !== null || currentCapture) return null;
 		return trackRecordingWork(async () => {
 			app.settings.set('recordingTrigger', 'manual');
 			// A new dictation is starting: clear any lingering failed/delivered state so
 			// the pill follows this attempt, not the last one.
-			dictationLifecycle.reset();
+			const feedback = dictationLifecycle.reset();
 			// A capture just started, so leave the import overlay if it was open: the
 			// surface should follow the live recording, not stay parked on import.
 			captureSurface.dismissImport();
@@ -230,14 +263,15 @@ export function createWhisperingRecording(
 			cancelPendingVadResume();
 			recordingMedia.pause(app);
 
-			const { data: recording, error } = await startCapture();
+			const { data: recording, error } = await startCapture(feedback);
 
 			if (error) {
 				void recordingMedia.resume();
 				// The recording never started, so there is no blob to recover: the
 				// loudest tier. The pill glances it and the OS notification always fires, so
 				// there is no toast.
-				dictationLifecycle.markFailed({ tier: 'silent-loss', error });
+				if (feedback() && !app.signal.aborted)
+					dictationLifecycle.markFailed({ tier: 'silent-loss', error });
 				return null;
 			}
 
@@ -248,30 +282,33 @@ export function createWhisperingRecording(
 
 			log.info('Recording started');
 			void playSoundIfEnabled(app, 'manual-start');
-			return currentCapture?.audioBlobId ?? null;
+			return currentCapture?.id ?? null;
 		});
 	}
 
-	async function stop(recordingId?: BlobId) {
+	async function stop(recordingId?: string) {
 		// A delayed push-to-talk release can only resolve the capture it started.
 		if (
 			recordingId !== undefined &&
-			(currentCapture?.audioBlobId ?? null) !== recordingId
+			(currentCapture?.id ?? null) !== recordingId
 		)
 			return;
 		if (!app.recordingEnabled) return;
 		return trackRecordingWork(async () => {
+			await recover();
+			const feedback = currentFeedback;
 			const { data: source, error } = await stopCapture();
 
 			if (error) {
 				void recordingMedia.resume();
 				// Finalizing failed, so the captured audio never reached a row: treat it
 				// as a silent loss rather than a retryable transcription.
-				dictationLifecycle.markFailed({ tier: 'silent-loss', error });
+				if (feedback?.() && !app.signal.aborted)
+					dictationLifecycle.markFailed({ tier: 'silent-loss', error });
 				return;
 			}
 
-			const { audioBlobId, durationMs, byteLength } = source;
+			const { recordingId: rowId, durationMs, byteLength } = source;
 
 			// The pill carries "stopped -> transcribing"; the transcript landing is the
 			// receipt. No per-step toast.
@@ -286,28 +323,10 @@ export function createWhisperingRecording(
 			});
 
 			await processRecordingPipeline(app, {
-				audio: audioBlobId,
+				recordingId: rowId,
 				durationMs,
+				isCurrentAttempt: source.isCurrentAttempt,
 			});
-			// Preserve the capture source if the pipeline throws before saving its row.
-			// A completed pipeline owns an independent attachment, so release the source.
-			try {
-				const cleanup = await app.blobs.removeLocal(audioBlobId);
-				if (cleanup.error !== null)
-					log.warn(
-						new Error('Native recording source cleanup failed.', {
-							cause: cleanup.error,
-						}),
-					);
-			} catch (cause) {
-				// A session may close before cleanup is admitted. Report the retained
-				// source without turning a saved recording into a failed operation.
-				log.warn(
-					new Error('Native recording source cleanup was not admitted.', {
-						cause,
-					}),
-				);
-			}
 		});
 	}
 
@@ -359,9 +378,14 @@ export function createWhisperingRecording(
 					release();
 					const { error } = await recording.cancel();
 					if (error) {
+						recovery = null;
 						report.error({ title: 'Failed to cancel recording', cause: error });
 						return true;
 					}
+					// Recovery may find local completion whose host acknowledgement was
+					// interrupted. Cancelling that host journal must not delete saved work.
+					if (app.recordings.get(recording.into.rowId)?.audio === null)
+						await app.recordings.delete(recording.into.rowId);
 					void recordingMedia.resume();
 					void playSoundIfEnabled(app, 'manual-cancel');
 					log.info('Recording cancelled');
@@ -456,7 +480,7 @@ export async function startVadRecording(app: WhisperingApp) {
 	return trackRecordingWork(async () => {
 		app.settings.set('recordingTrigger', 'vad');
 		// A new dictation session is starting: clear any lingering terminal state.
-		dictationLifecycle.reset();
+		let feedback = dictationLifecycle.reset();
 		// A capture just started, so leave the import overlay if it was open (see
 		// recording.start).
 		captureSurface.dismissImport();
@@ -469,12 +493,14 @@ export async function startVadRecording(app: WhisperingApp) {
 			},
 			onSpeechStart: () => {
 				if (!app.recordingEnabled) return;
+				feedback = dictationLifecycle.reset();
 				// Speaking window opened: pause whatever is playing. The pill's meter
 				// tint shows speech was detected, so there is no toast.
 				pausePlaybackForSpeech(app);
 			},
 			onSpeechEnd: async (blob) => {
 				if (!app.recordingEnabled) return;
+				const isCurrentAttempt = feedback;
 				return trackRecordingWork(async () => {
 					// Speaking window closed: resume after a short debounce so a quick
 					// next utterance does not flutter the music.
@@ -490,6 +516,7 @@ export async function startVadRecording(app: WhisperingApp) {
 					await processRecordingPipeline(app, {
 						audio: blob,
 						durationMs: null,
+						isCurrentAttempt,
 					});
 				});
 			},
@@ -504,7 +531,8 @@ export async function startVadRecording(app: WhisperingApp) {
 		if (error) {
 			resumePlaybackForVadEnd();
 			// Listening never armed, so nothing was captured: a silent loss.
-			dictationLifecycle.markFailed({ tier: 'silent-loss', error });
+			if (feedback() && !app.signal.aborted)
+				dictationLifecycle.markFailed({ tier: 'silent-loss', error });
 			return;
 		}
 

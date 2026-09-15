@@ -9,7 +9,6 @@
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
-	import type { BlobId } from '@epicenter/blobs';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import AudioBlobPlayer from '$lib/components/AudioBlobPlayer.svelte';
 	import TextPreviewDialog from '$lib/components/copyable/TextPreviewDialog.svelte';
@@ -18,13 +17,13 @@
 
 	let {
 		recordingId,
-		audioBlobId,
+		audio,
 		transcript,
 		rows = 1,
 		onDelete,
 	}: {
 		recordingId: RecordingId;
-		audioBlobId: BlobId;
+		audio: string | null;
 		transcript: string;
 		/** Visible rows of the transcript preview before it scrolls/expands. */
 		rows?: number;
@@ -46,10 +45,11 @@
 	<!-- Delete is a companion action on the audio row, mirroring the copy button
 	     on the transcript row above: content stretches, its action caps the row.
 	     Icon-only with a tooltip; the confirmation dialog carries the words. -->
-	{#if audioBlobId || onDelete}
+	{#if recordingId}
 		<div class="flex w-full items-center gap-2">
 			<AudioBlobPlayer
-				id={audioBlobId}
+				id={recordingId}
+				{audio}
 				class="h-8 min-w-0 flex-1"
 				viewTransitionName={viewTransition.recording(recordingId).audio}
 			/>

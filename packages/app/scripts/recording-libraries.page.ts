@@ -1,7 +1,6 @@
 /** Package acceptance page: actual browser resources and auth, without product UI. */
 
 import { normalizeInstanceServer } from '@epicenter/auth';
-import { parseBlobId } from '@epicenter/blobs';
 import { defineData, defineTable, field } from '@epicenter/data/definition';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createBrowserRedirectAuth } from '../../auth/src/browser-redirect-auth.js';
@@ -16,7 +15,7 @@ const application = defineApplication({
 			recordings: defineTable({
 				title: field.string(),
 				actor: field.string(),
-				audio: field.blob(),
+				audio: field.attachment(),
 			}),
 		},
 		kv: {},
@@ -100,9 +99,9 @@ async function digest(blob: Blob) {
 }
 
 export async function read(id: string) {
-	const blobId = parseBlobId(id);
-	assert(blobId, 'Invalid recording blob ID');
-	const bytes = expectOk(await bounded(app.blobs.get(blobId)));
+	const bytes = expectOk(
+		await bounded(app.tables.recordings.attachment(id).read()),
+	);
 	const context = new AudioContext();
 	let decodedDuration: number;
 	try {
@@ -112,7 +111,9 @@ export async function read(id: string) {
 	} finally {
 		await bounded(context.close());
 	}
-	const playback = expectOk(await bounded(app.blobs.open(blobId)));
+	const playback = expectOk(
+		await bounded(app.tables.recordings.attachment(id).source()),
+	);
 	const audio = document.createElement('audio');
 	audio.controls = true;
 	audio.src = playback.url;
@@ -142,7 +143,13 @@ export async function read(id: string) {
 }
 
 export async function capture(title: string) {
-	const recording = expectOk(await bounded(app.recording.start()));
+	const row = app.tables.recordings.create({
+		title,
+		actor: app.account?.principalId ?? 'local',
+		audio: null,
+	});
+	const into = app.tables.recordings.attachment(row.id);
+	const recording = expectOk(await bounded(app.recording.start({ into })));
 	assert(
 		recording.replica.library === library,
 		'Recording selected a different library',
@@ -154,7 +161,7 @@ export async function capture(title: string) {
 		);
 	}
 	assert(
-		expectErr(await app.recording.start()).name === 'AlreadyRecording',
+		expectErr(await app.recording.start({ into })).name === 'AlreadyRecording',
 		'Competing capture was admitted',
 	);
 	let meterTicks = 0;
@@ -163,26 +170,16 @@ export async function capture(title: string) {
 	const stopped = expectOk(await bounded(recording.stop()));
 	unlevel();
 	assert(meterTicks > 0, 'Capture produced no meter events');
-	const source = expectOk(await bounded(app.blobs.get(stopped.audioBlobId)));
+	const source = expectOk(await bounded(into.read()));
 	assert(
 		source.size === stopped.byteLength && source.size > 0,
 		'Saved byte length differs',
 	);
-	const row = expectOk(
-		await bounded(
-			app.tables.recordings.create({
-				title,
-				actor: app.account?.principalId ?? 'local',
-				audio: stopped.audioBlobId,
-			}),
-		),
-	);
-	const saved = await read(row.audio);
+	const saved = await read(row.id);
 	assert(
 		saved.sha256 === (await digest(source)),
-		'Attachment creation changed the audio',
+		'Attachment read changed the audio',
 	);
-	expectOk(await app.blobs.removeLocal(stopped.audioBlobId));
 	const ticksAfterStop = meterTicks;
 	await new Promise((resolve) => setTimeout(resolve, 80));
 	assert(meterTicks === ticksAfterStop, 'Meter continued after stop');
@@ -192,7 +189,6 @@ export async function capture(title: string) {
 	);
 	return {
 		rowId: row.id,
-		audioBlobId: row.audio,
 		replica: recording.replica,
 		actor: row.actor,
 		meterTicks,
@@ -201,24 +197,38 @@ export async function capture(title: string) {
 }
 
 export async function absent(id: string) {
-	const blobId = parseBlobId(id);
-	assert(blobId, 'Invalid recording blob ID');
 	assert(
-		expectErr(await app.blobs.stat(blobId)).name === 'BlobNotFound',
+		expectErr(await app.tables.recordings.attachment(id).read()).name ===
+			'Unavailable',
 		'Another library exposed recording bytes',
 	);
 	return true;
 }
 
 export async function closeWithCapture(id: string) {
-	const blobId = parseBlobId(id);
-	assert(blobId, 'Invalid recording blob ID');
-	const playback = expectOk(await app.blobs.open(blobId));
-	const cancelled = expectOk(await app.recording.start());
+	const playback = expectOk(
+		await app.tables.recordings.attachment(id).source(),
+	);
+	const pending = app.tables.recordings.create({
+		title: 'Cancel',
+		actor: 'local',
+		audio: null,
+	});
+	const cancelled = expectOk(
+		await app.recording.start({
+			into: app.tables.recordings.attachment(pending.id),
+		}),
+	);
 	await new Promise((resolve) => setTimeout(resolve, 100));
 	expectOk(await cancelled.cancel());
-	await absent(cancelled.audioBlobId);
-	const recording = expectOk(await app.recording.start());
+	await absent(cancelled.into.rowId);
+	const active = app.tables.recordings.create({
+		title: 'Close',
+		actor: 'local',
+		audio: null,
+	});
+	const into = app.tables.recordings.attachment(active.id);
+	const recording = expectOk(await app.recording.start({ into }));
 	let ticks = 0;
 	recording.onLevel(() => ticks++);
 	await new Promise((resolve) => setTimeout(resolve, 100));
@@ -229,7 +239,7 @@ export async function closeWithCapture(id: string) {
 	assert(app.signal.aborted, 'Close did not revoke App admission');
 	let refused = false;
 	try {
-		await retainedStart();
+		await retainedStart({ into });
 	} catch {
 		refused = true;
 	}
@@ -244,8 +254,8 @@ export async function closeWithCapture(id: string) {
 	assert(playbackReleased, 'Close retained a playback URL');
 	playback[Symbol.dispose]();
 	return {
-		cancelled: cancelled.audioBlobId,
-		closedCapture: recording.audioBlobId,
+		cancelled: cancelled.into.rowId,
+		closedCapture: recording.into.rowId,
 		retainedStartRefused: refused,
 		meterStopped: true,
 		playbackReleased,

@@ -1379,6 +1379,36 @@ describe("Local Mail's desktop authorization callback", () => {
 });
 
 describe('local blob routes', () => {
+	test('row-addressed attachments stream locally and remain isolated by library', async () => {
+		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
+		const server = await serveHost(host);
+		const { cookie, origin } = authenticationFor(server);
+		const key = `attachment.recordings.${'a'.repeat(24)}`;
+		const url = `${origin}/api/apps/so.epicenter.whispering/local/blobs/${key}`;
+		try {
+			expect(
+				(
+					await fetch(url, {
+						method: 'PUT',
+						headers: { cookie, origin, 'content-type': 'audio/wav' },
+						body: '0123456789',
+					})
+				).status,
+			).toBe(201);
+			const head = await fetch(url, { method: 'HEAD', headers: { cookie } });
+			expect(head.headers.get('content-length')).toBe('10');
+			const range = await fetch(url, {
+				headers: { cookie, range: 'bytes=2-5' },
+			});
+			expect(range.status).toBe(206);
+			expect(await range.text()).toBe('2345');
+			const account = `${origin}/api/apps/so.epicenter.whispering/accounts/server/alice/blobs/${key}`;
+			expect((await fetch(account, { headers: { cookie } })).status).toBe(404);
+		} finally {
+			await server.stop(true);
+		}
+	});
+
 	test('session authentication protects every local blob operation', async () => {
 		await using host = await createTestHost({
 			engine: scriptedEngine([[]]),

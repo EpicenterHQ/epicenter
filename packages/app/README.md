@@ -177,31 +177,29 @@ engine constructs document operations and supplies their readiness guard to the
 resource implementations. Retained methods reject premature or closed use;
 ordinary storage and transfer failures remain Results.
 
-Tables declaring `field.blob()` create attachments directly:
+Tables declare one `field.attachment()` when each row owns a file. Create the
+row before capture; its attachment retains that row and library through stop.
+A null cell records no completion. A completed cell records the MIME type;
+local reads still check whether this device has the bytes.
 
 ```ts
-const created = await app.tables.recordings.create({
- title: 'Meeting',
- audio: new Blob(['recording bytes']),
-});
-if (created.error !== null) return handleError(created.error);
-// created.data.audio is a BlobId; app.blobs reads its locally stored bytes.
+const row = app.tables.recordings.create({ title: 'Meeting', audio: null });
+const audio = app.tables.recordings.attachment(row.id);
+const completed = await audio.complete(file);
+if (completed.error) return handleError(completed.error);
+const source = await audio.source();
+// Dispose source.data when playback ends. source() never downloads audio.
 ```
 
-`CreateRowOf` accepts bytes or a local `BlobId` to copy for owning fields, plus
-`null` for nullable fields. Every attachment gets a new ID; creation preserves
-the source, even when it already belongs to another row. Plain tables still
-create synchronously. A branded string field does not
-own bytes. Owning fields cannot be patched by ID, declared in KV, or created inside
-a synchronous `transact()` callback.
+Completion flushes the existing row, writes immutable local bytes at its row
+address, then flushes the completion cell. Failure returns an explicit Result;
+row deletion and closure prevent late completion. Previously written bytes
+remain available for the original capture's recovery. A historical null cell
+alone never authorizes adopting or replacing those bytes.
 
-The document stores bytes before accepting their row references. If creation
-fails or close begins before that commit, it removes successfully written bytes
-that the row did not accept. Close drains this compensation too. Cleanup failures
-are logged with their IDs without replacing the original creation failure.
-Success means local bytes stored and row accepted; row durability still follows
-the document's persistence contract. This is not a cross-store atomic transaction
-or crash-recovery journal.
+Legacy `field.blob()` and blob readers remain for consumers that have not
+migrated. The row-owned attachment slice implements local completion and reads;
+automatic account attachment delivery remains unimplemented.
 
 Repeated `close()` calls return one completion promise. Close rejects new work
 immediately, cancels owned AI requests, settles admitted recording and storage
@@ -210,8 +208,9 @@ final local persistence flush. SQL work drains even if another cleanup fails.
 App releases its SQL lifetime and library claim only after dependent resources
 have released successfully; failed release retains the claim.
 
-Close cancels unresolved recording rather than saving a recording row. Finish
-and save a recording while the App is still usable. Close never signs out,
+Close releases unresolved native capture and preserves its staged recovery.
+Browser capture belongs to its document. Finish and save wanted audio while
+the App is still usable. Close never signs out,
 navigates, deletes credentials, or erases the library. It preserves the store's
 existing persistence failure reporting; completed cleanup does not prove every
 edit reached durable storage or the server.
@@ -245,18 +244,11 @@ reload; desktop secrets live in the keychain. Closing an App drains admitted
 secret operations and preserves their values. Reopening the same scope in the
 same document can read them again. Secrets never enter synchronized rows.
 
-`app.recording` captures saved audio into the opened library.
-Its browser binding publishes into the App's own local blob store. The explicit
-`epicenterHost` runtime pairs native capture with host blob routes.
-Opening binds the app ID and destination once:
-`openLocal()` selects the local library; `openPersonal(account)` selects that
-Personal library; `openShared(account)` selects the application's Shared library. After `app.ready` succeeds, call `app.recording.start()`.
-Neither `start()` nor `current()` takes an account. Closing waits for admitted
-work and cancels unresolved capture before releasing storage.
-Stop returns a published blob ID, duration, and byte length. The app owns the row
-and subsequent transcription or retention policy. See
-[the recording contract](#saved-recordings) for ownership
-and closure behavior.
+`app.recording.start({ into })` fills an existing row's attachment. The browser
+supplies bytes to the table owner; the native runtime publishes a staged WAV
+at the same row address. Stop returns duration and byte length after local
+completion. It does not create another row or return a blob ID. See
+[the recording contract](#saved-recordings) for recovery and closure behavior.
 
 Opening is cache-first. A device with a local generation can open it offline;
 a device without a cached generation must reach the current authority to atomically
@@ -271,10 +263,10 @@ and future whole-library removal are recorded in
 [ADR-0355](../../docs/adr/0355-local-and-account-sessions-share-the-application-data-api.md).
 
 Focused tests cover deferred acquisition, retained operations, and resource
-release. A disposable-profile WebKit and Chromium probe also verified
-attachment-created row/blob persistence across browser-process restart,
-playback bytes, and URL release. This does not establish native recording or
-account-transfer behavior.
+release. The row-owned recording smoke captures synthetic microphone input
+in Chromium, plays it offline, and verifies identical bytes after App
+close/reopen. This does not establish browser-process capture recovery,
+physical microphone behavior, or account attachment delivery.
 
 ## Clipboard
 
@@ -309,38 +301,42 @@ as Whispering's text service does.
 A workflow borrows the ready App from its caller, which owns shutdown:
 
 ```ts
-const started = await app.recording.start();
+const row = app.tables.recordings.create({ title: 'Meeting', audio: null });
+const into = app.tables.recordings.attachment(row.id);
+const started = await app.recording.start({ into });
 if (started.error) return showError(started.error);
 const recording = started.data;
 const unlevel = recording.onLevel(showLevel);
 const stopped = await recording.stop();
 unlevel();
 if (stopped.error) return showError(stopped.error);
-// stopped.data: { audioBlobId, durationMs, byteLength }
+// stopped.data: { durationMs, byteLength }; into.read() reads local audio.
 ```
 
-`@epicenter/app/recorder` owns the saved-recording contract. The runtime's
-internal recorder receives the captured identity and local blob store from App.
-Construction opens no microphone, dataset, or model. App exposes recording
-operations and retains their cleanup owner. `selectedDeviceId` uses the portable
+`@epicenter/app/recorder` owns capture sessions. Each session has an immutable
+`id`, its original `into` attachment, and device information. A delayed stop
+or event belongs to that capture only. `selectedDeviceId` uses the portable
 device vocabulary from `@epicenter/recorder`.
 
-Opening the app captures its local or account destination before permission acquisition.
-`openLocal()` binds the local library; `openPersonal(account)` binds that account's
-Personal library; `openShared(account)` binds the application's Shared library. These platform factories receive the captured identity at composition;
-feature code never passes an account into a recording operation.
-Stop publishes complete bytes there; cancel discards them. Each session resolves
-once, and subsequent stop/cancel calls return `NoActiveRecording`. Identity is
-immutable. An unexpected capture ending leaves accepted audio available to stop
-or cancel; `onEnded` reports that fact, including to a late subscriber.
+Successful stop consumes the session. Failed completion retains recovery for
+retry; cancel discards unfinished capture without deleting the application's
+row. `onEnded` reports an unexpected capture ending, including to a late
+subscriber. The application decides when to stop or cancel.
 
-`app.recording.current()` recovers only the opened app's destination. Desktop recordings
-can survive a reload of their owning window, and window destruction cancels
-them. Browser recordings belong to their document. Recording methods share the
-app's readiness and close gate. `app.close()` waits for admitted starts and stops,
-then cancels unresolved capture before releasing storage. Applications that want
-to save that audio must stop and save it before closing. Recording does
-not insert rows, upload audio, or apply transcription policy.
+`current()` recovers the original native capture only after matching its App,
+library, generation, table, and row. Native staging survives ordinary release
+and host interruption. A descriptor remains until the table has durably
+completed and the recorder acknowledges it. Browser sessions remain document
+bound. Neither runtime redirects recovery to another library.
+
+App close revokes document admission before releasing resources. A stop racing
+that fence can publish native bytes but returns an unavailable completion;
+the native descriptor retains them for recovery under the original owner.
+Applications finish wanted capture before deliberate closure. Confirmed
+retirement releases capture and discards only staging and its journal, preserving
+published immutable bytes. An opened newer generation retires an older journal;
+an older cached generation cannot retire a future journal. Full restore execution
+is outside this local slice. The recorder owns no upload or inference policy.
 
 Text-only dictation should own temporary capture and release it with its session;
 it need not publish saved recordings. There is no dictation capability on the

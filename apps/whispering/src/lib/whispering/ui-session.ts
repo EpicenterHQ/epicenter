@@ -37,6 +37,7 @@ export function createWhisperingUiSession({
 	let disposal: Promise<void> | undefined;
 	let recordingEnabled = true;
 	const app: WhisperingApp = {
+		signal: openedApp.signal,
 		get recordingEnabled() {
 			return recordingEnabled;
 		},

@@ -1,4 +1,3 @@
-import type { BlobId } from '@epicenter/blobs';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { report } from '$lib/report';
@@ -45,7 +44,7 @@ type Session = {
 	/** The ready app whose command started this session. */
 	app: WhisperingApp;
 	/** The recording this press started, or null until startup resolves. */
-	recordingId: BlobId | null;
+	recordingId: string | null;
 	/** A release that arrived before startup finished, honored once it exists. */
 	stopRequested: boolean;
 };
@@ -108,7 +107,7 @@ function createPushToTalk() {
 			// Null means this press started nothing it owns: startup failed, or a
 			// recording was already live (a toggle/button capture) so the start no-op'd.
 			// Either way, do not arm a cap or stop another source's recording.
-			let recordingId: BlobId | null;
+			let recordingId: string | null;
 			try {
 				recordingId = await app.recording.start();
 			} catch (cause) {

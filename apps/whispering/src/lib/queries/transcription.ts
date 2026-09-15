@@ -8,9 +8,7 @@ import { trackRecordingWork } from '../state/recording-active.svelte.js';
 
 function retry(app: WhisperingApp, recording: Recording) {
 	if (!app.recordingEnabled) throw new Error('Whispering is closing.');
-	return trackRecordingWork(() =>
-		transcribeAndPersist(app, recording.id, recording.audioBlobId),
-	);
+	return trackRecordingWork(() => transcribeAndPersist(app, recording.id));
 }
 
 export const transcriptionKeys = defineKeys({

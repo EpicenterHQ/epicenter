@@ -1,41 +1,40 @@
 import {
-	type BlobAlreadyExists,
+	parseBlobId,
 	type BlobId,
 	type BlobNotFound,
 	type BlobRemoteFailed,
 	type BlobStoreFailed,
+	type BlobSource,
+	type BlobSourceFailed,
 	type RemoteBlobNotFound,
 } from '@epicenter/blobs';
 import type { AppBlobs } from '@epicenter/app';
-import type { NonconformingRow } from '@epicenter/data';
+import type {
+	Attachment,
+	AttachmentError,
+	NonconformingRow,
+} from '@epicenter/data';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import { createLogger } from 'wellcrafted/logger';
-import { Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { WhisperingData } from '../data';
-import {
-	asRecording,
-	type NewRecording,
-	type Recording,
-} from './recording.js';
+import { asRecording, type NewRecording, type Recording } from './recording.js';
 import {
 	createRecordingAudio,
 	type RecordingAudioAvailability,
 	RecordingAudioError,
 } from './recording-audio';
 
-const log = createLogger('whispering/recordings');
-
 export const RecordingCreationError = defineErrors({
 	/** The owning table refused to publish the row after its copy attempt. */
 	RowCreateFailed: ({
-		audioBlobId,
+		audio,
 		cause,
 	}: {
-		audioBlobId: Blob | BlobId;
+		audio: Blob | null;
 		cause: unknown;
 	}) => ({
 		message: 'Could not create the recording.',
-		audioBlobId,
+		audio,
 		cause,
 	}),
 });
@@ -87,12 +86,21 @@ export type WhisperingRecordings = {
 	/** Whether the environment currently has an online audio copy capability. */
 	readonly remoteAvailable: boolean;
 	get(id: Recording['id']): Recording | undefined;
+	attachment(id: Recording['id']): Attachment;
+	readAudio(
+		id: Recording['id'],
+	): Promise<Result<Blob, BlobNotFound | BlobStoreFailed | AttachmentError>>;
+	openAudio(
+		id: Recording['id'],
+	): Promise<Result<BlobSource, BlobNotFound | BlobStoreFailed | BlobSourceFailed | AttachmentError>>;
 	create(
 		value: NewRecording,
 	): Promise<Result<Recording, RecordingCreationError>>;
 	patch(
 		id: Recording['id'],
-		partial: Partial<Omit<Recording, 'id' | 'audioBlobId' | 'uploadedAt'>>,
+		partial: Partial<
+			Omit<Recording, 'id' | 'audio' | 'audioBlobId' | 'uploadedAt'>
+		>,
 	): Recording;
 	delete(
 		toDelete: Recording['id'] | Recording['id'][],
@@ -100,7 +108,10 @@ export type WhisperingRecordings = {
 	audioAvailability(
 		id: Recording['id'],
 	): Promise<
-		Result<RecordingAudioAvailability, BlobStoreFailed | RecordingAudioError>
+		Result<
+			RecordingAudioAvailability,
+			BlobStoreFailed | RecordingAudioError | AttachmentError
+		>
 	>;
 	uploadAudio(
 		id: Recording['id'],
@@ -210,8 +221,28 @@ export function createWhisperingRecordings({
 	function read(): void {
 		const listed = table;
 		rows = listed.rows.map(asRecording);
+		// Older rows have no attachment cell. Read their validated legacy fields
+		// without rewriting the document or adopting those bytes into a new owner.
+		const legacy = listed.nonconforming.filter(
+			(row) =>
+				row.raw.audio === undefined &&
+				row.issues.every((issue) => issue.field === 'audio') &&
+				typeof row.conforming.audioBlobId === 'string' &&
+				parseBlobId(row.conforming.audioBlobId) !== undefined,
+		);
+		rows.push(
+			...legacy.map((row) =>
+				asRecording({
+					...row.conforming,
+					id: row.id,
+					audio: null,
+				} as Parameters<typeof asRecording>[0]),
+			),
+		);
 		sorted = sortRows(rows);
-		nonconforming = listed.nonconforming;
+		nonconforming = listed.nonconforming.filter(
+			(row) => !legacy.some((old) => old.id === row.id),
+		);
 		notify();
 	}
 
@@ -264,6 +295,11 @@ export function createWhisperingRecordings({
 		}
 		const deletedRecordingIds: Recording['id'][] = [];
 		for (const recording of selected) {
+			if (recording.audioBlobId === null) {
+				table.delete(recording.id);
+				deletedRecordingIds.push(recording.id);
+				continue;
+			}
 			const { error: purgeError } = await audio.purge(recording);
 			if (purgeError !== null) {
 				return RecordingDeletionError.DeletionFailed({
@@ -293,7 +329,11 @@ export function createWhisperingRecordings({
 	}
 
 	/** The rows owed to the account, newest first, as of now. */
-	const owed = () => sorted.filter(({ uploadedAt }) => uploadedAt === null);
+	const owed = () =>
+		sorted.filter(
+			(row): row is Recording & { audioBlobId: BlobId } =>
+				row.audioBlobId !== null && row.uploadedAt === null,
+		);
 
 	let inFlight: Promise<BackupReport> | undefined;
 	let again = false;
@@ -327,9 +367,7 @@ export function createWhisperingRecordings({
 				const stats =
 					candidates.length === 0
 						? []
-						: await blobs.statMany(
-								candidates.map((row) => row.audioBlobId),
-							);
+						: await blobs.statMany(candidates.map((row) => row.audioBlobId));
 				if (disposed || !remoteConfigured) {
 					aborted = true;
 					break;
@@ -397,7 +435,20 @@ export function createWhisperingRecordings({
 	// write and for bytes that arrived from another device alike, which is what
 	// retired every hand-maintained cache patch below.
 	const unsubscribeRecords = table.subscribe(read);
+	async function readAudio(id: Recording['id']) {
+		const row = resolve(id);
+		if (row?.audioBlobId) return blobs.get(row.audioBlobId);
+		return table.attachment(id).read();
+	}
+	async function openAudio(id: Recording['id']) {
+		const row = resolve(id);
+		if (row?.audioBlobId) return blobs.open(row.audioBlobId);
+		return table.attachment(id).source();
+	}
 	const recordings: WhisperingRecordings = {
+		attachment: (id) => table.attachment(id),
+		readAudio,
+		openAudio,
 		get sorted() {
 			return sorted;
 		},
@@ -417,17 +468,21 @@ export function createWhisperingRecordings({
 			// The owning table copies the attachment and compensates failed creation.
 			// Whispering supplies recording defaults and translates the failure.
 			if (disposed) throw new Error('The recording session is closed.');
-			const { data: written, error } = await table.create({
+			const input = {
 				...value,
-				audioBlobId: value.audioBlobId,
+				audioBlobId: null,
 				uploadedAt: null,
 				transcriptionStatus: 'pending',
 				transcriptionCompletedAt: null,
 				transcriptionError: null,
-			});
+			};
+			const { data: written, error } =
+				value.audio === null
+					? Ok(table.create({ ...input, audio: null }))
+					: await table.create({ ...input, audio: value.audio });
 			if (error !== null) {
 				return RecordingCreationError.RowCreateFailed({
-					audioBlobId: value.audioBlobId,
+					audio: value.audio,
 					cause: error,
 				});
 			}
@@ -439,6 +494,7 @@ export function createWhisperingRecordings({
 			// writer of uploadedAt and audio identity stays immutable.
 			const {
 				id: _id,
+				audio: _audio,
 				audioBlobId: _audioBlobId,
 				uploadedAt: _uploadedAt,
 				...changes
@@ -451,7 +507,7 @@ export function createWhisperingRecordings({
 			// `get` answers `undefined` for both a vanished row and one this
 			// declaration can no longer read; after a write we just made, either is
 			// the same bug and deserves the same throw.
-			const reread = table.get(id);
+			const reread = resolve(id);
 			if (reread === undefined) {
 				throw new Error(
 					`Recording '${id}' no longer reads whole after this patch`,
@@ -468,6 +524,19 @@ export function createWhisperingRecordings({
 			return deleteResolved(selected);
 		},
 		async audioAvailability(id) {
+			const row = resolve(id);
+			if (row && row.audioBlobId === null) {
+				const result = await table.attachment(id).stat();
+				if (result.error === null) return Ok('local-only');
+				if (
+					result.error.name === 'Unavailable' &&
+					['incomplete', 'local-bytes', 'row-absent'].includes(
+						result.error.reason,
+					)
+				)
+					return Ok('unavailable');
+				return Err(result.error);
+			}
 			return withRecording(id, audio.availability);
 		},
 		async uploadAudio(id) {
@@ -476,7 +545,7 @@ export function createWhisperingRecordings({
 		async downloadAudio(id) {
 			const recording = resolve(id);
 			const result = await withRecording(id, audio.download);
-			if (result.error === null && recording !== undefined)
+			if (result.error === null && recording?.audioBlobId)
 				audioBecameLocal(recording.audioBlobId);
 			return result;
 		},

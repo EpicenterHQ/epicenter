@@ -41,6 +41,9 @@ export function createRecordings({
 			return recordings.get(id);
 		},
 		create: recordings.create,
+		attachment: recordings.attachment,
+		readAudio: recordings.readAudio,
+		openAudio: recordings.openAudio,
 		patch: recordings.patch,
 		delete: recordings.delete,
 		audioAvailability: recordings.audioAvailability,

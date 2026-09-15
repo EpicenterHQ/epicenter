@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-retire-recording"
+description = "Enables the retire_recording command without any pre-configured scope."
+commands.allow = ["retire_recording"]
+
+[[permission]]
+identifier = "deny-retire-recording"
+description = "Denies the retire_recording command without any pre-configured scope."
+commands.deny = ["retire_recording"]

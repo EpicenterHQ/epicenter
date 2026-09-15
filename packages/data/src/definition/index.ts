@@ -1,6 +1,7 @@
 /** Inert data-definition vocabulary. Runtime store entrypoints live beside it. */
 
 export {
+	BLOB_KEYWORD,
 	CalendarDateString,
 	DateTimeString,
 	type Field,
@@ -8,7 +9,6 @@ export {
 	InstantString,
 	jsonValue,
 	type Kind,
-	BLOB_KEYWORD,
 	REFERENCE_KEYWORD,
 	recognize,
 	referenceTargetOf,
@@ -25,8 +25,9 @@ export {
 } from './compile.js';
 export { plainText } from './content.js';
 export {
-	CONTENT_FIELD,
+	type AttachmentFieldNames,
 	type BlobFieldNames,
+	CONTENT_FIELD,
 	type ContentCodec,
 	ContentError,
 	type CreateRowOf,

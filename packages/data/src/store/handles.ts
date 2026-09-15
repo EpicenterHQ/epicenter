@@ -9,7 +9,14 @@
  * rule that decides which verbs exist: a read is what this release's
  * declaration can see, and a write is what it may say.
  */
+
 import type {
+	BlobAlreadyExists,
+	BlobNotFound,
+	BlobStoreFailed,
+} from '@epicenter/blobs';
+import type {
+	AttachmentFieldNames,
 	BlobFieldNames,
 	ConformanceIssue,
 	CreateRowOf,
@@ -21,17 +28,13 @@ import type {
 	RowOf,
 	TableDeclaration,
 } from '@epicenter/data/definition';
-import type {
-	BlobAlreadyExists,
-	BlobNotFound,
-	BlobStoreFailed,
-} from '@epicenter/blobs';
 import type { AccountIdentity, PrincipalId } from '@epicenter/principal';
 import type { SocketTransport } from '@epicenter/sync/transport';
 import type * as Y from '@y/y';
 import type { Result } from 'wellcrafted/result';
 
 import type { SyncConnectionStatus } from '../sync/connection.js';
+import type { Attachment, AttachmentError } from './attachment.js';
 import type { RowInput } from './document.js';
 import type { NonconformingRow, RowAbsentError } from './errors.js';
 import type { PersistenceCapability } from './persistence.js';
@@ -76,7 +79,10 @@ export type TableHandle<
 	TInput = RowInput,
 	TPatch = JsonObject,
 	TCreated = TRow,
+	TAttachmentInput = never,
 > = {
+	/** The immutable byte owner of an existing row in this opened library. */
+	attachment(rowId: string): Attachment;
 	/**
 	 * Bring one row into being, at a minted id.
 	 *
@@ -110,7 +116,14 @@ export type TableHandle<
 	 * It persists bytes before accepting the row, outside synchronous `transact`.
 	 * Success means row acceptance, not a cross-store atomic durability guarantee.
 	 */
-	create(fields: TInput): TCreated;
+	create: [TAttachmentInput] extends [never]
+		? { create(fields: TInput): TCreated }['create']
+		: {
+				create(fields: TInput): TCreated;
+				create(
+					fields: TAttachmentInput,
+				): Promise<Result<TRow, AttachmentError>>;
+			}['create'];
 	/**
 	 * One row, whole, or nothing.
 	 *
@@ -252,7 +265,13 @@ export type TypedTableHandle<TFields extends TableDeclaration> = TableHandle<
 	Partial<
 		Pick<
 			RowOf<TFields>,
-			Exclude<keyof RowOf<TFields>, 'id' | 'content' | BlobFieldNames<TFields>>
+			Exclude<
+				keyof RowOf<TFields>,
+				| 'id'
+				| 'content'
+				| BlobFieldNames<TFields>
+				| AttachmentFieldNames<TFields>
+			>
 		>
 	>,
 	[BlobFieldNames<TFields>] extends [never]
@@ -262,7 +281,14 @@ export type TypedTableHandle<TFields extends TableDeclaration> = TableHandle<
 					RowOf<TFields>,
 					BlobAlreadyExists | BlobNotFound | BlobStoreFailed
 				>
-			>
+			>,
+	[AttachmentFieldNames<TFields>] extends [never]
+		? never
+		: {
+				[K in keyof CreateRowOf<TFields>]: K extends AttachmentFieldNames<TFields>
+					? Blob
+					: CreateRowOf<TFields>[K];
+			}
 >;
 
 /**
@@ -467,7 +493,13 @@ export type UntypedDeclaredData = {
 				JsonObject,
 				| Row
 				| Promise<
-						Result<Row, BlobAlreadyExists | BlobNotFound | BlobStoreFailed>
+						Result<
+							Row,
+							| BlobAlreadyExists
+							| BlobNotFound
+							| BlobStoreFailed
+							| AttachmentError
+						>
 				  >
 			>
 		>

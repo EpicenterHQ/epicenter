@@ -1,12 +1,14 @@
 import { type BlobId, generateBlobId } from '@epicenter/blobs';
 import type * as Y from '@y/y';
 import { type Static, Type } from 'typebox';
-import type { TypedTableHandle } from '../store/handles.js';
+import type { Result } from 'wellcrafted/result';
 import type {
 	CalendarDateString,
 	DateTimeString,
 	InstantString,
 } from '../field/index.js';
+import type { AttachmentError } from '../store/attachment.js';
+import type { TypedTableHandle } from '../store/handles.js';
 import { plainText } from './content.js';
 import {
 	type CreateRowOf,
@@ -149,3 +151,30 @@ void copyRecording;
 // @ts-expect-error: arbitrary strings are not validated copy-source IDs.
 const invalidCopy: RecordingInput['audio'] = 'not-a-blob-id';
 void invalidCopy;
+
+const attachmentFields = defineTable({
+	title: field.string(),
+	audio: field.attachment(),
+});
+declare const attachmentTable: TypedTableHandle<typeof attachmentFields>;
+const pendingAttachment = attachmentTable.create({
+	title: 'capture',
+	audio: null,
+});
+const completedAttachment = attachmentTable.create({
+	title: 'file',
+	audio: new Blob(['audio']),
+});
+export type _PendingAttachmentIsSynchronous = Expect<
+	Equal<typeof pendingAttachment, RowOf<typeof attachmentFields>>
+>;
+export type _CompletedAttachmentIsDurableResult = Expect<
+	Equal<
+		typeof completedAttachment,
+		Promise<Result<RowOf<typeof attachmentFields>, AttachmentError>>
+	>
+>;
+// @ts-expect-error: only the attachment owner can complete the cell.
+attachmentTable.update(pendingAttachment.id, { audio: 'audio/wav' });
+// @ts-expect-error: a MIME string is completion metadata, not creation input.
+attachmentTable.create({ title: 'invalid', audio: 'audio/wav' });

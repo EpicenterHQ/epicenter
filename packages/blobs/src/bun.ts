@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readFile, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { type } from 'arktype';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { type BlobId, parseBlobId } from './blob-id.js';
+import { type BlobId } from './blob-id.js';
+import { parseBlobStorageId } from './attachment-key.js';
 import {
 	type BlobAlreadyExists,
 	type BlobNotFound,
@@ -55,7 +56,7 @@ export function createBunBlobStore({ directory }: { directory: string }) {
 	);
 
 	function validateId(id: BlobId): Result<BlobId, BlobStoreFailed> {
-		const parsed = parseBlobId(id);
+		const parsed = parseBlobStorageId(id);
 		if (parsed !== undefined) return Ok(parsed);
 		return BlobStoreError.BlobStoreFailed({
 			id,

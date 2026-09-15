@@ -179,7 +179,8 @@
 			{#if audioAvailabilityQuery.data === 'local-only' ||
 				audioAvailabilityQuery.data === 'local-and-remote'}
 				<AudioBlobPlayer
-					id={recording.audioBlobId}
+					id={recording.id}
+					audio={recording.audio}
 					enabled={isDialogOpen}
 					class="h-9 w-full"
 				/>

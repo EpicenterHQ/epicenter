@@ -32,7 +32,7 @@ export const commands = {
 	 *  never has to enumerate devices just to discover what it got. Fails with
 	 *  `Busy` when another window is already recording.
 	 */
-	startRecording: (deviceIdentifier: string | null, destination: BlobDestination) => typedError<HostRecording, RecorderError>(__TAURI_INVOKE("start_recording", { deviceIdentifier, destination })),
+	startRecording: (deviceIdentifier: string | null, destination: BlobDestination, attachment: RecordingAttachment) => typedError<HostRecording, RecorderError>(__TAURI_INVOKE("start_recording", { deviceIdentifier, destination, attachment })),
 	/**
 	 *  Stop the recording named by `audio_blob_id`, publish its blob, and report
 	 *  the committed audio.
@@ -43,16 +43,12 @@ export const commands = {
 	 *  `NotRecording`, which makes an idempotent stop (push-to-talk releasing after
 	 *  its recording was already supplanted) a clean typed no-op.
 	 */
-	stopRecording: (audioBlobId: string) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("stop_recording", { audioBlobId })),
+	stopRecording: (audioBlobId: string, destination: BlobDestination) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("stop_recording", { audioBlobId, destination })),
 	/**
-	 *  Cancel the recording named by `audio_blob_id`, discarding its audio.
-	 * 
-	 *  Owner-only, and it produces nothing: the minted blob id is burnt and no blob
-	 *  is ever written under it. The host cancels by another route entirely (the
-	 *  owner window being destroyed, wired in `lib.rs`), which needs no command and
-	 *  therefore no grant.
+	 *  Cancel the named capture and discard unfinished staging.
+	 *  Already-published attachment bytes survive, including after a lost acknowledgment.
 	 */
-	cancelRecording: (audioBlobId: string) => typedError<null, RecorderError>(__TAURI_INVOKE("cancel_recording", { audioBlobId })),
+	cancelRecording: (audioBlobId: string, destination: BlobDestination) => typedError<null, RecorderError>(__TAURI_INVOKE("cancel_recording", { audioBlobId, destination })),
 	/**
 	 *  The recording this window owns, or `null`.
 	 * 
@@ -68,7 +64,7 @@ export const commands = {
 	 *  recording whose capture died while the JS was gone is found here and stopped
 	 *  like any other, which publishes what it captured.
 	 */
-	currentRecording: () => typedError<{
+	currentRecording: (destination: BlobDestination) => typedError<{
 	audioBlobId: string,
 	/**
 	 *  Dataset selected when the host minted this recording. It must travel
@@ -76,6 +72,7 @@ export const commands = {
 	 *  which blob partition owns the staged bytes.
 	 */
 	destination: BlobDestination,
+	attachment: RecordingAttachment,
 	device: DeviceAcquisition,
 	/**
 	 *  `None` while capture is running. `Some` means capture is over and this
@@ -83,7 +80,11 @@ export const commands = {
 	 *  cancelled (discarding it).
 	 */
 	endedReason: EndedReason | null,
-} | null, RecorderError>(__TAURI_INVOKE("current_recording")),
+} | null, RecorderError>(__TAURI_INVOKE("current_recording", { destination })),
+	releaseRecording: (audioBlobId: string, destination: BlobDestination) => typedError<null, RecorderError>(__TAURI_INVOKE("release_recording", { audioBlobId, destination })),
+	acknowledgeRecording: (audioBlobId: string, destination: BlobDestination) => typedError<null, RecorderError>(__TAURI_INVOKE("acknowledge_recording", { audioBlobId, destination })),
+	/**  Release retired capture work without reclaiming immutable published attachments. */
+	retireRecording: (audioBlobId: string, destination: BlobDestination) => typedError<null, RecorderError>(__TAURI_INVOKE("retire_recording", { audioBlobId, destination })),
 	/**
 	 *  Canonical transcribe-by-id path. Resolves the canonical local blob, decodes
 	 *  it, then runs inference on the **active** model with the caller's advisory
@@ -567,6 +568,7 @@ export type HostRecording = {
 	 *  which blob partition owns the staged bytes.
 	 */
 	destination: BlobDestination,
+	attachment: RecordingAttachment,
 	device: DeviceAcquisition,
 	/**
 	 *  `None` while capture is running. `Some` means capture is over and this
@@ -677,6 +679,12 @@ export type RecorderError =
  *  internal). The frontend does not branch on these.
  */
 { name: "Failed"; message: string };
+
+export type RecordingAttachment = {
+	tableName: string,
+	rowId: string,
+	generation: number | null,
+};
 
 /**
  *  Pushed to the window that owns a recording when the host ends its capture

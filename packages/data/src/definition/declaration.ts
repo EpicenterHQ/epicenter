@@ -18,6 +18,7 @@ import { type Static, type TSchema, Type } from 'typebox';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import {
+	ATTACHMENT_KEYWORD,
 	BLOB_KEYWORD,
 	type Field,
 	field as genericField,
@@ -286,9 +287,11 @@ export type RowOf<T extends TableDeclaration> = {
  * either happen.
  */
 export type CreateRowOf<T extends TableDeclaration> = {
-	[K in keyof TableFields<T>]: K extends BlobFieldNames<T>
-		? BlobId | Blob | Extract<Static<TableFields<T>[K]>, null>
-		: Static<TableFields<T>[K]>;
+	[K in keyof TableFields<T>]: K extends AttachmentFieldNames<T>
+		? null
+		: K extends BlobFieldNames<T>
+			? BlobId | Blob | Extract<Static<TableFields<T>[K]>, null>
+			: Static<TableFields<T>[K]>;
 } & {
 	content?: Y.Type;
 };
@@ -302,6 +305,14 @@ export type BlobFieldNames<T extends TableDeclaration> = {
 					| [{ [BLOB_KEYWORD]: true }, { type: 'null' }]
 					| [{ type: 'null' }, { [BLOB_KEYWORD]: true }];
 		  }
+		? K
+		: never;
+}[keyof TableFields<T>];
+
+export type AttachmentFieldNames<T extends TableDeclaration> = {
+	[K in keyof TableFields<T>]: TableFields<T>[K] extends {
+		anyOf: [{ [ATTACHMENT_KEYWORD]: true }, { type: 'null' }];
+	}
 		? K
 		: never;
 }[keyof TableFields<T>];

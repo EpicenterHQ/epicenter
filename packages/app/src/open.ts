@@ -173,6 +173,8 @@ function buildApp<const TDefinition extends DataDefinition>(
 	const document = createStoreOverPort({
 		definition: parsed.data,
 		blobStore: bytes.local,
+		blobSources: bytes.sources,
+		attachmentDestination: { appId, replica },
 		local: identity === null,
 		async acquire() {
 			try {
@@ -282,7 +284,13 @@ function buildApp<const TDefinition extends DataDefinition>(
 			assertUsable: document.lifetime.assertUsable,
 		});
 		recorder = recording(appId, replica, {
-			local: bytes.local,
+			resolveAttachment(tableName, rowId) {
+				const table = document.view.tables[tableName];
+				if (!table) throw new Error('The recording table is unavailable.');
+				return table.attachment(rowId);
+			},
+			isRetired: () => document.isRetired,
+			generation: () => document.generation,
 			assertUsable: document.lifetime.assertUsable,
 			canRecover: () => acquired,
 		});

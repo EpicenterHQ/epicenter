@@ -9,7 +9,12 @@ import type { AiCatalog } from './ai-catalog.ts';
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AgentToolDefinition } from '@epicenter/agent';
-import { type BlobId, type BlobRemote, parseBlobId } from '@epicenter/blobs';
+import {
+	type BlobId,
+	type BlobRemote,
+	parseBlobId,
+	parseBlobStorageId,
+} from '@epicenter/blobs';
 import type { BunBlobStore } from '@epicenter/blobs/bun';
 import { BLOB_PATHS } from '@epicenter/blobs/webview';
 import { isAppId } from '@epicenter/constants/app-id';
@@ -701,7 +706,7 @@ export function createHomeServer({
 		if (new URL(c.req.url).search !== '')
 			return c.text('Invalid blob address', 400);
 		const appId = c.req.param('appId');
-		const id = parseBlobId(c.req.param('blobId'));
+		const id = parseBlobStorageId(c.req.param('blobId'));
 		if (
 			appId === undefined ||
 			appId.trim() !== appId ||

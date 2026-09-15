@@ -2,8 +2,8 @@
 //!
 //! A destination captures an application and its local/account dataset. Native
 //! writers stage private bytes and atomically publish data and metadata together
-//! into the same layout as `packages/blobs`. Unpublished staging is discarded
-//! on cancellation or swept at the next host startup.
+//! into the same layout as `packages/blobs`. Recording staging survives startup
+//! until explicit cancellation or durable row completion acknowledges it.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -121,6 +121,23 @@ pub(crate) fn mint_blob_id() -> Result<String, BlobError> {
 }
 
 fn validate_blob_id(id: &str) -> Result<(), BlobError> {
+    if let Some(address) = id.strip_prefix("attachment.") {
+        if let Some((table, row)) = address.split_once('.') {
+            if !table.is_empty()
+                && table.len() <= 100
+                && table
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+                && row.len() == 24
+                && row
+                    .bytes()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+            {
+                return Ok(());
+            }
+        }
+        return Err(BlobError::failed("invalid attachment key"));
+    }
     let body = id
         .strip_prefix("blob_")
         .ok_or_else(|| BlobError::failed("blob id must start with 'blob_'"))?;
@@ -135,7 +152,10 @@ fn validate_blob_id(id: &str) -> Result<(), BlobError> {
 }
 
 /// Resolve only validated identifiers beneath the shared startup-selected root.
-fn blobs_directory(data_dir: &Path, destination: &BlobDestination) -> Result<PathBuf, BlobError> {
+pub(crate) fn blobs_directory(
+    data_dir: &Path,
+    destination: &BlobDestination,
+) -> Result<PathBuf, BlobError> {
     if !is_app_id(&destination.app_id) {
         return Err(BlobError::failed(
             "blob destination contains an invalid app id",
@@ -213,6 +233,28 @@ pub struct StagedBlob {
 }
 
 impl StagedBlob {
+    pub(crate) fn directory(&self) -> &Path {
+        &self.staged_directory
+    }
+
+    pub(crate) fn recover(root: PathBuf, id: &str, directory: PathBuf) -> Result<Self, BlobError> {
+        validate_blob_id(id)?;
+        if directory.parent()
+            != Some(
+                root.join(STAGING_DIRECTORY)
+                    .join(RUST_STAGING_DIRECTORY)
+                    .as_path(),
+            )
+        {
+            return Err(BlobError::failed("invalid recording staging directory"));
+        }
+        Ok(Self {
+            id: id.into(),
+            final_directory: root.join(id),
+            root,
+            staged_directory: directory,
+        })
+    }
     /// Open a staging directory for a recording that is about to start.
     ///
     /// The id is validated and the destination checked here, at the start of the
@@ -335,6 +377,11 @@ impl StagedBlob {
         match result {
             Ok(size) => Ok(size),
             Err(error) => {
+                // Attachment completion can retry publication after interruption.
+                // Its durable recording descriptor owns reclamation.
+                if self.id.starts_with("attachment.") {
+                    return Err(error);
+                }
                 let cleanup_target = if published {
                     &self.final_directory
                 } else {
@@ -412,9 +459,32 @@ fn delete_partition_staging(root: &Path) {
     }
 }
 
-/// Delete a blobs root's native staging subtree, whatever it holds.
+/// Remove abandoned writes while preserving saved captures for their owner.
 pub(crate) fn delete_staging_root(root: &Path) {
     let staging_root = root.join(STAGING_DIRECTORY).join(RUST_STAGING_DIRECTORY);
+    if let Ok(entries) = std::fs::read_dir(&staging_root) {
+        let mut retained = false;
+        for entry in entries {
+            let Ok(entry) = entry else {
+                retained = true;
+                continue;
+            };
+            if entry.path().join(".recording-session").exists() {
+                retained = true;
+                continue;
+            }
+            if let Err(error) = std::fs::remove_dir_all(entry.path()) {
+                if entry.path().is_file() {
+                    let _ = std::fs::remove_file(entry.path());
+                } else {
+                    warn!("Could not remove abandoned capture staging: {error}");
+                }
+            }
+        }
+        if retained {
+            return;
+        }
+    }
     match std::fs::remove_dir_all(&staging_root) {
         Ok(()) => info!(
             "Deleted stale native blob staging at {}",
