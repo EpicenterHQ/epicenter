@@ -8,7 +8,11 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type BlobStore, BlobStoreError } from '@epicenter/blobs';
+import {
+	attachmentStorageId,
+	type BlobStore,
+	BlobStoreError,
+} from '@epicenter/blobs';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
 import {
 	compileData,
@@ -29,6 +33,7 @@ import {
 } from './store.js';
 import { captureArchive, prepareArchive } from '../artifact/archive.js';
 import { encodeFrame } from '../sync/frames.js';
+import type { AttachmentTransport } from './attachment-sync.js';
 
 const definition = defineData({
 	id: 'so.epicenter.attachment-test',
@@ -44,7 +49,11 @@ const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
 	for (const close of cleanups.splice(0).reverse()) await close();
 });
-async function setup(directory?: string, retirable = false) {
+async function setup(
+	directory?: string,
+	retirable = false,
+	transferFetch?: AttachmentTransport['fetch'],
+) {
 	const root = directory ?? (await mkdtemp(join(tmpdir(), 'attachment-save-')));
 	if (!directory)
 		cleanups.push(() => rm(root, { recursive: true, force: true }));
@@ -73,7 +82,10 @@ async function setup(directory?: string, retirable = false) {
 				...(retirable
 					? {
 							replication: {
+								fetch: transferFetch,
 								address: {
+									appId: 'test.attachments',
+									library: 'personal',
 									baseURL: 'https://example.test',
 									dataId: definition.id,
 									generation: 1,
@@ -120,6 +132,35 @@ async function setup(directory?: string, retirable = false) {
 	};
 }
 const audio = () => new Blob(['audio'], { type: 'audio/wav' });
+
+for (const ending of ['delete', 'close', 'retire'] as const) {
+	test(`actual store ${ending} during attachment publication retains bytes without acknowledging its retired owner`, async () => {
+		const entered = Promise.withResolvers<void>();
+		const response = Promise.withResolvers<Response>();
+		const context = await setup(undefined, true, async () => {
+			entered.resolve();
+			return response.promise;
+		});
+		const row = expectOk(
+			await context.table.create({ title: 'saved offline', audio: audio() }),
+		);
+		await entered.promise;
+		if (ending === 'delete') context.table.delete(row.id);
+		if (ending === 'retire') context.retire();
+		const closing = ending === 'close' ? context.close() : undefined;
+		response.resolve(new Response(null, { status: 204 }));
+		if (closing) await closing;
+		else await context.close();
+		const retained = expectOk(
+			await context.blobStore.stat(attachmentStorageId('recordings', row.id)),
+		);
+		expect(retained.attachment?.pendingUpload).toBe(true);
+		if (ending === 'delete') {
+			const reopened = await setup(context.root);
+			expect(reopened.table.get(row.id)).toBeUndefined();
+		}
+	});
+}
 
 test('creation publishes bytes before the row and reopens with the same private content evidence', async () => {
 	const first = await setup();

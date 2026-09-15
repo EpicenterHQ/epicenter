@@ -38,7 +38,7 @@ async function setup() {
 				reads++;
 				await beforeRead?.();
 				return object
-					? new Response(object)
+					? new Response(object, { headers: { 'content-type': object.type } })
 					: new Response(null, { status: 404 });
 			}
 			if (object) return new Response(null, { status: 412 });
@@ -148,6 +148,33 @@ test('tickets reserve nothing; only verified publication survives restart and lo
 	expect(f.reads).toBe(1);
 	expect((await f.request('GET')).status).toBe(200);
 	expect((await f.request('PUT', wrong)).status).toBe(409);
+});
+
+test('empty finished files publish through actual bytes and retry after restart', async () => {
+	await using f = await setup();
+	const empty = new Blob([], { type: 'application/octet-stream' });
+	const evidence = {
+		sha256: new Bun.CryptoHasher('sha256').digest('hex'),
+		size: 0,
+		contentType: empty.type,
+	};
+	const response = await f.request('POST', evidence);
+	expect(response.status).toBe(200);
+	const ticket = (await response.json()) as PresignedPut;
+	expect(
+		(
+			await fetch(ticket.url, {
+				method: 'PUT',
+				headers: ticket.requiredHeaders,
+				body: empty,
+			})
+		).status,
+	).toBe(200);
+	expect((await f.request('PUT', evidence)).status).toBe(204);
+	f.reopen();
+	expect((await f.request('POST', evidence)).status).toBe(204);
+	expect(f.reads).toBe(1);
+	expect((await f.request('POST', { ...evidence, size: -1 })).status).toBe(400);
 });
 
 test('412 and equal size or MIME do not prove content; incorrect occupied bytes remain a conflict', async () => {

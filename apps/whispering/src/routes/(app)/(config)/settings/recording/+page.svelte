@@ -54,13 +54,6 @@
 			description="Whispering pauses media playing on your computer (music, video, browser tabs) while your voice is being captured, then tries to resume it after. In voice activated mode it pauses only while you actually speak, so music keeps playing between phrases. Works with most apps in your system media controls. A few can't be paused, and on macOS the resume can occasionally wake a different app that was already paused."
 		/>
 
-		{#if app.recordings.remoteAvailable}
-			<SettingSwitch
-				key="recordingAutoUpload"
-				label="Back up older recordings"
-				description="Continue online backup for recordings saved by earlier versions. New recordings save audio on this device; online audio sync for them is not available yet."
-			/>
-		{/if}
 
 		{#if app.settings.get('recordingTrigger') === 'manual'}
 			<ManualSelectRecordingDevice

@@ -1,6 +1,10 @@
 # @epicenter/blobs
 
-Opaque blob identity and the shared blob contracts: one `BlobId` names an object locally, remotely, and in rows; `BlobStore` is the canonical local store apps read and write; `BlobRemote` is the optional, explicit copy seam (upload, download, purge) to one remote under the same id; `BlobSources` acquires disposable playback URLs over the local bytes.
+Local byte storage and one-shot attachment I/O. `BlobStore` holds immutable
+files, and `BlobSources` acquires disposable playback URLs over local bytes.
+The data library owns attachment destinations, transfer obligations and retries.
+The legacy `BlobRemote` copy primitive remains for low-level compatibility;
+opened applications no longer expose its upload/download/purge coordination.
 
 This package is the AGPL blob boundary. The root export owns the portable
 contracts; platform subpaths own the implementations that satisfy them. The
@@ -21,15 +25,16 @@ Browser remote implementations may compose directly over `BlobStore`: the
 public browser adapter is Blob-valued. Its IndexedDB codec stores
 `ArrayBuffer` plus content type because WebKit rejects persisted `Blob`/`File`
 values, then reconstructs a `Blob` on read. Desktop remote transfer is
-host-owned instead. It must stream between the Bun filesystem store and the
-remote without routing a whole recording through the WebView; composing a
+host-owned instead. Native attachments stream through Rust reqwest over the
+same filesystem store without routing audio through the WebView; composing a
 desktop remote over the WebView adapter's Blob-valued `get` would defeat that
 boundary.
 
 ## Identity
 
 - `BlobId` is `blob_` + 21 lowercase alphanumerics (CSPRNG nanoid). Safe verbatim as a filesystem name, S3 key segment, URL path segment, and XML text.
-- It is **not** a content hash. SHA-256 and dedup are not part of this contract.
+- It is **not** a content hash. Attachments use a distinct row-derived storage
+  address and retain SHA-256, size and MIME evidence for immutable verification.
 - Mint with `generateBlobId()`; parse untrusted input with `parseBlobId()`. The
   `blob_` prefix exists so the parse boundary can reject the repo's bare-nanoid
   row ids at runtime, not just at compile time.
@@ -42,10 +47,13 @@ boundary.
   `BlobNotFound`, `RemoteBlobNotFound`, and `BlobAlreadyExists`. Operational
   failures (`BlobStoreFailed`, `BlobRemoteFailed`) are separate variants
   carrying `cause`.
-- Remote operations are one-shot and explicit. There is no background sync, no eager download, no retry queue, and no persisted failure state. An application that wants every blob kept reconciles from its own rows, which already record what was uploaded (Whispering's `uploadedAt`), and calls these verbs; nothing here remembers a failure for it.
-- A remote download is idempotent. If the immutable id already exists in the
-  canonical local store, the remote implementation consumes that collision as
-  success because the requested local state is already present.
+- Attachment I/O is one-shot. The owning data library derives automatic uploads
+  and downloads from completed rows and local origin/acknowledgment metadata.
+  Applications do not run reconciliation or interpret historical upload markers.
+- Attachment downloads verify complete bytes before immutable installation.
+  An occupied address succeeds only after identical-content verification.
+  Downloaded files carry no upload origin. The older `BlobRemote` collision
+  semantics are not used by attachment synchronization.
 - Playback URLs come from `BlobSources`, a sibling capability beside the
   store, never a method on `BlobStore`. Each `open` returns one standard
   `Disposable` handle: release is always safe and idempotent. The browser

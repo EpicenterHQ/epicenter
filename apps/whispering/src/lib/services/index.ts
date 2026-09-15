@@ -8,8 +8,8 @@ import { PlaySoundServiceLive } from './sound';
  * Cross-platform services.
  * These are available on both web and desktop.
  *
- * Blobs are not here. A blob store is one account's (ADR-0349), so it is built
- * per session and reached as `app.blobs`, never as a module-level value.
+ * The library owns audio bytes and transfers. Recording consumers read locally
+ * through the recordings domain, never through a module-level blob service.
  */
 export const services = {
 	analytics: AnalyticsServiceLive,

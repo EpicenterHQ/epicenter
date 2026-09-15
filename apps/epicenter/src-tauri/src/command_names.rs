@@ -9,6 +9,9 @@
 // `build.rs` pulls this in with `include!`, so it cannot drift from the crate.
 
 pub const COMMANDS: &[&str] = &[
+    "attachment_transfer_epoch",
+    "transfer_attachment",
+    "cancel_attachment_transfer",
     "launch_application",
     "finish_application_close",
     "write_text",

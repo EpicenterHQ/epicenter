@@ -131,8 +131,9 @@ export const services = {
 } as const;
 ```
 
-Blob storage is not a platform service. The opened app handle owns the scoped
-blob capability, and consumers address bytes through `app.blobs` by `BlobId`.
+The opened library owns audio publication and automatic transfers. Consumers
+read local audio through `app.recordings.readAudio` or `openAudio`. Playback and
+export never initiate a network download.
 
 Runtime-selected provider services do not need to live in this barrel. The
 operation that owns dispatch may import them directly.

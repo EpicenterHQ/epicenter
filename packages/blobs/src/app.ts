@@ -1,10 +1,8 @@
 import {
 	generateBlobId,
-	BlobRemoteError,
 	type BlobId,
 	type BlobStore,
 	type BlobSources,
-	type BlobRemote,
 	type BlobSource,
 } from './index.js';
 import { Ok } from 'wellcrafted/result';
@@ -13,12 +11,10 @@ import { Ok } from 'wellcrafted/result';
 export function createAppBlobs({
 	local,
 	sources,
-	remote,
 	assertUsable,
 }: {
 	local: BlobStore;
 	sources: BlobSources;
-	remote: BlobRemote | null;
 	assertUsable?: () => void;
 }) {
 	let closed = false;
@@ -50,26 +46,6 @@ export function createAppBlobs({
 	}
 	return Object.freeze({
 		value: Object.freeze({
-			remote: Object.freeze({
-				upload: (id: BlobId) =>
-					run(() =>
-						remote === null
-							? Promise.resolve(BlobRemoteError.RemoteNotConfigured())
-							: remote.upload(id),
-					),
-				download: (id: BlobId) =>
-					run(() =>
-						remote === null
-							? Promise.resolve(BlobRemoteError.RemoteNotConfigured())
-							: remote.download(id),
-					),
-				purge: (id: BlobId) =>
-					run(() =>
-						remote === null
-							? Promise.resolve(BlobRemoteError.RemoteNotConfigured())
-							: remote.purge(id),
-					),
-			}),
 			add(blob: Blob) {
 				return run(async () => {
 					const id = generateBlobId();

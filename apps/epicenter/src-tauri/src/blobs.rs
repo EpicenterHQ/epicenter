@@ -23,7 +23,7 @@ const METADATA_FILE: &str = "metadata.json";
 
 /// Match the Bun store's metadata codec, including JavaScript's trim set and
 /// UTF-16 length bound. A native publication must be readable by that store.
-fn normalize_content_type(value: &str) -> &str {
+pub(crate) fn normalize_content_type(value: &str) -> &str {
     let value = value.trim_matches(|ch| {
         matches!(ch,
             '\u{0009}'..='\u{000d}' | '\u{0020}' | '\u{00a0}' | '\u{1680}' |
@@ -164,7 +164,7 @@ pub(crate) fn mint_blob_id() -> Result<String, BlobError> {
     Ok(id)
 }
 
-fn validate_blob_id(id: &str) -> Result<(), BlobError> {
+pub(crate) fn validate_blob_id(id: &str) -> Result<(), BlobError> {
     if let Some(address) = id.strip_prefix("attachment.") {
         if let Some((table, row)) = address.split_once('.') {
             if !table.is_empty()
@@ -607,14 +607,14 @@ pub fn read_blob_bytes(
 }
 
 /// Sync the completed data or metadata after its writer has closed it.
-fn sync_file(path: &Path) -> Result<(), BlobError> {
+pub(crate) fn sync_file(path: &Path) -> Result<(), BlobError> {
     File::open(path)
         .and_then(|file| file.sync_all())
         .map_err(|error| BlobError::failed(format!("sync {}: {error}", path.display())))
 }
 
 #[cfg(unix)]
-fn sync_directory(path: &Path) -> Result<(), BlobError> {
+pub(crate) fn sync_directory(path: &Path) -> Result<(), BlobError> {
     #[cfg(test)]
     if FAIL_DIRECTORY_SYNC.with(|target| {
         let mut target = target.borrow_mut();
@@ -640,7 +640,7 @@ thread_local! {
 }
 
 #[cfg(not(unix))]
-fn sync_directory(_path: &Path) -> Result<(), BlobError> {
+pub(crate) fn sync_directory(_path: &Path) -> Result<(), BlobError> {
     Ok(())
 }
 

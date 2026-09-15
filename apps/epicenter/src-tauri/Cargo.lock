@@ -1480,6 +1480,7 @@ dependencies = [
  "objc2-foundation",
  "ogg",
  "rayon",
+ "reqwest 0.12.28",
  "rubato",
  "rusqlite",
  "serde",
@@ -1506,6 +1507,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "tracing",
  "transcribe-cpp",
  "windows 0.62.2",
@@ -6285,6 +6287,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

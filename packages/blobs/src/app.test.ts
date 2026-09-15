@@ -51,11 +51,6 @@ function setup() {
 		sources: {
 			open: (id) => record('open', BlobStoreError.BlobNotFound({ id })),
 		},
-		remote: {
-			upload: () => record('upload', Ok(undefined)),
-			download: () => record('download', Ok(undefined)),
-			purge: () => record('purge', Ok(undefined)),
-		},
 	};
 	function createBlobs(options: BlobPrimitives) {
 		owner = createAppBlobs({
@@ -96,9 +91,8 @@ function setup() {
 test('every retained blob verb refuses before readiness and throughout close without primitive calls', async () => {
 	const { createBlobs, primitives, ready, close, acquire, calls, bytes } =
 		setup();
-	const { add, get, stat, statMany, open, removeLocal, remote } =
+	const { add, get, stat, statMany, open, removeLocal } =
 		createBlobs(primitives);
-	const { upload, download, purge } = remote;
 	const id = generateBlobId();
 	const operations = [
 		() => add(bytes),
@@ -108,9 +102,6 @@ test('every retained blob verb refuses before readiness and throughout close wit
 		() => statMany([]),
 		() => open(id),
 		() => removeLocal(id),
-		() => upload(id),
-		() => download(id),
-		() => purge(id),
 	];
 	try {
 		for (const operation of operations) expect(operation).toThrow('not ready');
@@ -128,36 +119,14 @@ test('every retained blob verb refuses before readiness and throughout close wit
 	}
 });
 
-test('unconfigured remote methods retain the document guard and return typed refusals', async () => {
+test('application blobs expose no remote transfer coordination', async () => {
 	const { createBlobs, primitives, ready, close, acquire } = setup();
-	const blobs = createBlobs({ ...primitives, remote: null });
-	const id = generateBlobId();
-	const operations = [
-		blobs.remote.upload,
-		blobs.remote.download,
-		blobs.remote.purge,
-	];
+	const blobs = createBlobs(primitives);
 	try {
-		for (const operation of operations)
-			expect(() => operation(id)).toThrow('not ready');
 		acquire();
 		expectOk(await ready);
-		expect(expectErr(await blobs.remote.upload(id)).name).toBe(
-			'RemoteNotConfigured',
-		);
-		expect(expectErr(await blobs.remote.download(id)).name).toBe(
-			'RemoteNotConfigured',
-		);
-		expect(expectErr(await blobs.remote.purge(id)).name).toBe(
-			'RemoteNotConfigured',
-		);
-		expect(Reflect.set(blobs, 'remote', primitives.remote)).toBe(false);
-		const closing = close();
-		for (const operation of operations)
-			expect(() => operation(id)).toThrow('closed');
-		await closing;
-		for (const operation of operations)
-			expect(() => operation(id)).toThrow('closed');
+		expect(blobs).not.toHaveProperty('remote');
+		expect(Reflect.set(blobs, 'remote', {})).toBe(false);
 	} finally {
 		acquire();
 		await close();
@@ -168,32 +137,27 @@ test('unconfigured remote methods retain the document guard and return typed ref
 // Admitted operations and owned sources
 // ============================================================================
 
-test('close drains multiple admitted local and remote operations even when one rejects', async () => {
+test('close drains multiple admitted local operations even when one rejects', async () => {
 	const { createBlobs, primitives, ready, close, acquire, events, bytes } =
 		setup();
 	const reading =
 		Promise.withResolvers<Awaited<ReturnType<BlobStore['get']>>>();
-	const uploading = Promise.withResolvers<Result<void, never>>();
+	const checking =
+		Promise.withResolvers<Awaited<ReturnType<BlobStore['stat']>>>();
 	const deleting =
 		Promise.withResolvers<Awaited<ReturnType<BlobStore['delete']>>>();
 	primitives.local.get = () => reading.promise;
 	primitives.local.delete = () => deleting.promise;
-	const blobs = createBlobs({
-		...primitives,
-		remote: {
-			upload: () => uploading.promise,
-			download: async () => Ok(undefined),
-			purge: async () => Ok(undefined),
-		},
-	});
+	primitives.local.stat = () => checking.promise;
+	const blobs = createBlobs(primitives);
 	acquire();
 	expectOk(await ready);
 	const id = generateBlobId();
 	const read = blobs.get(id);
-	const upload = blobs.remote.upload(id);
+	const check = blobs.stat(id);
 	const remove = blobs.removeLocal(id);
-	const cause = new Error('upload rejected');
-	const rejected = Promise.allSettled([upload]);
+	const cause = new Error('stat rejected');
+	const rejected = Promise.allSettled([check]);
 	const closing = close();
 	let settled = false;
 	void closing.then(() => {
@@ -201,7 +165,7 @@ test('close drains multiple admitted local and remote operations even when one r
 	});
 	try {
 		expect(close()).toBe(closing);
-		uploading.reject(cause);
+		checking.reject(cause);
 		expect(await rejected).toEqual([{ status: 'rejected', reason: cause }]);
 		expect(settled).toBe(false);
 		expect(events).toEqual([]);
@@ -218,7 +182,7 @@ test('close drains multiple admitted local and remote operations even when one r
 		expect(events).toEqual(['backing']);
 	} finally {
 		reading.resolve(Ok(bytes));
-		uploading.resolve(Ok(undefined));
+		checking.resolve(Ok({ size: bytes.size, contentType: bytes.type }));
 		deleting.resolve(Ok(undefined));
 		await closing;
 	}

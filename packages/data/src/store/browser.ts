@@ -719,6 +719,7 @@ export async function acquireAppData(
 					generation: loaded.generation,
 				},
 				transport: remote.transport,
+				fetch: (input, init) => remote.transport.fetch(input, init),
 			},
 		});
 	} catch (cause) {

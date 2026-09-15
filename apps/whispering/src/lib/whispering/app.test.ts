@@ -213,15 +213,15 @@ test('settings recover application defaults, notify, and survive a reopen', asyn
 
 		// Chosen by the application, applied by a read, never stored.
 		expect(app.settings.get('transcriptionService')).toBe('connection');
-		expect(app.settings.get('recordingAutoUpload')).toBe(false);
+		expect(app.settings.get('recordingPausePlayback')).toBe(false);
 		expect(app.settings.get('soundManualStart')).toBe(true);
 
 		let notifications = 0;
 		const stop = app.settings.subscribe(() => {
 			notifications += 1;
 		});
-		app.settings.set('recordingAutoUpload', true);
-		expect(app.settings.get('recordingAutoUpload')).toBe(true);
+		app.settings.set('recordingPausePlayback', true);
+		expect(app.settings.get('recordingPausePlayback')).toBe(true);
 		expect(notifications).toBeGreaterThan(0);
 		stop();
 		await Bun.sleep(10);
@@ -241,7 +241,7 @@ test('settings recover application defaults, notify, and survive a reopen', asyn
 		account,
 	});
 
-	expect(reopened.settings.get('recordingAutoUpload')).toBe(true);
+	expect(reopened.settings.get('recordingPausePlayback')).toBe(true);
 
 	reopened[Symbol.dispose]();
 	await openedApp.close();
@@ -265,7 +265,7 @@ test('the domains stop reading the store once they are disposed', async () => {
 	app.settings.subscribe(() => {
 		notifications += 1;
 	});
-	openedApp.kv.update({ recordingAutoUpload: true });
+	openedApp.kv.update({ recordingPausePlayback: true });
 	await Bun.sleep(10);
 
 	expect(notifications).toBe(0);

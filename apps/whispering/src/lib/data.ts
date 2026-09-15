@@ -1,5 +1,5 @@
-import { APPS } from '@epicenter/constants/apps';
 import { BLOB_ID_ROUTE_REGEX } from '@epicenter/blobs';
+import { APPS } from '@epicenter/constants/apps';
 import { field } from '@epicenter/data/definition';
 /**
  * Whispering's inert data definition.
@@ -123,7 +123,6 @@ const settingsKv = {
 
 	recordingTrigger: field.select(['vad', 'manual']),
 	recordingPausePlayback: field.boolean(),
-	recordingAutoUpload: field.boolean(),
 
 	transcriptionService: field.select([
 		'connection',

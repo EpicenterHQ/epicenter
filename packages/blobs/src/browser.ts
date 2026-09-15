@@ -24,6 +24,7 @@ import {
 	type BlobStat,
 	type BlobStore,
 	BlobStoreError,
+	AttachmentTransferError,
 	type BlobStoreFailed,
 } from './blob-store.js';
 
@@ -228,6 +229,30 @@ export function createBrowserBlobStore(
 	}
 	return {
 		attachments: {
+			async upload(id, expected, ticket, signal) {
+				const result = await operate(id, () =>
+					store.attachments!.upload(id, expected, ticket, signal),
+				);
+				if (!result.error) return Ok(undefined);
+				return result.error.name === 'BlobStoreFailed'
+					? AttachmentTransferError.Failed({
+							kind: 'storage',
+							cause: result.error,
+						})
+					: Err(result.error);
+			},
+			async download(id, expected, ticket, signal) {
+				const result = await operate(id, () =>
+					store.attachments!.download(id, expected, ticket, signal),
+				);
+				if (!result.error) return Ok(undefined);
+				return result.error.name === 'BlobStoreFailed'
+					? AttachmentTransferError.Failed({
+							kind: 'storage',
+							cause: result.error,
+						})
+					: Err(result.error);
+			},
 			put: (id, file, generation) =>
 				operate(id, () => store.attachments!.put(id, file, generation)),
 			acknowledge: (id, expected, generation) =>
@@ -292,6 +317,160 @@ function createStoreAt(databaseName: string, indexedDb: IDBFactory): BlobStore {
 	}
 	const store: BlobStore = {
 		attachments: {
+			async upload(id, expected, ticket, signal) {
+				let kind: AttachmentTransferError['kind'] = 'storage';
+				expected = { ...expected };
+				ticket = {
+					url: ticket.url,
+					requiredHeaders: { ...ticket.requiredHeaders },
+				};
+				try {
+					signal.throwIfAborted();
+					const file = await store.get(id);
+					if (file.error)
+						return AttachmentTransferError.Failed({ kind, cause: file.error });
+					if (
+						!sameAttachmentContent(expected, await attachmentContent(file.data))
+					)
+						return AttachmentTransferError.Failed({
+							kind: 'conflict',
+							cause: 'Local bytes differ from the owner evidence.',
+						});
+					kind = 'transport';
+					const response = await fetch(ticket.url, {
+						method: 'PUT',
+						body: file.data,
+						headers: ticket.requiredHeaders,
+						signal,
+						credentials: 'omit',
+						redirect: 'error',
+					});
+					await response.body?.cancel();
+					return response.ok
+						? Ok(undefined)
+						: AttachmentTransferError.Failed({
+								kind,
+								status: response.status,
+								cause: 'Signed upload refused.',
+							});
+				} catch (cause) {
+					return AttachmentTransferError.Failed({
+						kind: signal.aborted ? 'transport' : kind,
+						cause,
+					});
+				}
+			},
+			async download(id, expected, ticket, signal) {
+				let kind: AttachmentTransferError['kind'] = 'transport';
+				expected = {
+					sha256: expected.sha256,
+					size: expected.size,
+					contentType: expected.contentType,
+				};
+				ticket = { url: ticket.url };
+				if (
+					!Number.isSafeInteger(expected.size) ||
+					expected.size < 0 ||
+					expected.size > 5 * 1024 ** 3
+				)
+					return AttachmentTransferError.Failed({
+						kind: 'conflict',
+						status: 409,
+						cause: 'Invalid attachment size.',
+					});
+				let response: Response | undefined;
+				try {
+					signal.throwIfAborted();
+					response = await fetch(ticket.url, {
+						signal,
+						credentials: 'omit',
+						redirect: 'error',
+					});
+					if (!response.ok)
+						return AttachmentTransferError.Failed({
+							kind,
+							status: response.status,
+							cause: 'Signed download refused.',
+						});
+					if (response.headers.get('content-type') !== expected.contentType)
+						return AttachmentTransferError.Failed({
+							kind: 'conflict',
+							status: 409,
+							cause: 'Downloaded content type differs.',
+						});
+					const chunks: Uint8Array<ArrayBuffer>[] = [];
+					let size = 0;
+					const reader = response.body?.getReader();
+					try {
+						while (reader) {
+							signal.throwIfAborted();
+							const part = await reader.read();
+							if (part.done) break;
+							if (part.value.length > expected.size - size)
+								return AttachmentTransferError.Failed({
+									kind: 'conflict',
+									status: 409,
+									cause: 'Downloaded bytes exceed owner size.',
+								});
+							size += part.value.length;
+							chunks.push(new Uint8Array(part.value));
+						}
+					} finally {
+						await reader?.cancel().catch(() => {});
+						reader?.releaseLock();
+					}
+					const file = new Blob(chunks, { type: expected.contentType });
+					if (!sameAttachmentContent(expected, await attachmentContent(file)))
+						return AttachmentTransferError.Failed({
+							kind: 'conflict',
+							status: 409,
+							cause: 'Downloaded bytes differ from owner evidence.',
+						});
+					signal.throwIfAborted();
+					kind = 'storage';
+					const result = await publish(id, file, {
+						...expected,
+						pendingUpload: false,
+					});
+					if (!result.error) return Ok(undefined);
+					if (result.error.name !== 'BlobAlreadyExists')
+						return AttachmentTransferError.Failed({
+							kind,
+							cause: result.error,
+						});
+					const existing = await store.get(id);
+					if (existing.error)
+						return AttachmentTransferError.Failed({
+							kind,
+							cause: existing.error,
+						});
+					const metadata = await store.stat(id);
+					if (metadata.error)
+						return AttachmentTransferError.Failed({
+							kind,
+							cause: metadata.error,
+						});
+					return metadata.data.attachment &&
+						sameAttachmentContent(expected, metadata.data.attachment) &&
+						sameAttachmentContent(
+							expected,
+							await attachmentContent(existing.data),
+						)
+						? Ok(undefined)
+						: AttachmentTransferError.Failed({
+								kind: 'conflict',
+								status: 409,
+								cause: 'Existing local bytes differ.',
+							});
+				} catch (cause) {
+					return AttachmentTransferError.Failed({
+						kind: signal.aborted ? 'transport' : kind,
+						cause,
+					});
+				} finally {
+					await response?.body?.cancel().catch(() => {});
+				}
+			},
 			async put(id, file, originGeneration) {
 				if (!(file instanceof Blob))
 					return BlobStoreError.BlobStoreFailed({

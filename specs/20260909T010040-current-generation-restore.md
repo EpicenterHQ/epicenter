@@ -58,8 +58,8 @@ to their current workstreams; this checkpoint does not stage them.
 | Checkpoint | Implemented behavior | Verification evidence | Remaining acceptance gaps | Next dependency |
 | --- | --- | --- | --- | --- |
 | 1. Local save | Finished-file creation, disposable capture/import, durable Saved and original inference selection implemented. Independent cumulative review and exact-request race follow-up resolved; no further App restructuring required | App 102 pass / 401 assertions; blobs and attachment 107 / 1,563; host HTTP 46 / 408. Whispering domain 20 / 77, capture 17 / 67, closure 10 / 34, inference 9 / 32, pipeline 12 / 43. Native 157 pass / 2 ignored. App, blobs, data DOM, both Whispering leaves and recursive Epicenter typechecks pass. Chromium offline capture/save/reopen/playback smoke passes; physical microphone, real WKWebView reload and owned-process interruption/reopen probes pass | Full Whispering UI/account A/B journey remains incomplete. Native probes are bounded hardware evidence, not whole-product acceptance. Windows directory durability and folder-codec reconstruction are unproved; the latter belongs to excluded recovery | Implement reviewed publication protocol and library-owned transfer |
-| 2. Account transfer | Reviewed authenticated publication mount uses verification followed by atomic publication, without reservations. Library worker and one-shot byte adapters are in progress, not yet accepted | Protocol/signing/mount: 11 Bun pass / 55 assertions; workerd publication/current-generation/retirement: 11 pass; server two-leaf typecheck passes. Actual workerd verifier benchmark completed. No replacement A/B delivery journey yet | Authenticated persisted A/B journey, failure matrix and provider enforcement. Bun 1.3.14 byte networking failed bounded-memory measurement; native reqwest replacement is in progress | Complete native streaming and library worker, migrate actual consumers, then review joint delivery |
-| 3. Failure/race and API review | Not started | Historical counts are not replacement acceptance | Failure matrix and cumulative capture/import/playback/export/inference review | Reviewed checkpoint 2 |
+| 2. Account transfer | Authenticated publication, library worker and native one-shot transfers implemented and reviewed. Whispering uses library status and bounded controls; its upload runner, destructive copy controls and public `blobs.remote` are removed | Protocol/signing/mount: 12 Bun pass / 61 assertions; workerd publication/current-generation/retirement: 11 pass. Authenticated independently persisted browser A/B journey passes offline capture, restart, reconnect, automatic delivery, offline playback, lost responses and delayed availability. Native 169 pass / 3 ignored; streamed HTTP RSS stays near 22 to 24 MiB through 1 GiB | Full Whispering UI A/B and actual object-provider enforcement remain unproved. Browser microphone is synthetic; native physical capture evidence is separate | Native Whispering UI journey and disposable real-provider verification, without expanding App architecture |
+| 3. Failure/race and API review | Independent cumulative review retained the design. Timeout and retirement-capacity findings repaired and verified | Blobs plus data attachment suites: 136 pass / 1,648 assertions, including worker 19 / 44 and actual store 17 / 50. App capture/lifetime: 102 / 401; native bridge 5 / 15. Whispering domain 12 / 39, App domains 3 / 9, capture 17 / 67, closure 10 / 34, inference 9 / 32, pipeline 12 / 40. Affected typechecks pass except the same eight main-data DOM errors | Full native product journey, actual provider and Windows durability acceptance | Preserve these gaps; do not claim the complete architecture or production migration |
 
 The library owns one attachment synchronizer for its captured account, library,
 and generation. Local opens no transfer worker and keeps its existing persistent
@@ -157,10 +157,13 @@ chunks at 4,096 bytes. These are local runtime measurements, not production CPU
 or latency guarantees, RSS measurements, or authenticated delivery acceptance.
 
 Native finished-file hashing uses one 64 KiB buffer and has streamed size tests
-through 345,600,044 bytes. Native network transfer is not implemented or proved
-bounded yet. Keep this acceptance gate: no audio-sized IPC or whole-file native
-network buffer, bounded upload/download streams, verified temporary download,
-and retirement/deletion checks before local publication. S3 checksum and
+through 345,600,044 bytes. Native reqwest upload and download now stream outside
+the WebView. Isolated actual HTTP probes transferred 17,280,044, 172,800,044 and
+1,073,741,824 bytes. After cancellation repairs, upload peak RSS was 22,368,
+22,384 and 22,960 KiB; download peaks were 24,160, 24,144 and 24,336 KiB.
+Both the native client and streaming loopback peer ran in the measured process.
+The IPC bridge test uses mocked invocation, so this does not establish a full
+native Whispering A/B journey. S3 checksum and
 create-only enforcement also need actual provider evidence; signing tests alone
 cannot establish provider behavior or bucket CORS configuration.
 
@@ -177,9 +180,58 @@ The first native byte path used Bun's existing sidecar. Actual disk-backed HTTP
 measurements rejected it as bounded-memory evidence: incremental peak RSS was
 75,464,704 bytes for a 17,280,044-byte file, 410,664,960 for a 172,800,044-byte
 file, and 2,508,505,088 for 1 GiB. A logically chunked reader does not fix runtime
-fetch buffering. Native one-shot networking is being replaced by reqwest under
+fetch buffering. Native one-shot networking is replaced by reqwest under
 the same library owner; no range protocol, runtime upgrade, or application
 upload runner is introduced.
+
+Cumulative transfer review kept the library owner and required four repairs.
+A live download retains its final-admission phase across recoverable failures,
+without downloading the installed file again. An expired signed ticket retries
+through captured-account authorization. Control 403 also remains visible and
+backs off, avoiding a second error-classification surface. A twenty-minute
+attempt deadline covers native byte I/O and the authority's ten-minute verifier;
+timeout aborts I/O and schedules retry, unlike closure, deletion or pause.
+The sole production WebView adapter already supplied native transfer, so its
+unused HTTP fallback and host routes were removed. No second upload path remains
+in the application. The low-level legacy copy primitive is not the attachment
+protocol and is no longer exposed as `app.blobs.remote`.
+
+Native cancellation retains only a document sequence high-water mark and two
+active requests. Cancellation does not release a slot until its work finishes;
+out-of-order old admission is refused rather than reviving cancelled work.
+The native full suite exposed a task-owned cleanup race: dropping an async
+filesystem operation could create staging after cleanup. Transfers now drain
+filesystem work, flush queued writes before cancellable network reads, and
+check cancellation before immutable installation. Cleanup failures remain
+storage errors. The parallel regression exercises twenty-four cancellations.
+
+Final review retained the design and found one remaining timeout branch: a byte
+adapter returns a failed Result on abort instead of throwing. Deadline handling
+now runs once in the attempt's `finally`, so both forms back off rather than
+starting an immediate upload loop. The regression expires an active byte
+transfer and confirms visible waiting state without a second upload.
+The retirement follow-up also retained native slots across document epochs
+until physical work drains. Exact `(epoch, sequence)` completion cannot release
+a successor's slot. Its regression proves capacity remains occupied after
+retirement and admits a successor only after old work finishes.
+
+Final boundary verification aligned server and native transfer with finished-file
+creation's zero-byte support. Actual HTTP empty-file publication, restart retry,
+native upload and native download pass without weakening SHA-256 or MIME checks.
+Final protocol/signing/mount totals are 12 Bun passes / 61 assertions; workerd
+remains 11 passes. The final native suite has 169 passes / 3 ignored.
+
+The authenticated browser journey uses real self-host session/passkey auth,
+independently persisted browser contexts and the actual HTTP/WebSocket mounts.
+A records offline, restarts offline, reconnects in the same runtime and uploads.
+B receives before Play, disconnects, decodes and plays locally, then reopens and
+plays again. Lost object-PUT and successful-finalize responses, two delayed
+verification 404s and identical create-only retries pass. B issues no PUT, and
+offline playback attempts no attachment network request. Evidence includes a
+273-byte captured Opus file and valid 96,044-byte and 17,280,044-byte WAV imports.
+The disk-backed object fixture checks checksum and create-only behavior, but
+does not validate SigV4 authenticity or prove provider conformance. This is a
+package-consumer journey, not full Whispering UI or whole-browser interruption.
 
 Consumers: switch Whispering capture and imports through finished-file creation,
 then playback, export and inference through local attachment reads. Replace its

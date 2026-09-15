@@ -18,10 +18,70 @@ import { generateBlobId } from './blob-id.js';
 import type { BlobRemoteError } from './blob-remote.js';
 import type { BlobStoreError } from './blob-store.js';
 import { BLOB_PATHS, createWebviewBlobs } from './webview.js';
+const noNativeTransfer = {
+	async nativeTransfer() {
+		throw new Error('Unexpected native transfer');
+	},
+};
 const remoteTransport = {
 	baseURL: 'https://server.test',
 	fetch: globalThis.fetch,
 };
+
+test('native one-shot transfer forwards only identity, evidence, ticket and cancellation', async () => {
+	const signal = new AbortController().signal;
+	const id = generateBlobId();
+	const expected = {
+		sha256: 'a'.repeat(64),
+		size: 172_800_044,
+		contentType: 'audio/wav',
+	};
+	const calls: unknown[][] = [];
+	const adapter = createWebviewBlobs({
+		...noNativeTransfer,
+		appId: 'so.epicenter.test',
+		replica: { library: 'local' },
+		remote: null,
+		fetch: async () => {
+			throw new Error('Native bytes must not cross HTTP into the WebView');
+		},
+		async nativeTransfer(...args) {
+			calls.push(args);
+			if (args[0] === 'upload')
+				throw {
+					kind: 'transport',
+					cause: 'Immutable object already exists',
+					status: 412,
+				};
+		},
+	});
+	expectOk(
+		await adapter.local.attachments!.download(
+			id,
+			expected,
+			{ url: 'https://signed.test/file' },
+			signal,
+		),
+	);
+	const error = expectErr(
+		await adapter.local.attachments!.upload(
+			id,
+			expected,
+			{ url: 'https://signed.test/file', requiredHeaders: {} },
+			signal,
+		),
+	);
+	expect(error.kind).toBe('transport');
+	expect(error.status).toBe(412);
+	expect(calls[0]).toEqual([
+		'download',
+		id,
+		expected,
+		{ url: 'https://signed.test/file' },
+		signal,
+	]);
+	expect(calls).toHaveLength(2);
+});
 
 function setup(responses: Response[]) {
 	const requests: Request[] = [];
@@ -39,6 +99,7 @@ function setup(responses: Response[]) {
 	};
 	return {
 		...createWebviewBlobs({
+			...noNativeTransfer,
 			appId: 'so.epicenter.test',
 			replica: { library: 'local' },
 			remote: null,
@@ -80,6 +141,7 @@ test('all verbs and playback keep the same encoded account after input mutation'
 		principalId: asPrincipalId('principal :@&=+'),
 	};
 	const options = {
+		...noNativeTransfer,
 		appId: 'so.epicenter.test',
 		replica: { library: 'personal' as const, account },
 		remote: remoteTransport,
@@ -175,11 +237,16 @@ test('missing app and account fail the type contract and throw before fetch', ()
 	const { fetcher, requests } = setup([]);
 	expect(() => {
 		// @ts-expect-error Account omission must never select local storage.
-		createWebviewBlobs({ appId: 'so.epicenter.test', fetch: fetcher });
+		createWebviewBlobs({
+			...noNativeTransfer,
+			appId: 'so.epicenter.test',
+			fetch: fetcher,
+		});
 	}).toThrow();
 	expect(() => {
 		// @ts-expect-error App identity is mandatory for every capability.
 		createWebviewBlobs({
+			...noNativeTransfer,
 			replica: { library: 'local' },
 			remote: null,
 			fetch: fetcher,
@@ -242,6 +309,7 @@ test('invalid app ids and incomplete or unsafe account segments fail before fetc
 	for (const appId of invalidApps) {
 		expect(() =>
 			createWebviewBlobs({
+				...noNativeTransfer,
 				// @ts-expect-error Exercise malformed runtime input at construction.
 				appId,
 				replica: { library: 'local' },
@@ -253,6 +321,7 @@ test('invalid app ids and incomplete or unsafe account segments fail before fetc
 	for (const account of invalidAccounts) {
 		expect(() =>
 			createWebviewBlobs({
+				...noNativeTransfer,
 				appId: 'so.epicenter.test',
 				// @ts-expect-error Exercise malformed runtime input at construction.
 				replica: { library: 'personal', account },
@@ -267,6 +336,7 @@ test('invalid app ids and incomplete or unsafe account segments fail before fetc
 test('percent-encoded traversal text stays a literal identity segment', async () => {
 	const { fetcher, requests } = setup([new Response('audio')]);
 	const { local } = createWebviewBlobs({
+		...noNativeTransfer,
 		appId: 'so.epicenter.test',
 		replica: {
 			library: 'personal',
@@ -397,6 +467,7 @@ test('sources forward missing local bytes from their stat check', async () => {
 test('local verbs preserve transport causes and reject failed HTTP responses', async () => {
 	const cause = new Error('host unavailable');
 	const { local } = createWebviewBlobs({
+		...noNativeTransfer,
 		appId: 'so.epicenter.test',
 		replica: { library: 'local' },
 		remote: null,
@@ -449,6 +520,7 @@ test('remote statuses preserve typed errors including unavailable backing', asyn
 	for (const [operation, status, name] of cases) {
 		const { fetcher } = setup([new Response(null, { status })]);
 		const { remote } = createWebviewBlobs({
+			...noNativeTransfer,
 			appId: 'so.epicenter.test',
 			replica: {
 				library: 'personal',
@@ -465,6 +537,7 @@ test('remote statuses preserve typed errors including unavailable backing', asyn
 		for (const status of [401, 403, 502, 503]) {
 			const { fetcher } = setup([new Response(null, { status })]);
 			const { remote } = createWebviewBlobs({
+				...noNativeTransfer,
 				appId: 'so.epicenter.test',
 				replica: {
 					library: 'personal',
@@ -485,6 +558,7 @@ test('remote statuses preserve typed errors including unavailable backing', asyn
 test('all remote verbs preserve transport causes', async () => {
 	const cause = new Error('host unavailable');
 	const { remote } = createWebviewBlobs({
+		...noNativeTransfer,
 		appId: 'so.epicenter.test',
 		replica: {
 			library: 'personal',
@@ -517,6 +591,7 @@ test('shared bytes and transfers capture the actor and selected library', async 
 		principalId: asPrincipalId('alice'),
 	};
 	const blobs = createWebviewBlobs({
+		...noNativeTransfer,
 		appId: 'so.epicenter.test',
 		replica: { library: 'shared', account },
 		remote: remoteTransport,

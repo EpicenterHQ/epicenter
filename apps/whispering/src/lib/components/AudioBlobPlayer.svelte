@@ -3,6 +3,7 @@
 	import { createLogger } from 'wellcrafted/logger';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { getWhisperingApp } from '$lib/whispering/context';
+	import { createAttachmentStatus } from '$lib/state/recordings.svelte';
 
 	let {
 		id,
@@ -19,6 +20,8 @@
 	} = $props();
 
 	const app = getWhisperingApp();
+	const status = createAttachmentStatus(app);
+	const presence = $derived(status.current.items.find((item) => item.tableName === 'recordings' && item.rowId === id)?.presence);
 	const log = createLogger('whispering/audio-player');
 	let handle = $state.raw<BlobSource | null>(null);
 	let failure = $state<string | null>(null);
@@ -27,8 +30,9 @@
 	// lifetime), so effect teardown owns the manual [Symbol.dispose]() call.
 	$effect(() => {
 		const requestedId = id;
-		// Completion changes the same row from pending to playable.
+		// Local byte arrival changes playback availability without editing the row.
 		void audio;
+		void presence;
 		failure = null;
 		if (!enabled) {
 			handle = null;
@@ -50,8 +54,10 @@
 				handle = data;
 			})
 			.catch((cause: unknown) => {
-				if (!cancelled)
+				if (!cancelled) {
+					failure = 'Could not open audio on this device.';
 					log.error(new Error(extractErrorMessage(cause), { cause }));
+				}
 			});
 
 		return () => {

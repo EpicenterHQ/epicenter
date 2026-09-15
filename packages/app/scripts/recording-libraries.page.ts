@@ -206,6 +206,58 @@ export async function absent(id: string) {
 	return true;
 }
 
+export async function waitForLocal(rowId: string) {
+	for (let attempt = 0; attempt < 600; attempt++) {
+		const status = app.attachments.status();
+		const item = status.items.find((item) => item.rowId === rowId);
+		if (item?.presence === 'local' && item.transfer === 'idle') return item;
+		await new Promise((resolve) => setTimeout(resolve, 100));
+	}
+	throw new Error(
+		`Automatic attachment did not become local: ${JSON.stringify(app.attachments.status())}`,
+	);
+}
+
+/** Valid mono PCM WAV import, including a representative three-minute file. */
+export async function importAudio(seconds: number) {
+	const sampleRate = 48_000;
+	const buffer = new ArrayBuffer(44 + seconds * sampleRate * 2);
+	const view = new DataView(buffer);
+	const text = (offset: number, value: string) => {
+		for (let index = 0; index < value.length; index++)
+			view.setUint8(offset + index, value.charCodeAt(index));
+	};
+	text(0, 'RIFF');
+	view.setUint32(4, buffer.byteLength - 8, true);
+	text(8, 'WAVEfmt ');
+	view.setUint32(16, 16, true);
+	view.setUint16(20, 1, true);
+	view.setUint16(22, 1, true);
+	view.setUint32(24, sampleRate, true);
+	view.setUint32(28, sampleRate * 2, true);
+	view.setUint16(32, 2, true);
+	view.setUint16(34, 16, true);
+	text(36, 'data');
+	view.setUint32(40, buffer.byteLength - 44, true);
+	for (let sample = 0; sample < seconds * sampleRate; sample++)
+		view.setInt16(
+			44 + sample * 2,
+			Math.round(Math.sin((sample * 2 * Math.PI * 440) / sampleRate) * 1000),
+			true,
+		);
+	const audio = new Blob([buffer], { type: 'audio/wav' });
+	const row = expectOk(
+		await bounded(
+			app.tables.recordings.create({
+				title: `${seconds}-second imported WAV`,
+				actor: app.account?.principalId ?? 'local',
+				audio,
+			}),
+		),
+	);
+	return { rowId: row.id, byteLength: audio.size, sha256: await digest(audio) };
+}
+
 export async function closeWithCapture(id: string) {
 	const rowsBefore = app.tables.recordings.ids();
 	const playback = expectOk(

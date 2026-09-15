@@ -80,6 +80,10 @@ import type {
 	RowAbsentError,
 } from './errors.js';
 import { StoreError, StoreUnusableError } from './errors.js';
+import {
+	createAttachmentSync,
+	type AttachmentTransport,
+} from './attachment-sync.js';
 import type {
 	Data,
 	DataDocument,
@@ -302,7 +306,10 @@ export type StoreBacking = {
 	durable: DurablePort;
 	loaded: DurableSnapshot;
 	dispose?: () => void | Promise<void>;
-	replication?: Pick<AttachStoreSyncOptions, 'address' | 'transport'>;
+	replication?: Pick<AttachStoreSyncOptions, 'address' | 'transport'> & {
+		/** Captured account HTTP, for library-owned attachment control only. */
+		fetch?: AttachmentTransport['fetch'];
+	};
 	/** Fence synchronously, then invalidate the generation header and all rows atomically. */
 	discard?: () => Promise<void>;
 };
@@ -638,6 +645,7 @@ export function createStoreOverPort<
 	 * first phase is dirty before any subscriber reads.
 	 */
 	function deliver(transaction: Y.Transaction): void {
+		attachmentSync.changed();
 		notify(committedListeners);
 		if (transaction.changed.has(kvRootType)) notify(kvListeners);
 		// A table's signal means its SHAPE changed, which is two depths and not
@@ -762,12 +770,24 @@ export function createStoreOverPort<
 		);
 		initialized = true;
 		stopHideFlush = persistOnHide(() => controller.persistence.flush());
+		if (
+			replication?.fetch &&
+			replication.address.appId &&
+			replication.address.library
+		)
+			attachmentSync.start({
+				...replication.address,
+				appId: replication.address.appId,
+				library: replication.address.library,
+				fetch: replication.fetch,
+			});
 		if (replication !== undefined) {
 			try {
 				connection = attachStoreSync({
 					store,
 					...replication,
 					onRetired,
+					onConnected: attachmentSync.wake,
 					onTransportError: (cause) =>
 						log.warn(StoreBackgroundError.SyncTransportFailed({ cause })),
 				});
@@ -897,8 +917,49 @@ export function createStoreOverPort<
 	// The one view this runtime will ever hold, built over the one definition,
 	// before hydration. Named roots converge; no rows or defaults are minted.
 	const view = buildView();
+	const attachmentSync = createAttachmentSync({
+		bytes: blobStore,
+		rows() {
+			const owners = [];
+			for (const [tableName, table] of definition.tables) {
+				const field = [...table.fields.values()].find(
+					(field) => field.kind === 'attachment',
+				);
+				if (!field) continue;
+				const root = tableRoot(database, tableName);
+				for (const row of view.tables[tableName]!.rows) {
+					const content = readAttachmentContent(root, row.id);
+					if (!content || row[field.name] !== content.contentType) continue;
+					const original = root.getAttr(row.id as never);
+					owners.push({
+						tableName,
+						rowId: row.id,
+						content,
+						isCurrent: () =>
+							!disposed &&
+							!retired &&
+							root.getAttr(row.id as never) === original,
+					});
+				}
+			}
+			return owners;
+		},
+		save: () => controller.save(),
+		assertUsable,
+		onRetired,
+		onObserverError: (cause) =>
+			log.warn(StoreBackgroundError.SyncTransportFailed({ cause })),
+	});
+	lifetime.signal.addEventListener(
+		'abort',
+		() => {
+			void attachmentSync.close();
+		},
+		{ once: true },
+	);
 
 	const base: Omit<DataDocument, 'sync' | 'definition'> = {
+		attachments: attachmentSync.value,
 		/**
 		 * Everything this application has stored, before its declaration reads
 		 * it (ADR-0267).
@@ -1037,6 +1098,7 @@ export function createStoreOverPort<
 				await release(() => discarded);
 			}
 			await Promise.allSettled(operations);
+			await attachmentSync.close();
 			await release(() =>
 				initialized && !retired ? controller.close() : undefined,
 			);

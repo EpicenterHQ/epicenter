@@ -12,6 +12,7 @@ import type { BlobSources } from './blob-source.js';
 import {
 	type BlobStore,
 	BlobStoreError,
+	AttachmentTransferError,
 	type AttachmentContent,
 	type BlobStat,
 } from './blob-store.js';
@@ -56,11 +57,19 @@ export function createWebviewBlobs({
 	remote: selectedRemote,
 	fetch: fetcher = globalThis.fetch,
 	publishNative,
+	nativeTransfer,
 }: {
 	appId: string;
 	replica: LibraryReplicaIdentity;
 	remote: { baseURL: string; fetch: HttpFetch } | null;
 	fetch?: HttpFetch;
+	nativeTransfer(
+		direction: 'upload' | 'download',
+		id: BlobId,
+		expected: AttachmentContent,
+		ticket: { url: string; requiredHeaders?: Record<string, string> },
+		signal: AbortSignal,
+	): Promise<void>;
 	publishNative?(
 		fileId: string,
 		storageId: BlobId,
@@ -90,8 +99,42 @@ export function createWebviewBlobs({
 		});
 	}
 
+	async function transfer(
+		operation: 'upload' | 'download',
+		id: BlobId,
+		expected: AttachmentContent,
+		ticket: { url: string; requiredHeaders?: Record<string, string> },
+		signal: AbortSignal,
+	) {
+		try {
+			await nativeTransfer(operation, id, expected, ticket, signal);
+			return Ok(undefined);
+		} catch (cause) {
+			if (
+				cause &&
+				typeof cause === 'object' &&
+				'kind' in cause &&
+				(cause.kind === 'transport' ||
+					cause.kind === 'storage' ||
+					cause.kind === 'conflict')
+			)
+				return AttachmentTransferError.Failed({
+					kind: cause.kind,
+					cause,
+					status:
+						'status' in cause && typeof cause.status === 'number'
+							? cause.status
+							: undefined,
+				});
+			return AttachmentTransferError.Failed({ kind: 'transport', cause });
+		}
+	}
 	const local: BlobStore = {
 		attachments: {
+			upload: (id, expected, ticket, signal) =>
+				transfer('upload', id, expected, ticket, signal),
+			download: (id, expected, ticket, signal) =>
+				transfer('download', id, expected, ticket, signal),
 			async put(id, file, originGeneration) {
 				if (!(file instanceof Blob)) {
 					return tryAsync({

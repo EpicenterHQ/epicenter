@@ -34,7 +34,11 @@ app.settings.set('settings.recording.trigger', 'vad');
 
 ### `recordings.svelte.ts`
 
-Recording metadata backed by structural workspace row ids. The app namespace maintains the cache, owns row/blob consistency (`storeAudio`, `create` cleanup, `delete`, the audio workflows, and the `uploadedAt` marker), and refreshes after local writes or installed remote record changes; this module only makes its reads reactive. Use `$lib/queries/audio` for availability query identity and `app.blobs.open` for playback; the blob store is scoped by the app handle, so it is reached through the app rather than a module-level service.
+The recordings domain observes committed rows. The library owns finished-file
+publication, persistence, and automatic audio transfers. This module adapts row
+changes and attachment status to Svelte. Byte arrival does not change a row, so
+availability queries also observe the library's attachment presence. Playback
+uses `app.recordings.openAudio`; playback and export read local bytes only.
 
 ```typescript
 import { InstantString } from '@epicenter/data/field';

@@ -17,6 +17,7 @@ import { sameAttachmentContent } from './attachment-content.js';
 import {
 	type BlobAlreadyExists,
 	type AttachmentContent,
+	AttachmentTransferError,
 	type BlobNotFound,
 	type BlobStat,
 	type BlobStore,
@@ -283,6 +284,194 @@ export function createBunBlobStore({ directory }: { directory: string }) {
 
 	const store = {
 		attachments: {
+			async upload(id, expected, ticket, signal) {
+				expected = { ...expected };
+				ticket = {
+					url: ticket.url,
+					requiredHeaders: { ...ticket.requiredHeaders },
+				};
+				let kind: AttachmentTransferError['kind'] = 'storage';
+				try {
+					signal.throwIfAborted();
+					const opened = await openBlob(id);
+					if (opened.error)
+						return AttachmentTransferError.Failed({
+							kind,
+							cause: opened.error,
+						});
+					if (
+						!sameAttachmentContent(expected, {
+							sha256: await digestBlob(opened.data.file, signal),
+							size: opened.data.stat.size,
+							contentType: opened.data.stat.contentType,
+						})
+					)
+						return AttachmentTransferError.Failed({
+							kind: 'conflict',
+							cause: 'Local bytes differ from the owner evidence.',
+						});
+					kind = 'transport';
+					const response = await fetch(ticket.url, {
+						method: 'PUT',
+						body: opened.data.file,
+						headers: ticket.requiredHeaders,
+						signal,
+						credentials: 'omit',
+						redirect: 'error',
+					});
+					await response.body?.cancel();
+					return response.ok
+						? Ok(undefined)
+						: AttachmentTransferError.Failed({
+								kind,
+								status: response.status,
+								cause: 'Signed upload refused.',
+							});
+				} catch (cause) {
+					return AttachmentTransferError.Failed({
+						kind: signal.aborted ? 'transport' : kind,
+						cause,
+					});
+				}
+			},
+			async download(id, expected, ticket, signal) {
+				expected = {
+					sha256: expected.sha256,
+					size: expected.size,
+					contentType: expected.contentType,
+				};
+				ticket = { url: ticket.url };
+				if (
+					!Number.isSafeInteger(expected.size) ||
+					expected.size < 0 ||
+					expected.size > 5 * 1024 ** 3
+				)
+					return AttachmentTransferError.Failed({
+						kind: 'conflict',
+						status: 409,
+						cause: 'Invalid attachment size.',
+					});
+				const validated = validateId(id);
+				if (validated.error)
+					return AttachmentTransferError.Failed({
+						kind: 'storage',
+						cause: validated.error,
+					});
+				let staged: string | undefined;
+				let response: Response | undefined;
+				let kind: AttachmentTransferError['kind'] = 'transport';
+				try {
+					signal.throwIfAborted();
+					response = await fetch(ticket.url, {
+						signal,
+						credentials: 'omit',
+						redirect: 'error',
+					});
+					if (!response.ok)
+						return AttachmentTransferError.Failed({
+							kind,
+							status: response.status,
+							cause: 'Signed download refused.',
+						});
+					if (response.headers.get('content-type') !== expected.contentType)
+						return AttachmentTransferError.Failed({
+							kind: 'conflict',
+							status: 409,
+							cause: 'Downloaded content type differs.',
+						});
+					kind = 'storage';
+					await mkdir(stagingDirectory, { recursive: true });
+					staged = await mkdtemp(join(stagingDirectory, `${id}-`));
+					const file = await open(join(staged, DATA_FILE), 'wx');
+					const reader = response.body?.getReader();
+					const hash = createHash('sha256');
+					let size = 0;
+					try {
+						while (reader) {
+							kind = 'transport';
+							signal.throwIfAborted();
+							const part = await reader.read();
+							if (part.done) break;
+							if (part.value.length > expected.size - size)
+								return AttachmentTransferError.Failed({
+									kind: 'conflict',
+									status: 409,
+									cause: 'Downloaded bytes exceed owner size.',
+								});
+							size += part.value.length;
+							hash.update(part.value);
+							kind = 'storage';
+							let offset = 0;
+							while (offset < part.value.length) {
+								signal.throwIfAborted();
+								const written = await file.write(
+									part.value,
+									offset,
+									part.value.length - offset,
+								);
+								if (written.bytesWritten === 0)
+									throw new Error('Download file write made no progress.');
+								offset += written.bytesWritten;
+							}
+						}
+					} finally {
+						await reader?.cancel().catch(() => {});
+						reader?.releaseLock();
+						await file.close();
+					}
+					if (size !== expected.size || hash.digest('hex') !== expected.sha256)
+						return AttachmentTransferError.Failed({
+							kind: 'conflict',
+							status: 409,
+							cause: 'Downloaded bytes differ from owner evidence.',
+						});
+					kind = 'storage';
+					await Bun.write(
+						join(staged, METADATA_FILE),
+						JSON.stringify({
+							size,
+							contentType: expected.contentType,
+							attachment: expected,
+						}),
+					);
+					await syncFile(join(staged, DATA_FILE));
+					await syncFile(join(staged, METADATA_FILE));
+					await syncFile(staged);
+					signal.throwIfAborted();
+					try {
+						await rename(staged, blobDirectory(id));
+						staged = undefined;
+					} catch (cause) {
+						const existing = await readCompleteMetadata(id);
+						if (existing.error) throw cause;
+						if (
+							!existing.data.attachment ||
+							!sameAttachmentContent(expected, existing.data.attachment) ||
+							!sameAttachmentContent(expected, {
+								...existing.data,
+								sha256: await digestFile(join(blobDirectory(id), DATA_FILE)),
+							})
+						)
+							return AttachmentTransferError.Failed({
+								kind: 'conflict',
+								status: 409,
+								cause: 'Existing local bytes differ.',
+							});
+						// Preserve existing local origin and acknowledgment on an identical race.
+					}
+					await syncPublication(blobDirectory(id));
+					return Ok(undefined);
+				} catch (cause) {
+					return AttachmentTransferError.Failed({
+						kind: signal.aborted ? 'transport' : kind,
+						cause,
+					});
+				} finally {
+					await response?.body?.cancel().catch(() => {});
+					if (staged)
+						await rm(staged, { recursive: true, force: true }).catch(() => {});
+				}
+			},
 			async put(id, file, originGeneration) {
 				if (!(file instanceof Blob))
 					return BlobStoreError.BlobStoreFailed({
@@ -498,16 +687,18 @@ async function digestFile(path: string) {
 	return digestBlob(Bun.file(path));
 }
 
-async function digestBlob(blob: Blob) {
+async function digestBlob(blob: Blob, signal?: AbortSignal) {
 	const hash = createHash('sha256');
 	const reader = blob.stream().getReader();
 	try {
 		while (true) {
+			signal?.throwIfAborted();
 			const next = await reader.read();
 			if (next.done) break;
 			hash.update(next.value);
 		}
 	} finally {
+		await reader.cancel().catch(() => {});
 		reader.releaseLock();
 	}
 	return hash.digest('hex');

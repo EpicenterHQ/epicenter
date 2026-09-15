@@ -1,3 +1,4 @@
+import { fromSubscription } from '@epicenter/svelte';
 import { createSubscriber } from 'svelte/reactivity';
 import type { WhisperingApp } from '$lib/whispering/app';
 import type { Recording } from '$lib/whispering/recording';
@@ -6,6 +7,13 @@ import type { WhisperingRecordings } from '$lib/whispering/recordings';
 export type { Recording } from '$lib/whispering/recording';
 
 export type Recordings = ReturnType<typeof createRecordings>;
+
+/** Byte arrival does not edit a synchronized row; observe its library owner. */
+export function createAttachmentStatus(
+	app: Pick<WhisperingApp, 'attachments'>,
+) {
+	return fromSubscription(app.attachments.subscribe, app.attachments.status);
+}
 
 /**
  * Bridges committed recordings-table invalidations into Svelte tracking.
@@ -31,32 +39,16 @@ export function createRecordings({
 			invalidate();
 			return recordings.nonconforming;
 		},
-		// Availability follows the platform's reactive auth state, which the
-		// underlying getter reads on every access; no record subscription needed.
-		get remoteAvailable() {
-			return recordings.remoteAvailable;
-		},
 		get(id: Recording['id']) {
 			invalidate();
 			return recordings.get(id);
 		},
 		create: recordings.create,
-		attachment: recordings.attachment,
 		readAudio: recordings.readAudio,
 		openAudio: recordings.openAudio,
 		patch: recordings.patch,
 		delete: recordings.delete,
 		audioAvailability: recordings.audioAvailability,
-		uploadAudio: recordings.uploadAudio,
-		downloadAudio: recordings.downloadAudio,
-		removeLocalAudio: recordings.removeLocalAudio,
-		backup: {
-			get pending() {
-				invalidate();
-				return recordings.backup.pending;
-			},
-			kick: recordings.backup.kick,
-		},
 		subscribe: recordings.subscribe,
 	};
 }

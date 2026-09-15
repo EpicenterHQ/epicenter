@@ -6,7 +6,6 @@
 	import { listenForLocalShortcuts } from '../_app-effects/listen-for-local-shortcuts';
 	import { logAppStarted } from '../_app-effects/log-app-started';
 	import { notifyDictationFailures } from '../_app-effects/notify-dictation-failures.svelte';
-	import { reconcileBackups } from '../_app-effects/reconcile-backups';
 	import { synchronizeAutoPasteIntent } from '../_app-effects/synchronize-auto-paste-intent.svelte';
 	import { synchronizeShortcuts } from '../_app-effects/synchronize-shortcuts';
 
@@ -18,7 +17,6 @@
 	const app = getWhisperingApp();
 	const queryClient = useQueryClient();
 	void queryClient.invalidateQueries({ queryKey: ['audio', 'availability'] });
-	reconcileBackups(app);
 	exposeDebugCommands(app);
 	logAppStarted(app);
 	listenForLocalShortcuts(app);

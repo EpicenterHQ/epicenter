@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
+import { recordingObjectFixture } from './recording-object-fixture.mjs';
 
 const root = join(import.meta.dir, '../../..');
 const pageModule = '/packages/app/scripts/recording-libraries.page.ts';
@@ -29,6 +30,7 @@ async function reserveOrigin() {
 }
 const workerOrigin = await reserveOrigin();
 const browserOrigin = await reserveOrigin();
+const objects = recordingObjectFixture(directory, browserOrigin);
 const workerName = `recording-acceptance-${crypto.randomUUID()}`;
 const workerConfig = join(directory, 'worker.json');
 const operatorConfig = join(directory, 'operator.json');
@@ -44,6 +46,9 @@ writeFileSync(
 			API_PUBLIC_ORIGIN: workerOrigin,
 			SELF_HOST_CALLBACKS: JSON.stringify([`${browserOrigin}/auth/callback`]),
 			TRUSTED_BROWSER_ORIGINS: browserOrigin,
+			BLOBS_S3_ENDPOINT: objects.server.url.origin,
+			BLOBS_S3_ACCESS_KEY_ID: 'acceptance-key',
+			BLOBS_S3_SECRET_ACCESS_KEY: 'acceptance-secret',
 		},
 		durable_objects: {
 			bindings: [
@@ -93,7 +98,9 @@ const report = {
 	limits: [
 		'Synthetic microphone input through real Chromium MediaRecorder.',
 		'Package test page; does not mount Whispering UI.',
-		'Shared row convergence is verified; S3 blob transfer and native capture are not exercised.',
+		'Disk-backed HTTP object fixture verifies checksums and create-only publication; not an S3 provider conformance claim.',
+		'Library authentication uses the real self-host passkey/session path. The object fixture requires signed-request fields but does not verify SigV4 authenticity.',
+		'Native capture and full Whispering UI are not exercised.',
 	],
 };
 try {
@@ -388,8 +395,183 @@ try {
 	assert.equal(report.recordings.bobShared.replica.account.principalId, 'bob');
 	assert.equal(report.recordings.aliceShared.replica.library, 'shared');
 	assert.equal(report.recordings.bobShared.replica.library, 'shared');
-	await invoke(bob, 'absent', report.recordings.aliceShared.rowId);
+	await invoke(bob, 'waitForLocal', report.recordings.aliceShared.rowId);
 	report.checks.sharedRowsConverged = true;
+	// Existing, independently persisted shared libraries are the two devices.
+	// Block only network origins, so the application bundle can restart offline.
+	const disconnected = new Set();
+	const socketRoutes = new Set();
+	const offline = async (page) => {
+		disconnected.add(page);
+		await page.route(`${workerOrigin}/**`, (route) =>
+			route.abort('internetdisconnected'),
+		);
+		await page.route(`${objects.server.url.origin}/**`, (route) =>
+			route.abort('internetdisconnected'),
+		);
+		if (!socketRoutes.has(page)) {
+			socketRoutes.add(page);
+			await page.routeWebSocket(
+				`${workerOrigin.replace('http:', 'ws:')}/**`,
+				(socket) =>
+					disconnected.has(page) ? socket.close() : socket.connectToServer(),
+			);
+		}
+	};
+	const online = async (page) => {
+		disconnected.delete(page);
+		await page.unroute(`${workerOrigin}/**`);
+		await page.unroute(`${objects.server.url.origin}/**`);
+	};
+	await alice.evaluate(
+		async (path) => (await import(path)).app.close(),
+		pageModule,
+	);
+	await offline(alice);
+	await alice.reload();
+	await ready(alice, 'shared');
+	const putBefore = objects.requests.filter(
+		(request) => request.method === 'PUT',
+	).length;
+	const recordedOffline = await invoke(
+		alice,
+		'capture',
+		'Recorded offline on A',
+	);
+	await reload(alice, 'shared');
+	assert.equal(
+		(await invoke(alice, 'read', recordedOffline.rowId)).sha256,
+		recordedOffline.sha256,
+	);
+	assert.equal(
+		objects.requests.filter((request) => request.method === 'PUT').length,
+		putBefore,
+	);
+	objects.delayGets(2);
+	await online(alice);
+	const resumedA = alice;
+	let lostUploadResponse = false;
+	let lostPublicationResponse = false;
+	await resumedA.route(`${objects.server.url.origin}/**`, async (route) => {
+		if (route.request().method() !== 'PUT' || lostUploadResponse)
+			return route.continue();
+		const response = await route.fetch();
+		assert.equal(response.status(), 200);
+		lostUploadResponse = true;
+		await route.abort('connectionreset');
+	});
+	await resumedA.route(`${workerOrigin}/**/attachments/**`, async (route) => {
+		if (route.request().method() !== 'PUT' || lostPublicationResponse)
+			return route.continue();
+		const response = await route.fetch();
+		if (response.status() !== 204) return route.fulfill({ response });
+		lostPublicationResponse = true;
+		await route.abort('connectionreset');
+	});
+	const receivedUploads = [];
+	let readingOffline = false;
+	const playbackNetworkAttempts = [];
+	bob.on('request', (request) => {
+		if (
+			readingOffline &&
+			(request.url().startsWith(objects.server.url.origin) ||
+				request.url().includes('/attachments/'))
+		)
+			playbackNetworkAttempts.push({
+				method: request.method(),
+				url: request.url(),
+			});
+		if (
+			request.method() === 'PUT' &&
+			request.url().startsWith(objects.server.url.origin) &&
+			request.url().includes(recordedOffline.rowId)
+		)
+			receivedUploads.push(request.url());
+	});
+	await invoke(resumedA, 'waitForLocal', recordedOffline.rowId);
+	await invoke(bob, 'waitForLocal', recordedOffline.rowId);
+	const imported = [];
+	for (const seconds of [1, 180]) {
+		const recording = await invoke(resumedA, 'importAudio', seconds);
+		await invoke(resumedA, 'waitForLocal', recording.rowId);
+		await invoke(bob, 'waitForLocal', recording.rowId);
+		imported.push(recording);
+	}
+	const transferRequests = objects.requests.length;
+	await bob.evaluate(
+		async (path) => (await import(path)).app.close(),
+		pageModule,
+	);
+	await offline(bob);
+	await bob.reload();
+	await ready(bob, 'shared');
+	readingOffline = true;
+	const playedOffline = await invoke(bob, 'read', recordedOffline.rowId);
+	assert.equal(playedOffline.sha256, recordedOffline.sha256);
+	for (const recording of imported) {
+		const playback = await invoke(bob, 'read', recording.rowId);
+		assert.equal(playback.sha256, recording.sha256);
+		assert.equal(playback.byteLength, recording.byteLength);
+	}
+	readingOffline = false;
+	await reload(bob, 'shared');
+	readingOffline = true;
+	assert.equal(
+		(await invoke(bob, 'read', recordedOffline.rowId)).sha256,
+		recordedOffline.sha256,
+	);
+	readingOffline = false;
+	assert.deepEqual(
+		playbackNetworkAttempts,
+		[],
+		'Local reads attempted a hidden network transfer',
+	);
+	assert.equal(
+		objects.requests.length,
+		transferRequests,
+		'Offline playback or restart contacted object storage',
+	);
+	const rowRequests = objects.requests.filter((request) =>
+		request.path.includes(recordedOffline.rowId),
+	);
+	assert(rowRequests.some((request) => request.method === 'PUT'));
+	assert(rowRequests.filter((request) => request.method === 'GET').length >= 4);
+	assert.equal(
+		rowRequests.filter((request) => request.method === 'PUT').length,
+		3,
+		'Two delayed verification attempts should retry the same immutable address',
+	);
+	assert.deepEqual(
+		receivedUploads,
+		[],
+		'Downloaded content became upload work on B',
+	);
+	assert(lostUploadResponse && lostPublicationResponse);
+	report.checks.offlineTransferJourney = {
+		recording: recordedOffline,
+		playedOffline,
+		imported,
+		objectRequests: rowRequests,
+		independentBrowserContexts: true,
+		restartedA: true,
+		restartedB: true,
+		reconnectedWithoutReopening: true,
+		automaticallyDownloadedBeforePlay: true,
+		lostUploadResponse,
+		lostPublicationResponse,
+		receivedUploads,
+		playbackNetworkAttempts,
+	};
+	await resumedA.evaluate(
+		async (path) => (await import(path)).app.close(),
+		pageModule,
+	);
+	await online(alice);
+	await alice.reload();
+	await ready(alice, 'shared');
+	console.log(
+		'PASS Transfer: offline capture, A restart/upload, delayed remote bytes, lost PUT response, automatic B download, offline playback and B restart',
+	);
 	report.checks.sharedClosure = await invoke(
 		alice,
 		'closeWithCapture',
@@ -447,6 +629,7 @@ try {
 	try {
 		await proxy?.dispose();
 	} finally {
+		await objects.server.stop(true);
 		rmSync(directory, { recursive: true, force: true });
 	}
 	cleanupFailures.push(...cleanup);

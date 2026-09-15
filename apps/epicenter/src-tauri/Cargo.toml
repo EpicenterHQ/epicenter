@@ -34,6 +34,7 @@ lazy_static = "1.4"
 log = "0.4"
 ogg = "0.9"
 rayon = "1.10"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 rubato = "0.15"
 rusqlite = { version = "=0.40.2", features = ["bundled", "hooks", "limits"] }
 serde = { version = "1", features = ["derive"] }
@@ -57,6 +58,7 @@ tauri-plugin-os = "2"
 tempfile = "3.8"
 thiserror = "2.0.12"
 tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io", "rt"] }
 tracing = "0.1.41"
 transcribe-cpp = { version = "0.1.0", default-features = false }
 audiopus = "0.3.0-rc.0"

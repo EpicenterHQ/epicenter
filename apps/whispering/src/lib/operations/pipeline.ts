@@ -97,18 +97,6 @@ export async function processRecordingPipeline(
 	if (lifetime.aborted || !app.recordingEnabled) return;
 	if (isDictation && ownsFeedback()) dictationLifecycle.markTranscribing();
 
-	if (
-		recording.audioBlobId !== null &&
-		app.settings.get('recordingAutoUpload') &&
-		app.recordings.remoteAvailable
-	) {
-		// The row is committed before discovery, and every automatic upload uses
-		// the same flight. A new recording during a pass schedules another pass.
-		void app.recordings.backup.kick().catch((cause: unknown) => {
-			log.warn(new Error('Backup after recording threw', { cause }));
-		});
-	}
-
 	// File import has no pill, so it keeps a progress toast; the dictation path is
 	// driven by the lifecycle markers above (the pill), with no toast.
 	const transcribeLoading = isDictation

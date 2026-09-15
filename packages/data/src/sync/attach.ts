@@ -60,6 +60,7 @@ export type AttachStoreSyncOptions = {
 	onTransportError: (cause: unknown) => void;
 	/** End this App lifetime after authenticated generation retirement. */
 	onRetired: () => void;
+	onConnected?: () => void;
 };
 
 /**
@@ -81,6 +82,7 @@ export function attachStoreSync({
 	transport,
 	onTransportError,
 	onRetired,
+	onConnected,
 }: AttachStoreSyncOptions): SyncConnection {
 	const connection = createSyncConnection({
 		store,
@@ -120,11 +122,13 @@ export function attachStoreSync({
 						// reads `false` for every dial a page makes.
 						if (opening.readyState === SOCKET_OPEN) {
 							opened({ send: (bytes) => opening.send(bytes) });
+							onConnected?.();
 							return;
 						}
-						opening.addEventListener('open', () =>
-							opened({ send: (bytes) => opening.send(bytes) }),
-						);
+						opening.addEventListener('open', () => {
+							opened({ send: (bytes) => opening.send(bytes) });
+							onConnected?.();
+						});
 					},
 					(cause) => {
 						if (abandoned) return;

@@ -16,7 +16,7 @@ function contentOf(value: unknown): AttachmentContent | undefined {
 		!/^[a-f0-9]{64}$/.test(v.sha256) ||
 		typeof v.size !== 'number' ||
 		!Number.isSafeInteger(v.size) ||
-		v.size < 1 ||
+		v.size < 0 ||
 		v.size > MAX_BLOB_BYTES ||
 		typeof v.contentType !== 'string' ||
 		!v.contentType ||
@@ -162,18 +162,15 @@ export function createAttachmentTransfer({
 						status: response.status === 404 ? 404 : 502,
 					});
 				}
-				if (
-					response.headers.get('content-type') !== content.contentType ||
-					!response.body
-				) {
+				if (response.headers.get('content-type') !== content.contentType) {
 					await response.body?.cancel();
 					return new Response('Attachment content differs', { status: 409 });
 				}
-				const reader = response.body.getReader();
+				const reader = response.body?.getReader();
 				const hash = createHash('sha256');
 				let size = 0;
 				try {
-					while (true) {
+					while (reader) {
 						const part = await reader.read();
 						if (part.done) break;
 						size += part.value.length;
@@ -186,7 +183,7 @@ export function createAttachmentTransfer({
 						hash.update(part.value);
 					}
 				} finally {
-					reader.releaseLock();
+					reader?.releaseLock();
 				}
 				if (size !== content.size || hash.digest('hex') !== content.sha256)
 					return new Response('Attachment content differs', { status: 409 });

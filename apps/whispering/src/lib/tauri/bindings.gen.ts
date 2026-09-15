@@ -5,6 +5,9 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
+	attachmentTransferEpoch: () => typedError<number, TransferError>(__TAURI_INVOKE("attachment_transfer_epoch")),
+	transferAttachment: (epoch: number, requestId: string, destination: BlobDestination, storageId: string, direction: Direction, expected: Content, ticket: Ticket) => typedError<null, TransferError>(__TAURI_INVOKE("transfer_attachment", { epoch, requestId, destination, storageId, direction, expected, ticket })),
+	cancelAttachmentTransfer: (epoch: number, requestId: string) => typedError<null, TransferError>(__TAURI_INVOKE("cancel_attachment_transfer", { epoch, requestId })),
 	/**
 	 *  Delivers text to the cursor, falling back to the clipboard when it cannot.
 	 * 
@@ -357,6 +360,12 @@ export type BlobDestination = {
 
 export type CatalogError = { name: "UnknownModel"; message: string } | { name: "DownloadFailed"; message: string } | { name: "DeleteFailed"; message: string };
 
+export type Content = {
+	sha256: string,
+	size: number | null,
+	contentType: string,
+};
+
 /**
  *  Which microphone a recording actually opened, and whether that was the one
  *  asked for.
@@ -424,6 +433,8 @@ export type DictationCapability =
 export type DictationCapabilityEvent = {
 	capability: DictationCapability,
 };
+
+export type Direction = "upload" | "download";
 
 /**
  *  Cumulative download progress for one model: bytes received so far across all
@@ -675,6 +686,11 @@ export type StoppedRecording = {
 	byteLength: number,
 };
 
+export type Ticket = {
+	url: string,
+	requiredHeaders?: { [key in string]: string },
+};
+
 export type TranscriptionError = { name: "AudioReadError"; message: string } | 
 /**
  *  The local route cannot run at all: no model is active on this device, or
@@ -725,6 +741,8 @@ export type TranscriptionHints = {
 export type TranscriptionOutcome = { outcome: "transcribed"; text: string; modelId: string; applied: AppliedHints } | 
 /**  The audio held no samples, so no model was loaded and no hint applied. */
 { outcome: "empty-audio" };
+
+export type TransferError = { kind: "transport"; cause: string; status: number | null } | { kind: "storage"; cause: string } | { kind: "conflict"; cause: string };
 
 /**
  *  Why the local transcription route cannot run right now.

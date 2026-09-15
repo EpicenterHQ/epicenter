@@ -8,6 +8,7 @@
 	import { Label } from '@epicenter/ui/label';
 	import * as Modal from '@epicenter/ui/modal';
 	import { Separator } from '@epicenter/ui/separator';
+	import { Spinner } from '@epicenter/ui/spinner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { TimezoneCombobox } from '@epicenter/ui/timezone-combobox';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
@@ -20,8 +21,6 @@
 	import { createCopyFn } from '$lib/utils/createCopyFn';
 	import DownloadRecordingButton from './actions/DownloadRecordingButton.svelte';
 	import TranscribeRecordingButton from './actions/TranscribeRecordingButton.svelte';
-	import RecordingStorageAction from './RecordingStorageAction.svelte';
-	import RecordingStorageBadge from './RecordingStorageBadge.svelte';
 	import {
 		getWhisperingApp,
 		getWhisperingQueries,
@@ -171,27 +170,23 @@
 		</Modal.Header>
 
 		<div class="space-y-4 p-4">
-			<div class="flex items-center gap-2">
-				<RecordingStorageBadge {recording} />
-				<RecordingStorageAction {recording} />
-			</div>
-
-			{#if audioAvailabilityQuery.data === 'local-only' ||
-				audioAvailabilityQuery.data === 'local-and-remote'}
+			{#if audioAvailabilityQuery.data === 'local-only'}
 				<AudioBlobPlayer
 					id={recording.id}
 					audio={recording.audio}
 					enabled={isDialogOpen}
 					class="h-9 w-full"
 				/>
-			{:else if audioAvailabilityQuery.data === 'remote-only'}
-				<p class="text-muted-foreground text-sm">
-					Download the audio to play it on this device.
-				</p>
 			{:else if audioAvailabilityQuery.data === 'unavailable'}
-				<p class="text-destructive text-sm">
-					The audio is no longer available locally or online.
+				<p class="text-muted-foreground text-sm">
+					Audio is not on this device. Playback never downloads audio.
 				</p>
+			{:else if audioAvailabilityQuery.isError}
+				<p class="text-destructive text-sm">
+					Could not check audio on this device.
+				</p>
+			{:else if audioAvailabilityQuery.isPending}
+				<Spinner class="size-3.5" aria-label="Checking audio on this device" />
 			{/if}
 
 			{#if workingCopy.polishedTranscript}

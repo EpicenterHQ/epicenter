@@ -4,7 +4,7 @@
  * Verifies row-owned saving, retained inference, and current-attempt feedback.
  *
  * Key behaviors:
- * - New attachments never enter the legacy upload runner
+ * - Import saves and transcribes without an application transfer runner
  * - Older inference cannot overwrite newer capture feedback
  * - History failure warns only after usable text is delivered
  * - Credit failures offer account management without delivering or resuming work
@@ -15,8 +15,6 @@ import type { AuthState } from '@epicenter/auth';
 import { Err, Ok } from 'wellcrafted/result';
 import type { RecordingId } from '$lib/data';
 
-let autoUpload = true;
-let remoteAvailable = true;
 let creationError: { name: string; message: string } | null = null;
 let transcriptionError: { name: string; message: string } | null = null;
 let willPolish = false;
@@ -29,13 +27,6 @@ const persistedTranscriptions: string[] = [];
 const polishSignals: (AbortSignal | undefined)[] = [];
 mock.module('$lib/application', () => ({
 	getApp: () => ({ signal: lifetime.signal }),
-}));
-const uploadAudio = mock(async () => Ok(undefined));
-const kick = mock(async () => ({
-	uploaded: 0,
-	absent: 0,
-	failed: 0,
-	aborted: false,
 }));
 const deliverTranscriptionResult = mock(async () => ({
 	outcome: { reach: 'output' } as const,
@@ -127,7 +118,7 @@ const app = {
 		return recordingEnabled;
 	},
 	account: { baseURL: 'https://api.example.test', principalId: 'alice' },
-	settings: { get: () => autoUpload },
+	settings: { get: () => false },
 	recordings: {
 		get: (id: string) => ({ id, audioBlobId: null }),
 		// The row commits before the promise settles; failed creation awaits cleanup.
@@ -140,19 +131,12 @@ const app = {
 				id: 'recording-1' as RecordingId,
 			});
 		},
-		uploadAudio,
-		get remoteAvailable() {
-			return remoteAvailable;
-		},
-		backup: { kick },
 		update: mock(async () => Ok(undefined)),
 	},
 } as unknown as WhisperingApp;
 
 afterEach(() => {
 	dictationLifecycle.reset();
-	autoUpload = true;
-	remoteAvailable = true;
 	creationError = null;
 	transcriptionError = null;
 	willPolish = false;
@@ -250,7 +234,6 @@ test('an admitted stop still saves after UI admission closes and failed saving s
 });
 
 test('Account replacement drains raw transcription without starting Polish or delivery', async () => {
-	autoUpload = false;
 	willPolish = true;
 	const entered = Promise.withResolvers<void>();
 	const released = Promise.withResolvers<void>();
@@ -299,7 +282,6 @@ test('Account replacement drains raw transcription without starting Polish or de
 
 test('retirement during Polish suppresses late history and delivery', async () => {
 	willPolish = true;
-	autoUpload = false;
 	const entered = Promise.withResolvers<void>();
 	const released = Promise.withResolvers<void>();
 	finishPolish = () => {
@@ -339,33 +321,18 @@ test('failed creation reports dictation loss without entering transcription', as
 	expect(markTranscribing).toHaveBeenCalledTimes(transcribingBefore);
 });
 
-test('new attachments never enter the legacy app upload runner', async () => {
+test('import saves and transcribes without an application transfer runner', async () => {
+	const rowsBefore = createdRows;
+	const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
 	await processRecordingPipeline(app, {
 		audio: new Blob(['audio']),
 		durationMs: 100,
 		deliverySource: 'import',
 	});
-	await new Promise((settle) => setTimeout(settle, 0));
-	expect(uploadAudio).not.toHaveBeenCalled();
-	expect(kick).not.toHaveBeenCalled();
-
-	autoUpload = false;
-	await processRecordingPipeline(app, {
-		audio: new Blob(['audio']),
-		durationMs: 100,
-		deliverySource: 'import',
-	});
-	await new Promise((settle) => setTimeout(settle, 0));
-	expect(uploadAudio).not.toHaveBeenCalled();
-	expect(kick).not.toHaveBeenCalled();
-	autoUpload = true;
-	remoteAvailable = false;
-	await processRecordingPipeline(app, {
-		audio: new Blob(['audio']),
-		durationMs: 100,
-		deliverySource: 'import',
-	});
-	expect(kick).not.toHaveBeenCalled();
+	expect(createdRows).toBe(rowsBefore + 1);
+	expect(deliverTranscriptionResult).toHaveBeenCalledTimes(
+		deliveriesBefore + 1,
+	);
 });
 
 test('history failure warns after delivering the usable transcription', async () => {

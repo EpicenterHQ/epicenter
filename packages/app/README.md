@@ -198,10 +198,14 @@ A failed byte write creates no row. An ambiguous save reports
 identity. Published immutable bytes survive capture cleanup. A historical null
 cell does not authorize adopting or replacing bytes at that address.
 
-Legacy `field.blob()` and blob readers remain for unmigrated consumers.
-Automatic account attachment delivery remains outside the local-save checkpoint.
+Legacy `field.blob()` and local blob readers remain for unmigrated consumers.
+Account libraries automatically upload locally authored completed attachments
+and download missing completed attachments. Downloaded files create no upload
+obligation. `app.attachments` reports local presence and transfer state and
+offers Pause/Resume downloads, Retry and prioritization through that one worker.
+Applications do not receive a `blobs.remote` upload/download/purge runner.
 The [execution checkpoint](../../specs/20260909T010040-current-generation-restore.md#bounded-attachment-synchronization-checkpoint-2026-09-16)
-tracks that remaining work.
+tracks verification and remaining acceptance gaps.
 
 Repeated `close()` calls return one completion promise. Close rejects new work
 immediately, cancels owned AI requests, settles admitted recording and storage
@@ -217,9 +221,9 @@ navigates, deletes credentials, or erases the library. It preserves the store's
 existing persistence failure reporting; completed cleanup does not prove every
 edit reached durable storage or the server.
 
-Current transfer primitives cannot be cancelled. A transfer that never settles
-can therefore keep close pending; close does not release ownership while that
-transfer can still write. Raw Yjs content is borrowed: stop editor bindings before
+The library cancels attachment transfers on closure and bounds each attempt
+with a deadline. Close drains admitted work before releasing ownership.
+Raw Yjs content is borrowed: stop editor bindings before
 closing its owner. App workflows spanning multiple awaited calls must also handle
 closure between those calls.
 

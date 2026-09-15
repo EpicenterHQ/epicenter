@@ -72,7 +72,46 @@ export type AttachmentContent = {
 export type NativeFinishedFile = { kind: 'native-capture'; id: string };
 export type FinishedFile = Blob | NativeFinishedFile;
 
+export const AttachmentTransferError = defineErrors({
+	Failed: ({
+		kind,
+		cause,
+		status,
+	}: {
+		kind: 'transport' | 'storage' | 'conflict';
+		cause: unknown;
+		status?: number;
+	}) => ({
+		message: `Attachment ${kind} failure: ${extractErrorMessage(cause)}`,
+		kind,
+		cause,
+		status,
+	}),
+});
+export type AttachmentTransferError = InferErrors<
+	typeof AttachmentTransferError
+>;
+
 export type AttachmentBytes = {
+	/** One signed byte request. The library owns authorization and delivery acknowledgment. */
+	upload(
+		id: BlobId,
+		expected: AttachmentContent,
+		ticket: {
+			url: string;
+			requiredHeaders: Record<string, string>;
+		},
+		signal: AbortSignal,
+	): Promise<Result<void, AttachmentTransferError>>;
+	/** Verify before immutable publication; downloaded bytes create no upload obligation. */
+	download(
+		id: BlobId,
+		expected: AttachmentContent,
+		ticket: {
+			url: string;
+		},
+		signal: AbortSignal,
+	): Promise<Result<void, AttachmentTransferError>>;
 	put(
 		id: BlobId,
 		file: FinishedFile,

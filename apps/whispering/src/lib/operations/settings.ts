@@ -18,7 +18,6 @@ export const APPLICATION_DEFAULTS: WhisperingSettingValues = {
 	outputRecipeEnter: false,
 	recordingTrigger: 'manual',
 	recordingPausePlayback: false,
-	recordingAutoUpload: false,
 	transcriptionService: 'connection',
 	transcriptionModel: '',
 	transcriptionOpenaiModel: 'whisper-1',

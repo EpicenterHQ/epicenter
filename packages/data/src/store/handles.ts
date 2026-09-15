@@ -527,6 +527,8 @@ export type DocumentPressure = {
  * operations; sync status is undefined when no connection is attached.
  */
 export type DataDocument = {
+	/** Library-owned attachment delivery and device-local download controls. */
+	attachments: import('./attachment-sync.js').LibraryAttachments;
 	/**
 	 * How much of this document is dead weight.
 	 *

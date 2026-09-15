@@ -37,7 +37,11 @@ use application_close::ApplicationClose;
 pub mod audio;
 use audio::encode_recording_for_upload;
 
+pub mod attachment_transfer;
 pub mod blobs;
+use attachment_transfer::{
+    attachment_transfer_epoch, cancel_attachment_transfer, transfer_attachment, Transfers,
+};
 pub mod recorder;
 use recorder::commands::{
     cancel_recording, cancel_recording_owned_by, close_recording_session, current_recording,
@@ -408,6 +412,9 @@ enum FailureChoice {
 fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(tauri_specta::collect_commands![
+            attachment_transfer_epoch,
+            transfer_attachment,
+            cancel_attachment_transfer,
             write_text,
             simulate_enter_keystroke,
             simulate_copy_keystroke,
@@ -768,9 +775,19 @@ pub fn run() {
         .build();
 
     let builder = tauri::Builder::default()
+        .on_window_event(|window, event| {
+            if matches!(event, WindowEvent::Destroyed) {
+                if let Some(transfers) = window.app_handle().try_state::<Transfers>() {
+                    transfers.retire(window.label());
+                }
+            }
+        })
         .on_page_load(|webview, payload| {
             if payload.event() == tauri::webview::PageLoadEvent::Started {
                 cancel_recording_owned_by(webview.app_handle(), webview.label());
+                if let Some(transfers) = webview.app_handle().try_state::<Transfers>() {
+                    transfers.retire(webview.label());
+                }
             }
         })
         // This must remain the first plugin: later plugins and setup must only run
@@ -792,6 +809,7 @@ pub fn run() {
         .manage(ApplicationClose::default())
         .manage(GlobalShortcutRegistry::default())
         .manage(Mutex::new(Recorder::new()))
+        .manage(Transfers::default())
         .manage(DownloadManager::default());
 
     #[cfg(target_os = "macos")]
@@ -2456,6 +2474,9 @@ mod tests {
     /// The operations `@epicenter/app` exposes, and therefore the complete set
     /// of this crate's commands an app window is granted.
     const PUBLIC_CLIENT_COMMANDS: &[&str] = &[
+        "attachment_transfer_epoch",
+        "transfer_attachment",
+        "cancel_attachment_transfer",
         "start_recording",
         "stop_recording",
         "cancel_recording",
