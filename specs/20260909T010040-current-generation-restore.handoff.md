@@ -1,5 +1,13 @@
 # Continue with restore orchestration and authenticated transport
 
+> **Historical handoff; do not execute its steps.** As of 2026-09-14,
+> start at the execution spec's Read this first and Implementation waves.
+> ADR-0393 owns eager attachment sync and honest local reads; ADR-0394 allows
+> incomplete text backups with explicit audio coverage; ADR-0395 deliberately
+> discards old unsynchronized work on restore, with no rescue or merge.
+> Build replacements, switch callers, verify, then delete old code. The
+> deletion-first instruction in the older notice below is historical.
+
 > **Superseded on 2026-09-12 before this checkpoint was started.** The design
 > this handoff continues was replaced by
 > [ADR-0393](../docs/adr/0393-a-blob-is-addressed-by-its-row-and-the-account-holds-every-one.md),

@@ -161,11 +161,11 @@ data and blob addressing, actor-isolated caches, and self-host Worker sync.
 Complete attachment evidence, Bun sync, and packaged desktop verification remain
 separate work. See the library-ownership execution spec for exact evidence.
 
-A destination is chosen per record, not per page (ADR-0401). The desktop host
-retains one signed-in person and server; each application remembers the
-destination a person last picked in `device.kv`, and offers Personal when an
-Account is present. A page signed out reaches only the device store, so it
-writes there without asking.
+Each write uses its intended library's handle (ADR-0401). The desktop host
+retains one signed-in person and server. Applications decide which libraries
+to expose and whether to offer a picker or remember a destination. The framework
+does not impose a Personal default, a copy workflow, or a signed-out Local
+fallback. An application may require sign-in even though the Local handle exists.
 
 **Construction resolves reach once.** One `open(account)` feeds the existing App
 constructor with the device store and, when an Account is present, that person's

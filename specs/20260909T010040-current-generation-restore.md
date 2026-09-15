@@ -2,6 +2,47 @@
 
 **Status:** In Progress
 
+## Read this first: current direction, 2026-09-13
+
+**App composition settled 2026-09-14:** one App exposes Local and available
+account libraries. Applications choose views and explicit write destinations;
+no picker, Personal default, or cross-library copy feature is required. Local
+persists within the app's storage profile across account changes, while account
+data and its local attachment cache remain isolated. ADR-0392, ADR-0399, and
+ADR-0401 own that boundary. Backup reconstruction is not a cross-library copy.
+
+**Restore contract settled 2026-09-14:** ordinary synchronization brings devices
+together; restore replaces the library everywhere with the selected backup.
+Confirmed retirement discards unsynchronized old-generation rows and attachment
+work, including completed recordings whose uploads never finished. No rescue
+queue or automatic merge follows. The safety copy covers captured account
+state only, with audio coverage shown separately. Finishing synchronization
+first means both accepted row updates and acknowledged audio uploads.
+
+Replacement must check admission before old work resumes, reuse matching
+local audio for restored rows, and preserve account objects held by backups.
+Never interpret row-cache invalidation as erasing the whole attachment store.
+The phone cannot verify that every offline device is synchronized. A lost
+restore response or retirement notice does not establish which request won.
+
+Build folder-backed recovery around row-owned attachments that synchronize
+eagerly, with explicit local availability. Read ADR-0393 for the user story,
+developer boundary, and Whispering UI; read Implementation waves below for
+the active execution order. ADR-0394 and ADR-0395 own retention and restore.
+
+Current production still has blob IDs and Whispering-owned upload policy.
+The target removes that coordination, keeps local reads honest, and downloads
+current attachments automatically for offline use. Completion requires the
+two-device journey and failure evidence in the revised waves, plus safe
+reclamation proof. Exact transfer metadata and reclamation mechanisms remain
+open; neither an upload timestamp nor a grace period is a safety proof.
+
+All older execution descriptions and checklists outside Implementation waves
+are historical evidence where they disagree with that section. In particular,
+the old cached-on-play policy, explicit eviction, backup-only sweep, and
+deletion-first sequence no longer govern. Existing passing tests do not prove
+the new attachment lifecycle.
+
 Restore replaces the library's current generation; devices invalidate retired
 IndexedDB replicas and reload, while ordinary use stays cache-first and
 offline-capable.
@@ -20,7 +61,7 @@ journal, a blob id, or object storage for backups:
 - [ADR-0394](../docs/adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md):
   a backup is the text of the ADR-0337 folder kept by the authority as
   `_kept` and `_kept_files` rows; a copy names bytes by naming rows; all
-  reclaim is one eventual pass after any copy is kept; daily automatic copies
+  reclamation awaits publication/retention proof; daily automatic copies
   keep the newest seven; six verbs on `openLibraryRecovery` and five routes
   beside `CURRENT_ROUTE`.
 - [ADR-0395](../docs/adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md):
@@ -41,7 +82,7 @@ portable transactions and generation-bound hub lifetimes are exercised under
 `packages/data/evidence/current-generation/`. Production browser startup uses
 the stable current authority through the Honeycrisp integration.
 
-## Active execution path
+## Historical execution path before ADR-0393 through ADR-0395
 
 Build one library-bound recovery owner: every restore uses a published backup ID,
 and the owner manages the safety backup and durable attempt behind the call.
@@ -614,109 +655,119 @@ is allowed to create another backup even when restoring the same source.
 
 ### Implementation waves
 
-Rewritten 2026-09-12 against ADR-0393, ADR-0394, and ADR-0395. Each wave ends
-with focused passing checks and a reviewable commit. The old checklist is in
-git history.
+Rewritten 2026-09-13 backward from ADR-0393's eager attachment synchronization
+and honest local reads. The outcome is a recording made offline on device A,
+uploaded after reconnect, automatically downloaded on device B, then played
+offline on B. Deletion and restore follow row lifetime without losing retained
+audio. This is planned work; the existing tests below are historical evidence.
 
-1. **Delete the retired recovery code, in dependency order.** Nothing here is
-   mounted or exported from a barrel; the only production-adjacent consumer is
-   the Honeycrisp fixture script.
-   - [ ] Rewrite `apps/honeycrisp/scripts/library-retirement.ts` to build its
-     test activation from `renderArtifact` plus `readArtifact` over a fixture
-     folder instead of `captureArchive` and `prepareArchive`. This is the one
-     consumer of `artifact/archive.ts` outside the deletion set.
-     `packages/server/workers/current-retirement.test.ts` does not consume the
-     archive; it drives `openCurrentAuthority` and `readCurrentDownload` and
-     stays.
-   - [ ] Delete `packages/data/src/recovery.ts`, `recovery.test.ts`,
-     `recovery-journal.ts`, `recovery-journal.test.ts`,
-     `recovery-journal.test-support.ts`, `store/idb-journal.ts`.
-   - [ ] Delete `packages/data/src/artifact/archive-storage.ts` and its test,
-     then `artifact/archive.ts` and its test.
-   - [ ] Remove `openBackups`, `openAttempts`, `readAttempt`, and
-     `applyAttemptSchema` from `sync/authority.ts`; delete `sync/backups.ts`,
-     `sync/attempts.ts`, and their tests; drop `_restore_receipts`,
-     `readReceipt`, `pinPreparation`, the `failed` fence, and the digest
-     comparison from `prepareActivation().activate()`. Keep the position
-     check, the log replacement, the generation advance, and post-commit hub
-     retirement; keep every evidence test under
-     `packages/data/evidence/current-generation/` passing.
-   - [ ] Delete `packages/server/src/backup-storage.ts` and its test.
-2. **The row is the blob's address.** ADR-0393.
-   - [ ] `field.blob()` becomes `field.attachment()`, a nullable MIME-type
-     cell; `compileData` refuses a second; `BlobFieldNames<T>` is one optional
-     name. `table.attachment(rowId)` is the handle: `create` with bytes,
-     recorder fill, `url`, `bytes()`, `evict()`; it sets the cell once when
-     bytes are complete; `store.update` cannot touch it; no mint, no `copy`.
-     The push obligation is a `pushed` flag beside the bytes in the cache,
-     cleared by the store on a successful PUT, retried on connect.
-   - [ ] `packages/blobs`: delete `blob-id.ts` and `BLOB_ID_ROUTE_REGEX`;
-     rekey `browser.ts` and `bun.ts` by row path; delete `createAppBlobs().add`,
-     `copy`, and `purge`; `removeLocal` and `download` are the cache verbs.
-   - [ ] Desktop: `recorder/commands.rs` takes the row's path at `start`,
-     handed through `recorder.start({ into: table.attachment(row.id) })`;
-     `blobs.rs` writes `<table>/<row-id>/`; delete `mint_blob_id`. Host blob
-     API in `apps/epicenter/src/server.ts` is addressed by row path.
-   - [ ] Server: mount `PUT`, `GET`, `HEAD`
-     `…/data/:dataId/blobs/:table/:rowId` in `store-sync/mount.ts`, handled by
-     the library's Durable Object against R2 under the library prefix; delete
-     `routes/blobs.ts`, `principal.ts#blobKey`, and the `/api/blobs` entries
-     in `packages/constants/src/api-routes.ts`. Both deployables.
-   - [ ] One-time move of existing R2 objects from
-     `principals/<id>/blobs/<blobId>` to the row path, driven by each
-     recording row's cell, idempotent, run before the old routes are removed
-     from production.
-   - [ ] Whispering: delete `recordingAutoUpload`, the storage badge, the
-     Upload/Purge actions, the Backup Status card, and the `local-only` and
-     `remote-only` availability states, `uploadedAt`, and `kick()`; the row
-     is created before `start` (ADR-0205) and the handle fills it. Settings says once that
-     recordings are stored in the account and this device keeps a copy of the
-     ones it plays. Deletion is `table.delete` in a loop.
-3. **Folder siblings.** ADR-0393 and ADR-0394.
-   - [ ] `parseRowPath` learns `<table>/<row-id>.<ext>` as the row's
-     attachment; `render` writes the sibling from the cell; `import` reads the
-     cell as the MIME type and the sibling as the bytes; a missing sibling
-     imports the row with its cell intact. `push` plans no item for the cell.
-   - [ ] `apps/epicenter/src/checkout.ts` gains a binary read and write for the
-     sibling and sweeps it with its row.
-4. **Kept copies and the pass.** ADR-0394.
-   - [ ] `_kept(id, automatic)` and `_kept_files(kept_id, path, bytes)` in the
-     library's Durable Object; `GET`, `POST`, `GET :id`, `DELETE :id` under
-     `…/data/:dataId/backups`, through the store-sync mount, both deployables.
-     A posted entry above 2 MiB is refused with its path; the 16 MiB body
-     refusal applies.
-   - [ ] The pass: after any `POST …/backups`, delete every object under the
-     library prefix whose `<table>/<row-id>.md` is in no `_kept_files` row,
-     and every `automatic = 1` copy beyond the newest seven. Prove it is
-     idempotent and that a crash mid-pass leaves the next pass with the same
-     work.
-   - [ ] `openLibraryRecovery({ account, appId, library, definition })` with
-     `list`, `backup`, `export`, `import`, `delete`; `export` fetches each
-     row's object and writes the zip; `import` puts siblings create-only then
-     posts the entries. Needs no open App.
-5. **Restore.** ADR-0395.
-   - [ ] `POST …/restore` multipart `safety`, `state`, `expected`; the
-     transaction keeps `safety` with `automatic = 0`, checks `expected`,
-     replaces the log, advances the generation; retirement after commit.
-   - [ ] `recovery.restore(id)`: download entries, reconstruct through the
-     codecs, render current as `safety`, send. Departure is the success path;
-     `conflict` is "the library changed while you were restoring; try again".
-6. **Backups screen and the daily copy.**
-   - [ ] Settings, Backups in Honeycrisp and Whispering: a list of times,
-     automatic copies greyed, Export, Restore, Delete, Save a copy now, the
-     one-line reclaim note. Restore confirmation names the destination and
-     the loss boundary from ADR-0379.
-   - [ ] On open, at most once a day, `backup()` with `automatic = 1`.
-   - [ ] Extend the Honeycrisp native-browser proof from test-only activation
-     to production restore through the screen.
-7. **Docs.** Edit in place: `docs/CONTEXT.md` (blob vocabulary),
-   `docs/trust-model.md` (the key prefix argument moves to the library prefix
-   and the bearer), `docs/the-store-and-what-it-replaced.md`,
-   `packages/blobs/README.md`, `packages/data/README.md`,
-   `packages/app/README.md`, `apps/api/README.md` route table,
-   `docs/guides/trusted-app-architecture-handoff.md`,
-   `.agents/skills/query-layer/SKILL.md` example. Then delete this spec and
-   its handoff.
+Each replacement follows build, switch callers, verify, then delete the old
+path. A compile pass alone is not completion. Do not enable destructive
+reclamation before wave 5's evidence.
+
+1. **Build one locally complete row attachment.**
+   - [ ] Keep this checkpoint independent of a cross-library copy workflow or
+     destination picker. It supplies the attachment contract consumed by the
+     app-hub and concurrent-capture plans; no intermediate blob-ID recorder API.
+   - [ ] Replace separate identity with stable library/table/row addressing;
+     preserve identity across backups and generations. Validate imported paths.
+   - [ ] Rename the declaration to `field.attachment()`, at most one per
+     table, and prevent application updates to the completion cell. Settle
+     its encoding without using it as evidence of current file presence.
+   - [ ] Route create-with-file and native recording through the same
+     row-first destination. Persist completion and pending upload recoverably.
+   - [ ] Provide local bytes and disposable local playback sources, with
+     explicit unavailable results and no hidden network read.
+   - [ ] Prove local-save failure, interruption at each completion boundary,
+     delete during capture, and restoring an old null cell after completion.
+     Implement host staged-capture recovery before promising host-crash recovery.
+
+2. **Build library-owned transfer in both directions.**
+   - [ ] Design captured generation admission and publication fencing with
+     the transport, before restore integration. A transfer admitted before
+     retirement but completed afterward needs a defined outcome; independent
+     presigned requests do not establish this by themselves.
+   - [ ] Keep platform adapters as one-shot I/O. Choose and verify transport
+     against supported recording sizes, authentication, browser storage, and
+     native streaming requirements.
+   - [ ] Recover local pending uploads on open. Derive missing downloads
+     from current rows; never enqueue downloaded bytes as new uploads.
+   - [ ] Run bounded transfers after new work, open, and reconnect. Give
+     recoverable failures scheduled backoff wake-ups; prove a GET that first
+     returns not-found later succeeds without a new row event.
+   - [ ] Expose observed local presence, progress, waiting, and failure;
+     distinguish initial unknown presence from absence. Add device-local
+     Pause downloads, Resume, Retry, and prioritization.
+   - [ ] Prove lost PUT responses, identical retries, conflicting imports,
+     offline restart, storage-full failure, account closure, and deletion
+     during transfer. A 409/412 is not sufficient evidence of equal content.
+   - [ ] Settle verification privately; do not add a public checksum API or
+     assume object-store ETags always identify content.
+
+3. **Switch Whispering and prove the user journey.**
+   - [ ] Translate recording creation, playback, transcription, and save-file
+     export to the attachment handle. Keep errors visible without blocking
+     unrelated row edits or local playback.
+   - [ ] Replace the Storage column and transfer buttons with ADR-0393's
+     audio-cell states and a library transfer summary. No upload preference,
+     automatic eviction, or “backed up” label derived from upload alone.
+   - [ ] Native-browser/device evidence: record offline on A, reconnect and
+     upload, open B and receive audio without pressing Play, disconnect B
+     and play. Interrupt B before receipt and verify unavailable-offline UI.
+   - [ ] Prove Pause preserves local bytes and does not pause uploads;
+     prioritization does not create a second downloader.
+   - [ ] Switch all callers off `uploadedAt`, `recordingAutoUpload`,
+     `backup.kick()`, upload compensation, and manual copy-management
+     workflows. Run affected typechecks and tests before deleting those paths.
+     Keep platform source disposal and host streaming.
+
+4. **Build folder-backed recovery with explicit attachment coverage.**
+   - [ ] Render row files and attachment siblings with the same identity;
+     refuse changed bytes at an existing row address. Preserve undeclared
+     tables and define how nonconforming rows retain their attachments.
+   - [ ] Build kept text copies and export/import. Report missing audio;
+     explicitly distinguish a saved text copy from verified audio coverage.
+   - [ ] Replace the Honeycrisp archive-based activation fixture with folder
+     reconstruction, then switch recovery consumers and verify before deleting
+     structural archives, old catalog/attempt machinery, and unused journals.
+   - [ ] Build atomic safety-copy restore under ADR-0395, preserve position
+     checks and post-commit retirement, then prove restored attachments
+     download automatically and old null cells cannot be refilled differently.
+   - [ ] Show selected-copy and safety-copy audio coverage independently.
+     Save incomplete text copies with explicit coverage; include an omission
+     report in partial exports. Never infer remote audio from row sync.
+   - [ ] Implement the destructive confirmation and reconnect explanation.
+     Prove a completed offline recording absent from the safety copy is
+     discarded on confirmed retirement, including work authored after the
+     remote restore. Ordinary close/network failure must preserve that work.
+   - [ ] Fence old attachment requests as well as row queues before reconnect
+     admission. Reuse matching local files for restored rows; no rescue inbox,
+     automatic re-import, or blanket attachment-store wipe.
+   - [ ] Race two restores and lose a response: reopen actual current state
+     without claiming the selected request succeeded from retirement alone.
+
+5. **Prove retention before enabling account reclamation.**
+   - [ ] Choose an authority/publication protocol that protects live rows,
+     kept copies, uploads/imports in flight, and interrupted restore.
+     Neither backup-only enumeration nor a grace window proves this.
+   - [ ] Exercise stale snapshot H followed by a new row/upload, arbitrary
+     delay between row and byte publication, restore across generations,
+     deleted rows with late uploads, lost responses, and crashes during sweep.
+   - [ ] Prove a retained backup prevents deletion, and unreachable bytes
+     are eventually reclaimed under the documented trigger. No one-day
+     deletion guarantee follows from “daily copy on open.”
+   - [ ] Keep physical deletion disabled until the protocol passes.
+     Conservative storage retention is an interim state, not finished cleanup.
+
+6. **Remove obsolete paths and reconcile current documentation.**
+   - [ ] Verify migration of existing rows and objects before removing deployed
+     ID-based routes/readers. No production migration is authorized by this doc.
+   - [ ] Remove unused blob-ID minting/copy paths and remaining application
+     reconciliation after replacement evidence passes.
+   - [ ] Update package READMEs, route docs, and examples to actual exports.
+     Do not describe proposed methods as already implemented.
+   - [ ] Re-run affected checks and the full two-device journey. Delete this
+     spec only after its recovery and retention obligations are complete.
 
 ### Execution decisions still requiring evidence
 
@@ -772,22 +823,25 @@ work; cases below it are the three records.
 | Failed download or missing local cache | Ordinary retry; no empty remote creation or reload loop |
 | Different-generation working-copy manifest | Push refuses; no reinterpretation as mass edits |
 | A second `field.attachment()` on one table | `compileData` refuses |
-| Row created with bytes | Object at `<table>/<row-id>`, cell holds the MIME type, the cache marks the push obligation until the PUT succeeds |
-| PUT to an existing row path | 409; bytes unchanged |
+| Row created with bytes | Locally recoverable completion and upload obligation; cell encoding follows ADR-0393; no remote durability implied |
+| PUT to an existing row path | Bytes unchanged; identical retry verified, different content refused |
 | Capture crash before `stop` | Row exists with a null cell; host `current()` recovers and `stop()` fills it |
-| Row deleted | Row gone; cache entry gone; object present until a pass finds no copy holding the row |
-| Copy deleted | Rows gone; objects it alone named present until the next pass |
-| Pass after a copy is kept | Every object whose row file is in no copy is deleted; nothing named by any copy is touched; rerunning the pass deletes nothing |
+| Row deleted | Row gone; active local work coordinated; account object retained while current rows, backups, or protected publication need it |
+| Copy deleted | Copy gone; shared objects await proven safe reclamation |
+| Pass after a copy is kept | No deletion until current-row, backup, and publication protection is proved; old snapshot plus new upload cannot lose live audio |
 | Crash mid-pass | Next pass completes the same work |
 | Eighth automatic copy | Oldest automatic copy deleted by the pass; manual and before-restore copies untouched |
-| Backup of a library with hours of audio | Text only; body under 16 MiB; no object read or written |
+| Backup of a library with hours of audio | Text saved without embedding audio; coverage separately checked and reported; missing audio does not refuse text preservation |
 | Entry above 2 MiB | Refused with its path |
 | Export | Zip holds `kv.json`, every row file, and a sibling for every row whose cell is not null; a row whose object is absent has no sibling |
 | Import of that zip | Siblings put create-only; entries kept as a copy; importing twice changes no bytes |
 | Import with a missing sibling | Row imports with its cell; shows as missing audio; restore invents nothing |
 | Folder from an older build | Undeclared tables and unknown keys kept; a body with no codec refused at that file |
-| Restore | Safety copy kept and log replaced in one transaction; hub retired after commit; no object moves; every row in the restored copy has its bytes |
-| Lost restore response, then retry | `conflict`; the device is looking at the restored library after reload |
+| Restore | Safety copy and replacement commit together; retained available audio reused; absent audio explicitly unavailable and scheduled for download |
+| Old device has completed unuploaded recording | Confirmed retirement discards old work without rescue; the safety copy never claims to contain unseen work |
+| Restored row has matching local audio | Reuse it across generation replacement; do not erase attachment storage with row cache |
+| Incomplete selected copy and safety copy | Independent coverage displayed; warning names unsynchronized-work loss |
+| Lost restore response, then retry | Moved expected position refuses retry; reopen actual current state without inferring which request won |
 | Restore while the client's replica is behind the authority | `conflict`; a second attempt renders a safety copy containing the missed edit |
 | Rollback inside the restore transaction | No kept copy, no generation change, sockets usable |
 | Local library | No recovery object; `pull` writes the folder with siblings; `import` reads it back |

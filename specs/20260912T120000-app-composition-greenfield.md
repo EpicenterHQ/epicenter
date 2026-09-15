@@ -93,10 +93,10 @@ Each is a product or durable-string decision the evidence cannot settle.
   `retirement` is produced by the store opener's closure from five internal
   values. Deciding whether replicas get their own surface in `@epicenter/data`
   would let `app.account` become a namespace and change ADR-0389's arms.
-- **Later, explicit import.** ADR-0143 and ADR-0355 forbid sign-in adoption
-  of local data and name an explicit import as the sanctioned path. No code or
-  spec fixes its shape: two Apps from one Application, or an archive
-  round-trip through `packages/data/src/artifact/archive.ts`.
+- **Optional application copying.** ADR-0399 leaves cross-library copying to
+  applications over safe storage primitives. No copy feature, identity-preserving
+  import, or Add workflow is required by these platform waves. Sign-in does
+  not move Local data.
 - **Later, analytics.** It captures no identity, but its host leaf is a
   product telemetry plugin and its browser leaf always errors. Generalize
   only when a second app wants it.

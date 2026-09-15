@@ -647,12 +647,12 @@ When you add an ADR, add its row here.
 | [0390](0390-the-app-is-the-unit-of-ownership-and-a-capability-is-the-unit-of-sharing.md) | The App is the unit of ownership, and a capability is the unit of sharing | Accepted (shared surface spelling amended by 0392) |
 | [0391](0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md) | The build selects every implementation, and an application declares only its id and data | Accepted |
 | [0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) | An App has a device scope and an account scope, and each store sits under its owner | Proposed (supersedes 0389 at the opener shape; amends 0369, 0355, 0388, 0365) |
-| [0393](0393-a-blob-is-addressed-by-its-row-and-the-account-holds-every-one.md) | A blob is addressed by its row, and the account holds every one | Proposed (supersedes 0173; amends 0091, 0154, 0349, 0276, 0092, 0205, 0355, 0226, 0314) |
+| [0393](0393-a-blob-is-addressed-by-its-row-and-the-account-holds-every-one.md) | A row owns its attachment, and the library synchronizes it | Proposed (supersedes 0173; amends 0091, 0154, 0349, 0276, 0092, 0205, 0355, 0226, 0314) |
 | [0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) | A backup is the library's folder, kept by the authority | Proposed (amends 0287) |
 | [0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) | Restore is one request that carries its own safety copy | Proposed |
 | [0396](0396-a-connection-transcribes-and-owns-the-four-rules.md) | A connection transcribes and owns the four rules | Proposed (amends 0054 at model fallback) |
 | [0397](0397-native-inference-selects-an-installed-model-explicitly.md) | Native inference selects an installed model explicitly | Proposed (amends 0180, 0012) |
 | [0398](0398-every-transcription-destination-speaks-the-openai-wire.md) | Every transcription destination speaks the OpenAI wire | Proposed (amends 0060) |
-| [0399](0399-moving-data-into-an-account-is-a-row-copy.md) | Moving data into an account is a row copy | Proposed (supersedes 0143) |
+| [0399](0399-moving-data-into-an-account-is-a-row-copy.md) | Cross-library copying is an application workflow | Proposed (supersedes 0143) |
 | [0400](0400-device-sqlite-and-secrets-key-by-application-id.md) | Device SQLite and secrets key by application id | Proposed (amends 0355) |
 | [0401](0401-a-record-names-its-destination-at-creation.md) | A record names its destination at creation | Proposed |

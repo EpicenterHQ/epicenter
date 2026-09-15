@@ -29,8 +29,9 @@ assignment. Freezing an object of methods does not change either rule.
 **App-specific operations access the document's one App inside their function
 bodies. Importing operation modules defines behavior and acquires nothing.**
 
-Bootstrap owns library selection, opening, successful readiness, and terminal
-closure. It publishes one App for the document and never replaces it. Callback,
+Bootstrap owns account capture, opening, successful readiness, and terminal
+closure. Product operations use the library selected by application policy.
+Bootstrap publishes one App for the document and never replaces it. Callback,
 connection-only, auxiliary, and route-preload imports must acquire no library.
 The existing eager `application.ts` export cannot become a generally imported
 module unchanged: its mounted dynamic import currently protects acquisition.
@@ -44,11 +45,11 @@ current exports or a complete transcription implementation:
 import { app } from '$lib/application';
 
 export const whispering = {
-  async transcribeRecording(recordingId: RecordingId) {
-    // Read app.account.personal.tables.recordings, app.account.personal.blobs,
-    // and
-    // supplied inference here.
-    // Coordinate the product workflow and persist its result.
+  async transcribePersonalRecording(recordingId: RecordingId) {
+    // This operation explicitly targets a Personal recording, not an arbitrary ID.
+    // After account/readiness checks, obtain its row-owned attachment from
+    // app.account.personal.tables.recordings and read locally available audio.
+    // Capture inference inputs before awaiting; persist only to that original row.
   },
 };
 ```
@@ -56,8 +57,9 @@ export const whispering = {
 The object adds no `ready`, `open`, or `close` merely to group functions. Named exports and cohesive namespaces follow their callers;
 this decision does not require one giant Whispering object. Consumers keep full
 member paths such as `app.account.personal.tables.recordings` rather than capturing
-namespace aliases, which is what keeps a write's destination visible at the call
-site (ADR-0401). Fixed document identity makes call-time access stable across awaits;
+namespace aliases. A mixed-library operation instead takes an explicit owning
+table or attachment; a bare row ID does not identify its library (ADR-0401).
+Fixed document identity makes call-time access stable across awaits;
 it does not permit operations after close begins.
 
 The Svelte boundary observes plain product/data capabilities and gates consumers

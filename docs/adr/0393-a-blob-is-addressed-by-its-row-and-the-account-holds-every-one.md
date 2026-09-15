@@ -1,4 +1,4 @@
-# 0393. A blob is addressed by its row, and the account holds every one
+# 0393. A row owns its attachment, and the library synchronizes it
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
@@ -7,160 +7,271 @@
 - **Relates:** [ADR-0212](0212-a-row-is-a-yjs-type-and-its-prose-is-a-lazily-loaded-document.md), [ADR-0325](0325-a-database-is-bound-to-one-authority-and-re-homing-is-export-and-import.md) (a reference travels; bytes travel with export and import), [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md) (the upload queue is that obligation), [ADR-0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) (a kept copy is the second thing that keeps bytes alive), [ADR-0287](0287-the-authority-does-not-delete-a-generation-and-erasure-is-an-account-operation.md) (the server reclaims only what a person un-names).
 - **Unbuilt:** All of it. `packages/blobs/src/blob-id.ts`, the `keyPath: 'id'` stores in `browser.ts` and `bun.ts`, `mint_blob_id` in `apps/epicenter/src-tauri/src/blobs.rs`, `packages/server/src/routes/blobs.ts` and `principal.ts#blobKey`, the host blob API in `apps/epicenter/src/server.ts`, the `generateBlobId` path in `packages/data/src/store/store.ts`, `field.blob()` in `packages/data/src/field/builders.ts`, Whispering's `uploadedAt`, and its storage badges, Upload/Download/Remove actions, and Backup Status card are what this record replaces. The one production blob field is `recordings.audioBlobId` in `apps/whispering/src/lib/data.ts`.
 
+
+## The experience
+
+Record on a laptop without Wi-Fi. Stop saves the audio locally, so it can
+play immediately. Whispering shows an unfinished upload until the account
+acknowledges it. On a phone, the recording's details may arrive first.
+Whispering downloads the audio automatically while the library is open and
+connected. Once the phone has saved it, playback works offline.
+
+A device cannot play audio it has not received. The application shows that
+absence rather than hiding a network wait behind Play.
+
+```txt
+Laptop                         Account                      Phone
+create row ------------------> row synchronization -------> row visible
+finish audio locally
+play locally
+upload ----------------------> immutable audio
+                               download ------------------> save locally
+                                                            play offline
+```
+
+This is the target, not current behavior. The implementation still uses
+separate blob IDs and application-owned upload policy. See the
+[implementation waves](../../specs/20260909T010040-current-generation-restore.md#implementation-waves)
+for the backward path and completion evidence.
+
 ## Context
 
-A blob has had an identity of its own since ADR-0091: a hash, then a minted
-nanoid (ADR-0148), carried in a `field.blob()` cell, keyed per principal at the
-authority and per session scope on the device (ADR-0349). Every consumer pays
-for that second identity. `store.create` mints an id and copies bytes in;
-`BlobStore.copy` exists for that path; `archive.ts` finds a library's
-attachments by running a regex over prose; a kept copy of the library would
-need a list of the ids it names, stored beside it so the authority could
-answer which bytes are still wanted; the recorder mints an id at `start` and
-the application writes it at `stop`; and Whispering carries `uploadedAt`,
-`recordingAutoUpload`, and four availability states so a person can decide,
-per recording, which copies exist.
+The existing byte API performs explicit one-shot local reads, uploads, and
+downloads. That is a useful storage boundary. Whispering adds its own
+`uploadedAt`, `recordingAutoUpload`, reconciliation runner, storage badges,
+and copy-management actions to turn those operations into a product.
 
-Under ADR-0393's first draft a blob was cited by exactly one `field.blob()`
-cell on exactly one row, one blob field per table, never shared. Once that is
-the rule, the row already names the blob uniquely, and the second identity is
-paying for nothing.
+The library can own that policy once because every attachment belongs to a
+row. Application developers still handle unavailable audio and display
+failures; they no longer write delivery coordination.
 
 ## Decision
 
-**A blob is addressed by its row. The object at `<table>/<row-id>` is that
-row's attachment, and there is no other name for it.**
+### One row, one attachment identity
+
+A table declares at most one `field.attachment()`, replacing `field.blob()`.
+The full identity is the stable library namespace plus table and row ID.
+The namespace separates accounts and libraries and survives restore
+generations. Backup IDs and generation numbers are not attachment identities.
 
 ```txt
-authority   R2 object  <library prefix>/<table>/<row-id>     Content-Type as object metadata
-device      cache      the same path, in the session-scoped store ADR-0349 built
-folder      file       <table>/<row-id>.<ext>                 beside <table>/<row-id>.md
-cell        field.attachment()   the MIME type once bytes exist, or null; plain data on the row
+current row -------+
+Monday's backup ---+--> same library / table / row ID --> same audio
+Tuesday's backup --+
 ```
 
-A table declares at most one `field.attachment()`; `compileData` refuses a
-second. `field.blob()` is renamed: a developer meets "attachment" on the row
-and never "blob", which stays the storage word in `packages/blobs`. `BlobId`,
-`generateBlobId`, `BLOB_ID_ROUTE_REGEX`, `BlobStore.copy`, and
-`createAppBlobs().add` are deleted. Nothing is minted by an application.
+The address identifies the attachment, not its contents. Equal files on two
+rows are two attachments. Once completed, different bytes require a new row,
+including after import or restore. Restoring a historical null cell does not
+authorize overwriting an already completed attachment.
 
-**The row comes first, and its attachment is a handle on the table.**
+The cell records completion and content type; it never proves local presence,
+remote presence, or backup completeness. Its exact encoding and any additional
+metadata remain implementation work. Applications cannot update it directly.
+A null cell means no completion is recorded in this version of the row; it
+does not prove another device is still recording.
+
+Honeycrisp notes with several files use child attachment rows linked to the
+note. Each child owns one file. “Blob” remains a storage term for bytes in
+`packages/blobs`; application authors work with attachments.
+
+### The row comes first
+
+The store creates the row ID. There is no application `mintId()` followed
+by `create({ id })`. The recorder receives an existing row's attachment
+as its destination. Creating with a file and completing a recording use the
+same attachment owner.
+
+Proposed API sketch, with Result handling omitted; these are target names,
+not implemented exports:
 
 ```ts
-const row = await app.tables.recordings.create({ title, audio: file });   // row and bytes together
+const row = await recordings.create({ title, audio: file });
+// Success means locally saved, not uploaded.
 
-const row = app.tables.recordings.create({ title, audio: null });         // a row that fills (ADR-0205)
-const rec = await recorder.start({ into: app.tables.recordings.attachment(row.id) });
-await rec.stop();                 // bytes complete; the handle sets row.audio and owes the push
-
-const a = app.tables.recordings.attachment(row.id);
-a.url                             // GET …/blobs/recordings/<id>, durable for the row's life
-await a.bytes()                   // the cache, filled from the account when absent
-await a.evict()                   // drop the device copy; the account keeps it
+const pending = recordings.create({ title, audio: null });
+const capture = await recorder.start({
+  into: recordings.attachment(pending.id),
+});
+await capture.stop(); // Local completion; delivery is separate.
 ```
 
-`table.attachment(rowId)` exists only on a table that declares the field. It
-is the one object that knows the path `<table>/<row-id>`, the session cache,
-and the library transport: `create` with bytes goes through it, the recorder
-writes through it, `bytes()` reads through it, and nothing else touches bytes.
-The cell is set once, from `null` to a MIME type, inside the handle when the
-bytes are complete; `store.update` cannot reach it. Changing the bytes is a
-new row.
+The owner must make completed bytes, the cell transition, and the upload
+obligation recoverable across interruption. Deletion during capture or upload
+must not recreate the row. Host-crash recovery requires staged-file recovery;
+the existing startup sweep deletes staged captures. Row-first identity alone
+does not establish recovery or power-loss durability.
 
-**Bytes are immutable at their path, and a row keeps its bytes for life.** An
-object exists from the row's creation until the reclaim pass in ADR-0394 finds
-no copy that holds the row. Nothing else creates, replaces, or deletes an
-object, and no request deletes bytes immediately. A capture in progress writes
-to the path of the row it is filling
-(`apps/epicenter/src-tauri/src/recorder/commands.rs` takes the row's path at
-`start` instead of minting a blob id). A crash during capture leaves a row
-with a null cell and staged bytes at its path; the host's `current()` recovers
-the capture and `stop()` fills the row (ADR-0205). A crash before any bytes
-leaves a row with no attachment, which is what happened.
+### Synchronization eagerly supplies current attachments
 
-**The account holds every blob, and the device is a cache.** Completing an
-attachment leaves an obligation to push it, as ADR-0171 already says of every
-durable local write. The obligation lives beside the bytes in the cache as a
-`pushed` flag the store clears when the `PUT` succeeds, retried on connect,
-single-flight, owned by the store and not by any application. Whispering's
-`uploadedAt` and `kick()` are deleted with it. There is no preference to keep
-audio on one device, no per-recording upload or purge action, and no
-availability state beyond "cached here or not". A person is told once, in
-settings: "Recordings are stored in your account. This device keeps a copy of
-the ones you play."
+The application chooses the destination through the library APIs (ADR-0401).
+Recordings created in Local stay local, including after sign-in. Recordings
+created in an account library automatically synchronize their audio along with
+their rows; there is no separate upload opt-in. Local completion does not mean
+an upload succeeded, and the UI must keep unfinished delivery visible.
+An optional application workflow can copy local recordings into an account
+after confirmation (ADR-0399); the destination then owns ordinary synchronization.
 
-**Blob requests go through the library's mount.** Four routes, resolved by the
-same bearer and library prefix as `CURRENT_ROUTE` in
-`packages/server/src/store-sync/mount.ts`, handled by the library's Durable
-Object so that the object that owns the log and the kept copies also owns the
-bytes:
+An account library owns one attachment synchronizer for its open lifetime:
 
-```txt
-PUT    /api/libraries/:appId/:library/data/:dataId/blobs/:table/:rowId    create-only; 409 when present
-GET    /api/libraries/:appId/:library/data/:dataId/blobs/:table/:rowId
-HEAD   /api/libraries/:appId/:library/data/:dataId/blobs/:table/:rowId
-```
+- Completed local attachments owe an upload until delivery is confirmed.
+- Current rows naming attachments absent locally owe a download.
+- Received files stay in local attachment storage for offline use.
+- Historical attachments named only by backups are not eagerly downloaded.
+- A local library saves and reads locally, with no account transfers.
 
-There is no DELETE and no list (ADR-0154 stands for clients). The durable read
-URL of ADR-0091 is the GET above, durable for the life of the row.
+Transfers start on open, new work, and reconnect. Recoverable failures receive
+bounded backoff with a scheduled wake-up while the owner remains open;
+reconnect and explicit Retry can also wake it. A failed early download must
+eventually retry after the originating device uploads, even if no row changes
+again. Closing the library stops its workers; reopening recovers unfinished
+work. No always-running operating-system service is promised.
 
-**In the folder, the bytes sit beside the row.** `parseRowPath` in
-`packages/data/src/artifact/layout.ts` learns the sibling as a second shape:
-same table, same row id, an extension other than `md`, and it is that row's
-attachment, never a second row. The extension is chosen from the cell's MIME
-type through a small map with `.bin` as the fallback; the frontmatter cell is
-the source of the MIME type on import, not the extension. `push` in
-`packages/data/src/artifact/checkout.ts` plans no item for the cell.
+Concurrency is bounded. Authentication, quota, and storage failures remain
+visible and do not cause busy retries. Pause downloads is device-local,
+preserves received files, and does not pause uploads. A person may prioritize
+a recording without opting other recordings out of synchronization.
+There is no automatic eviction or per-recording upload preference.
 
-**Attachments in rich text are rows.** An image in a Honeycrisp note is a row
-in an `attachments` table with a `field.blob()` and a reference to the note.
+Local upload obligations belong to the store, durably recoverable with its
+bytes. Download work can be reconstructed from current rows and local
+presence. Downloaded files must not become newly owed uploads. No
+application-owned `uploadedAt` or `kick()` survives. A synchronized
+acknowledgment field is not required by this decision and must not be added
+merely to guess another device's state.
+
+### Reads tell the truth about this device
+
+Reads perform local I/O and return local bytes or an explicit unavailable
+result. They do not initiate or await network transfers. The UI observes
+local availability separately from transfer progress and failures.
+
+The target handle provides a local byte read and a local playable source.
+A playable source retains the platform's disposal behavior: browser object
+URLs have a lifetime; desktop playback can use the host's file-serving
+route without copying a whole recording through the WebView. There is no
+plain durable `a.url` that promises immediate authenticated playback, and
+no public `evict()`.
+
+The application owns recording and playback intent and error presentation.
+The store owns completion, reconciliation, availability observations, and
+shutdown. Platform byte adapters retain explicit one-shot I/O underneath.
+A single attachment read failure does not stop row editing or other playback.
+
+### Whispering shows availability and unfinished work
+
+| Observed situation | Recording list or header | Interaction |
+| --- | --- | --- |
+| Capture active on this device | Recording and elapsed time | Stop |
+| No completion recorded, no local capture evidence | No audio available | Read/edit details; delete |
+| Local audio, upload pending | Player; header counts waiting uploads | Play, transcribe, save file |
+| Missing local audio, download queued | Waiting to download | Prioritize |
+| Download active | Downloading; measured progress when available | Use other recordings |
+| Missing local audio while offline | Audio is not on this device yet | Read transcript; resume on connection |
+| Transfer blocked or failed | Actual reason and Retry or corrective action | Local audio remains playable |
+| Local audio, no unfinished transfer | Player | Play offline |
+
+A remote not-found response is an observation, not proof that the origin
+lost the file. A successful row sync is not an audio upload acknowledgment.
+An upload acknowledgment is not proof that a backup preserves the row.
+
+The normal list has no Storage column or per-row Upload/Remove-local controls.
+“Save audio file” remains an export action. A library header summarizes
+unfinished uploads and downloads and offers Pause downloads, Resume, and
+Retry. Unknown local presence during initialization is not reported as
+missing. A full device reports a storage problem; it never claims the
+library is ready offline or silently evicts files.
+
+Settings explains: “Whispering uploads recordings to your account and
+downloads your current recordings to this device while the app is open.
+Audio already on this device works offline.”
+
+### Deletion follows rows; backups retain history
+
+Deleting a recording removes its row from the current library. Devices stop
+transfers and clean up local attachment copies when they observe that
+deletion, coordinating with active capture and playback. Offline devices
+cannot react until they synchronize.
+
+An account attachment remains wanted while a current row or a retained backup
+names it. Unfinished publication also requires protection. Physical account
+reclamation belongs to ADR-0394 and must be proved before it is enabled.
+Deletion never promises immediate erasure from every device or backup.
+
+A restore brings back rows and schedules missing current attachments for
+download. It cannot recover bytes that never reached any surviving source.
+An export must report missing audio; a text backup must not masquerade as
+verified attachment coverage.
+
+Ordinary close and restore retirement have different meanings. Ordinary
+close preserves saved local work and pending publication or delivery. This
+does not turn explicit capture cancellation into a save: the application
+finishes wanted capture before deliberate closure (ADR-0366). Confirmed retirement after restore
+discards old-generation work, including recordings that completed locally
+but never uploaded. It never automatically merges or rescues that work.
+ADR-0395's confirmation names this loss and advises finishing both row sync
+and audio uploads first. A device can keep working offline until it learns
+retirement; those later edits are subject to the same discard rule.
+
+Check generation admission before restarting row or attachment queues.
+Stable attachment addresses do not authorize an old queue to write into a
+new library generation. Keep matching local audio needed by restored rows;
+row-state cache invalidation is not a wholesale attachment-store erase.
+Obsolete local cleanup follows replacement reconciliation. Account files
+retained by backups survive independently of local cleanup.
+
+### Storage and transport preserve the identity
+
+Device storage, remote access, and folder siblings resolve the same
+library/table/row address. Folder bytes sit beside
+`<table>/<row-id>.md` as `<table>/<row-id>.<ext>`. The cell supplies content
+type; the extension is a rendering choice with a binary fallback.
+
+The library authenticates remote access; knowing an address grants no access.
+Exact route spelling and direct versus presigned transfer remain proof work.
+The transport must handle supported recording sizes without materializing
+large desktop audio in the WebView. There is no client-facing remote purge.
+
+Create-only upload conflicts must distinguish an identical retry from
+different content, including imports and restored rows. Presence or matching
+size alone cannot establish equality. Verification may use an internal digest;
+no public checksum or content-addressed identity is required. Folder edits
+that replace bytes at an existing address must be refused explicitly.
 
 ## Consequences
 
-The attachment set of a library, a copy, or a folder is the set of rows whose
-cell is not null, and the authority can answer "which copies still hold this
-row" with one query on a path (ADR-0394), because the path is the identity.
+Application code loses separate blob-ID minting, copy-to-a-new-ID workflows,
+upload compensation, per-recording storage policy, and its reconciliation
+runner. The shared store gains real transfer responsibility and observable
+state. We remove duplicate coordination, not the facts that files may be
+absent or transfers may fail.
 
-Deleted with the id: minting on both platforms, `copy`, the regex over prose,
-`uploadedAt` and `kick()`,
-the `blobs: { id, contentType, bytes }[]` array of the archive, the id
-validation on every route, `/api/blobs/*` and `/api/apps/*/blobs/*`, the
-per-principal key, `RemoteNotConfigured` as a state a person meets, Whispering's
-`recordingAutoUpload`, the storage badge, the Upload and Purge actions, the
-Backup Status card, and the `local-only` and `remote-only` availability states.
+Every device attempts to acquire the current library's attachments. That costs
+bandwidth and storage. Large-file transport, browser storage limits, and
+restart behavior need measured evidence; a small API does not remove those
+costs. Pausing downloads is the initial control.
 
-Every store rekeys. The browser store's `keyPath` becomes the row path; the
-desktop and Bun directories become `<table>/<row-id>/`; R2 objects already
-written under `principals/<id>/blobs/<blobId>` are moved once, by a job that
-reads each recording row's cell, which is the same shape as the legacy claim
-ADR-0349 built for the unscoped browser database.
-
-Sharing bytes between rows costs a copy. Nothing in the tree shares. A table
-that wants several attachments per row declares child rows.
-
-`compileData` refusing a second blob field is a behavior change only for
-`store-attachments.test.ts` and `declaration.test-d.ts`.
+Existing objects and persisted rows require a verified migration before
+removing deployed ID-based readers. New package READMEs must describe the
+new API only once it exists. The implementation spec remains active until
+the two-device offline journey, failure paths, and reclamation proof pass.
 
 ## Considered alternatives
 
-- Keep a minted `BlobId` and store, beside each kept copy, the ids its folder
-  names, so the authority could answer which bytes a copy still wants. Every
-  piece of that list exists only because the id is not the row.
-- Content-addressed ids. Refused before (ADR-0148, ADR-0349) because a
-  recording's identity exists before its bytes are complete; under this record
-  the recording's identity is the row's, which exists at `start`, and a hash
-  would be a third name.
-- Several blob fields per row. Nothing declares two.
-- An application mints the row id before `start` and hands it to the recorder,
-  then creates the row with that id at `stop`. Carries an id across the
-  capture for nothing; ADR-0205 already has the row exist from the first
-  second.
-- The push obligation as an application field (`uploadedAt`) with an
-  application runner. Every application with an attachment would rebuild
-  both.
-- Device-only audio as a per-recording choice. It is what `uploadedAt` being
-  nullable allowed, and it costs four availability states, two actions, a
-  preference, and an export that can be missing files. A person who wants
-  audio that never leaves a device uses a local library.
-- Immediate deletion of bytes on row delete, refused offline. Deferred to the
-  reclaim pass in ADR-0394, which needs no request to succeed.
+- Explicit manual one-shot transfers: less synchronization machinery, but
+  makes each person or application responsible for unfinished delivery.
+  The low-level byte adapters retain this shape; the library owns policy.
+- Download only on Play: saves bandwidth but leaves an unopened recording
+  unavailable offline. Eager synchronization serves the chosen library promise.
+- Network-fetching reads: hide latency and retry policy behind playback.
+  Local reads plus observable synchronization keep availability explicit.
+- Per-recording upload choices and eviction: add storage policy to ordinary
+  recording use. A local library and device-level Pause downloads cover the
+  initial product choices.
+- A second blob ID or content-derived address: adds identity the row already
+  supplies. Internal content verification remains necessary at conflicts.
+- A timestamp as proof of present audio: records a past observation at most.
+  Local reads and transfer results establish what this device can do.
+- Backup-only garbage collection or a fixed grace period: cannot protect
+  current rows omitted by an old snapshot or indefinitely delayed publication.
+  Reclamation requires coordination, not elapsed time.

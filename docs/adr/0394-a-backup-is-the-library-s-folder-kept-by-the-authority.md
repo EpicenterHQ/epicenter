@@ -46,20 +46,27 @@ while any copy holds `<table>/<row-id>.md`, because under ADR-0393 a row keeps
 its bytes for life and the cell never changes. The authority reads paths and
 nothing else; it never opens a row file.
 
-**All reclaim is eventual, and one pass does it.** Deleting a row deletes a
-row. Deleting a copy deletes its rows. Neither touches an object. After any
-copy is kept, the authority lists the library's objects and deletes every one
-whose row file is in no copy. The copy just kept is a fresh render of the
-current library, so everything current names is held, and what remains is
-bytes no row and no copy can reach. A lost request or a crash leaves nothing
-to reconcile: the next pass sees the same state.
+**Reclaim is eventual and must protect current rows and publication.**
+Deleting a row or a kept copy does not immediately delete account audio.
+An object remains wanted while a current row or any retained copy names it.
+Uploads and imports in flight also require protection.
+
+A backup-only sweep is withdrawn: a client can render a copy, another device
+can create and upload a recording, and the earlier copy can then omit live
+audio. A position check on the copy alone does not cover later publication,
+and a finite grace period cannot protect an arbitrarily delayed operation.
+The authority/publication coordination protocol is unresolved. Physical
+reclamation must remain disabled until the implementation spec proves these
+cases, including restore, interruption, and late uploads after row deletion.
 
 **The application keeps its own copy on a clock, and the system may delete
 what the system made.** On open, at most once a day, the app keeps a copy with
 `automatic = 1`, and the same pass deletes automatic copies beyond the newest
 seven. Manual copies and before-restore copies (ADR-0395) carry `automatic = 0`
-and are deleted only by a person. The daily copy is what bounds "eventual":
-bytes a person un-named are gone within a day, or sooner if they save a copy.
+and are deleted only by a person. On-open scheduling gives no wall-clock
+deletion bound. Older automatic copies may retain audio across several days;
+manual and safety copies retain it until deleted. Reclamation can remove
+audio only after the last reference is gone and a safe cleanup pass runs.
 
 **Export and import carry the attachments; the authority never does.**
 `export(id)` reads the copy's entries, fetches the object for every row whose
@@ -72,8 +79,10 @@ kv.json
 ```
 
 `import(zip)` puts each sibling at its row path, create-only, then posts the
-text entries as a copy. An object already present keeps its bytes, so importing
-a folder twice is a no-op for bytes. A row whose sibling is absent imports with
+text entries as a copy. An object already present keeps its bytes; the importer
+must verify equal content before treating a repeated import as success.
+Different content at the same address is an explicit conflict, never a silent
+substitution. A row whose sibling is absent imports with
 its cell intact and shows as missing audio; export writes no file for it, and
 restore invents nothing. `readArtifact` reads the folder as it reads a checkout
 (ADR-0240): an undeclared table imports with its rows, an unknown frontmatter
@@ -91,7 +100,7 @@ recovery.backup();        // render the current download as entries, keep it
 recovery.export(id);      // the copy plus its attachments, as one zip
 recovery.import(zip);     // put siblings by row path, keep the text as a copy
 recovery.restore(id);     // ADR-0395
-recovery.delete(id);      // drop the copy; bytes it alone named go at the next pass
+recovery.delete(id);      // drop the copy; unreferenced bytes await safe reclamation
 ```
 
 Five routes beside `CURRENT_ROUTE` and the blob routes of ADR-0393, in
@@ -116,8 +125,26 @@ backs up as fast as one with none, and ten copies hold ten copies of the text
 and one of every object.
 
 The Backups screen is a list of times, automatic copies greyed, each with
-Export, Restore, and Delete, and one line beneath: "Audio from deleted
-recordings and copies is cleared the next time a copy is saved."
+Export, Restore, and Delete. Explain: "Backups can preserve audio from deleted
+recordings. Audio can be cleared after no recording or backup needs it."
+
+A saved text copy does not establish that all its audio reached the account.
+Backup/export results must distinguish saved rows from verified attachment
+coverage and report unavailable audio. Eager synchronization under ADR-0393
+reduces missing copies; it does not prove completeness.
+
+Save the text copy even when some audio is unavailable. Show saved details
+and audio coverage separately: verified available, unavailable, or not yet
+checked. A check records what was observed at that time; a timestamp on a
+synced row is not sufficient verification. Missing counts require an actual
+check. Later uploads may improve coverage without changing the saved text.
+
+Before restore, show coverage for the selected copy and the safety copy
+separately. The safety copy describes captured account state, not every
+device's latest local work. Unuploaded audio may be discarded when its device
+adopts a restored generation (ADR-0395); an incomplete backup does not promise
+to rescue it. Export must carry an explicit omission report with a partial
+artifact so its limitations survive separation from the completion message.
 
 The files a person exports are the ones they already edit under ADR-0337, so
 one codec and one layout serve checkout, backup, export, and import. Fidelity

@@ -22,13 +22,17 @@ The browser implementation uses browser capture; the desktop implementation
 uses the native recorder's invoke commands. The session contract is shared.
 
 Capture belongs to the machine, so the capability sits on the device scope and
-`start()` names the store the audio lands in (ADR-0401). The opened App
+`start()` receives an existing row's attachment (ADR-0393). The application
+chooses its library and creates the row before starting (ADR-0401). The opened App
 captures the application identity once. `start()` and `current()` take no
 account argument and require successful App readiness. Start returns a Recording in a Wellcrafted Result. Its `stop()`
-publishes completed audio into that destination and returns the audio blob ID,
-duration, and byte length. Its `cancel()` discards it. Changing
+completes that attachment and reports duration and byte length, not a new blob
+identity. Its `cancel()` discards unfinished capture bytes, not the application's
+row; row deletion is a separate application action. Changing
 the selected account never retargets an existing session. Recording itself
-does not upload audio or create an application row.
+does not create an application row or implement delivery policy. The destination
+library automatically uploads completed account attachments; Local has no
+network delivery. Stop success means local completion, not upload success.
 
 ### One native owner, independent sessions
 
@@ -40,12 +44,12 @@ microphone ownership.
 
 ```text
 Native capture owner
-  device 1 -> Whispering Recording -> destination store's audio blob
-  device 2 -> second App's Recording -> its destination store's audio blob
+  device 1 -> Whispering Recording -> existing row's attachment
+  device 2 -> second App's Recording -> existing row's attachment
 ```
 
 The host tracks sessions by opaque identity and checks the invoking window.
-App capabilities also retain the destination store named at start. Returned handles stop
+App capabilities retain the destination library and row attachment named at start. Returned handles stop
 or cancel their own sessions. An old timer or key release cannot stop a newer
 capture. Putting a shared stop on the Application or App would lose that
 identity. Products can keep a current handle for their stop button.
@@ -84,20 +88,29 @@ Supporting several saved recordings in one App would require explicit session
 lookup or enumeration instead of silently choosing one during recovery.
 
 Reload can recover the window's unresolved saved recording after checking its
-application and destination store. Unexpected capture termination preserves
+application, original library, and row attachment. Recovery does not retarget
+an account recording into Local when the account is unavailable. Confirmed
+generation retirement follows ADR-0393/0395's discard rule instead of ordinary
+crash recovery. Unexpected capture termination preserves
 accepted audio until the owner stops or cancels. Recoverable audio retains its
 session identity, but no longer reserves a microphone after capture teardown.
 Temporary dictation is not adopted as a saved recording.
 
 Native events identify their session as well as their receiving window. Window
-destruction cancels every capture it owns. The tray reflects whether any session
+destruction tears down every microphone session it owns; accepted staged audio
+follows the recovery contract rather than being purged as hardware cleanup.
+The tray reflects whether any session
 is capturing. Browser sessions belong to their document; separate browser
 documents do not acquire a shared native admission guarantee.
 
-Application closure awaits admitted work and cancels its unresolved sessions
-before releasing their dependencies. It leaves another App's captures running.
-Applications that retain final audio or text finish and save it before calling
-`app.close()`.
+Before deliberate closure, applications finish and save wanted audio or text,
+or explicitly cancel the capture. App closure releases its capture hardware
+and drains admitted publication before releasing dependencies. It leaves
+another App's captures running. Closing alone does not purge saved attachments,
+recoverable publication, or pending uploads; it also does not promise to finish
+an active capture into a completed row. Explicit cancellation discards unfinished
+capture bytes. Confirmed generation retirement has the separate discard rule
+above.
 
 Native blob storage owns app/dataset paths, staged publication, metadata, and
 cleanup independently of audio. The recorder supplies completed WAV data and

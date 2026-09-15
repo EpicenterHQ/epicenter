@@ -137,23 +137,28 @@ shapes, see `docs/adr/`.
   person's server data, Shared is one self-hosted deployment's common data.
 - **App hub** (unbuilt, ADR-0392): what one `open(account)` returns: `device`,
   an optional `account`, plus `signal`, `ready`, and `close`. `device` is always
-  present; `account` is present when a person is signed in. Each store sits
+  present; `account` is present when a person is signed in. The framework supplies
+  libraries and safe storage; applications choose library views and write
+  destinations without a mandatory picker or copy feature. Each store sits
   under the scope that owns it. A page owns one auth generation, and an account
   change ends it. Today three openers each return one library instead.
 - **Device scope** (unbuilt, ADR-0392): `app.device`, everything true of this
-  machine. The same `kv`, `tables`, and `blobs` implementation with no
+  application's device storage or browser profile. The same store implementation with no
   authority, plus `sqlite`, `secrets`, `connections`, and `recording`, which
-  exist nowhere else. Its `tables` and `blobs` hold the library a person reads
-  as Local. Device preferences live in `device.kv` and survive sign-out.
+  exist nowhere else. Its tables and row attachments hold the library a person
+  reads as Local. Local data and device preferences survive account changes;
+  they are not account-private. Reopening replaces the handle, not the Local
+  data. Account attachments cached here still belong to the account library.
 - **Account scope** (unbuilt, ADR-0392): `app.account`, everything true of the
   signed-in person on one server, present only while signed in. It holds
   `identity`, the `personal` store, the optional `shared` store, and
   `connection`, that server's inference gateway. It ends with the auth
   generation.
-- **Row copy** (unbuilt, ADR-0399): what "add to my account" does. The
-  application reads rows from `app.device` and writes them to
-  `app.account.personal` through ordinary writes, preserving row ids. There is
-  no adoption verb and no Add, Delete, Keep flow.
+- **Cross-library copy** (optional application workflow, ADR-0399): an app may
+  compose local reads and ordinary destination creation. The framework mandates
+  no Add workflow, ID preservation, or repeatability promise. Normal creation
+  mints IDs; controlled backup reconstruction is a separate identity-preserving
+  operation. Sign-in does not move Local data.
 - **Data definition**: one application's inert, pure JSON declaration of its
   durable data, created with `defineData` and read with `parseData` (ADR-0255).
   It is release-local: a newer release ships a newer declaration over the same

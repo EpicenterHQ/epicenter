@@ -23,6 +23,58 @@ to make a retry polite.
 
 ## Decision
 
+### Ordinary sync brings devices together; restore replaces their library
+
+Restore makes the selected backup the current library on every device. It
+does not merge that backup into today's library. The new generation refuses
+old queued edits and attachment operations. Devices that discover retirement
+discard unsynchronized work from that generation and reopen the replacement.
+There is no abandoned-work inbox, rescue queue, or automatic re-import.
+
+This deliberately includes completed recordings whose upload never finished,
+and work made offline after another device restored. A device cannot know a
+restore occurred until it reconnects. Network failure alone never authorizes
+discard; confirmed generation retirement does.
+
+For example, Monday's backup predates an interview recorded on Tuesday:
+
+```txt
+Interview's rows and audio reach the account before restore
+  -> pre-restore safety copy can preserve them
+  -> Monday becomes current; interview is recoverable from the safety copy
+
+Interview stays only on an offline laptop
+  -> phone's safety copy cannot include it
+  -> Monday becomes current
+  -> laptop reconnects, discards old work, and adopts Monday
+```
+
+“Finish synchronizing first” means row changes accepted by the account and
+audio uploads acknowledged. It makes work eligible for the safety copy;
+it does not put that work into the selected historical backup. The system
+cannot verify that every offline device has finished or prevent further
+offline edits while restoration happens.
+
+### Confirmation states the loss boundary
+
+Name the library and selected backup time. Explain:
+
+> Restore this backup on all devices?
+>
+> Whispering will save a safety copy of the current account library before
+> replacing it. Work that has not synchronized from other devices will be
+> discarded when those devices reconnect. Open Whispering on those devices
+> and finish synchronization first if you want that work preserved.
+
+Show the selected backup's audio coverage and the current account state's
+coverage separately. Incomplete coverage does not prevent saving a safety
+copy or restoring, but its omissions must be explicit. Unknown coverage must
+not be reported as zero missing files. A failed attempt to inspect coverage
+is not proof that the audio is absent. An offline device that later learns
+retirement explains that the library was restored and its old work discarded.
+
+### Replacement and the safety copy commit together
+
 **A restore is one request, and the authority keeps the safety copy in the
 transaction that replaces the library.**
 
@@ -39,33 +91,55 @@ generation or head differ from `expected`; inserts `safety` as a kept copy with
 `automatic = 0`; replaces the log with `state`; advances the generation. After
 the commit it retires the hub, as `activate()` does today, so a rollback leaves
 the admitted sockets usable. The transaction has no state before it runs and
-none after it fails. No object moves: every row in the restored copy has its
-bytes because the copy held the row, and every row it drops is held by the
-safety copy.
+none after it fails. No object moves during activation. Retained copies
+protect existing referenced bytes; they cannot supply audio that was never
+uploaded or was absent from an import. The safety copy retains the rows
+replacement drops. Missing restored audio stays explicitly unavailable.
+After reload, ADR-0393's synchronizer downloads missing attachments for current
+rows. Historical null cells never authorize replacing previously completed
+bytes at the same row address.
 
 **`expected` is a data-safety check, not a courtesy.** The safety copy is
 rendered by the client from its replica. If another device pushed an edit the
 client has not received, `expected` is behind the authority, the restore is
 refused, and the person sees "the library changed while you were restoring;
-try again". Trying again renders a new safety copy that has that edit. Nothing
-a person has is ever replaced before a copy of it is kept.
+try again". Trying again renders a new safety copy that has that accepted
+edit. The safety copy covers the captured account state through the folder
+codecs. It cannot include unseen offline work, and its row files cannot
+supply audio that never reached the account. It is not a guarantee of complete
+reversibility.
 
 **There is no receipt and no operation id.** `restore(id)` downloads the copy,
 reads it into a fresh document through the table codecs, renders the current
 download as `safety`, and sends the request. A retry after a lost response is
-refused `conflict`, because the generation advanced, and the person is looking
-at the restored library, because retirement reloaded it. A page that dies
-before the response is either looking at the restored library on reopen or at
-the unchanged one, and in both cases it has nothing to reconcile.
+refused `conflict` if the expected position has moved. Reopening loads the
+actual current library. A lost response or retirement alone does not prove
+this particular request won: another restore may have advanced the generation.
+Do not blindly submit a fresh replacement after an unknown outcome or report
+the selected backup as restored without evidence tying success to this request.
+There is no client recovery journal; the UI returns to the actual current
+state and permits another deliberate restore.
 
 Each multipart part is read through the same 16 MiB streaming refusal that
 `StoreAuthority.fetch` applies to a baseline body.
 
-**Retirement is unchanged.** Sockets receive `retired`, replicas discard their
-cache under the library claim, `createDeparture` closes the App and reloads. On
-the initiating device the `retired` frame may arrive before the HTTP response,
-so the Backups screen shows "Restoring…" and treats departure as success; it
-renders an error only when the response is a refusal and no retirement fired.
+**Retirement fences old work before reopening.** Sockets receive `retired`;
+replicas discard their old row-state cache under the library claim.
+`createDeparture` closes the App and reloads. Admission must precede resuming
+old row queues and attachment work on every reconnect. In-flight byte requests
+must not resurrect retired rows or bypass account retention.
+
+Row-state invalidation does not mean wiping local attachment storage.
+Reuse matching immutable files needed by restored rows. Discard abandoned
+old-generation work under this policy; do not move it into a recovery queue.
+Reconcile obsolete local files only after identifying the replacement's
+requirements. Account objects retained by any backup remain protected under
+ADR-0394.
+
+On the initiating device, retirement may arrive before the HTTP response.
+The screen shows "Restoring…" until departure and reopens the current library.
+A confirmed response can establish request success; departure alone establishes
+only that the old generation is no longer current.
 
 ## Consequences
 
@@ -101,5 +175,9 @@ other copy.
   never saw.
 - The authority copies its own `_snapshot` and `_log` rows as the safety copy.
   Atomic and independent of client code, but a second shape beside the folder.
-- Skip the safety copy because a daily copy exists. A daily copy is up to a
-  day old; the safety copy is what makes a restore reversible to the second.
+- Skip the safety copy because a daily copy exists. An on-open daily copy can
+  lag the current account state. Capture that state in the replacement
+  transaction, with codec fidelity and audio coverage explicitly bounded.
+- Rescue or automatically merge old offline work. Refused: restore selects
+  one historical library as current everywhere. Preserving abandoned work
+  would require a second recovery workflow and weaken replacement semantics.

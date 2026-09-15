@@ -31,6 +31,20 @@ against the removed container and retains historical writer metadata.
 
 ## Decision
 
+ADR-0395 defines the user contract: ordinary synchronization brings devices
+together; restore deliberately makes the selected backup current everywhere.
+Retirement discards old unsynchronized work, including completed recordings
+whose audio has not uploaded. The pre-restore safety copy covers captured
+account state through the folder codecs, with audio coverage separately
+reported. It cannot preserve unseen offline work. There is no automatic
+merge, abandoned-work inbox, or rescue queue.
+
+Finish both row synchronization and audio upload before restore if that work
+should enter the safety copy. An offline device cannot be certified current
+by another device and can continue producing work until it learns retirement.
+Those later edits are discarded too. Matching immutable local audio required
+by restored rows survives row-state cache invalidation.
+
 Keep folding automatic and private. Introduce reconstruction only as a deliberate
 replacement of a library's contents, after measured pressure or a restore need
 justifies building it. The library keeps its stable logical address. Its current

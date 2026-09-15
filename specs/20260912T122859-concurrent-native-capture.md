@@ -30,8 +30,9 @@ adding a second recorder owner.
 - `packages/app/src/recorder.ts` is the saved-recording contract;
   `packages/app/src/recording/desktop.ts` is the adapter over the native
   commands. Wave 1.4 of the app-hub spec changes `RecordingFactory` to
-  `(appId, options)` with `start(params)` naming the destination store. This
-  spec lands on that signature, not the current one.
+  an App-owned recorder with `start(params)` naming an existing row's attachment.
+  This spec lands on ADR-0393's row-first contract, not a destination-store
+  intermediate API. The current recorder still returns a blob ID.
 - `apps/epicenter/src-tauri/capabilities/` scopes native access by app window
   and origin. Re-read the current grants before introducing session commands
   or channels; `honeycrisp` and `mail` windows do not hold the trusted
@@ -41,8 +42,11 @@ adding a second recorder owner.
 
 ## Dependency
 
-Land after app-hub wave 1.4 (`RecordingFactory` drops `replica`; `start`
-names the destination). Everything below is independent of the two-scope
+Build the attachment owner/read contract first, then integrate the adapter
+with app-hub wave 1.4 (`start` takes an existing row's attachment). Joint saved
+capture/recovery evidence completes the local attachment checkpoint; it is not
+a prerequisite to its own adapter. Native admission work can proceed separately,
+but publication must use that same attachment owner. Everything below is independent of the two-scope
 migration otherwise, and the Rust work can proceed in parallel with waves 2
 through 4 as long as the adapter is written against the wave 1.4 signature.
 
@@ -62,8 +66,8 @@ Native capture owner
   sessions: session ID -> caller, input, phase, worker, outcome
   inputs:   resolved device ID -> session ID
 
-Whispering App -> Recording -> mic 1 -> native staged WAV -> destination store blob
-Second App     -> Recording -> mic 2 -> native staged WAV -> destination store blob
+Whispering App -> Recording -> mic 1 -> staged WAV -> existing row's attachment
+Second App     -> Recording -> mic 2 -> staged WAV -> existing row's attachment
 
 starting -> capturing -> stopping -> capture released
                                          |
@@ -121,10 +125,14 @@ session's publication may settle while the next one captures; its completion
 must not affect the next session. Bound pending publication so a slow disk
 cannot accumulate work indefinitely.
 
-Deliberate App close cancels its unresolved sessions. Abrupt reload keeps the
-existing saved-capture recovery contract: recovery matches the window's
-session to its App and destination store, and never adopts another App's
-capture.
+Before deliberate App close, the application saves wanted capture or explicitly
+cancels it. Closure releases capture hardware and drains admitted publication;
+it does not purge saved attachments or pending uploads. Abrupt reload uses the
+saved-capture recovery contract: recovery matches the window's
+session to its App, original library, and row attachment. It never adopts
+another App's capture or redirects an account recording into Local. Confirmed
+generation retirement follows the attachment/restore contract, not ordinary
+crash recovery.
 
 ### 3. Keep browser capture out of scope
 
@@ -143,11 +151,13 @@ const { data: recording, error: startError } =
     await service.start(params);
 ```
 
-This remains the call after native concurrency lands, with `params` also
-carrying the destination store per wave 1.4. `selectedDeviceId` identifies the
-exact native input. Its captured `recording.stop()` keeps returning saved
-bytes; another App's capture no longer causes a host-wide busy refusal.
-Whispering's history, rows, and insertion policy remain above saved capture.
+After the row-first integration, the application creates a row before this call
+and `params.into` carries that row's attachment. `selectedDeviceId` identifies
+the exact native input. `recording.stop()` completes the attachment and reports
+completion metadata; it does not allocate another row or blob identity. Another
+App's capture no longer causes a host-wide busy refusal. Whispering owns its
+history and row-creation policy; the library owns attachment publication and
+automatic account delivery.
 
 ## Native evidence
 
@@ -194,7 +204,7 @@ establish the following outcomes:
 
 | Scenario | Required outcome |
 | --- | --- |
-| Long Whispering recording on mic 1; repeated short captures from a second App on mic 2 | Both sources are correct, saved audio remains continuous, each blob reaches its own destination store |
+| Long Whispering recording on mic 1; repeated short captures from a second App on mic 2 | Both sources are correct, saved audio remains continuous, each capture completes its original row's attachment |
 | Two input devices with identical display names | Selection and reservation distinguish their opaque IDs |
 | Same-device starts race, including while a previous capture is stopping | One admitted capture; typed busy refusal leaves it intact |
 | Mic 2 startup or teardown stalls | Mic 1 remains controllable; no shared lock waits on mic 2 |
@@ -202,7 +212,7 @@ establish the following outcomes:
 | Unplug one mic | Only its capture ends; accepted saved audio remains recoverable |
 | Old session's stop, error, or ended event arrives late | No effect on a newer session or another App |
 | App close or owner-window destruction during startup | Pending acquisition cannot leave an orphaned stream; other owners continue |
-| Reload with saved capture | Exact saved recovery to the matching App and destination store |
+| Reload with saved capture | Exact saved recovery to the matching App, library, and row attachment; no fallback to Local or a different account |
 | Long run under CPU and disk pressure | Bounded memory and pending work; measure sample drops and recording continuity |
 
 Record the backend, OS, and device pair for macOS/CoreAudio, Windows/WASAPI,
