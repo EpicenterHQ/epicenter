@@ -9,15 +9,15 @@
  * self-hosted Node binary (against Garage, AWS S3, ...). The endpoint is
  * configuration, not code: that is the blob store's answer to vendor lock-in.
  *
- * Blob bytes never pass through the server. PUT and GET are presigned and the
- * client talks to the store directly; only the cheap control-plane operations
- * (exists for reads, list for the index, delete) are signed and made
- * server-side here. Grounded against the aws4fetch source and Cloudflare R2
+ * Client uploads and downloads use presigned URLs directly. Attachment
+ * finalization separately reads and hashes the immutable object before publishing
+ * verified evidence. Control operations (exists, list, delete) are signed here.
+ * Grounded against the aws4fetch source and Cloudflare R2
  * docs; see
  * ADR-0089 (presigned S3 kernel) as amended by ADR-0148 (opaque BlobId).
  *
- * Presigned PUTs use SigV4's `UNSIGNED-PAYLOAD`: the server never reads or
- * hashes the bytes. `Content-Type` and `If-None-Match: *` are signed headers.
+ * Presigned PUTs use SigV4's `UNSIGNED-PAYLOAD`; attachment tickets additionally
+ * sign the supplied checksum. `Content-Type` and `If-None-Match: *` are signed headers.
  * The latter makes one opaque BlobId immutable at the object-store boundary:
  * the first PUT wins and a repeated PUT receives 412 Precondition Failed.
  */
@@ -105,26 +105,39 @@ export function createS3BlobStore(config: S3BlobStoreConfig) {
 	return {
 		/**
 		 * Presign a create-only PUT. `contentType` and `If-None-Match: *` are
-		 * pinned into the signature, so the client must echo both verbatim.
+		 * pinned into the signature. Attachment uploads also pin the SHA-256
+		 * checksum so a provider can reject incorrect bytes before occupying the key.
 		 */
 		async presignPut({
 			key,
 			contentType,
+			sha256,
 			expiresInSeconds,
 		}: {
 			key: string;
 			contentType: string;
+			sha256?: string;
 			expiresInSeconds: number;
 		}): Promise<PresignedPut> {
 			const url = objectUrl(key);
 			url.searchParams.set('X-Amz-Expires', String(expiresInSeconds));
+			const requiredHeaders: Record<string, string> = {
+				'content-type': contentType,
+				'if-none-match': '*',
+			};
+			if (sha256 !== undefined) {
+				if (!/^[a-f0-9]{64}$/.test(sha256))
+					throw new TypeError('Expected a hexadecimal SHA-256 digest.');
+				requiredHeaders['x-amz-checksum-sha256'] = btoa(
+					String.fromCharCode(
+						...sha256.match(/../g)!.map((byte) => Number.parseInt(byte, 16)),
+					),
+				);
+			}
 
 			const signed = await client.sign(url, {
 				method: 'PUT',
-				headers: {
-					'content-type': contentType,
-					'if-none-match': '*',
-				},
+				headers: requiredHeaders,
 				// signQuery: signature in the query string (a presigned URL).
 				// allHeaders: pin both content-type and if-none-match; aws4fetch
 				// otherwise excludes them from the canonical signed-header set.
@@ -133,10 +146,7 @@ export function createS3BlobStore(config: S3BlobStoreConfig) {
 
 			return {
 				url: signed.url,
-				requiredHeaders: {
-					'content-type': contentType,
-					'if-none-match': '*',
-				},
+				requiredHeaders,
 			};
 		},
 

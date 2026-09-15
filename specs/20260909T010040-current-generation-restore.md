@@ -58,7 +58,7 @@ to their current workstreams; this checkpoint does not stage them.
 | Checkpoint | Implemented behavior | Verification evidence | Remaining acceptance gaps | Next dependency |
 | --- | --- | --- | --- | --- |
 | 1. Local save | Finished-file creation, disposable capture/import, durable Saved and original inference selection implemented. Independent cumulative review and exact-request race follow-up resolved; no further App restructuring required | App 102 pass / 401 assertions; blobs and attachment 107 / 1,563; host HTTP 46 / 408. Whispering domain 20 / 77, capture 17 / 67, closure 10 / 34, inference 9 / 32, pipeline 12 / 43. Native 157 pass / 2 ignored. App, blobs, data DOM, both Whispering leaves and recursive Epicenter typechecks pass. Chromium offline capture/save/reopen/playback smoke passes; physical microphone, real WKWebView reload and owned-process interruption/reopen probes pass | Full Whispering UI/account A/B journey remains incomplete. Native probes are bounded hardware evidence, not whole-product acceptance. Windows directory durability and folder-codec reconstruction are unproved; the latter belongs to excluded recovery | Implement reviewed publication protocol and library-owned transfer |
-| 2. Account transfer | Unmounted publication/transport draft; focused design review selects verification followed by atomic publication, without unverified reservations | Actual workerd full-object verification benchmark completed; no replacement delivery journey verified | Authenticated A/B transport, durable retries, provider enforcement and native streaming | Apply publication decision, then mount transfer behind the library owner |
+| 2. Account transfer | Reviewed authenticated publication mount uses verification followed by atomic publication, without reservations. Library worker and one-shot byte adapters are in progress, not yet accepted | Protocol/signing/mount: 11 Bun pass / 55 assertions; workerd publication/current-generation/retirement: 11 pass; server two-leaf typecheck passes. Actual workerd verifier benchmark completed. No replacement A/B delivery journey yet | Authenticated persisted A/B journey, failure matrix and provider enforcement. Bun 1.3.14 byte networking failed bounded-memory measurement; native reqwest replacement is in progress | Complete native streaming and library worker, migrate actual consumers, then review joint delivery |
 | 3. Failure/race and API review | Not started | Historical counts are not replacement acceptance | Failure matrix and cumulative capture/import/playback/export/inference review | Reviewed checkpoint 2 |
 
 The library owns one attachment synchronizer for its captured account, library,
@@ -163,6 +163,23 @@ network buffer, bounded upload/download streams, verified temporary download,
 and retirement/deletion checks before local publication. S3 checksum and
 create-only enforcement also need actual provider evidence; signing tests alone
 cannot establish provider behavior or bucket CORS configuration.
+
+Publication implementation review kept the mechanism. It required invalid JSON
+to return 400 rather than 503 and corrected the S3 overview's no-hashing claim;
+both are repaired. Workerd eviction exposed a live ten-minute timeout after
+successful verification. An explicitly cleared deadline now permits immediate
+eviction and an identical retry without another object read. The current named
+Durable Object supplies its own storage prefix; no persisted scope mapping was
+added. Cloud and self-host Worker use this mount. The Bun self-host deployment
+still has no store backend and is not covered by that result.
+
+The first native byte path used Bun's existing sidecar. Actual disk-backed HTTP
+measurements rejected it as bounded-memory evidence: incremental peak RSS was
+75,464,704 bytes for a 17,280,044-byte file, 410,664,960 for a 172,800,044-byte
+file, and 2,508,505,088 for 1 GiB. A logically chunked reader does not fix runtime
+fetch buffering. Native one-shot networking is being replaced by reqwest under
+the same library owner; no range protocol, runtime upgrade, or application
+upload runner is introduced.
 
 Consumers: switch Whispering capture and imports through finished-file creation,
 then playback, export and inference through local attachment reads. Replace its
