@@ -59,7 +59,35 @@ to their current workstreams; this checkpoint does not stage them.
 | --- | --- | --- | --- | --- |
 | 1. Local save | Finished-file creation, disposable capture/import, durable Saved and original inference selection implemented. Independent cumulative review and exact-request race follow-up resolved; no further App restructuring required | App 102 pass / 401 assertions; blobs and attachment 107 / 1,563; host HTTP 46 / 408. Whispering domain 20 / 77, capture 17 / 67, closure 10 / 34, inference 9 / 32, pipeline 12 / 43. Native 157 pass / 2 ignored. App, blobs, data DOM, both Whispering leaves and recursive Epicenter typechecks pass. Chromium offline capture/save/reopen/playback smoke passes; physical microphone, real WKWebView reload and owned-process interruption/reopen probes pass | Full Whispering UI/account A/B journey remains incomplete. Native probes are bounded hardware evidence, not whole-product acceptance. Windows directory durability and folder-codec reconstruction are unproved; the latter belongs to excluded recovery | Implement reviewed publication protocol and library-owned transfer |
 | 2. Account transfer | Authenticated publication, library worker and native one-shot transfers implemented and reviewed. Whispering uses library status and bounded controls; its upload runner, destructive copy controls and public `blobs.remote` are removed | Protocol/signing/mount: 12 Bun pass / 61 assertions; workerd publication/current-generation/retirement: 11 pass. Authenticated independently persisted browser A/B journey passes offline capture, restart, reconnect, automatic delivery, offline playback, lost responses and delayed availability. Native 169 pass / 3 ignored; streamed HTTP RSS stays near 22 to 24 MiB through 1 GiB | Full Whispering UI A/B and actual object-provider enforcement remain unproved. Browser microphone is synthetic; native physical capture evidence is separate | Native Whispering UI journey and disposable real-provider verification, without expanding App architecture |
-| 3. Failure/race and API review | Independent cumulative review retained the design. Timeout and retirement-capacity findings repaired and verified | Blobs plus data attachment suites: 136 pass / 1,648 assertions, including worker 19 / 44 and actual store 17 / 50. App capture/lifetime: 102 / 401; native bridge 5 / 15. Whispering domain 12 / 39, App domains 3 / 9, capture 17 / 67, closure 10 / 34, inference 9 / 32, pipeline 12 / 40. Affected typechecks pass except the same eight main-data DOM errors | Full native product journey, actual provider and Windows durability acceptance | Preserve these gaps; do not claim the complete architecture or production migration |
+| 3. Failure/race and API review | Independent review of all three attachment commits against 09b1965e55 retained the design. Repaired filesystem observation after unconfirmed download or acknowledgment publication; presence now repeats durability barriers, including after reopen | Blobs and data attachment suites: 139 pass / 1,669 assertions. Three new filesystem fault regressions failed before repair, then passed with 21 assertions; independent follow-up approved. App 102 / 401; bridge 5 / 15; host HTTP 46 / 408; Whispering focused suites and affected typechecks pass. Foundation failures and eight main-data DOM errors reproduce at 09b1965e55 | Full native product A/B journey, actual provider and Windows durability acceptance | Advance actual native Whispering UI acceptance; preserve all unproved gaps |
+
+
+Continuation review, 2026-09-16: a download can rename verified bytes and then
+fail its directory flush. The worker previously accepted visible metadata on
+retry or reopen and reported local completion without settling that failure.
+A matching acknowledgment receipt had the same gap. Filesystem attachment
+observation now synchronizes data, metadata, matching receipts, and ancestor
+directories before reporting local presence or cleared upload debt. Failures
+remain storage errors. The worker still owns final generation admission;
+reads remain local. Repeating barriers adds filesystem work to observations.
+No public API, publication protocol, or destination changed.
+
+The focused regressions use actual filesystem synchronization faults after
+rename, an HTTP download, live retry, and independent reopen. All three failed
+against the prior implementation and pass after repair. Independent cumulative
+review and the repair follow-up found no further blocker. Native Rust remains
+169 pass / 3 ignored; publication/signing/mount remains 12 pass / 61 assertions;
+workerd remains 11 pass. The authenticated browser journey passed again,
+including offline capture/restart, automatic A-to-B delivery, offline playback,
+lost responses, and delayed remote availability. This is still package-consumer
+evidence, not native Whispering A/B or real-provider conformance.
+
+Baseline attribution used a separate detached 09b1965e55 checkout with its own
+installed dependencies. Both baseline and current foundation have 7 pass and
+2 fail: initial generation fetch returns 404 and unadmitted sockets return 403
+(the baseline expects 409; concurrent current tests expect 404). Both main-data
+typechecks report the same eight DOM-boundary diagnostics; the current DOM
+leaf passes. These unrelated files were neither repaired nor staged.
 
 The library owns one attachment synchronizer for its captured account, library,
 and generation. Local opens no transfer worker and keeps its existing persistent

@@ -4,16 +4,17 @@
  * failures. The authenticated browser journey separately proves wire integration.
  */
 import { afterEach, expect, spyOn, test } from 'bun:test';
+import * as fs from 'node:fs/promises';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
 	attachmentStorageId,
 	AttachmentTransferError,
 	BlobStoreError,
 } from '@epicenter/blobs';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	createAttachmentSync,
 	type AttachmentTransport,
@@ -227,6 +228,73 @@ test('automatic HTTP download survives restart without upload debt or read-time 
 	const second = open();
 	await until(() => second.value.status().items[0]?.transfer === 'idle');
 	expect(requests).toEqual(['GET', 'GET']);
+});
+
+test.each([
+	false,
+	true,
+])('download durability failure remains visible until barriers succeed, reopen=%s', async (reopen) => {
+	const { open, bytes, id, content, respond, requests, directory } =
+		await setup();
+	expectOk(await bytes.delete(id));
+	let downloads = 0;
+	const server = Bun.serve({
+		hostname: '127.0.0.1',
+		port: 0,
+		fetch() {
+			downloads++;
+			return new Response('audio', {
+				headers: { 'content-type': 'audio/wav' },
+			});
+		},
+	});
+	cleanups.push(async () => server.stop(true));
+	respond(async () => Response.json({ url: server.url.href, content }));
+	const originalOpen = fs.open;
+	let blocked = true;
+	let barriers = 0;
+	const openSpy = spyOn(fs, 'open').mockImplementation(async (...args) => {
+		const handle = await originalOpen(...args);
+		const sync = handle.sync.bind(handle);
+		handle.sync = async () => {
+			if (resolve(String(args[0])) === resolve(directory)) {
+				barriers++;
+				if (blocked) throw new Error('Downloaded directory flush failed');
+			}
+			await sync();
+		};
+		return handle;
+	});
+	let worker = open();
+	try {
+		await until(
+			() => worker.value.status().items[0]?.error?.kind === 'storage',
+		);
+		expect(await Bun.file(join(directory, id, 'data')).text()).toBe('audio');
+		expect(
+			expectErr(await createBunBlobStore({ directory }).stat(id)).name,
+		).toBe('BlobStoreFailed');
+		if (reopen) {
+			await worker.close();
+			worker = open();
+		} else worker.value.retry();
+		await until(() => worker.value.status().items[0]?.presence === 'error');
+		expect(requests).toEqual(['GET']);
+		const failedBarriers = barriers;
+		blocked = false;
+		worker.value.retry();
+		await until(() => worker.value.status().items[0]?.transfer === 'idle');
+		expect(barriers).toBeGreaterThan(failedBarriers);
+		expect(worker.value.status().items[0]?.presence).toBe('local');
+		expect(downloads).toBe(1);
+		expect(requests).toEqual(reopen ? ['GET'] : ['GET', 'GET']);
+		expect(expectOk(await bytes.stat(id)).attachment?.pendingUpload).toBe(
+			false,
+		);
+	} finally {
+		await worker.close();
+		openSpy.mockRestore();
+	}
 });
 
 test('pause downloads admits no HTTP bytes and resume uses the same owner', async () => {

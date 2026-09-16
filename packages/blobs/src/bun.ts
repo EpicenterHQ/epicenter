@@ -258,6 +258,15 @@ export function createBunBlobStore({ directory }: { directory: string }) {
 			if (!isFileSystemError(cause, 'ENOENT'))
 				return BlobStoreError.BlobStoreFailed({ id, cause });
 		}
+		try {
+			// Rename makes files visible before publication or acknowledgment
+			// barriers finish. Observation must settle them even after reopen.
+			if (acknowledged)
+				await syncFile(join(blobDirectory(id), 'attachment-ack.json'));
+			await syncPublication(blobDirectory(id));
+		} catch (cause) {
+			return BlobStoreError.BlobStoreFailed({ id, cause });
+		}
 		return Ok({
 			...metadata,
 			attachment: {

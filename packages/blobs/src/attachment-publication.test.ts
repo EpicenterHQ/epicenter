@@ -98,6 +98,50 @@ test('filesystem retries reject different bytes even when immutable metadata was
 	);
 });
 
+test('filesystem observation cannot accept an unconfirmed acknowledgment after reopen', async () => {
+	const directory = await mkdtemp(join(tmpdir(), 'attachment-ack-barrier-'));
+	cleanup.push(directory);
+	const reopen = () => createBunBlobStore({ directory });
+	const id = attachmentStorageId('recordings', 'a'.repeat(24));
+	const content = expectOk(
+		await reopen().attachments.put(id, new Blob(['audio']), 7),
+	);
+	const receiptPath = join(directory, id, 'attachment-ack.json');
+	const originalOpen = fs.open;
+	let blocked = true;
+	const barriers: string[] = [];
+	const openSpy = spyOn(fs, 'open').mockImplementation(async (...args) => {
+		const handle = await originalOpen(...args);
+		const sync = handle.sync.bind(handle);
+		handle.sync = async () => {
+			const path = resolve(String(args[0]));
+			barriers.push(path);
+			if (
+				blocked &&
+				path === resolve(join(directory, id)) &&
+				(await Bun.file(receiptPath).exists())
+			)
+				throw new Error('Acknowledgment directory flush failed');
+			await sync();
+		};
+		return handle;
+	});
+	try {
+		expectErr(await reopen().attachments.acknowledge(id, content, 7));
+		expect(await Bun.file(receiptPath).exists()).toBe(true);
+		expect(expectErr(await reopen().stat(id)).name).toBe('BlobStoreFailed');
+		blocked = false;
+		barriers.length = 0;
+		expect(expectOk(await reopen().stat(id)).attachment?.pendingUpload).toBe(
+			false,
+		);
+		expect(barriers).toContain(resolve(receiptPath));
+		expect(barriers).toContain(resolve(join(directory, id)));
+	} finally {
+		openSpy.mockRestore();
+	}
+});
+
 test.each(['after rename', 'before staging'] as const)(
 	'filesystem %s retries cannot confirm publication until ancestor barriers succeed',
 	async (failurePoint) => {
