@@ -146,8 +146,25 @@ export function createDesktopBrokerAuth({
 		headers.delete('authorization');
 		headers.delete('cookie');
 		const signal = AbortSignal.any([lifetime.signal, remote.signal]);
-		const response = await fetchImpl(new Request(local, remote), {
+		// Reconstructing a Request turns even binary and FormData bodies into
+		// streaming uploads, which WebKit rejects. Preserve the encoded bytes
+		// and cancel their preparation with the captured request lifetime.
+		const body = remote.body
+			? await new Response(
+					remote.body.pipeThrough(new TransformStream(), { signal }),
+				).blob()
+			: undefined;
+		signal.throwIfAborted();
+		const response = await fetchImpl(local, {
+			method: remote.method,
 			headers,
+			body,
+			cache: remote.cache,
+			integrity: remote.integrity,
+			keepalive: remote.keepalive,
+			mode: remote.mode,
+			referrer: remote.referrer,
+			referrerPolicy: remote.referrerPolicy,
 			credentials: 'include',
 			redirect: 'manual',
 			signal,

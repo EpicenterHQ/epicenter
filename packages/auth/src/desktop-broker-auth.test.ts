@@ -63,6 +63,97 @@ test('window fetch attaches no credential to any request', async () => {
 	}
 });
 
+test('desktop account POST preserves binary and multipart bodies as replayable bytes', async () => {
+	const binary = new Uint8Array([0, 255, 128, 42]);
+	const requests: Request[] = [];
+	const startup = createDesktopBrokerAuth({
+		bootstrap,
+		brokerBaseURL: 'http://127.0.0.1:39130',
+		fetch: async (input, init) => {
+			// WKWebView rejects a Request reconstructed with another Request's
+			// ReadableStream body. The bridge must supply a replayable body.
+			expect(init?.body).toBeDefined();
+			expect(init?.body).not.toBeInstanceOf(ReadableStream);
+			requests.push(new Request(input, init));
+			return new Response(null, { status: 204 });
+		},
+	});
+	const account = selectedAccount(startup.auth!);
+	try {
+		await account.fetch('/api/current?generation=1', {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/octet-stream',
+				authorization: 'Bearer forbidden',
+				cookie: 'forbidden=1',
+			},
+			body: binary,
+		});
+		const form = new FormData();
+		form.set('file', new File([binary], 'audio.wav', { type: 'audio/wav' }));
+		form.set('model', 'selected-model');
+		await account.fetch(
+			new Request('https://api.epicenter.so/v1/audio/transcriptions', {
+				method: 'POST',
+				body: form,
+			}),
+		);
+		const first = requests[0]!;
+		expect(first.url).toBe(
+			'http://127.0.0.1:39130/_epicenter/account/http?path=%2Fapi%2Fcurrent%3Fgeneration%3D1',
+		);
+		expect(first.method).toBe('POST');
+		expect(first.headers.get('authorization')).toBeNull();
+		expect(first.headers.get('cookie')).toBeNull();
+		expect(first.headers.get('content-type')).toBe('application/octet-stream');
+		expect(first.credentials).toBe('include');
+		expect(first.redirect).toBe('manual');
+		expect(new Uint8Array(await first.arrayBuffer())).toEqual(binary);
+		const received = await requests[1]!.formData();
+		expect(received.get('model')).toBe('selected-model');
+		const file = received.get('file');
+		expect(file).toBeInstanceOf(File);
+		expect(new Uint8Array(await (file as File).arrayBuffer())).toEqual(binary);
+	} finally {
+		startup[Symbol.dispose]();
+	}
+});
+
+for (const interruption of ['account retirement', 'request cancellation']) {
+	test(`${interruption} cancels body preparation before broker dispatch`, async () => {
+		let dispatched = false;
+		let cancelled = false;
+		const body = new ReadableStream<Uint8Array>({
+			cancel() {
+				cancelled = true;
+			},
+		});
+		const startup = createDesktopBrokerAuth({
+			bootstrap,
+			brokerBaseURL: 'http://127.0.0.1:39130',
+			fetch: async () => {
+				dispatched = true;
+				return new Response(null, { status: 204 });
+			},
+		});
+		const controller = new AbortController();
+		const pending = selectedAccount(startup.auth!).fetch('/api/current', {
+			method: 'POST',
+			body,
+			signal: controller.signal,
+		});
+		if (interruption === 'account retirement') startup[Symbol.dispose]();
+		else controller.abort();
+		try {
+			await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+			expect(dispatched).toBe(false);
+			expect(cancelled).toBe(true);
+		} finally {
+			startup[Symbol.dispose]();
+		}
+	});
+}
+
 test('account commands post to the same-origin broker with cookies', async () => {
 	const { calls, fetch } = recordingFetch(
 		() => new Response(null, { status: 202 }),

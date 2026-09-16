@@ -60,6 +60,7 @@ to their current workstreams; this checkpoint does not stage them.
 | 1. Local save | Finished-file creation, disposable capture/import, durable Saved and original inference selection implemented. Independent cumulative review and exact-request race follow-up resolved; no further App restructuring required | App 102 pass / 401 assertions; blobs and attachment 107 / 1,563; host HTTP 46 / 408. Whispering domain 20 / 77, capture 17 / 67, closure 10 / 34, inference 9 / 32, pipeline 12 / 43. Native 157 pass / 2 ignored. App, blobs, data DOM, both Whispering leaves and recursive Epicenter typechecks pass. Chromium offline capture/save/reopen/playback smoke passes; physical microphone, real WKWebView reload and owned-process interruption/reopen probes pass | Full Whispering UI/account A/B journey remains incomplete. Native probes are bounded hardware evidence, not whole-product acceptance. Windows directory durability and folder-codec reconstruction are unproved; the latter belongs to excluded recovery | Implement reviewed publication protocol and library-owned transfer |
 | 2. Account transfer | Authenticated publication, library worker and native one-shot transfers implemented and reviewed. Whispering uses library status and bounded controls; its upload runner, destructive copy controls and public `blobs.remote` are removed | Protocol/signing/mount: 12 Bun pass / 61 assertions; workerd publication/current-generation/retirement: 11 pass. Authenticated independently persisted browser A/B journey passes offline capture, restart, reconnect, automatic delivery, offline playback, lost responses and delayed availability. Native 169 pass / 3 ignored; streamed HTTP RSS stays near 22 to 24 MiB through 1 GiB | Full Whispering UI A/B and actual object-provider enforcement remain unproved. Browser microphone is synthetic; native physical capture evidence is separate | Native Whispering UI journey and disposable real-provider verification, without expanding App architecture |
 | 3. Failure/race and API review | Independent review of all three attachment commits against 09b1965e55 retained the design. Repaired filesystem observation after unconfirmed download or acknowledgment publication; presence now repeats durability barriers, including after reopen | Blobs and data attachment suites: 139 pass / 1,669 assertions. Three new filesystem fault regressions failed before repair, then passed with 21 assertions; independent follow-up approved. App 102 / 401; bridge 5 / 15; host HTTP 46 / 408; Whispering focused suites and affected typechecks pass. Foundation failures and eight main-data DOM errors reproduce at 09b1965e55 | Full native product A/B journey, actual provider and Windows durability acceptance | Advance actual native Whispering UI acceptance; preserve all unproved gaps |
+| 4. Native product acceptance | Actual Whispering Local import, playback, and native/Bun restart pass. Personal startup exposed a WebKit request-body defect; the desktop broker now preserves encoded bodies and cancels preparation on retirement | Real WKWebView probe: direct binary POST reaches HTTP; reconstructed Request throws unsupported stream upload. Auth 141 pass / 587 assertions; host account/auth 51 / 327; focused broker 16 / 57. Auth typecheck and Whispering host build pass; rebuilt native Personal startup and Local retention without adoption pass | Physical capture blocked: macOS lists no input device. Native account A/B import journey is in progress; provider conformance unavailable | Complete native A/B imported-audio delivery and bounded UI controls, then rerun capture with a physical microphone |
 
 
 Continuation review, 2026-09-16: a download can rename verified bytes and then
@@ -88,6 +89,19 @@ installed dependencies. Both baseline and current foundation have 7 pass and
 (the baseline expects 409; concurrent current tests expect 404). Both main-data
 typechecks report the same eight DOM-boundary diagnostics; the current DOM
 leaf passes. These unrelated files were neither repaired nor staged.
+
+
+Native acceptance exposed a second defect outside the attachment worker:
+`createDesktopBrokerAuth` reconstructed a request from another request's body.
+WKWebView rejected even a binary generation seed with
+`NotSupportedError: ReadableStream uploading is not supported`, preventing
+Personal-library startup. A real native probe reproduced the difference between
+a direct binary POST and the reconstructed request. The broker now snapshots
+the encoded body, preserves its content headers, and fences dispatch after
+signal-cancelable preparation. Independent review approved the fix, and the
+rebuilt native Whispering Personal library opens. No credential, destination,
+or auth-schema change was needed. Brokered bodies are materialized in memory;
+native attachment bytes still use the separate streaming reqwest path.
 
 The library owns one attachment synchronizer for its captured account, library,
 and generation. Local opens no transfer worker and keeps its existing persistent
