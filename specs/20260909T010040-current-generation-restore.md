@@ -103,6 +103,15 @@ rebuilt native Whispering Personal library opens. No credential, destination,
 or auth-schema change was needed. Brokered bodies are materialized in memory;
 native attachment bytes still use the separate streaming reqwest path.
 
+Native account upload exposed a third defect: reqwest appended a second
+`Content-Type` after applying the ticket headers. The fixture consequently
+stored `audio/wav, audio/wav`; full-object verification correctly refused it.
+The upload now sends only the ticket's validated MIME header. A real HTTP
+regression observed both values before repair and exactly one afterward.
+Independent review approved the repair; native tests remain 169 pass,
+0 fail, 3 ignored. Checksum and create-only headers, streaming, and cancellation
+are unchanged. Rebuilt native A/B acceptance remains the next verification.
+
 The library owns one attachment synchronizer for its captured account, library,
 and generation. Local opens no transfer worker and keeps its existing persistent
 namespace across account changes. Capture and inference retain their original

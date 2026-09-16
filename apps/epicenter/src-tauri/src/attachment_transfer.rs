@@ -396,7 +396,6 @@ async fn transfer(
     if matches!(direction, Direction::Upload) {
         let file = open_verified(&directory, expected, token).await?;
         let sending = request
-            .header(reqwest::header::CONTENT_TYPE, &expected.content_type)
             .header(reqwest::header::CONTENT_LENGTH, expected.size as u64)
             .body(reqwest::Body::wrap_stream(ReaderStream::with_capacity(
                 file, CHUNK,
@@ -607,6 +606,13 @@ mod tests {
             }
             let header = String::from_utf8(header).unwrap();
             if header.starts_with("PUT ") {
+                let content_types: Vec<_> = header
+                    .lines()
+                    .filter_map(|line| line.split_once(':'))
+                    .filter(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                    .map(|(_, value)| value.trim())
+                    .collect();
+                assert_eq!(content_types, ["audio/wav"]);
                 assert!(header
                     .to_lowercase()
                     .contains(&format!("content-length: {bytes}\r\n")));
