@@ -19,8 +19,10 @@ caller retains its source. App retirement suppresses late history and delivery.
 The UI session remains because it owns capture subscriptions, query state,
 buffered UI producers, and their teardown. Full removal of those remaining
 product-object arguments is outside the bounded saved-recording integration.
-Native file inference has real WebView proof; native microphone capture and
-active-capture reload recovery remain open. Keep this spec active for that work.
+Native file inference has real WebView proof. Compare the dated microphone
+evidence with the saved-BlobId implementation before scheduling new acceptance.
+Remaining work is product composition and live-session shutdown, not recovery
+of unfinished capture after reload. ADR-0366 makes unfinished capture disposable.
 
 The sections below preserve the original migration scope and earlier evidence.
 
@@ -226,7 +228,7 @@ Remaining owners before deletion:
 | Responsibility | Current owner | Replacement must preserve |
 | --- | --- | --- |
 | Recording admission and pending work | UI session and recording operations | Stop new work, drain startup/finalization/save, then release capture listeners |
-| Recording cache and backup coordination | Recordings domain | Coalescing, local availability, remote deletion safeguards, pending backup completion |
+| Recording audio reads and explicit hosting | Recordings domain and blob capabilities | Local-first reads, referenced remote reads, independent byte lifetimes, and settlement of admitted operations; no automatic delivery or backup coordination |
 | Settings and recipe subscriptions | Product domains | Readiness-only observation and terminal unsubscribe |
 | Query cache | UI session | Mounted query provider and terminal cache clear |
 | Buffered edits and UI producers | Layout and Shell | Blur, unmount, settle producers, then close App |

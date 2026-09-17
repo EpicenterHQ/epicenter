@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
+- **Amends:** [ADR-0154](0154-blob-access-is-address-only.md) at local inventory: app-local blobs can be listed independently of rows; remote access remains address-only. [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at attachment ownership: rows store ordinary references without owning publication, transfer, or deletion of bytes.
 
 ## Decision
 
@@ -23,8 +24,10 @@ workflow needs more than the key's conventional format. Do not add a second
 metadata catalog or require that field for ordinary key-only playback.
 
 The row points to the blob; the blob does not store a reverse recording ID.
-Two rows can refer to one immutable file. Changing a title leaves its key
-unchanged. Conversion creates new bytes under a new key. The same
+Two rows can refer to one immutable file. A row may refer to several blobs;
+a blob may exist with no row. One recording per audio file is Whispering's
+convention, not a framework cardinality or row-derived address. Changing a title
+leaves its key unchanged. Conversion creates new bytes under a new key. The same
 extension-bearing key identifies a desktop file and a browser database record,
 but sharing a row does not copy bytes between those storage environments.
 
@@ -32,15 +35,27 @@ Deleting a row deletes the row. An application may separately attempt local or
 remote deletion, but missed cleanup is accepted. A library may offer inspection
 and cleanup while open; no background service must determine row existence.
 Absence from one device's current row view is not proof that a blob is orphaned.
+An application can compare local enumeration with its known references to
+present cleanup candidates. It must account for other libraries, trashed rows,
+and publication that has not yet created its row before deleting anything.
+Unknown or unavailable library contents cannot certify a blob as unused.
+
+A remote object can outlive the row's URL, and a row can retain a URL whose
+object was deleted. Applications report unavailable content; storage does not
+repair one side automatically.
 
 On September 17, 2026, the user confirmed zero users and no existing data and
 authorized the complete-key clean break. Row validators accept full saved keys;
 no migration, reset, or fallback reader runs.
 
-Archive capture discovers local complete-key references, including references
-split across rich-text runs. Absolute HTTP(S) URLs remain opaque row values.
-Recovery preserves those URLs without fetching, converting, or inlining their
-remote bytes into the local archive.
+Materialization preserves local keys and remote URLs as ordinary row values.
+It copies no blob bytes and performs no remote fetch. A saved folder preserves
+those references, not their availability (ADR-0394). Recovering old content
+through Push has the same rule (ADR-0395).
+
+The existing structural archive code discovers local complete-key references
+and embeds their bytes. It is separate implementation inventory, not the
+document-only materialization contract. Its removal requires a caller audit.
 
 ## Consequences
 

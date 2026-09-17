@@ -5,7 +5,7 @@
 - **Amends:** [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md) at the hosted-only sign-in restriction; [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md) at shared-token-only self-hosting; [ADR-0076](0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md) at the prohibition on self-hosted session infrastructure; [ADR-0092](0092-identity-is-the-partition.md) at equating authenticated identity with every data partition; [ADR-0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) at the account-or-local definition of a library, preserving fixed page ownership.
 - **Amends:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at account identity as a complete library selector: an Account does not name a library by itself, because Personal and Shared are distinct libraries for the same person. The common application data API, readiness, and closure remain, and ADR-0392 owns the opening call.
 - **Unbuilt:** One `open(account)` that returns the device scope and the account scope. The three opening methods `openLocal`, `openPersonal`, and `openShared` exist instead.
-- **Implementation:** Named self-hosted Accounts exist. Honeycrisp selection and current-generation integration pass the local Worker browser checkpoint; complete attachment, Bun sync, and packaged desktop evidence remain.
+- **Implementation:** Named self-hosted Accounts exist. Honeycrisp selection and current-generation integration pass the local Worker browser checkpoint; complete explicit blob-hosting, Bun sync, and packaged desktop evidence remain.
 
 ## Context
 
@@ -34,6 +34,10 @@ that the product does not need.
 A library is one application's data in one destination. These names describe
 ownership and synchronization, not three authentication methods or subscription
 tiers. The application retains its identity and data definition in each library.
+Library ownership names the data destination and synchronization scope; it does
+not assign blob ownership. Rows may hold ordinary local BlobIds or remote URLs,
+while app-local and account-remote bytes keep independent lifetimes and require
+explicit operations.
 
 The deployment determines which destinations are available:
 
@@ -156,9 +160,12 @@ code continues to use the common data API each library exposes. No `principalId`
 discriminator field, shared route spelling, binary split, or configuration
 format is selected here.
 
-The Honeycrisp checkpoint implements atomic current-generation selection, scoped
-data and blob addressing, actor-isolated caches, and self-host Worker sync.
-Complete attachment evidence, Bun sync, and packaged desktop verification remain
+The Honeycrisp checkpoint is historical implementation evidence for atomic
+current-generation selection, actor-isolated caches, and self-host Worker sync.
+Its scoped data-addressing test did not make local blobs account-scoped: current
+app-local blob storage and explicit account-remote hosting keep independent
+lifetimes.
+Complete explicit blob-hosting evidence, Bun sync, and packaged desktop verification remain
 separate work. See the library-ownership execution spec for exact evidence.
 
 Each write uses its intended library's handle (ADR-0401). The desktop host
@@ -171,8 +178,9 @@ fallback. An application may require sign-in even though the Local handle exists
 constructor with the device store and, when an Account is present, that person's
 Personal and Shared libraries. A private input type may describe those cases; no
 public Library wrapper or binding object gains its own lifecycle. The constructor captures transport and
-projects a credential-free replica scope for storage, locking, and recording
-recovery. Resource backends serialize and validate that scope without inferring
+projects a credential-free replica scope for row storage and library locking.
+Recording saves app-local bytes independently. Resource backends validate their
+own scope without inferring
 Personal from an omitted Shared flag. Inference and credentials remain attached
 to the authenticated actor.
 

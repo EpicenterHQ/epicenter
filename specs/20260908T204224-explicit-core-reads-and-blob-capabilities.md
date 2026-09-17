@@ -1,138 +1,92 @@
-# Make core reads explicit and derive remote behavior from App capabilities
+# Explicit core reads and recorder observation
 
 **Date:** 2026-09-08
+**Revised:** 2026-09-15
 **Status:** Draft
-**Owner:** The implementing agent owns core API integration; the active Whispering composition work owns its consumer migration.
+**Owner:** The implementing agent owns the core API and adapter migration.
 
-## One sentence
+## Current execution contract
 
-Core callers explicitly read state and query collections, while Whispering derives remote behavior from the capabilities of its opened App.
+Core observations and queries use explicit methods; Svelte adapters retain
+reactive properties. Fixed facts remain readonly values. This is a focused
+migration under [ADR-0371](../docs/adr/0371-core-observations-and-queries-use-explicit-methods.md),
+not a ban on JavaScript getters. Current source still has auth/departure state
+getters, table rows/nonconforming getters, and public Recording `endedReason`.
+Historical baseline commits in the retired transcript are not current proof.
 
-## Current and target shape
+`app.blobs.local` and account-scoped `app.blobs.remote` already expose independent
+storage and explicit hosting (ADR-0349, ADR-0372, ADR-0393). Preserve those APIs;
+this read-method migration does not introduce a nullable remote facade, automatic
+byte transfer, or row-owned attachments.
 
-The user approved this plan after two independent design reviews. Implementation
-has not started in this task. The relevant baseline commit is `5b8304a015`,
-which composes Whispering's recording workflow over an opened App. Concurrent
-fixed-library and inference work must be preserved and re-read before editing.
+## Core read migration
 
-| Current core surface | Target |
+| Existing core surface, where it survives | Target |
 | --- | --- |
 | Auth client and departure `state` | `getState()` |
-| Auth connection `status` | `getStatus()` |
+| Surviving connection `status` observation | `getStatus()` |
 | Table `rows` | `list()` |
 | Table and KV `nonconforming` | `getNonconforming()` |
-| Recordings backup `pending` | `getPendingCount()` |
-| Recordings `remoteAvailable` | Remove; derive behavior from App-owned remote capability |
-| Public Recording `endedReason` | Remove after verifying late `onEnded` notification coverage |
+| Existing backup runner `pending`, only while that runner remains | `getPendingCount()` |
 
-Svelte adapters retain reactive properties. Fixed facts remain ordinary readonly
-values. This is a focused API migration, not a ban on JavaScript getters.
-The proposed durable decisions are recorded in
-[ADR-0371](../docs/adr/0371-core-observations-and-queries-use-explicit-methods.md)
-and [ADR-0372](../docs/adr/0372-an-account-app-exposes-explicit-blob-hosting.md).
+ADR-0374 removes the unused auth connection abstraction. The server backup
+product is deferred (ADR-0394, ADR-0395). Neither an unused auth abstraction nor
+a backup runner must be recreated for this naming migration. Explicit remote
+blob operations remain independent of row synchronization.
 
-## Real caller translations
+- [ ] Re-read current contracts and consumers, then migrate surviving core reads
+  and their callers together. A plain read does not subscribe or replace the
+  Account captured at opening.
+- [ ] Adapt Svelte types deliberately instead of inheriting the old core property
+  shape. Preserve reactive updates and explicit subscriptions.
+- [ ] Remove descriptor-copying machinery only where it exists solely to avoid
+  executing core query getters; inspect remaining members first.
+- [ ] Verify validation results, Account identity, readiness and lifetime refusals,
+  then remove old aliases and update current package explanations.
 
-Honeycrisp `src/lib/application.ts` captures auth once:
+This lane proceeds independently of explicit blob hosting. It does not
+change library selection, recording destinations, or account replacement.
 
-```ts
-// Before
-const state = authClient.state;
-// Target
-const initialState = authClient.getState();
-```
+## Conditional recorder observation cleanup
 
-Update the subsequent Account selection to use `initialState`. Reading does
-not subscribe and does not select a replacement Account after opening.
+The public `Recording.endedReason` getter may be redundant with `onEnded`.
+Do not infer that the internal reason or native wire field is redundant too.
 
-`packages/svelte/src/from-data.svelte.ts` seeds its unreadable-row map:
+- [ ] Inventory current getter and notification consumers in the recorder and
+  its adapters before removing the public getter.
+- [ ] Prove late `onEnded` replay, unsubscribe before replay, desktop event
+  registration-gap reconciliation, and stop/cancel after capture ends.
+- [ ] Preserve internal/native end reasons needed for live reconciliation and cleanup;
+  durable capture recovery is withdrawn by ADR-0366.
+- [ ] Remove the public getter and forwarding members only when that evidence
+  establishes equivalent consumer behavior. Coordinate with the disposable-capture
+  recorder migration rather than duplicating its contract work.
 
-```ts
-// Before
-for (const row of table.nonconforming) unreadable.set(row.id, row);
-// Target
-for (const row of table.getNonconforming()) unreadable.set(row.id, row);
-```
+## Storage invariants retained elsewhere
 
-Whispering `src/lib/state/recordings.svelte.ts` retains its UI property:
+Local remains valid without remote hosting; an offline account library remains
+account-owned. Account presence does not prove remote audio availability, and
+failed network operations do not authorize local audio loss. The App coordinates
+resource shutdown. Existing generation admission and retirement safeguards remain
+subject to ADR-0379's caller audit. Recovering content through ordinary Push
+(ADR-0395) does not replace a generation.
 
-```ts
-// Before, inside the reactive pending getter
-return recordings.backup.pending;
-// Target, after the existing tracking read
-return recordings.backup.getPendingCount();
-```
-
-## Remote capability belongs to composition
-
-Today `createWhisperingDomains` passes `remoteConfigured: account !== null` to
-recordings despite already receiving `openedApp.blobs`. The blob factory knows
-whether a remote exists, but the store hides absence behind methods that return
-`RemoteNotConfigured`. A custom factory need not agree with the Account check.
-
-Target: `openedApp.blobs.remote` is a fixed remote capability or `null`. This is
-a proposed core contract change; checking for null against today's wrapper
-would always report a capability. Keep actual remote methods under the store's
-readiness, operation admission, and close/drain boundary.
-
-Whispering still supports `openLocal()`. Local recording must work without
-remote storage. An account library that becomes offline or needs
-reauthentication retains its configured capability; operations report failures.
-Capability presence is not a reachability or authorization promise.
-
-## Implementation checkpoints
-
-- [ ] Migrate core auth, connection, departure, table, KV, and backup reads to
-  the agreed methods with their consumers and contracts. Deliberately update
-  adapter types: the reactive auth type currently extends the core type.
-- [ ] Preserve reactive Svelte properties and explicit subscriptions. Remove
-  descriptor-copying machinery where it exists only to avoid executing core
-  query getters, after checking all remaining members.
-- [ ] In the active composition work, expose the nullable remote blob capability
-  from the opened App. Compose Whispering over that same App; do not create a
-  second opener, singleton, auth observer, or capability boolean.
-- [ ] Remove `remoteConfigured` from the recordings constructor and remove
-  `remoteAvailable` from its contract, implementation, and Svelte adapter.
-  Migrate pipeline uploads, backup reconciliation, backup status, storage
-  actions, recording settings, and deletion preflight to the owned capability.
-- [ ] Replace unconditional `requireRemote` success and stub-error translations
-  where capability narrowing makes them unnecessary. Retain precise errors for
-  real remote failures and whole-selection deletion preflight.
-- [ ] Remove public Recording `endedReason` and forwarding getters after
-  preserving late notification behavior. Keep the internal reason and native
-  wire field used for reconciliation and recovery.
-- [ ] Verify the replacement consumers before removing obsolete aliases,
-  comments, and fixtures. Update package explanations and auth guidance to the
-  final signatures. Finish with no compatibility aliases for the old reads.
-
-The naming migration can proceed independently of remote composition. The
-remote flag removal depends on the new blob contract and must land with its
-consumer migration. Re-read concurrent changes instead of repeating completed
-composition work.
+Storage scope does not choose inference. Local audio can be sent to an
+explicitly selected account inference connection without joining an account
+library. This is not automatic attachment synchronization.
 
 ## Verification and completion
 
-- [ ] Core typechecks and affected application platform typechecks pass.
+- [ ] Affected core and application platform typechecks pass.
 - [ ] Auth retains Account identity through same-owner reauthentication and
-  permanently retires old Accounts on replacement. Plain reads do not subscribe;
-  Svelte reads still update, including connection status and nonconforming rows.
-- [ ] Table queries preserve validation results and lifetime refusals.
-- [ ] Local libraries expose no remote capability and keep recording locally;
-  account libraries retain their capability while offline. A custom factory's
-  actual capability, rather than Account presence, determines remote behavior.
-- [ ] Remote work remains admitted and drained by the opened App. Failed purge,
-  upload, or download never authorizes unsafe local audio deletion. Preserve
-  partial-deletion reporting and backup policy behavior.
-- [ ] Recorder tests cover late notification, unsubscribe before replay,
-  desktop registration-gap reconciliation, and stop/cancel after capture ends.
-- [ ] Search for obsolete core reads and recordings capability flags; distinguish
-  allowed Svelte properties and native protocol fields from stragglers.
-- [ ] After implementation acceptance, delete this spent spec and index it in
-  spec history. Do not claim the existing review ran implementation tests.
+  permanently retires old Accounts on replacement. Plain reads do not subscribe.
+- [ ] Svelte observations still update; table queries preserve validation and
+  lifetime behavior.
+- [ ] Recorder notification/session-cleanup evidence passes before getter removal.
+- [ ] Search surviving consumers for old reads without treating Svelte properties
+  or native protocol fields as stragglers.
+- [ ] After this lane is verified, delete the spent spec and record its history.
+  Explicit hosting and hardware acceptance remain separate work.
 
-## Deferred work
-
-Do not rename `store.persistence` or rebuild recording admission as part of this
-plan. The former is a guarded capability; the latter owns necessary teardown
-behavior. Do not bundle Whispering's cached collection getters into a new
-`getState()` object without evidence that it removes duplicate computation.
+Do not rename `store.persistence`, redesign recording admission, or combine
+Whispering's cached collection getters into a new state object without evidence.

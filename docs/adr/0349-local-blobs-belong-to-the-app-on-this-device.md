@@ -141,9 +141,11 @@ authorized a clean break. Complete-key readers replace extensionless readers
 without a migration, reset, fallback, or startup cleanup. An unexpected older
 browser schema fails without converting or erasing its records.
 
-Archives and recovery use complete keys for local byte dependencies and keep
-private backup media types exact. Absolute HTTP(S) URLs remain opaque row values;
-archive capture does not fetch, convert, or inline their remotely hosted bytes.
+Materialized documents and working-copy recovery preserve complete keys as row
+values; they do not copy local bytes. Absolute HTTP(S) URLs remain opaque row
+values, and materialization and recovery do not fetch, convert, or inline their
+remotely hosted bytes. The separate structural archive may retain local bytes
+under its own contract; it is not the folder materialization or recovery format.
 Restore-operation identity remains bookkeeping, separate from blob identity.
 
 Exact input MIME round-tripping and the sidecar's expected-versus-actual size

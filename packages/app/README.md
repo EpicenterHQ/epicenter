@@ -226,10 +226,10 @@ this local namespace. Signing out does not erase it. Remote storage is scoped
 by account and app. The user confirmed zero users and no existing data for the
 complete-key cutover. No migration, reset, or fallback reader runs.
 
-Deleting a row leaves its local bytes and uploaded objects intact. Applications
-may request best-effort local deletion; they own reference-aware cleanup while
-the library is open. The storage APIs do not infer row ownership or promise
-background garbage collection while the application is closed.
+Deleting a row leaves its local bytes and uploaded objects intact. An application
+may explicitly delete a known local key or remote object when its product
+workflow chooses to; storage never infers row ownership or performs automatic
+cleanup.
 
 Tools without a data library can use `createLocalBlobs({ appId })` and
 `createRemoteBlobs({ appId, account })` from `@epicenter/app/blobs`. These browser/host constructors select

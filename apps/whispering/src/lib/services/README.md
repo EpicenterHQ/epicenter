@@ -131,9 +131,11 @@ export const services = {
 } as const;
 ```
 
-The opened library owns audio publication and automatic transfers. Consumers
-read local audio through `app.recordings.readAudio` or `openAudio`. Playback and
-export never initiate a network download.
+Recording reads choose local audio first, then an explicitly stored remote
+`audioUrl` through the account when local bytes are unavailable. This domain read
+is not automatic background byte synchronization. Publication, playback, and
+export are explicit product operations; the services layer does not infer row
+ownership or transfer unrelated bytes.
 
 Runtime-selected provider services do not need to live in this barrel. The
 operation that owns dispatch may import them directly.

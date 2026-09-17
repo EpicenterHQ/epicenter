@@ -61,7 +61,7 @@ connection.
   is no lookup inside the call, so a selection edit during the call cannot
   retarget it, and the model is sent as the caller named it.
 - **Capture before I/O.** The caller looks the connection up once and holds
-  one frozen object across its local attachment read. The object compares nothing at call
+  one frozen object across its audio read. The object compares nothing at call
   time; a removed or changed entry has already had its client retired, and the
   call fails as `Unavailable` before sending.
 - **Account 402 is credits.** `app.account.connection` maps HTTP 402 to
@@ -98,18 +98,22 @@ enforces. No `connection.chat` is added.
 
 ## Consequences
 
-The application obtains audio from the selected row's attachment in its owning
-library (ADR-0393). Unavailable local audio makes no inference request and hides
-no network wait. The library synchronizer handles delivery. A connection takes
-audio, not a row ID or attachment handle; it owns inference rather than storage.
+The application resolves the selected row's ordinary blob reference in its
+library (ADR-0393) to available audio. A local BlobId uses the app-local store;
+an audio URL resolves through the current hosting domain only when it names
+explicitly stored remote hosting. The connection proceeds when that reference
+resolves to bytes and fails only when it remains unresolved. Resolution creates
+no library delivery obligation.
+A connection takes audio bytes, not a row ID or attachment handle; it owns
+inference rather than storage.
 The application retains the output row and refuses late publication after row
 deletion or lifetime retirement. Moving these dependencies does not prescribe
 which libraries an application's interface exposes.
 
 - `apps/whispering/src/lib/operations/transcribe.ts` becomes a read of
-  `app.device.kv`, one `connectionFor`, one local attachment read from the library the
-  recording lives in, and one call. The four rules leave the application and
-  are tested once, in `packages/app`.
+  `app.device.kv`, one `connectionFor`, one explicit blob read using the row
+  reference, and one call. The four rules leave the application and are tested
+  once, in `packages/app`.
 - Vocab dictation becomes `app.account?.connection.transcribe(model, { audio })`
   with no lookup, and gains the four rules it lacks today.
 - `matchInferenceTarget` and the storage half of

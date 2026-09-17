@@ -50,15 +50,15 @@ named user. Rollout and explicit migration remain separate decisions.
 
 ## Consequences
 
-Initialization, write admission, and future replacement share one transaction
-owner. A restore can retire the current generation without coordinating a
-separate pointer and independently writable authorities. Backup/restore
-orchestration remains the work described by ADR-0379, ADR-0394, and ADR-0395.
+Initialization and write admission share one transaction owner. Existing
+activation and retirement code remain subject to ADR-0379's caller audit.
+Document-only materialization and recovery through ordinary Push
+(ADR-0394 and ADR-0395) do not require a restore endpoint.
 
 The old ledger remains only as historical storage and a migration-refusal check;
-it is not a second production initialization protocol. Library selection and
-restoration both return through ordinary page bootstrap after their respective
-preserve or invalidate departure paths.
+it is not a second production initialization protocol. Library selection
+returns through ordinary page bootstrap. Existing retirement uses its invalidate
+departure path; recovering old Markdown through Push does not retire the App.
 
 ## Considered alternatives
 
@@ -69,4 +69,4 @@ preserve or invalidate departure paths.
 - Cache the submitted seed under the returned number: losing clients retain
   bytes the authority did not select.
 - Keep every imported generation writable: reintroduces history selection;
-  verified backups are the recovery surface.
+  the selected recovery workflow uses current working-copy edits.

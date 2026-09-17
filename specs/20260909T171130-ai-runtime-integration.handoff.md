@@ -68,8 +68,10 @@ this run only. No commit, deployment, model download, production-data change,
 or real credential change was made.
 
 `system_profiler SPAudioDataType` still shows no controllable loopback input.
-Host microphone capture, host playback/reopen, and reload recovery remain the
-active tasks below. Portable dictation remains separate.
+That observation describes the dated checkpoint. Reconcile microphone and
+playback acceptance with the saved-BlobId evidence before repeating it.
+Unfinished-capture recovery and shared App dictation are withdrawn by ADR-0366
+and ADR-0365; exact-session teardown remains required.
 
 ## Integration evidence: 2026-09-09
 
@@ -190,9 +192,10 @@ can report successful delivery after refusal. This workflow proves saved history
 not clipboard failure recovery.
 
 No deployment, production migration, historical-data deletion, or real credential
-change occurred. Cross-device object-store attachment transfer, packaged library
-selection, full offline shell startup, and backup/recovery remain in the wider
-library execution. The concurrent AI API revision below keeps its own owner.
+change occurred. Packaged library selection and full offline shell startup
+remain in the wider library execution. Automatic blob delivery and server
+backup/restore are no longer required; ADR-0394 and ADR-0395 select document-only
+working-copy recovery. The concurrent AI API revision below keeps its own owner.
 
 ## Active execution path
 
@@ -301,10 +304,10 @@ Separate these three concerns:
    remains independent. Saved recording moves from recorder into App, while
    portable microphone/VAD functions stay in recorder. This is implemented in
    the working tree, but real authenticated/native record, read, play, reopen,
-   active-capture reload recovery, and orderly shutdown still need acceptance.
-3. Portable dictation: microphone-to-text streaming sessions and their shared
-   desktop configuration are a separate feature. `app.ai.dictation` is not an
-   existing export; it is the App-owned target in ADR-0365. ADR-0366 adds
+   exact-session reload teardown, and orderly shutdown need evidence appropriate
+   to the current implementation; unfinished-capture recovery is not promised.
+3. Applications compose microphone capture and inference; no shared
+   `app.ai.dictation` capability is planned. ADR-0366 adds
    concurrent native capture on distinct input devices. Do not make those
    features prerequisites for finishing
    saved-recording transcription, and do not mistake raw audio transcription for

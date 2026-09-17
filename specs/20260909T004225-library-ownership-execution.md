@@ -22,9 +22,11 @@ requests. These tests use temporary Worker state and synthetic microphones.
 Real Wry WebView evidence covers explicit native SDK file inference, production
 app permissions, CSP, exact model/hint metadata, empty audio, and retired-client
 refusal. It does not establish native microphone capture, host blob playback,
-or active-capture reload recovery. No controllable CoreAudio input fixture was
-available. Cross-device attachment transfer through an object store, packaged
-desktop selection, full offline shell startup, and backup/recovery remain open.
+or active-capture reload behavior at that checkpoint. No controllable CoreAudio
+input fixture was available then. This is dated evidence, not the current
+acceptance inventory. Automatic byte transfer, unfinished-capture recovery,
+and a backup/restore product are no longer required (ADR-0366, ADR-0393 through
+ADR-0395). Explicit hosting and live-session teardown remain separate concerns.
 
 Reproduction and detailed outcomes are maintained in
 [the integration checkpoint](20260909T171130-ai-runtime-integration.handoff.md).
@@ -108,11 +110,12 @@ history helpers are not the production opening path. ADR-0385 now describes this
 same current-authority transaction, and the restore execution spec shares it.
 No production restore endpoint was added.
 
-Blob tickets, reads, uploads, deletion, local caches, and native forwarding follow
-the selected app/library. Personal actors literally named `shared` are handled
+The earlier blob checkpoint used library-scoped tickets and caches. Current
+app-local bytes are shared across the app's libraries, while explicit remote
+objects remain account-scoped (ADR-0349, ADR-0372). Personal actors literally named `shared` are handled
 by matched routes, not substring guessing. The later Whispering checkpoint proves
 capture/read/play/reopen bytes within each browser library. Cross-device attachment
-transfer through the object store remains unproved.
+transfer in that old design is historical evidence, not a remaining requirement.
 
 ## Earlier library verification
 
@@ -176,10 +179,11 @@ browser persistence request. One independent production reviewer authored the
 Worker harness/tests but none of the reviewed production implementation; a fresh
 reviewer could not be spawned because the thread agent limit was reached.
 
-Explicit follow-ups: cross-device attachment evidence; Bun store sync; other-app
-pickers; native microphone capture and recovery; packaged desktop
-brokerage/selection proof; full offline shell loading; verified backup/recovery
-orchestration and restore UI; deliberate historical-data rollout. Preserve
+Explicit follow-ups: Bun store sync; application-owned library presentation;
+packaged desktop brokerage/selection proof; full offline shell loading; and
+deliberate historical-data rollout. Compare older microphone evidence with the
+saved-BlobId checkpoint before repeating it. Audit existing recovery callers
+without introducing automatic blob delivery, capture recovery, or restore UI. Preserve
 permanent Account retirement, same-owner credential repair, host credentials,
 and the current-generation retirement contract while doing that work.
 

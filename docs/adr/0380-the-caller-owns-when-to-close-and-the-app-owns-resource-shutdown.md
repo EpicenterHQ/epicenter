@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-09
-- **Unbuilt:** Independent native-session cleanup under concurrent capture; the current native recorder still has one slot.
+- **Unbuilt:** Independent native-session cleanup under concurrent capture and complete host-enforced document-loss teardown. The current native recorder still has one slot; unfinished capture has no restart-recovery promise.
 - **Amends:** [ADR-0367](0367-library-erasure-requires-exclusive-ownership-of-all-local-resources.md) at the document as the single coordinator of application resource shutdown. Exclusive acquisition, physical release, and retention of ownership after failed release remain required.
 - **Implementation:** App construction coordinates resource owners; data owns document shutdown. Capability factories were removed from the data engine.
 
@@ -75,7 +75,7 @@ pending work, and physical release needed to honor that transition.
 | --- | --- |
 | Recording | Refuse new starts, settle owned pending acquisition, cancel this App's remaining capture, and release its listeners and devices. A stop already in progress settles before its storage is released. |
 | AI and network producers | Cancel owned requests and response streams where supported, and await their cleanup. Receiving response headers is not completion. |
-| Blobs and playback | Settle accepted transfers and attachment work, release playback sources, and keep destinations available while a producer can still write. |
+| Blobs and playback | Drain admitted local writes, cancel and settle explicit remote requests, release playback sources, and keep storage available while an admitted Stop can still publish. |
 | Data store | Stop sync and callbacks, settle document-owned work, attempt the final local persistence flush, and release the document and its backing. |
 | Named SQLite | Drain accepted database work even when another resource fails to close. Close app-owned connections and release the library claim only after dependent cleanup succeeds. |
 | Secrets | Preserve the captured application and owner scope. Settle resource-owned work where required; closing never deletes durable credentials. Synchronous in-memory operations need no synthetic drain; their owner still retires borrowed access. |
@@ -87,8 +87,9 @@ or worker merely because the App used it.
 
 The recorder owns a close operation as part of its constructed capability. Its
 implementation handles a microphone request completing during shutdown and
-native capture recovery. Only an opener that acquired the library may adopt
-leftover capture for cleanup; a refused duplicate opener owns nothing to cancel.
+releases the exact live sessions this App owns. A refused duplicate opener owns
+no other App's capture to cancel. Temporary capture has no restart recovery
+promise; resource cleanup does not require adopting a durable recording.
 
 Every native capture shares the host capture owner described in
 [ADR-0366](0366-recording-is-an-app-scoped-portable-capability.md). Closing an
@@ -101,7 +102,10 @@ Physical capture release permits the host to release that input's reservation.
 Publication or transcription may continue afterward under its original session.
 A release failure keeps the affected reservation until teardown is established;
 it must not block unrelated input control through a shared lock held across
-worker shutdown. Retaining recoverable audio alone does not retain a microphone.
+worker shutdown. A finished temporary file or an admitted app-local blob save does
+not retain a microphone. A document reload need not destroy its native window;
+old-document teardown or fencing must be established before successor admission
+(ADR-0366). An unload callback alone does not establish that teardown.
 
 ### Completion and failure
 
@@ -122,8 +126,9 @@ out, change identity, or navigate. The caller performs a deliberate departure
 action only after the close outcome permits it.
 
 Browser refresh, tab termination, and process crashes cannot reliably await this
-contract. Persistence and recovery handle abrupt termination. An unload listener
-is not a substitute for an awaited close path.
+contract. Saved data retains its persistence guarantees; unfinished capture may
+be lost. Native session teardown still needs a host-enforced lifecycle. An
+unload listener is not a substitute for an awaited close path.
 
 ## Consequences
 

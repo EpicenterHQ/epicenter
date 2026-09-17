@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-08
-- **Implementation:** The document engine owns readiness and attachment draining; App coordinates separate capability owners.
+- **Implementation:** The document engine owns readiness and document-operation draining; App coordinates separate capability owners.
 - **Amends:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at the construction mechanism of the live app handle.
 
 ## Context
@@ -48,9 +48,9 @@ through forwarding getters, a Proxy, or a generic lifetime/activation manager.
 A getter for the real persistence controller after acquisition is permitted;
 retained persistence operations still obey closure.
 
-The document factory owns its document operations and attachment work. The App
-constructs its other capabilities directly and coordinates their shutdown.
-Each resource owns the guards and draining required by its concrete lifecycle.
+The document factory owns its document operations. The App constructs its other
+capabilities directly and coordinates their shutdown. Each resource owns the
+guards and draining required by its concrete lifecycle.
 App-facing blob and named SQL capabilities do not need to be returned as
 constructor parts from the document engine. The App does not mirror the store's
 readiness or forward its operation surface.
@@ -68,28 +68,16 @@ SQL connections; closing one App does not delete its databases or shut down a
 shared worker. SQL-only callers still use the device capability without
 constructing a document.
 
-Owning table creation receives the same local byte store at document construction.
-The actual table method saves bytes before beginning the row transaction. It
-tracks the whole operation, including compensation, under the same close drain.
-No new attachment row transaction begins after close. A transaction already
-executing when an observer closes the app finishes normally.
+The document factory does not own blob publication, transfer, or deletion. The
+App composes app-local and account-remote blob capabilities independently. Each
+capability owns its byte operation, admission, resource guards, and cleanup for
+its own lifetime. A row creation records an available BlobId or URL as an
+ordinary value; it neither copies bytes nor establishes a cross-store transaction.
 
-The document itself determines whether a newly written ID was accepted. Cleanup
-does not rely on a second publication flag: a transaction can throw after partial
-mutation. It removes only successfully created bytes absent from that row and
-logs cleanup failures while preserving the original creation outcome. This is
-in-process compensation, not atomicity across stores or crash recovery.
-
-`CreateRowOf` is the sole creation input. Blob schema markers determine ownership;
-an ordinary branded string does not. Owning fields accept bytes or a local BlobId
-as a copy source. Every non-null field receives a freshly minted destination ID;
-creation never adopts or deletes the source. The new destination joins the same
-compensation drain as directly supplied bytes. Reusing a source, even after
-reopening or on another replica, creates independent deletion identities without
-an ownership registry or single-use receipt. Owning fields are excluded from
-ordinary updates. Attachment creation cannot join a
-synchronous transaction callback. KV has no owning-attachment write contract and
-refuses those declarations.
+`CreateRowOf` is the sole row creation input. Blob publication and deletion are
+explicit capability operations. A local or remote ID can outlive the row, and
+changing or deleting a row reference does not delete bytes. KV has no
+blob-specific write contract and does not infer ownership from declarations.
 
 ## Consequences
 
@@ -103,14 +91,13 @@ does not promise to intercept arbitrary writes through retained Yjs references.
 
 This changes no storage address, wire protocol, or product workflow. It adds no
 legacy migration or compatibility path. Generation policy, authenticated
-authority identity, attachment replacement/deletion and crash recovery remain
+authority identity, blob replacement/deletion, and capture crash behavior remain
 separate implementation waves.
 
-Copying a native capture costs an additional local copy and temporary storage.
-The host performs file-to-file copying without routing recording bytes through
-the WebView. The recording operation owns its temporary capture source; generic
-table creation cannot remove it because a copy source may belong to another row.
-The copy retains the byte store's publication contract. It adds no cross-store
+Recording publication belongs to the recorder and blob capabilities, not to
+`CreateRowOf`. A later workflow stores the returned local BlobId as an ordinary
+row value; it does not copy from or clean up a source because a row was created.
+Each capability retains its own publication contract. This adds no cross-store
 transaction or power-loss durability guarantee.
 
 Current blob transfer primitives have no cancellation contract. A transfer that
@@ -131,6 +118,6 @@ compensation operation.
   to preserve an identity no current consumer needs before readiness.
 - Lifecycle callbacks passed to the device: make closure depend on another
   factory mirroring the document's private state and tracking its operations.
-- Single-use attachment receipts: object identity and an in-memory used-ID set
-  cannot establish ownership across reopening or offline replicas. Fresh-ID
-  copies make a registry unnecessary.
+- Row-owned blob receipts: independent blob identities and explicit
+  capability operations do not need a row ownership registry or single-use
+  receipt.

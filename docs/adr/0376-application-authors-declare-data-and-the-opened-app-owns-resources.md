@@ -2,9 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-08
-- **Unbuilt:** One `open(account)` returning the hub of ADR-0392; native capture/read/play/reopen and active-capture reload recovery acceptance; complete desktop Local Mail workflow verification.
-- **Unbuilt:** Portable App dictation and concurrent native capture on distinct input devices as described by ADR-0365 and ADR-0366.
-- **Implementation:** Runtime composition, App-owned saved recording, and the three separate openers are implemented. Real browser capture, App reads/playback, transcription, Polish, and reopen passed in all three libraries. Native file inference passed a real WebView; native capture/read/reopen and active-capture reload recovery remain unproved. Complete desktop Local Mail verification remains separate.
+- **Unbuilt:** One `open(account)` returning the hub of ADR-0392; complete desktop Local Mail workflow verification.
+- **Implementation:** Runtime composition, App-owned saved recording, and the three separate openers are implemented. Real browser capture, App reads/playback, transcription, Polish, and reopen passed in all three libraries. Native file inference passed a real WebView. Complete desktop Local Mail verification remains separate.
 
 ## Context
 
@@ -21,6 +20,9 @@ The App now coordinates SQL, secret, blob, and recording owners as described in
 ADR-0380. It exposes each resource's actual operation object and retains cleanup
 controls. The data document owns its operations, persistence, and sync. An
 opened App owns the resources its caller uses.
+That ownership is capability access and resource lifetime. It does not make a
+row an owner of blob bytes, synchronize local and remote bytes automatically, or
+delete bytes when a row or reference is deleted.
 
 ## Decision
 
@@ -131,8 +133,8 @@ and host implementations internal to App's runtime composition. Native imports
 stay outside browser builds' static import graphs.
 `@epicenter/recorder` retains device vocabulary, microphone streams, VAD, and
 VAD assets. Existing transient dictation consumers keep that independent API.
-The move preserves native recovery and publication; it does not funnel native
-audio through the WebView merely to make storage injection uniform.
+The move preserves native publication boundaries; it does not funnel native
+audio through the WebView or create a recovery promise for unfinished capture.
 
 The shutdown composition exposes actual capabilities. The data engine
 owns document operations, persistence, and sync. The App coordinates its known
@@ -169,7 +171,7 @@ These proposals cover separate decisions and retain their own implementation gap
 | Record | Decision |
 | --- | --- |
 | [ADR-0375](0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md) | Account identifies the actor; Local, Personal, or Shared selects the library |
-| ADR-0365, the separate AI boundary proposal | App exposes inference access and dictation; applications own their other workflow selections |
+| ADR-0365, the separate AI boundary proposal | App exposes inference access; applications compose capture and inference and own workflow selections |
 | [ADR-0366](0366-recording-is-an-app-scoped-portable-capability.md) | App owns saved recording; one native owner admits sessions on distinct input devices |
 | [ADR-0380](0380-the-caller-owns-when-to-close-and-the-app-owns-resource-shutdown.md) | Caller chooses when to close; App orders shutdown; resources implement cleanup |
 | [ADR-0377](0377-a-table-may-omit-its-content-codec-while-every-row-owns-a-node.md) | A fields-only table can omit its content codec |

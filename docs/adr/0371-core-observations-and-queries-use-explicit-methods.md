@@ -14,8 +14,12 @@ descriptors to avoid executing queries while copying an object.
 
 Use `getState()` for core auth and departure observations, `getStatus()` for
 connection status, `list()` for table rows, `getNonconforming()` for table and KV
-validation results, and `getPendingCount()` for backup counts. Subscriptions
-remain explicit. Svelte adapters expose reactive properties; fixed facts remain
+validation results. Use `getPendingCount()` for the existing backup runner's
+count only if that runner still exists when this migration lands. ADR-0393's
+replacement does not retain or recreate it to satisfy a naming convention.
+Likewise, rename connection status only on a surviving connection abstraction;
+this decision does not preserve the auth connection surface ADR-0374 removes.
+Subscriptions remain explicit. Svelte adapters expose reactive properties; fixed facts remain
 readonly values. This decision covers these reviewed APIs, not every getter.
 
 ## Consequences

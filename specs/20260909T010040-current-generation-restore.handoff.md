@@ -1,12 +1,11 @@
-# Continue with restore orchestration and authenticated transport
+# Historical restore handoff and live-mechanism evidence
 
-> **Historical handoff; do not execute its steps.** As of 2026-09-14,
-> start at the execution spec's Read this first and Implementation waves.
-> ADR-0393 owns eager attachment sync and honest local reads; ADR-0394 allows
-> incomplete text backups with explicit audio coverage; ADR-0395 deliberately
-> discards old unsynchronized work on restore, with no rescue or merge.
-> Build replacements, switch callers, verify, then delete old code. The
-> deletion-first instruction in the older notice below is historical.
+> **Historical handoff; do not execute its steps.** It records the withdrawn
+> automatic-transfer and full-restore proposal. The current target is ordinary
+> row-valued blob references, disposable local capture, document-only
+> materialization, and recovery through the current working copy under
+> ADR-0393/0394/0395. Keep the physical-capture and live-generation evidence
+> below when auditing current callers.
 
 > **Superseded on 2026-09-12 before this checkpoint was started.** The design
 > this handoff continues was replaced by
@@ -15,11 +14,8 @@
 > and [ADR-0395](../docs/adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md),
 > and ADR-0386 was deleted. Do not add `restore()` to `createLibraryRecovery`,
 > do not mount the `attempts` namespace, and do not build transport for the
-> catalog or the attempt journal. Start at wave 1 of "Implementation waves" in
-> the execution spec, which deletes what this handoff continues; the waves and
-> "Required proof" there were rewritten against the three records on
-> 2026-09-12. The text below is preserved as evidence of what exists and how
-> it was verified.
+> catalog or the attempt journal. The text below is preserved as evidence of
+> what exists and how it was verified, not as an implementation plan.
 
 Continue in `/Users/braden/conductor/workspaces/epicenter/yamoussoukro`.
 Read `AGENTS.md`,
@@ -28,12 +24,10 @@ and the [execution spec](20260909T010040-current-generation-restore.md).
 Start with Active execution path and Durable intent and retry checkpoint.
 Earlier dated checkpoints are evidence, not an alternative plan.
 
-Implement the next bounded checkpoint: the activation call and the `restore()`
-that sequences the durable pieces, then the authenticated recovery transport
-that carries them. Publication, the persistent catalog, durable publication
-intent, and the restore attempt journal now work and are unmounted. Finish with
-focused passing checks, independent design review, a reviewable commit, and
-updated execution evidence.
+Do not implement the former activation checkpoint, `restore()`, authenticated
+recovery transport, catalog, or restore-attempt journal from this handoff.
+Publication and physical-capture checks below remain historical evidence for the
+separate live-mechanism audit.
 
 ## What now exists
 
@@ -97,35 +91,17 @@ delete. Provider and account deletion policies, storage limits, retention, and
 cleanup remain separate work; the prepared activation object shares that
 namespace and an interruption before it is pinned leaves it unreferenced.
 
-## The next invariant
+## Caller audit that remains
 
-`restore(backupId)` sequences what already exists and owns nothing new that is
-durable. Reconcile first: an unacknowledged outcome is returned rather than
-restarted, and a different backup is refused while one attempt is unresolved.
-Then resolve the published record, validate its bytes, `begin`, publish the one
-safety backup, `installArchive` into destination storage that synchronized
-devices can read rather than a transient cache, `pin` the exact prepared bytes,
-and activate through the stable authority with the destination the safety backup
-covered.
+The former activation, catalog, transport, safety-copy, and Backups-screen
+proposal is withdrawn. Do not mount `restore()`, an attempts namespace, archive
+installation, or full-restore UI from this handoff.
 
-A retry re-reads `activationBytes` and never reconstructs: every reconstruction
-authors fresh Yjs operation identities. A destination conflict is terminal for
-that attempt. An unknown activation outcome stays pending until `receipt`
-resolves it; a network failure is never proof of no commit. A definitive
-preparation failure calls `fail` before the slot is released, and the completed
-safety backup stays in the catalog.
-
-Then mount transport. The authority's private metadata-bearing publish and
-attempt requests are trusted infrastructure, not ready-made public HTTP
-handlers. Authorize the account and library on every operation, and do not run
-reconstruction in a Worker through an injected callback and call that an opaque
-authority. Keep the codec application-side.
-
-The Backups screen, its restore confirmation naming the destination and
-unsynchronized-work loss, and the extended native proof follow. The existing
-Honeycrisp journey proves offline reopen and confirmed retirement through
-test-only activation. It does not exercise production recovery, restart
-reconciliation, or recorder cleanup.
+Use the preserved evidence below to audit live callers of generation admission,
+cache invalidation, retirement fences, local publication, and exact-session
+native cleanup. Verify that those mechanisms do not imply automatic blob sync,
+row ownership, native crash recovery, or server restore. Recovery of readable
+content belongs to the current working copy and ordinary Pull/Push previews.
 
 ## Evidence and boundaries
 
@@ -171,9 +147,11 @@ No deployment or existing-data migration was requested. Historical independently
 writable libraries still need a rollout decision; do not adopt the maximum
 generation or delete real libraries to make the new path pass.
 
-Keep the settled contract: one writable current generation, automatic folding,
-immutable backup history, and full document reload after retirement. No
-generation picker, stranded-outbox recovery, predecessor browsing, or automatic
-resets. Local-only recovery remains separate. Keep the spec In Progress until
-the full recovery outcome is integrated and verified. Consult Claude only when
-requested.
+Keep the settled live contract: one writable current generation, folding,
+cache invalidation, retirement fencing, and full document reload after confirmed
+retirement. No generation picker, stranded-outbox recovery, predecessor
+browsing, automatic resets, native crash recovery, or immutable backup-history
+product is implied. Local readable-content recovery remains a current-working-
+copy operation. Retire this handoff only after the caller audit is complete;
+do not keep it In Progress for a deferred restore product. Consult Claude only
+when requested.

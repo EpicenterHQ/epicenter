@@ -1,59 +1,67 @@
-# One current generation, cache-first startup, and restore by reload
+# One current generation, cache-first startup, and live-mechanism audit
 
 **Status:** In Progress
 
-## Read this first: current direction, 2026-09-13
+## Read this first: current direction, 2026-09-17
+
+**Attachment and capture target frozen 2026-09-17:** a row stores ordinary
+values that may refer to independently retained app-local bytes or an explicitly
+hosted account-remote URL. The app-local blob store is shared within the app
+across account changes; account data and remote hosting remain separately
+scoped. The workflow selects its original library before capture; native
+capture writes a disposable temporary WAV and Stop commits the local BlobId and
+finished bytes. Unfinished capture may be lost before Stop; after Stop, local
+publication is durable. No automatic native crash recovery or progress journal
+is promised. ADR-0393 and ADR-0366 own this revision.
+
+**Current checkpoint:** finished-file creation, disposable capture, and local
+playback evidence have landed. The row-first local checkpoint from commit
+09b1965e55 remains historical implementation evidence below. The remaining
+work here is caller and lifecycle audit: preserve live session identity,
+original destination and inference lifetime, post-Saved durability, and
+explicit remote operations separate from local save. A row with unavailable
+bytes remains an ordinary row value; it is not a writable blob slot.
+
 
 **App composition settled 2026-09-14:** one App exposes Local and available
 account libraries. Applications choose views and explicit write destinations;
 no picker, Personal default, or cross-library copy feature is required. Local
-persists within the app's storage profile across account changes, while account
-data and its local attachment cache remain isolated. ADR-0392, ADR-0399, and
-ADR-0401 own that boundary. Backup reconstruction is not a cross-library copy.
+persists within the app's storage profile across account changes and shares the
+app-local blob store. Account data and explicit remote hosting remain
+separately scoped. ADR-0392, ADR-0399, and ADR-0401 own that boundary. Backup
+reconstruction is not a cross-library copy.
 
-**Restore contract settled 2026-09-14:** ordinary synchronization brings devices
-together; restore replaces the library everywhere with the selected backup.
-Confirmed retirement discards unsynchronized old-generation rows and attachment
-work, including completed recordings whose uploads never finished. No rescue
-queue or automatic merge follows. The safety copy covers captured account
-state only, with audio coverage shown separately. Finishing synchronization
-first means both accepted row updates and acknowledged audio uploads.
+**Recovery contract settled 2026-09-17:** recovery uses the current working
+copy. Pull establishes the current manifest baseline; old readable content is
+copied into that folder and normal Push previews the resulting edits. Missing
+old rows may be admitted as new rows. The old manifest is never installed as
+the current baseline. ADR-0394 and ADR-0395 own this product direction.
 
-Replacement must check admission before old work resumes, reuse matching
-local audio for restored rows, and preserve account objects held by backups.
-Never interpret row-cache invalidation as erasing the whole attachment store.
-The phone cannot verify that every offline device is synchronized. A lost
-restore response or retirement notice does not establish which request won.
+Current generation admission, cache invalidation, and retirement remain live
+mechanisms. They are not a backup product and are not authorized for removal by
+this spec.
 
-Build folder-backed recovery around row-owned attachments that synchronize
-eagerly, with explicit local availability. Read ADR-0393 for the user story,
-developer boundary, and Whispering UI; read Implementation waves below for
-the active execution order. ADR-0394 and ADR-0395 own retention and restore.
+Current code and historical checkpoints include row-first local attachments,
+legacy blob IDs, and transfer experiments. Treat those as implementation
+evidence, not as the target contract. The target keeps local reads honest and
+leaves remote upload or fetch to explicit callers. No automatic byte sync,
+row-owned attachment lifecycle, or automatic cleanup is required here.
 
-Current production still has blob IDs and Whispering-owned upload policy.
-The target removes that coordination, keeps local reads honest, and downloads
-current attachments automatically for offline use. Completion requires the
-two-device journey and failure evidence in the revised waves, plus safe
-reclamation proof. Exact transfer metadata and reclamation mechanisms remain
-open; neither an upload timestamp nor a grace period is a safety proof.
+The live-mechanism sections below govern execution. Attachment transfer,
+archive, retention, and restore sections are historical design evidence unless
+explicitly marked as current-generation startup or retirement work. Existing
+passing tests do not prove an automatic attachment lifecycle.
 
-All older execution descriptions and checklists outside Implementation waves
-are historical evidence where they disagree with that section. In particular,
-the old cached-on-play policy, explicit eviction, backup-only sweep, and
-deletion-first sequence no longer govern. Existing passing tests do not prove
-the new attachment lifecycle.
+Current-generation retirement still fences old writes, invalidates its cache,
+and reopens through ordinary bootstrap. That mechanism is separate from
+working-copy recovery and remains under audit.
 
-Restore replaces the library's current generation; devices invalidate retired
-IndexedDB replicas and reload, while ordinary use stays cache-first and
-offline-capable.
+## Historical attachment synchronization checkpoint, 2026-09-16
 
-## Bounded attachment synchronization checkpoint, 2026-09-16
-
-Status: In Progress. This checkpoint implements waves 1 through 3 only as needed
-for the saved-file delivery journey. Recovery, reclamation, account copying,
-the full App scopes migration, concurrent microphones, and production migration
-remain outside it. Existing planning corrections and generation edits belong
-to their current workstreams; this checkpoint does not stage them.
+Historical evidence: this checkpoint records the prior
+saved-file delivery experiment. It does not direct automatic blob delivery,
+reclamation, account copying, or recovery work. Current-generation startup and
+retirement evidence remains useful below.
 
 | Checkpoint | Implemented behavior | Verification evidence | Remaining acceptance gaps | Next dependency |
 | --- | --- | --- | --- | --- |
@@ -61,7 +69,7 @@ to their current workstreams; this checkpoint does not stage them.
 | 2. Account transfer | Authenticated publication, library worker and native one-shot transfers implemented and reviewed. Whispering uses library status and bounded controls; its upload runner, destructive copy controls and public `blobs.remote` are removed | Protocol/signing/mount: 12 Bun pass / 61 assertions; workerd publication/current-generation/retirement: 11 pass. Authenticated independently persisted browser A/B journey passes offline capture, restart, reconnect, automatic delivery, offline playback, lost responses and delayed availability. Native 169 pass / 3 ignored; streamed HTTP RSS stays near 22 to 24 MiB through 1 GiB | Native imported-audio UI A/B passes in checkpoint 4; actual object-provider enforcement remains unproved. Browser microphone is synthetic; native physical capture evidence is separate | Native Whispering UI journey and disposable real-provider verification, without expanding App architecture |
 | 3. Failure/race and API review | Independent review of all three attachment commits against 09b1965e55 retained the design. Repaired filesystem observation after unconfirmed download or acknowledgment publication; presence now repeats durability barriers, including after reopen | Blobs and data attachment suites: 139 pass / 1,669 assertions. Three new filesystem fault regressions failed before repair, then passed with 21 assertions; independent follow-up approved. App 102 / 401; bridge 5 / 15; host HTTP 46 / 408; Whispering focused suites and affected typechecks pass. Foundation failures and eight main-data DOM errors reproduce at 09b1965e55 | Actual provider and Windows durability acceptance; physical capture passes in checkpoint 5 | Advance actual native Whispering UI acceptance; preserve all unproved gaps |
 | 4. Native product acceptance | Actual Whispering Local and authenticated A/B imported-audio journeys pass. Repaired WKWebView request bodies and duplicate native upload MIME. Local survives authentication without adoption; account delivery and bounded controls work through native Rust transfer | Native `--import --account` exits 0: A offline save/restart/play/reconnect; B automatic delivery before Play, pause/cancel/retry/resume, offline playback/restart without attachment requests or uploads. Matching 64,044-byte SHA-256; six native/Bun process pairs; cleanup verified. Independent review accepts evidence. Auth 141 / 587; host account/auth 51 / 327; native 169 pass / 3 ignored | Physical capture subsequently passes in checkpoint 5. Real-provider checksum/create-only/signature/CORS unavailable; successful inference and hardware recovery unproved | Repeat A/B against a disposable conforming provider when available |
-| 5. Physical capture follow-up, 2026-09-17 | Shared native capture source now exercises Local and Personal through actual Start/Stop controls. Isolated 1057265cfc checkpoint excludes concurrent blob redesign | Native `--account` exits 0 with BMW2002 Microphone: offline capture/save/restart/play; reconnect/upload; B delivery before Play, pause/retry/resume, offline playback/restart. Identical 226,348-byte WAVs, nonzero samples, six process pairs, cleanup verified. Biome passes; independent evidence review accepts | User confirms no provider available: real checksum/create-only/signature/CORS remains unproved. No power-loss, successful inference, or concurrent redesign acceptance | Obtain disposable conforming provider, verify enforcement, then repeat delivery |
+| 5. Physical capture follow-up, 2026-09-17 | Shared native capture source now exercises Local and Personal through actual Start/Stop controls. Isolated 1057265cfc checkpoint excludes concurrent blob redesign | Native `--account` exits 0 with BMW2002 Microphone: offline capture/save/restart/play; reconnect/upload; B delivery before Play, pause/retry/resume, offline playback/restart. Identical 226,348-byte WAVs, nonzero samples, six process pairs, cleanup verified. Biome passes; independent evidence review accepts | User confirms no provider available: real checksum/create-only/signature/CORS remains unproved. No power-loss, successful inference, or concurrent redesign acceptance | Historical physical-capture evidence only; no automatic-transfer follow-up |
 
 
 Continuation review, 2026-09-16: a download can rename verified bytes and then
@@ -354,7 +362,7 @@ journal, a blob id, or object storage for backups:
 ADR-0386 was deleted. The current-generation authority, retirement, cache
 invalidation, reload, and the Honeycrisp browser journey stand. The dated
 checkpoints below remain evidence of what was built. "Implementation waves"
-and "Required proof" were rewritten on 2026-09-12 against the three records
+and "Required proof" were last revised on 2026-09-15 against the revised records
 and are the plan; every other section below this notice that describes a
 catalog, an archive, an attempt, or a journal is history.
 
@@ -658,26 +666,22 @@ as their own checkpoints. The complete outcome below remains the destination.
 
 ## Settled product contract
 
-- One current numeric generation per synchronized library, under one stable
-  library address. No UUID change is needed to solve this problem.
-- Restore reconstructs application data into a fresh Yjs lineage. Replaying an
-  archived Yjs binary carries old history and is not this reconstruction.
-- The authority activates the replacement and permanently rejects old identities.
-  Retired bytes can be removed after installation and backup requirements hold.
-- Every reconnecting device discards all unsynchronized work in a retired
-  generation. The user explicitly chose this loss policy. Do not add stranded-work
-  recovery, generation selection, or read-only predecessor browsing.
-- Cached IndexedDB data opens offline until retirement is learned. An optional
-  generation header identifies a valid complete cache; absence means bootstrap.
-  There is no persisted `held/rejoining` state machine.
-- Retirement fences old writes, invalidates the cache under the library claim,
-  closes the App, and reloads the page. The new page downloads and opens the
-  replacement. No document swap happens inside a live App.
-- Manual backups, uploaded backups, and automatic pre-restore backups enter
-  one verified catalog outside the replaceable generation. Download and restore
-  accept only published backup IDs. Recovery owns operation identity privately.
-- Ordinary folding stays automatic. Archives are immutable recovery artifacts.
-  No automatic fresh-document or nested-container replacement for maintenance.
+- Materialization contains Markdown, settings, and checkout metadata. Local
+  BlobIds and remote URLs remain references; no byte transfer is implied.
+- Recover selected old content by pulling the current library, keeping its
+  manifest, copying selected content, and approving ordinary Push. Missing rows
+  are newly admitted; recovery does not replace a generation.
+- Deleting Markdown and approving Push permanently deletes its row. Trash is an
+  ordinary application field. Neither operation deletes independent blob bytes.
+- A saved folder or ZIP preserves the folder as it stands, including unpushed
+  edits, without an exact-state or audio-backup guarantee.
+- No server backup catalog, scheduled snapshots, destructive restore endpoint,
+  or dedicated restoration UI is required.
+- Existing initialization, cache, admission, activation, and retirement code
+  remain subject to caller audit. Do not remove safeguards merely because the
+  restore product is deferred.
+- Ordinary storage folding preserves live lineage. Measure performance before
+  adding a destructive maintenance operation.
 
 ## Evidence and current entrypoints
 
@@ -713,7 +717,7 @@ and optional-header cache. Ordinary close drains pending writes; confirmed
 retirement has a separate discard path. Historical personal libraries refuse
 implicit adoption pending an explicit rollout decision.
 
-## Target ownership
+## Existing ownership invariants to preserve during audit
 
 One stable library authority owns the current number, active log/snapshot, socket
 admission, and replacement transaction. Generation checks and writes must share
@@ -777,7 +781,13 @@ seed an empty remote document or reload in a loop. Boot ownership rejects late
 responses. A restore during download may obsolete its generation; admission
 checks it again before sending. Cached open never proves perpetual currency.
 
-## Recovery API and execution
+## Historical recovery product proposal, not active execution
+
+The recovery API, backup catalog, archive storage, restore sequence, and
+retention material in this section are preserved design evidence only. Do not
+implement these steps, add a full-restore UI, or treat the checkboxes below as
+current work. The selected recovery path is the current working copy described
+at the top of this document and in ADR-0394/0395.
 
 The target application surface is:
 
@@ -935,9 +945,152 @@ catalog. Failed activation also retains the completed safety backup. Keep one
 safety backup per attempt across response loss and restarts. A different attempt
 is allowed to create another backup even when restoring the same source.
 
-### Implementation waves
+### Historical implementation waves
 
-#### Local attachment checkpoint, 2026-09-15
+These waves record the prior attachment-transfer and restore proposal. They do
+not authorize automatic blob sync, row-owned blob lifetimes, automatic cleanup,
+or native crash recovery. Keep their test results as evidence when auditing
+the live generation, cache, and retirement mechanisms.
+
+Rewritten 2026-09-15 backward from ADR-0393's finished-file creation and eager synchronization
+and honest local reads. The outcome is a recording made offline on device A,
+uploaded after reconnect, automatically downloaded on device B, then played
+offline on B. Deletion and restore follow row lifetime without losing retained
+audio. This is planned work; the existing tests below are historical evidence.
+
+Each replacement follows build, switch callers, verify, then delete the old
+path. A compile pass alone is not completion. Do not enable destructive
+reclamation before wave 5's evidence.
+
+1. **Prove finished-file creation and disposable capture locally.**
+   - [ ] Keep the three current App openers during this checkpoint. App scopes,
+     a destination picker, and cross-library copying are not dependencies.
+   - [ ] Require finished bytes when ordinarily creating a file-owning row;
+     mint its ID internally. Refuse null/pending files and edits that replace
+     bytes. Preserve ordinary records that associate with fresh owning rows.
+   - [ ] Library save admits the original library/generation, durably publishes
+     the file, creates the completed row with final metadata, and confirms row
+     persistence before Saved. Prove file publication and row-flush failures
+     against production persistence, including a failed flush later retried by
+     another edit. Unknown outcomes must not remint or delete published bytes.
+   - [ ] Capture selects its destination before acquisition, writes progressive
+     disposable native audio, and returns a finished temporary file or opaque
+     native token. Stop releases the microphone; it is not Saved. Serialize
+     publication and temporary disposal so late cancel cannot delete saved bytes.
+   - [ ] Switch Whispering recording and file imports to finished-file creation.
+     Preserve original destination, inference selection, and output lifetime.
+     Keep Capturing, Saving, Saved, and save-unconfirmed outcomes distinct.
+   - [ ] Prove lost start/stop/cancel responses, stale handles, close during
+     pending acquisition, and document reload without window destruction.
+     Pre-Saved loss is allowed; a trapped microphone or library claim is not.
+   - [ ] Prove local-only read/playback with explicit unavailable results,
+     bounded native memory, and post-Saved restart/playback. Physical microphone
+     and native WebView evidence remain acceptance requirements.
+   - [ ] Prove backup reconstruction retains identity and durable content
+     evidence without enabling different bytes at that address, including when
+     all prior byte copies are absent. MIME and length alone are insufficient. Concurrent late
+     associations use independent owning rows; parent link removal does not
+     implicitly delete owners. No garbage collection follows link removal.
+   - [ ] Verify replacement callers, then remove null-first creation, public
+     completion, durable capture journals/recovery, and acknowledgment phases.
+     Keep temporary resource identity, live cleanup, storage durability, and
+     the existing legacy readers until their separate replacement is verified.
+
+2. **Build library-owned transfer in both directions.**
+   - [ ] Design captured generation admission and publication fencing with
+     the transport, before restore integration. A transfer admitted before
+     retirement but completed afterward needs a defined outcome; independent
+     presigned requests do not establish this by themselves.
+   - [ ] Keep platform adapters as one-shot I/O. Choose and verify transport
+     against supported recording sizes, authentication, browser storage, and
+     native streaming requirements.
+   - [ ] Recover local pending uploads on open. Derive missing downloads
+     from current rows; never enqueue downloaded bytes as new uploads.
+   - [ ] Run bounded transfers after new work, open, and reconnect. Give
+     recoverable failures scheduled backoff wake-ups; prove a GET that first
+     returns not-found later succeeds without a new row event.
+   - [ ] Expose observed local presence, progress, waiting, and failure;
+     distinguish initial unknown presence from absence. Add device-local
+     Pause downloads, Resume, Retry, and prioritization.
+   - [ ] Prove lost PUT responses, identical retries, conflicting imports,
+     offline restart, storage-full failure, account closure, and deletion
+     during transfer. A 409/412 is not sufficient evidence of equal content.
+   - [ ] Settle verification privately; do not add a public checksum API or
+     assume object-store ETags always identify content.
+
+3. **Switch Whispering and prove the user journey.**
+   - [ ] Translate recording creation, playback, transcription, and save-file
+     export to the attachment handle. Keep errors visible without blocking
+     unrelated row edits or local playback.
+   - [ ] Replace the Storage column and transfer buttons with ADR-0393's
+     audio-cell states and a library transfer summary. No upload preference,
+     automatic eviction, or “backed up” label derived from upload alone.
+   - [ ] Native-browser/device evidence: record offline on A, reconnect and
+     upload, open B and receive audio without pressing Play, disconnect B
+     and play. Interrupt B before receipt and verify unavailable-offline UI.
+   - [ ] Prove Pause preserves local bytes and does not pause uploads;
+     prioritization does not create a second downloader.
+   - [ ] Switch all callers off `uploadedAt`, `recordingAutoUpload`,
+     `backup.kick()`, upload compensation, and manual copy-management
+     workflows. Run affected typechecks and tests before deleting those paths.
+     Keep platform source disposal and host streaming.
+
+4. **Build folder-backed recovery with explicit attachment coverage.**
+   - [ ] Render row files and attachment siblings with the same identity;
+     refuse changed bytes at an existing row address. Preserve undeclared
+     tables and define how nonconforming rows retain their attachments.
+   - [ ] Build kept text copies and export/import. Report missing audio;
+     explicitly distinguish a saved text copy from verified audio coverage.
+   - [ ] Replace the Honeycrisp archive-based activation fixture with folder
+     reconstruction, then switch recovery consumers and verify before deleting
+     structural archives, old catalog/attempt machinery, and unused journals.
+   - [ ] Build atomic safety-copy restore under ADR-0395, preserve position
+     checks and post-commit retirement, then prove restored attachments
+     download automatically and unavailable historical owners cannot acquire
+     different bytes.
+   - [ ] Show selected-copy and safety-copy audio coverage independently.
+     Save incomplete text copies with explicit coverage; include an omission
+     report in partial exports. Never infer remote audio from row sync.
+   - [ ] Implement the destructive confirmation and reconnect explanation.
+     Prove a completed offline recording absent from the safety copy is
+     discarded on confirmed retirement, including work authored after the
+     remote restore. Ordinary close/network failure must preserve that work.
+   - [ ] Fence old attachment requests as well as row queues before reconnect
+     admission. Reuse matching local files for restored rows; no rescue inbox,
+     automatic re-import, or blanket attachment-store wipe.
+   - [ ] Race two restores and lose a response: reopen actual current state
+     without claiming the selected request succeeded from retirement alone.
+
+5. **Prove retention before enabling account reclamation.**
+   - [ ] Choose an authority/publication protocol that protects live rows,
+     kept copies, uploads/imports in flight, and interrupted restore.
+     Neither backup-only enumeration nor a grace window proves this.
+   - [ ] Exercise stale snapshot H followed by a new row/upload, arbitrary
+     delay between row and byte publication, restore across generations,
+     deleted rows with late uploads, lost responses, and crashes during sweep.
+   - [ ] Prove a retained backup prevents deletion, and unreachable bytes
+     are eventually reclaimed under the documented trigger. No one-day
+     deletion guarantee follows from “daily copy on open.”
+   - [ ] Keep physical deletion disabled until the protocol passes.
+     Conservative storage retention is an interim state, not finished cleanup.
+
+6. **Remove obsolete paths and reconcile current documentation.**
+   - [ ] Verify migration of existing rows and objects before removing deployed
+     ID-based routes/readers. No production migration is authorized by this doc.
+   - [ ] Remove unused blob-ID minting/copy paths and remaining application
+     reconciliation after replacement evidence passes.
+   - [ ] Update package READMEs, route docs, and examples to actual exports.
+     Do not describe proposed methods as already implemented.
+   - [ ] Re-run affected checks and the full two-device journey. Delete this
+     spec only after its recovery and retention obligations are complete.
+
+### Historical row-first local checkpoint, 2026-09-15
+
+This section records commit 09b1965e557bc34aa80f04e1a3e2520d002f3599 and its
+earlier reviews. Its row-first protocol and automatic native recovery are
+superseded by revised ADR-0393/0366. Statements that repairs passed describe
+that checkpoint's evidence, not the later adversarial verdict. See the unresolved
+findings below; no passing count establishes the replacement's correctness.
 
 Continuation review, 2026-09-15: this checkout already contained the local
 owner, recorder integration, and the earlier checkpoint below. Those changes
@@ -1058,9 +1211,10 @@ bun test packages/data/src/store/attachment.test.ts packages/data/src/store/stor
 bun packages/app/scripts/browser-smoke.ts
 ```
 
-Remaining acceptance: run physical microphone capture, host termination, restart,
-and offline playback in the native WebView. Browser page-crash capture recovery
-is unimplemented. Completed browser attachments do survive App close/reopen.
+Acceptance gaps recorded then: physical microphone capture, host termination,
+restart, and offline playback in the native WebView. The revised contract
+waives automatic recovery of unfinished native and browser capture; hardware
+capture, resource teardown, and post-Saved restart/playback still need proof. Completed browser attachments do survive App close/reopen.
 Automatic account attachment synchronization is unimplemented and the UI says
 new audio remains on this device. Local storage does not disable explicitly
 configured remote inference; the existing Local opener still has no account AI
@@ -1073,125 +1227,9 @@ probe. `system_profiler SPAudioDataType` reports only Mac Studio Speakers and
 no input device, so this machine cannot provide the physical microphone proof.
 No power-loss or native WebView playback claim follows from the process probe.
 
-Next bounded implementation slice: library-owned upload and download for completed
-row attachments, with generation-fenced admission, restart/retry evidence, and
-offline playback on a second device. Keep account copying and reclamation out.
-Before calling native capture recovery accepted, close the hardware/WebView gap
-above. The broader waves below remain in progress.
-
-Rewritten 2026-09-13 backward from ADR-0393's eager attachment synchronization
-and honest local reads. The outcome is a recording made offline on device A,
-uploaded after reconnect, automatically downloaded on device B, then played
-offline on B. Deletion and restore follow row lifetime without losing retained
-audio. This is planned work; the existing tests below are historical evidence.
-
-Each replacement follows build, switch callers, verify, then delete the old
-path. A compile pass alone is not completion. Do not enable destructive
-reclamation before wave 5's evidence.
-
-1. **Build one locally complete row attachment.**
-   - [ ] Keep this checkpoint independent of a cross-library copy workflow or
-     destination picker. It supplies the attachment contract consumed by the
-     app-hub and concurrent-capture plans; no intermediate blob-ID recorder API.
-   - [ ] Replace separate identity with stable library/table/row addressing;
-     preserve identity across backups and generations. Validate imported paths.
-   - [ ] Rename the declaration to `field.attachment()`, at most one per
-     table, and prevent application updates to the completion cell. Settle
-     its encoding without using it as evidence of current file presence.
-   - [ ] Route create-with-file and native recording through the same
-     row-first destination. Persist completion and pending upload recoverably.
-   - [ ] Provide local bytes and disposable local playback sources, with
-     explicit unavailable results and no hidden network read.
-   - [ ] Prove local-save failure, interruption at each completion boundary,
-     delete during capture, and restoring an old null cell after completion.
-     Implement host staged-capture recovery before promising host-crash recovery.
-
-2. **Build library-owned transfer in both directions.**
-   - [ ] Design captured generation admission and publication fencing with
-     the transport, before restore integration. A transfer admitted before
-     retirement but completed afterward needs a defined outcome; independent
-     presigned requests do not establish this by themselves.
-   - [ ] Keep platform adapters as one-shot I/O. Choose and verify transport
-     against supported recording sizes, authentication, browser storage, and
-     native streaming requirements.
-   - [ ] Recover local pending uploads on open. Derive missing downloads
-     from current rows; never enqueue downloaded bytes as new uploads.
-   - [ ] Run bounded transfers after new work, open, and reconnect. Give
-     recoverable failures scheduled backoff wake-ups; prove a GET that first
-     returns not-found later succeeds without a new row event.
-   - [ ] Expose observed local presence, progress, waiting, and failure;
-     distinguish initial unknown presence from absence. Add device-local
-     Pause downloads, Resume, Retry, and prioritization.
-   - [ ] Prove lost PUT responses, identical retries, conflicting imports,
-     offline restart, storage-full failure, account closure, and deletion
-     during transfer. A 409/412 is not sufficient evidence of equal content.
-   - [ ] Settle verification privately; do not add a public checksum API or
-     assume object-store ETags always identify content.
-
-3. **Switch Whispering and prove the user journey.**
-   - [ ] Translate recording creation, playback, transcription, and save-file
-     export to the attachment handle. Keep errors visible without blocking
-     unrelated row edits or local playback.
-   - [ ] Replace the Storage column and transfer buttons with ADR-0393's
-     audio-cell states and a library transfer summary. No upload preference,
-     automatic eviction, or “backed up” label derived from upload alone.
-   - [ ] Native-browser/device evidence: record offline on A, reconnect and
-     upload, open B and receive audio without pressing Play, disconnect B
-     and play. Interrupt B before receipt and verify unavailable-offline UI.
-   - [ ] Prove Pause preserves local bytes and does not pause uploads;
-     prioritization does not create a second downloader.
-   - [ ] Switch all callers off `uploadedAt`, `recordingAutoUpload`,
-     `backup.kick()`, upload compensation, and manual copy-management
-     workflows. Run affected typechecks and tests before deleting those paths.
-     Keep platform source disposal and host streaming.
-
-4. **Build folder-backed recovery with explicit attachment coverage.**
-   - [ ] Render row files and attachment siblings with the same identity;
-     refuse changed bytes at an existing row address. Preserve undeclared
-     tables and define how nonconforming rows retain their attachments.
-   - [ ] Build kept text copies and export/import. Report missing audio;
-     explicitly distinguish a saved text copy from verified audio coverage.
-   - [ ] Replace the Honeycrisp archive-based activation fixture with folder
-     reconstruction, then switch recovery consumers and verify before deleting
-     structural archives, old catalog/attempt machinery, and unused journals.
-   - [ ] Build atomic safety-copy restore under ADR-0395, preserve position
-     checks and post-commit retirement, then prove restored attachments
-     download automatically and old null cells cannot be refilled differently.
-   - [ ] Show selected-copy and safety-copy audio coverage independently.
-     Save incomplete text copies with explicit coverage; include an omission
-     report in partial exports. Never infer remote audio from row sync.
-   - [ ] Implement the destructive confirmation and reconnect explanation.
-     Prove a completed offline recording absent from the safety copy is
-     discarded on confirmed retirement, including work authored after the
-     remote restore. Ordinary close/network failure must preserve that work.
-   - [ ] Fence old attachment requests as well as row queues before reconnect
-     admission. Reuse matching local files for restored rows; no rescue inbox,
-     automatic re-import, or blanket attachment-store wipe.
-   - [ ] Race two restores and lose a response: reopen actual current state
-     without claiming the selected request succeeded from retirement alone.
-
-5. **Prove retention before enabling account reclamation.**
-   - [ ] Choose an authority/publication protocol that protects live rows,
-     kept copies, uploads/imports in flight, and interrupted restore.
-     Neither backup-only enumeration nor a grace window proves this.
-   - [ ] Exercise stale snapshot H followed by a new row/upload, arbitrary
-     delay between row and byte publication, restore across generations,
-     deleted rows with late uploads, lost responses, and crashes during sweep.
-   - [ ] Prove a retained backup prevents deletion, and unreachable bytes
-     are eventually reclaimed under the documented trigger. No one-day
-     deletion guarantee follows from “daily copy on open.”
-   - [ ] Keep physical deletion disabled until the protocol passes.
-     Conservative storage retention is an interim state, not finished cleanup.
-
-6. **Remove obsolete paths and reconcile current documentation.**
-   - [ ] Verify migration of existing rows and objects before removing deployed
-     ID-based routes/readers. No production migration is authorized by this doc.
-   - [ ] Remove unused blob-ID minting/copy paths and remaining application
-     reconciliation after replacement evidence passes.
-   - [ ] Update package READMEs, route docs, and examples to actual exports.
-     Do not describe proposed methods as already implemented.
-   - [ ] Re-run affected checks and the full two-device journey. Delete this
-     spec only after its recovery and retention obligations are complete.
+The next slice proposed at this checkpoint was library-owned transfer. That
+ordering is withdrawn: first replace and prove local save under the revised
+finished-file creation contract. The test counts above remain historical.
 
 ### Historical execution decisions before ADR-0393 through ADR-0395
 
@@ -1232,10 +1270,53 @@ index registration. The task-start hygiene baseline contains 40 unrelated ADR
 dependency/status findings. This documentation pass changes no runtime code or
 ADR status.
 
-## Required proof
+## Adversarial findings carried into the replacement, 2026-09-15
 
-Rewritten 2026-09-12. Cases above the rule stand from the current-generation
-work; cases below it are the three records.
+Historical findings about the withdrawn attachment-transfer design follow.
+Retain independently applicable lifecycle and persistence evidence; do not use
+these findings to restore row ownership, automatic delivery, or a backup product.
+
+These findings concern exact commit 09b1965e55. Concurrent working-tree generation
+edits are separate. The proposed redesign is a repair direction, not evidence
+that any current defect is fixed. Review probes were run outside the checkout;
+they are not committed regression tests and must be rebuilt against the replacement.
+
+| Priority | Finding and source | Smallest coherent repair / required regression |
+| --- | --- | --- |
+| P1 correctness blocker | `packages/app/src/recording/desktop.ts:368` and `:415`: retirement cleanup can discard a future-generation journal while an older generation opens. | Remove automatic capture adoption in the replacement; until removed, discard only a proven older journal or a matching journal whose own generation is confirmed retired. Reproduce: open cached generation 3, preserve a generation 4 journal through current(), then retire/close generation 3; generation 4 must survive. |
+| P1 correctness blocker | `apps/epicenter/src-tauri/src/blobs.rs:366` and `apps/epicenter/src-tauri/src/recorder/recovery.rs:180`: rename followed by failed directory durability work can be retried through the already-published branch without proving that durability. | File publication must prove durability on every success path, including an existing destination after an interrupted attempt. Inject failure after rename and before directory synchronization. |
+| P1 correctness blocker | `packages/data/src/store/attachment.ts:87` and `packages/data/src/store/store.ts:1295`: retry authority lives in a particular attachment facade; create-with-file may fail after row creation without returning its identity. | One admitted save allocates one owner and retains its in-flight identity. Test real failed persistence and later queue retry; no blind remint or destructive compensation on an unknown result. |
+| P1 correctness blocker | `packages/app/src/recording/desktop.ts:328` and `packages/app/src/open.ts:223`: native release succeeds but its lost response leaves a cached rejected close promise and traps the library claim. | Reconcile exact-session release through the actual App close owner. Retry cleanup without affecting another session; prove a successor App can acquire the library after physical teardown. |
+| P1 correctness blocker | Existing-row completion permits two offline devices to put different bytes at one row address while row metadata converges. | Require a fresh file-owning row at ordinary creation; no late completion on a synchronized empty row. Test concurrent fresh owners and association edits with real row synchronization and byte stores. |
+| P1 inherited lifecycle defect | `apps/whispering/src/lib/operations/recording.svelte.ts:154` and `:207`: the start-response gap can hide a live native capture behind cached empty state; source comparison found it before this commit. | Prove old-document teardown and pending-start cleanup, including a lost start response. Waiving capture recovery does not waive releasing hardware. |
+| P2 save-result defect | `packages/app/src/recording/desktop.ts:209` and `apps/epicenter/src-tauri/src/recorder/recovery.rs:192`: acknowledgment deletes the journal, its reply is lost, and retrying Stop fails because the descriptor is gone although audio is saved. | Remove durable capture acknowledgment in the replacement. Until removed, retain successful publication metadata and retry acknowledgment directly; do not republish or delete saved audio. |
+
+Regression design must reach production owners. The existing completion-flush
+test retains one attachment facade; create-with-file does not. Normal native
+acknowledgment fixtures do not remove the journal before losing the response.
+Future-generation preservation tests call current() without then retiring and
+closing the old generation. Replace those assumptions with the actual
+interleavings above, using real row persistence and App claim ownership.
+
+The focused checkpoint's 393 Bun tests, affected App typechecks, 154 native
+passes with 2 ignored tests, synthetic Chromium playback/reopen, and child-process
+SIGKILL recovery are evidence for its old boundaries. They do not test the new
+creation contract. Physical microphones, whole-host interruption, and native
+WebView playback were not verified. Automatic browser page-crash recovery is
+unimplemented and no longer promised for unfinished capture.
+
+The foundation baseline remains 7 pass / 2 fail: initial-generation fetching
+returns 404; socket refusal is 403 versus the committed fixture's 409, while
+concurrent edits expect 404. Main data typecheck has eight recorded DOM-boundary
+errors; the DOM leaf passes. Recheck before attributing failures to this work.
+
+## Historical required proof
+
+The table below is retained to explain earlier evidence and rejected recovery
+assumptions. It is not an acceptance checklist for the current target.
+
+Revised 2026-09-15. These cases combine current-generation obligations with
+the finished-file creation, capture, attachment delivery, and restore target.
 
 | Case | Required result |
 | --- | --- |
@@ -1250,9 +1331,12 @@ work; cases below it are the three records.
 | Failed download or missing local cache | Ordinary retry; no empty remote creation or reload loop |
 | Different-generation working-copy manifest | Push refuses; no reinterpretation as mass edits |
 | A second `field.attachment()` on one table | `compileData` refuses |
-| Row created with bytes | Locally recoverable completion and upload obligation; cell encoding follows ADR-0393; no remote durability implied |
+| File-owning row created with finished bytes | Saved only after durable file publication and row persistence; future account delivery retains a local obligation; no remote durability implied |
 | PUT to an existing row path | Bytes unchanged; identical retry verified, different content refused |
-| Capture crash before `stop` | Row exists with a null cell; host `current()` recovers and `stop()` fills it |
+| Capture lost before confirmed Saved | Entire unfinished recording may be lost; no required draft row or recovery journal; successor capture is not trapped |
+| Ordinary creation without finished bytes or edit of owned bytes | Refused; ordinary record associations remain editable |
+| Save fails, then another edit flushes queued row work | No false Saved, automatic remint, or deletion of potentially published bytes; unconfirmed outcome remains explicit |
+| Lost native responses or reload without window destruction | Exact live owner cleanup/fencing; stale commands cannot affect successor capture or permanent files |
 | Row deleted | Row gone; active local work coordinated; account object retained while current rows, backups, or protected publication need it |
 | Copy deleted | Copy gone; shared objects await proven safe reclamation |
 | Pass after a copy is kept | No deletion until current-row, backup, and publication protection is proved; old snapshot plus new upload cannot lose live audio |
@@ -1260,9 +1344,10 @@ work; cases below it are the three records.
 | Eighth automatic copy | Oldest automatic copy deleted by the pass; manual and before-restore copies untouched |
 | Backup of a library with hours of audio | Text saved without embedding audio; coverage separately checked and reported; missing audio does not refuse text preservation |
 | Entry above 2 MiB | Refused with its path |
-| Export | Zip holds `kv.json`, every row file, and a sibling for every row whose cell is not null; a row whose object is absent has no sibling |
+| Export | Zip holds kv.json, every row file, and available siblings for file-owning rows; explicit omission report accompanies unavailable bytes |
 | Import of that zip | Siblings put create-only; entries kept as a copy; importing twice changes no bytes |
-| Import with a missing sibling | Row imports with its cell; shows as missing audio; restore invents nothing |
+| Import changed sibling at a vacant historical address | Refused unless verified against durable historical content evidence; absence does not authorize replacement |
+| Import with a missing sibling | Historical identity and immutable file metadata survive; audio is unavailable; ordinary creation cannot refill that owner |
 | Folder from an older build | Undeclared tables and unknown keys kept; a body with no codec refused at that file |
 | Restore | Safety copy and replacement commit together; retained available audio reused; absent audio explicitly unavailable and scheduled for download |
 | Old device has completed unuploaded recording | Confirmed retirement discards old work without rescue; the safety copy never claims to contain unseen work |
@@ -1591,18 +1676,15 @@ Worker results are recorded in the ownership execution spec. The Two-device
 journey checkpoint above adds complete current downloads and real editor
 retirement/reload proof. Production restore remains unmounted.
 
-Remaining restore work:
+Deferred recovery notes:
 
-1. Compose verified archive storage and blob installation with a retained backup
-   and durable activation request. Prove durability, retention, request-bound
-   receipt recovery, and the deliberate restore operation.
-2. Extend browser and Worker proof to production recovery, restart reconciliation,
-   attachment retention, recorder cleanup, and obsolete/interrupted downloads.
-   Preserve the existing failed-invalidation and hibernation evidence and
-   working-copy mismatch refusal.
-3. Keep restore generation retirement distinct from Account retirement and
-   ordinary library switching. Only confirmed generation retirement authorizes
-   discarding a replica's pending edits.
+1. No archive storage, blob installation, backup catalog, restore endpoint, or
+   full-restore UI is active work under this spec.
+2. Preserve the existing failed-invalidation, hibernation, generation-admission,
+   and working-copy mismatch evidence while auditing their live callers.
+3. Keep generation retirement distinct from Account retirement and ordinary
+   library switching. Only confirmed generation retirement authorizes discarding
+   a replica's pending edits.
 
 No restore endpoint, deployment, destructive migration, or real-library deletion
 is authorized by the Honeycrisp slice. This spec remains In Progress.
@@ -1634,16 +1716,17 @@ the existing benchmark and unit tests alone are not completion evidence.
 
 ## Remaining judgments and separate work
 
-The lifetime design is settled. The recovery API and catalog rule recorded in ADR-0386 at the time were later replaced by ADR-0394 and ADR-0395. Archive metadata
-and versioning, private endpoint names, receipt retention, temporary replacement
-storage limits, and rollout of existing independently writable generations still
-need implementation evidence.
+The product recovery direction is settled by ADR-0394 and ADR-0395. Remaining
+work inventories current callers of archives, catalogs, journals, activation,
+and retirement, then identifies unused machinery that can be removed without
+weakening startup, offline opening, or synchronization. Private restore endpoints,
+backup retention, and archive-versioning product work are deferred.
 Do not silently select a maximum and destroy other existing histories during a
 migration. Determine the deployed data situation and record the rollout decision
 before activating it on real libraries; no production action is authorized here.
 
 Byte-aware acknowledged-log folding and smaller plain-text updates are worthwhile
-maintenance investigations, but are separate from this restore implementation.
+maintenance investigations, separate from this caller audit.
 Do not add them to the critical path or introduce automatic resets to compensate.
 
 When completed, update durable ADRs without changing accepted records' decisions

@@ -11,6 +11,7 @@
 - **Amended by:** [ADR-0283](0283-a-generations-collection-is-a-ledger-that-allocates-admits-and-sweeps.md) at the route table. The small object holding the list stays and becomes the ledger that allocates, admits, and sweeps.
 - **Amended by:** [ADR-0286](0286-every-generation-is-minted-from-an-artifact-and-compaction-is-an-export-then-an-import.md) by withdrawing the Restore/Rebuild split and the lease Rebuild required: a mint is always additive, so there is nothing to compare and swap.
 - **Amended by:** [ADR-0287](0287-the-authority-does-not-delete-a-generation-and-erasure-is-an-account-operation.md) at the route table, which loses `DELETE`. "Nothing is ever deleted except by a person" becomes true of the authority without exception, and erasure moves to the account.
+- **Amended by:** [ADR-0379](0379-reconstruction-is-an-explicit-destructive-library-operation.md) at product availability: storage maintenance preserves live document lineage, and no restore-over-live product is selected; existing generation and retirement mechanisms remain implementation inventory until audited.
 
 ## Context
 

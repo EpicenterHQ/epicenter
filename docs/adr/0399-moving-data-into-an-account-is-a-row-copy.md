@@ -32,38 +32,44 @@ framework copy workflow.
 Local data belongs to the application in one device storage or browser profile,
 not to the signed-in account. Signing in, signing out, or changing accounts
 does not move it. Alice and Bob using the same app and storage profile reach
-the same Local library; their Personal libraries remain separate. Account
-attachments cached on the device still belong to their account library.
+the same Local library; their Personal libraries remain separate. Local blobs are
+app-scoped and independent of those row libraries. Remote objects belong to
+their captured application account.
 
 If an application offers moving or copying Local recordings into an account,
 it asks for confirmation in a separate dialog before creating the account
 copies. The dialog names the destination account and explains that the
-recordings, including their audio, will upload and synchronize automatically.
-It also states whether the local originals will remain or be removed. Signing
-in is not confirmation, and opening an account never starts this transfer.
+rows will synchronize. If the workflow also uploads audio, it names that
+separate operation and its destination account. Copying a reference alone does
+not upload bytes or grant access to another account's remote object.
+The dialog states whether the original rows remain; blob deletion is a separate
+choice. Signing in is not confirmation and starts no copy or upload.
 The application owns this dialog; the storage APIs do not present UI.
 
 If an application offers copying, it composes reads and ordinary creation in
-the destination library. The store mints new row IDs and owns attachment
-completion (ADR-0393). The application chooses the copied content, rebuilds
+the destination library. The store mints new row IDs.
+Blob references are ordinary copied values (ADR-0393). The application chooses the copied content, rebuilds
 content nodes, maps references between copied records, and explains partial
 results. A live row cannot simply be spread into another store. The application
-must not claim success for audio it could not read or complete locally.
+must distinguish copied references from any bytes it explicitly saved or
+uploaded. Rows in two libraries can reference the same app-local blob.
 
 This record promises no identity-preserving copy, deduplication, automatic
 merge, or exactly-once retry. Those require a named product workflow and its
 own evidence. Reusing IDs through independent offline row creation is not a
 safe substitute: the store's `document.test.ts` exercises conflicting chosen
-IDs losing one row's content. Controlled backup reconstruction preserves
-identities under the restore contract; it is not ordinary row creation.
+IDs losing one row's content. Recovering old content uses ordinary
+working-copy edits and new-row admission, not identity-preserving reconstruction
+(ADR-0395).
 
 Sign-in does not copy device preferences or records. Applications do not bypass
-storage invariants to implement a transfer. Once bytes complete in an account
-library, that library owns automatic delivery, just as for any other recording.
+storage invariants to implement a transfer. Creating a row in an account library
+creates no byte-delivery obligation. Explicit hosting remains an operation on
+`app.blobs.remote`, independent of copying.
 
 ## Consequences
 
-- Opening an App and implementing attachments do not depend on a copy feature.
+- Opening an App and using blob storage do not depend on a copy feature.
 - A future copy feature must name its behavior for missing files, linked rows,
   repeated requests, interruption, and source deletion. Ordinary creation alone
   does not establish a retry or batch-atomicity guarantee.
@@ -73,8 +79,8 @@ library, that library owns automatic delivery, just as for any other recording.
   once Local is a library, so the account menu reads "Sign out" and "Sign out
   and remove account data from this device".
 - Remove the old capture, admit, and device-delete adoption path after the
-  two-scope replacement is verified. Keep storage validation, attachment
-  recovery, and explicit erasure; they are not adoption policy.
+  two-scope replacement is verified. Keep storage validation, saved-file
+  preservation, explicit uploads, and explicit erasure; they are not adoption policy.
 
 ## Considered alternatives
 

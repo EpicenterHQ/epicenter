@@ -193,9 +193,10 @@ The host supplies only `dial`, a function that makes a socket. The library owns
 the cursor, attach and detach, reconnect on close and on `needsResync`, and the
 unacknowledged-submission watchdog (ADR-0222).
 
-Blobs are a separate plane and were never CRDT-backed. They are content
-addressed bytes logged against the server, with local ones queued until they
-are uploaded.
+Blobs are a separate plane and were never CRDT-backed. Rows store opaque minted
+keys or ordinary remote URLs. App-local bytes and account-remote objects have
+independent lifetimes; uploads are explicit, with no automatic byte sync or
+row-driven cleanup.
 
 ## Two deployables, one library
 

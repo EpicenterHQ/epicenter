@@ -145,20 +145,37 @@ shapes, see `docs/adr/`.
 - **Device scope** (unbuilt, ADR-0392): `app.device`, everything true of this
   application's device storage or browser profile. The same store implementation with no
   authority, plus `sqlite`, `secrets`, `connections`, and `recording`, which
-  exist nowhere else. Its tables and row attachments hold the library a person
-  reads as Local. Local data and device preferences survive account changes;
-  they are not account-private. Reopening replaces the handle, not the Local
-  data. Account attachments cached here still belong to the account library.
+  exist nowhere else. Its tables hold the library a person reads as Local. Local data and device
+  preferences survive account changes; they are not account-private.
+  Reopening replaces the handle, not the Local data. Blob storage is app-local
+  and independent of these row libraries.
 - **Account scope** (unbuilt, ADR-0392): `app.account`, everything true of the
   signed-in person on one server, present only while signed in. It holds
   `identity`, the `personal` store, the optional `shared` store, and
   `connection`, that server's inference gateway. It ends with the auth
   generation.
-- **Cross-library copy** (optional application workflow, ADR-0399): an app may
-  compose local reads and ordinary destination creation. The framework mandates
-  no Add workflow, ID preservation, or repeatability promise. Normal creation
-  mints IDs; controlled backup reconstruction is a separate identity-preserving
-  operation. Sign-in does not move Local data.
+- **Blob reference** (ADR-0393): a local BlobId or remote URL stored as an
+  ordinary row value. A row can reference several blobs and several rows can
+  reference one blob. Row deletion does not delete bytes. There is no owning
+  attachment field or automatic byte transfer.
+- **Saved capture** (ADR-0366): Stop publishes completed audio into the app-local
+  blob store and returns its key. The workflow then creates its recording row
+  in the destination retained before capture. Failed row creation leaves the
+  blob available. Unfinished capture may be lost on reload or termination.
+- **Cross-library copy** (optional application workflow, ADR-0399): an app
+  composes reads and ordinary destination creation. New rows get new IDs.
+  Copying blob references does not upload bytes or transfer remote ownership.
+  Sign-in does not move Local data.
+- **Materialization** (ADR-0394): readable row Markdown, settings, and checkout
+  metadata. Blob keys and URLs remain references; Pull copies no audio and
+  downloads no remote objects. Local rows remain Local.
+- **Saved folder** (ADR-0394): a copy or ZIP of the materialization as it stands,
+  including unpushed edits. It contains no blob payloads or exact-state recovery
+  guarantee. Server backup retention and a dedicated restore UI are deferred.
+- **Content recovery** (ADR-0395): Pull a current working copy, preserve its
+  manifest, bring selected old content into its files, and preview ordinary
+  Push. Deleted rows return as newly admitted rows. File deletion permanently
+  deletes the row; an application's Trash field is a normal frontmatter value.
 - **Data definition**: one application's inert, pure JSON declaration of its
   durable data, created with `defineData` and read with `parseData` (ADR-0255).
   It is release-local: a newer release ships a newer declaration over the same
@@ -243,10 +260,11 @@ shapes, see `docs/adr/`.
 - **`dial`**: the one thing a host supplies to the transport, a function that
   makes a socket. The library owns the cursor, attach and detach, reconnect, and
   the unacknowledged-submission watchdog (ADR-0222).
-- **Blob**: bytes a row cites by an opaque minted `BlobId`, never a content hash
-  (ADR-0148, ADR-0154). Held per principal at the authority and locally beside
-  the replica (ADR-0349), a separate plane from rows that was never CRDT-backed.
-  Local blobs may sit queued until they are uploaded.
+- **Blob**: immutable bytes with their own identity and lifetime. Local objects
+  belong to the app on this device and use extension-bearing BlobIds (ADR-0349).
+  Explicit remote uploads create independent account-owned objects and return
+  URLs (ADR-0372). Neither row synchronization nor row deletion transfers or
+  deletes bytes.
 - **Worker**: running behavior that observes Epicenter state and writes results
   back. Workers may be local (every node runs them) or agent-bound (one
   configured agent answers). A conversation is answered by the client agent loop
@@ -267,8 +285,10 @@ shapes, see `docs/adr/`.
   streams the live turn into a snapshot the UI renders, and persists finished
   messages as rows (ADR-0047). It replaced the older doc-observing _answerer_,
   which ADR-0047 removed.
-- **Materializer**: a local, addressless worker that projects Epicenter data
-  into another store (markdown, sqlite). Matter is the one surviving user.
+- **Working-copy materialization**: Markdown documents, settings, and a checkout
+  manifest. Pull writes app data to the folder; Push applies approved folder
+  edits against the saved baseline. Blob IDs and URLs remain references: neither
+  operation copies, fetches, or deletes blob bytes (ADR-0394, ADR-0395).
 - **`attach*` vs `create*`**: `attach*` are side-effectful primitives that register
   listeners at call time; `create*` are pure construction.
 

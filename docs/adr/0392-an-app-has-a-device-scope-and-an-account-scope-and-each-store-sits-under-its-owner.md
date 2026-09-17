@@ -136,10 +136,11 @@ again.
   and `app.account?.connection`. A saved selection's `connectionId` already
   encodes which scope it names (ADR-0363), and `connectionFor(app, selection)`
   in `@epicenter/app` performs the lookup so no caller parses the id.
-- Recording admission takes an existing row's attachment. The capture retains
-  its library identity and lifetime; no account or view change retargets it.
-- A page opens up to three replicas. Sync sockets and blob storage scale with
-  that. This is the cost of showing a person's device, personal, and shared
+- The recording workflow captures its destination and lifetime before capture.
+  It saves bytes first, then creates an ordinary row referring to their BlobId;
+  no account or view change retargets its save or subsequent inference.
+- A page opens up to three replicas. Sync sockets scale with the synchronized
+  libraries; the app-local blob store remains shared across them. This is the cost of showing a person's device, personal, and shared
   data at once.
 - Remove the old opener's library discriminator and its unused wiring after
   callers move. An application's view or destination choice may remain, but

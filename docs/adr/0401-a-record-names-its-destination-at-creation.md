@@ -64,6 +64,6 @@ retain the owning handle for actions on each record.
 - **A mandatory picker and Personal default in the framework.** Rejected because
   available storage does not dictate an application's interface.
 - **Resolve destination after capture finishes.** Rejected because account or
-  view changes could send the recording somewhere other than its original row.
+  view changes could send the recording somewhere other than its original destination.
 - **Silently fall back to Local when account access disappears.** Rejected
   because this changes ownership and delivery without the application's choice.

@@ -100,11 +100,22 @@ preserve arbitrary producer MIME parameters or convert the bytes.
 Direct uploads retain a declared MIME type and its parameters. Empty-MIME Files
 use the same format policy as local saves. Uploading a saved file uses its
 conventional type. Private backup storage retains its exact media-type contract
-and byte verification; generic local MIME normalization does not weaken it.
+and byte verification; generic local MIME normalization does not weaken it. This
+is unmounted infrastructure, not the product backup or restore surface; that
+product is deferred.
 
-Archive capture includes bytes referenced by complete local keys. Absolute
-HTTP(S) URLs remain opaque row values through archive and recovery; they are
-not fetched, converted, or inlined as local byte dependencies.
+The current structural archive implementation captures bytes referenced by
+complete local keys. Its backup and recovery callers remain current code pending
+a separate implementation and caller audit. Absolute HTTP(S) URLs remain opaque
+row values through archive and recovery; they are not fetched, converted, or
+inlined as local byte dependencies.
+
+The [ADR-0394 folder direction](../../docs/adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md)
+is document-only: Markdown, settings, and the checkout manifest carry
+references, without copying or fetching local or remote blob payloads. The
+[ADR-0395 recovery direction](../../docs/adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md)
+uses the current working-copy baseline rather than replacing it with an old
+manifest.
 
 Download callers supply complete friendly filenames. Download adapters save
 those names without choosing another audio extension. ZIP exports remain ZIPs.

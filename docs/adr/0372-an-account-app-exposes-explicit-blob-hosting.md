@@ -43,8 +43,10 @@ local MIME parameters are not recovered from an extension.
 The owner-pinned URL ends in a complete extension-bearing key. The user confirmed
 zero users and no existing data for the September 17, 2026 clean break.
 Validators reject extensionless URLs; no hosted objects are converted or reset.
-Archive capture and recovery preserve absolute HTTP(S) URLs as opaque values.
-They do not fetch, convert, or inline remotely hosted bytes as local dependencies.
+Document materialization and working-copy recovery preserve absolute HTTP(S)
+URLs as opaque values. They do not fetch, convert, or inline remotely hosted
+bytes as local dependencies. The separate structural archive may retain local
+bytes, but it is not the folder materialization or recovery format.
 
 Hosting uses direct authenticated requests with a 25 MiB initial object limit.
 The server enforces actual received size. Saved-file uploads check byte length

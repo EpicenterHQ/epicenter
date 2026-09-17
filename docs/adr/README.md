@@ -464,7 +464,7 @@ Two habits make the link hard to forget:
 | [0202](0202-a-provider-account-belongs-to-the-app-whose-durable-state-it-names-and-epicenter-brokers-none.md)                | A provider account belongs to the app whose durable state it names, and Epicenter brokers none                                                                                  | Accepted (provisional number; amends 0074 at vault scope; completes 0201 on who owns a provider grant)                                  |
 | [0203](0203-epicenter-owns-only-what-is-already-contended.md)                                                                | Epicenter owns only what is already contended, and never adopts a resource whose contention its own mechanism would create                                                      | Accepted (provisional number; 0191 through 0202 are claimed by open branches)                                                    |
 | [0204](0204-an-app-is-one-reverse-domain-identifier-that-names-every-place-it-exists.md)                                     | An app is one reverse-domain identifier, and that identifier names every place the app exists                                                                                   | Accepted (provisional number; amends 0201 at the id grammar and 0179 at the folder name)                                         |
-| [0205](0205-a-recording-is-a-row-that-fills-and-a-crash-finishes-it.md)                                                      | A recording is a row that fills, and a crash finishes it rather than losing it                                                                                                  | Accepted (provisional number; supersedes 0184; corrected before merge at `cancel` and row creation; not buildable until the blob digest column exists) |
+| [0205](0205-a-recording-is-a-row-that-fills-and-a-crash-finishes-it.md) | A recording is a row that fills, and a crash finishes it rather than losing it | Superseded by 0393 and 0366; Stop now saves an independent app-local blob before the workflow creates a row reference |
 | [0206](0206-a-rows-id-comes-from-whoever-knows-it-and-one-relation-holds-every-fact.md)                                      | A row's id comes from whoever knows it, and one relation holds every fact                                                                                                       | Accepted (provisional number; supersedes 0178; amends 0160 at minted ids and 0187 at the value half) (amended by 0212 at the presence law and the two relations) |
 | [0207](0207-rows-render-continuously-to-markdown-and-frontmatter-is-the-only-way-back.md)                                    | Rows render continuously to markdown, and frontmatter is the only way back                                                                                                      | Accepted (provisional number; renderer wired at boot, push not yet an action; answers 0010's deferred continuous-markdown path; a body is a field and row documents are never materialized; shares Matter's serializer, not its polarity) (amended by 0212 at the body hole) |
 | [0208](0208-every-app-folder-is-markdown-beside-one-queryable-database.md)                                                   | Every app folder is markdown beside one queryable database, and an app supplies whichever it already has                                                                        | Accepted (provisional number; unbuilt; amends 0207 at the folder's contents) |
@@ -608,7 +608,7 @@ Two habits make the link hard to forget:
 | [0352](0352-an-account-s-data-and-a-device-s-files-are-two-packages-because-only-one-of-them-is-removed.md) | An account's data and a device's files are two packages, because only one of them is removed | Accepted (amends 0339 at its mechanism: the binding, the factory, and the `Epicenter<never>` overload are withdrawn) |
 | [0353](0353-a-data-session-keeps-one-account-for-its-entire-lifetime.md) | A data session keeps one account for its entire lifetime | Proposed (amends 0230, 0339, and 0350 at account transport, selection, and session identity) |
 | [0354](0354-hosted-applications-authenticate-with-better-auth-session-bearers.md) | Hosted applications authenticate with Better Auth session bearers | Proposed |
-| [0355](0355-local-and-account-sessions-share-the-application-data-api.md) | Local and account sessions share the application data API | Proposed (unbuilt) |
+| [0355](0355-local-and-account-sessions-share-the-application-data-api.md) | Local and account sessions share the application data API | Accepted (blob references and byte cleanup amended by 0393) |
 | [0356](0356-sensitive-account-changes-use-better-auth-session-freshness.md) | Sensitive account changes use Better Auth session freshness | Proposed |
 
 | [0357](0357-the-account-website-owns-account-management-and-apps-retry-their-own-work.md) | The account website owns account management and apps retry their own work | Proposed |
@@ -617,22 +617,23 @@ When you add an ADR, add its row here.
 
 | [0361](0361-hosted-and-instance-credentials-share-one-account-lifetime.md) | Hosted and instance credentials share one Account lifetime | Proposed |
 
-| [0366](0366-recording-is-an-app-scoped-portable-capability.md) | Recording is an app-scoped portable capability | Proposed (Stop publishes into the canonical app-local blob store) |
+| [0366](0366-recording-is-an-app-scoped-portable-capability.md) | Recording is an app-scoped portable capability | Proposed (Stop publishes to the app-local blob store; row creation and remote hosting are explicit later operations) |
 | [0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) | An application page owns one library and changing it ends the page | Accepted (unbuilt) |
 | [0373](0373-product-operations-read-the-page-owned-app-when-invoked.md) | Product operations read the page-owned App when invoked | Proposed |
+| [0375](0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md) | Library ownership is local, personal, or shared within one deployment | Proposed (library scope does not assign blob ownership) |
 
 | [0359](0359-the-document-factory-owns-readiness-and-closure.md) | The document factory owns readiness and closure | Proposed |
 
-| [0372](0372-an-account-app-exposes-explicit-blob-hosting.md) | An account App exposes explicit blob hosting | Proposed |
+| [0372](0372-an-account-app-exposes-explicit-blob-hosting.md) | An account App exposes explicit blob hosting | Proposed (remote hosting is explicit and independent from row references) |
 
 | [0380](0380-the-caller-owns-when-to-close-and-the-app-owns-resource-shutdown.md) | The caller owns when to close and the App owns resource shutdown | Proposed |
 
 | [0381](0381-user-authored-sql-runs-through-a-bounded-read-only-operation.md) | User-authored SQL runs through a bounded read-only operation | Proposed |
 
-| [0376](0376-application-authors-declare-data-and-the-opened-app-owns-resources.md) | Application authors declare data and the opened App owns resources | Proposed |
+| [0376](0376-application-authors-declare-data-and-the-opened-app-owns-resources.md) | Application authors declare data and the opened App owns resources | Proposed (App owns capability access and resource shutdown, not row-owned blob lifetimes) |
 | [0377](0377-a-table-may-omit-its-content-codec-while-every-row-owns-a-node.md) | A table may omit its content codec while every row owns a node | Proposed |
 
-| [0379](0379-reconstruction-is-an-explicit-destructive-library-operation.md) | Reconstruction is an explicit destructive library operation | Proposed |
+| [0379](0379-reconstruction-is-an-explicit-destructive-library-operation.md) | Storage maintenance does not require a restore product | Proposed |
 
 | [0378](0378-local-mail-saves-sql-definitions-and-queries-cached-gmail-facts.md) | Local Mail saves SQL definitions and queries cached Gmail facts | Proposed |
 | [0382](0382-session-composition-selects-issuer-identity-and-management-capabilities.md) | Session composition selects issuer identity and management capabilities | Proposed |
@@ -649,9 +650,9 @@ When you add an ADR, add its row here.
 | [0391](0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md) | The build selects every implementation, and an application declares only its id and data | Accepted |
 | [0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) | An App has a device scope and an account scope, and each store sits under its owner | Proposed (supersedes 0389 at the opener shape; amends 0369, 0355, 0388, 0365) |
 | [0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) | Rows refer to blobs without owning their lifetime | Proposed |
-| [0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) | A backup is the library's folder, kept by the authority | Proposed (amends 0287) |
-| [0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) | Restore is one request that carries its own safety copy | Proposed |
-| [0396](0396-a-connection-transcribes-and-owns-the-four-rules.md) | A connection transcribes and owns the four rules | Proposed (amends 0054 at model fallback) |
+| [0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) | Materialization contains documents and blob references | Proposed (amends 0337 at recovery; structural archive and server backup remain separate) |
+| [0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) | Recovering old content uses the current working copy | Proposed (ordinary Push through the current baseline; no generation replacement) |
+| [0396](0396-a-connection-transcribes-and-owns-the-four-rules.md) | A connection transcribes and owns the four rules | Proposed (connection owns inference rules, not blob storage or attachment delivery) |
 | [0397](0397-native-inference-selects-an-installed-model-explicitly.md) | Native inference selects an installed model explicitly | Proposed (amends 0180, 0012) |
 | [0398](0398-every-transcription-destination-speaks-the-openai-wire.md) | Every transcription destination speaks the OpenAI wire | Proposed (amends 0060) |
 | [0399](0399-moving-data-into-an-account-is-a-row-copy.md) | Cross-library copying is an application workflow | Proposed (supersedes 0143) |

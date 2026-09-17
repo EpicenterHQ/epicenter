@@ -43,7 +43,7 @@ choice and any deployment policy.
 | Mount | Source | Notes |
 | --- | --- | --- |
 | `mountSessionApp` | `src/routes/session.ts` | Reads the current principal back to a client. |
-| `mountBlobsApp` | `src/routes/blobs.ts` | Content-addressed bytes, S3-compatible behind `resolveDeploymentBlobStore`. |
+| `mountBlobsApp` | `src/routes/blobs.ts` | Opaque owner-pinned blob objects, S3-compatible behind `resolveDeploymentBlobStore`. |
 | `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference, with `rateLimit` available as a policy. |
 | `mountTranscriptionApp` | `src/routes/transcription.ts` | Provider-backed speech to text. |
 | `mountAuthRoutes` | `src/routes/auth.ts` | Public auth shells and database-backed auth endpoints. Cloud only. |

@@ -20,8 +20,10 @@ required. Do not ask again whether old-format data must be preserved.
 
 The consequence is deliberate: pre-change recordings, local objects, hosted
 URLs, archives, and pending recovery operations need not remain usable. The
-implementation must preserve correctness and recovery for newly created data.
-Dropping old backup compatibility does not remove the backup/restore feature.
+implementation must preserve correctness for newly created data. ADR-0394 and
+ADR-0395 now select document-only materialization and recovery through ordinary
+Push. Existing structural archive code remains subject to ADR-0379's caller
+audit; it is not a required backup/restore product.
 
 The user subsequently confirmed **zero users and no existing data**. There is
 nothing to migrate, reset, inventory, or clean up. No one-time reset utility,
@@ -138,7 +140,7 @@ Rows own titles and transcripts. Failed row creation leaves enumerable saved
 bytes. Row deletion, account changes, and failed uploads do not delete audio.
 No second local save follows a successful Stop.
 
-### Explicit hosting and new-format recovery
+### Explicit hosting and existing archive implementation
 
 Remote upload remains an explicit operation with a fresh server-minted ID.
 Keep owner/app authorization, captured-account URLs, redirect refusal, size
@@ -146,17 +148,19 @@ checks, and independent remote lifetime. Direct and local-first File uploads
 must agree on format. Infer upload MIME from filename only for absent/generic
 types; preserve declared provider MIME metadata.
 
-New archive scanning and validation must recognize complete keys, including
-references split across adjacent rich-text runs. Adapt backup and activation
-object keys alongside the grammar change. Restore-operation identity is
-bookkeeping, not a filename; mint it independently instead of adding an
-arbitrary suffix to satisfy BlobId.
+The completed grammar change also adapted the existing structural archive's
+scanning and validation, including references split across adjacent rich-text
+runs. Backup and activation object keys use the new grammar. Restore-operation
+identity is independent bookkeeping, not a filename. This records implementation
+evidence, not a requirement to expose archive restoration.
 
 Generic attachment restoration compares exact bytes and the appropriate
 canonical format. Private backup/activation storage retains its exact media-type
 contract. Do not globally weaken `storeVerifiedBlob`. Preserve collision
 verification, invalid-archive rejection before destination writes, and retries
-for new-format archives and prepared recovery operations.
+for new-format archives and prepared recovery operations while those existing
+callers remain. Document-only checkout and saved folder copies do not invoke
+this byte-restoration machinery.
 
 ## Implementation and review
 

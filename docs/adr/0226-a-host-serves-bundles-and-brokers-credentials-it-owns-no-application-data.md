@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Amended by:** [ADR-0273](0273-an-epicenter-app-is-an-spa-with-a-namespace-and-background-work-is-a-hidden-window.md) at what the host brokers: an application's own third-party secrets, several per application, and one OAuth callback route the host owns so no application registers one.
 - **Amended by:** [ADR-0271](0271-a-workspace-mirrors-continuously-to-the-epicenter-folder-one-way.md) at what a host may hold, on this record's own reasoning: the refusal is of a second convergent plane, and a one-way mirror cannot diverge, so the host may write rendered files exactly as it already holds blob bytes.
+- **Amended by:** [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) withdraws reliance on ADR-0205's unfinished-capture recovery promise. Progressive native file storage and avoiding whole-file WebView transfers still stand; the host does not become a second application-data authority.
 - **Date:** 2026-08-08
 - **Amended by:** [ADR-0323](0323-background-work-runs-in-the-host-and-a-window-is-for-looking-at.md) at what a host does. It serves bundles, brokers credentials, and now runs a declared slice of first-party application code, because a hidden window cannot stay awake and the host already owns the files and the credentials that work needs. The refusal this record was written for is untouched: nothing there opens a store or serves an authority.
   this branch. Reconcile at merge time (`docs/adr/README.md`).

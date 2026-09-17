@@ -29,6 +29,8 @@ Creating a recording row is a later application operation. Its failure can
 leave saved bytes without a row. Recording has no authority to create a row or
 upload audio. Temporary VAD/dictation primitives remain separate and do not
 acquire a durable history requirement merely because saved recording does.
+The later workflow stores the returned BlobId as an ordinary row value; it does
+not make the row own the bytes or create an automatic local-to-remote transfer.
 
 Cancel releases unfinished capture. It cannot retract a committed blob. The
 native implementation retains finalized bytes after retryable publication

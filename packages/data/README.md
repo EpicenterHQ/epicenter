@@ -12,8 +12,8 @@ The package has one definition entrypoint and four runtime entrypoints:
 | `@epicenter/data/definition` | `defineData`, `compileData`, and the field descriptor vocabulary |
 | `@epicenter/data/browser` | `openDatabase(definition, { appId, generation, account })`, plus `resolveGeneration`, `createGeneration`, and `eraseGenerations` |
 | `@epicenter/data/sync` | `createSyncConnection`, and the authority half a server runs |
-| `@epicenter/data/artifact` | `renderArtifact` out and `readArtifact` back in: the files a folder is made of |
-| `@epicenter/data/artifact/checkout` | `pull`, `diff`, `push`, the manifest, and the wire the `~/Epicenter` working copy travels on (ADR-0337, ADR-0338) |
+| `@epicenter/data/artifact` | `renderArtifact` and `readArtifact`: the current low-level structural artifact format for whole-document reconstruction |
+| `@epicenter/data/artifact/checkout` | `createWorkingCopy` with previewed `pull` and `push`, using the checkout manifest as the three-way baseline |
 | `@epicenter/data/memory` | `openMemory(definition)` and `createMemoryRecord()`, test support |
 
 The browser opener is the only one a person's data lands in. A memory opener
@@ -465,8 +465,16 @@ that reaches another partition.
 
 ## What is not here
 
-Blobs. They are content-addressed, write-once bytes logged against the server,
-they were never part of the row plane, and `packages/blobs` has no
-`@epicenter/*` import at all. The row layer only ever stored an opaque id. The
-asymmetry to know is that an un-uploaded blob exists on exactly one machine, so
-the blob plane does not have the row plane's guarantees.
+The row layer stores opaque blob references as ordinary values. App-local bytes
+and explicit account-remote objects have independent lifetimes. Upload is an
+explicit operation, not a synchronization queue, and deleting a row does not
+delete either byte store.
+
+The structural archive and recovery implementation remains current code pending
+a separate implementation and caller audit. It can carry local blob bytes, but
+it is not the chosen folder or saved ZIP format. The [ADR-0394 folder direction](../../docs/adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md)
+is document-only: Markdown, settings, and the checkout manifest carry readable
+references without copying or fetching local or remote blob payloads. The
+[ADR-0395 recovery direction](../../docs/adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md)
+uses the current working-copy baseline rather than replacing it with an old
+manifest.

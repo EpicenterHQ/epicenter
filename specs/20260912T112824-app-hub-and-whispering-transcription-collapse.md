@@ -9,32 +9,31 @@
 ## One Sentence
 
 One App owns Local and available account libraries, applications choose where
-to read and write, and Whispering transcribes a row's locally available attachment
+to read and write, and Whispering transcribes audio referenced by a row
 through its selected connection.
 
-## Current execution contract, 2026-09-14
+## Current execution contract, 2026-09-17
 
-This is planned work, not the current API. The code still has three openers,
-blob IDs, and application-owned upload policy. ADR-0392 owns the two scopes;
-ADR-0393 owns attachments; ADR-0399 leaves copying to applications; ADR-0401
-requires explicit write ownership, not a picker or a Personal default.
+The two-scope App and connection-level transcription remain planned work. The
+code still has three openers, but independent `app.blobs.local` and
+`app.blobs.remote` operations already exist. Stop saves an app-local blob before
+the application creates its recording row. Do not rebuild the historical
+row-owned attachment or automatic transfer contract.
 
-Local persists for this app and storage profile across signed-out, Alice, and
-Bob sessions. Their account libraries remain separate. Reopening replaces the
-App handle, not Local data. An account file cached locally is not a Local record.
+Local rows and app-local bytes persist across account changes in one app/profile.
+Account rows and remote objects retain their account scope. Reopening replaces
+the App handle, not Local data. A row referencing a local file does not move that
+file into its library's ownership.
 
-The attachment/recovery spec owns local completion, transfer, and restore
-implementation. Build its local attachment owner and read contract first,
-then integrate this plan's row-first recorder. Their joint capture/recovery
-evidence completes the local checkpoint; the recorder does not wait for a
-checkpoint that already requires it. Transcription switches after that proof.
-Do not build a temporary recorder destination-store/blob-ID API between them.
-Platform selectors can proceed independently; copying is not a dependency.
+Preserve the current domain audio read: try the saved local key, then use an
+explicitly stored remote URL when available. If neither can be read, return the
+failure without starting inference. Reading a referenced remote object does not
+create a background synchronization obligation.
 
-Completion requires scope-isolation tests, captured attachment ownership,
-honest unavailable-audio behavior, and the app migrations below. Each app's
-library presentation is product policy; record that policy before switching
-its create paths rather than silently inventing a framework default.
+Completion requires scope-isolation tests, captured recording destinations,
+honest unavailable-audio behavior, and the app migrations below. Apps choose
+their library presentation and write policy; a picker or copy feature is not a
+framework requirement.
 
 How to read this spec:
 
@@ -58,7 +57,7 @@ Durable decisions (all Proposed):
 
 The App groups the device and account scopes under one lifetime. Device state
 and inference selections move into `app.device.kv`. Whispering captures a
-connection selection, reads the selected row's local attachment, and records
+connection selection, reads audio referenced by the selected row, and records
 the inference outcome through that row's owning library.
 
 ## Motivation
@@ -111,31 +110,12 @@ const connection = connectionFor(app, app.device.kv.get('transcription'));
 const { data: text, error } = await connection.transcribe(model, { audio, language, prompt });
 ```
 
-Whispering's `operations/transcribe.ts` after the change, schematic only.
-`Attachment.readLocal` is a placeholder for the local read contract, not an
-existing export; the attachment implementation settles its exact signature:
+Whispering retains its domain audio read through `recordings.readAudio(id)`.
+That operation resolves the row's ordinary local key or stored remote URL.
+There is no new `Attachment` type or `readLocal` contract to implement.
 
-```ts
-export async function transcribeAudio(attachment: Attachment) {
-	const app = getApp();
-	const selection = app.device.kv.get('transcription');
-	const connection = connectionFor(app, selection);
-	if (!connection) return TranscribeOperationError.SelectionRequired();
-	const language =
-		app.account?.personal.kv.get('transcriptionLanguage') ??
-		app.device.kv.get('transcriptionLanguage');
-	...
-	const { data: audio, error } = await attachment.readLocal();
-	if (error) return Err(error);
-	return connection.transcribe(selection.model, { audio, language, prompt });
-}
-```
-
-The caller obtains the attachment from the selected recording's owning table.
-It retains that library and row for result publication. A missing local file
-returns unavailable without a network wait or inference request; the library's
-existing synchronizer supplies downloads. Capture the connection, model, hints,
-and output destination before awaiting the read. Closure, retirement, or row
+Capture the connection, model, hints, output library, and row before awaiting
+audio. A read failure starts no inference request. Closure, retirement, or row
 deletion must prevent a late result from recreating the row or changing libraries.
 
 ## Research Findings
@@ -290,16 +270,16 @@ replacement is proven. Cross-library copying is not a completion criterion.
 
 ### Wave 1: the two scopes (packages/data, packages/app, packages/device)
 
-- [ ] **1.1** `packages/app`: one `open(account)` that returns `{ device, account?, signal, ready, close }`. `device` carries `kv`, `tables`, `sqlite`, `secrets`, `connections`, and `recording`; `account` carries `identity`, `personal`, optional `shared`, and `connection`. All stores expose row-owned attachments under ADR-0393, not app-facing blob remotes. Reuse the store implementation; `device` is always constructed.
+- [ ] **1.1** `packages/app`: one `open(account)` that returns `{ device, account?, signal, ready, close }`. `device` carries `kv`, `tables`, `sqlite`, `secrets`, `connections`, and `recording`; `account` carries `identity`, `personal`, optional `shared`, and `connection`. Stores expose ordinary local BlobId and remote URL values under ADR-0393; neither store owns blob lifetime or synchronizes bytes automatically. Reuse the store implementation; `device` is always constructed.
 - [ ] **1.2** `packages/device`: `DeviceSqliteOwner.acquire(appId)` keyed by app id only; `secrets` likewise. Delete replica-identity scoping and its tests' identity permutations.
 - [ ] **1.3** `device.kv` and `device.tables` are the existing store with no authority. Confirm that no code path assumes the Local library is exclusive of an account session.
-- [ ] **1.4** After the local attachment owner/read contract exists, update `packages/app/src/recorder.ts` and its tests: `start` receives an existing row's attachment and retains its library and lifetime. Stop completes it without minting a blob ID. Joint capture/recovery tests complete the attachment spec's local checkpoint. Do not add a transient destination-store API.
-- [ ] **1.5** Tests in `packages/app`: Local records and preferences remain across signed-out -> Alice -> signed-out -> Bob within one app/profile; account data remains isolated; old handles close; account attachment caches do not appear in Local; opening never copies records. Retain sqlite ownership evidence under ADR-0400.
+- [ ] **1.4** Coordinate recorder integration with the local capture checkpoint: successful Stop already returns a saved app-local BlobId; preserve that behavior and create an ordinary row containing the key afterward. The workflow retains its original destination and lifetime before acquisition. No null-first row, completion verb, or durable native crash recovery remains after replacement proof. This contract does not depend on finishing the two-scope App.
+- [ ] **1.5** Tests in `packages/app`: Local records and preferences remain across signed-out -> Alice -> signed-out -> Bob within one app/profile; account data remains isolated; old handles close; app-local blobs remain shared across libraries while remote objects remain account-scoped; opening never copies records. Retain sqlite ownership evidence under ADR-0400.
 - [ ] **1.6** Switch callers in wave 2, verify, then remove `openLocal`, `openPersonal`, and `openShared`. Update current implementation notes only when their code changes.
 
 ### Wave 2: apps onto the two scopes (one commit per app)
 
-- [ ] **2.1** Whispering: move `bootstrap.ts` and `application.ts` onto `open`. Record the app's library-view and write policy before switching callers. A picker and remembered choice are optional, not a framework default. Create the row in the chosen library before capture and retain that attachment through stop/recovery. Remove unused one-library opener wiring after verification; do not delete useful app navigation merely because its old name mentions Library.
+- [ ] **2.1** Whispering: move `bootstrap.ts` and `application.ts` onto `open`. Record the app's library-view and write policy before switching callers. A picker and remembered choice are optional, not a framework default. Capture the chosen library before acquiring the microphone, await Stop's saved local key, then create its ordinary row with that key. Unfinished capture is disposable; saving never selects a replacement destination. Remove unused one-library opener wiring after verification; do not delete useful app navigation merely because its old name mentions Library.
 - [ ] **2.2** Honeycrisp: same in `apps/honeycrisp/src/lib/application.ts`.
 - [ ] **2.3** Vocab and local-mail: same.
 - [ ] **2.4** Whispering: move `deviceConfig` entries into `device.kv` declarations; delete `createPersistedMap` usage and `state/device-config.svelte.ts`. Move the selections into `device.kv`; delete the storage half of `createInferenceSelections`, keep `matchInferenceTarget` until wave 3 replaces it. Delete `data.local-model-is-not-synced.test.ts` and the `secrets` facade.
@@ -314,7 +294,7 @@ replacement is proven. Cross-library copying is not a completion criterion.
 
 ### Wave 4: Whispering transcription collapse
 
-- [ ] **4.1** After the local attachment checkpoint, move `operations/transcribe.ts` onto the owning row's attachment, `connectionFor`, and `connection.transcribe`. Remove the separate `audioBlobId` argument from `transcribeAndPersist`; retain the captured output library/row. Missing local audio returns unavailable, not a hidden download or queued inference job. `operations/completion.ts` moves to `connectionFor` too.
+- [ ] **4.1** Preserve the implemented saved-recording audio read while moving `operations/transcribe.ts` onto `connectionFor` and `connection.transcribe`. Remove the separate `audioBlobId` argument from `transcribeAndPersist`; retain the captured output library/row. Audio reads prefer local bytes and may read an explicitly stored remote URL. Failure to resolve either starts no inference request; no transfer queue is added. `operations/completion.ts` moves to `connectionFor` too.
 - [ ] **4.2** Readiness and the Polish destination sentence derive from `connectionFor`; delete `settings/transcription-validation.ts` and `operations/transcription-target.ts` with its four dead-id tests.
 - [ ] **4.3** Narrow `data.ts`: delete `transcriptionService`, `transcriptionModel`, and the five per-provider model keys; keep `transcriptionLanguage`, `transcriptionPrompt`, `dictionary`.
 - [ ] **4.4** Verify: typecheck both leaves, `bun test` for the operations and queries suites, manual smoke against the account gateway, the native runtime, and a Mistral preset with a real key.
@@ -331,20 +311,27 @@ replacement is proven. Cross-library copying is not a completion criterion.
 
 ### Recording while the account changes
 
-1. The app creates a Personal recording row and admits capture into its attachment.
-2. Before deliberate account change, finish/save wanted capture or explicitly
-   cancel it, then close the App. Abrupt termination uses staged recovery;
-   merely releasing capture hardware is not an instruction to purge saved work.
-3. Ordinary closure preserves saved and recoverable work under its original library and
-   row identity. It does not finish into Local or the next account. Resume only
-   under that original owner with valid admission. Confirmed restore retirement
-   follows ADR-0393/0395's destructive rule instead; do not resurrect retired work.
+1. The app captures the Personal destination and its lifetime before starting
+   temporary capture. No durable recording row is created yet.
+2. Before deliberate account change, finish/save wanted capture or cancel it,
+   then close the App. Abrupt termination may lose unfinished capture, but cannot retract a blob already committed by Stop. The
+   host must still settle or fence the old document's live capture.
+3. Ordinary closure drains admitted app-local blob saves. No
+   callback saves into Local or the next account. Explicit remote operations are
+   separate from closure. Inference retains its captured selection and output
+   owner.
 
-### Two tabs writing `device.kv`
+### Two tabs opening the same Local library
 
-1. Both tabs are the same app on the same machine.
-2. `device` is a store instance with no authority; concurrent writes need the same in-process serialization the browser sqlite worker already provides.
-3. Verify with the worker lock tests in `packages/device` before wave 1.3 lands.
+1. Both tabs use the same app and browser storage profile, so they reach the
+   same persistent Local library, regardless of their account selection.
+2. Preserve exclusive library admission: a second open is refused while the
+   first holds its claim. SQLite-worker serialization does not establish
+   coordinated access between tabs. Because every App opens Local, this claim
+   also matters when the tabs select different account libraries.
+3. Before wave 1.3 lands, prove duplicate-open refusal, claim release after
+   close, and Local data persistence on reopen. Coordinated multi-tab access
+   requires a separate design; this migration does not silently introduce it.
 
 ## Open Questions
 
@@ -378,7 +365,7 @@ Settled decisions live in the records:
 - [ ] `open(null)` returns an App whose `device` works with no account; `open(account)` adds `account.personal`, `account.connection`, and, on a self-hosted deployment, `account.shared`.
 - [ ] Local records and preferences survive account changes in the same profile; Personal data stays account-isolated and no automatic copying occurs.
 - [ ] Every create path uses its app-chosen table; capture and late inference results cannot retarget after a view/account change. No mandatory destination picker or copy workflow was added.
-- [ ] Unavailable local audio makes no inference request or hidden download. Available audio works with the exact captured connection; retirement or row deletion prevents late publication.
+- [ ] Unavailable audio after resolving the local key or explicit remote URL makes no inference request. Available audio works with the exact captured connection; retirement or row deletion prevents late publication.
 - [ ] Whispering has no `localStorage` writes except the auth client's.
 - [ ] `apps/whispering/src/lib/services/transcription/` does not exist; `operations/transcribe.ts` is under forty lines including `transcribeAndPersist`.
 - [ ] `matchInferenceTarget` exists nowhere; `connectionFor` is the one matching function.
@@ -392,7 +379,7 @@ Settled decisions live in the records:
 - `docs/adr/0396-a-connection-transcribes-and-owns-the-four-rules.md` - the `Connection` type, `connectionFor`, and the error set
 - `packages/app/src/open.ts` - current App composition
 - `packages/app/src/index.ts` - `defineApplication` and the three openers to delete
-- `packages/app/src/recorder.ts` - `RecordingFactory` and `start`, whose `replica` argument moves
+- `packages/app/src/recorder.ts` - the existing saved-BlobId Stop contract to preserve
 - `packages/device/src/owner.ts` - `DeviceSqliteOwner` keying to change
 - `packages/app-shell/src/inference-selections.ts` - `matchInferenceTarget` and the storage half, both deleted
 - `packages/app/src/native-ai.ts` - native runtime transport, explicit model
