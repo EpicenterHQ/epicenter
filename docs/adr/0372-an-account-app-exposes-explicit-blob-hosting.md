@@ -45,8 +45,8 @@ zero users and no existing data for the September 17, 2026 clean break.
 Validators reject extensionless URLs; no hosted objects are converted or reset.
 Document materialization and working-copy recovery preserve absolute HTTP(S)
 URLs as opaque values. They do not fetch, convert, or inline remotely hosted
-bytes as local dependencies. The separate structural archive may retain local
-bytes, but it is not the folder materialization or recovery format.
+bytes as local dependencies. Structural archives and backup-specific storage
+were removed under ADR-0379; direct authenticated hosting remains.
 
 Hosting uses direct authenticated requests with a 25 MiB initial object limit.
 The server enforces actual received size. Saved-file uploads check byte length

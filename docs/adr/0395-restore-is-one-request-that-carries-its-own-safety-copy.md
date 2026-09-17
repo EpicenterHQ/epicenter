@@ -69,9 +69,10 @@ ordinary synchronized edits and does not retire other replicas or discard their
 pending work. No backup browser, restore wizard, safety-copy transaction, or
 new restore route is required.
 
-The existing activation and journal implementations remain until separately
-audited. This decision does not authorize removing generation admission,
-cache invalidation, or retirement fences from running code (ADR-0379).
+The unused recovery journals and backup orchestration are removed. Activation
+and durable retry receipts remain for the existing retirement mechanism.
+Generation admission, cache invalidation, and retirement fences remain intact
+(ADR-0379).
 
 ## Considered alternatives
 

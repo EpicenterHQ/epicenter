@@ -34,9 +34,9 @@ identities; invalid content can be edited and retried.
 
 This folder workflow is wired into host-backed Honeycrisp. Whispering's existing
 Markdown ZIP is a one-way recording export, without a manifest, settings, or
-audio; it is not yet the same workflow. The
-[cleanup plan](../specs/20260909T010040-current-generation-restore.md) separates
-current callers from remaining work. [ADR-0394](adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md)
+audio; it is not yet the same workflow. Unused backup orchestration and structural
+archives are removed; live library safeguards remain under
+[ADR-0379](adr/0379-reconstruction-is-an-explicit-destructive-library-operation.md). [ADR-0394](adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md)
 and [ADR-0395](adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md)
 record the folder and recovery decisions.
 

@@ -650,7 +650,7 @@ When you add an ADR, add its row here.
 | [0391](0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md) | The build selects every implementation, and an application declares only its id and data | Accepted |
 | [0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) | An App has a device scope and an account scope, and each store sits under its owner | Proposed (supersedes 0389 at the opener shape; amends 0369, 0355, 0388, 0365) |
 | [0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) | Rows refer to blobs without owning their lifetime | Proposed |
-| [0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) | Materialization contains documents and blob references | Proposed (amends 0337 at recovery; structural archive and server backup remain separate) |
+| [0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) | Materialization contains documents and blob references | Proposed (amends 0337 at recovery; structural archive and unused server backup removed) |
 | [0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) | Recovering old content uses the current working copy | Proposed (ordinary Push through the current baseline; no generation replacement) |
 | [0396](0396-a-connection-transcribes-and-owns-the-four-rules.md) | A connection transcribes and owns the four rules | Proposed (connection owns inference rules, not blob storage or attachment delivery) |
 | [0397](0397-native-inference-selects-an-installed-model-explicitly.md) | Native inference selects an installed model explicitly | Proposed (amends 0180, 0012) |

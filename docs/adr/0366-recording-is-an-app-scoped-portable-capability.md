@@ -151,6 +151,6 @@ native admission only. Its finished-file handoff and separate library-save
 instructions are superseded by this decision. The
 [blob package](../../packages/blobs/README.md) describes the implemented layout.
 Successful Stop already means saved; admission work must preserve that boundary.
-The [remaining cleanup plan](../../specs/20260909T010040-current-generation-restore.md)
-preserves these recording guarantees while separating unused backup machinery
-from live library safeguards. The older attachment direction is withdrawn.
+The [backup cleanup](0379-reconstruction-is-an-explicit-destructive-library-operation.md)
+removed unused orchestration while preserving these recording guarantees and
+live library safeguards. The older attachment direction is withdrawn.

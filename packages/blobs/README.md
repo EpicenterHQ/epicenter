@@ -99,17 +99,9 @@ preserve arbitrary producer MIME parameters or convert the bytes.
 
 Direct uploads retain a declared MIME type and its parameters. Empty-MIME Files
 use the same format policy as local saves. Uploading a saved file uses its
-conventional type. Private backup storage retains its exact media-type contract
-and byte verification; generic local MIME normalization does not weaken it. This
-is unmounted infrastructure, not the product backup or restore surface; that
-product is deferred.
-
-The current structural archive implementation captures bytes referenced by
-complete local keys. The [caller audit and removal plan](../../specs/20260909T010040-current-generation-restore.md)
-identifies its unmounted coordinator and retirement-fixture dependency; runtime
-removal remains pending. Absolute HTTP(S) URLs remain opaque
-row values through archive and recovery; they are not fetched, converted, or
-inlined as local byte dependencies.
+conventional type. Backup-specific storage and structural archives have been
+removed. Local bytes and explicitly hosted objects remain independent of row
+lifetime and working-copy recovery.
 
 The [ADR-0394 folder direction](../../docs/adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md)
 is document-only: Markdown, settings, and the checkout manifest carry

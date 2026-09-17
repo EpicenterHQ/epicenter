@@ -60,24 +60,33 @@ product decision and proof of its loss boundary.
 test-only service binding and exercises stale devices, invalidation, and reload.
 It is evidence for the mechanism, not an exposed recovery workflow.
 
-The 2026-09-17 caller audit found no app mounting for
-`packages/data/src/recovery.ts`, its recovery journal, or the backup-specific
-S3 wrapper. These are removal candidates, not features awaiting transport.
-The structural JSON archive still supports the retirement script; replace that
-fixture dependency before deleting the format. Markdown rendering and checkout
-are separate and remain live.
+The 2026-09-17 cleanup removed the unmounted backup coordinator, journals,
+catalog, restore attempts, backup-specific S3 wrapper, and structural JSON
+archives with their dedicated tests. Authority construction no longer creates
+restore-attempt schema or exposes backup, attempt, or receipt-query methods.
+Ordinary `capture()` still supplies startup baselines.
 
-The authority exposes backup and attempt methods and creates restore-attempt
-schema during production construction. Removal therefore requires a coordinated
-authority edit, not just deleting unmounted files. Ordinary `capture()` supplies
-the startup baseline and must remain. Activation receipts need a separate check
-against fixture retry guarantees; no persisted-data deletion follows from this
-audit.
+Activation keeps its persisted `_restore_receipts` table and transactional
+position/digest checks. A retry after a lost response or authority restart still
+returns the committed outcome, including after a later activation. Existing
+backup/attempt tables and stored objects are left untouched; removing their
+code performs no persisted-data cleanup.
 
-The [implementation plan](../../specs/20260909T010040-current-generation-restore.md)
-records callers, removal order, and preserved evidence. Do not mount recovery
-transport or remove admission, offline-cache, retirement, or historical-data
-guards to satisfy this record.
+The Honeycrisp retirement fixture now authors valid notes in a fresh memory
+store for each replacement and asserts that its writers are disjoint from the
+current captured lineage. It preserves cross-device retirement, stale-upload
+refusal, invalidation, and ordinary reload coverage without archive semantics.
+
+Preserved evidence lives in the data package's checkout, current-open,
+store-retirement, and current-generation authority/hub tests; the server's
+current-retirement Worker and library-ownership fixtures; and the Honeycrisp
+browser journey. The whole-document Markdown `readArtifact` API remains
+separate from structural archives and ordinary Push.
+
+The cleanup plan is retired. Its caller audit and historical evidence remain
+in Git at `16f8d418f4`; earlier probes remain at `db70c7833b`. No recovery
+transport, new recovery UI, automatic blob synchronization, or data deletion was
+introduced.
 
 ## Consequences
 

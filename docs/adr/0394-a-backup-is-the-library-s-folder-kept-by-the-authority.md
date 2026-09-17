@@ -4,7 +4,7 @@
 - **Date:** 2026-09-12
 - **Amends:** [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) at recovery: a saved copy of the working folder is readable source material, not a writable historical generation. Pull, Push, and their comparison baseline remain.
 - **Relates:** [ADR-0349](0349-local-blobs-belong-to-the-app-on-this-device.md) (local bytes), [ADR-0372](0372-an-account-app-exposes-explicit-blob-hosting.md) (explicit remote hosting), [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) (independent references), [ADR-0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) (recovering old content).
-- **Implementation:** The checkout renderer and manifest exist in `packages/data/src/artifact/checkout.ts`. The structural archive and unmounted server backup machinery are separate existing code, not this folder format.
+- **Implementation:** The checkout renderer and manifest exist in `packages/data/src/artifact/checkout.ts`. The structural archive and unmounted server backup machinery have been removed.
 
 ## Context
 
@@ -78,12 +78,10 @@ The readable folder remains the one materialization format. A saved copy can
 help recover text but cannot recover missing audio merely because it contains a
 BlobId or URL. Generic local blob enumeration remains useful independently.
 
-The existing structural archive embeds local bytes and preserves more internal
-data. It must not be described as the materialized folder or silently selected
-when a person asks to copy that folder. Deleting that implementation is separate
-work, ordered by the [caller audit and removal plan](../../specs/20260909T010040-current-generation-restore.md)
-under ADR-0379. The retirement fixture must stop depending on structural archives
-before that format can be removed.
+The structural archive and its byte-installation code are removed under
+[ADR-0379](0379-reconstruction-is-an-explicit-destructive-library-operation.md).
+The retirement fixture authors fresh replacement state without a second export
+format. The Markdown reader and checkout remain separate APIs.
 
 ## Considered alternatives
 

@@ -1,14 +1,15 @@
 /** Real editor, authenticated sockets, IndexedDB, and document reload across replacement. */
 import assert from 'node:assert/strict';
-import { join } from 'node:path';
+import { syncEngineOf } from '@epicenter/data/direct';
+import { InstantString } from '@epicenter/data/field';
+import { openMemory } from '@epicenter/data/memory';
 import type { CurrentAuthority, Frame } from '@epicenter/data/sync';
+import * as Y from '@y/y';
 import type { Page, WebSocketRoute } from 'playwright';
-import {
-	captureArchive,
-	prepareArchive,
-} from '../../../packages/data/src/artifact/archive.js';
+import { expectOk } from 'wellcrafted/testing';
 import type { BrowserDurableSchema } from '../../../packages/data/src/store/idb-updates.js';
 import { decodeFrame } from '../../../packages/data/src/sync/frames.js';
+import { honeycrispDefinition } from '../src/lib/data.js';
 
 /** Async service binding for the actual authority; payloads stay authority-owned. */
 export type LibraryTestOperator = {
@@ -231,19 +232,57 @@ async function watchRetirement(page: Page) {
 	});
 }
 
+async function freshReplacement(
+	captured: Awaited<ReturnType<LibraryTestOperator['capture']>>,
+) {
+	// Author valid replacement state independently; never replay the old lineage.
+	await using replacement = await openMemory(honeycrispDefinition);
+	const at = InstantString.fromDate(new Date('2026-09-17T00:00:00.000Z'));
+	const note = replacement.tables.notes.create({
+		folderId: null,
+		title: 'Replacement from Bob',
+		pinned: false,
+		createdAt: at,
+		updatedAt: at,
+		deletedAt: null,
+	});
+	expectOk(
+		honeycrispDefinition.tables.notes.content.rewrite(
+			note.content,
+			'Replacement from Bob',
+		),
+	);
+	const bytes = syncEngineOf(replacement).encodeSnapshot();
+	const oldWriters = Y.decodeStateVector(
+		Y.encodeStateVectorFromUpdateV2(
+			Y.mergeUpdatesV2([
+				new Uint8Array(captured.snapshot.bytes),
+				...captured.tail.map((entry) => new Uint8Array(entry.bytes)),
+			]),
+		),
+	);
+	const newWriters = Y.decodeStateVector(
+		Y.encodeStateVectorFromUpdateV2(new Uint8Array(bytes)),
+	);
+	assert(newWriters.size > 0, 'Replacement must contain authored state');
+	assert(
+		[...newWriters.keys()].every((writer) => !oldWriters.has(writer)),
+		'Replacement must have no preceding lineage',
+	);
+	return bytes;
+}
+
 export async function proveRetirement({
 	alice,
 	bob,
 	origin,
 	operator,
-	directory,
 	openNote,
 }: {
 	alice: Page;
 	bob: Page;
 	origin: string;
 	operator: LibraryTestOperator;
-	directory: string;
 	openNote(page: Page, text: string): Promise<void>;
 }) {
 	const [a, b] = await Promise.all([
@@ -289,26 +328,11 @@ export async function proveRetirement({
 		.waitFor();
 	await settled(bob);
 	const captured = await operator.capture();
-	const archive = await captureArchive(
-		captured,
-		{
-			async get() {
-				throw new Error('This note fixture has no attachments');
-			},
-		},
-		{ appId: 'so.epicenter.honeycrisp', dataId: 'so.epicenter.honeycrisp' },
-	);
-	assert.equal(archive.error, null);
-	const archivePath = join(directory, 'verified-before-replacement.json');
-	await Bun.write(archivePath, archive.data);
-	const saved = new Uint8Array(await Bun.file(archivePath).arrayBuffer());
-	assert.deepEqual(saved, archive.data);
-	const prepared = await prepareArchive(saved);
-	assert.equal(prepared.error, null);
+	const bytes = await freshReplacement(captured);
 	const request = {
 		operation: crypto.randomUUID(),
 		expected: { generation: captured.generation, head: captured.head },
-		bytes: prepared.data.bytes,
+		bytes,
 	};
 	await Promise.all([watchRetirement(alice), watchRetirement(bob)]);
 	const bobDocuments = await documents(bob);
@@ -477,14 +501,13 @@ export async function proveRetirement({
 	await interruptInvalidation(alice, 'abort');
 	const retryDocuments = await documents(alice);
 	const next = await operator.capture();
-	const again = await prepareArchive(saved);
-	assert.equal(again.error, null);
+	const again = await freshReplacement(next);
 	assert.equal(
 		(
 			await operator.activate({
 				operation: crypto.randomUUID(),
 				expected: { generation: next.generation, head: next.head },
-				bytes: again.data.bytes,
+				bytes: again,
 			})
 		).status,
 		'activated',

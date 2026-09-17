@@ -351,7 +351,6 @@ try {
 		bob,
 		origin,
 		operator: proxy.env.LIBRARY_TEST,
-		directory,
 		openNote,
 	});
 	await select(alice, 'Personal');

@@ -469,14 +469,15 @@ and explicit account-remote objects have independent lifetimes. Upload is an
 explicit operation, not a synchronization queue, and deleting a row does not
 delete either byte store.
 
-The structural JSON archive is separate from the Markdown artifact entrypoint.
-It can carry local blob bytes, but it is not the chosen folder or saved ZIP
-format. Outside the unmounted coordinator and dedicated tests, its remaining
-caller is the Honeycrisp retirement fixture.
-The backup coordinator has no mounted app entrypoint, although restore-attempt
-schema creation still runs inside the live authority. The
-[removal plan](../../specs/20260909T010040-current-generation-restore.md)
-separates those dependencies from the startup and sync mechanisms to retain.
+There is no structural archive, backup coordinator, catalog, or restore-attempt
+journal. The current authority still owns initialization, baseline capture,
+admission, and activation with durable retry receipts. Its activation mechanism
+supports retirement evidence; no restore endpoint is mounted. The Honeycrisp
+retirement fixture constructs fresh replacement state independently.
+
+The Markdown `readArtifact` reader remains a separate whole-document API with
+package and app test callers. It is not ordinary Push.
+
 The [ADR-0394 folder direction](../../docs/adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md)
 is document-only: Markdown, settings, and the checkout manifest carry readable
 references without copying or fetching local or remote blob payloads. The

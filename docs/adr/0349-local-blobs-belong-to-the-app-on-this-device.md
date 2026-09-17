@@ -144,9 +144,8 @@ browser schema fails without converting or erasing its records.
 Materialized documents and working-copy recovery preserve complete keys as row
 values; they do not copy local bytes. Absolute HTTP(S) URLs remain opaque row
 values, and materialization and recovery do not fetch, convert, or inline their
-remotely hosted bytes. The separate structural archive may retain local bytes
-under its own contract; it is not the folder materialization or recovery format.
-Restore-operation identity remains bookkeeping, separate from blob identity.
+remotely hosted bytes. Structural archives and their byte-installation helpers
+were removed under ADR-0379.
 
 Exact input MIME round-tripping and the sidecar's expected-versus-actual size
 check are withdrawn. A caller requiring original MIME parameters must preserve

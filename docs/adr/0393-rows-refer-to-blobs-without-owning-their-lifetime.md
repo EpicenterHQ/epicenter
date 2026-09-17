@@ -53,9 +53,8 @@ It copies no blob bytes and performs no remote fetch. A saved folder preserves
 those references, not their availability (ADR-0394). Recovering old content
 through Push has the same rule (ADR-0395).
 
-The existing structural archive code discovers local complete-key references
-and embeds their bytes. It is separate implementation inventory, not the
-document-only materialization contract. Its removal requires a caller audit.
+The structural archive and its byte-installation helpers were removed after
+the caller audit in ADR-0379. Materialization has no path that embeds blob bytes.
 
 ## Consequences
 

@@ -65,8 +65,6 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 
 import { copyBytes } from '../store/log.js';
-import { applyAttemptSchema, openAttempts, readAttempt } from './attempts.js';
-import { openBackups } from './backups.js';
 import { CHUNK_BYTES, intoChunks } from './frames.js';
 import { createSyncHub, type SyncHub } from './hub.js';
 
@@ -485,6 +483,7 @@ export function openCurrentAuthority({
 		singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
 		generation INTEGER NOT NULL CHECK (generation >= 1)
 	)`);
+	// Keep the persisted name: activation retries must survive authority reopening.
 	sqlite.run(`CREATE TABLE IF NOT EXISTS _restore_receipts (
 		operation TEXT PRIMARY KEY,
 		expected_generation INTEGER NOT NULL,
@@ -493,23 +492,6 @@ export function openCurrentAuthority({
 		generation INTEGER NOT NULL,
 		head INTEGER NOT NULL
 	)`);
-	// Activation reads attempt state in its own transaction, so the table has to
-	// exist whether or not anything opened the attempt journal in this lifetime.
-	applyAttemptSchema(sqlite);
-	function readReceipt(operation: string): ActivationReceipt | undefined {
-		const row = sqlite.all<ReceiptRow>(
-			'SELECT * FROM _restore_receipts WHERE operation = ?',
-			[operation],
-		)[0];
-		return row === undefined
-			? undefined
-			: {
-					status: 'activated',
-					operation,
-					generation: row.generation,
-					head: row.head,
-				};
-	}
 	function current() {
 		return sqlite.all<SqliteRow & { generation: number }>(
 			'SELECT generation FROM _current_generation WHERE singleton = 1',
@@ -547,7 +529,7 @@ export function openCurrentAuthority({
 		});
 	}
 	return {
-		/** Immutable file publication shares generation admission and survives replacement. */
+		/** Initialize once; later openers receive the complete current baseline. */
 		ensureCurrent(bytes: Uint8Array) {
 			nonempty(bytes);
 			return sqlite.transaction(() => {
@@ -564,26 +546,6 @@ export function openCurrentAuthority({
 		},
 		capture() {
 			return sqlite.transaction(capture);
-		},
-		/** Catalog rows share this stable owner and survive log replacement. */
-		backups(options: Omit<Parameters<typeof openBackups>[0], 'sqlite'>) {
-			return openBackups({ ...options, sqlite });
-		},
-		/** Restore attempts share that same stable owner, for the same reason. */
-		attempts(options: Omit<Parameters<typeof openAttempts>[0], 'sqlite'>) {
-			return openAttempts({ ...options, sqlite });
-		},
-		/**
-		 * Read a committed outcome without its bytes.
-		 *
-		 * `prepareActivation` can also return a receipt, but only to a caller that
-		 * still holds the exact replacement bytes to hash. After a restart the
-		 * whole question is whether those bytes are still needed at all, and for
-		 * observing an outcome they are not: archive storage can be unreachable and
-		 * this answer is still available.
-		 */
-		receipt(operation: string): ActivationReceipt | undefined {
-			return sqlite.transaction(() => readReceipt(operation));
 		},
 
 		bind,
@@ -624,25 +586,6 @@ export function openCurrentAuthority({
 				activate() {
 					let activated = false;
 					const result = sqlite.transaction(() => {
-						// The fence, read in the same transaction as the destination
-						// condition and the receipt write. A failed attempt is finalized
-						// only after its transaction proved nothing had committed, so a
-						// request still in flight from that attempt lands here and stops.
-						const attempt = readAttempt(sqlite, operation);
-						if (attempt?.status === 'failed')
-							return { status: 'fenced' } as const;
-						// An attempt that exists must have pinned what it is activating.
-						// "No live activation from unverified preparation" cannot live in
-						// an orchestrator for the same reason the fence cannot live in a
-						// route: the only place it holds is inside this transaction.
-						if (
-							attempt !== undefined &&
-							(attempt.activation_digest === null ||
-								attempt.activation_digest !== digest ||
-								attempt.expected_generation !== expected.generation ||
-								attempt.expected_head !== expected.head)
-						)
-							return { status: 'operation-conflict' } as const;
 						const previous = sqlite.all<ReceiptRow>(
 							'SELECT * FROM _restore_receipts WHERE operation = ?',
 							[operation],
@@ -684,11 +627,6 @@ export function openCurrentAuthority({
 								generation,
 								1,
 							],
-						);
-						sqlite.run(
-							`UPDATE _restore_attempts SET status = 'activated'
-							 WHERE operation = ? AND status = 'pending'`,
-							[operation],
 						);
 						activated = true;
 						return {
