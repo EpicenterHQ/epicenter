@@ -12,7 +12,6 @@
  */
 
 import type { Static, Type } from 'typebox';
-import type { BlobId } from '@epicenter/blobs';
 import type { Brand } from 'wellcrafted/brand';
 import type { JsonValue } from 'wellcrafted/json';
 import type { field, jsonValue } from './builders.js';
@@ -44,11 +43,6 @@ type Equal<X, Y> =
 type Expect<T extends true> = T;
 
 type NoteId = string & Brand<'NoteId'>;
-
-// field.blob(): Static = the opaque BlobId carried by a persisted row
-export type _BlobStatic = Expect<
-	Equal<Static<ReturnType<typeof field.blob>>, BlobId>
->;
 
 // field.string(): Static = string
 export type _StringStatic = Expect<
@@ -171,3 +165,8 @@ export type _JsonArrayStatic = Expect<
 		JsonValue[]
 	>
 >;
+
+// @ts-expect-error: byte ownership is not a field constructor.
+export type _NoBlobBuilder = typeof field.blob;
+// @ts-expect-error: byte ownership is not a field constructor.
+export type _NoAttachmentBuilder = typeof field.attachment;

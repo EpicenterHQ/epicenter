@@ -1,13 +1,10 @@
 /**
- * Blob route boundary tests.
- *
- * Wave 3 removes the identity URL segment. Auth supplies the principal; the route
- * URL carries only the blob surface and optional BlobId.
+ * Direct blob route tests.
+ * Actual bytes are bounded before immutable publication, and durable read URLs
+ * name the application and owner rather than selecting whoever next signs in.
  */
-
 import { afterEach, expect, test } from 'bun:test';
-import { generateBlobId } from '@epicenter/blobs';
-import { API_ROUTES } from '@epicenter/constants/api-routes';
+import { generateBlobId, MAX_REMOTE_BLOB_BYTES } from '@epicenter/blobs';
 import { asPrincipalId } from '@epicenter/principal';
 import { Hono } from 'hono';
 import type { Env } from '../types.js';
@@ -17,186 +14,170 @@ const originalFetch = globalThis.fetch;
 afterEach(() => {
 	globalThis.fetch = originalFetch;
 });
-
-test('collection route uses the principal from auth without a principal URL segment', async () => {
-	const app = new Hono().post(
-		API_ROUTES.blobs.collection.pattern,
-		(c) =>
-			new Response(JSON.stringify({ path: c.req.path }), {
-				headers: { 'content-type': 'application/json' },
-			}),
-	);
-	const url = API_ROUTES.blobs.collection.url('https://x');
-	const res = await app.request(url, { method: 'POST' });
-
-	expect(res.status).toBe(200);
-	expect(new URL(url).pathname).toBe('/api/blobs');
-	const body = (await res.json()) as unknown;
-	expect(body).toEqual({ path: '/api/blobs' });
-});
-
-test('the collection has no enumeration route', async () => {
+const config = {
+	BLOBS_S3_ENDPOINT: 'https://storage.test',
+	BLOBS_S3_ACCESS_KEY_ID: 'test',
+	BLOBS_S3_SECRET_ACCESS_KEY: 'test',
+};
+const collection = 'https://api.test/api/apps/so.epicenter.notes/blobs';
+function setup(actor = 'alice') {
 	const app = new Hono<Env>();
 	mountBlobsApp(app, {
 		auth: async (c, next) => {
-			c.set('principal', { id: asPrincipalId('alice') });
-			c.set('authBaseURL', 'https://api.example.com');
+			c.set('principal', { id: asPrincipalId(actor) });
+			c.set('authBaseURL', 'https://api.test');
 			await next();
 		},
 	});
+	return app;
+}
 
-	const res = await app.request(
-		`${API_ROUTES.blobs.collection.url('https://api.example.com')}?appId=so.epicenter.notes&library=personal`,
-		{ method: 'GET' },
-		{
-			BLOBS_S3_ENDPOINT: 'https://example.r2.cloudflarestorage.com',
-			BLOBS_S3_ACCESS_KEY_ID: 'test-access-key',
-			BLOBS_S3_SECRET_ACCESS_KEY: 'test-secret-key',
-		},
-	);
-
-	expect(res.status).toBe(404);
-});
-
-test('by-id route accepts only canonical BlobIds', async () => {
-	const app = new Hono().get(API_ROUTES.blobs.byId.pattern, (c) =>
-		c.text(c.req.param('blobId')),
-	);
-	const blobId = generateBlobId();
-
-	expect(
-		(await app.request(API_ROUTES.blobs.byId.url('https://x', blobId))).status,
-	).toBe(200);
-	expect(
-		(await app.request(`https://x/api/blobs/${'a'.repeat(64)}`)).status,
-	).toBe(404);
-});
-
-test('upload ticket presigns directly without a HEAD request', async () => {
-	globalThis.fetch = (async () => {
-		throw new Error('ticket mint must not call S3');
+test('upload publishes actual bytes under a fresh ID and returns an owner-pinned URL', async () => {
+	const writes: Request[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		writes.push(new Request(input, init));
+		return new Response();
 	}) as unknown as typeof fetch;
-	const app = new Hono<Env>();
-	mountBlobsApp(app, {
-		auth: async (c, next) => {
-			c.set('principal', { id: asPrincipalId('alice') });
-			c.set('authBaseURL', 'https://api.example.com');
-			await next();
-		},
-	});
-	const blobId = generateBlobId();
-	const res = await app.request(
-		`${API_ROUTES.blobs.collection.url('https://api.example.com')}?appId=so.epicenter.notes&library=personal`,
-		{
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({
-				blobId,
-				sizeBytes: 5,
-				contentType: 'text/plain',
-			}),
-		},
-		{
-			BLOBS_S3_ENDPOINT: 'https://example.r2.cloudflarestorage.com',
-			BLOBS_S3_ACCESS_KEY_ID: 'test-access-key',
-			BLOBS_S3_SECRET_ACCESS_KEY: 'test-secret-key',
-		},
+	const app = setup();
+	const first = await app.request(
+		collection,
+		{ method: 'POST', body: 'audio', headers: { 'content-type': 'audio/wav' } },
+		config,
 	);
-
-	expect(res.status).toBe(200);
-	const ticket = (await res.json()) as {
-		url: string;
-		uploadUrl: string;
-		requiredHeaders: Record<string, string>;
-	};
-	expect(ticket.url).toBe(
-		`${API_ROUTES.blobs.byId.url('https://api.example.com', blobId)}?appId=so.epicenter.notes&library=personal`,
+	const second = await app.request(
+		collection,
+		{ method: 'POST', body: 'audio' },
+		config,
 	);
-	expect(ticket.requiredHeaders).toEqual({
-		'content-type': 'text/plain',
-		'if-none-match': '*',
-	});
-	expect(ticket.uploadUrl).toContain(
-		`/libraries/apps/so.epicenter.notes/personal/alice/blobs/${blobId}`,
+	expect(first.status).toBe(201);
+	const { url } = (await first.json()) as { url: string };
+	expect(url).toMatch(
+		/^https:\/\/api.test\/api\/apps\/so.epicenter.notes\/principals\/alice\/blobs\/blob_[a-z0-9]{21}$/,
 	);
+	expect(((await second.json()) as { url: string }).url).not.toBe(url);
+	expect(await writes[0]!.text()).toBe('audio');
+	expect(writes[0]!.headers.get('if-none-match')).toBe('*');
+	expect(writes[0]!.headers.get('authorization')).toContain('AWS4-HMAC-SHA256');
+	expect(writes[0]!.url).toContain(
+		'/principals/alice/apps/so.epicenter.notes/blobs/',
+	);
+	expect(new URL(writes[0]!.url).search).toBe('');
 });
 
-test('Personal and Shared tickets, reads, and deletes use the same authorized library', async () => {
-	const blobId = generateBlobId();
-	const config = {
-		BLOBS_S3_ENDPOINT: 'https://storage.test',
-		BLOBS_S3_ACCESS_KEY_ID: 'test',
-		BLOBS_S3_SECRET_ACCESS_KEY: 'test',
-	};
-	const requests: string[] = [];
-	globalThis.fetch = (async (input: RequestInfo | URL) => {
-		requests.push(
-			new URL(input instanceof Request ? input.url : String(input)).pathname,
-		);
-		return new Response(null, { status: 200 });
-	}) as typeof fetch;
-	async function destination(actor: string, library: 'personal' | 'shared') {
-		const app = new Hono<Env>();
-		mountBlobsApp(app, {
-			shared: true,
-			auth: async (c, next) => {
-				c.set('principal', { id: asPrincipalId(actor) });
-				c.set('authBaseURL', 'https://api.test');
-				await next();
-			},
-		});
-		const query = `?appId=so.epicenter.notes&library=${library}`;
-		const ticket = await app.request(
-			`https://api.test/api/blobs${query}`,
-			{
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					blobId,
-					sizeBytes: 3,
-					contentType: 'text/plain',
-				}),
-			},
-			config,
-		);
-		expect(ticket.status).toBe(200);
-		const body = (await ticket.json()) as { url: string; uploadUrl: string };
-		const key = new URL(body.uploadUrl).pathname;
-		const get = await app.request(body.url, {}, config);
-		expect(get.status).toBe(302);
-		expect(new URL(get.headers.get('location')!).pathname).toBe(key);
-		expect(
-			(await app.request(body.url, { method: 'DELETE' }, config)).status,
-		).toBe(204);
-		expect(requests.slice(-2)).toEqual([key, key]);
-		return key;
-	}
-	const alice = await destination('alice', 'personal');
-	const bob = await destination('bob', 'personal');
-	expect(alice).not.toBe(bob);
-	const shared = await destination('alice', 'shared');
-	expect(await destination('bob', 'shared')).toBe(shared);
-	expect(shared).not.toBe(alice);
-});
-
-test('Cloud refuses Shared blob operations before storage access', async () => {
-	const app = new Hono<Env>();
-	mountBlobsApp(app, {
-		auth: async (c, next) => {
-			c.set('principal', { id: asPrincipalId('alice') });
-			await next();
+test('declared and actual oversize uploads never reach object storage', async () => {
+	let writes = 0;
+	globalThis.fetch = (async () => {
+		writes++;
+		return new Response();
+	}) as unknown as typeof fetch;
+	const app = setup();
+	expect(
+		(
+			await app.request(
+				collection,
+				{
+					method: 'POST',
+					headers: { 'content-length': String(MAX_REMOTE_BLOB_BYTES + 1) },
+				},
+				config,
+			)
+		).status,
+	).toBe(413);
+	const body = new ReadableStream({
+		start(controller) {
+			controller.enqueue(new Uint8Array(MAX_REMOTE_BLOB_BYTES));
+			controller.enqueue(new Uint8Array([1]));
+			controller.close();
 		},
 	});
-	const id = generateBlobId();
-	for (const method of ['POST', 'GET', 'DELETE']) {
-		const path = method === 'POST' ? '/api/blobs' : `/api/blobs/${id}`;
-		expect(
-			(
-				await app.request(
-					`https://api.test${path}?appId=so.epicenter.notes&library=shared`,
-					{ method },
-				)
-			).status,
-		).toBe(403);
-	}
+	expect(
+		(await app.request(collection, { method: 'POST', body }, config)).status,
+	).toBe(413);
+	expect(writes).toBe(0);
+});
+
+test('another principal cannot read or delete the durable URL', async () => {
+	let reads = 0;
+	globalThis.fetch = (async () => {
+		reads++;
+		return new Response();
+	}) as unknown as typeof fetch;
+	const url = `https://api.test/api/apps/so.epicenter.notes/principals/alice/blobs/${generateBlobId()}`;
+	for (const method of ['GET', 'DELETE'])
+		expect((await setup('bob').request(url, { method }, config)).status).toBe(
+			403,
+		);
+	expect(reads).toBe(0);
+});
+
+test('reads proxy bytes without a signed redirect and deletes use the same key', async () => {
+	const requests: Request[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const request = new Request(input, init);
+		requests.push(request);
+		return request.method === 'DELETE'
+			? new Response(null, { status: 204 })
+			: new Response('bytes', {
+					headers: { 'content-type': 'text/plain', 'content-length': '5' },
+				});
+	}) as unknown as typeof fetch;
+	const app = setup();
+	const url = `https://api.test/api/apps/so.epicenter.notes/principals/alice/blobs/${generateBlobId()}`;
+	const response = await app.request(url, {}, config);
+	expect(await response.text()).toBe('bytes');
+	expect(response.headers.get('location')).toBeNull();
+	expect(response.headers.get('content-disposition')).toBe('attachment');
+	expect(response.headers.get('content-security-policy')).toBe(
+		"sandbox; default-src 'none'",
+	);
+	expect((await app.request(url, { method: 'DELETE' }, config)).status).toBe(
+		204,
+	);
+	expect(requests[0]!.url).toBe(requests[1]!.url);
+});
+
+test('missing objects, invalid addresses and native control headers fail closed', async () => {
+	globalThis.fetch = (async () =>
+		new Response(null, { status: 404 })) as unknown as typeof fetch;
+	const app = setup();
+	expect(
+		(
+			await app.request(
+				`${collection.replace('/blobs', '/principals/alice/blobs')}/${generateBlobId()}`,
+				{},
+				config,
+			)
+		).status,
+	).toBe(404);
+	expect(
+		(
+			await app.request(
+				`${collection}?library=shared`,
+				{ method: 'POST' },
+				config,
+			)
+		).status,
+	).toBe(403);
+	expect(
+		(
+			await app.request(
+				collection,
+				{
+					method: 'POST',
+					headers: { 'x-epicenter-local-blob-id': generateBlobId() },
+				},
+				config,
+			)
+		).status,
+	).toBe(400);
+	expect((await app.request(collection, {}, config)).status).toBe(404);
+	expect(
+		(
+			await app.request(
+				'https://api.test/api/blobs',
+				{ method: 'POST' },
+				config,
+			)
+		).status,
+	).toBe(404);
 });

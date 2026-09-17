@@ -1,5 +1,4 @@
-import type { FinishedFile } from '@epicenter/blobs';
-import { type LibraryReplicaIdentity } from '@epicenter/principal';
+import type { BlobId, BlobStore } from '@epicenter/blobs';
 import type {
 	Device,
 	DeviceAcquisitionOutcome,
@@ -11,9 +10,6 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-
-/** The App context captured by this recorder; it does not select a save destination. */
-export type RecordingReplica = LibraryReplicaIdentity;
 
 export const RecorderError = defineErrors({
 	MicrophonePermissionDenied: ({ cause }: { cause?: unknown } = {}) => ({
@@ -37,7 +33,7 @@ export const RecorderError = defineErrors({
 		cause,
 	}),
 	CaptureLost: ({ cause }: { cause: unknown }) => ({
-		message: `Recording ended without a finished file: ${extractErrorMessage(cause)}`,
+		message: `Recording ended without recoverable audio: ${extractErrorMessage(cause)}`,
 		cause,
 	}),
 	RecorderFailed: ({ cause }: { cause: unknown }) => ({
@@ -52,7 +48,7 @@ export type RecordingParams = {
 };
 
 export type RecorderStopResult = {
-	file: FinishedFile;
+	blobId: BlobId;
 	durationMs: number;
 	byteLength: number;
 };
@@ -63,13 +59,12 @@ export type RecordingEndedReason =
 	| 'streamFailed'
 	| 'storageFailed';
 
-/** One document-owned capture. The workflow separately retains its chosen table. */
+/** One App-owned capture that saves independently of application rows. */
 export type Recording = {
 	readonly id: string;
-	readonly replica: RecordingReplica;
 	readonly device: DeviceAcquisitionOutcome;
 	readonly endedReason: RecordingEndedReason | null;
-	/** Stop capture and return a disposable finished file. Library creation saves it. */
+	/** Stop capture and commit its audio to the app-local blob store. */
 	stop(): Promise<Result<RecorderStopResult, RecorderStopError>>;
 	/** Discard captured bytes and release capture. */
 	cancel(): Promise<Result<void, RecorderError>>;
@@ -79,7 +74,6 @@ export type Recording = {
 };
 
 export type RecordingService = {
-	discard(file: FinishedFile): Promise<Result<void, RecorderError>>;
 	/** Reconcile this document's live capture; never recover a prior document. */
 	current(): Promise<Result<Recording | null, RecorderError>>;
 	enumerateDevices(): Promise<Result<Device[], RecorderError>>;
@@ -94,13 +88,14 @@ export type RecordingOwner = {
 };
 
 export type RecordingOptions = {
+	/** Private immutable writer into the same store as createLocalBlobs({ appId }). */
+	write: BlobStore['put'];
 	assertUsable?(): void;
 };
 
 /** Runtime composition is inert; acquisition happens only on start. */
 export type RecordingFactory = (
 	appId: string,
-	replica: RecordingReplica,
 	options: RecordingOptions,
 ) => RecordingOwner;
 

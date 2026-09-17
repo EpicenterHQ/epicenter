@@ -29,7 +29,7 @@ Svelte adapters retain reactive properties. Fixed facts remain ordinary readonly
 values. This is a focused API migration, not a ban on JavaScript getters.
 The proposed durable decisions are recorded in
 [ADR-0371](../docs/adr/0371-core-observations-and-queries-use-explicit-methods.md)
-and [ADR-0372](../docs/adr/0372-an-opened-app-exposes-its-configured-remote-blob-capability.md).
+and [ADR-0372](../docs/adr/0372-an-account-app-exposes-explicit-blob-hosting.md).
 
 ## Real caller translations
 

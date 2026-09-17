@@ -1,5 +1,5 @@
-import { createAiCatalogRoutes } from './ai-catalog-routes.ts';
 import type { AiCatalog } from './ai-catalog.ts';
+import { createAiCatalogRoutes } from './ai-catalog-routes.ts';
 /**
  * The Bun-owned Device origin: trusted SPA documents, Home APIs, and the
  * Home session WebSocket. The launch credential can only mint short-lived
@@ -11,32 +11,27 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AgentToolDefinition } from '@epicenter/agent';
 import {
 	type BlobId,
-	type BlobRemote,
+	MAX_REMOTE_BLOB_BYTES,
 	parseBlobId,
-	parseBlobStorageId,
 } from '@epicenter/blobs';
 import type { BunBlobStore } from '@epicenter/blobs/bun';
-import { BLOB_PATHS } from '@epicenter/blobs/webview';
 import { isAppId } from '@epicenter/constants/app-id';
 import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
+import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { createDeviceDispatcher } from '@epicenter/device/owner';
 import {
 	DEVICE_PATH,
-	parseSqliteFrame,
-	stringifySqliteFrame,
 	type DeviceRequest,
 	type DeviceResponse,
 	isDatabaseName,
 	isSecretLabel,
 	isSqliteAccount,
+	parseSqliteFrame,
 	type SqliteStatement,
+	stringifySqliteFrame,
 } from '@epicenter/device/protocol';
 import type { PendingCallback } from '@epicenter/local-mail/authorization-return';
-import {
-	type LibraryReplicaIdentity,
-	isLibraryReplica,
-	asPrincipalId,
-} from '@epicenter/principal';
+import { isLibraryReplica } from '@epicenter/principal';
 import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { type Context, Hono, type Next } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
@@ -52,7 +47,6 @@ import {
 	writeCheckout,
 } from './checkout.ts';
 import type { DesktopAuthAuthority } from './desktop-auth-authority.ts';
-import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import {
 	type HomeHost,
 	type HomeSessionSnapshot,
@@ -62,9 +56,9 @@ import { PLACEHOLDER_PAGES } from './placeholder-pages.ts';
 import {
 	ACCOUNT_CANCEL_CONNECTION_ROUTE,
 	ACCOUNT_CONNECT_ROUTE,
-	ACCOUNT_USE_CLOUD_ROUTE,
 	ACCOUNT_SIGN_IN_ROUTE,
 	ACCOUNT_SIGN_OUT_ROUTE,
+	ACCOUNT_USE_CLOUD_ROUTE,
 	APPLICATIONS_ROUTE,
 	BOOTSTRAP_ROUTE,
 	BUILT_IN_ROUTES,
@@ -102,19 +96,9 @@ export type HomeServerOptions = {
 	/** Home's document and every compiled application's release build. */
 	staticAssets: EpicenterStaticAssets;
 	/** Canonical device-local bytes shared by every trusted app window. */
-	blobs: (appId: string, replica: LibraryReplicaIdentity) => BunBlobStore;
+	blobs: (appId: string) => BunBlobStore;
 	/** One credential owner for every compiled desktop window. */
 	desktopAuth: DesktopAuthAuthority;
-	/**
-	 * Host-owned remote copy capability over the same local bytes, or `null`
-	 * when this signed-out process generation has none. The composition root
-	 * builds it from the desktop authority, so these routes never see a
-	 * credential or a destination URL.
-	 */
-	blobRemote: (
-		appId: string,
-		replica: LibraryReplicaIdentity,
-	) => BlobRemote | null;
 	/** Bun owner for app-scoped SQLite files. */
 	device?: DeviceSqliteOwner;
 	/** Credential-store owner for one labeled secret per application account. */
@@ -133,15 +117,6 @@ const MAX_BROWSER_SESSIONS = 32;
 const MAIL_CALLBACK_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Local Mail</title></head><body><p>Google has answered. You can close this tab and return to Device.</p></body></html>`;
 const SESSION_SHELL = `<!doctype html><html><head><meta charset="utf-8"><title>Device</title><script>window.__EPICENTER_SESSION_READY__.then(() => window.location.reload())</script></head><body></body></html>`;
 
-function isBlobPathSegment(value: string): boolean {
-	return (
-		value !== '' &&
-		value !== '.' &&
-		value !== '..' &&
-		!/[\\/\p{Cc}]/u.test(value)
-	);
-}
-
 export function createHomeServer({
 	folderRoot,
 	host,
@@ -150,7 +125,6 @@ export function createHomeServer({
 	staticAssets,
 	blobs,
 	desktopAuth,
-	blobRemote,
 	device,
 	appSecrets,
 	aiCatalog,
@@ -158,6 +132,7 @@ export function createHomeServer({
 	if (launchToken === '') {
 		throw new Error('Device refuses to serve without a launch token.');
 	}
+	const bootAccount = desktopAuth.account;
 	const activeUrl = validateOrigin(origin);
 	const activeHost = activeUrl.host;
 	const sessionHashes = new Set<string>();
@@ -299,15 +274,54 @@ export function createHomeServer({
 		)
 			return c.text('Invalid account path', 400);
 		const headers = relayHeaders(c.req.raw.headers);
+		const localId = c.req.header('x-epicenter-local-blob-id');
+		headers.delete('x-epicenter-local-blob-id');
+		let body: BodyInit | undefined =
+			c.req.method === 'GET' || c.req.method === 'HEAD'
+				? undefined
+				: (c.req.raw.body ?? undefined);
+		if (localId !== undefined) {
+			// The captured Account owns both cancellation and the destination.
+			// The control request contains no bytes for WebKit to materialize.
+			if (!bootAccount || account !== bootAccount)
+				return c.text('Account retired', 401);
+			const match = /^\/api\/apps\/([^/]+)\/blobs$/.exec(target.pathname);
+			const appId = match?.[1];
+			const id = parseBlobId(localId);
+			if (
+				c.req.method !== 'POST' ||
+				target.search !== '' ||
+				!appId ||
+				!isAppId(appId) ||
+				!id ||
+				c.req.raw.body !== null
+			)
+				return c.text('Invalid native blob upload', 400);
+			const store = blobs(appId);
+			const stat = await store.stat(id);
+			if (stat.error)
+				return c.text(
+					'Local blob unavailable',
+					stat.error.name === 'BlobNotFound' ? 404 : 500,
+				);
+			if (stat.data.size > MAX_REMOTE_BLOB_BYTES)
+				return c.text('Blob is too large', 413);
+			const opened = await store.openFile(id);
+			if (opened.error)
+				return c.text(
+					'Local blob unavailable',
+					opened.error.name === 'BlobNotFound' ? 404 : 500,
+				);
+			body = opened.data.file;
+			headers.set('content-type', opened.data.stat.contentType);
+			headers.set('content-length', String(opened.data.stat.size));
+		}
 		try {
 			const response = await account.fetch(
 				new Request(target, {
 					method: c.req.method,
 					headers,
-					body:
-						c.req.method === 'GET' || c.req.method === 'HEAD'
-							? undefined
-							: c.req.raw.body,
+					body,
 					signal: c.req.raw.signal,
 					redirect: 'manual',
 				}),
@@ -692,291 +706,118 @@ export function createHomeServer({
 		}
 	});
 
-	type BlobEnv = {
-		Variables: {
-			appId: string;
-			replica: LibraryReplicaIdentity;
-			library: 'local' | 'personal' | 'shared';
-			id: BlobId;
-		};
-	};
+	type BlobEnv = { Variables: { appId: string; id: BlobId } };
 	const blobApi = new Hono<BlobEnv>();
-	blobApi.use('/:blobId/*', async (c, next) => {
-		// The path is the only storage selector. Query aliases must not retarget it.
-		if (new URL(c.req.url).search !== '')
-			return c.text('Invalid blob address', 400);
+	blobApi.use('*', async (c, next) => {
 		const appId = c.req.param('appId');
-		const id = parseBlobStorageId(c.req.param('blobId'));
-		if (
-			appId === undefined ||
-			appId.trim() !== appId ||
-			!isAppId(appId) ||
-			id === undefined
-		)
-			return c.text('Invalid blob address', 400);
-		const authorityId = c.req.param('authorityId');
-		const principalId = c.req.param('principalId');
-		if (
-			(authorityId === undefined) !== (principalId === undefined) ||
-			(authorityId !== undefined && !isBlobPathSegment(authorityId)) ||
-			(principalId !== undefined && !isBlobPathSegment(principalId))
-		)
-			return c.text('Invalid account identity', 400);
+		if (!appId || !isAppId(appId)) return c.text('Invalid application ID', 400);
 		c.set('appId', appId);
-		c.set('id', id);
-		c.set(
-			'replica',
-			authorityId === undefined || principalId === undefined
-				? { library: 'local' }
-				: {
-						library: c.var.library === 'shared' ? 'shared' : 'personal',
-						account: { authorityId, principalId: asPrincipalId(principalId) },
-					},
-		);
 		await next();
 	});
-
+	blobApi.use('/:blobId/*', async (c, next) => {
+		const id = parseBlobId(c.req.param('blobId'));
+		if (!id || new URL(c.req.url).search !== '')
+			return c.text('Invalid blob address', 400);
+		c.set('id', id);
+		await next();
+	});
+	blobApi.get('/', async (c) => {
+		const query = new URL(c.req.url).searchParams;
+		if ([...query.keys()].some((key) => key !== 'cursor' && key !== 'limit'))
+			return c.text('Invalid blob list options', 400);
+		const limit = query.get('limit');
+		const cursor = query.get('cursor');
+		const result = await blobs(c.var.appId).list({
+			...(limit === null ? {} : { limit: Number(limit) }),
+			...(cursor === null ? {} : { cursor }),
+		});
+		return result.error ? c.text('Blob list failed', 400) : c.json(result.data);
+	});
 	blobApi.put('/:blobId', async (c) => {
-		const store = blobs(c.var.appId, c.var.replica);
-		const id = c.var.id;
-		const origin = c.req.header('x-epicenter-attachment-origin');
-		const generation =
-			origin === 'null'
-				? null
-				: origin === 'download'
-					? undefined
-					: Number(origin);
-		if (
-			origin !== undefined &&
-			origin !== 'download' &&
-			origin !== 'null' &&
-			(!Number.isSafeInteger(generation) || Number(generation) < 0)
-		)
-			return c.text('Invalid attachment origin', 400);
-		const result = await store.putRequest(
-			id,
-			c.req.raw,
-			origin === undefined ? undefined : { generation },
+		const result = await blobs(c.var.appId).putRequest(c.var.id, c.req.raw);
+		if (!result.error) return c.body(null, 201);
+		return c.text(
+			'Blob publication failed',
+			result.error.name === 'BlobAlreadyExists' ? 409 : 500,
 		);
-		if (result.error === null) {
-			if (origin === undefined) return c.body(null, 201);
-			const metadata = await store.stat(id);
-			return metadata.error
-				? c.text('Blob store failed', 500)
-				: c.json(metadata.data.attachment!, 201);
-		}
-		switch (result.error.name) {
-			case 'BlobAlreadyExists':
-				return c.text('Blob already exists', 409);
-			case 'BlobStoreFailed':
-				return c.text('Blob store failed', 500);
-			default:
-				return result.error satisfies never;
-		}
 	});
-
-	blobApi.post('/:blobId/acknowledge', async (c) => {
-		const input = await c.req.json().catch(() => undefined);
-		if (
-			!input ||
-			!Number.isSafeInteger(input.generation) ||
-			input.generation < 0 ||
-			!input.expected ||
-			!/^[a-f0-9]{64}$/.test(input.expected.sha256) ||
-			!Number.isSafeInteger(input.expected.size) ||
-			input.expected.size < 0 ||
-			typeof input.expected.contentType !== 'string'
-		)
-			return c.text('Invalid attachment acknowledgment', 400);
-		const result = await blobs(
-			c.var.appId,
-			c.var.replica,
-		).attachments.acknowledge(c.var.id, input.expected, input.generation);
-		return result.error ? c.text('Blob store failed', 500) : c.body(null, 204);
-	});
-
-	// Hono derives HEAD from GET before considering explicit HEAD routes. A
-	// middleware guard keeps HEAD metadata-only and preserves Content-Length.
+	// Hono derives HEAD from GET; intercept it before file-body acquisition.
 	blobApi.use('/:blobId', async (c, next) => {
-		if (c.req.method !== 'HEAD') {
-			await next();
-			return;
-		}
-		const id = c.var.id;
-		const store = blobs(c.var.appId, c.var.replica);
-		const result = await store.stat(id);
-		if (result.error !== null) {
-			switch (result.error.name) {
-				case 'BlobNotFound':
-					return c.text('Blob not found', 404);
-				case 'BlobStoreFailed':
-					return c.text('Blob store failed', 500);
-				default:
-					return result.error satisfies never;
-			}
-		}
+		if (c.req.method !== 'HEAD') return next();
+		const result = await blobs(c.var.appId).stat(c.var.id);
+		if (result.error)
+			return c.text(
+				'Blob unavailable',
+				result.error.name === 'BlobNotFound' ? 404 : 500,
+			);
 		return new Response(null, {
 			headers: {
 				...blobResponseHeaders(result.data.contentType),
 				'content-length': String(result.data.size),
-				...(result.data.attachment
-					? { 'x-epicenter-attachment': JSON.stringify(result.data.attachment) }
-					: {}),
 			},
 		});
 	});
-
 	blobApi.get('/:blobId', async (c) => {
-		const store = blobs(c.var.appId, c.var.replica);
-		const id = c.var.id;
-		const result = await store.openFile(id);
-		if (result.error !== null) {
-			switch (result.error.name) {
-				case 'BlobNotFound':
-					return c.text('Blob not found', 404);
-				case 'BlobStoreFailed':
-					return c.text('Blob store failed', 500);
-				default:
-					return result.error satisfies never;
-			}
-		}
-		const rangeHeader = c.req.header('range');
-		if (rangeHeader !== undefined) {
-			const range = parseByteRange(rangeHeader, result.data.stat.size);
-			if (range === undefined) {
-				return new Response('Range Not Satisfiable', {
-					status: 416,
-					headers: {
-						...blobResponseHeaders(result.data.stat.contentType),
-						'content-range': `bytes */${result.data.stat.size}`,
-					},
-				});
-			}
-			return new Response(
-				result.data.file.slice(
-					range.start,
-					range.endExclusive,
-					result.data.stat.contentType,
-				),
-				{
-					status: 206,
-					headers: {
-						...blobResponseHeaders(result.data.stat.contentType),
-						'content-length': String(range.endExclusive - range.start),
-						'content-range': `bytes ${range.start}-${range.endExclusive - 1}/${result.data.stat.size}`,
-					},
-				},
+		const result = await blobs(c.var.appId).openFile(c.var.id);
+		if (result.error)
+			return c.text(
+				'Blob unavailable',
+				result.error.name === 'BlobNotFound' ? 404 : 500,
 			);
-		}
-		return new Response(result.data.file, {
-			headers: {
-				...blobResponseHeaders(result.data.stat.contentType),
-				'content-length': String(result.data.stat.size),
+		const { file, stat } = result.data;
+		const headers = {
+			...blobResponseHeaders(stat.contentType),
+			'content-length': String(stat.size),
+		};
+		const requestedRange = c.req.header('range');
+		if (requestedRange === undefined) return new Response(file, { headers });
+		const range = parseByteRange(requestedRange, stat.size);
+		if (!range)
+			return new Response(null, {
+				status: 416,
+				headers: {
+					...headers,
+					'content-length': '0',
+					'content-range': `bytes */${stat.size}`,
+				},
+			});
+		return new Response(
+			file.slice(range.start, range.endExclusive, stat.contentType),
+			{
+				status: 206,
+				headers: {
+					...headers,
+					'content-length': String(range.endExclusive - range.start),
+					'content-range': `bytes ${range.start}-${range.endExclusive - 1}/${stat.size}`,
+				},
 			},
-		});
+		);
 	});
-
 	blobApi.delete('/:blobId', async (c) => {
-		const store = blobs(c.var.appId, c.var.replica);
-		const id = c.var.id;
-		const result = await store.delete(id);
-		if (result.error !== null) return c.text('Blob store failed', 500);
-		return c.body(null, 204);
+		const result = await blobs(c.var.appId).delete(c.var.id);
+		return result.error
+			? c.text('Blob deletion failed', 500)
+			: c.body(null, 204);
 	});
-
 	blobApi.post('/:blobId/copy', async (c) => {
-		const store = blobs(c.var.appId, c.var.replica);
-		const destinationId = c.var.id;
-		let body: unknown;
-		try {
-			body = await c.req.json();
-		} catch {
-			return c.text('Invalid copy request', 400);
-		}
-		const sourceId =
-			typeof body === 'object' &&
-			body !== null &&
-			'sourceId' in body &&
-			typeof body.sourceId === 'string'
+		const body = await c.req.json().catch(() => undefined);
+		const source =
+			typeof body?.sourceId === 'string'
 				? parseBlobId(body.sourceId)
 				: undefined;
-		if (sourceId === undefined) return c.text('Invalid source blob id', 400);
-		const result = await store.copy(sourceId, destinationId);
-		if (result.error === null) return c.body(null, 204);
-		switch (result.error.name) {
-			case 'BlobNotFound':
-				return c.text('Blob not found', 404);
-			case 'BlobAlreadyExists':
-				return c.text('Blob already exists', 409);
-			case 'BlobStoreFailed':
-				return c.text('Blob store failed', 500);
-			default:
-				return result.error satisfies never;
-		}
+		if (!source) return c.text('Invalid source blob ID', 400);
+		const result = await blobs(c.var.appId).copy(source, c.var.id);
+		if (!result.error) return c.body(null, 204);
+		return c.text(
+			'Blob copy failed',
+			result.error.name === 'BlobNotFound'
+				? 404
+				: result.error.name === 'BlobAlreadyExists'
+					? 409
+					: 500,
+		);
 	});
-
-	// Remote copy operations: the blob id in the path is the only input. The
-	// host's own deployment authority supplies the target and credential, so
-	// no request body, destination URL, or authorization header is read.
-	const requireBlobRemote = (
-		operate: (
-			remote: BlobRemote,
-			id: BlobId,
-		) => Promise<
-			| Awaited<ReturnType<BlobRemote['upload']>>
-			| Awaited<ReturnType<BlobRemote['download']>>
-			| Awaited<ReturnType<BlobRemote['purge']>>
-		>,
-	) => {
-		return async (c: Context<BlobEnv>) => {
-			const selectedRemote = blobRemote(c.var.appId, c.var.replica);
-			const id = c.var.id;
-			if (selectedRemote === null) {
-				return c.text('Remote storage unavailable', 503);
-			}
-			const result = await operate(selectedRemote, id);
-			if (result.error === null) return c.body(null, 204);
-			switch (result.error.name) {
-				case 'BlobNotFound':
-				case 'RemoteBlobNotFound':
-					return c.text(result.error.message, 404);
-				case 'BlobStoreFailed':
-					return c.text('Blob store failed', 500);
-				case 'BlobRemoteFailed':
-					return c.text('Remote operation failed', 502);
-				case 'RemoteNotConfigured':
-					return c.text('Remote storage unavailable', 503);
-				default:
-					return result.error satisfies never;
-			}
-		};
-	};
-	blobApi.post(
-		'/:blobId/upload',
-		requireBlobRemote((remote, id) => remote.upload(id)),
-	);
-	blobApi.post(
-		'/:blobId/download',
-		requireBlobRemote((remote, id) => remote.download(id)),
-	);
-	blobApi.post(
-		'/:blobId/purge',
-		requireBlobRemote((remote, id) => remote.purge(id)),
-	);
-
-	for (const [path, library] of [
-		[BLOB_PATHS.local, 'local'],
-		[BLOB_PATHS.account, 'personal'],
-		[BLOB_PATHS.shared, 'shared'],
-	] as const) {
-		const selected = new Hono<BlobEnv>();
-		selected.use('*', async (c, next) => {
-			c.set('library', library);
-			await next();
-		});
-		selected.route('/', blobApi);
-		app.route(path, selected);
-	}
+	app.route('/api/apps/:appId/blobs', blobApi);
 	app.get(
 		SESSION_STREAM_ROUTE.pattern,
 		upgradeWebSocket(() => {

@@ -9,8 +9,9 @@ import {
 	type Recording,
 	type RecordingService,
 } from '@epicenter/app/recorder';
-import { asDeviceIdentifier } from '@epicenter/recorder';
+import { generateBlobId } from '@epicenter/blobs';
 import { InstantString } from '@epicenter/data/field';
+import { asDeviceIdentifier } from '@epicenter/recorder';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { WhisperingApp } from '$lib/whispering/app';
 
@@ -76,9 +77,9 @@ const { createDesktopRecording } = await import(
 );
 
 function setup(service?: RecordingService) {
-	const file = new Blob(['finished audio'], { type: 'audio/wav' });
+	const blobId = generateBlobId();
 	const stop = mock<Recording['stop']>(async () =>
-		Ok({ file, durationMs: 1250, byteLength: file.size }),
+		Ok({ blobId, durationMs: 1250, byteLength: 14 }),
 	);
 	const cancel = mock<Recording['cancel']>(async () => Ok(undefined));
 	const unlevel = mock();
@@ -86,7 +87,6 @@ function setup(service?: RecordingService) {
 	let ended: (() => void) | undefined;
 	const recording: Recording = {
 		id: crypto.randomUUID(),
-		replica: { library: 'local' },
 		device: { outcome: 'success', deviceId: asDeviceIdentifier('mic') },
 		endedReason: null,
 		stop,
@@ -99,7 +99,6 @@ function setup(service?: RecordingService) {
 	};
 	const start = mock<RecordingService['start']>(async () => Ok(recording));
 	const current = mock<RecordingService['current']>(async () => Ok(null));
-	const discard = mock<RecordingService['discard']>(async () => Ok(undefined));
 	const create = mock<WhisperingApp['recordings']['create']>(async () =>
 		Ok({ id: 'saved-row' } as never),
 	);
@@ -116,7 +115,6 @@ function setup(service?: RecordingService) {
 		service ?? {
 			current,
 			start,
-			discard,
 			enumerateDevices: async () => Ok([]),
 		},
 	);
@@ -127,14 +125,13 @@ function setup(service?: RecordingService) {
 		session,
 		recorder: session.recording,
 		recording,
-		file,
+		blobId,
 		start,
 		current,
 		stop,
 		cancel,
 		create,
 		remove,
-		discard,
 		unlevel,
 		unsubscribe,
 		end: () => ended?.(),
@@ -150,14 +147,13 @@ test('capture creates no row and stop saves finished bytes and duration before o
 	inference = async () => Ok('changed');
 	await f.recorder.stop();
 	expect(f.create).toHaveBeenCalledWith(
-		expect.objectContaining({ audio: f.file, duration: 1250 }),
+		expect.objectContaining({ audioBlobId: f.blobId, duration: 1250 }),
 	);
 	expect(pipeline).toHaveBeenLastCalledWith(
 		f.app,
 		expect.objectContaining({ recordingId: 'saved-row', transcribe: original }),
 	);
 	expect(f.recorder.saveStatus).toBe('saved');
-	expect(f.discard).toHaveBeenCalledWith(f.file);
 });
 
 test('duplicate starts are refused during acquisition', async () => {
@@ -170,20 +166,6 @@ test('duplicate starts are refused during acquisition', async () => {
 	started.resolve(Ok(f.recording));
 	expect(await pending).toBe(f.recording.id);
 	await f.recorder.cancel();
-});
-
-test('temporary cleanup racing recorder closure cannot revoke a confirmed save', async () => {
-	const f = setup();
-	f.discard.mockImplementationOnce(async () => {
-		throw new Error('Recorder closed');
-	});
-	await f.recorder.start();
-	await f.recorder.stop();
-	expect(f.recorder.saveStatus).toBe('saved');
-	expect(pipeline).toHaveBeenLastCalledWith(
-		f.app,
-		expect.objectContaining({ recordingId: 'saved-row' }),
-	);
 });
 
 for (const action of ['stop', 'cancel'] as const) {
@@ -240,7 +222,7 @@ test('unconfirmed save never remints, deletes a row, or starts inference', async
 	);
 	f.create.mockImplementationOnce(async () =>
 		RecordingCreationError.RowCreateFailed({
-			audio: f.file,
+			audioBlobId: f.blobId,
 			cause: 'disk full',
 		}),
 	);
@@ -295,7 +277,7 @@ test('old callbacks and stale push-to-talk releases cannot stop the next capture
 	const oldEnd = f.end;
 	await f.recorder.stop();
 	const nextStop = mock<Recording['stop']>(async () =>
-		Ok({ file: f.file, durationMs: 1, byteLength: 2 }),
+		Ok({ blobId: f.blobId, durationMs: 1, byteLength: 2 }),
 	);
 	f.start.mockImplementationOnce(async () =>
 		Ok({ ...f.recording, id: 'next', stop: nextStop, onEnded: () => () => {} }),
@@ -315,12 +297,12 @@ function nativeWorkflow({
 } = {}) {
 	let active = false;
 	const live = {
-		audioBlobId: 'native-original',
+		audioBlobId: 'blob_aaaaaaaaaaaaaaaaaaaaa',
 		device: { outcome: 'success', deviceId: 'mic' },
 		endedReason: null,
 	};
 	const finished = {
-		file: { kind: 'native-capture', id: 'native-original' },
+		blobId: 'blob_aaaaaaaaaaaaaaaaaaaaa',
 		durationMs: 1_000,
 		byteLength: 96_044,
 	};
@@ -357,8 +339,6 @@ function nativeWorkflow({
 				active = false;
 				cancellations++;
 				return;
-			case 'discard_recording_file':
-				return;
 			case 'close_recording_session':
 				active = false;
 				return;
@@ -366,11 +346,9 @@ function nativeWorkflow({
 				throw new Error('Unexpected IPC: ' + command);
 		}
 	};
-	const owner = createDesktopRecording(
-		'so.epicenter.test',
-		{ library: 'local' },
-		{},
-	);
+	const owner = createDesktopRecording('so.epicenter.test', {
+		write: async () => Ok(undefined),
+	});
 	return {
 		...setup(owner.value),
 		owner,
@@ -385,7 +363,7 @@ test('desktop reconciliation keeps a lost Start reply inside the original workfl
 	const f = nativeWorkflow({ lostStartReplies: 1 });
 	const original = inference;
 	try {
-		expect(await f.recorder.start()).toBe('native-original');
+		expect(await f.recorder.start()).toBe('blob_aaaaaaaaaaaaaaaaaaaaa');
 		inference = async () => Ok('changed');
 		await f.recorder.stop();
 		expect(f.create).toHaveBeenCalledTimes(1);
@@ -409,7 +387,7 @@ test('uncertain native Start retains original inference and timestamp through a 
 		setSystemTime(new Date('2026-09-16T02:00:00.000Z'));
 		expect(activity.recordingActive(f.app)).toBe(true);
 		inference = async () => Ok('changed');
-		expect(await f.recorder.start()).toBe('native-original');
+		expect(await f.recorder.start()).toBe('blob_aaaaaaaaaaaaaaaaaaaaa');
 		await f.recorder.stop();
 		expect(new Set(f.requests).size).toBe(1);
 		expect(f.create).toHaveBeenCalledTimes(1);
@@ -466,7 +444,7 @@ test('uncertain Cancel excludes Retry until the original native capture is cance
 		expect(f.recorder.isUncertain).toBe(false);
 		expect(f.cancellations).toBe(1);
 		expect(f.create).not.toHaveBeenCalled();
-		expect(await f.recorder.start()).toBe('native-original');
+		expect(await f.recorder.start()).toBe('blob_aaaaaaaaaaaaaaaaaaaaa');
 	} finally {
 		release.resolve();
 		await f.owner.close();
@@ -481,7 +459,7 @@ test('definite desktop Stop loss clears recording state while a lost reply stays
 		expect(lost.recorder.state).toBe('IDLE');
 		expect(lost.recorder.saveStatus).toBe('failed');
 		expect(lost.create).not.toHaveBeenCalled();
-		expect(await lost.recorder.start()).toBe('native-original');
+		expect(await lost.recorder.start()).toBe('blob_aaaaaaaaaaaaaaaaaaaaa');
 	} finally {
 		await lost.owner.close();
 	}

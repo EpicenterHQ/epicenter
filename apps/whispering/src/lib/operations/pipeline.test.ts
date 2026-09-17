@@ -111,6 +111,7 @@ const { processRecordingPipeline } = await import('./pipeline.js');
 type WhisperingApp = import('$lib/whispering/app').WhisperingApp;
 
 const app = {
+	blobs: { local: { add: async () => Ok('blob_aaaaaaaaaaaaaaaaaaaaa') } },
 	get signal() {
 		return lifetime.signal;
 	},

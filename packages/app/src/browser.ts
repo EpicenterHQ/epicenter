@@ -1,36 +1,9 @@
-import type { ApplicationRuntime } from './index.js';
-import { resources as browserResources } from './platform/browser.js';
-import { createBrowserRecording } from './recording/browser.js';
+import { type AiTransport, accountInference } from './ai.js';
 import { createAiConnections } from './ai-connections.js';
-import { accountInference, type AiTransport } from './ai.js';
-import type { AppAiBinding } from './index.js';
-import {
-	createBrowserBlobSources,
-	createBrowserBlobStore,
-} from '@epicenter/blobs/browser';
-import {
-	createBrowserBlobRemote,
-	createEpicenterClient,
-} from '@epicenter/client';
-import type { AppBlobComposition, AppBlobFactory } from './index.js';
+import type { AppAiBinding, ApplicationRuntime } from './index.js';
+import { resources as browserResources } from './platform/browser.js';
 
-/** Compose the standard browser/WebView blob capabilities for one app. */
-export function createBrowserAppBlobs(): AppBlobFactory {
-	return ({ appId, replica, remote }): AppBlobComposition => {
-		const local = createBrowserBlobStore({ appId, replica });
-		return {
-			local,
-			sources: createBrowserBlobSources(local),
-			remote:
-				remote === null
-					? null
-					: createBrowserBlobRemote({
-							local,
-							client: createEpicenterClient(remote),
-						}),
-		};
-	};
-}
+export { createBrowserAppBlobs } from './platform/browser.js';
 
 /** Origin-local settings; supported Epicenter accounts supply the /v1 gateway. */
 export function createBrowserAppAi(
@@ -79,8 +52,6 @@ export function createBrowserAppAi(
 /** Browser storage and capture; importing this value acquires no resources. */
 export const browser: ApplicationRuntime = {
 	...browserResources,
-	blobs: createBrowserAppBlobs(),
-	recording: createBrowserRecording,
 };
 
 /** Default browser composition selected by the package build condition. */

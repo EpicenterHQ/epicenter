@@ -1,20 +1,18 @@
 /// <reference lib="dom" />
 
-import {
-	captureLibraryReplica,
-	type LibraryReplicaIdentity,
-} from '@epicenter/principal';
+import { isAppId } from '@epicenter/constants/app-id';
 import {
 	defineErrors,
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
-import type { BlobId } from './blob-id.js';
+import { parseBlobId, type BlobId } from './blob-id.js';
 import {
-	attachmentContent,
-	sameAttachmentContent,
-} from './attachment-content.js';
+	blobListOptions,
+	isBlobMetadata,
+	normalizeContentType,
+} from './blob-metadata.js';
 import {
 	type BlobSource,
 	BlobSourceError,
@@ -22,9 +20,9 @@ import {
 } from './blob-source.js';
 import {
 	type BlobStat,
+	type BlobListPage,
 	type BlobStore,
 	BlobStoreError,
-	AttachmentTransferError,
 	type BlobStoreFailed,
 } from './blob-store.js';
 
@@ -32,77 +30,13 @@ const DATABASE_VERSION = 1;
 const DATA_STORE = 'blob-data';
 const METADATA_STORE = 'blob-metadata';
 
-/**
- * Whose bytes a browser blob store holds: one application's, for one account.
- *
- * The same two segments the replica address carries (ADR-0348), because the
- * bytes are the account's: a second person signing in on a shared browser
- * must not reach the first one's recordings, and removing one account's local
- * data has to be able to take its audio and leave everybody else's.
- */
-export type BrowserBlobScope = {
-	appId: string;
-	replica: LibraryReplicaIdentity;
-};
+/** One application's bytes on this browser profile and origin. */
+export type BrowserBlobScope = { appId: string };
 
-/**
- * Where one account's blobs live in this browser (ADR-0349).
- *
- * ```txt
- * epicenter/<app-id>/local/blobs or
- * epicenter/<app-id>/accounts/<authority-id>/<principal-id>/blobs
- * ```
- *
- * One IndexedDB database per application per principal, named as the sibling
- * of that account's replicas, `epicenter/<app-id>/accounts/<authority-id>/<principal-id>/data/<data-id>/<n>`.
- * The two spellings live in two packages and are pinned to each other by test
- * rather than by a shared constant: `@epicenter/data` does not know blobs
- * exist, and this package does not open replicas.
- *
- * Per principal rather than per data id, because the authority keeps one copy
- * per principal (`principals/<id>/blobs/<blobId>`) and rows in two of one
- * app's data ids may cite one `BlobId`. Not per generation, because a restore
- * mints a new generation citing the same ids, and a per-generation store would
- * copy or orphan every blob.
- *
- * `blobs` cannot collide with a data id: a data id is reverse-domain and must
- * contain a dot. It cannot be mistaken for a generation either: generation
- * enumeration matches `<data-id>/` with the trailing slash and requires the
- * remainder to be a number, so this name is invisible to it.
- *
- * Each segment is refused rather than canonicalized, under the rule the replica
- * address and a desktop partition already use: not empty, no path separator,
- * and not `.` or `..`. A principal id is whatever the authority minted, and
- * normalizing one here would invent an equivalence the authority never stated.
- * The app id's fuller grammar is enforced where a handle is composed
- * (`defineApplication`); here it only has to be one segment so a name can never
- * be read as somebody else's.
- *
- * A bad segment THROWS. This runs at a composition root with values a program
- * supplied, the way `createBrowserDevice` refuses a bad app id, and a durable
- * name is not a place to be lenient.
- */
-export function browserBlobStoreName(scope: BrowserBlobScope): string {
-	const { appId } = scope;
-	assertOneSegment(appId, 'app id');
-	const replica = captureLibraryReplica(scope.replica);
-	if (replica.library === 'local') return `epicenter/${appId}/local/blobs`;
-	const { authorityId, principalId } = replica.account;
-	return `epicenter/${appId}/accounts/${authorityId}/${principalId}/${replica.library === 'shared' ? 'shared/' : ''}blobs`;
-}
-
-function assertOneSegment(segment: string, label: string): void {
-	if (
-		segment.length === 0 ||
-		segment === '.' ||
-		segment === '..' ||
-		segment.includes('/') ||
-		segment.includes('\\')
-	) {
-		throw new Error(
-			`The ${label} ${JSON.stringify(segment)} cannot name a blob store.`,
-		);
-	}
+/** Account and library changes never select another local byte store. */
+export function browserBlobStoreName({ appId }: BrowserBlobScope): string {
+	if (!isAppId(appId)) throw new TypeError('Invalid blob application ID.');
+	return `epicenter/${appId}/blobs`;
 }
 
 type StoredBlob = {
@@ -190,19 +124,8 @@ function isConstraintError(cause: unknown): boolean {
 }
 
 /**
- * Create one account's browser-local blob store, backed by IndexedDB at
- * {@link browserBlobStoreName}.
- *
- * The scope is required, and there is no way to name the database directly:
- * a store this constructor hands back is always one application's and one
- * account's, so an unowned store cannot be built by omission. Construction is
- * inert; the database is created by the first verb that opens it.
- *
- * Blob bytes and metadata live in separate object stores within one database.
- * Browser persistence uses `ArrayBuffer`, not `Blob`: WebKit rejects Blob/File
- * values in IndexedDB object stores. The public API still accepts and returns
- * `Blob`, so this platform codec does not leak into application code. Writes
- * and deletes update both stores atomically, while `stat` reads only metadata.
+ * Construct an inert app-local store. Writes atomically commit ArrayBuffer bytes
+ * and metadata together; metadata reads never materialize the bytes.
  */
 export function createBrowserBlobStore(
 	scope: BrowserBlobScope & {
@@ -214,7 +137,7 @@ export function createBrowserBlobStore(
 	const database = browserBlobStoreName(scope);
 	const store = createStoreAt(database, indexedDb);
 	async function operate<TValue, TError>(
-		id: BlobId,
+		id: BlobId | undefined,
 		run: () => Promise<Result<TValue, TError>>,
 	): Promise<Result<TValue, TError | BlobStoreFailed>> {
 		const result = await withLock<Result<TValue, TError>, never>(
@@ -228,38 +151,7 @@ export function createBrowserBlobStore(
 		return result.data;
 	}
 	return {
-		attachments: {
-			async upload(id, expected, ticket, signal) {
-				const result = await operate(id, () =>
-					store.attachments!.upload(id, expected, ticket, signal),
-				);
-				if (!result.error) return Ok(undefined);
-				return result.error.name === 'BlobStoreFailed'
-					? AttachmentTransferError.Failed({
-							kind: 'storage',
-							cause: result.error,
-						})
-					: Err(result.error);
-			},
-			async download(id, expected, ticket, signal) {
-				const result = await operate(id, () =>
-					store.attachments!.download(id, expected, ticket, signal),
-				);
-				if (!result.error) return Ok(undefined);
-				return result.error.name === 'BlobStoreFailed'
-					? AttachmentTransferError.Failed({
-							kind: 'storage',
-							cause: result.error,
-						})
-					: Err(result.error);
-			},
-			put: (id, file, generation) =>
-				operate(id, () => store.attachments!.put(id, file, generation)),
-			acknowledge: (id, expected, generation) =>
-				operate(id, () =>
-					store.attachments!.acknowledge(id, expected, generation),
-				),
-		},
+		list: (options) => operate(undefined, () => store.list(options)),
 		put: (id, blob) => operate(id, () => store.put(id, blob)),
 		copy: (sourceId, destinationId) =>
 			operate(destinationId, () => store.copy(sourceId, destinationId)),
@@ -283,11 +175,7 @@ export function createBrowserBlobStore(
 
 /** The store over one database, whatever it is named. */
 function createStoreAt(databaseName: string, indexedDb: IDBFactory): BlobStore {
-	async function publish(
-		id: BlobId,
-		blob: Blob,
-		attachment?: BlobStat['attachment'],
-	) {
+	async function publish(id: BlobId, blob: Blob) {
 		return tryAsync({
 			try: async () => {
 				const bytes = await blob.arrayBuffer();
@@ -303,8 +191,7 @@ function createStoreAt(databaseName: string, indexedDb: IDBFactory): BlobStore {
 					transaction.objectStore(METADATA_STORE).add({
 						id,
 						size: blob.size,
-						contentType: attachment?.contentType ?? blob.type,
-						...(attachment ? { attachment } : {}),
+						contentType: normalizeContentType(blob.type),
 					} satisfies StoredBlobMetadata);
 					await completed;
 				});
@@ -316,230 +203,58 @@ function createStoreAt(databaseName: string, indexedDb: IDBFactory): BlobStore {
 		});
 	}
 	const store: BlobStore = {
-		attachments: {
-			async upload(id, expected, ticket, signal) {
-				let kind: AttachmentTransferError['kind'] = 'storage';
-				expected = { ...expected };
-				ticket = {
-					url: ticket.url,
-					requiredHeaders: { ...ticket.requiredHeaders },
-				};
-				try {
-					signal.throwIfAborted();
-					const file = await store.get(id);
-					if (file.error)
-						return AttachmentTransferError.Failed({ kind, cause: file.error });
-					if (
-						!sameAttachmentContent(expected, await attachmentContent(file.data))
-					)
-						return AttachmentTransferError.Failed({
-							kind: 'conflict',
-							cause: 'Local bytes differ from the owner evidence.',
+		list(options) {
+			return tryAsync({
+				try: async () => {
+					const { cursor, limit } = blobListOptions(options);
+					return withDatabase(indexedDb, databaseName, async (database) => {
+						const transaction = database.transaction(
+							[DATA_STORE, METADATA_STORE],
+							'readonly',
+						);
+						const completed = whenTransactionCompletes(transaction);
+						const items: BlobListPage['items'] = [];
+						const scanned = new Promise<void>((resolve, reject) => {
+							const request = transaction
+								.objectStore(METADATA_STORE)
+								.openCursor();
+							request.onerror = () => reject(request.error);
+							request.onsuccess = () => {
+								const entry = request.result;
+								if (!entry) return resolve();
+								const id = parseBlobId(entry.key);
+								if (cursor !== undefined && entry.key < cursor)
+									return entry.continue(cursor);
+								if (!id || id === cursor) return entry.continue();
+								const metadata: unknown = entry.value;
+								if (!isBlobMetadata(metadata))
+									return reject(new Error('Invalid blob metadata.'));
+								// getKey checks completeness without retrieving the ArrayBuffer.
+								const body = transaction.objectStore(DATA_STORE).getKey(id);
+								body.onerror = () => reject(body.error);
+								body.onsuccess = () => {
+									if (body.result !== undefined)
+										items.push({
+											id,
+											size: metadata.size,
+											contentType: metadata.contentType,
+										});
+									if (items.length > limit) return resolve();
+									entry.continue();
+								};
+							};
 						});
-					kind = 'transport';
-					const response = await fetch(ticket.url, {
-						method: 'PUT',
-						body: file.data,
-						headers: ticket.requiredHeaders,
-						signal,
-						credentials: 'omit',
-						redirect: 'error',
+						await Promise.all([scanned, completed]);
+						const hasMore = items.length > limit;
+						if (hasMore) items.pop();
+						return {
+							items,
+							...(hasMore ? { nextCursor: items.at(-1)!.id } : {}),
+						};
 					});
-					await response.body?.cancel();
-					return response.ok
-						? Ok(undefined)
-						: AttachmentTransferError.Failed({
-								kind,
-								status: response.status,
-								cause: 'Signed upload refused.',
-							});
-				} catch (cause) {
-					return AttachmentTransferError.Failed({
-						kind: signal.aborted ? 'transport' : kind,
-						cause,
-					});
-				}
-			},
-			async download(id, expected, ticket, signal) {
-				let kind: AttachmentTransferError['kind'] = 'transport';
-				expected = {
-					sha256: expected.sha256,
-					size: expected.size,
-					contentType: expected.contentType,
-				};
-				ticket = { url: ticket.url };
-				if (
-					!Number.isSafeInteger(expected.size) ||
-					expected.size < 0 ||
-					expected.size > 5 * 1024 ** 3
-				)
-					return AttachmentTransferError.Failed({
-						kind: 'conflict',
-						status: 409,
-						cause: 'Invalid attachment size.',
-					});
-				let response: Response | undefined;
-				try {
-					signal.throwIfAborted();
-					response = await fetch(ticket.url, {
-						signal,
-						credentials: 'omit',
-						redirect: 'error',
-					});
-					if (!response.ok)
-						return AttachmentTransferError.Failed({
-							kind,
-							status: response.status,
-							cause: 'Signed download refused.',
-						});
-					if (response.headers.get('content-type') !== expected.contentType)
-						return AttachmentTransferError.Failed({
-							kind: 'conflict',
-							status: 409,
-							cause: 'Downloaded content type differs.',
-						});
-					const chunks: Uint8Array<ArrayBuffer>[] = [];
-					let size = 0;
-					const reader = response.body?.getReader();
-					try {
-						while (reader) {
-							signal.throwIfAborted();
-							const part = await reader.read();
-							if (part.done) break;
-							if (part.value.length > expected.size - size)
-								return AttachmentTransferError.Failed({
-									kind: 'conflict',
-									status: 409,
-									cause: 'Downloaded bytes exceed owner size.',
-								});
-							size += part.value.length;
-							chunks.push(new Uint8Array(part.value));
-						}
-					} finally {
-						await reader?.cancel().catch(() => {});
-						reader?.releaseLock();
-					}
-					const file = new Blob(chunks, { type: expected.contentType });
-					if (!sameAttachmentContent(expected, await attachmentContent(file)))
-						return AttachmentTransferError.Failed({
-							kind: 'conflict',
-							status: 409,
-							cause: 'Downloaded bytes differ from owner evidence.',
-						});
-					signal.throwIfAborted();
-					kind = 'storage';
-					const result = await publish(id, file, {
-						...expected,
-						pendingUpload: false,
-					});
-					if (!result.error) return Ok(undefined);
-					if (result.error.name !== 'BlobAlreadyExists')
-						return AttachmentTransferError.Failed({
-							kind,
-							cause: result.error,
-						});
-					const existing = await store.get(id);
-					if (existing.error)
-						return AttachmentTransferError.Failed({
-							kind,
-							cause: existing.error,
-						});
-					const metadata = await store.stat(id);
-					if (metadata.error)
-						return AttachmentTransferError.Failed({
-							kind,
-							cause: metadata.error,
-						});
-					return metadata.data.attachment &&
-						sameAttachmentContent(expected, metadata.data.attachment) &&
-						sameAttachmentContent(
-							expected,
-							await attachmentContent(existing.data),
-						)
-						? Ok(undefined)
-						: AttachmentTransferError.Failed({
-								kind: 'conflict',
-								status: 409,
-								cause: 'Existing local bytes differ.',
-							});
-				} catch (cause) {
-					return AttachmentTransferError.Failed({
-						kind: signal.aborted ? 'transport' : kind,
-						cause,
-					});
-				} finally {
-					await response?.body?.cancel().catch(() => {});
-				}
-			},
-			async put(id, file, originGeneration) {
-				if (!(file instanceof Blob))
-					return BlobStoreError.BlobStoreFailed({
-						id,
-						cause: 'A native capture cannot be saved in browser storage.',
-					});
-				try {
-					const evidence = await attachmentContent(file);
-					const result = await publish(id, file, {
-						...evidence,
-						...(originGeneration === undefined ? {} : { originGeneration }),
-						pendingUpload: typeof originGeneration === 'number',
-					});
-					if (result.error?.name === 'BlobAlreadyExists') {
-						const existing = await store.get(id);
-						const metadata = await store.stat(id);
-						if (existing.error || metadata.error)
-							return BlobStoreError.BlobStoreFailed({
-								id,
-								cause: existing.error ?? metadata.error,
-							});
-						if (
-							metadata.data.attachment &&
-							metadata.data.attachment.originGeneration === originGeneration &&
-							sameAttachmentContent(evidence, metadata.data.attachment) &&
-							sameAttachmentContent(
-								evidence,
-								await attachmentContent(existing.data),
-							)
-						)
-							return Ok(evidence);
-					}
-					return result.error ? result : Ok(evidence);
-				} catch (cause) {
-					return BlobStoreError.BlobStoreFailed({ id, cause });
-				}
-			},
-			acknowledge(id, expected, generation) {
-				return tryAsync({
-					try: () =>
-						withDatabase(indexedDb, databaseName, async (database) => {
-							const transaction = database.transaction(
-								METADATA_STORE,
-								'readwrite',
-							);
-							const completed = whenTransactionCompletes(transaction);
-							const metadata = transaction.objectStore(METADATA_STORE);
-							const stored = (await requestResult(metadata.get(id))) as
-								| StoredBlobMetadata
-								| undefined;
-							if (
-								!stored?.attachment ||
-								stored.attachment.originGeneration !== generation ||
-								!sameAttachmentContent(stored.attachment, expected)
-							) {
-								await completed;
-								throw new Error(
-									'Acknowledgment does not match this local publication.',
-								);
-							}
-							metadata.put({
-								...stored,
-								attachment: { ...stored.attachment, pendingUpload: false },
-							});
-							await completed;
-						}),
-					catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
-				});
-			},
+				},
+				catch: (cause) => BlobStoreError.BlobStoreFailed({ cause }),
+			});
 		},
 		async copy(sourceId, destinationId) {
 			const source = await store.get(sourceId);
@@ -547,33 +262,8 @@ function createStoreAt(databaseName: string, indexedDb: IDBFactory): BlobStore {
 			return store.put(destinationId, source.data);
 		},
 
-		async put(id, blob) {
-			return tryAsync({
-				try: async () => {
-					const bytes = await blob.arrayBuffer();
-					return withDatabase(indexedDb, databaseName, async (database) => {
-						const transaction = database.transaction(
-							[DATA_STORE, METADATA_STORE],
-							'readwrite',
-						);
-						const completed = whenTransactionCompletes(transaction);
-						transaction.objectStore(DATA_STORE).add({
-							id,
-							bytes,
-						} satisfies StoredBlob);
-						transaction.objectStore(METADATA_STORE).add({
-							id,
-							size: blob.size,
-							contentType: blob.type,
-						} satisfies StoredBlobMetadata);
-						await completed;
-					});
-				},
-				catch: (cause) =>
-					isConstraintError(cause)
-						? BlobStoreError.BlobAlreadyExists({ id })
-						: BlobStoreError.BlobStoreFailed({ id, cause }),
-			});
+		put(id, blob) {
+			return publish(id, blob);
 		},
 
 		async get(id) {
@@ -632,7 +322,6 @@ function createStoreAt(databaseName: string, indexedDb: IDBFactory): BlobStore {
 			return Ok({
 				size: data.size,
 				contentType: data.contentType,
-				...(data.attachment ? { attachment: data.attachment } : {}),
 			});
 		},
 
@@ -673,9 +362,6 @@ function createStoreAt(databaseName: string, indexedDb: IDBFactory): BlobStore {
 					: Ok({
 							size: metadata.size,
 							contentType: metadata.contentType,
-							...(metadata.attachment
-								? { attachment: metadata.attachment }
-								: {}),
 						});
 			});
 		},
@@ -742,20 +428,11 @@ export function createBrowserBlobSources(
 	};
 }
 
-/**
- * The one database every browser build opened before bytes were the account's.
- *
- * It is not a store this package will construct for a caller. It exists here
- * so that what an earlier build wrote can be claimed by the rows that cite it
- * and, once nothing cites what is left, deleted by the person it may belong
- * to. Nothing here enumerates its ids (ADR-0154); a claim walks the ids the
- * application's rows supply, and the summary counts and sizes what remains.
- */
 /** How long an erase waits for another tab's connection to close. */
 const DELETE_BLOCKED_TIMEOUT_MS = 10_000;
 
 /**
- * The slice of the Web Locks API an erase and a claim need, declared so a
+ * The slice of the Web Locks API blob operations need, declared so a
  * test can hand in its own and so the assumption about the platform is
  * written down: shared operations, exclusive erasure, and refuse rather than queue.
  */
@@ -813,11 +490,6 @@ export const BrowserBlobStoreError = defineErrors({
 	}) => ({
 		message: `Could not erase '${database}': ${extractErrorMessage(cause)}`,
 		database,
-		cause,
-	}),
-	/** Listing databases or reading a summary failed. */
-	BlobSummaryFailed: ({ cause }: { cause: unknown }) => ({
-		message: `Could not read the earlier blob store: ${extractErrorMessage(cause)}`,
 		cause,
 	}),
 });
@@ -895,14 +567,10 @@ function deleteDatabase(
 }
 
 /**
- * Erase one account's blob store on this browser (ADR-0349, ADR-0351).
- *
- * A second explicit delete beside the generation erase, against the same
- * captured principal, never a widened filter: generation enumeration must not
- * learn to see this database. It never touches the authority's copy.
+ * Erase one application's local blob store on this browser.
  *
  * Every verb takes a shared lock for its entire operation; erase refuses
- * while any verb or claim holds the database. Callers must stop producers
+ * while any verb holds the database. Callers must stop producers
  * before erasing. These operation locks cannot prevent a surviving idle
  * handle or a newly opened session from creating the database afterward.
  */

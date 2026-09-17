@@ -22,6 +22,7 @@
 
 import { expect, mock, test } from 'bun:test';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
+import { generateBlobId, REMOTE_BLOB_ROUTES } from '@epicenter/blobs';
 import { GENERATIONS_ROUTE, STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { makeSignature } from 'better-auth/crypto';
 
@@ -68,7 +69,7 @@ type Surface = {
 const ORIGIN = 'http://localhost:8787';
 
 /** A blob id shaped for the `blob_[a-z0-9]{21}` route pattern. */
-const PROBE_BLOB_ID = `blob_${'a'.repeat(21)}`;
+const PROBE_BLOB_ID = generateBlobId();
 
 const PROFILE: Surface[] = [
 	{
@@ -102,14 +103,19 @@ const PROFILE: Surface[] = [
 	{
 		surface: 'mountBlobsApp (collection)',
 		method: 'POST',
-		url: API_ROUTES.blobs.collection.url(ORIGIN),
+		url: REMOTE_BLOB_ROUTES.collectionUrl(ORIGIN, 'so.epicenter.notes'),
 		worker: 'served',
 		bun: 'served',
 	},
 	{
 		surface: 'mountBlobsApp (by id)',
 		method: 'GET',
-		url: API_ROUTES.blobs.byId.url(ORIGIN, PROBE_BLOB_ID),
+		url: REMOTE_BLOB_ROUTES.objectUrl(
+			ORIGIN,
+			'so.epicenter.notes',
+			'probe',
+			PROBE_BLOB_ID,
+		),
 		worker: 'served',
 		bun: 'served',
 	},

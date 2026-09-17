@@ -1,15 +1,14 @@
-//! Disposable capture belongs to one document. The library receives only a
-//! finished file token and chooses its attachment address after capture ends.
+//! One App document owns capture and a fixed app-local destination.
+//! Stop commits immutable bytes before returning their saved blob ID.
 use super::error::RecorderError;
 use super::recorder::{FinalizedRecording, Recorder, Result};
-use crate::blobs::{AttachmentContent, AttachmentPublication, BlobDestination};
+
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 #[derive(Default)]
 pub(super) struct Sessions {
-    documents: HashMap<String, String>,
+    documents: HashMap<String, (String, String)>,
     retired: HashSet<String>,
     files: HashMap<String, Finished>,
     requests: HashMap<(String, String), Option<String>>,
@@ -20,20 +19,13 @@ struct Finished {
     session: String,
     recording: FinalizedRecording,
     stopped: StoppedRecording,
-    receipt: Option<AttachmentPublication>,
     published: bool,
-}
-
-#[derive(Debug, Clone, Serialize, specta::Type)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum FinishedFile {
-    NativeCapture { id: String },
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StoppedRecording {
-    pub file: FinishedFile,
+    pub blob_id: String,
     pub duration_ms: u32,
     pub byte_length: u32,
 }
@@ -44,28 +36,47 @@ impl Recorder {
             file.recording.staged.discard();
         }
     }
-    pub fn register_session(&mut self, owner: &str, session: &str) -> Result<()> {
+    pub fn register_session(&mut self, owner: &str, session: &str, app_id: &str) -> Result<()> {
         if session.is_empty() || session.len() > 128 || self.sessions.retired.contains(session) {
             return Err(RecorderError::not_recording("capture document has retired"));
         }
-        if let Some(current) = self.sessions.documents.get(owner) {
-            if current == session {
+        crate::blobs::blobs_directory(
+            std::path::Path::new(""),
+            &crate::blobs::BlobDestination {
+                app_id: app_id.into(),
+            },
+        )?;
+        if let Some((current, current_app)) = self.sessions.documents.get(owner) {
+            if current == session && current_app == app_id {
                 return Ok(());
             }
             return Err(RecorderError::failed(
                 "window already owns a capture document",
             ));
         }
-        self.sessions.documents.insert(owner.into(), session.into());
+        self.sessions
+            .documents
+            .insert(owner.into(), (session.into(), app_id.into()));
         Ok(())
     }
 
     pub fn require_session(&self, owner: &str, session: &str) -> Result<()> {
-        if self.sessions.documents.get(owner).map(String::as_str) == Some(session) {
+        if self
+            .sessions
+            .documents
+            .get(owner)
+            .map(|(session, _)| session.as_str())
+            == Some(session)
+        {
             Ok(())
         } else {
             Err(RecorderError::not_recording("capture document has retired"))
         }
+    }
+
+    pub fn session_app_id(&self, owner: &str, session: &str) -> Result<String> {
+        self.require_session(owner, session)?;
+        Ok(self.sessions.documents.get(owner).unwrap().1.clone())
     }
 
     pub fn close_session(&mut self, owner: &str, session: &str) {
@@ -77,7 +88,7 @@ impl Recorder {
     }
 
     pub fn close_document(&mut self, owner: &str) {
-        if let Some(session) = self.sessions.documents.remove(owner) {
+        if let Some((session, _)) = self.sessions.documents.remove(owner) {
             self.sessions
                 .requests
                 .retain(|(document, _), _| document != &session);
@@ -126,7 +137,7 @@ impl Recorder {
             .any(|file| file.owner == owner && !file.published)
         {
             return Err(RecorderError::failed(
-                "save or discard the finished capture before starting another",
+                "retry Stop or cancel the unfinished save before starting another",
             ));
         }
         let old: Vec<_> = self
@@ -180,21 +191,26 @@ impl Recorder {
         id: &str,
     ) -> Result<StoppedRecording> {
         self.require_session(owner, session)?;
-        if let Some(file) = self.sessions.files.get(id) {
-            if file.owner == owner && file.session == session {
-                return Ok(file.stopped.clone());
-            }
+        if !self.sessions.files.contains_key(id) {
+            let recording = self.stop(id, owner).map_err(|error| match error {
+                error @ RecorderError::NotRecording { .. } => error,
+                error => RecorderError::CaptureLost {
+                    message: error.to_string(),
+                },
+            })?;
+            self.hold_finished(owner, session, id, recording)?;
+        }
+        let file = self.sessions.files.get_mut(id).unwrap();
+        if file.owner != owner || file.session != session {
             return Err(RecorderError::not_recording(
-                "finished capture belongs to another document",
+                "recording belongs to another document",
             ));
         }
-        let recording = self.stop(id, owner).map_err(|error| match error {
-            error @ RecorderError::NotRecording { .. } => error,
-            error => RecorderError::CaptureLost {
-                message: error.to_string(),
-            },
-        })?;
-        self.hold_finished(owner, session, id, recording)
+        if !file.published {
+            file.recording.staged.commit("audio/wav")?;
+            file.published = true;
+        }
+        Ok(file.stopped.clone())
     }
 
     fn hold_finished(
@@ -217,7 +233,7 @@ impl Recorder {
             }
         };
         let stopped = StoppedRecording {
-            file: FinishedFile::NativeCapture { id: id.into() },
+            blob_id: id.into(),
             duration_ms: recording.duration_ms,
             byte_length,
         };
@@ -228,7 +244,6 @@ impl Recorder {
                 session: session.into(),
                 recording,
                 stopped: stopped.clone(),
-                receipt: None,
                 published: false,
             },
         );
@@ -239,19 +254,6 @@ impl Recorder {
         self.require_session(owner, session)?;
         if self.holds(id) {
             self.cancel(id, owner)?;
-        }
-        self.discard_file_owned_by(id, owner);
-        Ok(())
-    }
-
-    pub fn discard_file(&mut self, owner: &str, id: &str) -> Result<()> {
-        if let Some(file) = self.sessions.files.get(id) {
-            self.require_session(owner, &file.session)?;
-            if file.owner != owner {
-                return Err(RecorderError::not_recording(
-                    "finished capture belongs to another window",
-                ));
-            }
         }
         self.discard_file_owned_by(id, owner);
         Ok(())
@@ -269,36 +271,5 @@ impl Recorder {
             // the bytes out of it, so cleanup cannot delete a saved attachment.
             file.recording.staged.discard();
         }
-    }
-
-    pub fn publish_file(
-        &mut self,
-        owner: &str,
-        id: &str,
-        data_dir: &Path,
-        destination: &BlobDestination,
-        storage_id: &str,
-        origin_generation: Option<u32>,
-    ) -> Result<AttachmentContent> {
-        let file =
-            self.sessions.files.get(id).ok_or_else(|| {
-                RecorderError::not_recording("finished capture token is unavailable")
-            })?;
-        self.require_session(owner, &file.session)?;
-        if file.owner != owner {
-            return Err(RecorderError::not_recording(
-                "finished capture belongs to another window",
-            ));
-        }
-        let file = self.sessions.files.get_mut(id).unwrap();
-        let content = file.recording.staged.publish_attachment(
-            data_dir,
-            destination,
-            storage_id,
-            origin_generation,
-            &mut file.receipt,
-        )?;
-        file.published = true;
-        Ok(content)
     }
 }

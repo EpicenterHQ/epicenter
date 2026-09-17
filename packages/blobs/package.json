@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/blobs",
-	"description": "Opaque blob identity (BlobId) and the shared BlobStore and BlobRemote contracts for Epicenter blob storage",
+	"description": "Immutable app-local bytes, display sources, and explicit remote blob contracts",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",

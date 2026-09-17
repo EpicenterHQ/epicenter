@@ -6,16 +6,16 @@
  */
 
 import 'fake-indexeddb/auto';
-import { expect, test, spyOn } from 'bun:test';
-import { resources } from '#platform/resources';
-import { installTestLocks } from '@epicenter/device/test-locks';
-import { expectOk } from 'wellcrafted/testing';
+import { expect, spyOn, test } from 'bun:test';
 import { defineData, defineTable, field } from '@epicenter/data/definition';
-import { defineApplication } from './index.js';
-import { browser, createBrowserAppBlobs } from './browser.js';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
+import { installTestLocks } from '@epicenter/device/test-locks';
 import { Ok } from 'wellcrafted/result';
+import { expectOk } from 'wellcrafted/testing';
+import { resources } from '#platform/resources';
 import { createAiConnections } from './ai-connections.js';
+import { browser, createBrowserAppBlobs } from './browser.js';
+import { defineApplication } from './index.js';
 
 installTestLocks();
 
@@ -175,8 +175,10 @@ test.each([
 	try {
 		expectOk(await app.ready);
 		expect(acquire).toHaveBeenCalledWith(appId, { library: 'local' });
-		const blobId = expectOk(await app.blobs.add(new Blob(['default bytes'])));
-		expect(await expectOk(await app.blobs.get(blobId)).text()).toBe(
+		const blobId = expectOk(
+			await app.blobs.local.add(new Blob(['default bytes'])),
+		);
+		expect(await expectOk(await app.blobs.local.get(blobId)).text()).toBe(
 			'default bytes',
 		);
 		await app.ai.connections!.add({ baseUrl: 'https://inference.example/v1' });
@@ -187,9 +189,9 @@ test.each([
 		const reopened = application.openLocal();
 		try {
 			expectOk(await reopened.ready);
-			expect(await expectOk(await reopened.blobs.get(blobId)).text()).toBe(
-				'default bytes',
-			);
+			expect(
+				await expectOk(await reopened.blobs.local.get(blobId)).text(),
+			).toBe('default bytes');
 			expect(reopened.ai.connections!.getAll()).toHaveLength(1);
 		} finally {
 			await reopened.close();

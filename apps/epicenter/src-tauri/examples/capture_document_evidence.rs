@@ -3,7 +3,7 @@
 //! document. Uses temporary storage and does not start the application sidecar.
 //! Run with: cargo run --example capture_document_evidence
 use epicenter_lib::app_data::DesktopPaths;
-use epicenter_lib::blobs::{BlobDestination, LibraryReplica};
+use epicenter_lib::blobs::BlobDestination;
 use epicenter_lib::recorder::commands::*;
 use epicenter_lib::recorder::recorder::Recorder;
 use std::sync::{
@@ -11,8 +11,6 @@ use std::sync::{
     Mutex,
 };
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
-
-const KEY: &str = "attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa";
 
 #[tauri::command]
 fn evidence_boot(phase: State<'_, AtomicUsize>) -> usize {
@@ -35,7 +33,7 @@ fn evidence_ready(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
-fn evidence_done(app: tauri::AppHandle, error: Option<String>) {
+fn evidence_done(app: tauri::AppHandle, error: Option<String>, blob_id: Option<String>) {
     if let Some(error) = error {
         eprintln!("NATIVE_WEBVIEW_FAILURE {error}");
         app.exit(1);
@@ -43,9 +41,10 @@ fn evidence_done(app: tauri::AppHandle, error: Option<String>) {
     }
     let destination = BlobDestination {
         app_id: "com.epicenter.captureevidence".into(),
-        replica: LibraryReplica::Local {},
     };
-    let bytes = epicenter_lib::blobs::read_blob_bytes(&app, KEY, &destination).unwrap();
+    let bytes =
+        epicenter_lib::blobs::read_blob_bytes(&app, &blob_id.expect("saved blob id"), &destination)
+            .unwrap();
     let samples = epicenter_lib::audio::decode_to_pcm16k_mono(&bytes).unwrap();
     assert!(!samples.is_empty());
     let recorder = app.state::<Mutex<Recorder>>();
@@ -69,48 +68,44 @@ const SCRIPT: &str = r#"
     const phase = await invoke('evidence_boot');
     const mode = await invoke('evidence_mode');
     if (mode === 'recover') {
-      await invoke('register_recording_session', { sessionId: 'new-document' });
-      const live = await invoke('start_recording', { sessionId: 'new-document', requestId: 'restart-start', deviceIdentifier: null });
+      await invoke('register_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document' });
+      const live = await invoke('start_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document', requestId: 'restart-start', deviceIdentifier: null });
       await delay(1100);
-      const stopped = await invoke('stop_recording', { sessionId: 'new-document', audioBlobId: live.audioBlobId });
+      const stopped = await invoke('stop_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document', audioBlobId: live.audioBlobId });
       if (stopped.byteLength <= 44) throw new Error('restarted physical input delivered no samples');
-      await invoke('discard_recording_file', { fileId: stopped.file.id });
-      await invoke('close_recording_session', { sessionId: 'new-document' });
-      await invoke('evidence_done', { error: null });
+      await invoke('close_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document' });
+      await invoke('evidence_done', { error: null, blobId: stopped.blobId });
       return;
     }
     if (phase === 0) {
-      await invoke('register_recording_session', { sessionId: 'old-document' });
-      const live = await invoke('start_recording', { sessionId: 'old-document', requestId: 'old-start', deviceIdentifier: null });
+      await invoke('register_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'old-document' });
+      const live = await invoke('start_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'old-document', requestId: 'old-start', deviceIdentifier: null });
       sessionStorage.setItem('oldCaptureId', live.audioBlobId);
       await delay(300);
       location.reload();
       return;
     }
     if (phase !== 1) throw new Error('unexpected document reload count');
-    await invoke('register_recording_session', { sessionId: 'new-document' });
+    await invoke('register_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document' });
     let refused = false;
-    try { await invoke('stop_recording', { sessionId: 'old-document', audioBlobId: sessionStorage.getItem('oldCaptureId') }); }
+    try { await invoke('stop_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'old-document', audioBlobId: sessionStorage.getItem('oldCaptureId') }); }
     catch (error) { refused = error.name === 'NotRecording'; }
     if (!refused) throw new Error('old document stop was not fenced');
-    const live = await invoke('start_recording', { sessionId: 'new-document', requestId: 'new-start', deviceIdentifier: null });
-    await invoke('close_recording_session', { sessionId: 'old-document' });
+    const live = await invoke('start_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document', requestId: 'new-start', deviceIdentifier: null });
+    await invoke('close_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'old-document' });
     await delay(1100);
-    const stopped = await invoke('stop_recording', { sessionId: 'new-document', audioBlobId: live.audioBlobId });
-    if (stopped.file.kind !== 'native-capture') throw new Error('stop returned no native token');
-    const args = { fileId: stopped.file.id, destination: { appId: 'com.epicenter.captureevidence', replica: { library: 'local' } }, storageId: 'attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa', originGeneration: null };
-    const saved = await invoke('publish_recording_file', args);
-    const retry = await invoke('publish_recording_file', args);
-    if (saved.sha256 !== retry.sha256 || saved.size !== stopped.byteLength) throw new Error('publication retry changed content');
-    await invoke('close_recording_session', { sessionId: 'new-document' });
+    const stopped = await invoke('stop_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document', audioBlobId: live.audioBlobId });
+    const retry = await invoke('stop_recording', { sessionId: 'new-document', audioBlobId: live.audioBlobId });
+    if (stopped.blobId !== retry.blobId || stopped.byteLength !== retry.byteLength) throw new Error('stop retry changed saved output');
+    await invoke('close_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document' });
     if (mode === 'interrupt') {
-      await invoke('register_recording_session', { sessionId: 'interrupted-document' });
-      await invoke('start_recording', { sessionId: 'interrupted-document', requestId: 'interrupted-start', deviceIdentifier: null });
+      await invoke('register_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'interrupted-document' });
+      await invoke('start_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'interrupted-document', requestId: 'interrupted-start', deviceIdentifier: null });
       await delay(300);
       await invoke('evidence_ready');
       return;
     }
-    await invoke('evidence_done', { error: null });
+    await invoke('evidence_done', { error: null, blobId: stopped.blobId });
   } catch (error) {
     await invoke('evidence_done', { error: JSON.stringify(error, Object.getOwnPropertyNames(error)) });
   }
@@ -147,8 +142,6 @@ fn main() {
             start_recording,
             stop_recording,
             cancel_recording,
-            publish_recording_file,
-            discard_recording_file
         ])
         .setup(|app| {
             epicenter_lib::blobs::delete_stale_staging(app.handle());

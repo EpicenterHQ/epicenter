@@ -7,7 +7,6 @@ import {
 	STORE_SYNC_ROUTE,
 } from '@epicenter/sync';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
-import { ATTACHMENT_ROUTE } from '@epicenter/sync/attachment-route';
 import { every } from 'hono/combine';
 import { createMiddleware } from 'hono/factory';
 import { extractUpgradeBearer } from '../auth/extract-upgrade-bearer.js';
@@ -67,21 +66,6 @@ export function mountStoreSyncApp<E extends Env = Env>(
 		if (c.req.query('principalId') || c.req.query('owner')) return;
 		return `${prefix}/data/${dataId}`;
 	}
-	app.on(
-		['GET', 'POST', 'PUT'],
-		ATTACHMENT_ROUTE.pattern,
-		auth,
-		async (c: Context<Env>) => {
-			const name = address(
-				c,
-				c.req.param('appId'),
-				c.req.param('library'),
-				c.req.param('dataId'),
-			);
-			if (!name) return c.text('Library access refused', 403);
-			return opts.resolveStore(c.env).authority(name).fetch(c.req.raw);
-		},
-	);
 	app.post(CURRENT_ROUTE.pattern, auth, async (c: Context<Env>) => {
 		const appId = c.req.param('appId');
 		const library = c.req.param('library');

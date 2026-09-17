@@ -20,8 +20,8 @@ import type {
 import { logAnalyticsEvent } from '$lib/operations/analytics';
 import { recordingMedia } from '$lib/operations/media';
 import { processRecordingPipeline } from '$lib/operations/pipeline';
-import { captureTranscription } from '$lib/operations/transcribe';
 import { playSoundIfEnabled } from '$lib/operations/sound';
+import { captureTranscription } from '$lib/operations/transcribe';
 import { report } from '$lib/report';
 import { captureSurface } from '$lib/state/capture-surface.svelte';
 import { deviceConfig } from '$lib/state/device-config.svelte';
@@ -241,7 +241,7 @@ export function createWhisperingRecording(
 					return RecorderError.NoActiveRecording();
 				}
 				const saved = await recordings.create({
-					audio: result.data.file,
+					audioBlobId: result.data.blobId,
 					title: '',
 					recordedAt: metadata.recordedAt,
 					recordedAtZone: metadata.recordedAtZone,
@@ -263,14 +263,6 @@ export function createWhisperingRecording(
 				});
 			} finally {
 				if (saveStatus === 'saving') saveStatus = 'unconfirmed';
-				// The recorder also owns terminal cleanup. Its closure can race this
-				// best-effort release, but cannot change an already confirmed save.
-				const discarded = await tryAsync({
-					try: () => service.discard(result.data.file),
-					catch: (cause) => RecorderError.RecorderFailed({ cause }),
-				});
-				const cleanupError = discarded.error ?? discarded.data?.error;
-				if (cleanupError) log.warn(cleanupError);
 			}
 		} finally {
 			finishing = false;

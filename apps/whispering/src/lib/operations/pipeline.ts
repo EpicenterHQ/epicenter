@@ -68,10 +68,17 @@ export async function processRecordingPipeline(
 	const existing =
 		recordingId === undefined ? undefined : app.recordings.get(recordingId);
 	if (recordingId !== undefined && !existing) return;
+	let savedBlobId: string | undefined;
+	if (!existing) {
+		const saved = await app.blobs.local.add(audio!);
+		if (saved.error) throw saved.error;
+		savedBlobId = saved.data;
+		if (lifetime.aborted) return;
+	}
 	const { data: recording, error: creationError } = existing
 		? { data: existing, error: null }
 		: await app.recordings.create({
-				audio: audio!,
+				audioBlobId: savedBlobId!,
 				title: '',
 				recordedAt: now,
 				recordedAtZone: Intl.DateTimeFormat().resolvedOptions().timeZone,

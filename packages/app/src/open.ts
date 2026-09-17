@@ -1,5 +1,5 @@
 import type { Account } from '@epicenter/auth';
-import { createAppBlobs } from '@epicenter/blobs/app';
+import { createAppBlobs, createAppRemoteBlobs } from '@epicenter/blobs/app';
 import { isAppId } from '@epicenter/constants/app-id';
 import { acquireAppData } from '@epicenter/data/browser';
 import { compileData, type DataDefinition } from '@epicenter/data/definition';
@@ -138,80 +138,53 @@ function buildApp<const TDefinition extends DataDefinition>(
 	);
 	const bytes = blobs({
 		appId,
-		replica,
-		remote:
-			remote === null
-				? null
-				: {
-						baseURL: remote.transport.baseURL,
-						fetch(input, init) {
-							const url = new URL(
-								input instanceof Request ? input.url : input.toString(),
-							);
-							if (
-								url.pathname === '/api/blobs' ||
-								url.pathname.startsWith('/api/blobs/')
-							) {
-								url.searchParams.set('appId', appId);
-								url.searchParams.set('library', remote.address.library);
-							}
-							return remote.transport.fetch(
-								input instanceof Request ? new Request(url, input) : url,
-								init,
-							);
-						},
-					},
+		account: choice.library === 'local' ? null : choice.account,
 	});
+	if (choice.library !== 'local' && bytes.remote === null)
+		throw new Error('An account App requires remote blob access.');
 	const databases = createAppSqlite(sqlite, appId, replica, {
 		assertUsable(): void {
 			document.lifetime.assertUsable();
 		},
 	});
-	const acquisition = Promise.withResolvers<void>();
 	let dataReleased = true;
 	const document = createStoreOverPort({
 		definition: parsed.data,
-		blobStore: bytes.local,
-		blobSources: bytes.sources,
-		attachmentDestination: { appId, replica },
 		local: identity === null,
 		async acquire() {
-			try {
-				const owned = await databases.acquire();
-				if (owned.error) {
-					const error = owned.error;
-					return error.name === 'AlreadyOpen' ||
-						error.name === 'LocksUnsupported' ||
-						error.name === 'ClaimFailed'
-						? Err(error)
-						: StoreError.StorageFailed({ cause: error });
-				}
-				dataReleased = false;
-				const opened = await acquireAppData(parsed.data, {
-					appId,
-					replica,
-					remote,
-				});
-				if (opened.error) {
-					dataReleased = true;
-					return opened;
-				}
-				return {
-					...opened,
-					data: {
-						...opened.data,
-						async dispose() {
-							await opened.data.dispose?.();
-							dataReleased = true;
-						},
-					},
-				};
-			} finally {
-				acquisition.resolve();
+			const owned = await databases.acquire();
+			if (owned.error) {
+				const error = owned.error;
+				return error.name === 'AlreadyOpen' ||
+					error.name === 'LocksUnsupported' ||
+					error.name === 'ClaimFailed'
+					? Err(error)
+					: StoreError.StorageFailed({ cause: error });
 			}
+			dataReleased = false;
+			const opened = await acquireAppData(parsed.data, {
+				appId,
+				replica,
+				remote,
+			});
+			if (opened.error) {
+				dataReleased = true;
+				return opened;
+			}
+			return {
+				...opened,
+				data: {
+					...opened.data,
+					async dispose() {
+						await opened.data.dispose?.();
+						dataReleased = true;
+					},
+				},
+			};
 		},
 	});
 	let blobAccess: ReturnType<typeof createAppBlobs> | undefined;
+	let remoteBlobAccess: ReturnType<typeof createAppRemoteBlobs> | undefined;
 	let secretAccess: ReturnType<typeof resources.secrets> | undefined;
 	let recorder: RecordingOwner | undefined;
 	let inference: ReturnType<typeof createAppAi> | undefined;
@@ -228,13 +201,11 @@ function buildApp<const TDefinition extends DataDefinition>(
 				documentClosed,
 				Promise.resolve().then(() => databases.drain()),
 				Promise.resolve().then(() => blobAccess?.close()),
+				Promise.resolve().then(() => remoteBlobAccess?.close()),
 				Promise.resolve().then(() => secretAccess?.close()),
 				Promise.resolve().then(() => inference?.close()),
-				// An admitted save may still consume a native finished-file token.
-				// Drain it before recorder cleanup discards temporary output.
-				Promise.allSettled([acquisition.promise, documentClosed]).then(() =>
-					recorder?.close(),
-				),
+				// Recording owns admitted publication independently of public blob access.
+				Promise.resolve().then(() => recorder?.close()),
 			]);
 			const failures = results.filter((result) => result.status === 'rejected');
 			// A reported callback failure can coexist with confirmed physical release.
@@ -285,8 +256,27 @@ function buildApp<const TDefinition extends DataDefinition>(
 			...bytes,
 			assertUsable: document.lifetime.assertUsable,
 		});
-		recorder = recording(appId, replica, {
+		if (bytes.remote !== null)
+			remoteBlobAccess = createAppRemoteBlobs({
+				remote: bytes.remote,
+				assertUsable: document.lifetime.assertUsable,
+			});
+		document.lifetime.signal.addEventListener(
+			'abort',
+			() => {
+				void remoteBlobAccess?.close().catch((cause) =>
+					log.error(
+						new Error('Remote blob cleanup failed after App retirement.', {
+							cause,
+						}),
+					),
+				);
+			},
+			{ once: true },
+		);
+		recorder = recording(appId, {
 			assertUsable: document.lifetime.assertUsable,
+			write: (id, blob) => bytes.local.put(id, blob),
 		});
 		// Capture must stop while cache invalidation is still pending. The owner
 		// retains a failed close; final App closure observes it before releasing
@@ -315,7 +305,6 @@ function buildApp<const TDefinition extends DataDefinition>(
 			/** Aborts synchronously when this App closes or its library is retired. */
 			signal: document.lifetime.signal,
 			close,
-			blobs: blobAccess.value,
 			sqlite: databases.value,
 			secrets: secretAccess.value,
 			recording: recorder.value,
@@ -328,7 +317,7 @@ function buildApp<const TDefinition extends DataDefinition>(
 						document.store,
 						document.view as DeclaredData<TDefinition>,
 						common,
-						{ library: 'local' as const },
+						{ library: 'local' as const, blobs: { local: blobAccess.value } },
 					)
 				: Object.assign(
 						document.store,
@@ -336,6 +325,10 @@ function buildApp<const TDefinition extends DataDefinition>(
 						common,
 						{
 							library: replica.library as 'personal' | 'shared',
+							blobs: {
+								local: blobAccess.value,
+								remote: remoteBlobAccess!.value,
+							},
 							account: identity,
 							retirement: document.retirement,
 						},

@@ -62,7 +62,7 @@ try {
 			appId: 'so.epicenter.recording-smoke',
 			definition: defineData({
 				id: 'so.epicenter.recording-smoke',
-				tables: { recordings: defineTable({ audio: field.attachment() }) },
+				tables: { recordings: defineTable({ audioBlobId: field.string() }) },
 				kv: {},
 			}),
 		});
@@ -88,17 +88,13 @@ try {
 		if (stopped.error) throw new Error(JSON.stringify(stopped.error));
 		if (table.ids().length !== 0)
 			throw new Error('Capture created a row before save');
-		const saved = await bounded(
-			'save',
-			table.create({ audio: stopped.data.file }),
+		const row = table.create({ audioBlobId: stopped.data.blobId });
+		const bytes = await bounded(
+			'read',
+			app.blobs.local.get(stopped.data.blobId),
 		);
-		if (saved.error) throw new Error(JSON.stringify(saved.error));
-		const row = saved.data;
-		const into = table.attachment(row.id);
-		await app.recording.discard(stopped.data.file);
-		const bytes = await bounded('read', into.read());
 		if (bytes.error) throw new Error(JSON.stringify(bytes.error));
-		const playback = await into.source();
+		const playback = await app.blobs.local.open(stopped.data.blobId);
 		if (playback.error) throw new Error(JSON.stringify(playback.error));
 		const audio = new Audio(playback.data.url);
 		await bounded('offline play', audio.play());
@@ -132,7 +128,7 @@ try {
 			throw new Error(JSON.stringify(reopenedReady.error));
 		const persisted = await bounded(
 			'persisted read',
-			reopened.tables.recordings.attachment(row.id).read(),
+			reopened.blobs.local.get(stopped.data.blobId),
 		);
 		if (persisted.error) throw new Error(JSON.stringify(persisted.error));
 		const digest = (blob: Blob) =>

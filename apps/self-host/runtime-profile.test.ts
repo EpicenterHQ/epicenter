@@ -26,6 +26,10 @@ import { join } from 'node:path';
 import { openSelfHostAuth } from '@epicenter/server/self-host-auth/bun';
 import { createAuthenticator } from '../../packages/server/evidence/enrollment/authenticator.js';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
+import {
+	generateBlobId,
+	REMOTE_BLOB_ROUTES,
+} from '../../packages/blobs/src/index.js';
 
 // The Worker entry re-exports the Durable Object authority, whose module imports
 // `cloudflare:workers`. Only the class identity matters for route composition.
@@ -51,7 +55,7 @@ type Surface = {
 const ORIGIN = 'http://localhost:8787';
 
 /** A blob id shaped for the `blob_[a-z0-9]{21}` route pattern. */
-const PROBE_BLOB_ID = `blob_${'a'.repeat(21)}`;
+const PROBE_BLOB_ID = generateBlobId();
 
 const PROFILE: Surface[] = [
 	{
@@ -85,14 +89,19 @@ const PROFILE: Surface[] = [
 	{
 		surface: 'mountBlobsApp (collection)',
 		method: 'POST',
-		url: API_ROUTES.blobs.collection.url(ORIGIN),
+		url: REMOTE_BLOB_ROUTES.collectionUrl(ORIGIN, 'so.epicenter.notes'),
 		worker: 'served',
 		bun: 'served',
 	},
 	{
 		surface: 'mountBlobsApp (by id)',
 		method: 'GET',
-		url: API_ROUTES.blobs.byId.url(ORIGIN, PROBE_BLOB_ID),
+		url: REMOTE_BLOB_ROUTES.objectUrl(
+			ORIGIN,
+			'so.epicenter.notes',
+			'probe',
+			PROBE_BLOB_ID,
+		),
 		worker: 'served',
 		bun: 'served',
 	},
@@ -443,6 +452,7 @@ test('store upgrades resolve the subprotocol session and address only its princi
 		);
 		expect(response.status).toBe(status);
 	}
-	for (const ledger of ledgers) expect(ledger).toBe('principals/alice/data/test.notes');
+	for (const ledger of ledgers)
+		expect(ledger).toBe('principals/alice/data/test.notes');
 	expect(addressed).toEqual(['principals/alice/data/test.notes/generations/2']);
 });

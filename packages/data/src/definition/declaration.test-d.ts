@@ -1,13 +1,11 @@
 import { type BlobId, generateBlobId } from '@epicenter/blobs';
 import type * as Y from '@y/y';
 import { type Static, Type } from 'typebox';
-import type { Result } from 'wellcrafted/result';
 import type {
 	CalendarDateString,
 	DateTimeString,
 	InstantString,
 } from '../field/index.js';
-import type { AttachmentError } from '../store/attachment.js';
 import type { TypedTableHandle } from '../store/handles.js';
 import { plainText } from './content.js';
 import {
@@ -58,13 +56,13 @@ const definition = defineData({
 			content: plainText(),
 		}),
 		recordings: defineTable({
-			audio: field.blob(),
-			optional: field.nullable(field.blob()),
+			audio: field.string<BlobId>(),
+			optional: field.nullable(field.string<BlobId>()),
 			ordinaryId: field.string<BlobId>(),
 			content: plainText(),
 		}),
 		reversed: defineTable({
-			audio: Type.Union([Type.Null(), field.blob()]),
+			audio: Type.Union([Type.Null(), field.string<BlobId>()]),
 			content: plainText(),
 		}),
 	},
@@ -75,25 +73,22 @@ type Values = typeof definition.kv;
 type Recording = RowOf<typeof definition.tables.recordings>;
 type RecordingInput = CreateRowOf<typeof definition.tables.recordings>;
 
-export type _NullableBlobInput = Expect<
-	Equal<RecordingInput['optional'], Blob | BlobId | null>
+export type _NullableIdentifierInput = Expect<
+	Equal<RecordingInput['optional'], BlobId | null>
 >;
 export type _BrandedStringIsNotOwning = Expect<
 	Equal<RecordingInput['ordinaryId'], BlobId>
 >;
 export type _ReversedNullableInput = Expect<
-	Equal<
-		CreateRowOf<typeof definition.tables.reversed>['audio'],
-		Blob | BlobId | null
-	>
+	Equal<CreateRowOf<typeof definition.tables.reversed>['audio'], BlobId | null>
 >;
 export type _ReversedNullableRead = Expect<
 	Equal<RowOf<typeof definition.tables.reversed>['audio'], BlobId | null>
 >;
-export type _ReversedNullableCreateIsAsync = Expect<
+export type _ReversedNullableCreateIsSynchronous = Expect<
 	ReturnType<
 		TypedTableHandle<typeof definition.tables.reversed>['create']
-	> extends Promise<unknown>
+	> extends RowOf<typeof definition.tables.reversed>
 		? true
 		: false
 >;
@@ -137,7 +132,7 @@ const createWithContent: CreateRowOf<typeof definition.tables.items> = {
 void createWithoutContent;
 void createWithContent;
 const createRecording: RecordingInput = {
-	audio: new Blob(['audio'], { type: 'audio/wav' }),
+	audio: generateBlobId(),
 	optional: null,
 	ordinaryId: generateBlobId(),
 };
@@ -152,24 +147,14 @@ void copyRecording;
 const invalidCopy: RecordingInput['audio'] = 'not-a-blob-id';
 void invalidCopy;
 
-const attachmentFields = defineTable({
-	title: field.string(),
-	audio: field.attachment(),
-});
-declare const attachmentTable: TypedTableHandle<typeof attachmentFields>;
-// @ts-expect-error: an unfinished capture cannot create an attachment row.
-attachmentTable.create({ title: 'capture', audio: null });
-const completedAttachment = attachmentTable.create({
-	title: 'file',
+declare const recordings: TypedTableHandle<typeof definition.tables.recordings>;
+recordings.create({
+	// @ts-expect-error: row values cannot accept unpersisted bytes.
 	audio: new Blob(['audio']),
+	optional: null,
+	ordinaryId: generateBlobId(),
 });
-export type _CompletedAttachmentIsDurableResult = Expect<
-	Equal<
-		typeof completedAttachment,
-		Promise<Result<RowOf<typeof attachmentFields>, AttachmentError>>
-	>
+recordings.update('a'.repeat(24), { audio: generateBlobId() });
+export type _CreateIsSynchronous = Expect<
+	Equal<ReturnType<typeof recordings.create>, Recording>
 >;
-// @ts-expect-error: only the attachment owner can complete the cell.
-attachmentTable.update('a'.repeat(24), { audio: 'audio/wav' });
-// @ts-expect-error: a MIME string is completion metadata, not creation input.
-attachmentTable.create({ title: 'invalid', audio: 'audio/wav' });

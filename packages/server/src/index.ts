@@ -51,7 +51,7 @@ export {
 // only the deployment-controlled knobs (auth choice, optional policies). The
 // cloud's Better Auth endpoints are mounted by mountAuthRoutes; an instance
 // composes none of them (ADR-0075).
-export { blobPrincipalPrefix, storeAuthorityName } from './principal.js';
+export { storeAuthorityName } from './principal.js';
 export { mountAuthRoutes } from './routes/auth.js';
 export { mountBlobsApp, resolveDeploymentBlobStore } from './routes/blobs.js';
 export { mountInferenceApp } from './routes/inference.js';

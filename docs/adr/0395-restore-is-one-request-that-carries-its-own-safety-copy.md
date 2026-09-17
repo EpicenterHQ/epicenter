@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
-- **Relates:** [ADR-0379](0379-reconstruction-is-an-explicit-destructive-library-operation.md) (`Proposed`, edited in place: no receipt survives a lost response, because a retry is refused by the position check and the person is looking at the restored library), [ADR-0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) (what a kept copy is), [ADR-0393](0393-a-blob-is-addressed-by-its-row-and-the-account-holds-every-one.md) (why restore moves no bytes)
+- **Relates:** [ADR-0379](0379-reconstruction-is-an-explicit-destructive-library-operation.md) (`Proposed`, edited in place: no receipt survives a lost response, because a retry is refused by the position check and the person is looking at the restored library), [ADR-0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) (what a kept copy is), [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) (why restore moves no bytes)
 - **Unbuilt:** All of it. `openCurrentAuthority` in `packages/data/src/sync/authority.ts` exposes `prepareActivation().activate()` with `_restore_receipts` and reads `_restore_attempts` for a fence and a pinned digest; this record removes all three and adds the safety copy. No route reaches it in production; only the Honeycrisp fixture worker's `activateForTest` does.
 
 ## Context

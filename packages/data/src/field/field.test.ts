@@ -55,8 +55,6 @@ const kindOf = (schema: unknown): Kind | null =>
 
 /** One representative builder call per kind. The convergence proof iterates these. */
 const BUILT: Record<Kind, TSchema> = {
-	attachment: field.attachment().anyOf[0],
-	blob: field.blob(),
 	string: field.string(),
 	reference: field.reference('pages'),
 	url: field.url(),
@@ -116,8 +114,6 @@ describe('round-trip: the native enum wire-form', () => {
 describe('the palette catalog', () => {
 	test('the catalog includes every declared field kind', () => {
 		const expected: Kind[] = [
-			'attachment',
-			'blob',
 			'boolean',
 			'date',
 			'datetime',
@@ -144,8 +140,6 @@ describe('the palette catalog', () => {
 
 /** Canonical at-rest shape per kind: the minimal schema that should recognize as it. */
 const CANONICAL: Record<Kind, unknown> = {
-	attachment: { type: 'string', 'x-attachment': true },
-	blob: { type: 'string', 'x-blob': true },
 	string: { type: 'string' },
 	reference: { type: 'string', 'x-ref': 'pages' },
 	url: { type: 'string', format: 'uri' },
@@ -461,4 +455,9 @@ describe('the rejection lane: unsupported shapes match no meta', () => {
 			expect(recognize(schema)).toBeNull();
 		});
 	}
+});
+
+test('retired byte ownership markers are outside the field vocabulary', () => {
+	for (const marker of ['x-attachment', 'x-blob'])
+		expect(recognize({ type: 'string', [marker]: true })).toBeNull();
 });

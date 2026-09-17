@@ -20,6 +20,7 @@
 	},
 	"exports": {
 		".": "./src/index.ts",
+		"./blobs": "./src/blobs.ts",
 		"./browser": "./src/browser.ts",
 		"./ai": "./src/ai.ts",
 		"./ai-connections": "./src/ai-connections.ts",

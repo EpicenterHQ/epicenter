@@ -4,8 +4,7 @@
  * exact cleanup, and listener drainage. Physical evidence lives in Rust.
  */
 import { expect, mock, test } from 'bun:test';
-import { generateBlobId } from '@epicenter/blobs';
-import { asPrincipalId } from '@epicenter/principal';
+import { generateBlobId, parseBlobId } from '@epicenter/blobs';
 import { asDeviceIdentifier } from '@epicenter/recorder';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { NativeRecording, RecordingOptions } from '../recorder.js';
@@ -40,7 +39,7 @@ mock.module('@tauri-apps/api/event', () => ({
 }));
 const { createDesktopRecording } = await import('./desktop.js');
 
-function setup(options: RecordingOptions = {}) {
+function setup(options: Partial<RecordingOptions> = {}) {
 	invoke.mockClear();
 	registration = undefined;
 	unlistenFailure = undefined;
@@ -59,7 +58,6 @@ function setup(options: RecordingOptions = {}) {
 			case 'get_microphone_permission':
 				return 'granted';
 			case 'register_recording_session':
-			case 'discard_recording_file':
 				return;
 			case 'start_recording':
 				active = true;
@@ -70,7 +68,7 @@ function setup(options: RecordingOptions = {}) {
 			case 'stop_recording':
 				active = false;
 				return {
-					file: { kind: 'native-capture', id: live.audioBlobId },
+					blobId: live.audioBlobId,
 					durationMs: 1000,
 					byteLength: 96044,
 				};
@@ -85,11 +83,12 @@ function setup(options: RecordingOptions = {}) {
 		}
 	};
 	return {
-		owner: createDesktopRecording(
-			'so.epicenter.test',
-			{ library: 'local' },
-			options,
-		),
+		owner: createDesktopRecording('so.epicenter.test', {
+			write: async () => {
+				throw new Error('Desktop must not write through WebView');
+			},
+			...options,
+		}),
 		live,
 	};
 }
@@ -101,34 +100,17 @@ test('construction and construction-only close acquire no native session', async
 	expect(invoke).not.toHaveBeenCalled();
 });
 
-test('start retains its original replica but passes no library or row to native capture', async () => {
-	setup();
-	const account = { authorityId: 'first', principalId: asPrincipalId('alice') };
-	const owner = createDesktopRecording(
-		'so.epicenter.test',
-		{ library: 'personal', account },
-		{},
-	);
-	account.authorityId = 'second';
+test('session registration captures the app ID before capture starts', async () => {
+	const { owner } = setup();
 	const recording = expectOk(await owner.value.start({}));
-	expect(recording.replica).toEqual({
-		library: 'personal',
-		account: { authorityId: 'first', principalId: asPrincipalId('alice') },
-	});
-	expect(Reflect.set(recording, 'replica', { library: 'local' })).toBe(false);
-	const args = invoke.mock.calls.find(
-		([name]) => name === 'start_recording',
-	)?.[1];
-	expect(Object.keys(args ?? {}).toSorted()).toEqual([
-		'deviceIdentifier',
-		'requestId',
-		'sessionId',
-	]);
-	expect(args?.sessionId).toBe(
+	expect(
 		invoke.mock.calls.find(
 			([name]) => name === 'register_recording_session',
-		)?.[1]?.sessionId,
-	);
+		)?.[1]?.appId,
+	).toBe('so.epicenter.test');
+	expect(
+		invoke.mock.calls.find(([name]) => name === 'start_recording')?.[1],
+	).not.toHaveProperty('replica');
 	expectOk(await recording.cancel());
 	await owner.close();
 });
@@ -170,10 +152,12 @@ test('lost registration reply still closes the exact pending document', async ()
 		'register_recording_session',
 		'close_recording_session',
 	]);
-	expect(invoke.mock.calls[1]?.[1]).toEqual(invoke.mock.calls[0]?.[1]);
+	expect(invoke.mock.calls[1]?.[1]?.sessionId).toEqual(
+		invoke.mock.calls[0]?.[1]?.sessionId,
+	);
 });
 
-test('stop returns only finished output and retries its exact lost response', async () => {
+test('stop returns only a saved blob and retries its exact lost response', async () => {
 	const { owner, live } = setup();
 	const recording = expectOk(await owner.value.start({}));
 	const original = perform;
@@ -187,7 +171,7 @@ test('stop returns only finished output and retries its exact lost response', as
 	expect(expectErr(await recording.stop()).name).toBe('RecorderFailed');
 	const finished = expectOk(await recording.stop());
 	expect(finished).toEqual({
-		file: { kind: 'native-capture', id: live.audioBlobId },
+		blobId: parseBlobId(live.audioBlobId)!,
 		durationMs: 1000,
 		byteLength: 96044,
 	});
@@ -198,11 +182,6 @@ test('stop returns only finished output and retries its exact lost response', as
 	expect(
 		invoke.mock.calls.some(([name]) => name === 'publish_recording_file'),
 	).toBe(false);
-	expectOk(await owner.value.discard(finished.file));
-	expect(invoke.mock.calls.at(-1)).toEqual([
-		'discard_recording_file',
-		{ fileId: live.audioBlobId },
-	]);
 	await owner.close();
 });
 
@@ -303,7 +282,7 @@ test('close drains admitted native start and revokes its returned handle', async
 	expect(invoke.mock.calls.at(-1)?.[0]).toBe('close_recording_session');
 });
 
-test('close drains admitted stop before discarding temporary native output', async () => {
+test('close drains admitted stop before retiring its native session', async () => {
 	const { owner } = setup();
 	const recording = expectOk(await owner.value.start({}));
 	const pending = Promise.withResolvers<void>();

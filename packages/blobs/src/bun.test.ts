@@ -489,3 +489,65 @@ test('putResponse streams a response body under its content type', async () => {
 	const read = expectOk(await blobs.get(id));
 	expect(await read.text()).toBe('response bytes');
 });
+
+test('list pages complete generic blobs and excludes staging and incomplete objects', async () => {
+	const { blobs, directory } = await setup();
+	const ids = [generateBlobId(), generateBlobId(), generateBlobId()].sort();
+	for (const id of ids) expectOk(await blobs.put(id, new Blob(['audio'])));
+	const first = expectOk(await blobs.list({ limit: 2 }));
+	expect(first).toEqual({
+		items: ids
+			.slice(0, 2)
+			.map((id) => ({ id, size: 5, contentType: 'application/octet-stream' })),
+		nextCursor: ids[1],
+	});
+	expect(
+		expectOk(
+			await createBunBlobStore({ directory }).list({
+				cursor: first.nextCursor,
+			}),
+		).items.map((item) => item.id),
+	).toEqual(ids.slice(2));
+	const incomplete = generateBlobId();
+	await mkdir(join(directory, incomplete));
+	await writeFile(
+		join(directory, incomplete, 'metadata.json'),
+		JSON.stringify({ size: 5, contentType: 'audio/wav' }),
+	);
+	await mkdir(
+		join(directory, 'attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa'),
+	);
+	await mkdir(join(directory, '.staging', 'test'), { recursive: true });
+	expect(expectOk(await blobs.list()).items.map((item) => item.id)).toEqual(
+		ids,
+	);
+});
+
+test('list uses filesystem metadata without opening blob bodies', async () => {
+	const { blobs } = await setup();
+	const id = generateBlobId();
+	expectOk(await blobs.put(id, new Blob(['audio'])));
+	const file = spyOn(Bun, 'file').mockImplementation(() => {
+		throw new Error('Body accessed');
+	});
+	try {
+		expect(expectOk(await blobs.list()).items).toEqual([
+			{ id, size: 5, contentType: 'application/octet-stream' },
+		]);
+	} finally {
+		file.mockRestore();
+	}
+});
+
+test('list handles an unopened directory and rejects invalid pagination', async () => {
+	const { directory } = await setup();
+	const blobs = createBunBlobStore({ directory: join(directory, 'unopened') });
+	expect(expectOk(await blobs.list())).toEqual({ items: [] });
+	for (const options of [
+		{ cursor: '../escape' },
+		{ limit: 0 },
+		{ limit: 1001 },
+		{ limit: 1.5 },
+	])
+		expect(expectErr(await blobs.list(options)).name).toBe('BlobStoreFailed');
+});

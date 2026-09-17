@@ -3,7 +3,6 @@
 	import { createLogger } from 'wellcrafted/logger';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { getWhisperingApp } from '$lib/whispering/context';
-	import { createAttachmentStatus } from '$lib/state/recordings.svelte';
 
 	let {
 		id,
@@ -20,8 +19,6 @@
 	} = $props();
 
 	const app = getWhisperingApp();
-	const status = createAttachmentStatus(app);
-	const presence = $derived(status.current.items.find((item) => item.tableName === 'recordings' && item.rowId === id)?.presence);
 	const log = createLogger('whispering/audio-player');
 	let handle = $state.raw<BlobSource | null>(null);
 	let failure = $state<string | null>(null);
@@ -32,7 +29,6 @@
 		const requestedId = id;
 		// Local byte arrival changes playback availability without editing the row.
 		void audio;
-		void presence;
 		failure = null;
 		if (!enabled) {
 			handle = null;

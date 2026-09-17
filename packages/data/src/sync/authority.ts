@@ -65,7 +65,6 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 
 import { copyBytes } from '../store/log.js';
-import { openAttachmentPublications } from './attachment-publications.js';
 import { applyAttemptSchema, openAttempts, readAttempt } from './attempts.js';
 import { openBackups } from './backups.js';
 import { CHUNK_BYTES, intoChunks } from './frames.js';
@@ -547,10 +546,8 @@ export function openCurrentAuthority({
 			},
 		});
 	}
-	const attachments = openAttachmentPublications({ sqlite, current });
 	return {
 		/** Immutable file publication shares generation admission and survives replacement. */
-		attachments,
 		ensureCurrent(bytes: Uint8Array) {
 			nonempty(bytes);
 			return sqlite.transaction(() => {

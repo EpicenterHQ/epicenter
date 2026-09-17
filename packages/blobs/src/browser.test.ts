@@ -12,7 +12,6 @@
  */
 
 import { expect, test } from 'bun:test';
-import { asPrincipalId } from '@epicenter/principal';
 import { indexedDB } from 'fake-indexeddb';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { generateBlobId } from './blob-id.js';
@@ -29,18 +28,11 @@ const testLocks = fakeLocks().locks;
 
 const APP_ID = 'so.epicenter.test';
 
-let principalSequence = 0;
+let appSequence = 0;
 
-/** One fresh account per test, so no test reads another's database. */
+/** A distinct application namespace isolates each test's database. */
 function setup() {
-	const principalId = asPrincipalId(`principal-${principalSequence++}`);
-	const scope = {
-		appId: APP_ID,
-		replica: {
-			library: 'personal' as const,
-			account: { principalId, authorityId: 'test-authority' },
-		},
-	};
+	const scope = { appId: `${APP_ID}.test${appSequence++}` };
 	return {
 		scope,
 		databaseName: browserBlobStoreName(scope),
@@ -69,162 +61,25 @@ function requestResult<TResult>(
 	});
 }
 
-test('the name is the account prefix of the replica address, ending in blobs', () => {
-	// The one grammar, pinned as a literal (ADR-0349). `@epicenter/data` spells
-	// the replica half, `epicenter/v5/<app-id>/<principal-id>/<data-id>/<n>`,
-	// and generation enumeration matches `<data-id>/` and a number after it, so
-	// a sibling named `blobs` is invisible to it. A data id must contain a dot,
-	// so no data id can be named `blobs` either.
-	expect(
-		browserBlobStoreName({
-			appId: 'so.epicenter.whispering',
-			replica: { library: 'local' as const },
-		}),
-	).toBe('epicenter/so.epicenter.whispering/local/blobs');
-});
-
-test('a segment that could be read as a path is refused at construction', () => {
-	for (const bad of ['', '.', '..', 'a/b', 'a\\b']) {
-		expect(() =>
-			browserBlobStoreName({
-				appId: APP_ID,
-				replica: {
-					library: 'personal' as const,
-					account: {
-						principalId: asPrincipalId(bad),
-						authorityId: 'authority',
-					},
-				},
-			}),
-		).toThrow();
-		expect(() =>
-			browserBlobStoreName({
-				appId: bad,
-				replica: {
-					library: 'personal' as const,
-					account: {
-						principalId: asPrincipalId('principal-1'),
-						authorityId: 'authority',
-					},
-				},
-			}),
-		).toThrow();
-	}
-	// Refused, never canonicalized: whitespace and case are the authority's.
-	expect(
-		browserBlobStoreName({
-			appId: APP_ID,
-			replica: { library: 'local' as const },
-		}),
-	).toBe(`epicenter/${APP_ID}/local/blobs`);
-});
-
-test('two accounts on one browser hold two stores and neither reads the other', async () => {
-	const first = setup();
-	const second = setup();
-	const id = generateBlobId();
-	expectOk(
-		await first.blobs.put(id, new Blob(['mine'], { type: 'audio/wav' })),
+test('the name selects one application without an account or library', () => {
+	expect(browserBlobStoreName({ appId: APP_ID })).toBe(
+		`epicenter/${APP_ID}/blobs`,
 	);
-
-	expect(expectErr(await second.blobs.stat(id))).toMatchObject({
-		name: 'BlobNotFound',
-		id,
-	});
-	// The same id is free in the other account's store: the stores share
-	// nothing, not even the immutable-id refusal.
-	expectOk(await second.blobs.put(id, new Blob(['theirs'])));
-	expect(await expectOk(await first.blobs.get(id)).text()).toBe('mine');
-	expect(await expectOk(await second.blobs.get(id)).text()).toBe('theirs');
 });
 
-test('the local partition is separate from every account partition', async () => {
-	const localScope = { appId: APP_ID, replica: { library: 'local' as const } };
-	const accountScope = {
-		appId: APP_ID,
-		replica: {
-			library: 'personal' as const,
-			account: {
-				principalId: asPrincipalId('local-account'),
-				authorityId: 'test-authority',
-			},
-		},
-	};
-	const local = createBrowserBlobStore({
-		...localScope,
-		indexedDb: indexedDB,
-		locks: testLocks,
-	});
-	const account = createBrowserBlobStore({
-		...accountScope,
-		indexedDb: indexedDB,
-		locks: testLocks,
-	});
-	const id = generateBlobId();
-
-	expectOk(await local.put(id, new Blob(['local'])));
-	expect(expectErr(await account.get(id))).toMatchObject({
-		name: 'BlobNotFound',
-		id,
-	});
-	expect(await expectOk(await local.get(id)).text()).toBe('local');
+test('invalid application identifiers fail before opening storage', () => {
+	for (const appId of ['', '.', '..', 'a/b', 'a\\b', 'app'])
+		expect(() => browserBlobStoreName({ appId })).toThrow();
 });
 
-test('authority identity is part of the account blob partition', async () => {
-	const principalId = asPrincipalId('same-principal');
-	const first = createBrowserBlobStore({
-		appId: APP_ID,
-		indexedDb: indexedDB,
-		locks: testLocks,
-		replica: {
-			library: 'personal' as const,
-			account: { principalId, authorityId: 'authority-one' },
-		},
-	});
-	const second = createBrowserBlobStore({
-		appId: APP_ID,
-		indexedDb: indexedDB,
-		locks: testLocks,
-		replica: {
-			library: 'personal' as const,
-			account: { principalId, authorityId: 'authority-two' },
-		},
-	});
+test('separate applications cannot read one another', async () => {
+	const first = setup().blobs;
+	const second = setup().blobs;
 	const id = generateBlobId();
-
-	expectOk(await first.put(id, new Blob(['authority one'])));
-	expect(expectErr(await second.get(id))).toMatchObject({
-		name: 'BlobNotFound',
-		id,
-	});
-});
-
-test('a principal minted as local cannot collide with the local partition', async () => {
-	const local = createBrowserBlobStore({
-		appId: APP_ID,
-		indexedDb: indexedDB,
-		locks: testLocks,
-		replica: { library: 'local' as const },
-	});
-	const account = createBrowserBlobStore({
-		appId: APP_ID,
-		indexedDb: indexedDB,
-		locks: testLocks,
-		replica: {
-			library: 'personal' as const,
-			account: {
-				principalId: asPrincipalId('local'),
-				authorityId: 'authority-one',
-			},
-		},
-	});
-	const id = generateBlobId();
-
-	expectOk(await local.put(id, new Blob(['local partition'])));
-	expect(expectErr(await account.get(id))).toMatchObject({
-		name: 'BlobNotFound',
-		id,
-	});
+	expectOk(await first.put(id, new Blob(['first'])));
+	expectErr(await second.get(id));
+	expectOk(await second.put(id, new Blob(['second'])));
+	expect(await expectOk(await first.get(id)).text()).toBe('first');
 });
 
 test('put persists bytes and metadata across store instances', async () => {
@@ -628,6 +483,7 @@ test('an exclusive erase excludes every ordinary verb without opening a database
 		store.copy(id, generateBlobId()),
 		store.stat(id),
 		store.delete(id),
+		store.list(),
 	])) {
 		expect(expectErr<BlobStoreError>(result)).toMatchObject({
 			name: 'BlobStoreFailed',
@@ -746,34 +602,102 @@ test('a blocked delete reports failure but retains exclusion until the request a
 	);
 }, 15_000);
 
-test('shared blobs cannot alias personal bytes or another actor cache', async () => {
-	const account = {
-		authorityId: 'server',
-		principalId: asPrincipalId('alice'),
-	};
-	const options = {
-		appId: 'so.epicenter.shared-blob-test',
+test('independent handles observe the same committed app-local page', async () => {
+	const { scope, blobs, databaseName } = setup();
+	const ids = [generateBlobId(), generateBlobId(), generateBlobId()].sort();
+	for (const id of ids) expectOk(await blobs.put(id, new Blob(['audio'])));
+	const reopened = createBrowserBlobStore({
+		...scope,
 		indexedDb: indexedDB,
 		locks: testLocks,
-	};
-	const personal = createBrowserBlobStore({
-		...options,
-		replica: { library: 'personal', account },
 	});
-	const shared = createBrowserBlobStore({
-		...options,
-		replica: { library: 'shared', account },
+	const first = expectOk(await reopened.list({ limit: 2 }));
+	expect(first).toEqual({
+		items: ids
+			.slice(0, 2)
+			.map((id) => ({ id, size: 5, contentType: 'application/octet-stream' })),
+		nextCursor: ids[1],
 	});
-	const bob = createBrowserBlobStore({
-		...options,
-		replica: {
-			library: 'shared',
-			account: { ...account, principalId: asPrincipalId('bob') },
-		},
+	expect(
+		expectOk(
+			await reopened.list({ cursor: first.nextCursor, limit: 2 }),
+		).items.map((item) => item.id),
+	).toEqual(ids.slice(2));
+	expect(expectOk(await blobs.stat(ids[0]!)).contentType).toBe(
+		'application/octet-stream',
+	);
+	const db = await openDatabase(databaseName);
+	const transaction = db.transaction(
+		['blob-data', 'blob-metadata'],
+		'readwrite',
+	);
+	transaction.objectStore('blob-data').delete(ids[0]!);
+	transaction.objectStore('blob-metadata').add({
+		id: 'attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa',
+		size: 1,
+		contentType: 'audio/wav',
 	});
+	await new Promise<void>((resolve, reject) => {
+		transaction.oncomplete = () => resolve();
+		transaction.onerror = () => reject(transaction.error);
+	});
+	db.close();
+	expect(expectOk(await blobs.list()).items.map((item) => item.id)).toEqual(
+		ids.slice(1),
+	);
+});
+
+test('list validates its cursor and page size without reading bytes', async () => {
+	const { blobs } = setup();
+	for (const options of [
+		{ cursor: '../escape' },
+		{ limit: 0 },
+		{ limit: 1001 },
+		{ limit: 1.5 },
+	])
+		expect(expectErr(await blobs.list(options)).name).toBe('BlobStoreFailed');
+	expect(expectOk(await blobs.list())).toEqual({ items: [] });
+});
+
+test('list reads only metadata and byte keys within one transaction', async () => {
+	const { scope, blobs } = setup();
 	const id = generateBlobId();
-	expectOk(await shared.put(id, new Blob(['shared alice'])));
-	expectErr(await personal.get(id));
-	expectErr(await bob.get(id));
-	expect(await expectOk(await shared.get(id)).text()).toBe('shared alice');
+	expectOk(await blobs.put(id, new Blob(['large audio'])));
+	const monitored = Object.create(indexedDB) as IDBFactory;
+	monitored.open = (name, version) => {
+		const request = indexedDB.open(name, version);
+		request.addEventListener('success', () => {
+			const database = request.result;
+			const openTransaction = database.transaction.bind(database);
+			database.transaction = (stores, mode, options) => {
+				const transaction = openTransaction(stores, mode, options);
+				const objectStore = transaction.objectStore.bind(transaction);
+				transaction.objectStore = (name) => {
+					const store = objectStore(name);
+					if (name === 'blob-data') {
+						store.get = () => {
+							throw new Error('List read body bytes');
+						};
+						store.getAll = () => {
+							throw new Error('List read body bytes');
+						};
+						store.openCursor = () => {
+							throw new Error('List read body bytes');
+						};
+					}
+					return store;
+				};
+				return transaction;
+			};
+		});
+		return request;
+	};
+	const reader = createBrowserBlobStore({
+		...scope,
+		indexedDb: monitored,
+		locks: testLocks,
+	});
+	expect(expectOk(await reader.list()).items).toEqual([
+		{ id, size: 11, contentType: 'application/octet-stream' },
+	]);
 });

@@ -1,5 +1,8 @@
-import type { BlobNotFound, BlobStoreFailed } from '@epicenter/blobs';
-import type { AttachmentError } from '@epicenter/data';
+import type {
+	BlobNotFound,
+	BlobStoreFailed,
+	RemoteBlobsError,
+} from '@epicenter/blobs';
 import { defineKeys } from 'wellcrafted/query';
 import { Err, type Result } from 'wellcrafted/result';
 import type { DownloadError } from '#platform/download';
@@ -24,7 +27,7 @@ export function createDownloadQueries(
 			): Promise<
 				Result<
 					void,
-					BlobNotFound | BlobStoreFailed | AttachmentError | DownloadError
+					BlobNotFound | BlobStoreFailed | RemoteBlobsError | DownloadError
 				>
 			> => {
 				const { data: audioBlob, error: getAudioBlobError } =

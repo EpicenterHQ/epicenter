@@ -6,10 +6,8 @@
 import { afterEach, expect, test } from 'bun:test';
 import { BlobStoreError } from '@epicenter/blobs';
 import { createBrowserBlobStore } from '@epicenter/blobs/browser';
-import { asPrincipalId } from '@epicenter/principal';
 import { IDBFactory } from 'fake-indexeddb';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createRecordingAttachment } from './attachment.test-support.js';
 import { createBrowserRecording } from './browser.js';
 
 const originals = new Map<string, PropertyDescriptor | undefined>();
@@ -106,16 +104,12 @@ async function setup({
 	const appId = `test.${crypto.randomUUID()}`;
 	const local = createBrowserBlobStore({
 		appId,
-		replica: { library: 'local' },
-	});
-	const attachment = await createRecordingAttachment({
-		appId,
-		replica: { library: 'local' },
-		local,
 	});
 	return {
-		...attachment,
-		owner: createBrowserRecording(appId, { library: 'local' }, {}),
+		local,
+		owner: createBrowserRecording(appId, {
+			write: (id, blob) => local.put(id, blob),
+		}),
 		appId,
 		tracks,
 		recorders,
@@ -125,38 +119,19 @@ async function setup({
 	};
 }
 
-test('capture creates no row; saving the finished file creates the destination owner', async () => {
-	const { owner, table } = await setup();
-	const session = expectOk(await owner.value.start({}));
-	expect(table.ids()).toEqual([]);
-	const finished = expectOk(await session.stop());
-	expect(table.ids()).toEqual([]);
-	const row = expectOk(await table.create({ audio: finished.file }));
-	expect(await expectOk(await table.attachment(row.id).read()).text()).toBe(
+test('stop commits into the independently opened app-local store', async () => {
+	const { owner, appId } = await setup();
+	const recording = expectOk(await owner.value.start({}));
+	const saved = expectOk(await recording.stop());
+	const independent = createBrowserBlobStore({ appId });
+	expect(await expectOk(await independent.get(saved.blobId)).text()).toBe(
 		'final',
 	);
+	expect(expectOk(await recording.stop())).toEqual(saved);
 	await owner.close();
-});
-
-test('capture retains its original account identity while the supplied account changes', async () => {
-	const { appId } = await setup();
-	const account = {
-		authorityId: 'original',
-		principalId: asPrincipalId('alice'),
-	};
-	const owner = createBrowserRecording(
-		appId,
-		{ library: 'personal', account },
-		{},
+	expect(await expectOk(await independent.get(saved.blobId)).text()).toBe(
+		'final',
 	);
-	account.authorityId = 'replacement';
-	const recording = expectOk(await owner.value.start({}));
-	expect(recording.replica).toEqual({
-		library: 'personal',
-		account: { authorityId: 'original', principalId: asPrincipalId('alice') },
-	});
-	expectOk(await recording.cancel());
-	await owner.close();
 });
 
 test('construction is inert and pending permission excludes competing starts', async () => {
@@ -176,47 +151,28 @@ test('construction is inert and pending permission excludes competing starts', a
 	expect(tracks[0]?.stops).toBeGreaterThan(0);
 });
 
-test('finished output saves to the table captured before recording starts', async () => {
-	const { owner, table, recorders } = await setup();
-	const into = table;
-	const session = expectOk(await owner.value.start({}));
-	recorders[0]?.data('first');
-	const finished = expectOk(await session.stop());
-	const row = expectOk(await into.create({ audio: finished.file }));
-	expect(await expectOk(await into.attachment(row.id).read()).text()).toBe(
-		'firstfinal',
-	);
-	expect(expectOk(await owner.value.current())).toBeNull();
-});
-
-test('failed library publication keeps the finished output usable without holding the microphone', async () => {
-	const { owner, table, blobStore, tracks } = await setup();
+test('failed local commit retains finalized bytes for retry without holding the microphone', async () => {
+	const { owner, local, tracks } = await setup();
 	const recording = expectOk(await owner.value.start({}));
-	const finished = expectOk(await recording.stop());
-	const put = blobStore.attachments!.put;
-	blobStore.attachments!.put = async (id) =>
+	const put = local.put;
+	local.put = async (id) =>
 		BlobStoreError.BlobStoreFailed({ id, cause: 'disk full' });
-	expect(expectErr(await table.create({ audio: finished.file })).name).toBe(
-		'Failed',
-	);
-	expect(table.ids()).toEqual([]);
+	expect(expectErr(await recording.stop()).name).toBe('RecorderFailed');
 	expect(tracks[0]?.stops).toBeGreaterThan(0);
+	expect(expectOk(await owner.value.current())).toBe(recording);
+	local.put = put;
+	const saved = expectOk(await recording.stop());
+	expect(await expectOk(await local.get(saved.blobId)).text()).toBe('final');
 	expect(expectOk(await owner.value.current())).toBeNull();
-	blobStore.attachments!.put = put;
-	const row = expectOk(await table.create({ audio: finished.file }));
-	expect(await expectOk(await table.attachment(row.id).read()).text()).toBe(
-		'final',
-	);
 });
 
 test('cancel creates no rows and a stale session cannot stop its successor', async () => {
-	const { owner, table, recorders } = await setup();
+	const { owner, recorders } = await setup();
 	const first = expectOk(await owner.value.start({}));
 	expectOk(await first.cancel());
 	const second = expectOk(await owner.value.start({}));
 	expect(expectErr(await first.stop()).name).toBe('NoActiveRecording');
 	expect(recorders[1]?.state).toBe('recording');
-	expect(table.ids()).toEqual([]);
 	expectOk(await second.cancel());
 });
 
@@ -231,7 +187,7 @@ test('an asynchronous start error releases capture and permits another acquisiti
 });
 
 test('capture error preserves final temporary bytes for stop and reports ended once', async () => {
-	const { owner, recorders, tracks } = await setup();
+	const { owner, local, recorders, tracks } = await setup();
 	const recording = expectOk(await owner.value.start({}));
 	const reasons: string[] = [];
 	recording.onEnded((reason) => reasons.push(reason));
@@ -240,8 +196,9 @@ test('capture error preserves final temporary bytes for stop and reports ended o
 	const result = expectOk(await recording.stop());
 	expect(reasons).toEqual(['streamFailed']);
 	expect(tracks[0]?.stops).toBeGreaterThan(0);
-	expect(result.file).toBeInstanceOf(Blob);
-	expect(await (result.file as Blob).text()).toBe('beforesaved');
+	expect(await expectOk(await local.get(result.blobId)).text()).toBe(
+		'beforesaved',
+	);
 });
 
 test('disconnected device remains resolvable and concurrent stop cannot publish twice', async () => {
@@ -267,13 +224,12 @@ test('late ended subscription delivers once and an unsubscribed listener is skip
 	expectOk(await recording.cancel());
 });
 
-test('stopping frees capture while the caller owns finished bytes', async () => {
-	const { owner } = await setup();
+test('stopping frees capture and leaves committed bytes', async () => {
+	const { owner, local } = await setup();
 	const first = expectOk(await owner.value.start({}));
 	const finished = expectOk(await first.stop());
 	const second = expectOk(await owner.value.start({}));
-	expect(await (finished.file as Blob).text()).toBe('final');
-	expectOk(await owner.value.discard(finished.file));
+	expect(await expectOk(await local.get(finished.blobId)).text()).toBe('final');
 	expectOk(await second.cancel());
 });
 
@@ -346,15 +302,14 @@ test('close waits for permission then discards late capture and stays terminal',
 	expect(tracks[0]?.stops).toBeGreaterThan(0);
 });
 
-test('close drains admitted stop and returns finished temporary bytes', async () => {
-	const { owner, table } = await setup();
+test('close drains admitted stop and preserves committed bytes', async () => {
+	const { owner, local } = await setup();
 	const recording = expectOk(await owner.value.start({}));
 	const stopping = recording.stop();
 	const closing = owner.close();
 	const finished = expectOk(await stopping);
 	await closing;
-	expect(await (finished.file as Blob).text()).toBe('final');
-	expect(table.ids()).toEqual([]);
+	expect(await expectOk(await local.get(finished.blobId)).text()).toBe('final');
 	expect(() => recording.stop()).toThrow('closed');
 });
 
@@ -419,17 +374,14 @@ test('close rejects a failed cancellation while still releasing microphone track
 });
 
 test('construction readiness is checked at retained owner and session operations', async () => {
-	const { appId } = await setup();
+	const { appId, local } = await setup();
 	let usable = false;
-	const owner = createBrowserRecording(
-		appId,
-		{ library: 'local' },
-		{
-			assertUsable() {
-				if (!usable) throw new Error('not ready');
-			},
+	const owner = createBrowserRecording(appId, {
+		write: local.put,
+		assertUsable() {
+			if (!usable) throw new Error('not ready');
 		},
-	);
+	});
 	const start = owner.value.start;
 	expect(() => start({})).toThrow('not ready');
 	usable = true;
@@ -442,7 +394,7 @@ test('construction readiness is checked at retained owner and session operations
 });
 
 test('meter release failure preserves finished audio and rejects recorder close', async () => {
-	const { owner } = await setup();
+	const { owner, local } = await setup();
 	replaceGlobal(
 		'AudioContext',
 		class {
@@ -463,6 +415,6 @@ test('meter release failure preserves finished audio and rejects recorder close'
 	const recording = expectOk(await owner.value.start({}));
 	recording.onLevel(() => {});
 	const finished = expectOk(await recording.stop());
-	expect(await (finished.file as Blob).text()).toBe('final');
+	expect(await expectOk(await local.get(finished.blobId)).text()).toBe('final');
 	await expect(owner.close()).rejects.toThrow('cleanup failed');
 });

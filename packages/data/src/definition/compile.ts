@@ -218,7 +218,6 @@ function compileTable(
 			reason: `table '${tableName}' does not declare a flat field map`,
 		});
 	const compiled = new Map<string, DataField>();
-	let hasAttachment = false;
 	for (const [fieldName, descriptor] of Object.entries(declaration)) {
 		// A table's `content` is the codec for its rows' live node, not a field,
 		// so it never compiles as one. On a ROW and only there: kv holds settings
@@ -256,28 +255,6 @@ function compileTable(
 			});
 		}
 		const check = compileField(base.schema);
-		if (base.kind === 'attachment') {
-			if (
-				tableName === KV_ROOT ||
-				hasAttachment ||
-				nullableDescriptor === null
-			) {
-				return DataDefinitionParseError.UnrecognizedField({
-					table: tableName,
-					field: fieldName,
-					reason:
-						'a table may declare at most one nullable attachment; KV cannot own attachments',
-				});
-			}
-			hasAttachment = true;
-		}
-		if (tableName === KV_ROOT && base.kind === 'blob') {
-			return DataDefinitionParseError.UnrecognizedField({
-				table: tableName,
-				field: fieldName,
-				reason: 'owning blob fields belong to tables, not KV',
-			});
-		}
 		compiled.set(fieldName, {
 			name: fieldName,
 			kind: base.kind,
@@ -292,14 +269,6 @@ function compileTable(
 				name: fieldName,
 				check,
 			} as Field),
-		});
-	}
-	if (
-		hasAttachment &&
-		[...compiled.values()].some((field) => field.kind === 'blob')
-	) {
-		return DataDefinitionParseError.Malformed({
-			reason: `table '${tableName}' cannot combine an attachment with legacy owning blob fields`,
 		});
 	}
 	return Ok(

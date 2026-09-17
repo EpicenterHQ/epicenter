@@ -76,7 +76,7 @@ mountTranscriptionApp(app, {
 	auth,
 	policies: [rateLimit({ requests: 120, windowSeconds: 60 })],
 });
-mountBlobsApp(app, { auth, shared: true });
+mountBlobsApp(app, { auth });
 export default app;
 export {
 	GenerationsLedger,

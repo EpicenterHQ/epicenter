@@ -46,6 +46,7 @@ function setup() {
 					'statMany',
 					ids.map(() => Ok(stat)),
 				),
+			list: () => record('list', Ok({ items: [] })),
 			delete: () => record('delete', Ok(undefined)),
 		},
 		sources: {
@@ -91,17 +92,23 @@ function setup() {
 test('every retained blob verb refuses before readiness and throughout close without primitive calls', async () => {
 	const { createBlobs, primitives, ready, close, acquire, calls, bytes } =
 		setup();
-	const { add, get, stat, statMany, open, removeLocal } =
-		createBlobs(primitives);
+	const {
+		add,
+		get,
+		stat,
+		list,
+		open,
+		delete: remove,
+	} = createBlobs(primitives);
 	const id = generateBlobId();
 	const operations = [
 		() => add(bytes),
 		() => get(id),
 		() => stat(id),
-		() => statMany([id]),
-		() => statMany([]),
+		() => list(),
+		() => list({ limit: 1 }),
 		() => open(id),
-		() => removeLocal(id),
+		() => remove(id),
 	];
 	try {
 		for (const operation of operations) expect(operation).toThrow('not ready');
@@ -155,7 +162,7 @@ test('close drains multiple admitted local operations even when one rejects', as
 	const id = generateBlobId();
 	const read = blobs.get(id);
 	const check = blobs.stat(id);
-	const remove = blobs.removeLocal(id);
+	const remove = blobs.delete(id);
 	const cause = new Error('stat rejected');
 	const rejected = Promise.allSettled([check]);
 	const closing = close();

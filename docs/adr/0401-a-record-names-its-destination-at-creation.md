@@ -24,26 +24,24 @@ An application may use one fixed library, use the library shown by its current
 view, or offer a destination control. It resolves that policy before creation
 and calls the chosen table's `create`. A person need not choose "this device"
 or "account" for each recording: the developer expresses the application's
-mode or workflow through the appropriate library API. Local recordings stay
-local; account recordings automatically synchronize their completed audio
-(ADR-0393). Moving existing Local recordings into an account is a separate,
+mode or workflow through the appropriate library API. Recording rows follow their library
+while audio remains app-local until an explicit upload (ADR-0393). Moving existing Local recordings into an account is a separate,
 confirmed application workflow (ADR-0399).
 
 Missing account access is not permission
 to silently redirect an account write into Local.
 
-Proposed composition, not implemented App exports:
-
-```ts
-// The application has already selected and validated this destination.
-const recordings = app.account.personal.tables.recordings;
-const row = recordings.create({ title: 'Interview', audio: null });
-await app.device.recording.start({ into: recordings.attachment(row.id) });
-```
+The workflow captures the chosen table handle and its lifetime before acquiring
+the microphone. Successful Stop saves app-local bytes and returns a BlobId. The workflow then
+creates an ordinary recording row referring to that ID (ADR-0393). No durable
+recording row exists during capture. The current App still has three openers;
+the proposed multi-library opener does not change this ordering.
 
 The table handle carries the library identity. No redundant destination field
-is required on the row. A capture fills that existing row's attachment
-(ADR-0393); changing a view or preference cannot retarget it.
+is required on the row. Changing a view or preference cannot retarget the
+pending save. If its original library closes or retires before save admission,
+the row write fails; the saved local blob remains discoverable. The workflow
+never chooses another library. An admitted Stop drains before App closure.
 
 Reading is separate. An application may show any subset of its available
 libraries. A mixed-library view must make ownership clear to the person and

@@ -287,7 +287,7 @@
 		{#if latestRecording}
 			<RecordingResult
 				recordingId={latestRecording.id}
-				audio={latestRecording.audio}
+				audio={latestRecording.audioBlobId}
 				transcript={latestRecording.polishedTranscript ?? latestRecording.transcript}
 				rows={1}
 				onDelete={() => {

@@ -10,7 +10,7 @@
 
 > **Superseded on 2026-09-12 before this checkpoint was started.** The design
 > this handoff continues was replaced by
-> [ADR-0393](../docs/adr/0393-a-blob-is-addressed-by-its-row-and-the-account-holds-every-one.md),
+> [ADR-0393](../docs/adr/0393-rows-refer-to-blobs-without-owning-their-lifetime.md),
 > [ADR-0394](../docs/adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md),
 > and [ADR-0395](../docs/adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md),
 > and ADR-0386 was deleted. Do not add `restore()` to `createLibraryRecovery`,

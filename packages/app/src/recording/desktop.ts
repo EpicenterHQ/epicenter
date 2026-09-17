@@ -1,5 +1,5 @@
+import { parseBlobId } from '@epicenter/blobs';
 import { isAppId } from '@epicenter/constants/app-id';
-import { captureLibraryReplica } from '@epicenter/principal';
 import { asDeviceIdentifier } from '@epicenter/recorder';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -12,7 +12,6 @@ import {
 	type RecordingEndedReason,
 	type RecordingOptions,
 	type RecordingOwner,
-	type RecordingReplica,
 } from '../recorder.js';
 
 function nativeFailure(cause: unknown) {
@@ -42,14 +41,12 @@ function call<T>(command: string, args?: Record<string, unknown>) {
 	});
 }
 
-/** One document owns capture tokens. Library publication happens after Stop. */
+/** The App owns capture; Stop commits bytes to its app-local store. */
 export function createDesktopRecording(
 	appId: string,
-	input: RecordingReplica,
 	{ assertUsable }: RecordingOptions,
 ): RecordingOwner {
 	if (!isAppId(appId)) throw new Error(`Invalid recording app ID '${appId}'.`);
-	const replica = captureLibraryReplica(input);
 	const sessionId = crypto.randomUUID();
 	let registered = false;
 	let registrationAttempted = false;
@@ -139,7 +136,6 @@ export function createDesktopRecording(
 		releaseHeld = release;
 		const recording: Recording = Object.freeze({
 			id: live.audioBlobId,
-			replica,
 			device: {
 				...live.device,
 				deviceId: asDeviceIdentifier(live.device.deviceId),
@@ -169,12 +165,11 @@ export function createDesktopRecording(
 							return result;
 						}
 						if (
-							result.data.file instanceof Blob ||
-							result.data.file.kind !== 'native-capture' ||
-							!result.data.file.id
+							!parseBlobId(result.data.blobId) ||
+							result.data.blobId !== recording.id
 						)
 							return RecorderError.RecorderFailed({
-								cause: 'The host returned an invalid finished capture.',
+								cause: 'The host returned an invalid saved blob.',
 							});
 						finished = result.data;
 						held = null;
@@ -328,20 +323,6 @@ export function createDesktopRecording(
 					return Ok(held);
 				});
 			},
-			discard(file) {
-				if (closed)
-					return tryAsync({
-						try: async () => {
-							await closing;
-						},
-						catch: nativeFailure,
-					});
-				return run(async () =>
-					file instanceof Blob
-						? Ok(undefined)
-						: call<void>('discard_recording_file', { fileId: file.id }),
-				);
-			},
 			enumerateDevices() {
 				return run(async () => {
 					const result = await call<string[]>('enumerate_recording_devices');
@@ -363,6 +344,7 @@ export function createDesktopRecording(
 						if (!registered) {
 							registrationAttempted = true;
 							const result = await call<void>('register_recording_session', {
+								appId,
 								sessionId,
 							});
 							if (result.error) return result;

@@ -353,6 +353,7 @@ pub struct FinalizedRecording {
     pub(super) duration_ms: u32,
 }
 
+#[cfg(test)]
 impl FinalizedRecording {
     /// Publish the staged bytes as the blob at their id.
     ///
@@ -385,6 +386,7 @@ impl FinalizedRecording {
 
 /// What a stopped recording committed: the two facts only the host can state
 /// exactly, once the blob is on disk.
+#[cfg(test)]
 pub struct RecordedAudio {
     pub duration_ms: u32,
     pub byte_length: u32,
@@ -480,6 +482,7 @@ impl Recorder {
     pub fn start(
         &mut self,
         requested_device: Option<&str>,
+        app_id: &str,
         audio_blob_id: String,
         owner_label: String,
         app_handle: AppHandle,
@@ -502,7 +505,7 @@ impl Recorder {
         // Staging is opened before the microphone, so a recording that cannot be
         // written fails now rather than after an hour of captured speech.
         let capture = StagedCapture::open(
-            StagedBlob::disposable(&app_handle, &audio_blob_id)?,
+            StagedBlob::for_app(&app_handle, app_id, &audio_blob_id)?,
             device_rate,
         )?;
 
@@ -1529,7 +1532,9 @@ mod tests {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let worker = thread::spawn(move || await_resolution(capture, &cmd_rx));
         let mut recorder = Recorder::new();
-        recorder.register_session("owner", "document").unwrap();
+        recorder
+            .register_session("owner", "document", "so.epicenter.test")
+            .unwrap();
         let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
         recorder.active = Some(HeldRecording {
             audio_blob_id: id.into(),
@@ -1680,7 +1685,9 @@ mod tests {
     fn resolving_absence_fences_a_late_start_without_touching_a_successor_or_finished_file() {
         let root = staging_root();
         let mut recorder = Recorder::new();
-        recorder.register_session("window", "document").unwrap();
+        recorder
+            .register_session("window", "document", "so.epicenter.test")
+            .unwrap();
         assert!(recorder
             .resolve_start("window", "document", "late")
             .unwrap()
@@ -1718,12 +1725,14 @@ mod tests {
     }
 
     #[test]
-    fn document_departure_discards_output_and_stale_commands_cannot_touch_successor() {
+    fn document_departure_preserves_saved_output_and_fences_stale_commands() {
         let root = staging_root();
         let mut recorder = Recorder::new();
         let old = "blob_aaaaaaaaaaaaaaaaaaaaa";
         let next = "blob_bbbbbbbbbbbbbbbbbbbbb";
-        recorder.register_session("window", "document-1").unwrap();
+        recorder
+            .register_session("window", "document-1", "so.epicenter.test")
+            .unwrap();
         recording_owned_by(&mut recorder, &root, old, "window");
         recorder.remember_start("window", "document-1", "request-1", old);
         assert_eq!(
@@ -1745,13 +1754,17 @@ mod tests {
         );
         assert!(recorder
             .prepare_start("window", "document-1", "request-2")
-            .is_err());
+            .is_ok());
         assert!(recorder
             .stop_session("intruder", "document-1", old)
             .is_err());
         recorder.close_document("window");
-        assert!(recorder.register_session("window", "document-1").is_err());
-        recorder.register_session("window", "document-2").unwrap();
+        assert!(recorder
+            .register_session("window", "document-1", "so.epicenter.test")
+            .is_err());
+        recorder
+            .register_session("window", "document-2", "so.epicenter.test")
+            .unwrap();
         recording_owned_by(&mut recorder, &root, next, "window");
         recorder.close_session("window", "document-1");
         assert!(recorder
@@ -1769,83 +1782,81 @@ mod tests {
         );
     }
 
+    /// The Bun smoke reader opens these actual Stop-produced files in place.
     #[test]
-    fn native_finished_publication_preserves_origin_after_lost_reply_and_retirement() {
-        let root = staging_root();
-        let mut recorder = Recorder::new();
-        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
-        let key = "attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa";
-        let destination = crate::blobs::BlobDestination {
-            app_id: "so.epicenter.notes".into(),
-            replica: crate::blobs::LibraryReplica::Personal {
-                account: crate::blobs::ReplicaAccount {
-                    authority_id: "server-a".into(),
-                    principal_id: "owner-a".into(),
-                },
+    fn native_saved_recording_contract() {
+        let temporary = staging_root();
+        let data_root = std::env::var_os("EPICENTER_RECORDING_EVIDENCE_ROOT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| temporary.path().into());
+        let app_id = "so.epicenter.recording-evidence";
+        let root = crate::blobs::blobs_directory(
+            &data_root,
+            &crate::blobs::BlobDestination {
+                app_id: app_id.into(),
             },
-        };
-        recorder.register_session("window", "document").unwrap();
-        recording_owned_by(&mut recorder, &root, id, "window");
-        recorder.stop_session("window", "document", id).unwrap();
-        assert!(recorder
-            .publish_file("foreign", id, root.path(), &destination, key, Some(7))
-            .is_err());
-        let first = recorder
-            .publish_file("window", id, root.path(), &destination, key, Some(7))
+        )
+        .unwrap();
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
+        let mut capture =
+            StagedCapture::open(StagedBlob::stage(root.clone(), id).unwrap(), TEST_RATE).unwrap();
+        capture.write(&tone(TEST_RATE, 1)).unwrap();
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let worker = thread::spawn(move || await_resolution(capture, &cmd_rx));
+        let mut recorder = Recorder::new();
+        recorder
+            .register_session("window", "document", app_id)
             .unwrap();
-        assert_eq!(first.size, 96_044);
-        let retry = recorder
-            .publish_file("window", id, root.path(), &destination, key, Some(7))
-            .unwrap();
-        assert_eq!(first, retry);
-        assert!(recorder
-            .publish_file("window", id, root.path(), &destination, key, Some(8))
-            .is_err());
-        let published = crate::blobs::blobs_directory(root.path(), &destination)
-            .unwrap()
-            .join(key);
-        let metadata: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(published.join("metadata.json")).unwrap())
-                .unwrap();
-        assert_eq!(metadata["attachment"]["originGeneration"], 7);
-        recorder.close_document("window");
-        assert!(recorder
-            .publish_file("window", id, root.path(), &destination, key, Some(7))
-            .is_err());
+        recorder.active = Some(HeldRecording {
+            audio_blob_id: id.into(),
+            owner_label: "window".into(),
+            device: DeviceAcquisition::Success {
+                device_id: "fixture".into(),
+            },
+            ended_reason: None,
+            cmd_tx,
+            worker,
+        });
+        let saved = recorder.stop_session("window", "document", id).unwrap();
+        let retried = recorder.stop_session("window", "document", id).unwrap();
+        assert_eq!(saved.blob_id, retried.blob_id);
+        recorder.close_session("window", "document");
         assert_eq!(
-            std::fs::metadata(published.join("data")).unwrap().len(),
-            u64::from(first.size)
+            std::fs::metadata(root.join(id).join("data")).unwrap().len(),
+            saved.byte_length as u64
         );
-        let bytes = std::fs::read(published.join("data")).unwrap();
-        assert!(!decode_to_pcm16k_mono(&bytes).unwrap().is_empty());
+        assert!(!data_root
+            .join("apps/so.epicenter.another/blobs")
+            .join(id)
+            .exists());
+        println!("SAVED_RECORDING {}", serde_json::to_string(&saved).unwrap());
     }
 
     #[test]
-    fn retirement_before_native_publication_refuses_without_creating_an_attachment() {
+    fn stop_saves_once_and_saved_audio_survives_document_close() {
         let root = staging_root();
         let mut recorder = Recorder::new();
         let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
-        let destination = crate::blobs::BlobDestination {
-            app_id: "so.epicenter.notes".into(),
-            replica: crate::blobs::LibraryReplica::Local {},
-        };
-        recorder.register_session("window", "document").unwrap();
+        recorder
+            .register_session("window", "document", "so.epicenter.test")
+            .unwrap();
         recording_owned_by(&mut recorder, &root, id, "window");
-        recorder.stop_session("window", "document", id).unwrap();
+        let first = recorder.stop_session("window", "document", id).unwrap();
+        let retry = recorder.stop_session("window", "document", id).unwrap();
+        assert_eq!(first.blob_id, retry.blob_id);
+        assert_eq!(first.byte_length, retry.byte_length);
         recorder.close_document("window");
-        assert!(recorder
-            .publish_file(
-                "window",
-                id,
-                root.path(),
-                &destination,
-                "attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa",
-                None
-            )
-            .is_err());
-        assert!(!crate::blobs::blobs_directory(root.path(), &destination)
-            .unwrap()
-            .exists());
+        let bytes = std::fs::read(root.path().join(id).join("data")).unwrap();
+        assert_eq!(bytes.len(), first.byte_length as usize);
+        assert!(!decode_to_pcm16k_mono(&bytes).unwrap().is_empty());
+        let metadata: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(root.path().join(id).join("metadata.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            metadata,
+            serde_json::json!({"size": first.byte_length, "contentType": "audio/wav"})
+        );
     }
 
     #[test]

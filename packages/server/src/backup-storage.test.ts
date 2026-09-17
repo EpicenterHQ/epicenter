@@ -77,7 +77,7 @@ test('generic blob deletion cannot delete or overwrite an immutable recovery obj
 			},
 		});
 		const response = await app.request(
-			`https://api.test/api/blobs/${id}?appId=so.epicenter.notes&library=personal`,
+			`https://api.test/api/apps/so.epicenter.notes/principals/alice/blobs/${id}`,
 			{ method: 'DELETE' },
 			{
 				BLOBS_S3_ENDPOINT: endpoint,

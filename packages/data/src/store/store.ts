@@ -1,23 +1,4 @@
 import {
-	type BlobId,
-	type BlobSources,
-	type BlobStore,
-	attachmentStorageId,
-	type FinishedFile,
-	BlobStoreError,
-	generateBlobId,
-	parseBlobId,
-} from '@epicenter/blobs';
-import type { BlobDestination } from '@epicenter/blobs/native';
-import { AttachmentError, createAttachment } from './attachment.js';
-
-export {
-	type Attachment,
-	AttachmentError,
-	attachmentEngineOf,
-} from './attachment.js';
-
-import {
 	type ConformanceIssue,
 	compileData,
 	type DataDefinition,
@@ -42,11 +23,8 @@ import {
 	deleteRow,
 	kvRoot,
 	listRowIds,
-	type RowInput,
 	readRow,
 	readRowContent,
-	readAttachmentContent,
-	writeAttachmentContent,
 	storedTableNames,
 	tableRoot,
 	updateRow,
@@ -80,10 +58,6 @@ import type {
 	RowAbsentError,
 } from './errors.js';
 import { StoreError, StoreUnusableError } from './errors.js';
-import {
-	createAttachmentSync,
-	type AttachmentTransport,
-} from './attachment-sync.js';
 import type {
 	Data,
 	DataDocument,
@@ -306,10 +280,7 @@ export type StoreBacking = {
 	durable: DurablePort;
 	loaded: DurableSnapshot;
 	dispose?: () => void | Promise<void>;
-	replication?: Pick<AttachStoreSyncOptions, 'address' | 'transport'> & {
-		/** Captured account HTTP, for library-owned attachment control only. */
-		fetch?: AttachmentTransport['fetch'];
-	};
+	replication?: Pick<AttachStoreSyncOptions, 'address' | 'transport'>;
 	/** Fence synchronously, then invalidate the generation header and all rows atomically. */
 	discard?: () => Promise<void>;
 };
@@ -323,7 +294,7 @@ export type LibraryRetirement = {
 type StoreEngineOptions<
 	TError extends { name: string; message: string } = never,
 > = {
-	/** Local libraries never create an upload obligation. */
+	/** Local libraries retain changes without an authority acknowledgment. */
 	local?: boolean;
 	/**
 	 * The one data definition this runtime holds, already parsed
@@ -332,10 +303,6 @@ type StoreEngineOptions<
 	 * disposing this store and constructing the next one.
 	 */
 	definition: ParsedDataDefinition;
-	/** Local bytes used by owning table fields and the app's blob capabilities. */
-	blobStore?: BlobStore;
-	blobSources?: BlobSources;
-	attachmentDestination?: BlobDestination;
 	/**
 	 * Where a subscriber's own failure and a failed durable flush go.
 	 *
@@ -354,10 +321,6 @@ export type CreateStoreOptions<TDatabase extends DataDefinition> = {
 	definition: TDatabase;
 	/** The durable record: the update log, the outbox, the cursor, the metadata. */
 	sqlite: SqliteDatabase;
-	/** Optional local bytes for owning table fields; data-only readers need none. */
-	blobStore?: BlobStore;
-	blobSources?: BlobSources;
-	attachmentDestination?: BlobDestination;
 	dispose?: () => void | Promise<void>;
 	log?: Logger;
 };
@@ -450,7 +413,6 @@ export function createStoreOverPort<
 >(options: StoreEngineOptions<TError>) {
 	const {
 		definition,
-		blobStore,
 		local = false,
 		log = createLogger('data/store'),
 	} = options;
@@ -465,7 +427,6 @@ export function createStoreOverPort<
 	let held: StoreBacking | undefined;
 	let connection: SyncConnection | undefined;
 	let stopHideFlush: (() => void) | undefined;
-	const operations = new Set<Promise<unknown>>();
 
 	function onRetired(): void {
 		if (retired || held?.replication === undefined) return;
@@ -491,19 +452,6 @@ export function createStoreOverPort<
 		discarded = controller.discard();
 		lifetime.abort();
 		retirement.resolve({ invalidated, retryInvalidation: invalidate });
-	}
-
-	function runOperation<T>(operation: () => Promise<T>): Promise<T> {
-		assertUsable();
-		// Admit before invoking platform code: even a reentrant close must see
-		// this operation. Work admitted before close is allowed to finish.
-		const pending = Promise.resolve().then(operation);
-		operations.add(pending);
-		void pending.then(
-			() => operations.delete(pending),
-			() => operations.delete(pending),
-		);
-		return pending;
 	}
 
 	/**
@@ -645,7 +593,6 @@ export function createStoreOverPort<
 	 * first phase is dirty before any subscriber reads.
 	 */
 	function deliver(transaction: Y.Transaction): void {
-		attachmentSync.changed();
 		notify(committedListeners);
 		if (transaction.changed.has(kvRootType)) notify(kvListeners);
 		// A table's signal means its SHAPE changed, which is two depths and not
@@ -770,24 +717,12 @@ export function createStoreOverPort<
 		);
 		initialized = true;
 		stopHideFlush = persistOnHide(() => controller.persistence.flush());
-		if (
-			replication?.fetch &&
-			replication.address.appId &&
-			replication.address.library
-		)
-			attachmentSync.start({
-				...replication.address,
-				appId: replication.address.appId,
-				library: replication.address.library,
-				fetch: replication.fetch,
-			});
 		if (replication !== undefined) {
 			try {
 				connection = attachStoreSync({
 					store,
 					...replication,
 					onRetired,
-					onConnected: attachmentSync.wake,
 					onTransportError: (cause) =>
 						log.warn(StoreBackgroundError.SyncTransportFailed({ cause })),
 				});
@@ -917,49 +852,7 @@ export function createStoreOverPort<
 	// The one view this runtime will ever hold, built over the one definition,
 	// before hydration. Named roots converge; no rows or defaults are minted.
 	const view = buildView();
-	const attachmentSync = createAttachmentSync({
-		bytes: blobStore,
-		rows() {
-			const owners = [];
-			for (const [tableName, table] of definition.tables) {
-				const field = [...table.fields.values()].find(
-					(field) => field.kind === 'attachment',
-				);
-				if (!field) continue;
-				const root = tableRoot(database, tableName);
-				for (const row of view.tables[tableName]!.rows) {
-					const content = readAttachmentContent(root, row.id);
-					if (!content || row[field.name] !== content.contentType) continue;
-					const original = root.getAttr(row.id as never);
-					owners.push({
-						tableName,
-						rowId: row.id,
-						content,
-						isCurrent: () =>
-							!disposed &&
-							!retired &&
-							root.getAttr(row.id as never) === original,
-					});
-				}
-			}
-			return owners;
-		},
-		save: () => controller.save(),
-		assertUsable,
-		onRetired,
-		onObserverError: (cause) =>
-			log.warn(StoreBackgroundError.SyncTransportFailed({ cause })),
-	});
-	lifetime.signal.addEventListener(
-		'abort',
-		() => {
-			void attachmentSync.close();
-		},
-		{ once: true },
-	);
-
 	const base: Omit<DataDocument, 'sync' | 'definition'> = {
-		attachments: attachmentSync.value,
 		/**
 		 * Everything this application has stored, before its declaration reads
 		 * it (ADR-0267).
@@ -1065,6 +958,10 @@ export function createStoreOverPort<
 		if (closing !== undefined) return closing;
 		const completion = Promise.withResolvers<void>();
 		closing = completion.promise;
+		// Stop persistence notifications with admission; its final flush drains below.
+		const persistenceClosed =
+			initialized && !retired ? controller.close() : undefined;
+		void persistenceClosed?.catch(() => {});
 		lifetime.abort();
 		void (async () => {
 			const failures: unknown[] = [];
@@ -1097,11 +994,7 @@ export function createStoreOverPort<
 				}
 				await release(() => discarded);
 			}
-			await Promise.allSettled(operations);
-			await attachmentSync.close();
-			await release(() =>
-				initialized && !retired ? controller.close() : undefined,
-			);
+			await release(() => persistenceClosed);
 			await release(() => database.destroy());
 			await release(() => held?.dispose?.());
 			if (failures.length === 1) throw failures[0];
@@ -1312,12 +1205,6 @@ export function createStoreOverPort<
 		table: ParsedTable,
 	): UntypedDeclaredData['tables'][string] {
 		const root = tableRoot(database, tableName);
-		const blobFields = [...table.fields.values()].filter(
-			(field) => field.kind === 'blob',
-		);
-		const attachmentField = [...table.fields.values()].find(
-			(field) => field.kind === 'attachment',
-		);
 
 		/** One stored payload, read through the declaration the way every read reads. */
 		function conformRow(
@@ -1358,169 +1245,12 @@ export function createStoreOverPort<
 		}
 
 		const handle: UntypedDeclaredData['tables'][string] = {
-			attachment(rowId) {
-				assertUsable();
-				if (!attachmentField)
-					throw new TypeError(`Table '${tableName}' declares no attachment.`);
-				const originalRow = root.getAttr(rowId as never);
-				return createAttachment({
-					tableName,
-					rowId,
-					signal: lifetime.signal,
-					bytes: blobStore,
-					sources: options.blobSources,
-					exists: () =>
-						originalRow !== undefined &&
-						root.getAttr(rowId as never) === originalRow,
-					cell: () => readRow(root, rowId)?.[attachmentField.name],
-					evidence: () => readAttachmentContent(root, rowId),
-					run: runOperation,
-				});
-			},
 			create(fields) {
 				assertUsable();
-				const attachmentInput = attachmentField
-					? fields[attachmentField.name]
-					: undefined;
-				if (
-					attachmentField &&
-					!(attachmentInput instanceof Blob) &&
-					!(
-						attachmentInput &&
-						typeof attachmentInput === 'object' &&
-						'kind' in attachmentInput &&
-						attachmentInput.kind === 'native-capture'
-					)
-				)
-					throw new TypeError(
-						`'${attachmentField.name}' requires a finished file.`,
-					);
-				const values: RowInput = {};
-				for (const [name, value] of Object.entries(fields)) {
-					if (name === attachmentField?.name) {
-						values[name] = null;
-						continue;
-					}
-					if (table.fields.get(name)?.kind === 'blob') continue;
-					if (value instanceof Blob)
-						throw new TypeError(`'${name}' is not a blob field.`);
-					values[name] = value;
-				}
-				if (blobFields.length === 0) {
-					const rowId = mintRowId();
-					if (attachmentField) {
-						if (database._transaction !== null)
-							throw new Error(
-								'Attachment creation cannot run inside a synchronous transaction.',
-							);
-						const generation = held?.replication?.address.generation ?? null;
-						return runOperation(async () => {
-							if (!blobStore?.attachments)
-								return AttachmentError.Unavailable({
-									reason: 'storage-unconfigured',
-								});
-							const storageId = attachmentStorageId(tableName, rowId);
-							let published = await blobStore.attachments.put(
-								storageId,
-								attachmentInput as FinishedFile,
-								generation,
-							);
-							if (published.error && !retired)
-								published = await blobStore.attachments.put(
-									storageId,
-									attachmentInput as FinishedFile,
-									generation,
-								);
-							if (published.error) {
-								const present = await blobStore.stat(storageId);
-								return present.error?.name === 'BlobNotFound'
-									? AttachmentError.Failed({ cause: published.error })
-									: AttachmentError.SaveUnconfirmed({ rowId });
-							}
-							if (retired)
-								return AttachmentError.Unavailable({ reason: 'closed' });
-							// Admission owns this commit even while ordinary close drains it.
-							database.transact(() => {
-								createRow(root, rowId, {
-									...values,
-									[attachmentField.name]: published.data.contentType,
-								});
-								writeAttachmentContent(root, rowId, published.data);
-							}, localOrigin);
-							const saved = await controller.save();
-							if (retired || !saved)
-								return AttachmentError.SaveUnconfirmed({ rowId });
-							const payload = readRow(root, rowId);
-							return payload
-								? Ok(withContent({ id: rowId, ...payload }))
-								: AttachmentError.Unavailable({ reason: 'row-absent' });
-						});
-					}
-					transact(() => createRow(root, rowId, values));
-					// Read the integrated content node, never echo its detached input.
-					return withContent({ id: rowId, ...readRow(root, rowId) });
-				}
-				if (blobStore === undefined)
-					throw new Error('This document has no blob store.');
-				if (database._transaction !== null) {
-					throw new Error(
-						'Attachment creation cannot run inside a synchronous transaction.',
-					);
-				}
-				const attachments: { name: string; source: Blob | BlobId }[] = [];
-				for (const field of blobFields) {
-					const value = fields[field.name];
-					if (value === null && field.nullable) {
-						values[field.name] = null;
-						continue;
-					}
-					const source = value instanceof Blob ? value : parseBlobId(value);
-					if (source === undefined)
-						throw new TypeError(
-							`'${field.name}' requires Blob bytes or a local BlobId to copy.`,
-						);
-					attachments.push({ name: field.name, source });
-				}
-				return runOperation(async () => {
-					const written: BlobId[] = [];
-					const rowId = mintRowId();
-					try {
-						for (const { name, source } of attachments) {
-							assertUsable();
-							const id = generateBlobId();
-							const result = await (source instanceof Blob
-								? blobStore.put(id, source)
-								: blobStore.copy(source, id));
-							if (result.error !== null) return result;
-							written.push(id);
-							values[name] = id;
-						}
-						assertUsable();
-						transact(() => {
-							createRow(root, rowId, values);
-						});
-						return Ok(withContent({ id: rowId, ...readRow(root, rowId) }));
-					} finally {
-						// A transaction can throw after partial mutation. The row, not
-						// a second publication flag, says which bytes it accepted.
-						const referenced = Object.values(readRow(root, rowId) ?? {});
-						const unreferenced = written.filter(
-							(id) => !referenced.includes(id),
-						);
-						const cleanup = await Promise.all(
-							unreferenced.map(async (id) => {
-								try {
-									return await blobStore.delete(id);
-								} catch (cause) {
-									return BlobStoreError.BlobStoreFailed({ id, cause });
-								}
-							}),
-						);
-						for (const result of cleanup) {
-							if (result.error !== null) log.error(result.error);
-						}
-					}
-				});
+				const rowId = mintRowId();
+				transact(() => createRow(root, rowId, fields));
+				// Return the integrated content node, never echo its detached input.
+				return withContent({ id: rowId, ...readRow(root, rowId) });
 			},
 			get(rowId: string): Row | undefined {
 				assertUsable();
@@ -1536,16 +1266,6 @@ export function createStoreOverPort<
 			},
 			update(rowId: string, fields: JsonObject): Result<void, RowAbsentError> {
 				assertUsable();
-				if (attachmentField && Object.hasOwn(fields, attachmentField.name))
-					throw new TypeError(
-						`'${attachmentField.name}' is an attachment and cannot be patched.`,
-					);
-				for (const field of blobFields) {
-					if (Object.hasOwn(fields, field.name))
-						throw new TypeError(
-							`'${field.name}' is an owning blob field and cannot be patched by ID.`,
-						);
-				}
 				// One lookup, not two. This used to ask `hasRow` and then write
 				// through a function that would have minted the row had the answer
 				// changed in between; `updateRow` answers whether it found one, so

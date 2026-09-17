@@ -12,17 +12,11 @@
  * checked in `compile.ts`.
  */
 
-import type { BlobId, FinishedFile } from '@epicenter/blobs';
 import type * as Y from '@y/y';
 import { type Static, type TSchema, Type } from 'typebox';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-import {
-	ATTACHMENT_KEYWORD,
-	BLOB_KEYWORD,
-	type Field,
-	field as genericField,
-} from '../field/index.js';
+import { type Field, field as genericField } from '../field/index.js';
 
 export const RESERVED_ATTRIBUTE_PREFIX = '!';
 export const KV_ROOT = 'kv';
@@ -271,10 +265,7 @@ export type RowOf<T extends TableDeclaration> = {
 } & TableValues<T>;
 
 /**
- * What `create` takes: values, attachment sources, and an optional content node.
- * Owning blob fields accept bytes or a local BlobId to copy, plus null when
- * declared nullable. Every attachment receives a new ID before row acceptance;
- * a source ID is never adopted or deleted by creation.
+ * What `create` takes: values and an optional content node.
  *
  * The node is OPTIONAL, and that is what keeps a programmatic `create` from
  * having to build an empty one it does not care about: an omitted node is
@@ -287,34 +278,7 @@ export type RowOf<T extends TableDeclaration> = {
  * either happen.
  */
 export type CreateRowOf<T extends TableDeclaration> = {
-	[K in keyof TableFields<T>]: K extends AttachmentFieldNames<T>
-		? FinishedFile
-		: K extends BlobFieldNames<T>
-			? BlobId | Blob | Extract<Static<TableFields<T>[K]>, null>
-			: Static<TableFields<T>[K]>;
-} & {
-	content?: Y.Type;
-};
-
-/** The declared fields whose bytes are owned by the table rather than stored inline. */
-export type BlobFieldNames<T extends TableDeclaration> = {
-	[K in keyof TableFields<T>]: TableFields<T>[K] extends
-		| { [BLOB_KEYWORD]: true }
-		| {
-				anyOf:
-					| [{ [BLOB_KEYWORD]: true }, { type: 'null' }]
-					| [{ type: 'null' }, { [BLOB_KEYWORD]: true }];
-		  }
-		? K
-		: never;
-}[keyof TableFields<T>];
-
-export type AttachmentFieldNames<T extends TableDeclaration> = {
-	[K in keyof TableFields<T>]: TableFields<T>[K] extends {
-		anyOf: [{ [ATTACHMENT_KEYWORD]: true }, { type: 'null' }];
-	}
-		? K
-		: never;
-}[keyof TableFields<T>];
+	[K in keyof TableFields<T>]: Static<TableFields<T>[K]>;
+} & { content?: Y.Type };
 
 export type KvOf<TDatabase extends DataDefinition> = FieldsOut<TDatabase['kv']>;

@@ -1,18 +1,17 @@
-import { captureLibraryReplica } from '@epicenter/principal';
+import { generateBlobId } from '@epicenter/blobs';
+import {
+	type DeviceStreamError,
+	enumerateDevices,
+	getRecordingStream,
+} from '@epicenter/recorder';
 import { createLogger } from 'wellcrafted/logger';
 import { Ok } from 'wellcrafted/result';
 import {
-	enumerateDevices,
-	getRecordingStream,
-	type DeviceStreamError,
-} from '@epicenter/recorder';
-import {
 	RecorderError,
-	type RecordingReplica,
 	type Recording,
 	type RecordingEndedReason,
-	type RecordingOwner,
 	type RecordingOptions,
+	type RecordingOwner,
 } from '../recorder.js';
 
 const log = createLogger('browser-recording');
@@ -26,10 +25,8 @@ function acquisitionError(error: DeviceStreamError) {
 /** Browser capture belongs to this document; construction acquires no resources. */
 export function createBrowserRecording(
 	_appId: string,
-	input: RecordingReplica,
-	{ assertUsable }: RecordingOptions,
+	{ assertUsable, write }: RecordingOptions,
 ): RecordingOwner {
-	const replica = captureLibraryReplica(input);
 	let closed = false;
 	let closing: Promise<void> | undefined;
 	const operations = new Set<Promise<unknown>>();
@@ -88,9 +85,6 @@ export function createBrowserRecording(
 			return closing;
 		},
 		value: {
-			async discard() {
-				return Ok(undefined);
-			},
 			current() {
 				return run(async () => {
 					if (pending) return RecorderError.AlreadyRecording();
@@ -258,16 +252,19 @@ export function createBrowserRecording(
 							if (!stopped && recorder.state !== 'inactive') recorder.stop();
 							await completion.promise;
 						}
-						const id = crypto.randomUUID();
+						const id = generateBlobId();
+						let saved:
+							| { blobId: typeof id; durationMs: number; byteLength: number }
+							| undefined;
 						const session: Recording = {
 							id,
-							replica,
 							device: deviceOutcome,
 							get endedReason() {
 								return endedReason;
 							},
 							stop() {
 								return run(async () => {
+									if (saved) return Ok(saved);
 									if (resolving || current !== session)
 										return RecorderError.NoActiveRecording();
 									resolving = true;
@@ -276,16 +273,18 @@ export function createBrowserRecording(
 										const blob = new Blob(chunks, {
 											type: recorder.mimeType || chunks[0]?.type,
 										});
+										const result = await write(id, blob);
+										if (result.error)
+											return RecorderError.RecorderFailed({
+												cause: result.error,
+											});
+										saved = { blobId: id, durationMs, byteLength: blob.size };
 										await cleanup();
 										if (current === session) {
 											current = null;
 											cancelCurrent = undefined;
 										}
-										return Ok({
-											file: blob,
-											durationMs,
-											byteLength: blob.size,
-										});
+										return Ok(saved);
 									} catch (cause) {
 										return RecorderError.RecorderFailed({ cause });
 									} finally {

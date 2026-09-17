@@ -9,7 +9,6 @@ import {
 	RecorderError,
 	type Recording,
 	type RecordingFactory,
-	type RecordingReplica,
 } from '@epicenter/app/recorder';
 import type { Account } from '@epicenter/auth';
 import { generateBlobId } from '@epicenter/blobs';
@@ -40,15 +39,15 @@ function setup({
 	cancelFails = false,
 } = {}) {
 	const appId = 'test.' + crypto.randomUUID();
-	const bindings: { appId: string; replica: RecordingReplica }[] = [];
+	const bindings: { appId: string }[] = [];
 	let starts = 0;
 	let cancels = 0;
 	let stops = 0;
 	let releases = 0;
 	let recorderCloses = 0;
 	const savingEntered = Promise.withResolvers<void>();
-	const recording: RecordingFactory = (appId, replica, options) => {
-		bindings.push({ appId, replica });
+	const recording: RecordingFactory = (appId, options) => {
+		bindings.push({ appId });
 		let active: Recording | null = null;
 		let closed = false;
 		let closing: Promise<void> | undefined;
@@ -84,16 +83,18 @@ function setup({
 		const audioBlobId = generateBlobId();
 		const session: Recording = {
 			id: audioBlobId,
-			replica,
 			device: { outcome: 'success', deviceId: asDeviceIdentifier('mic') },
 			endedReason: null,
 			stop: () =>
 				run(async () => {
 					stops++;
 					await stopGate;
+					const written = await options.write(audioBlobId, new Blob(['audio']));
+					if (written.error)
+						return RecorderError.RecorderFailed({ cause: written.error });
 					active = null;
 					return Ok({
-						file: new Blob(['audio']),
+						blobId: audioBlobId,
 						durationMs: 100,
 						byteLength: 5,
 					});
@@ -104,7 +105,6 @@ function setup({
 		};
 		return {
 			value: {
-				discard: async () => Ok(undefined),
 				current: () => run(current),
 				enumerateDevices: () => run(async () => Ok([])),
 				start: () =>
@@ -140,7 +140,7 @@ function setup({
 			kv: {},
 			tables: {
 				recordings: defineTable({
-					audio: field.attachment(),
+					audio: field.string(),
 					content: plainText(),
 				}),
 			},
@@ -161,8 +161,8 @@ function setup({
 			},
 			blobs(input) {
 				const blobs = createBrowserAppBlobs()(input);
-				const put = blobs.local.attachments!.put;
-				blobs.local.attachments!.put = async (...args) => {
+				const put = blobs.local.put;
+				blobs.local.put = async (...args) => {
 					savingEntered.resolve();
 					await saveGate;
 					return put(...args);
@@ -191,13 +191,12 @@ test('opening binds recording once and readiness gates microphone acquisition', 
 	expect(bindings).toEqual([]);
 	expect(Object.hasOwn(epicenter, 'recording')).toBe(false);
 	const app = epicenter.openLocal();
-	expect(bindings).toEqual([{ appId, replica: { library: 'local' } }]);
+	expect(bindings).toEqual([{ appId }]);
 	expect(() => app.recording.start({})).toThrow('not ready');
 	expect(starts()).toBe(0);
 	expectOk(await app.ready);
 	const session = expectOk(await app.recording.start({}));
 	expect(expectOk(await app.recording.current())).toBe(session);
-	expect(session.replica).toEqual({ library: 'local' });
 	expectOk(await session.cancel());
 	await app.close();
 	expect(() => app.recording.start({})).toThrow();
@@ -233,11 +232,8 @@ test('account recording keeps the opened identity when the supplied account chan
 	Reflect.set(account, 'authorityId', 'replacement');
 	expectOk(await app.ready);
 	const session = expectOk(await app.recording.start({}));
-	expect(session.replica).toEqual({
-		library: 'personal',
-		account: { authorityId: 'original', principalId: asPrincipalId('alice') },
-	});
-	expect(bindings[0]?.replica).toEqual(session.replica);
+	expect(expectOk(await app.recording.current())).toBe(session);
+	expect(bindings[0]?.appId).toBe(app.appId);
 	await app.close();
 });
 
@@ -288,29 +284,28 @@ test('close drains admitted publication without cancelling it', async () => {
 	expect(cancels()).toBe(0);
 });
 
-test('App close drains admitted library save before recorder cleanup can discard its temporary file', async () => {
-	const release = Promise.withResolvers<void>();
-	const context = setup({ saveGate: release.promise });
+test('Stop publishes through private storage after App close revokes public access', async () => {
+	const gate = Promise.withResolvers<void>();
+	const context = setup({ saveGate: gate.promise });
 	const app = context.epicenter.openLocal();
 	expectOk(await app.ready);
-	const saving = app.tables.recordings.create({
-		audio: new Blob(['saved'], { type: 'audio/wav' }),
-	});
+	const recording = expectOk(await app.recording.start({}));
+	const saving = recording.stop();
 	await context.savingEntered;
 	const closing = app.close();
-	await Promise.resolve();
-	expect(context.recorderCloses()).toBe(0);
-	release.resolve();
-	const row = expectOk(await saving);
+	expect(() => app.blobs.local.list()).toThrow();
+	gate.resolve();
+	const saved = expectOk(await saving);
 	await closing;
-	expect(context.recorderCloses()).toBe(1);
 	const reopened = context.epicenter.openLocal();
 	expectOk(await reopened.ready);
 	expect(
-		await expectOk(
-			await reopened.tables.recordings.attachment(row.id).read(),
-		).text(),
-	).toBe('saved');
+		await expectOk(await reopened.blobs.local.get(saved.blobId)).text(),
+	).toBe('audio');
+	expect(reopened.tables.recordings.rows).toHaveLength(0);
+	expect(
+		expectOk(await reopened.blobs.local.list()).items.map((item) => item.id),
+	).toContain(saved.blobId);
 	await reopened.close();
 });
 

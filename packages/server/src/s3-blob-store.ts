@@ -9,15 +9,14 @@
  * self-hosted Node binary (against Garage, AWS S3, ...). The endpoint is
  * configuration, not code: that is the blob store's answer to vendor lock-in.
  *
- * Client uploads and downloads use presigned URLs directly. Attachment
- * finalization separately reads and hashes the immutable object before publishing
- * verified evidence. Control operations (exists, list, delete) are signed here.
+ * Blob uploads and reads use authenticated server requests. The backup adapter
+ * still uses presigned requests internally. All object operations use SigV4.
  * Grounded against the aws4fetch source and Cloudflare R2
  * docs; see
  * ADR-0089 (presigned S3 kernel) as amended by ADR-0148 (opaque BlobId).
  *
- * Presigned PUTs use SigV4's `UNSIGNED-PAYLOAD`; attachment tickets additionally
- * sign the supplied checksum. `Content-Type` and `If-None-Match: *` are signed headers.
+ * Backup presigned PUTs use SigV4's `UNSIGNED-PAYLOAD`.
+ * `Content-Type` and `If-None-Match: *` are signed headers.
  * The latter makes one opaque BlobId immutable at the object-store boundary:
  * the first PUT wins and a repeated PUT receives 412 Precondition Failed.
  */
@@ -93,9 +92,13 @@ export function createS3BlobStore(config: S3BlobStoreConfig) {
 		return out;
 	}
 
-	async function deleteObject(key: string): Promise<void> {
+	async function deleteObject(
+		key: string,
+		signal?: AbortSignal,
+	): Promise<void> {
 		const res = await client.fetch(objectUrl(key).toString(), {
 			method: 'DELETE',
+			signal,
 		});
 		if (!res.ok && res.status !== 404) {
 			throw new Error(`S3 DELETE ${key} failed: ${res.status}`);
@@ -103,20 +106,36 @@ export function createS3BlobStore(config: S3BlobStoreConfig) {
 	}
 
 	return {
+		/** Publish one immutable object through the authenticated server. */
+		async put(key: string, body: Blob, signal?: AbortSignal) {
+			const response = await client.fetch(objectUrl(key).toString(), {
+				method: 'PUT',
+				headers: {
+					'content-type': body.type || 'application/octet-stream',
+					'if-none-match': '*',
+					'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+				},
+				body,
+				signal,
+			});
+			await response.body?.cancel();
+			if (!response.ok) throw new Error(`S3 PUT failed: ${response.status}`);
+		},
+		/** Read through the server; no signed URL leaves the storage boundary. */
+		get(key: string, signal?: AbortSignal) {
+			return client.fetch(objectUrl(key).toString(), { signal });
+		},
 		/**
 		 * Presign a create-only PUT. `contentType` and `If-None-Match: *` are
-		 * pinned into the signature. Attachment uploads also pin the SHA-256
-		 * checksum so a provider can reject incorrect bytes before occupying the key.
+		 * pinned into the signature. Backups use this internal storage operation.
 		 */
 		async presignPut({
 			key,
 			contentType,
-			sha256,
 			expiresInSeconds,
 		}: {
 			key: string;
 			contentType: string;
-			sha256?: string;
 			expiresInSeconds: number;
 		}): Promise<PresignedPut> {
 			const url = objectUrl(key);
@@ -125,15 +144,6 @@ export function createS3BlobStore(config: S3BlobStoreConfig) {
 				'content-type': contentType,
 				'if-none-match': '*',
 			};
-			if (sha256 !== undefined) {
-				if (!/^[a-f0-9]{64}$/.test(sha256))
-					throw new TypeError('Expected a hexadecimal SHA-256 digest.');
-				requiredHeaders['x-amz-checksum-sha256'] = btoa(
-					String.fromCharCode(
-						...sha256.match(/../g)!.map((byte) => Number.parseInt(byte, 16)),
-					),
-				);
-			}
 
 			const signed = await client.sign(url, {
 				method: 'PUT',

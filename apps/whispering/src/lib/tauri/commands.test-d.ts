@@ -147,7 +147,7 @@ type _StoppedRecordingShape = Expect<
 	Equal<
 		StoppedRecording,
 		{
-			file: import('./bindings.gen').FinishedFile;
+			blobId: string;
 			durationMs: number;
 			byteLength: number;
 		}
@@ -170,7 +170,7 @@ type _CancelRecording = Expect<
 
 // Session registration replaces cross-document capture recovery.
 type _RegisterRecordingSession = Expect<
-	Equal<Parameters<typeof commands.registerRecordingSession>, [string]>
+	Equal<Parameters<typeof commands.registerRecordingSession>, [string, string]>
 >;
 type _ResolveRecordingStart = Expect<
 	Equal<Parameters<typeof commands.resolveRecordingStart>, [string, string]>

@@ -25,7 +25,7 @@
 > calling a blob content-addressed, is stale: ids are minted rather than hashed
 > ([ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md)).
 > The reasoning it supports is untouched, because a minted id still names
-> write-once bytes that cannot diverge, and [ADR-0349](0349-blobs-are-a-namespace-on-the-handle-addressed-by-id-and-stored-under-the-replicas-principal.md)
+> write-once bytes that cannot diverge, and [ADR-0349](0349-local-blobs-belong-to-the-app-on-this-device.md)
 > keeps desktop blob bytes on the host filesystem on exactly that reasoning.
 
 ## Context

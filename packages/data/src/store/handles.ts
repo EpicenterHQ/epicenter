@@ -11,14 +11,6 @@
  */
 
 import type {
-	BlobAlreadyExists,
-	BlobNotFound,
-	BlobStoreFailed,
-	FinishedFile,
-} from '@epicenter/blobs';
-import type {
-	AttachmentFieldNames,
-	BlobFieldNames,
 	ConformanceIssue,
 	CreateRowOf,
 	DataDefinition,
@@ -35,7 +27,6 @@ import type * as Y from '@y/y';
 import type { Result } from 'wellcrafted/result';
 
 import type { SyncConnectionStatus } from '../sync/connection.js';
-import type { Attachment, AttachmentError } from './attachment.js';
 import type { RowInput } from './document.js';
 import type { NonconformingRow, RowAbsentError } from './errors.js';
 import type { PersistenceCapability } from './persistence.js';
@@ -75,14 +66,7 @@ export type Row = { id: string } & Record<string, JsonValue | Y.Type>;
  */
 export type TableListener = (rowIds: readonly string[]) => void;
 
-export type TableHandle<
-	TRow = Row,
-	TInput = RowInput,
-	TPatch = JsonObject,
-	TCreated = TRow,
-> = {
-	/** The immutable byte owner of an existing row in this opened library. */
-	attachment(rowId: string): Attachment;
+export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
 	/**
 	 * Bring one row into being, at a minted id.
 	 *
@@ -111,12 +95,8 @@ export type TableHandle<
 	 * values or field names. The returned object is the typed write view, while
 	 * a later `get` reports how the current lens interprets the stored payload.
 	 *
-	 * A table with owning blob fields accepts bytes or local copy-source IDs and
-	 * returns a Promise<Result>. Each non-null field receives a fresh ID.
-	 * It persists bytes before accepting the row, outside synchronous `transact`.
-	 * Success means row acceptance, not a cross-store atomic durability guarantee.
 	 */
-	create(fields: TInput): TCreated;
+	create(fields: TInput): TRow;
 	/**
 	 * One row, whole, or nothing.
 	 *
@@ -146,7 +126,6 @@ export type TableHandle<
 	 * legally land on a row whose OTHER fields this declaration cannot read (that is
 	 * how a nonconforming row is repaired, ADR-0125), and a write verb that
 	 * reported that read as its own failure punished a write that committed.
-	 * Owning blob fields are excluded: patching their IDs would bypass ownership.
 	 */
 	update(rowId: string, fields: TPatch): Result<void, RowAbsentError>;
 	/**
@@ -255,28 +234,7 @@ export type TableHandle<
 export type TypedTableHandle<TFields extends TableDeclaration> = TableHandle<
 	RowOf<TFields>,
 	CreateRowOf<TFields>,
-	Partial<
-		Pick<
-			RowOf<TFields>,
-			Exclude<
-				keyof RowOf<TFields>,
-				| 'id'
-				| 'content'
-				| BlobFieldNames<TFields>
-				| AttachmentFieldNames<TFields>
-			>
-		>
-	>,
-	[BlobFieldNames<TFields>] extends [never]
-		? [AttachmentFieldNames<TFields>] extends [never]
-			? RowOf<TFields>
-			: Promise<Result<RowOf<TFields>, AttachmentError>>
-		: Promise<
-				Result<
-					RowOf<TFields>,
-					BlobAlreadyExists | BlobNotFound | BlobStoreFailed
-				>
-			>
+	Partial<Pick<RowOf<TFields>, Exclude<keyof RowOf<TFields>, 'id' | 'content'>>>
 >;
 
 /**
@@ -472,26 +430,7 @@ export type KvHandle<TValues = JsonObject> = {
  * TypeScript's depth limit.
  */
 export type UntypedDeclaredData = {
-	readonly tables: Readonly<
-		Record<
-			string,
-			TableHandle<
-				Row,
-				Record<string, JsonValue | Y.Type | FinishedFile>,
-				JsonObject,
-				| Row
-				| Promise<
-						Result<
-							Row,
-							| BlobAlreadyExists
-							| BlobNotFound
-							| BlobStoreFailed
-							| AttachmentError
-						>
-				  >
-			>
-		>
-	>;
+	readonly tables: Readonly<Record<string, TableHandle>>;
 	readonly kv: KvHandle;
 	transact<TResult>(run: () => TResult): TResult;
 };
@@ -527,8 +466,6 @@ export type DocumentPressure = {
  * operations; sync status is undefined when no connection is attached.
  */
 export type DataDocument = {
-	/** Library-owned attachment delivery and device-local download controls. */
-	attachments: import('./attachment-sync.js').LibraryAttachments;
 	/**
 	 * How much of this document is dead weight.
 	 *

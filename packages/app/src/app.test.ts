@@ -7,7 +7,6 @@
 import 'fake-indexeddb/auto';
 import { expect, spyOn, test } from 'bun:test';
 import type { Account } from '@epicenter/auth';
-import { type BlobStore, generateBlobId } from '@epicenter/blobs';
 import * as dataBrowser from '@epicenter/data/browser';
 import {
 	defineData,
@@ -60,7 +59,7 @@ const definition = defineData({
 	kv: {},
 	tables: {
 		notes: defineTable({ title: field.string(), content: plainText() }),
-		recordings: defineTable({ audio: field.blob(), content: plainText() }),
+		recordings: defineTable({ audio: field.string(), content: plainText() }),
 	},
 });
 
@@ -215,7 +214,7 @@ test.each([
 	releaseRequest.resolve();
 	expectOk(await accountApp.ready);
 	expectOk(await accountApp.sqlite.open('search'));
-	expectOk(await accountApp.blobs.add(new Blob(['captured'])));
+	expectOk(await accountApp.blobs.local.add(new Blob(['captured'])));
 	expect(accountApp.account).toEqual({
 		authorityId: 'test-authority',
 		principalId: asPrincipalId('alice'),
@@ -224,9 +223,7 @@ test.each([
 	expect(names).toContain(
 		'epicenter/so.epicenter.app-test/accounts/test-authority/alice/data/so.epicenter.app-test/personal/current',
 	);
-	expect(names).toContain(
-		'epicenter/so.epicenter.app-test/accounts/test-authority/alice/blobs',
-	);
+	expect(names).toContain('epicenter/so.epicenter.app-test/blobs');
 	expect(names.some((name) => name?.includes('replacement-authority'))).toBe(
 		false,
 	);
@@ -519,137 +516,47 @@ test('a late SQL open refuses publication and physically closes without deleting
 	}
 });
 
-test('reentrant failed cleanup still drains SQL, blobs, and owning creation before releasing the claim', async () => {
-	const sql = Promise.withResolvers<Result<{ changes: number }, DeviceError>>();
-	const reading =
-		Promise.withResolvers<Awaited<ReturnType<BlobStore['get']>>>();
-	const writing = Promise.withResolvers<Result<void, never>>();
-	const writeStarted = Promise.withResolvers<void>();
-	const compensating = Promise.withResolvers<Result<void, never>>();
-	const compensated = Promise.withResolvers<void>();
-	const cause = new Error('page cleanup failed');
-	const sqlCause = new Error('SQL rejected');
-	let reentrant: Promise<void> | undefined;
-	const originals = ['document', 'addEventListener', 'removeEventListener'].map(
-		(name) =>
-			[name, Object.getOwnPropertyDescriptor(globalThis, name)] as const,
-	);
-	const app = defineApplication({
+test('close drains admitted local writes before releasing the app claim', async () => {
+	await clearStorage();
+	const gate = Promise.withResolvers<void>();
+	const entered = Promise.withResolvers<void>();
+	const application = defineApplication({
 		appId: 'so.epicenter.app-test',
 		definition,
 		runtime: {
 			...browser,
-			sqlite: {
-				acquire: async () => ({
-					async open() {
-						return {
-							...(await (
-								await testSqlite.acquire('so.epicenter.app-test', {
-									library: 'local',
-								})
-							).open('search')),
-							run: () => sql.promise,
-						};
-					},
-					delete: async () => undefined,
-
-					close: async () => undefined,
-				}),
-			},
+			sqlite: testSqlite,
 			blobs(input) {
-				const backing = testBlobs(input);
-				return {
-					...backing,
-					local: {
-						...backing.local,
-						get: () => reading.promise,
-						put() {
-							writeStarted.resolve();
-							return writing.promise;
-						},
-						delete() {
-							compensated.resolve();
-							return compensating.promise;
-						},
-					},
+				const bytes = testBlobs(input);
+				const put = bytes.local.put;
+				bytes.local.put = async (...args) => {
+					entered.resolve();
+					await gate.promise;
+					return put(...args);
 				};
+				return bytes;
 			},
 		},
 		ai: { runtime: null, account: null },
-	}).openLocal();
-	Object.defineProperties(globalThis, {
-		document: {
-			configurable: true,
-			value: {
-				visibilityState: 'visible',
-				addEventListener() {},
-				removeEventListener() {
-					reentrant = app.close();
-					throw cause;
-				},
-			},
-		},
-		addEventListener: { configurable: true, value: () => undefined },
-		removeEventListener: { configurable: true, value: () => undefined },
 	});
-	let closing: Promise<void> | undefined;
-	try {
-		expectOk(await app.ready);
-		const database = expectOk(await app.sqlite.open('search'));
-		const run = database.run('select 1');
-		const read = app.blobs.get(generateBlobId());
-		const create = app.tables.recordings.create({ audio: new Blob(['bytes']) });
-		const outcomes = Promise.allSettled([run, create]);
-		await writeStarted.promise;
-		closing = app.close();
-		const closed = Promise.allSettled([closing]);
-		expect(reentrant).toBe(closing);
-		expect(app.close()).toBe(closing);
-		sql.reject(sqlCause);
-		writing.resolve(Ok(undefined));
-		await compensated.promise;
-		const duplicate = defineApplication({
-			appId: 'so.epicenter.app-test',
-			definition,
-			runtime: {
-				...browser,
-				sqlite: testSqlite,
-				blobs: testBlobs,
-			},
-			ai: { runtime: null, account: null },
-		}).openLocal();
-		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
-		await duplicate.close();
-		reading.resolve(Ok(new Blob(['read'])));
-		expect(await expectOk(await read).text()).toBe('read');
-		let settled = false;
-		void closed.then(() => {
-			settled = true;
-		});
-		await new Promise<void>((resolve) => setImmediate(resolve));
-		expect(settled).toBe(false);
-		compensating.resolve(Ok(undefined));
-		expect(await outcomes).toEqual([
-			{ status: 'rejected', reason: sqlCause },
-			{
-				status: 'rejected',
-				reason: expect.objectContaining({ name: 'StoreUnusableError' }),
-			},
-		]);
-		expect(await closed).toEqual([{ status: 'rejected', reason: cause }]);
-	} finally {
-		sql.resolve(Ok({ changes: 0 }));
-		reading.resolve(Ok(new Blob()));
-		writing.resolve(Ok(undefined));
-		compensating.resolve(Ok(undefined));
-		await (closing ?? app.close()).catch(() => undefined);
-		for (const [name, descriptor] of originals) {
-			if (descriptor === undefined) Reflect.deleteProperty(globalThis, name);
-			else Object.defineProperty(globalThis, name, descriptor);
-		}
-	}
-	const reopened = create().openLocal();
+	const app = application.openLocal();
+	expectOk(await app.ready);
+	const writing = app.blobs.local.add(new Blob(['saved']));
+	await entered.promise;
+	let closed = false;
+	const closing = app.close().then(() => {
+		closed = true;
+	});
+	await Promise.resolve();
+	expect(closed).toBe(false);
+	gate.resolve();
+	const blobId = expectOk(await writing);
+	await closing;
+	const reopened = application.openLocal();
 	expectOk(await reopened.ready);
+	expect(await expectOk(await reopened.blobs.local.get(blobId)).text()).toBe(
+		'saved',
+	);
 	await reopened.close();
 });
 
@@ -659,36 +566,36 @@ test('the app handle owns scoped blob reads and writes by BlobId', async () => {
 	expectOk(await app.ready);
 
 	const id = expectOk(
-		await app.blobs.add(new Blob(['audio'], { type: 'audio/wav' })),
+		await app.blobs.local.add(new Blob(['audio'], { type: 'audio/wav' })),
 	);
-	const stored = expectOk(await app.blobs.get(id));
+	const stored = expectOk(await app.blobs.local.get(id));
 	expect(id).toMatch(/^blob_[a-z0-9]{21}$/);
 	expect(await stored.text()).toBe('audio');
-	expect(expectOk(await app.blobs.stat(id)).size).toBe(5);
+	expect(expectOk(await app.blobs.local.stat(id)).size).toBe(5);
 
 	await app.close();
-	expect(() => app.blobs.add(new Blob(['late']))).toThrow('disposed');
+	expect(() => app.blobs.local.add(new Blob(['late']))).toThrow('disposed');
 });
 
-test('owning table create saves bytes before publishing an ID and both survive reopen', async () => {
+test('rows reference independently saved blobs and deleting a row leaves bytes intact', async () => {
 	await clearStorage();
-	const first = create().openLocal();
-	const { create: record } = first.tables.recordings;
-	expect(() => record({ audio: new Blob(['early']) })).toThrow('not ready');
-	expectOk(await first.ready);
-	const row = expectOk(await record({ audio: new Blob(['recorded bytes']) }));
-	expect(row.audio).toMatch(/^blob_[a-z0-9]{21}$/);
-	expect(await expectOk(await first.blobs.get(row.audio)).text()).toBe(
+	const app = create().openLocal();
+	expectOk(await app.ready);
+	const blobId = expectOk(
+		await app.blobs.local.add(new Blob(['recorded bytes'])),
+	);
+	const row = app.tables.recordings.create({ audio: blobId });
+	app.tables.recordings.delete(row.id);
+	expect(await expectOk(await app.blobs.local.get(blobId)).text()).toBe(
 		'recorded bytes',
 	);
-	await first.close();
-	expect(() => record({ audio: new Blob(['late']) })).toThrow('disposed');
+	await app.close();
 	const reopened = create().openLocal();
 	expectOk(await reopened.ready);
-	expect(reopened.tables.recordings.get(row.id)?.audio).toBe(row.audio);
-	expect(await expectOk(await reopened.blobs.get(row.audio)).text()).toBe(
-		'recorded bytes',
-	);
+	expect(reopened.tables.recordings.get(row.id)).toBeUndefined();
+	expect(
+		expectOk(await reopened.blobs.local.list()).items.map((item) => item.id),
+	).toContain(blobId);
 	await reopened.close();
 });
 
@@ -705,19 +612,23 @@ test('access is gated and a rejected duplicate cannot release the first app', as
 	const first = create().openLocal();
 	const notes = first.tables.notes;
 	const kv = first.kv;
-	const { add, statMany } = first.blobs;
+	const retainedAdd = first.blobs.local.add;
 	expect(() => notes.rows).toThrow('not ready');
 	expect(() => kv.subscribe(() => {})).toThrow('not ready');
-	expect(() => add(new Blob(['premature']))).toThrow('not ready');
-	expect(() => statMany([])).toThrow('not ready');
+	expect(() => first.blobs.local.add(new Blob(['premature']))).toThrow(
+		'not ready',
+	);
+	expect(() => first.blobs.local.list()).toThrow('not ready');
 	expectOk(await first.ready);
 	expect(first.tables.notes).toBe(notes);
 	expect(first.kv).toBe(kv);
-	expect(first.blobs.add).toBe(add);
+	expect(first.blobs.local.add).toBe(retainedAdd);
 
 	const duplicate = create().openLocal();
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
-	expect(() => duplicate.blobs.add(new Blob(['rejected']))).toThrow('disposed');
+	expect(() => duplicate.blobs.local.add(new Blob(['rejected']))).toThrow(
+		'disposed',
+	);
 	await duplicate.close();
 	first.tables.notes.create({ title: 'still owned by the first app' });
 
@@ -1063,8 +974,8 @@ test.each([
 					},
 				}),
 			},
-			recording: (id, account, options) => ({
-				...createBrowserRecording(id, account, options),
+			recording: (id, options) => ({
+				...createBrowserRecording(id, options),
 				close: async () => {
 					if (failing === 'recording') throw new Error('recording failed');
 					await drain.promise;
@@ -1410,8 +1321,8 @@ test.each([
 					},
 				}),
 			},
-			recording: (id, identity, options) => ({
-				...createBrowserRecording(id, identity, options),
+			recording: (id, options) => ({
+				...createBrowserRecording(id, options),
 				async close() {
 					cleanupAttempted = true;
 					if (cleanupFails) throw cleanupFailure;

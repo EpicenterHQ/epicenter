@@ -46,7 +46,7 @@ export function createWhisperingUiSession({
 		inferenceConnections: inference,
 		recordings: createRecordings(domains),
 		recipes: domains.recipes,
-		attachments: domains.attachments,
+		blobs: openedApp.blobs,
 		get recording() {
 			return recordingSession.recording;
 		},

@@ -19,6 +19,7 @@
 	import { report } from '$lib/report';
 	import type { Recording } from '$lib/state/recordings.svelte';
 	import { createCopyFn } from '$lib/utils/createCopyFn';
+	import UploadRecordingButton from './actions/UploadRecordingButton.svelte';
 	import DownloadRecordingButton from './actions/DownloadRecordingButton.svelte';
 	import TranscribeRecordingButton from './actions/TranscribeRecordingButton.svelte';
 	import {
@@ -170,16 +171,16 @@
 		</Modal.Header>
 
 		<div class="space-y-4 p-4">
-			{#if audioAvailabilityQuery.data === 'local-only'}
+			{#if audioAvailabilityQuery.data === 'local-only' || audioAvailabilityQuery.data === 'remote'}
 				<AudioBlobPlayer
 					id={recording.id}
-					audio={recording.audio}
+					audio={recording.audioUrl ?? recording.audioBlobId}
 					enabled={isDialogOpen}
 					class="h-9 w-full"
 				/>
 			{:else if audioAvailabilityQuery.data === 'unavailable'}
 				<p class="text-muted-foreground text-sm">
-					Audio is not on this device. Playback never downloads audio.
+					Audio is unavailable.
 				</p>
 			{:else if audioAvailabilityQuery.isError}
 				<p class="text-destructive text-sm">
@@ -187,6 +188,10 @@
 				</p>
 			{:else if audioAvailabilityQuery.isPending}
 				<Spinner class="size-3.5" aria-label="Checking audio on this device" />
+			{/if}
+
+			{#if audioAvailabilityQuery.data === 'local-only'}
+				<UploadRecordingButton {recording} />
 			{/if}
 
 			{#if workingCopy.polishedTranscript}

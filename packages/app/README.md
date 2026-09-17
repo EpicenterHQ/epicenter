@@ -22,13 +22,13 @@ try {
 }
 ```
 
-The package selects SQLite and secrets for the build. Standard applications use
-browser blob storage and recording, including in host-served WebViews. An
-application with native capture requirements selects `runtime: epicenterHost`
-from `@epicenter/app/epicenter-host`, as Whispering does. The complete `browser`
-runtime is exported from `@epicenter/app/browser`. An explicit runtime replaces
-SQLite, secrets, blobs, and recording together. Custom runtimes must publish
-recordings into the blob store they expose; TypeScript cannot prove compatibility.
+The package selects SQLite, secrets, blobs, and recording together for the build.
+Browser recording publishes into IndexedDB. Host recording publishes into the
+same app directory served by the host's blob API. The complete `browser` runtime
+is exported from `@epicenter/app/browser`, and `epicenterHost` from
+`@epicenter/app/epicenter-host`. An explicit runtime replaces all four capabilities.
+Custom runtimes must publish recordings into the blob store they expose;
+TypeScript cannot prove compatibility.
 An independent `ai` binding replaces all default AI configuration.
 The text clipboard is not part of any runtime: `@epicenter/app/clipboard` is a
 standalone platform module, described under [Clipboard](#clipboard).
@@ -177,35 +177,73 @@ engine constructs document operations and supplies their readiness guard to the
 resource implementations. Retained methods reject premature or closed use;
 ordinary storage and transfer failures remain Results.
 
-Tables declare one `field.attachment()` when each row owns a file. Pass a
-finished file to creation. The library allocates the row address, publishes
-immutable local bytes, and confirms row persistence before returning success.
-The cell contains the MIME type; local reads still check for this device's bytes.
+## Blobs
+
+Every App exposes `app.blobs.local`. An AccountApp also exposes
+`app.blobs.remote`; a LocalApp has no remote member. Keep these full paths at
+call sites. Bytes have independent lifetimes from rows and from each other.
+There are no attachment fields, transfer queues, or automatic downloads.
 
 ```ts
-const saved = await app.tables.recordings.create({
-	title: 'Meeting',
-	audio: file,
-});
-if (saved.error) return handleError(saved.error);
-const audio = app.tables.recordings.attachment(saved.data.id);
-const source = await audio.source();
-// Dispose source.data when playback ends. source() never downloads audio.
+const added = await app.blobs.local.add(file);
+if (added.error) return showError(added.error);
+app.tables.recordings.create({ audioBlobId: added.data, audioUrl: null });
+
+// Later, after an explicit Upload action on an AccountApp:
+const uploaded = await app.blobs.remote.addLocal(added.data);
+if (uploaded.error) return showError(uploaded.error);
+// Save uploaded.data, the durable remote URL, in the row.
 ```
 
-A failed byte write creates no row. An ambiguous save reports
-`SaveUnconfirmed` rather than rolling back a completed row or reminting its
-identity. Published immutable bytes survive capture cleanup. A historical null
-cell does not authorize adopting or replacing bytes at that address.
+Local access supports `add`, `get`, `open`, `stat`, `list`, and `delete`.
+`list({ cursor?, limit? })` returns metadata and an optional `nextCursor`;
+it enumerates committed IDs without loading their bodies. Its cursor is an
+exclusive BlobId in lexical order, with a default page size of 100 and a maximum
+of 1,000. Concurrent writes do not make enumeration a snapshot.
 
-Legacy `field.blob()` and local blob readers remain for unmigrated consumers.
-Account libraries automatically upload locally authored completed attachments
-and download missing completed attachments. Downloaded files create no upload
-obligation. `app.attachments` reports local presence and transfer state and
-offers Pause/Resume downloads, Retry and prioritization through that one worker.
-Applications do not receive a `blobs.remote` upload/download/purge runner.
-The [execution checkpoint](../../specs/20260909T010040-current-generation-restore.md#bounded-attachment-synchronization-checkpoint-2026-09-16)
-tracks verification and remaining acceptance gaps.
+Remote access supports `add(Blob)`, `addLocal(blobId)`, `get(url)`, `open(url)`,
+and `delete(url)`. Each upload creates a new remote object, initially limited
+to 25 MiB. A native `addLocal` sends a descriptor through the captured account
+broker; the host reads and uploads its file without putting the audio in the
+WebView. It does not create a synchronization obligation.
+
+`get` returns bytes. `open` returns `{ url, [Symbol.dispose]() }` for display;
+release that source when its image, video, or audio player is done. Store the
+URL returned by remote `add`, never a temporary display URL. The remote locator
+includes server, app, authenticated owner, and object ID. Reads require that
+account; sharing a row does not grant another account access to its audio.
+
+Browser bytes live in `epicenter/<appId>/blobs` within the browser origin/profile.
+Desktop bytes live under `<dataRoot>/apps/<appId>/blobs/<blobId>/`, with `data`
+and `metadata.json` siblings. All libraries of one app on that device share
+this local namespace. Signing out does not erase it. Remote storage is scoped
+by account and app. Historical account-scoped local files remain untouched;
+the new API starts fresh and has no fallback reader or migration.
+
+Deleting a row leaves its local bytes and uploaded objects intact. Applications
+may request best-effort local deletion; they own reference-aware cleanup while
+the library is open. The storage APIs do not infer row ownership or promise
+background garbage collection while the application is closed.
+
+Tools without a data library can use `createLocalBlobs({ appId })` and
+`createRemoteBlobs({ appId, account })` from `@epicenter/app/blobs`. These browser/host constructors select
+the same platform storage as the App and expose `close()` for their independent
+request and display lifetimes. Bun scripts can use `@epicenter/blobs/bun` over
+the canonical directory directly. These tools do not open Yjs documents:
+
+```ts
+import { join } from 'node:path';
+import { createBunBlobStore } from '@epicenter/blobs/bun';
+
+// The CLI receives the chosen profile's dataRoot explicitly.
+const storage = createBunBlobStore({
+ directory: join(dataRoot, 'apps', appId, 'blobs'),
+});
+const page = await storage.list({ limit: 100 });
+```
+
+The standalone browser/host constructors do not discover desktop profiles from
+a Bun process.
 
 Repeated `close()` calls return one completion promise. Close rejects new work
 immediately, cancels owned AI requests, settles admitted recording and storage
@@ -221,8 +259,8 @@ navigates, deletes credentials, or erases the library. It preserves the store's
 existing persistence failure reporting; completed cleanup does not prove every
 edit reached durable storage or the server.
 
-The library cancels attachment transfers on closure and bounds each attempt
-with a deadline. Close drains admitted work before releasing ownership.
+The App cancels remote blob requests on closure and drains admitted work before
+releasing ownership. An interrupted upload may have committed a remote orphan.
 Raw Yjs content is borrowed: stop editor bindings before
 closing its owner. App workflows spanning multiple awaited calls must also handle
 closure between those calls.
@@ -233,7 +271,8 @@ dataset identity; the owner closes the handle and removes consuming UI.
 
 `LibraryReplicaIdentity` lives in `@epicenter/principal`: the library choice and,
 for Personal or Shared, the authenticated actor's credential-free identity.
-SQL, saved recording, and blob factories receive that fixed replica scope. The document
+SQL receives that fixed replica scope. Local blobs and recording capture only
+the app ID; remote hosting captures the account. The document
 owns document admission and cleanup. App coordinates resource shutdown, and
 runtime owners own physical files.
 
@@ -250,10 +289,9 @@ reload; desktop secrets live in the keychain. Closing an App drains admitted
 secret operations and preserves their values. Reopening the same scope in the
 same document can read them again. Secrets never enter synchronized rows.
 
-`app.recording.start({})` acquires disposable capture. Stop returns finished
-output, duration, and byte length; it creates no library row. A native file token
-keeps audio-sized data outside the WebView during capture and publication. See
-[the recording contract](#saved-recordings) for save and cleanup ordering.
+`app.recording.start({})` acquires disposable capture. Successful Stop saves
+locally and returns a blob ID, duration, and byte length; it creates no row.
+See [Saved recordings](#saved-recordings) for ordering.
 
 Opening is cache-first. A device with a local generation can open it offline;
 a device without a cached generation must reach the current authority to atomically
@@ -268,10 +306,10 @@ and future whole-library removal are recorded in
 [ADR-0355](../../docs/adr/0355-local-and-account-sessions-share-the-application-data-api.md).
 
 Focused tests cover deferred acquisition, retained operations, and resource
-release. The row-owned recording smoke captures synthetic microphone input
+release. The saved-recording smoke captures synthetic microphone input
 in Chromium, plays it offline, and verifies identical bytes after App
 close/reopen. This does not establish browser-process capture recovery,
-physical microphone behavior, or account attachment delivery.
+physical microphone behavior, or physical device acceptance.
 
 ## Clipboard
 
@@ -303,48 +341,38 @@ as Whispering's text service does.
 
 ## Saved recordings
 
-A workflow captures its destination table before acquiring the microphone:
+Stop is the save boundary:
 
 ```ts
-const recordings = app.tables.recordings;
 const started = await app.recording.start({});
 if (started.error) return showError(started.error);
 const recording = started.data;
-const unlevel = recording.onLevel(showLevel);
 const stopped = await recording.stop();
-unlevel();
 if (stopped.error) return showError(stopped.error);
-try {
-	const saved = await recordings.create({
-		title: 'Meeting',
-		audio: stopped.data.file,
-	});
-	if (saved.error) return showError(saved.error);
-} finally {
-	const discarded = await app.recording.discard(stopped.data.file);
-	if (discarded.error) reportCleanupFailure(discarded.error);
-}
+app.tables.recordings.create({
+ audioBlobId: stopped.data.blobId,
+ audioUrl: null,
+});
+const source = await app.blobs.local.open(stopped.data.blobId);
+// Release source.data with Symbol.dispose when playback ends.
 ```
 
-`@epicenter/app/recorder` owns disposable capture sessions. Each session has
-an immutable `id` and device information. Delayed stops and events belong to
-that capture only. `selectedDeviceId` uses the portable device vocabulary
-from `@epicenter/recorder`.
+`@epicenter/app/recorder` owns capture sessions with an immutable ID and device
+information. Stop publishes into the same app-local store used by
+`app.blobs.local`. Native WAV capture writes progressively; browser capture
+publishes its completed Blob. No finished-file token crosses the public API.
+A failed row creation leaves saved audio discoverable through local `list()`.
 
-Stop returns a browser Blob or a temporary native file token. The destination
-table owns durable publication. Cancel discards unfinished capture without
-touching library rows. `onEnded` reports unexpected capture termination,
-including to a late subscriber; the application decides when to stop or cancel.
+Cancel removes unfinished capture. It cannot retract a committed blob.
+`onEnded` reports unexpected termination, including to a late subscriber;
+the application decides whether to stop or cancel. `current()` inspects this
+document's held session, without recovering capture from another document.
+Reload and host restart may discard unfinished capture.
 
-`current()` inspects this document's held session. It does not recover capture
-from another document. Native document reload revokes the old session and
-discards its temporary output. A fresh host removes abandoned staging.
-Previously saved immutable library files remain local.
-
-Ordinary App close drains admitted table saves before releasing native tokens.
-Confirmed retirement refuses late row publication and closes capture.
+App close cancels unfinished capture and drains an already-admitted Stop using
+its private storage writer. Public blob access is already revoked at that point.
 Applications finish wanted capture before deliberate closure. The recorder
-owns no upload or inference policy.
+owns neither upload nor inference policy.
 
 Text-only dictation should own temporary capture and release it with its session;
 it need not publish saved recordings. There is no dictation capability on the

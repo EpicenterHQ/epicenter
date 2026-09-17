@@ -1,5 +1,5 @@
 //! One-shot IPC for document-owned capture and library-owned publication.
-use crate::blobs::{mint_blob_id, AttachmentContent, BlobDestination};
+use crate::blobs::mint_blob_id;
 use crate::recorder::ended::{EndedReason, RecordingEndedEvent};
 use crate::recorder::error::RecorderError;
 use crate::recorder::recorder::{HostRecording, Recorder, Result};
@@ -73,11 +73,12 @@ pub async fn enumerate_recording_devices(
 #[tauri::command]
 #[specta::specta]
 pub async fn register_recording_session(
+    app_id: String,
     session_id: String,
     recorder: State<'_, Mutex<Recorder>>,
     window: WebviewWindow,
 ) -> Result<()> {
-    lock(&recorder)?.register_session(window.label(), &session_id)
+    lock(&recorder)?.register_session(window.label(), &session_id, &app_id)
 }
 
 /// Read only this document's live capture. No file or journal is recovered.
@@ -132,9 +133,11 @@ pub async fn start_recording(
         if let Some(current) = recorder.prepare_start(window.label(), &session_id, &request_id)? {
             return Ok(current);
         }
+        let app_id = recorder.session_app_id(window.label(), &session_id)?;
         let audio_blob_id = mint_blob_id()?;
         let started = recorder.start(
             device_identifier.as_deref(),
+            &app_id,
             audio_blob_id,
             window.label().into(),
             app_handle.clone(),
@@ -177,39 +180,6 @@ pub async fn cancel_recording(
     let result = lock(&recorder)?.cancel_session(window.label(), &session_id, &audio_blob_id);
     refresh_recording_indicator(&app_handle);
     result
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn publish_recording_file(
-    file_id: String,
-    destination: BlobDestination,
-    storage_id: String,
-    origin_generation: Option<u32>,
-    recorder: State<'_, Mutex<Recorder>>,
-    app_handle: AppHandle,
-    window: WebviewWindow,
-) -> Result<AttachmentContent> {
-    // Retirement takes this same lock. A transfer that wins it publishes
-    // immutable bytes; a retirement that wins it revokes the token first.
-    lock(&recorder)?.publish_file(
-        window.label(),
-        &file_id,
-        &app_handle.state::<crate::app_data::DesktopPaths>().data_dir,
-        &destination,
-        &storage_id,
-        origin_generation,
-    )
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn discard_recording_file(
-    file_id: String,
-    recorder: State<'_, Mutex<Recorder>>,
-    window: WebviewWindow,
-) -> Result<()> {
-    lock(&recorder)?.discard_file(window.label(), &file_id)
 }
 
 /// End a recording's capture because its stream died, and tell the owner why.

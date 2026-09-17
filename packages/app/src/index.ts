@@ -1,14 +1,12 @@
 import type { Account } from '@epicenter/auth';
-import type { BlobRemote, BlobSources, BlobStore } from '@epicenter/blobs';
+import type { BlobSources, BlobStore, RemoteBlobs } from '@epicenter/blobs';
 import { isAppId } from '@epicenter/constants/app-id';
 import type { DataDefinition } from '@epicenter/data/definition';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
-import type { LibraryReplicaIdentity } from '@epicenter/principal';
 import { createDefaultAppAi } from '#platform/ai';
 import { resources } from '#platform/resources';
 import type { AiTransport } from './ai.js';
 import type { AiConnections } from './ai-connections.js';
-import { browser } from './browser.js';
 import { type AccountApp, type App, type LocalApp, openApp } from './open.js';
 import type { RecordingFactory } from './recorder.js';
 
@@ -19,13 +17,12 @@ export type AppBlobs = App<DataDefinition>['blobs'];
 export type AppBlobComposition = {
 	local: BlobStore;
 	sources: BlobSources;
-	remote: BlobRemote | null;
+	remote: RemoteBlobs | null;
 };
 
 export type AppBlobFactory = (input: {
 	appId: string;
-	replica: LibraryReplicaIdentity;
-	remote: Pick<Account, 'baseURL' | 'fetch'> | null;
+	account: Account | null;
 }) => AppBlobComposition;
 
 /** One per app; each open owns one library and the open call decides the handle's type. */
@@ -52,7 +49,7 @@ export function defineApplication<const TDefinition extends DataDefinition>({
 	appId,
 	definition,
 	settingsKey,
-	runtime = { ...browser, ...resources },
+	runtime = resources,
 	ai = createDefaultAppAi(settingsKey ?? appId),
 }: {
 	appId: string;

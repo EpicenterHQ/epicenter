@@ -35,25 +35,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentEngine, EngineChunk } from '@epicenter/agent';
-import {
-	type BlobRemote,
-	BlobRemoteError,
-	generateBlobId,
-} from '@epicenter/blobs';
-import { createBunBlobStore, type BunBlobStore } from '@epicenter/blobs/bun';
-import { type AccountIdentity, asPrincipalId } from '@epicenter/principal';
+import { generateBlobId } from '@epicenter/blobs';
+import { type BunBlobStore, createBunBlobStore } from '@epicenter/blobs/bun';
 import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
 import { createDesktopSqliteOwner } from '@epicenter/device/desktop';
 import { DEVICE_PATH } from '@epicenter/device/protocol';
 import { LOCAL_MAIL_APP_ID } from '@epicenter/local-mail/storage';
-import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	type AppSecretOwner,
 	createProcessMemoryAppSecrets,
 } from './app-secrets.ts';
 import { COMPILED_APPLICATIONS } from './applications.ts';
-import { createBunDevice, type BunDevice } from './test-sqlite.ts';
+import { createDesktopAuthAuthority } from './desktop-auth-authority.js';
 import { createHomeHost, type HomeHost, type HomeHostInputs } from './host.ts';
 import { PLACEHOLDER_PAGES } from './placeholder-pages.ts';
 import {
@@ -75,8 +69,8 @@ import {
 import {
 	createHomeServer,
 	type HomeServerEvent,
-	type HomeSessionResponse,
 	type HomeServerOptions,
+	type HomeSessionResponse,
 } from './server.ts';
 import type { ReadyFrame } from './sidecar-runtime.ts';
 import {
@@ -85,7 +79,7 @@ import {
 } from './static-assets.ts';
 import { writeAppsDist } from './test-apps-dist.ts';
 import { createTestDesktopAuth } from './test-home-host.ts';
-import { createDesktopAuthAuthority } from './desktop-auth-authority.js';
+import { type BunDevice, createBunDevice } from './test-sqlite.ts';
 
 test('development browser callback completes the pending sign-in without a Home cookie', async () => {
 	await using host = await createHomeHost({
@@ -127,7 +121,7 @@ test('development browser callback completes the pending sign-in without a Home 
 		launchToken: 'launch',
 		staticAssets: await createAppsDistFixture(PAGE),
 		blobs: createTestBlobs(),
-		blobRemote: () => null,
+
 		desktopAuth,
 	};
 	const { app } = createHomeServer(options);
@@ -224,8 +218,8 @@ function testDataDir(): string {
 function createTestBlobs(): HomeServerOptions['blobs'] {
 	const directory = testDataDir();
 	const stores = new Map<string, BunBlobStore>();
-	return (appId, account) => {
-		const key = JSON.stringify([appId, account]);
+	return (appId) => {
+		const key = appId;
 		let store = stores.get(key);
 		if (store === undefined) {
 			store = createBunBlobStore({
@@ -238,21 +232,9 @@ function createTestBlobs(): HomeServerOptions['blobs'] {
 }
 
 const TEST_APP_ID = 'so.epicenter.whispering';
-const TEST_ACCOUNT: AccountIdentity = {
-	authorityId: 'authority-a',
-	principalId: asPrincipalId('alice'),
-};
 
-function testBlobUrl(
-	id: string,
-	account: AccountIdentity | null = null,
-	appId = TEST_APP_ID,
-) {
-	const library =
-		account === null
-			? 'local'
-			: `accounts/${encodeURIComponent(account.authorityId)}/${encodeURIComponent(account.principalId)}`;
-	return `/api/apps/${appId}/${library}/blobs/${id}`;
+function testBlobUrl(id: string, appId = TEST_APP_ID) {
+	return `/api/apps/${appId}/blobs/${id}`;
 }
 
 function boundPort(server: { port?: number }): number {
@@ -276,7 +258,6 @@ function createTestHost(
 async function serveHost(
 	host: HomeHost,
 	page: string = PAGE,
-	blobRemote: BlobRemote | null = null,
 	owners: {
 		device?: BunDevice;
 		appSecrets?: AppSecretOwner;
@@ -300,8 +281,6 @@ async function serveHost(
 		staticAssets: await createAppsDistFixture(page),
 		blobs: owners.blobs ?? createTestBlobs(),
 		desktopAuth: createTestDesktopAuth(),
-		blobRemote: (_appId, replica) =>
-			replica.library === 'local' ? null : blobRemote,
 		...owners,
 	});
 	const server = Bun.serve({
@@ -532,7 +511,6 @@ describe('createHomeServer', () => {
 				staticAssets,
 				blobs: createTestBlobs(),
 				desktopAuth,
-				blobRemote: () => null,
 			}),
 		).toThrow(/launch token/);
 		for (const origin of [
@@ -550,7 +528,6 @@ describe('createHomeServer', () => {
 					staticAssets,
 					blobs: createTestBlobs(),
 					desktopAuth,
-					blobRemote: () => null,
 				}),
 			).toThrow(/exact http:\/\/127\.0\.0\.1/);
 		}
@@ -645,7 +622,6 @@ describe('createHomeServer', () => {
 			staticAssets: await createAppsDistFixture(),
 			blobs: createTestBlobs(),
 			desktopAuth: createTestDesktopAuth(),
-			blobRemote: () => null,
 		});
 		let calls = 0;
 		const path = '/api/apps/so.epicenter.test/auth-regression';
@@ -1379,84 +1355,6 @@ describe("Local Mail's desktop authorization callback", () => {
 });
 
 describe('local blob routes', () => {
-	test('attachment publication retries verify bytes and receipts persist through actual local HTTP', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host);
-		const { cookie, origin } = authenticationFor(server);
-		const id = 'attachment.recordings.' + 'a'.repeat(24);
-		const url = `${server.url.origin}/api/apps/${TEST_APP_ID}/local/blobs/${id}`;
-		const headers = {
-			cookie,
-			origin,
-			'content-type': 'audio/wav',
-			'x-epicenter-attachment-origin': '7',
-		};
-		try {
-			const first = await fetch(url, { method: 'PUT', headers, body: 'audio' });
-			expect(first.status).toBe(201);
-			const evidence = await first.json();
-			expect(evidence.sha256).toBe(
-				new Bun.CryptoHasher('sha256').update('audio').digest('hex'),
-			);
-			const retry = await fetch(url, { method: 'PUT', headers, body: 'audio' });
-			expect(retry.status).toBe(201);
-			const conflict = await fetch(url, {
-				method: 'PUT',
-				headers,
-				body: 'other',
-			});
-			expect(conflict.status).toBe(409);
-			const before = await fetch(url, { method: 'HEAD', headers: { cookie } });
-			expect(
-				JSON.parse(before.headers.get('x-epicenter-attachment')!),
-			).toMatchObject({ originGeneration: 7, pendingUpload: true });
-			const ack = await fetch(`${url}/acknowledge`, {
-				method: 'POST',
-				headers: { cookie, origin, 'content-type': 'application/json' },
-				body: JSON.stringify({ expected: evidence, generation: 7 }),
-			});
-			expect(ack.status).toBe(204);
-			const after = await fetch(url, { method: 'HEAD', headers: { cookie } });
-			expect(
-				JSON.parse(after.headers.get('x-epicenter-attachment')!),
-			).toMatchObject({ originGeneration: 7, pendingUpload: false });
-			expect(await (await fetch(url, { headers: { cookie } })).text()).toBe(
-				'audio',
-			);
-		} finally {
-			await server.stop(true);
-		}
-	});
-	test('row-addressed attachments stream locally and remain isolated by library', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host);
-		const { cookie, origin } = authenticationFor(server);
-		const key = `attachment.recordings.${'a'.repeat(24)}`;
-		const url = `${origin}/api/apps/so.epicenter.whispering/local/blobs/${key}`;
-		try {
-			expect(
-				(
-					await fetch(url, {
-						method: 'PUT',
-						headers: { cookie, origin, 'content-type': 'audio/wav' },
-						body: '0123456789',
-					})
-				).status,
-			).toBe(201);
-			const head = await fetch(url, { method: 'HEAD', headers: { cookie } });
-			expect(head.headers.get('content-length')).toBe('10');
-			const range = await fetch(url, {
-				headers: { cookie, range: 'bytes=2-5' },
-			});
-			expect(range.status).toBe(206);
-			expect(await range.text()).toBe('2345');
-			const account = `${origin}/api/apps/so.epicenter.whispering/accounts/server/alice/blobs/${key}`;
-			expect((await fetch(account, { headers: { cookie } })).status).toBe(404);
-		} finally {
-			await server.stop(true);
-		}
-	});
-
 	test('session authentication protects every local blob operation', async () => {
 		await using host = await createTestHost({
 			engine: scriptedEngine([[]]),
@@ -1475,255 +1373,104 @@ describe('local blob routes', () => {
 		}
 	});
 
-	test('remote copy routes take only the blob id and map typed results', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const calls: { operation: string; id: string }[] = [];
-		const stubRemote: BlobRemote = {
-			async upload(id) {
-				calls.push({ operation: 'upload', id });
-				return Ok(undefined);
-			},
-			async download(id) {
-				calls.push({ operation: 'download', id });
-				return BlobRemoteError.RemoteBlobNotFound({ id });
-			},
-			async purge(id) {
-				calls.push({ operation: 'purge', id });
-				return BlobRemoteError.BlobRemoteFailed({
-					id,
-					cause: new Error('remote unreachable'),
-				});
-			},
-		};
-		const server = await serveHost(host, PAGE, stubRemote);
-		const id = generateBlobId();
-		const { cookie, origin } = authenticationFor(server);
-		const session = { headers: { cookie, origin } };
-		try {
-			const unauthenticated = await fetch(
-				`${server.url.origin}${testBlobUrl(id, TEST_ACCOUNT)}/upload`,
-				{ method: 'POST' },
-			);
-			expect(unauthenticated.status).toBe(401);
-			expect(calls).toHaveLength(0);
-
-			const invalidId = await fetch(
-				`${server.url.origin}/api/apps/so.epicenter.whispering/local/blobs/not-a-blob-id/upload`,
-				{ method: 'POST', ...session },
-			);
-			expect(invalidId.status).toBe(400);
-
-			// A caller-supplied body is dead weight, never a transfer target: the
-			// stub still receives only the path id.
-			const uploaded = await fetch(
-				`${server.url.origin}${testBlobUrl(id, TEST_ACCOUNT)}/upload`,
-				{
-					method: 'POST',
-					headers: { ...session.headers, 'content-type': 'application/json' },
-					body: JSON.stringify({ uploadUrl: 'https://evil.example/steal' }),
-				},
-			);
-			expect(uploaded.status).toBe(204);
-
-			const downloaded = await fetch(
-				`${server.url.origin}${testBlobUrl(id, TEST_ACCOUNT)}/download`,
-				{ method: 'POST', ...session },
-			);
-			expect(downloaded.status).toBe(404);
-
-			const purged = await fetch(
-				`${server.url.origin}${testBlobUrl(id, TEST_ACCOUNT)}/purge`,
-				{ method: 'POST', ...session },
-			);
-			expect(purged.status).toBe(502);
-
-			expect(calls).toEqual([
-				{ operation: 'upload', id },
-				{ operation: 'download', id },
-				{ operation: 'purge', id },
-			]);
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('a signed-out generation answers 503 for every remote copy operation', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
-		const id = generateBlobId();
-		const { cookie, origin } = authenticationFor(server);
-		try {
-			for (const operation of ['upload', 'download', 'purge']) {
-				const response = await fetch(
-					`${server.url.origin}${testBlobUrl(id)}/${operation}`,
-					{ method: 'POST', headers: { cookie, origin } },
-				);
-				expect(response.status).toBe(503);
-			}
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('blob mounts distinguish Personal actors named shared from the Shared library', async () => {
+	test('committed local files list in pages and remain isolated by app', async () => {
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const captures: Parameters<HomeServerOptions['blobs']>[] = [];
-		const stores = createTestBlobs();
-		const server = await serveHost(host, PAGE, null, {
-			blobs: (appId, replica) => {
-				captures.push([appId, replica]);
-				return stores(appId, replica);
-			},
-		});
+		const server = await serveHost(host);
 		const { cookie, origin } = authenticationFor(server);
-		const id = generateBlobId();
+		const ids = [generateBlobId(), generateBlobId()].sort();
 		try {
-			for (const [authorityId, principalId] of [
-				['server', 'shared'],
-				['shared', 'blobs'],
-			]) {
-				const account = {
-					authorityId: authorityId!,
-					principalId: asPrincipalId(principalId!),
-				};
-				const personal = testBlobUrl(id, account);
-				const shared = personal.replace(`/blobs/${id}`, `/shared/blobs/${id}`);
-				const before = captures.length;
-				for (const path of [personal, shared]) {
-					const response = await fetch(`${server.url.origin}${path}`, {
-						method: 'PUT',
-						headers: { cookie, origin },
-						body: path,
-					});
-					expect(response.status).toBe(201);
-				}
-				expect(captures.slice(before)).toEqual([
-					[TEST_APP_ID, { library: 'personal', account }],
-					[TEST_APP_ID, { library: 'shared', account }],
-				]);
-			}
+			for (const id of ids)
+				expect(
+					(
+						await fetch(`${origin}${testBlobUrl(id)}`, {
+							method: 'PUT',
+							headers: { cookie, origin, 'content-type': 'audio/wav' },
+							body: 'audio',
+						})
+					).status,
+				).toBe(201);
+			const first = await fetch(
+				`${origin}/api/apps/${TEST_APP_ID}/blobs?limit=1`,
+				{ headers: { cookie } },
+			);
+			expect(first.status).toBe(200);
+			expect(await first.json()).toEqual({
+				items: [{ id: ids[0], size: 5, contentType: 'audio/wav' }],
+				nextCursor: ids[0],
+			});
+			const second = await fetch(
+				`${origin}/api/apps/${TEST_APP_ID}/blobs?limit=1&cursor=${ids[0]}`,
+				{ headers: { cookie } },
+			);
+			expect(await second.json()).toEqual({
+				items: [{ id: ids[1], size: 5, contentType: 'audio/wav' }],
+			});
+			expect(
+				(
+					await fetch(
+						`${origin}${testBlobUrl(ids[0]!, 'so.epicenter.other')}`,
+						{ headers: { cookie } },
+					)
+				).status,
+			).toBe(404);
+			for (const suffix of ['?limit=0', '?cursor=invalid', '?owner=alice'])
+				expect(
+					(
+						await fetch(`${origin}/api/apps/${TEST_APP_ID}/blobs${suffix}`, {
+							headers: { cookie },
+						})
+					).status,
+				).toBe(400);
 		} finally {
 			await server.stop(true);
 		}
 	});
 
-	test('local blob copy is authenticated, scoped, and preserves the source', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const directory = testDataDir();
-		const stores = new Map<string, BunBlobStore>();
-		let selections = 0;
-		const selectBlobs: HomeServerOptions['blobs'] = (appId, account) => {
-			selections += 1;
-			const key = JSON.stringify([appId, account]);
-			let store = stores.get(key);
-			if (store === undefined) {
-				store = createBunBlobStore({
-					directory: join(directory, String(stores.size)),
-				});
-				stores.set(key, store);
-			}
-			return store;
-		};
+	test('local copy preserves the source, refuses replacement and requires a browser session', async () => {
+		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
+		const server = await serveHost(host);
+		const { cookie, origin } = authenticationFor(server);
 		const source = generateBlobId();
 		const destination = generateBlobId();
-		const copyUrl = `${testBlobUrl(destination, TEST_ACCOUNT)}/copy`;
-		const sourceStore = selectBlobs(TEST_APP_ID, {
-			library: 'personal',
-			account: TEST_ACCOUNT,
-		});
-		expectOk(
-			await sourceStore.put(source, new Blob(['audio'], { type: 'audio/wav' })),
-		);
-		const server = await serveHost(host, PAGE, null, { blobs: selectBlobs });
-		const { cookie, origin } = authenticationFor(server);
-		const session = { headers: { cookie, origin } };
 		try {
-			const selectionsBeforeRequest = selections;
-			const unauthorized = await fetch(`${server.url.origin}${copyUrl}`, {
+			expect(
+				(
+					await fetch(`${origin}${testBlobUrl(source)}`, {
+						method: 'PUT',
+						headers: { cookie, origin },
+						body: 'audio',
+					})
+				).status,
+			).toBe(201);
+			const copy = `${origin}${testBlobUrl(destination)}/copy`;
+			const body = JSON.stringify({ sourceId: source });
+			expect((await fetch(copy, { method: 'POST', body })).status).toBe(401);
+			const options = {
 				method: 'POST',
-				body: JSON.stringify({ sourceId: source }),
-			});
-			expect(unauthorized.status).toBe(401);
-			expect(selections).toBe(selectionsBeforeRequest);
-			const foreignOrigin = await fetch(`${server.url.origin}${copyUrl}`, {
-				method: 'POST',
-				headers: { cookie, origin: 'https://untrusted.example' },
-				body: JSON.stringify({ sourceId: source }),
-			});
-			expect(foreignOrigin.status).toBe(403);
-			expect(selections).toBe(selectionsBeforeRequest);
-			for (const path of [
-				`${copyUrl}?appId=so.epicenter.honeycrisp`,
-				`${copyUrl}?principalId=bob`,
-				`/api/apps/invalid/local/blobs/${destination}/copy`,
-				`/api/apps/${TEST_APP_ID}/accounts/%2F/alice/blobs/${destination}/copy`,
-				`/api/apps/${TEST_APP_ID}/accounts/authority-a/%00/blobs/${destination}/copy`,
-			]) {
-				const refused = await fetch(`${server.url.origin}${path}`, {
-					method: 'POST',
-					headers: session.headers,
-					body: JSON.stringify({ sourceId: source }),
-				});
-				expect(refused.status).toBe(400);
-				expect(selections).toBe(selectionsBeforeRequest);
-			}
-			for (const path of [
-				`/api/local-blobs/${destination}`,
-				`/api/apps/${TEST_APP_ID}/blobs/${destination}/copy`,
-			]) {
-				const oldRoute = await fetch(`${server.url.origin}${path}`, {
-					method: 'POST',
-					headers: session.headers,
-					body: JSON.stringify({ sourceId: source }),
-				});
-				expect(oldRoute.status).toBe(404);
-				expect(selections).toBe(selectionsBeforeRequest);
-			}
-
-			const copied = await fetch(`${server.url.origin}${copyUrl}`, {
-				method: 'POST',
-				headers: { ...session.headers, 'content-type': 'application/json' },
-				body: JSON.stringify({ sourceId: source }),
-			});
-			expect(copied.status).toBe(204);
-			for (const id of [source, destination]) {
-				const blob = expectOk(await sourceStore.get(id));
-				expect(await blob.text()).toBe('audio');
-				expect(blob.type).toBe('audio/wav');
-			}
-
-			const duplicate = await fetch(`${server.url.origin}${copyUrl}`, {
-				method: 'POST',
-				headers: { ...session.headers, 'content-type': 'application/json' },
-				body: JSON.stringify({ sourceId: source }),
-			});
-			expect(duplicate.status).toBe(409);
-
-			for (const [appId, account] of [
-				[TEST_APP_ID, null],
-				[TEST_APP_ID, { ...TEST_ACCOUNT, authorityId: 'authority-b' }],
-				[TEST_APP_ID, { ...TEST_ACCOUNT, principalId: asPrincipalId('bob') }],
-				['so.epicenter.honeycrisp', TEST_ACCOUNT],
-			] as const) {
-				const isolated = await fetch(
-					`${server.url.origin}${testBlobUrl(generateBlobId(), account, appId)}/copy`,
-					{
-						method: 'POST',
-						headers: { ...session.headers, 'content-type': 'application/json' },
-						body: JSON.stringify({ sourceId: source }),
-					},
-				);
-				expect(isolated.status).toBe(404);
-			}
+				headers: { cookie, origin, 'content-type': 'application/json' },
+				body,
+			};
+			expect((await fetch(copy, options)).status).toBe(204);
+			expect((await fetch(copy, options)).status).toBe(409);
+			for (const id of [source, destination])
+				expect(
+					await (
+						await fetch(`${origin}${testBlobUrl(id)}`, { headers: { cookie } })
+					).text(),
+				).toBe('audio');
+			expect(
+				(await fetch(`${copy}?appId=so.epicenter.other`, options)).status,
+			).toBe(400);
+			expect(
+				(
+					await fetch(
+						`${origin}/api/apps/${TEST_APP_ID}/local/blobs/${source}`,
+						{ headers: { cookie } },
+					)
+				).status,
+			).toBe(404);
 		} finally {
 			await server.stop(true);
-			rmSync(directory, { recursive: true, force: true });
 		}
 	});
 
@@ -1886,7 +1633,7 @@ describe('local blob routes', () => {
 		const server = await serveHost(host);
 		try {
 			const response = await fetch(
-				`${server.url.origin}/api/apps/so.epicenter.whispering/local/blobs/not-a-blob-id`,
+				`${server.url.origin}/api/apps/so.epicenter.whispering/blobs/not-a-blob-id`,
 				{ headers: authenticatedHeaders(server) },
 			);
 			expect(response.status).toBe(400);
@@ -2215,7 +1962,6 @@ describe('sidecar end-to-end smoke', () => {
 						dataDir,
 						'apps',
 						'so.epicenter.whispering',
-						'local',
 						'blobs',
 						blobId,
 						'data',
@@ -2402,7 +2148,7 @@ describe('checkout routes (ADR-0337)', () => {
 	test('a checkout replaces the folder, and reads back as what was written', async () => {
 		const folderRoot = mkdtempSync(join(tmpdir(), 'checkout-route-test-'));
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host, PAGE, null, { folderRoot });
+		const server = await serveHost(host, PAGE, { folderRoot });
 		const origin = server.url.origin;
 		const url = `${origin}${CHECKOUT_PATH}/so.epicenter.honeycrisp`;
 		const folder = join(folderRoot, 'so.epicenter.honeycrisp');
@@ -2511,7 +2257,7 @@ describe('checkout routes (ADR-0337)', () => {
 	test('a data id the render never produces is refused', async () => {
 		const folderRoot = mkdtempSync(join(tmpdir(), 'checkout-route-test-'));
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host, PAGE, null, { folderRoot });
+		const server = await serveHost(host, PAGE, { folderRoot });
 		const origin = server.url.origin;
 		try {
 			const refused = [
@@ -2566,7 +2312,7 @@ describe('the application storage owner', () => {
 	test('desktop SQLite carries binary parameters and results through the actual server socket', async () => {
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
 		const root = testDataDir();
-		const server = await serveHost(host, PAGE, null, {
+		const server = await serveHost(host, PAGE, {
 			device: createBunDevice(root),
 		});
 		const { cookie, origin } = authenticationFor(server);
@@ -2626,7 +2372,7 @@ describe('the application storage owner', () => {
 	test('SQL sockets retire connections on delete and release their lifetime on reload without deleting files', async () => {
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
 		const root = testDataDir();
-		const server = await serveHost(host, PAGE, null, {
+		const server = await serveHost(host, PAGE, {
 			device: createBunDevice(root),
 		});
 		const { cookie, origin } = authenticationFor(server);
@@ -2817,7 +2563,7 @@ describe('the application storage owner', () => {
 
 	test('holds one labeled secret per application account', async () => {
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host, PAGE, null, {
+		const server = await serveHost(host, PAGE, {
 			appSecrets: createProcessMemoryAppSecrets(),
 		});
 		try {
@@ -2921,7 +2667,7 @@ describe('the application storage owner', () => {
 
 	test('refuses a label that could name something other than one label', async () => {
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host, PAGE, null, {
+		const server = await serveHost(host, PAGE, {
 			appSecrets: createProcessMemoryAppSecrets(),
 		});
 		try {

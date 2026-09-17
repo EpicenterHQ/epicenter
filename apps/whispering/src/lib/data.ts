@@ -43,14 +43,10 @@ export type RecordingId = string;
 export type RecipeId = string;
 
 const recordingsTable = defineTable({
-	/** Finished audio published durably with its recording row. */
-	audio: field.attachment(),
-	/** Read compatibility for recordings written before row-owned attachments. */
-	audioBlobId: field.nullable(
-		field.string({ pattern: `^${BLOB_ID_ROUTE_REGEX}$` }),
-	),
-	/** Set only after an explicit replica upload succeeds. */
-	uploadedAt: field.nullable(field.instant()),
+	/** Immutable bytes saved independently in this application's local store. */
+	audioBlobId: field.string({ pattern: `^${BLOB_ID_ROUTE_REGEX}$` }),
+	/** A separately uploaded copy, changed only by an explicit upload. */
+	audioUrl: field.nullable(field.string()),
 	title: field.string(),
 	recordedAt: field.instant(),
 	recordedAtZone: field.string(),

@@ -1,18 +1,16 @@
 //! Canonical native blob storage, shared by capture and audio readers.
 //!
-//! A destination captures an application and its local/account dataset. Native
+//! A destination captures an application. Native
 //! writers stage private bytes and atomically publish data and metadata together
 //! into the same layout as `packages/blobs`. Capture staging is disposable;
 //! immutable library publication survives document and process departure.
 
 use std::fs::File;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 
 const BLOBS_DIRECTORY: &str = "blobs";
@@ -57,12 +55,11 @@ pub enum LibraryReplica {
     Shared { account: ReplicaAccount },
 }
 
-/// The app and dataset captured before a native writer opens its staging file.
+/// The application captured before a native writer opens its staging file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct BlobDestination {
     pub app_id: String,
-    pub replica: LibraryReplica,
 }
 
 /// Storage failures stay independent of the operation using the bytes.
@@ -81,48 +78,6 @@ impl BlobError {
 struct BlobMetadata<'a> {
     content_type: &'a str,
     size: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct AttachmentContent {
-    pub sha256: String,
-    pub size: u32,
-    pub content_type: String,
-}
-
-fn attachment_content(path: &Path) -> Result<AttachmentContent, BlobError> {
-    let mut file = File::open(path)
-        .map_err(|error| BlobError::failed(format!("open finished capture: {error}")))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    let mut size = 0_u64;
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(|error| BlobError::failed(format!("hash finished capture: {error}")))?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-        size += read as u64;
-    }
-    Ok(AttachmentContent {
-        sha256: format!("{:x}", hasher.finalize()),
-        size: u32::try_from(size)
-            .map_err(|_| BlobError::failed("finished capture exceeds the RIFF bound"))?,
-        content_type: "audio/wav".into(),
-    })
-}
-
-/// The host keeps this receipt while the document can retry a lost IPC response.
-/// A rename is irrevocable: cleanup owns only the original staging path.
-#[derive(Debug)]
-pub struct AttachmentPublication {
-    root: PathBuf,
-    storage_id: String,
-    origin_generation: Option<u32>,
-    content: AttachmentContent,
 }
 
 /// `blob_` plus 21 characters of this alphabet, matching `generateBlobId` in
@@ -205,24 +160,10 @@ pub(crate) fn blobs_directory(
             "blob destination contains an invalid app id",
         ));
     }
-    let mut root = data_dir.join("apps").join(&destination.app_id);
-    match &destination.replica {
-        LibraryReplica::Local {} => root.push("local"),
-        LibraryReplica::Personal { account } | LibraryReplica::Shared { account } => {
-            if !is_path_segment(&account.authority_id) || !is_path_segment(&account.principal_id) {
-                return Err(BlobError::failed(
-                    "blob replica contains an invalid account",
-                ));
-            }
-            root.push("accounts");
-            root.push(&account.authority_id);
-            root.push(&account.principal_id);
-            if matches!(destination.replica, LibraryReplica::Shared { .. }) {
-                root.push("shared");
-            }
-        }
-    }
-    Ok(root.join(BLOBS_DIRECTORY))
+    Ok(data_dir
+        .join("apps")
+        .join(&destination.app_id)
+        .join(BLOBS_DIRECTORY))
 }
 
 /// Matches `packages/constants/src/app-id.ts` without a second regex dependency.
@@ -238,14 +179,6 @@ fn is_app_id(value: &str) -> bool {
                     .iter()
                     .all(|byte| alphanumeric(*byte) || *byte == b'-')
         })
-}
-
-fn is_path_segment(value: &str) -> bool {
-    !value.is_empty()
-        && value != "."
-        && value != ".."
-        && !value.contains('/')
-        && !value.contains('\\')
 }
 
 fn blob_data_path(
@@ -270,114 +203,66 @@ fn blob_data_path(
 #[derive(Debug)]
 pub struct StagedBlob {
     id: String,
-    /// The captured dataset blobs directory, synced after publication.
-    root: PathBuf,
     staged_directory: PathBuf,
     final_directory: PathBuf,
+    renamed: bool,
 }
 
 impl StagedBlob {
-    pub(crate) fn disposable(app: &AppHandle, id: &str) -> Result<Self, BlobError> {
-        Self::stage(
-            app.state::<crate::app_data::DesktopPaths>()
-                .data_dir
-                .join("capture"),
-            id,
-        )
+    pub(crate) fn for_app(app: &AppHandle, app_id: &str, id: &str) -> Result<Self, BlobError> {
+        let root = blobs_directory(
+            &app.state::<crate::app_data::DesktopPaths>().data_dir,
+            &BlobDestination {
+                app_id: app_id.into(),
+            },
+        )?;
+        Self::stage(root, id)
     }
 
-    /// Publish a finished file into the address allocated by the library.
-    /// Keep both the token and receipt on error, including after rename.
-    pub(crate) fn publish_attachment(
-        &mut self,
-        data_dir: &Path,
-        destination: &BlobDestination,
-        storage_id: &str,
-        origin_generation: Option<u32>,
-        receipt: &mut Option<AttachmentPublication>,
-    ) -> Result<AttachmentContent, BlobError> {
-        let root = blobs_directory(data_dir, destination)?;
-        validate_blob_id(storage_id)?;
-        if !storage_id.starts_with("attachment.") {
-            return Err(BlobError::failed(
-                "finished capture requires an attachment address",
-            ));
-        }
-        if matches!(destination.replica, LibraryReplica::Local {}) != origin_generation.is_none() {
-            return Err(BlobError::failed(
-                "local publication has no generation; account publication requires one",
-            ));
-        }
-        if let Some(published) = receipt.as_ref() {
-            if published.root != root
-                || published.storage_id != storage_id
-                || published.origin_generation != origin_generation
-            {
+    /// Commit this exact immutable object. Keep staging and the rename receipt
+    /// on failure so Stop can retry durability without publishing another object.
+    pub(crate) fn commit(&mut self, content_type: &str) -> Result<u64, BlobError> {
+        if !self.renamed {
+            if self.final_directory.exists() {
+                return Err(BlobError::failed("blob id already exists"));
+            }
+            let data = self.data_path();
+            sync_file(&data)?;
+            let size = std::fs::metadata(&data)
+                .map_err(|error| BlobError::failed(format!("stat capture: {error}")))?
+                .len();
+            if size > 9_007_199_254_740_991 {
                 return Err(BlobError::failed(
-                    "finished capture publication cannot change destination",
+                    "blob size exceeds the shared metadata integer limit",
                 ));
             }
-        } else {
-            *receipt = Some(AttachmentPublication {
-                root: root.clone(),
-                storage_id: storage_id.into(),
-                origin_generation,
-                content: attachment_content(&self.data_path())?,
-            });
-        }
-        let publication = receipt.as_ref().unwrap();
-        let final_directory = root.join(storage_id);
-        let mut attachment = serde_json::to_value(&publication.content)
-            .map_err(|error| BlobError::failed(format!("serialize attachment content: {error}")))?;
-        attachment["originGeneration"] = serde_json::json!(origin_generation);
-        let metadata = serde_json::json!({
-            "size": publication.content.size,
-            "contentType": publication.content.content_type,
-            "attachment": attachment,
-        });
-        std::fs::create_dir_all(&root)
-            .map_err(|error| BlobError::failed(format!("create attachment root: {error}")))?;
-        if final_directory.exists() {
-            // Lost response and post-rename fsync failure share this path. Verify
-            // bytes and immutable origin, then repeat durability before success.
-            let bytes = attachment_content(&final_directory.join(DATA_FILE))?;
-            let existing: serde_json::Value = serde_json::from_slice(
-                &std::fs::read(final_directory.join(METADATA_FILE)).map_err(|error| {
-                    BlobError::failed(format!("read published metadata: {error}"))
-                })?,
-            )
-            .map_err(|error| BlobError::failed(format!("decode published metadata: {error}")))?;
-            if bytes != publication.content || existing != metadata {
-                return Err(BlobError::failed(
-                    "attachment address already contains different content or origin",
-                ));
-            }
-        } else {
-            sync_file(&self.data_path())?;
-            let metadata_path = self.staged_directory.join(METADATA_FILE);
-            std::fs::write(&metadata_path, serde_json::to_vec(&metadata).unwrap()).map_err(
-                |error| BlobError::failed(format!("write attachment metadata: {error}")),
-            )?;
-            sync_file(&metadata_path)?;
+            let metadata = serde_json::to_vec(&BlobMetadata {
+                content_type: normalize_content_type(content_type),
+                size,
+            })
+            .map_err(|error| BlobError::failed(format!("encode metadata: {error}")))?;
+            let path = self.staged_directory.join(METADATA_FILE);
+            std::fs::write(&path, metadata)
+                .map_err(|error| BlobError::failed(format!("write metadata: {error}")))?;
+            sync_file(&path)?;
             sync_directory(&self.staged_directory)?;
-            std::fs::rename(&self.staged_directory, &final_directory)
-                .map_err(|error| BlobError::failed(format!("publish finished capture: {error}")))?;
+            std::fs::rename(&self.staged_directory, &self.final_directory)
+                .map_err(|error| BlobError::failed(format!("publish capture: {error}")))?;
+            self.renamed = true;
         }
-        sync_file(&final_directory.join(DATA_FILE))?;
-        sync_file(&final_directory.join(METADATA_FILE))?;
-        // Repeat the entire directory chain on an identical retry too. A
-        // previous attempt may have created ancestors before losing its reply,
-        // so mere existence does not establish a durable stopping point.
-        for directory in final_directory.ancestors() {
+        sync_file(&self.final_directory.join(DATA_FILE))?;
+        sync_file(&self.final_directory.join(METADATA_FILE))?;
+        for directory in self.final_directory.ancestors() {
             sync_directory(directory)?;
         }
-        Ok(publication.content.clone())
+        std::fs::metadata(self.final_directory.join(DATA_FILE))
+            .map(|metadata| metadata.len())
+            .map_err(|error| BlobError::failed(format!("stat saved capture: {error}")))
     }
 
     /// Open a staging directory under a given blobs root.
     ///
-    /// Capture stages under the host's temporary capture root. Publication
-    /// receives the library destination separately, after Stop.
+    /// The app-local destination is fixed before capture starts.
     pub(crate) fn stage(root: PathBuf, id: &str) -> Result<Self, BlobError> {
         validate_blob_id(id)?;
         // Each writer owns a distinct staging subtree. Bun writes under
@@ -411,9 +296,9 @@ impl StagedBlob {
 
         Ok(Self {
             id: id.to_string(),
-            root,
             staged_directory,
             final_directory,
+            renamed: false,
         })
     }
 
@@ -434,62 +319,13 @@ impl StagedBlob {
     /// durable too. Nothing here relies on `Drop`, which cannot report a
     /// failure.
     ///
-    pub fn publish(self, content_type: &str) -> Result<u64, BlobError> {
-        let mut published = false;
-        let result = (|| {
-            let data_path = self.data_path();
-            sync_file(&data_path)?;
-            let size = std::fs::metadata(&data_path)
-                .map_err(|error| {
-                    BlobError::failed(format!("stat staged blob {}: {error}", data_path.display()))
-                })?
-                .len();
-            if size > 9_007_199_254_740_991 {
-                return Err(BlobError::failed(
-                    "blob size exceeds the shared metadata integer limit",
-                ));
-            }
-            let metadata_path = self.staged_directory.join(METADATA_FILE);
-            let content_type = normalize_content_type(content_type);
-            let metadata = serde_json::to_vec(&BlobMetadata { content_type, size })
-                .map_err(|error| BlobError::failed(format!("serialize blob metadata: {error}")))?;
-            std::fs::write(&metadata_path, metadata).map_err(|error| {
-                BlobError::failed(format!(
-                    "write blob metadata {}: {error}",
-                    metadata_path.display()
-                ))
-            })?;
-            sync_file(&metadata_path)?;
-            sync_directory(&self.staged_directory)?;
-            std::fs::rename(&self.staged_directory, &self.final_directory).map_err(|error| {
-                BlobError::failed(format!(
-                    "publish blob {}: {error}",
-                    self.final_directory.display()
-                ))
-            })?;
-            published = true;
-            sync_directory(&self.root)?;
-            Ok(size)
-        })();
-
-        match result {
-            Ok(size) => Ok(size),
-            Err(error) => {
-                // A completed rename is irrevocable even if its directory sync
-                // failed. Cleanup never owns published library bytes.
-                if published {
-                    return Err(error);
-                }
-                let cleanup_target = &self.staged_directory;
-                if let Err(cleanup_error) = std::fs::remove_dir_all(cleanup_target) {
-                    return Err(BlobError::failed(format!(
-                        "{error}; cleanup blob {}: {cleanup_error}",
-                        cleanup_target.display()
-                    )));
-                }
-                Err(error)
-            }
+    #[cfg(test)]
+    pub fn publish(mut self, content_type: &str) -> Result<u64, BlobError> {
+        let result = self.commit(content_type);
+        if result.is_err() {
+            self.discard();
         }
+        result
     }
 
     /// Delete these bytes. The id is burnt: no blob will ever exist under it.
@@ -498,6 +334,9 @@ impl StagedBlob {
     /// could do with it that the startup sweep does not already do.
     pub fn discard(self) {
         if let Err(error) = std::fs::remove_dir_all(&self.staged_directory) {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                return;
+            }
             warn!(
                 "Failed to discard staged blob {} at {}: {error}",
                 self.id,
@@ -507,17 +346,12 @@ impl StagedBlob {
     }
 }
 
-/// Delete abandoned native staging across every application dataset at startup.
+/// Delete abandoned native staging in canonical app-local stores at startup.
 ///
 /// The single-instance host calls this before admitting any native writers.
 /// Staging is incomplete data; it is deleted, never promoted into a blob.
-/// Bun owns a separate staging subtree, which this sweep leaves untouched.
+/// Bun staging and historical capture/account directories remain untouched.
 pub fn delete_stale_staging(app: &AppHandle) {
-    delete_staging_root(
-        &app.state::<crate::app_data::DesktopPaths>()
-            .data_dir
-            .join("capture"),
-    );
     delete_apps_staging(&app.state::<crate::app_data::DesktopPaths>().data_dir);
 }
 
@@ -527,29 +361,7 @@ fn delete_apps_staging(data_dir: &Path) {
             if app.file_type().is_ok_and(|kind| kind.is_dir())
                 && app.file_name().to_str().is_some_and(is_app_id)
             {
-                delete_partition_staging(&app.path());
-            }
-        }
-    }
-}
-
-fn delete_partition_staging(root: &Path) {
-    delete_staging_root(&root.join("local").join(BLOBS_DIRECTORY));
-    if let Ok(partitions) = std::fs::read_dir(&root) {
-        for partition in partitions.flatten() {
-            if partition.file_name() == "accounts" {
-                if let Ok(authorities) = std::fs::read_dir(partition.path()) {
-                    for authority in authorities.flatten() {
-                        if let Ok(principals) = std::fs::read_dir(authority.path()) {
-                            for principal in principals.flatten() {
-                                delete_staging_root(&principal.path().join(BLOBS_DIRECTORY));
-                                delete_staging_root(
-                                    &principal.path().join("shared").join(BLOBS_DIRECTORY),
-                                );
-                            }
-                        }
-                    }
-                }
+                delete_staging_root(&app.path().join(BLOBS_DIRECTORY));
             }
         }
     }
@@ -558,29 +370,6 @@ fn delete_partition_staging(root: &Path) {
 /// Remove abandoned writes while preserving saved captures for their owner.
 pub(crate) fn delete_staging_root(root: &Path) {
     let staging_root = root.join(STAGING_DIRECTORY).join(RUST_STAGING_DIRECTORY);
-    if let Ok(entries) = std::fs::read_dir(&staging_root) {
-        let mut retained = false;
-        for entry in entries {
-            let Ok(entry) = entry else {
-                retained = true;
-                continue;
-            };
-            if entry.path().join(".recording-session").exists() {
-                retained = true;
-                continue;
-            }
-            if let Err(error) = std::fs::remove_dir_all(entry.path()) {
-                if entry.path().is_file() {
-                    let _ = std::fs::remove_file(entry.path());
-                } else {
-                    warn!("Could not remove abandoned capture staging: {error}");
-                }
-            }
-        }
-        if retained {
-            return;
-        }
-    }
     match std::fs::remove_dir_all(&staging_root) {
         Ok(()) => info!(
             "Deleted stale native blob staging at {}",
@@ -652,164 +441,44 @@ mod tests {
     const ID: &str = "blob_aaaaaaaaaaaaaaaaaaaaa";
 
     #[test]
-    fn attachment_retry_verifies_bytes_and_origin_after_directory_sync_failure() {
+    fn post_rename_failure_retries_durability_and_cleanup_preserves_saved_bytes() {
         let data = tempfile::tempdir().unwrap();
-        let destination = BlobDestination {
-            app_id: "so.epicenter.notes".into(),
-            replica: LibraryReplica::Local {},
-        };
-        let root = blobs_directory(data.path(), &destination).unwrap();
-        let key = "attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa";
-        let mut staged = StagedBlob::stage(data.path().join("capture"), ID).unwrap();
-        std::fs::write(staged.data_path(), b"finished wav").unwrap();
-        let mut receipt = None;
-        FAIL_DIRECTORY_SYNC.with(|target| *target.borrow_mut() = Some(root.clone()));
-        let failure = staged
-            .publish_attachment(data.path(), &destination, key, None, &mut receipt)
-            .unwrap_err();
-        assert!(failure.to_string().contains("injected directory sync"));
-        assert!(root.join(key).join("data").exists());
-        let content = staged
-            .publish_attachment(data.path(), &destination, key, None, &mut receipt)
-            .unwrap();
-        assert_eq!(content.size, 12);
-        // A same-length replacement is not an identical retry.
-        std::fs::write(root.join(key).join("data"), b"differentwav").unwrap();
-        assert!(staged
-            .publish_attachment(data.path(), &destination, key, None, &mut receipt)
-            .is_err());
-        staged.discard();
-        assert!(root.join(key).join("data").exists());
-    }
-
-    #[test]
-    fn attachment_destination_obstruction_retains_temporary_output_for_exact_retry() {
-        let data = tempfile::tempdir().unwrap();
-        let destination = BlobDestination {
-            app_id: "so.epicenter.notes".into(),
-            replica: LibraryReplica::Local {},
-        };
-        let root = blobs_directory(data.path(), &destination).unwrap();
-        std::fs::create_dir_all(&root).unwrap();
-        let key = "attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa";
-        let mut staged = StagedBlob::stage(data.path().join("capture"), ID).unwrap();
-        std::fs::write(staged.data_path(), b"finished").unwrap();
-        let mut receipt = None;
-        std::fs::write(root.join(key), b"blocked destination").unwrap();
-        assert!(staged
-            .publish_attachment(data.path(), &destination, key, None, &mut receipt)
-            .is_err());
-        assert!(staged.data_path().exists());
-        std::fs::remove_file(root.join(key)).unwrap();
-        assert_eq!(
-            staged
-                .publish_attachment(data.path(), &destination, key, None, &mut receipt)
-                .unwrap()
-                .size,
-            8
-        );
-        staged.discard();
-        assert!(root.join(key).join("data").exists());
-    }
-
-    #[test]
-    fn native_hash_and_publication_stream_representative_recording_sizes() {
-        let data = tempfile::tempdir().unwrap();
-        let destination = BlobDestination {
-            app_id: "so.epicenter.notes".into(),
-            replica: LibraryReplica::Local {},
-        };
-        for (seconds, row) in [(1_u64, 'a'), (180, 'b'), (3600, 'c')] {
-            let mut staged = StagedBlob::stage(data.path().join("capture"), ID).unwrap();
-            let mut file = File::create(staged.data_path()).unwrap();
-            let size = 44 + 48_000 * 2 * seconds;
-            let chunk = [19_u8; 64 * 1024];
-            let mut remaining = size;
-            while remaining > 0 {
-                let count = remaining.min(chunk.len() as u64) as usize;
-                file.write_all(&chunk[..count]).unwrap();
-                remaining -= count as u64;
-            }
-            drop(file);
-            let mut receipt = None;
-            let key = format!("attachment.recordings.{}", row.to_string().repeat(24));
-            let content = staged
-                .publish_attachment(data.path(), &destination, &key, None, &mut receipt)
-                .unwrap();
-            assert_eq!(u64::from(content.size), size);
-            assert_eq!(
-                staged
-                    .publish_attachment(data.path(), &destination, &key, None, &mut receipt)
-                    .unwrap(),
-                content
-            );
-            staged.discard();
-        }
-    }
-
-    #[test]
-    fn first_attachment_and_identical_retries_repeat_ancestor_durability_barriers() {
-        let data = tempfile::tempdir().unwrap();
-        let destination = BlobDestination {
-            app_id: "so.epicenter.notes".into(),
-            replica: LibraryReplica::Local {},
-        };
-        let root = blobs_directory(data.path(), &destination).unwrap();
-        let ancestor = data.path().join("apps");
-        assert!(!ancestor.exists());
-        let key = "attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa";
-        let mut staged = StagedBlob::stage(data.path().join("capture"), ID).unwrap();
+        let root = blobs_directory(
+            data.path(),
+            &BlobDestination {
+                app_id: "so.epicenter.notes".into(),
+            },
+        )
+        .unwrap();
+        let mut staged = StagedBlob::stage(root.clone(), ID).unwrap();
         std::fs::write(staged.data_path(), b"native bytes").unwrap();
-        let mut receipt = None;
         for _ in 0..2 {
-            FAIL_DIRECTORY_SYNC.with(|target| *target.borrow_mut() = Some(ancestor.clone()));
-            let error = staged
-                .publish_attachment(data.path(), &destination, key, None, &mut receipt)
-                .unwrap_err();
-            assert!(error.to_string().contains("injected directory sync"));
-            assert!(root.join(key).join(DATA_FILE).exists());
-            assert!(!staged.data_path().exists());
+            FAIL_DIRECTORY_SYNC.with(|target| *target.borrow_mut() = Some(root.clone()));
+            assert!(staged
+                .commit("audio/wav")
+                .unwrap_err()
+                .to_string()
+                .contains("injected directory sync"));
+            assert!(root.join(ID).join(DATA_FILE).exists());
         }
+        assert_eq!(staged.commit("audio/wav").unwrap(), 12);
+        staged.discard();
         assert_eq!(
-            staged
-                .publish_attachment(data.path(), &destination, key, None, &mut receipt)
-                .unwrap()
-                .size,
-            12
+            std::fs::read(root.join(ID).join(DATA_FILE)).unwrap(),
+            b"native bytes"
         );
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn actual_rename_permission_failure_preserves_the_finished_token_for_retry() {
-        use std::os::unix::fs::PermissionsExt;
+    fn destination_obstruction_retains_staging_for_retry() {
         let data = tempfile::tempdir().unwrap();
-        let destination = BlobDestination {
-            app_id: "so.epicenter.notes".into(),
-            replica: LibraryReplica::Local {},
-        };
-        let root = blobs_directory(data.path(), &destination).unwrap();
-        std::fs::create_dir_all(&root).unwrap();
-        let key = "attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa";
-        let mut staged = StagedBlob::stage(data.path().join("capture"), ID).unwrap();
+        let mut staged = StagedBlob::stage(data.path().into(), ID).unwrap();
         std::fs::write(staged.data_path(), b"native bytes").unwrap();
-        let mut receipt = None;
-        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o500)).unwrap();
-        let result = staged.publish_attachment(data.path(), &destination, key, None, &mut receipt);
-        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("publish finished capture"));
+        std::fs::write(data.path().join(ID), b"obstruction").unwrap();
+        assert!(staged.commit("audio/wav").is_err());
         assert!(staged.data_path().exists());
-        assert!(!root.join(key).exists());
-        assert_eq!(
-            staged
-                .publish_attachment(data.path(), &destination, key, None, &mut receipt)
-                .unwrap()
-                .size,
-            12
-        );
+        std::fs::remove_file(data.path().join(ID)).unwrap();
+        assert_eq!(staged.commit("audio/wav").unwrap(), 12);
     }
 
     /// The smoke runner consumes these actual native-produced metadata/body
@@ -841,111 +510,30 @@ mod tests {
                 serde_json::json!({ "id": ID, "metadata": metadata, "data": data })
             );
         }
-        for generation in [None, Some(7)] {
-            let data = tempfile::tempdir().unwrap();
-            let destination = BlobDestination {
-                app_id: "so.epicenter.notes".into(),
-                replica: if generation.is_none() {
-                    LibraryReplica::Local {}
-                } else {
-                    LibraryReplica::Personal {
-                        account: ReplicaAccount {
-                            authority_id: "server".into(),
-                            principal_id: "owner".into(),
-                        },
-                    }
-                },
-            };
-            let key = "attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa";
-            let mut staged = StagedBlob::stage(data.path().join("capture"), ID).unwrap();
-            std::fs::write(staged.data_path(), b"native bytes").unwrap();
-            staged
-                .publish_attachment(data.path(), &destination, key, generation, &mut None)
-                .unwrap();
-            let root = blobs_directory(data.path(), &destination)
-                .unwrap()
-                .join(key);
-            let metadata = std::fs::read_to_string(root.join(METADATA_FILE)).unwrap();
-            println!(
-                "BLOB_CONTRACT {}",
-                serde_json::json!({ "id": key, "metadata": metadata, "data": "native bytes" })
-            );
-        }
     }
 
     #[test]
-    fn replica_wire_requires_an_explicit_library_and_actor() {
-        for invalid in [
-            serde_json::json!(null),
-            serde_json::json!({"library": null}),
-            serde_json::json!({"library": "personal"}),
-            serde_json::json!({"library": "shared", "account": null}),
-            serde_json::json!({"library": "local", "account": {"authorityId": "server", "principalId": "alice"}}),
-            serde_json::json!({"authorityId": "server", "principalId": "alice"}),
-        ] {
-            assert!(serde_json::from_value::<LibraryReplica>(invalid).is_err());
-        }
-    }
-
-    #[test]
-    fn destinations_keep_applications_and_account_partitions_separate() {
+    fn destinations_keep_application_blobs_separate() {
         let data = tempfile::tempdir().unwrap();
         let mut roots = std::collections::HashSet::new();
         for app_id in ["so.epicenter.whispering", "so.epicenter.notes"] {
-            for replica in [
-                LibraryReplica::Local {},
-                LibraryReplica::Shared {
-                    account: ReplicaAccount {
-                        authority_id: "authority-a".into(),
-                        principal_id: "alice".into(),
-                    },
-                },
-                LibraryReplica::Shared {
-                    account: ReplicaAccount {
-                        authority_id: "authority-a".into(),
-                        principal_id: "bob".into(),
-                    },
-                },
-                LibraryReplica::Personal {
-                    account: ReplicaAccount {
-                        authority_id: "authority-a".into(),
-                        principal_id: "alice".into(),
-                    },
-                },
-                LibraryReplica::Personal {
-                    account: ReplicaAccount {
-                        authority_id: "authority-b".into(),
-                        principal_id: "alice".into(),
-                    },
-                },
-                LibraryReplica::Personal {
-                    account: ReplicaAccount {
-                        authority_id: "authority-a".into(),
-                        principal_id: "bob".into(),
-                    },
-                },
-            ] {
-                let destination = BlobDestination {
+            let root = blobs_directory(
+                data.path(),
+                &BlobDestination {
                     app_id: app_id.into(),
-                    replica,
-                };
-                let root = blobs_directory(data.path(), &destination).unwrap();
-                assert!(roots.insert(root.clone()));
-                let bytes = serde_json::to_vec(&destination).unwrap();
-                publish_bytes(&root, ID, &bytes).unwrap();
-                assert_eq!(std::fs::read(root.join(ID).join(DATA_FILE)).unwrap(), bytes);
-                let staged = StagedBlob::stage(root.clone(), "blob_bbbbbbbbbbbbbbbbbbbbb").unwrap();
-                std::fs::write(staged.data_path(), b"partial").unwrap();
-                let bun = root.join(".staging/bun");
-                std::fs::create_dir_all(&bun).unwrap();
-                std::fs::write(bun.join("retained"), b"bun-owned").unwrap();
-            }
+                },
+            )
+            .unwrap();
+            assert_eq!(root, data.path().join("apps").join(app_id).join("blobs"));
+            assert!(roots.insert(root.clone()));
+            publish_bytes(&root, ID, app_id.as_bytes()).unwrap();
+            let staged = StagedBlob::stage(root.clone(), "blob_bbbbbbbbbbbbbbbbbbbbb").unwrap();
+            std::fs::write(staged.data_path(), b"partial").unwrap();
         }
         delete_apps_staging(data.path());
         for root in roots {
             assert!(!root.join(".staging/rust").exists());
             assert!(root.join(ID).join(DATA_FILE).exists());
-            assert!(root.join(".staging/bun/retained").exists());
         }
     }
 
@@ -971,7 +559,6 @@ mod tests {
                     data.path(),
                     &BlobDestination {
                         app_id: app_id.into(),
-                        replica: LibraryReplica::Local {}
                     }
                 )
                 .is_err(),
@@ -980,31 +567,6 @@ mod tests {
         }
         for app_id in ["so.epicenter.whispering", "a.b", "a-1.b2", "1.2"] {
             assert!(is_app_id(app_id), "rejected {app_id}");
-        }
-        for segment in ["", ".", "..", "a/b", "a\\b"] {
-            for replica in [
-                LibraryReplica::Personal {
-                    account: ReplicaAccount {
-                        authority_id: segment.into(),
-                        principal_id: "valid".into(),
-                    },
-                },
-                LibraryReplica::Personal {
-                    account: ReplicaAccount {
-                        authority_id: "valid".into(),
-                        principal_id: segment.into(),
-                    },
-                },
-            ] {
-                assert!(blobs_directory(
-                    data.path(),
-                    &BlobDestination {
-                        app_id: "so.app".into(),
-                        replica
-                    }
-                )
-                .is_err());
-            }
         }
         assert!(!data.path().join("apps").exists());
     }
@@ -1046,32 +608,33 @@ mod tests {
     }
 
     #[test]
-    fn startup_sweeps_local_and_account_staging_without_deleting_published_blobs() {
-        let root = tempfile::tempdir().expect("app root");
-        for partition in [
-            "local",
-            "accounts/authority-a/principal",
-            "accounts/authority-b/principal",
-        ] {
-            let blobs = root.path().join(partition).join(BLOBS_DIRECTORY);
-            let staging = blobs.join(STAGING_DIRECTORY).join(RUST_STAGING_DIRECTORY);
+    fn startup_sweeps_only_canonical_staging_and_preserves_every_legacy_file() {
+        let data = tempfile::tempdir().unwrap();
+        let app = data.path().join("apps/so.epicenter.test");
+        let canonical = app.join(BLOBS_DIRECTORY);
+        let legacy = [
+            data.path().join("capture"),
+            app.join("local/blobs"),
+            app.join("accounts/authority-a/principal/blobs"),
+            app.join("accounts/authority-a/principal/shared/blobs"),
+        ];
+        for blobs in legacy.iter().chain(std::iter::once(&canonical)) {
+            let staging = blobs.join(".staging/rust");
             std::fs::create_dir_all(&staging).unwrap();
             std::fs::write(staging.join("abandoned"), b"partial").unwrap();
-            publish_bytes(&blobs, ID, b"published").unwrap();
+            publish_bytes(blobs, ID, b"published").unwrap();
         }
-
-        delete_partition_staging(root.path());
-
-        for partition in [
-            "local",
-            "accounts/authority-a/principal",
-            "accounts/authority-b/principal",
-        ] {
-            let blobs = root.path().join(partition).join(BLOBS_DIRECTORY);
-            assert!(!blobs
-                .join(STAGING_DIRECTORY)
-                .join(RUST_STAGING_DIRECTORY)
-                .exists());
+        delete_apps_staging(data.path());
+        assert!(!canonical.join(".staging/rust").exists());
+        assert_eq!(
+            std::fs::read(canonical.join(ID).join(DATA_FILE)).unwrap(),
+            b"published"
+        );
+        for blobs in legacy {
+            assert_eq!(
+                std::fs::read(blobs.join(".staging/rust/abandoned")).unwrap(),
+                b"partial"
+            );
             assert_eq!(
                 std::fs::read(blobs.join(ID).join(DATA_FILE)).unwrap(),
                 b"published"

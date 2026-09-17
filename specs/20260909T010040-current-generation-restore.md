@@ -114,7 +114,8 @@ Independent review approved the repair; native tests remain 169 pass,
 are unchanged. The rebuilt native imported-audio A/B journey now passes.
 
 Native evidence and exact checks are recorded in
-[attachment-native-evidence.md](../packages/app/scripts/attachment-native-evidence.md).
+`packages/app/scripts/attachment-native-evidence.md` in commit 1057265cfc
+(the automatic-transfer acceptance harness has since been removed).
 Independent review inspected the final result and both persisted files. The
 native run proves import/save, offline restart, automatic delivery before Play,
 bounded controls, and offline playback using two separately persisted clients.
@@ -335,7 +336,7 @@ by three records before the restore orchestration was mounted. Read them before
 anything in this spec that mentions a catalog, an archive, an attempt, a
 journal, a blob id, or object storage for backups:
 
-- [ADR-0393](../docs/adr/0393-a-blob-is-addressed-by-its-row-and-the-account-holds-every-one.md):
+- [ADR-0393](../docs/adr/0393-rows-refer-to-blobs-without-owning-their-lifetime.md):
   a blob is the object at `<table>/<row-id>` under the library's mount, its
   cell holds the MIME type, bytes are immutable and a row keeps them for life,
   and the account holds every blob while the device caches.

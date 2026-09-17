@@ -3,7 +3,7 @@
  *
  * Point it at a base URL and it runs ONE end-to-end scenario against the live
  * HTTP server: read the session and exercise the full opaque-id blob lifecycle
- * (ticket -> presigned PUT -> read back).
+ * (authenticated upload -> read back -> delete).
  * Every step prints a single PASS/FAIL/SKIP line, so the same
  * invocation against the Bun process (:8788) and the wrangler process (:8787)
  * produces a diffable transcript of runtime parity.
@@ -27,7 +27,7 @@
  *     that as an expected, non-fatal outcome.
  */
 
-import { generateBlobId } from '@epicenter/blobs';
+import { REMOTE_BLOB_ROUTES } from '@epicenter/blobs';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { API_BUN_DEV_PORT } from '@epicenter/constants/apps';
 
@@ -102,73 +102,57 @@ async function main() {
 	const payload = new TextEncoder().encode(
 		`epicenter blob smoke ${new Date().toISOString()} ${randHex(4)}\n`,
 	);
-	const blobId = generateBlobId();
-	const ticketRes = await fetch(API_ROUTES.blobs.collection.url(BASE_URL), {
-		method: 'POST',
-		headers: { ...authHeaders, 'content-type': 'application/json' },
-		body: JSON.stringify({
-			blobId,
-			sizeBytes: payload.byteLength,
-			contentType: 'text/plain',
-		}),
-	});
-
-	if (ticketRes.status === 503) {
+	const upload = await fetch(
+		REMOTE_BLOB_ROUTES.collectionUrl(BASE_URL, 'so.epicenter.smoke'),
+		{
+			method: 'POST',
+			headers: { ...authHeaders, 'content-type': 'text/plain' },
+			body: payload,
+		},
+	);
+	if (upload.status === 503) {
 		record(
 			'SKIP',
-			'blob ticket',
-			'503 StorageNotConfigured (no BLOBS_S3_* on this server), expected without S3',
+			'blob upload',
+			'503 storage unavailable; expected without BLOBS_S3_*',
 		);
-	} else if (!ticketRes.ok) {
-		record(
-			'FAIL',
-			'blob ticket',
-			`${ticketRes.status} ${await ticketRes.text()}`,
-		);
+	} else if (!upload.ok) {
+		record('FAIL', 'blob upload', `${upload.status} ${await upload.text()}`);
 	} else {
-		const ticket = (await ticketRes.json()) as {
-			uploadUrl: string;
-			requiredHeaders: Record<string, string>;
-		};
-		record('PASS', 'blob ticket', `${ticketRes.status} blobId=${blobId}`);
-
-		const putRes = await fetch(ticket.uploadUrl, {
-			method: 'PUT',
-			headers: ticket.requiredHeaders,
-			body: payload,
-		});
-		record(
-			putRes.ok || putRes.status === 412 ? 'PASS' : 'FAIL',
-			'blob PUT (presigned)',
-			`${putRes.status}`,
-		);
-
-		// Read back: 302 -> presigned GET -> compare bytes.
-		const readRes = await fetch(API_ROUTES.blobs.byId.url(BASE_URL, blobId), {
-			headers: authHeaders,
-			redirect: 'manual',
-		});
-		const presigned = readRes.headers.get('location');
-		if (readRes.status === 302 && presigned) {
-			const objRes = await fetch(presigned);
-			const got = new Uint8Array(await objRes.arrayBuffer());
+		const { url } = (await upload.json()) as { url: string };
+		const expectedPrefix = `${BASE_URL.replace(/\/+$/, '')}/api/apps/so.epicenter.smoke/principals/${encodeURIComponent(resolvedPrincipalId)}/blobs/`;
+		if (!url.startsWith(expectedPrefix)) {
+			record('FAIL', 'blob upload', 'Server returned an invalid owner URL');
+			return summarize();
+		}
+		record('PASS', 'blob upload', String(upload.status));
+		try {
+			const read = await fetch(url, {
+				headers: authHeaders,
+				redirect: 'error',
+			});
+			const got = new Uint8Array(await read.arrayBuffer());
 			const match =
+				read.ok &&
 				got.byteLength === payload.byteLength &&
 				got.every((byte, index) => byte === payload[index]);
 			record(
 				match ? 'PASS' : 'FAIL',
 				'blob read back',
-				`302 -> ${objRes.status}, bytes ${match ? 'match' : 'MISMATCH'}`,
+				`${read.status}, bytes ${match ? 'match' : 'MISMATCH'}`,
 			);
-		} else {
-			record('FAIL', 'blob read back', `expected 302, got ${readRes.status}`);
+		} finally {
+			const deleted = await fetch(url, {
+				method: 'DELETE',
+				headers: authHeaders,
+				redirect: 'error',
+			});
+			record(
+				deleted.ok ? 'PASS' : 'FAIL',
+				'blob delete',
+				String(deleted.status),
+			);
 		}
-
-		// Cleanup the uploaded object (idempotent).
-		await fetch(API_ROUTES.blobs.byId.url(BASE_URL, blobId), {
-			method: 'DELETE',
-			headers: authHeaders,
-		});
 	}
 
 	return summarize();

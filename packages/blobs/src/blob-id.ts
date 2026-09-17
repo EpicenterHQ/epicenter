@@ -5,9 +5,8 @@ import type { Brand } from 'wellcrafted/brand';
 /**
  * @fileoverview BlobId: the one opaque identifier a blob carries everywhere.
  *
- * Each immutable blob has one ID across local and remote copies. Creating an
- * owning attachment from an existing blob copies its bytes into a fresh ID,
- * so deleting either attachment cannot delete the other's bytes.
+ * Each immutable object has one ID in its owning store. Explicit uploads
+ * allocate fresh remote IDs; local and remote objects have independent lifetimes.
  * The id is NOT a content hash: it says nothing about the
  * bytes, and SHA-256 or dedup never appear in this contract.
  *

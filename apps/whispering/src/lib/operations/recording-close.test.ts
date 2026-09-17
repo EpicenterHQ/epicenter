@@ -28,7 +28,7 @@ const capture = {
 		events.push('finalize');
 		await finalized.promise;
 		return Ok({
-			file: new Blob(['audio'], { type: 'audio/wav' }),
+			blobId: generateBlobId(),
 			durationMs: 100,
 			byteLength: 10,
 		});
@@ -101,7 +101,6 @@ function recordingApp<T extends object>(
 	options: T,
 	service = {
 		start: async () => Ok(capture as unknown as Recording),
-		discard: async () => Ok(undefined),
 		current: async () => Ok(null),
 		enumerateDevices: async () => Ok([]),
 	} as RecordingService,
@@ -246,7 +245,6 @@ test('push-to-talk release during startup saves through the composed workflow', 
 		enumerateDevices: async () => Ok([]),
 		current: async () => Ok(null),
 		start: () => acquired.promise,
-		discard: async () => Ok(undefined),
 	} as RecordingService;
 	const removeLocal = mock(async () => Ok(undefined));
 	const app = recordingApp(

@@ -10,14 +10,28 @@ import {
 	createSessionAuth,
 } from '@epicenter/auth';
 import { createDesktopBrokerAuth } from '@epicenter/auth/desktop';
+import {
+	generateBlobId,
+	MAX_REMOTE_BLOB_BYTES,
+	REMOTE_BLOB_ROUTES,
+} from '@epicenter/blobs';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
+import { createRemoteBlobClient } from '@epicenter/client';
 import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { Ok } from 'wellcrafted/result';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createHomeHost } from './host.ts';
 import { createHomeServer } from './server.ts';
 
-async function setup({ verification }: { verification?: Promise<void> } = {}) {
+async function setup({
+	verification,
+	holdBlobUpload = false,
+}: {
+	verification?: Promise<void>;
+	holdBlobUpload?: boolean;
+} = {}) {
+	const uploadStarted = Promise.withResolvers<void>();
+	const uploadAborted = Promise.withResolvers<void>();
 	const sessionRequests: Request[] = [];
 	const requests: {
 		path: string;
@@ -25,6 +39,7 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 		body: string;
 		cookie: string | null;
 		protocols: string | null;
+		localBlob: string | null;
 	}[] = [];
 	const retryReceived = Promise.withResolvers<void>();
 	const releaseRetry = Promise.withResolvers<void>();
@@ -53,13 +68,42 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 				});
 			}
 			if (url.pathname === '/auth/sign-out') return new Response(null);
+			if (
+				holdBlobUpload &&
+				url.pathname === '/api/apps/so.epicenter.notes/blobs'
+			) {
+				request.signal.addEventListener(
+					'abort',
+					() => uploadAborted.resolve(),
+					{ once: true },
+				);
+				// Consume the body as the real upload route does before storage.put.
+				// Bun does not reliably report disconnects while it remains unread.
+				await request.arrayBuffer();
+				uploadStarted.resolve();
+				await uploadAborted.promise;
+				return new Response(null, { status: 499 });
+			}
 			requests.push({
 				path: url.pathname,
 				bearer: request.headers.get('authorization'),
 				body: request.method === 'POST' ? await request.text() : '',
 				cookie: request.headers.get('cookie'),
 				protocols: request.headers.get('sec-websocket-protocol'),
+				localBlob: request.headers.get('x-epicenter-local-blob-id'),
 			});
+			if (url.pathname === '/api/apps/so.epicenter.notes/blobs')
+				return Response.json(
+					{
+						url: REMOTE_BLOB_ROUTES.objectUrl(
+							new URL(request.url).origin,
+							'so.epicenter.notes',
+							'alice',
+							generateBlobId(),
+						),
+					},
+					{ status: 201 },
+				);
 			if (url.pathname === STORE_SYNC_ROUTE.pattern) {
 				if (server.upgrade(request)) return undefined;
 				return new Response(null, { status: 400 });
@@ -175,7 +219,6 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 		host,
 		staticAssets: { homePage: '<html><head></head></html>', applications: [] },
 		blobs: () => createBunBlobStore({ directory }),
-		blobRemote: () => null,
 		desktopAuth: {
 			baseURL,
 			callbackUrl: 'epicenter://auth/callback',
@@ -259,6 +302,9 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 	return {
 		origin,
 		cookie,
+		uploadStarted,
+		uploadAborted,
+		localBlobs: createBunBlobStore({ directory }),
 		account: windowAuth.state.account,
 		windowAuth,
 		auth,
@@ -528,3 +574,125 @@ async function until(condition: () => boolean) {
 		await Bun.sleep(5);
 	}
 }
+
+test('saved native upload sends no bytes through the window Account broker and strips its control header', async () => {
+	await using context = await setup();
+	const id = generateBlobId();
+	expectOk(
+		await context.localBlobs.put(
+			id,
+			new Blob(['saved audio'], { type: 'audio/wav' }),
+		),
+	);
+	const remote = createRemoteBlobClient({
+		appId: 'so.epicenter.notes',
+		account: context.account,
+		host: true,
+		local: {
+			stat: context.localBlobs.stat,
+			async get() {
+				throw new Error('Native bytes crossed the window');
+			},
+		},
+	});
+	const url = expectOk(await remote.addLocal(id));
+	expect(url).toContain('/principals/alice/blobs/');
+	expect(await context.localCalls.at(-1)!.text()).toBe('');
+	expect(context.requests.at(-1)).toMatchObject({
+		body: 'saved audio',
+		bearer: 'Bearer initial',
+		localBlob: null,
+	});
+});
+
+test('the host checks native upload size before opening bytes and accepts the control header only on the upload route', async () => {
+	await using context = await setup();
+	const id = generateBlobId();
+	expectOk(
+		await context.localBlobs.put(
+			id,
+			new Blob([new Uint8Array(MAX_REMOTE_BLOB_BYTES + 1)]),
+		),
+	);
+	const collection = REMOTE_BLOB_ROUTES.collectionUrl(
+		context.account.baseURL,
+		'so.epicenter.notes',
+	);
+	const response = await context.account.fetch(collection, {
+		method: 'POST',
+		headers: { 'x-epicenter-local-blob-id': id },
+	});
+	expect(response.status).toBe(413);
+	expect(context.requests).toHaveLength(0);
+	for (const path of [
+		'/api/other',
+		'/api/apps/so.epicenter.notes/blobs?owner=bob',
+	]) {
+		expect(
+			(
+				await context.account.fetch(context.account.baseURL + path, {
+					method: 'POST',
+					headers: { 'x-epicenter-local-blob-id': id },
+				})
+			).status,
+		).toBe(400);
+	}
+	expect(context.requests).toHaveLength(0);
+});
+
+test('retired remote handles cannot upload saved files through a later same-person sign-in', async () => {
+	await using context = await setup();
+	const id = generateBlobId();
+	expectOk(await context.localBlobs.put(id, new Blob(['saved'])));
+	const remote = createRemoteBlobClient({
+		appId: 'so.epicenter.notes',
+		account: context.account,
+		local: context.localBlobs,
+		host: true,
+	});
+	expectOk(await context.auth.signOut());
+	await context.signIn('revised');
+	expect(expectErr(await remote.addLocal(id)).name).toBe('Failed');
+	expect(context.requests).toHaveLength(0);
+});
+
+test('cancelling native addLocal aborts the pending upstream upload request', async () => {
+	await using context = await setup({ holdBlobUpload: true });
+	const id = generateBlobId();
+	expectOk(
+		await context.localBlobs.put(id, new Blob([new Uint8Array(1024 * 1024)])),
+	);
+	const remote = createRemoteBlobClient({
+		appId: 'so.epicenter.notes',
+		account: context.account,
+		local: context.localBlobs,
+		host: true,
+	});
+	const controller = new AbortController();
+	const pending = remote.addLocal(id, { signal: controller.signal });
+	await context.uploadStarted.promise;
+	controller.abort();
+	expect(expectErr(await pending).name).toBe('Failed');
+	await context.uploadAborted.promise;
+	expect(context.localCalls.at(-1)!.body).toBeNull();
+});
+
+test('Account retirement aborts an already admitted native upload', async () => {
+	await using context = await setup({ holdBlobUpload: true });
+	const id = generateBlobId();
+	expectOk(
+		await context.localBlobs.put(id, new Blob([new Uint8Array(1024 * 1024)])),
+	);
+	const remote = createRemoteBlobClient({
+		appId: 'so.epicenter.notes',
+		account: context.account,
+		local: context.localBlobs,
+		host: true,
+	});
+	const pending = remote.addLocal(id);
+	await context.uploadStarted.promise;
+	expectOk(await context.auth.signOut());
+	expect(expectErr(await pending).name).toBe('Failed');
+	await context.uploadAborted.promise;
+	expect(context.localCalls.at(-1)!.body).toBeNull();
+});

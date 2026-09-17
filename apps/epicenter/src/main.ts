@@ -1,4 +1,4 @@
-import { createAiCatalog, type AiCatalog } from './ai-catalog.ts';
+import { type AiCatalog, createAiCatalog } from './ai-catalog.ts';
 /**
  * The Bun sidecar entrypoint: accept one versioned boot frame from Rust, bind
  * its validated loopback port, announce readiness once, and remain tied to the
@@ -10,15 +10,9 @@ import { createAiCatalog, type AiCatalog } from './ai-catalog.ts';
  */
 
 import { join } from 'node:path';
-import OpenAI from 'openai';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
-import type { LibraryReplicaIdentity } from '@epicenter/principal';
-import {
-	type AgentEngine,
-	createBunBlobRemote,
-	createEpicenterClient,
-	createOpenAiAgentEngine,
-} from '@epicenter/client';
+import { type AgentEngine, createOpenAiAgentEngine } from '@epicenter/client';
+import OpenAI from 'openai';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { discoverInstalledApplications } from './app-installation.ts';
 import { createNativeAppSecrets } from './app-secrets.ts';
@@ -32,6 +26,7 @@ import {
 } from './desktop-auth-authority.ts';
 import { createNativeDevice } from './device.ts';
 import { createHomeHost, type HomeHost } from './host.ts';
+import { SIGN_IN_CALLBACK_ROUTE } from './routes.ts';
 import { createHomeServer } from './server.ts';
 import {
 	createNativePort,
@@ -42,7 +37,6 @@ import {
 	watchParentPipe,
 } from './sidecar-runtime.ts';
 import { loadStaticAssets } from './static-assets.ts';
-import { SIGN_IN_CALLBACK_ROUTE } from './routes.ts';
 
 // 1.3.1 and 1.3.3 report false stdin EOF during native sign-in, leaving
 // a live sidecar without its HTTP listener. 1.3.14 passes the native flow.
@@ -80,59 +74,15 @@ async function main(): Promise<void> {
 		const dataRoot = boot.dataDir;
 
 		host = await createHomeHost({ engine, model });
-		const blobs = (appId: string, replica: LibraryReplicaIdentity) =>
+		const blobs = (appId: string) =>
 			createBunBlobStore({
-				directory:
-					replica.library === 'local'
-						? join(dataRoot, 'apps', appId, 'local', 'blobs')
-						: join(
-								dataRoot,
-								'apps',
-								appId,
-								'accounts',
-								replica.account.authorityId,
-								replica.account.principalId,
-								...(replica.library === 'shared' ? ['shared'] : []),
-								'blobs',
-							),
+				directory: join(dataRoot, 'apps', appId, 'blobs'),
 			});
 		const device = createNativeDevice(nativePort);
 		// The credential store is Rust's, reached over the private sidecar pipe.
 		// Bun sends two labels and never a keyring address (ADR-0310).
 		const appSecrets = createNativeAppSecrets(nativePort);
 		aiCatalog = await createAiCatalog({ dataRoot, secrets: appSecrets });
-		// Identity is immutable per process generation, so remote availability
-		// is a boot-time fact: a signed-in generation composes the streaming
-		// remote over the authority's own deployment fetch, a signed-out one
-		// has none until sign-in relaunches the app.
-		const bootAccount = auth.account;
-		const blobRemote = (appId: string, replica: LibraryReplicaIdentity) => {
-			if (
-				bootAccount === null ||
-				replica.library === 'local' ||
-				replica.account.authorityId !== bootAccount.authorityId ||
-				replica.account.principalId !== bootAccount.principalId
-			)
-				return null;
-			return createBunBlobRemote({
-				store: blobs(appId, replica),
-				client: createEpicenterClient({
-					baseURL: bootAccount.baseURL,
-					fetch: (input, init) => {
-						const request = new Request(input, init);
-						const url = new URL(request.url);
-						if (
-							url.pathname === '/api/blobs' ||
-							url.pathname.startsWith('/api/blobs/')
-						) {
-							url.searchParams.set('appId', appId);
-							url.searchParams.set('library', replica.library);
-						}
-						return bootAccount.fetch(new Request(url, request));
-					},
-				}),
-			});
-		};
 
 		const appsDist = process.env.EPICENTER_APPS_DIST;
 		if (!appsDist) {
@@ -157,7 +107,6 @@ async function main(): Promise<void> {
 			staticAssets,
 			blobs,
 			desktopAuth: auth,
-			blobRemote,
 			device,
 			appSecrets,
 			aiCatalog,

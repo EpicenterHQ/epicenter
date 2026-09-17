@@ -11,9 +11,7 @@ import {
 	type DurableObjectSqliteStorage,
 } from '@epicenter/sqlite/durable-object';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
-import { resolveDeploymentBlobStore } from '../routes/blobs.js';
 import type { ServerBindings } from '../server-bindings.js';
-import { createAttachmentTransfer } from './attachment-transfer.js';
 
 /**
  * A socket's position and fixed authorization deadline survive hibernation.
@@ -34,9 +32,6 @@ function attachmentOf(socket: WebSocket) {
 
 export class StoreAuthority extends DurableObject {
 	private readonly authority: CurrentAuthority;
-	private readonly transfer:
-		| ReturnType<typeof createAttachmentTransfer>
-		| undefined;
 	private readonly hubs = new Map<WebSocket, SyncHub>();
 	/** One connection object per live socket, so the hub sees stable identities. */
 	private readonly connections = new Map<WebSocket, HubConnection>();
@@ -47,14 +42,6 @@ export class StoreAuthority extends DurableObject {
 			ctx.storage as unknown as DurableObjectSqliteStorage,
 		);
 		this.authority = openCurrentAuthority({ sqlite });
-		const store = resolveDeploymentBlobStore(env);
-		if (ctx.id.name && store) {
-			this.transfer = createAttachmentTransfer({
-				authority: this.authority,
-				store,
-				library: ctx.id.name,
-			});
-		}
 		// A woken object has sockets and nothing else: no map, and a hub that has
 		// never heard of them. Both are rebuilt here, before any message can
 		// arrive, from the attachments the sockets carry.
@@ -128,26 +115,6 @@ export class StoreAuthority extends DurableObject {
 
 	/** Initialize and download through the same transaction owner as socket admission. */
 	override async fetch(request: Request): Promise<Response> {
-		const pathname = new URL(request.url).pathname;
-		if (pathname.split('/')[7] === 'attachments') {
-			const match =
-				/^\/api\/libraries\/[^/]+\/[^/]+\/data\/[^/]+\/attachments\/([^/]+)\/([^/]+)$/.exec(
-					pathname,
-				);
-			if (!match)
-				return new Response('Invalid attachment address', { status: 400 });
-			let tableName: string;
-			let rowId: string;
-			try {
-				tableName = decodeURIComponent(match[1]!);
-				rowId = decodeURIComponent(match[2]!);
-			} catch {
-				return new Response('Invalid attachment address', { status: 400 });
-			}
-			if (!this.transfer)
-				return new Response('Attachment storage unavailable', { status: 503 });
-			return this.transfer(request, tableName, rowId);
-		}
 		if (request.headers.get('Upgrade') !== 'websocket') {
 			if (request.method !== 'POST')
 				return new Response('Method not allowed', { status: 405 });

@@ -46,16 +46,19 @@ the scope that owns it.**
 const app = await open(account);        // account is Account | null
 
 app.device                              // this machine; never synced
-  .kv  .tables                         // Local; tables own attachments
+  .kv  .tables                         // Local rows
   .sqlite  .secrets                     // borrowed data and credentials
   .connections                          // native runtime and custom endpoints
-  .recording                            // capture; start() names the destination
+  .recording                            // Stop saves app-local bytes; workflow retains its row destination
 
 app.account?                            // the signed-in person; one auth generation
   .identity                             // authorityId, principalId
-  .personal                             // store: kv, tables; row-owned attachments
+  .personal                             // store: kv, tables; ordinary blob references
   .shared?                              // same store surface; self-hosted deployments only
   .connection                           // that server's inference gateway
+
+app.blobs.local                         // app-local bytes, independent of libraries
+app.blobs.remote                        // explicit hosting when signed in
 
 app.signal  app.ready  app.close
 ```
@@ -68,7 +71,7 @@ still return one flat library per App.
 
 **`device` is the machine's store and the machine's reach.** Its `kv` holds
 device preferences and workflow selections: the microphone, the global
-shortcuts, and the inference selection of ADR-0363. Its tables and attachments
+shortcuts, and the inference selection of ADR-0363. Its tables
 hold data a person created without an account or chose to keep on this
 machine; a person reads that library as "Local" (ADR-0375), and a developer
 types `device`. Its `sqlite` holds borrowed or derived tabular data for any
@@ -76,15 +79,16 @@ library, opened by name (ADR-0306). Its `secrets` holds credentials
 (ADR-0310). Its `connections` is the catalog of endpoints this machine can
 reach without an account: the native runtime the host supplies and the custom
 endpoints a person added, shared across desktop apps (ADR-0365). Its
-`recording` is the capture capability; `start()` takes an existing row's
-attachment (ADR-0393). A device value set while signed in survives sign-out
+`recording` saves completed audio into `app.blobs.local` (ADR-0366). The
+workflow captures its chosen library before starting, then creates an ordinary
+row referring to the returned BlobId (ADR-0393). A device value set while signed in survives sign-out
 because it never depended on the account.
 
 Local means this application's device storage or browser profile. Alice,
 Bob, and the signed-out state reach the same Local data within that boundary;
 separate profiles and devices do not. Local is not private to an Epicenter
-account. Signing in does not adopt Local records. An account recording cached
-on the device remains account data, not a record in Local.
+account. Signing in does not adopt Local records. An account recording row remains account data. Its locally saved bytes are
+app-local objects, accessible independently of the account.
 
 **`account` is the person's stores and the person's reach.** `personal` and
 `shared` are the two libraries a signed-in person reaches at once on one
@@ -96,9 +100,9 @@ person connected, so it does not sit in `device.connections`.
 
 **The store has one implementation with three homes.** The
 `device` instance has no authority, so its `sync.status()` answers `undefined`
-and its attachments do not transfer over the network. Account libraries own
-automatic attachment synchronization; app code uses row attachment handles
-rather than `blobs.remote` (ADR-0393). The data definition declares the
+and only rows synchronize in account libraries. Blob storage remains at
+`app.blobs.local` and `app.blobs.remote` as specified by ADR-0349 and ADR-0372.
+The latter exposes explicit hosting; neither library owns byte synchronization. The data definition declares the
 synchronized `kv` and `tables` once and declares `device`'s separately, so a
 key that belongs to this machine cannot be written into an account by mistake.
 
@@ -111,7 +115,7 @@ a file on this machine and names its source itself.
 and opens the next one (ADR-0369). The hub does not make a live swap
 impossible; it removes the reason for one, since a person no longer loses the
 machine's store or catalog by signing in or out. Local data persists; the old
-App handle does not. Every capture, attachment read, and
+App handle does not. Every capture, blob read, and
 in-flight inference call is bound to one lifetime signal, and a live `account`
 swap would turn that one-shot signal into a stream every consumer must observe
 again.

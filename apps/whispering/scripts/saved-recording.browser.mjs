@@ -466,7 +466,7 @@ try {
 			if (row?.transcriptionStatus === 'failed')
 				throw new Error(row.transcriptionError ?? 'Saved transcription failed');
 			if (!row) return null;
-			const saved = await app.blobs.get(row.audioBlobId);
+			const saved = await app.blobs.local.get(row.audioBlobId);
 			if (saved.error) throw new Error(JSON.stringify(saved.error));
 			const bytes = await saved.data.arrayBuffer();
 			const hash = await crypto.subtle.digest('SHA-256', bytes);

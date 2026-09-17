@@ -56,11 +56,9 @@ export {
 	field,
 	plainText,
 } from './definition/index.js';
-export { AttachmentError } from './store/attachment.js';
 export type { PersistenceCapability } from './store/persistence.js';
 export type {
 	ApplyFailedError,
-	Attachment,
 	DatabaseAccount,
 	DataDocument,
 	DeclaredData,

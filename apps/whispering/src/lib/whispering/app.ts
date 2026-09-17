@@ -48,7 +48,7 @@ export type WhisperingApp = {
 	readonly settings: WhisperingSettings;
 	readonly inferenceConnections: InferenceConnections;
 	readonly recordings: WhisperingRecordings;
-	readonly attachments: WhisperingAppHandle['attachments'];
+	readonly blobs: WhisperingAppHandle['blobs'];
 	readonly recipes: WhisperingRecipes;
 	readonly recording: WhisperingRecording;
 	/**
@@ -71,10 +71,7 @@ export function createWhisperingDomains({
 	account: Account | null;
 }) {
 	const settingsDomain = createWhisperingSettings({ kv: openedApp.kv });
-	const recordingsDomain = createWhisperingRecordings({
-		table: openedApp.tables.recordings,
-		blobs: openedApp.blobs,
-	});
+	const recordingsDomain = createWhisperingRecordings(openedApp);
 	const recipesDomain = createWhisperingRecipes({
 		table: openedApp.tables.recipes,
 	});
@@ -85,7 +82,7 @@ export function createWhisperingDomains({
 		account,
 		settings: settingsDomain.settings,
 		recordings: recordingsDomain.recordings,
-		attachments: openedApp.attachments,
+		blobs: openedApp.blobs,
 		recipes: recipesDomain,
 		// Read off the store's own connection (ADR-0340) rather than off a
 		// `SyncConnection` this file held, and passed through whole: a refusal is

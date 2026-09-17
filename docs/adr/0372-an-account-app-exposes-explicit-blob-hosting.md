@@ -1,0 +1,67 @@
+# 0372. An account App exposes explicit blob hosting
+
+- **Status:** Proposed
+- **Date:** 2026-09-08
+- **Revised:** 2026-09-17
+- **Unbuilt:** Real object-provider and installed desktop upload acceptance remain outstanding; direct routes, host forwarding, and retirement have automated coverage.
+
+## Decision
+
+A local App exposes `app.blobs.local`. An account App also exposes
+`app.blobs.remote`, already bound to its captured Account and app ID. Keep these
+full paths at call sites. There is no remote factory on the App, nullable remote
+property on a known account App, mutable current account, or availability flag.
+
+```ts
+await app.blobs.local.open(blobId);
+await app.blobs.remote.addLocal(blobId);
+await app.blobs.remote.add(pastedImage);
+```
+
+The remote API is `add`, `addLocal`, `get`, `open`, and `delete`.
+Both add operations return a durable owner-pinned API URL after the server stores
+an immutable object under a fresh remote ID. `add(Blob)` does not write local
+storage. `addLocal(id)` reads the canonical app-local store and leaves it intact.
+Desktop uploads stream the host file without loading it through frontend JS.
+Repeated uploads may create duplicate objects; there is no transfer journal,
+content deduplication, mirror identity, upload ticket, or automatic retry queue.
+
+Hosting uses direct authenticated requests with a 25 MiB initial object limit.
+The server enforces actual received size. Saved-file uploads check metadata
+before reading bytes. Expanding this bound is a product/transport decision,
+not a consequence of efficient native streaming.
+
+The owner-pinned URL identifies server, principal, app, and object independently
+of the account later presenting it. Reads/deletes reject a different destination
+rather than attaching credentials to an arbitrary URL. `get` returns bytes;
+`open` acquires a disposable display URL. A private durable address is not
+necessarily usable directly in an img or audio element. No persistent local
+cache is required to display remotely hosted content.
+
+App closure cancels its network operations and releases display resources.
+Account retirement permanently disables its captured transport, including
+native uploads; another sign-in does not revive old handles. An ambiguous
+upload outcome may leave an unreferenced remote object. Failed uploads never
+authorize deleting their local source.
+
+## Consequences
+
+Remote storage is account-owned even when the App opens a shared row library.
+Sharing rows does not grant access to the referenced files. The server stores
+objects under principal/app/object identity; it needs no hydrated Yjs document
+or blob-to-row ownership index. Row deletion and remote deletion are separate.
+
+Standalone constructors remain useful for a blob-management tool or a local
+library using separately selected hosting. App access composes the same
+storage primitives and adds its admission and shutdown lifetime.
+
+## Considered alternatives
+
+- Automatic attachment synchronization: creates delivery obligations and recovery
+  states that explicit one-shot uploads do not need.
+- Matching local and remote IDs: introduces mirror semantics and retry identity.
+- Download into durable local storage before display: creates a cache and cleanup
+  obligation for an online-only image editor.
+- A universal file/source token: exposes platform transport mechanics to callers.
+- A shared library bucket chosen implicitly by row ownership: conflates the
+  authorization of documents and uploaded objects.

@@ -40,17 +40,7 @@ try {
 			);
 		};
 		const id = 'blob_abcdefghijklmnopqrstu';
-		// A fresh account per run, so a rerun never meets its own bytes.
-		const scope = {
-			appId: 'so.epicenter.smoke',
-			replica: {
-				library: 'personal' as const,
-				account: {
-					principalId: `webkit-${crypto.randomUUID()}`,
-					authorityId: 'smoke-authority',
-				},
-			},
-		};
+		const scope = { appId: `so.epicenter.smoke-${crypto.randomUUID()}` };
 		const input = new Blob(['webkit bytes'], { type: 'audio/wav' });
 		const first = createBrowserBlobStore(scope);
 		const put = await first.put(id, input);

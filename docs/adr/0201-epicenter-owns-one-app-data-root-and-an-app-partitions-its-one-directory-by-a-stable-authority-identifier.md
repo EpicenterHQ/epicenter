@@ -14,7 +14,7 @@
   What stands: one application-data root per machine, one directory per trusted
   app named by its id, and the rule that the directory is a place and never an
   inter-app API.
-- **Amended by:** [ADR-0349](0349-blobs-are-a-namespace-on-the-handle-addressed-by-id-and-stored-under-the-replicas-principal.md) at the open question this record left, "a
+- **Amended by:** [ADR-0349](0349-local-blobs-belong-to-the-app-on-this-device.md) at the open question this record left, "a
   separate question about who tells the recorder where blobs live, and it is not
   decided here": the planned recorder handoff takes `{ appId, principalId }`
   at start and targets `<root>/apps/<app-id>/<principal-id>/blobs/`. For blobs this

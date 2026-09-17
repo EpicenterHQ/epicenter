@@ -56,7 +56,6 @@
 	import RecordingAudioCell from './RecordingAudioCell.svelte';
 	import TranscriptionStatusBadge from './TranscriptionStatusBadge.svelte';
 	import RecordingRowActions from './actions/RecordingRowActions.svelte';
-	import AttachmentSyncStatus from './AttachmentSyncStatus.svelte';
 	import {
 		getWhisperingApp,
 		getWhisperingQueries,
@@ -368,7 +367,6 @@
 			{tauri ? 'on your file system' : 'in IndexedDB'}.
 		</SectionHeader.Description>
 	</SectionHeader.Root>
-	<AttachmentSyncStatus />
 	<Card class="flex flex-col gap-4 p-6">
 		<div class="flex flex-col md:flex-row items-center justify-between gap-2">
 			<Input
