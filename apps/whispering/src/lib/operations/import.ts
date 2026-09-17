@@ -115,11 +115,11 @@ export async function importFiles(
 				});
 
 				const transcribe = captureTranscription(app);
-				const saved = await saveAudioRecording(app, file);
-				if (saved.error !== null) throw saved.error;
-				if (saved.data === null) return;
+				const { data: recording, error } = await saveAudioRecording(app, file);
+				if (error !== null) throw error;
+				if (recording === null) return;
 				await processRecordingPipeline(app, {
-					recordingId: saved.data.id,
+					recordingId: recording.id,
 					transcribe,
 					deliverySource: 'import',
 				});

@@ -575,8 +575,11 @@ export async function startVadRecording(app: WhisperingApp) {
 						blob_size: blob.size,
 					});
 
-					const saved = await saveAudioRecording(app, blob);
-					if (saved.error !== null) {
+					const { data: recording, error } = await saveAudioRecording(
+						app,
+						blob,
+					);
+					if (error !== null) {
 						if (
 							isCurrentAttempt() &&
 							app.recordingEnabled &&
@@ -584,13 +587,13 @@ export async function startVadRecording(app: WhisperingApp) {
 						)
 							dictationLifecycle.markFailed({
 								tier: 'silent-loss',
-								error: saved.error,
+								error,
 							});
-						throw saved.error;
+						throw error;
 					}
-					if (saved.data === null) return;
+					if (recording === null) return;
 					await processRecordingPipeline(app, {
-						recordingId: saved.data.id,
+						recordingId: recording.id,
 						isCurrentAttempt,
 						transcribe: capturedTranscription,
 					});
