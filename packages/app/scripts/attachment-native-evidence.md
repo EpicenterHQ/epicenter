@@ -157,6 +157,43 @@ and hidden-document ViewTransition errors. The deliberately unavailable
 inference endpoint returned 404, so transcription failed while saved audio
 and delivery succeeded. This run does not establish successful inference.
 
+## Physical microphone follow-up, 2026-09-17
+
+`bun packages/app/scripts/attachment-native.mjs --account` passed, exit 0,
+using the connected BMW2002 Microphone, the macOS default input. The harness
+now uses the same actual Start/Stop controls for Local and Personal capture.
+It waits for `Saved on this device` before continuing.
+
+The run used an isolated checkout of `1057265cfc` plus the reviewed harness
+extension. It reused the preceding 166-file Whispering build with the same
+asset fingerprint recorded above. New concurrent blob-ownership edits in the
+active checkout were excluded and remain unmodified; this result validates
+the reviewed checkpoint, not that concurrent redesign.
+
+Local capture survived process restart and authentication without adoption.
+A captured Personal audio offline, restarted and played offline, then uploaded
+automatically after reconnection. B received the recording before Play;
+Pause canceled its held GET, Retry respected Pause, and Resume completed it.
+B played offline before and after process restart with no attachment requests
+or uploads. Both files contain 226,348 bytes with SHA-256
+`858540911307bf01bcc7ad44a2a02e69eb61ad8bfcebace523eb38b900f016e1`.
+The WAV has one 48 kHz channel, 113,152 frames, and 111,237 nonzero samples.
+Its duration is about 2.357 seconds.
+
+The object sequence was PUT 200, verification GET 200, canceled GET 499, and
+resumed GET 200. All six native/Bun process pairs exited; both temporary auth
+entries, the credential file, fixture, and listener passed cleanup checks.
+The harness passes Biome with no fixes. Independent review accepted the
+source extension and inspected the physical-capture evidence.
+Retained late-callback warnings and expected offline/absent-file responses
+remain in the evidence; this is not an error-free-console claim.
+
+The full result and UI snapshots remain at
+`/private/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/attachment-native-VZzYnC/`.
+The command log, input-device inventory, and independent WAV inspection are
+under `/tmp/attachment-microphone.W6yIfB/`. The user confirmed no test provider
+is available; provider conformance remains an explicit gap.
+
 ## Native harness and limits
 
 Run `bun run --cwd apps/epicenter build:whispering` after changes to the
@@ -168,6 +205,7 @@ the existing host build prerequisites.
 | Command | Scope |
 | --- | --- |
 | `bun packages/app/scripts/attachment-native.mjs` | Actual Local microphone capture, save, native/Bun restart, playback |
+| `bun packages/app/scripts/attachment-native.mjs --account` | Actual Local and Personal microphone capture, authenticated native A/B delivery and bounded controls |
 | `bun packages/app/scripts/attachment-native.mjs --import` | Generated WAV through the actual Local import UI, save, restart, playback |
 | `bun packages/app/scripts/attachment-native.mjs --import --account` | Local retention plus authenticated native A/B account delivery and bounded controls |
 | `bun packages/app/scripts/attachment-native-account.mjs` | Disposable real auth, HTTP/WebSocket, outage, and object-fixture checks |
@@ -180,11 +218,11 @@ two-second WAV to the real file input; playback calls `play()` on the native
 HTML audio element and checks that playback time advances. This does not test
 the native file chooser or a physical click on the browser's audio controls.
 
-The physical microphone attempt failed before capture with CoreAudio
+The initial physical microphone attempt failed before capture with CoreAudio
 `OSStatus: 560947818` while reading the input device name. The UI returned to
 Start without claiming a saved recording. `system_profiler SPAudioDataType`
-lists Mac Studio Speakers and no input device. The full native capture journey
-therefore remains incomplete. The explicit import mode is separate evidence.
+listed Mac Studio Speakers and no input device. The connected microphone and
+successful follow-up above close that checkpoint's physical-capture gap.
 
 Local import, clean process restart, and playback passed in
 `attachment-native-1Cv6Vk/result.json` under the macOS temporary directory.
@@ -201,9 +239,9 @@ Neither clean process restart nor prior process-interruption probes establish
 physical power-loss recovery. Windows durability and signed release packaging
 also remain untested.
 
-The next bounded slice requires a physical input device and a disposable
-conforming object provider. Extend the account harness's source step from
-import to actual microphone capture, then repeat the same A/B journey. Verify
-provider checksum, create-only, signature, and browser CORS enforcement against
-that provider. Keep general recovery, reclamation, account copying, and the
-broader App architecture outside this slice.
+The next bounded slice requires a disposable conforming object provider.
+Verify provider checksum, create-only, signature, and browser CORS enforcement,
+then repeat A/B delivery against that provider. Keep general recovery,
+reclamation, account copying, and the broader App architecture outside this
+slice. Successful inference remains untested by these intentionally unavailable
+inference endpoints.

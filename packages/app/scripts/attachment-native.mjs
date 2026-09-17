@@ -219,6 +219,21 @@ async function selectLibrary(name) {
 		),
 	);
 }
+async function captureAudio() {
+	await click('a', 'Home');
+	await click('button[aria-label^="Start recording"]');
+	await until('physical microphone recording', () =>
+		ui(
+			'return Boolean(document.querySelector(\'button[aria-label^="Stop recording"][aria-pressed="true"]\'));',
+		),
+	);
+	await Bun.sleep(2_000);
+	await click('button[aria-label^="Stop recording"]');
+	await until('Saved on this device', () =>
+		ui('return document.body.innerText.includes("Saved on this device");'),
+	);
+	return audio();
+}
 async function importAudio(name = 'attachment-native.wav') {
 	await click('a', 'Home');
 	await click('button[aria-label="Switch to upload file"]');
@@ -432,17 +447,7 @@ try {
 	if (importMode) {
 		await importAudio();
 	} else {
-		await click('button[aria-label^="Start recording"]');
-		await until('physical microphone recording', () =>
-			ui(
-				'return Boolean(document.querySelector(\'button[aria-label^="Stop recording"][aria-pressed="true"]\'));',
-			),
-		);
-		await Bun.sleep(2_000);
-		await click('button[aria-label^="Stop recording"]');
-		await until('Saved on this device', () =>
-			ui('return document.body.innerText.includes("Saved on this device");'),
-		);
+		await captureAudio();
 	}
 	const saved = await audio();
 	assert(saved.duration >= 1, 'Saved audio contains at least one second');
@@ -490,10 +495,6 @@ try {
 	);
 	await stop();
 	if (accountMode) {
-		assert(
-			importMode,
-			'Account journey currently requires --import (physical input remains unavailable)',
-		);
 		const { startNativeAccountFixture } = await import(
 			'./attachment-native-account.mjs'
 		);
@@ -523,7 +524,8 @@ try {
 		);
 		await configureOfflineInference();
 		await accountFixture.setOffline(true);
-		await importAudio('account-native.wav');
+		if (importMode) await importAudio('account-native.wav');
+		else await captureAudio();
 		await click('a', 'Recordings');
 		await until('account audio saved while disconnected', () =>
 			ui(
@@ -719,10 +721,10 @@ try {
 			keychainAuthCleared: true,
 			uiObservations: accountUiObservations,
 			limits:
-				'Authenticated real self-host HTTP/WebSocket plus HTTP object fixture; no real object-provider conformance or physical microphone capture',
+				'Authenticated real self-host HTTP/WebSocket plus HTTP object fixture; capture source reported by mode; no real object-provider conformance',
 		};
 		checks.push(
-			'A Personal import saves offline, survives process restart offline, and automatically uploads after reconnection',
+			`A Personal ${importMode ? 'import' : 'microphone recording'} saves offline, survives process restart offline, and automatically uploads after reconnection`,
 		);
 		checks.push(
 			'Separately persisted native B receives audio before Play, exposes pause/retry/resume, and plays offline before and after process restart without object requests or uploads',
