@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-08
-- **Unbuilt:** Extension-bearing upload IDs and corresponding route/client validation are not implemented; real object-provider and installed desktop upload acceptance remain outstanding.
+- **Unverified:** Real object-provider and installed desktop upload acceptance.
 
 ## Decision
 
@@ -28,15 +28,23 @@ content deduplication, mirror identity, upload ticket, or automatic retry queue.
 Fresh remote IDs include a format extension under the same key grammar as
 local BlobIds. The server selects that extension from the accepted upload media
 type; a caller does not select the random identity or reuse its local ID.
+Direct uploads apply the same input-format policy as local creation before
+sending bytes. For a File whose media type is empty or generic, a supported
+filename supplies the conventional upload media type. A supported meaningful
+media type takes precedence over the filename. The client sends that type, not
+a filename header; the server validates it and selects the remote suffix.
+Uploading a File directly and saving it locally before uploading must agree
+on its format. Direct upload does not require local persistence.
 `addLocal(id)` obtains conventional media type and actual size from the local
 store. Provider-native Content-Type metadata can remain; flat local files do
 not require removing metadata supplied by an object-storage provider. Exact
 local MIME parameters are not recovered from an extension.
 
-The owner-pinned URL shape is unchanged, but its final key includes an
-extension. Existing extensionless hosted URLs require an explicit preservation
-decision before changing deployed validators. A local layout change does not
-authorize rewriting or making those remote objects unreachable.
+The owner-pinned URL ends in a complete extension-bearing key. The user confirmed
+zero users and no existing data for the September 17, 2026 clean break.
+Validators reject extensionless URLs; no hosted objects are converted or reset.
+Archive capture and recovery preserve absolute HTTP(S) URLs as opaque values.
+They do not fetch, convert, or inline remotely hosted bytes as local dependencies.
 
 Hosting uses direct authenticated requests with a 25 MiB initial object limit.
 The server enforces actual received size. Saved-file uploads check byte length

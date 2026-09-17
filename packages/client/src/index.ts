@@ -2,6 +2,7 @@
 import type { Account } from '@epicenter/auth';
 import {
 	type BlobStore,
+	blobInputContentType,
 	MAX_REMOTE_BLOB_BYTES,
 	parseBlobId,
 	REMOTE_BLOB_ROUTES,
@@ -102,7 +103,7 @@ export function createRemoteBlobClient({
 			return uploaded(
 				await request(collection, {
 					method: 'POST',
-					headers: { 'content-type': blob.type || 'application/octet-stream' },
+					headers: { 'content-type': blobInputContentType(blob) },
 					body: blob,
 					signal: options?.signal,
 				}),

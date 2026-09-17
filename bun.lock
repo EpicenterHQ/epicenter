@@ -517,7 +517,6 @@
         "idb": "^8.0.3",
         "js-yaml": "^4.1.1",
         "marked": "catalog:",
-        "mime": "catalog:",
         "nanoid": "catalog:",
         "openai": "^7.12.1",
         "tailwind-variants": "catalog:",

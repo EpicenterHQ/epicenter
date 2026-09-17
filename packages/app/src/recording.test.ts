@@ -80,7 +80,7 @@ function setup({
 					})
 				: Ok(active);
 		}
-		const audioBlobId = generateBlobId();
+		const audioBlobId = generateBlobId('wav');
 		const session: Recording = {
 			id: audioBlobId,
 			device: { outcome: 'success', deviceId: asDeviceIdentifier('mic') },

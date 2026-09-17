@@ -21,6 +21,7 @@ import {
 	type BlobStoreFailed,
 	generateBlobId,
 } from '@epicenter/blobs';
+import { nanoid } from 'nanoid';
 import { Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 import {
 	ArchiveError,
@@ -191,7 +192,7 @@ export function createLibraryRecovery({
 			if (verified.error !== null) return verified;
 			intent = {
 				kind: 'publication',
-				id: generateBlobId(),
+				id: generateBlobId('json'),
 				reason,
 				bytes,
 				metadata: verified.data,
@@ -399,7 +400,7 @@ export function createLibraryRecovery({
 					);
 					if (selected === undefined)
 						return BackupError.BackupNotFound({ id: backupId });
-					const operation = generateBlobId();
+					const operation = nanoid();
 					const reserved = journalled.reserve({
 						operation,
 						backupId,
@@ -475,7 +476,7 @@ export function createLibraryRecovery({
 						const verified = await metadata(bytes);
 						if (verified.error !== null) return verified;
 						safety = {
-							id: generateBlobId(),
+							id: generateBlobId('json'),
 							reason: 'before-restore',
 							metadata: verified.data,
 							bytes,
@@ -543,7 +544,7 @@ export function createLibraryRecovery({
 					);
 					if (safety === undefined)
 						return BackupError.BackupNotFound({ id: attempt.safetyBackupId });
-					const activationObjectId = generateBlobId();
+					const activationObjectId = generateBlobId('bin');
 					const stored = await storeVerifiedBlob(
 						archives,
 						activationObjectId,

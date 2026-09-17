@@ -66,28 +66,12 @@ export type BlobStore = {
 		blob: Blob,
 	): Promise<Result<void, BlobAlreadyExists | BlobStoreFailed>>;
 	/**
-	 * Copy local bytes to a fresh id in this same captured store. The source
-	 * stays unchanged and either id can be deleted independently. An existing
-	 * destination (including the source id itself) is never overwritten.
-	 */
-	copy(
-		sourceId: BlobId,
-		destinationId: BlobId,
-	): Promise<Result<void, BlobNotFound | BlobAlreadyExists | BlobStoreFailed>>;
-	/**
 	 * Read the bytes for an id. `BlobNotFound` is the expected answer when
 	 * the bytes were never stored on this device.
 	 */
 	get(id: BlobId): Promise<Result<Blob, BlobNotFound | BlobStoreFailed>>;
 	/** Read size and content type without loading the bytes. */
 	stat(id: BlobId): Promise<Result<BlobStat, BlobNotFound | BlobStoreFailed>>;
-	/**
-	 * Read metadata for supplied ids, in input order. Browser stores use one
-	 * metadata transaction. Empty input performs no I/O; this never enumerates ids.
-	 */
-	statMany(
-		ids: readonly BlobId[],
-	): Promise<Result<BlobStat, BlobNotFound | BlobStoreFailed>[]>;
 	/** Remove the local bytes for an id. Idempotent: missing bytes are `Ok`. */
 	delete(id: BlobId): Promise<Result<void, BlobStoreFailed>>;
 };

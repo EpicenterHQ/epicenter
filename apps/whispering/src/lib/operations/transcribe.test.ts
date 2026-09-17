@@ -29,12 +29,6 @@ mock.module('../state/secrets.svelte.js', () => ({
 mock.module('../services/transcription/cloud/deepgram.js', () => ({
 	DeepgramTranscriptionServiceLive: { transcribe: () => bespoke() },
 }));
-mock.module('../services/transcription/cloud/mistral.js', () => ({
-	MistralTranscriptionServiceLive: { transcribe: () => bespoke() },
-}));
-mock.module('../services/transcription/cloud/elevenlabs.js', () => ({
-	ElevenLabsTranscriptionServiceLive: { transcribe: () => bespoke() },
-}));
 const { transcribeAudio, transcribeAndPersist, captureTranscription } =
 	await import('./transcribe.js');
 
@@ -332,3 +326,37 @@ test('bespoke completion after retirement cannot publish transcript or history',
 	expect(expectErr(await pending).name).toBe('Closed');
 	expect(patch).not.toHaveBeenCalled();
 });
+
+for (const { audio, filename, contentType } of [
+	{
+		audio: new File(['original'], 'VOICE.WAV'),
+		filename: 'audio.wav',
+		contentType: 'audio/wav',
+	},
+	{
+		audio: new Blob(['original'], { type: 'video/webm' }),
+		filename: 'audio.webm',
+		contentType: 'video/webm',
+	},
+	{
+		audio: new Blob(['original']),
+		filename: 'audio.bin',
+		contentType: 'application/octet-stream',
+	},
+]) {
+	test(`configured SDK transcription sends ${filename} using shared format evidence`, async () => {
+		const fixture = await setup();
+		try {
+			fixture.setLoad(async () => Ok(audio));
+			expectOk(await fixture.run());
+			const request = fixture.requests[0]!;
+			const multipart = await request.clone().text();
+			expect(multipart).toContain(`filename="${filename}"`);
+			expect(multipart).toContain(`Content-Type: ${contentType}\r\n`);
+			const file = (await request.formData()).get('file') as File;
+			expect(await file.text()).toBe('original');
+		} finally {
+			await fixture.close();
+		}
+	});
+}

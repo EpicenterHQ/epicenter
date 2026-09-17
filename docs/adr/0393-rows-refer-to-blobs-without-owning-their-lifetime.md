@@ -2,7 +2,6 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
-- **Unbuilt:** Extension-bearing row references, format-aware import/export consumers, and the disposition of existing extensionless references require implementation.
 
 ## Decision
 
@@ -34,12 +33,14 @@ remote deletion, but missed cleanup is accepted. A library may offer inspection
 and cleanup while open; no background service must determine row existence.
 Absence from one device's current row view is not proof that a blob is orphaned.
 
-The user selected a fresh-start transition with old files preserved untouched.
-Old attachment rows and their storage are not silently adopted, renamed, or
-removed by the new blob implementation.
-This historical choice does not dispose of extensionless references created
-by the app-local store. Preserve their bytes and references until an explicit
-cutover decision covers them; changing a field validator alone is not migration.
+On September 17, 2026, the user confirmed zero users and no existing data and
+authorized the complete-key clean break. Row validators accept full saved keys;
+no migration, reset, or fallback reader runs.
+
+Archive capture discovers local complete-key references, including references
+split across rich-text runs. Absolute HTTP(S) URLs remain opaque row values.
+Recovery preserves those URLs without fetching, converting, or inlining their
+remote bytes into the local archive.
 
 ## Consequences
 

@@ -10,7 +10,7 @@ import { type AiCatalog, createAiCatalog } from './ai-catalog.ts';
  */
 
 import { join } from 'node:path';
-import { createBunBlobStore } from '@epicenter/blobs/bun';
+import { type BunBlobStore, createBunBlobStore } from '@epicenter/blobs/bun';
 import { type AgentEngine, createOpenAiAgentEngine } from '@epicenter/client';
 import OpenAI from 'openai';
 import { extractErrorMessage } from 'wellcrafted/error';
@@ -74,10 +74,19 @@ async function main(): Promise<void> {
 		const dataRoot = boot.dataDir;
 
 		host = await createHomeHost({ engine, model });
-		const blobs = (appId: string) =>
-			createBunBlobStore({
-				directory: join(dataRoot, 'apps', appId, 'blobs'),
-			});
+		// Publication receipts and in-flight writes belong to the app for this
+		// host lifetime, including retries arriving in later HTTP requests.
+		const blobStores = new Map<string, BunBlobStore>();
+		const blobs = (appId: string) => {
+			let store = blobStores.get(appId);
+			if (!store) {
+				store = createBunBlobStore({
+					directory: join(dataRoot, 'apps', appId, 'blobs'),
+				});
+				blobStores.set(appId, store);
+			}
+			return store;
+		};
 		const device = createNativeDevice(nativePort);
 		// The credential store is Rust's, reached over the private sidecar pipe.
 		// Bun sends two labels and never a keyring address (ADR-0310).

@@ -101,6 +101,7 @@ export type RecordingFactory = (
 
 /** Wire shape pinned against the host's generated bindings by the consumer check. */
 export type NativeRecording = {
+	/** Native WAV capture reserves this complete key; only successful Stop commits it. */
 	audioBlobId: string;
 	device:
 		| { outcome: 'success'; deviceId: string }

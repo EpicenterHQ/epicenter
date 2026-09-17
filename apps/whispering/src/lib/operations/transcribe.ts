@@ -1,4 +1,5 @@
 import { matchInferenceTarget } from '@epicenter/app-shell/inference-selections';
+import { blobInputContentType, selectBlobFormat } from '@epicenter/blobs';
 import { APIError } from 'openai';
 import {
 	type AnyTaggedError,
@@ -116,9 +117,14 @@ export function captureTranscription(owner: WhisperingApp) {
 				transcribe = async (audio) => {
 					const response = await client.audio.transcriptions.create(
 						{
-							file: new File([audio], filenameForAudio(audio), {
-								type: audio.type || 'audio/wav',
-							}),
+							// Bun 1.3.14 retains a single source File's cached name.
+							file: new File(
+								[audio, ''],
+								`audio.${selectBlobFormat(audio).extension}`,
+								{
+									type: blobInputContentType(audio),
+								},
+							),
 							model,
 							language: spokenLanguage === 'auto' ? undefined : spokenLanguage,
 							prompt: prompt || undefined,
@@ -189,23 +195,4 @@ export async function transcribeAndPersist(
 	const result = await transcribe(recordingId);
 	if (signal.aborted) return TranscriptionOperationError.Closed();
 	return recordTranscriptionOutcome(app, recordingId, result);
-}
-
-const AUDIO_EXTENSION_BY_MIME: Record<string, string> = {
-	'audio/flac': 'flac',
-	'audio/mpeg': 'mp3',
-	'audio/mp3': 'mp3',
-	'audio/mp4': 'mp4',
-	'audio/m4a': 'm4a',
-	'audio/x-m4a': 'm4a',
-	'audio/ogg': 'ogg',
-	'audio/opus': 'opus',
-	'audio/wav': 'wav',
-	'audio/wave': 'wav',
-	'audio/x-wav': 'wav',
-	'audio/webm': 'webm',
-};
-
-function filenameForAudio(audio: Blob): string {
-	return `audio.${AUDIO_EXTENSION_BY_MIME[audio.type.split(';')[0]!.trim().toLowerCase()] ?? 'mp3'}`;
 }

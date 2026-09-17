@@ -16,6 +16,7 @@ import {
 	type BlobStore,
 	BlobStoreError,
 	generateBlobId,
+	parseBlobId,
 } from '@epicenter/blobs';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
@@ -54,7 +55,7 @@ async function setup() {
 		createFileJournalStorage(join(directory, 'journal')),
 	);
 	const doc = new Y.Doc();
-	const blobId = generateBlobId();
+	const blobId = generateBlobId('wav');
 	expectOk(await blobs.put(blobId, new Blob(['audio'], { type: 'audio/wav' })));
 	doc.get('root').setAttr('audio', blobId);
 	doc.get('root').insert(0, 'original', { bold: true });
@@ -103,11 +104,12 @@ async function setup() {
 test('manual backup and pretty-printed import preserve exact files and embedded attachments after reopening', async () => {
 	using s = await setup();
 	const manual = expectOk(await s.recovery.backup());
+	expect(manual.id.endsWith('.json')).toBe(true);
 	expect(manual).toMatchObject({
 		...s.identity,
 		reason: 'manual',
 		source: { generation: 1, head: 1 },
-		version: 2,
+		version: 3,
 	});
 	const saved = expectOk(await s.recovery.download(manual.id));
 	const uploaded = new TextEncoder().encode(
@@ -409,12 +411,13 @@ test('an unresolved restore refuses a backup, and the prepared request is retain
 	using s = await setup();
 	const source = expectOk(await s.recovery.backup());
 	const attempt = expectOk(await s.recovery.attempts.begin(source.id));
+	expect(parseBlobId(attempt.operation)).toBeUndefined();
 	expect(expectErr(await s.restart().backup())).toMatchObject({
 		name: 'AttemptPending',
 		operation: attempt.operation,
 	});
 	expect(
-		expectErr(await s.recovery.attempts.begin(generateBlobId())).name,
+		expectErr(await s.recovery.attempts.begin(generateBlobId('json'))).name,
 	).toBe('AttemptPending');
 	expectOk(await s.recovery.attempts.safetyBackup(attempt.operation));
 
@@ -427,6 +430,7 @@ test('an unresolved restore refuses a backup, and the prepared request is retain
 	const pinned = expectOk(
 		await s.recovery.attempts.pin(attempt.operation, prepared.bytes),
 	);
+	expect(pinned.activationObjectId?.endsWith('.bin')).toBe(true);
 	// The destination the safety backup covered, not the archive's own position.
 	expect(pinned.destination).toEqual({ generation: 1, head: 1 });
 

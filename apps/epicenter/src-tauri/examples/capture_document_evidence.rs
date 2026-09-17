@@ -144,7 +144,6 @@ fn main() {
             cancel_recording,
         ])
         .setup(|app| {
-            epicenter_lib::blobs::delete_stale_staging(app.handle());
             WebviewWindowBuilder::new(
                 app,
                 "app-capture-evidence",

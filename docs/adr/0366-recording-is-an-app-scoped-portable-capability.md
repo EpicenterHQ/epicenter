@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Relates:** [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) (independent row references), [ADR-0401](0401-a-record-names-its-destination-at-creation.md) (original destination), [ADR-0380](0380-the-caller-owns-when-to-close-and-the-app-owns-resource-shutdown.md) (resource shutdown).
-- **Unbuilt:** Extension-bearing saved keys and flat-file publication are not implemented; physical microphone, whole-host interruption, and concurrent-device acceptance remain outstanding.
+- **Unverified:** Physical microphone, whole-host interruption, installed WebView playback, Windows publication, and concurrent-device acceptance.
 
 ## Decision
 
@@ -45,7 +45,8 @@ are not required. Supported WAV size and storage errors remain explicit.
 
 The entire unfinished recording may be lost before Stop confirms publication. No host-restart or page-reload audio recovery
 is promised. Surviving temporary bytes are potentially salvageable, not a durable
-product object. Startup may remove abandoned temporary files. Saved files and
+product object. Startup does not sweep temporary files; cleanup requires proof
+that their owner cannot still write. Saved files and
 unconfirmed permanent publication are never temporary-cleanup targets.
 
 A live device failure is reported to the workflow. The implementation may
@@ -136,17 +137,17 @@ implements the superseded row-first local checkpoint. Its passing tests and
 SIGKILL staging recovery exercise that earlier promise.
 
 Automated tests cover lost responses, stale callbacks, pending-start cleanup,
-Stop publication, and reading committed native WAV files through an independent
-Bun handle after session closure in the extensionless directory layout. Those
-checks must be updated and rerun against flat extension-bearing files; they do
-not establish the target layout's publication behavior. Physical microphone, whole-host interruption and native
-WebView playback evidence remain outstanding. Native per-device admission
-also needs real concurrent-device acceptance; source compatibility is not proof.
+Stop publication, and independent Rust/Bun publication of flat extension-bearing
+files. WebKit and Chromium checks exercise App recording with synthetic audio,
+saved-key playback, and document reload. These checks do not establish physical
+microphone, whole-host interruption, installed WebView playback, or Windows
+durability. Native per-device admission also needs real concurrent-device
+acceptance; source compatibility is not proof.
 
 The [capture plan](../../specs/20260912T122859-concurrent-native-capture.md) owns
 native admission only. Its finished-file handoff and separate library-save
-instructions are superseded by this decision and the
-[flat-blob plan](../../specs/20260917T113309-flat-extension-bearing-blobs.md).
+instructions are superseded by this decision. The
+[blob package](../../packages/blobs/README.md) describes the implemented layout.
 Successful Stop already means saved; admission work must preserve that boundary.
 The [attachment plan](../../specs/20260909T010040-current-generation-restore.md#implementation-waves)
 describes the older attachment direction, which this decision withdraws.

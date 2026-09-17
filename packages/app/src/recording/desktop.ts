@@ -166,6 +166,7 @@ export function createDesktopRecording(
 						}
 						if (
 							!parseBlobId(result.data.blobId) ||
+							!result.data.blobId.endsWith('.wav') ||
 							result.data.blobId !== recording.id
 						)
 							return RecorderError.RecorderFailed({

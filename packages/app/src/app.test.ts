@@ -569,7 +569,7 @@ test('the app handle owns scoped blob reads and writes by BlobId', async () => {
 		await app.blobs.local.add(new Blob(['audio'], { type: 'audio/wav' })),
 	);
 	const stored = expectOk(await app.blobs.local.get(id));
-	expect(id).toMatch(/^blob_[a-z0-9]{21}$/);
+	expect(id).toMatch(/^blob_[a-z0-9]{21}\.wav$/);
 	expect(await stored.text()).toBe('audio');
 	expect(expectOk(await app.blobs.local.stat(id)).size).toBe(5);
 

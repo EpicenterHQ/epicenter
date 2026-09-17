@@ -141,7 +141,6 @@
 		"idb": "^8.0.3",
 		"js-yaml": "^4.1.1",
 		"marked": "catalog:",
-		"mime": "catalog:",
 		"nanoid": "catalog:",
 		"tailwind-variants": "catalog:",
 		"typebox": "catalog:",

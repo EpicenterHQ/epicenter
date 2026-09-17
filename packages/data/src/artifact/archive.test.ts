@@ -23,7 +23,7 @@ function setup() {
 		sqlite: createBunSqliteAdapter(database),
 	});
 	const doc = new Y.Doc();
-	const id = generateBlobId();
+	const id = generateBlobId('wav');
 	const row = new Y.Type();
 	const content = new Y.Type('section');
 	doc.get('tables:unknown').setAttr('row-1', row);
@@ -318,7 +318,7 @@ test('unsupported versions, changed archive bytes, and structurally incomplete b
 			}),
 		);
 		const unsupported = await rewrite(bytes, (archive) => {
-			archive.version = 1;
+			archive.version = 2;
 		});
 		expect(expectErr(await prepareArchive(unsupported)).message).toContain(
 			'Unsupported archive format or version',
@@ -410,7 +410,7 @@ test('subdocuments refuse capture instead of silently dropping their content', a
 	}
 });
 
-test('a blob named only inside an undeclared rich-content URL is included', async () => {
+test('a blob named in an undeclared relative local URL is included', async () => {
 	const s = setup();
 	try {
 		const previous = Y.encodeStateVector(s.doc);
@@ -475,7 +475,7 @@ test('an accepted write during blob capture makes the prepared archive activatio
 test('a BlobId split across text formatting requires its bytes during capture and preparation', async () => {
 	const doc = new Y.Doc();
 	try {
-		const id = generateBlobId();
+		const id = generateBlobId('bin');
 		const text = doc.get('unknown-text-root');
 		text.insert(0, id.slice(0, 10), { bold: true });
 		text.insert(10, id.slice(10));
@@ -530,7 +530,7 @@ test('a BlobId split across text formatting requires its bytes during capture an
 test('embedded content interrupts BlobId text matching', async () => {
 	const doc = new Y.Doc();
 	try {
-		const id = generateBlobId();
+		const id = generateBlobId('bin');
 		const text = doc.get('unknown-text-root');
 		text.insert(0, id.slice(0, 10), { bold: true });
 		text.insert(10, [{ divider: true }]);
@@ -554,5 +554,118 @@ test('embedded content interrupts BlobId text matching', async () => {
 		expect(expectOk(await prepareArchive(archive)).blobs).toEqual([]);
 	} finally {
 		doc.destroy();
+	}
+});
+
+test('extension text split by formatting is captured once under the complete key', async () => {
+	const doc = new Y.Doc();
+	try {
+		const id = generateBlobId('webm');
+		const text = doc.get('content');
+		const split = id.length - 2;
+		text.insert(0, id.slice(0, split), { bold: true });
+		text.insert(split, id.slice(split), { italic: true });
+		const read: string[] = [];
+		const archive = expectOk(
+			await captureArchive(
+				{
+					generation: 1,
+					head: 1,
+					snapshot: { position: 1, bytes: Y.encodeStateAsUpdateV2(doc) },
+					tail: [],
+				},
+				{
+					async get(requested) {
+						read.push(requested);
+						return Ok(
+							new Blob(['recorded'], { type: 'audio/webm;codecs=opus' }),
+						);
+					},
+				},
+				{ appId: 'so.epicenter.notes', dataId: 'so.epicenter.notes' },
+			),
+		);
+		expect(read).toEqual([id]);
+		const envelope = JSON.parse(new TextDecoder().decode(archive));
+		expect(envelope.version).toBe(3);
+		expect(envelope.body.blobs).toEqual([
+			{ id, bytes: Array.from(new TextEncoder().encode('recorded')) },
+		]);
+		const restored = expectOk(await prepareArchive(archive));
+		expect(restored.blobs.map(({ id }) => id)).toEqual([id]);
+		expect(restored.blobs[0]!.blob.type).toBe('video/webm');
+	} finally {
+		doc.destroy();
+	}
+});
+
+test('overlong extension text never creates a truncated attachment reference', async () => {
+	const doc = new Y.Doc();
+	try {
+		doc.get('content').insert(0, `${generateBlobId('abcdefghij')}extra`);
+		const archive = expectOk(
+			await captureArchive(
+				{
+					generation: 1,
+					head: 1,
+					snapshot: { position: 1, bytes: Y.encodeStateAsUpdateV2(doc) },
+					tail: [],
+				},
+				{
+					async get(id) {
+						return BlobStoreError.BlobNotFound({ id });
+					},
+				},
+				{ appId: 'so.epicenter.notes', dataId: 'so.epicenter.notes' },
+			),
+		);
+		expect(expectOk(await prepareArchive(archive)).blobs).toEqual([]);
+	} finally {
+		doc.destroy();
+	}
+});
+
+test('an uploaded recording archives local audio and preserves its independent hosted URL', async () => {
+	const s = setup();
+	try {
+		const remoteId = generateBlobId('wav');
+		const url = `https://api.example.test/api/apps/so.epicenter.notes/principals/alice/blobs/${remoteId}`;
+		const previous = Y.encodeStateVector(s.doc);
+		const row = s.doc.get('tables:unknown').getAttr('row-1') as Y.Type;
+		row.setAttr('audioUrl', url);
+		row.setAttr('description', `${url} local audio: ${s.id}`);
+		const text = new Y.Type();
+		row.setAttr('formatted-url', text);
+		const split = url.length - 2;
+		text.insert(0, url.slice(0, split), { bold: true });
+		text.insert(split, url.slice(split), { italic: true });
+		expectOk(
+			s.authority.bind(1).append(Y.encodeStateAsUpdateV2(s.doc, previous)),
+		);
+		const reads: string[] = [];
+		const archive = expectOk(
+			await captureArchive(
+				s.authority.capture(),
+				{
+					async get(id) {
+						reads.push(id);
+						return s.blobs.get(id);
+					},
+				},
+				{ appId: 'so.epicenter.notes', dataId: 'so.epicenter.notes' },
+			),
+		);
+		const prepared = expectOk(await prepareArchive(archive));
+		expect(reads).toEqual([s.id]);
+		expect(prepared.blobs.map(({ id }) => id)).toEqual([s.id]);
+		const restored = new Y.Doc();
+		try {
+			Y.applyUpdateV2(restored, prepared.bytes);
+			expect(view(restored)).toEqual(view(s.doc));
+		} finally {
+			restored.destroy();
+		}
+	} finally {
+		s.close();
 	}
 });

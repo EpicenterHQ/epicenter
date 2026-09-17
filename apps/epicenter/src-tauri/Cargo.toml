@@ -31,6 +31,7 @@ hf-hub = { version = "0.5", features = ["tokio"] }
 hound = "3.5"
 keyring = "4"
 lazy_static = "1.4"
+libc = "0.2"
 log = "0.4"
 ogg = "0.9"
 rayon = "1.10"

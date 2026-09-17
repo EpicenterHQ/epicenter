@@ -811,9 +811,6 @@ pub fn run() {
 
             app.manage(app_data::DesktopPaths::resolve(app.handle())?);
 
-            // Remove abandoned non-recording writes. Saved capture staging survives.
-            crate::blobs::delete_stale_staging(app.handle());
-
             // The active local model and the unload policy are device-local host
             // state (ADR-0180), so they live beside the app's own config rather
             // than in any workspace that could carry them to a machine without

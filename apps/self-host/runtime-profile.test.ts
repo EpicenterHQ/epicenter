@@ -23,13 +23,13 @@ import { afterAll, expect, mock, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openSelfHostAuth } from '@epicenter/server/self-host-auth/bun';
-import { createAuthenticator } from '../../packages/server/evidence/enrollment/authenticator.js';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
+import { openSelfHostAuth } from '@epicenter/server/self-host-auth/bun';
 import {
 	generateBlobId,
 	REMOTE_BLOB_ROUTES,
 } from '../../packages/blobs/src/index.js';
+import { createAuthenticator } from '../../packages/server/evidence/enrollment/authenticator.js';
 
 // The Worker entry re-exports the Durable Object authority, whose module imports
 // `cloudflare:workers`. Only the class identity matters for route composition.
@@ -54,8 +54,8 @@ type Surface = {
 /** The origin every probe and both entries answer on; the path is what matters. */
 const ORIGIN = 'http://localhost:8787';
 
-/** A blob id shaped for the `blob_[a-z0-9]{21}` route pattern. */
-const PROBE_BLOB_ID = generateBlobId();
+/** A complete key accepted by the shared blob route parser. */
+const PROBE_BLOB_ID = generateBlobId('wav');
 
 const PROFILE: Surface[] = [
 	{

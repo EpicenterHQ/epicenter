@@ -10,7 +10,7 @@ import { uploadRecording } from './upload-recording';
 function setup() {
 	const recording = {
 		id: 'recording',
-		audioBlobId: generateBlobId(),
+		audioBlobId: generateBlobId('wav'),
 	} as Recording;
 	const addLocal = mock(async () => Ok('https://cloud.example/saved'));
 	const get = mock();

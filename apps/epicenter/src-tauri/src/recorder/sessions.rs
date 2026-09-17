@@ -207,7 +207,7 @@ impl Recorder {
             ));
         }
         if !file.published {
-            file.recording.staged.commit("audio/wav")?;
+            file.recording.staged.commit()?;
             file.published = true;
         }
         Ok(file.stopped.clone())
@@ -267,8 +267,8 @@ impl Recorder {
             .is_some_and(|file| file.owner == owner)
         {
             let file = self.sessions.files.remove(id).unwrap();
-            // The staging path never changes on publication. A rename moved
-            // the bytes out of it, so cleanup cannot delete a saved attachment.
+            // Cleanup targets only the producer's temporary name. The saved
+            // file's independent name survives even a lost Stop response.
             file.recording.staged.discard();
         }
     }

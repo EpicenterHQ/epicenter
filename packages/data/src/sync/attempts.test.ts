@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateBlobId } from '@epicenter/blobs';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
+import { nanoid } from 'nanoid';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openCurrentAuthority } from './authority.js';
 
@@ -39,8 +40,8 @@ async function setup() {
 	authority.ensureCurrent(new Uint8Array([1]));
 	const attempts = authority.attempts({ library, identity });
 	const request = {
-		operation: generateBlobId(),
-		backupId: generateBlobId(),
+		operation: nanoid(),
+		backupId: generateBlobId('json'),
 		backupDigest: 'a'.repeat(64),
 	};
 	/** Reopen the same file, the way a new process would. */
@@ -81,8 +82,8 @@ test('one library holds one unresolved attempt, and reserving it again resumes t
 	expect(expectOk(s.attempts.reserve(s.request))).toEqual(reserved);
 	const other = expectErr(
 		s.attempts.reserve({
-			operation: generateBlobId(),
-			backupId: generateBlobId(),
+			operation: nanoid(),
+			backupId: generateBlobId('json'),
 			backupDigest: 'b'.repeat(64),
 		}),
 	);
@@ -92,8 +93,9 @@ test('one library holds one unresolved attempt, and reserving it again resumes t
 	});
 	// Reusing the identity for a different selection is a conflict, not a resume.
 	expect(
-		expectErr(s.attempts.reserve({ ...s.request, backupId: generateBlobId() }))
-			.name,
+		expectErr(
+			s.attempts.reserve({ ...s.request, backupId: generateBlobId('json') }),
+		).name,
 	).toBe('AttemptConflict');
 	expect(expectOk(s.attempts.pending())).toEqual(reserved);
 });
@@ -101,7 +103,7 @@ test('one library holds one unresolved attempt, and reserving it again resumes t
 test('the safety backup and prepared request are pinned once and survive reopening', async () => {
 	using s = await setup();
 	expectOk(s.attempts.reserve(s.request));
-	const safetyBackupId = generateBlobId();
+	const safetyBackupId = generateBlobId('json');
 	expect(
 		expectOk(
 			s.attempts.associateSafetyBackup(s.request.operation, safetyBackupId),
@@ -113,13 +115,16 @@ test('the safety backup and prepared request are pinned once and survive reopeni
 	);
 	expect(
 		expectErr(
-			s.attempts.associateSafetyBackup(s.request.operation, generateBlobId()),
+			s.attempts.associateSafetyBackup(
+				s.request.operation,
+				generateBlobId('json'),
+			),
 		).name,
 	).toBe('AttemptConflict');
 	const preparation = {
 		destination: { generation: 1, head: 4 },
 		activationDigest: 'c'.repeat(64),
-		activationObjectId: generateBlobId(),
+		activationObjectId: generateBlobId('bin'),
 	};
 	expectOk(s.attempts.pinPreparation(s.request.operation, preparation));
 	expectOk(s.attempts.pinPreparation(s.request.operation, preparation));
@@ -161,7 +166,7 @@ test('a finalized failure releases the slot and fences that attempt from activat
 	expect(s.authority.capture().generation).toBe(1);
 	// The slot is free, and a later deliberate attempt for the same backup is new.
 	expect(expectOk(s.attempts.pending())).toBeUndefined();
-	const next = { ...s.request, operation: generateBlobId() };
+	const next = { ...s.request, operation: nanoid() };
 	expect(expectOk(s.attempts.reserve(next)).operation).toBe(next.operation);
 	// The fence is durable, not a property of the lifetime that wrote it.
 	const reopened = s.reopen();
@@ -193,7 +198,7 @@ test('activation resolves its attempt, and the receipt is readable without the b
 		s.attempts.pinPreparation(s.request.operation, {
 			destination,
 			activationDigest: digest,
-			activationObjectId: generateBlobId(),
+			activationObjectId: generateBlobId('bin'),
 		}),
 	);
 	// Bytes that were never pinned cannot activate under this attempt's identity.
@@ -232,7 +237,7 @@ test('activation resolves its attempt, and the receipt is readable without the b
 	try {
 		// The whole point of the query: no archive, no prepared object, no bytes.
 		expect(reopened.authority.receipt(s.request.operation)).toEqual(committed);
-		expect(reopened.authority.receipt(generateBlobId())).toBeUndefined();
+		expect(reopened.authority.receipt(nanoid())).toBeUndefined();
 	} finally {
 		reopened.close();
 	}
@@ -259,8 +264,6 @@ test('reserving a resolved attempt reports its outcome instead of handing back t
 	expect(refused).toMatchObject({ name: 'AttemptResolved', status: 'failed' });
 	// The slot itself is free, so a new attempt for the same backup can start.
 	expect(
-		expectOk(
-			s.attempts.reserve({ ...s.request, operation: generateBlobId() }),
-		).status,
+		expectOk(s.attempts.reserve({ ...s.request, operation: nanoid() })).status,
 	).toBe('pending');
 });

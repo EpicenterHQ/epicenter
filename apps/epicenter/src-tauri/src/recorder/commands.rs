@@ -1,5 +1,5 @@
-//! One-shot IPC for document-owned capture and library-owned publication.
-use crate::blobs::mint_blob_id;
+//! One-shot IPC for document-owned capture and app-local publication.
+use crate::blobs::mint_wav_blob_id;
 use crate::recorder::ended::{EndedReason, RecordingEndedEvent};
 use crate::recorder::error::RecorderError;
 use crate::recorder::recorder::{HostRecording, Recorder, Result};
@@ -134,7 +134,7 @@ pub async fn start_recording(
             return Ok(current);
         }
         let app_id = recorder.session_app_id(window.label(), &session_id)?;
-        let audio_blob_id = mint_blob_id()?;
+        let audio_blob_id = mint_wav_blob_id()?;
         let started = recorder.start(
             device_identifier.as_deref(),
             &app_id,

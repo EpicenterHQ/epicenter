@@ -4,6 +4,7 @@ import {
 	MAX_REMOTE_BLOB_BYTES,
 	parseBlobId,
 	REMOTE_BLOB_ROUTES,
+	selectBlobFormat,
 } from '@epicenter/blobs';
 import { isAppId } from '@epicenter/constants/app-id';
 import type { Hono, MiddlewareHandler } from 'hono';
@@ -115,11 +116,15 @@ export function mountBlobsApp<E extends Env = Env>(
 		}
 		if (declared !== undefined && Number(declared) !== size)
 			return c.text('Incorrect content length', 400);
-		const blobId = generateBlobId();
+		const contentType =
+			c.req.header('content-type') || 'application/octet-stream';
+		const blobId = generateBlobId(
+			selectBlobFormat({ type: contentType }).extension,
+		);
 		await c.var.blobStore.put(
 			c.var.blobPrefix + blobId,
 			new Blob(chunks, {
-				type: c.req.header('content-type') || 'application/octet-stream',
+				type: contentType,
 			}),
 			c.req.raw.signal,
 		);

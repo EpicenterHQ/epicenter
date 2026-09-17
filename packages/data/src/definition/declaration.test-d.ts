@@ -132,18 +132,18 @@ const createWithContent: CreateRowOf<typeof definition.tables.items> = {
 void createWithoutContent;
 void createWithContent;
 const createRecording: RecordingInput = {
-	audio: generateBlobId(),
+	audio: generateBlobId('wav'),
 	optional: null,
-	ordinaryId: generateBlobId(),
+	ordinaryId: generateBlobId('wav'),
 };
 void createRecording;
 const copyRecording: RecordingInput = {
-	audio: generateBlobId(),
-	optional: generateBlobId(),
-	ordinaryId: generateBlobId(),
+	audio: generateBlobId('wav'),
+	optional: generateBlobId('wav'),
+	ordinaryId: generateBlobId('wav'),
 };
 void copyRecording;
-// @ts-expect-error: arbitrary strings are not validated copy-source IDs.
+// @ts-expect-error: arbitrary strings are not validated blob keys.
 const invalidCopy: RecordingInput['audio'] = 'not-a-blob-id';
 void invalidCopy;
 
@@ -152,9 +152,9 @@ recordings.create({
 	// @ts-expect-error: row values cannot accept unpersisted bytes.
 	audio: new Blob(['audio']),
 	optional: null,
-	ordinaryId: generateBlobId(),
+	ordinaryId: generateBlobId('wav'),
 });
-recordings.update('a'.repeat(24), { audio: generateBlobId() });
+recordings.update('a'.repeat(24), { audio: generateBlobId('wav') });
 export type _CreateIsSynchronous = Expect<
 	Equal<ReturnType<typeof recordings.create>, Recording>
 >;

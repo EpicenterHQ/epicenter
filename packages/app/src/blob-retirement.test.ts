@@ -111,7 +111,7 @@ test('document retirement aborts an upload and releases playback before explicit
 			baseURL,
 			appId,
 			account.principalId,
-			generateBlobId(),
+			generateBlobId('wav'),
 		);
 		const source = expectOk(await app.blobs.remote.open(url));
 		expect(await (await fetch(source.url)).text()).toBe('audio');

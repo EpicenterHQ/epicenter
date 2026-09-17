@@ -1,4 +1,10 @@
+/**
+ * Transcription wire tests.
+ * Verifies authenticated multipart requests, shared format filenames, preserved
+ * bytes and producer media types, filename fallback, and typed response errors.
+ */
 import { afterEach, describe, expect, test } from 'bun:test';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { resolveConnection } from './connection.js';
 import { transcribe } from './transcribe.js';
 
@@ -24,14 +30,13 @@ describe('transcribe over the OpenAI wire', () => {
 			}),
 		);
 
-		const { data, error } = await transcribe(
+		const result = await transcribe(
 			new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/webm' }),
 			resolveConnection({ baseUrl: 'http://localhost:8000/v1' }),
 			{ model: 'whisper-1' },
 		);
 
-		expect(error).toBeNull();
-		expect(data).toBe('hello world');
+		expect(expectOk(result)).toBe('hello world');
 		expect(seen).toHaveLength(1);
 		// The connection's baseUrl already carries `/v1`; the client appends the
 		// rest of the wire path, like the sibling chat client does.
@@ -72,7 +77,7 @@ describe('transcribe over the OpenAI wire', () => {
 	test('a non-2xx becomes a RequestFailed carrying the status', async () => {
 		captureRequest(new Response('nope', { status: 401 }));
 
-		const { data, error } = await transcribe(
+		const result = await transcribe(
 			new Blob([new Uint8Array([1])], { type: 'audio/wav' }),
 			resolveConnection({
 				baseUrl: 'https://api.openai.com/v1',
@@ -81,12 +86,11 @@ describe('transcribe over the OpenAI wire', () => {
 			{ model: 'whisper-1' },
 		);
 
-		expect(data).toBeNull();
-		expect(error?.name).toBe('RequestFailed');
-		if (error?.name === 'RequestFailed') {
-			expect(error.status).toBe(401);
-			expect(error.detail).toBe('nope');
-		}
+		expect(expectErr(result)).toMatchObject({
+			name: 'RequestFailed',
+			status: 401,
+			detail: 'nope',
+		});
 	});
 
 	test('a 2xx body that is not { text } becomes Malformed', async () => {
@@ -94,45 +98,104 @@ describe('transcribe over the OpenAI wire', () => {
 			new Response(JSON.stringify({ unexpected: true }), { status: 200 }),
 		);
 
-		const { data, error } = await transcribe(
+		const result = await transcribe(
 			new Blob([new Uint8Array([1])], { type: 'audio/wav' }),
 			resolveConnection({ baseUrl: 'http://localhost:8000/v1' }),
 			{ model: 'whisper-1' },
 		);
 
-		expect(data).toBeNull();
-		expect(error?.name).toBe('Malformed');
+		expect(expectErr(result).name).toBe('Malformed');
 	});
 
-	// The upload filename's extension is how the OpenAI wire detects the audio
-	// format, so the closed MIME->extension allowlist must map each recorder MIME
-	// to an extension the wire accepts, never a raw subtype slice (`audio/wave`
-	// would slice to the rejected `wave`, `audio/mpeg` to `mpeg` not `mp3`).
-	const filenameCases: [mime: string, expected: string][] = [
-		['audio/wave', 'audio.wav'], // not 'audio.wave'
-		['audio/x-wav', 'audio.wav'],
-		['audio/mpeg', 'audio.mp3'], // not 'audio.mpeg'
-		['audio/webm;codecs=opus', 'audio.webm'], // the codec parameter is stripped
-		['audio/x-m4a', 'audio.m4a'],
-		['audio/ogg', 'audio.ogg'],
-		['', 'audio.mp3'], // a missing type falls back to mp3
-		['application/octet-stream', 'audio.mp3'], // an unknown type falls back to mp3
+	const filenameCases: Array<{ input: Blob; name: string; type: string }> = [
+		{
+			input: new Blob(['audio'], { type: 'audio/wave' }),
+			name: 'audio.wav',
+			type: 'audio/wave',
+		},
+		{
+			input: new Blob(['audio'], { type: 'audio/x-wav' }),
+			name: 'audio.wav',
+			type: 'audio/x-wav',
+		},
+		{
+			input: new Blob(['audio'], { type: 'audio/mpeg' }),
+			name: 'audio.mp3',
+			type: 'audio/mpeg',
+		},
+		{
+			input: new Blob(['audio'], { type: 'audio/webm;codecs=opus' }),
+			name: 'audio.webm',
+			type: 'audio/webm;codecs=opus',
+		},
+		{
+			input: new Blob(['audio'], { type: 'video/webm' }),
+			name: 'audio.webm',
+			type: 'video/webm',
+		},
+		{
+			input: new Blob(['audio'], { type: 'audio/x-m4a' }),
+			name: 'audio.m4a',
+			type: 'audio/x-m4a',
+		},
+		{
+			input: new Blob(['audio'], { type: 'audio/ogg' }),
+			name: 'audio.ogg',
+			type: 'audio/ogg',
+		},
+		{
+			input: new Blob(['audio']),
+			name: 'audio.bin',
+			type: 'application/octet-stream',
+		},
+		{
+			input: new Blob(['audio'], { type: 'application/octet-stream' }),
+			name: 'audio.bin',
+			type: 'application/octet-stream',
+		},
+		{
+			input: new File(['audio'], 'voice.WAV'),
+			name: 'audio.wav',
+			type: 'audio/wav',
+		},
+		{
+			input: new File(['audio'], 'voice.M4A', {
+				type: 'application/octet-stream',
+			}),
+			name: 'audio.m4a',
+			type: 'audio/mp4',
+		},
+		{
+			input: new File(['audio'], 'voice.wav', { type: 'audio/webm' }),
+			name: 'audio.webm',
+			type: 'audio/webm',
+		},
+		{
+			input: new File(['audio'], 'voice.wav', {
+				type: 'application/x-unknown',
+			}),
+			name: 'audio.bin',
+			type: 'application/x-unknown',
+		},
 	];
 
-	for (const [mime, expected] of filenameCases) {
-		test(`maps blob MIME "${mime || '(none)'}" to upload filename ${expected}`, async () => {
-			const seen = captureRequest(
-				new Response(JSON.stringify({ text: 'x' }), { status: 200 }),
+	for (const { input, name, type } of filenameCases) {
+		test(`uploads ${input.type || '(untyped)'} ${input instanceof File ? input.name : 'Blob'} as ${name} without converting bytes`, async () => {
+			const seen = captureRequest(Response.json({ text: 'x' }));
+			expectOk(
+				await transcribe(
+					input,
+					resolveConnection({ baseUrl: 'http://localhost:8000/v1' }),
+					{ model: 'whisper-1' },
+				),
 			);
-
-			await transcribe(
-				new Blob([new Uint8Array([1])], { type: mime }),
-				resolveConnection({ baseUrl: 'http://localhost:8000/v1' }),
-				{ model: 'whisper-1' },
-			);
-
 			const form = seen[0]?.init?.body as FormData;
-			expect((form.get('file') as File).name).toBe(expected);
+			const wire = new Response(form);
+			const multipart = await wire.clone().text();
+			expect(multipart).toContain(`filename="${name}"`);
+			expect(multipart).toContain(`Content-Type: ${type}\r\n`);
+			const file = (await wire.formData()).get('file') as File;
+			expect(await file.text()).toBe('audio');
 		});
 	}
 });

@@ -1,6 +1,6 @@
 /**
  * Disposable native capture transport tests.
- * Verifies document/request identity, token-only Stop, lost response retries,
+ * Verifies document/request identity, saved-key Stop, lost response retries,
  * exact cleanup, and listener drainage. Physical evidence lives in Rust.
  */
 import { expect, mock, test } from 'bun:test';
@@ -47,7 +47,7 @@ function setup(options: Partial<RecordingOptions> = {}) {
 	listeners.clear();
 	released.length = 0;
 	const live: NativeRecording = {
-		audioBlobId: generateBlobId(),
+		audioBlobId: generateBlobId('wav'),
 		device: { outcome: 'success', deviceId: 'mic' },
 		endedReason: null,
 	};
@@ -98,6 +98,22 @@ test('construction and construction-only close acquire no native session', async
 	expect(expectOk(await owner.value.current())).toBeNull();
 	await owner.close();
 	expect(invoke).not.toHaveBeenCalled();
+});
+
+test('Stop returns the admitted WAV key and refuses an unrelated saved receipt', async () => {
+	const { owner, live } = setup();
+	const recording = expectOk(await owner.value.start({}));
+	const original = perform;
+	perform = async (command, args) =>
+		command === 'stop_recording'
+			? { blobId: generateBlobId('wav'), durationMs: 1000, byteLength: 96044 }
+			: original(command, args);
+	expect(expectErr(await recording.stop()).name).toBe('RecorderFailed');
+	perform = original;
+	const saved = expectOk(await recording.stop());
+	expect(saved.blobId).toBe(parseBlobId(live.audioBlobId)!);
+	expect(saved.blobId.endsWith('.wav')).toBe(true);
+	await owner.close();
 });
 
 test('session registration captures the app ID before capture starts', async () => {
@@ -220,7 +236,7 @@ test('lost cancel reply remains retryable and stale controls cannot cancel its s
 	};
 	expect(expectErr(await recording.cancel()).name).toBe('RecorderFailed');
 	expectOk(await recording.cancel());
-	live.audioBlobId = generateBlobId();
+	live.audioBlobId = generateBlobId('wav');
 	const next = expectOk(await owner.value.start({}));
 	expect(next.id).not.toBe(recording.id);
 	expect(expectErr(await recording.cancel()).name).toBe('NoActiveRecording');
@@ -450,7 +466,7 @@ test('current reconciles lost cancellation but preserves a retryable lost stop',
 	};
 	expect(expectErr(await first.cancel()).name).toBe('RecorderFailed');
 	expect(expectOk(await owner.value.current())).toBeNull();
-	live.audioBlobId = generateBlobId();
+	live.audioBlobId = generateBlobId('wav');
 	const second = expectOk(await owner.value.start({}));
 	lost = 'stop_recording';
 	expect(expectErr(await second.stop()).name).toBe('RecorderFailed');
@@ -553,7 +569,7 @@ for (const reply of ['success', 'failure'] as const) {
 				expectOk(await recording!.cancel());
 			} else expect(expectErr(await retry).name).toBe('NoActiveRecording');
 			perform = original;
-			live.audioBlobId = generateBlobId();
+			live.audioBlobId = generateBlobId('wav');
 			const successor = expectOk(await owner.value.start({}));
 			expect(expectOk(await owner.value.current())).toBe(successor);
 			expectOk(await successor.cancel());
@@ -586,7 +602,7 @@ test('late current cannot replace a retry handle or resurrect a cancelled captur
 	const first = expectOk(await owner.value.start({}));
 	const stale = { ...live };
 	expectOk(await first.cancel());
-	live.audioBlobId = generateBlobId();
+	live.audioBlobId = generateBlobId('wav');
 	const successor = expectOk(await owner.value.start({}));
 	response.resolve(stale);
 	expect(expectOk(await current)).toBe(successor);
@@ -643,7 +659,7 @@ test.each([
 	);
 	expect(expectOk(await owner.value.current())).toBeNull();
 	expect(released).toContain('mic-level');
-	live.audioBlobId = generateBlobId();
+	live.audioBlobId = generateBlobId('wav');
 	const next = expectOk(await owner.value.start({}));
 	expect(next.id).not.toBe(recording.id);
 	expect(expectErr(await recording.stop()).name).toBe('NoActiveRecording');

@@ -9,9 +9,10 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateBlobId } from '@epicenter/blobs';
+import { BlobStoreError, generateBlobId } from '@epicenter/blobs';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
+import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openCurrentAuthority } from './authority.js';
 
@@ -40,14 +41,14 @@ async function setup() {
 	const metadata = {
 		appId: 'so.epicenter.notes',
 		dataId: 'so.epicenter.notes',
-		version: 2,
+		version: 3,
 		source: { generation: 1, head: 1 },
 	};
 	// The authority is byte-opaque. Real codec composition is tested in recovery.test.ts.
 	const identity = { appId: metadata.appId, dataId: metadata.dataId };
 	const backups = authority.backups({ library, archives, identity });
 	const request = {
-		id: generateBlobId(),
+		id: generateBlobId('json'),
 		reason: 'imported' as const,
 		metadata,
 		bytes: new TextEncoder().encode('  original bytes\n'),
@@ -227,11 +228,34 @@ test('missing or corrupted objects refuse download without erasing the published
 			new Blob(['corrupt'], { type: original.type }),
 			new Blob([await original.arrayBuffer()], { type: 'text/plain' }),
 		]) {
-			expectOk(await s.archives.delete(record.id));
-			if (bytes) expectOk(await s.archives.put(record.id, bytes));
-			expectErr(await s.backups.download(record.id));
+			const corrupted = s.authority.backups({
+				library: s.library,
+				identity: s.identity,
+				archives: {
+					put: s.archives.put,
+					async get(id) {
+						return bytes ? Ok(bytes) : BlobStoreError.BlobNotFound({ id });
+					},
+				},
+			});
+			expectErr(await corrupted.download(record.id));
 			expect(expectOk(s.backups.list())).toEqual([record]);
 		}
+	} finally {
+		s.database.close();
+	}
+});
+
+test('private backup publication refuses a full key with a non-archive suffix', async () => {
+	const s = await setup();
+	try {
+		expect(
+			expectErr(
+				await s.backups.publish({ ...s.request, id: generateBlobId('wav') }),
+			).name,
+		).toBe('BackupFailed');
+		expect(expectOk(s.backups.list())).toEqual([]);
+		expect(expectOk(await s.archives.list()).items).toEqual([]);
 	} finally {
 		s.database.close();
 	}

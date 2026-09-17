@@ -28,7 +28,7 @@ const capture = {
 		events.push('finalize');
 		await finalized.promise;
 		return Ok({
-			blobId: generateBlobId(),
+			blobId: generateBlobId('wav'),
 			durationMs: 100,
 			byteLength: 10,
 		});
@@ -231,7 +231,7 @@ test('a stale push-to-talk ID cannot stop the current recording', async () => {
 	const app = recordingApp({ recordingEnabled: true, blobs: { removeLocal } });
 	await app.recording.start();
 	const before = events.length;
-	await app.recording.stop(generateBlobId());
+	await app.recording.stop(generateBlobId('wav'));
 	expect(events).toHaveLength(before);
 	expect(app.recording.state).toBe('RECORDING');
 	await app.recording.stop(capture.id);

@@ -6,7 +6,8 @@ import type { WhisperingApp } from '$lib/whispering/app';
 import type { Recording } from './recording';
 
 function recordingToMarkdown(recording: Recording): string {
-	const { transcript, ...frontmatter } = recording;
+	// Whispering stores the transcript in a row value; its content node is unused.
+	const { transcript, content: _content, ...frontmatter } = recording;
 	const yamlStr = yaml.dump(frontmatter, { lineWidth: -1 });
 	return `---\n${yamlStr}---\n${transcript || ''}\n`;
 }

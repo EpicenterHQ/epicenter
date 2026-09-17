@@ -70,7 +70,6 @@ use cpal::{Device, SampleFormat, Stream};
 use hound::{SampleFormat as WavSampleFormat, WavSpec, WavWriter};
 use log::{debug, error, info, warn};
 use serde::Serialize;
-use std::fs::OpenOptions;
 use std::io::BufWriter;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc;
@@ -189,15 +188,15 @@ impl StagedCapture {
     /// is one voice and the transcriber downmixes anyway; PCM16 because it
     /// halves the file against f32 at a noise floor two orders of magnitude
     /// below anything a microphone produces.
-    fn open(staged: StagedBlob, device_rate: u32) -> Result<Self> {
-        match Self::open_writer(&staged, device_rate) {
+    fn open(mut staged: StagedBlob, device_rate: u32) -> Result<Self> {
+        match Self::open_writer(&mut staged, device_rate) {
             Ok(writer) => Ok(Self {
                 staged,
                 writer: Some(writer),
                 device_rate,
                 write_failed: false,
             }),
-            // A staging directory nothing can write to is debris, not a
+            // A staging file nothing can write to is debris, not a
             // recording waiting to happen.
             Err(error) => {
                 staged.discard();
@@ -207,19 +206,13 @@ impl StagedCapture {
     }
 
     fn open_writer(
-        staged: &StagedBlob,
+        staged: &mut StagedBlob,
         device_rate: u32,
     ) -> Result<WavWriter<BufWriter<std::fs::File>>> {
         let path = staged.data_path();
-        // `create_new` states the invariant rather than assuming it: the staging
-        // directory was made for this recording alone, moments ago.
-        let file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&path)
-            .map_err(|error| {
-                RecorderError::failed(format!("create staged capture {}: {error}", path.display()))
-            })?;
+        // Staging already owns an exclusively created file. Finalization
+        // consumes this encoder handle before its owner publishes the bytes.
+        let file = staged.writer()?;
         let spec = WavSpec {
             channels: 1,
             sample_rate: device_rate,
@@ -334,8 +327,7 @@ impl StagedCapture {
 
     /// Delete the staged bytes without finalizing them.
     ///
-    /// The writer is dropped first so its file handle is closed before the
-    /// directory goes, which Windows requires and every platform prefers.
+    /// Drop the encoder first so it cannot patch a WAV after cleanup begins.
     fn discard(self) {
         drop(self.writer);
         self.staged.discard();
@@ -376,7 +368,7 @@ impl FinalizedRecording {
                 return Err(error);
             }
         };
-        crate::timing::measure("stop.publish", || self.staged.publish("audio/wav"))?;
+        crate::timing::measure("stop.publish", || self.staged.publish())?;
         Ok(RecordedAudio {
             duration_ms: self.duration_ms,
             byte_length,
@@ -1464,7 +1456,10 @@ mod tests {
             "physical capture requires microphone authorization for this executable"
         );
         let root = staging_root();
-        for id in ["blob_aaaaaaaaaaaaaaaaaaaaa", "blob_bbbbbbbbbbbbbbbbbbbbb"] {
+        for id in [
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
+            "blob_bbbbbbbbbbbbbbbbbbbbb.wav",
+        ] {
             let (device, acquisition) = resolve_device(&cpal::default_host(), None).unwrap();
             let config = get_optimal_config(&device).unwrap();
             let rate = config.sample_rate();
@@ -1509,7 +1504,8 @@ mod tests {
     #[test]
     fn a_real_capture_write_failure_cannot_be_finished_as_success() {
         let root = staging_root();
-        let staged = StagedBlob::stage(root.path().into(), "blob_aaaaaaaaaaaaaaaaaaaaa").unwrap();
+        let staged =
+            StagedBlob::stage(root.path().into(), "blob_aaaaaaaaaaaaaaaaaaaaa.wav").unwrap();
         std::fs::write(staged.data_path(), []).unwrap();
         let file = std::fs::File::open(staged.data_path()).unwrap();
         let writer = WavWriter::new(
@@ -1535,7 +1531,7 @@ mod tests {
         recorder
             .register_session("owner", "document", "so.epicenter.test")
             .unwrap();
-        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
         recorder.active = Some(HeldRecording {
             audio_blob_id: id.into(),
             owner_label: "owner".into(),
@@ -1557,8 +1553,14 @@ mod tests {
         ));
         recorder.require_free_slot().unwrap();
         assert_eq!(
-            std::fs::read_dir(root.path().join(".staging/rust"))
+            std::fs::read_dir(root.path())
                 .unwrap()
+                .filter(|entry| entry
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".rust-"))
                 .count(),
             0
         );
@@ -1567,7 +1569,7 @@ mod tests {
     #[test]
     fn an_oversized_recording_is_discarded_before_publication() {
         let root = staging_root();
-        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
         let staged = StagedBlob::stage(root.path().into(), id).unwrap();
         let staged_path = staged.data_path();
         std::fs::File::create(&staged_path)
@@ -1699,7 +1701,7 @@ mod tests {
             .prepare_start("window", "document", "next")
             .unwrap()
             .is_none());
-        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
         recording_owned_by(&mut recorder, &root, id, "window");
         recorder.remember_start("window", "document", "next", id);
         assert!(recorder
@@ -1728,8 +1730,8 @@ mod tests {
     fn document_departure_preserves_saved_output_and_fences_stale_commands() {
         let root = staging_root();
         let mut recorder = Recorder::new();
-        let old = "blob_aaaaaaaaaaaaaaaaaaaaa";
-        let next = "blob_bbbbbbbbbbbbbbbbbbbbb";
+        let old = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
+        let next = "blob_bbbbbbbbbbbbbbbbbbbbb.wav";
         recorder
             .register_session("window", "document-1", "so.epicenter.test")
             .unwrap();
@@ -1775,8 +1777,14 @@ mod tests {
         recorder.close_document("window");
         assert!(!recorder.is_capturing());
         assert_eq!(
-            std::fs::read_dir(root.path().join(".staging/rust"))
+            std::fs::read_dir(root.path())
                 .unwrap()
+                .filter(|entry| entry
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".rust-"))
                 .count(),
             0
         );
@@ -1797,7 +1805,7 @@ mod tests {
             },
         )
         .unwrap();
-        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
         let mut capture =
             StagedCapture::open(StagedBlob::stage(root.clone(), id).unwrap(), TEST_RATE).unwrap();
         capture.write(&tone(TEST_RATE, 1)).unwrap();
@@ -1822,7 +1830,7 @@ mod tests {
         assert_eq!(saved.blob_id, retried.blob_id);
         recorder.close_session("window", "document");
         assert_eq!(
-            std::fs::metadata(root.join(id).join("data")).unwrap().len(),
+            std::fs::metadata(root.join(id)).unwrap().len(),
             saved.byte_length as u64
         );
         assert!(!data_root
@@ -1836,7 +1844,7 @@ mod tests {
     fn stop_saves_once_and_saved_audio_survives_document_close() {
         let root = staging_root();
         let mut recorder = Recorder::new();
-        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
         recorder
             .register_session("window", "document", "so.epicenter.test")
             .unwrap();
@@ -1846,17 +1854,40 @@ mod tests {
         assert_eq!(first.blob_id, retry.blob_id);
         assert_eq!(first.byte_length, retry.byte_length);
         recorder.close_document("window");
-        let bytes = std::fs::read(root.path().join(id).join("data")).unwrap();
+        let bytes = std::fs::read(root.path().join(id)).unwrap();
         assert_eq!(bytes.len(), first.byte_length as usize);
         assert!(!decode_to_pcm16k_mono(&bytes).unwrap().is_empty());
-        let metadata: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(root.path().join(id).join("metadata.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            metadata,
-            serde_json::json!({"size": first.byte_length, "contentType": "audio/wav"})
-        );
+        assert!(std::fs::metadata(root.path().join(id)).unwrap().is_file());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn failed_stop_retains_finalized_audio_and_its_key_until_publication_can_retry() {
+        let root = staging_root();
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
+        let mut recorder = Recorder::new();
+        recorder
+            .register_session("window", "document", "so.epicenter.test")
+            .unwrap();
+        recording_owned_by(&mut recorder, &root, id, "window");
+        // A occupied final entry must not be replaced, but finalization has
+        // already ended capture and must remain available for the same Stop.
+        std::fs::create_dir(root.path().join(id)).unwrap();
+        assert!(recorder.stop_session("window", "document", id).is_err());
+        assert!(recorder.current("window").is_none());
+        assert!(recorder
+            .prepare_start("window", "document", "next-request")
+            .is_err());
+        assert!(std::fs::metadata(root.path().join(id)).unwrap().is_dir());
+        std::fs::remove_dir(root.path().join(id)).unwrap();
+        let saved = recorder.stop_session("window", "document", id).unwrap();
+        assert_eq!(saved.blob_id, id);
+        assert_eq!(saved.duration_ms, 1000);
+        recorder.close_document("window");
+        let bytes = std::fs::read(root.path().join(id)).unwrap();
+        assert_eq!(bytes.len(), saved.byte_length as usize);
+        assert!(!decode_to_pcm16k_mono(&bytes).unwrap().is_empty());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
     }
 
     #[test]
@@ -1866,13 +1897,13 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             "app-notes",
         );
 
         assert_eq!(
             current_id(&recorder, "app-notes").as_deref(),
-            Some("blob_aaaaaaaaaaaaaaaaaaaaa"),
+            Some("blob_aaaaaaaaaaaaaaaaaaaaa.wav"),
         );
         // A window that owns no recording learns nothing about one that exists.
         assert!(recorder.current("whispering").is_none());
@@ -1887,17 +1918,17 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             "app-notes",
         );
         recorder.end_capture(
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             EndedReason::DeviceDisconnected,
         );
 
         for _ in 0..3 {
             let recording = recorder.current("app-notes").expect("still held");
-            assert_eq!(recording.audio_blob_id, "blob_aaaaaaaaaaaaaaaaaaaaa");
+            assert_eq!(recording.audio_blob_id, "blob_aaaaaaaaaaaaaaaaaaaaa.wav");
             assert_eq!(
                 recording.ended_reason,
                 Some(EndedReason::DeviceDisconnected)
@@ -1912,17 +1943,17 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             "app-notes",
         );
 
         let stop = recorder
-            .stop("blob_aaaaaaaaaaaaaaaaaaaaa", "whispering")
+            .stop("blob_aaaaaaaaaaaaaaaaaaaaa.wav", "whispering")
             .expect_err("a non-owner must not stop another window's recording");
         assert_eq!(error_name(&stop), "NotRecording");
 
         let cancel = recorder
-            .cancel("blob_aaaaaaaaaaaaaaaaaaaaa", "whispering")
+            .cancel("blob_aaaaaaaaaaaaaaaaaaaaa.wav", "whispering")
             .expect_err("a non-owner must not cancel another window's recording");
         assert_eq!(error_name(&cancel), "NotRecording");
 
@@ -1930,7 +1961,7 @@ mod tests {
         assert!(recorder.is_capturing());
         assert_eq!(
             current_id(&recorder, "app-notes").as_deref(),
-            Some("blob_aaaaaaaaaaaaaaaaaaaaa"),
+            Some("blob_aaaaaaaaaaaaaaaaaaaaa.wav"),
         );
     }
 
@@ -1941,12 +1972,12 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             "app-notes",
         );
 
         let error = recorder
-            .stop("blob_bbbbbbbbbbbbbbbbbbbbb", "app-notes")
+            .stop("blob_bbbbbbbbbbbbbbbbbbbbb.wav", "app-notes")
             .expect_err("a stale id must not stop whatever happens to be live");
         assert_eq!(error_name(&error), "NotRecording");
         assert!(recorder.is_capturing());
@@ -1959,12 +1990,12 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             "app-notes",
         );
 
         recorder
-            .cancel("blob_aaaaaaaaaaaaaaaaaaaaa", "app-notes")
+            .cancel("blob_aaaaaaaaaaaaaaaaaaaaa.wav", "app-notes")
             .expect("the owner may cancel its own recording");
 
         assert!(!recorder.is_capturing());
@@ -1978,7 +2009,7 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             "app-notes",
         );
 
@@ -1988,7 +2019,7 @@ mod tests {
 
         assert_eq!(
             recorder.cancel_owned_by("app-notes").as_deref(),
-            Some("blob_aaaaaaaaaaaaaaaaaaaaa"),
+            Some("blob_aaaaaaaaaaaaaaaaaaaaa.wav"),
         );
         assert!(!recorder.is_capturing());
     }
@@ -2003,14 +2034,14 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             "app-notes",
         );
-        recorder.end_capture("blob_aaaaaaaaaaaaaaaaaaaaa", EndedReason::StreamFailed);
+        recorder.end_capture("blob_aaaaaaaaaaaaaaaaaaaaa.wav", EndedReason::StreamFailed);
 
         assert_eq!(
             recorder.cancel_owned_by("app-notes").as_deref(),
-            Some("blob_aaaaaaaaaaaaaaaaaaaaa"),
+            Some("blob_aaaaaaaaaaaaaaaaaaaaa.wav"),
         );
         assert!(recorder.current("app-notes").is_none());
         recorder
@@ -2028,14 +2059,14 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             "app-notes",
         );
 
         assert_eq!(
             recorder
                 .end_capture(
-                    "blob_aaaaaaaaaaaaaaaaaaaaa",
+                    "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
                     EndedReason::DeviceDisconnected
                 )
                 .as_deref(),
@@ -2051,7 +2082,7 @@ mod tests {
         let recording = recorder
             .current("app-notes")
             .expect("an ended recording is still the owner's");
-        assert_eq!(recording.audio_blob_id, "blob_aaaaaaaaaaaaaaaaaaaaa");
+        assert_eq!(recording.audio_blob_id, "blob_aaaaaaaaaaaaaaaaaaaaa.wav");
         assert_eq!(recording.device.device_id(), "Test Microphone");
         assert_eq!(
             recording.ended_reason,
@@ -2068,7 +2099,7 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             "app-notes",
         );
 
@@ -2077,7 +2108,10 @@ mod tests {
             .expect_err("a live recording refuses a start");
         assert_eq!(error_name(&live), "Busy");
 
-        recorder.end_capture("blob_aaaaaaaaaaaaaaaaaaaaa", EndedReason::PermissionRevoked);
+        recorder.end_capture(
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
+            EndedReason::PermissionRevoked,
+        );
 
         let ended = recorder
             .require_free_slot()
@@ -2104,22 +2138,20 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             "app-notes",
         );
         recorder.end_capture(
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             EndedReason::DeviceDisconnected,
         );
 
-        let recorded = stop_and_publish(&mut recorder, "blob_aaaaaaaaaaaaaaaaaaaaa", "app-notes")
-            .expect("an ended recording is still the owner's to stop");
+        let recorded =
+            stop_and_publish(&mut recorder, "blob_aaaaaaaaaaaaaaaaaaaaa.wav", "app-notes")
+                .expect("an ended recording is still the owner's to stop");
         assert_eq!(recorded.duration_ms, 1_000, "the captured second survived");
         assert!(
-            root.path()
-                .join("blob_aaaaaaaaaaaaaaaaaaaaa")
-                .join("data")
-                .exists(),
+            root.path().join("blob_aaaaaaaaaaaaaaaaaaaaa.wav").exists(),
             "stopping an ended recording must publish what it captured"
         );
 
@@ -2138,13 +2170,13 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             "app-notes",
         );
-        recorder.end_capture("blob_aaaaaaaaaaaaaaaaaaaaa", EndedReason::StreamFailed);
+        recorder.end_capture("blob_aaaaaaaaaaaaaaaaaaaaa.wav", EndedReason::StreamFailed);
 
         recorder
-            .cancel("blob_aaaaaaaaaaaaaaaaaaaaa", "app-notes")
+            .cancel("blob_aaaaaaaaaaaaaaaaaaaaa.wav", "app-notes")
             .expect("the owner may cancel an ended recording");
         assert!(recorder.current("app-notes").is_none());
     }
@@ -2158,17 +2190,17 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             "app-notes",
         );
         recorder.end_capture(
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             EndedReason::DeviceDisconnected,
         );
 
         assert!(recorder.current("whispering").is_none());
         let error = recorder
-            .stop("blob_aaaaaaaaaaaaaaaaaaaaa", "whispering")
+            .stop("blob_aaaaaaaaaaaaaaaaaaaaa.wav", "whispering")
             .expect_err("only the owner may claim the audio");
         assert_eq!(error_name(&error), "NotRecording");
         assert!(recorder.current("app-notes").is_some());
@@ -2185,31 +2217,31 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_bbbbbbbbbbbbbbbbbbbbb",
+            "blob_bbbbbbbbbbbbbbbbbbbbb.wav",
             "app-notes",
         );
 
         assert_eq!(
-            recorder.end_capture("blob_aaaaaaaaaaaaaaaaaaaaa", EndedReason::StreamFailed),
+            recorder.end_capture("blob_aaaaaaaaaaaaaaaaaaaaa.wav", EndedReason::StreamFailed),
             None
         );
         assert!(recorder.is_capturing());
         assert_eq!(
             current_id(&recorder, "app-notes").as_deref(),
-            Some("blob_bbbbbbbbbbbbbbbbbbbbb"),
+            Some("blob_bbbbbbbbbbbbbbbbbbbbb.wav"),
         );
 
         // The first report of a real failure names the owner; the second finds
         // the capture already ended and says nothing, so the owner is told once.
         assert_eq!(
             recorder
-                .end_capture("blob_bbbbbbbbbbbbbbbbbbbbb", EndedReason::StreamFailed)
+                .end_capture("blob_bbbbbbbbbbbbbbbbbbbbb.wav", EndedReason::StreamFailed)
                 .as_deref(),
             Some("app-notes")
         );
         assert_eq!(
             recorder.end_capture(
-                "blob_bbbbbbbbbbbbbbbbbbbbb",
+                "blob_bbbbbbbbbbbbbbbbbbbbb.wav",
                 EndedReason::DeviceDisconnected
             ),
             None
@@ -2232,7 +2264,7 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             "app-notes",
         );
 
@@ -2245,7 +2277,7 @@ mod tests {
     fn stopping_a_recording_that_already_ended_is_a_typed_refusal() {
         let mut recorder = Recorder::new();
         let error = recorder
-            .stop("blob_aaaaaaaaaaaaaaaaaaaaa", "app-notes")
+            .stop("blob_aaaaaaaaaaaaaaaaaaaaa.wav", "app-notes")
             .expect_err("there is nothing to stop");
         assert_eq!(error_name(&error), "NotRecording");
     }
@@ -2312,12 +2344,12 @@ mod tests {
     fn short_clips_are_padded_and_empty_ones_are_left_alone() {
         let root = staging_root();
 
-        let short = capture_holding(&root, "blob_aaaaaaaaaaaaaaaaaaaaa", &[64; 100])
+        let short = capture_holding(&root, "blob_aaaaaaaaaaaaaaaaaaaaa.wav", &[64; 100])
             .finish()
             .expect("finish a short clip");
         assert_eq!(short.duration_ms, 1_250);
 
-        let empty = capture_holding(&root, "blob_bbbbbbbbbbbbbbbbbbbbb", &[])
+        let empty = capture_holding(&root, "blob_bbbbbbbbbbbbbbbbbbbbb.wav", &[])
             .finish()
             .expect("finish an empty clip");
         assert_eq!(
@@ -2326,7 +2358,7 @@ mod tests {
         );
 
         // Anything at or over a second is kept exactly as captured.
-        let long = capture_holding(&root, "blob_ccccccccccccccccccccc", &tone(TEST_RATE, 2))
+        let long = capture_holding(&root, "blob_ccccccccccccccccccccc.wav", &tone(TEST_RATE, 2))
             .finish()
             .expect("finish a long clip");
         assert_eq!(long.duration_ms, 2_000);
@@ -2339,18 +2371,15 @@ mod tests {
     #[test]
     fn a_published_capture_decodes_to_16_khz_mono() {
         let root = staging_root();
-        let id = "blob_aaaaaaaaaaaaaaaaaaaaa";
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
 
         let stopped = capture_holding(&root, id, &tone(TEST_RATE, 1))
             .finish()
             .expect("finish the capture");
         assert_eq!(stopped.duration_ms, 1_000);
-        let byte_length = stopped
-            .staged
-            .publish("audio/wav")
-            .expect("publish the blob");
+        let byte_length = stopped.staged.publish().expect("publish the blob");
 
-        let published = root.path().join(id).join("data");
+        let published = root.path().join(id);
         let bytes = std::fs::read(&published).expect("read the published blob");
         assert_eq!(bytes.len() as u64, byte_length);
         // 44-byte canonical PCM header plus one second of 48 kHz mono PCM16.
@@ -2369,12 +2398,12 @@ mod tests {
     }
 
     /// Publication is atomic and one-way: nothing is readable at the id until
-    /// the rename, and a cancelled recording leaves no trace of either.
+    /// the atomic link, and a cancelled recording leaves no completed object.
     #[test]
     fn staging_becomes_a_blob_only_at_publish_and_never_at_cancel() {
         let root = staging_root();
-        let published_id = "blob_aaaaaaaaaaaaaaaaaaaaa";
-        let cancelled_id = "blob_bbbbbbbbbbbbbbbbbbbbb";
+        let published_id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
+        let cancelled_id = "blob_bbbbbbbbbbbbbbbbbbbbb.wav";
 
         let capture = capture_holding(&root, published_id, &tone(TEST_RATE, 1));
         assert!(
@@ -2385,14 +2414,12 @@ mod tests {
             .finish()
             .expect("finish")
             .staged
-            .publish("audio/wav")
+            .publish()
             .expect("publish");
-        assert!(root.path().join(published_id).join("data").exists());
-        assert!(root
-            .path()
-            .join(published_id)
-            .join("metadata.json")
-            .exists());
+        assert!(root.path().join(published_id).exists());
+        assert!(std::fs::metadata(root.path().join(published_id))
+            .unwrap()
+            .is_file());
 
         capture_holding(&root, cancelled_id, &tone(TEST_RATE, 1)).discard();
         assert!(
@@ -2401,9 +2428,15 @@ mod tests {
         );
 
         // Both recordings are resolved, so no staging is left holding bytes.
-        let staged: Vec<_> = std::fs::read_dir(root.path().join(".staging").join("rust"))
+        let staged: Vec<_> = std::fs::read_dir(root.path())
             .expect("the staging root")
             .map(|entry| entry.expect("a staging entry").path())
+            .filter(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with(".rust-")
+            })
             .collect();
         assert!(staged.is_empty(), "staging left behind: {staged:?}");
     }
@@ -2464,7 +2497,7 @@ mod tests {
     #[test]
     fn a_stop_writes_every_chunk_handed_over_including_during_the_close() {
         let root = staging_root();
-        let mut capture = capture_holding(&root, "blob_aaaaaaaaaaaaaaaaaaaaa", &[]);
+        let mut capture = capture_holding(&root, "blob_aaaaaaaaaaaaaaaaaaaaa.wav", &[]);
         let (sample_tx, sample_rx) = mpsc::sync_channel::<Vec<i16>>(CAPTURE_QUEUE_CHUNKS);
 
         // Three quarters of a second the callback delivered but the writer never
@@ -2515,7 +2548,7 @@ mod tests {
     #[test]
     fn the_drain_waits_out_a_sender_that_outlives_the_stream_handle() {
         let root = staging_root();
-        let mut capture = capture_holding(&root, "blob_aaaaaaaaaaaaaaaaaaaaa", &[]);
+        let mut capture = capture_holding(&root, "blob_aaaaaaaaaaaaaaaaaaaaa.wav", &[]);
         let (sample_tx, sample_rx) = mpsc::sync_channel::<Vec<i16>>(CAPTURE_QUEUE_CHUNKS);
 
         // A second holder of the sender, standing in for cpal's monitor thread:
@@ -2546,7 +2579,8 @@ mod tests {
     #[test]
     fn the_drain_gives_up_on_a_capture_stream_that_never_closes() {
         let root = staging_root();
-        let mut capture = capture_holding(&root, "blob_aaaaaaaaaaaaaaaaaaaaa", &tone(TEST_RATE, 2));
+        let mut capture =
+            capture_holding(&root, "blob_aaaaaaaaaaaaaaaaaaaaa.wav", &tone(TEST_RATE, 2));
         let (sample_tx, sample_rx) = mpsc::sync_channel::<Vec<i16>>(CAPTURE_QUEUE_CHUNKS);
 
         let wedged = sample_tx.clone();
@@ -2579,12 +2613,12 @@ mod tests {
         recording_owned_by(
             &mut recorder,
             &root,
-            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.wav",
             "app-notes",
         );
 
         let finalized = recorder
-            .stop("blob_aaaaaaaaaaaaaaaaaaaaa", "app-notes")
+            .stop("blob_aaaaaaaaaaaaaaaaaaaaa.wav", "app-notes")
             .expect("the owner may stop its recording");
 
         // The worker is gone, not merely asked to go, and only now is the slot
@@ -2600,38 +2634,36 @@ mod tests {
         assert!(recorded.byte_length > 44);
     }
 
-    /// Startup sweeps staging and only staging. A partial capture left by a dead
-    /// host is deleted; a blob that was published before the crash is a blob and
-    /// stays one.
+    /// Another publisher's staging can still be live. Opening or closing a
+    /// capture cleans up only that capture's own temporary file.
     #[test]
-    fn stale_staging_is_deleted_at_startup_and_published_blobs_are_not() {
+    fn new_capture_preserves_other_staging_and_previously_published_blobs() {
         let root = staging_root();
-        let published_id = "blob_aaaaaaaaaaaaaaaaaaaaa";
-        let abandoned_id = "blob_bbbbbbbbbbbbbbbbbbbbb";
+        let published_id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
+        let abandoned_id = "blob_bbbbbbbbbbbbbbbbbbbbb.wav";
 
         capture_holding(&root, published_id, &tone(TEST_RATE, 1))
             .finish()
             .expect("finish")
             .staged
-            .publish("audio/wav")
+            .publish()
             .expect("publish");
-        // A capture the host died in the middle of: staged, never finalized.
-        let abandoned = capture_holding(&root, abandoned_id, &tone(TEST_RATE, 1));
-        std::mem::forget(abandoned);
-
-        crate::blobs::delete_staging_root(root.path());
+        let held = capture_holding(&root, abandoned_id, &tone(TEST_RATE, 1));
+        let held_path = held.staged.data_path();
+        capture_holding(&root, "blob_ccccccccccccccccccccc.wav", &tone(TEST_RATE, 1)).discard();
 
         assert!(
-            root.path().join(published_id).join("data").exists(),
+            root.path().join(published_id).exists(),
             "a published blob is not staging debris"
         );
         assert!(
-            !root.path().join(".staging").join("rust").exists(),
-            "the sweep must leave no staged capture behind"
+            held_path.exists(),
+            "another capture's staging remains owned"
         );
         assert!(
             !root.path().join(abandoned_id).exists(),
-            "the sweep deletes; it never promotes a partial capture to a blob"
+            "an unresolved capture is not a completed blob"
         );
+        held.discard();
     }
 }

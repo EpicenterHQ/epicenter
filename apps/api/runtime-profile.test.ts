@@ -21,8 +21,8 @@
  */
 
 import { expect, mock, test } from 'bun:test';
-import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { generateBlobId, REMOTE_BLOB_ROUTES } from '@epicenter/blobs';
+import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { GENERATIONS_ROUTE, STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { makeSignature } from 'better-auth/crypto';
 
@@ -68,8 +68,8 @@ type Surface = {
 /** The origin every probe and both entries answer on; the path is what matters. */
 const ORIGIN = 'http://localhost:8787';
 
-/** A blob id shaped for the `blob_[a-z0-9]{21}` route pattern. */
-const PROBE_BLOB_ID = generateBlobId();
+/** A complete key accepted by the shared blob route parser. */
+const PROBE_BLOB_ID = generateBlobId('wav');
 
 const PROFILE: Surface[] = [
 	{

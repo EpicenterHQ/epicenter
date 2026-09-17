@@ -280,6 +280,7 @@ export function createHomeServer({
 			c.req.method === 'GET' || c.req.method === 'HEAD'
 				? undefined
 				: (c.req.raw.body ?? undefined);
+		let upload: ReturnType<typeof ownedFileBody> | undefined;
 		if (localId !== undefined) {
 			// The captured Account owns both cancellation and the destination.
 			// The control request contains no bytes for WebKit to materialize.
@@ -312,7 +313,12 @@ export function createHomeServer({
 					'Local blob unavailable',
 					opened.error.name === 'BlobNotFound' ? 404 : 500,
 				);
-			body = opened.data.file;
+			upload = ownedFileBody(
+				opened.data.file,
+				opened.data.close,
+				opened.data.stat.size,
+			);
+			body = upload.stream;
 			headers.set('content-type', opened.data.stat.contentType);
 			headers.set('content-length', String(opened.data.stat.size));
 		}
@@ -350,6 +356,8 @@ export function createHomeServer({
 			)
 				return c.text('Account network access unavailable', 401);
 			return c.text('Account transport unavailable', 502);
+		} finally {
+			await upload?.close();
 		}
 	});
 	app.get('/_epicenter/account/sync', requirePrivateBroker, (c) => {
@@ -764,15 +772,19 @@ export function createHomeServer({
 				'Blob unavailable',
 				result.error.name === 'BlobNotFound' ? 404 : 500,
 			);
-		const { file, stat } = result.data;
+		const { file, stat, close } = result.data;
 		const headers = {
 			...blobResponseHeaders(stat.contentType),
 			'content-length': String(stat.size),
 		};
 		const requestedRange = c.req.header('range');
-		if (requestedRange === undefined) return new Response(file, { headers });
+		if (requestedRange === undefined)
+			return new Response(ownedFileBody(file, close, stat.size).stream, {
+				headers,
+			});
 		const range = parseByteRange(requestedRange, stat.size);
-		if (!range)
+		if (!range) {
+			await close();
 			return new Response(null, {
 				status: 416,
 				headers: {
@@ -781,8 +793,13 @@ export function createHomeServer({
 					'content-range': `bytes */${stat.size}`,
 				},
 			});
+		}
 		return new Response(
-			file.slice(range.start, range.endExclusive, stat.contentType),
+			ownedFileBody(
+				file.slice(range.start, range.endExclusive, stat.contentType),
+				close,
+				range.endExclusive - range.start,
+			).stream,
 			{
 				status: 206,
 				headers: {
@@ -798,24 +815,6 @@ export function createHomeServer({
 		return result.error
 			? c.text('Blob deletion failed', 500)
 			: c.body(null, 204);
-	});
-	blobApi.post('/:blobId/copy', async (c) => {
-		const body = await c.req.json().catch(() => undefined);
-		const source =
-			typeof body?.sourceId === 'string'
-				? parseBlobId(body.sourceId)
-				: undefined;
-		if (!source) return c.text('Invalid source blob ID', 400);
-		const result = await blobs(c.var.appId).copy(source, c.var.id);
-		if (!result.error) return c.body(null, 204);
-		return c.text(
-			'Blob copy failed',
-			result.error.name === 'BlobNotFound'
-				? 404
-				: result.error.name === 'BlobAlreadyExists'
-					? 409
-					: 500,
-		);
 	});
 	app.route('/api/apps/:appId/blobs', blobApi);
 	app.get(
@@ -876,6 +875,67 @@ function injectAuthBootstrap(
 	return body === -1
 		? `${element}${page}`
 		: `${page.slice(0, body)}${element}${page.slice(body)}`;
+}
+
+/** Own the borrowed file until HTTP consumption finishes or is cancelled. */
+function ownedFileBody(
+	file: Blob,
+	closeFile: () => Promise<void>,
+	size: number,
+) {
+	const reader = file.stream().getReader();
+	let closed: Promise<void> | undefined;
+	let cancelled = false;
+	let remaining = size;
+	function close() {
+		closed ??= (async () => {
+			try {
+				await reader.cancel();
+			} finally {
+				await closeFile();
+			}
+		})();
+		return closed;
+	}
+	return {
+		close,
+		stream: new ReadableStream<Uint8Array>({
+			async pull(controller) {
+				try {
+					if (remaining === 0 || closed) {
+						await close();
+						if (!cancelled) controller.close();
+						return;
+					}
+					const { done, value } = await reader.read();
+					if (cancelled) return;
+					if (closed) {
+						controller.close();
+						return;
+					}
+					if (done)
+						throw new Error('Blob stream ended before its declared length.');
+					remaining -= value.byteLength;
+					if (remaining < 0)
+						throw new Error('Blob stream exceeded its declared length.');
+					controller.enqueue(value);
+					// Bun 1.3.14 can stall at the end of a descriptor-backed slice.
+					// The validated stat/range length owns completion and cancellation.
+					if (remaining === 0) {
+						await close();
+						if (!cancelled) controller.close();
+					}
+				} catch (cause) {
+					if (!cancelled) controller.error(cause);
+					await close().catch(() => {});
+				}
+			},
+			cancel() {
+				cancelled = true;
+				return close();
+			},
+		}),
+	};
 }
 
 function blobResponseHeaders(contentType: string): Record<string, string> {

@@ -1473,6 +1473,7 @@ dependencies = [
  "hound",
  "keyring",
  "lazy_static",
+ "libc",
  "log",
  "objc2",
  "objc2-app-kit",

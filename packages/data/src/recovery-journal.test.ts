@@ -35,7 +35,7 @@ afterEach(async () => {
 const metadata = {
 	appId: 'so.epicenter.notes',
 	dataId: 'so.epicenter.notes',
-	version: 2,
+	version: 3,
 	source: { generation: 3, head: 11 },
 };
 
@@ -49,7 +49,7 @@ test('a publication intent returns its exact bytes to a journal that never wrote
 	const path = await directory();
 	const intent: PublicationIntent = {
 		kind: 'publication',
-		id: generateBlobId(),
+		id: generateBlobId('json'),
 		reason: 'manual',
 		metadata,
 		// Whitespace and all: an imported file is republished byte for byte.
@@ -71,7 +71,7 @@ test('a publication intent returns its exact bytes to a journal that never wrote
 test('one slot: recording another intent replaces the one it resolves', async () => {
 	const path = await directory();
 	const journal = createRecoveryJournal(createFileJournalStorage(path));
-	const first = generateBlobId();
+	const first = generateBlobId('json');
 	expectOk(
 		await journal.record({
 			kind: 'publication',
@@ -81,7 +81,7 @@ test('one slot: recording another intent replaces the one it resolves', async ()
 			bytes: new Uint8Array([1, 2, 3]),
 		}),
 	);
-	const operation = generateBlobId();
+	const operation = crypto.randomUUID();
 	expectOk(
 		await journal.record({ kind: 'restore', operation, backupId: first }),
 	);
@@ -92,10 +92,10 @@ test('one slot: recording another intent replaces the one it resolves', async ()
 test('a restore intent carries its unpublished safety capture and then stops carrying it', async () => {
 	const path = await directory();
 	const journal = createRecoveryJournal(createFileJournalStorage(path));
-	const operation = generateBlobId();
-	const backupId = generateBlobId();
+	const operation = crypto.randomUUID();
+	const backupId = generateBlobId('json');
 	const safety = {
-		id: generateBlobId(),
+		id: generateBlobId('json'),
 		reason: 'before-restore' as const,
 		metadata,
 		bytes: new TextEncoder().encode('destination capture'),
@@ -123,7 +123,7 @@ test('a payload that does not match its header is cleared rather than published'
 		expectOk(
 			await journal.record({
 				kind: 'publication',
-				id: generateBlobId(),
+				id: generateBlobId('json'),
 				reason: 'imported',
 				metadata,
 				bytes: new TextEncoder().encode('the whole file'),
@@ -183,7 +183,7 @@ test('the browser journal survives the cache discard that a restore performs', a
 	const journal = createRecoveryJournal(storage);
 	const intent: PublicationIntent = {
 		kind: 'publication',
-		id: generateBlobId(),
+		id: generateBlobId('json'),
 		reason: 'manual',
 		metadata,
 		bytes: new Uint8Array([7, 8, 9]),

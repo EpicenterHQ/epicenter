@@ -26,7 +26,7 @@ const { pushToTalk } = await import('./push-to-talk');
 const app = { recording } as unknown as WhisperingApp;
 
 test('dispose stops an active push-to-talk recording before app teardown', async () => {
-	const recordingId = generateBlobId();
+	const recordingId = generateBlobId('wav');
 	start.mockImplementationOnce(async () => recordingId);
 
 	await pushToTalk.start(app);
@@ -38,7 +38,7 @@ test('dispose stops an active push-to-talk recording before app teardown', async
 });
 
 test('dispose cannot retire another app session', async () => {
-	const recordingId = generateBlobId();
+	const recordingId = generateBlobId('wav');
 	const otherApp = {} as WhisperingApp;
 	const stopsBefore = stop.mock.calls.length;
 	start.mockImplementationOnce(async () => recordingId);
@@ -53,7 +53,7 @@ test('dispose cannot retire another app session', async () => {
 });
 
 test('dispose invalidates and drains a recording start already in flight', async () => {
-	const recordingId = generateBlobId();
+	const recordingId = generateBlobId('wav');
 	let resolveStart!: (id: BlobId) => void;
 	start.mockImplementationOnce(
 		() =>

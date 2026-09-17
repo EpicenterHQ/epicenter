@@ -27,6 +27,7 @@ async function setup({
 	deferPermission = false,
 	failStart = false,
 	stopBeforeStart = false,
+	mimeType = 'audio/webm',
 } = {}) {
 	class Track extends EventTarget {
 		stops = 0;
@@ -44,7 +45,7 @@ async function setup({
 	let acquisitions = 0;
 	class Recorder extends EventTarget {
 		state = 'inactive';
-		mimeType = 'audio/webm';
+		mimeType = mimeType;
 		constructor() {
 			super();
 			recorders.push(this);
@@ -417,4 +418,28 @@ test('meter release failure preserves finished audio and rejects recorder close'
 	const finished = expectOk(await recording.stop());
 	expect(await expectOk(await local.get(finished.blobId)).text()).toBe('final');
 	await expect(owner.close()).rejects.toThrow('cleanup failed');
+});
+
+test.each([
+	['audio/webm;codecs=opus', 'webm', 'video/webm'],
+	['audio/mp4;codecs=mp4a.40.2', 'm4a', 'audio/mp4'],
+])('Stop pins the actual %s format and retries the same completed bytes and key', async (mimeType, extension, contentType) => {
+	const { owner, local } = await setup({ mimeType });
+	const recording = expectOk(await owner.value.start({}));
+	const put = local.put;
+	const attempts: Array<{ id: string; blob: Blob }> = [];
+	local.put = async (id, blob) => {
+		attempts.push({ id, blob });
+		return attempts.length === 1
+			? BlobStoreError.BlobStoreFailed({ id, cause: 'quota' })
+			: put(id, blob);
+	};
+	expectErr(await recording.stop());
+	const saved = expectOk(await recording.stop());
+	expect(saved.blobId.endsWith(`.${extension}`)).toBe(true);
+	expect(saved.blobId).not.toBe(recording.id);
+	expect(attempts[0]!.id).toBe(attempts[1]!.id);
+	expect(attempts[0]!.blob).toBe(attempts[1]!.blob);
+	expect(expectOk(await local.get(saved.blobId)).type).toBe(contentType);
+	await owner.close();
 });

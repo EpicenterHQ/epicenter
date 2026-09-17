@@ -1,394 +1,264 @@
 # Flat extension-bearing blobs
 
 **Date**: 2026-09-17
-**Status**: Draft
+**Status**: In Progress
 **Owner**: Braden Wong
 
-## One sentence
+## Accepted outcome
 
-An app saves immutable bytes under extension-bearing keys, uses those keys as
-desktop filenames and browser database keys, and keeps recording details in
-its rows.
+An app saves immutable bytes under complete extension-bearing keys, uses those
+keys as desktop filenames and browser database keys, and keeps recording details
+in its rows. Successful recording Stop publishes the audio and returns its saved
+key. `app.blobs.local.open(key)` resolves that key on either platform.
 
-This is the implementation plan for the direction in
-[local blob storage](../docs/adr/0349-local-blobs-belong-to-the-app-on-this-device.md),
-[saved recording](../docs/adr/0366-recording-is-an-app-scoped-portable-capability.md),
-[explicit hosting](../docs/adr/0372-an-account-app-exposes-explicit-blob-hosting.md),
-and [row references](../docs/adr/0393-rows-refer-to-blobs-without-owning-their-lifetime.md).
-No runtime or stored-data changes accompany this plan. Completion means the
-flat file and IndexedDB paths pass the same saved-object tests, real recording
-and playback work, affected consumers use full keys, and the approved
-existing-data disposition has been verified before old code is removed.
+**Existing-data disposition: clean break.** On 2026-09-17, the user clarified
+that pre-existing data is disposable and requested a clean breaking change.
+This supersedes the original preservation requirement and the proposed
+copy-and-verify conversion. No conversion ledger, old-reference translation,
+legacy URL parser, historical archive importer, or compatibility reader is
+required. Do not ask again whether old-format data must be preserved.
 
-The [concurrent native-capture plan](20260912T122859-concurrent-native-capture.md)
-still owns device admission. Its finished-file handoff and separate library-save
-instructions do not apply: ADR-0366 and this plan govern saved output.
+The consequence is deliberate: pre-change recordings, local objects, hosted
+URLs, archives, and pending recovery operations need not remain usable. The
+implementation must preserve correctness and recovery for newly created data.
+Dropping old backup compatibility does not remove the backup/restore feature.
 
-## Current and target shape
+The user subsequently confirmed **zero users and no existing data**. There is
+nothing to migrate, reset, inventory, or clean up. No one-time reset utility,
+conversion record, stale-client rollout, or administrative deletion belongs to
+this implementation.
 
-The following examples shorten the random part of IDs. Production keys retain
-the 21-character random body.
+The original design direction remains in ADR-0349 (app-local storage), ADR-0366
+(saved recording), ADR-0372 (explicit hosting), and ADR-0393 (independent byte
+lifetime). Their proposed status and current code remain evidence rather than
+additional approval gates. The concurrent native-capture plan still owns device
+admission; this plan owns its saved output.
 
-```text
-Implemented                                Target
+## Final shape
 
-Desktop blobs/                             Desktop blobs/
-  blob_abc/                                  blob_abc.wav
-    data                                     blob_def.webm
-    metadata.json
-
-IndexedDB                                  IndexedDB
-  blob-data[id] = {id, bytes}                 objects[id] = {id, bytes, size}
-  blob-metadata[id] = {id, size, type}         listing index = [id, size]
-
-Recording row                              Recording row
-  audioBlobId = "blob_abc"                    audioBlobId = "blob_abc.wav"
-  title, transcript                          title, transcript
-
-Capture -> successful Stop -> saved key -> app.blobs.local.open(key)
-```
-
-The implemented metadata field is named `contentType`; `type` in the diagram
-abbreviates that field. Target `bytes` is an ArrayBuffer. The browser keeps a
-derived length for metadata-only operations, not a second metadata object
-store. The layout changes; app scope, independent blob lifetime, explicit
-uploads, and the saved-result handoff do not.
-
-Desktop files are directly readable by compatible external tools. This does not
-make the internal directory a user-managed folder: renaming or replacing files
-outside the app can break references or immutability. No directory watcher or
-external-edit synchronization is introduced.
-
-## Evidence and owners
-
-The inspected implementation places the relevant responsibilities here:
+Examples shorten the random body; production keys retain 21 lowercase
+alphanumeric characters.
 
 ```text
-packages/blobs/
-  README.md
-  src/blob-id.ts             key grammar and minting
-  src/blob-metadata.ts       type normalization and list validation
-  src/blob-store.ts          size/type/list/copy contract
-  src/app.ts                 public add mints the local key
-  src/browser.ts             version-1 paired IndexedDB stores
-  src/bun.ts                 directory-backed desktop objects
-  src/webview.ts             host HTTP access and response validation
-  src/blob-source.ts         temporary presentation URLs
-packages/app/src/
-  open.ts                    binds recorder to the app's byte writer
-  recorder.ts                Stop result and live capture contract
-  recording/browser.ts       final Blob construction and save retries
-  recording/desktop.ts       native result validation and event correlation
-apps/epicenter/
-  src/server.ts              HEAD, ranges, file upload, copy, security headers
-  src-tauri/src/blobs.rs     native key grammar and filesystem publication
-  src-tauri/src/recorder/    capture identity, finalization, Stop receipts
-apps/whispering/src/lib/
-  data.ts                    audioBlobId field uses the shared key regex
-  operations/import.ts       accepts filename-only format evidence
-  operations/pipeline.ts     persists imported File/Blob before creating row
-  operations/recording.svelte.ts
-                             creates the row after successful Stop
-  queries/download.ts        supplies audio to download services
-  services/download/         exported names and file extensions
-  services/transcription/    provider filenames and format handling
-packages/client/src/index.ts
-                             validates captured-owner remote URLs
-packages/server/src/routes/blobs.ts
-                             mints fresh remote IDs and enforces upload size
+Desktop app directory              Browser app database
+  blobs/                             blobs, keyPath: id
+    blob_abc.wav                        {id, bytes: ArrayBuffer, size}
+    blob_def.webm                       index: [id, size]
+
+Recording row
+  audioBlobId = "blob_abc.wav"
+  title, transcript, duration, other descriptive fields
+
+capture -> successful Stop -> saved complete key -> local.open(key)
 ```
 
-The ID prefix has no role in authorization. App construction selects the local
-namespace. The captured Account and server resolve remote ownership. Native
-capture commands validate their caller and live capture identity separately
-from parsing a saved key.
+There is one ordinary desktop file per blob, with no per-blob folder or JSON
+sidecar. Reserved same-directory temporary names cannot parse as saved keys.
+Browser size comes from the bytes at write time and commits with them; the index
+supports list/stat without returning record values. Desktop uses filesystem size.
+Neither representation stores descriptive recording metadata.
 
-The source and external specifications establish these constraints:
+The directory is internal app storage even though external tools can read its
+files. External renaming or replacement is unsupported. No watcher or external
+edit synchronization is introduced.
 
-- Browser storage uses ArrayBuffer because native Blob persistence has failed
-  in the project's WebKit checks. Changing the filename does not fix that.
-- The browser recorder uses `recorder.mimeType || chunks[0]?.type`; desktop
-  capture writes WAV. Do not hardcode `.wav` across platforms.
-- Imported File objects can have an empty media type and a supported filename.
-  The File reaches `local.add` through a Blob-typed parameter; retain that
-  filename information when choosing the extension.
-- `list`, `stat`, and `statMany` have body-free read expectations. The browser
-  tests prohibit body reads during listing. Computing `byteLength` after
-  retrieving an ArrayBuffer does not meet that expectation.
-- Native publication retains the outcome after a rename or final sync error.
-  File publication must retain that retry behavior, not only the success path.
-- [IndexedDB keys](https://www.w3.org/TR/IndexedDB-3/#key-construct) can be
-  strings. [Index key cursors](https://w3c.github.io/IndexedDB/#dom-idbindex-openkeycursor)
-  expose index keys without exposing the referenced record value. These
-  semantics do not establish a browser engine's memory or disk-I/O cost.
-- [MediaRecorder media types](https://w3c.github.io/mediacapture-record/#dom-mediarecorder-mimetype)
-  describe the output container and encoding. A suffix is not a conversion.
+## Replacement process
 
-## Decisions and deliberate losses
+Build and verify the new contract, connect active callers, then delete retired
+code. Use fresh generated test data. The shipped implementation contains only
+the new format, with no compatibility readers or startup reset behavior.
+Unsupported inputs fail normally; an error must never erase newly created data.
 
-The durable decisions are in the linked ADRs. The following table separates
-their rationale from evidence that implementation still needs to produce:
+Browser transaction, blocked-connection, and erase-lock handling remain runtime
+correctness requirements. The final schema contains only `blobs` and its derived
+index. These guarantees protect future data and do not introduce migration work.
 
-| Decision | Class | Choice and cost |
-| --- | --- | --- |
-| Complete key | Design coherence | `blob_<random>.<extension>` is one immutable reference; no ID-to-filename catalog or independent extension field is needed to locate bytes. |
-| Prefix and random body | Taste under constraints | Keep `blob_` and 21 lowercase alphanumeric random characters for recognizable keys and existing random-generation behavior. |
-| Format policy | Design coherence | Use a supported actual producer media type, then a supported imported suffix when type is absent/generic, otherwise `.bin`. Keep the original human filename out of the storage path. |
-| Local MIME | Design coherence | Return one conventional type per supported suffix; exact input MIME/codec parameters do not round-trip through local storage. |
-| File length | Design coherence | Desktop uses actual filesystem size. Dropping JSON also drops its expected-length consistency check; it was not a checksum. |
-| Browser length index | Evidence | One record plus a derived covering index preserves body-free stat/list. Validate WebKit and Chromium memory behavior before adoption. |
-| Publication | Evidence | Complete, immutable file publication requires a tested no-replace primitive and durability sequence; ordinary overwriting rename is insufficient. |
-| Existing objects | Unresolved product constraint | Preserve bytes and references; approve a specific disposition before changing active readers, row validators, or deployed URL parsers. |
+## Contract and owners
 
-Keep `blob_` for diagnostic recognition rather than compatibility aliases.
-Revisit the prefix only if a different repository-wide ID convention has a
-concrete consumer benefit. Do not spend the storage rewrite renaming it.
+### Complete keys and format policy
 
-Do not add an exact-MIME row field preemptively. Ordinary playback, export, and
-upload use the key's conventional type. If a named consumer needs the original
-parameters, record that requirement and carry the value from capture/import
-into a declared row field. Do not silently recreate the deleted blob catalog.
+The blob package owns one grammar: `blob_` plus 21 lowercase alphanumerics, one
+dot, and 1 to 10 lowercase alphanumeric suffix characters. Reject separators,
+encoded traversal, URL queries/fragments, trailing dots, controls, and arbitrary
+human filenames. TypeScript and Rust must agree.
 
-## Consumer translations
+`packages/blobs/src/blob-format.ts` owns producer format selection, conventional
+read types, and container equivalence. It is a pure policy, not a registry or
+service. Selection uses a supported producer MIME first, then a supported File
+suffix only when MIME is absent/generic; otherwise use `.bin`. File evidence
+must survive a Blob-typed argument without cross-runtime `instanceof File`.
+Changing the suffix never converts bytes.
 
-These excerpts are from the inspected source. Target snippets are proposals,
-not declarations of exports already implemented.
+Known declared types must agree with the saved key's container family. Aliases
+such as `audio/x-wav` and `audio/wav` are equivalent. Ordinary local reads return
+one conventional type per suffix and do not retain original codec parameters.
+Current choices include `.wav` → `audio/wav`, `.webm` → `video/webm`, `.ogg` and
+`.opus` → `audio/ogg`, `.m4a` → `audio/mp4`, and `.mp4` → `video/mp4`.
 
-### Local add selects the complete key
+Imports, browser recording, native WAV, direct upload, export, and transcription
+all use this policy. UI import allowlists remain application policy. Download
+callers supply complete friendly filenames; download adapters save those names.
+The existing `recordings.zip` export must stay a ZIP.
 
-Before, `packages/blobs/src/app.ts`:
+### Publication and playback
 
-```ts
-const id = generateBlobId();
-const result = await local.put(id, blob);
-return result.error === null ? Ok(id) : result;
-```
+The raw byte contract has put, get, stat, list, and delete. Do not rebuild copy
+or statMany. Writes are immutable and collision-safe across independent Bun and
+Rust publishers. A failure before publication exposes no complete object; a
+failure after publication cannot erase the published object. Retained finalized
+bytes and receipts allow retry without acknowledging different bytes.
 
-Target, after selecting `extension` from the format policy:
+Bun and Rust use different reserved temporary-name prefixes. Cleanup only owns
+its own staged output; it never removes a committed object. No general startup
+sweep is needed for this rewrite. Reject symlinks and nonregular final entries;
+an occupied file, directory, or dangling link is a collision. Constructor roots
+are trusted app configuration and resolve consistently across runtimes.
 
-```ts
-const id = generateBlobId(extension);
-const result = await local.put(id, blob);
-return result.error === null ? Ok(id) : result;
-```
+Bun `openFile` owns a validated descriptor through a result
+with `close()`. The host releases it after full/range responses,
+invalid ranges, cancellation, and native upload completion/failure. Preserve
+HEAD, byte ranges, native streaming, attachment disposition, sandbox CSP,
+nosniff, and same-origin protection. Temporary browser playback URLs remain
+explicitly disposable.
 
-Keep the public `add(blob)` call. Its implementation must recognize File inputs
-without relying on cross-runtime `instanceof File` where that constructor is
-unavailable. Pin the supported format/extension mapping and filename fallback
-in tests; do not add a general MIME-sniffing dependency.
+### Recording and row lifetime
 
-### Stop separates a live capture from its saved key
+The live capture identifier and saved key have separate jobs. Browser output
+format is known at completion; pin its full key once and reuse it after save
+failure. Native output is WAV and can pin a saved `.wav` key earlier. Keep
+request/session ownership, stale-session rejection, and saved-result receipts.
+Only successful Stop establishes that the returned key names committed bytes.
 
-Before, `packages/app/src/recording/desktop.ts`:
+The current native owners are `blobs.rs`, `recorder/recorder.rs`, and
+`recorder/sessions.rs`; there is no current `recorder/blob.rs`. Adapt encoder
+handle ownership so every writable encoder is finalized before publication.
+The App's recorder and `app.blobs.local` must use the same app-scoped store.
 
-```ts
-if (
-  !parseBlobId(result.data.blobId) ||
-  result.data.blobId !== recording.id
-)
-  return RecorderError.RecorderFailed({
-    cause: 'The host returned an invalid saved blob.',
-  });
-```
+Rows own titles and transcripts. Failed row creation leaves enumerable saved
+bytes. Row deletion, account changes, and failed uploads do not delete audio.
+No second local save follows a successful Stop.
 
-Target, after the native session pins and verifies the saved outcome for the
-specific capture:
+### Explicit hosting and new-format recovery
 
-```ts
-if (!parseBlobId(result.data.blobId))
-  return RecorderError.RecorderFailed({
-    cause: 'The host returned an invalid saved blob.',
-  });
-```
+Remote upload remains an explicit operation with a fresh server-minted ID.
+Keep owner/app authorization, captured-account URLs, redirect refusal, size
+checks, and independent remote lifetime. Direct and local-first File uploads
+must agree on format. Infer upload MIME from filename only for absent/generic
+types; preserve declared provider MIME metadata.
 
-This is not permission to remove correlation checks in isolation. Preserve
-capture ownership, request/response correlation, and the saved-result receipt.
-`sessionId` is the document owner and `requestId` identifies a start request;
-neither becomes the recording's saved key. The browser pins its full key once
-the actual output format is known and reuses it after a failed save. Native
-capture can pin `.wav` before acquisition. Only successful Stop establishes
-that the returned key names a committed object.
+New archive scanning and validation must recognize complete keys, including
+references split across adjacent rich-text runs. Adapt backup and activation
+object keys alongside the grammar change. Restore-operation identity is
+bookkeeping, not a filename; mint it independently instead of adding an
+arbitrary suffix to satisfy BlobId.
 
-### Recording rows and upload calls keep their shape
+Generic attachment restoration compares exact bytes and the appropriate
+canonical format. Private backup/activation storage retains its exact media-type
+contract. Do not globally weaken `storeVerifiedBlob`. Preserve collision
+verification, invalid-archive rejection before destination writes, and retries
+for new-format archives and prepared recovery operations.
 
-Before, `apps/whispering/src/lib/operations/recording.svelte.ts`:
+## Implementation and review
 
-```ts
-const saved = await recordings.create({
-  audioBlobId: result.data.blobId,
-  title: '',
-  recordedAt: metadata.recordedAt,
-  recordedAtZone: metadata.recordedAtZone,
-  transcript: '',
-  polishedTranscript: null,
-  duration: result.data.durationMs,
-});
-```
+The replacement is integrated into the canonical blob modules and active App,
+recording, host, upload, export, and recovery paths. The duplicate `src/flat/`
+adapters and retained old sources were deleted after replacement tests and an
+independent integration review passed. Copy, statMany, the host copy route,
+sidecar publication, and paired browser stores are removed.
 
-Target: this call is unchanged. `audioBlobId` contains the full key with its
-extension; the shared regex in `apps/whispering/src/lib/data.ts` changes only
-after the existing-row disposition is approved. The upload workflow continues
-to call `app.blobs.remote.addLocal(recording.audioBlobId)` and save the returned
-owner-pinned URL. No second local save follows Stop.
+The native publication module is `apps/epicenter/src-tauri/src/flat_blobs.rs`;
+`blobs.rs` adds native app scoping. The host retains one Bun store per app for
+its lifetime so publication receipts survive later HTTP requests. Browser Stop
+pins the finalized bytes and actual-format key for retries. Archive v3 derives
+attachment formats from keys and keeps hosted HTTP(S) URL spans opaque.
 
-## Build, switch, prove, remove
+Independent reviews caught and resolved fresh-input retry identity, native/Bun
+root aliasing, hosted URLs incorrectly requiring local bytes during backup, and
+the host recreating receipt-owning stores per request. Integration tests also
+found premature same-instance collision results, Bun's ranged-stream EOF stall,
+and ZIP export attempting to serialize an unused CRDT node into YAML. The
+replacement has regression coverage for each repaired behavior.
 
-### Establish preservation and format fixtures
+READMEs and ADRs 0349, 0366, 0372, and 0393 describe the resulting contract.
+Existing unrelated work remains intact. No real-data resets were performed. Task-start HEAD: `49eda6b46dd086edad8b9e4178cf491e3cc67214`.
 
-- [ ] Re-read the dirty worktree and capture task-owned baseline failures.
-  Keep the concurrent App-scope, platform-selection, native-admission, and
-  generation work separate from this storage change.
-- [ ] Build a non-mutating inventory of app-local extensionless objects,
-  browser version-1 stores, row references, hosted URLs, and historical roots.
-  Use synthetic fixtures for development; do not inspect or mutate production
-  data implicitly.
-- [ ] Obtain the existing-data disposition before cutover. Recommend an
-  explicitly authorized copy-and-verify conversion where continued access is
-  required: create full keys, verify bytes, then update affected references,
-  retaining originals through interrupted runs. Account for offline rows and
-  independent hosted URLs. This plan does not authorize that conversion.
-- [ ] If archival/fresh start is chosen instead, name the rows and URLs that
-  become unavailable and obtain approval for that consequence. Leaving files
-  on disk alone is not preservation of access.
-- [ ] Capture supported native, browser, and imported formats, including empty
-  MIME, codec parameters, aliases, unknown formats, and conflicting names. Pick
-  one conventional media type for extensions shared by audio/video containers.
-  Test format equivalence, including `audio/wav` and `audio/x-wav`, rather than
-  treating different MIME strings as necessarily conflicting formats.
-  A fresh remote upload can canonicalize an equivalent extension; it does not
-  promise the same filename or ID as the local source.
+## Acceptance evidence
 
-### Build the new adapters against isolated stores
+Verified on this macOS host with generated data:
 
-- [ ] Change minting, parsing, route regexes, and cursor validation together.
-  Use exactly one dot and a bounded lowercase alphanumeric suffix. Reject
-  separators, encoded traversal, query/fragment syntax, trailing dots,
-  controls, and arbitrary user filenames. Test TypeScript/Rust agreement.
-- [ ] Make full keys immutable. Raw writes cannot claim a known type
-  conflicting with the key. Storage `copy` preserves the source suffix;
-  conversion belongs to a producer that creates different bytes.
-- [ ] Implement one flat desktop file per key. Keep incomplete output in
-  reserved same-directory temporary names outside the valid BlobId grammar.
-  Names distinguish Bun/native ownership. Neither process sweeps another's
-  live work; startup cleanup requires proof that its owner cannot still write.
-- [ ] Prove atomic no-replace publication with independent Rust and Bun
-  publishers. Preserve finalized bytes and publication receipts across
-  retryable errors. Do not use check-then-overwriting-rename or recursive
-  deletion for a flat object. File deletion is scoped to one validated key.
-- [ ] Reject symbolic links and nonregular final entries. An existing file,
-  directory, or dangling link is a collision, not a replacement target. Check
-  supported-platform directory and handle behavior before claiming race safety.
-- [ ] Add a versioned IndexedDB `objects` store with keyPath `id`, records
-  `{id, bytes, size}`, and a `[id, size]` index. Commit bytes and derived size
-  together. Use key cursors for list/stat/statMany; derive content type from
-  the key. Do not store per-object contentType or recording metadata.
-- [ ] Upgrade additively: retain `blob-data` and `blob-metadata` while the
-  approved data transition is incomplete. Handle blocked upgrades, older
-  connections, and transaction failure. Never migrate with `deleteDatabase()`.
-- [ ] Preserve disposable browser URLs and native HTTP streaming. Do not
-  introduce a SQLite engine, WebView audio transfer, or shared chunk protocol.
+- 369 tests across 37 core blob, App, client, archive, and recovery files.
+- 57 desktop host/account tests, including real HTTP streaming, range and
+  cancellation cleanup, private uploads, and built application serving.
+- 64 Whispering tests across recording, row lifetime, imports, upload, provider
+  request serialization, download names, and actual ZIP contents.
+- Native library: 155 tests passed with two ignored, followed by the newly added
+  Stop collision/retry test passing separately. Desktop transport has 34 tests
+  included in the core suite. These counts describe distinct runs, not a sum.
+- Blob, client, App, server, host, and both Whispering target typechecks passed.
+- Native Stop publishes WAV and returns a full key; independent Bun get/stat/list
+  and descriptor opening work after the recording session closes. FFprobe reports
+  PCM s16le, mono, 48 kHz for this Stop output; FFmpeg decodes it successfully. Cross-runtime
+  grammar, collisions in both directions, and 20 publication races passed.
+- Browser App recording Stop saved actual MediaRecorder output, then App-owned
+  local.open played it through HTML audio after page reload in both engines.
+  Microphone acquisition alone used a generated oscillator stream.
+- Real recording rows export as `recordings.zip`; unzipping verifies titles,
+  transcripts, complete audio references, and ordinary Markdown files. Browser
+  anchor and native save-dialog adapters preserve complete filenames.
+- Explicit upload tests preserve local bytes, independently mint remote keys,
+  enforce private ownership, and preserve provider MIME. New archives restore
+  exact bytes, retain hosted URLs, and safely retry prepared operations.
 
-### Switch producers and consumers as one contract change
+| Engine | Producer MIME | Saved suffix/type | 65 objects, 256 MiB: list plus stat | Process-tree RSS delta |
+| --- | --- | --- | --- | --- |
+| WebKit | audio/mp4; codecs=mp4a.40.2 | .m4a, audio/mp4 | 111 ms | +832 KiB |
+| Chromium | audio/webm;codecs=opus | .webm, video/webm | 18 ms | -7456 KiB |
 
-- [ ] Bind native and browser recorder output to the same scoped store used by
-  `app.blobs.local`. Separate live capture controls from saved keys where the
-  format is established later; preserve stale-session and lost-response tests.
-- [ ] Update imports, row validation, export filenames, transcription filenames,
-  local copy, native decoding paths, host HEAD/ranges, and remote upload
-  forwarding. Remove the download/transcription default that labels unknown
-  bytes as MP3. Export can use a friendly name but must preserve the format.
-- [ ] Update fresh remote ID minting and account-pinned URL validation together.
-  Keep owner/app authorization, redirect refusal, size enforcement, native
-  streaming, and independent remote lifetime. Leave provider Content-Type
-  metadata intact. Do not rewrite saved URLs to guess extensions.
-- [ ] Keep `attachment`, sandbox CSP, `nosniff`, and same-origin protections on
-  desktop byte responses. Filename extension is not executable-content trust.
-- [ ] Apply the approved existing-data disposition before switching live
-  readers. Stop importing old adapters, but retain their source unused until
-  replacement verification passes. Do not ship a silent fallback reader as
-  an accidental permanent compatibility mode.
+The browser fixture forbids value-reading IndexedDB APIs during list/stat.
+RSS includes the harness and descendants, not every possible reparented engine
+process. Garbage collection can make its delta negative. This is an observation,
+not a memory bound, allocation measurement, or disk-I/O result.
 
-### Prove the complete journeys
+## Remaining acceptance work
 
-Use focused tests before repository-wide checks. The implementation must prove:
+Implementation work and automated integration are complete. This spec remains
+In Progress to track acceptance that has not been exercised:
 
-- [ ] Native Stop saves a valid WAV that Bun can read after recorder teardown.
-  A compatible external player opens the flat `.wav` file. Browser Stop saves
-  its actual format and opens the same key after document reload.
-- [ ] Save, get, stat, statMany, pagination, copy, deletion, and playback agree
-  across adapters. Page/stat reads do not materialize audio buffers. Measure
-  representative large-library memory and latency in WebKit and Chromium;
-  standards support for key cursors alone is not a performance result.
-  Test compound-index bounds for exclusive string cursors and exact-ID stat
-  queries, including zero-byte records: index keys are `[id, size]` arrays.
-- [ ] Two publishers racing the same full key cannot replace each other.
-  Failure before publication exposes no completed object. Failure after
-  publication but before acknowledgment cannot erase or duplicate that object.
-  Cancel, close, and startup cleanup preserve committed and historical files.
-- [ ] Empty-MIME imports keep a supported extension. Known format mappings
-  produce playable/exportable files. Unknown content stays `.bin`; changing
-  its suffix does not count as conversion. Generic reads return conventional,
-  not original parameterized, content types.
-- [ ] Failed row creation leaves enumerable bytes. Row deletion and account
-  changes do not erase audio. Upload failure does not delete its source.
-- [ ] HEAD, byte ranges, download, explicit upload, owner-pinned remote playback,
-  and account retirement work with dotted keys. Verify the installed desktop
-  path and an authorized real provider; mocks do not close these acceptance gaps.
-- [ ] Populated v1 database fixtures survive upgrades, blocked connections, and
-  failed conversion. Every approved old reference remains usable or has the
-  explicitly approved archival outcome. Historical staging stays untouched.
+- [ ] Physical microphone recording and installed desktop WebView playback.
+- [ ] A real OS save dialog/download journey and an authorized real hosted
+  provider upload/playback/delete journey. Mock transport proves neither.
+- [ ] Windows execution of Bun and native publication, and abrupt-power-loss
+  durability. Windows native publisher and tests cross-compiled to metadata;
+  that is no evidence of execution. Other supported operating systems also
+  need their own end-to-end runs.
 
-Existing verification entrypoints include:
+No migration, reset, orphan inventory, compatibility parser, or remote cleanup
+remains. The user confirmed there are zero users and no existing data. Delete
+this spec after recording the outstanding acceptance results; durable design
+already lives in the package documentation and amended ADRs.
+
+Useful current commands:
 
 ```sh
 bun test packages/blobs/src
 bun test packages/app/src/recording
-bun test packages/app/src/blobs.test.ts packages/app/src/blob-retirement.test.ts
 bun test apps/epicenter/src/server.test.ts apps/epicenter/src/account-transport.test.ts
-bun test packages/client/src/index.test.ts packages/server/src/routes/blobs.test.ts
-bun test apps/whispering/src/lib/operations/pipeline.test.ts
-bun test apps/whispering/src/lib/operations/recording.svelte.test.ts
-bun test apps/whispering/src/lib/operations/upload-recording.test.ts
-bun test apps/whispering/src/lib/whispering/recordings.test.ts
+bun test packages/client/src packages/server/src/routes/blobs.test.ts
+bun test packages/data/src/recovery.test.ts packages/data/src/recovery-journal.test.ts
+bun test packages/data/src/artifact/archive.test.ts packages/data/src/artifact/archive-storage.test.ts
+bun test packages/data/src/sync/backups.test.ts packages/server/src/backup-storage.test.ts
 bun packages/blobs/scripts/native-smoke.ts
-bun run --cwd packages/blobs smoke:webkit
-bun run --filter @epicenter/blobs typecheck
-bun run --filter @epicenter/app typecheck
+bun packages/blobs/scripts/native-flat-smoke.ts
+bun packages/blobs/scripts/browser-smoke.ts
+bun run --filter @epicenter/blobs --filter @epicenter/client --filter @epicenter/app typecheck
 bun run --filter @epicenter/whispering typecheck
 ```
 
-Recheck script/package names against the live tree before execution. Add a
-Chromium run and the platform-specific publication tests; the existing WebKit
-script is not cross-browser or installed-desktop evidence.
-
-### Remove retired code and close the plan
-
-- [ ] After proof, remove unused directory-backed publication and JSON sidecar
-  codecs, paired IndexedDB write paths, obsolete exact-MIME round-trip tests,
-  extensionless mint/parse paths, and stale attachment-ID acceptance with no
-  live producer. Keep required recovery/export tooling only if the approved
-  existing-data decision calls for it.
-- [ ] Search production and tests for `metadata.json`, `blob-data`,
-  `blob-metadata`, extensionless ID assumptions, and native `data` path joins.
-  Classify historical fixtures separately; do not delete stored files because
-  a string remains in a preservation test.
-- [ ] Update package READMEs to describe the implemented layout, reconcile the
-  native-capture plan's obsolete finished-file handoff, and remove outdated
-  examples. Do not change concurrent native admission or App API scope as part
-  of this pass.
-- [ ] Rerun focused checks and repository checks, reporting baseline failures
-  separately. Compare the result to the one-sentence target. Delete this spec
-  when its required work is complete; retain the durable decisions in the ADRs.
-
-## Boundaries and unresolved gate
-
-The existing-data disposition is the only product gate to the cutover in this
-plan. Work on isolated adapters and fixtures can proceed before that decision;
-changing live validators, stored references, or active readers cannot.
-
-The prior media-sync/backups exploration does not authorize deleting backups,
-restore, or generation handling. The concurrent native-capture plan owns device
-admission, not a second byte-storage destination. The App device/account and
-platform-selection plans remain separate. Public sharing grants, automatic
-upload, deduplication, crash-before-Stop recovery, and an audio recovery UI are
-not added by this storage-layout change.
+Root typecheck currently fails in `packages/data` for missing DOM globals and
+four benchmark diagnostics. An isolated task-start snapshot with independent
+dependencies reproduces every diagnostic. Landing's missing `@astrojs/svelte`
+messages also reproduce but its check exits successfully. Documentation hygiene
+still reports 58 ADR status issues, the same count as the task-start snapshot;
+text amendments change some messages. Do not
+attribute these baseline failures to this change or silently repair unrelated
+work to make the overall check green.

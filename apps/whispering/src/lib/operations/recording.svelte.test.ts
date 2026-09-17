@@ -3,7 +3,7 @@
  * acquisition, save, cancellation and stale callbacks exercise caller ordering;
  * actual storage durability is covered by the store and native adapter suites.
  */
-import { expect, mock, setSystemTime, test } from 'bun:test';
+import { afterAll, expect, mock, setSystemTime, test } from 'bun:test';
 import {
 	RecorderError,
 	type Recording,
@@ -67,6 +67,12 @@ let nativeInvoke: (
 	command: string,
 	args?: Record<string, unknown>,
 ) => Promise<unknown>;
+const tauriCore = { ...(await import('@tauri-apps/api/core')) };
+const tauriEvent = { ...(await import('@tauri-apps/api/event')) };
+afterAll(() => {
+	mock.module('@tauri-apps/api/core', () => tauriCore);
+	mock.module('@tauri-apps/api/event', () => tauriEvent);
+});
 mock.module('@tauri-apps/api/core', () => ({
 	invoke: (command: string, args?: Record<string, unknown>) =>
 		nativeInvoke(command, args),
@@ -77,7 +83,7 @@ const { createDesktopRecording } = await import(
 );
 
 function setup(service?: RecordingService) {
-	const blobId = generateBlobId();
+	const blobId = generateBlobId('wav');
 	const stop = mock<Recording['stop']>(async () =>
 		Ok({ blobId, durationMs: 1250, byteLength: 14 }),
 	);
@@ -297,12 +303,12 @@ function nativeWorkflow({
 } = {}) {
 	let active = false;
 	const live = {
-		audioBlobId: 'blob_aaaaaaaaaaaaaaaaaaaaa',
+		audioBlobId: 'blob_aaaaaaaaaaaaaaaaaaaaa.wav',
 		device: { outcome: 'success', deviceId: 'mic' },
 		endedReason: null,
 	};
 	const finished = {
-		blobId: 'blob_aaaaaaaaaaaaaaaaaaaaa',
+		blobId: 'blob_aaaaaaaaaaaaaaaaaaaaa.wav',
 		durationMs: 1_000,
 		byteLength: 96_044,
 	};
@@ -363,7 +369,7 @@ test('desktop reconciliation keeps a lost Start reply inside the original workfl
 	const f = nativeWorkflow({ lostStartReplies: 1 });
 	const original = inference;
 	try {
-		expect(await f.recorder.start()).toBe('blob_aaaaaaaaaaaaaaaaaaaaa');
+		expect(await f.recorder.start()).toBe('blob_aaaaaaaaaaaaaaaaaaaaa.wav');
 		inference = async () => Ok('changed');
 		await f.recorder.stop();
 		expect(f.create).toHaveBeenCalledTimes(1);
@@ -387,7 +393,7 @@ test('uncertain native Start retains original inference and timestamp through a 
 		setSystemTime(new Date('2026-09-16T02:00:00.000Z'));
 		expect(activity.recordingActive(f.app)).toBe(true);
 		inference = async () => Ok('changed');
-		expect(await f.recorder.start()).toBe('blob_aaaaaaaaaaaaaaaaaaaaa');
+		expect(await f.recorder.start()).toBe('blob_aaaaaaaaaaaaaaaaaaaaa.wav');
 		await f.recorder.stop();
 		expect(new Set(f.requests).size).toBe(1);
 		expect(f.create).toHaveBeenCalledTimes(1);
@@ -444,7 +450,7 @@ test('uncertain Cancel excludes Retry until the original native capture is cance
 		expect(f.recorder.isUncertain).toBe(false);
 		expect(f.cancellations).toBe(1);
 		expect(f.create).not.toHaveBeenCalled();
-		expect(await f.recorder.start()).toBe('blob_aaaaaaaaaaaaaaaaaaaaa');
+		expect(await f.recorder.start()).toBe('blob_aaaaaaaaaaaaaaaaaaaaa.wav');
 	} finally {
 		release.resolve();
 		await f.owner.close();
@@ -459,7 +465,7 @@ test('definite desktop Stop loss clears recording state while a lost reply stays
 		expect(lost.recorder.state).toBe('IDLE');
 		expect(lost.recorder.saveStatus).toBe('failed');
 		expect(lost.create).not.toHaveBeenCalled();
-		expect(await lost.recorder.start()).toBe('blob_aaaaaaaaaaaaaaaaaaaaa');
+		expect(await lost.recorder.start()).toBe('blob_aaaaaaaaaaaaaaaaaaaaa.wav');
 	} finally {
 		await lost.owner.close();
 	}

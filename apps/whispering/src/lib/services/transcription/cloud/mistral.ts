@@ -1,3 +1,4 @@
+import { blobInputContentType, selectBlobFormat } from '@epicenter/blobs';
 import { Mistral } from '@mistralai/mistralai';
 import { MistralError as MistralSdkError } from '@mistralai/mistralai/models/errors';
 import { ConnectionError as MistralConnectionError } from '@mistralai/mistralai/models/errors/httpclienterrors';
@@ -7,7 +8,6 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
-import { getAudioExtension } from '$lib/services/transcription/utils';
 
 const MAX_FILE_SIZE_MB = 25 as const;
 
@@ -91,8 +91,8 @@ export const MistralTranscriptionServiceLive = {
 			try: () =>
 				new File(
 					[audioBlob],
-					`recording.${getAudioExtension(audioBlob.type)}`,
-					{ type: audioBlob.type },
+					`recording.${selectBlobFormat(audioBlob).extension}`,
+					{ type: blobInputContentType(audioBlob) },
 				),
 			catch: (cause) => MistralTranscriptionError.FileCreationFailed({ cause }),
 		});

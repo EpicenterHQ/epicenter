@@ -1,4 +1,5 @@
 import { Ok } from 'wellcrafted/result';
+import { blobInputContentType, selectBlobFormat } from './blob-format.js';
 import {
 	type BlobId,
 	type BlobSource,
@@ -50,8 +51,13 @@ export function createAppBlobs({
 		value: Object.freeze({
 			add(blob: Blob) {
 				return run(async () => {
-					const id = generateBlobId();
-					const result = await local.put(id, blob);
+					const id = generateBlobId(selectBlobFormat(blob).extension);
+					const contentType = blobInputContentType(blob);
+					const input =
+						blob.type === contentType
+							? blob
+							: blob.slice(0, blob.size, contentType);
+					const result = await local.put(id, input);
 					return result.error === null ? Ok(id) : result;
 				});
 			},

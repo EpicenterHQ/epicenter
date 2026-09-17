@@ -13,7 +13,7 @@ import * as Y from '@y/y';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { captureArchive } from './archive.js';
-import { installArchive } from './archive-storage.js';
+import { installArchive, storeVerifiedBlob } from './archive-storage.js';
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -31,7 +31,7 @@ async function setup() {
 	const destination = createBunBlobStore({
 		directory: join(directory, 'destination'),
 	});
-	const ids = [generateBlobId(), generateBlobId()].sort();
+	const ids = [generateBlobId('wav'), generateBlobId('wav')].sort();
 	const doc = new Y.Doc();
 	try {
 		for (const [index, id] of ids.entries()) {
@@ -115,42 +115,40 @@ test('interrupted blob installation retries matching objects without replacing t
 	expectOk(await installArchive({ archive: s.archive, blobs: s.destination }));
 });
 
-test('an existing destination id with different bytes or MIME type refuses installation and remains unchanged', async () => {
-	for (const blob of [
-		new Blob(['different'], { type: 'audio/wav' }),
-		new Blob(['content 0'], { type: 'text/plain' }),
-	]) {
-		const s = await setup();
-		const id = s.ids[0]!;
-		expectOk(await s.destination.put(id, blob));
-		expect(
-			expectErr(
-				await installArchive({ archive: s.archive, blobs: s.destination }),
-			).name,
-		).toBe('InvalidArchive');
-		const retained = expectOk(await s.destination.get(id));
-		expect(await retained.text()).toBe(await blob.text());
-		expect(retained.type).toBe(blob.type);
-		expect(expectErr(await s.destination.get(s.ids[1]!)).name).toBe(
-			'BlobNotFound',
-		);
-	}
+test('an existing destination id with different bytes refuses installation and remains unchanged', async () => {
+	const s = await setup();
+	const id = s.ids[0]!;
+	const blob = new Blob(['different'], { type: 'audio/wav' });
+	expectOk(await s.destination.put(id, blob));
+	expect(
+		expectErr(
+			await installArchive({ archive: s.archive, blobs: s.destination }),
+		).name,
+	).toBe('InvalidArchive');
+	const retained = expectOk(await s.destination.get(id));
+	expect(await retained.text()).toBe('different');
+	expect(retained.type).toBe('audio/wav');
+	expect(expectErr(await s.destination.get(s.ids[1]!)).name).toBe(
+		'BlobNotFound',
+	);
 });
 
 test('blob write success followed by missing or corrupt read-back refuses installation', async () => {
 	const s = await setup();
-	for (const corrupt of [false, true]) {
+	for (const corruption of ['missing', 'bytes', 'format'] as const) {
 		const blobs: Pick<BlobStore, 'put' | 'get'> = {
 			put: s.destination.put,
 			async get(id) {
-				return corrupt
+				if (corruption === 'missing')
+					return BlobStoreError.BlobNotFound({ id });
+				return corruption === 'bytes'
 					? Ok(new Blob(['wrong'], { type: 'audio/wav' }))
-					: BlobStoreError.BlobNotFound({ id });
+					: Ok(new Blob(['content 0'], { type: 'text/plain' }));
 			},
 		};
 		expect(
 			expectErr(await installArchive({ archive: s.archive, blobs })).name,
-		).toBe(corrupt ? 'InvalidArchive' : 'BlobNotFound');
+		).toBe(corruption === 'missing' ? 'BlobNotFound' : 'InvalidArchive');
 	}
 });
 
@@ -171,4 +169,112 @@ test('invalid archive is rejected before any destination write', async () => {
 		).name,
 	).toBe('InvalidArchive');
 	expect(writes).toBe(0);
+});
+
+test('private verified objects still require exact media type even for identical bytes', async () => {
+	const id = generateBlobId('bin');
+	const expected = new Blob(['exact bytes'], {
+		type: 'application/octet-stream',
+	});
+	const privateStore: Pick<BlobStore, 'put' | 'get'> = {
+		async put() {
+			return BlobStoreError.BlobAlreadyExists({ id });
+		},
+		async get() {
+			return Ok(
+				new Blob(['exact bytes'], {
+					type: 'application/octet-stream;profile=other',
+				}),
+			);
+		},
+	};
+	expect(
+		expectErr(await storeVerifiedBlob(privateStore, id, expected)).name,
+	).toBe('InvalidArchive');
+});
+
+test('archive installation canonicalizes producer aliases once and retries the same full keys', async () => {
+	const s = await setup();
+	const archive = expectOk(
+		await captureArchive(
+			s.capture,
+			{
+				async get(id) {
+					const result = await s.source.get(id);
+					if (result.error !== null) return result;
+					return Ok(
+						new Blob([result.data], { type: 'audio/x-wav;codecs=pcm' }),
+					);
+				},
+			},
+			{ appId: 'so.epicenter.notes', dataId: 'so.epicenter.notes' },
+		),
+	);
+	for (let attempt = 0; attempt < 2; attempt++) {
+		expectOk(await installArchive({ archive, blobs: s.destination }));
+		for (const id of s.ids) {
+			const saved = expectOk(await s.destination.get(id));
+			expect(saved.type).toBe('audio/wav');
+			expect(await saved.text()).toBe(
+				await expectOk(await s.source.get(id)).text(),
+			);
+		}
+	}
+});
+
+test('JSON, text, and unknown binary attachments restore canonical types and exact bytes', async () => {
+	const s = await setup();
+	const document = new Y.Doc();
+	try {
+		const attachments = [
+			{
+				id: generateBlobId('json'),
+				input: new Blob(['{ "value": 1 }\n'], { type: 'application/json' }),
+				contentType: 'application/json;charset=utf-8',
+			},
+			{
+				id: generateBlobId('txt'),
+				input: new Blob(['words\n'], { type: 'text/plain' }),
+				contentType: 'text/plain;charset=utf-8',
+			},
+			{
+				id: generateBlobId('bin'),
+				input: new Blob([new Uint8Array([0, 1, 255])], {
+					type: 'application/x-unrecognized',
+				}),
+				contentType: 'application/octet-stream',
+			},
+		];
+		for (const { id, input } of attachments) {
+			document.get('attachments').setAttr(id, id);
+			expectOk(await s.source.put(id, input));
+		}
+		const archive = expectOk(
+			await captureArchive(
+				{
+					generation: 1,
+					head: 1,
+					snapshot: { position: 1, bytes: Y.encodeStateAsUpdateV2(document) },
+					tail: [],
+				},
+				s.source,
+				{ appId: 'so.epicenter.notes', dataId: 'so.epicenter.notes' },
+			),
+		);
+		for (let attempt = 0; attempt < 2; attempt++) {
+			expectOk(await installArchive({ archive, blobs: s.destination }));
+			for (const { id, input, contentType } of attachments) {
+				const actual = expectOk(await s.destination.get(id));
+				expect(actual.type).toBe(contentType);
+				expect(expectOk(await s.destination.stat(id)).contentType).toBe(
+					contentType,
+				);
+				expect(new Uint8Array(await actual.arrayBuffer())).toEqual(
+					new Uint8Array(await input.arrayBuffer()),
+				);
+			}
+		}
+	} finally {
+		document.destroy();
+	}
 });

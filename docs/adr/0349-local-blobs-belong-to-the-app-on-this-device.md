@@ -2,14 +2,14 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-05
-- **Unbuilt:** Extension-bearing keys, flat desktop files, the single-record browser schema, extension-derived media types, and the existing-data cutover are not implemented.
+- **Unverified:** Native Windows execution and abrupt-power-loss durability; installed desktop playback and physical microphone acceptance.
 
 ## Context
 
-The implementation in packages/blobs uses extensionless BlobIds. Desktop
-objects occupy a directory containing `data` and `metadata.json`; browser
-objects occupy paired `blob-data` and `blob-metadata` records. These layouts
-preserve the supplied content type and a separately recorded byte length.
+The former blob store used extensionless BlobIds. Desktop objects occupied a
+directory containing `data` and `metadata.json`; browser objects occupied paired
+`blob-data` and `blob-metadata` records. Those layouts preserved the supplied
+content type and a separately recorded byte length.
 
 The desired desktop artifact is an ordinary file with a useful extension.
 Application rows own titles, transcripts, and any exact media description
@@ -48,7 +48,7 @@ Desktop: apps/<appId>/blobs/
          `-- blob_ghi.png
 
 Browser: epicenter/<appId>/blobs
-         objects["blob_abc.wav"] -> { id, bytes, size }
+         blobs["blob_abc.wav"]   -> { id, bytes, size }
          listing index          -> [id, size]
 
 Row:     audioBlobId = "blob_abc.wav"
@@ -58,8 +58,6 @@ The entire key is stored in the row and used for exact lookup. Readers do not
 scan for an extension, split the key into separately mutable fields, or look
 up a filename in another catalog. Changing a title does not rename a blob.
 Conversion creates another object; changing an extension does not convert bytes.
-The storage-level `copy` operation preserves the source extension; a caller
-cannot relabel identical bytes by choosing a destination with another suffix.
 
 **The key describes the file format; the store does not preserve an arbitrary
 original MIME string.** Creation selects an extension from the actual producer's
@@ -69,6 +67,13 @@ defines conventional media types for supported extensions. Unknown formats use
 `.bin` and `application/octet-stream`; no content-sniffing framework is required.
 An extension is a format declaration, not proof that untrusted bytes are safe.
 
+The blob package owns one pure format policy for input selection, supported
+aliases, conventional types, and format equivalence. Capture, import, hosting,
+and export consume it; adapters do not maintain competing MIME tables. Selecting
+a preferred extension and validating an equivalent format are different
+operations over that policy. Transport may retain a supported original MIME
+header without making it part of local persistence.
+
 `add(File)` can use a supported filename extension when the supplied media type
 is empty or generic. A meaningful supported media type takes precedence over a
 conflicting filename. A plain Blob has no filename. Unsupported combinations
@@ -77,11 +82,14 @@ MIME parameters in an application row only when a caller requires them.
 
 **Desktop blobs have no per-object directory or JSON sidecar.** File size comes
 from the filesystem. Browser objects use one IndexedDB record containing an
-ArrayBuffer and its derived byte length, with an engine-maintained `[id, size]`
-index for metadata-only reads. Size is calculated from bytes in the write
-transaction; callers cannot supply it independently. The index is not an
-application metadata catalog. A separate `blob-metadata` store is not part of
-the target layout.
+ArrayBuffer and its derived byte length in the `blobs` object store. Its
+`keyPath: 'id'` derives the primary key from the record; callers do not supply
+a second identity. An engine-maintained `[id, size]` index provides
+metadata-only reads. The writer calculates size from the stored bytes and
+commits both together; callers cannot supply size independently. Desktop gets
+the equivalent information from the filename, file contents, and filesystem
+size. The index is not an application metadata catalog. A separate
+`blob-metadata` store is not part of the layout.
 
 The local API is `add`, `get`, `open`, `stat`, `list`, and `delete`. `add` accepts
 standard Blob/File bytes, selects an extension, mints an immutable BlobId, and reports success after
@@ -91,6 +99,11 @@ disposing it releases playback resources without deleting stored bytes.
 without reading the payload. `get` reconstructs a Blob with that conventional
 type. Missing reads
 return a typed error. Deleting an absent object succeeds.
+
+The internal byte-store contract keeps `put`, `get`, `stat`, `list`, and
+`delete`. The unused `copy` and `statMany` operations and host copy endpoint
+were removed. Single-object metadata reads
+and size-bearing enumeration remain required.
 
 `list({cursor, limit})` enumerates complete committed objects, including objects
 with no row. Its exclusive cursor is a BlobId; enumeration is not a snapshot
@@ -123,12 +136,15 @@ A different origin/profile is a different storage environment. Browser storage
 remains subject to quotas, eviction policy, and user deletion; local save is not
 an archival guarantee.
 
-The earlier fresh-start decision left account-scoped databases, directories,
-and historical recording files untouched. It does not authorize making
-extensionless references created by the subsequent app-local implementation
-unreadable. Inventory those files, browser stores, rows, and hosted URLs before
-cutover. Their disposition requires an explicit preservation decision. Do not
-rename, delete, relabel formats, or erase databases as a startup side effect.
+On September 17, 2026, the user confirmed zero users and no existing data and
+authorized a clean break. Complete-key readers replace extensionless readers
+without a migration, reset, fallback, or startup cleanup. An unexpected older
+browser schema fails without converting or erasing its records.
+
+Archives and recovery use complete keys for local byte dependencies and keep
+private backup media types exact. Absolute HTTP(S) URLs remain opaque row values;
+archive capture does not fetch, convert, or inline their remotely hosted bytes.
+Restore-operation identity remains bookkeeping, separate from blob identity.
 
 Exact input MIME round-tripping and the sidecar's expected-versus-actual size
 check are withdrawn. A caller requiring original MIME parameters must preserve
@@ -154,3 +170,5 @@ no recording title or transcript can be reconstructed from that key.
 - A shared SQLite chunk engine: changes capture transport and playback to
   achieve implementation uniformity that the shared saved-object contract does
   not require.
+- Retain unused copy and batch-stat APIs: adds adapter and transport work with
+  no application caller. Reintroducing either requires a concrete workflow.

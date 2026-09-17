@@ -38,14 +38,8 @@ function setup() {
 	const primitives: BlobPrimitives = {
 		local: {
 			put: () => record('put', Ok(undefined)),
-			copy: () => record('copy', Ok(undefined)),
 			get: () => record('get', Ok(bytes)),
 			stat: () => record('stat', Ok(stat)),
-			statMany: (ids) =>
-				record(
-					'statMany',
-					ids.map(() => Ok(stat)),
-				),
 			list: () => record('list', Ok({ items: [] })),
 			delete: () => record('delete', Ok(undefined)),
 		},
@@ -65,9 +59,10 @@ function setup() {
 	}
 	function close() {
 		closed = true;
-		return (closing ??= owner.close().then(() => {
+		closing ??= owner.close().then(() => {
 			events.push('backing');
-		}));
+		});
+		return closing;
 	}
 	const ready = acquisition.promise;
 	return {
@@ -100,7 +95,7 @@ test('every retained blob verb refuses before readiness and throughout close wit
 		open,
 		delete: remove,
 	} = createBlobs(primitives);
-	const id = generateBlobId();
+	const id = generateBlobId('bin');
 	const operations = [
 		() => add(bytes),
 		() => get(id),
@@ -159,7 +154,7 @@ test('close drains multiple admitted local operations even when one rejects', as
 	const blobs = createBlobs(primitives);
 	acquire();
 	expectOk(await ready);
-	const id = generateBlobId();
+	const id = generateBlobId('bin');
 	const read = blobs.get(id);
 	const check = blobs.stat(id);
 	const remove = blobs.delete(id);
@@ -212,7 +207,7 @@ test('a source arriving after close is disposed once before backing release and 
 	});
 	acquire();
 	expectOk(await ready);
-	const opened = blobs.open(generateBlobId());
+	const opened = blobs.open(generateBlobId('bin'));
 	const rejected = Promise.allSettled([opened]);
 	const closing = close();
 	try {
@@ -257,7 +252,7 @@ test('independent URL releases are idempotent and a source disposer reenters the
 	acquire();
 	expectOk(await ready);
 	try {
-		const id = generateBlobId();
+		const id = generateBlobId('bin');
 		const first = expectOk(await blobs.open(id));
 		const second = expectOk(await blobs.open(id));
 		expect(first.url).toBe('blob:1');
@@ -293,7 +288,7 @@ test('a primitive that closes synchronously is already admitted to the drain', a
 	const blobs = createBlobs(primitives);
 	acquire();
 	expectOk(await ready);
-	const pending = blobs.get(generateBlobId());
+	const pending = blobs.get(generateBlobId('bin'));
 	try {
 		await started.promise;
 		expect(events).toEqual([]);
@@ -329,8 +324,8 @@ test('a throwing source disposer releases other sources but retains the backing'
 	});
 	acquire();
 	expectOk(await ready);
-	const first = expectOk(await blobs.open(generateBlobId()));
-	const second = expectOk(await blobs.open(generateBlobId()));
+	const first = expectOk(await blobs.open(generateBlobId('bin')));
+	const second = expectOk(await blobs.open(generateBlobId('bin')));
 	const closing = close();
 	await expect(closing).rejects.toMatchObject({ errors: [cause] });
 	expect(close()).toBe(closing);

@@ -1,5 +1,5 @@
 /** Real loopback traffic through the window adapter, host guards and session Account. */
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -26,9 +26,11 @@ import { createHomeServer } from './server.ts';
 async function setup({
 	verification,
 	holdBlobUpload = false,
+	rejectBlobUpload = false,
 }: {
 	verification?: Promise<void>;
 	holdBlobUpload?: boolean;
+	rejectBlobUpload?: boolean;
 } = {}) {
 	const uploadStarted = Promise.withResolvers<void>();
 	const uploadAborted = Promise.withResolvers<void>();
@@ -69,6 +71,11 @@ async function setup({
 			}
 			if (url.pathname === '/auth/sign-out') return new Response(null);
 			if (
+				rejectBlobUpload &&
+				url.pathname === '/api/apps/so.epicenter.notes/blobs'
+			)
+				return new Response('storage unavailable', { status: 503 });
+			if (
 				holdBlobUpload &&
 				url.pathname === '/api/apps/so.epicenter.notes/blobs'
 			) {
@@ -99,7 +106,7 @@ async function setup({
 							new URL(request.url).origin,
 							'so.epicenter.notes',
 							'alice',
-							generateBlobId(),
+							generateBlobId('bin'),
 						),
 					},
 					{ status: 201 },
@@ -199,6 +206,7 @@ async function setup({
 		selectedServer: null,
 	};
 	const directory = await mkdtemp(join(tmpdir(), 'account-relay-'));
+	const localBlobs = createBunBlobStore({ directory });
 	const host = await createHomeHost({
 		model: 'test',
 		engine: async function* () {},
@@ -218,7 +226,7 @@ async function setup({
 		launchToken: 'launch',
 		host,
 		staticAssets: { homePage: '<html><head></head></html>', applications: [] },
-		blobs: () => createBunBlobStore({ directory }),
+		blobs: () => localBlobs,
 		desktopAuth: {
 			baseURL,
 			callbackUrl: 'epicenter://auth/callback',
@@ -304,7 +312,7 @@ async function setup({
 		cookie,
 		uploadStarted,
 		uploadAborted,
-		localBlobs: createBunBlobStore({ directory }),
+		localBlobs,
 		account: windowAuth.state.account,
 		windowAuth,
 		auth,
@@ -577,7 +585,7 @@ async function until(condition: () => boolean) {
 
 test('saved native upload sends no bytes through the window Account broker and strips its control header', async () => {
 	await using context = await setup();
-	const id = generateBlobId();
+	const id = generateBlobId('wav');
 	expectOk(
 		await context.localBlobs.put(
 			id,
@@ -595,7 +603,21 @@ test('saved native upload sends no bytes through the window Account broker and s
 			},
 		},
 	});
+	const openFile = context.localBlobs.openFile;
+	let closed = 0;
+	spyOn(context.localBlobs, 'openFile').mockImplementation(async (key) => {
+		const result = await openFile(key);
+		if (!result.error) {
+			const close = result.data.close;
+			result.data.close = async () => {
+				closed++;
+				await close();
+			};
+		}
+		return result;
+	});
 	const url = expectOk(await remote.addLocal(id));
+	expect(closed).toBe(1);
 	expect(url).toContain('/principals/alice/blobs/');
 	expect(await context.localCalls.at(-1)!.text()).toBe('');
 	expect(context.requests.at(-1)).toMatchObject({
@@ -607,7 +629,7 @@ test('saved native upload sends no bytes through the window Account broker and s
 
 test('the host checks native upload size before opening bytes and accepts the control header only on the upload route', async () => {
 	await using context = await setup();
-	const id = generateBlobId();
+	const id = generateBlobId('bin');
 	expectOk(
 		await context.localBlobs.put(
 			id,
@@ -640,9 +662,38 @@ test('the host checks native upload size before opening bytes and accepts the co
 	expect(context.requests).toHaveLength(0);
 });
 
+test('early upstream rejection closes native upload bytes and preserves the saved file', async () => {
+	await using context = await setup({ rejectBlobUpload: true });
+	const id = generateBlobId('bin');
+	const size = 8 * 1024 * 1024;
+	expectOk(await context.localBlobs.put(id, new Blob([new Uint8Array(size)])));
+	const openFile = context.localBlobs.openFile;
+	let closed = 0;
+	spyOn(context.localBlobs, 'openFile').mockImplementation(async (key) => {
+		const result = await openFile(key);
+		if (!result.error) {
+			const close = result.data.close;
+			result.data.close = async () => {
+				closed++;
+				await close();
+			};
+		}
+		return result;
+	});
+	const remote = createRemoteBlobClient({
+		appId: 'so.epicenter.notes',
+		account: context.account,
+		host: true,
+		local: context.localBlobs,
+	});
+	expect(expectErr(await remote.addLocal(id)).name).toBe('Failed');
+	await until(() => closed === 1);
+	expect(expectOk(await context.localBlobs.stat(id)).size).toBe(size);
+});
+
 test('retired remote handles cannot upload saved files through a later same-person sign-in', async () => {
 	await using context = await setup();
-	const id = generateBlobId();
+	const id = generateBlobId('bin');
 	expectOk(await context.localBlobs.put(id, new Blob(['saved'])));
 	const remote = createRemoteBlobClient({
 		appId: 'so.epicenter.notes',
@@ -658,7 +709,7 @@ test('retired remote handles cannot upload saved files through a later same-pers
 
 test('cancelling native addLocal aborts the pending upstream upload request', async () => {
 	await using context = await setup({ holdBlobUpload: true });
-	const id = generateBlobId();
+	const id = generateBlobId('bin');
 	expectOk(
 		await context.localBlobs.put(id, new Blob([new Uint8Array(1024 * 1024)])),
 	);
@@ -679,7 +730,7 @@ test('cancelling native addLocal aborts the pending upstream upload request', as
 
 test('Account retirement aborts an already admitted native upload', async () => {
 	await using context = await setup({ holdBlobUpload: true });
-	const id = generateBlobId();
+	const id = generateBlobId('bin');
 	expectOk(
 		await context.localBlobs.put(id, new Blob([new Uint8Array(1024 * 1024)])),
 	);

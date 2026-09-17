@@ -2,13 +2,13 @@
 
 import { isAppId } from '@epicenter/constants/app-id';
 import { Err, Ok, tryAsync } from 'wellcrafted/result';
-import { parseBlobId, type BlobId } from './blob-id.js';
+import { type BlobId, parseBlobId } from './blob-id.js';
 import { blobListOptions, isBlobMetadata } from './blob-metadata.js';
 import type { BlobSources } from './blob-source.js';
 import {
+	type BlobListPage,
 	type BlobStore,
 	BlobStoreError,
-	type BlobListPage,
 } from './blob-store.js';
 
 /** Canonical collection paths shared with the desktop host's route mounts. */
@@ -31,14 +31,16 @@ export function createWebviewBlobs({
 		throw new TypeError('Invalid blob application ID.');
 	const prefix = `/api/apps/${encodeURIComponent(appId)}/blobs`;
 	const blobUrl = (id: BlobId) => `${prefix}/${id}`;
-	async function request(id: BlobId, init: RequestInit, suffix = '') {
+	async function request(id: BlobId, init: RequestInit) {
 		return tryAsync({
-			try: () =>
-				fetcher(`${blobUrl(id)}${suffix}`, {
+			try: () => {
+				if (!parseBlobId(id)) throw new TypeError('Invalid complete blob key.');
+				return fetcher(blobUrl(id), {
 					...init,
 					credentials: 'same-origin',
 					redirect: 'error',
-				}),
+				});
+			},
 			catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
 		});
 	}
@@ -96,30 +98,6 @@ export function createWebviewBlobs({
 				catch: (cause) => BlobStoreError.BlobStoreFailed({ cause }),
 			});
 		},
-		async copy(sourceId, destinationId) {
-			const response = await request(
-				destinationId,
-				{
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ sourceId }),
-				},
-				'/copy',
-			);
-			if (response.error !== null) return response;
-			if (response.data.status === 404)
-				return BlobStoreError.BlobNotFound({ id: sourceId });
-			if (response.data.status === 409)
-				return BlobStoreError.BlobAlreadyExists({ id: destinationId });
-			if (!response.data.ok) {
-				return BlobStoreError.BlobStoreFailed({
-					id: destinationId,
-					cause: new Error(`Local blob COPY returned ${response.data.status}.`),
-				});
-			}
-			return Ok(undefined);
-		},
-
 		async put(id, blob) {
 			const response = await request(id, {
 				method: 'PUT',
@@ -182,10 +160,6 @@ export function createWebviewBlobs({
 			}
 
 			return Ok({ contentType: contentType!, size });
-		},
-
-		statMany(ids) {
-			return Promise.all(ids.map((id) => local.stat(id)));
 		},
 
 		async delete(id) {

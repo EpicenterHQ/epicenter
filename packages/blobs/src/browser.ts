@@ -7,28 +7,25 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
-import { parseBlobId, type BlobId } from './blob-id.js';
-import {
-	blobListOptions,
-	isBlobMetadata,
-	normalizeContentType,
-} from './blob-metadata.js';
+import { assertBlobFormat, blobKeyFormat } from './blob-format.js';
+import type { BlobId } from './blob-id.js';
+import { parseBlobId } from './blob-id.js';
+import { blobListOptions } from './blob-metadata.js';
 import {
 	type BlobSource,
 	BlobSourceError,
 	type BlobSources,
 } from './blob-source.js';
+import type { BlobStore } from './blob-store.js';
 import {
-	type BlobStat,
 	type BlobListPage,
-	type BlobStore,
 	BlobStoreError,
 	type BlobStoreFailed,
 } from './blob-store.js';
 
-const DATABASE_VERSION = 1;
-const DATA_STORE = 'blob-data';
-const METADATA_STORE = 'blob-metadata';
+const DATABASE_VERSION = 2;
+const BLOBS = 'blobs';
+const SIZE_INDEX = 'by-id-size';
 
 /** One application's bytes on this browser profile and origin. */
 export type BrowserBlobScope = { appId: string };
@@ -39,351 +36,295 @@ export function browserBlobStoreName({ appId }: BrowserBlobScope): string {
 	return `epicenter/${appId}/blobs`;
 }
 
-type StoredBlob = {
-	id: BlobId;
-	bytes: ArrayBuffer;
-};
+type StoredBlob = { id: BlobId; bytes: ArrayBuffer; size: number };
 
-type StoredBlobMetadata = BlobStat & {
-	id: BlobId;
-};
-
-function requestResult<TResult>(
-	request: IDBRequest<TResult>,
-): Promise<TResult> {
+function requestResult<TValue>(request: IDBRequest<TValue>): Promise<TValue> {
 	return new Promise((resolve, reject) => {
 		request.onsuccess = () => resolve(request.result);
 		request.onerror = () =>
-			reject(request.error ?? new Error('IndexedDB request failed'));
-	});
-}
-
-function whenTransactionCompletes(transaction: IDBTransaction): Promise<void> {
-	return new Promise((resolve, reject) => {
-		transaction.oncomplete = () => resolve();
-		transaction.onerror = (event) => {
-			const requestError =
-				typeof event.target === 'object' &&
-				event.target !== null &&
-				'error' in event.target
-					? event.target.error
-					: undefined;
-			reject(
-				transaction.error ??
-					requestError ??
-					new Error('IndexedDB transaction failed'),
-			);
-		};
-		transaction.onabort = () =>
-			reject(transaction.error ?? new Error('IndexedDB transaction aborted'));
+			reject(request.error ?? new Error('IndexedDB request failed.'));
 	});
 }
 
 function openDatabase(
 	indexedDb: IDBFactory,
-	databaseName: string,
+	name: string,
 ): Promise<IDBDatabase> {
 	return new Promise((resolve, reject) => {
-		const request = indexedDb.open(databaseName, DATABASE_VERSION);
-		let blocked = false;
-		request.onupgradeneeded = () => {
-			request.result.createObjectStore(DATA_STORE, { keyPath: 'id' });
-			request.result.createObjectStore(METADATA_STORE, { keyPath: 'id' });
+		const request = indexedDb.open(name, DATABASE_VERSION);
+		let isBlocked = false;
+		request.onblocked = () => {
+			isBlocked = true;
+			reject(
+				new Error('Blob IndexedDB upgrade is blocked by another connection.'),
+			);
 		};
-		request.onsuccess = () => {
-			if (blocked) {
-				request.result.close();
+		request.onupgradeneeded = (event) => {
+			// A rejected open must not later upgrade the database after its lock
+			// has been released. IndexedDB cannot cancel a pending open request.
+			if (isBlocked || event.oldVersion !== 0) {
+				request.transaction?.abort();
 				return;
 			}
-			resolve(request.result);
+			const blobs = request.result.createObjectStore(BLOBS, { keyPath: 'id' });
+			blobs.createIndex(SIZE_INDEX, ['id', 'size']);
 		};
 		request.onerror = () =>
-			reject(request.error ?? new Error('Could not open blob IndexedDB'));
-		request.onblocked = () => {
-			blocked = true;
-			reject(new Error('Blob IndexedDB open is blocked by another connection'));
+			reject(request.error ?? new Error('Could not open blob IndexedDB.'));
+		request.onsuccess = () => {
+			const database = request.result;
+			database.onversionchange = () => database.close();
+			if (isBlocked) {
+				database.close();
+				return;
+			}
+			resolve(database);
 		};
 	});
 }
 
-async function withDatabase<TResult>(
+async function transact<TValue>(
 	indexedDb: IDBFactory,
-	databaseName: string,
-	operation: (database: IDBDatabase) => Promise<TResult>,
-): Promise<TResult> {
-	const database = await openDatabase(indexedDb, databaseName);
+	name: string,
+	mode: IDBTransactionMode,
+	run: (store: IDBObjectStore) => Promise<TValue>,
+): Promise<TValue> {
+	const database = await openDatabase(indexedDb, name);
 	try {
-		return await operation(database);
+		const transaction = database.transaction(BLOBS, mode);
+		const completed = new Promise<void>((resolve, reject) => {
+			let requestError: unknown;
+			transaction.oncomplete = () => resolve();
+			transaction.onabort = () =>
+				reject(
+					transaction.error ??
+						requestError ??
+						new Error('Blob transaction aborted.'),
+				);
+			transaction.onerror = (event) => {
+				const target = event.target;
+				requestError =
+					target !== null && 'error' in target ? target.error : undefined;
+				// Wait for abort before releasing the connection and operation lock.
+			};
+		});
+		try {
+			const [value] = await Promise.all([
+				run(transaction.objectStore(BLOBS)),
+				completed,
+			]);
+			return value;
+		} catch (cause) {
+			try {
+				transaction.abort();
+			} catch {
+				// Completion or a request failure may have already ended it.
+			}
+			await completed.catch(() => {});
+			throw cause;
+		}
 	} finally {
 		database.close();
 	}
 }
 
-function isConstraintError(cause: unknown): boolean {
-	return cause instanceof DOMException && cause.name === 'ConstraintError';
+function indexedStat(key: IDBValidKey) {
+	if (!Array.isArray(key)) throw new Error('Invalid blob size index key.');
+	const [rawId, size] = key;
+	const id = parseBlobId(rawId);
+	if (
+		!id ||
+		typeof size !== 'number' ||
+		!Number.isSafeInteger(size) ||
+		size < 0
+	)
+		throw new Error('Invalid blob size index entry.');
+	return { id, size, contentType: blobKeyFormat(id).contentType };
 }
 
-/**
- * Construct an inert app-local store. Writes atomically commit ArrayBuffer bytes
- * and metadata together; metadata reads never materialize the bytes.
- */
+/** Immutable ArrayBuffer records with a covering index for metadata reads. */
 export function createBrowserBlobStore(
-	scope: BrowserBlobScope & {
-		indexedDb?: IDBFactory;
-		locks?: BlobLockManager;
-	},
+	scope: BrowserBlobScope & { indexedDb?: IDBFactory; locks?: BlobLockManager },
 ): BlobStore {
-	const { indexedDb = globalThis.indexedDB, locks = platformLocks() } = scope;
+	const {
+		indexedDb = globalThis.indexedDB,
+		locks = (globalThis as { navigator?: { locks?: BlobLockManager } })
+			.navigator?.locks,
+	} = scope;
 	const database = browserBlobStoreName(scope);
-	const store = createStoreAt(database, indexedDb);
+
 	async function operate<TValue, TError>(
 		id: BlobId | undefined,
-		run: () => Promise<Result<TValue, TError>>,
+		run: () => Promise<Result<TValue, TError | BlobStoreFailed>>,
 	): Promise<Result<TValue, TError | BlobStoreFailed>> {
-		const result = await withLock<Result<TValue, TError>, never>(
-			locks,
-			database,
-			'shared',
-			async () => Ok(await run()),
-		);
-		if (result.error !== null)
-			return BlobStoreError.BlobStoreFailed({ id, cause: result.error });
-		return result.data;
-	}
-	return {
-		list: (options) => operate(undefined, () => store.list(options)),
-		put: (id, blob) => operate(id, () => store.put(id, blob)),
-		copy: (sourceId, destinationId) =>
-			operate(destinationId, () => store.copy(sourceId, destinationId)),
-		get: (id) => operate(id, () => store.get(id)),
-		stat: (id) => operate(id, () => store.stat(id)),
-		async statMany(ids) {
-			if (ids.length === 0) return [];
-			const result = await withLock<
-				Awaited<ReturnType<BlobStore['statMany']>>,
-				never
-			>(locks, database, 'shared', async () => Ok(await store.statMany(ids)));
-			if (result.error !== null)
-				return ids.map((id) =>
-					BlobStoreError.BlobStoreFailed({ id, cause: result.error }),
-				);
-			return result.data;
-		},
-		delete: (id) => operate(id, () => store.delete(id)),
-	};
-}
-
-/** The store over one database, whatever it is named. */
-function createStoreAt(databaseName: string, indexedDb: IDBFactory): BlobStore {
-	async function publish(id: BlobId, blob: Blob) {
-		return tryAsync({
-			try: async () => {
-				const bytes = await blob.arrayBuffer();
-				return withDatabase(indexedDb, databaseName, async (database) => {
-					const transaction = database.transaction(
-						[DATA_STORE, METADATA_STORE],
-						'readwrite',
-					);
-					const completed = whenTransactionCompletes(transaction);
-					transaction
-						.objectStore(DATA_STORE)
-						.add({ id, bytes } satisfies StoredBlob);
-					transaction.objectStore(METADATA_STORE).add({
-						id,
-						size: blob.size,
-						contentType: normalizeContentType(blob.type),
-					} satisfies StoredBlobMetadata);
-					await completed;
-				});
-			},
-			catch: (cause) =>
-				isConstraintError(cause)
-					? BlobStoreError.BlobAlreadyExists({ id })
-					: BlobStoreError.BlobStoreFailed({ id, cause }),
+		if (id !== undefined && !parseBlobId(id))
+			return BlobStoreError.BlobStoreFailed({
+				id,
+				cause: new TypeError('Blob id must be a complete blob key.'),
+			});
+		if (!locks)
+			return BlobStoreError.BlobStoreFailed({
+				id,
+				cause: BrowserBlobStoreError.LocksUnsupported({ database }).error,
+			});
+		const result = await tryAsync({
+			try: () =>
+				locks.request(
+					`epicenter.blobs:${database}`,
+					{ mode: 'shared', ifAvailable: true },
+					async (lock): Promise<Result<TValue, TError | BlobStoreFailed>> => {
+						if (lock === null)
+							return BlobStoreError.BlobStoreFailed({
+								id,
+								cause: BrowserBlobStoreError.BlobStoreHeld({ database }).error,
+							});
+						return run();
+					},
+				),
+			catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
 		});
+		return result.error === null ? result.data : Err(result.error);
 	}
-	const store: BlobStore = {
+
+	return {
 		list(options) {
-			return tryAsync({
-				try: async () => {
-					const { cursor, limit } = blobListOptions(options);
-					return withDatabase(indexedDb, databaseName, async (database) => {
-						const transaction = database.transaction(
-							[DATA_STORE, METADATA_STORE],
+			return operate(undefined, () =>
+				tryAsync({
+					try: async () => {
+						const { cursor, limit } = blobListOptions(options);
+						const items = await transact(
+							indexedDb,
+							database,
 							'readonly',
+							(store) =>
+								new Promise<BlobListPage['items']>((resolve, reject) => {
+									const items: BlobListPage['items'] = [];
+									const range =
+										cursor === undefined
+											? undefined
+											: IDBKeyRange.lowerBound(
+													[cursor, Number.MAX_SAFE_INTEGER],
+													true,
+												);
+									const request = store.index(SIZE_INDEX).openKeyCursor(range);
+									request.onerror = () => reject(request.error);
+									request.onsuccess = () => {
+										try {
+											const entry = request.result;
+											if (!entry) return resolve(items);
+											const stat = indexedStat(entry.key);
+											items.push(stat);
+											if (items.length > limit) return resolve(items);
+											entry.continue();
+										} catch (cause) {
+											reject(cause);
+										}
+									};
+								}),
 						);
-						const completed = whenTransactionCompletes(transaction);
-						const items: BlobListPage['items'] = [];
-						const scanned = new Promise<void>((resolve, reject) => {
-							const request = transaction
-								.objectStore(METADATA_STORE)
-								.openCursor();
-							request.onerror = () => reject(request.error);
-							request.onsuccess = () => {
-								const entry = request.result;
-								if (!entry) return resolve();
-								const id = parseBlobId(entry.key);
-								if (cursor !== undefined && entry.key < cursor)
-									return entry.continue(cursor);
-								if (!id || id === cursor) return entry.continue();
-								const metadata: unknown = entry.value;
-								if (!isBlobMetadata(metadata))
-									return reject(new Error('Invalid blob metadata.'));
-								// getKey checks completeness without retrieving the ArrayBuffer.
-								const body = transaction.objectStore(DATA_STORE).getKey(id);
-								body.onerror = () => reject(body.error);
-								body.onsuccess = () => {
-									if (body.result !== undefined)
-										items.push({
-											id,
-											size: metadata.size,
-											contentType: metadata.contentType,
-										});
-									if (items.length > limit) return resolve();
-									entry.continue();
-								};
-							};
-						});
-						await Promise.all([scanned, completed]);
 						const hasMore = items.length > limit;
 						if (hasMore) items.pop();
 						return {
 							items,
 							...(hasMore ? { nextCursor: items.at(-1)!.id } : {}),
 						};
-					});
-				},
-				catch: (cause) => BlobStoreError.BlobStoreFailed({ cause }),
-			});
-		},
-		async copy(sourceId, destinationId) {
-			const source = await store.get(sourceId);
-			if (source.error !== null) return source;
-			return store.put(destinationId, source.data);
-		},
-
-		put(id, blob) {
-			return publish(id, blob);
-		},
-
-		async get(id) {
-			const { data, error } = await tryAsync({
-				try: () =>
-					withDatabase(indexedDb, databaseName, async (database) => {
-						const transaction = database.transaction(
-							[DATA_STORE, METADATA_STORE],
-							'readonly',
-						);
-						const completed = whenTransactionCompletes(transaction);
-						const dataRequest = transaction.objectStore(DATA_STORE).get(id);
-						const metadataRequest = transaction
-							.objectStore(METADATA_STORE)
-							.get(id);
-						const [stored, metadata] = await Promise.all([
-							requestResult(dataRequest) as Promise<StoredBlob | undefined>,
-							requestResult(metadataRequest) as Promise<
-								StoredBlobMetadata | undefined
-							>,
-							completed,
-						]);
-						return stored && metadata ? { stored, metadata } : undefined;
-					}),
-				catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
-			});
-			if (error !== null) return Err(error);
-			if (data === undefined) return BlobStoreError.BlobNotFound({ id });
-			return Ok(
-				new Blob([data.stored.bytes], {
-					type: data.metadata.contentType,
+					},
+					catch: (cause) => BlobStoreError.BlobStoreFailed({ cause }),
 				}),
 			);
 		},
-
-		async stat(id) {
-			const { data, error } = await tryAsync({
-				try: () =>
-					withDatabase(indexedDb, databaseName, async (database) => {
-						const transaction = database.transaction(
-							METADATA_STORE,
-							'readonly',
-						);
-						const completed = whenTransactionCompletes(transaction);
-						const request = transaction.objectStore(METADATA_STORE).get(id);
-						const [stored] = await Promise.all([
-							requestResult(request),
-							completed,
-						]);
-						return stored as StoredBlobMetadata | undefined;
-					}),
-				catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
-			});
-			if (error !== null) return Err(error);
-			if (data === undefined) return BlobStoreError.BlobNotFound({ id });
-			return Ok({
-				size: data.size,
-				contentType: data.contentType,
-			});
-		},
-
-		async statMany(ids) {
-			if (ids.length === 0) return [];
-			const result = await tryAsync({
-				try: () =>
-					withDatabase(indexedDb, databaseName, async (database) => {
-						const transaction = database.transaction(
-							METADATA_STORE,
-							'readonly',
-						);
-						const completed = whenTransactionCompletes(transaction);
-						const store = transaction.objectStore(METADATA_STORE);
-						// Queue every request before yielding, while the transaction is active.
-						const requests = ids.map(
-							(id) =>
-								requestResult(store.get(id)) as Promise<
-									StoredBlobMetadata | undefined
-								>,
-						);
-						const [metadata] = await Promise.all([
-							Promise.all(requests),
-							completed,
-						]);
-						return metadata;
-					}),
-				catch: (cause) => Err({ cause }),
-			});
-			if (result.error !== null)
-				return ids.map((id) =>
-					BlobStoreError.BlobStoreFailed({ id, cause: result.error.cause }),
-				);
-			return ids.map((id, index) => {
-				const metadata = result.data[index];
-				return metadata === undefined
-					? BlobStoreError.BlobNotFound({ id })
-					: Ok({
-							size: metadata.size,
-							contentType: metadata.contentType,
+		put(id, blob) {
+			return operate(id, () =>
+				tryAsync({
+					try: async () => {
+						assertBlobFormat(id, blob);
+						const bytes = await blob.arrayBuffer();
+						await transact(indexedDb, database, 'readwrite', async (store) => {
+							await requestResult(
+								store.add({
+									id,
+									bytes,
+									size: bytes.byteLength,
+								} satisfies StoredBlob),
+							);
 						});
+					},
+					catch: (cause) =>
+						cause instanceof DOMException && cause.name === 'ConstraintError'
+							? BlobStoreError.BlobAlreadyExists({ id })
+							: BlobStoreError.BlobStoreFailed({ id, cause }),
+				}),
+			);
+		},
+		get(id) {
+			return operate(id, async () => {
+				const result = await tryAsync({
+					try: async () => {
+						const { contentType } = blobKeyFormat(id);
+						const record: StoredBlob | undefined = await transact(
+							indexedDb,
+							database,
+							'readonly',
+							(store) => requestResult(store.get(id)),
+						);
+						if (record === undefined) return undefined;
+						if (
+							!(record.bytes instanceof ArrayBuffer) ||
+							record.size !== record.bytes.byteLength ||
+							record.id !== id
+						)
+							throw new Error('Invalid stored blob.');
+						return new Blob([record.bytes], { type: contentType });
+					},
+					catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
+				});
+				if (result.error !== null) return Err(result.error);
+				return result.data === undefined
+					? BlobStoreError.BlobNotFound({ id })
+					: Ok(result.data);
 			});
 		},
-
-		delete(id) {
-			return tryAsync({
-				try: () =>
-					withDatabase(indexedDb, databaseName, async (database) => {
-						const transaction = database.transaction(
-							[DATA_STORE, METADATA_STORE],
-							'readwrite',
-						);
-						const completed = whenTransactionCompletes(transaction);
-						transaction.objectStore(DATA_STORE).delete(id);
-						transaction.objectStore(METADATA_STORE).delete(id);
-						await completed;
-					}),
-				catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
+		stat(id) {
+			return operate(id, async () => {
+				const result = await tryAsync({
+					try: async () => {
+						blobKeyFormat(id);
+						return transact(indexedDb, database, 'readonly', async (store) => {
+							const range = IDBKeyRange.bound(
+								[id, 0],
+								[id, Number.MAX_SAFE_INTEGER],
+							);
+							const entry = await requestResult(
+								store.index(SIZE_INDEX).openKeyCursor(range),
+							);
+							return entry === null ? undefined : indexedStat(entry.key);
+						});
+					},
+					catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
+				});
+				if (result.error !== null) return Err(result.error);
+				if (result.data === undefined)
+					return BlobStoreError.BlobNotFound({ id });
+				return Ok({
+					size: result.data.size,
+					contentType: result.data.contentType,
+				});
 			});
+		},
+		delete(id) {
+			return operate(id, () =>
+				tryAsync({
+					try: async () => {
+						blobKeyFormat(id);
+						await transact(indexedDb, database, 'readwrite', async (store) => {
+							await requestResult(store.delete(id));
+						});
+					},
+					catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
+				}),
+			);
 		},
 	};
-	return store;
 }
 
 /**

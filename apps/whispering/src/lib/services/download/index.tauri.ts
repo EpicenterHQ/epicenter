@@ -1,19 +1,21 @@
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
 import { Err, tryAsync } from 'wellcrafted/result';
-import { getAudioExtension } from '$lib/services/transcription/utils';
-import type { DownloadService } from './types';
-import { DownloadError } from './types';
+import type { DownloadService } from './types.js';
+import { DownloadError } from './types.js';
 
-export type { DownloadError, DownloadService } from './types';
+export type { DownloadError, DownloadService } from './types.js';
 
 export const DownloadServiceLive: DownloadService = {
 	downloadBlob: async ({ name, blob }) => {
-		const extension = getAudioExtension(blob.type);
+		const extension = name.includes('.') ? name.split('.').at(-1) : undefined;
 		const { data: path, error: saveError } = await tryAsync({
 			try: () =>
 				save({
-					filters: [{ name, extensions: [extension] }],
+					defaultPath: name,
+					...(extension
+						? { filters: [{ name, extensions: [extension] }] }
+						: {}),
 				}),
 			catch: (error) => DownloadError.SaveDialogFailed({ cause: error }),
 		});

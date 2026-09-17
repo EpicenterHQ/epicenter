@@ -1,23 +1,26 @@
 /**
- * Archive v2: complete visible stored values, reconstructed into a fresh lineage.
+ * Archive v3: complete visible stored values, reconstructed into a fresh lineage.
  * This format preserves every root, type name, attribute and formatted sequence run.
  * It excludes CRDT history and refuses subdocuments or unsupported runtime values.
  *
- * BlobStore cannot enumerate objects. Every nominal BlobId appearing anywhere in
- * stored string keys or values (including URLs and text) is therefore required.
+ * Complete BlobIds in stored string keys and values require local bytes.
+ * Absolute HTTP(S) URLs are opaque external references, including hosted uploads.
  * This conservative contract can refuse an ordinary mention of a missing blob.
  * It preserves undeclared attachments without guessing ownership from today's schema.
  *
  * The caller must durably save and read back the archive before preparing destructive
  * activation. These functions never activate, write a blob, or mutate a live document.
- * Version 1 lacked application identity and is refused; this unshipped codec has no migrations.
+ * Earlier versions are refused. Blob entries contain only full keys and bytes;
+ * the shared format policy interprets each key.
  */
 import {
+	assertBlobFormat,
 	BLOB_ID_ROUTE_REGEX,
 	type BlobId,
 	type BlobNotFound,
 	type BlobStore,
 	type BlobStoreFailed,
+	blobKeyFormat,
 	parseBlobId,
 } from '@epicenter/blobs';
 import { isAppId } from '@epicenter/constants/app-id';
@@ -55,7 +58,7 @@ type Body = {
 	generation: number;
 	head: number;
 	roots: [string, Node][];
-	blobs: { id: string; contentType: string; bytes: number[] }[];
+	blobs: { id: string; bytes: number[] }[];
 };
 
 export const ArchiveError = defineErrors({
@@ -216,7 +219,7 @@ function complete(document: Y.Doc) {
 	)
 		fail('Captured document has unresolved Yjs dependencies');
 	if (document.getSubdocs().size !== 0)
-		fail('Subdocuments are not supported by archive v2');
+		fail('Subdocuments are not supported by archive v3');
 }
 
 function decode(value: unknown, depth = 0): unknown {
@@ -302,8 +305,14 @@ function fill(type: Y.Type, value: unknown, depth = 0) {
 
 function references(value: unknown, ids = new Set<BlobId>()): Set<BlobId> {
 	if (typeof value === 'string') {
-		for (const match of value.matchAll(new RegExp(BLOB_ID_ROUTE_REGEX, 'g'))) {
-			const id = parseBlobId(match[0]);
+		for (const match of value.matchAll(
+			// Consume URL spans first: remote IDs never imply local byte ownership.
+			new RegExp(
+				`https?:\/\/[^\\s<>\"']+|(${BLOB_ID_ROUTE_REGEX}(?![A-Za-z0-9_-]))`,
+				'gi',
+			),
+		)) {
+			const id = parseBlobId(match[1]);
 			if (id !== undefined) ids.add(id);
 		}
 	} else if (Array.isArray(value)) {
@@ -326,13 +335,16 @@ function references(value: unknown, ids = new Set<BlobId>()): Set<BlobId> {
 				} else {
 					references(text, ids);
 					text = '';
+					references(insert, ids);
 				}
+				references(run.format, ids);
 			}
 			references(text, ids);
 		}
 		for (const [key, item] of Object.entries(value)) {
 			references(key, ids);
-			references(item, ids);
+			// Text runs were scanned as one visible sequence, never as partial keys.
+			if (key !== 'runs' || !Array.isArray(value.runs)) references(item, ids);
 		}
 	}
 	return ids;
@@ -392,19 +404,21 @@ export async function captureArchive(
 		const read = await blobs.get(id);
 		if (read.error) return read;
 		const bytes = await tryAsync({
-			try: async () =>
-				Array.from(new Uint8Array(await read.data.arrayBuffer())),
+			try: async () => {
+				assertBlobFormat(id, read.data);
+				return Array.from(new Uint8Array(await read.data.arrayBuffer()));
+			},
 			catch: (cause) => ArchiveError.InvalidArchive({ cause }),
 		});
 		if (bytes.error) return bytes;
-		body.blobs.push({ id, contentType: read.data.type, bytes: bytes.data });
+		body.blobs.push({ id, bytes: bytes.data });
 	}
 	return tryAsync({
 		try: async () =>
 			new TextEncoder().encode(
 				JSON.stringify({
 					format: 'epicenter-current-archive',
-					version: 2,
+					version: 3,
 					body,
 					digest: await digest(body),
 				}),
@@ -431,7 +445,7 @@ export async function prepareArchive(bytes: Uint8Array) {
 			keys(envelope, ['format', 'version', 'body', 'digest']);
 			if (
 				envelope.format !== 'epicenter-current-archive' ||
-				envelope.version !== 2
+				envelope.version !== 3
 			)
 				fail('Unsupported archive format or version');
 			const body = envelope.body;
@@ -450,20 +464,14 @@ export async function prepareArchive(bytes: Uint8Array) {
 			if (!Array.isArray(body.blobs)) fail('Invalid archive blobs');
 			const blobs = body.blobs.map((entry: unknown) => {
 				object(entry);
-				keys(entry, ['id', 'contentType', 'bytes']);
+				keys(entry, ['id', 'bytes']);
 				const id = parseBlobId(entry.id);
-				if (
-					id === undefined ||
-					!required.has(id) ||
-					seen.has(id) ||
-					typeof entry.contentType !== 'string'
-				)
+				if (id === undefined || !required.has(id) || seen.has(id))
 					fail('Invalid or duplicate archived blob');
 				seen.add(id);
 				const blob = new Blob([byteArray(entry.bytes)], {
-					type: entry.contentType,
+					type: blobKeyFormat(id).contentType,
 				});
-				if (blob.type !== entry.contentType) fail('Invalid blob content type');
 				return { id, blob };
 			});
 			if (seen.size !== required.size)
@@ -488,7 +496,7 @@ export async function prepareArchive(bytes: Uint8Array) {
 					fail('Serialized reconstruction changed archived values');
 				return {
 					identity,
-					version: 2,
+					version: 3,
 					source: { generation: body.generation, head: body.head },
 					bytes: new Uint8Array(bytes),
 					blobs,

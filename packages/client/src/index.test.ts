@@ -21,7 +21,7 @@ const url = REMOTE_BLOB_ROUTES.objectUrl(
 	baseURL,
 	appId,
 	'alice',
-	generateBlobId(),
+	generateBlobId('bin'),
 );
 function setup({
 	host = false,
@@ -78,7 +78,7 @@ test('oversized saved files are rejected before reading or issuing requests', as
 	for (const host of [false, true]) {
 		const context = setup({ host, size: MAX_REMOTE_BLOB_BYTES + 1 });
 		expect(
-			expectErr(await context.remote.addLocal(generateBlobId())).name,
+			expectErr(await context.remote.addLocal(generateBlobId('bin'))).name,
 		).toBe('TooLarge');
 		expect(context.reads).toBe(0);
 		expect(context.calls).toHaveLength(0);
@@ -87,7 +87,7 @@ test('oversized saved files are rejected before reading or issuing requests', as
 
 test('host addLocal sends only a source ID through the captured Account', async () => {
 	const context = setup({ host: true });
-	const id = generateBlobId();
+	const id = generateBlobId('bin');
 	expect(expectOk(await context.remote.addLocal(id))).toBe(url);
 	expect(context.reads).toBe(0);
 	expect(context.calls[0]!.headers.get('x-epicenter-local-blob-id')).toBe(id);
@@ -96,7 +96,9 @@ test('host addLocal sends only a source ID through the captured Account', async 
 
 test('browser addLocal reads the saved Blob and uploads without changing its local ID', async () => {
 	const context = setup();
-	expect(expectOk(await context.remote.addLocal(generateBlobId()))).toBe(url);
+	expect(expectOk(await context.remote.addLocal(generateBlobId('bin')))).toBe(
+		url,
+	);
 	expect(context.reads).toBe(1);
 	expect(await context.calls[0]!.text()).toBe('bytes');
 });
@@ -108,6 +110,8 @@ test('foreign owners, applications, origins and signed query URLs are refused be
 		url.replace(appId, 'so.epicenter.other'),
 		url.replace('api.example.test', 'evil.test'),
 		`${url}?signature=secret`,
+		url.replace(/\.[^.]+$/, ''),
+		url.replace('.bin', '%2ebin'),
 	]) {
 		expect(expectErr(await context.remote.get(foreign)).name).toBe(
 			'InvalidUrl',
@@ -161,7 +165,7 @@ test('cancellation reaches the actual Account request and is returned as an erro
 			);
 		},
 	});
-	const pending = context.remote.addLocal(generateBlobId(), {
+	const pending = context.remote.addLocal(generateBlobId('bin'), {
 		signal: controller.signal,
 	});
 	await started.promise;

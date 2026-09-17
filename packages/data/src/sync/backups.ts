@@ -1,5 +1,10 @@
 /** Opaque immutable object publication under the current authority's SQLite owner. */
-import { type BlobId, type BlobStore, parseBlobId } from '@epicenter/blobs';
+import {
+	type BlobId,
+	type BlobStore,
+	blobKeyFormat,
+	parseBlobId,
+} from '@epicenter/blobs';
 import type { SqliteDatabase, SqliteRow } from '@epicenter/sqlite';
 import {
 	defineErrors,
@@ -172,6 +177,7 @@ export function openBackups({
 					const parsed = JSON.parse(metadata) as BackupMetadata;
 					if (
 						!parseBlobId(id) ||
+						blobKeyFormat(id).extension !== 'json' ||
 						!['manual', 'imported', 'before-restore'].includes(reason) ||
 						parsed.appId !== appId ||
 						parsed.dataId !== dataId ||

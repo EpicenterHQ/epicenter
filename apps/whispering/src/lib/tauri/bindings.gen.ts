@@ -442,7 +442,7 @@ export type AppliedHints = {
 	initialPrompt: boolean;
 };
 
-/**  The application captured before a native writer opens its staging file. */
+/**  The application captured before a native writer creates its temporary file. */
 export type BlobDestination = {
 	appId: string;
 };

@@ -33,7 +33,6 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { openPath as revealPath } from '@tauri-apps/plugin-opener';
-import mime from 'mime';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import {
@@ -46,8 +45,8 @@ import type {
 	DictationCapability,
 	GlobalShortcutRegistration,
 	MicrophonePermission,
-} from '$lib/tauri/commands';
-import { commands, events } from '$lib/tauri/commands';
+} from './tauri/commands.js';
+import { commands, events } from './tauri/commands.js';
 
 const log = createLogger('whispering/tauri');
 
@@ -67,25 +66,16 @@ const FsError = defineErrors({
 	}),
 });
 
-async function readFileWithMimeType(path: string): Promise<{
-	bytes: Uint8Array<ArrayBuffer>;
-	mimeType: string;
-}> {
-	// Cast is safe: Tauri's readFile always returns ArrayBuffer-backed Uint8Array.
-	const bytes = (await readFile(path)) as Uint8Array<ArrayBuffer>;
-	const mimeType = mime.getType(path) ?? 'application/octet-stream';
-	return { bytes, mimeType };
-}
-
 const fs = {
 	pathsToFiles: (paths: string[]) =>
 		tryAsync({
 			try: () =>
 				Promise.all(
 					paths.map(async (path) => {
-						const { bytes, mimeType } = await readFileWithMimeType(path);
+						// The File keeps filename evidence; blob-format owns interpretation.
+						const bytes = (await readFile(path)) as Uint8Array<ArrayBuffer>;
 						const fileName = await basename(path);
-						return new File([bytes], fileName, { type: mimeType });
+						return new File([bytes], fileName);
 					}),
 				),
 			catch: (error) => FsError.ReadFilesFailed({ paths, cause: error }),

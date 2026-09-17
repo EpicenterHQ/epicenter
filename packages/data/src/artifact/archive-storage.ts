@@ -55,6 +55,7 @@ export async function storeVerifiedBlob(
 
 /**
  * Verify a source archive and install every referenced object without overwrite.
+ * The v3 archive derives each attachment's canonical type from its complete key.
  * Return fresh-lineage bytes only after all destination read-backs succeed.
  * Partial installation leaves immutable objects that the same request can retry.
  * Every call authors fresh Yjs bytes. Activation retries must retain the original

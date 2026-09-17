@@ -26,6 +26,7 @@ export type DownloadError = InferErrors<typeof DownloadError>;
 
 export type DownloadService = {
 	downloadBlob: (args: {
+		/** Complete filename, including the extension chosen by the caller. */
 		name: string;
 		blob: Blob;
 	}) => Promise<Result<void, DownloadError>>;

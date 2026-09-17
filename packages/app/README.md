@@ -179,12 +179,10 @@ ordinary storage and transfer failures remain Results.
 
 ## Blobs
 
-The following API guide describes the implemented extensionless BlobIds and
-directory-backed desktop objects. The
-[flat-file plan](../../specs/20260917T113309-flat-extension-bearing-blobs.md)
-retains these app-scoped operations while changing saved references to complete
-extension-bearing keys. It does not add automatic upload or a post-Stop save
-handoff. Its storage format and cutover remain unbuilt.
+An immutable blob has one complete, extension-bearing key. The same key names
+its desktop file, browser record, and row reference. Successful Stop publishes
+that key before the application creates a recording row. The
+[blob package](../blobs/README.md) owns storage and format interpretation.
 
 Every App exposes `app.blobs.local`. An AccountApp also exposes
 `app.blobs.remote`; a LocalApp has no remote member. Keep these full paths at
@@ -221,11 +219,12 @@ includes server, app, authenticated owner, and object ID. Reads require that
 account; sharing a row does not grant another account access to its audio.
 
 Browser bytes live in `epicenter/<appId>/blobs` within the browser origin/profile.
-Desktop bytes live under `<dataRoot>/apps/<appId>/blobs/<blobId>/`, with `data`
-and `metadata.json` siblings. All libraries of one app on that device share
+Desktop bytes are ordinary files at `<dataRoot>/apps/<appId>/blobs/<blobId>`.
+Browser records contain `{ id, bytes, size }`; an index supports listing and
+size checks without reading the audio. All libraries of one app on that device share
 this local namespace. Signing out does not erase it. Remote storage is scoped
-by account and app. Historical account-scoped local files remain untouched;
-the new API starts fresh and has no fallback reader or migration.
+by account and app. The user confirmed zero users and no existing data for the
+complete-key cutover. No migration, reset, or fallback reader runs.
 
 Deleting a row leaves its local bytes and uploaded objects intact. Applications
 may request best-effort local deletion; they own reference-aware cleanup while
@@ -365,9 +364,12 @@ const source = await app.blobs.local.open(stopped.data.blobId);
 ```
 
 `@epicenter/app/recorder` owns capture sessions with an immutable ID and device
-information. Stop publishes into the same app-local store used by
+information. The live capture ID and saved blob key have separate roles.
+Stop publishes into the same app-local store used by
 `app.blobs.local`. Native WAV capture writes progressively; browser capture
-publishes its completed Blob. No finished-file token crosses the public API.
+publishes its completed Blob under a key selected from its actual output format.
+The returned key includes its extension and remains fixed through save retries.
+No finished-file token crosses the public API.
 A failed row creation leaves saved audio discoverable through local `list()`.
 
 Cancel removes unfinished capture. It cannot retract a committed blob.

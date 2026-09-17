@@ -59,7 +59,7 @@ test('generic blob deletion cannot delete or overwrite an immutable recovery obj
 			secretAccessKey: 'test',
 		});
 		const archives = createS3ArchiveStore({ store, library });
-		const id = generateBlobId();
+		const id = generateBlobId('json');
 		const bytes = new Blob(['  exact original\n'], {
 			type: 'application/json;charset=utf-8',
 		});

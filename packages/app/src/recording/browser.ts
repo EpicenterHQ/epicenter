@@ -1,4 +1,8 @@
-import { generateBlobId } from '@epicenter/blobs';
+import {
+	type BlobId,
+	generateBlobId,
+	selectBlobFormat,
+} from '@epicenter/blobs';
 import {
 	type DeviceStreamError,
 	enumerateDevices,
@@ -252,9 +256,10 @@ export function createBrowserRecording(
 							if (!stopped && recorder.state !== 'inactive') recorder.stop();
 							await completion.promise;
 						}
-						const id = generateBlobId();
+						const id = crypto.randomUUID();
+						let finalized: { id: BlobId; blob: Blob } | undefined;
 						let saved:
-							| { blobId: typeof id; durationMs: number; byteLength: number }
+							| { blobId: BlobId; durationMs: number; byteLength: number }
 							| undefined;
 						const session: Recording = {
 							id,
@@ -270,15 +275,22 @@ export function createBrowserRecording(
 									resolving = true;
 									try {
 										await finishCapture();
-										const blob = new Blob(chunks, {
-											type: recorder.mimeType || chunks[0]?.type,
-										});
-										const result = await write(id, blob);
+										if (!finalized) {
+											const blob = new Blob(chunks, {
+												type: recorder.mimeType || chunks[0]?.type,
+											});
+											finalized = {
+												id: generateBlobId(selectBlobFormat(blob).extension),
+												blob,
+											};
+										}
+										const { id: blobId, blob } = finalized;
+										const result = await write(blobId, blob);
 										if (result.error)
 											return RecorderError.RecorderFailed({
 												cause: result.error,
 											});
-										saved = { blobId: id, durationMs, byteLength: blob.size };
+										saved = { blobId, durationMs, byteLength: blob.size };
 										await cleanup();
 										if (current === session) {
 											current = null;

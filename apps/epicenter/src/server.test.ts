@@ -23,7 +23,7 @@
  *   the fake inference endpoint below reuses
  */
 
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -1355,12 +1355,60 @@ describe("Local Mail's desktop authorization callback", () => {
 });
 
 describe('local blob routes', () => {
+	test('GET, range, cancellation and 416 release borrowed files while HEAD opens none', async () => {
+		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
+		const directory = testDataDir();
+		const store = createBunBlobStore({ directory });
+		const id = generateBlobId('bin');
+		expectOk(await store.put(id, new Blob([new Uint8Array(8 * 1024 * 1024)])));
+		let acquired = 0;
+		let closed = 0;
+		const openFile = store.openFile;
+		spyOn(store, 'openFile').mockImplementation(async (key) => {
+			const result = await openFile(key);
+			if (!result.error) {
+				acquired++;
+				const close = result.data.close;
+				result.data.close = async () => {
+					closed++;
+					await close();
+				};
+			}
+			return result;
+		});
+		const server = await serveHost(host, PAGE, { blobs: () => store });
+		const { cookie, origin } = authenticationFor(server);
+		const url = `${origin}${testBlobUrl(id)}`;
+		try {
+			expect(
+				(await fetch(url, { method: 'HEAD', headers: { cookie } })).status,
+			).toBe(200);
+			expect(acquired).toBe(0);
+			for (const range of [undefined, 'bytes=0-7', 'bytes=99999999-']) {
+				const response = await fetch(url, {
+					headers: { cookie, ...(range ? { range } : {}) },
+				});
+				await response.arrayBuffer();
+				expect(closed).toBe(acquired);
+			}
+			const cancelled = await fetch(url, { headers: { cookie } });
+			await cancelled.body!.cancel();
+			const deadline = Date.now() + 2000;
+			while (closed !== acquired && Date.now() < deadline) await Bun.sleep(5);
+			expect(acquired).toBe(4);
+			expect(closed).toBe(4);
+		} finally {
+			await server.stop(true);
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
 	test('session authentication protects every local blob operation', async () => {
 		await using host = await createTestHost({
 			engine: scriptedEngine([[]]),
 		});
 		const server = await serveHost(host);
-		const id = generateBlobId();
+		const id = generateBlobId('bin');
 		try {
 			for (const method of ['GET', 'HEAD', 'PUT', 'DELETE']) {
 				const response = await fetch(`${server.url.origin}${testBlobUrl(id)}`, {
@@ -1377,7 +1425,7 @@ describe('local blob routes', () => {
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
 		const server = await serveHost(host);
 		const { cookie, origin } = authenticationFor(server);
-		const ids = [generateBlobId(), generateBlobId()].sort();
+		const ids = [generateBlobId('wav'), generateBlobId('wav')].sort();
 		try {
 			for (const id of ids)
 				expect(
@@ -1426,60 +1474,12 @@ describe('local blob routes', () => {
 		}
 	});
 
-	test('local copy preserves the source, refuses replacement and requires a browser session', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host);
-		const { cookie, origin } = authenticationFor(server);
-		const source = generateBlobId();
-		const destination = generateBlobId();
-		try {
-			expect(
-				(
-					await fetch(`${origin}${testBlobUrl(source)}`, {
-						method: 'PUT',
-						headers: { cookie, origin },
-						body: 'audio',
-					})
-				).status,
-			).toBe(201);
-			const copy = `${origin}${testBlobUrl(destination)}/copy`;
-			const body = JSON.stringify({ sourceId: source });
-			expect((await fetch(copy, { method: 'POST', body })).status).toBe(401);
-			const options = {
-				method: 'POST',
-				headers: { cookie, origin, 'content-type': 'application/json' },
-				body,
-			};
-			expect((await fetch(copy, options)).status).toBe(204);
-			expect((await fetch(copy, options)).status).toBe(409);
-			for (const id of [source, destination])
-				expect(
-					await (
-						await fetch(`${origin}${testBlobUrl(id)}`, { headers: { cookie } })
-					).text(),
-				).toBe('audio');
-			expect(
-				(await fetch(`${copy}?appId=so.epicenter.other`, options)).status,
-			).toBe(400);
-			expect(
-				(
-					await fetch(
-						`${origin}/api/apps/${TEST_APP_ID}/local/blobs/${source}`,
-						{ headers: { cookie } },
-					)
-				).status,
-			).toBe(404);
-		} finally {
-			await server.stop(true);
-		}
-	});
-
 	test('put, head, byte-range forms, collision, and idempotent delete share one id', async () => {
 		await using host = await createTestHost({
 			engine: scriptedEngine([[]]),
 		});
 		const server = await serveHost(host);
-		const id = generateBlobId();
+		const id = generateBlobId('bin');
 		const url = `${server.url.origin}${testBlobUrl(id)}`;
 		const { cookie, origin } = authenticationFor(server);
 		try {
@@ -1500,7 +1500,7 @@ describe('local blob routes', () => {
 			});
 			expect(head.status).toBe(200);
 			expect(head.headers.get('content-length')).toBe('10');
-			expect(head.headers.get('content-type')).toBe('audio/test');
+			expect(head.headers.get('content-type')).toBe('application/octet-stream');
 			expect(await head.text()).toBe('');
 
 			const range = await fetch(url, {
@@ -1553,7 +1553,7 @@ describe('local blob routes', () => {
 				expect(refused.headers.get('content-range')).toBe('bytes */10');
 			}
 
-			const emptyId = generateBlobId();
+			const emptyId = generateBlobId('txt');
 			const emptyUrl = `${server.url.origin}${testBlobUrl(emptyId)}`;
 			expect(
 				(
@@ -1596,7 +1596,7 @@ describe('local blob routes', () => {
 			engine: scriptedEngine([[]]),
 		});
 		const server = await serveHost(host);
-		const id = generateBlobId();
+		const id = generateBlobId('bin');
 		const url = `${server.url.origin}${testBlobUrl(id)}`;
 		const { cookie, origin } = authenticationFor(server);
 		try {
@@ -1949,7 +1949,7 @@ describe('sidecar end-to-end smoke', () => {
 			expect(installed.status).toBe(200);
 			expect(withoutAuthBootstrap(await installed.text())).toBe(installedPage);
 
-			const blobId = generateBlobId();
+			const blobId = generateBlobId('txt');
 			const put = await fetch(`${origin}${testBlobUrl(blobId)}`, {
 				method: 'PUT',
 				headers,
@@ -1958,20 +1958,11 @@ describe('sidecar end-to-end smoke', () => {
 			expect(put.status).toBe(201);
 			expect(
 				await Bun.file(
-					join(
-						dataDir,
-						'apps',
-						'so.epicenter.whispering',
-						'blobs',
-						blobId,
-						'data',
-					),
+					join(dataDir, 'apps', 'so.epicenter.whispering', 'blobs', blobId),
 				).text(),
 			).toBe('native-selected bytes');
 			expect(
-				await Bun.file(
-					join(ignoredDirectory, 'blobs', blobId, 'data'),
-				).exists(),
+				await Bun.file(join(ignoredDirectory, 'blobs', blobId)).exists(),
 			).toBe(false);
 			const checkoutUrl = `${origin}${CHECKOUT_PATH}/so.epicenter.honeycrisp`;
 			const before = await fetch(checkoutUrl, { headers });

@@ -1,12 +1,12 @@
 import { parseBlobId } from './blob-id.js';
 import type { BlobListOptions, BlobStat } from './blob-store.js';
 
-/** Shared by browser and filesystem writers; mirrored by the native writer. */
+/** Validate bounded HTTP metadata at the WebView transport boundary. */
 export function normalizeContentType(contentType: string): string {
 	const normalized = contentType.trim();
-	return normalized === '' ||
-		normalized.length > 255 ||
-		/[\u0000-\u001f\u007f]/u.test(normalized)
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: Reject control characters at the HTTP metadata boundary.
+	const hasControls = /[\u0000-\u001f\u007f]/u.test(normalized);
+	return normalized === '' || normalized.length > 255 || hasControls
 		? 'application/octet-stream'
 		: normalized;
 }

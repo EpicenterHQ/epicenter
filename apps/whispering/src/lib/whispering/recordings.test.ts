@@ -22,7 +22,7 @@ import { createWhisperingRecordings } from './recordings';
 
 function recording(overrides: Partial<NewRecording> = {}): NewRecording {
 	return {
-		audioBlobId: generateBlobId(),
+		audioBlobId: generateBlobId('wav'),
 		title: '',
 		recordedAt: InstantString.now(),
 		recordedAtZone: 'UTC',
@@ -88,7 +88,7 @@ test('rows stay live, sort newest first, and allow replacing the blob reference'
 			newer.id,
 			older.id,
 		]);
-		const replacement = generateBlobId();
+		const replacement = generateBlobId('wav');
 		f.recordings.patch(older.id, {
 			title: 'updated',
 			audioBlobId: replacement,

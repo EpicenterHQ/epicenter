@@ -52,7 +52,7 @@ test('upload publishes actual bytes under a fresh ID and returns an owner-pinned
 	expect(first.status).toBe(201);
 	const { url } = (await first.json()) as { url: string };
 	expect(url).toMatch(
-		/^https:\/\/api.test\/api\/apps\/so.epicenter.notes\/principals\/alice\/blobs\/blob_[a-z0-9]{21}$/,
+		/^https:\/\/api.test\/api\/apps\/so.epicenter.notes\/principals\/alice\/blobs\/blob_[a-z0-9]{21}\.wav$/,
 	);
 	expect(((await second.json()) as { url: string }).url).not.toBe(url);
 	expect(await writes[0]!.text()).toBe('audio');
@@ -96,13 +96,51 @@ test('declared and actual oversize uploads never reach object storage', async ()
 	expect(writes).toBe(0);
 });
 
+test.each([
+	['audio/x-wav', 'wav'],
+	['audio/webm;codecs=opus', 'webm'],
+	['audio/mp4', 'm4a'],
+	['application/x-private-archive', 'bin'],
+])('upload mints %s as .%s while retaining provider Content-Type', async (contentType, extension) => {
+	const writes: Request[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		writes.push(new Request(input, init));
+		return new Response();
+	}) as typeof fetch;
+	const response = await setup().request(
+		collection,
+		{
+			method: 'POST',
+			body: new Blob(['original'], { type: contentType }),
+		},
+		config,
+	);
+	expect(response.status).toBe(201);
+	const result = (await response.json()) as { url: string };
+	expect(result.url).toEndWith(`.${extension}`);
+	expect(writes[0]!.headers.get('content-type')).toBe(contentType);
+	expect(await writes[0]!.text()).toBe('original');
+});
+
+test('extensionless URLs are refused before accessing object storage', async () => {
+	let reads = 0;
+	globalThis.fetch = (async () => {
+		reads++;
+		return new Response();
+	}) as unknown as typeof fetch;
+	const url = `${collection.replace('/blobs', '/principals/alice/blobs')}/blob_${'a'.repeat(21)}`;
+	for (const method of ['GET', 'DELETE'])
+		expect((await setup().request(url, { method }, config)).status).toBe(404);
+	expect(reads).toBe(0);
+});
+
 test('another principal cannot read or delete the durable URL', async () => {
 	let reads = 0;
 	globalThis.fetch = (async () => {
 		reads++;
 		return new Response();
 	}) as unknown as typeof fetch;
-	const url = `https://api.test/api/apps/so.epicenter.notes/principals/alice/blobs/${generateBlobId()}`;
+	const url = `https://api.test/api/apps/so.epicenter.notes/principals/alice/blobs/${generateBlobId('bin')}`;
 	for (const method of ['GET', 'DELETE'])
 		expect((await setup('bob').request(url, { method }, config)).status).toBe(
 			403,
@@ -122,7 +160,7 @@ test('reads proxy bytes without a signed redirect and deletes use the same key',
 				});
 	}) as unknown as typeof fetch;
 	const app = setup();
-	const url = `https://api.test/api/apps/so.epicenter.notes/principals/alice/blobs/${generateBlobId()}`;
+	const url = `https://api.test/api/apps/so.epicenter.notes/principals/alice/blobs/${generateBlobId('bin')}`;
 	const response = await app.request(url, {}, config);
 	expect(await response.text()).toBe('bytes');
 	expect(response.headers.get('location')).toBeNull();
@@ -143,7 +181,7 @@ test('missing objects, invalid addresses and native control headers fail closed'
 	expect(
 		(
 			await app.request(
-				`${collection.replace('/blobs', '/principals/alice/blobs')}/${generateBlobId()}`,
+				`${collection.replace('/blobs', '/principals/alice/blobs')}/${generateBlobId('bin')}`,
 				{},
 				config,
 			)
@@ -164,7 +202,7 @@ test('missing objects, invalid addresses and native control headers fail closed'
 				collection,
 				{
 					method: 'POST',
-					headers: { 'x-epicenter-local-blob-id': generateBlobId() },
+					headers: { 'x-epicenter-local-blob-id': generateBlobId('bin') },
 				},
 				config,
 			)

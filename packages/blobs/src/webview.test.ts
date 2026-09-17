@@ -6,6 +6,7 @@
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { generateBlobId } from './blob-id.js';
+import type { BlobStoreError } from './blob-store.js';
 import { BLOB_PATHS, createWebviewBlobs } from './webview.js';
 
 function setup(responses: Response[]) {
@@ -33,8 +34,7 @@ function metadata(size = 5, contentType = 'audio/wav') {
 }
 
 test('all local operations retain the app selected at construction', async () => {
-	const id = generateBlobId();
-	const copy = generateBlobId();
+	const id = generateBlobId('wav');
 	const { local, sources, options, requests, inits } = setup([
 		new Response(null, { status: 204 }),
 		new Response('audio'),
@@ -54,14 +54,12 @@ test('all local operations retain the app selected at construction', async () =>
 	expect(source.url).toBe(`/api/apps/so.epicenter.test/blobs/${id}`);
 	source[Symbol.dispose]();
 	source[Symbol.dispose]();
-	expectOk(await local.copy(id, copy));
 	expectOk(await local.delete(id));
 	expect(requests.map((request) => request.method)).toEqual([
 		'PUT',
 		'GET',
 		'HEAD',
 		'HEAD',
-		'POST',
 		'DELETE',
 	]);
 	for (const request of requests) {
@@ -71,7 +69,6 @@ test('all local operations retain the app selected at construction', async () =>
 		expect(init.credentials).toBe('same-origin');
 		expect(init.redirect).toBe('error');
 	}
-	expect(await requests[4]!.json()).toEqual({ sourceId: id });
 	expect(BLOB_PATHS).toEqual({ local: '/api/apps/:appId/blobs' });
 });
 
@@ -87,7 +84,11 @@ test('invalid application IDs fail before fetching', () => {
 });
 
 test('list sends exclusive pagination and accepts only ordered complete metadata', async () => {
-	const ids = [generateBlobId(), generateBlobId(), generateBlobId()].sort();
+	const ids = [
+		generateBlobId('wav'),
+		generateBlobId('wav'),
+		generateBlobId('wav'),
+	].sort();
 	const items = [{ id: ids[1]!, size: 12, contentType: 'audio/wav' }];
 	const { local, requests } = setup([
 		Response.json({ items, nextCursor: ids[1] }),
@@ -103,7 +104,7 @@ test('list sends exclusive pagination and accepts only ordered complete metadata
 });
 
 test('list rejects malformed results and invalid options', async () => {
-	const id = generateBlobId();
+	const id = generateBlobId('wav');
 	for (const page of [
 		{},
 		{ items: [{ id, size: -1, contentType: 'audio/wav' }] },
@@ -139,12 +140,9 @@ test('list rejects malformed results and invalid options', async () => {
 });
 
 test('missing bytes and immutable collisions keep typed errors', async () => {
-	const id = generateBlobId();
-	const destination = generateBlobId();
+	const id = generateBlobId('wav');
 	const { local, sources } = setup([
 		new Response(null, { status: 404 }),
-		new Response(null, { status: 404 }),
-		new Response(null, { status: 409 }),
 		new Response(null, { status: 404 }),
 		new Response(null, { status: 409 }),
 		new Response(null, { status: 404 }),
@@ -161,14 +159,6 @@ test('missing bytes and immutable collisions keep typed errors', async () => {
 		name: 'BlobAlreadyExists',
 		id,
 	});
-	expect(expectErr(await local.copy(id, destination))).toMatchObject({
-		name: 'BlobNotFound',
-		id,
-	});
-	expect(expectErr(await local.copy(id, destination))).toMatchObject({
-		name: 'BlobAlreadyExists',
-		id: destination,
-	});
 	expect(expectErr(await sources.open(id))).toMatchObject({
 		name: 'BlobNotFound',
 		id,
@@ -183,14 +173,14 @@ test('invalid HEAD metadata fails without creating a playback URL', async () => 
 		metadata(5, ''),
 	]) {
 		const { sources } = setup([response]);
-		expect(expectErr(await sources.open(generateBlobId())).name).toBe(
+		expect(expectErr(await sources.open(generateBlobId('wav'))).name).toBe(
 			'BlobStoreFailed',
 		);
 	}
 });
 
 test('transport and HTTP failures remain typed for each operation', async () => {
-	const id = generateBlobId();
+	const id = generateBlobId('wav');
 	const { local } = setup(
 		Array.from({ length: 7 }, () => new Response(null, { status: 500 })),
 	);
@@ -198,11 +188,12 @@ test('transport and HTTP failures remain typed for each operation', async () => 
 		() => local.get(id),
 		() => local.stat(id),
 		() => local.put(id, new Blob()),
-		() => local.copy(id, generateBlobId()),
 		() => local.delete(id),
 		() => local.list(),
 	])
-		expect(expectErr(await operation()).name).toBe('BlobStoreFailed');
+		expect(expectErr<BlobStoreError>(await operation()).name).toBe(
+			'BlobStoreFailed',
+		);
 	const failing = createWebviewBlobs({
 		appId: 'so.epicenter.test',
 		fetch: async () => {
