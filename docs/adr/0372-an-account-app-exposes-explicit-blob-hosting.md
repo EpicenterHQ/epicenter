@@ -2,8 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-08
-- **Revised:** 2026-09-17
-- **Unbuilt:** Real object-provider and installed desktop upload acceptance remain outstanding; direct routes, host forwarding, and retirement have automated coverage.
+- **Unbuilt:** Extension-bearing upload IDs and corresponding route/client validation are not implemented; real object-provider and installed desktop upload acceptance remain outstanding.
 
 ## Decision
 
@@ -26,8 +25,21 @@ Desktop uploads stream the host file without loading it through frontend JS.
 Repeated uploads may create duplicate objects; there is no transfer journal,
 content deduplication, mirror identity, upload ticket, or automatic retry queue.
 
+Fresh remote IDs include a format extension under the same key grammar as
+local BlobIds. The server selects that extension from the accepted upload media
+type; a caller does not select the random identity or reuse its local ID.
+`addLocal(id)` obtains conventional media type and actual size from the local
+store. Provider-native Content-Type metadata can remain; flat local files do
+not require removing metadata supplied by an object-storage provider. Exact
+local MIME parameters are not recovered from an extension.
+
+The owner-pinned URL shape is unchanged, but its final key includes an
+extension. Existing extensionless hosted URLs require an explicit preservation
+decision before changing deployed validators. A local layout change does not
+authorize rewriting or making those remote objects unreachable.
+
 Hosting uses direct authenticated requests with a 25 MiB initial object limit.
-The server enforces actual received size. Saved-file uploads check metadata
+The server enforces actual received size. Saved-file uploads check byte length
 before reading bytes. Expanding this bound is a product/transport decision,
 not a consequence of efficient native streaming.
 

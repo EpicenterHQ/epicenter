@@ -2,12 +2,23 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-05
-- **Revised:** 2026-09-17
-- **Unbuilt:** Installed desktop WebView acceptance of the new storage namespace remains outstanding; WebKit and native-to-Bun storage checks pass.
+- **Unbuilt:** Extension-bearing keys, flat desktop files, the single-record browser schema, extension-derived media types, and the existing-data cutover are not implemented.
+
+## Context
+
+The implementation in packages/blobs uses extensionless BlobIds. Desktop
+objects occupy a directory containing `data` and `metadata.json`; browser
+objects occupy paired `blob-data` and `blob-metadata` records. These layouts
+preserve the supplied content type and a separately recorded byte length.
+
+The desired desktop artifact is an ordinary file with a useful extension.
+Application rows own titles, transcripts, and any exact media description
+their workflows require. The byte store does not need a sidecar to repeat
+those facts. The same complete filename can identify a browser database value.
 
 ## Decision
 
-An app has one canonical local blob store within a storage environment. Account,
+**An app has one canonical local blob store within a storage environment.** Account,
 library, row, and document generation do not select its location. Application
 code uses the full `app.blobs.local` path; do not destructure `local` or `remote`
 from `app.blobs`.
@@ -15,18 +26,70 @@ from `app.blobs`.
 | Environment | Address |
 | --- | --- |
 | Browser | IndexedDB database `epicenter/<appId>/blobs`, within the browser profile and origin |
-| Epicenter desktop | `<dataRoot>/apps/<appId>/blobs/<blobId>/{data,metadata.json}` |
+| Epicenter desktop | One ordinary file at `<dataRoot>/apps/<appId>/blobs/<blobId>` |
 
 Native startup selects `dataRoot` once. Rust recording and Bun reads use that
 same value and directory grammar. A desktop WebView reaches the host store;
-it does not persist a second copy in IndexedDB. Browser bytes remain an
-ArrayBuffer plus metadata in IndexedDB, reconstructed as Blob on read.
+it does not persist a second copy in IndexedDB.
+
+**A BlobId is the complete immutable storage key, including its extension.**
+The grammar is `blob_` followed by 21 lowercase alphanumeric random characters,
+one dot, and a lowercase alphanumeric extension of 1 to 10 characters. Keep
+the existing random-body generation and `blob_` prefix. The prefix identifies
+the kind of key; it provides no access control. A key contains no path,
+application ID, recording title, account, or row identity.
+
+The following examples use shortened random bodies for readability:
+
+```text
+Desktop: apps/<appId>/blobs/
+         |-- blob_abc.wav
+         |-- blob_def.webm
+         `-- blob_ghi.png
+
+Browser: epicenter/<appId>/blobs
+         objects["blob_abc.wav"] -> { id, bytes, size }
+         listing index          -> [id, size]
+
+Row:     audioBlobId = "blob_abc.wav"
+```
+
+The entire key is stored in the row and used for exact lookup. Readers do not
+scan for an extension, split the key into separately mutable fields, or look
+up a filename in another catalog. Changing a title does not rename a blob.
+Conversion creates another object; changing an extension does not convert bytes.
+The storage-level `copy` operation preserves the source extension; a caller
+cannot relabel identical bytes by choosing a destination with another suffix.
+
+**The key describes the file format; the store does not preserve an arbitrary
+original MIME string.** Creation selects an extension from the actual producer's
+format or a supported imported filename. Browser capture uses its resulting
+media type, not an assumption that every recording is WAV. A shared mapping
+defines conventional media types for supported extensions. Unknown formats use
+`.bin` and `application/octet-stream`; no content-sniffing framework is required.
+An extension is a format declaration, not proof that untrusted bytes are safe.
+
+`add(File)` can use a supported filename extension when the supplied media type
+is empty or generic. A meaningful supported media type takes precedence over a
+conflicting filename. A plain Blob has no filename. Unsupported combinations
+use `.bin` rather than claiming a conversion or inventing a format. Keep exact
+MIME parameters in an application row only when a caller requires them.
+
+**Desktop blobs have no per-object directory or JSON sidecar.** File size comes
+from the filesystem. Browser objects use one IndexedDB record containing an
+ArrayBuffer and its derived byte length, with an engine-maintained `[id, size]`
+index for metadata-only reads. Size is calculated from bytes in the write
+transaction; callers cannot supply it independently. The index is not an
+application metadata catalog. A separate `blob-metadata` store is not part of
+the target layout.
 
 The local API is `add`, `get`, `open`, `stat`, `list`, and `delete`. `add` accepts
-standard Blob/File bytes, mints an immutable BlobId, and reports success after
+standard Blob/File bytes, selects an extension, mints an immutable BlobId, and reports success after
 publication. `get` returns a Blob. `open` acquires a disposable presentation URL;
 disposing it releases playback resources without deleting stored bytes.
-`stat` reads size and content type without reading the payload. Missing reads
+`stat` returns size and the conventional content type derived from the key
+without reading the payload. `get` reconstructs a Blob with that conventional
+type. Missing reads
 return a typed error. Deleting an absent object succeeds.
 
 `list({cursor, limit})` enumerates complete committed objects, including objects
@@ -34,11 +97,18 @@ with no row. Its exclusive cursor is a BlobId; enumeration is not a snapshot
 against concurrent writes or deletion. Staging and old attachment addresses are
 excluded. Listing does not determine whether deletion is safe.
 
-Bytes and metadata publish together: one IndexedDB transaction in the browser,
-a complete staged-directory rename with durability barriers on desktop. All
-writers normalize content type alike, using application/octet-stream when no
-valid type is supplied. Metadata records size and content type, not row owners,
-accounts, generations, upload acknowledgments, or a cleanup ledger.
+**Successful publication exposes one complete immutable object.** The browser
+commits its record and index in one transaction. Desktop capture/import writes
+a private same-filesystem temporary file, finishes and flushes the file, then
+publishes it without replacing an existing destination. Temporary names are
+not valid BlobIds and do not appear in `list`. A plain overwriting file rename
+preceded by an existence check does not satisfy the collision rule.
+
+Each desktop writer owns its temporary files. Cleanup cannot delete another
+writer's active file or an object whose publication succeeded but whose
+acknowledgment was lost. Retry after ambiguous publication must keep the same
+object identity. The publication primitive and durability barriers require
+proof on supported filesystems; removing sidecars does not remove those duties.
 
 The App owns access and acquired playback resources. App closure revokes its
 handles and drains admitted operations; it does not delete committed files or
@@ -53,9 +123,17 @@ A different origin/profile is a different storage environment. Browser storage
 remains subject to quotas, eviction policy, and user deletion; local save is not
 an archival guarantee.
 
-The transition starts fresh. Existing account-scoped blob databases, directories,
-and old recording files stay untouched. There is no migration, fallback reader,
-or startup sweep of old storage. The user selected this disposition explicitly.
+The earlier fresh-start decision left account-scoped databases, directories,
+and historical recording files untouched. It does not authorize making
+extensionless references created by the subsequent app-local implementation
+unreadable. Inventory those files, browser stores, rows, and hosted URLs before
+cutover. Their disposition requires an explicit preservation decision. Do not
+rename, delete, relabel formats, or erase databases as a startup side effect.
+
+Exact input MIME round-tripping and the sidecar's expected-versus-actual size
+check are withdrawn. A caller requiring original MIME parameters must preserve
+them separately. A rowless object still has bytes and a format extension, but
+no recording title or transcript can be reconstructed from that key.
 
 ## Considered alternatives
 
@@ -67,3 +145,12 @@ or startup sweep of old storage. The user selected this disposition explicitly.
   permanent store or a whole-file transfer into the WebView.
 - A new createBlobs namespace wrapper: repeats the App's existing composition
   boundary without owning another lifetime.
+- A per-blob directory with `data` and `metadata.json`: publishes a two-file
+  object together but does not produce an ordinary extension-bearing media file.
+- Flat bytes plus JSON sidecars: keeps exact MIME round-tripping at the cost of
+  paired-file publication; that storage promise is not retained.
+- A bare ID plus a separately stored extension: creates a second value needed
+  for lookup when one immutable key can name the object.
+- A shared SQLite chunk engine: changes capture transport and playback to
+  achieve implementation uniformity that the shared saved-object contract does
+  not require.

@@ -2,19 +2,28 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-08
-- **Revised:** 2026-09-17
 - **Relates:** [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) (independent row references), [ADR-0401](0401-a-record-names-its-destination-at-creation.md) (original destination), [ADR-0380](0380-the-caller-owns-when-to-close-and-the-app-owns-resource-shutdown.md) (resource shutdown).
-- **Unbuilt:** Physical microphone, whole-host interruption, and concurrent-device acceptance of this saved-blob contract remain outstanding.
+- **Unbuilt:** Extension-bearing saved keys and flat-file publication are not implemented; physical microphone, whole-host interruption, and concurrent-device acceptance remain outstanding.
 
 ## Decision
 
 The App recorder saves completed recordings into the canonical app-local blob
-store. Start captures the app ID and recording identity before microphone
-acquisition. Successful Stop returns `{ blobId, durationMs, byteLength }` only
+store. The App binds capture and local reads to the same app scope; the storage
+adapter owns path and database naming. Start captures that scope and a live
+recording identity before microphone acquisition. Successful Stop returns
+`{ blobId, durationMs, byteLength }` only
 after publication. That BlobId is immediately readable through
 `app.blobs.local`. Duration is audio duration; byte length describes the saved
 payload. No public FinishedFile, native-capture token, publish, or discard-file
-handoff exists.
+handoff exists. The returned BlobId includes the actual file extension and is
+the complete key consumed by `app.blobs.local.open(blobId)`.
+
+A live capture identity is not proof that a saved object exists. Native capture
+can select `.wav` before recording; browser capture must establish its actual
+output format before selecting the saved key. Do not require the live control
+ID and extension-bearing saved key to be the same string. Keep the selected
+saved key through publication retries. Native audio remains outside the WebView
+byte path, and publication need not make a second copy of a finalized file.
 
 Creating a recording row is a later application operation. Its failure can
 leave saved bytes without a row. Recording has no authority to create a row or
@@ -94,7 +103,8 @@ That writer remains usable even after public App blob access is revoked.
 Unfinished capture may be discarded; committed files survive closure and
 retirement. Cleanup owns staging only, including after an ambiguous commit.
 
-The byte adapter owns native paths, durable publication, metadata, and cleanup.
+The byte adapter owns native paths, durable publication, conventional media
+types derived from extensions, and cleanup.
 Capture owns only its temporary writer and device. No native storage module
 names Whispering. Audio decoding uses ordinary local reads. Apps compose capture
 and inference themselves; no shared dictation workflow is introduced.
@@ -127,10 +137,16 @@ SIGKILL staging recovery exercise that earlier promise.
 
 Automated tests cover lost responses, stale callbacks, pending-start cleanup,
 Stop publication, and reading committed native WAV files through an independent
-Bun handle after session closure. Physical microphone, whole-host interruption and native
+Bun handle after session closure in the extensionless directory layout. Those
+checks must be updated and rerun against flat extension-bearing files; they do
+not establish the target layout's publication behavior. Physical microphone, whole-host interruption and native
 WebView playback evidence remain outstanding. Native per-device admission
 also needs real concurrent-device acceptance; source compatibility is not proof.
 
 The [capture plan](../../specs/20260912T122859-concurrent-native-capture.md) owns
-native admission; the [attachment plan](../../specs/20260909T010040-current-generation-restore.md#implementation-waves)
+native admission only. Its finished-file handoff and separate library-save
+instructions are superseded by this decision and the
+[flat-blob plan](../../specs/20260917T113309-flat-extension-bearing-blobs.md).
+Successful Stop already means saved; admission work must preserve that boundary.
+The [attachment plan](../../specs/20260909T010040-current-generation-restore.md#implementation-waves)
 describes the older attachment direction, which this decision withdraws.

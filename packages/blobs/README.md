@@ -9,6 +9,15 @@ row deletion, Yjs, transfer queues, or upload obligations.
 
 ## Storage standard
 
+This section describes the implemented extensionless layout. The
+[flat-file direction](../../docs/adr/0349-local-blobs-belong-to-the-app-on-this-device.md)
+uses an extension-bearing key as both the desktop filename and browser database
+key, removes per-object sidecars, and leaves recording details in application
+rows. That storage change is unbuilt. The
+[implementation plan](../../specs/20260917T113309-flat-extension-bearing-blobs.md)
+defines its preservation and verification gates; its examples are not API
+signatures available in this package.
+
 | Platform | Canonical location |
 | --- | --- |
 | Browser | IndexedDB `epicenter/<appId>/blobs`, within the origin/profile |

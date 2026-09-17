@@ -179,6 +179,13 @@ ordinary storage and transfer failures remain Results.
 
 ## Blobs
 
+The following API guide describes the implemented extensionless BlobIds and
+directory-backed desktop objects. The
+[flat-file plan](../../specs/20260917T113309-flat-extension-bearing-blobs.md)
+retains these app-scoped operations while changing saved references to complete
+extension-bearing keys. It does not add automatic upload or a post-Stop save
+handoff. Its storage format and cutover remain unbuilt.
+
 Every App exposes `app.blobs.local`. An AccountApp also exposes
 `app.blobs.remote`; a LocalApp has no remote member. Keep these full paths at
 call sites. Bytes have independent lifetimes from rows and from each other.

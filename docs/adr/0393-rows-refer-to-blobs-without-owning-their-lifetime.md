@@ -2,8 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
-- **Revised:** 2026-09-17
-- **Unbuilt:** No remaining implementation work in this decision; row fields, consumers, and obsolete attachment paths have been updated.
+- **Unbuilt:** Extension-bearing row references, format-aware import/export consumers, and the disposition of existing extensionless references require implementation.
 
 ## Decision
 
@@ -12,10 +11,23 @@ BlobId, a remote URL, both, or neither. The framework does not introduce an
 owning blob field, one-file-per-row rule, synchronization obligation, or server
 reference-liveness index. Byte payloads are not embedded in the synced document.
 
-Whispering stores audioBlobId for saved device audio and an optional audioUrl
+Whispering stores audioBlobId as the full saved key, including its extension,
+for device audio and an optional audioUrl
 when explicit uploading succeeds. Stop saves bytes before row creation. A row
 write can fail afterward, leaving a complete blob discoverable through local
-list. Importing audio saves a Blob first and then creates the row.
+list. Importing audio saves a Blob/File first and then creates the row.
+
+Titles, transcripts, recording dates, and application-specific media details
+belong in the recording row, not beside the audio in a JSON file. Preserve an
+exact content type or codec description in a declared row field only when a
+workflow needs more than the key's conventional format. Do not add a second
+metadata catalog or require that field for ordinary key-only playback.
+
+The row points to the blob; the blob does not store a reverse recording ID.
+Two rows can refer to one immutable file. Changing a title leaves its key
+unchanged. Conversion creates new bytes under a new key. The same
+extension-bearing key identifies a desktop file and a browser database record,
+but sharing a row does not copy bytes between those storage environments.
 
 Deleting a row deletes the row. An application may separately attempt local or
 remote deletion, but missed cleanup is accepted. A library may offer inspection
@@ -25,6 +37,9 @@ Absence from one device's current row view is not proof that a blob is orphaned.
 The user selected a fresh-start transition with old files preserved untouched.
 Old attachment rows and their storage are not silently adopted, renamed, or
 removed by the new blob implementation.
+This historical choice does not dispose of extensionless references created
+by the app-local store. Preserve their bytes and references until an explicit
+cutover decision covers them; changing a field validator alone is not migration.
 
 ## Consequences
 
