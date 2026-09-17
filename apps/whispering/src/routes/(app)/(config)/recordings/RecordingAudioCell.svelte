@@ -8,7 +8,7 @@
  const availability = createQuery(() => queries.audio.availability(() => recording).options);
 </script>
 
-{#if availability.data === 'local-only' || availability.data === 'remote'}
+{#if availability.data === 'local' || availability.data === 'remote'}
  <RenderAudioUrl id={recording.id} audio={recording.audioUrl ?? recording.audioBlobId} />
 {:else}
  <span class="text-sm text-muted-foreground">Audio unavailable on this device</span>

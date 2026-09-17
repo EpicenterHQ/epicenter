@@ -1,5 +1,3 @@
-import { InstantString } from '@epicenter/data/field';
-import { createLogger } from 'wellcrafted/logger';
 import {
 	deliverTranscriptionResult,
 	type TranscriptionSource,
@@ -17,33 +15,26 @@ import { polishHud } from '$lib/state/polish-hud.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
 import { creditAction } from './credit-action.js';
 
-const log = createLogger('whispering/pipeline');
-
 /**
- * Manual capture names its completed row. VAD and file imports provide bytes
- * for the table to attach. The capture attempt retains ownership of feedback
- * while inference and history retain their original row and App lifetime.
+ * Every producer supplies a saved recording row. The capture attempt owns
+ * feedback while inference and history retain their original row and App lifetime.
  */
 type PipelineInput = {
-	audio?: Blob;
-	recordingId?: string;
-	durationMs: number | null;
+	recordingId: string;
 	deliverySource?: TranscriptionSource;
 	isCurrentAttempt?: () => boolean;
 	transcribe?: ReturnType<typeof captureTranscription>;
 };
 
 /**
- * Saves finished imported audio when needed, then transcribes and polishes the row.
+ * Transcribes and polishes an existing row without publishing bytes or creating rows.
  *
  * `deliverySource` only shapes the success copy (recording vs file import).
  */
 export async function processRecordingPipeline(
 	app: WhisperingApp,
 	{
-		audio,
 		recordingId,
-		durationMs,
 		deliverySource = 'recording',
 		isCurrentAttempt,
 		transcribe = captureTranscription(app),
@@ -51,7 +42,8 @@ export async function processRecordingPipeline(
 ) {
 	const lifetime = app.signal;
 	lifetime.throwIfAborted();
-	const now = InstantString.now();
+	const recording = app.recordings.get(recordingId);
+	if (!recording || !app.recordingEnabled) return;
 
 	// A live dictation (not a file import) drives the dictation pill. The
 	// recorder is already idle by the time we get here, so the lifecycle hands
@@ -60,48 +52,6 @@ export async function processRecordingPipeline(
 	const isDictation = deliverySource === 'recording';
 	const ownsFeedback =
 		isCurrentAttempt ?? (isDictation ? dictationLifecycle.reset() : () => true);
-	// The table owns finished-file publication; manual capture already saved its row.
-	if (audio === undefined && recordingId === undefined)
-		throw new Error(
-			'Recording pipeline requires audio bytes or a recording row id.',
-		);
-	const existing =
-		recordingId === undefined ? undefined : app.recordings.get(recordingId);
-	if (recordingId !== undefined && !existing) return;
-	let savedBlobId: string | undefined;
-	if (!existing) {
-		const saved = await app.blobs.local.add(audio!);
-		if (saved.error) throw saved.error;
-		savedBlobId = saved.data;
-		if (lifetime.aborted) return;
-	}
-	const { data: recording, error: creationError } = existing
-		? { data: existing, error: null }
-		: await app.recordings.create({
-				audioBlobId: savedBlobId!,
-				title: '',
-				recordedAt: now,
-				recordedAtZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-				transcript: '',
-				polishedTranscript: null,
-				duration: durationMs,
-				// The recording domain initializes the transcription columns explicitly, so
-				// a fresh recording is `pending` with no completion and no error.
-			});
-	if (creationError !== null) {
-		if (
-			isDictation &&
-			ownsFeedback() &&
-			app.recordingEnabled &&
-			!lifetime.aborted
-		)
-			dictationLifecycle.markFailed({
-				tier: 'silent-loss',
-				error: creationError,
-			});
-		throw creationError;
-	}
-	if (lifetime.aborted || !app.recordingEnabled) return;
 	if (isDictation && ownsFeedback()) dictationLifecycle.markTranscribing();
 
 	// File import has no pill, so it keeps a progress toast; the dictation path is

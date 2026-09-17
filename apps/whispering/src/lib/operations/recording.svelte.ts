@@ -8,7 +8,7 @@ import type { DeviceAcquisitionOutcome } from '@epicenter/recorder';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { defineKeys, resultQueryOptions } from 'wellcrafted/query';
-import { Err, Ok, tryAsync } from 'wellcrafted/result';
+import { Err, Ok } from 'wellcrafted/result';
 import { manualRecorderConfig } from '#platform/manual-recorder-config';
 import { reportRecordingMicLevel } from '#platform/recording-mic-level';
 import { goto } from '$app/navigation';
@@ -32,6 +32,7 @@ import {
 } from '$lib/state/recording-active.svelte';
 import { vadRecorder } from '$lib/state/vad-recorder.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
+import { saveAudioRecording } from './save-audio-recording.js';
 
 const log = createLogger('whispering/recording');
 
@@ -242,11 +243,8 @@ export function createWhisperingRecording(
 				}
 				const saved = await recordings.create({
 					audioBlobId: result.data.blobId,
-					title: '',
 					recordedAt: metadata.recordedAt,
 					recordedAtZone: metadata.recordedAtZone,
-					transcript: '',
-					polishedTranscript: null,
 					duration: result.data.durationMs,
 				});
 				if (saved.error) {
@@ -362,7 +360,6 @@ export function createWhisperingRecording(
 
 			await processRecordingPipeline(app, {
 				recordingId: rowId,
-				durationMs,
 				isCurrentAttempt: source.isCurrentAttempt,
 				transcribe: source.transcribe,
 			});
@@ -578,9 +575,22 @@ export async function startVadRecording(app: WhisperingApp) {
 						blob_size: blob.size,
 					});
 
+					const saved = await saveAudioRecording(app, blob);
+					if (saved.error !== null) {
+						if (
+							isCurrentAttempt() &&
+							app.recordingEnabled &&
+							!app.signal.aborted
+						)
+							dictationLifecycle.markFailed({
+								tier: 'silent-loss',
+								error: saved.error,
+							});
+						throw saved.error;
+					}
+					if (saved.data === null) return;
 					await processRecordingPipeline(app, {
-						audio: blob,
-						durationMs: null,
+						recordingId: saved.data.id,
 						isCurrentAttempt,
 						transcribe: capturedTranscription,
 					});

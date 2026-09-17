@@ -219,6 +219,33 @@ RSS includes the harness and descendants, not every possible reparented engine
 process. Garbage collection can make its delta negative. This is an observation,
 not a memory bound, allocation measurement, or disk-I/O result.
 
+## Caller refinement
+
+The follow-up caller review keeps the blob contract and moves publication out of
+Whispering's processing pipeline. Imports and voice-activated capture use
+`saveAudioRecording` to publish bytes and create a row. Manual Stop already
+publishes bytes and creates its row directly. All three producers enter the
+pipeline with a recording ID; row creation owns initial descriptive and
+transcription fields. Availability is `local`, independently of `audioUrl`.
+
+An independent review accepted these boundaries. Follow-up tests cover captured
+inference during deferred publication, admitted saves completing after UI
+admission closes, retirement preserving bytes without a row, and voice-activated
+save failures updating feedback. Real blob/row fixtures verify that repeated
+pipeline execution creates no additional bytes or rows. This is not a test of
+clicking the UI's transcription retry action.
+
+An adversarial review caught a shutdown regression: retirement after successful
+publication must end quietly so producer draining can release the library. The
+helper returns no row in that case, retaining the bytes. Caller tests cover
+retirement through import departure and voice-activated producer draining.
+
+The refinement passed 63 tests across eight files in separate focused runs and
+both Whispering target typechecks. The production host build passed. Root
+typechecking still reports the same 12 baseline `packages/data` diagnostics.
+`recordings.zip` contains Markdown and audio references, not audio payloads.
+Saved-byte/archive recovery does not promise recovery of unfinished microphone capture after restarting the application.
+
 ## Remaining acceptance work
 
 Implementation work and automated integration are complete. This spec remains

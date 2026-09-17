@@ -9,7 +9,7 @@ import {
 	type Recording,
 	type RecordingService,
 } from '@epicenter/app/recorder';
-import { generateBlobId } from '@epicenter/blobs';
+import { BlobStoreError, generateBlobId } from '@epicenter/blobs';
 import { InstantString } from '@epicenter/data/field';
 import { asDeviceIdentifier } from '@epicenter/recorder';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -20,7 +20,16 @@ Reflect.set(
 	'$state',
 	Object.assign(<T>(value: T) => value, { raw: <T>(value: T) => value }),
 );
-const vadRecorder = { state: 'IDLE' };
+let speechEnd: ((audio: Blob) => Promise<void>) | undefined;
+const vadRecorder = {
+	state: 'IDLE',
+	startActiveListening: mock(
+		async (options: { onSpeechEnd: (audio: Blob) => Promise<void> }) => {
+			speechEnd = options.onSpeechEnd;
+			return Ok({ outcome: 'success', deviceId: asDeviceIdentifier('mic') });
+		},
+	),
+};
 mock.module('../state/vad-recorder.svelte', () => ({ vadRecorder }));
 mock.module('$lib/state/vad-recorder.svelte', () => ({ vadRecorder }));
 mock.module('#platform/manual-recorder-config', () => ({
@@ -56,12 +65,15 @@ mock.module('$lib/state/capture-surface.svelte', () => ({
 mock.module('$lib/state/device-config.svelte', () => ({
 	deviceConfig: { set: mock() },
 }));
+const markFailed = mock();
 mock.module('$lib/state/dictation-lifecycle.svelte', () => ({
-	dictationLifecycle: { reset: mock(() => () => true), markFailed: mock() },
+	dictationLifecycle: { reset: mock(() => () => true), markFailed },
 }));
 const activity = await import('../state/recording-active.svelte');
 mock.module('$lib/state/recording-active.svelte', () => activity);
-const { createWhisperingRecording } = await import('./recording.svelte.js');
+const { createWhisperingRecording, startVadRecording } = await import(
+	'./recording.svelte.js'
+);
 
 let nativeInvoke: (
 	command: string,
@@ -109,9 +121,13 @@ function setup(service?: RecordingService) {
 		Ok({ id: 'saved-row' } as never),
 	);
 	const remove = mock();
+	const add = mock<WhisperingApp['blobs']['local']['add']>(async () =>
+		Ok(blobId),
+	);
 	const controller = new AbortController();
 	const app = {
 		signal: controller.signal,
+		blobs: { local: { add } },
 		recordingEnabled: true,
 		recordings: { create, delete: remove, get: () => ({ id: 'saved-row' }) },
 		settings: { set: mock() },
@@ -138,6 +154,7 @@ function setup(service?: RecordingService) {
 		cancel,
 		create,
 		remove,
+		add,
 		unlevel,
 		unsubscribe,
 		end: () => ended?.(),
@@ -160,6 +177,7 @@ test('capture creates no row and stop saves finished bytes and duration before o
 		expect.objectContaining({ recordingId: 'saved-row', transcribe: original }),
 	);
 	expect(f.recorder.saveStatus).toBe('saved');
+	expect(f.add).not.toHaveBeenCalled();
 });
 
 test('duplicate starts are refused during acquisition', async () => {
@@ -480,4 +498,116 @@ test('definite desktop Stop loss clears recording state while a lost reply stays
 	} finally {
 		await retried.owner.close();
 	}
+});
+
+test('voice-activated capture saves once and retains inference selected before publication', async () => {
+	const f = setup();
+	const original = inference;
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	f.add.mockImplementationOnce(async () => {
+		entered.resolve();
+		await release.promise;
+		return Ok(f.blobId);
+	});
+	await startVadRecording(f.app);
+	if (!speechEnd) throw new Error('VAD callback was not installed');
+	const audio = new Blob(['speech'], { type: 'audio/wav' });
+	const saving = speechEnd(audio);
+	await entered.promise;
+	try {
+		inference = async () => Ok('changed while saving');
+		expect(f.create).not.toHaveBeenCalled();
+		release.resolve();
+		await saving;
+		expect(f.add).toHaveBeenCalledTimes(1);
+		expect(f.add).toHaveBeenCalledWith(audio);
+		expect(f.create).toHaveBeenCalledTimes(1);
+		expect(f.create).toHaveBeenCalledWith(
+			expect.objectContaining({ audioBlobId: f.blobId, duration: null }),
+		);
+		expect(pipeline).toHaveBeenLastCalledWith(f.app, {
+			recordingId: 'saved-row',
+			isCurrentAttempt: expect.any(Function),
+			transcribe: original,
+		});
+	} finally {
+		release.resolve();
+		inference = original;
+	}
+});
+
+test('failed voice-activated row creation reports failure without entering inference', async () => {
+	const f = setup();
+	const { RecordingCreationError } = await import(
+		'../whispering/recordings.js'
+	);
+	f.create.mockImplementationOnce(async () =>
+		RecordingCreationError.RowCreateFailed({
+			audioBlobId: f.blobId,
+			cause: 'row failure',
+		}),
+	);
+	await startVadRecording(f.app);
+	const before = pipeline.mock.calls.length;
+	if (!speechEnd) throw new Error('VAD callback was not installed');
+	await expect(
+		speechEnd(new Blob(['speech'], { type: 'audio/wav' })),
+	).rejects.toMatchObject({ name: 'RowCreateFailed', audioBlobId: f.blobId });
+	expect(markFailed).toHaveBeenLastCalledWith({
+		tier: 'silent-loss',
+		error: expect.objectContaining({
+			name: 'RowCreateFailed',
+			audioBlobId: f.blobId,
+		}),
+	});
+	expect(f.add).toHaveBeenCalledTimes(1);
+	expect(f.remove).not.toHaveBeenCalled();
+	expect(pipeline).toHaveBeenCalledTimes(before);
+});
+
+test('voice-activated publication failure reports the current attempt without creating a row', async () => {
+	const f = setup();
+	const failure = BlobStoreError.BlobStoreFailed({
+		id: f.blobId,
+		cause: 'disk full',
+	});
+	f.add.mockImplementationOnce(async () => failure);
+	await startVadRecording(f.app);
+	if (!speechEnd) throw new Error('VAD callback was not installed');
+	const before = pipeline.mock.calls.length;
+	await expect(speechEnd(new Blob(['speech']))).rejects.toMatchObject(
+		failure.error,
+	);
+	expect(markFailed).toHaveBeenLastCalledWith({
+		tier: 'silent-loss',
+		error: failure.error,
+	});
+	expect(f.create).not.toHaveBeenCalled();
+	expect(pipeline).toHaveBeenCalledTimes(before);
+});
+
+test('retirement during voice-activated publication drains without row or failure feedback', async () => {
+	const f = setup();
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	f.add.mockImplementationOnce(async () => {
+		entered.resolve();
+		await release.promise;
+		return Ok(f.blobId);
+	});
+	await startVadRecording(f.app);
+	if (!speechEnd) throw new Error('VAD callback was not installed');
+	const pipelinesBefore = pipeline.mock.calls.length;
+	const failuresBefore = markFailed.mock.calls.length;
+	const saving = speechEnd(new Blob(['speech']));
+	await entered.promise;
+	f.controller.abort(new Error('retired'));
+	const draining = activity.drainRecordingWork();
+	release.resolve();
+	await saving;
+	await draining;
+	expect(f.create).not.toHaveBeenCalled();
+	expect(pipeline).toHaveBeenCalledTimes(pipelinesBefore);
+	expect(markFailed).toHaveBeenCalledTimes(failuresBefore);
 });

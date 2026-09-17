@@ -1,19 +1,17 @@
-import {
-	type BlobNotFound,
-	type BlobSource,
-	type BlobSourceFailed,
-	type BlobStoreFailed,
-	type RemoteBlobsError,
+import type {
+	BlobId,
+	BlobNotFound,
+	BlobSource,
+	BlobSourceFailed,
+	BlobStoreFailed,
+	RemoteBlobsError,
 } from '@epicenter/blobs';
 import type { NonconformingRow } from '@epicenter/data';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 import type { WhisperingAppHandle } from './app.js';
 import { asRecording, type NewRecording, type Recording } from './recording.js';
-export type RecordingAudioAvailability =
-	| 'local-only'
-	| 'remote'
-	| 'unavailable';
+export type RecordingAudioAvailability = 'local' | 'remote' | 'unavailable';
 
 export const RecordingCreationError = defineErrors({
 	/** The row could not be created; the independently saved bytes remain. */
@@ -21,7 +19,7 @@ export const RecordingCreationError = defineErrors({
 		audioBlobId,
 		cause,
 	}: {
-		audioBlobId: string;
+		audioBlobId: BlobId;
 		cause: unknown;
 	}) => ({
 		message:
@@ -155,6 +153,9 @@ export function createWhisperingRecordings(
 			if (disposed) throw new Error('The recording session is closed.');
 			const input = {
 				...value,
+				title: '',
+				transcript: '',
+				polishedTranscript: null,
 				audioUrl: null,
 				transcriptionStatus: 'pending',
 				transcriptionCompletedAt: null,
@@ -197,7 +198,7 @@ export function createWhisperingRecordings(
 			const row = resolve(id);
 			if (!row?.audioBlobId) return Ok('unavailable');
 			const result = await app.blobs.local.stat(row.audioBlobId);
-			if (result.error === null) return Ok('local-only');
+			if (result.error === null) return Ok('local');
 			if (result.error.name === 'BlobNotFound')
 				return Ok(
 					row.audioUrl && 'remote' in app.blobs ? 'remote' : 'unavailable',

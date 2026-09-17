@@ -10,6 +10,8 @@ import { processRecordingPipeline } from '$lib/operations/pipeline';
 import { report } from '$lib/report';
 import { trackRecordingWork } from '$lib/state/recording-active.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
+import { saveAudioRecording } from './save-audio-recording.js';
+import { captureTranscription } from './transcribe.js';
 
 type RejectedImportFile = { file: File; reason: string };
 
@@ -112,9 +114,13 @@ export async function importFiles(
 					blob_size: file.size,
 				});
 
+				const transcribe = captureTranscription(app);
+				const saved = await saveAudioRecording(app, file);
+				if (saved.error !== null) throw saved.error;
+				if (saved.data === null) return;
 				await processRecordingPipeline(app, {
-					audio: file,
-					durationMs: null,
+					recordingId: saved.data.id,
+					transcribe,
 					deliverySource: 'import',
 				});
 			}),

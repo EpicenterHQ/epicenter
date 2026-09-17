@@ -171,7 +171,7 @@
 		</Modal.Header>
 
 		<div class="space-y-4 p-4">
-			{#if audioAvailabilityQuery.data === 'local-only' || audioAvailabilityQuery.data === 'remote'}
+			{#if audioAvailabilityQuery.data === 'local' || audioAvailabilityQuery.data === 'remote'}
 				<AudioBlobPlayer
 					id={recording.id}
 					audio={recording.audioUrl ?? recording.audioBlobId}
@@ -190,7 +190,7 @@
 				<Spinner class="size-3.5" aria-label="Checking audio on this device" />
 			{/if}
 
-			{#if audioAvailabilityQuery.data === 'local-only'}
+			{#if audioAvailabilityQuery.data === 'local'}
 				<UploadRecordingButton {recording} />
 			{/if}
 

@@ -34,38 +34,42 @@ app.settings.set('settings.recording.trigger', 'vad');
 
 ### `recordings.svelte.ts`
 
-The recordings domain observes committed rows. The library owns finished-file
-publication, persistence, and automatic audio transfers. This module adapts row
-changes and attachment status to Svelte. Byte arrival does not change a row, so
-availability queries also observe the library's attachment presence. Playback
-uses `app.recordings.openAudio`; playback and export read local bytes only.
+The recordings domain observes committed rows. This module adapts its row
+subscriptions to Svelte. Audio bytes live independently in app-local storage;
+remote uploads are explicit.
+
+Recording producers save bytes before creating a row. Manual Stop returns the
+saved key; imports and voice-activated capture use `saveAudioRecording`.
+`recordings.create` initializes the title, transcripts, and transcription status.
+The processing pipeline accepts only the resulting recording ID, so retrying
+transcription cannot publish another blob or create another row.
 
 ```typescript
 import { InstantString } from '@epicenter/data/field';
-
+import { unwrap } from 'wellcrafted/result';
 import { getWhisperingApp } from '$lib/whispering/context';
 
-const { recordings } = getWhisperingApp(); // component initialisation
-
-// Read recordings reactively
-const recording = recordings.get(id);
-const sorted = recordings.sorted; // newest first
-
-// Writes are async and refresh the app-level cache after commit.
-// `uploadedAt` is blob-state metadata owned by the audio workflows; creation
-// starts it at null and public updates cannot touch it.
-const stored = await recordings.storeAudio(blob);
-const created = await recordings.create({
-	audioBlobId: stored.data.audioBlobId,
-	// remaining recording fields
-});
-await recordings.update(id, {
-	transcript,
-	transcription: { status: 'completed', completedAt: InstantString.now() },
-});
-// Deletes the online copy (when one exists), the device copy, then the row.
-await recordings.delete(id);
+const app = getWhisperingApp(); // component initialization
+const audioBlobId = unwrap(await app.blobs.local.add(blob));
+const recording = unwrap(await app.recordings.create({
+	audioBlobId,
+	recordedAt: InstantString.now(),
+	recordedAtZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+	duration: null,
+}));
+app.recordings.patch(recording.id, { title: 'Meeting' });
+await app.recordings.delete(recording.id); // retains local and uploaded bytes
 ```
+
+Playback uses `recordings.openAudio(id)` and releases its disposable source when
+the player closes. Transcription and downloads use `recordings.readAudio(id)`.
+Both prefer local bytes and use an explicitly uploaded URL only when local bytes
+are missing. `local` availability says the device has bytes; `audioUrl` separately
+records an uploaded copy.
+
+`recordings.zip` exports Markdown with audio references, not audio payloads.
+Saved-byte and archive recovery do not imply recovery of unfinished microphone
+capture after restarting the app.
 
 ### `recipes.svelte.ts`
 
