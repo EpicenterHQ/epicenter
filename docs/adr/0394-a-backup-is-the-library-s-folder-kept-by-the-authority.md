@@ -81,7 +81,9 @@ BlobId or URL. Generic local blob enumeration remains useful independently.
 The existing structural archive embeds local bytes and preserves more internal
 data. It must not be described as the materialized folder or silently selected
 when a person asks to copy that folder. Deleting that implementation is separate
-work, subject to the caller audit in ADR-0379.
+work, ordered by the [caller audit and removal plan](../../specs/20260909T010040-current-generation-restore.md)
+under ADR-0379. The retirement fixture must stop depending on structural archives
+before that format can be removed.
 
 ## Considered alternatives
 

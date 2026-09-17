@@ -12,7 +12,7 @@ The package has one definition entrypoint and four runtime entrypoints:
 | `@epicenter/data/definition` | `defineData`, `compileData`, and the field descriptor vocabulary |
 | `@epicenter/data/browser` | `openDatabase(definition, { appId, generation, account })`, plus `resolveGeneration`, `createGeneration`, and `eraseGenerations` |
 | `@epicenter/data/sync` | `createSyncConnection`, and the authority half a server runs |
-| `@epicenter/data/artifact` | `renderArtifact` and `readArtifact`: the current low-level structural artifact format for whole-document reconstruction |
+| `@epicenter/data/artifact` | `renderArtifact` renders Markdown; `readArtifact` reads Markdown into a fresh document. Ordinary edits use checkout instead. |
 | `@epicenter/data/artifact/checkout` | `createWorkingCopy` with previewed `pull` and `push`, using the checkout manifest as the three-way baseline |
 | `@epicenter/data/memory` | `openMemory(definition)` and `createMemoryRecord()`, test support |
 
@@ -450,11 +450,10 @@ proved that omitting the resync reconnect wedges a device permanently. The
 store announces its own durable local work to the transport internally, so
 nothing has to remember to nudge it.
 
-The authority is one Cloudflare Durable Object per
-(principal, definitionId, generation), named
-`principals/<principalId>/data/<dataId>/generations/<generation>`, keeping an
-opaque positional log (ADR-0292, ADR-0298). It reads nothing and holds opaque
-bytes.
+The mounted authority has a stable application/library/data address resolved
+from the authenticated principal. It owns the current generation and its opaque
+positional log. Historical per-generation addresses are not the current mount;
+the historical ledger still prevents silently initializing over old data.
 `packages/server/src/store-sync/` is the mount; `@epicenter/data/sync` is where
 every merge rule actually lives, so what is deployed and what the transport's
 tests drive are the same object.
@@ -470,9 +469,15 @@ and explicit account-remote objects have independent lifetimes. Upload is an
 explicit operation, not a synchronization queue, and deleting a row does not
 delete either byte store.
 
-The structural archive and recovery implementation remains current code pending
-a separate implementation and caller audit. It can carry local blob bytes, but
-it is not the chosen folder or saved ZIP format. The [ADR-0394 folder direction](../../docs/adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md)
+The structural JSON archive is separate from the Markdown artifact entrypoint.
+It can carry local blob bytes, but it is not the chosen folder or saved ZIP
+format. Outside the unmounted coordinator and dedicated tests, its remaining
+caller is the Honeycrisp retirement fixture.
+The backup coordinator has no mounted app entrypoint, although restore-attempt
+schema creation still runs inside the live authority. The
+[removal plan](../../specs/20260909T010040-current-generation-restore.md)
+separates those dependencies from the startup and sync mechanisms to retain.
+The [ADR-0394 folder direction](../../docs/adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md)
 is document-only: Markdown, settings, and the checkout manifest carry readable
 references without copying or fetching local or remote blob payloads. The
 [ADR-0395 recovery direction](../../docs/adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md)

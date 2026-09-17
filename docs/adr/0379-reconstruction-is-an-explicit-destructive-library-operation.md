@@ -33,8 +33,8 @@ Push applies normal row and setting changes. It neither retires other devices
 nor discards their pending edits. Recovering a deleted record creates a new row;
 it does not revive a deleted CRDT identity.
 
-**Existing generation and retirement safeguards remain until a separate
-implementation audit establishes what can be removed.**
+**Existing generation and retirement safeguards remain. Remove unused backup
+orchestration only after separating its callers from those safeguards.**
 
 The stable library authority owns initialization and admission. A usable local
 cache permits offline opening; an absent cache needs a complete authority
@@ -60,10 +60,24 @@ product decision and proof of its loss boundary.
 test-only service binding and exercises stale devices, invalidation, and reload.
 It is evidence for the mechanism, not an exposed recovery workflow.
 
-The unmounted `packages/data/src/recovery.ts`, structural archives,
-backup catalog, and attempt journals remain implementation inventory.
-Do not mount them to satisfy this record. Their removal requires a caller audit
-and preservation of initialization, cache, and synchronization evidence.
+The 2026-09-17 caller audit found no app mounting for
+`packages/data/src/recovery.ts`, its recovery journal, or the backup-specific
+S3 wrapper. These are removal candidates, not features awaiting transport.
+The structural JSON archive still supports the retirement script; replace that
+fixture dependency before deleting the format. Markdown rendering and checkout
+are separate and remain live.
+
+The authority exposes backup and attempt methods and creates restore-attempt
+schema during production construction. Removal therefore requires a coordinated
+authority edit, not just deleting unmounted files. Ordinary `capture()` supplies
+the startup baseline and must remain. Activation receipts need a separate check
+against fixture retry guarantees; no persisted-data deletion follows from this
+audit.
+
+The [implementation plan](../../specs/20260909T010040-current-generation-restore.md)
+records callers, removal order, and preserved evidence. Do not mount recovery
+transport or remove admission, offline-cache, retirement, or historical-data
+guards to satisfy this record.
 
 ## Consequences
 

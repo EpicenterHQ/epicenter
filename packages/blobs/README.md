@@ -105,8 +105,9 @@ is unmounted infrastructure, not the product backup or restore surface; that
 product is deferred.
 
 The current structural archive implementation captures bytes referenced by
-complete local keys. Its backup and recovery callers remain current code pending
-a separate implementation and caller audit. Absolute HTTP(S) URLs remain opaque
+complete local keys. The [caller audit and removal plan](../../specs/20260909T010040-current-generation-restore.md)
+identifies its unmounted coordinator and retirement-fixture dependency; runtime
+removal remains pending. Absolute HTTP(S) URLs remain opaque
 row values through archive and recovery; they are not fetched, converted, or
 inlined as local byte dependencies.
 
