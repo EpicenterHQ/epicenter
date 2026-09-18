@@ -7,64 +7,41 @@ description: Revise substantial prose so it sounds like Braden while preserving 
 
 ## Product Promise
 
-Make the writer easier to hear, not easier to mistake for a good generic writer.
-Voice is not polish applied after meaning and structure. It is evidence of what
-the writer means: their relation to the reader, their certainty, their humor,
-and what they linger on. The destination skill owns what belongs and in what
-order. This skill owns how that chosen material is expressed.
+Help the writing carry recognizable judgment and recognizable sound. Voice
+includes vocabulary, rhythm, humor, emphasis, and the writer's relationship to
+the reader. Use this guidance within the destination's editorial work, or as a
+focused voice pass when requested. The destination owns framing, structure,
+and substantive changes; voice work helps the chosen expression land.
 
-## Preserve The Grain
+Write in language the author could say to an articulate friend: clear, natural, and precise, with room for rhythm, wit, and surprise. Find phrasing that makes the thought felt as well as understood. A poetic turn earns its place by revealing a connection already present in the material, without inventing a motive or feeling to give the sentence more depth.
 
-Do not add, remove, reorder, promote, or demote material as a voice choice.
-Return those decisions to the destination. Different destinations have
-different native movements, so do not impose one house style on all of them.
+This is conversational precision with a poetic turn, not a requirement to make
+every paragraph poetic. Choose the register from the passage's purpose and the
+writer's reactions; a simple sentence may already be the one that lands.
 
-Keep the writer's concrete vocabulary, unusual phrasing, proportion of caveat
-to claim, jokes, fragments, repetitions, and detours when they do expressive
-work. A phrase may be grammatical but wrong if it changes the writer from
-questioning a claim to endorsing it, or from amused to earnest without support.
-Distinguish expressive force from attributed certainty: precise, declarative
-prose can present an argument for examination without making it the writer's
-belief. Choose the register from the passage's purpose and the writer's
-reactions, rather than treating exploratory speech as a requirement for tentative
-prose. Preserving distinctive words is not enough if the intended posture changes.
+## Hear What The Wording Carries
 
-Repair roughness when it is merely in the way: a transcription error, a false
-start with no remaining work to do, or spoken order that makes the thought
-unintelligible. Do not repair something merely because smoother prose is
-available. Every substantial edit needs a positive account of the expressive job
-it performs, such as making a turn legible without removing its uncertainty.
-“This sounds better” is not an account.
+Keep concrete vocabulary and distinctive phrasing when they carry the writer's
+attention. Roughness can carry emotion, humor, tension, uncertainty, or rhythm;
+a fragment or repetition may be doing work that a smooth sentence would lose.
+Repair transcription errors and obstructive phrasing, and improve flow where
+it helps the expression. Neither roughness nor polish is a virtue by itself.
 
-## Draft, Then Rehear
+Be as direct as the argument allows and as qualified as its truth and authorship
+require. Declarative language can present a position for examination without
+attributing it to the writer. Preserve substantive qualifications while removing
+hesitation that belongs only to the act of dictation.
 
-During editorial development, a destination skill may propose an earned reveal,
-contrast, metaphor, or closing turn when it makes the supplied material easier
-to hear. Voice work may shape that expression, but must not invent an event,
-fact, memory, reaction, certainty, or intention. Do not turn a sparse source
-into a polished generality.
+Read at speaking speed. Listen for awkward phrasing, misplaced emphasis,
+monotonous rhythm, and connective language that delays the point. Revise wording
+and cadence within the chosen direction. If the problem is the framing or
+meaning, surface it to the destination rather than disguise a new interpretation
+as a voice improvement. In a standalone voice request, offer that larger change
+as an alternative after the faithful edit.
 
-`authored-capture` governs source authority and adoption for Vault writing.
-Shape the supplied thought directly within that authority; natural rewriting
-does not itself require adoption. When a proposed passage introduces new
-substance, help it sound like the writer before Braden evaluates it. The ear
-pass checks whether the resulting work still sounds like him rather than
-generic polish.
-
-After a whole draft exists, read it at speaking speed. Mark generic connective
-tissue, flattened rhythm, and places where the attention moves away from what
-the writer cared about. Remove unsupported polish rather than merely improving
-it. Keep a vivid turn when the source earns it.
-
-When a reaction reveals a deeper mismatch, reread the complete source and the
-whole draft under that correction. Do not reduce “too solemn,” “too sanitized,”
-or “that is not why I said it” to a line edit. Carry the recognized correction
-into subsequent attempts within its scope; the original capture does not
-override the writer's developing direction. A preference for forceful wording
-does not alone adopt the claim or establish a voice for unrelated work.
-Follow the destination's authority for revision; do not add a separate approval
-gate for wording it authorizes.
-Surface an unresolved change of meaning or posture through that destination.
+Use reactions to rehear the whole passage, not just the sentence corrected.
+Follow the destination's developing direction and authority; do not create a
+separate approval gate for ordinary wording or invent facts, feelings, or beliefs.
 
 ## Match The Destination
 
