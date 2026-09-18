@@ -22,9 +22,8 @@ export type WhisperingData = AppStore<typeof whisperingDefinition>;
 /**
  * Hydrated, UI-free settings over typed singleton values.
  *
- * The account replica's `kv`, which is the one document there is: an authority
- * mints every generation (ADR-0336), so there is no unowned device document to
- * hold a machine's preferences separately any more.
+ * Settings use `openedApp.device.kv`, scoped to the captured account or the
+ * separate no-account workspace. They remain local when an account is open.
  */
 export type WhisperingSettings = {
 	get<TKey extends keyof WhisperingSettingValues>(

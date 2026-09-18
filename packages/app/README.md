@@ -430,11 +430,13 @@ owns neither upload nor inference policy.
 
 Text-only dictation should own temporary capture and release it with its session;
 it need not publish saved recordings. There is no dictation capability on the
-App: an application composes its own capture with a connection's `transcribe`
-(ADR-0365, ADR-0396). The browser stream/VAD primitives below remain
-independent of this saved-artifact API.
+App: an application composes capture with its selected connection's
+`client.audio.transcriptions.create` SDK operation. The browser stream/VAD
+primitives remain independent of this saved-artifact API.
 
-Run `bun test` for lifecycle checks and `bun run smoke:recording` for Chromium
+Run `bun run test` for lifecycle checks and `bun run smoke:recording` for Chromium
 capture, storage, decoding, metering, and cancellation with a synthetic microphone.
+The test command isolates each file's module mocks. For combined App and app-shell
+checks from the repository root, use `bun test --isolate packages/app`.
 
 License: AGPL-3.0-or-later.
