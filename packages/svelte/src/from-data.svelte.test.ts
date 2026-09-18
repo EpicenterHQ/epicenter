@@ -1,3 +1,10 @@
+/**
+ * fromData tests
+ *
+ * Verifies store identity reuse, live table projections, reactive read tracking,
+ * and unchanged write capabilities. Reusing a store must not add subscriptions
+ * or repeat the initial table walk.
+ */
 import { expect, mock, test } from 'bun:test';
 
 type SubscriberControl = {
@@ -193,20 +200,22 @@ function setup() {
 	const folders = createFakeTable<Folder>([]);
 	const kv = createFakeKv({ theme: 'dark' });
 	const persistence = createFakePersistence('saved');
-	const reactive = fromData({
+	const data = {
 		tables: { notes: notes.handle, folders: folders.handle },
 		kv: kv.handle,
 		// Passed through untouched, so the fake just runs it.
 		transact: <TResult>(run: () => TResult) => run(),
 		watch: () => () => undefined,
 		persistence: persistence.handle,
-	});
+	};
+	const reactive = fromData(data);
 	// Two subscribers, in declaration order: kv, then persistence. A table
 	// creates none — its projection IS its signal.
 	const [kvControl, persistenceControl] = subscriberControls;
 	if (kvControl === undefined || persistenceControl === undefined)
 		throw new Error('expected one subscriber control per tracked read');
 	return {
+		data,
 		notes,
 		folders,
 		kv,
@@ -374,4 +383,47 @@ test('nonconforming is held, so reading it costs nothing and a commit costs one 
 
 	notes.breakRow('n1');
 	expect(notes.calls.nonconforming).toBe(seeded + 1);
+});
+
+test('repeated adaptation reuses one projection without reseeding or resubscribing', () => {
+	const store = setup();
+	const initialReads = store.notes.calls.get;
+	const initialSubscribers = subscriberControls.length;
+
+	for (let visit = 0; visit < 20; visit += 1) {
+		expect(fromData(store.data)).toBe(store.reactive);
+	}
+
+	expect(store.notes.calls.get).toBe(initialReads);
+	expect(store.notes.calls.subscribe).toBe(1);
+	expect(store.folders.calls.subscribe).toBe(1);
+	expect(subscriberControls.length).toBe(initialSubscribers);
+});
+
+test('separate stores keep independent projections and updates', () => {
+	const local = setup();
+	const personal = setup();
+
+	expect(fromData(local.data)).not.toBe(fromData(personal.data));
+	local.data.tables.notes.update('n1', { title: 'local edit' });
+
+	expect(fromData(local.data).tables.notes.get('n1')?.title).toBe('local edit');
+	expect(fromData(personal.data).tables.notes.get('n1')?.title).toBe('first');
+});
+
+test('a reused projection contains edits made between route visits', () => {
+	const store = setup();
+	store.data.tables.notes.update('n1', { title: 'edited while away' });
+	store.data.tables.notes.create({ title: 'new while away' });
+
+	const revisited = fromData(store.data);
+	expect(revisited).toBe(store.reactive);
+	expect(revisited.tables.notes.rows.map((note) => note.title)).toEqual([
+		'edited while away',
+		'new while away',
+	]);
+	store.data.tables.notes.delete('n1');
+	expect(revisited.tables.notes.rows.map((note) => note.title)).toEqual([
+		'new while away',
+	]);
 });

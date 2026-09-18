@@ -24,7 +24,9 @@ This package is part of the Epicenter monorepo and is used internally. To use it
 
 Adapts one opened `@epicenter/app/store` handle into Svelte reactivity, mirroring
 the declaration: `tables.<name>`, `kv`, and `persistence`, with the same verbs
-and the same types. Reads are reactive; writes pass through unchanged.
+and the same types. Reads are reactive; writes pass through unchanged. Repeated
+calls with the same raw store return the same wrapper without reseeding tables
+or adding subscriptions, so route components can remount over one open store.
 
 A table is HELD as a `SvelteMap` projection keyed by row id, seeded when
 `fromData` is called and patched with the row ids each commit names, because

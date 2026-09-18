@@ -29,7 +29,7 @@
  * **Eager, because it cannot be lazy.** An application reads `rows` inside
  * `$derived`, and writing Svelte state from there is `state_unsafe_mutation`,
  * so a projection filled on first read is not available. `fromData` walks each
- * declared table once when it is called.
+ * declared table once on the first call for that store.
  *
  * **Never torn down.** Ref-counting a projection to its readers leaves the
  * object alive and the updates stopped, which serves the next reader rows from
@@ -40,11 +40,10 @@
  * purpose, because a reactive wrapper must not pretend a reconnect is local
  * state.
  *
- * One instance per opened store, made by the shell that mounts over it, so an
- * application never calls this itself and never calls it twice. The shell is
- * the right owner because it mounts exactly once per opened store: a different
- * principal is a different session, a different shell, and a different call
- * (ADR-0350).
+ * One instance per raw store identity. Repeated calls return the same wrapper
+ * without walking tables or subscribing again. Route components can remount
+ * over one opened store without owning the projection lifetime. The weak cache
+ * does not keep an otherwise unreachable store alive.
  *
  * @example
  * ```svelte
@@ -151,6 +150,8 @@ export type AdaptableData = {
 export type ReactiveData<TData extends AdaptableData> = TData &
 	Brand<'ReactiveData'>;
 
+const projections = new WeakMap<AdaptableData, ReactiveData<AdaptableData>>();
+
 /**
  * Adapt one opened store's reads into Svelte reactivity, and hand back the
  * store.
@@ -167,7 +168,11 @@ export type ReactiveData<TData extends AdaptableData> = TData &
 export function fromData<TData extends AdaptableData>(
 	data: TData,
 ): ReactiveData<TData> {
-	return Object.freeze(
+	const existing = projections.get(data);
+	// Each key stores only the projection constructed from that exact store.
+	if (existing) return existing as ReactiveData<TData>;
+
+	const reactive = Object.freeze(
 		Object.defineProperties({} as TData, {
 			...Object.getOwnPropertyDescriptors(data),
 			tables: {
@@ -188,6 +193,8 @@ export function fromData<TData extends AdaptableData>(
 			},
 		}),
 	) as ReactiveData<TData>;
+	projections.set(data, reactive);
+	return reactive;
 }
 
 /**
@@ -235,7 +242,7 @@ function reactivePersistence<TPersistence extends AdaptablePersistence>(
  * **Seeded here, never during a read.** An application reads `rows` inside
  * `$derived`, and writing Svelte state from there is `state_unsafe_mutation`.
  * Filling the map lazily on first read is therefore not available, which is
- * why this is eager and why `fromData` is no longer free to call.
+ * why the first `fromData` call for a store eagerly builds its projection.
  *
  * **Never torn down.** The subscription is held for the life of the wrapper
  * rather than ref-counted to readers, because a projection that stops being
