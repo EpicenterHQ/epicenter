@@ -11,15 +11,14 @@
  * it (ADR-0213).
  */
 
-import type { AppStore } from '@epicenter/app/open';
-import type { vocabDefinition } from '$lib/data';
+import type { VocabData } from '$lib/data';
 
 const APPLICATION_DEFAULTS = { showReadings: true } as const;
 
 export function createSettingsState({
 	data,
 }: {
-	data: AppStore<typeof vocabDefinition>;
+	data: VocabData;
 }) {
 	function read(): boolean {
 		// One key, one fallback. `get` answers `undefined` for a key never

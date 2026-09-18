@@ -259,10 +259,28 @@ inference `connection`. Shared is available when the Account declares `supportsS
 people on a self-hosted server. Each store has its own tables, KV, persistence, and sync status.
 There is no flat `app.tables`, library discriminator, or alternate opener.
 
+The opener has one schema generic and infers its handle from the implementation.
+`App<T>` names that handle; `AppRuntime` is the contract for runtime implementations.
+Account presence is a runtime fact: narrow `app.account` before using its stores,
+even when the opening call supplied an Account. There is no account type argument,
+separate composition opener, or `AppStore` alias. Code that needs only tables and
+KV uses `DeclaredData<T>` from `@epicenter/app/store`; broader capability types
+can be derived from the application's own handle.
+
+```ts
+const app = openApp(definition, { account });
+const ready = await app.ready;
+if (ready.error) throw ready.error;
+if (app.account) {
+  const personal = app.account.personal;
+  // Use personal.tables and personal.kv here.
+}
+```
+
 The shared `AppBoot` render gate accepts `ready={app?.ready}`. It handles loading
 and opening failures before rendering children. Imperative jobs await the same
 promise and handle its Result once. Shared components take the store or
-capability they use: `AppStore<T>`, `app.device.connections`, or
+capability they use: `DeclaredData<T>` for tables and KV, `app.device.connections`, or
 `app.account?.connection`.
 
 The document, table handles, and KV handle exist before readiness. Their actual

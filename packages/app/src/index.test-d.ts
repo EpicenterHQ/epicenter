@@ -37,30 +37,29 @@ function openings(
 	const signedInRuntime = openApp(notes, { account, runtime });
 	const optional = openApp(notes, { account: maybe, runtime });
 	const optionalOptions = openApp(notes, options);
-	expectTypeOf(local.account).toEqualTypeOf<undefined>();
-	expectTypeOf(explicitLocal.account).toEqualTypeOf<undefined>();
-	expectTypeOf(runtimeOnly.account).toEqualTypeOf<undefined>();
-	expectTypeOf(emptyOptions.account).toEqualTypeOf<undefined>();
-	expectTypeOf(signedInRuntime.account).toEqualTypeOf<
-		typeof signedIn.account
-	>();
-	expectTypeOf(signedIn.account).not.toBeUndefined();
-	expectTypeOf(optional.account).toEqualTypeOf<
-		typeof signedIn.account | undefined
-	>();
-	expectTypeOf(optionalOptions.account).toEqualTypeOf<
-		typeof optional.account
-	>();
-	signedIn.account.personal.tables.notes.create({ title: 'Typed' });
+
+	for (const opened of [
+		explicitLocal,
+		runtimeOnly,
+		emptyOptions,
+		signedInRuntime,
+		optional,
+		optionalOptions,
+	]) {
+		expectTypeOf(opened.account).toEqualTypeOf<typeof local.account>();
+	}
+	expectTypeOf(signedIn.account).toEqualTypeOf<typeof local.account>();
+	if (signedIn.account)
+		signedIn.account.personal.tables.notes.create({ title: 'Typed' });
 	local.device.kv.update({ language: 'en' });
 	// @ts-expect-error Accounts belong inside the options object.
 	openApp(notes, account);
 	// @ts-expect-error A runtime must supply all resources, with no ambient fallback.
 	openApp(notes, { runtime: { sqlite: runtime.sqlite } });
-	// @ts-expect-error A generic argument cannot supply an absent Account.
+	// @ts-expect-error Account presence is not a type argument.
 	openApp<typeof notes, Account>(notes);
-	// @ts-expect-error An App opened without an account has no personal store.
-	local.account.personal;
+	// @ts-expect-error Account access requires narrowing, even after supplying an Account.
+	signedIn.account.personal;
 	// @ts-expect-error The declaration has no tasks table.
 	local.device.tables.tasks;
 	// @ts-expect-error The title field requires a string.

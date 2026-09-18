@@ -6,7 +6,7 @@ import {
 	plainText,
 	type RowOf,
 } from '@epicenter/app';
-import type { AppStore } from '@epicenter/app/open';
+import type { App } from '@epicenter/app/open';
 import { APPS } from '@epicenter/constants/apps';
 /**
  * Honeycrisp's inert application declaration.
@@ -156,7 +156,9 @@ export const honeycrispDefinition = defineApp({
  * `{#key}` remounts or its `{#if}` flips (ADR-0350), which is the only end this
  * store has.
  */
-export type HoneycrispData = AppStore<typeof honeycrispDefinition>;
+export type HoneycrispData = NonNullable<
+	App<typeof honeycrispDefinition>['account']
+>['personal'];
 
 export type Folder = RowOf<typeof honeycrispDefinition.tables.folders>;
 export type Note = RowOf<typeof honeycrispDefinition.tables.notes>;

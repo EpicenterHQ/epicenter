@@ -11,8 +11,8 @@ import { Ok } from 'wellcrafted/result';
 import { accountInference } from './ai.js';
 import { createAiConnections } from './ai-connections.js';
 import { acquireAppData } from './data/store/browser.js';
+import type { AppRuntime } from './open.js';
 import { RecorderError } from './recorder.js';
-import type { AppRuntime } from './runtime.js';
 
 /**
  * Isolated storage using the same persistence services as production.

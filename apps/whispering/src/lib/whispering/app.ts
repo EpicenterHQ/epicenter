@@ -1,4 +1,4 @@
-import type { App, AppStore } from '@epicenter/app/open';
+import type { App } from '@epicenter/app/open';
 import type { SyncConnectionStatus } from '@epicenter/app/sync';
 import type { InferenceConnections } from '@epicenter/app-shell/inference-picker';
 import type { Account } from '@epicenter/auth';
@@ -17,7 +17,9 @@ import {
 
 /** One local or account dataset's retained portable work. */
 export type WhisperingAppHandle = App<typeof whisperingDefinition>;
-export type WhisperingData = AppStore<typeof whisperingDefinition>;
+export type WhisperingData = NonNullable<
+	WhisperingAppHandle['account']
+>['personal'];
 
 /**
  * Hydrated, UI-free settings over typed singleton values.

@@ -38,7 +38,7 @@ const workspaces = {
 	}),
 } as const;
 
-type ProbeApplication = App<(typeof workspaces)['vault'], undefined>['device'];
+type ProbeApplication = App<(typeof workspaces)['vault']>['device'];
 
 let db: ProbeApplication | undefined;
 

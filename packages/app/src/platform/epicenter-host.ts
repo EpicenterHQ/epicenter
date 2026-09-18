@@ -5,8 +5,8 @@ import {
 	createDesktopSqliteOwner,
 } from '@epicenter/device/desktop';
 import { createEpicenterHostAppAi } from '../ai-connections.epicenter-host.js';
+import type { AppRuntime } from '../open.js';
 import { createDesktopRecording } from '../recording/desktop.js';
-import type { AppRuntime } from '../runtime.js';
 import { nativeDocuments } from './documents.js';
 
 export const resources: AppRuntime = {

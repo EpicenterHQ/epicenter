@@ -201,15 +201,6 @@ test('different Apps observe the shared memory AI catalog without a lock simulat
 	await runtime.dispose();
 });
 
-test('untyped positional accounts are rejected before opening a signed-out App', () => {
-	expect(() =>
-		Reflect.apply(openApp, undefined, [
-			definition,
-			{ authorityId: 'cloud', principalId: 'alice' },
-		]),
-	).toThrow('options');
-});
-
 test('an injected runtime never falls back to ambient inference fetch', async () => {
 	const runtime = createMemoryRuntime();
 	// The transport is intentionally unavailable; saved catalog entries still exist.

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { AppStore } from '@epicenter/app/open';
 	import type { QueryResult, QueryValue } from '@epicenter/device';
 	import { fromData } from '@epicenter/svelte';
 	import * as Alert from '@epicenter/ui/alert';
@@ -12,13 +11,13 @@
 	import * as Table from '@epicenter/ui/table';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { onDestroy, untrack } from 'svelte';
-	import type { mailDefinition } from '$lib/data';
+	import type { MailData } from '$lib/data';
 	import { mail } from '$lib/mail';
 
 	let {
 		data,
 		account,
-	}: { data: AppStore<typeof mailDefinition>; account: string | null } = $props();
+	}: { data: MailData; account: string | null } = $props();
 	const library = fromData(untrack(() => data));
 	const queries = library.tables.savedQueries;
 	let selected = $state<string | null>(null);

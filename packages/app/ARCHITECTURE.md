@@ -67,10 +67,9 @@ packages/app/
 |-- package.json                   public entrypoints
 |-- src/
 |   |-- index.ts                   platform-free declaration and schema vocabulary
-|   |-- open.ts                    public openApp; selects a complete runtime
-|   |-- runtime.ts                 AppRuntime resource contract
+|   |-- open.ts                    App lifetime, AppRuntime contract, derived App type
+|   |-- runtime.ts                 internal AI, blob, and secret binding types
 |   |-- testing.ts                 isolated memory storage and admission
-|   |-- compose.ts                 private App readiness, retirement, and closure
 |   |-- data/
 |   |   |-- open.ts                public openData and syncEngineOf
 |   |   |-- definition/            schema validation, branding, compilation
@@ -105,7 +104,7 @@ packages/app/
 
 `openApp` accepts `{ account?, runtime? }`. `AppRuntime` supplies admission,
 document storage, SQLite, secrets, blobs, recording, and AI together.
-`compose.ts` owns the one lifecycle used by all implementations. There is no
+`open.ts` owns the one lifecycle used by all implementations. There is no
 second App constructor for tests and no partial runtime fallback.
 
 ## Import and runtime boundaries

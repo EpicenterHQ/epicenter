@@ -8,8 +8,8 @@ import {
 	createBrowserSqliteOwner,
 } from '@epicenter/device/browser';
 import { createBrowserAppAi } from '../browser.js';
+import type { AppRuntime } from '../open.js';
 import { createBrowserRecording } from '../recording/browser.js';
-import type { AppRuntime } from '../runtime.js';
 import { nativeDocuments } from './documents.js';
 
 export const resources: AppRuntime = {

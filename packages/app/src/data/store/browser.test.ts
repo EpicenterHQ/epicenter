@@ -113,7 +113,7 @@ test('different applications and accounts cannot read each others rows', async (
 	const definition = definitionFor();
 	const first = openApp(definition, { account: accountFor() });
 	expectOk(await first.ready);
-	first.account.personal.tables.notes.create({ title: 'Alice kept work' });
+	first.account!.personal.tables.notes.create({ title: 'Alice kept work' });
 	await first.close();
 	for (const [declaration, account] of [
 		[definition, accountFor('bob')],
@@ -121,7 +121,7 @@ test('different applications and accounts cannot read each others rows', async (
 	] as const) {
 		const isolated = openApp(declaration, { account: account });
 		expectOk(await isolated.ready);
-		expect(isolated.account.personal.tables.notes.rows).toHaveLength(0);
+		expect(isolated.account!.personal.tables.notes.rows).toHaveLength(0);
 		await isolated.close();
 	}
 	const offline = accountFor();
@@ -131,7 +131,7 @@ test('different applications and accounts cannot read each others rows', async (
 	const reopened = openApp(definition, { account: offline });
 	expectOk(await reopened.ready);
 	expect(
-		reopened.account.personal.tables.notes.rows.map((row) => row.title),
+		reopened.account!.personal.tables.notes.rows.map((row) => row.title),
 	).toEqual(['Alice kept work']);
 	await reopened.close();
 });
@@ -145,7 +145,7 @@ test('a failed current bootstrap releases ownership and a later attempt hydrates
 	await failed.close();
 	const retry = openApp(definition, { account: accountFor() });
 	expectOk(await retry.ready);
-	expect(retry.account.personal.tables.notes.rows).toHaveLength(0);
+	expect(retry.account!.personal.tables.notes.rows).toHaveLength(0);
 	await retry.close();
 });
 
@@ -212,7 +212,7 @@ test('opening leaves historical numbered and superseded caches untouched', async
 	}
 	const app = openApp(definition, { account: accountFor() });
 	expectOk(await app.ready);
-	expect(app.account.personal.tables.notes.rows).toHaveLength(0);
+	expect(app.account!.personal.tables.notes.rows).toHaveLength(0);
 	await app.close();
 	for (const address of historical) {
 		const database = await idbRequest(indexedDB.open(address, 1));
@@ -249,8 +249,8 @@ test('owed updates compact without losing rows across an offline reopen', async 
 	const app = openApp(definition, { account: accountFor() });
 	expectOk(await app.ready);
 	for (let index = 0; index < 70; index++) {
-		app.account.personal.tables.notes.create({ title: `note ${index}` });
-		await app.account.personal.persistence.flush();
+		app.account!.personal.tables.notes.create({ title: `note ${index}` });
+		await app.account!.personal.persistence.flush();
 	}
 	await app.close();
 	const database = await idbRequest(
@@ -268,7 +268,7 @@ test('owed updates compact without losing rows across an offline reopen', async 
 	};
 	const reopened = openApp(definition, { account: offline });
 	expectOk(await reopened.ready);
-	expect(reopened.account.personal.tables.notes.rows).toHaveLength(70);
+	expect(reopened.account!.personal.tables.notes.rows).toHaveLength(70);
 	await reopened.close();
 });
 

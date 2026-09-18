@@ -297,7 +297,7 @@ shapes, see `docs/adr/`.
 - **App lifetime**: `openApp(definition, { account?, runtime? })` from `@epicenter/app/open`
   returns a handle synchronously. `app.ready` settles acquisition; `app.close()`
   drains work and releases resources. `app.device` always exists;
-  `app.account` exists when the caller supplied an Account. `compose.ts` owns
+  `app.account` exists when the caller supplied an Account. `open.ts` owns
   the private resource lifetime. An optional complete runtime replaces the
   `isTauri()`-selected implementation; the declaration remains inert. One admission
   covers all App stores and lazy SQL. A failed `ready` means unusable, not

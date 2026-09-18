@@ -30,7 +30,7 @@ const runtime = {
 		};
 	},
 };
-let app: ReturnType<typeof openApp<typeof definition, undefined>> | undefined;
+let app: ReturnType<typeof openApp<typeof definition>> | undefined;
 
 Object.assign(globalThis, {
 	async openEvidence() {

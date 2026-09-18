@@ -3,16 +3,10 @@
  * decision about authentication; callers that hold an Account use the same
  * current-library opening path as the store applications.
  */
-import { type AppStore, openApp } from '@epicenter/app/open';
+import { openApp } from '@epicenter/app/open';
 import type { Account } from '@epicenter/auth';
 import { skillsDefinition } from '@epicenter/skills';
 import { createSkillsState } from './state/skills-state.svelte.js';
-
-export type SkillsRuntime = {
-	readonly data: AppStore<typeof skillsDefinition>;
-	readonly state: ReturnType<typeof createSkillsState>;
-	[Symbol.asyncDispose](): Promise<void>;
-};
 
 /** Open the captured account's current Personal library before creating UI state. */
 export async function openSkillsRuntime({
@@ -21,14 +15,14 @@ export async function openSkillsRuntime({
 }: {
 	account: Account;
 	signal?: AbortSignal;
-}): Promise<SkillsRuntime> {
+}) {
 	signal?.throwIfAborted();
 	const app = openApp(skillsDefinition, { account });
 	try {
 		const ready = await app.ready;
 		if (ready.error) throw ready.error;
 		signal?.throwIfAborted();
-		const data = app.account.personal;
+		const data = app.account!.personal;
 		const state = createSkillsState({ data });
 		let stateClosed = false;
 		return Object.freeze({
@@ -50,3 +44,5 @@ export async function openSkillsRuntime({
 		throw cause;
 	}
 }
+
+export type SkillsRuntime = Awaited<ReturnType<typeof openSkillsRuntime>>;
