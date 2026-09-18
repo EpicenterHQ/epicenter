@@ -6,11 +6,7 @@
  */
 import { defineApp, defineTable, field, plainText } from '@epicenter/app';
 
-import {
-	openDatabase,
-	resolveGeneration,
-} from '../../../../src/data/store/browser.js';
-import type { ReplicaData } from '../../../../src/data/store/store.js';
+import { type App, openApp } from '@epicenter/app/open';
 
 /**
  * Two namespaces, because a dataId is what makes two stores two stores.
@@ -42,39 +38,7 @@ const workspaces = {
 	}),
 } as const;
 
-type ProbeApplication = ReplicaData<(typeof workspaces)['vault']>;
-
-/** The application this probe opens as, which is the address's first segment. */
-const PROBE_APP = 'so.epicenter.durability-probe';
-
-/**
- * The account this probe's store belongs to (ADR-0325).
- *
- * Durability is the subject here, so no real authority is reached. Its `fetch`
- * is a stub authority rather than a throw, because `resolveGeneration` asks one
- * which generations exist before it mints: an empty listing is a first run, and
- * the POST that follows is what assigns the number.
- */
-const PROBE_ACCOUNT = {
-	baseURL: 'https://probe.invalid',
-	authorityId: 'probe-authority',
-	principalId: 'probe' as never,
-	fetch: (async (_input: string | URL, init?: RequestInit) =>
-		new Response(
-			JSON.stringify(
-				init?.method === 'POST'
-					? { generation: 1, position: 0 }
-					: { generations: [] },
-			),
-			{ headers: { 'content-type': 'application/json' } },
-		)) as never,
-	// The probe opens and reloads; it never dials, so a socket that threw would
-	// be as good as one that never resolves. `WebSocket` was the pre-0346
-	// spelling of the same absence.
-	openWebSocket: (() => {
-		throw new Error('the durable-store probe never dials');
-	}) as never,
-};
+type ProbeApplication = App<(typeof workspaces)['vault'], undefined>['device'];
 
 let db: ProbeApplication | undefined;
 
@@ -92,29 +56,14 @@ Object.assign(globalThis, {
 	async open(name: keyof typeof workspaces) {
 		const workspace = workspaces[name];
 		if (workspace === undefined) return { error: `no workspace named ${name}` };
-		// One decision, the same one every application makes: this device's copy
-		// if it holds one, and a mint only because the stub listing is empty
-		// (ADR-0292, ADR-0293). The second open of the same page is a cache hit
-		// and creates nothing, which is what the reload below is checking.
-		const resolved = await resolveGeneration(workspace, {
-			appId: PROBE_APP,
-			account: PROBE_ACCOUNT,
-		});
-		if (resolved.error !== null) return { error: resolved.error.message };
-		const opened = await openDatabase(workspace, {
-			appId: PROBE_APP,
-			generation: resolved.data.generation,
-			account: PROBE_ACCOUNT,
-		});
-		if (opened.error !== null) {
-			const cause = (opened.error as { cause?: unknown }).cause;
-			return {
-				error: opened.error.message,
-				cause: cause instanceof Error ? cause.message : String(cause),
-			};
+		const app = openApp(workspace);
+		const ready = await app.ready;
+		if (ready.error) {
+			await app.close();
+			return { error: ready.error.message };
 		}
-		// The probe never closes: the page reload IS the close it is testing.
-		db = opened.data.store;
+		// Reload ends the page. The probe reads the real App-owned local store.
+		db = app.device;
 		show({ opened: name, dataId: workspace.id });
 		return { ok: true };
 	},

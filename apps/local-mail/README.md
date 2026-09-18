@@ -61,7 +61,7 @@ imports `application.ts` only after mounting, checks `app.ready`, and then
 renders the mail shell. Auth callbacks and Gmail consent callbacks open no
 primary library. Importing or preloading the route does not open one either.
 
-`application.ts` calls `application.open(account)` and reads saved queries from
+`application.ts` calls `openApp(mailDefinition, account)` and reads saved queries from
 `app.account.personal`. Gmail SQLite and credentials live under `app.device`.
 Identity is required on first opening. A cached
 identity and an existing library can reopen without network access; connection

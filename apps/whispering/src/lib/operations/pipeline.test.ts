@@ -9,19 +9,17 @@
  * - History failure warns only after usable text is delivered
  * - Credit failures offer account management without delivering or resuming work
  */
-import { Database } from 'bun:sqlite';
 import { afterAll, afterEach, expect, mock, spyOn, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openAccountStore } from '@epicenter/app/direct';
 import { InstantString } from '@epicenter/app/field';
+import { openMemory } from '@epicenter/app/memory';
 import { createDeparture } from '@epicenter/app-shell/departure';
 import type { AuthState } from '@epicenter/auth';
 import { createAppBlobs } from '@epicenter/blobs/app';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
-import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { whisperingDefinition } from '../data.js';
@@ -122,12 +120,7 @@ const { saveAudioRecording } = await import('./save-audio-recording.js');
 type WhisperingApp = import('$lib/whispering/app').WhisperingApp;
 
 const directory = await mkdtemp(join(tmpdir(), 'whispering-pipeline-'));
-const sqlite = new Database(':memory:');
-const data = await openAccountStore({
-	definition: whisperingDefinition,
-	sqlite: createBunSqliteAdapter(sqlite),
-	dispose: () => sqlite.close(),
-});
+const data = await openMemory(whisperingDefinition);
 const local = createBunBlobStore({ directory });
 const access = createAppBlobs({
 	local,

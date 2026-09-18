@@ -38,7 +38,7 @@ describe('the callback opens nothing', () => {
 				/(?:\$lib\/|\.\/|\.\.\/)(?:application|bootstrap)(?:\.js)?['"]/,
 			);
 			expect(source).not.toMatch(/openApplication\s*\(|<AppBoot\b/);
-			expect(source).not.toMatch(/\.open\s*\(/);
+			expect(source).not.toMatch(/\bopenApp\s*\(/);
 			expect(source).not.toContain('VocabShell.svelte');
 		}
 	});
@@ -58,7 +58,7 @@ describe('the callback opens nothing', () => {
 		const bootstrap = await Bun.file(
 			join(appRoot, 'src/lib/application.ts'),
 		).text();
-		expect(bootstrap).toContain('vocabDefinition.open(account)');
+		expect(bootstrap).toContain('openApp(vocabDefinition, account)');
 	});
 
 	test('the shell consumes the opened library without importing its bootstrap', async () => {
@@ -69,7 +69,7 @@ describe('the callback opens nothing', () => {
 			/(?:\$lib\/|\.\/|\.\.\/)(?:application|bootstrap)(?:\.js)?['"]/,
 		);
 		expect(source).not.toMatch(/openApplication\s*\(|<AppBoot\b/);
-		expect(source).not.toMatch(/\.open\s*\(/);
+		expect(source).not.toMatch(/\bopenApp\s*\(/);
 		expect(source).toContain('= $props()');
 		expect(source).toContain('fromData(opened.account!.personal)');
 	});

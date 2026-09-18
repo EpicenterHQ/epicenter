@@ -19,8 +19,12 @@ import { asDeviceIdentifier } from '@epicenter/recorder';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { browser, createBrowserAppBlobs } from './browser.js';
+import { composeApp } from './compose.js';
 import { defineApp } from './index.js';
+import {
+	resources as browser,
+	createBrowserAppBlobs,
+} from './platform/browser.js';
 
 installTestLocks();
 
@@ -129,7 +133,7 @@ function setup({
 			},
 		};
 	};
-	const epicenter = defineApp({
+	const fixtureDefinition = defineApp({
 		kv: {},
 		tables: {
 			recordings: defineTable({
@@ -138,7 +142,11 @@ function setup({
 			}),
 		},
 		id: appId,
-		runtime: {
+	});
+	const openFixture = (account?: Account) =>
+		composeApp(fixtureDefinition, {
+			appId: fixtureDefinition.id,
+			account,
 			...browser,
 			sqlite: {
 				acquire: async () => ({
@@ -163,11 +171,10 @@ function setup({
 				return blobs;
 			},
 			recording,
-		},
-		ai: { runtime: null, account: null },
-	});
+			ai: { runtime: null, account: null },
+		});
 	return {
-		epicenter,
+		openFixture,
 		appId,
 		bindings,
 		starts: () => starts,
@@ -180,10 +187,9 @@ function setup({
 }
 
 test('opening binds recording once and readiness gates microphone acquisition', async () => {
-	const { epicenter, bindings, starts, appId } = setup();
+	const { openFixture, bindings, starts, appId } = setup();
 	expect(bindings).toEqual([]);
-	expect(Object.hasOwn(epicenter, 'recording')).toBe(false);
-	const app = epicenter.open();
+	const app = openFixture();
 	expect(bindings).toEqual([{ appId }]);
 	expect(() => app.device.recording.start({})).toThrow('not ready');
 	expect(starts()).toBe(0);
@@ -196,7 +202,7 @@ test('opening binds recording once and readiness gates microphone acquisition', 
 });
 
 test('account recording keeps the opened identity when the supplied account changes', async () => {
-	const { epicenter, bindings } = setup();
+	const { openFixture, bindings } = setup();
 	let state: Blob | null = null;
 	const account: Account = {
 		supportsShared: false,
@@ -222,7 +228,7 @@ test('account recording keeps the opened identity when the supplied account chan
 			throw new Error('Unused');
 		},
 	};
-	const app = epicenter.open(account);
+	const app = openFixture(account);
 	Reflect.set(account, 'authorityId', 'replacement');
 	expectOk(await app.ready);
 	const session = expectOk(await app.device.recording.start({}));
@@ -234,11 +240,11 @@ test('account recording keeps the opened identity when the supplied account chan
 test('close waits for an admitted start and cancels its late capture', async () => {
 	const acquisition = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
-	const { epicenter, cancels } = setup({
+	const { openFixture, cancels } = setup({
 		startGate: acquisition.promise,
 		cancelGate: release.promise,
 	});
-	const app = epicenter.open();
+	const app = openFixture();
 	expectOk(await app.ready);
 	const pending = app.device.recording.start({});
 	let closed = false;
@@ -258,10 +264,10 @@ test('close waits for an admitted start and cancels its late capture', async () 
 
 test('close drains admitted publication without cancelling it', async () => {
 	const publication = Promise.withResolvers<void>();
-	const { epicenter, cancels, stops } = setup({
+	const { openFixture, cancels, stops } = setup({
 		stopGate: publication.promise,
 	});
-	const app = epicenter.open();
+	const app = openFixture();
 	expectOk(await app.ready);
 	const session = expectOk(await app.device.recording.start({}));
 	const pending = session.stop();
@@ -281,7 +287,7 @@ test('close drains admitted publication without cancelling it', async () => {
 test('Stop publishes through private storage after App close revokes public access', async () => {
 	const gate = Promise.withResolvers<void>();
 	const context = setup({ saveGate: gate.promise });
-	const app = context.epicenter.open();
+	const app = context.openFixture();
 	expectOk(await app.ready);
 	const recording = expectOk(await app.device.recording.start({}));
 	const saving = recording.stop();
@@ -291,7 +297,7 @@ test('Stop publishes through private storage after App close revokes public acce
 	gate.resolve();
 	const saved = expectOk(await saving);
 	await closing;
-	const reopened = context.epicenter.open();
+	const reopened = context.openFixture();
 	expectOk(await reopened.ready);
 	expect(
 		await expectOk(await reopened.blobs.local.get(saved.blobId)).text(),
@@ -304,8 +310,8 @@ test('Stop publishes through private storage after App close revokes public acce
 });
 
 test('close releases a session owned by its recorder even without a prior current call', async () => {
-	const { epicenter, cancels } = setup();
-	const app = epicenter.open();
+	const { openFixture, cancels } = setup();
+	const app = openFixture();
 	expectOk(await app.ready);
 	expectOk(await app.device.recording.start({}));
 	await app.close();
@@ -313,11 +319,11 @@ test('close releases a session owned by its recorder even without a prior curren
 });
 
 test('a refused duplicate open cannot cancel the owning app capture', async () => {
-	const { epicenter, cancels } = setup();
-	const owner = epicenter.open();
+	const { openFixture, cancels } = setup();
+	const owner = openFixture();
 	expectOk(await owner.ready);
 	expectOk(await owner.device.recording.start({}));
-	const duplicate = epicenter.open();
+	const duplicate = openFixture();
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	await duplicate.close();
 	expect(cancels()).toBe(0);
@@ -326,11 +332,11 @@ test('a refused duplicate open cannot cancel the owning app capture', async () =
 });
 
 test('closing a duplicate before acquisition cannot cancel the owning app capture', async () => {
-	const { epicenter, cancels } = setup();
-	const owner = epicenter.open();
+	const { openFixture, cancels } = setup();
+	const owner = openFixture();
 	expectOk(await owner.ready);
 	expectOk(await owner.device.recording.start({}));
-	const duplicate = epicenter.open();
+	const duplicate = openFixture();
 	await duplicate.close();
 	expectErr(await duplicate.ready);
 	expect(cancels()).toBe(0);
@@ -339,8 +345,8 @@ test('closing a duplicate before acquisition cannot cancel the owning app captur
 });
 
 test('close cancels a held capture without depending on a recovery read', async () => {
-	const { epicenter, cancels } = setup({ recoveryFailsAfterStart: true });
-	const app = epicenter.open();
+	const { openFixture, cancels } = setup({ recoveryFailsAfterStart: true });
+	const app = openFixture();
 	expectOk(await app.ready);
 	expectOk(await app.device.recording.start({}));
 	await app.close();
@@ -348,8 +354,8 @@ test('close cancels a held capture without depending on a recovery read', async 
 });
 
 test('closing before readiness never admits a new recording', async () => {
-	const { epicenter, starts } = setup();
-	const app = epicenter.open();
+	const { openFixture, starts } = setup();
+	const app = openFixture();
 	await app.close();
 	expect(starts()).toBe(0);
 	expect(() => app.device.recording.start({})).toThrow();
@@ -357,19 +363,19 @@ test('closing before readiness never admits a new recording', async () => {
 
 for (const failure of ['cancellation'] as const) {
 	test(`failed ${failure} retains ownership while other libraries remain usable`, async () => {
-		const { epicenter, releases } = setup({
+		const { openFixture, releases } = setup({
 			cancelFails: failure === 'cancellation',
 		});
-		const app = epicenter.open();
+		const app = openFixture();
 		expectOk(await app.ready);
 		if (failure === 'cancellation')
 			expectOk(await app.device.recording.start({}));
 		await expect(app.close()).rejects.toMatchObject({ name: 'RecorderFailed' });
 		expect(releases()).toBe(0);
-		const duplicate = epicenter.open();
+		const duplicate = openFixture();
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close();
-		const other = setup().epicenter.open();
+		const other = setup().openFixture();
 		expectOk(await other.ready);
 		await other.close();
 	});

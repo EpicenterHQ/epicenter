@@ -13,7 +13,6 @@ export {
 	referenceTargetOf,
 } from '../field/index.js';
 export * from './addresses.js';
-export * from './canonical.js';
 export {
 	type Conformance,
 	type ConformanceIssue,

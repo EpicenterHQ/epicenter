@@ -3,18 +3,17 @@
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Unbuilt:** Complete desktop Local Mail workflow verification remains separate from the browser acceptance evidence.
-- **Implementation checkpoint, 2026-09-18:** Runtime composition and App-owned saved recording are implemented. One `open(account?)` now returns device and account scopes together (ADR-0392); it replaces the three separate openers described in this record. ADR-0405 replaces the nested declaration with `defineApp`. Real browser capture, App reads/playback, transcription, Polish, and reopen passed in all three libraries. Native file inference passed a real WebView. Complete desktop Local Mail verification remains separate.
+- **Implementation checkpoint, 2026-09-18:** Runtime composition and App-owned saved recording are implemented. `openApp(definition, account?)` from `@epicenter/app/open` now returns device and account scopes together (ADR-0392); it replaces the three separate openers described in this record. ADR-0405 replaces the nested declaration with `defineApp`. ADR-0407 separates that platform-free declaration from opening and removes public runtime/AI overrides. Real browser capture, App reads/playback, transcription, Polish, and reopen passed in all three libraries. Native file inference passed a real WebView. Complete desktop Local Mail verification remains separate.
 
 ## Context
 
-`packages/app` exports `defineApplication`. Its build-condition leaves select
+`packages/app` exports the platform-free `defineApp`. Its build-condition leaves select
 SQLite and secret implementations. Honeycrisp and Vocab use this declaration;
-Whispering selects a complete runtime for recording and blobs, with an independent
-AI binding for its transport requirements. Local Mail uses the same declaration and reads SQLite and secrets from its opened App.
+Whispering uses those same package-selected resources for recording, blobs,
+and inference. Local Mail uses the same declaration and reads SQLite and secrets from its opened App.
 
-`Application` exposes `openLocal()`, `openPersonal(account)`, and
-`openShared(account)`, so the caller picks one library before opening. Authors
-do not assemble platform resources.
+`openApp(definition, account?)` returns device and account scopes together.
+Authors select a store for each workflow and do not assemble platform resources.
 
 The App now coordinates SQL, secret, blob, and recording owners as described in
 ADR-0380. It exposes each resource's actual operation object and retains cleanup
@@ -26,20 +25,16 @@ delete bytes when a row or reference is deleted.
 
 ## Decision
 
-**An application declares its identity and data; defaults or an explicit runtime
-select compatible resources, and opening fixes their scope for one App.**
+**An application declares its identity and data; the package selects compatible
+resources for the build, and opening fixes their scope for one App.**
 
 The target caller is:
 
 ```ts
-import { defineApplication } from '@epicenter/app';
+import { openApp } from '@epicenter/app/open';
+import { mailDefinition } from './data.js';
 
-const application = defineApplication({
-  appId: 'so.epicenter.local-mail',
-  definition: mailDefinition,
-});
-
-const app = application.open(account);
+const app = openApp(mailDefinition, account);
 const ready = await app.ready;
 if (ready.error !== null) throw ready.error;
 
@@ -48,12 +43,12 @@ if (ready.error !== null) throw ready.error;
 // The caller stops those operations before awaiting app.close().
 ```
 
-`defineApplication` describes construction. Opening returns a handle
+`defineApp` declares and validates the platform-free schema. Opening returns a handle
 synchronously; `app.ready` reports whether acquisition succeeded. A module import
 is not evidence of readiness. A SPA starts its primary opening from mounted
 application bootstrap; consent callbacks and auxiliary routes open no library.
 
-There is one opening method, `open(account)`, and it returns the two scopes of
+There is one public opener, `openApp(definition, account?)`, and it returns the two scopes of
 ADR-0392: `device` always, and `account` with `personal` and `shared` when the
 signed-in person can reach them. One application page holds one App for one auth generation and
 ends it by close and navigation when the account changes. Shared access still
@@ -63,14 +58,14 @@ requires server authorization.
 
 | Owner | Responsibility |
 | --- | --- |
-| Application declaration | App ID, data definition, and an existing AI settings key when required |
+| Application declaration | App ID and one schema |
 | App runtime | Compatible blob storage and saved recording, plus SQLite and secret implementations |
-| Opened App | Capture the actor and selected library, expose capabilities, coordinate shutdown |
+| Opened App | Capture the actor and available libraries, expose capabilities, coordinate shutdown |
 | Resource implementation | Perform its operations and enforce the lifecycle its resource needs |
 | Product workflow | Complete or cancel its sequence across storage and network calls before departure |
 
 Standard application authors do not inject SQLite or secret stores.
-`defineApplication` is the single declaration entrypoint. It replaces
+`defineApp` is the single declaration entrypoint. It replaces
 `createEpicenter` and `bindApplication`; `openApp` retains lifecycle ownership.
 
 **A runtime selects recording and blob access together so every successfully
@@ -82,38 +77,11 @@ with browser blob access can return an audio ID whose bytes the App cannot
 read. A recorder-only override therefore does not express a valid platform
 choice.
 
-The proposed explicit selection is:
-
-```ts
-import { defineApplication } from '@epicenter/app';
-import { epicenterHost } from '@epicenter/app/epicenter-host';
-
-const application = defineApplication({
-  appId: 'so.epicenter.whispering',
-  definition: whisperingDefinition,
-  runtime: epicenterHost,
-});
-```
-
-`runtime` and the `epicenterHost` export are implemented. The explicit browser
-runtime is `browser` from `@epicenter/app/browser`. That is the shipped shape:
-ADR-0391 deletes the `runtime` option and both per-target exports, and
-ADR-0403 makes the selection a runtime check inside the package, so the block
-above reads as history once those land.
-An explicit runtime supplies the complete storage and capture binding; missing
-members are not filled from another runtime. No string registry, mutable global
-registration, or environment detection is needed.
-
-Omitting the runtime preserves today's defaults: build-selected SQLite and
-secrets, with browser blobs and recording even in host-served WebViews.
-Selecting a host build alone must not redirect existing blob storage.
-Explicit native selection requires Epicenter's host commands and blob routes;
-it is not a generic Tauri adapter.
-
-AI is an independent optional override. An omitted AI binding uses the standard
-configuration; an explicit binding replaces it as a whole. `settingsKey`
-continues to select the default AI settings namespace. A supplied AI binding
-owns its own configuration and does not inherit `settingsKey` implicitly.
+The package selects recording and blob access together through its build
+conditions. ADR-0407 removes the public runtime and AI override paths and the
+per-target runtime exports. Native resources require Epicenter's host commands
+and blob routes. ADR-0403 proposes replacing build selection with a runtime
+check; that selector remains unbuilt.
 
 Dictation composes capture from the machine's runtime with inference reached
 through a connection (ADR-0396). It creates no second microphone owner. In the
@@ -184,18 +152,11 @@ These proposals cover separate decisions and retain their own implementation gap
 
 An ordinary app supplies its ID and definition and receives the standard
 capabilities. Repeated per-app runtime and SQLite leaf modules disappear.
-Whispering's distinct native resources and existing AI settings keys remain;
-constructor consolidation does not change their storage destinations.
-
-Whispering selects resources through
-one runtime selection. Its distinct AI transport remains independent. Runtime
-authors take responsibility for storage/capture compatibility; implementing
-arbitrary factories is not proof that their returned blob IDs are readable.
-The implementation must exercise recording publication through App blob reads.
-Execution checkpoints for this bounded change live in the
+The package owns recording/blob compatibility and AI resource selection.
+The implementation exercises recording publication through App blob reads.
+Remaining hardware acceptance lives in the
 [application runtime spec](../../specs/20260909T085106-application-runtime-composition.md).
-The integrated implementation preserves explicit Local, Personal, and Shared
-opening and each library's resource scope.
+One App exposes Local, Personal, and Shared under their owning scopes.
 
 Local Mail starts fresh in the account-owned scope. Old local caches,
 credentials, registries, and intentions are not adopted. Subsequent saves must

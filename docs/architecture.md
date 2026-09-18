@@ -81,11 +81,12 @@ refused was a hosted surface that reached a host-owned replica instead.
 ```
 
 `@epicenter/app` supplies `defineApp`, `defineTable`, and `field` at its root.
-The declaration exposes its schema and opens a live App through `.open()`.
+The declaration is platform-free. `openApp(definition, account?)` from
+`@epicenter/app/open` acquires the live App.
 Independent `/definition`, `/store`, `/sync`, and `/artifact/format`
 entrypoints let engine consumers load only their required modules. The Bun
-memory opener and browser persistence have separate entrypoints because their
-runtime dependencies differ. See the [application architecture](../packages/app/ARCHITECTURE.md). There is no `./projection`: the packaged SQL
+memory opener has a separate entrypoint because it imports `bun:sqlite`.
+`/data` opens over caller-owned SQLite; browser persistence is internal to App. See the [application architecture](../packages/app/ARCHITECTURE.md). There is no `./projection`: the packaged SQL
 follower was deleted (ADR-0269), and a derived index is now app-owned, in
 memory, and rebuilt on read (ADR-0307).
 
@@ -172,20 +173,22 @@ durable JSON stays unchanged
 
 ## Reads are synchronous
 
-Opening a store is the only asynchronous operation in an application. It is real
-I/O: a file or an IndexedDB read, and the replay of a durable log. Everything
-after it is a property access on a document already in memory.
+`openApp` returns a handle synchronously. `app.ready` waits for storage
+acquisition and durable replay. Once ready, row and KV operations read and edit
+the in-memory document synchronously; persistence and network work remain async.
 
 ```ts
-const { data, error } = await openDatabase(honeycrispDefinition, {
-	generation,
-});
-if (error !== null) throw error;
+import { openApp } from '@epicenter/app/open';
 
+const app = openApp(honeycrispDefinition, account);
+const ready = await app.ready;
+if (ready.error !== null) throw ready.error;
+const data = app.account.personal;
 const rows = data.tables.notes.rows;
 const nonconforming = data.tables.notes.nonconforming;
-data.tables.notes.update(noteId, { title: 'x' }); // a transaction
-data.tables.notes.subscribe(() => { ... });       // a table commit touched
+data.tables.notes.update(noteId, { title: 'x' });
+data.tables.notes.subscribe(() => { /* refresh the table view */ });
+// The page stops producers and awaits app.close() before leaving.
 ```
 
 `subscribe` names the rows a commit touched (ADR-0221), so a view refreshes

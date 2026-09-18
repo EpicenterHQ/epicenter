@@ -48,7 +48,6 @@ describe('platform seams', () => {
 			'#platform/os',
 			'#platform/os-notify',
 			'#platform/recording-mic-level',
-			'#platform/runtime',
 			'#platform/system-shortcuts',
 			'#platform/tauri',
 			'#platform/text',

@@ -17,14 +17,12 @@ import { defineApp, defineTable, field, plainText } from '@epicenter/app';
  * cannot be passing for a reason other than the client offering it.
  */
 
-import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 
-import { openAccountStore } from '@epicenter/app/direct';
+import { openMemory } from '@epicenter/app/memory';
 import { attachStoreSync } from '@epicenter/app/sync';
 import { createSessionAuth, type PersistedAuthStorage } from '@epicenter/auth';
 import { asPrincipalId } from '@epicenter/principal';
-import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import {
 	bearerSubprotocol,
 	formatSubprotocols,
@@ -97,12 +95,7 @@ function createBrowserAuth(onOpening: (opening: Opening) => void) {
 
 /** The real store; its transport address is supplied when sync attaches. */
 function openStore() {
-	const live = new Database(':memory:');
-	return openAccountStore({
-		definition,
-		sqlite: createBunSqliteAdapter(live),
-		dispose: () => live.close(),
-	});
+	return openMemory(definition);
 }
 
 /**

@@ -1,5 +1,4 @@
 import {
-	type AppStore,
 	type ContentCodec,
 	defineApp,
 	defineTable,
@@ -7,11 +6,12 @@ import {
 	plainText,
 	type RowOf,
 } from '@epicenter/app';
+import type { AppStore } from '@epicenter/app/open';
 import { APPS } from '@epicenter/constants/apps';
 /**
  * Honeycrisp's inert application declaration.
  *
- * The root schema is inspectable without opening storage. Only `.open()`
+ * The root schema is inspectable without opening storage. Only `openApp()`
  * acquires the live App and its resources.
  *
  * The `folders` and `notes` property names are the durable table names. They

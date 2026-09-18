@@ -22,14 +22,9 @@ import { defineApp, defineTable, field, plainText } from '@epicenter/app';
  * failed.
  */
 
-import { Database } from 'bun:sqlite';
+import { openMemory } from '@epicenter/app/memory';
 
-import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
-
-import {
-	type DataDocument,
-	openAccountStore,
-} from '../../../src/data/store/store.js';
+import type { DataDocument } from '../../../src/data/store/store.js';
 import {
 	createSyncClient,
 	createSyncConnection,
@@ -79,10 +74,7 @@ async function stat(app: string = application): Promise<Stat> {
 }
 
 async function openReplica() {
-	const db = await openAccountStore({
-		definition: evidenceDatabase,
-		sqlite: createBunSqliteAdapter(new Database(':memory:')),
-	});
+	const db = await openMemory(evidenceDatabase);
 	return { store: db, db };
 }
 

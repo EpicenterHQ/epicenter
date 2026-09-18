@@ -30,7 +30,7 @@
  * the word is what crosses this boundary.
  */
 
-import type { StoreError } from '@epicenter/app/store/browser';
+import type { StoreError } from '@epicenter/app/store';
 import { extractErrorMessage } from 'wellcrafted/error';
 
 export type OpenFailure = {

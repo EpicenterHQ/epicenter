@@ -47,11 +47,12 @@ The service layer contains all business logic as **pure functions** with zero UI
 
 The key innovation is **build-time platform resolution** via Node-standard `#platform/*` subpath imports. Each platform-bound service lives in a folder with both implementations as sibling files plus a shared contract; the app's `package.json` `imports` map points each seam at the matching file per build condition:
 
-Storage and saved recording are selected together through `#platform/runtime`:
-the browser leaf selects `browser`, and the host leaf selects `epicenterHost`
-from App. `#platform/ai` independently selects inference transport and configuration.
+`openApp(whisperingDefinition, account)` from `@epicenter/app/open` acquires
+storage, recording, and inference through App's build-selected resources.
+Whispering declares no runtime or AI override. Its own `#platform/*` seams
+continue to select app capabilities such as auth and native commands.
 The saved-recording contract lives at `@epicenter/app/recorder`.
-The UI session composes `createWhisperingRecording(app, openedApp.recording)`
+The UI session composes `createWhisperingRecording(app, openedApp.device.recording)`
 once and exposes `app.recording`. The workflow captures one framework recording service. Buttons and the overlay read the workflow state; UI disposal releases
 the capture subscription. The opened
 App owns capture admission, draining, cancellation, and storage closure. Device configuration

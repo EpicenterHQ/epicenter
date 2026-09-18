@@ -1,6 +1,6 @@
 /** Real editor, authenticated sockets, IndexedDB, and document reload across replacement. */
 import assert from 'node:assert/strict';
-import { syncEngineOf } from '@epicenter/app/direct';
+import { syncEngineOf } from '@epicenter/app/data';
 import { InstantString } from '@epicenter/app/field';
 import { openMemory } from '@epicenter/app/memory';
 import type { CurrentAuthority, Frame } from '@epicenter/app/sync';

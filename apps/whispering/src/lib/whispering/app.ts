@@ -1,4 +1,4 @@
-import type { App, AppStore } from '@epicenter/app';
+import type { App, AppStore } from '@epicenter/app/open';
 import type { SyncConnectionStatus } from '@epicenter/app/sync';
 import type { InferenceConnections } from '@epicenter/app-shell/inference-picker';
 import type { Account } from '@epicenter/auth';
@@ -67,8 +67,10 @@ export function createWhisperingDomains({
 	data,
 }: {
 	/** The opened dataset owns tables, blobs, and recording. */
-	openedApp: WhisperingAppHandle;
-	data: WhisperingData;
+	openedApp: Pick<WhisperingAppHandle, 'signal' | 'blobs'> & {
+		device: Pick<WhisperingAppHandle['device'], 'kv'>;
+	};
+	data: Pick<WhisperingData, 'tables' | 'sync'>;
 }) {
 	const settingsDomain = createWhisperingSettings({ kv: openedApp.device.kv });
 	const recordingsDomain = createWhisperingRecordings({

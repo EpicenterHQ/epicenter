@@ -5,6 +5,16 @@
 **Owner**: Braden Wong
 **Branch**: braden-w/app-schema-derive-export-import (four commits, no PR yet)
 
+## Current opening boundary: 2026-09-18
+
+[ADR-0407](../docs/adr/0407-app-owns-the-declaration-and-data-engine.md) completes
+the declaration/opening split: `defineApp` is platform-free, `openApp` owns the
+App lifetime, and `openData` borrows caller-owned SQLite. Public runtime/AI
+overrides and historical generation helpers are removed; old bytes and server
+HTTP 409 protection remain. Earlier opening examples and generation-helper
+checkpoints below are historical evidence, not remaining API work. Broader
+acceptance and product outcomes in this plan remain separate.
+
 ## How to read this spec
 
 ```txt

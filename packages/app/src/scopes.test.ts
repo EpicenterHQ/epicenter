@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineTable, field } from '@epicenter/app';
-import * as dataBrowser from '@epicenter/app/store/browser';
+import * as dataBrowser from './data/store/browser.js';
 import type { Account } from '@epicenter/auth';
 import { type BlobId, parseBlobId } from '@epicenter/blobs';
 import { secretLabel } from '@epicenter/device';
@@ -20,9 +20,10 @@ import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { browser } from './browser.js';
+import { composeApp } from './compose.js';
 import { encodeFrame } from './data/sync/frames.js';
 import { defineApp } from './index.js';
+import { resources as browser } from './platform/browser.js';
 import { createBrowserRecording } from './recording/browser.js';
 
 installTestLocks();
@@ -98,12 +99,18 @@ test('device rows, SQLite, secrets and blobs isolate owners and survive returnin
 			await rm(join(root, appId, deviceOwnerPath(account), `${name}.sqlite`));
 		},
 	});
-	const application = defineApp({
+	const fixtureDefinition = defineApp({
 		...definition,
 		id: `test.${crypto.randomUUID()}`,
-		runtime: { ...browser, sqlite },
-		ai: { runtime: null, account: null },
 	});
+	const openFixture = (account?: Account) =>
+		composeApp(fixtureDefinition, {
+			appId: fixtureDefinition.id,
+			account,
+			...browser,
+			sqlite,
+			ai: { runtime: null, account: null },
+		});
 	try {
 		const seen = new Set<string>();
 		const recordings = new Map<string, { id: string; audioBlobId: BlobId }>();
@@ -117,7 +124,7 @@ test('device rows, SQLite, secrets and blobs isolate owners and survive returnin
 			undefined,
 		]) {
 			const owner = person ?? 'no-account';
-			const app = application.open(
+			const app = openFixture(
 				person === undefined ? undefined : accountFor(person),
 			);
 			try {
@@ -181,19 +188,18 @@ test('device rows, SQLite, secrets and blobs isolate owners and survive returnin
 				await app.close();
 			}
 		}
-		const signedIn = application.open(accountFor('alice'));
+		const signedIn = openFixture(accountFor('alice'));
 		try {
 			expectOk(await signedIn.ready);
-			const principal: string = signedIn.account.identity.principalId;
+			const principal: string = signedIn.account!.identity.principalId;
 			expect(principal).toBe('alice');
 		} finally {
 			await signedIn.close();
 		}
-		const signedOut = application.open();
+		const signedOut = openFixture();
 		try {
 			expectOk(await signedOut.ready);
-			const absent: undefined = signedOut.account;
-			expect(absent).toBeUndefined();
+			expect(signedOut.account).toBeUndefined();
 		} finally {
 			await signedOut.close();
 		}
@@ -252,35 +258,37 @@ test.each([
 			});
 		},
 	);
-	const app = defineApp({
+	const appDefinition = defineApp({
 		...definition,
 		id: `test.${crypto.randomUUID()}`,
-		runtime: {
-			...browser,
-			recording(...args) {
-				const recorder = createBrowserRecording(...args);
-				return {
-					...recorder,
-					close() {
-						recorderStopped = true;
-						return recorder.close();
-					},
-				};
-			},
-			sqlite: {
-				async acquire() {
-					return {
-						async open() {
-							throw new Error('unused');
-						},
-						async delete() {},
-						async close() {},
-					};
+	});
+	const app = composeApp(appDefinition, {
+		appId: appDefinition.id,
+		account: accountFor('alice', true),
+		...browser,
+		recording(...args) {
+			const recorder = createBrowserRecording(...args);
+			return {
+				...recorder,
+				close() {
+					recorderStopped = true;
+					return recorder.close();
 				},
+			};
+		},
+		sqlite: {
+			async acquire() {
+				return {
+					async open() {
+						throw new Error('unused');
+					},
+					async delete() {},
+					async close() {},
+				};
 			},
 		},
 		ai: { runtime: null, account: null },
-	}).open(accountFor('alice', true));
+	});
 	try {
 		expectOk(await app.ready);
 		expect(app.account!.shared).not.toBeNull();
@@ -317,25 +325,27 @@ test.each([
 });
 
 test('an abort callback reentering close receives the memoized completion', async () => {
-	const app = defineApp({
+	const appDefinition = defineApp({
 		...definition,
 		id: `test.${crypto.randomUUID()}`,
-		runtime: {
-			...browser,
-			sqlite: {
-				async acquire() {
-					return {
-						async open() {
-							throw new Error('unused');
-						},
-						async delete() {},
-						async close() {},
-					};
-				},
+	});
+	const app = composeApp(appDefinition, {
+		appId: appDefinition.id,
+		account: undefined,
+		...browser,
+		sqlite: {
+			async acquire() {
+				return {
+					async open() {
+						throw new Error('unused');
+					},
+					async delete() {},
+					async close() {},
+				};
 			},
 		},
 		ai: { runtime: null, account: null },
-	}).open();
+	});
 	expectOk(await app.ready);
 	let reentrant: Promise<void> | undefined;
 	app.signal.addEventListener('abort', () => {

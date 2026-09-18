@@ -661,5 +661,6 @@ When you add an ADR, add its row here.
 | [0402](0402-a-window-label-is-identity-never-authority-and-the-capability-is-a-host-constant.md) | A window label is identity, never authority, and the capability is a host constant | Proposed (amends 0189 at its capability-file consequence) |
 | [0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) | The package selects its platform leaves at runtime, and a consumer's build passes no condition | Proposed (amends 0388 and 0391 at the selector) |
 | [0404](0404-the-opened-account-owns-application-local-storage.md) | The opened account owns application-local storage | Accepted (supersedes 0400) |
-| [0405](0405-one-flat-application-declaration-opens-the-live-app.md) | One flat application declaration opens the live App | Accepted (amends 0391 at declaration shape) |
+| [0405](0405-one-flat-application-declaration-opens-the-live-app.md) | One flat application declaration opens the live App | Accepted (amends 0391 at declaration shape; opening amended by 0407) |
 | [0406](0406-one-application-schema-is-used-by-every-store.md) | One application schema is used by every store | Accepted |
+| [0407](0407-app-owns-the-declaration-and-data-engine.md) | App owns the declaration and data engine | Accepted (amends 0405 at opening and package ownership; retires historical client generation helpers from 0292/0293) |

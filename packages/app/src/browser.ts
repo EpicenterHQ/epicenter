@@ -1,10 +1,7 @@
 import { deviceOwnerPath } from '@epicenter/principal';
 import { type AiTransport, accountInference } from './ai.js';
 import { createAiConnections } from './ai-connections.js';
-import type { AppAiBinding, ApplicationRuntime } from './index.js';
-import { resources as browserResources } from './platform/browser.js';
-
-export { createBrowserAppBlobs } from './platform/browser.js';
+import type { AppAiBinding } from './compose.js';
 
 /** Origin-local settings; supported Epicenter accounts supply the /v1 gateway. */
 export function createBrowserAppAi(
@@ -49,11 +46,6 @@ export function createBrowserAppAi(
 		},
 	};
 }
-
-/** Browser storage and capture; importing this value acquires no resources. */
-export const browser: ApplicationRuntime = {
-	...browserResources,
-};
 
 /** Default browser composition selected by the package build condition. */
 export const createDefaultAppAi: () => AppAiBinding = createBrowserAppAi;

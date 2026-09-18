@@ -6,13 +6,14 @@ stores for one page lifetime. Whoever opens it stops product work and awaits
 the page coordinates departure.
 
 The captured account scopes local storage as well as synchronized stores.
-`open()` and `open(undefined)` select a separate `no-account` namespace.
+`openApp(definition)` and `openApp(definition, undefined)` select a separate
+`no-account` namespace.
 Signing in never adopts that namespace; returning to an account restores its
 own device data. Device storage stays local even when it belongs to an account.
 In apps that support signed-out use, sign-out returns to the no-account
 workspace, including recordings and audio created there before sign-in. That
 workspace is shared by everyone using the app signed out in the same profile.
-The return type preserves the argument: `open(account)` with a definite Account
+The return type preserves the argument: `openApp(definition, account)` with a definite Account
 has a definite `app.account`; opening without one gives `account: undefined`.
 A union argument retains the union. After `if (app.account)`, callers can pass
 that scope to components requiring an account. This checks the captured
@@ -20,6 +21,7 @@ identity, not network reachability or authorization for a particular request.
 
 ```ts
 import { defineApp, defineTable, field } from '@epicenter/app';
+import { openApp } from '@epicenter/app/open';
 
 const application = defineApp({
  id: 'so.epicenter.notes',
@@ -27,7 +29,7 @@ const application = defineApp({
  kv: { language: field.string() },
  tables: { notes: defineTable({ title: field.string() }) },
 });
-const app = application.open(account);
+const app = openApp(application, account);
 try {
  const result = await app.ready;
  if (result.error !== null) throw result.error;
@@ -47,8 +49,9 @@ storage or capturing an Account. Schema tools, artifact import/export, and
 rows belong to `app.device`, `app.account.personal`, or `app.account.shared`.
 The one `id` names both the application and its data. `defineApp` is the only
 full declaration constructor. Schema tools and tests use that same value;
-they do not call `.open()`. Runtime and AI overrides stay in the opener's
-closure, outside the schema.
+they do not import the App opener. The declaration graph is platform-free.
+`openApp` selects the package's build-specific resources; callers cannot override
+runtime or AI bindings.
 
 ## Package boundaries
 
@@ -58,23 +61,26 @@ inferred schema types. Engine consumers use independent entrypoints:
 
 | Import | Consumer and purpose |
 | --- | --- |
+| `@epicenter/app/open` | `openApp(definition, account?)` and App capability types |
 | `@epicenter/app/definition` | Reusable table declarations, schema inspection, compilation |
-| `@epicenter/app/store` | Store handles and direct construction types |
+| `@epicenter/app/store` | Store handle and error types |
 | `@epicenter/app/sync` | Client transport and server authority |
 | `@epicenter/app/artifact` | Render and read application files |
 | `@epicenter/app/artifact/format` | Host-side file framing without loading the store |
 | `@epicenter/app/artifact/checkout` | Working-copy pull and push |
 | `@epicenter/app/memory` | Bun-backed in-memory stores for tests |
-| `@epicenter/app/direct` | Explicit SQLite-backed account stores for probes |
-| `@epicenter/app/store/browser` | IndexedDB persistence owned by the App |
+| `@epicenter/app/data` | `openData(definition, sqlite)` and `syncEngineOf`; caller owns SQLite |
 | `@epicenter/app/field` | Field descriptors and date/string validation |
 
-The schema, store, sync, and format entrypoints do not import the App opener
-or browser/native platform implementations. A full declaration imported from
-the root statically loads platform modules, but opens no storage, starts no worker,
-and captures no Account. `import-boundaries.test.ts` checks both guarantees.
-The `/browser` entrypoint selects the complete application runtime;
-`/store/browser` owns browser persistence.
+The root, schema, store, sync, and format entrypoints do not import the App
+opener or browser/native platform implementations. Importing `openApp` loads
+the build-selected implementations; calling it acquires resources.
+`import-boundaries.test.ts` checks the platform-free graphs.
+
+`openData` opens a data document over caller-supplied SQLite and leaves the
+SQLite connection open when the document is disposed. `openMemory` is Bun test
+support: it owns a fresh in-memory connection unless given a reusable
+`MemoryRecord`. Neither function constructs an App or captures an Account.
 
 `src/data/` holds the engine. Its [README](src/data/README.md) describes row,
 persistence, and synchronization behavior. The [architecture map](ARCHITECTURE.md)
@@ -82,22 +88,21 @@ shows the package's consumers, module boundaries, and lifetime.
 
 ## Runtime selection
 
-The package selects SQLite, secrets, blobs, and recording together for the build.
-Browser recording publishes into IndexedDB. Host recording publishes into the
-same app directory served by the host's blob API. The complete `browser` runtime
-is exported from `@epicenter/app/browser`, and `epicenterHost` from
-`@epicenter/app/epicenter-host`. An explicit runtime replaces all four capabilities.
-Custom runtimes must publish recordings into the blob store they expose;
-TypeScript cannot prove compatibility. ADR-0403 proposes replacing build
-conditions with runtime platform selection; that separate change is unbuilt.
-An independent `ai` binding replaces all default AI configuration.
+The package selects SQLite, secrets, blobs, recording, and AI bindings through
+its `epicenter-host` and default build conditions. Browser recording publishes
+into IndexedDB. Host recording publishes into the same app directory served by
+the host's blob API. Applications pass only a declaration and optional Account
+to `openApp`; the package keeps resource composition private.
+
+ADR-0403 proposes runtime platform selection. That proposal remains unbuilt;
+consumers must still preserve the build condition used by the package.
 The text clipboard is not part of any runtime: `@epicenter/app/clipboard` is a
 standalone platform module, described under [Clipboard](#clipboard).
 Custom AI configuration uses one account-scoped catalog across applications
 in the same profile/origin. Application declarations do not choose its storage key.
 
-The scope API implements the opener portion of ADR-0392. ADR-0391's removal of
-runtime overrides and ADR-0396's connection protocol remain separate proposals.
+The scope API implements the opener portion of ADR-0392. ADR-0396's unified
+connection protocol remains a separate proposal.
 The current declaration supplies the same data definition to each store;
 ADR-0406 rejects separate device declarations. The remaining preferences
 migration is unbuilt.
@@ -193,7 +198,7 @@ selections, SSE reconnect, and cancellation on App, window, and host closure.
 Its optional Whispering mode also verifies the desktop picker, imported audio,
 real transcription, and the saved result after document reload.
 
-`defineApp` is inert. `application.open(account)` returns an App
+`defineApp` is inert. `openApp(application, account)` returns an App
 synchronously and begins acquisition. `app.ready` resolves when every opened
 store and the inference catalog are ready, or returns an opening failure.
 `open()` or `open(undefined)` performs no authority request or sync dial.

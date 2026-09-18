@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
 	import type { Account } from "@epicenter/auth";
-	import type { App } from '@epicenter/app';
+	import type { App } from '@epicenter/app/open';
 	import { createDictation } from "$lib/state/dictation.svelte";
 	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
 	import { createAgentChatState } from '@epicenter/app-shell/agent-chat';

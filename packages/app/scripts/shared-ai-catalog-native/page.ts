@@ -1,4 +1,5 @@
 import { defineApp } from '@epicenter/app';
+import { openApp } from '@epicenter/app/open';
 import { createBrowserInferenceSelections } from '../../../app-shell/src/inference-selections.js';
 
 // Installed acceptance applications, not product builds. The build selects the
@@ -39,7 +40,7 @@ if (!localStorage.getItem(`${product}.seeded`)) {
 	);
 	localStorage.setItem(`${product}.seeded`, 'yes');
 }
-const app = defineApp({ tables: {}, kv: {}, id: product }).open();
+const app = openApp(defineApp({ tables: {}, kv: {}, id: product }));
 const selections = createBrowserInferenceSelections(product);
 let retained: ReturnType<
 	NonNullable<typeof app.device.connections.custom>['get']

@@ -3,7 +3,7 @@
 Date: 2026-09-09
 Status: In Progress
 
-## Current startup checkpoint: 2026-09-17
+## Current startup checkpoint: 2026-09-18
 
 The mounted current-library path is verified by 119 preserved Bun tests, 32
 Worker tests, and the full Honeycrisp browser journey. See the
@@ -13,12 +13,17 @@ Historical generation discovery is not the current startup contract. The
 foundation fixture now runs independent current caches against the real SQLite
 authority; Worker evidence owns socket admission and retirement.
 
-Remaining implementation: Bun store transport and removal or migration of the
-historical browser helper consumers. Skills still has a deliberately refused
-boot and needs a product purpose before its App composition is chosen. The
-older durable-store browser fixture also uses historical helpers. The unmounted
-`/generations/initial` experiment was removed during integration on 2026-09-18;
-do not expose a second startup API. Keep the historical-data migration refusal.
+The opening boundary is now [ADR-0407](../docs/adr/0407-app-owns-the-declaration-and-data-engine.md):
+`defineApp` is platform-free; `/open` acquires an App; `/data` opens over
+caller-owned SQLite; `/memory` remains Bun test support. Historical browser
+helpers are removed. Skills' account-taking adapter now uses the current App
+opener, while its route still refuses startup pending a product/auth decision.
+The durable-store fixture exercises current acquisition. Old bytes and the
+server's historical-data HTTP 409 refusal remain untouched. The unmounted
+`/generations/initial` experiment is removed; do not add a second startup API.
+
+Remaining implementation: evaluate Bun store transport if still required by the
+broader ownership objective. Skills' product purpose remains a separate decision.
 
 Remaining acceptance: packaged desktop credential brokerage and library
 selection, full offline shell loading, and the hardware/provider/OS runs in the

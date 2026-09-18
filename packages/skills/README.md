@@ -4,18 +4,20 @@
 services over an already opened handle. The package does not open storage,
 construct browser or Node runtimes, expose Yjs GUIDs, or register actions.
 
+A consumer chooses the opening boundary. An application calls `openApp` from
+`@epicenter/app/open` with this declaration and its captured Account. Tests and
+Bun tools can use a memory record:
+
 ```ts
-import { openDatabase } from '@epicenter/app/store/browser';
+import { openMemory } from '@epicenter/app/memory';
 import { skillsDefinition } from '@epicenter/skills';
 
-const { data: skills, error } = await openDatabase(skillsDefinition, {
-	appId: 'so.epicenter.skills',
-	generation,
-	account,
-});
-if (error !== null) return handle(error);
+await using skills = await openMemory(skillsDefinition);
 const rows = skills.tables.skills.rows;
 ```
+
+The Skills application still refuses startup pending its product and auth
+model. Its historical generation opener is retired; existing bytes remain.
 
 ## Data model
 

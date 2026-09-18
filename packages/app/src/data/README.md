@@ -8,23 +8,25 @@ The main entrypoints are:
 
 | Import | What it gives you |
 | --- | --- |
-| `@epicenter/app/store` | the opened data surface |
+| `@epicenter/app/store` | Store handle and error types |
+| `@epicenter/app/data` | `openData(definition, sqlite)` and `syncEngineOf`; the caller owns SQLite |
 | `@epicenter/app` | `defineApp`, `defineTable`, and `field`: the application declaration |
 | `@epicenter/app/definition` | Reusable table vocabulary and schema compilation |
-| `@epicenter/app/store/browser` | `acquireAppData`, the App-owned current-library backing; historical generation helpers also remain (see below) |
 | `@epicenter/app/sync` | `createSyncConnection`, and the authority half a server runs |
 | `@epicenter/app/artifact` | `renderArtifact` renders Markdown; `readArtifact` reads Markdown into a fresh document. Ordinary edits use checkout instead. |
 | `@epicenter/app/artifact/checkout` | `createWorkingCopy` with previewed `pull` and `push`, using the checkout manifest as the three-way baseline |
 | `@epicenter/app/memory` | `openMemory(definition)` and `createMemoryRecord()`, test support |
 
-The browser opener is the only one a person's data lands in. A memory opener
-imports `bun:sqlite` and the browser opener imports `idb`, so neither belongs in
-a barrel the other has to load. That is the whole reason the openers
-live at their own entry points rather than on `@epicenter/app/store`.
+Application data persists through the App's IndexedDB backing. `openData`
+opens the same document engine over a caller-owned SQLite connection, including
+Worker probes. Disposing the data document leaves that connection open.
+`openMemory` supplies Bun-only in-memory storage for tests. A supplied
+`MemoryRecord` survives document disposal so a test can reopen the same bytes.
+These entrypoints do not load the App or its platform implementations.
 
 ## Current-library startup
 
-Applications open through `@epicenter/app` and await `app.ready`; see the
+Applications call `openApp` from `@epicenter/app/open` and await `app.ready`; see the
 [App README](../../README.md). The App captures its account and library choice,
 claims exclusive ownership, and calls `acquireAppData` for browser persistence.
 Local opening needs no server. Personal and Shared opening use a cached current
@@ -47,18 +49,17 @@ The generation lives in its header. Both authority and actor scope the local
 copy, including a Shared replica. Another actor's pending edits cannot be
 replayed from this cache. The server owns the corresponding remote destination.
 
-### Historical browser helpers
+### Historical generation caches
 
-`openDatabase`, `resolveGeneration`, `createGeneration`, and
-`eraseGenerations` still exist in `browser.ts`. Their remote generation
-listing/import/download routes are not mounted by the current server. They are
-not the application startup API. Skills and the older durable-store browser
-fixture still reference them; that remaining transition is tracked in
-[the library ownership plan](../../../../specs/20260909T004225-library-ownership-execution.md).
+The numbered-cache opener and its generation listing, creation, and erasure
+helpers are retired. Current startup never reads, migrates, or deletes those
+historical bytes. The server still refuses current Personal initialization
+with HTTP 409 when historical admitted generations exist; removing client
+helpers does not authorize a new empty library over that history.
 
-`eraseGenerations` concerns historical numbered caches only. It is not a
-current-library removal operation. No migration or cleanup of persisted data
-runs as part of current startup.
+Skills retains its current startup refusal. Migrating its account-taking adapter
+does not choose a new auth or product model. The durable-store browser evidence
+now exercises current App-owned acquisition.
 
 Opening replays a durable log into one Yjs document. Once ready, table reads
 and edits are synchronous. The App retains its ownership claim until the store

@@ -111,91 +111,10 @@ export const StoreError = {
 			message: 'These bytes could not be applied to this document',
 			cause,
 		}),
-		/**
-		 * This device already holds state at that generation's address.
-		 *
-		 * A generation is created once and never mutated in place, so a write that
-		 * meets bytes is a caller confusing import with sync (ADR-0293). It is not
-		 * an ownership conflict: nobody holds the document open, and closing a
-		 * window changes nothing.
-		 */
-		GenerationExists: ({
-			dataId,
-			generation,
-		}: {
-			dataId: string;
-			generation: number;
-		}) => ({
-			message: `This device already holds generation ${generation} of '${dataId}'`,
-			dataId,
-			generation,
-		}),
-		/**
-		 * The store was asked for something it cannot name.
-		 *
-		 * Three inputs reach this, and they are one refusal because they are one
-		 * sentence: an application id, a principal id, or a generation number that
-		 * cannot be a segment of an address. Guessing any of them would open bytes
-		 * that belong to something else, or take edits into a record nothing can
-		 * claim afterwards.
-		 *
-		 * A signed-out account states no principal, which is the live path here:
-		 * `@epicenter/app` hands the opener the account it has and lets this refuse
-		 * it rather than guessing one. Conflating that with `GenerationNotFound`
-		 * would tell a person their data is missing when nothing was ever asked
-		 * for.
-		 */
+		/** An application or remote identity cannot be represented in a durable address. */
 		Unaddressable: ({ reason }: { reason: string }) => ({
 			message: `This database cannot be named: ${reason}`,
 			reason,
-		}),
-		/**
-		 * This device holds no copy of the generation asked for, and has no account
-		 * to fetch it from (ADR-0292).
-		 *
-		 * A generation number is an ADDRESS, not an instruction to allocate. Opening
-		 * an empty database here would turn any URL somebody typed into a real
-		 * generation, so the miss is reported and the caller decides: import a
-		 * folder to create one, or send the person somewhere that exists.
-		 */
-		GenerationNotFound: ({
-			dataId,
-			generation,
-		}: {
-			dataId: string;
-			generation: number;
-		}) => ({
-			message: `This device holds no generation ${generation} of '${dataId}'`,
-			dataId,
-			generation,
-		}),
-		/**
-		 * The authority could not be reached for a generation this device lacks.
-		 *
-		 * Distinct from `GenerationNotFound`, and the distinction is the whole
-		 * point: not-found is a fact about the generation and this is a fact about
-		 * the network. A retry can fix one and never the other, so a boot surface
-		 * that conflates them tells a person their data is gone when their wifi is
-		 * off.
-		 */
-		GenerationUnreachable: ({
-			dataId,
-			generation,
-			status,
-			cause,
-		}: {
-			dataId: string;
-			generation: number;
-			status?: number;
-			cause?: unknown;
-		}) => ({
-			message: `Generation ${generation} of '${dataId}' could not be fetched${
-				status === undefined ? '' : ` (${status})`
-			}`,
-			dataId,
-			generation,
-			status,
-			cause,
 		}),
 		/**
 		 * A subscriber threw while being told about a committed change.

@@ -55,10 +55,6 @@
 		"#platform/window-events": {
 			"epicenter-host": "./src/lib/window-events.tauri.ts",
 			"default": "./src/lib/window-events.browser.ts"
-		},
-		"#platform/runtime": {
-			"epicenter-host": "./src/lib/platform/runtime.epicenter-host.ts",
-			"default": "./src/lib/platform/runtime.browser.ts"
 		}
 	},
 	"scripts": {

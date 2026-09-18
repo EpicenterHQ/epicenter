@@ -6,7 +6,7 @@ import type { ReplicaData } from '@epicenter/app/store';
  * It is a Durable Object for one reason. A replica is an `DataDocument`, a
  * store's durable record is SQLite here, and the only synchronous SQLite
  * inside `workerd` is a Durable Object's own storage. Everything else here is
- * the deployed client: `openAccountStore` for the store, `attachStoreSync`
+ * the deployed client: `openData` for the store, `attachStoreSync`
  * for the dial, over the real routes, so a test can assert on the rows a
  * device actually holds rather than on frames a harness counted.
  *
@@ -24,7 +24,7 @@ import type { ReplicaData } from '@epicenter/app/store';
 
 import { DurableObject } from 'cloudflare:workers';
 
-import { openAccountStore, syncEngineOf } from '@epicenter/app/direct';
+import { openData, syncEngineOf } from '@epicenter/app/data';
 import { attachStoreSync, type SyncConnection } from '@epicenter/app/sync';
 import { asPrincipalId } from '@epicenter/principal';
 import {
@@ -105,10 +105,7 @@ export class StoreTestReplica extends DurableObject<Env> {
 			);
 			// The test replica captures its address before any asynchronous dial.
 			this.store = Object.freeze({
-				...(await openAccountStore({
-					definition: probeDefinition,
-					sqlite: database,
-				})),
+				...(await openData(probeDefinition, database)),
 				appId: probeDefinition.id,
 				dataId: probeDefinition.id,
 				generation: PROBE_GENERATION,

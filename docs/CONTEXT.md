@@ -34,17 +34,14 @@ shapes, see `docs/adr/`.
   crash cannot reconstruct, which is the update log, with the outbox and the
   cursor read off it. One IndexedDB object store in the browser, with no worker
   and no OPFS (ADR-0238, ADR-0241).
-- **Generation**: one whole database, created once by importing a folder and
-  never mutated in place (ADR-0293). It is an exact ADDRESS: the number is in
-  the local record's name, in the authority's Durable Object name, and in the
-  page's URL, which is what retired the document identity stamp (ADR-0292).
-  `openDatabase` takes one and never discovers one. SQL is not stored here: it is a
-  follower an application composes, and no application composed one, so the
-  package no longer ships it (ADR-0269).
-- **Sync attachment**: the permanent binding from a local replica to one
-  principal. First sign-in adds synchronization to the existing replica;
-  signing out pauses it, and another principal requires a fresh replica or
-  explicit destructive clearing.
+- **Generation**: the authority's identity for the current library baseline.
+  App startup downloads or reopens the current library; its generation lives in
+  the cache header, not in the page URL. The numbered-cache client APIs of
+  ADR-0292/0293 are retired by ADR-0407. Historical bytes remain, and the server
+  refuses fresh Personal initialization over admitted history with HTTP 409.
+- **Sync attachment**: a connection held by one account store for its App
+  lifetime. Account replacement closes that App; it does not attach another
+  principal to its existing local state.
 - **Epicenter Home**: an application beside the other typed surfaces, not a shell
   above them (ADR-0209, amended by ADR-0226). It owns the launchable list,
   assistant sessions, commands and approvals. The applications are the crafted
@@ -135,21 +132,21 @@ shapes, see `docs/adr/`.
 - **Library**: one application's data in one destination, named Local,
   Personal, or Shared (ADR-0375). Local is this machine, Personal is one signed-in
   person's server data, Shared is one self-hosted deployment's common data.
-- **App hub** (unbuilt, ADR-0392): what one `open(account)` returns: `device`,
+- **App**: what `openApp(definition, account?)` returns: `device`,
   an optional `account`, plus `signal`, `ready`, and `close`. `device` is always
   present; `account` is present when a person is signed in. The framework supplies
   libraries and safe storage; applications choose library views and write
   destinations without a mandatory picker or copy feature. Each store sits
   under the scope that owns it. A page owns one auth generation, and an account
-  change ends it. Today three openers each return one library instead.
-- **Device scope** (unbuilt, ADR-0392): `app.device`, everything true of this
+  change ends it.
+- **Device scope**: `app.device`, everything true of this
   application's device storage or browser profile. The same store implementation with no
   authority, plus `sqlite`, `secrets`, `connections`, and `recording`, which
   exist nowhere else. Its tables hold the library a person reads as Local. Local data and device
-  preferences survive account changes; they are not account-private.
-  Reopening replaces the handle, not the Local data. Blob storage is app-local
-  and independent of these row libraries.
-- **Account scope** (unbuilt, ADR-0392): `app.account`, everything true of the
+  preferences belong to the captured account, or to the separate no-account
+  namespace. Returning to that owner reopens its bytes (ADR-0404). Blob storage
+  uses the same owner scope and remains independent of row libraries.
+- **Account scope**: `app.account`, everything true of the
   signed-in person on one server, present only while signed in. It holds
   `identity`, the `personal` store, the optional `shared` store, and
   `connection`, that server's inference gateway. It ends with the auth
@@ -294,24 +291,24 @@ shapes, see `docs/adr/`.
 
 ## App composition
 
-- **Application factory**: the one function that opens the application's data,
-  and returns a ready handle, as `packages/app/src/client-owned-data.ts` does
-  behind `epicenter.open()`. There is no readiness promise beside it: opening
-  is the only asynchronous thing, so wanting a separate `whenReady` means a
-  half-open handle.
-- **Data session**: what `epicenter` owns once a definition and an account are
-  passed. Construction is inert; `open` acquires the document, the Web Lock,
-  the persistence connection, the sync socket, and the flush-on-hide listener,
-  and `close` releases all five. `open()` is synchronous and answers a
-  `DataSession` whose `opened` settles once; nothing on the store it resolves
-  can end the session (ADR-0350).
-- **Ready-application shape**: a boot node reads auth reactively and keys one
-  session component on the principal; that component opens, renders `{#await
-  session.opened}`, and closes on unmount. The shell it mounts calls `fromData`
-  once and passes the result down through typed context. Library modules stay
-  inert, which `scripts/check-boot-purity.ts` enforces.
-- **`#platform/*`**: an app's build-time platform seam, selected by the `epicenter-host` condition in a build this repository runs. `@epicenter/app` currently uses the same mechanism. Proposed ADR-0403 would move the package's selection to `isTauri()` at runtime; that change is unbuilt.
-- **`session`**: the singleton holding the signed-in Epicenter lifecycle.
+- **Application declaration**: `defineApp({ id, title, kv, tables })` from
+  `@epicenter/app` validates a platform-free schema. The same value feeds App
+  opening, memory tests, caller-owned SQLite data, and artifact operations.
+- **App lifetime**: `openApp(definition, account?)` from `@epicenter/app/open`
+  returns a handle synchronously. `app.ready` settles acquisition; `app.close()`
+  drains work and releases resources. `app.device` always exists;
+  `app.account` exists when the caller supplied an Account. `compose.ts` owns
+  the private resource lifetime. Public declarations carry no runtime override.
+- **Data document**: `openData(definition, sqlite)` from `@epicenter/app/data`
+  opens over caller-owned SQLite. Disposing the document leaves the connection
+  open. `openMemory` is Bun test support and can borrow a reusable memory record.
+- **Ready-application shape**: a mounted boot node captures auth once, opens an
+  App, and awaits `app.ready`. The shell borrows stores through `fromData`.
+  Deliberate account changes stop UI producers and close the App before full
+  navigation. Callbacks and auxiliary routes open no primary App.
+- **Capability**: the operation surface a consumer borrows from its owner,
+  such as `app.device.sqlite` or `app.blobs.local`. Borrowing operations does
+  not transfer readiness or shutdown ownership.
 - **Device settings vs synced settings**: per-device settings (global shortcuts,
   the microphone, the inference selection) versus synced settings (in-app
   shortcuts). The asymmetry is deliberate (ADR-0007): machine-world settings face

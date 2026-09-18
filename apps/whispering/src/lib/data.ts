@@ -9,12 +9,11 @@ import {
 import type { DeclaredData } from '@epicenter/app/store';
 import { BLOB_ID_ROUTE_REGEX } from '@epicenter/blobs';
 import { APPS } from '@epicenter/constants/apps';
-import { runtime } from '#platform/runtime';
 
 /**
  * Whispering's inert application declaration.
  *
- * The root schema is inspectable without opening storage. Only `.open()`
+ * The root schema is inspectable without opening storage. Only `openApp()`
  * acquires the live App and its resources.
  *
  * Three things about this file are decisions rather than transcription of the
@@ -157,7 +156,6 @@ const settingsKv = {
 } as const;
 
 export const whisperingDefinition = defineApp({
-	runtime,
 	id: APPS.WHISPERING.id,
 	title: 'Whispering',
 	kv: settingsKv,

@@ -128,6 +128,12 @@ costs a redelivery the authority absorbs. `port-conformance.test.ts` pins this
 against both ports; if you are tempted to reuse the low id, that test is why
 you should not.
 
+`@epicenter/app/data` exposes `openData(definition, sqlite)` for callers that
+own SQLite. Its disposal closes the document and flushes persistence, leaving
+the supplied connection open. The Bun-only `/memory` helper owns its fresh
+connection, or borrows a reusable `MemoryRecord`. Public `/store` exports types;
+resource composition stays inside the implementation.
+
 ## What each file owns
 
 | File | Owns |
@@ -135,7 +141,7 @@ you should not.
 | `store.ts` | the live document, the typed surface, and the client half of sync |
 | `persistence.ts` | IDs, the ordered queue, durable mirror, debt merging, and send eligibility |
 | `log.ts` | the SQLite `DurablePort`, the fold, and `replay` |
-| `browser.ts` | the IndexedDB `DurablePort`, the address scheme, generation import over HTTP, and `openDatabase` |
+| `browser.ts` | App-owned current-library acquisition and IndexedDB backing |
 | `document.ts` | the Yjs grammar: table roots, rows, content nodes |
 | `persist.ts` | asking the browser not to evict this origin |
 | `flush-on-hide.ts` | getting the queue onto disk before the page goes away |

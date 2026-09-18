@@ -1,19 +1,10 @@
 /**
- * A store whose durable record lives only as long as the process. Test support.
+ * Bun-only data opening for tests. A fresh record belongs to the opened data;
+ * a supplied record belongs to the caller and survives document disposal.
  *
- * Not a runtime an application opens. An application opens the browser store
- * (`@epicenter/app/store/browser`), which is the one opener a person's data ever
- * lands in: the desktop SPA runs in a WebView over a client-owned store
- * (ADR-0227), and the host owns no application data (ADR-0226). The file
- * opener that used to sit beside this one was deleted with the runtime it
- * served; a Bun or CLI process opening a person's store is a decision, not a
- * default, and would earn its own named opener.
- *
- * It takes the definition for the same reason every opener does, so one entry
- * point has one shape (ADR-0229). It claims no address, and that is not an
- * oversight: two memory stores that mint their own records are two independent
- * documents by construction, which is the two-devices case rather than the
- * two-handles-on-one-record case the claim exists to refuse.
+ * This opens no App resources and claims no application library. Separate
+ * records let tests model independent replicas of the same declaration.
+ * Applications open through `openApp` from `@epicenter/app/open`.
  */
 import { Database } from 'bun:sqlite';
 import type { DataDefinition } from '@epicenter/app/definition';
@@ -30,7 +21,7 @@ import { type Data, openAccountStore } from './store.js';
  * claim that something survives rather than merely exists.
  */
 export type MemoryRecord = {
-	/** Handed to `@epicenter/app/direct` directly by tests that want the seam. */
+	/** Handed to `@epicenter/app/data` directly by tests that want the seam. */
 	readonly sqlite: SqliteDatabase;
 	close(): void;
 };

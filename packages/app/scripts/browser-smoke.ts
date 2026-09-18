@@ -9,6 +9,7 @@ const server = await createServer({
 	optimizeDeps: {
 		entries: [
 			'packages/app/src/index.ts',
+			'packages/app/src/open.ts',
 			'packages/device/src/browser-sqlite.worker.ts',
 		],
 	},
@@ -51,6 +52,10 @@ try {
 		}
 		const appModule = '/packages/app/src/index.ts';
 		const dataModule = '/packages/app/src/data/definition/index.ts';
+		const openModule = '/packages/app/src/open.ts';
+		const { openApp }: typeof import('../src/open.js') = await import(
+			openModule
+		);
 		const { defineApp }: typeof import('../src/index.js') = await import(
 			appModule
 		);
@@ -61,7 +66,7 @@ try {
 			kv: {},
 			id: 'so.epicenter.recording-smoke',
 		});
-		const app = application.open();
+		const app = openApp(application);
 		const ready = await bounded('app ready', app.ready);
 		if (ready.error) throw new Error(JSON.stringify(ready.error));
 		await (
@@ -117,7 +122,7 @@ try {
 		if (cancelled.error) throw new Error(JSON.stringify(cancelled.error));
 		if (table.ids().length !== 1) throw new Error('Cancel created a row');
 		await bounded('close app', app.close());
-		const reopened = application.open();
+		const reopened = openApp(application);
 		const reopenedReady = await bounded('reopen ready', reopened.ready);
 		if (reopenedReady.error)
 			throw new Error(JSON.stringify(reopenedReady.error));

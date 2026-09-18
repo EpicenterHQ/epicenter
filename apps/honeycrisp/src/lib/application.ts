@@ -1,3 +1,4 @@
+import { openApp } from '@epicenter/app/open';
 import { createDeparture } from '@epicenter/app-shell/departure';
 import { authStartup } from '#platform/auth';
 import { honeycrispDefinition } from './data.js';
@@ -18,7 +19,7 @@ export const library: Library = (() => {
 export const canOpenShared = authStartup.selectedServer !== null;
 export const app = new URLSearchParams(location.search).has('connect')
 	? null
-	: honeycrispDefinition.open(account);
+	: openApp(honeycrispDefinition, account);
 export const data =
 	library === 'local'
 		? app?.device

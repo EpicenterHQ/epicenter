@@ -48,6 +48,7 @@ a nested type on the row, not a second document with an address of its own.
 
 ```typescript
 import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { openApp } from '@epicenter/app/open';
 
 const notesDefinition = defineApp({
 	id: 'com.example.notes',
@@ -63,7 +64,7 @@ const notesDefinition = defineApp({
 });
 
 // Open once for this page. Stores become usable after readiness.
-const app = notesDefinition.open();
+const app = openApp(notesDefinition);
 const { error } = await app.ready;
 if (error !== null) throw error;
 const data = app.device;
@@ -78,7 +79,8 @@ stop();
 await app.close();
 ```
 
-An application declaration describes its durable data and exposes `.open()`.
+An application declaration describes its durable data. `openApp` opens its
+resources for one page lifetime.
 Constructing it opens no storage and captures no account. It is
 release-local and never migrates your data. A row it cannot read is reported
 beside the rows it can, with the reason and the raw values intact, and an

@@ -72,7 +72,7 @@ When components stack, show them from high-level to low-level with a one-line jo
 
 ```txt
 defineApp({ tables, kv })            declare and validate the schema
-  declaration.open(account)          acquire application resources
+  openApp(declaration, account)          acquire application resources
     app.ready                       wait for stores and capabilities
 ```
 

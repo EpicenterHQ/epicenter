@@ -24,8 +24,8 @@ for (const condition of [undefined, 'epicenter-host']) {
 					id: 'test.import-boundary', kv: {},
 					tables: { notes: defineTable({ title: field.string() }) },
 				});
-				if (declaration.id !== 'test.import-boundary' || typeof declaration.open !== 'function') {
-					throw new Error('The declaration lost its identity or opener.');
+				if (declaration.id !== 'test.import-boundary' || 'open' in declaration) {
+					throw new Error('The declaration lost its identity or contains an opener.');
 				}
 				`,
 			],
@@ -40,10 +40,11 @@ for (const condition of [undefined, 'epicenter-host']) {
 }
 
 for (const entrypoint of [
+	'',
 	'field',
 	'definition',
 	'store',
-	'direct',
+	'data',
 	'sync',
 	'artifact',
 	'artifact/format',
@@ -57,7 +58,7 @@ for (const entrypoint of [
 				'--eval',
 				`
 			const result = await Bun.build({
-				entrypoints: [Bun.resolveSync('@epicenter/app/${entrypoint}', process.cwd())],
+				entrypoints: [Bun.resolveSync('@epicenter/app${entrypoint ? `/${entrypoint}` : ''}', process.cwd())],
 				target: '${entrypoint === 'memory' ? 'bun' : 'browser'}', metafile: true,
 			});
 			if (!result.success) throw new AggregateError(result.logs);
@@ -77,7 +78,7 @@ for (const entrypoint of [
 		expect(
 			loaded.filter(
 				(path) =>
-					/\/app\/src\/(?:index\.ts|open\.ts|ai\.ts|ai-connections[^/]*\.ts|native-ai\.ts|platform\/|recording\/|browser\.ts|epicenter-host\.ts)/.test(
+					/\/app\/src\/(?:open\.ts|compose\.ts|ai\.ts|ai-connections[^/]*\.ts|native-ai\.ts|platform\/|recording\/|browser\.ts|epicenter-host\.ts)/.test(
 						path,
 					) ||
 					/\/(?:device|blobs)\/src\/(?:browser|desktop|webview)/.test(path) ||

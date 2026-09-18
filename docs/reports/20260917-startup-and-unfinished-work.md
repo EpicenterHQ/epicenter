@@ -1,5 +1,7 @@
 # Repository situation and startup verification
 
+Current API decisions are recorded in [ADR-0407](../adr/0407-app-owns-the-declaration-and-data-engine.md). This report preserves its earlier checkpoint; historical helpers and public runtime overrides are now retired without migrating old bytes.
+
 > Historical checkpoint: the findings below describe the named review baseline.
 > Integration on 2026-09-18 committed the retained evidence and removed the
 > unmounted initial-generation experiment. The App API has since moved to

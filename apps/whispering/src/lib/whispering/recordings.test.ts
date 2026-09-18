@@ -8,7 +8,7 @@ import { expect, spyOn, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openAccountStore } from '@epicenter/app/direct';
+import { openData } from '@epicenter/app/data';
 import { InstantString } from '@epicenter/app/field';
 import { BlobStoreError, generateBlobId } from '@epicenter/blobs';
 import { createAppBlobs } from '@epicenter/blobs/app';
@@ -36,11 +36,10 @@ async function setup(directory?: string) {
 		directory ?? (await mkdtemp(join(tmpdir(), 'whispering-local-blobs-')));
 	const sqlite = new Database(join(root, 'rows.sqlite'));
 	const local = createBunBlobStore({ directory: join(root, 'bytes') });
-	const data = await openAccountStore({
-		definition: whisperingDefinition,
-		sqlite: createBunSqliteAdapter(sqlite),
-		dispose: () => sqlite.close(),
-	});
+	const data = await openData(
+		whisperingDefinition,
+		createBunSqliteAdapter(sqlite),
+	);
 	const access = createAppBlobs({
 		local,
 		sources: createBrowserBlobSources(local),
@@ -59,7 +58,11 @@ async function setup(directory?: string) {
 		async close() {
 			domain[Symbol.dispose]();
 			await access.close();
-			await data[Symbol.asyncDispose]();
+			try {
+				await data[Symbol.asyncDispose]();
+			} finally {
+				sqlite.close();
+			}
 		},
 		async dispose() {
 			await this.close();

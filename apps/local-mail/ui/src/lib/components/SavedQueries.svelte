@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AppStore } from '@epicenter/app';
+	import type { AppStore } from '@epicenter/app/open';
 	import type { QueryResult, QueryValue } from '@epicenter/device';
 	import { fromData } from '@epicenter/svelte';
 	import * as Alert from '@epicenter/ui/alert';

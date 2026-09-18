@@ -5,8 +5,8 @@
  * is the only such SQLite `workerd` supplies. This is NOT the browser storage
  * topology: a browser keeps its durable client facts in IndexedDB. The peer
  * keeps them in its one DO SQLite database through the engine seam
- * (`@epicenter/app/direct`), so this Worker-runtime test can run the real
- * `openAccountStore`, `createSyncClient`, and WebSocket protocol against
+ * (`@epicenter/app/data`), so this Worker-runtime test can run the real
+ * `openData`, `createSyncClient`, and WebSocket protocol against
  * the real authority.
  *
  * Therefore this fixture proves authority hibernation and protocol convergence,
@@ -19,7 +19,7 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import { defineApp, defineTable, field, plainText } from '@epicenter/app';
-import { openAccountStore } from '@epicenter/app/direct';
+import { openData } from '@epicenter/app/data';
 import {
 	createSyncClient,
 	decodeFrame,
@@ -51,7 +51,7 @@ const labDatabase = defineApp({
 function openNotes(
 	sqlite: ReturnType<typeof createDurableObjectSqliteAdapter>,
 ) {
-	return openAccountStore({ definition: labDatabase, sqlite });
+	return openData(labDatabase, sqlite);
 }
 
 /**

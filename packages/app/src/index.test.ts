@@ -1,23 +1,29 @@
 /**
  * What `defineApp` decides before it acquires anything.
  *
- * Checks lazy declaration, default storage and settings, independent runtime and
- * AI replacement, and definition inference through the public declaration.
+ * Checks inert declarations, build-selected resources, and schema inference.
+ * Internal composition exercises resource failures and lifetime cleanup.
  */
 
 import 'fake-indexeddb/auto';
 import { expect, spyOn, test } from 'bun:test';
 import { defineTable, field } from '@epicenter/app';
-import { canonicalJson, compileData } from '@epicenter/app/definition';
+import { compileData } from '@epicenter/app/definition';
 import { openMemory } from '@epicenter/app/memory';
+import type { Account } from '@epicenter/auth';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { resources } from '#platform/resources';
 import { createAiConnections } from './ai-connections.js';
-import { browser, createBrowserAppBlobs } from './browser.js';
+import { composeApp } from './compose.js';
 import { defineApp } from './index.js';
+import { openApp } from './open.js';
+import {
+	resources as browser,
+	createBrowserAppBlobs,
+} from './platform/browser.js';
 
 installTestLocks();
 
@@ -42,30 +48,34 @@ test('App readiness includes catalog hydration and failed hydration releases the
 	const hydrated = Promise.withResolvers<void>();
 	const appId = `test.${crypto.randomUUID()}`;
 	let released = false;
-	const application = defineApp({
-		...definition,
-		id: appId,
-		runtime: { ...browser, sqlite, blobs },
-		ai: {
-			runtime: null,
-			account: null,
-			connections() {
-				const owner = createAiConnections({
-					storageKey: appId,
-					storage: { getItem: () => null, setItem() {} },
-				});
-				return {
-					...owner,
-					ready: hydrated.promise,
-					close() {
-						released = true;
-						owner.close();
-					},
-				};
+	const applicationDefinition = defineApp({ ...definition, id: appId });
+	const application = (account?: Account) =>
+		composeApp(applicationDefinition, {
+			appId: applicationDefinition.id,
+			account,
+			...browser,
+			sqlite,
+			blobs,
+			ai: {
+				runtime: null,
+				account: null,
+				connections() {
+					const owner = createAiConnections({
+						storageKey: appId,
+						storage: { getItem: () => null, setItem() {} },
+					});
+					return {
+						...owner,
+						ready: hydrated.promise,
+						close() {
+							released = true;
+							owner.close();
+						},
+					};
+				},
 			},
-		},
-	});
-	const app = application.open();
+		});
+	const app = application();
 	let ready = false;
 	void app.ready.then(() => {
 		ready = true;
@@ -76,23 +86,21 @@ test('App readiness includes catalog hydration and failed hydration releases the
 	expect((await app.ready).error).not.toBeNull();
 	expect(released).toBe(true);
 	await app.close();
-	const replacement = defineApp({
-		...definition,
-		id: appId,
-		runtime: { ...browser, sqlite, blobs },
+	const replacementDefinition = defineApp({ ...definition, id: appId });
+	const replacement = composeApp(replacementDefinition, {
+		appId: replacementDefinition.id,
+		account: undefined,
+		...browser,
+		sqlite,
+		blobs,
 		ai: { account: null, runtime: null },
-	}).open();
+	});
 	expectOk(await replacement.ready);
 	await replacement.close();
 });
 
 test('the declaration exposes one identity and the schema without implementation options', () => {
-	const application = defineApp({
-		...definition,
-		title: 'Notes',
-		runtime: { ...browser, sqlite, blobs },
-		ai: { runtime: null, account: null },
-	});
+	const application = defineApp({ ...definition, title: 'Notes' });
 	expect(application.id).toBe(definition.id);
 	expect(application.title).toBe('Notes');
 	expect(application.tables).toBe(definition.tables);
@@ -100,7 +108,6 @@ test('the declaration exposes one identity and the schema without implementation
 	expect(Object.keys(application).sort()).toEqual([
 		'id',
 		'kv',
-		'open',
 		'tables',
 		'title',
 	]);
@@ -108,20 +115,9 @@ test('the declaration exposes one identity and the schema without implementation
 });
 
 test('an application id this platform cannot file refuses at construction', () => {
-	// It throws rather than answering a `Result`, because an id reaching this
-	// is a constant in a build and a wrong one is a bug, not a condition.
-	expect(() =>
-		defineApp({
-			...definition,
-			id: 'not an app id',
-			runtime: {
-				...browser,
-				sqlite,
-				blobs,
-			},
-			ai: { runtime: null, account: null },
-		}),
-	).toThrow('is not valid');
+	expect(() => defineApp({ ...definition, id: 'not an app id' })).toThrow(
+		'is not valid',
+	);
 });
 
 test('declaring the default application acquires neither browser storage nor AI settings', async () => {
@@ -161,7 +157,7 @@ test('default resources preserve blobs and the no-account AI catalog', async () 
 		sqlite.acquire,
 	);
 	const application = defineApp({ ...definition, id: appId });
-	const app = application.open();
+	const app = openApp(application);
 	try {
 		expectOk(await app.ready);
 		expect(acquire).not.toHaveBeenCalled();
@@ -178,7 +174,7 @@ test('default resources preserve blobs and the no-account AI catalog', async () 
 			'epicenter/ai/no-account.app-ai-connections',
 		]);
 		await app.close();
-		const reopened = application.open();
+		const reopened = openApp(application);
 		try {
 			expectOk(await reopened.ready);
 			expect(
@@ -197,13 +193,14 @@ test('default resources preserve blobs and the no-account AI catalog', async () 
 	}
 });
 
-test('an explicit runtime selects all resources while explicit AI omits default connections', async () => {
+test('composition uses its resources and explicit AI omits default connections', async () => {
 	const calls: string[] = [];
 	const appId = 'test.' + crypto.randomUUID();
-	const application = defineApp({
-		...definition,
-		id: appId,
-		runtime: {
+	const applicationDefinition = defineApp({ ...definition, id: appId });
+	const application = (account?: Account) =>
+		composeApp(applicationDefinition, {
+			appId: applicationDefinition.id,
+			account,
 			sqlite: {
 				async acquire(id) {
 					calls.push('sqlite');
@@ -222,11 +219,10 @@ test('an explicit runtime selects all resources while explicit AI omits default 
 				calls.push('recording');
 				return browser.recording(...args);
 			},
-		},
-		ai: { runtime: null, account: null },
-	});
+			ai: { runtime: null, account: null },
+		});
 	expect(calls).toEqual([]);
-	const app = application.open();
+	const app = application();
 	try {
 		expectOk(await app.ready);
 		expect(calls.sort()).toEqual(['blobs', 'recording', 'secrets']);
@@ -240,15 +236,21 @@ test('an explicit runtime selects all resources while explicit AI omits default 
 	}
 });
 
-test('definition inference retains table and field names through a runtime override', async () => {
-	const application = defineApp({
+test('composition retains table and field names', async () => {
+	const applicationDefinition = defineApp({
 		tables: { notes: defineTable({ title: field.string() }) },
 		kv: {},
 		id: 'test.' + crypto.randomUUID(),
-		runtime: { ...browser, sqlite },
-		ai: { runtime: null, account: null },
 	});
-	const app = application.open();
+	const application = (account?: Account) =>
+		composeApp(applicationDefinition, {
+			appId: applicationDefinition.id,
+			account,
+			...browser,
+			sqlite,
+			ai: { runtime: null, account: null },
+		});
+	const app = application();
 	try {
 		expectOk(await app.ready);
 		app.device.tables.notes.create({ title: 'Typed title' });
@@ -269,12 +271,10 @@ test('the same declaration compiles and opens in memory without acquiring App re
 	try {
 		for (const title of [undefined, 'Notes']) {
 			const input = { ...schema, ...(title === undefined ? {} : { title }) };
-			const declaration = defineApp({
-				...input,
-				runtime: browser,
-				ai: { runtime: null, account: null },
-			});
-			expect(canonicalJson(declaration)).toBe(canonicalJson(input));
+			const declaration = defineApp(input);
+			expect(declaration.tables).toBe(input.tables);
+			expect(declaration.kv).toBe(input.kv);
+			expectOk(compileData(declaration));
 			expect(compileData(declaration)).toBe(compileData(declaration));
 			const memory = await openMemory(declaration);
 			try {

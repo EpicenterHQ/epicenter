@@ -49,7 +49,7 @@ export function visible(doc: Y.Doc, wrapped = true) {
 		}));
 }
 
-/** Copies this fixture's scalar fields and plain text, not arbitrary rich content. */
+/** Copies this fixture's value fields and plain text, not arbitrary rich content. */
 export function reconstruct(source: Y.Doc, fresh = false): Y.Doc {
 	const saved = visible(source);
 	const target = fresh ? new Y.Doc({ gc: true }) : source;

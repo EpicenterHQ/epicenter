@@ -7,7 +7,7 @@ import {
 	createBrowserSecrets,
 	createBrowserSqliteOwner,
 } from '@epicenter/device/browser';
-import type { AppBlobFactory } from '../index.js';
+import type { AppBlobFactory } from '../compose.js';
 import { createBrowserRecording } from '../recording/browser.js';
 
 export function createBrowserAppBlobs(): AppBlobFactory {

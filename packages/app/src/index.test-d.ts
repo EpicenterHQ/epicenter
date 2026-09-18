@@ -3,6 +3,7 @@ import { expectTypeOf } from 'bun:test';
 import { defineTable, field, type KvOf, type RowOf } from '@epicenter/app';
 import type { Account } from '@epicenter/auth';
 import { defineApp } from './index.js';
+import { openApp } from './open.js';
 
 const notes = defineApp({
 	id: 'test.notes',
@@ -23,10 +24,10 @@ expectTypeOf(untitled.title).toEqualTypeOf<string | undefined>();
 
 // Checked without opening any runtime resources.
 function openings(account: Account, maybe: Account | undefined) {
-	const local = notes.open();
-	const explicitLocal = notes.open(undefined);
-	const signedIn = notes.open(account);
-	const optional = notes.open(maybe);
+	const local = openApp(notes);
+	const explicitLocal = openApp(notes, undefined);
+	const signedIn = openApp(notes, account);
+	const optional = openApp(notes, maybe);
 	expectTypeOf(local.account).toEqualTypeOf<undefined>();
 	expectTypeOf(explicitLocal.account).toEqualTypeOf<undefined>();
 	expectTypeOf(signedIn.account).not.toBeUndefined();
@@ -36,7 +37,7 @@ function openings(account: Account, maybe: Account | undefined) {
 	signedIn.account.personal.tables.notes.create({ title: 'Typed' });
 	local.device.kv.update({ language: 'en' });
 	// @ts-expect-error A generic argument cannot supply an absent Account.
-	notes.open<Account>();
+	openApp<typeof notes, Account>(notes);
 	// @ts-expect-error An App opened without an account has no personal store.
 	local.account.personal;
 	// @ts-expect-error The declaration has no tasks table.
@@ -61,6 +62,14 @@ function openings(account: Account, maybe: Account | undefined) {
 void openings;
 
 function invalidDeclarations() {
+	// @ts-expect-error Declarations do not own live resources.
+	notes.open();
+	// @ts-expect-error The build chooses platform resources.
+	defineApp({ id: 'test.runtime', tables: {}, kv: {}, runtime: {} });
+	// @ts-expect-error AI wiring is not part of a schema.
+	defineApp({ id: 'test.ai', tables: {}, kv: {}, ai: {} });
+	// @ts-expect-error The public opener accepts an account, not resource options.
+	openApp(notes, { runtime: {} });
 	defineApp({
 		id: 'test.invalid',
 		tables: {},

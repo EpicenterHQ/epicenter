@@ -13,9 +13,10 @@ import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { browser } from './browser.js';
+import { composeApp } from './compose.js';
 import { encodeFrame } from './data/sync/frames.js';
 import { defineApp } from './index.js';
+import { resources as browser } from './platform/browser.js';
 
 installTestLocks();
 
@@ -98,13 +99,14 @@ test('document retirement aborts an upload and releases playback before explicit
 			};
 		},
 	};
-	const app = defineApp({
-		tables: {},
-		kv: {},
-		id: appId,
-		runtime: { ...browser, sqlite },
+	const appDefinition = defineApp({ tables: {}, kv: {}, id: appId });
+	const app = composeApp(appDefinition, {
+		appId: appDefinition.id,
+		account,
+		...browser,
+		sqlite,
 		ai: { runtime: null, account: null },
-	}).open(account);
+	});
 	try {
 		expectOk(await app.ready);
 		await Bun.sleep(0);

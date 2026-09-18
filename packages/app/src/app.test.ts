@@ -7,7 +7,7 @@
 import 'fake-indexeddb/auto';
 import { expect, spyOn, test } from 'bun:test';
 import { defineTable, field, plainText } from '@epicenter/app';
-import * as dataBrowser from '@epicenter/app/store/browser';
+import * as dataBrowser from './data/store/browser.js';
 import type { Account } from '@epicenter/auth';
 import {
 	type AppSqliteDatabase,
@@ -15,7 +15,6 @@ import {
 	SecretError,
 	secretLabel,
 } from '@epicenter/device';
-import { createBrowserSecrets } from '@epicenter/device/browser';
 import {
 	createSqliteOwner,
 	type DeviceSqliteOwner,
@@ -26,10 +25,14 @@ import { createCurrentDownloadResponse } from '@epicenter/sync/current-download'
 import { Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createAiConnections } from './ai-connections.js';
-import { browser, createBrowserAppBlobs } from './browser.js';
+import { composeApp } from './compose.js';
 import { encodeFrame } from './data/sync/frames.js';
 import { defineApp } from './index.js';
-import { openApp } from './open.js';
+import {
+	resources as browser,
+	createBrowserAppBlobs,
+} from './platform/browser.js';
+
 import { createBrowserRecording } from './recording/browser.js';
 
 installTestLocks();
@@ -58,15 +61,13 @@ const definition = defineApp({
 	},
 });
 
-const create = () =>
-	defineApp({
-		...definition,
-		id: 'so.epicenter.app-test',
-		runtime: {
-			...browser,
-			sqlite: testSqlite,
-			blobs: testBlobs,
-		},
+const create = (account?: Account) =>
+	composeApp(definition, {
+		appId: definition.id,
+		account,
+		...browser,
+		sqlite: testSqlite,
+		blobs: testBlobs,
 		ai: { runtime: null, account: null },
 	});
 
@@ -106,7 +107,7 @@ async function clearStorage() {
 
 test('local handle opens without account and survives close and reopen', async () => {
 	await clearStorage();
-	const first = create().open();
+	const first = create();
 	expect(first.device.library).toBe('local');
 	expect(first.account).toBeUndefined();
 	expect(first.libraryReplaced).toBeUndefined();
@@ -117,7 +118,7 @@ test('local handle opens without account and survives close and reopen', async (
 	first.device.tables.notes.create({ title: 'kept locally' });
 	await first.close();
 
-	const second = create().open();
+	const second = create();
 	expectOk(await second.ready);
 	expect(second.device.tables.notes.rows.map((row) => row.title)).toEqual([
 		'kept locally',
@@ -126,11 +127,9 @@ test('local handle opens without account and survives close and reopen', async (
 });
 
 test.each([
-	['app', 'before acquisition'],
-	['app', 'during acquisition'],
-	['data', 'before acquisition'],
-	['data', 'during acquisition'],
-] as const)('%s capabilities retain the original account when a replacement is created %s', async (entry, timing) => {
+	'before acquisition',
+	'during acquisition',
+] as const)('capabilities retain the original account when a replacement is created %s', async (timing) => {
 	await clearStorage();
 	const requested = Promise.withResolvers<void>();
 	const releaseRequest = Promise.withResolvers<void>();
@@ -175,32 +174,25 @@ test.each([
 			throw new Error('Not needed for SQLite scope.');
 		},
 	};
-	const epicenter = defineApp({
+	const fixtureDefinition = defineApp({
 		...definition,
 		id: 'so.epicenter.app-test',
-		runtime: {
+	});
+	const openFixture = (account?: Account) =>
+		composeApp(fixtureDefinition, {
+			appId: fixtureDefinition.id,
+			account,
 			...browser,
 			sqlite: owner,
 			blobs: testBlobs,
-		},
-		ai: { runtime: null, account: null },
-	});
-	const localApp = epicenter.open();
+			ai: { runtime: null, account: null },
+		});
+	const localApp = openFixture();
 	expect(() => localApp.device.sqlite.open('search')).toThrow('not ready');
 	expectOk(await localApp.ready);
 	const localDatabase = expectOk(await localApp.device.sqlite.open('search'));
 	await localApp.close();
-	const accountApp =
-		entry === 'app'
-			? epicenter.open(account)
-			: openApp(definition, {
-					appId: 'so.epicenter.app-test',
-					account,
-					blobs: testBlobs,
-					sqlite: owner,
-					recording: createBrowserRecording,
-					secrets: createBrowserSecrets,
-				});
+	const accountApp = openFixture(account);
 	if (timing === 'during acquisition') await requested.promise;
 	const replacement: Account = Object.freeze({
 		...account,
@@ -258,16 +250,18 @@ test('closing waits for an admitted SQLite delete', async () => {
 			close: async () => undefined,
 		}),
 	};
-	const app = defineApp({
+	const appDefinition = defineApp({
 		...definition,
 		id: 'so.epicenter.app-test',
-		runtime: {
-			...browser,
-			sqlite: owner,
-			blobs: testBlobs,
-		},
+	});
+	const app = composeApp(appDefinition, {
+		appId: appDefinition.id,
+		account: undefined,
+		...browser,
+		sqlite: owner,
+		blobs: testBlobs,
 		ai: { runtime: null, account: null },
-	}).open();
+	});
 	expectOk(await app.ready);
 	const deleting = app.device.sqlite.delete('search');
 	await deleteStarted;
@@ -275,16 +269,18 @@ test('closing waits for an admitted SQLite delete', async () => {
 	const closing = app.close().then(() => {
 		closed = true;
 	});
-	const replacement = defineApp({
+	const replacementDefinition = defineApp({
 		...definition,
 		id: 'so.epicenter.app-test',
-		runtime: {
-			...browser,
-			sqlite: owner,
-			blobs: testBlobs,
-		},
+	});
+	const replacement = composeApp(replacementDefinition, {
+		appId: replacementDefinition.id,
+		account: undefined,
+		...browser,
+		sqlite: owner,
+		blobs: testBlobs,
 		ai: { runtime: null, account: null },
-	}).open();
+	});
 	await Promise.resolve();
 	expect(closed).toBe(false);
 	expect(expectErr(await replacement.ready).name).toBe('AlreadyOpen');
@@ -293,16 +289,18 @@ test('closing waits for an admitted SQLite delete', async () => {
 	await closing;
 	expect(closed).toBe(true);
 	await replacement.close();
-	const reopened = defineApp({
+	const reopenedDefinition = defineApp({
 		...definition,
 		id: 'so.epicenter.app-test',
-		runtime: {
-			...browser,
-			sqlite: owner,
-			blobs: testBlobs,
-		},
+	});
+	const reopened = composeApp(reopenedDefinition, {
+		appId: reopenedDefinition.id,
+		account: undefined,
+		...browser,
+		sqlite: owner,
+		blobs: testBlobs,
 		ai: { runtime: null, account: null },
-	}).open();
+	});
 	expectOk(await reopened.ready);
 	await reopened.close();
 });
@@ -339,16 +337,18 @@ test('every retained SQL verb refuses closed use without reaching the shared own
 			close: async () => undefined,
 		}),
 	};
-	const app = defineApp({
+	const appDefinition = defineApp({
 		...definition,
 		id: 'so.epicenter.app-test',
-		runtime: {
-			...browser,
-			sqlite: owner,
-			blobs: testBlobs,
-		},
+	});
+	const app = composeApp(appDefinition, {
+		appId: appDefinition.id,
+		account: undefined,
+		...browser,
+		sqlite: owner,
+		blobs: testBlobs,
 		ai: { runtime: null, account: null },
-	}).open();
+	});
 	const { open, delete: remove } = app.device.sqlite;
 	for (const operation of [() => open('search'), () => remove('search')])
 		expect(operation).toThrow('not ready');
@@ -417,16 +417,18 @@ test.each([
 			close: async () => undefined,
 		}),
 	};
-	const app = defineApp({
+	const appDefinition = defineApp({
 		...definition,
 		id: 'so.epicenter.app-test',
-		runtime: {
-			...browser,
-			sqlite: owner,
-			blobs: testBlobs,
-		},
+	});
+	const app = composeApp(appDefinition, {
+		appId: appDefinition.id,
+		account: undefined,
+		...browser,
+		sqlite: owner,
+		blobs: testBlobs,
 		ai: { runtime: null, account: null },
-	}).open();
+	});
 	expectOk(await app.ready);
 	const database = expectOk(await app.device.sqlite.open('search'));
 	const pending: Promise<Result<unknown, DeviceError>> =
@@ -438,7 +440,7 @@ test.each([
 	try {
 		await started.promise;
 		expect(reentrant).toBe(app.close());
-		const duplicate = create().open();
+		const duplicate = create();
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close();
 		released.resolve();
@@ -474,16 +476,18 @@ test('a late SQL open refuses publication and physically closes without deleting
 			deletes++;
 		},
 	});
-	const app = defineApp({
+	const appDefinition = defineApp({
 		...definition,
 		id: 'so.epicenter.app-test',
-		runtime: {
-			...browser,
-			sqlite: owner,
-			blobs: testBlobs,
-		},
+	});
+	const app = composeApp(appDefinition, {
+		appId: appDefinition.id,
+		account: undefined,
+		...browser,
+		sqlite: owner,
+		blobs: testBlobs,
 		ai: { runtime: null, account: null },
-	}).open();
+	});
 	expectOk(await app.ready);
 	const pending = app.device.sqlite.open('search');
 	const outcome = Promise.allSettled([pending]);
@@ -516,10 +520,14 @@ test('close drains admitted local writes before releasing the app claim', async 
 	await clearStorage();
 	const gate = Promise.withResolvers<void>();
 	const entered = Promise.withResolvers<void>();
-	const application = defineApp({
+	const fixtureDefinition = defineApp({
 		...definition,
 		id: 'so.epicenter.app-test',
-		runtime: {
+	});
+	const openFixture = (account?: Account) =>
+		composeApp(fixtureDefinition, {
+			appId: fixtureDefinition.id,
+			account,
 			...browser,
 			sqlite: testSqlite,
 			blobs(input) {
@@ -532,10 +540,9 @@ test('close drains admitted local writes before releasing the app claim', async 
 				};
 				return bytes;
 			},
-		},
-		ai: { runtime: null, account: null },
-	});
-	const app = application.open();
+			ai: { runtime: null, account: null },
+		});
+	const app = openFixture();
 	expectOk(await app.ready);
 	const writing = app.blobs.local.add(new Blob(['saved']));
 	await entered.promise;
@@ -548,7 +555,7 @@ test('close drains admitted local writes before releasing the app claim', async 
 	gate.resolve();
 	const blobId = expectOk(await writing);
 	await closing;
-	const reopened = application.open();
+	const reopened = openFixture();
 	expectOk(await reopened.ready);
 	expect(await expectOk(await reopened.blobs.local.get(blobId)).text()).toBe(
 		'saved',
@@ -558,7 +565,7 @@ test('close drains admitted local writes before releasing the app claim', async 
 
 test('the app handle owns scoped blob reads and writes by BlobId', async () => {
 	await clearStorage();
-	const app = create().open();
+	const app = create();
 	expectOk(await app.ready);
 
 	const id = expectOk(
@@ -575,7 +582,7 @@ test('the app handle owns scoped blob reads and writes by BlobId', async () => {
 
 test('rows reference independently saved blobs and deleting a row leaves bytes intact', async () => {
 	await clearStorage();
-	const app = create().open();
+	const app = create();
 	expectOk(await app.ready);
 	const blobId = expectOk(
 		await app.blobs.local.add(new Blob(['recorded bytes'])),
@@ -586,7 +593,7 @@ test('rows reference independently saved blobs and deleting a row leaves bytes i
 		'recorded bytes',
 	);
 	await app.close();
-	const reopened = create().open();
+	const reopened = create();
 	expectOk(await reopened.ready);
 	expect(reopened.device.tables.recordings.get(row.id)).toBeUndefined();
 	expect(
@@ -597,7 +604,7 @@ test('rows reference independently saved blobs and deleting a row leaves bytes i
 
 test('closing during acquisition reports closure and releases the resource', async () => {
 	await clearStorage();
-	const app = create().open();
+	const app = create();
 	const closing = app.close();
 	expect(expectErr(await app.ready).name).toBe('ClosedWhileOpening');
 	await closing;
@@ -605,7 +612,7 @@ test('closing during acquisition reports closure and releases the resource', asy
 
 test('access is gated and a rejected duplicate cannot release the first app', async () => {
 	await clearStorage();
-	const first = create().open();
+	const first = create();
 	const notes = first.device.tables.notes;
 	const kv = first.device.kv;
 	const retainedAdd = first.blobs.local.add;
@@ -620,7 +627,7 @@ test('access is gated and a rejected duplicate cannot release the first app', as
 	expect(first.device.kv).toBe(kv);
 	expect(first.blobs.local.add).toBe(retainedAdd);
 
-	const duplicate = create().open();
+	const duplicate = create();
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	expect(() => duplicate.blobs.local.add(new Blob(['rejected']))).toThrow(
 		'disposed',
@@ -628,7 +635,7 @@ test('access is gated and a rejected duplicate cannot release the first app', as
 	await duplicate.close();
 	first.device.tables.notes.create({ title: 'still owned by the first app' });
 
-	const another = create().open();
+	const another = create();
 	expect(expectErr(await another.ready).name).toBe('AlreadyOpen');
 	await another.close();
 	expect(first.device.tables.notes.rows).toHaveLength(1);
@@ -637,7 +644,7 @@ test('access is gated and a rejected duplicate cannot release the first app', as
 
 test('repeated close shares completion and permits a fresh open afterward', async () => {
 	await clearStorage();
-	const app = create().open();
+	const app = create();
 	expectOk(await app.ready);
 	app.device.tables.notes.create({ title: 'flushed on close' });
 	const notes = app.device.tables.notes;
@@ -652,7 +659,7 @@ test('repeated close shares completion and permits a fresh open afterward', asyn
 	expect(() => encode()).toThrow();
 	await closing;
 
-	const reopened = create().open();
+	const reopened = create();
 	expectOk(await reopened.ready);
 	expect(reopened.device.tables.notes.rows[0]?.title).toBe('flushed on close');
 	await reopened.close();
@@ -660,7 +667,7 @@ test('repeated close shares completion and permits a fresh open afterward', asyn
 
 test('account acquisition hydrates the existing handles and survives refused sync', async () => {
 	await clearStorage();
-	const seed = create().open();
+	const seed = create();
 	expectOk(await seed.ready);
 	seed.device.tables.notes.create({ title: 'from the account' });
 	const snapshot = seed.device.encodeStateSince();
@@ -689,7 +696,7 @@ test('account acquisition hydrates the existing handles and survives refused syn
 			throw new Error('Opening data must not fetch a profile.');
 		},
 	};
-	const app = create().open(account);
+	const app = create(account);
 	const notes = app.account!.personal.tables.notes;
 	expect(app.account!.identity).toEqual({
 		authorityId: 'test-authority',
@@ -703,7 +710,7 @@ test('account acquisition hydrates the existing handles and survives refused syn
 	notes.create({ title: 'still editable' });
 	await app.close();
 
-	const reopened = create().open(account);
+	const reopened = create(account);
 	expectOk(await reopened.ready);
 	expect(fetches).toBe(1);
 	expect(reopened.account!.personal.tables.notes.rows).toHaveLength(2);
@@ -722,12 +729,6 @@ test('invalid definitions throw before opening storage', async () => {
 					typeof field.string
 				>,
 			},
-			runtime: {
-				...browser,
-				sqlite: testSqlite,
-				blobs: testBlobs,
-			},
-			ai: { runtime: null, account: null },
 		});
 	expect(invalid).toThrow();
 	expect(
@@ -754,16 +755,18 @@ test('physical SQL close retains the library claim across schema variants', asyn
 			};
 		},
 	};
-	const first = defineApp({
+	const firstDefinition = defineApp({
 		...definition,
 		id: 'so.epicenter.app-test',
-		runtime: {
-			...browser,
-			sqlite: owner,
-			blobs: testBlobs,
-		},
+	});
+	const first = composeApp(firstDefinition, {
+		appId: firstDefinition.id,
+		account: undefined,
+		...browser,
+		sqlite: owner,
+		blobs: testBlobs,
 		ai: { runtime: null, account: null },
-	}).open();
+	});
 	expectOk(await first.ready);
 	const siblingDefinition = defineApp({
 		id: 'so.epicenter.sibling',
@@ -771,16 +774,17 @@ test('physical SQL close retains the library claim across schema variants', asyn
 		kv: {},
 	});
 	const sibling = () =>
-		defineApp({
-			...siblingDefinition,
-			id: 'so.epicenter.app-test',
-			runtime: {
+		composeApp(
+			defineApp({ ...siblingDefinition, id: 'so.epicenter.app-test' }),
+			{
+				appId: 'so.epicenter.app-test',
+				account: undefined,
 				...browser,
 				sqlite: owner,
 				blobs: testBlobs,
+				ai: { runtime: null, account: null },
 			},
-			ai: { runtime: null, account: null },
-		}).open();
+		);
 	const duplicate = sibling();
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	await duplicate.close();
@@ -806,10 +810,11 @@ test('physical SQL close retains the library claim across schema variants', asyn
 test('failed durable release retains SQL and the common library claim', async () => {
 	const appId = `test.${crypto.randomUUID()}`;
 	let sqlCloses = 0;
-	const epicenter = defineApp({
-		...definition,
-		id: appId,
-		runtime: {
+	const fixtureDefinition = defineApp({ ...definition, id: appId });
+	const openFixture = (account?: Account) =>
+		composeApp(fixtureDefinition, {
+			appId: fixtureDefinition.id,
+			account,
 			...browser,
 			blobs: testBlobs,
 			sqlite: {
@@ -823,10 +828,9 @@ test('failed durable release retains SQL and the common library claim', async ()
 					};
 				},
 			},
-		},
-		ai: { runtime: null, account: null },
-	});
-	const app = epicenter.open();
+			ai: { runtime: null, account: null },
+		});
+	const app = openFixture();
 	expectOk(await app.ready);
 	expectOk(await app.device.sqlite.open('search'));
 	const close = spyOn(IDBDatabase.prototype, 'close');
@@ -836,7 +840,7 @@ test('failed durable release retains SQL and the common library claim', async ()
 	try {
 		await expect(app.close()).rejects.toThrow('Durable close failed');
 		expect(sqlCloses).toBe(0);
-		const duplicate = epicenter.open();
+		const duplicate = openFixture();
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close();
 	} finally {
@@ -848,10 +852,11 @@ test('failed bootstrap cleanup retains library ownership without acquiring SQL',
 	const appId = `test.${crypto.randomUUID()}`;
 	let sqlCloses = 0;
 	let sqlAcquisitions = 0;
-	const epicenter = defineApp({
-		...definition,
-		id: appId,
-		runtime: {
+	const fixtureDefinition = defineApp({ ...definition, id: appId });
+	const openFixture = (account?: Account) =>
+		composeApp(fixtureDefinition, {
+			appId: fixtureDefinition.id,
+			account,
 			...browser,
 			blobs: testBlobs,
 			sqlite: {
@@ -866,21 +871,20 @@ test('failed bootstrap cleanup retains library ownership without acquiring SQL',
 					};
 				},
 			},
-		},
-		ai: { runtime: null, account: null },
-	});
+			ai: { runtime: null, account: null },
+		});
 	const closing = spyOn(IDBDatabase.prototype, 'close').mockImplementation(
 		() => {
 			throw new Error('Bootstrap close failed');
 		},
 	);
 	try {
-		const app = epicenter.open();
+		const app = openFixture();
 		expect(expectErr(await app.ready).name).toBe('StorageFailed');
 		await app.close();
 		expect(sqlCloses).toBe(0);
 		expect(sqlAcquisitions).toBe(0);
-		const duplicate = epicenter.open();
+		const duplicate = openFixture();
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close();
 	} finally {
@@ -893,9 +897,23 @@ test('retained AI shares readiness and close drains response work before releasi
 	const started = Promise.withResolvers<void>();
 	const released: string[] = [];
 	let signal: AbortSignal | null | undefined;
-	const app = defineApp({
+	const appDefinition = defineApp({
 		...definition,
 		id: 'so.epicenter.capability-test',
+	});
+	const app = composeApp(appDefinition, {
+		appId: appDefinition.id,
+		account: undefined,
+		...browser,
+		blobs: testBlobs,
+		sqlite: {
+			acquire: async () => ({
+				...(await testSqlite.acquire('so.epicenter.capability-test')),
+				close: async () => {
+					released.push('storage');
+				},
+			}),
+		},
 		ai: {
 			account: null,
 			runtime: {
@@ -909,19 +927,7 @@ test('retained AI shares readiness and close drains response work before releasi
 				},
 			},
 		},
-		runtime: {
-			...browser,
-			blobs: testBlobs,
-			sqlite: {
-				acquire: async () => ({
-					...(await testSqlite.acquire('so.epicenter.capability-test')),
-					close: async () => {
-						released.push('storage');
-					},
-				}),
-			},
-		},
-	}).open();
+	});
 	const client = app.device.connections.runtime!.client;
 	expect(app.device.connections.custom).toBeNull();
 	expectOk(await app.ready);
@@ -949,9 +955,27 @@ test.each([
 	let released = false;
 	let settled = false;
 	const appId = 'test.' + crypto.randomUUID();
-	const app = defineApp({
-		...definition,
-		id: appId,
+	const appDefinition = defineApp({ ...definition, id: appId });
+	const app = composeApp(appDefinition, {
+		appId: appDefinition.id,
+		account: undefined,
+		...browser,
+		blobs: testBlobs,
+		sqlite: {
+			acquire: async () => ({
+				...(await testSqlite.acquire(appId)),
+				close: async () => {
+					released = true;
+				},
+			}),
+		},
+		recording: (id, options) => ({
+			...createBrowserRecording(id, options),
+			close: async () => {
+				if (failing === 'recording') throw new Error('recording failed');
+				await drain.promise;
+			},
+		}),
 		ai: {
 			account: null,
 			runtime: {
@@ -972,26 +996,7 @@ test.each([
 				},
 			}),
 		},
-		runtime: {
-			...browser,
-			blobs: testBlobs,
-			sqlite: {
-				acquire: async () => ({
-					...(await testSqlite.acquire(appId)),
-					close: async () => {
-						released = true;
-					},
-				}),
-			},
-			recording: (id, options) => ({
-				...createBrowserRecording(id, options),
-				close: async () => {
-					if (failing === 'recording') throw new Error('recording failed');
-					await drain.promise;
-				},
-			}),
-		},
-	}).open();
+	});
 	expectOk(await app.ready);
 	expectOk(await app.device.sqlite.open('search'));
 	const request = (async () =>
@@ -1043,28 +1048,28 @@ test('one captured Account supplies library and AI; local opening never borrows 
 			throw new Error('No test profile');
 		},
 	};
-	const application = defineApp({
-		...definition,
-		id: appId,
-		ai: {
-			runtime: null,
-			account: (captured) => {
-				supplied.push(captured);
-				return { baseURL: `${captured.baseURL}/v1`, fetch: captured.fetch };
-			},
-		},
-		runtime: {
+	const fixtureDefinition = defineApp({ ...definition, id: appId });
+	const openFixture = (account?: Account) =>
+		composeApp(fixtureDefinition, {
+			appId: fixtureDefinition.id,
+			account,
 			...browser,
 			sqlite: testSqlite,
 			blobs: testBlobs,
-		},
-	});
-	const local = application.open();
+			ai: {
+				runtime: null,
+				account: (captured) => {
+					supplied.push(captured);
+					return { baseURL: `${captured.baseURL}/v1`, fetch: captured.fetch };
+				},
+			},
+		});
+	const local = openFixture();
 	expect(local.account).toBeUndefined();
 	expect(supplied).toEqual([]);
 	expectOk(await local.ready);
 	await local.close();
-	const app = application.open(account);
+	const app = openFixture(account);
 	const retained = (app.account?.connection ?? null)!.client;
 	expect(supplied[0]).toBe(account);
 	expectOk(await app.ready);
@@ -1079,9 +1084,20 @@ test('one captured Account supplies library and AI; local opening never borrows 
 
 test('SQL acquisition failure does not block App readiness and close still retires SDK clients', async () => {
 	let requests = 0;
-	const app = defineApp({
+	const appDefinition = defineApp({
 		...definition,
 		id: 'test.' + crypto.randomUUID(),
+	});
+	const app = composeApp(appDefinition, {
+		appId: appDefinition.id,
+		account: undefined,
+		...browser,
+		blobs: testBlobs,
+		sqlite: {
+			acquire: async () => {
+				throw new Error('storage unavailable');
+			},
+		},
 		ai: {
 			account: null,
 			runtime: {
@@ -1092,16 +1108,7 @@ test('SQL acquisition failure does not block App readiness and close still retir
 				},
 			},
 		},
-		runtime: {
-			...browser,
-			blobs: testBlobs,
-			sqlite: {
-				acquire: async () => {
-					throw new Error('storage unavailable');
-				},
-			},
-		},
-	}).open();
+	});
 	const retained = app.device.connections.runtime!.client;
 	expectOk(await app.ready);
 	expectErr(await app.device.sqlite.open('unavailable'));
@@ -1113,8 +1120,7 @@ test('SQL acquisition failure does not block App readiness and close still retir
 
 test('App secrets require readiness and survive closing and reopening the same document scope', async () => {
 	const label = secretLabel('gmail');
-	const first = create();
-	const app = first.open();
+	const app = create();
 	expect(() => app.device.secrets.put(label, 'before-ready')).toThrow(
 		'not ready',
 	);
@@ -1123,7 +1129,7 @@ test('App secrets require readiness and survive closing and reopening the same d
 	await app.close();
 	expect(() => app.device.secrets.get(label)).toThrow();
 	expect(() => app.device.secrets.delete(label)).toThrow();
-	const reopened = first.open();
+	const reopened = create();
 	expectOk(await reopened.ready);
 	expect(expectOk(await reopened.device.secrets.get(label))).toBe('kept');
 	expectOk(await reopened.device.secrets.delete(label));
@@ -1134,38 +1140,40 @@ test('App close drains admitted secret writes before releasing its SQL lifetime'
 	const write = Promise.withResolvers<void>();
 	let backingClosed = false;
 	let writes = 0;
-	const app = defineApp({
+	const appDefinition = defineApp({
 		...definition,
 		id: 'so.epicenter.secret-drain',
-		runtime: {
-			...browser,
-			blobs: testBlobs,
-			sqlite: {
-				acquire: async () => ({
-					open: async () => {
-						throw new Error('No database needed');
-					},
-					delete: async () => {},
-					close: async () => {
-						backingClosed = true;
-					},
-				}),
-			},
-			secrets: (_appId, { assertUsable } = {}) => ({
-				close: () => write.promise,
-				value: {
-					put() {
-						assertUsable?.();
-						writes++;
-						return write.promise.then(() => Ok(undefined));
-					},
-					get: async () => Ok(null),
-					delete: async () => Ok(undefined),
+	});
+	const app = composeApp(appDefinition, {
+		appId: appDefinition.id,
+		account: undefined,
+		...browser,
+		blobs: testBlobs,
+		sqlite: {
+			acquire: async () => ({
+				open: async () => {
+					throw new Error('No database needed');
+				},
+				delete: async () => {},
+				close: async () => {
+					backingClosed = true;
 				},
 			}),
 		},
+		secrets: (_appId, { assertUsable } = {}) => ({
+			close: () => write.promise,
+			value: {
+				put() {
+					assertUsable?.();
+					writes++;
+					return write.promise.then(() => Ok(undefined));
+				},
+				get: async () => Ok(null),
+				delete: async () => Ok(undefined),
+			},
+		}),
 		ai: { runtime: null, account: null },
-	}).open();
+	});
 	expectOk(await app.ready);
 	const saving = app.device.secrets.put(secretLabel('gmail'), 'token');
 	expectOk(await app.device.sqlite.delete('unused'));
@@ -1188,39 +1196,41 @@ test('a secret operation can reenter close and forwards its storage Result uncha
 	});
 	let closing: Promise<void> | undefined;
 	let released = false;
-	const app = defineApp({
+	const appDefinition = defineApp({
 		...definition,
 		id: 'so.epicenter.secret-reentrant',
-		runtime: {
-			...browser,
-			blobs: testBlobs,
-			sqlite: {
-				acquire: async () => ({
-					open: async () => {
-						throw new Error('No database needed');
-					},
-					delete: async () => {},
-					close: async () => {
-						released = true;
-					},
-				}),
-			},
-			secrets: () => ({
-				close: () => release.promise,
-				value: {
-					put: async () => {
-						closing = app.close();
-						entered.resolve();
-						await release.promise;
-						return failure;
-					},
-					get: async () => Ok(null),
-					delete: async () => Ok(undefined),
+	});
+	const app = composeApp(appDefinition, {
+		appId: appDefinition.id,
+		account: undefined,
+		...browser,
+		blobs: testBlobs,
+		sqlite: {
+			acquire: async () => ({
+				open: async () => {
+					throw new Error('No database needed');
+				},
+				delete: async () => {},
+				close: async () => {
+					released = true;
 				},
 			}),
 		},
+		secrets: () => ({
+			close: () => release.promise,
+			value: {
+				put: async () => {
+					closing = app.close();
+					entered.resolve();
+					await release.promise;
+					return failure;
+				},
+				get: async () => Ok(null),
+				delete: async () => Ok(undefined),
+			},
+		}),
 		ai: { runtime: null, account: null },
-	}).open();
+	});
 	expectOk(await app.ready);
 	expectOk(await app.device.sqlite.delete('unused'));
 	const writing = app.device.secrets.put(secretLabel('gmail'), 'token');
@@ -1237,23 +1247,11 @@ test('a late capability constructor failure prevents scheduled acquisition and p
 	const released = Promise.withResolvers<void>();
 	const events: string[] = [];
 	const failure = new Error('Secrets construction failed');
-	const application = defineApp({
-		...definition,
-		id: appId,
-		ai: {
-			account: null,
-			runtime: null,
-			connections: () => ({
-				...createAiConnections({
-					storageKey: appId,
-					storage: { getItem: () => null, setItem() {} },
-				}),
-				close() {
-					events.push('ai');
-				},
-			}),
-		},
-		runtime: {
+	const fixtureDefinition = defineApp({ ...definition, id: appId });
+	const openFixture = (account?: Account) =>
+		composeApp(fixtureDefinition, {
+			appId: fixtureDefinition.id,
+			account,
 			...browser,
 			blobs: testBlobs,
 			sqlite: {
@@ -1278,23 +1276,34 @@ test('a late capability constructor failure prevents scheduled acquisition and p
 			secrets: () => {
 				throw failure;
 			},
-		},
-	});
-	expect(() => application.open()).toThrow(failure);
+			ai: {
+				account: null,
+				runtime: null,
+				connections: () => ({
+					...createAiConnections({
+						storageKey: appId,
+						storage: { getItem: () => null, setItem() {} },
+					}),
+					close() {
+						events.push('ai');
+					},
+				}),
+			},
+		});
+	expect(() => openFixture()).toThrow(failure);
 	await new Promise((resolve) => setTimeout(resolve, 0));
 	expect(events).toContain('recording');
 	expect(events).toContain('ai');
 	expect(events).not.toContain('storage');
-	const next = defineApp({
-		...definition,
-		id: appId,
-		runtime: {
-			...browser,
-			blobs: testBlobs,
-			sqlite: testSqlite,
-		},
+	const nextDefinition = defineApp({ ...definition, id: appId });
+	const next = composeApp(nextDefinition, {
+		appId: nextDefinition.id,
+		account: undefined,
+		...browser,
+		blobs: testBlobs,
+		sqlite: testSqlite,
 		ai: { runtime: null, account: null },
-	}).open();
+	});
 	expectOk(await next.ready);
 	await next.close();
 });
@@ -1320,10 +1329,11 @@ test.each([
 			throw new Error('Unused');
 		},
 	};
-	const application = defineApp({
-		...definition,
-		id: appId,
-		runtime: {
+	const fixtureDefinition = defineApp({ ...definition, id: appId });
+	const openFixture = (account?: Account) =>
+		composeApp(fixtureDefinition, {
+			appId: fixtureDefinition.id,
+			account,
 			...browser,
 			blobs: testBlobs,
 			sqlite: {
@@ -1341,17 +1351,16 @@ test.each([
 					if (cleanupFails) throw cleanupFailure;
 				},
 			}),
-		},
-		ai: { runtime: null, account: null },
-	});
-	const app = application.open(account);
+			ai: { runtime: null, account: null },
+		});
+	const app = openFixture(account);
 	const failure = expectErr(await app.ready);
 	expect(failure).not.toBe(cleanupFailure);
 	expect(cleanupAttempted).toBe(true);
 	if (cleanupFails) {
 		await expect(app.close()).rejects.toBe(cleanupFailure);
 		expect(sqlClosed).toBe(false);
-		const duplicate = application.open(account);
+		const duplicate = openFixture(account);
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close().catch(() => {});
 	} else {
@@ -1367,10 +1376,11 @@ test('failed recorder cleanup still drains SQL and keeps the claim after drain',
 	const failure = new Error('Recorder cleanup failed');
 	let released = false;
 	let settled = false;
-	const application = defineApp({
-		...definition,
-		id: appId,
-		runtime: {
+	const fixtureDefinition = defineApp({ ...definition, id: appId });
+	const openFixture = (account?: Account) =>
+		composeApp(fixtureDefinition, {
+			appId: fixtureDefinition.id,
+			account,
 			...browser,
 			blobs: testBlobs,
 			sqlite: {
@@ -1406,10 +1416,9 @@ test('failed recorder cleanup still drains SQL and keeps the claim after drain',
 					},
 				};
 			},
-		},
-		ai: { runtime: null, account: null },
-	});
-	const app = application.open();
+			ai: { runtime: null, account: null },
+		});
+	const app = openFixture();
 	expectOk(await app.ready);
 	for (const capability of [
 		app.device.sqlite,
@@ -1439,7 +1448,7 @@ test('failed recorder cleanup still drains SQL and keeps the claim after drain',
 	expectOk(await writing);
 	await expect(closing).rejects.toBe(failure);
 	expect(released).toBe(false);
-	const duplicate = application.open();
+	const duplicate = openFixture();
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	await duplicate.close().catch(() => {});
 });
@@ -1493,10 +1502,11 @@ test('App retirement closes its recorder while retaining the library claim throu
 						},
 					}),
 	);
-	const application = defineApp({
-		...definition,
-		id: appId,
-		runtime: {
+	const fixtureDefinition = defineApp({ ...definition, id: appId });
+	const openFixture = (account?: Account) =>
+		composeApp(fixtureDefinition, {
+			appId: fixtureDefinition.id,
+			account,
 			...browser,
 			blobs: testBlobs,
 			sqlite: testSqlite,
@@ -1510,10 +1520,9 @@ test('App retirement closes its recorder while retaining the library claim throu
 					},
 				};
 			},
-		},
-		ai: { runtime: null, account: null },
-	});
-	const app = application.open(account);
+			ai: { runtime: null, account: null },
+		});
+	const app = openFixture(account);
 	try {
 		expectOk(await app.ready);
 		await Bun.sleep(0);
@@ -1533,7 +1542,7 @@ test('App retirement closes its recorder while retaining the library claim throu
 		invalidation.reject(new Error('Invalidation failed'));
 		await expect(app.close()).rejects.toThrow('Invalidation failed');
 		expect(disposed).toBe(0);
-		const duplicate = application.open(account);
+		const duplicate = openFixture(account);
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close();
 		invalidation = Promise.withResolvers<void>();
@@ -1543,7 +1552,7 @@ test('App retirement closes its recorder while retaining the library claim throu
 		await retried;
 		await app.close();
 		expect(disposed).toBe(1);
-		const reopened = application.open(account);
+		const reopened = openFixture(account);
 		expectOk(await reopened.ready);
 		await reopened.close();
 	} finally {
@@ -1607,16 +1616,18 @@ test('App retirement during attachment refuses readiness without auto-releasing 
 						},
 					}),
 	);
-	const app = defineApp({
+	const appDefinition = defineApp({
 		...definition,
 		id: `test.${crypto.randomUUID()}`,
-		runtime: {
-			...browser,
-			blobs: testBlobs,
-			sqlite: testSqlite,
-		},
+	});
+	const app = composeApp(appDefinition, {
+		appId: appDefinition.id,
+		account,
+		...browser,
+		blobs: testBlobs,
+		sqlite: testSqlite,
 		ai: { runtime: null, account: null },
-	}).open(account);
+	});
 	try {
 		expect(expectErr(await app.ready).name).toBe('ClosedWhileOpening');
 		await app.libraryReplaced;
@@ -1689,16 +1700,20 @@ test('replacing the Account cannot submit Alice pending Personal edits as Bob', 
 			return current(input, init);
 		},
 	});
-	const application = defineApp({
-		...definition,
-		id: appId,
-		runtime: { ...browser, sqlite: testSqlite, blobs: testBlobs },
-		ai: { runtime: null, account: null },
-	});
+	const fixtureDefinition = defineApp({ ...definition, id: appId });
+	const openFixture = (account?: Account) =>
+		composeApp(fixtureDefinition, {
+			appId: fixtureDefinition.id,
+			account,
+			...browser,
+			sqlite: testSqlite,
+			blobs: testBlobs,
+			ai: { runtime: null, account: null },
+		});
 	const state = auth.state;
 	if (state.status === 'signed-out') throw new Error('Expected cached Alice');
 	const alice = state.account;
-	const first = application.open(alice);
+	const first = openFixture(alice);
 	expectOk(await first.ready);
 	first.account!.personal.tables.notes.create({
 		title: 'Alice pending private queue',
@@ -1711,7 +1726,7 @@ test('replacing the Account cannot submit Alice pending Personal edits as Bob', 
 	});
 	const bobState = auth.state;
 	if (bobState.status === 'signed-out') throw new Error('Expected Bob');
-	const second = application.open(bobState.account);
+	const second = openFixture(bobState.account);
 	try {
 		expectOk(await second.ready);
 		expect(second.account!.personal.tables.notes.rows).toHaveLength(0);

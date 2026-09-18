@@ -1,5 +1,7 @@
 # Independent Claude consultation
 
+Historical consultation against its recorded snapshot. The accepted current boundary is [ADR-0407](../adr/0407-app-owns-the-declaration-and-data-engine.md): a platform-free declaration, separate App and data openers, private composition, and retired historical helpers. The findings below are preserved as review evidence.
+
 Claude Fable 5.1 reviewed a sealed snapshot. This report preserves its findings and proposed ASCII arrangements; recommendations are not implemented unless listed in the [execution report](20260918-app-data-collapse.md). Claude ran static analysis only. Codex owns live validation and the final disposition.
 
 # Greenfield review: the data engine inside @epicenter/app

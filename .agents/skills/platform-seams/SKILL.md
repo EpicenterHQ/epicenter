@@ -17,13 +17,14 @@ workspace plane. The seam below is the part that survived.
 **Every build opens its own store.** A host serves bundles and brokers
 credentials and owns no application data (ADR-0226), so there is no build where
 data lives somewhere else, and a `#platform/*` seam for storage is the thing to
-delete rather than to route. Honeycrisp calls `openBrowserStore` in every build
-including the Tauri one, and `apps/honeycrisp/src/lib/application-platform.ts`
-states that as a refusal with its reasons.
+delete rather than to route. Applications call `openApp(definition, account?)`
+from `@epicenter/app/open`. The package owns their store backing and selects
+native capabilities through build conditions. `defineApp` from the root is
+platform-free and carries no runtime or AI override (ADR-0407).
 
-What is left behind a seam is how a build gets a bearer and which deployment it
-talks to, plus native capability. Honeycrisp declares exactly two:
-`#platform/auth` and `#platform/instance`.
+App-level seams select auth and product capabilities. They do not compose an
+App or choose its persistence. Whispering's former `#platform/runtime` seam is
+removed; every application uses the package's resource selection.
 
 ## Declaring one
 

@@ -1,4 +1,4 @@
-import type { App } from '@epicenter/app';
+import type { App } from '@epicenter/app/open';
 import { createInferenceConnections } from '@epicenter/app-shell/inference-picker';
 import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
 import { toHostedCatalog } from '@epicenter/constants/ai-providers';

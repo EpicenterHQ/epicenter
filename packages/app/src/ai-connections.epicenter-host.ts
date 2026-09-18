@@ -6,7 +6,7 @@ import type {
 	AiConnections,
 	CustomConnectionInput,
 } from './ai-connections.js';
-import type { AppAiBinding } from './index.js';
+import type { AppAiBinding } from './compose.js';
 import { createNativeInferenceTransport } from './native-ai.js';
 
 const log = createLogger('desktop-ai-connections');

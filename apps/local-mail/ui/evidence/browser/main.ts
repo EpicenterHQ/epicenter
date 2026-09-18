@@ -1,6 +1,7 @@
+import { openApp } from '@epicenter/app/open';
 import './style.css';
 import { defineApp, defineTable, field } from '@epicenter/app';
-import { syncEngineOf } from '@epicenter/app/direct';
+import { syncEngineOf } from '@epicenter/app/data';
 import type { Account } from '@epicenter/auth';
 import { mount } from 'svelte';
 import { expectOk } from 'wellcrafted/testing';
@@ -52,7 +53,7 @@ try {
 				await app.close();
 			},
 			async remoteEdit(remove = false) {
-				const peer = defineApp({ ...mailDefinition, id: app.appId }).open({
+				const peer = openApp(defineApp({ ...mailDefinition, id: app.appId }), {
 					...account,
 					principalId: 'synthetic-peer' as Account['principalId'],
 					fetch: (input, init) =>
@@ -81,21 +82,24 @@ try {
 				await peer.close();
 			},
 			async malformed() {
-				const peer = defineApp({
-					kv: {},
-					tables: {
-						savedQueries: defineTable({
-							name: field.string(),
-							sql: field.boolean(),
-						}),
+				const peer = openApp(
+					defineApp({
+						kv: {},
+						tables: {
+							savedQueries: defineTable({
+								name: field.string(),
+								sql: field.boolean(),
+							}),
+						},
+						id: app.appId,
+					}),
+					{
+						...account,
+						principalId: 'synthetic-malformed' as Account['principalId'],
+						fetch: (input, init) =>
+							currentLibraryResponse(new Request(input, init)),
 					},
-					id: app.appId,
-				}).open({
-					...account,
-					principalId: 'synthetic-malformed' as Account['principalId'],
-					fetch: (input, init) =>
-						currentLibraryResponse(new Request(input, init)),
-				});
+				);
 				expectOk(await peer.ready);
 				const repair = peer.account!.personal.tables.savedQueries.create({
 					name: 'Repair fixture',

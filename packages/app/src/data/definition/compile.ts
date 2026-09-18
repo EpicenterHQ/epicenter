@@ -10,7 +10,7 @@
 
 import type { TSchema } from 'typebox';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import { Ok, type Result } from 'wellcrafted/result';
+import { Ok, type Result, trySync } from 'wellcrafted/result';
 import {
 	compile as compileField,
 	type Field,
@@ -19,7 +19,6 @@ import {
 } from '../field/index.js';
 
 import { DATA_ADDRESS_CEILINGS, isDataId, isTableName } from './addresses.js';
-import { canonicalJson } from './canonical.js';
 import {
 	CONTENT_FIELD,
 	type ContentCodec,
@@ -91,7 +90,6 @@ export type ParsedDataDefinition = {
 	title?: string;
 	kv: ParsedTable;
 	tables: ReadonlyMap<string, ParsedTable>;
-	canonical: string;
 };
 
 const parsed = new WeakMap<
@@ -117,20 +115,13 @@ export function compileData(
 ): Result<ParsedDataDefinition, DataDefinitionParseError> {
 	const memoised = parsed.get(value);
 	if (memoised !== undefined) return memoised;
-	let canonical: string;
-	try {
-		canonical = canonicalJson(value);
-	} catch (cause) {
-		return DataDefinitionParseError.Malformed({ reason: String(cause) });
-	}
-	const result = compileDefinition(value, canonical);
+	const result = compileDefinition(value);
 	parsed.set(value, result);
 	return result;
 }
 
 function compileDefinition(
 	value: unknown,
-	canonical: string,
 ): Result<ParsedDataDefinition, DataDefinitionParseError> {
 	if (!isPlainObject(value))
 		return DataDefinitionParseError.Malformed({
@@ -204,7 +195,6 @@ function compileDefinition(
 			...(title === undefined ? {} : { title }),
 			kv: compiledKv,
 			tables: compiledTables,
-			canonical,
 		}),
 	);
 }
@@ -241,10 +231,27 @@ function compileTable(
 				field: fieldName,
 			});
 		}
-		const wire = JSON.parse(JSON.stringify(descriptor)) as Record<
-			string,
-			unknown
-		>;
+		const serialized = trySync({
+			try: () =>
+				JSON.parse(
+					JSON.stringify(descriptor, (_key, value: unknown) => {
+						if (
+							(typeof value === 'number' && !Number.isFinite(value)) ||
+							typeof value === 'bigint' ||
+							typeof value === 'symbol'
+						) {
+							throw new TypeError(
+								'Field descriptors require finite JSON values',
+							);
+						}
+						return value;
+					}),
+				) as Record<string, unknown>,
+			catch: (cause) =>
+				DataDefinitionParseError.Malformed({ reason: String(cause) }),
+		});
+		if (serialized.error !== null) return serialized;
+		const wire = serialized.data;
 		const nullableDescriptor = nullableParts(wire);
 		const base = recognize(nullableDescriptor?.inner ?? wire);
 		if (base === null) {

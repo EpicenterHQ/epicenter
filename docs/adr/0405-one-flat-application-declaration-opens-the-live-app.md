@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-18
-- **Amended by:** [ADR-0407](0407-app-owns-the-declaration-and-data-engine.md) removes the separate data package and lower-level declaration constructor; the flat declaration and `.open()` lifetime remain.
+- **Amended by:** [ADR-0407](0407-app-owns-the-declaration-and-data-engine.md) removes the separate data package and lower-level constructor, and moves opening to `openApp` at `/open`. The flat schema remains; the declaration has no `.open()` method.
 - **Amends:** [ADR-0391](0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md) at the declaration shape only: `defineApp({ id, title, kv, tables })` replaces `defineApplication({ appId, definition })`. Implementation selection remains a separate decision.
 - **Implemented:** `defineApp` in `packages/app/src/index.ts`. Honeycrisp, Vocab, Whispering, and Local Mail export the same inert declaration to their opening paths and schema consumers. Runtime selection remains outside this change.
 

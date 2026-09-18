@@ -32,14 +32,14 @@ export const notes = defineApp({
 ```
 
 The mounted application route captures the Account and opens that declaration
-once. Opening returns the live App synchronously; `app.ready` gates use of its
-stores and capabilities. Select a destination before reading or writing rows:
+once with `openApp(notes, account)` from `@epicenter/app/open`. Opening returns
+the live App synchronously; `app.ready` gates use of its stores and capabilities. Select a destination before reading or writing rows:
 `app.device`, `app.account.personal`, or an available `app.account.shared`.
 Rows and mutations are synchronous after readiness. Before replacing the
 Account, stop UI producers and await `app.close()`.
 
-`open()` and `open(undefined)` use the separate `no-account` namespace. Passing
-an Account scopes local resources to that owner and opens its account stores.
+`openApp(definition)` and `openApp(definition, undefined)` use the separate
+`no-account` namespace. Passing an Account scopes local resources to that owner and opens its account stores.
 Signing in does not adopt signed-out data. Each app decides whether its primary
 route permits signed-out use.
 
@@ -88,8 +88,8 @@ not the current implementation.
    `apps/<app>/src/lib/data.ts`, alongside row types and codecs. Preserve the
    durable ID, table names, and field names. Schema fields have no defaults;
    the application owns fallback values.
-2. Add the opening module beside it. Capture the Account once, call the
-   declaration's `.open(account)`, and coordinate departure through that App.
+2. Add the opening module beside it. Capture the Account once, call
+   `openApp(definition, account)`, and coordinate departure through that App.
 3. Import the opening module from the mounted primary route. Callback and
    auxiliary routes must not open a primary library. Gate consumers on
    `app.ready`, then pass the selected store or capability to services and UI.

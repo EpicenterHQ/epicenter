@@ -9,7 +9,7 @@
  */
 import { expect, test } from 'bun:test';
 import { readArtifact, renderArtifact } from '@epicenter/app/artifact';
-import { syncEngineOf } from '@epicenter/app/direct';
+import { syncEngineOf } from '@epicenter/app/data';
 import { InstantString } from '@epicenter/app/field';
 import { openMemory } from '@epicenter/app/memory';
 import { pmToFragment } from '@y/prosemirror';

@@ -7,6 +7,15 @@
 **Grows from**: ADR-0388, ADR-0389, ADR-0390, ADR-0391, ADR-0402, ADR-0403
 **Superseded by**: `specs/20260912T112824-app-hub-and-whispering-transcription-collapse.md` for the App's shape (ADR-0392's two scopes). The platform-selection, capability, and platform-module waves below are not covered there and remain live here.
 
+## Opening boundary checkpoint: 2026-09-18
+
+ADR-0407 implements the platform-free `defineApp` declaration, separate `/open`
+entrypoint, private composition, and removal of public runtime/AI overrides.
+Whispering's runtime seam and per-target runtime exports are removed. Resource
+selection still uses package build conditions. The runtime selector in ADR-0403,
+the host capability grant, and additional platform modules below remain proposed
+work; this checkpoint does not execute them or migrate storage prefixes.
+
 ## One sentence
 
 An application declares its id and data once; the package selects every
@@ -47,12 +56,13 @@ Read if changing the direction: Open questions, Rejected shapes.
 ## Target shape
 
 ```ts
-import { defineApplication } from '@epicenter/app';
+import { defineApp } from '@epicenter/app';
+import { openApp } from '@epicenter/app/open';
 import { clipboard } from '@epicenter/app/clipboard';
 import { notification } from '@epicenter/app/notification';
 
-const application = defineApplication({ appId, definition });
-const app = application.open(account);              // shape per ADR-0392
+const application = defineApp({ id: appId, kv, tables });
+const app = openApp(application, account);              // shape per ADR-0392
 
 pickInference({ connections: app.device.connections }); // a capability, not the App
 await clipboard.writeText(text);                    // the platform, no App
@@ -113,12 +123,10 @@ Waves for ADR-0389 and ADR-0390 have shipped and are deleted from this list.
    `packages/app/src/ai-connections.epicenter-host.ts:278`, the header of
    `platform-selection.test.ts`, and the four "for the build" sentences in
    `packages/app/README.md`. (ADR-0403)
-3. **The package selects everything.** Add blobs and recording to the
-   runtime-selected resources; delete `runtime`, `ai`, `settingsKey`,
-   `ApplicationRuntime`, `AppBlobFactory`, the `/browser` and
-   `/epicenter-host` exports, and Whispering's `#platform/runtime` seam.
-   Ships with the prefix rename in the browser leaf only, if the Whispering
-   browser build has users with saved connections. (ADR-0391)
+3. **Resource selection completed under build conditions.** ADR-0407 removes
+   public `runtime`, `ai`, and per-target exports, and Whispering's runtime
+   seam. Private composition still has resource contracts. Revisit a prefix
+   migration only with evidence of a concrete persisted namespace change.
 4. **Platform modules.** Platform information, OS notification, the opener,
    and download move to `@epicenter/app/<x>` in the clipboard's shape with
    the runtime selector, in that order. Sound stays in Whispering: it has no

@@ -1,3 +1,4 @@
+import { openApp } from '@epicenter/app/open';
 import { createDeparture } from '@epicenter/app-shell/departure';
 import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference-selections';
 import { Ok, trySync } from 'wellcrafted/result';
@@ -24,7 +25,7 @@ export const selections = shouldOpen
 export const app = trySync({
 	try: () => {
 		if (new URLSearchParams(location.search).has('connect')) return null;
-		return whisperingDefinition.open(account);
+		return openApp(whisperingDefinition, account);
 	},
 	catch(cause) {
 		// Preserve the opening failure even if subscription cleanup also fails.

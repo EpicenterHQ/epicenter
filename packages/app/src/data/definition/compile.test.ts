@@ -4,7 +4,7 @@
  */
 import { expect, test } from 'bun:test';
 import { defineApp } from '@epicenter/app';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { compileData } from './compile.js';
 import { plainText } from './content.js';
 import { field } from './declaration.js';
@@ -61,5 +61,23 @@ test('an explicitly malformed codec is refused at compilation', () => {
 				},
 			}),
 		).toThrow('invalid content codec');
+	}
+});
+
+test('unserializable or non-finite field descriptors return a malformed declaration error', () => {
+	const cycle: Record<string, unknown> = { type: 'string' };
+	cycle.self = cycle;
+	for (const descriptor of [
+		cycle,
+		{ type: 'string', bad: 1n },
+		{ type: 'number', minimum: Infinity },
+		{ type: 'string', bad: Symbol('bad') },
+	]) {
+		const result = compileData({
+			id: 'test.invalid',
+			tables: {},
+			kv: { value: descriptor },
+		});
+		expect(expectErr(result).name).toBe('Malformed');
 	}
 });

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AppStore } from '@epicenter/app';
+	import type { AppStore } from '@epicenter/app/open';
 	import type { mailDefinition } from '$lib/data.js';
 	import { Button } from '@epicenter/ui/button';
 	import SavedQueries from '$lib/components/SavedQueries.svelte';

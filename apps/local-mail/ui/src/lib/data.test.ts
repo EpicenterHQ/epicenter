@@ -7,7 +7,7 @@
 import { expect, test } from 'bun:test';
 import { defineApp, defineTable, field } from '@epicenter/app';
 import { readArtifact, renderArtifact } from '@epicenter/app/artifact';
-import { syncEngineOf } from '@epicenter/app/direct';
+import { syncEngineOf } from '@epicenter/app/data';
 import { createMemoryRecord, openMemory } from '@epicenter/app/memory';
 import { expectOk } from 'wellcrafted/testing';
 import { mailDefinition } from './data.js';
