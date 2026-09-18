@@ -130,11 +130,13 @@ test('mounted Whispering uses device data for every signed-out saved selection',
 			const page = await browser.newPage();
 			const errors: string[] = [];
 			page.on('pageerror', (error: Error) => errors.push(error.message));
-			page.on('console', (message) => {
+			page.on('console', (message: { type(): string; text(): string }) => {
 				if (message.type() === 'error') errors.push(message.text());
 			});
-			page.on('requestfailed', (request) =>
-				errors.push(request.url() + ': ' + request.failure()?.errorText),
+			page.on(
+				'requestfailed',
+				(request: { url(): string; failure(): { errorText: string } | null }) =>
+					errors.push(request.url() + ': ' + request.failure()?.errorText),
 			);
 			await page.addInitScript((value: string | null) => {
 				if (value !== null) localStorage.setItem('whispering.library', value);
@@ -143,7 +145,7 @@ test('mounted Whispering uses device data for every signed-out saved selection',
 			await page
 				.locator('#selection')
 				.waitFor({ timeout: 10000 })
-				.catch(async (cause) => {
+				.catch(async (cause: unknown) => {
 					throw new Error(
 						JSON.stringify({
 							errors,
@@ -159,7 +161,7 @@ test('mounted Whispering uses device data for every signed-out saved selection',
 			expect(
 				await page.evaluate(() => localStorage.getItem('whispering.library')),
 			).toBe(saved);
-			await page.evaluate(() => window.stop());
+			await page.evaluate('window.stop()');
 			expect(errors).toEqual([]);
 			await page.close();
 		}
