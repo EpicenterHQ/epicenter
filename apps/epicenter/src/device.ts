@@ -2,7 +2,6 @@ import { isQueryResult } from '@epicenter/device/query';
 /** Native physical SQLite ownership behind the shared TypeScript lifetime. */
 import { DeviceError } from '@epicenter/device';
 import { createSqliteOwner, type SqliteBackend } from '@epicenter/device/owner';
-import type { LibraryReplicaIdentity } from '@epicenter/principal';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import { tryAsync } from 'wellcrafted/result';
 
@@ -12,7 +11,6 @@ export type NativeSqliteRequest =
 	| {
 			kind: 'open' | 'delete';
 			appId: string;
-			replica: LibraryReplicaIdentity;
 			name: string;
 	  }
 	| { kind: 'close'; connection: string }
@@ -82,10 +80,8 @@ export function createNativeDevice(native: {
 	sqlite(request: NativeSqliteRequest, signal?: AbortSignal): Promise<unknown>;
 }) {
 	const backend: SqliteBackend = {
-		async open(appId, replica, name) {
-			const opened = record(
-				await native.sqlite({ kind: 'open', appId, replica, name }),
-			);
+		async open(appId, name) {
+			const opened = record(await native.sqlite({ kind: 'open', appId, name }));
 			if (typeof opened.connection !== 'string' || opened.connection === '')
 				throw new Error('Invalid native SQLite connection.');
 			const connection = opened.connection;
@@ -161,8 +157,8 @@ export function createNativeDevice(native: {
 				},
 			};
 		},
-		async delete(appId, replica, name) {
-			await native.sqlite({ kind: 'delete', appId, replica, name });
+		async delete(appId, name) {
+			await native.sqlite({ kind: 'delete', appId, name });
 		},
 	};
 	return createSqliteOwner(backend);

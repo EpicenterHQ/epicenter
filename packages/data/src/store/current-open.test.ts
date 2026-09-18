@@ -29,26 +29,22 @@ function fixture() {
 		};
 		return {
 			appId,
-			replica: { library, account },
-			remote: {
-				currentUrl: `https://server.test/current/${library}`,
-				address: { baseURL: 'https://server.test', appId, library },
-				transport: {
-					...account,
-					baseURL: 'https://server.test',
-					async fetch() {
-						calls++;
-						if (!online) throw new Error('offline');
-						return createCurrentDownloadResponse({
-							generation,
-							head: 1,
-							snapshot: { position: 1, bytes },
-							tail: [],
-						});
-					},
-					async openWebSocket(): Promise<WebSocket> {
-						throw new Error('No sockets in backing test');
-					},
+			library,
+			account: {
+				...account,
+				baseURL: 'https://server.test',
+				async fetch() {
+					calls++;
+					if (!online) throw new Error('offline');
+					return createCurrentDownloadResponse({
+						generation,
+						head: 1,
+						snapshot: { position: 1, bytes },
+						tail: [],
+					});
+				},
+				async openWebSocket(): Promise<WebSocket> {
+					throw new Error('No sockets in backing test');
 				},
 			},
 		};
@@ -138,7 +134,7 @@ test('retirement fences the backing and makes next startup download its replacem
 test('malformed download does not publish a usable cache', async () => {
 	const f = fixture();
 	const options = f.options('alice');
-	options.remote.transport.fetch = async () =>
+	options.account.fetch = async () =>
 		new Response(f.bytes, { headers: { 'epicenter-generation': '1' } });
 	expectErr(await acquireAppData(f.definition, options));
 	const retry = expectOk(
@@ -161,7 +157,7 @@ test('startup installs the complete captured tail before local use and offline r
 	source.get('proof').deleteAttr('canonical');
 	source.destroy();
 	const options = f.options('alice');
-	options.remote.transport.fetch = async () =>
+	options.account.fetch = async () =>
 		createCurrentDownloadResponse({
 			generation: 1,
 			head: 132,
@@ -188,7 +184,7 @@ test('startup installs the complete captured tail before local use and offline r
 test('a truncated tail leaves no cache and a later complete download can retry', async () => {
 	const f = fixture();
 	const options = f.options('alice');
-	options.remote.transport.fetch = async () => {
+	options.account.fetch = async () => {
 		const response = createCurrentDownloadResponse({
 			generation: 1,
 			head: 2,
@@ -221,7 +217,7 @@ for (const pending of ['structs', 'deletes'] as const) {
 		else source.get('proof').deleteAttr('unseen');
 		source.destroy();
 		const options = f.options('alice');
-		options.remote.transport.fetch = async () =>
+		options.account.fetch = async () =>
 			createCurrentDownloadResponse({
 				generation: 1,
 				head: 2,

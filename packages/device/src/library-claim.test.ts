@@ -1,12 +1,12 @@
 /**
  * Shared library exclusion tests.
- * Raw generation claims and SQL-backed lifetimes contend for one app/account
- * key. Acquisition failures release ownership; failed physical closes retain it.
+ * SQLite lifetimes exclude other SQLite lifetimes for the same app.
+ * Data library claims occupy a separate namespace. Acquisition failures release ownership; failed physical closes retain it.
  */
 import { expect, test } from 'bun:test';
 import { asPrincipalId } from '@epicenter/principal';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { claimLibrary } from './library-claim.js';
+import { claimLibrary, claimSqlite } from './library-claim.js';
 import { createAppSqlite, createSqliteOwner } from './owner.js';
 import { installTestLocks } from './test-locks.js';
 
@@ -23,9 +23,9 @@ function unopenedOwner() {
 	});
 }
 
-test('a raw library claim refuses standalone SQL before backend acquisition', async () => {
+test('a raw SQLite claim refuses standalone SQL before backend acquisition', async () => {
 	const appId = 'so.epicenter.raw-claim';
-	const claim = expectOk(await claimLibrary(appId, { library: 'local' }));
+	const claim = expectOk(await claimSqlite(appId));
 	let acquisitions = 0;
 	const storage = createAppSqlite(
 		{
@@ -35,7 +35,6 @@ test('a raw library claim refuses standalone SQL before backend acquisition', as
 			},
 		},
 		appId,
-		{ library: 'local' },
 	);
 	expect(expectErr(await storage.acquire()).name).toBe('AlreadyOpen');
 	expect(expectErr(await storage.value.open('search')).name).toBe(
@@ -46,13 +45,11 @@ test('a raw library claim refuses standalone SQL before backend acquisition', as
 	);
 	expect(acquisitions).toBe(0);
 	await storage.close();
-	expect(expectErr(await claimLibrary(appId, { library: 'local' })).name).toBe(
-		'AlreadyOpen',
-	);
+	expect(expectErr(await claimSqlite(appId)).name).toBe('AlreadyOpen');
 	claim.release();
 });
 
-test('a SQL-only lifetime excludes raw claims until its close completes', async () => {
+test('a SQL lifetime excludes raw SQLite claims until its close completes', async () => {
 	const appId = 'so.epicenter.sql-claim';
 	const gate = Promise.withResolvers<void>();
 	const storage = createAppSqlite(
@@ -70,50 +67,35 @@ test('a SQL-only lifetime excludes raw claims until its close completes', async 
 			},
 		},
 		appId,
-		{ library: 'local' },
 	);
 	expectOk(await storage.acquire());
-	expect(expectErr(await claimLibrary(appId, { library: 'local' })).name).toBe(
-		'AlreadyOpen',
-	);
+	expect(expectErr(await claimSqlite(appId)).name).toBe('AlreadyOpen');
 	const closing = storage.close();
-	expect(expectErr(await claimLibrary(appId, { library: 'local' })).name).toBe(
-		'AlreadyOpen',
-	);
+	expect(expectErr(await claimSqlite(appId)).name).toBe('AlreadyOpen');
 	gate.resolve();
 	await closing;
-	expectOk(await claimLibrary(appId, { library: 'local' })).release();
+	expectOk(await claimSqlite(appId)).release();
 });
 
-test('application, authority, principal and local identity select independent claims', async () => {
+test('library claims remain independent of device SQLite and each other', async () => {
 	const appId = 'so.epicenter.claim-identities';
-	const owner = unopenedOwner();
-	const accounts = [
-		null,
-		{ authorityId: 'one:two', principalId: asPrincipalId('three') },
-		{ authorityId: 'one', principalId: asPrincipalId('two:three') },
-		{ authorityId: 'other', principalId: asPrincipalId('three') },
-	];
-	const storage = accounts.map((account) =>
-		createAppSqlite(
-			owner,
-			appId,
-			account === null
-				? { library: 'local' }
-				: { library: 'personal', account },
-		),
-	);
-	for (const lifetime of storage) expectOk(await lifetime.acquire());
-	const otherApp = expectOk(
-		await claimLibrary('so.epicenter.another-claim', { library: 'local' }),
-	);
-	expect(
-		expectErr(
-			await claimLibrary(appId, { library: 'personal', account: accounts[1]! }),
-		).name,
-	).toBe('AlreadyOpen');
-	await Promise.all(storage.map((lifetime) => lifetime.close()));
-	otherApp.release();
+	const storage = createAppSqlite(unopenedOwner(), appId);
+	expectOk(await storage.acquire());
+	const claims = [];
+	for (const replica of [
+		{ library: 'local' as const },
+		{
+			library: 'personal' as const,
+			account: { authorityId: 'cloud', principalId: asPrincipalId('alice') },
+		},
+		{
+			library: 'personal' as const,
+			account: { authorityId: 'cloud', principalId: asPrincipalId('bob') },
+		},
+	])
+		claims.push(expectOk(await claimLibrary(appId, replica)));
+	for (const claim of claims) claim.release();
+	await storage.close();
 });
 
 test('backend acquisition failure releases the claim and close finishes', async () => {
@@ -126,14 +108,13 @@ test('backend acquisition failure releases the claim and close finishes', async 
 			},
 		},
 		appId,
-		{ library: 'local' },
 	);
 	expect(expectErr(await storage.acquire())).toMatchObject({
 		name: 'StorageFailed',
 		cause,
 	});
 	await storage.close();
-	expectOk(await claimLibrary(appId, { library: 'local' })).release();
+	expectOk(await claimSqlite(appId)).release();
 });
 
 test('close during acquisition waits for backend release before releasing the library', async () => {
@@ -158,19 +139,16 @@ test('close during acquisition waits for backend release before releasing the li
 			},
 		},
 		appId,
-		{ library: 'local' },
 	);
 	const acquiring = storage.acquire();
 	await started.promise;
 	const closing = storage.close();
-	expect(expectErr(await claimLibrary(appId, { library: 'local' })).name).toBe(
-		'AlreadyOpen',
-	);
+	expect(expectErr(await claimSqlite(appId)).name).toBe('AlreadyOpen');
 	gate.resolve();
 	expectOk(await acquiring);
 	await closing;
 	expect(closed).toBe(true);
-	expectOk(await claimLibrary(appId, { library: 'local' })).release();
+	expectOk(await claimSqlite(appId)).release();
 });
 
 test('failed physical close permanently retains the library claim', async () => {
@@ -190,13 +168,10 @@ test('failed physical close permanently retains the library claim', async () => 
 			},
 		},
 		appId,
-		{ library: 'local' },
 	);
 	expectOk(await storage.acquire());
 	await expect(storage.close()).rejects.toThrow('physical close failed');
-	expect(expectErr(await claimLibrary(appId, { library: 'local' })).name).toBe(
-		'AlreadyOpen',
-	);
+	expect(expectErr(await claimSqlite(appId)).name).toBe('AlreadyOpen');
 });
 
 test('missing locks, thrown requests and rejected requests preserve distinct claim failures', async () => {
@@ -251,4 +226,42 @@ test('personal and shared lifetimes are distinct while duplicate shared ownershi
 	];
 	expect(expectErr(await claimLibrary(appId, shared)).name).toBe('AlreadyOpen');
 	for (const claim of claims) claim.release();
+});
+
+test('library claim keys project identity in stable order and omit account capabilities', async () => {
+	const appId = 'so.epicenter.claim-bytes';
+	const account = {
+		principalId: asPrincipalId('alice'),
+		authorityId: 'cloud',
+		baseURL: 'https://cloud.test',
+		token: 'never-in-lock-key',
+	};
+	const scope = { account, library: 'personal' as const };
+	const held = expectOk(await claimLibrary(appId, scope));
+	try {
+		const error = expectErr(await claimLibrary(appId, scope));
+		expect(error.address).toBe(
+			'library:["so.epicenter.claim-bytes",{"library":"personal","account":{"authorityId":"cloud","principalId":"alice"}}]',
+		);
+	} finally {
+		held.release();
+	}
+});
+
+test('library claims reject unsafe account address segments', async () => {
+	for (const invalid of ['', '.', '..', 'a/b', 'a\\b', 'a\n']) {
+		for (const field of ['authorityId', 'principalId']) {
+			const account = {
+				authorityId: 'cloud',
+				principalId: asPrincipalId('alice'),
+				[field]: invalid,
+			};
+			await expect(
+				claimLibrary('so.epicenter.invalid-claim', {
+					library: 'personal',
+					account,
+				}),
+			).rejects.toThrow('Invalid library account address');
+		}
+	}
 });

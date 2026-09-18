@@ -62,8 +62,8 @@ function workflow(): Promise<AccountWorkflow> {
 	const attempt = (async () => {
 		if (!app) throw new Error('Local Mail has not opened.');
 		return {
-			storage: await openLocalMailStorage(app),
-			secrets: app.secrets,
+			storage: await openLocalMailStorage(app.device),
+			secrets: app.device.secrets,
 			get identity() {
 				return gmailIdentity();
 			},

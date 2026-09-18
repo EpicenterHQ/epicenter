@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { App } from '@epicenter/app';
+	import type { AppStore } from '@epicenter/app';
 	import type { mailDefinition } from '$lib/data.js';
 	import { Button } from '@epicenter/ui/button';
 	import SavedQueries from '$lib/components/SavedQueries.svelte';
@@ -27,7 +27,7 @@
 	import RemoveAccountDialog from '$lib/components/RemoveAccountDialog.svelte';
 	import { mail } from '$lib/mail';
 
-	let { data }: { data: App<typeof mailDefinition> } = $props();
+	let { data }: { data: AppStore<typeof mailDefinition> } = $props();
 	let queryEditor = $state.raw<ReturnType<typeof SavedQueries>>();
 	export async function preflight() {
 		await queryEditor?.preflight();

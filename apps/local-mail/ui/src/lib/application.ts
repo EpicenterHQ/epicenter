@@ -16,10 +16,11 @@ export const app =
 		: defineApplication({
 				appId: 'so.epicenter.local-mail',
 				definition: mailDefinition,
-			}).openPersonal(account);
+			}).open(account);
 
 export const departure = createDeparture({
-	retirement: app?.retirement,
+	libraryReplaced: app?.libraryReplaced,
+	canRetryClose: () => app?.canRetryClose ?? false,
 	reload: () => location.reload(),
 	auth: app && auth ? auth : undefined,
 	account,

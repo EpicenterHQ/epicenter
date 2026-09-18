@@ -11,7 +11,16 @@ export function resolveCompletionState() {
 	const model = settings.get('completionModel');
 	const selected = getSelections().get('completion');
 	const transport =
-		selected?.model === model ? matchInferenceTarget(app.ai, selected) : null;
+		selected?.model === model
+			? matchInferenceTarget(
+					{
+						runtime: app.device.connections.runtime,
+						connections: app.device.connections.custom,
+						account: app.account?.connection ?? null,
+					},
+					selected,
+				)
+			: null;
 	return {
 		model,
 		transport,

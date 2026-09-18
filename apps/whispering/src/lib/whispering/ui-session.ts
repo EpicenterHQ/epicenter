@@ -15,19 +15,22 @@ import {
 	createWhisperingDomains,
 	type WhisperingApp,
 	type WhisperingAppHandle,
+	type WhisperingData,
 } from './app';
 
 /** Build UI domains, queries, and the recording workflow over one ready App. */
 export function createWhisperingUiSession({
 	openedApp,
+	data,
 	account,
 	selections,
 }: {
 	openedApp: WhisperingAppHandle;
+	data: WhisperingData;
 	selections: InferenceSelections;
 	account: Account | null;
 }) {
-	const domains = createWhisperingDomains({ openedApp, account });
+	const domains = createWhisperingDomains({ openedApp, data, account });
 	const inference = createWhisperingConnections(openedApp, selections);
 	// Named members rather than a spread of `domains`, which used to carry
 	// `[Symbol.dispose]` into the object handed to every component through
@@ -52,7 +55,10 @@ export function createWhisperingUiSession({
 		},
 		syncStatus: domains.syncStatus,
 	};
-	const recordingSession = createWhisperingRecording(app, openedApp.recording);
+	const recordingSession = createWhisperingRecording(
+		app,
+		openedApp.device.recording,
+	);
 	const queryRuntime = createWhisperingQueryRuntime();
 	const queries = createWhisperingQueries(app, queryRuntime);
 

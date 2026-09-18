@@ -1,10 +1,10 @@
 # 0400. Device SQLite and secrets key by application id
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-12
-- **Amends:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at the storage address of named SQLite files: `sqlite/<database-name>.sqlite` exists under `local/` only, and not under `accounts/<authority-id>/<principal-id>/`. The data and blob addresses in that tree stand.
+- **Amends:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at the storage address of named SQLite files: `sqlite/<database-name>.sqlite` lives under the existing `local/` directory only, independent of the signed-in account. The data and blob addresses in that tree stand.
 - **Relates:** [ADR-0352](0352-an-account-s-data-and-a-device-s-files-are-two-packages-because-only-one-of-them-is-removed.md) (a device file is scoped by app, a replica by app and principal), [ADR-0310](0310-an-applications-provider-credential-is-a-labeled-secret-and-the-browser-keeps-none.md) (a secret is namespaced per application), [ADR-0306](0306-borrowed-data-is-disposable-and-a-persons-own-data-is-not.md) (what a device database holds), [ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) (the scope that owns both)
-- **Unbuilt:** All of it. `DeviceSqliteOwner.acquire(appId, replica)` in `packages/device/src/owner.ts` still takes a replica identity, and the secret store is scoped the same way.
+- **Implemented:** 2026-09-18. SQLite owner, browser worker, host protocol, native paths, and secret stores accept app identity without replica/account scope. Existing device paths and serialized keychain addresses are preserved. Account namespaces are not merged or deleted.
 
 ## Context
 
@@ -31,11 +31,12 @@ app.device.secrets.get(accountId);        // same value, every account state
 
 A database that derives from one library's data names its source in its own
 file name, which the application chooses. `search-index` and
-`search-index.personal` are two names the application picked; the owner reads
+`search-index-personal` are two names the application picked; the owner reads
 neither.
 
-Exclusive ownership stays per file. One owner holds `search-index` at a time on
-this machine, which is what it already meant, now with one fewer key segment.
+Exclusive SQLite ownership is per application lifetime within the profile.
+That lifetime owns all named databases until physical cleanup finishes.
+Data-library claims have their own namespace.
 
 ## Consequences
 

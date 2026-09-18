@@ -486,11 +486,11 @@ test('a directory-sync failure retains old and newly committed keys after rename
 		secrets: {
 			...memory,
 			async put(...args) {
-				stored.set(args[2], args[3]);
+				stored.set(args[1], args[2]);
 				await memory.put(...args);
 			},
 			async delete(...args) {
-				stored.delete(args[2]);
+				stored.delete(args[1]);
 				await memory.delete(...args);
 			},
 		},

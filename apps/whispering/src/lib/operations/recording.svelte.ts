@@ -237,7 +237,8 @@ export function createWhisperingRecording(
 			captured = undefined;
 			saveStatus = 'saving';
 			try {
-				if (disposed || app.signal.aborted || !app.recordingEnabled) {
+				// Admission can close while native stop finishes; its save is already admitted.
+				if (disposed || app.signal.aborted) {
 					saveStatus = 'unconfirmed';
 					return RecorderError.NoActiveRecording();
 				}

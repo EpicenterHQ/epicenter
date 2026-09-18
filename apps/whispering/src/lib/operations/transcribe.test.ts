@@ -97,9 +97,17 @@ async function setup({
 	let load = async () => Ok(audio);
 	const app = {
 		signal: controller.signal,
-		account: { authorityId: 'server', principalId: principal },
-		ai: owner.value.ai,
-		kv: { get: (key: string) => values.get(key) },
+		account: {
+			identity: { authorityId: 'server', principalId: principal },
+			connection: owner.value.ai.account,
+		},
+		device: {
+			connections: {
+				runtime: owner.value.ai.runtime,
+				custom: owner.value.ai.connections,
+			},
+			kv: { get: (key: string) => values.get(key) },
+		},
 		blobs: { get: () => load() },
 	} as unknown as WhisperingAppHandle;
 	activeApp = app;
@@ -143,7 +151,7 @@ async function setup({
 
 test('exact configured client sends multipart bytes, model, credential, and dictionary hints', async () => {
 	const fixture = await setup();
-	await fixture.app.ai.connections!.add({
+	await fixture.app.device.connections.custom!.add({
 		baseUrl: 'https://other.example/v1',
 		apiKey: 'other-key',
 		models: ['saved-model'],
@@ -172,7 +180,7 @@ test('selection and model edits during a delayed blob read cannot retarget an ad
 		return Ok(fixture.audio);
 	});
 	const pending = fixture.run();
-	const other = await fixture.app.ai.connections!.add({
+	const other = await fixture.app.device.connections.custom!.add({
 		baseUrl: 'https://other.example/v1',
 	});
 	fixture.values.set('transcriptionModel', 'new-model');
@@ -197,8 +205,8 @@ test('removal during blob loading retires the captured client instead of selecti
 		return Ok(fixture.audio);
 	});
 	const pending = fixture.run();
-	await fixture.app.ai.connections!.remove(fixture.id);
-	await fixture.app.ai.connections!.add({
+	await fixture.app.device.connections.custom!.remove(fixture.id);
+	await fixture.app.device.connections.custom!.add({
 		baseUrl: 'https://chosen.example/custom/v1',
 		models: ['saved-model'],
 	});
@@ -211,7 +219,7 @@ test('removal during blob loading retires the captured client instead of selecti
 test('missing, mismatched, old provider, and another actor selections send no audio', async () => {
 	for (const change of [
 		(f: Awaited<ReturnType<typeof setup>>) =>
-			f.app.ai.connections!.remove(f.id),
+			f.app.device.connections.custom!.remove(f.id),
 		(f: Awaited<ReturnType<typeof setup>>) =>
 			f.values.set('transcriptionModel', 'mismatch'),
 		(f: Awaited<ReturnType<typeof setup>>) =>

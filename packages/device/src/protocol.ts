@@ -15,10 +15,6 @@ import { isQueryResult, type QueryResult } from './query.js';
  * no message that would carry it.
  */
 
-import type {
-	AccountIdentity,
-	LibraryReplicaIdentity,
-} from '@epicenter/principal';
 import type { SqliteValue } from '@epicenter/sqlite';
 import type { Brand } from 'wellcrafted/brand';
 
@@ -53,34 +49,6 @@ export const DEVICE_PATH = '/api/device';
  */
 export type DatabaseName = string & Brand<'DatabaseName'>;
 
-/** Validate a SQL account at the wire boundary. Only explicit null is local. */
-export function isSqliteAccount(
-	value: unknown,
-): value is AccountIdentity | null {
-	if (value === null) return true;
-	if (typeof value !== 'object' || Array.isArray(value)) {
-		return false;
-	}
-	return (
-		'authorityId' in value &&
-		'principalId' in value &&
-		isPathSegment(value.authorityId) &&
-		isPathSegment(value.principalId)
-	);
-}
-
-function isPathSegment(value: unknown): value is string {
-	return (
-		typeof value === 'string' &&
-		value.length > 0 &&
-		value !== '.' &&
-		value !== '..' &&
-		!value.includes('\0') &&
-		!value.includes('/') &&
-		!value.includes('\\')
-	);
-}
-
 /** One label a secret is filed under (ADR-0310), branded for the same reason. */
 export type SecretLabel = string & Brand<'SecretLabel'>;
 
@@ -108,7 +76,7 @@ export type SqliteStatement = {
 	parameters?: readonly SqliteValue[];
 };
 
-type SqliteAddress = { appId: string; replica: LibraryReplicaIdentity };
+type SqliteAddress = { appId: string };
 type SqliteSession = SqliteAddress & { lifetimeId: string };
 
 export type DeviceRequest =
@@ -146,20 +114,17 @@ export type DeviceRequest =
 	| {
 			kind: 'secret-put';
 			appId: string;
-			account: AccountIdentity | null;
 			label: string;
 			value: string;
 	  }
 	| {
 			kind: 'secret-get';
 			appId: string;
-			account: AccountIdentity | null;
 			label: string;
 	  }
 	| {
 			kind: 'secret-delete';
 			appId: string;
-			account: AccountIdentity | null;
 			label: string;
 	  };
 

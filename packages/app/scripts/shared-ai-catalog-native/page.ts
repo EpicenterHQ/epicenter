@@ -43,9 +43,9 @@ if (!localStorage.getItem(`${product}.seeded`)) {
 const app = defineApplication({
 	appId: product,
 	definition: defineData({ id: product, tables: {}, kv: {} }),
-}).openLocal();
+}).open(null);
 const selections = createBrowserInferenceSelections(product);
-let retained: ReturnType<NonNullable<typeof app.ai.connections>['get']>;
+let retained: ReturnType<NonNullable<typeof app.device.connections.custom>['get']>;
 let pending: Promise<string> | undefined;
 const ready = app.ready.then((result) => {
 	if (result.error) throw new Error(JSON.stringify(result.error));
@@ -55,20 +55,20 @@ Object.assign(window, {
 		ready,
 		documentId: crypto.randomUUID(),
 		records: () =>
-			app.ai.connections!.getAll().map(({ client: _, ...record }) => record),
+			app.device.connections.custom!.getAll().map(({ client: _, ...record }) => record),
 		add: (
-			input: Parameters<NonNullable<typeof app.ai.connections>['add']>[0],
-		) => app.ai.connections!.add(input),
+			input: Parameters<NonNullable<typeof app.device.connections.custom>['add']>[0],
+		) => app.device.connections.custom!.add(input),
 		update: (
 			id: string,
-			patch: Parameters<NonNullable<typeof app.ai.connections>['update']>[1],
-		) => app.ai.connections!.update(id, patch),
-		remove: (id: string) => app.ai.connections!.remove(id),
+			patch: Parameters<NonNullable<typeof app.device.connections.custom>['update']>[1],
+		) => app.device.connections.custom!.update(id, patch),
+		remove: (id: string) => app.device.connections.custom!.remove(id),
 		select: (id: string) =>
 			selections.set('chat', { connectionId: id, model: 'manual' }),
 		selected: () => selections.get('chat'),
 		retain(id: string) {
-			retained = app.ai.connections!.get(id);
+			retained = app.device.connections.custom!.get(id);
 		},
 		async retained() {
 			try {
@@ -79,11 +79,10 @@ Object.assign(window, {
 			}
 		},
 		async run(id: string) {
-			return (await app.ai.connections!.get(id)!.client.models.list()).data;
+			return (await app.device.connections.custom!.get(id)!.client.models.list()).data;
 		},
 		start(id: string) {
-			pending = app.ai
-				.connections!.get(id)!
+			pending = app.device.connections.custom!.get(id)!
 				.client.models.list()
 				.then(
 					() => 'sent',

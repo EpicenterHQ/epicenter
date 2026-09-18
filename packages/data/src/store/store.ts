@@ -285,17 +285,13 @@ export type StoreBacking = {
 	discard?: () => Promise<void>;
 };
 
-/** One authenticated retirement and its backing-owned retry after failed invalidation. */
-export type LibraryRetirement = {
-	invalidated: Promise<void>;
-	retryInvalidation(): Promise<void>;
-};
-
 type StoreEngineOptions<
 	TError extends { name: string; message: string } = never,
 > = {
 	/** Local libraries retain changes without an authority acknowledgment. */
 	local?: boolean;
+	/** An enclosing App can gate its stores on their shared resource lifetime. */
+	assertUsable?: () => void;
 	/**
 	 * The one data definition this runtime holds, already parsed
 	 * (ADR-0240). Every table handle and the KV handle close over it for the
@@ -420,38 +416,48 @@ export function createStoreOverPort<
 	const lifetime = new AbortController();
 	let disposed = false;
 	let retired = false;
-	const retirement = Promise.withResolvers<LibraryRetirement>();
+	const libraryReplaced = Promise.withResolvers<void>();
+	let canRetryClose = false;
 	let invalidation: Promise<void> | undefined;
 	let discarded: Promise<void> | undefined;
 	let initialized = false;
 	let held: StoreBacking | undefined;
 	let connection: SyncConnection | undefined;
+	let syncStopped = false;
+	const syncStopFailures: unknown[] = [];
+	function stopSync() {
+		syncStopped = true;
+		try {
+			connection?.[Symbol.dispose]();
+		} catch (cause) {
+			syncStopFailures.push(cause);
+		}
+	}
 	let stopHideFlush: (() => void) | undefined;
 
-	function onRetired(): void {
-		if (retired || held?.replication === undefined) return;
-		retired = true;
-		const backing = held;
-		function invalidate(): Promise<void> {
-			// Invoke now: the backing closes its write gate before returning.
-			try {
-				if (backing.discard === undefined)
-					throw new Error(
-						'This store backing does not support generation invalidation.',
-					);
-				invalidation = backing.discard();
-			} catch (cause) {
-				invalidation = Promise.reject(cause);
-			}
-			// Observers may mount after this fails. Keep the original rejection
-			// observable without making it an unhandled promise rejection.
-			void invalidation.catch(() => {});
-			return invalidation;
+	function invalidate(): Promise<void> {
+		// Invoke now: the backing closes its write gate before returning.
+		try {
+			if (held?.discard === undefined)
+				throw new Error(
+					'This store backing does not support generation invalidation.',
+				);
+			invalidation = held.discard();
+		} catch (cause) {
+			invalidation = Promise.reject(cause);
 		}
-		const invalidated = invalidate();
+		// Close owns this failure even if the page has not observed replacement yet.
+		void invalidation.catch(() => {});
+		return invalidation;
+	}
+
+	function onRetired(): void {
+		if (retired || syncStopped || held?.replication === undefined) return;
+		retired = true;
+		invalidate();
 		discarded = controller.discard();
 		lifetime.abort();
-		retirement.resolve({ invalidated, retryInvalidation: invalidate });
+		libraryReplaced.resolve();
 	}
 
 	/**
@@ -717,7 +723,7 @@ export function createStoreOverPort<
 		);
 		initialized = true;
 		stopHideFlush = persistOnHide(() => controller.persistence.flush());
-		if (replication !== undefined) {
+		if (replication !== undefined && !syncStopped) {
 			try {
 				connection = attachStoreSync({
 					store,
@@ -728,7 +734,7 @@ export function createStoreOverPort<
 				});
 				// A caller-owned transport can synchronously close this store
 				// before attach returns the connection close must release.
-				if (disposed || retired) connection[Symbol.dispose]();
+				if (disposed || retired || syncStopped) stopSync();
 			} catch (cause) {
 				log.warn(StoreBackgroundError.SyncTransportFailed({ cause }));
 			}
@@ -739,9 +745,13 @@ export function createStoreOverPort<
 	 * The one gate every verb passes: a disposed store throws, it never
 	 * returns. Fresh per throw so each call site gets its own stack.
 	 */
-	function assertUsable(): void {
+	function assertDocumentUsable(): void {
 		if (disposed || retired) throw new StoreUnusableError();
 		if (!initialized) throw new Error('The store is not ready.');
+	}
+	function assertUsable(): void {
+		assertDocumentUsable();
+		options.assertUsable?.();
 	}
 
 	/**
@@ -779,22 +789,22 @@ export function createStoreOverPort<
 	 */
 	const syncEngine: SyncEngine = {
 		coalesce() {
-			assertUsable();
+			assertDocumentUsable();
 			return controller.coalesce();
 		},
 		acknowledge(throughId, authoritySeq) {
-			assertUsable();
+			assertDocumentUsable();
 			controller.acknowledge(throughId, authoritySeq);
 		},
 		cursor() {
-			assertUsable();
+			assertDocumentUsable();
 			return controller.durableCursor();
 		},
 		applyRemote(
 			update: Uint8Array,
 			opts?: { advanceTo?: number },
 		): Result<void, ApplyFailedError> {
-			assertUsable();
+			assertDocumentUsable();
 			// One document, so one run of bytes (ADR-0295). The envelope that
 			// used to wrap this is gone with the split it multiplexed: there
 			// is nothing left to address, so the payload IS the update.
@@ -836,15 +846,15 @@ export function createStoreOverPort<
 			return Ok(undefined);
 		},
 		onSendable(listener: () => void): () => void {
-			assertUsable();
+			assertDocumentUsable();
 			return controller.onSendable(listener);
 		},
 		hasUnresolvedDependencies() {
-			assertUsable();
+			assertDocumentUsable();
 			return hasPendingStructs(database);
 		},
 		encodeSnapshot(): Uint8Array {
-			assertUsable();
+			assertDocumentUsable();
 			return new Uint8Array(Y.encodeStateAsUpdateV2(database));
 		},
 	};
@@ -958,6 +968,10 @@ export function createStoreOverPort<
 		if (closing !== undefined) return closing;
 		const completion = Promise.withResolvers<void>();
 		closing = completion.promise;
+		if (canRetryClose) {
+			canRetryClose = false;
+			invalidate();
+		}
 		// Stop persistence notifications with admission; its final flush drains below.
 		const persistenceClosed =
 			initialized && !retired ? controller.close() : undefined;
@@ -972,11 +986,8 @@ export function createStoreOverPort<
 					failures.push(cause);
 				}
 			}
-			try {
-				connection?.[Symbol.dispose]();
-			} catch (cause) {
-				failures.push(cause);
-			}
+			stopSync();
+			failures.push(...syncStopFailures);
 			try {
 				stopHideFlush?.();
 			} catch (cause) {
@@ -987,8 +998,8 @@ export function createStoreOverPort<
 				try {
 					await invalidation;
 				} catch (cause) {
-					// Nothing physical has been released. A successful explicit
-					// invalidation retry permits another close attempt.
+					// Nothing physical has been released. Another close explicitly retries.
+					canRetryClose = true;
 					closing = undefined;
 					throw cause;
 				}
@@ -1057,13 +1068,14 @@ export function createStoreOverPort<
 		// compiles it a second time (ADR-0340).
 		store,
 		lifetime: { assertUsable, signal: lifetime.signal },
-		retirement: retirement.promise,
+		libraryReplaced: libraryReplaced.promise,
+		get canRetryClose() {
+			return canRetryClose;
+		},
+		/** Stop transport without releasing backing before the host quiesces UI. */
+		stopSync,
 		get isRetired() {
 			return retired;
-		},
-		/** The opened replica's generation, without consulting row handles during close. */
-		get generation() {
-			return held?.replication?.address.generation ?? null;
 		},
 		close,
 		ready,

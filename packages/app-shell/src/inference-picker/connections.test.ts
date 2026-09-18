@@ -49,7 +49,11 @@ function setup(
 		runtime,
 	});
 	const connections = createInferenceConnections({
-		ai: owner.value.ai,
+		connections: {
+			runtime: owner.value.ai.runtime,
+			custom: owner.value.ai.connections,
+		},
+		accountConnection: owner.value.ai.account,
 		selections: createInferenceSelections({
 			storageKey: 'test',
 			storage: {

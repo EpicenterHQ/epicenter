@@ -13,14 +13,21 @@ export type HostedModel = { id: string; label: string; credits: number };
 
 /** Observe one App's AI capability and resolve exact saved workflow destinations. */
 export function createInferenceConnections({
-	ai,
+	connections,
+	accountConnection,
 	selections,
 	hostedModels,
 }: {
-	ai: AppAi;
+	connections: { runtime: AppAi['runtime']; custom: AppAi['connections'] };
+	accountConnection: AppAi['account'];
 	selections: InferenceSelections;
 	hostedModels: HostedModel[];
 }) {
+	const ai: AppAi = {
+		runtime: connections.runtime,
+		connections: connections.custom,
+		account: accountConnection,
+	};
 	if (!ai.connections)
 		throw new Error('This App has no custom AI connection binding.');
 	const observeConnections = createSubscriber((update) =>

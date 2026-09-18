@@ -5,7 +5,7 @@ import {
 import { polishWillRun, runPolish } from '$lib/operations/run-polish';
 import { playSoundIfEnabled } from '$lib/operations/sound';
 import {
-	captureTranscription,
+	type captureTranscription,
 	transcribeAndPersist,
 } from '$lib/operations/transcribe';
 import { saveRecordingHistory } from '$lib/operations/transcription-history';
@@ -23,7 +23,7 @@ type PipelineInput = {
 	recordingId: string;
 	deliverySource?: TranscriptionSource;
 	isCurrentAttempt?: () => boolean;
-	transcribe?: ReturnType<typeof captureTranscription>;
+	transcribe: ReturnType<typeof captureTranscription>;
 };
 
 /**
@@ -37,7 +37,7 @@ export async function processRecordingPipeline(
 		recordingId,
 		deliverySource = 'recording',
 		isCurrentAttempt,
-		transcribe = captureTranscription(app),
+		transcribe,
 	}: PipelineInput,
 ) {
 	const lifetime = app.signal;

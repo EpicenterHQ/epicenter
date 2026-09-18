@@ -5,9 +5,11 @@ import { resolveCompletionState as resolveProductCompletion } from '../operation
 
 // Subscriptions start only when a mounted reactive consumer reads the state.
 const observe = createSubscriber((update) => {
-	const stopSettings = getApp().kv.subscribe(update);
+	const stopSettings = getApp().device.kv.subscribe(update);
 	const stopSelections = getSelections().onChange(update);
-	const stopConnections = getApp().ai.connections?.subscribe(() => update());
+	const stopConnections = getApp().device.connections.custom?.subscribe(() =>
+		update(),
+	);
 	return () => {
 		stopSettings();
 		stopSelections();
@@ -22,7 +24,7 @@ export function resolveCompletionState() {
 	return {
 		...state,
 		destination: state.transport
-			? state.transport === getApp().ai.account?.client
+			? state.transport === getApp().account?.connection?.client
 				? new URL(state.transport.baseURL).host
 				: connectionLabel(state.transport.baseURL)
 			: undefined,

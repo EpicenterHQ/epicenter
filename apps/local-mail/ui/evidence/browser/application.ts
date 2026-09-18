@@ -5,6 +5,7 @@ import { mailDefinition } from '../../src/lib/data.js';
 
 /** Synthetic account; App, SQLite, persistence, query policy, and panel are production. */
 export const account: Account = {
+	supportsShared: false,
 	authorityId: 'local-mail-evidence',
 	principalId: 'synthetic-person' as Account['principalId'],
 	baseURL: 'https://example.invalid',
@@ -23,4 +24,4 @@ export const account: Account = {
 export const app = defineApplication({
 	appId: 'so.epicenter.local-mail-evidence',
 	definition: mailDefinition,
-}).openPersonal(account);
+}).open(account);

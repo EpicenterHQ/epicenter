@@ -82,6 +82,7 @@ async function settled(page: Page, generation?: number) {
 
 async function monitor(page: Page, origin: string) {
 	type SocketRecord = {
+		library: string | null;
 		generation: number;
 		frames: { direction: 'sent' | 'received'; kind: Frame['kind'] }[];
 		socket: WebSocketRoute;
@@ -121,6 +122,7 @@ async function monitor(page: Page, origin: string) {
 		(socket) => {
 			const url = new URL(socket.url());
 			const record: SocketRecord = {
+				library: url.searchParams.get('library'),
 				generation: Number(url.searchParams.get('generation')),
 				frames: [],
 				socket,
@@ -145,7 +147,7 @@ async function monitor(page: Page, origin: string) {
 				const decoded = decodeFrame(new Uint8Array(message));
 				assert.equal(decoded.error, null);
 				record.frames.push({ direction: 'received', kind: decoded.data.kind });
-				if (record.generation === network.holdGeneration) {
+				if (record.library === 'shared' && record.generation === network.holdGeneration) {
 					network.heldFrames.push(() => socket.send(message));
 					return;
 				}
@@ -206,20 +208,20 @@ async function interruptInvalidation(page: Page, mode: 'pause' | 'abort') {
 async function watchRetirement(page: Page) {
 	await page.evaluate(async () => {
 		const path = '/src/lib/application.ts';
-		const { app, departure }: typeof import('../src/lib/application.js') =
+		const { app, data, departure }: typeof import('../src/lib/application.js') =
 			await import(path);
-		if (!app || app.library === 'local')
+		if (!app?.account || !data)
 			throw new Error('Expected an opened account App');
-		const note = app.tables.notes.rows[0];
+		const note = data.tables.notes.rows[0];
 		if (!note) throw new Error('Expected a note');
 		(window as JourneyWindow).journey = {
 			content: note.content,
 			delayedCallbacks: [],
 		};
-		void app.retirement.then(() => {
+		void app.libraryReplaced!.then(() => {
 			let refused = false;
 			try {
-				app.tables.notes.update(note.id, { title: 'Retired write' });
+				data.tables.notes.update(note.id, { title: 'Retired write' });
 			} catch {
 				refused = true;
 			}
@@ -303,12 +305,26 @@ export async function proveRetirement({
 			server?.close(),
 		]),
 	);
-	await alice.locator('.ProseMirror').fill('Offline work that must be retired');
+	await alice.locator('.ProseMirror').press('ControlOrMeta+A');
+	await alice.locator('.ProseMirror').press('Backspace');
+	await alice.locator('.ProseMirror').pressSequentially('Offline work that must be retired');
 	await alice.locator('.ProseMirror').blur();
 	await alice
 		.getByText('Offline work that must be retired', { exact: true })
 		.first()
 		.waitFor();
+	await alice.waitForFunction(async () => {
+		const path = '/src/lib/application.ts';
+		const { data }: typeof import('../src/lib/application.js') = await import(path);
+		return data?.tables.notes.rows.some((note) => note.title === 'Offline work that must be retired');
+	});
+	assert.equal(await alice.evaluate(async () => {
+		const path = '/src/lib/application.ts';
+		const { data }: typeof import('../src/lib/application.js') = await import(path);
+		if (!data) throw new Error('Expected the selected Shared store');
+		await data.persistence.flush();
+		return data.persistence.get();
+	}), 'saved');
 	await alice.reload();
 	await alice
 		.getByText('Offline work that must be retired', { exact: true })
@@ -320,7 +336,9 @@ export async function proveRetirement({
 	);
 	await openNote(alice, 'Offline work that must be retired');
 
-	await bob.locator('.ProseMirror').fill('Replacement from Bob');
+	await bob.locator('.ProseMirror').press('ControlOrMeta+A');
+	await bob.locator('.ProseMirror').press('Backspace');
+	await bob.locator('.ProseMirror').pressSequentially('Replacement from Bob');
 	await bob.locator('.ProseMirror').blur();
 	await bob
 		.getByText('Replacement from Bob', { exact: true })
@@ -362,7 +380,9 @@ export async function proveRetirement({
 		'An already-open idle socket must learn retirement from its own authority',
 	);
 	await bob.getByRole('button', { name: 'New note', exact: true }).click();
-	await bob.locator('.ProseMirror').fill('Accepted after replacement');
+	await bob.locator('.ProseMirror').press('ControlOrMeta+A');
+	await bob.locator('.ProseMirror').press('Backspace');
+	await bob.locator('.ProseMirror').pressSequentially('Accepted after replacement');
 	await bob.locator('.ProseMirror').blur();
 	await bob
 		.getByText('Accepted after replacement', { exact: true })
@@ -479,7 +499,7 @@ export async function proveRetirement({
 	assert.equal(reopened.pending, 0);
 	const staleConnections = a.sockets
 		.slice(reconnectStart)
-		.filter((socket) => socket.generation === before.generation);
+		.filter((socket) => socket.library === 'shared' && socket.generation === before.generation);
 	assert(staleConnections.length > 0);
 	for (const socket of staleConnections) {
 		assert.equal(
@@ -516,7 +536,7 @@ export async function proveRetirement({
 		const path = '/src/lib/application.ts';
 		const { departure }: typeof import('../src/lib/application.js') =
 			await import(path);
-		return departure.canRetryRetirement;
+		return departure.canRetryClose;
 	});
 	assert.equal(await documents(alice), retryDocuments);
 	assert.equal((await cacheState(alice)).generation, activated.generation);

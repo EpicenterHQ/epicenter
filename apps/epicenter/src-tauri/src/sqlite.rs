@@ -42,13 +42,11 @@ pub enum Request {
     Open {
         #[serde(rename = "appId")]
         app_id: String,
-        replica: crate::blobs::LibraryReplica,
         name: String,
     },
     Delete {
         #[serde(rename = "appId")]
         app_id: String,
-        replica: crate::blobs::LibraryReplica,
         name: String,
     },
     Close {
@@ -226,15 +224,7 @@ struct Databases {
     stopped: Arc<AtomicBool>,
     interrupts: Arc<Mutex<HashMap<String, InterruptHandle>>>,
 }
-fn segment(value: &str) -> bool {
-    !value.is_empty() && value != "." && value != ".." && !value.contains(['\0', '/', '\\'])
-}
-fn database_path(
-    root: &std::path::Path,
-    app_id: &str,
-    replica: &crate::blobs::LibraryReplica,
-    name: &str,
-) -> Result<PathBuf, String> {
+fn database_path(root: &std::path::Path, app_id: &str, name: &str) -> Result<PathBuf, String> {
     let labels = app_id.split('.').collect::<Vec<_>>();
     if labels.len() < 2
         || !labels.iter().all(|label| {
@@ -256,24 +246,12 @@ fn database_path(
     {
         return Err("Invalid SQLite name.".into());
     }
-    let mut path = root.join("apps").join(app_id);
-    match replica {
-        crate::blobs::LibraryReplica::Local {} => path.push("local"),
-        crate::blobs::LibraryReplica::Personal { account }
-        | crate::blobs::LibraryReplica::Shared { account } => {
-            if !segment(&account.authority_id) || !segment(&account.principal_id) {
-                return Err("Invalid SQLite account.".into());
-            }
-            path = path
-                .join("accounts")
-                .join(&account.authority_id)
-                .join(&account.principal_id);
-            if matches!(replica, crate::blobs::LibraryReplica::Shared { .. }) {
-                path.push("shared");
-            }
-        }
-    }
-    Ok(path.join("sqlite").join(format!("{name}.sqlite")))
+    Ok(root
+        .join("apps")
+        .join(app_id)
+        .join("local")
+        .join("sqlite")
+        .join(format!("{name}.sqlite")))
 }
 fn bindings(statement: &Statement) -> Result<Vec<rusqlite::types::Value>, String> {
     statement
@@ -332,12 +310,8 @@ impl Databases {
                     self.stopped.clone(),
                 )
             }
-            Request::Open {
-                app_id,
-                replica,
-                name,
-            } => {
-                let path = database_path(&self.root, &app_id, &replica, &name)?;
+            Request::Open { app_id, name } => {
+                let path = database_path(&self.root, &app_id, &name)?;
                 if self.connections.values().any(|(opened, _)| opened == &path) {
                     return Err("SQLite file is already open.".into());
                 }
@@ -359,12 +333,8 @@ impl Databases {
                 self.connections.insert(id.clone(), (path, connection));
                 Ok(json!({"connection":id}))
             }
-            Request::Delete {
-                app_id,
-                replica,
-                name,
-            } => {
-                let path = database_path(&self.root, &app_id, &replica, &name)?;
+            Request::Delete { app_id, name } => {
+                let path = database_path(&self.root, &app_id, &name)?;
                 if self.connections.values().any(|(opened, _)| opened == &path) {
                     return Err("SQLite file is still open.".into());
                 }
@@ -493,7 +463,7 @@ mod tests {
             worker,
             responses,
             "open",
-            json!({"kind":"open","appId":"so.epicenter.mail","replica":{"library":"local"},"name":"cache"}),
+            json!({"kind":"open","appId":"so.epicenter.mail","name":"cache"}),
         )["data"]["connection"]
             .as_str()
             .unwrap()
@@ -590,7 +560,7 @@ mod tests {
             &worker,
             &rx,
             "delete",
-            json!({"kind":"delete","appId":"so.epicenter.mail","replica":{"library":"local"},"name":"cache"}),
+            json!({"kind":"delete","appId":"so.epicenter.mail","name":"cache"}),
         );
         assert!(!root
             .path()
@@ -713,45 +683,34 @@ mod tests {
     #[test]
     fn protocol_rejects_paths_extra_fields_and_invalid_blobs() {
         for value in [
-            json!({"kind":"open","appId":"so.epicenter.mail","name":"cache"}),
-            json!({"kind":"open","path":"/tmp/foreign","appId":"so.epicenter.mail","replica":{"library":"local"},"name":"cache"}),
+            json!({"kind":"open","appId":"so.epicenter.mail","replica":{"library":"local"},"name":"cache"}),
+            json!({"kind":"open","path":"/tmp/foreign","appId":"so.epicenter.mail","name":"cache"}),
             json!({"kind":"run","connection":"1:1","statement":{"sql":"SELECT ?","parameters":[{"blob":[256]}]}}),
         ] {
             assert!(serde_json::from_value::<Request>(value).is_err());
         }
-        assert!(database_path(
-            std::path::Path::new("/tmp"),
-            "../escape",
-            &crate::blobs::LibraryReplica::Local {},
-            "cache"
-        )
-        .is_err());
+        assert!(database_path(std::path::Path::new("/tmp"), "../escape", "cache").is_err());
         assert!(database_path(
             std::path::Path::new("/tmp"),
             "so.epicenter.mail",
-            &crate::blobs::LibraryReplica::Local {},
             "../cache"
         )
         .is_err());
     }
     #[test]
-    fn shared_sqlite_is_actor_bound_and_separate_from_personal() {
-        let root = std::path::Path::new("/tmp/library-replica-test");
-        let mut paths = std::collections::HashSet::new();
-        for library in ["personal", "shared"] {
-            for principal in ["alice", "bob"] {
-                let replica: crate::blobs::LibraryReplica = serde_json::from_value(serde_json::json!({"library":library,"account":{"authorityId":"server","principalId":principal}})).unwrap();
-                assert!(paths.insert(
-                    database_path(root, "so.epicenter.notes", &replica, "search").unwrap()
-                ));
-            }
-        }
-        assert_eq!(paths.len(), 4);
-        assert!(paths.contains(
-            &root.join("apps/so.epicenter.notes/accounts/server/alice/sqlite/search.sqlite")
-        ));
-        assert!(paths.contains(
-            &root.join("apps/so.epicenter.notes/accounts/server/alice/shared/sqlite/search.sqlite")
-        ));
+    fn sqlite_paths_depend_only_on_application_and_database() {
+        let root = std::path::Path::new("/tmp/device-sqlite-test");
+        assert_eq!(
+            database_path(root, "so.epicenter.notes", "search").unwrap(),
+            root.join("apps/so.epicenter.notes/local/sqlite/search.sqlite")
+        );
+        assert_ne!(
+            database_path(root, "so.epicenter.notes", "search").unwrap(),
+            database_path(root, "so.epicenter.mail", "search").unwrap()
+        );
+        assert_ne!(
+            database_path(root, "so.epicenter.notes", "search").unwrap(),
+            database_path(root, "so.epicenter.notes", "other").unwrap()
+        );
     }
 }

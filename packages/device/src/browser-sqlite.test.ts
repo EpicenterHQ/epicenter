@@ -25,7 +25,7 @@ test('shared requests fail together and a retired worker cannot fail its replace
 			};
 			const { browserSqliteTransport: request } = await import(${JSON.stringify(new URL('./browser-sqlite.js', import.meta.url).href)});
 			expect(workers).toHaveLength(0);
-			const message = { kind: 'sqlite-acquire', appId: 'so.epicenter.transport-test', replica: {library:'local'} };
+			const message = { kind: 'sqlite-acquire', appId: 'so.epicenter.transport-test' };
 			const first = request(message);
 			const second = request({ ...message, appId: 'so.epicenter.other-app' });
 			expect(workers).toHaveLength(1);

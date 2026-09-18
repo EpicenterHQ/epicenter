@@ -12,7 +12,7 @@ import { field } from '@epicenter/data/definition';
  * (ADR-0268).
  */
 
-import type { App } from '@epicenter/app';
+import type { AppStore } from '@epicenter/app';
 import {
 	type ContentCodec,
 	defineData,
@@ -157,7 +157,7 @@ export const honeycrispDefinition = defineData({
  * `{#key}` remounts or its `{#if}` flips (ADR-0350), which is the only end this
  * store has.
  */
-export type HoneycrispData = App<typeof honeycrispDefinition>;
+export type HoneycrispData = AppStore<typeof honeycrispDefinition>;
 
 export type Folder = RowOf<typeof honeycrispDefinition.tables.folders>;
 export type Note = RowOf<typeof honeycrispDefinition.tables.notes>;

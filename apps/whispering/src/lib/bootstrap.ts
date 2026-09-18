@@ -22,8 +22,8 @@ export const library: Library = (() => {
 	throw new Error('Your saved library choice could not be read.');
 })();
 export const canOpenShared = authClient.selectedServer !== null;
-// A Local App never borrows inference or remote storage from ambient sign-in.
-export const account = library === 'local' ? null : signedInAccount;
+// The captured account supplies account stores and inference beside device data.
+export const account = signedInAccount;
 const application = defineApplication({
 	appId: APPS.WHISPERING.id,
 	definition: whisperingDefinition,
@@ -31,10 +31,7 @@ const application = defineApplication({
 	settingsKey: 'whispering',
 	runtime,
 });
-const shouldOpen =
-	!new URLSearchParams(location.search).has('connect') &&
-	(library === 'local' ||
-		(account !== null && (library !== 'shared' || canOpenShared)));
+const shouldOpen = !new URLSearchParams(location.search).has('connect');
 if (shouldOpen) await initializeBrowserAiSettings('whispering');
 export const selections = shouldOpen
 	? createBrowserInferenceSelections('whispering')
@@ -42,10 +39,7 @@ export const selections = shouldOpen
 export const app = trySync({
 	try: () => {
 		if (new URLSearchParams(location.search).has('connect')) return null;
-		if (library === 'local') return application.openLocal();
-		if (account === null) return null;
-		if (library === 'personal') return application.openPersonal(account);
-		return canOpenShared ? application.openShared(account) : null;
+		return application.open(account);
 	},
 	catch(cause) {
 		// Preserve the opening failure even if subscription cleanup also fails.
@@ -56,6 +50,12 @@ export const app = trySync({
 		throw cause;
 	},
 }).data;
+export const data =
+	library === 'local'
+		? app?.device
+		: library === 'personal'
+			? app?.account?.personal
+			: app?.account?.shared;
 void app?.ready.then(({ error }) => {
 	if (error) selections?.[Symbol.dispose]();
 });
@@ -71,9 +71,10 @@ export function closeApp() {
 	return app?.close() ?? Promise.resolve();
 }
 export const departure = createDeparture({
-	retirement: app && app.library !== 'local' ? app.retirement : undefined,
+	libraryReplaced: app?.libraryReplaced,
+	canRetryClose: () => app?.canRetryClose ?? false,
 	reload: () => location.reload(),
-	auth: app && app.library !== 'local' && auth ? auth : undefined,
+	auth: app && auth ? auth : undefined,
 	account,
 	close: closeApp,
 });

@@ -22,7 +22,7 @@ export async function openMailDocument({
 	const key = `mail-test-${crypto.randomUUID()}`;
 	const directory = await mkdtemp(join(tmpdir(), 'mail-document-'));
 	const globals = globalThis as unknown as Record<string, unknown>;
-	globals[key] = { app, authorization };
+	globals[key] = { app: { device: app }, authorization };
 	if (!compiled) {
 		const built = await Bun.build({
 			entrypoints: [new URL('./mail.ts', import.meta.url).pathname],

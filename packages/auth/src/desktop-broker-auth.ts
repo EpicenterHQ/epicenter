@@ -103,12 +103,13 @@ export function createDesktopBrokerAuth({
 	fetch?: AuthFetch;
 	WebSocket?: typeof WebSocket;
 }): AuthStartup {
-	if (bootstrap.recovery) return {
-		auth: null,
-		selectedServer: bootstrap.selectedServer,
-		signInLocation: 'host-settings',
-		[Symbol.dispose]() {},
-	};
+	if (bootstrap.recovery)
+		return {
+			auth: null,
+			selectedServer: bootstrap.selectedServer,
+			signInLocation: 'host-settings',
+			[Symbol.dispose]() {},
+		};
 	const baseURL = bootstrap.baseURL;
 	const origin = new URL(baseURL).origin;
 	const broker = createDesktopBroker({ brokerBaseURL, fetch: fetchImpl });
@@ -178,6 +179,7 @@ export function createDesktopBrokerAuth({
 			? null
 			: Object.freeze({
 					authorityId: bootstrap.authorityId,
+					supportsShared: bootstrap.selectedServer !== null,
 					principalId: bootstrap.state.principalId,
 					baseURL,
 					fetch: accountFetch,
@@ -302,7 +304,9 @@ export function createDesktopBrokerAuth({
 				Promise.resolve(AuthError.ProfileUnavailable({ cause: 'Signed out.' }))
 			);
 		},
-		...(bootstrap.accountManagement ? { accountManagementUrl: createAccountManagementUrl } : {}),
+		...(bootstrap.accountManagement
+			? { accountManagementUrl: createAccountManagementUrl }
+			: {}),
 		[Symbol.dispose]() {
 			lifetime.abort();
 			listeners.clear();
@@ -311,7 +315,11 @@ export function createDesktopBrokerAuth({
 	return {
 		auth,
 		selectedServer: bootstrap.selectedServer,
-		...(bootstrap.signInLocation ? { signInLocation: bootstrap.signInLocation } : {}),
-		[Symbol.dispose]() { auth[Symbol.dispose](); },
+		...(bootstrap.signInLocation
+			? { signInLocation: bootstrap.signInLocation }
+			: {}),
+		[Symbol.dispose]() {
+			auth[Symbol.dispose]();
+		},
 	};
 }

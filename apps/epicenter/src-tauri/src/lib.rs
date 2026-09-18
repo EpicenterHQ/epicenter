@@ -69,7 +69,6 @@ use delivery::{simulate_copy_keystroke, simulate_enter_keystroke, write_text};
 mod keyring_storage;
 use keyring_storage::{
     delete_app_secret, read_app_secret, read_auth_cell, write_app_secret, write_auth_cell,
-    SecretAccount,
 };
 
 pub mod media;
@@ -219,7 +218,6 @@ enum BunToRustNativeFrame {
         request_id: String,
         #[serde(rename = "appId")]
         app_id: String,
-        account: SecretAccount,
         label: String,
         value: String,
     },
@@ -228,7 +226,6 @@ enum BunToRustNativeFrame {
         request_id: String,
         #[serde(rename = "appId")]
         app_id: String,
-        account: SecretAccount,
         label: String,
     },
     DeleteAppSecret {
@@ -236,7 +233,6 @@ enum BunToRustNativeFrame {
         request_id: String,
         #[serde(rename = "appId")]
         app_id: String,
-        account: SecretAccount,
         label: String,
     },
     CloseApplications {
@@ -1398,25 +1394,23 @@ fn handle_native_frame(
         BunToRustNativeFrame::PutAppSecret {
             request_id,
             app_id,
-            account,
             label,
             value,
         } => {
             let result =
-                write_app_secret(&app.config().identifier, &app_id, &account, &label, &value);
+                write_app_secret(&app.config().identifier, &app_id, &label, &value);
             send_native_result(app, generation, &request_id, result)
         }
         BunToRustNativeFrame::GetAppSecret {
             request_id,
             app_id,
-            account,
             label,
         } => {
             if request_id.is_empty() {
                 bail!("native requestId must be non-empty");
             }
             let state = app.state::<HostState>();
-            match read_app_secret(&app.config().identifier, &app_id, &account, &label) {
+            match read_app_secret(&app.config().identifier, &app_id, &label) {
                 Ok(value) => send_native_frame(
                     &state,
                     generation,
@@ -1443,10 +1437,9 @@ fn handle_native_frame(
         BunToRustNativeFrame::DeleteAppSecret {
             request_id,
             app_id,
-            account,
             label,
         } => {
-            let result = delete_app_secret(&app.config().identifier, &app_id, &account, &label);
+            let result = delete_app_secret(&app.config().identifier, &app_id, &label);
             send_native_result(app, generation, &request_id, result)
         }
         BunToRustNativeFrame::CloseApplications { request_id } => {

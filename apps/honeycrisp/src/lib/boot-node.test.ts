@@ -35,7 +35,7 @@ describe('the callback opens nothing', () => {
 		for (const file of [callback, ...ancestorLayouts(callback)]) {
 			const source = await Bun.file(file).text();
 			expect(source).not.toContain('$lib/application');
-			expect(source).not.toMatch(/\.open(?:Local|Personal|Shared)\(/);
+			expect(source).not.toMatch(/application\.open\(/);
 		}
 	});
 
@@ -50,9 +50,7 @@ describe('the callback opens nothing', () => {
 		const bootstrap = await Bun.file(
 			join(appRoot, 'src/lib/application.ts'),
 		).text();
-		for (const method of ['openLocal', 'openPersonal', 'openShared']) {
-			expect(bootstrap).toContain(`application.${method}(`);
-		}
+		expect(bootstrap).toContain('application.open(account)');
 	});
 
 	test('the shell consumes the opened library without importing its bootstrap', async () => {
@@ -60,6 +58,6 @@ describe('the callback opens nothing', () => {
 			join(routes, 'components/StoreShell.svelte'),
 		).text();
 		expect(source).not.toContain('$lib/application');
-		expect(source).not.toMatch(/\.open(?:Local|Personal|Shared)\(/);
+		expect(source).not.toMatch(/application\.open\(/);
 	});
 });

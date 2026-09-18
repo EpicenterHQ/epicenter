@@ -24,18 +24,20 @@ const application = defineApplication({
 	settingsKey: 'honeycrisp',
 	definition: honeycrispDefinition,
 });
-export const app = (() => {
-	if (new URLSearchParams(location.search).has('connect')) return null;
-	if (library === 'local') return application.openLocal();
-	if (account === null) return null;
-	if (library === 'personal') return application.openPersonal(account);
-	if (!canOpenShared) return null;
-	return application.openShared(account);
-})();
+export const app = new URLSearchParams(location.search).has('connect')
+	? null
+	: application.open(account);
+export const data =
+	library === 'local'
+		? app?.device
+		: library === 'personal'
+			? app?.account?.personal
+			: app?.account?.shared;
 export const departure = createDeparture({
-	retirement: app && app.library !== 'local' ? app.retirement : undefined,
+	libraryReplaced: app?.libraryReplaced,
+	canRetryClose: () => app?.canRetryClose ?? false,
 	reload: () => location.reload(),
-	auth: app && app.library !== 'local' && auth ? auth : undefined,
+	auth: app && auth ? auth : undefined,
 	account,
 	close: () => app?.close() ?? Promise.resolve(),
 });

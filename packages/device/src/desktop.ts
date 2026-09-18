@@ -6,7 +6,6 @@
  * Secrets use HTTP and survive SQLite closure.
  */
 
-import type { AccountIdentity } from '@epicenter/principal';
 import { Ok, type Result } from 'wellcrafted/result';
 import {
 	appIdOrThrow,
@@ -41,12 +40,12 @@ export function createDesktopSqliteOwner(
 	options: CreateDesktopDeviceOptions = {},
 ): import('./owner.js').DeviceSqliteOwner {
 	return {
-		async acquire(appId, account) {
+		async acquire(appId) {
 			const socket = createSqliteSocket(options);
 			try {
 				const lifetime = await createTransportSqliteOwner(
 					socket.request,
-				).acquire(appId, account);
+				).acquire(appId);
 				let closing: Promise<void> | undefined;
 				return {
 					open: lifetime.open,
@@ -174,11 +173,11 @@ export function createDesktopDevice({
 }: CreateDesktopDeviceOptions & { appId: string }): Device {
 	appIdOrThrow(appId);
 	const owner = createDesktopSqliteOwner(options);
-	const sqlite = createAppSqlite(owner, appId, { library: 'local' });
+	const sqlite = createAppSqlite(owner, appId);
 	return {
 		sqlite: Object.freeze(sqlite.value),
 		close: () => sqlite.close(),
-		secrets: Object.freeze(createDesktopSecrets(appId, null, options).value),
+		secrets: Object.freeze(createDesktopSecrets(appId, options).value),
 	};
 }
 
@@ -214,7 +213,6 @@ function createOwnerRequest({
 
 export function createDesktopSecrets(
 	appId: string,
-	account: AccountIdentity | null,
 	{
 		assertUsable,
 		...options
@@ -222,13 +220,6 @@ export function createDesktopSecrets(
 ): { value: SecretStore; close(): Promise<void> } {
 	appIdOrThrow(appId);
 	const request = createOwnerRequest(options);
-	const capturedAccount =
-		account === null
-			? null
-			: {
-					authorityId: account.authorityId,
-					principalId: account.principalId,
-				};
 	let closed = false;
 	let closing: Promise<void> | undefined;
 	let operations = 0;
@@ -253,7 +244,6 @@ export function createDesktopSecrets(
 					const result = await request({
 						kind: 'secret-put',
 						appId,
-						account: capturedAccount,
 						label,
 						value,
 					});
@@ -268,7 +258,6 @@ export function createDesktopSecrets(
 					const result = await request({
 						kind: 'secret-get',
 						appId,
-						account: capturedAccount,
 						label,
 					});
 					if (result.error !== null)
@@ -286,7 +275,6 @@ export function createDesktopSecrets(
 					const result = await request({
 						kind: 'secret-delete',
 						appId,
-						account: capturedAccount,
 						label,
 					});
 					return result.error === null

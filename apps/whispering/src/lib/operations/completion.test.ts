@@ -94,15 +94,28 @@ function setup(
 	});
 	const connections = createInferenceConnections({
 		selections,
-		ai: owner.value.ai,
+		connections: {
+			runtime: owner.value.ai.runtime,
+			custom: owner.value.ai.connections,
+		},
+		accountConnection: owner.value.ai.account,
 		hostedModels: [{ id: model, label: 'Hosted', credits: 1 }],
 	});
 
 	currentApp = {
-		ai: owner.value.ai,
-		account: { authorityId: 'https://hosted.example', principalId },
-		kv: { get: () => model },
+		device: {
+			connections: {
+				runtime: owner.value.ai.runtime,
+				custom: owner.value.ai.connections,
+			},
+			kv: { get: () => model },
+		},
+		account: {
+			identity: { authorityId: 'https://hosted.example', principalId },
+			connection: owner.value.ai.account,
+		},
 	};
+
 	const run = () =>
 		completeWithGlobalDefault({
 			systemPrompt: 'Fix grammar',

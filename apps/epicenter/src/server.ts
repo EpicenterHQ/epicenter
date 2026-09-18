@@ -25,13 +25,11 @@ import {
 	type DeviceResponse,
 	isDatabaseName,
 	isSecretLabel,
-	isSqliteAccount,
 	parseSqliteFrame,
 	type SqliteStatement,
 	stringifySqliteFrame,
 } from '@epicenter/device/protocol';
 import type { PendingCallback } from '@epicenter/local-mail/authorization-return';
-import { isLibraryReplica } from '@epicenter/principal';
 import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { type Context, Hono, type Next } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
@@ -598,7 +596,6 @@ export function createHomeServer({
 				if (appSecrets === undefined) return c.text('Unavailable', 503);
 				await appSecrets.put(
 					request.appId,
-					request.account,
 					request.label,
 					request.value,
 				);
@@ -608,7 +605,6 @@ export function createHomeServer({
 				if (appSecrets === undefined) return c.text('Unavailable', 503);
 				const value = await appSecrets.get(
 					request.appId,
-					request.account,
 					request.label,
 				);
 				return c.json({
@@ -618,7 +614,7 @@ export function createHomeServer({
 			}
 			if (request.kind === 'secret-delete') {
 				if (appSecrets === undefined) return c.text('Unavailable', 503);
-				await appSecrets.delete(request.appId, request.account, request.label);
+				await appSecrets.delete(request.appId, request.label);
 				return c.json({ kind: request.kind } satisfies DeviceResponse);
 			}
 			return c.text('Bad Request', 400);
@@ -1025,8 +1021,7 @@ function parseDeviceRequest(
 	}
 	const kind = input.kind;
 	if (kind.startsWith('sqlite-')) {
-		if (!isLibraryReplica(input.replica)) return undefined;
-		const address = { appId: input.appId, replica: input.replica };
+		const address = { appId: input.appId };
 		if (kind === 'sqlite-acquire') return { kind, ...address };
 		if (typeof input.lifetimeId !== 'string' || input.lifetimeId === '')
 			return undefined;
@@ -1093,7 +1088,7 @@ function parseDeviceRequest(
 			kind === 'secret-delete') &&
 		typeof input.label === 'string'
 	) {
-		if (!isSecretLabel(input.label) || !isSqliteAccount(input.account))
+		if (!isSecretLabel(input.label))
 			return undefined;
 		if (kind === 'secret-put' && typeof input.value !== 'string')
 			return undefined;
@@ -1101,14 +1096,12 @@ function parseDeviceRequest(
 			? {
 					kind,
 					appId: input.appId,
-					account: input.account,
 					label: input.label,
 					value: input.value as string,
 				}
 			: {
 					kind,
 					appId: input.appId,
-					account: input.account,
 					label: input.label,
 				};
 	}

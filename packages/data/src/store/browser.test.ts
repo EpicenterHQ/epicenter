@@ -1117,80 +1117,21 @@ test('a request failure remains inside the commit rejection and rolls back', asy
 	}
 });
 
-test('SQL-only and generation entrypoints exclude each other before discovery or I/O', async () => {
-	const database = databaseFor('sql-owner');
-	const account = accountFor(ALICE);
-	let acquisitions = 0;
-	const owner: DeviceSqliteOwner = {
-		async acquire() {
-			acquisitions++;
-			return {
-				open: async () => {
-					throw new Error('unused');
-				},
-				delete: async () => {},
-				close: async () => {},
-			};
-		},
-	};
-	const sql = createAppSqlite(owner, APP, { library: 'personal', account });
-	expectOkResult(await sql.acquire());
-	const fetch = spyOn(account, 'fetch');
-	const discovery = spyOn(indexedDB, 'databases');
-	try {
-		expect(
-			expectErr(
-				await openDatabase(database, { appId: APP, generation: GEN, account }),
-			).name,
-		).toBe('AlreadyOpen');
-		expect(
-			expectErr(await resolveGeneration(database, { appId: APP, account }))
-				.name,
-		).toBe('AlreadyOpen');
-		expect(
-			expectErr(await createGeneration(database, { appId: APP, account })).name,
-		).toBe('AlreadyOpen');
-		expect(
-			expectErr(
-				await eraseGenerations({
-					appId: APP,
-					authorityId: account.authorityId,
-					principalId: account.principalId,
-					dataId: database.id,
-				}),
-			).name,
-		).toBe('AlreadyOpen');
-		expect(fetch).not.toHaveBeenCalled();
-		expect(discovery).not.toHaveBeenCalled();
-		const local = createAppSqlite(owner, APP, { library: 'local' });
-		expectOkResult(await local.acquire());
-		await local.close();
-	} finally {
-		fetch.mockRestore();
-		discovery.mockRestore();
-		await sql.close();
-	}
-	expectOkResult(await createGeneration(database, { appId: APP, account }));
-	const document = expectOkResult(
-		await openDatabase(database, { appId: APP, generation: GEN, account }),
-	);
-	const competing = createAppSqlite(owner, APP, {
-		library: 'personal',
-		account,
-	});
-	try {
-		expect(expectErr(await competing.acquire()).name).toBe('AlreadyOpen');
-		expect(acquisitions).toBe(2);
-	} finally {
-		await competing.close();
-		await document.close();
-	}
-	const reopened = createAppSqlite(owner, APP, {
-		library: 'personal',
-		account,
-	});
-	expectOkResult(await reopened.acquire());
-	await reopened.close();
+test('device SQLite and data generations have independent ownership', async () => {
+ const database = databaseFor('sql-owner');
+ const account = accountFor(ALICE);
+ const owner: DeviceSqliteOwner = { async acquire() { return {
+  async open() { throw new Error('unused'); }, async delete() {}, async close() {},
+ }; } };
+ const sql = createAppSqlite(owner, APP);
+ expectOkResult(await sql.acquire());
+ expectOkResult(await createGeneration(database, { appId: APP, account }));
+ const document = expectOkResult(await openDatabase(database, { appId: APP, generation: GEN, account }));
+ await sql.close();
+ const reopened = createAppSqlite(owner, APP);
+ expectOkResult(await reopened.acquire());
+ await reopened.close();
+ await document.close();
 });
 
 test('blocked IndexedDB deletion retains library exclusion until the request settles', async () => {
@@ -1257,10 +1198,9 @@ for (const operation of ['open', 'create', 'resolve'] as const) {
 						? createGeneration(database, { appId, account })
 						: resolveGeneration(database, { appId, account }),
 				).rejects.toThrow('Cleanup failed');
-			expect(
-				expectErr(await claimLibrary(appId, { library: 'personal', account }))
-					.name,
-			).toBe('AlreadyOpen');
+			expect(expectErr(await claimLibrary(appId, {library:'personal',account})).name).toBe(
+				'AlreadyOpen',
+			);
 		} finally {
 			closing.mockRestore();
 		}

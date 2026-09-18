@@ -88,6 +88,7 @@ const address = STORE_SYNC_ROUTE.address('https://account.test', {
 test('verification and uninterrupted same-person sign-in preserve the Account object', async () => {
 	using context = setup();
 	const account = context.account;
+	expect(account.supportsShared).toBe(false);
 	expect(account.authorityId).toBe('epicenter-api');
 	await account.fetch('/api/example');
 	expect(context.account).toBe(account);

@@ -34,15 +34,15 @@
 			<LibrarySelection library={application.library} canOpenShared={application.canOpenShared} select={application.selectLibrary} />
 		{/if}
 	{/snippet}
-	{#if !application.app}
+	{#if !application.data}
 		<div class="fixed left-4 top-4 z-10">{@render librarySelection()}</div>
 	{/if}
-	<AppBoot startup={authStartup} departure={application.departure} ready={application.app?.ready} appName="Honeycrisp" noun="notes">
+	<AppBoot startup={authStartup} departure={application.departure} ready={application.data ? application.app?.ready : undefined} appName="Honeycrisp" noun="notes">
 		{#snippet openingFailure()}
 			<div class="fixed left-4 top-4 z-10">{@render librarySelection()}</div>
 		{/snippet}
-		{#if application.app && showing}
-			<StoreShell data={application.app} {librarySelection} />
+		{#if application.data && showing}
+			<StoreShell data={application.data} {librarySelection} />
 		{/if}
 	</AppBoot>
 {:else}

@@ -341,9 +341,9 @@ try {
 		return { page, context };
 	}
 	async function opened(page, library) {
+		const label = library === 'Local' ? 'On this device' : `${library} library`;
 		await page
-			.getByRole('navigation', { name: 'Library', exact: true })
-			.getByRole('button', { name: library, exact: true })
+			.getByRole('button', { name: `Recording library: ${label}`, exact: true })
 			.waitFor();
 		await eventually(
 			() =>
@@ -375,8 +375,8 @@ try {
 					choices?.version !== 1 ||
 					Object.keys(records).sort().join() !== 'connections,version' ||
 					Object.keys(choices).sort().join() !== 'selections,version' ||
-					'configuration' in app.ai ||
-					'configured' in app.ai
+					'configuration' in app.device.connections ||
+					'configured' in app.device.connections
 				)
 					throw new Error(
 						'AI settings did not use separate connection and selection owners.',
@@ -396,7 +396,7 @@ try {
 						saved.apiKey !== apiKey ||
 						'client' in saved ||
 						JSON.stringify(selections.get(scope)) !== JSON.stringify(target) ||
-						!app.ai.connections.get(saved.id)?.client
+						!app.device.connections.custom.get(saved.id)?.client
 					)
 						throw new Error(
 							'Saved AI choice does not identify its exact custom connection and model.',
@@ -459,8 +459,8 @@ try {
 	}
 	async function snapshot(page) {
 		return page.evaluate(async () => {
-			const { app, library, account } = await import('/src/lib/bootstrap.ts');
-			const row = app.tables.recordings.rows.toSorted((a, b) =>
+			const { app, data, library, account } = await import('/src/lib/bootstrap.ts');
+			const row = data.tables.recordings.rows.toSorted((a, b) =>
 				b.recordedAt.localeCompare(a.recordedAt),
 			)[0];
 			if (row?.transcriptionStatus === 'failed')
@@ -511,8 +511,8 @@ try {
 		await eventually(
 			() =>
 				page.evaluate(async (polish) => {
-					const { app } = await import('/src/lib/bootstrap.ts');
-					const row = app.tables.recordings.rows.toSorted((a, b) =>
+					const { data } = await import('/src/lib/bootstrap.ts');
+					const row = data.tables.recordings.rows.toSorted((a, b) =>
 						b.recordedAt.localeCompare(a.recordedAt),
 					)[0];
 					if (row?.transcriptionStatus === 'failed')
@@ -637,8 +637,13 @@ try {
 		});
 	});
 	await alice
-		.getByRole('navigation', { name: 'Library', exact: true })
-		.getByRole('button', { name: 'Shared', exact: true })
+		.getByRole('button', {
+			name: 'Recording library: Personal library',
+			exact: true,
+		})
+		.click();
+	await alice
+		.getByRole('menuitemradio', { name: 'Shared library', exact: true })
 		.click();
 	await opened(alice, 'Shared');
 	assert.equal(

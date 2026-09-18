@@ -381,7 +381,7 @@ test('application startup, draft protection and durable reopen', async ({
 					'departure' in value &&
 					'app' in value,
 			);
-			const opened = await application.app.sqlite.open('local');
+			const opened = await application.app.device.sqlite.open('local');
 			if (opened.error) throw new Error(opened.error.message);
 			const seeded = await opened.data.batch([
 				{

@@ -1,5 +1,4 @@
 import type { NativeSqliteRequest } from './device.js';
-import type { AccountIdentity } from '@epicenter/principal';
 /**
  * The private Rust-to-Bun startup protocol and the Bun sidecar lifecycle.
  * Rust resolves the runtime mode and port, then keeps stdin open as its parent
@@ -338,20 +337,17 @@ export function createNativePort(
 			| {
 					type: 'put-app-secret';
 					appId: string;
-					account: AccountIdentity | null;
 					label: string;
 					value: string;
 			  }
 			| {
 					type: 'get-app-secret';
 					appId: string;
-					account: AccountIdentity | null;
 					label: string;
 			  }
 			| {
 					type: 'delete-app-secret';
 					appId: string;
-					account: AccountIdentity | null;
 					label: string;
 			  },
 		signal?: AbortSignal,
@@ -450,21 +446,18 @@ export function createNativePort(
 		},
 		async putAppSecret(
 			appId: string,
-			account: AccountIdentity | null,
 			label: string,
 			value: string,
 		) {
-			await request({ type: 'put-app-secret', appId, account, label, value });
+			await request({ type: 'put-app-secret', appId, label, value });
 		},
 		async getAppSecret(
 			appId: string,
-			account: AccountIdentity | null,
 			label: string,
 		) {
 			const value = await request({
 				type: 'get-app-secret',
 				appId,
-				account,
 				label,
 			});
 			if (value !== null && typeof value !== 'string')
@@ -473,10 +466,9 @@ export function createNativePort(
 		},
 		async deleteAppSecret(
 			appId: string,
-			account: AccountIdentity | null,
 			label: string,
 		) {
-			await request({ type: 'delete-app-secret', appId, account, label });
+			await request({ type: 'delete-app-secret', appId, label });
 		},
 		async closeApplications() {
 			await request({ type: 'close-applications' });

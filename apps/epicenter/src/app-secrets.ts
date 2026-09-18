@@ -1,58 +1,27 @@
-import { secretScopeKey } from '@epicenter/device';
-import type { AccountIdentity } from '@epicenter/principal';
-
 /**
- * Opaque credentials scoped by application, captured account and caller label.
+ * Opaque credentials scoped by application and caller label.
  * Rust composes the native keychain address from these structured fields.
  * These namespaces prevent collisions among trusted apps; they are not a sandbox.
  */
 
 export type AppSecretOwner = {
-	put(
-		appId: string,
-		account: AccountIdentity | null,
-		label: string,
-		value: string,
-	): Promise<void>;
-	get(
-		appId: string,
-		account: AccountIdentity | null,
-		label: string,
-	): Promise<string | null>;
-	delete(
-		appId: string,
-		account: AccountIdentity | null,
-		label: string,
-	): Promise<void>;
+	put(appId: string, label: string, value: string): Promise<void>;
+	get(appId: string, label: string): Promise<string | null>;
+	delete(appId: string, label: string): Promise<void>;
 };
 
 /** The native half of this owner: three correlated requests on the Rust pipe. */
 export type NativeSecretPort = {
-	putAppSecret(
-		appId: string,
-		account: AccountIdentity | null,
-		label: string,
-		value: string,
-	): Promise<void>;
-	getAppSecret(
-		appId: string,
-		account: AccountIdentity | null,
-		label: string,
-	): Promise<string | null>;
-	deleteAppSecret(
-		appId: string,
-		account: AccountIdentity | null,
-		label: string,
-	): Promise<void>;
+	putAppSecret(appId: string, label: string, value: string): Promise<void>;
+	getAppSecret(appId: string, label: string): Promise<string | null>;
+	deleteAppSecret(appId: string, label: string): Promise<void>;
 };
 
 export function createNativeAppSecrets(port: NativeSecretPort): AppSecretOwner {
 	return {
-		put: (appId, account, label, value) =>
-			port.putAppSecret(appId, account, label, value),
-		get: (appId, account, label) => port.getAppSecret(appId, account, label),
-		delete: (appId, account, label) =>
-			port.deleteAppSecret(appId, account, label),
+		put: (appId, label, value) => port.putAppSecret(appId, label, value),
+		get: (appId, label) => port.getAppSecret(appId, label),
+		delete: (appId, label) => port.deleteAppSecret(appId, label),
 	};
 }
 
@@ -67,17 +36,16 @@ export function createNativeAppSecrets(port: NativeSecretPort): AppSecretOwner {
  */
 export function createProcessMemoryAppSecrets(): AppSecretOwner {
 	const values = new Map<string, string>();
-	const key = (appId: string, account: AccountIdentity | null, label: string) =>
-		JSON.stringify([secretScopeKey(appId, account), label]);
+	const key = (appId: string, label: string) => JSON.stringify([appId, label]);
 	return {
-		async put(appId, account, label, value) {
-			values.set(key(appId, account, label), value);
+		async put(appId, label, value) {
+			values.set(key(appId, label), value);
 		},
-		async get(appId, account, label) {
-			return values.get(key(appId, account, label)) ?? null;
+		async get(appId, label) {
+			return values.get(key(appId, label)) ?? null;
 		},
-		async delete(appId, account, label) {
-			values.delete(key(appId, account, label));
+		async delete(appId, label) {
+			values.delete(key(appId, label));
 		},
 	};
 }

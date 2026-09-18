@@ -199,7 +199,6 @@ export async function createAiCatalog({
 		if (!entry.secretVersion) return undefined;
 		const value = await secrets.get(
 			secretAppId,
-			null,
 			label(entry.id, entry.secretVersion),
 		);
 		if (value === null)
@@ -211,7 +210,6 @@ export async function createAiCatalog({
 		try {
 			await secrets.delete(
 				secretAppId,
-				null,
 				label(entry.id, entry.secretVersion),
 			);
 		} catch {
@@ -273,7 +271,7 @@ export async function createAiCatalog({
 			};
 			if (apiKey !== undefined) {
 				try {
-					await secrets.put(secretAppId, null, label(id, version), apiKey);
+					await secrets.put(secretAppId, label(id, version), apiKey);
 				} catch {
 					throw new Error('Could not save AI connection credentials.');
 				}

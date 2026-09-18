@@ -32,6 +32,7 @@ export type SessionLauncher = {
 
 type AccountAuthOptions = {
 	baseURL: string;
+	supportsShared?: boolean;
 	persistedAuthStorage: PersistedAuthStorage;
 	fetch?: AuthFetch;
 	WebSocket?: typeof WebSocket;
@@ -152,6 +153,7 @@ export function createInstanceAuth(options: AccountAuthOptions) {
 			...options,
 			...normalizeInstanceServer(options.baseURL),
 			expectedPrincipalId: 'instance',
+			supportsShared: true,
 		},
 		async () => {},
 	);
@@ -205,6 +207,7 @@ function createBearerAuth(
 		persistedAuthStorage,
 		cancel,
 		expectedPrincipalId,
+		supportsShared = false,
 		fetch: fetchImpl = globalThis.fetch.bind(globalThis),
 		WebSocket: WebSocketImpl = globalThis.WebSocket,
 		log = createLogger('auth/session'),
@@ -387,6 +390,7 @@ function createBearerAuth(
 			return retry.response;
 		};
 		const account: Account = Object.freeze({
+			supportsShared,
 			authorityId,
 			principalId: value.principalId,
 			baseURL,

@@ -43,7 +43,7 @@
 	// `fromData` runs here rather than above, because this mounts exactly once
 	// per opened store and the adaptation is per store.
 	/* svelte-ignore state_referenced_locally */
-	const data = fromData(opened);
+	const data = fromData(opened.account!.personal);
 
 	// Read once, not `$derived`: the route mounts this exactly once per opened
 	// store, so `data` never changes while this component lives.
@@ -52,7 +52,7 @@
 	/* svelte-ignore state_referenced_locally */
 	const inferenceConnections = createVocabConnections(opened, selections);
 	/* svelte-ignore state_referenced_locally */
-	const dictation = createDictation(opened.ai.account?.client ?? null);
+	const dictation = createDictation(opened.account?.connection?.client ?? null);
 	setVocabSurface({ entries, inferenceConnections, dictation });
 
 	// The shared chat registry (ADR-0047/0059) with Vocab's variation injected:
@@ -71,7 +71,7 @@
 	});
 
 	/* svelte-ignore state_referenced_locally */
-	const settings = createSettingsState({ data });
+	const settings = createSettingsState({ data: opened.device });
 
 	let closing: Promise<void> | undefined;
 	export function close(): Promise<void> {

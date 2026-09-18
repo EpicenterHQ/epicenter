@@ -45,7 +45,7 @@ async function setup(directory?: string) {
 		local,
 		sources: createBrowserBlobSources(local),
 	});
-	const app = { tables: data.tables, blobs: { local: access.value } };
+	const app = { tables: data.tables, blobs: { remote: null, local: access.value } };
 	const domain = createWhisperingRecordings(app);
 	return {
 		root,

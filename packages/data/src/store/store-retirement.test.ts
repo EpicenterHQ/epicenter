@@ -97,12 +97,8 @@ function setup(retireDuringAttach = false, supportsDiscard = true) {
 			});
 		},
 	});
-	return {
-		...parts,
+	return Object.assign(parts, {
 		receive,
-		get isRetired() {
-			return parts.isRetired;
-		},
 		invalidated: () => gate.resolve(),
 		fail: () => gate.reject(new Error('invalidation failed')),
 		retry() {
@@ -116,7 +112,7 @@ function setup(retireDuringAttach = false, supportsDiscard = true) {
 			await parts.close().catch(() => {});
 			raw.close();
 		},
-	};
+	});
 }
 
 test('retirement fences retained writes before notification and close waits for invalidation', async () => {
@@ -128,15 +124,14 @@ test('retirement fences retained writes before notification and close waits for 
 	expect(context.fenced()).toBe(true);
 	expect(context.lifetime.signal.aborted).toBe(true);
 	expect(() => update({ theme: 'late edit' })).toThrow(StoreUnusableError);
-	const notice = await context.retirement;
-	let invalidated = false;
-	void notice.invalidated.then(() => {
-		invalidated = true;
+	await context.libraryReplaced;
+	let closed = false;
+	const closing = context.close().then(() => {
+		closed = true;
 	});
-	const closing = context.close();
 	await Promise.resolve();
 	expect(context.disposed()).toBe(0);
-	expect(invalidated).toBe(false);
+	expect(closed).toBe(false);
 	context.invalidated();
 	await closing;
 	expect(context.disposed()).toBe(1);
@@ -150,18 +145,16 @@ test('invalidation can fail before observation and retry without reopening write
 	context.receive();
 	context.fail();
 	await new Promise<void>((resolve) => setImmediate(resolve));
-	const notice = await context.retirement;
-	await expect(notice.invalidated).rejects.toThrow('invalidation failed');
+	await context.libraryReplaced;
 	await expect(context.close()).rejects.toThrow('invalidation failed');
 	expect(context.disposed()).toBe(0);
 	context.retry();
-	const retry = notice.retryInvalidation();
+	expect(context.canRetryClose).toBe(true);
 	expect(() => context.view.kv.update({ theme: 'still fenced' })).toThrow(
 		StoreUnusableError,
 	);
 	const closing = context.close();
 	context.invalidated();
-	await retry;
 	await closing;
 	expect(context.disposed()).toBe(1);
 });
@@ -169,7 +162,7 @@ test('invalidation can fail before observation and retry without reopening write
 test('retirement during attachment never turns readiness cleanup into backing release', async () => {
 	await using context = setup(true);
 	await context.ready;
-	await context.retirement;
+	await context.libraryReplaced;
 	expect(context.isRetired).toBe(true);
 	expect(context.disposed()).toBe(0);
 	expect(() => context.lifetime.assertUsable()).toThrow(StoreUnusableError);
@@ -187,7 +180,7 @@ test('a close requested by lifetime abortion cannot pass the invalidation gate',
 		closing = context.close();
 	});
 	context.receive();
-	await context.retirement;
+	await context.libraryReplaced;
 	await Promise.resolve();
 	expect(context.disposed()).toBe(0);
 	context.invalidated();
@@ -200,14 +193,11 @@ test('a legacy backing without invalidation support remains unusable and unrelea
 	expectOk(await context.ready);
 	await new Promise<void>((resolve) => setImmediate(resolve));
 	context.receive();
-	const notice = await context.retirement;
-	await expect(notice.invalidated).rejects.toThrow(
-		'does not support generation invalidation',
-	);
+	await context.libraryReplaced;
 	await expect(context.close()).rejects.toThrow(
 		'does not support generation invalidation',
 	);
-	await expect(notice.retryInvalidation()).rejects.toThrow(
+	await expect(context.close()).rejects.toThrow(
 		'does not support generation invalidation',
 	);
 	expect(context.disposed()).toBe(0);

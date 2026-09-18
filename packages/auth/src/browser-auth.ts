@@ -58,7 +58,11 @@ export function createBrowserAuth(
 		? null
 		: server
 			? namedIssuer
-				? createBrowserRedirectAuth({ ...options, ...server })
+				? createBrowserRedirectAuth({
+						...options,
+						...server,
+						supportsShared: true,
+					})
 				: createInstanceAuth({
 						baseURL: server.baseURL,
 						persistedAuthStorage: instanceStorage(server.baseURL),

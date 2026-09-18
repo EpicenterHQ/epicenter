@@ -16,7 +16,10 @@ if (state && state.status !== 'signed-out') {
 ```
 
 `Account` holds a fixed `principalId` and `baseURL`, authenticated `fetch`,
-`openWebSocket`, and `getProfile`. Its object identity lasts through temporary
+`openWebSocket`, and `getProfile`. Its immutable `supportsShared` flag comes from
+the selected deployment: self-hosted accounts offer Shared regardless of the
+person’s principal ID; Cloud accounts do not. This flag describes availability;
+the server still authorizes every request. Its object identity lasts through temporary
 disconnection and uninterrupted same-person reauthentication. Browser
 navigation or desktop host relaunch creates a new runtime and application session.
 

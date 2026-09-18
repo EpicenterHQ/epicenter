@@ -201,7 +201,9 @@ test('saved queries, offline storage and failure recovery', async ({
 		await page.getByRole('status').filter({ hasText: 'Saved' }).waitFor();
 		assert(
 			(await page.evaluate(
-				(id) => globalThis.evidence.app.tables.savedQueries.get(id)?.sql,
+				(id) =>
+					globalThis.evidence.app.account.personal.tables.savedQueries.get(id)
+						?.sql,
 				malformed.repair,
 			)) === 'SELECT subject FROM messages',
 			'Repair changed original row identity',
@@ -218,7 +220,10 @@ test('saved queries, offline storage and failure recovery', async ({
 			.click();
 		assert(
 			(await page.evaluate(
-				(id) => globalThis.evidence.app.tables.savedQueries.ids().includes(id),
+				(id) =>
+					globalThis.evidence.app.account.personal.tables.savedQueries
+						.ids()
+						.includes(id),
 				malformed.remove,
 			)) === false,
 			'Malformed row deletion failed',

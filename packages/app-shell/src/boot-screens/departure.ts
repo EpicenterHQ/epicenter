@@ -1,18 +1,19 @@
 import type { Account, AuthClient } from '@epicenter/auth';
-import type { LibraryRetirement } from '@epicenter/data/store';
 
-/** One page can close once. Only a refusal before teardown permits another try. */
+/** Quiesce page producers before closing resources; retry only unfinished cleanup. */
 export function createDeparture({
 	auth,
 	account,
 	close,
-	retirement,
+	libraryReplaced,
+	canRetryClose,
 	reload,
 }: {
 	auth?: Pick<AuthClient, 'onStateChange'>;
 	account: Account | null;
 	close: () => Promise<void>;
-	retirement?: Promise<LibraryRetirement>;
+	libraryReplaced?: Promise<void>;
+	canRetryClose?: () => boolean;
 	reload?: () => void;
 }) {
 	let state: {
@@ -35,11 +36,8 @@ export function createDeparture({
 		| undefined;
 	let closing: Promise<void> | undefined;
 	let departing: Promise<void> | undefined;
-	let retired = false;
+	let endedBy: 'account' | 'library' | undefined;
 	let closedSuccessfully = false;
-	let library: LibraryRetirement | undefined;
-	let invalidated: Promise<void> | undefined;
-	let physicalCloseStarted = false;
 	let uiQuiesced = false;
 	let reloaded = false;
 	function publish(phase: typeof state.phase, error: unknown = null) {
@@ -48,12 +46,13 @@ export function createDeparture({
 	}
 	function finish() {
 		if (closing) return closing;
+		const retrying = state.phase === 'failed';
 		closing = Promise.resolve().then(async () => {
 			publish('checking');
 			try {
-				if (!retired) await ui?.preflight?.();
+				if (endedBy === undefined && !retrying) await ui?.preflight?.();
 			} catch (error) {
-				if (!retired) {
+				if (endedBy === undefined) {
 					closing = undefined;
 					publish('open', error);
 					throw error;
@@ -61,21 +60,12 @@ export function createDeparture({
 			}
 			publish('closing');
 			try {
-				try {
-					if (!uiQuiesced) await ui?.quiesce();
-					uiQuiesced = true;
-				} catch (error) {
-					// Retirement cannot release the library claim while a producer
-					// still holds old references. Ordinary departure keeps its drain.
-					if (library === undefined) await close();
-					throw error;
-				}
-				if (library !== undefined) await invalidated;
-				physicalCloseStarted = true;
+				if (!uiQuiesced) await ui?.quiesce();
+				uiQuiesced = true;
 				await close();
 				closedSuccessfully = true;
-				publish(retired ? 'retired' : 'closed');
-				if (library !== undefined && !reloaded) {
+				publish(endedBy ? 'retired' : 'closed');
+				if (endedBy === 'library' && !reloaded) {
 					reloaded = true;
 					reload?.();
 				}
@@ -83,7 +73,7 @@ export function createDeparture({
 				publish('failed', error);
 				throw error;
 			} finally {
-				stopAuth();
+				if (closedSuccessfully) stopAuth();
 			}
 		});
 		return closing;
@@ -91,40 +81,31 @@ export function createDeparture({
 	const stopAuth =
 		auth?.onStateChange((next) => {
 			const nextAccount = next.status === 'signed-out' ? null : next.account;
-			if (
-				nextAccount === account ||
-				state.phase === 'closed' ||
-				state.phase === 'failed'
-			)
-				return;
-			retired = true;
+			if (nextAccount === account || state.phase === 'closed') return;
+			endedBy = 'account';
+			if (state.phase === 'failed') return;
 			// Auth already retired transport. This only finishes the local page.
 			void finish().catch(() => {});
 		}) ?? (() => {});
-	void retirement?.then((notice) => {
-		library = notice;
-		invalidated = notice.invalidated;
-		retired = true;
-		if (state.phase === 'open' || state.phase === 'checking') publish('closing');
+	void libraryReplaced?.then(() => {
+		// Account replacement closes this page without automatically reopening it.
+		if (endedBy !== 'account') endedBy = 'library';
+		if (state.phase === 'open' || state.phase === 'checking')
+			publish('closing');
 		void finish().catch(() => {});
 	});
+	function retryable() {
+		return (
+			state.phase === 'failed' && (!uiQuiesced || canRetryClose?.() === true)
+		);
+	}
 	return {
-		/** Retry cleanup while the retired library's claim is still held. */
-		get canRetryRetirement() {
-			return (
-				library !== undefined &&
-				state.phase === 'failed' &&
-				!physicalCloseStarted
-			);
+		/** Retry only when UI cleanup or the resource owner can still make progress. */
+		get canRetryClose() {
+			return retryable();
 		},
-		retryRetirement(): Promise<void> {
-			if (
-				library === undefined ||
-				state.phase !== 'failed' ||
-				physicalCloseStarted
-			)
-				return closing ?? Promise.resolve();
-			invalidated = library.retryInvalidation();
+		retryClose(): Promise<void> {
+			if (!retryable()) return closing ?? Promise.resolve();
 			closing = undefined;
 			return finish();
 		},
@@ -155,16 +136,17 @@ export function createDeparture({
 			departing = (async () => {
 				try {
 					await finish();
-					if (retired)
+					if (endedBy)
 						throw new Error(
-							library === undefined
+							endedBy === 'account'
 								? 'The account changed. Reopen the application.'
 								: 'The library was restored. Reload the application.',
 						);
 					publish('departing');
 					await action();
 				} catch (error) {
-					if (state.phase === 'open' && !retired) departing = undefined;
+					if (state.phase === 'open' && endedBy === undefined)
+						departing = undefined;
 					else publish('failed', error);
 					throw error;
 				}

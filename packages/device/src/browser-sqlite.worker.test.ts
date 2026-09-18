@@ -6,16 +6,9 @@
  * This verifies filenames and delete routing, not OPFS durability or contention.
  */
 import { expect, test } from 'bun:test';
-import {
-	type AccountIdentity,
-	type LibraryReplicaIdentity,
-	asPrincipalId,
-} from '@epicenter/principal';
-
 async function deleteFiles(
 	requests: {
 		appId: string;
-		replica: LibraryReplicaIdentity;
 		name: string;
 	}[],
 ): Promise<string[]> {
@@ -37,7 +30,7 @@ async function deleteFiles(
 			globalThis.self = { postMessage(reply) { replies.push(reply); } };
 			await import(${JSON.stringify(new URL('./browser-sqlite.worker.ts', import.meta.url).href)});
             for (const [id, request] of ${JSON.stringify(requests)}.entries()) {
-                await self.onmessage({ data: { id, request: { kind: 'sqlite-acquire', appId: request.appId, replica: request.replica } } });
+                await self.onmessage({ data: { id, request: { kind: 'sqlite-acquire', appId: request.appId } } });
                 const lifetimeId = replies.at(-1).response?.lifetimeId;
                 if (!lifetimeId) throw new Error(JSON.stringify(replies));
                 await self.onmessage({ data: { id, request: { kind: 'sqlite-delete', ...request, lifetimeId } } });
@@ -63,109 +56,22 @@ async function deleteFiles(
 
 const appId = 'so.epicenter.worker-test';
 
-test('authority and principal separators cannot alias another account file', async () => {
-	const accounts: AccountIdentity[] = [
-		{ authorityId: 'one:two', principalId: asPrincipalId('three') },
-		{ authorityId: 'one', principalId: asPrincipalId('two:three') },
-		{ authorityId: 'one-two', principalId: asPrincipalId('three') },
-		{ authorityId: 'one', principalId: asPrincipalId('two-three') },
-	];
-	const files = await deleteFiles(
-		accounts.map((account) => ({
-			appId,
-			replica: { library: 'personal', account },
-			name: 'search',
-		})),
-	);
-	expect(new Set(files).size).toBe(accounts.length * 2);
-});
-
-test('local, authority, application, and database identity select independent files', async () => {
+test('application and database names select independent files', async () => {
 	const files = await deleteFiles([
-		{ appId, replica: { library: 'local' }, name: 'search' },
-		{
-			appId,
-			replica: {
-				library: 'personal' as const,
-				account: { authorityId: 'local', principalId: asPrincipalId('alice') },
-			},
-			name: 'search',
-		},
-		{
-			appId,
-			replica: {
-				library: 'personal' as const,
-				account: { authorityId: 'other', principalId: asPrincipalId('alice') },
-			},
-			name: 'search',
-		},
-		{
-			appId: 'so.epicenter.another',
-			replica: { library: 'local' },
-			name: 'search',
-		},
-		{ appId, replica: { library: 'local' }, name: 'other' },
+		{ appId, name: 'search' },
+		{ appId: 'so.epicenter.other', name: 'search' },
+		{ appId, name: 'other' },
 	]);
-	expect(new Set(files).size).toBe(10);
+	expect(new Set(files).size).toBe(6);
 });
 
-test('repeated deletion targets the same database and its own journal', async () => {
-	const request = {
-		appId,
-		replica: {
-			library: 'personal' as const,
-			account: {
-				authorityId: 'a:%"',
-				principalId: asPrincipalId('b:[]'),
-			},
-		},
-		name: 'search',
-	};
+test('reopening targets the same database and its own journal', async () => {
+	const request = { appId, name: 'search' };
 	const files = await deleteFiles([request, request]);
-	expect(files).toHaveLength(4);
-	expect(files[0]).toBe(files[2]);
-	expect(files[1]).toBe(`${files[0]}-journal`);
-	expect(files[3]).toBe(files[1]);
-	expect(files[0]?.split('/')).toHaveLength(2);
-	expect(files[0]?.endsWith('.sqlite')).toBe(true);
-});
-
-test('physical filenames preserve the existing serialized tuples', async () => {
-	const files = await deleteFiles([
-		{ appId, replica: { library: 'local' }, name: 'search' },
-		{
-			appId,
-			replica: {
-				library: 'personal' as const,
-				account: { authorityId: 'cloud', principalId: asPrincipalId('alice') },
-			},
-			name: 'search',
-		},
-	]);
 	expect(files).toEqual([
 		`/${encodeURIComponent(JSON.stringify([appId, 'local', 'search']))}.sqlite`,
 		`/${encodeURIComponent(JSON.stringify([appId, 'local', 'search']))}.sqlite-journal`,
-		`/${encodeURIComponent(JSON.stringify([appId, 'account', 'cloud', 'alice', 'search']))}.sqlite`,
-		`/${encodeURIComponent(JSON.stringify([appId, 'account', 'cloud', 'alice', 'search']))}.sqlite-journal`,
+		`/${encodeURIComponent(JSON.stringify([appId, 'local', 'search']))}.sqlite`,
+		`/${encodeURIComponent(JSON.stringify([appId, 'local', 'search']))}.sqlite-journal`,
 	]);
-});
-
-test('shared SQLite files distinguish personal storage and each authenticated actor', async () => {
-	const alice = { authorityId: 'server', principalId: asPrincipalId('alice') };
-	const files = await deleteFiles([
-		{ appId, replica: { library: 'personal', account: alice }, name: 'search' },
-		{ appId, replica: { library: 'shared', account: alice }, name: 'search' },
-		{
-			appId,
-			replica: {
-				library: 'shared',
-				account: { ...alice, principalId: asPrincipalId('bob') },
-			},
-			name: 'search',
-		},
-	]);
-	expect(new Set(files).size).toBe(6);
-	expect(decodeURIComponent(files[2]!)).toContain(
-		'["so.epicenter.worker-test","account","server","alice","shared","search"]',
-	);
 });

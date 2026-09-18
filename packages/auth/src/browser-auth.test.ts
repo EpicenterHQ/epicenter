@@ -202,6 +202,7 @@ test('historical instance restoration keeps its identity until explicit issuer s
 	if (state.status === 'signed-out')
 		throw new Error('Expected historical identity');
 	expect(state.account.principalId).toBe(asPrincipalId('instance'));
+	expect(state.account.supportsShared).toBe(true);
 	expect(environment.requests).toHaveLength(0);
 	expectOk(await old.connectInstance({}));
 	using next = environment.create();
@@ -291,6 +292,7 @@ test('named issuer restores Alice offline without adopting the historical instan
 	const state = startup.auth!.state;
 	if (state.status === 'signed-out') throw new Error('Expected cached Alice');
 	expect(state.account.principalId).toBe(asPrincipalId('alice'));
+	expect(state.account.supportsShared).toBe(true);
 	expect(state.account.authorityId).not.toBe('epicenter-api');
 	expect(environment.requests).toHaveLength(0);
 	await expect(state.account.fetch('/resource')).rejects.toBeDefined();

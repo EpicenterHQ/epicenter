@@ -53,7 +53,7 @@ afterAll(() => {
 });
 mock.module('@epicenter/app', () => ({
 	defineApplication: () => ({
-		openLocal() {
+		open() {
 			opens++;
 			expect(listeners.size).toBe(1);
 			throw failure;

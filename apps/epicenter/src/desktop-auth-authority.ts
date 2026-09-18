@@ -146,6 +146,7 @@ export function createDesktopAuthAuthority({
 				: Object.assign(
 						createSessionAuth({
 							authorityId: instanceServer?.authorityId ?? 'epicenter-api',
+							supportsShared: instanceServer !== undefined,
 							baseURL,
 							fetch,
 							persistedAuthStorage,

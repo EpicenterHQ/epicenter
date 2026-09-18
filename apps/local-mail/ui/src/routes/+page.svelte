@@ -69,8 +69,8 @@
 		appName="Local Mail"
 		noun="saved queries and mail"
 	>
-		{#if mounted.application.app && showing}
-			<mounted.Shell bind:this={shell} data={mounted.application.app} />
+		{#if mounted.application.app?.account && showing}
+			<mounted.Shell bind:this={shell} data={mounted.application.app.account.personal} />
 		{/if}
 	</AppBoot>
 {:else}

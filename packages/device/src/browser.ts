@@ -20,7 +20,6 @@
  * this through its own `#platform/*` seam.
  */
 
-import type { AccountIdentity } from '@epicenter/principal';
 import { Ok } from 'wellcrafted/result';
 import { browserSqliteTransport as request } from './browser-sqlite.js';
 import {
@@ -29,7 +28,6 @@ import {
 	type SecretLabel,
 	type SecretStore,
 } from './index.js';
-import { secretScopeKey } from './secrets.js';
 import { createAppSqlite, createTransportSqliteOwner } from './owner.js';
 
 export function createBrowserSqliteOwner(): import('./owner.js').DeviceSqliteOwner {
@@ -40,7 +38,7 @@ export function createBrowserSqliteOwner(): import('./owner.js').DeviceSqliteOwn
  * What a browser tab can own, scoped to one application.
  *
  * All owners in this realm share one lazy worker. Each request carries its
- * application and captured account, so sharing the pool does not share files.
+ * application id, so sharing the pool does not share files.
  *
  * The scoped capability validates the name and returns owner failures as
  * Results, so this leaf has the same contract as the desktop owner.
@@ -48,11 +46,11 @@ export function createBrowserSqliteOwner(): import('./owner.js').DeviceSqliteOwn
 export function createBrowserDevice({ appId }: { appId: string }): Device {
 	appIdOrThrow(appId);
 	const owner = createBrowserSqliteOwner();
-	const sqlite = createAppSqlite(owner, appId, { library: 'local' });
+	const sqlite = createAppSqlite(owner, appId);
 	return {
 		sqlite: Object.freeze(sqlite.value),
 		close: () => sqlite.close(),
-		secrets: Object.freeze(createBrowserSecrets(appId, null).value),
+		secrets: Object.freeze(createBrowserSecrets(appId).value),
 	};
 }
 
@@ -61,11 +59,10 @@ const tabSecrets = new Map<string, Map<string, string>>();
 
 export function createBrowserSecrets(
 	appId: string,
-	account: AccountIdentity | null,
 	{ assertUsable }: { assertUsable?: () => void } = {},
 ): { value: SecretStore; close(): Promise<void> } {
 	appIdOrThrow(appId);
-	const key = secretScopeKey(appId, account);
+	const key = appId;
 	let values = tabSecrets.get(key);
 	if (!values) {
 		values = new Map<string, string>();

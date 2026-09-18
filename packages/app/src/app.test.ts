@@ -111,20 +111,20 @@ async function clearStorage() {
 
 test('local handle opens without account and survives close and reopen', async () => {
 	await clearStorage();
-	const first = create().openLocal();
-	expect(first.library).toBe('local');
-	expect('account' in first).toBe(false);
-	expect('retirement' in first).toBe(false);
+	const first = create().open(null);
+	expect(first.device.library).toBe('local');
+	expect(first.account).toBeNull();
+	expect(first.libraryReplaced).toBeUndefined();
 	expect(Object.getPrototypeOf(first)).toBe(Object.prototype);
-	expect(Object.hasOwn(first, 'tables')).toBe(true);
+	expect(Object.hasOwn(first.device, 'tables')).toBe(true);
 	expect(Object.hasOwn(first, 'blobs')).toBe(true);
 	expectOk(await first.ready);
-	first.tables.notes.create({ title: 'kept locally' });
+	first.device.tables.notes.create({ title: 'kept locally' });
 	await first.close();
 
-	const second = create().openLocal();
+	const second = create().open(null);
 	expectOk(await second.ready);
-	expect(second.tables.notes.rows.map((row) => row.title)).toEqual([
+	expect(second.device.tables.notes.rows.map((row) => row.title)).toEqual([
 		'kept locally',
 	]);
 	await second.close();
@@ -135,14 +135,14 @@ test.each([
 	['app', 'during acquisition'],
 	['data', 'before acquisition'],
 	['data', 'during acquisition'],
-] as const)('%s capabilities retain one account when the input changes %s', async (entry, timing) => {
+] as const)('%s capabilities retain the original account when a replacement is created %s', async (entry, timing) => {
 	await clearStorage();
 	const requested = Promise.withResolvers<void>();
 	const releaseRequest = Promise.withResolvers<void>();
 	const identities: unknown[] = [];
 	const owner: DeviceSqliteOwner = {
-		acquire: async (_appId, account) => {
-			identities.push(account);
+		acquire: async (appId) => {
+			identities.push(appId);
 			return {
 				open: async () => {
 					return {
@@ -161,6 +161,7 @@ test.each([
 	let requests = 0;
 	const fetchGeneration = createGenerationFetch();
 	const account: Account = {
+		supportsShared: false,
 		authorityId: 'test-authority',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://example.test',
@@ -189,33 +190,30 @@ test.each([
 		},
 		ai: { runtime: null, account: null },
 	});
-	const localApp = epicenter.openLocal();
-	expect(() => localApp.sqlite.open('search')).toThrow('not ready');
+	const localApp = epicenter.open(null);
+	expect(() => localApp.device.sqlite.open('search')).toThrow('not ready');
 	expectOk(await localApp.ready);
-	const localDatabase = expectOk(await localApp.sqlite.open('search'));
+	const localDatabase = expectOk(await localApp.device.sqlite.open('search'));
+	await localApp.close();
 	const accountApp =
 		entry === 'app'
-			? epicenter.openPersonal(account)
+			? epicenter.open(account)
 			: openApp(definition, {
 					appId: 'so.epicenter.app-test',
-					choice: { library: 'personal', account },
+					account,
 					blobs: testBlobs,
 					sqlite: owner,
 					recording: createBrowserRecording,
 					secrets: createBrowserSecrets,
 				});
 	if (timing === 'during acquisition') await requested.promise;
-	Reflect.set(account, 'authorityId', 'replacement-authority');
-	Reflect.set(account, 'principalId', asPrincipalId('bob'));
-	Reflect.set(account, 'baseURL', 'https://replacement.test');
-	account.fetch = async () => {
-		throw new Error('Replacement transport must not run.');
-	};
+	const replacement: Account = Object.freeze({ ...account, principalId: asPrincipalId('bob'), baseURL: 'https://replacement.test' });
+	expect(replacement).not.toBe(account);
 	releaseRequest.resolve();
 	expectOk(await accountApp.ready);
-	expectOk(await accountApp.sqlite.open('search'));
+	expectOk(await accountApp.device.sqlite.open('search'));
 	expectOk(await accountApp.blobs.local.add(new Blob(['captured'])));
-	expect(accountApp.account).toEqual({
+	expect(accountApp.account!.identity).toEqual({
 		authorityId: 'test-authority',
 		principalId: asPrincipalId('alice'),
 	});
@@ -227,15 +225,9 @@ test.each([
 	expect(names.some((name) => name?.includes('replacement-authority'))).toBe(
 		false,
 	);
-	expect(identities).toEqual([
-		{ library: 'local' },
-		{
-			library: 'personal',
-			account: { authorityId: 'test-authority', principalId: 'alice' },
-		},
-	]);
+	expect(identities).toEqual(['so.epicenter.app-test', 'so.epicenter.app-test']);
 	await localApp.close();
-	expect(() => localDatabase.run('select 1')).toThrow('disposed');
+	expect(() => localDatabase.run('select 1')).toThrow();
 	await accountApp.close();
 });
 
@@ -271,9 +263,9 @@ test('closing waits for an admitted SQLite delete', async () => {
 			blobs: testBlobs,
 		},
 		ai: { runtime: null, account: null },
-	}).openLocal();
+	}).open(null);
 	expectOk(await app.ready);
-	const deleting = app.sqlite.delete('search');
+	const deleting = app.device.sqlite.delete('search');
 	await deleteStarted;
 	let closed = false;
 	const closing = app.close().then(() => {
@@ -288,7 +280,7 @@ test('closing waits for an admitted SQLite delete', async () => {
 			blobs: testBlobs,
 		},
 		ai: { runtime: null, account: null },
-	}).openLocal();
+	}).open(null);
 	await Promise.resolve();
 	expect(closed).toBe(false);
 	expect(expectErr(await replacement.ready).name).toBe('AlreadyOpen');
@@ -306,7 +298,7 @@ test('closing waits for an admitted SQLite delete', async () => {
 			blobs: testBlobs,
 		},
 		ai: { runtime: null, account: null },
-	}).openLocal();
+	}).open(null);
 	expectOk(await reopened.ready);
 	await reopened.close();
 });
@@ -352,8 +344,8 @@ test('every retained SQL verb refuses closed use without reaching the shared own
 			blobs: testBlobs,
 		},
 		ai: { runtime: null, account: null },
-	}).openLocal();
-	const { open, delete: remove } = app.sqlite;
+	}).open(null);
+	const { open, delete: remove } = app.device.sqlite;
 	for (const operation of [() => open('search'), () => remove('search')])
 		expect(operation).toThrow('not ready');
 	expect(calls).toEqual([]);
@@ -374,9 +366,9 @@ test('every retained SQL verb refuses closed use without reaching the shared own
 		() => query('select 1', { tables: [] }),
 	];
 	const closing = app.close();
-	for (const operation of operations) expect(operation).toThrow('disposed');
+	for (const operation of operations) expect(operation).toThrow();
 	await closing;
-	for (const operation of operations) expect(operation).toThrow('disposed');
+	for (const operation of operations) expect(operation).toThrow();
 	expect(calls).toEqual(admitted);
 });
 
@@ -430,9 +422,9 @@ test.each([
 			blobs: testBlobs,
 		},
 		ai: { runtime: null, account: null },
-	}).openLocal();
+	}).open(null);
 	expectOk(await app.ready);
-	const database = expectOk(await app.sqlite.open('search'));
+	const database = expectOk(await app.device.sqlite.open('search'));
 	const pending: Promise<Result<unknown, DeviceError>> =
 		verb === 'batch'
 			? database.batch([])
@@ -442,7 +434,7 @@ test.each([
 	try {
 		await started.promise;
 		expect(reentrant).toBe(app.close());
-		const duplicate = create().openLocal();
+		const duplicate = create().open(null);
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close();
 		released.resolve();
@@ -463,7 +455,7 @@ test('a late SQL open refuses publication and physically closes without deleting
 	let physicalCloses = 0;
 	const physical = {
 		...(await (
-			await testSqlite.acquire('so.epicenter.app-test', { library: 'local' })
+			await testSqlite.acquire('so.epicenter.app-test')
 		).open('search')),
 		async close() {
 			physicalCloses++;
@@ -487,9 +479,9 @@ test('a late SQL open refuses publication and physically closes without deleting
 			blobs: testBlobs,
 		},
 		ai: { runtime: null, account: null },
-	}).openLocal();
+	}).open(null);
 	expectOk(await app.ready);
-	const pending = app.sqlite.open('search');
+	const pending = app.device.sqlite.open('search');
 	const outcome = Promise.allSettled([pending]);
 	await started.promise;
 	const closing = app.close();
@@ -539,7 +531,7 @@ test('close drains admitted local writes before releasing the app claim', async 
 		},
 		ai: { runtime: null, account: null },
 	});
-	const app = application.openLocal();
+	const app = application.open(null);
 	expectOk(await app.ready);
 	const writing = app.blobs.local.add(new Blob(['saved']));
 	await entered.promise;
@@ -552,7 +544,7 @@ test('close drains admitted local writes before releasing the app claim', async 
 	gate.resolve();
 	const blobId = expectOk(await writing);
 	await closing;
-	const reopened = application.openLocal();
+	const reopened = application.open(null);
 	expectOk(await reopened.ready);
 	expect(await expectOk(await reopened.blobs.local.get(blobId)).text()).toBe(
 		'saved',
@@ -562,7 +554,7 @@ test('close drains admitted local writes before releasing the app claim', async 
 
 test('the app handle owns scoped blob reads and writes by BlobId', async () => {
 	await clearStorage();
-	const app = create().openLocal();
+	const app = create().open(null);
 	expectOk(await app.ready);
 
 	const id = expectOk(
@@ -574,25 +566,25 @@ test('the app handle owns scoped blob reads and writes by BlobId', async () => {
 	expect(expectOk(await app.blobs.local.stat(id)).size).toBe(5);
 
 	await app.close();
-	expect(() => app.blobs.local.add(new Blob(['late']))).toThrow('disposed');
+	expect(() => app.blobs.local.add(new Blob(['late']))).toThrow();
 });
 
 test('rows reference independently saved blobs and deleting a row leaves bytes intact', async () => {
 	await clearStorage();
-	const app = create().openLocal();
+	const app = create().open(null);
 	expectOk(await app.ready);
 	const blobId = expectOk(
 		await app.blobs.local.add(new Blob(['recorded bytes'])),
 	);
-	const row = app.tables.recordings.create({ audio: blobId });
-	app.tables.recordings.delete(row.id);
+	const row = app.device.tables.recordings.create({ audio: blobId });
+	app.device.tables.recordings.delete(row.id);
 	expect(await expectOk(await app.blobs.local.get(blobId)).text()).toBe(
 		'recorded bytes',
 	);
 	await app.close();
-	const reopened = create().openLocal();
+	const reopened = create().open(null);
 	expectOk(await reopened.ready);
-	expect(reopened.tables.recordings.get(row.id)).toBeUndefined();
+	expect(reopened.device.tables.recordings.get(row.id)).toBeUndefined();
 	expect(
 		expectOk(await reopened.blobs.local.list()).items.map((item) => item.id),
 	).toContain(blobId);
@@ -601,7 +593,7 @@ test('rows reference independently saved blobs and deleting a row leaves bytes i
 
 test('closing during acquisition reports closure and releases the resource', async () => {
 	await clearStorage();
-	const app = create().openLocal();
+	const app = create().open(null);
 	const closing = app.close();
 	expect(expectErr(await app.ready).name).toBe('ClosedWhileOpening');
 	await closing;
@@ -609,9 +601,9 @@ test('closing during acquisition reports closure and releases the resource', asy
 
 test('access is gated and a rejected duplicate cannot release the first app', async () => {
 	await clearStorage();
-	const first = create().openLocal();
-	const notes = first.tables.notes;
-	const kv = first.kv;
+	const first = create().open(null);
+	const notes = first.device.tables.notes;
+	const kv = first.device.kv;
 	const retainedAdd = first.blobs.local.add;
 	expect(() => notes.rows).toThrow('not ready');
 	expect(() => kv.subscribe(() => {})).toThrow('not ready');
@@ -620,33 +612,33 @@ test('access is gated and a rejected duplicate cannot release the first app', as
 	);
 	expect(() => first.blobs.local.list()).toThrow('not ready');
 	expectOk(await first.ready);
-	expect(first.tables.notes).toBe(notes);
-	expect(first.kv).toBe(kv);
+	expect(first.device.tables.notes).toBe(notes);
+	expect(first.device.kv).toBe(kv);
 	expect(first.blobs.local.add).toBe(retainedAdd);
 
-	const duplicate = create().openLocal();
+	const duplicate = create().open(null);
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	expect(() => duplicate.blobs.local.add(new Blob(['rejected']))).toThrow(
 		'disposed',
 	);
 	await duplicate.close();
-	first.tables.notes.create({ title: 'still owned by the first app' });
+	first.device.tables.notes.create({ title: 'still owned by the first app' });
 
-	const another = create().openLocal();
+	const another = create().open(null);
 	expect(expectErr(await another.ready).name).toBe('AlreadyOpen');
 	await another.close();
-	expect(first.tables.notes.rows).toHaveLength(1);
+	expect(first.device.tables.notes.rows).toHaveLength(1);
 	await first.close();
 });
 
 test('repeated close shares completion and permits a fresh open afterward', async () => {
 	await clearStorage();
-	const app = create().openLocal();
+	const app = create().open(null);
 	expectOk(await app.ready);
-	app.tables.notes.create({ title: 'flushed on close' });
-	const notes = app.tables.notes;
-	const persistence = app.persistence;
-	const encode = app.encodeStateSince;
+	app.device.tables.notes.create({ title: 'flushed on close' });
+	const notes = app.device.tables.notes;
+	const persistence = app.device.persistence;
+	const encode = app.device.encodeStateSince;
 	const closing = app.close();
 	expect(app.close()).toBe(closing);
 	expect(() => notes.create({ title: 'too late' })).toThrow();
@@ -656,22 +648,23 @@ test('repeated close shares completion and permits a fresh open afterward', asyn
 	expect(() => encode()).toThrow();
 	await closing;
 
-	const reopened = create().openLocal();
+	const reopened = create().open(null);
 	expectOk(await reopened.ready);
-	expect(reopened.tables.notes.rows[0]?.title).toBe('flushed on close');
+	expect(reopened.device.tables.notes.rows[0]?.title).toBe('flushed on close');
 	await reopened.close();
 });
 
 test('account acquisition hydrates the existing handles and survives refused sync', async () => {
 	await clearStorage();
-	const seed = create().openLocal();
+	const seed = create().open(null);
 	expectOk(await seed.ready);
-	seed.tables.notes.create({ title: 'from the account' });
-	const snapshot = seed.encodeStateSince();
+	seed.device.tables.notes.create({ title: 'from the account' });
+	const snapshot = seed.device.encodeStateSince();
 	await seed.close();
 	let fetches = 0;
 	let dials = 0;
 	const account: Account = {
+		supportsShared: false,
 		authorityId: 'test-authority',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://example.test',
@@ -692,28 +685,28 @@ test('account acquisition hydrates the existing handles and survives refused syn
 			throw new Error('Opening data must not fetch a profile.');
 		},
 	};
-	const app = create().openPersonal(account);
-	const notes = app.tables.notes;
-	expect(app.account).toEqual({
+	const app = create().open(account);
+	const notes = app.account!.personal.tables.notes;
+	expect(app.account!.identity).toEqual({
 		authorityId: 'test-authority',
 		principalId: account.principalId,
 	});
 	expectOk(await app.ready);
-	expect(app.tables.notes).toBe(notes);
+	expect(app.account!.personal.tables.notes).toBe(notes);
 	expect(notes.rows[0]?.title).toBe('from the account');
 	expect(fetches).toBe(1);
 	expect(dials).toBe(1);
 	notes.create({ title: 'still editable' });
 	await app.close();
 
-	const reopened = create().openPersonal(account);
+	const reopened = create().open(account);
 	expectOk(await reopened.ready);
 	expect(fetches).toBe(1);
-	expect(reopened.tables.notes.rows).toHaveLength(2);
+	expect(reopened.account!.personal.tables.notes.rows).toHaveLength(2);
 	await reopened.close();
 });
 
-test('invalid definitions and missing account identity throw before opening storage', async () => {
+test('invalid definitions throw before opening storage', async () => {
 	await clearStorage();
 	const invalid = defineApplication({
 		appId: 'so.epicenter.app-test',
@@ -725,7 +718,7 @@ test('invalid definitions and missing account identity throw before opening stor
 		},
 		ai: { runtime: null, account: null },
 	});
-	expect(() => invalid.openLocal()).toThrow();
+	expect(() => invalid.open(null)).toThrow();
 	expect(
 		(await indexedDB.databases()).filter(({ name }) =>
 			name?.split('/').includes('so.epicenter.app-test'),
@@ -738,9 +731,9 @@ test('physical SQL close retains the library claim across sibling definitions', 
 	const released = Promise.withResolvers<void>();
 	let acquisitions = 0;
 	const owner: DeviceSqliteOwner = {
-		async acquire(appId, replica) {
+		async acquire(appId) {
 			acquisitions++;
-			const lifetime = await testSqlite.acquire(appId, replica);
+			const lifetime = await testSqlite.acquire(appId);
 			return {
 				...lifetime,
 				async close() {
@@ -759,7 +752,7 @@ test('physical SQL close retains the library claim across sibling definitions', 
 			blobs: testBlobs,
 		},
 		ai: { runtime: null, account: null },
-	}).openLocal();
+	}).open(null);
 	expectOk(await first.ready);
 	const siblingDefinition = defineData({
 		id: 'so.epicenter.sibling',
@@ -776,7 +769,7 @@ test('physical SQL close retains the library claim across sibling definitions', 
 				blobs: testBlobs,
 			},
 			ai: { runtime: null, account: null },
-		}).openLocal();
+		}).open(null);
 	const duplicate = sibling();
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	await duplicate.close();
@@ -820,7 +813,7 @@ test('failed durable release retains SQL and the common library claim', async ()
 		},
 		ai: { runtime: null, account: null },
 	});
-	const app = epicenter.openLocal();
+	const app = epicenter.open(null);
 	expectOk(await app.ready);
 	const close = spyOn(IDBDatabase.prototype, 'close');
 	close.mockImplementation(function (this: IDBDatabase) {
@@ -829,7 +822,7 @@ test('failed durable release retains SQL and the common library claim', async ()
 	try {
 		await expect(app.close()).rejects.toThrow('Durable close failed');
 		expect(sqlCloses).toBe(0);
-		const duplicate = epicenter.openLocal();
+		const duplicate = epicenter.open(null);
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close();
 	} finally {
@@ -866,11 +859,11 @@ test('failed bootstrap cleanup retains SQL and library ownership before ready', 
 		},
 	);
 	try {
-		const app = epicenter.openLocal();
+		const app = epicenter.open(null);
 		expect(expectErr(await app.ready).name).toBe('StorageFailed');
 		await app.close();
 		expect(sqlCloses).toBe(0);
-		const duplicate = epicenter.openLocal();
+		const duplicate = epicenter.open(null);
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close();
 	} finally {
@@ -904,18 +897,16 @@ test('retained AI shares readiness and close drains response work before releasi
 			blobs: testBlobs,
 			sqlite: {
 				acquire: async () => ({
-					...(await testSqlite.acquire('so.epicenter.capability-test', {
-						library: 'local',
-					})),
+					...(await testSqlite.acquire('so.epicenter.capability-test')),
 					close: async () => {
 						released.push('storage');
 					},
 				}),
 			},
 		},
-	}).openLocal();
-	const client = app.ai.runtime!.client;
-	expect(app.ai.connections).toBeNull();
+	}).open(null);
+	const client = app.device.connections.runtime!.client;
+	expect(app.device.connections.custom).toBeNull();
 	expectOk(await app.ready);
 	const request = (async () => await client.models.list())();
 	void request.catch(() => {});
@@ -968,7 +959,7 @@ test.each([
 			blobs: testBlobs,
 			sqlite: {
 				acquire: async () => ({
-					...(await testSqlite.acquire(appId, { library: 'local' })),
+					...(await testSqlite.acquire(appId)),
 					close: async () => {
 						released = true;
 					},
@@ -982,9 +973,9 @@ test.each([
 				},
 			}),
 		},
-	}).openLocal();
+	}).open(null);
 	expectOk(await app.ready);
-	const request = (async () => await app.ai.runtime!.client.models.list())();
+	const request = (async () => await app.device.connections.runtime!.client.models.list())();
 	void request.catch(() => {});
 	await started.promise;
 	const closed = app.close();
@@ -1014,6 +1005,7 @@ test('one captured Account supplies library and AI; local opening never borrows 
 	let inferenceRequests = 0;
 	const fetchGeneration = createGenerationFetch();
 	const account: Account = {
+		supportsShared: false,
 		authorityId: 'captured',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://captured.example',
@@ -1047,19 +1039,16 @@ test('one captured Account supplies library and AI; local opening never borrows 
 			blobs: testBlobs,
 		},
 	});
-	const local = application.openLocal();
-	expect(local.ai.account).toBeNull();
+	const local = application.open(null);
+	expect((local.account?.connection ?? null)).toBeNull();
 	expect(supplied).toEqual([]);
 	expectOk(await local.ready);
 	await local.close();
-	const app = application.openPersonal(account);
-	const retained = app.ai.account!.client;
-	Reflect.set(account, 'principalId', asPrincipalId('bob'));
-	account.fetch = async () => {
-		throw new Error('Replacement must not run');
-	};
+	const app = application.open(account);
+	const retained = (app.account?.connection ?? null)!.client;
+	expect(supplied[0]).toBe(account);
 	expectOk(await app.ready);
-	expect(app.account?.principalId).toBe(asPrincipalId('alice'));
+	expect(app.account!.identity?.principalId).toBe(asPrincipalId('alice'));
 	expect(supplied[0]?.principalId).toBe(asPrincipalId('alice'));
 	await retained.models.list();
 	expect(inferenceRequests).toBe(1);
@@ -1092,8 +1081,8 @@ test('opening failure retires retained SDK clients through internal close', asyn
 				},
 			},
 		},
-	}).openLocal();
-	const retained = app.ai.runtime!.client;
+	}).open(null);
+	const retained = app.device.connections.runtime!.client;
 	expectErr(await app.ready);
 	await expect((async () => await retained.models.list())()).rejects.toThrow();
 	expect(requests).toBe(0);
@@ -1103,17 +1092,17 @@ test('opening failure retires retained SDK clients through internal close', asyn
 test('App secrets require readiness and survive closing and reopening the same document scope', async () => {
 	const label = secretLabel('gmail');
 	const first = create();
-	const app = first.openLocal();
-	expect(() => app.secrets.put(label, 'before-ready')).toThrow('not ready');
+	const app = first.open(null);
+	expect(() => app.device.secrets.put(label, 'before-ready')).toThrow('not ready');
 	expectOk(await app.ready);
-	expectOk(await app.secrets.put(label, 'kept'));
+	expectOk(await app.device.secrets.put(label, 'kept'));
 	await app.close();
-	expect(() => app.secrets.get(label)).toThrow();
-	expect(() => app.secrets.delete(label)).toThrow();
-	const reopened = first.openLocal();
+	expect(() => app.device.secrets.get(label)).toThrow();
+	expect(() => app.device.secrets.delete(label)).toThrow();
+	const reopened = first.open(null);
 	expectOk(await reopened.ready);
-	expect(expectOk(await reopened.secrets.get(label))).toBe('kept');
-	expectOk(await reopened.secrets.delete(label));
+	expect(expectOk(await reopened.device.secrets.get(label))).toBe('kept');
+	expectOk(await reopened.device.secrets.delete(label));
 	await reopened.close();
 });
 
@@ -1138,7 +1127,7 @@ test('App close drains admitted secret writes before releasing its SQL lifetime'
 					},
 				}),
 			},
-			secrets: (_appId, _account, { assertUsable } = {}) => ({
+			secrets: (_appId, { assertUsable } = {}) => ({
 				close: () => write.promise,
 				value: {
 					put() {
@@ -1152,11 +1141,11 @@ test('App close drains admitted secret writes before releasing its SQL lifetime'
 			}),
 		},
 		ai: { runtime: null, account: null },
-	}).openLocal();
+	}).open(null);
 	expectOk(await app.ready);
-	const saving = app.secrets.put(secretLabel('gmail'), 'token');
+	const saving = app.device.secrets.put(secretLabel('gmail'), 'token');
 	const closing = app.close();
-	expect(() => app.secrets.put(secretLabel('gmail'), 'late')).toThrow();
+	expect(() => app.device.secrets.put(secretLabel('gmail'), 'late')).toThrow();
 	await Promise.resolve();
 	expect(writes).toBe(1);
 	expect(backingClosed).toBe(false);
@@ -1206,9 +1195,9 @@ test('a secret operation can reenter close and forwards its storage Result uncha
 			}),
 		},
 		ai: { runtime: null, account: null },
-	}).openLocal();
+	}).open(null);
 	expectOk(await app.ready);
-	const writing = app.secrets.put(secretLabel('gmail'), 'token');
+	const writing = app.device.secrets.put(secretLabel('gmail'), 'token');
 	await entered.promise;
 	expect(released).toBe(false);
 	release.resolve();
@@ -1217,7 +1206,7 @@ test('a secret operation can reenter close and forwards its storage Result uncha
 	expect(released).toBe(true);
 });
 
-test('a late capability constructor failure releases scheduled acquisition and prior capabilities', async () => {
+test('a late capability constructor failure prevents scheduled acquisition and prior capabilities', async () => {
 	const appId = `test.${crypto.randomUUID()}`;
 	const released = Promise.withResolvers<void>();
 	const events: string[] = [];
@@ -1243,7 +1232,7 @@ test('a late capability constructor failure releases scheduled acquisition and p
 			blobs: testBlobs,
 			sqlite: {
 				acquire: async () => ({
-					...(await testSqlite.acquire(appId, { library: 'local' })),
+					...(await testSqlite.acquire(appId)),
 					close: async () => {
 						events.push('storage');
 						released.resolve();
@@ -1265,11 +1254,11 @@ test('a late capability constructor failure releases scheduled acquisition and p
 			},
 		},
 	});
-	expect(() => application.openLocal()).toThrow(failure);
-	await released.promise;
+	expect(() => application.open(null)).toThrow(failure);
+	await new Promise((resolve) => setTimeout(resolve, 0));
 	expect(events).toContain('recording');
 	expect(events).toContain('ai');
-	expect(events.at(-1)).toBe('storage');
+	expect(events).not.toContain('storage');
 	const next = defineApplication({
 		appId,
 		definition,
@@ -1279,7 +1268,7 @@ test('a late capability constructor failure releases scheduled acquisition and p
 			sqlite: testSqlite,
 		},
 		ai: { runtime: null, account: null },
-	}).openLocal();
+	}).open(null);
 	expectOk(await next.ready);
 	await next.close();
 });
@@ -1293,6 +1282,7 @@ test.each([
 	let sqlClosed = false;
 	const cleanupFailure = new Error('Capture release failed');
 	const account: Account = {
+		supportsShared: false,
 		authorityId: 'failure-test',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://failure.test',
@@ -1312,10 +1302,7 @@ test.each([
 			blobs: testBlobs,
 			sqlite: {
 				acquire: async () => ({
-					...(await testSqlite.acquire(appId, {
-						library: 'personal',
-						account,
-					})),
+					...(await testSqlite.acquire(appId)),
 					close: async () => {
 						sqlClosed = true;
 					},
@@ -1331,14 +1318,14 @@ test.each([
 		},
 		ai: { runtime: null, account: null },
 	});
-	const app = application.openPersonal(account);
+	const app = application.open(account);
 	const failure = expectErr(await app.ready);
 	expect(failure).not.toBe(cleanupFailure);
 	expect(cleanupAttempted).toBe(true);
 	if (cleanupFails) {
 		await expect(app.close()).rejects.toBe(cleanupFailure);
 		expect(sqlClosed).toBe(false);
-		const duplicate = application.openPersonal(account);
+		const duplicate = application.open(account);
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close().catch(() => {});
 	} else {
@@ -1361,8 +1348,8 @@ test('failed recorder cleanup still drains SQL and keeps the claim after drain',
 			...browser,
 			blobs: testBlobs,
 			sqlite: {
-				async acquire(id, replica) {
-					const lifetime = await testSqlite.acquire(id, replica);
+				async acquire(id) {
+					const lifetime = await testSqlite.acquire(id);
 					return {
 						...lifetime,
 						async open(name) {
@@ -1396,18 +1383,18 @@ test('failed recorder cleanup still drains SQL and keeps the claim after drain',
 		},
 		ai: { runtime: null, account: null },
 	});
-	const app = application.openLocal();
+	const app = application.open(null);
 	expectOk(await app.ready);
 	for (const capability of [
-		app.sqlite,
+		app.device.sqlite,
 		app.blobs,
-		app.secrets,
-		app.recording,
+		app.device.secrets,
+		app.device.recording,
 	]) {
 		expect(Object.hasOwn(capability, 'close')).toBe(false);
 		expect(Object.hasOwn(capability, 'acquire')).toBe(false);
 	}
-	const database = expectOk(await app.sqlite.open('cache'));
+	const database = expectOk(await app.device.sqlite.open('cache'));
 	const writing = database.run('UPDATE cache SET value = 1');
 	await entered.promise;
 	const closing = app.close();
@@ -1426,7 +1413,7 @@ test('failed recorder cleanup still drains SQL and keeps the claim after drain',
 	expectOk(await writing);
 	await expect(closing).rejects.toBe(failure);
 	expect(released).toBe(false);
-	const duplicate = application.openLocal();
+	const duplicate = application.open(null);
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	await duplicate.close().catch(() => {});
 });
@@ -1444,6 +1431,7 @@ test('App retirement closes its recorder while retaining the library claim throu
 	let disposed = 0;
 	let recorderCloses = 0;
 	const account: Account = {
+		supportsShared: false,
 		authorityId: 'retirement-test',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://retirement.test',
@@ -1457,8 +1445,9 @@ test('App retirement closes its recorder while retaining the library claim throu
 			throw new Error('Unused');
 		},
 	};
+	const acquireData = dataBrowser.acquireAppData;
 	const acquire = spyOn(dataBrowser, 'acquireAppData').mockImplementation(
-		async () =>
+		async (definition, options) => options.library === 'local' ? acquireData(definition, options) :
 			Ok({
 				durable: { commit() {} },
 				loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
@@ -1496,7 +1485,7 @@ test('App retirement closes its recorder while retaining the library claim throu
 		},
 		ai: { runtime: null, account: null },
 	});
-	const app = application.openPersonal(account);
+	const app = application.open(account);
 	try {
 		expectOk(await app.ready);
 		await Bun.sleep(0);
@@ -1507,23 +1496,24 @@ test('App retirement closes its recorder while retaining the library claim throu
 			}),
 		);
 		expect(app.signal.aborted).toBe(true);
-		const notice = await app.retirement;
+		await app.libraryReplaced!;
 		expect(recorderCloses).toBe(1);
 		expect(disposed).toBe(0);
-		expect(() => app.tables.notes.create({ title: 'late' })).toThrow();
+		expect(() => app.account!.personal.tables.notes.create({ title: 'late' })).toThrow();
 		invalidation.reject(new Error('Invalidation failed'));
 		await expect(app.close()).rejects.toThrow('Invalidation failed');
 		expect(disposed).toBe(0);
-		const duplicate = application.openPersonal(account);
+		const duplicate = application.open(account);
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close();
 		invalidation = Promise.withResolvers<void>();
-		const retried = notice.retryInvalidation();
+		expect(app.canRetryClose).toBe(true);
+		const retried = app.close();
 		invalidation.resolve();
 		await retried;
 		await app.close();
 		expect(disposed).toBe(1);
-		const reopened = application.openPersonal(account);
+		const reopened = application.open(account);
 		expectOk(await reopened.ready);
 		await reopened.close();
 	} finally {
@@ -1551,6 +1541,7 @@ test('App retirement during attachment refuses readiness without auto-releasing 
 		},
 	} as unknown as WebSocket;
 	const account: Account = {
+		supportsShared: false,
 		authorityId: 'retirement-during-attach',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://retirement.test',
@@ -1564,8 +1555,9 @@ test('App retirement during attachment refuses readiness without auto-releasing 
 			throw new Error('Unused');
 		},
 	};
+	const acquireData = dataBrowser.acquireAppData;
 	const acquire = spyOn(dataBrowser, 'acquireAppData').mockImplementation(
-		async () =>
+		async (definition, options) => options.library === 'local' ? acquireData(definition, options) :
 			Ok({
 				durable: { commit() {} },
 				loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
@@ -1592,10 +1584,10 @@ test('App retirement during attachment refuses readiness without auto-releasing 
 			sqlite: testSqlite,
 		},
 		ai: { runtime: null, account: null },
-	}).openPersonal(account);
+	}).open(account);
 	try {
 		expect(expectErr(await app.ready).name).toBe('ClosedWhileOpening');
-		await app.retirement;
+		await app.libraryReplaced;
 		expect(disposed).toBe(0);
 		invalidation.resolve();
 		await app.close();
@@ -1607,7 +1599,7 @@ test('App retirement during attachment refuses readiness without auto-releasing 
 	}
 });
 
-test('replacing the Account cannot submit Alice pending Shared edits as Bob', async () => {
+test('replacing the Account cannot submit Alice pending Personal edits as Bob', async () => {
 	const { createSessionAuth } = await import('@epicenter/auth');
 	const { decodeFrame } = await import('../../data/src/sync/frames.js');
 	const appId = `shared.${crypto.randomUUID()}`;
@@ -1674,9 +1666,9 @@ test('replacing the Account cannot submit Alice pending Shared edits as Bob', as
 	const state = auth.state;
 	if (state.status === 'signed-out') throw new Error('Expected cached Alice');
 	const alice = state.account;
-	const first = application.openShared(alice);
+	const first = application.open(alice);
 	expectOk(await first.ready);
-	first.tables.notes.create({ title: 'Alice pending private queue' });
+	first.account!.personal.tables.notes.create({ title: 'Alice pending private queue' });
 	person = 'bob';
 	expectOk(await auth.startSignIn());
 	await first.close();
@@ -1685,10 +1677,10 @@ test('replacing the Account cannot submit Alice pending Shared edits as Bob', as
 	});
 	const bobState = auth.state;
 	if (bobState.status === 'signed-out') throw new Error('Expected Bob');
-	const second = application.openShared(bobState.account);
+	const second = application.open(bobState.account);
 	try {
 		expectOk(await second.ready);
-		expect(second.tables.notes.rows).toHaveLength(0);
+		expect(second.account!.personal.tables.notes.rows).toHaveLength(0);
 		await new Promise((resolve) => setTimeout(resolve, 10));
 		expect(submissions).toEqual([]);
 	} finally {

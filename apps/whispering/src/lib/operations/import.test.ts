@@ -6,7 +6,6 @@
 import { expect, mock, test } from 'bun:test';
 import { createDeparture } from '@epicenter/app-shell/departure';
 import { generateBlobId } from '@epicenter/blobs';
-import type { LibraryRetirement } from '@epicenter/data/store';
 import { Ok } from 'wellcrafted/result';
 import type { WhisperingApp } from '$lib/whispering/app';
 
@@ -103,7 +102,7 @@ test('retirement during import publication drains quietly and releases the libra
 	const entered = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	const quiescing = Promise.withResolvers<void>();
-	const retirement = Promise.withResolvers<LibraryRetirement>();
+	const retirement = Promise.withResolvers<void>();
 	const blobId = generateBlobId('wav');
 	const bytes = new Map<string, Blob>();
 	const create = mock(async () => {
@@ -127,7 +126,7 @@ test('retirement during import publication drains quietly and releases the libra
 	} as unknown as WhisperingApp;
 	const departure = createDeparture({
 		account: null,
-		retirement: retirement.promise,
+		libraryReplaced: retirement.promise,
 		close,
 	});
 	departure.attachUi({
@@ -142,16 +141,13 @@ test('retirement during import publication drains quietly and releases the libra
 	});
 	await entered.promise;
 	controller.abort(new Error('retired'));
-	retirement.resolve({
-		invalidated: Promise.resolve(),
-		retryInvalidation: async () => {},
-	});
+	retirement.resolve();
 	await quiescing.promise;
 	release.resolve();
 	await importing;
 	await departure.close();
 	expect(departure.state.phase).toBe('retired');
-	expect(departure.canRetryRetirement).toBe(false);
+	expect(departure.canRetryClose).toBe(false);
 	expect(close).toHaveBeenCalledTimes(1);
 	expect(create).not.toHaveBeenCalled();
 	expect(processed).toHaveLength(before);

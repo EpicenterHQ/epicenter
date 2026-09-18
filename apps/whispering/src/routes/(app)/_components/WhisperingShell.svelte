@@ -11,7 +11,7 @@
 	import { MediaQuery } from 'svelte/reactivity';
 	import { createLogger } from 'wellcrafted/logger';
 	import DictationIndicator from '#platform/dictation-indicator';
-	import type { WhisperingAppHandle } from '$lib/whispering/app';
+	import type { WhisperingAppHandle, WhisperingData } from '$lib/whispering/app';
 	import { setWhisperingContext } from '$lib/whispering/context';
 	import {
 		createWhisperingUiSession,
@@ -27,6 +27,7 @@
 
 	let {
 		openedApp,
+		data,
 		selections,
 		account,
 		removeLocalData,
@@ -35,6 +36,7 @@
 	}: {
 		/** The ready framework App, owned and closed by the application document. */
 		openedApp: WhisperingAppHandle;
+		data: WhisperingData;
 		selections: InferenceSelections;
 		account: Account | null;
 		/**
@@ -49,10 +51,11 @@
 
 	// One mount creates one UI session over the captured framework App.
 	/* svelte-ignore state_referenced_locally */
-	const view = fromData(openedApp);
+	const view = fromData(data);
 	/* svelte-ignore state_referenced_locally */
 	const session = createWhisperingUiSession({
 		openedApp,
+		data,
 		selections,
 		account,
 	});

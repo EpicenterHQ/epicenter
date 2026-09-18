@@ -54,6 +54,6 @@ export const settings = {
 	get<TKey extends keyof WhisperingSettingValues>(
 		key: TKey,
 	): WhisperingSettingValues[TKey] {
-		return getApp().kv.get(key) ?? APPLICATION_DEFAULTS[key];
+		return getApp().device.kv.get(key) ?? APPLICATION_DEFAULTS[key];
 	},
 };

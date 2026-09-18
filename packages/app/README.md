@@ -1,9 +1,9 @@
 # @epicenter/app
 
-An opened App is a vanilla TypeScript handle for one fixed Local, Personal, or
-Shared library. Whoever opens it stops product work and awaits `app.close()` when they
-deliberately finish. Screens borrow the handle; the page or job that owns it
-coordinates departure.
+An opened App owns this application's device state and its signed-in account
+stores for one page lifetime. Whoever opens it stops product work and awaits
+`app.close()` before replacing the account. Screens borrow a store or capability;
+the page coordinates departure.
 
 ```ts
 import { defineApplication } from '@epicenter/app';
@@ -12,11 +12,15 @@ const application = defineApplication({
  appId: APP_ID,
  definition: honeycrispDefinition,
 });
-const app = application.openPersonal(account);
+const app = application.open(account ?? null);
 try {
  const result = await app.ready;
  if (result.error !== null) throw result.error;
- // Finish product work using app.tables, app.sqlite, and other capabilities.
+ // Device state is always available; account stores are nullable.
+ app.device.tables;
+ app.device.sqlite;
+ app.account?.personal.tables;
+ app.account?.shared?.tables;
 } finally {
  await app.close();
 }
@@ -28,39 +32,39 @@ same app directory served by the host's blob API. The complete `browser` runtime
 is exported from `@epicenter/app/browser`, and `epicenterHost` from
 `@epicenter/app/epicenter-host`. An explicit runtime replaces all four capabilities.
 Custom runtimes must publish recordings into the blob store they expose;
-TypeScript cannot prove compatibility.
+TypeScript cannot prove compatibility. ADR-0403 proposes replacing build
+conditions with runtime platform selection; that separate change is unbuilt.
 An independent `ai` binding replaces all default AI configuration.
 The text clipboard is not part of any runtime: `@epicenter/app/clipboard` is a
 standalone platform module, described under [Clipboard](#clipboard).
 `settingsKey` preserves an existing local AI-settings namespace; new applications
 default to their app ID.
 
-This paragraph describes the shipped surface. ADR-0391 deletes `runtime`, `ai`,
-and `settingsKey` so the build selects every implementation, and ADR-0392
-replaces the three openers with one `open(account)` that returns a `device`
-scope and an optional `account` scope; both are Proposed and unbuilt, and the
-README changes when the code does.
+The scope API implements the opener portion of ADR-0392. ADR-0391's removal of
+runtime overrides and ADR-0396's connection protocol remain separate proposals.
+The current declaration supplies the same data definition to each store;
+separate device declarations and the remaining preferences migration are unbuilt.
 
-`app.ai.account` and `app.ai.runtime` are fixed nullable SDK client capabilities.
-`app.ai.connections` owns device-local custom endpoints, optional bearer keys,
+`app.account?.connection` and `app.device.connections.runtime` are fixed nullable SDK client capabilities.
+`app.device.connections.custom` owns device-local custom endpoints, optional bearer keys,
 and their clients. A binding without a custom store exposes `connections: null`.
 
 ```ts
-if (app.ai.connections) {
- const id = await app.ai.connections.add({
+if (app.device.connections.custom) {
+ const id = await app.device.connections.custom.add({
   name: 'My server',
   baseUrl: 'https://inference.example/v1',
   apiKey: providerKey,
   models: ['chosen-model'],
  });
- await app.ai.connections.get(id)!.client.chat.completions.create({
+ await app.device.connections.custom.get(id)!.client.chat.completions.create({
   model: 'chosen-model',
   messages,
  });
 }
 ```
 
-Write the full `app.ai.connections` path at call sites so the capability's owner
+Write the full `app.device.connections.custom` path at call sites so the capability's owner
 stays visible. Do not alias the namespace to a local `connections` variable.
 
 `getAll()` and `get(id)` return detached saved fields plus the cached SDK client.
@@ -69,10 +73,10 @@ supplies each committed update; it returns an unsubscribe function. Reads use th
 local snapshot after `app.ready`. They do not request model discovery.
 
 ```ts
-const stop = app.ai.connections!.subscribe((entries) => {
+const stop = app.device.connections.custom!.subscribe((entries) => {
  renderConnections(entries);
 });
-await app.ai.connections!.update(id, { name: 'Renamed server' });
+await app.device.connections.custom!.update(id, { name: 'Renamed server' });
 stop();
 ```
 
@@ -95,7 +99,7 @@ TypeScript selection owner and exact matcher in
 Missing connections, changed accounts, and mismatched models never select a
 replacement destination. See the [AI boundary decision](../../docs/adr/0365-ai-owns-inference-access-and-applications-own-workflow-selection.md).
 
-The default AI binding follows the package's build condition:
+The default AI binding follows the package's build condition (a runtime check under ADR-0403; unbuilt):
 
 | Environment | Connection persistence | Credentials |
 | --- | --- | --- |
@@ -109,7 +113,7 @@ notify other owners in the same document or origin. Workflow selections remain
 product-local under `${settingsKey}.app-ai-selections` in both environments.
 Switching libraries retains this configuration while opening new App clients.
 An explicit `ai` binding replaces the default. The host build's default already
-supplies native file inference as `app.ai.runtime`, so no application composes
+supplies native file inference as `app.device.connections.runtime`, so no application composes
 it; the browser default has no runtime transport.
 
 Applications with saved workflow choices await
@@ -134,47 +138,33 @@ selections, SSE reconnect, and cancellation on App, window, and host closure.
 Its optional Whispering mode also verifies the desktop picker, imported audio,
 real transcription, and the saved result after document reload.
 
-Construction is inert. `openLocal()`, `openPersonal(account)`, and `openShared(account)` return handles
-synchronously; `app.ready` resolves once with a usable dataset and hydrated AI catalog, or a typed
-failure. Local opening performs no authority request or sync dial.
+`defineApplication` is inert. `application.open(account ?? null)` returns an App
+synchronously and begins acquisition. `app.ready` resolves when every opened
+store and the inference catalog are ready, or returns an opening failure.
+`open(null)` performs no authority request or sync dial.
 
-The open call decides the handle's type. `openLocal()` returns `LocalApp<T>`;
-`openPersonal(account)` and `openShared(account)` return `AccountApp<T>`; `App<T>`
-is their union, discriminated by `app.library`. A local App has no `account` and
-no `retirement`, and its `ai.account` is null. Code that borrows either kind
-checks `app.library` once and TypeScript narrows the rest; code that needs sync
-or retirement takes `AccountApp<T>` and the compiler refuses a local handle.
+`app.device` always exists. `app.account` is null when signed out. Otherwise it
+contains credential-free `identity`, `personal`, nullable `shared`, and nullable
+inference `connection`. Shared is available when the Account declares `supportsShared`, including named
+people on a self-hosted server. Each store has its own tables, KV, persistence, and sync status.
+There is no flat `app.tables`, library discriminator, or alternate opener.
 
-```ts
-import type { AccountApp } from '@epicenter/app';
-
-function watchRetirement(app: AccountApp<typeof definition>) {
- return app.retirement.then(() => app.close());
-}
-```
-
-Shared code takes a capability, never the handle or a subset of it. `app.ai`
-carries everything inference needs, including the identity its account client
-was bound to, so a component that picks a model takes `ai: AppAi` and nothing
-else from the App. The rule is
-[ADR-0390](../../docs/adr/0390-the-app-is-the-unit-of-ownership-and-a-capability-is-the-unit-of-sharing.md);
-the target spelling is
-[ADR-0392](../../docs/adr/0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md),
-where shared code takes `app.device.connections` and `app.account?.connection`
-and there is no `App` union discriminated by `library` (that shape,
-[ADR-0389](../../docs/adr/0389-the-open-call-decides-the-app-s-type-and-a-local-app-has-no-account-members.md),
-is superseded at the opener).
+The shared `AppBoot` render gate accepts `ready={app?.ready}`. It handles loading
+and opening failures before rendering children. Imperative jobs await the same
+promise and handle its Result once. Shared components take the store or
+capability they use: `AppStore<T>`, `app.device.connections`, or
+`app.account?.connection`.
 
 The document, table handles, and KV handle exist before readiness. Their actual
 operations reject premature or closed use, including methods retained by a
 consumer. Hydration fills the same document; no forwarding facade replaces it.
-Invalid declarations and accounts missing authority identity throw before I/O.
+Invalid declarations throw before I/O. Library addresses are validated at the
+claim and storage boundaries. Auth constructs the immutable Account handle.
 
 The App constructs each resource once and exposes its actual operation object.
 The resource owner keeps its cleanup controls; consumers receive SQL, secret,
-blob, and recording operations without a separate close obligation. The data
-engine constructs document operations and supplies their readiness guard to the
-resource implementations. Retained methods reject premature or closed use;
+blob, and recording operations without a separate close obligation. App gates public operations on combined readiness and lifetime. Each data
+engine owns hydration, persistence, and sync for its document. Retained methods reject premature or closed use;
 ordinary storage and transfer failures remain Results.
 
 ## Blobs
@@ -184,17 +174,18 @@ its desktop file, browser record, and row reference. Successful Stop publishes
 that key before the application creates a recording row. The
 [blob package](../blobs/README.md) owns storage and format interpretation.
 
-Every App exposes `app.blobs.local`. An AccountApp also exposes
-`app.blobs.remote`; a LocalApp has no remote member. Keep these full paths at
+Every App exposes `app.blobs.local`. `app.blobs.remote` is null without an
+account and exposes remote hosting when signed in. Keep these full paths at
 call sites. Bytes have independent lifetimes from rows and from each other.
 There are no attachment fields, transfer queues, or automatic downloads.
 
 ```ts
 const added = await app.blobs.local.add(file);
 if (added.error) return showError(added.error);
-app.tables.recordings.create({ audioBlobId: added.data, audioUrl: null });
+app.device.tables.recordings.create({ audioBlobId: added.data, audioUrl: null });
 
-// Later, after an explicit Upload action on an AccountApp:
+// Later, after an explicit Upload action while signed in:
+if (!app.blobs.remote) return;
 const uploaded = await app.blobs.remote.addLocal(added.data);
 if (uploaded.error) return showError(uploaded.error);
 // Save uploaded.data, the durable remote URL, in the row.
@@ -251,7 +242,8 @@ const page = await storage.list({ limit: 100 });
 The standalone browser/host constructors do not discover desktop profiles from
 a Bun process.
 
-Repeated `close()` calls return one completion promise. Close rejects new work
+Concurrent `close()` calls return one completion promise. A failed cache invalidation
+permits another explicit close attempt; failed physical release stays terminal. Close rejects new work
 immediately, cancels owned AI requests, settles admitted recording and storage
 work, and releases playback sources. The document stops sync and attempts its
 final local persistence flush. SQL work drains even if another cleanup fails.
@@ -271,31 +263,38 @@ Raw Yjs content is borrowed: stop editor bindings before
 closing its owner. App workflows spanning multiple awaited calls must also handle
 closure between those calls.
 
-An account App captures account identity and transport at open time as
-`app.account`. Sign-out retires that transport without changing the handle's
-dataset identity; the owner closes the handle and removes consuming UI.
+App retains the immutable Account supplied by auth. Same-owner credential
+refresh preserves that handle. Sign-out or replacement ends its transport;
+departure quiesces UI and closes App without erasing data.
 
-`LibraryReplicaIdentity` lives in `@epicenter/principal`: the library choice and,
-for Personal or Shared, the authenticated actor's credential-free identity.
-SQL receives that fixed replica scope. Local blobs and recording capture only
-the app ID; remote hosting captures the account. The document
-owns document admission and cleanup. App coordinates resource shutdown, and
-runtime owners own physical files.
+Library retirement is different: the server has replaced a data generation.
+The affected store fences and invalidates its cache. App stops all sibling sync
+and refuses further public operations immediately. `app.libraryReplaced` notifies the page without exposing cache operations.
+Departure quiesces UI and calls `app.close()`. The store owns invalidation and
+completes it before releasing storage. Failed invalidation retains ownership;
+`app.canRetryClose` permits another explicit `close()` attempt. Departure also
+permits retry when UI cleanup failed, and never closes storage before that
+cleanup succeeds.
 
-`app.sqlite.open(name)` and `app.sqlite.delete(name)` use the same captured
-library scope as the rest of the handle. Every runtime supplies the
-same capability, so an app never branches on whether SQLite exists. The app
-API validates the plain database name; the runtime owner chooses its
-replica-specific address. SQLite is auxiliary app data:
-primary tables and their durable Yjs records remain in the data store.
+Library claims validate and serialize only the account's addressing fields.
+Browser acquisition receives one account and library and derives both the local
+cache address and sync routes from them. It cannot pair one account's cache
+with another account's transport.
 
-`app.secrets.put(label, value)`, `get(label)`, and `delete(label)` capture the app
-and account scope. Browser secrets remain in document memory and disappear on
-reload; desktop secrets live in the keychain. Closing an App drains admitted
-secret operations and preserves their values. Reopening the same scope in the
-same document can read them again. Secrets never enter synchronized rows.
+`app.device.sqlite.open(name)` and `delete(name)` address a file by app ID and
+database name. Desktop files live at `<dataRoot>/apps/<appId>/local/sqlite/<name>.sqlite`;
+browser files use the serialized `[appId, "local", name]` tuple in the OPFS pool. Each app
+has one exclusive SQLite lifetime. Data-library claims remain separate.
 
-`app.recording.start({})` acquires disposable capture. Successful Stop saves
+`app.device.secrets.put(label, value)`, `get(label)`, and `delete(label)` address
+credentials by app ID and label. Browser secrets remain in document memory;
+desktop secrets live in the keychain. Closing App preserves values. Secrets
+never enter synchronized rows. Neither SQLite nor secrets change namespace
+when the Epicenter account changes. Earlier account-scoped storage is not
+merged or deleted by this change. Existing device paths and keychain addresses
+are preserved.
+
+`app.device.recording.start({})` acquires disposable capture. Successful Stop saves
 locally and returns a blob ID, duration, and byte length; it creates no row.
 See [Saved recordings](#saved-recordings) for ordering.
 
@@ -332,11 +331,13 @@ needs `app.ready` or ends at `app.close()`. A boot-failure screen can copy
 diagnostics before any App exists, and a copy button keeps working while a page
 departs. Import it directly; do not thread an App handle to reach it.
 
-The package selects the implementation for the build. The default leaf uses the
+The package selects the implementation for the build; ADR-0403 replaces the
+seam with an `isTauri()` check in the public file (unbuilt). The default leaf uses the
 page's Clipboard API, which requires document focus and the browser's clipboard
 grant. The `epicenter-host` leaf uses the host's clipboard plugin, which also
-works while the window is unfocused, as a global shortcut needs. Trusted app
-windows hold the plugin's read-text and write-text permissions.
+works while the window is unfocused, as a global shortcut needs. Today only the
+`app-*` and `whispering` windows hold the plugin's read-text and write-text
+permissions; ADR-0402 grants every native verb to every window (unbuilt).
 
 Text only. `readText()` returns `null` for an empty clipboard. Platform failures
 return `ClipboardRead` or `ClipboardWrite` errors with the platform cause.
@@ -350,12 +351,12 @@ as Whispering's text service does.
 Stop is the save boundary:
 
 ```ts
-const started = await app.recording.start({});
+const started = await app.device.recording.start({});
 if (started.error) return showError(started.error);
 const recording = started.data;
 const stopped = await recording.stop();
 if (stopped.error) return showError(stopped.error);
-app.tables.recordings.create({
+app.device.tables.recordings.create({
  audioBlobId: stopped.data.blobId,
  audioUrl: null,
 });

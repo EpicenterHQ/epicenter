@@ -9,7 +9,7 @@ import type {
 import type { NonconformingRow } from '@epicenter/data';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
-import type { WhisperingAppHandle } from './app.js';
+import type { WhisperingAppHandle, WhisperingData } from './app.js';
 import { asRecording, type NewRecording, type Recording } from './recording.js';
 export type RecordingAudioAvailability = 'local' | 'remote' | 'unavailable';
 
@@ -64,7 +64,7 @@ export type WhisperingRecordings = {
 
 /** Recording rows reference local bytes and explicitly uploaded URLs. */
 export function createWhisperingRecordings(
-	app: Pick<WhisperingAppHandle, 'tables' | 'blobs'>,
+	app: { tables: WhisperingData['tables']; blobs: WhisperingAppHandle['blobs'] },
 ) {
 	let rows: Recording[] = [];
 	let sorted: Recording[] = [];
@@ -116,7 +116,7 @@ export function createWhisperingRecordings(
 		if (
 			local.error?.name !== 'BlobNotFound' ||
 			!row.audioUrl ||
-			!('remote' in app.blobs)
+			!app.blobs.remote
 		)
 			return local;
 		return app.blobs.remote.get(row.audioUrl);
@@ -128,7 +128,7 @@ export function createWhisperingRecordings(
 		if (
 			local.error?.name !== 'BlobNotFound' ||
 			!row.audioUrl ||
-			!('remote' in app.blobs)
+			!app.blobs.remote
 		)
 			return local;
 		return app.blobs.remote.open(row.audioUrl);

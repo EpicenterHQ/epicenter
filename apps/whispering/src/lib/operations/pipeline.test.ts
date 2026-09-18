@@ -135,7 +135,7 @@ const access = createAppBlobs({
 });
 const domain = createWhisperingRecordings({
 	tables: data.tables,
-	blobs: { local: access.value },
+	blobs: { remote: null, local: access.value },
 });
 const blobId = expectOk(
 	await access.value.add(new Blob(['saved audio'], { type: 'audio/wav' })),
@@ -149,7 +149,7 @@ const recording = expectOk(
 	}),
 );
 const app = {
-	blobs: { local: access.value },
+	blobs: { remote: null, local: access.value },
 	get signal() {
 		return lifetime.signal;
 	},
@@ -190,6 +190,7 @@ test('A inference finishes into its row while B retains current feedback', async
 	};
 	const attemptA = dictationLifecycle.reset();
 	const processing = processRecordingPipeline(app, {
+		transcribe: async () => Ok('captured transcription'),
 		recordingId: recording.id,
 		isCurrentAttempt: attemptA,
 	});
@@ -221,6 +222,7 @@ test('A polish completion cannot clear or cancel the B polish controller', async
 	};
 	const attemptA = dictationLifecycle.reset();
 	const processing = processRecordingPipeline(app, {
+		transcribe: async () => Ok('captured transcription'),
 		recordingId: recording.id,
 		isCurrentAttempt: attemptA,
 	});
@@ -245,7 +247,10 @@ test('closed UI admission starts no inference or delivery for an existing row', 
 	recordingEnabled = false;
 	const transcriptionsBefore = persistedTranscriptions.length;
 	const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
-	await processRecordingPipeline(app, { recordingId: recording.id });
+	await processRecordingPipeline(app, {
+		transcribe: async () => Ok('captured transcription'),
+		recordingId: recording.id,
+	});
 	expect(persistedTranscriptions).toHaveLength(transcriptionsBefore);
 	expect(deliverTranscriptionResult).toHaveBeenCalledTimes(deliveriesBefore);
 });
@@ -276,6 +281,7 @@ test('Account replacement drains raw transcription without starting Polish or de
 		},
 	});
 	const processing = processRecordingPipeline(app, {
+		transcribe: async () => Ok('captured transcription'),
 		recordingId: recording.id,
 	});
 	departure.attachUi({
@@ -307,6 +313,7 @@ test('retirement during Polish suppresses late history and delivery', async () =
 	const writesBefore = saveRecordingHistory.mock.calls.length;
 	const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
 	const processing = processRecordingPipeline(app, {
+		transcribe: async () => Ok('captured transcription'),
 		recordingId: recording.id,
 	});
 	await entered.promise;
@@ -323,6 +330,7 @@ test('failed transcription and retry keep exactly the same row and bytes', async
 	try {
 		transcriptionError = { name: 'TransportFailed', message: 'Try again' };
 		await processRecordingPipeline(app, {
+			transcribe: async () => Ok('captured transcription'),
 			recordingId: recording.id,
 			deliverySource: 'import',
 		});
@@ -331,6 +339,7 @@ test('failed transcription and retry keep exactly the same row and bytes', async
 		);
 		transcriptionError = null;
 		await processRecordingPipeline(app, {
+			transcribe: async () => Ok('captured transcription'),
 			recordingId: recording.id,
 			deliverySource: 'import',
 		});
@@ -361,6 +370,7 @@ test('history failure warns after delivering the usable transcription', async ()
 	const noticesBefore = reportInfo.mock.calls.length;
 
 	await processRecordingPipeline(app, {
+		transcribe: async () => Ok('captured transcription'),
 		recordingId: recording.id,
 		deliverySource: 'recording',
 	});
@@ -389,6 +399,7 @@ test('polished history failure still delivers polished text and warns', async ()
 	const noticesBefore = reportInfo.mock.calls.length;
 
 	await processRecordingPipeline(app, {
+		transcribe: async () => Ok('captured transcription'),
 		recordingId: recording.id,
 		deliverySource: 'recording',
 	});
@@ -416,6 +427,7 @@ test('polished history success does not hide an earlier raw history error', asyn
 	const noticesBefore = reportInfo.mock.calls.length;
 
 	await processRecordingPipeline(app, {
+		transcribe: async () => Ok('captured transcription'),
 		recordingId: recording.id,
 		deliverySource: 'recording',
 	});
@@ -438,6 +450,7 @@ for (const deliverySource of ['recording', 'import'] as const) {
 		};
 		const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
 		await processRecordingPipeline(app, {
+			transcribe: async () => Ok('captured transcription'),
 			recordingId: recording.id,
 			deliverySource,
 		});
@@ -478,7 +491,10 @@ test('admitted audio finishes saving after UI admission closes without starting 
 		expect(await expectOk(await access.value.get(row.audioBlobId)).text()).toBe(
 			'admitted',
 		);
-		await processRecordingPipeline(app, { recordingId: row.id });
+		await processRecordingPipeline(app, {
+			transcribe: async () => Ok('captured transcription'),
+			recordingId: row.id,
+		});
 		expect(persistedTranscriptions).toHaveLength(transcriptionsBefore);
 	} finally {
 		release.resolve();

@@ -14,7 +14,7 @@ import { currentLibraryResponse } from '../current-library.js';
 try {
 	const ready = await app.ready;
 	if (ready.error) throw ready.error;
-	const storage = await openLocalMailStorage(app);
+	const storage = await openLocalMailStorage(app.device);
 	if (localStorage.getItem('evidence-seeded') !== 'true') {
 		for (const sub of ['one', 'two']) {
 			expectOk(
@@ -55,23 +55,23 @@ try {
 				const peer = defineApplication({
 					appId: 'so.epicenter.local-mail-evidence-peer',
 					definition: mailDefinition,
-				}).openPersonal({
+				}).open({
 					...account,
 					fetch: (input, init) =>
 						currentLibraryResponse(new Request(input, init)),
 				});
 				expectOk(await peer.ready);
-				expectOk(syncEngineOf(peer).applyRemote(app.encodeStateSince()));
-				const row = peer.tables.savedQueries.rows[0]!;
-				if (remove) peer.tables.savedQueries.delete(row.id);
+				expectOk(syncEngineOf(peer.account!.personal).applyRemote(app.account!.personal.encodeStateSince()));
+				const row = peer.account!.personal.tables.savedQueries.rows[0]!;
+				if (remove) peer.account!.personal.tables.savedQueries.delete(row.id);
 				else
 					expectOk(
-						peer.tables.savedQueries.update(row.id, {
+						peer.account!.personal.tables.savedQueries.update(row.id, {
 							sql: 'SELECT id FROM labels',
 						}),
 					);
-				expectOk(syncEngineOf(app).applyRemote(peer.encodeStateSince()));
-				await app.persistence.flush();
+				expectOk(syncEngineOf(app.account!.personal).applyRemote(peer.account!.personal.encodeStateSince()));
+				await app.account!.personal.persistence.flush();
 				await peer.close();
 			},
 			async malformed() {
@@ -87,22 +87,22 @@ try {
 							}),
 						},
 					}),
-				}).openPersonal({
+				}).open({
 					...account,
 					fetch: (input, init) =>
 						currentLibraryResponse(new Request(input, init)),
 				});
 				expectOk(await peer.ready);
-				const repair = peer.tables.savedQueries.create({
+				const repair = peer.account!.personal.tables.savedQueries.create({
 					name: 'Repair fixture',
 					sql: false,
 				});
-				const remove = peer.tables.savedQueries.create({
+				const remove = peer.account!.personal.tables.savedQueries.create({
 					name: 'Delete fixture',
 					sql: true,
 				});
-				expectOk(syncEngineOf(app).applyRemote(peer.encodeStateSince()));
-				await app.persistence.flush();
+				expectOk(syncEngineOf(app.account!.personal).applyRemote(peer.account!.personal.encodeStateSince()));
+				await app.account!.personal.persistence.flush();
 				await peer.close();
 				return { repair: repair.id, remove: remove.id };
 			},

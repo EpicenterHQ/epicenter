@@ -26,7 +26,6 @@
  * retry below asks it not to.
  */
 
-import type { LibraryReplicaIdentity } from '@epicenter/principal';
 import { createBrowserSqliteAdapter } from '@epicenter/sqlite/browser';
 import type { Database, Sqlite3Static } from '@sqlite.org/sqlite-wasm';
 import { Ok, tryAsync } from 'wellcrafted/result';
@@ -53,7 +52,7 @@ type Pool = {
  *
  * One pool rather than one per application, because a pool is an exclusive
  * claim on an OPFS directory and a second install is a refusal, not a second
- * pool. The filename identifies the application, account, and database, just
+ * pool. The filename identifies the application and database, just
  * as the Bun owner's directory path does below one root.
  */
 const POOL_NAME = 'epicenter';
@@ -78,25 +77,8 @@ async function install() {
 	return { pool, sqlite };
 }
 
-function databaseFilename(
-	appId: string,
-	replica: LibraryReplicaIdentity,
-	name: string,
-): string {
-	const address =
-		replica.library === 'local'
-			? [appId, 'local', name]
-			: [
-					appId,
-					'account',
-					replica.account.authorityId,
-					replica.account.principalId,
-					...(replica.library === 'shared' ? ['shared'] : []),
-					name,
-				];
-	// Keep every identity component separate before encoding. Joining even
-	// part of the address with ':' aliases accounts whose identifiers contain it.
-	return `/${encodeURIComponent(JSON.stringify(address))}.sqlite`;
+function databaseFilename(appId: string, name: string): string {
+	return `/${encodeURIComponent(JSON.stringify([appId, 'local', name]))}.sqlite`;
 }
 
 // Capacity reservation and file allocation share the pool across app lifetimes.
@@ -108,13 +90,11 @@ function inPool<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 const owner = createSqliteOwner({
-	open(appId, replica, name) {
+	open(appId, name) {
 		return inPool(async () => {
 			const { pool, sqlite } = await poolReady();
 			await pool.reserveMinimumCapacity(pool.getFileCount() + 2);
-			const database = new pool.OpfsSAHPoolDb(
-				databaseFilename(appId, replica, name),
-			);
+			const database = new pool.OpfsSAHPoolDb(databaseFilename(appId, name));
 			return {
 				...sqliteOver(database, sqlite),
 				async close() {
@@ -123,9 +103,9 @@ const owner = createSqliteOwner({
 			};
 		});
 	},
-	delete(appId, replica, name) {
+	delete(appId, name) {
 		return inPool(async () => {
-			const file = databaseFilename(appId, replica, name);
+			const file = databaseFilename(appId, name);
 			const { pool } = await poolReady();
 			pool.unlink(file);
 			pool.unlink(`${file}-journal`);

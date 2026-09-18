@@ -1,8 +1,5 @@
 /** Origin-wide exclusion for one application's account or local library. */
-import {
-	captureLibraryReplica,
-	type LibraryReplicaIdentity,
-} from '@epicenter/principal';
+import type { AccountIdentity } from '@epicenter/principal';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 
@@ -35,9 +32,43 @@ type LockManager = {
 /** Refuse competing producers before discovery, network access, or storage opens. */
 export async function claimLibrary(
 	appId: string,
-	replica: LibraryReplicaIdentity,
+	scope:
+		| { library: 'local' }
+		| { library: 'personal' | 'shared'; account: AccountIdentity },
 ): Promise<Result<{ release(): void }, LibraryClaimError>> {
-	const address = `library:${JSON.stringify([appId, captureLibraryReplica(replica)])}`;
+	// Project in canonical order: these bytes are shared with other openers.
+	let identity: typeof scope;
+	if (scope.library === 'local') {
+		identity = { library: 'local' };
+	} else {
+		const { authorityId, principalId } = scope.account;
+		for (const segment of [authorityId, principalId]) {
+			if (
+				typeof segment !== 'string' ||
+				segment === '' ||
+				segment === '.' ||
+				segment === '..' ||
+				/[\\/\p{Cc}]/u.test(segment)
+			)
+				throw new TypeError('Invalid library account address.');
+		}
+		identity = {
+			library: scope.library,
+			account: { authorityId, principalId },
+		};
+	}
+	const address = `library:${JSON.stringify([appId, identity])}`;
+	return claim(address);
+}
+
+/** Device SQL has one app-owned lifetime, independent of any data library. */
+export function claimSqlite(appId: string) {
+	return claim(`sqlite:${JSON.stringify(appId)}`);
+}
+
+async function claim(
+	address: string,
+): Promise<Result<{ release(): void }, LibraryClaimError>> {
 	const locks = (globalThis as { navigator?: { locks?: LockManager } })
 		.navigator?.locks;
 	if (!locks) return LibraryClaimError.LocksUnsupported({ address });

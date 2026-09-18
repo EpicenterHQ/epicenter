@@ -12,22 +12,6 @@ use log::warn;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-/// Credential-free actor identity captured with a library replica.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ReplicaAccount {
-    pub authority_id: String,
-    pub principal_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(tag = "library", rename_all = "camelCase", deny_unknown_fields)]
-pub enum LibraryReplica {
-    Local {},
-    Personal { account: ReplicaAccount },
-    Shared { account: ReplicaAccount },
-}
-
 /// The application captured before a native writer creates its temporary file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]

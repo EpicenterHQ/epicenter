@@ -18,7 +18,7 @@ export async function uploadRecording(
 ) {
 	const attempt = await tryAsync({
 		try: async () => {
-			if (!('remote' in app.blobs))
+			if (!app.blobs.remote)
 				return RecordingUploadError.Failed({
 					cause: 'Sign in before uploading audio.',
 				});

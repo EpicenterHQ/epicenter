@@ -42,9 +42,10 @@ import {
 	type ParsedDataDefinition,
 } from '@epicenter/data/definition';
 import { claimLibrary } from '@epicenter/device/library-claim';
-import type { LibraryReplicaIdentity, PrincipalId } from '@epicenter/principal';
+import type { PrincipalId } from '@epicenter/principal';
 import { readCurrentDownload } from '@epicenter/sync/current-download';
 import {
+	CURRENT_ROUTE,
 	GENERATIONS_ROUTE,
 	LOG_POSITION_HEADER,
 } from '@epicenter/sync/generations-route';
@@ -629,40 +630,26 @@ async function acquireDatabase(
  */
 export async function acquireAppData(
 	definition: ParsedDataDefinition,
-	{
-		appId,
-		replica,
-		remote,
-	}: {
-		appId: string;
-		replica: LibraryReplicaIdentity;
-		remote: {
-			currentUrl: string;
-			address: {
-				baseURL: string;
-				appId: string;
-				library: 'personal' | 'shared';
-			};
-			transport: DatabaseAccount;
-		} | null;
-	},
+	options: { appId: string } & (
+		| { library: 'local' }
+		| { library: 'personal' | 'shared'; account: DatabaseAccount }
+	),
 ): Promise<Result<StoreBacking, StoreError>> {
-	if (replica.library === 'local')
+	const { appId } = options;
+	if (options.library === 'local')
 		return acquireDatabase(definition, { appId, generation: 1 });
-	if (remote === null)
-		return StoreError.Unaddressable({
-			reason: 'A synchronized replica needs its captured transport',
-		});
+	const { library } = options;
+	const account = captureAccount(options.account);
 	void requestPersistentStorage();
 	const prefix = generationPrefix(
 		appId,
-		replica.account.principalId,
+		account.principalId,
 		definition.id,
-		replica.account.authorityId,
+		account.authorityId,
 	);
 	if (prefix.error) return prefix;
 	// A stable name per actor and selected library; generations live in its header.
-	const address = `${prefix.data}${replica.library}/current`;
+	const address = `${prefix.data}${library}/current`;
 	const opened = await openCurrentCache(address);
 	if (opened.error) return opened;
 	const cache = opened.data;
@@ -672,11 +659,14 @@ export async function acquireAppData(
 			const seed = createDatabaseDocument();
 			const body = new Uint8Array(Y.encodeStateAsUpdateV2(seed));
 			seed.destroy();
-			const response = await remote.transport.fetch(remote.currentUrl, {
-				method: 'POST',
-				headers: { 'content-type': 'application/octet-stream' },
-				body,
-			});
+			const response = await account.fetch(
+				CURRENT_ROUTE.url(account.baseURL, appId, library, definition.id),
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/octet-stream' },
+					body,
+				},
+			);
 			const {
 				generation,
 				head,
@@ -714,11 +704,13 @@ export async function acquireAppData(
 			dispose: cache.close,
 			replication: {
 				address: {
-					...remote.address,
+					baseURL: account.baseURL,
+					appId,
+					library,
 					dataId: definition.id,
 					generation: loaded.generation,
 				},
-				transport: remote.transport,
+				transport: account,
 			},
 		});
 	} catch (cause) {

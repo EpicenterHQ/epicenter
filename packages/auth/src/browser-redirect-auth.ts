@@ -7,6 +7,7 @@ import { createSessionHandoffClient } from './session-handoff-client.js';
 
 export type CreateBrowserRedirectAuthOptions = {
 	authorityId: string;
+	supportsShared?: boolean;
 	fetch?: AuthFetch;
 	appId: string;
 	baseURL: string;
@@ -16,6 +17,7 @@ export type CreateBrowserRedirectAuthOptions = {
 /** Browser storage and redirect convention; applications own their Account. */
 export function createBrowserRedirectAuth({
 	authorityId,
+	supportsShared,
 	fetch,
 	appId,
 	baseURL,
@@ -37,6 +39,7 @@ export function createBrowserRedirectAuth({
 	});
 	return createSessionAuth({
 		authorityId,
+		supportsShared,
 		baseURL,
 		fetch,
 		persistedAuthStorage: createWebStoragePersistedAuthStorage({

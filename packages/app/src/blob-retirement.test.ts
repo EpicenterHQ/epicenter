@@ -38,6 +38,7 @@ test('document retirement aborts an upload and releases playback before explicit
 		released.resolve(url);
 	});
 	const account: Account = {
+		supportsShared: false,
 		authorityId: 'blob-retirement',
 		principalId: asPrincipalId('alice'),
 		baseURL,
@@ -103,7 +104,7 @@ test('document retirement aborts an upload and releases playback before explicit
 		definition: defineData({ id: appId, tables: {}, kv: {} }),
 		runtime: { ...browser, sqlite },
 		ai: { runtime: null, account: null },
-	}).openPersonal(account);
+	}).open(account);
 	try {
 		expectOk(await app.ready);
 		await Bun.sleep(0);
@@ -113,9 +114,9 @@ test('document retirement aborts an upload and releases playback before explicit
 			account.principalId,
 			generateBlobId('wav'),
 		);
-		const source = expectOk(await app.blobs.remote.open(url));
+		const source = expectOk(await app.blobs.remote!.open(url));
 		expect(await (await fetch(source.url)).text()).toBe('audio');
-		const upload = app.blobs.remote.add(new Blob(['pending']));
+		const upload = app.blobs.remote!.add(new Blob(['pending']));
 		const signal = await started.promise;
 		expect(signal.aborted).toBe(false);
 		events.dispatchEvent(
@@ -130,8 +131,8 @@ test('document retirement aborts an upload and releases playback before explicit
 		expect(revoke).toHaveBeenCalledTimes(1);
 		// Library retirement did not retire the Account itself.
 		expect(await (await account.fetch(url)).text()).toBe('audio');
-		expect(() => app.blobs.remote.get(url)).toThrow();
-		await app.retirement;
+		expect(() => app.blobs.remote!.get(url)).toThrow();
+		await app.libraryReplaced;
 	} finally {
 		await app.close();
 		revoke.mockRestore();

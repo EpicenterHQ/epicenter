@@ -7,11 +7,11 @@ import { createDefaultAppAi } from '#platform/ai';
 import { resources } from '#platform/resources';
 import type { AiTransport } from './ai.js';
 import type { AiConnections } from './ai-connections.js';
-import { type AccountApp, type App, type LocalApp, openApp } from './open.js';
+import { type App, type AppStore, openApp } from './open.js';
 import type { RecordingFactory } from './recorder.js';
 
-export type { AccountApp, App, LocalApp };
-export type AppSqlite = App<DataDefinition>['sqlite'];
+export type { App, AppStore };
+export type AppSqlite = App<DataDefinition>['device']['sqlite'];
 export type AppBlobs = App<DataDefinition>['blobs'];
 
 export type AppBlobComposition = {
@@ -25,12 +25,10 @@ export type AppBlobFactory = (input: {
 	account: Account | null;
 }) => AppBlobComposition;
 
-/** One per app; each open owns one library and the open call decides the handle's type. */
+/** Declare once; each open owns one auth generation and its device and account stores. */
 export type Application<TDefinition extends DataDefinition> = {
 	readonly appId: string;
-	openLocal(): LocalApp<TDefinition>;
-	openPersonal(account: Account): AccountApp<TDefinition>;
-	openShared(account: Account): AccountApp<TDefinition>;
+	open(account: Account | null): App<TDefinition>;
 };
 
 /** Complete implementation selection; App owns the opened resources.
@@ -64,18 +62,9 @@ export function defineApplication<const TDefinition extends DataDefinition>({
 	const options = { appId, sqlite, secrets, blobs, recording, ai };
 	return Object.freeze({
 		appId,
-		openLocal: () =>
-			openApp(definition, { ...options, choice: { library: 'local' } }),
-		openPersonal: (account: Account) =>
-			openApp(definition, {
-				...options,
-				choice: { library: 'personal', account },
-			}),
-		openShared: (account: Account) =>
-			openApp(definition, {
-				...options,
-				choice: { library: 'shared', account },
-			}),
+		open(account: Account | null) {
+			return openApp(definition, { ...options, account });
+		},
 	});
 }
 

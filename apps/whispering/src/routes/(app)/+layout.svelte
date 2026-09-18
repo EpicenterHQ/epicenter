@@ -25,7 +25,7 @@
 					if (ready.error) return;
 					if (shell) await shell.preflight();
 					else {
-						const recovered = await opened.app.recording.current();
+						const recovered = await opened.app.device.recording.current();
 						if (recovered.error) throw recovered.error;
 						if (recovered.data) throw new Error('Finish recording before closing Whispering.');
 					}
@@ -53,13 +53,13 @@
 		<LibrarySelection library={application.library} canOpenShared={application.canOpenShared} select={application.selectLibrary} />
 		{/if}
 	{/snippet}
-	{#if !application.app}<div class="p-3">{@render libraryMenu()}</div>{/if}
-	<AppBoot startup={authClient} departure={application.departure} ready={application.app?.ready} appName="Whispering" noun="recordings">
+	{#if !application.data}<div class="p-3">{@render libraryMenu()}</div>{/if}
+	<AppBoot startup={authClient} departure={application.departure} ready={application.data ? application.app?.ready : undefined} appName="Whispering" noun="recordings">
 		{#snippet openingFailure()}
 			<div class="p-3">{@render libraryMenu()}</div>
 		{/snippet}
-		{#if application.app && application.selections && showing}
-			<WhisperingShell {libraryMenu} selections={application.selections} openedApp={application.app} account={application.account} bind:this={shell}>
+		{#if application.app && application.data && application.selections && showing}
+			<WhisperingShell {libraryMenu} selections={application.selections} openedApp={application.app} data={application.data} account={application.account} bind:this={shell}>
 				{@render children()}
 			</WhisperingShell>
 		{/if}

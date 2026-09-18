@@ -1,4 +1,4 @@
-import type { App } from '@epicenter/app';
+import type { App, AppStore } from '@epicenter/app';
 import type { InferenceConnections } from '@epicenter/app-shell/inference-picker';
 import type { Account } from '@epicenter/auth';
 import type { SyncConnectionStatus } from '@epicenter/data/sync';
@@ -17,6 +17,7 @@ import {
 
 /** One local or account dataset's retained portable work. */
 export type WhisperingAppHandle = App<typeof whisperingDefinition>;
+export type WhisperingData = AppStore<typeof whisperingDefinition>;
 
 /**
  * Hydrated, UI-free settings over typed singleton values.
@@ -64,16 +65,21 @@ export type WhisperingApp = {
 /** Build settings, saved recordings, and recipes over one ready framework App. */
 export function createWhisperingDomains({
 	openedApp,
+	data,
 	account,
 }: {
 	/** The opened dataset owns tables, blobs, and recording. */
 	openedApp: WhisperingAppHandle;
+	data: WhisperingData;
 	account: Account | null;
 }) {
-	const settingsDomain = createWhisperingSettings({ kv: openedApp.kv });
-	const recordingsDomain = createWhisperingRecordings(openedApp);
+	const settingsDomain = createWhisperingSettings({ kv: openedApp.device.kv });
+	const recordingsDomain = createWhisperingRecordings({
+		tables: data.tables,
+		blobs: openedApp.blobs,
+	});
 	const recipesDomain = createWhisperingRecipes({
-		table: openedApp.tables.recipes,
+		table: data.tables.recipes,
 	});
 
 	let disposed = false;
@@ -87,7 +93,7 @@ export function createWhisperingDomains({
 		// Read off the store's own connection (ADR-0340) rather than off a
 		// `SyncConnection` this file held, and passed through whole: a refusal is
 		// data on that status, and the surface decides what to say about it.
-		syncStatus: () => openedApp.sync.status(),
+		syncStatus: () => data.sync.status(),
 		[Symbol.dispose]() {
 			if (disposed) return;
 			disposed = true;
@@ -117,7 +123,7 @@ type SettingKey = keyof WhisperingSettingValues;
  * is a read, a write names its keys, and application recovery handles missing
  * values without creating a row to hold them.
  */
-function createWhisperingSettings({ kv }: { kv: WhisperingAppHandle['kv'] }) {
+function createWhisperingSettings({ kv }: { kv: WhisperingData['kv'] }) {
 	let values: WhisperingSettingValues = { ...APPLICATION_DEFAULTS };
 	const listeners = new Set<() => void>();
 	const notify = () => {

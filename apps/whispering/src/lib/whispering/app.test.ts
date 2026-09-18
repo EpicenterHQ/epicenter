@@ -131,6 +131,7 @@ function createFakeAccount({
 		});
 	};
 	return {
+		supportsShared: false,
 		authorityId: 'test-authority',
 		principalId: asPrincipalId(principalId),
 		baseURL: 'https://api.test',
@@ -176,7 +177,7 @@ async function openWhispering(account: Account) {
 		},
 		ai: { runtime: null, account: null },
 	});
-	const app = handle.openPersonal(account);
+	const app = handle.open(account);
 	expectOk(await app.ready);
 	return app;
 }
@@ -208,6 +209,7 @@ test('settings recover application defaults, notify, and survive a reopen', asyn
 		const openedApp = await openWhispering(account);
 		const app = createWhisperingDomains({
 			openedApp,
+		data: openedApp.account!.personal,
 			account,
 		});
 
@@ -238,6 +240,7 @@ test('settings recover application defaults, notify, and survive a reopen', asyn
 	const openedApp = await openWhispering(account);
 	const reopened = createWhisperingDomains({
 		openedApp,
+		data: openedApp.account!.personal,
 		account,
 	});
 
@@ -257,6 +260,7 @@ test('the domains stop reading the store once they are disposed', async () => {
 	const openedApp = await openWhispering(account);
 	const app = createWhisperingDomains({
 		openedApp,
+		data: openedApp.account!.personal,
 		account,
 	});
 
@@ -265,7 +269,7 @@ test('the domains stop reading the store once they are disposed', async () => {
 	app.settings.subscribe(() => {
 		notifications += 1;
 	});
-	openedApp.kv.update({ recordingPausePlayback: true });
+	openedApp.device.kv.update({ recordingPausePlayback: true });
 	await Bun.sleep(10);
 
 	expect(notifications).toBe(0);

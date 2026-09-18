@@ -2,8 +2,7 @@ import type { QueryOptions, QueryResult } from './query.js';
 export type { QueryOptions, QueryResult, QueryValue } from './query.js';
 /**
  * Runtime-owned SQLite files and application secrets.
- * SQLite lifetimes capture an app and account identity; standalone devices use
- * the local identity. Closing a lifetime releases connections and preserves
+ * SQLite lifetimes and secrets are scoped by application id. Closing a lifetime releases connections and preserves
  * files and secrets. Platform imports select the browser worker or native host.
  */
 
@@ -148,5 +147,3 @@ export type Device = {
 	readonly sqlite: ScopedSqlite;
 	readonly secrets: SecretStore;
 };
-
-export { secretScopeKey } from './secrets.js';

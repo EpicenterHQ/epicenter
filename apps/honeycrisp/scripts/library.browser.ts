@@ -164,6 +164,13 @@ let proxy: PlatformProxy<TestBindings> | undefined;
 let passed = false;
 const pages: Page[] = [];
 const errors: string[] = [];
+const sharedDownloads: Array<
+	Promise<{
+		generation: string | undefined;
+		position: string | undefined;
+		bytes: number[];
+	}>
+> = [];
 async function select(page: Page, name: 'Local' | 'Personal' | 'Shared') {
 	await page.evaluate(async () => {
 		const path = '/src/lib/application.ts';
@@ -222,6 +229,25 @@ async function enroll(id: string) {
 	const page = await context.newPage();
 	pages.push(page);
 	page.setDefaultTimeout(30_000);
+	// One App opens Personal and Shared together during bootstrap.
+	sharedDownloads.push(
+		page
+			.waitForResponse(
+				(response) =>
+					response.request().method() === 'POST' &&
+					response
+						.url()
+						.includes('/shared/data/so.epicenter.honeycrisp/current'),
+			)
+			.then(async (response) => {
+				assert.equal(response.status(), 200);
+				return {
+					generation: response.headers()['epicenter-generation'],
+					position: response.headers()['epicenter-log-position'],
+					bytes: [...(await response.body())],
+				};
+			}),
+	);
 	page.on('pageerror', (error) => errors.push(`${id}: ${error.message}`));
 	const cdp = await context.newCDPSession(page);
 	await cdp.send('WebAuthn.enable');
@@ -307,25 +333,8 @@ try {
 	});
 	assert.equal(refusedPersonal, 403);
 	console.log('Bob cannot select Alice as Personal owner:', refusedPersonal);
-	const freshResponses = [alice, bob].map((page) =>
-		page.waitForResponse(
-			(response) =>
-				response.request().method() === 'POST' &&
-				response.url().includes('/shared/data/so.epicenter.honeycrisp/current'),
-		),
-	);
 	await Promise.all([select(alice, 'Shared'), select(bob, 'Shared')]);
-	const canonical = await Promise.all(
-		freshResponses.map(async (pending) => {
-			const response = await pending;
-			assert.equal(response.status(), 200);
-			return {
-				generation: response.headers()['epicenter-generation'],
-				position: response.headers()['epicenter-log-position'],
-				bytes: [...(await response.body())],
-			};
-		}),
-	);
+	const canonical = await Promise.all(sharedDownloads);
 	assert(canonical[0]);
 	assert(canonical[0].generation);
 	assert(canonical[0].bytes.length > 0);

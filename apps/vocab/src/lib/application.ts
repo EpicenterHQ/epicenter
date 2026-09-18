@@ -27,7 +27,7 @@ export const app = trySync({
 					appId: APPS.VOCAB.id,
 					settingsKey: 'vocab',
 					definition: vocabDefinition,
-				}).openPersonal(account),
+				}).open(account),
 	catch(cause) {
 		// Preserve the opening failure even if subscription cleanup also fails.
 		trySync({
@@ -41,7 +41,8 @@ void app?.ready.then(({ error }) => {
 	if (error) selections?.[Symbol.dispose]();
 });
 export const departure = createDeparture({
-	retirement: app?.retirement,
+	libraryReplaced: app?.libraryReplaced,
+	canRetryClose: () => app?.canRetryClose ?? false,
 	reload: () => location.reload(),
 	auth: app && auth ? auth : undefined,
 	account,

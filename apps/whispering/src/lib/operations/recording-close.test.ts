@@ -124,7 +124,7 @@ function recordingApp<T extends object>(
 	return app;
 }
 
-test('recording work owns close eligibility through native finalization and row saving', async () => {
+test('closing admission during native finalization still saves the admitted recording', async () => {
 	const app = recordingApp({
 		account: null,
 		recordingEnabled: true,
@@ -135,14 +135,15 @@ test('recording work owns close eligibility through native finalization and row 
 	expect(recordingActive(app as unknown as WhisperingApp)).toBe(true);
 	await Bun.sleep(0);
 	expect(events).toEqual(['finalize']);
-	finalized.resolve();
-	await Bun.sleep(0);
-	expect(events).toEqual(['finalize', 'save']);
 	app.recordingEnabled = false;
+	expect(app.signal.aborted).toBe(false);
 	const closing = closeRecordingWork().then(() => {
 		events.push('producers closed');
 	});
 	expect(recordingActive(app as unknown as WhisperingApp)).toBe(true);
+	finalized.resolve();
+	await Bun.sleep(0);
+	expect(events).toEqual(['finalize', 'save']);
 	saved.resolve();
 	await stopping;
 	await closing;
@@ -293,14 +294,15 @@ test('retirement retries the retained UI cleanup after unmount before releasing 
 	);
 	const { createDeparture } = await import('@epicenter/app-shell/departure');
 	const notification =
-		Promise.withResolvers<import('@epicenter/data/store').LibraryRetirement>();
+		Promise.withResolvers<void>();
 	const session = createWhisperingUiSession({
 		selections: createInferenceSelections({
 			storageKey: 'recording-close',
 			storage: { getItem: () => null, setItem() {} },
 		}),
+		data: {} as import('../whispering/app').WhisperingData,
 		openedApp: {
-			recording: { current: async () => Ok(null) },
+			device: { recording: { current: async () => Ok(null) } },
 		} as unknown as import('../whispering/app').WhisperingAppHandle,
 		account: null,
 	});
@@ -312,7 +314,7 @@ test('retirement retries the retained UI cleanup after unmount before releasing 
 	let reloaded = false;
 	const departure = createDeparture({
 		account: null,
-		retirement: notification.promise,
+		libraryReplaced: notification.promise,
 		close: async () => {
 			closed = true;
 		},
@@ -330,10 +332,7 @@ test('retirement retries the retained UI cleanup after unmount before releasing 
 	});
 	vadRecorder.state = 'LISTENING';
 	vadFailure = new Error('Microphone graph still held');
-	notification.resolve({
-		invalidated: Promise.resolve(),
-		retryInvalidation: () => Promise.resolve(),
-	});
+	notification.resolve();
 	try {
 		await Bun.sleep(0);
 		await expect(departure.close()).rejects.toBe(vadFailure);
@@ -342,7 +341,7 @@ test('retirement retries the retained UI cleanup after unmount before releasing 
 		expect(reloaded).toBe(false);
 		expect(vadRecorder.state).toBe('LISTENING');
 		vadFailure = undefined;
-		await departure.retryRetirement();
+		await departure.retryClose();
 		expect(vadRecorder.state).toBe('IDLE');
 		expect(closed).toBe(true);
 		expect(reloaded).toBe(true);

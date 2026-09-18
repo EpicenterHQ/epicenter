@@ -63,7 +63,7 @@ test('App readiness includes catalog hydration and failed hydration releases the
 			},
 		},
 	});
-	const app = application.openLocal();
+	const app = application.open(null);
 	let ready = false;
 	void app.ready.then(() => {
 		ready = true;
@@ -79,7 +79,7 @@ test('App readiness includes catalog hydration and failed hydration releases the
 		definition,
 		runtime: { ...browser, sqlite, blobs },
 		ai: { account: null, runtime: null },
-	}).openLocal();
+	}).open(null);
 	expectOk(await replacement.ready);
 	await replacement.close();
 });
@@ -171,28 +171,28 @@ test.each([
 		sqlite.acquire,
 	);
 	const application = defineApplication({ appId, definition, settingsKey });
-	const app = application.openLocal();
+	const app = application.open(null);
 	try {
 		expectOk(await app.ready);
-		expect(acquire).toHaveBeenCalledWith(appId, { library: 'local' });
+		expect(acquire).toHaveBeenCalledWith(appId);
 		const blobId = expectOk(
 			await app.blobs.local.add(new Blob(['default bytes'])),
 		);
 		expect(await expectOk(await app.blobs.local.get(blobId)).text()).toBe(
 			'default bytes',
 		);
-		await app.ai.connections!.add({ baseUrl: 'https://inference.example/v1' });
+		await app.device.connections.custom!.add({ baseUrl: 'https://inference.example/v1' });
 		expect([...stored.keys()]).toEqual([
 			`${settingsKey ?? appId}.app-ai-connections`,
 		]);
 		await app.close();
-		const reopened = application.openLocal();
+		const reopened = application.open(null);
 		try {
 			expectOk(await reopened.ready);
 			expect(
 				await expectOk(await reopened.blobs.local.get(blobId)).text(),
 			).toBe('default bytes');
-			expect(reopened.ai.connections!.getAll()).toHaveLength(1);
+			expect(reopened.device.connections.custom!.getAll()).toHaveLength(1);
 		} finally {
 			await reopened.close();
 		}
@@ -213,9 +213,9 @@ test('an explicit runtime selects all resources while explicit AI omits default 
 		definition,
 		runtime: {
 			sqlite: {
-				async acquire(id, account) {
+				async acquire(id) {
 					calls.push('sqlite');
-					return sqlite.acquire(id, account);
+					return sqlite.acquire(id);
 				},
 			},
 			blobs(input) {
@@ -234,13 +234,13 @@ test('an explicit runtime selects all resources while explicit AI omits default 
 		ai: { runtime: null, account: null },
 	});
 	expect(calls).toEqual([]);
-	const app = application.openLocal();
+	const app = application.open(null);
 	try {
 		expectOk(await app.ready);
 		expect(calls.sort()).toEqual(['blobs', 'recording', 'secrets', 'sqlite']);
-		expect(app.ai.connections).toBeNull();
-		expect(app.ai.account).toBeNull();
-		expect(app.ai.runtime).toBeNull();
+		expect(app.device.connections.custom).toBeNull();
+		expect((app.account?.connection ?? null)).toBeNull();
+		expect(app.device.connections.runtime).toBeNull();
 	} finally {
 		await app.close();
 	}
@@ -257,17 +257,17 @@ test('definition inference retains table and field names through a runtime overr
 		runtime: { ...browser, sqlite },
 		ai: { runtime: null, account: null },
 	});
-	const app = application.openLocal();
+	const app = application.open(null);
 	try {
 		expectOk(await app.ready);
-		app.tables.notes.create({ title: 'Typed title' });
-		const title: string = app.tables.notes.rows[0]!.title;
+		app.device.tables.notes.create({ title: 'Typed title' });
+		const title: string = app.device.tables.notes.rows[0]!.title;
 		expect(title).toBe('Typed title');
 		if (false) {
 			// @ts-expect-error: definition has no tasks table.
-			app.tables.tasks;
+			app.device.tables.tasks;
 			// @ts-expect-error: title is a string field.
-			app.tables.notes.create({ title: 12 });
+			app.device.tables.notes.create({ title: 12 });
 		}
 	} finally {
 		await app.close();

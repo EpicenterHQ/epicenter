@@ -66,16 +66,16 @@ try {
 				kv: {},
 			}),
 		});
-		const app = application.openLocal();
+		const app = application.open(null);
 		const ready = await bounded('app ready', app.ready);
 		if (ready.error) throw new Error(JSON.stringify(ready.error));
 		await (
 			globalThis as unknown as { disconnectForAcceptance(): Promise<void> }
 		).disconnectForAcceptance();
-		const table = app.tables.recordings;
-		const started = await bounded('start', app.recording.start({}));
+		const table = app.device.tables.recordings;
+		const started = await bounded('start', app.device.recording.start({}));
 		if (started.error) throw new Error(JSON.stringify(started.error));
-		const rejected = await app.recording.start({});
+		const rejected = await app.device.recording.start({});
 		if (rejected.error?.name !== 'AlreadyRecording')
 			throw new Error('Competing capture admitted');
 		let meterTicks = 0;
@@ -116,13 +116,13 @@ try {
 		) {
 			throw new Error('Recording could not be decoded or metered');
 		}
-		const next = await bounded('restart', app.recording.start({}));
+		const next = await bounded('restart', app.device.recording.start({}));
 		if (next.error) throw new Error(JSON.stringify(next.error));
 		const cancelled = await bounded('cancel', next.data.cancel());
 		if (cancelled.error) throw new Error(JSON.stringify(cancelled.error));
 		if (table.ids().length !== 1) throw new Error('Cancel created a row');
 		await bounded('close app', app.close());
-		const reopened = application.openLocal();
+		const reopened = application.open(null);
 		const reopenedReady = await bounded('reopen ready', reopened.ready);
 		if (reopenedReady.error)
 			throw new Error(JSON.stringify(reopenedReady.error));

@@ -2317,9 +2317,7 @@ describe('the application storage owner', () => {
 			webSocket: AuthenticatedSocket as unknown as typeof WebSocket,
 		});
 		try {
-			const lifetime = await owner.acquire(LOCAL_MAIL_APP_ID, {
-				library: 'local',
-			});
+			const lifetime = await owner.acquire(LOCAL_MAIL_APP_ID);
 			try {
 				const database = await lifetime.open('binary');
 				expectOk(
@@ -2368,7 +2366,7 @@ describe('the application storage owner', () => {
 		});
 		const { cookie, origin } = authenticationFor(server);
 		const url = `${server.url.origin}${DEVICE_PATH}/sqlite`;
-		const address = { appId: LOCAL_MAIL_APP_ID, replica: { library: 'local' } };
+		const address = { appId: LOCAL_MAIL_APP_ID };
 		const sockets: WebSocket[] = [];
 		async function connect() {
 			const socket = new BunWebSocket(url.replace('http:', 'ws:'), {
@@ -2421,15 +2419,7 @@ describe('the application storage owner', () => {
 			).toBe(400);
 			const socket = await connect();
 			for (const body of [
-				{ kind: 'sqlite-acquire', appId: LOCAL_MAIL_APP_ID },
-				{
-					kind: 'sqlite-acquire',
-					...address,
-					replica: {
-						library: 'personal',
-						account: { authorityId: '..', principalId: 'alice' },
-					},
-				},
+				{ kind: 'sqlite-acquire', appId: '../escape' },
 				{
 					kind: 'sqlite-run',
 					...address,
@@ -2552,7 +2542,7 @@ describe('the application storage owner', () => {
 		}
 	});
 
-	test('holds one labeled secret per application account', async () => {
+	test('holds one labeled secret per application', async () => {
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
 		const server = await serveHost(host, PAGE, {
 			appSecrets: createProcessMemoryAppSecrets(),
@@ -2560,63 +2550,14 @@ describe('the application storage owner', () => {
 		try {
 			const stored = await post(server, {
 				kind: 'secret-put',
-				account: null,
 				appId: LOCAL_MAIL_APP_ID,
 				label: 'account-one',
 				value: 'refresh-token',
 			});
 			expect(stored.status).toBe(200);
-			const accounts = [
-				{ authorityId: 'a:b', principalId: 'c' },
-				{ authorityId: 'a', principalId: 'b:c' },
-				{ authorityId: 'a', principalId: 'c' },
-			];
-			for (const [index, account] of accounts.entries()) {
-				const storedAccount = await post(server, {
-					kind: 'secret-put',
-					appId: LOCAL_MAIL_APP_ID,
-					account,
-					label: 'account-one',
-					value: `token-${index}`,
-				});
-				expect(storedAccount.status).toBe(200);
-			}
-			await post(server, {
-				kind: 'secret-delete',
-				appId: LOCAL_MAIL_APP_ID,
-				account: accounts[0],
-				label: 'account-one',
-			});
-			for (const [index, account] of accounts.entries()) {
-				const readAccount = await post(server, {
-					kind: 'secret-get',
-					appId: LOCAL_MAIL_APP_ID,
-					account,
-					label: 'account-one',
-				});
-				expect(await readAccount.json()).toEqual({
-					kind: 'secret-get',
-					value: index === 0 ? null : `token-${index}`,
-				});
-			}
-			for (const account of [
-				undefined,
-				{},
-				{ authorityId: 'a' },
-				{ authorityId: '../a', principalId: 'b' },
-			]) {
-				const refused = await post(server, {
-					kind: 'secret-get',
-					appId: LOCAL_MAIL_APP_ID,
-					account,
-					label: 'account-one',
-				});
-				expect(refused.status).toBe(400);
-			}
 
 			const read = await post(server, {
 				kind: 'secret-get',
-				account: null,
 				appId: LOCAL_MAIL_APP_ID,
 				label: 'account-one',
 			});
@@ -2629,7 +2570,6 @@ describe('the application storage owner', () => {
 			// application is a different secret rather than the same one.
 			const neighbour = await post(server, {
 				kind: 'secret-get',
-				account: null,
 				appId: 'so.epicenter.other',
 				label: 'account-one',
 			});
@@ -2640,13 +2580,11 @@ describe('the application storage owner', () => {
 
 			await post(server, {
 				kind: 'secret-delete',
-				account: null,
 				appId: LOCAL_MAIL_APP_ID,
 				label: 'account-one',
 			});
 			const gone = await post(server, {
 				kind: 'secret-get',
-				account: null,
 				appId: LOCAL_MAIL_APP_ID,
 				label: 'account-one',
 			});
@@ -2665,7 +2603,6 @@ describe('the application storage owner', () => {
 			for (const label of ['../other', 'a/b', 'a:b', '']) {
 				const refused = await post(server, {
 					kind: 'secret-get',
-					account: null,
 					appId: LOCAL_MAIL_APP_ID,
 					label,
 				});
@@ -2682,7 +2619,6 @@ describe('the application storage owner', () => {
 		try {
 			const unavailable = await post(server, {
 				kind: 'secret-get',
-				account: null,
 				appId: LOCAL_MAIL_APP_ID,
 				label: 'account-one',
 			});
