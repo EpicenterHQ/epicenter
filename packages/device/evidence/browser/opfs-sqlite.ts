@@ -206,6 +206,23 @@ try {
 		opens.length === 0,
 		opens.join('; '),
 	);
+	const journals: string[] = [];
+	for (let index = 0; index < 8; index += 1) {
+		const result = await call(
+			'run',
+			`pressure-${index}`,
+			'BEGIN IMMEDIATE; INSERT INTO t VALUES (1)',
+		);
+		if (!result.ok) journals.push(`${index}: ${result.error}`);
+	}
+	check(
+		'each open database has room for its own live journal',
+		journals.length === 0,
+		journals.join('; '),
+	);
+	for (let index = 0; index < 8; index += 1) {
+		await call('run', `pressure-${index}`, 'ROLLBACK');
+	}
 
 	console.log('\n5. a batch that fails partway leaves nothing behind');
 	await call('run', 'rollback', 'CREATE TABLE t(n INTEGER PRIMARY KEY)');
@@ -274,6 +291,46 @@ try {
 		firstStillWorks.error ?? '',
 	);
 	await second.close();
+
+	console.log('\n8. independent windows and close without page teardown');
+	const independent = await browser.newPage();
+	await independent.goto(`${origin}/?appId=so.epicenter.independent`);
+	await ready(independent);
+	const independentOpened = await independent.evaluate(() =>
+		(globalThis as Record<string, (...a: unknown[]) => Promise<Answer>>).run(
+			'local',
+			'CREATE TABLE independent(n INTEGER)',
+		),
+	);
+	check(
+		'a different app opens while the first window stays live',
+		independentOpened.ok,
+		independentOpened.error ?? '',
+	);
+	await independent.close();
+
+	const released = await call('closeStorage');
+	check(
+		'the first window explicitly closes its storage',
+		released.ok,
+		released.error ?? '',
+	);
+	const successor = await browser.newPage();
+	await successor.goto(origin);
+	await ready(successor);
+	const handoff = await successor.evaluate(() =>
+		(globalThis as Record<string, (...a: unknown[]) => Promise<Answer>>).all(
+			'local',
+			"SELECT name FROM sqlite_master WHERE name = 't2'",
+		),
+	);
+	check(
+		'another window acquires the closed owner without page teardown',
+		handoff.ok &&
+			JSON.stringify(handoff.value) === JSON.stringify([{ name: 't2' }]),
+		handoff.error ?? JSON.stringify(handoff.value),
+	);
+	await successor.close();
 } finally {
 	await browser.close();
 	server.stop(true);

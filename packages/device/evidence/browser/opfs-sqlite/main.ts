@@ -16,7 +16,8 @@ globalThis.Worker = class extends BrowserWorker {
 	}
 };
 
-const APP_ID = 'so.epicenter.evidence';
+const APP_ID =
+	new URL(location.href).searchParams.get('appId') ?? 'so.epicenter.evidence';
 let storage = createBrowserDevice({ appId: APP_ID });
 const otherStorage = createBrowserDevice({
 	appId: 'so.epicenter.other-evidence',
@@ -38,6 +39,15 @@ async function attempt(run: () => Promise<Answer>): Promise<Answer> {
 }
 
 Object.assign(globalThis, {
+	async closeStorage(): Promise<Answer> {
+		return attempt(async () => {
+			await storage.close();
+			return { ok: true };
+		});
+	},
+	resetStorage() {
+		storage = createBrowserDevice({ appId: APP_ID });
+	},
 	workerCount() {
 		return workersStarted;
 	},

@@ -16,7 +16,7 @@ import {
 } from '@epicenter/device/owner';
 import type { AccountIdentity } from '@epicenter/principal';
 import { createLogger } from 'wellcrafted/logger';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import type { resources } from '#platform/resources';
 import { createAppAi } from './ai.js';
 import type { AppAiBinding, AppBlobFactory } from './index.js';
@@ -89,14 +89,7 @@ export function openApp<
 				if (claim.error) return claim;
 				claims.push(claim.data.release);
 			}
-			const acquired = await databases.acquire();
-			if (!acquired.error) return acquired;
-			const error = acquired.error;
-			return error.name === 'AlreadyOpen' ||
-				error.name === 'LocksUnsupported' ||
-				error.name === 'ClaimFailed'
-				? Err(error)
-				: StoreError.StorageFailed({ cause: error });
+			return Ok(undefined);
 		},
 	);
 	const documents = scopes.map((scope) => {

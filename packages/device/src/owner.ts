@@ -26,6 +26,8 @@ export type SqliteBackend = {
 		account?: AccountIdentity,
 	): Promise<AppSqliteDatabase & { close(): Promise<void> }>;
 	delete(appId: string, name: string, account?: AccountIdentity): Promise<void>;
+	/** Release owner-wide physical resources after every connection has closed. */
+	release?(appId: string, account?: AccountIdentity): Promise<void>;
 };
 function validateName(name: string) {
 	if (!isDatabaseName(name)) throw new Error('Invalid SQLite database name.');
@@ -143,6 +145,7 @@ export function createSqliteOwner(backend: SqliteBackend): DeviceSqliteOwner {
 								'SQLite lifetime cleanup failed.',
 							);
 						databases.clear();
+						await backend.release?.(appId, account);
 						claimed.delete(key);
 					});
 					return closing;
@@ -247,11 +250,6 @@ export function createAppSqlite(
 	}
 	return {
 		drain,
-		async acquire(): Promise<Result<void, DeviceError>> {
-			if (closed) return closedResult();
-			const result = await acquire();
-			return result.error ? result : Ok(undefined);
-		},
 		value: {
 			open(name: string): Promise<Result<AppSqliteDatabase, DeviceError>> {
 				assertUsable?.();

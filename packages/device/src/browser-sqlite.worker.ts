@@ -17,13 +17,9 @@
  * cross-origin subresource an application renders. The pool asks nothing of
  * the host, so where a build can be served stays a hosting question.
  *
- * **A pool owns its directory exclusively, so a second tab has no storage.**
- * Measured on both engines: the second tab's install throws (Chromium
- * `NoModificationAllowedError`, WebKit `InvalidStateError`) and the first
- * tab's databases are untouched and survive a relaunch. The engines disagree
- * about the words, so the page turns it into one sentence rather than showing
- * either. The library caches a failed install per VFS name, which is why the
- * retry below asks it not to.
+ * Each app/account owns a separate pool directory. Its SQL lifetime closes
+ * every database before pausing the pool to release OPFS access handles.
+ * Other owners can remain live in this worker or in another window.
  */
 
 import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
@@ -41,40 +37,45 @@ import {
 
 type PoolDatabase = Database;
 
-type Pool = {
-	OpfsSAHPoolDb: new (filename: string) => PoolDatabase;
-	getFileCount(): number;
-	reserveMinimumCapacity(minimum: number): Promise<number>;
-	unlink(filename: string): boolean;
-};
+let initializing: Promise<Sqlite3Static> | undefined;
+const pools = new Map<string, ReturnType<typeof installPool>>();
 
-/**
- * Every Epicenter database in this origin, in one pool.
- *
- * One pool rather than one per application, because a pool is an exclusive
- * claim on an OPFS directory and a second install is a refusal, not a second
- * pool. The filename identifies the application and database, just
- * as the Bun owner's directory path does below one root.
- */
-const POOL_NAME = 'epicenter';
-
-let installing: Promise<{ pool: Pool; sqlite: Sqlite3Static }> | undefined;
-function poolReady(): Promise<{ pool: Pool; sqlite: Sqlite3Static }> {
-	// The rejection is deliberately not cached: the reason an install fails is
-	// another tab holding the directory, and that tab can close. The library
-	// caches its own, so the retry has to say so.
-	installing ??= install().catch((cause: unknown) => {
-		installing = undefined;
-		throw cause;
-	});
-	return installing;
+function poolName(appId: string, account?: AccountIdentity) {
+	return `epicenter-${encodeURIComponent(JSON.stringify([appId, deviceOwnerPath(account)]))}`;
 }
 
-async function install() {
-	const initialize = (await import('@sqlite.org/sqlite-wasm')).default;
-	const sqlite = await initialize();
-	const options = { name: POOL_NAME, forceReinitIfPreviouslyFailed: true };
+function poolReady(appId: string, account?: AccountIdentity) {
+	const name = poolName(appId, account);
+	let pending = pools.get(name);
+	if (!pending) {
+		pending = installPool(name).catch((cause: unknown) => {
+			pools.delete(name);
+			throw cause;
+		});
+		pools.set(name, pending);
+	}
+	return pending;
+}
+
+async function installPool(name: string) {
+	initializing ??= import('@sqlite.org/sqlite-wasm')
+		.then(({ default: initialize }) => initialize())
+		.catch((cause: unknown) => {
+			initializing = undefined;
+			throw cause;
+		});
+	const sqlite = await initializing;
+	// SQLite caches registrations, including paused pools. Activate the cached
+	// pool when a new lifetime returns to this owner. Old `.epicenter` files
+	// remain untouched; this layout does not adopt their data.
+	// The installed implementation supports this retry option; its published
+	// option type currently omits it.
+	const options = {
+		name,
+		forceReinitIfPreviouslyFailed: true,
+	};
 	const pool = await sqlite.installOpfsSAHPoolVfs(options);
+	await pool.unpauseVfs();
 	return { pool, sqlite };
 }
 
@@ -86,37 +87,37 @@ function databaseFilename(
 	return `/${encodeURIComponent(JSON.stringify([appId, deviceOwnerPath(account), name]))}.sqlite`;
 }
 
-// Capacity reservation and file allocation share the pool across app lifetimes.
-let poolOperations: Promise<unknown> = Promise.resolve();
-function inPool<T>(operation: () => Promise<T>): Promise<T> {
-	const result = poolOperations.then(operation);
-	poolOperations = result.catch(() => undefined);
-	return result;
-}
-
 const owner = createSqliteOwner({
-	open(appId, name, account) {
-		return inPool(async () => {
-			const { pool, sqlite } = await poolReady();
-			await pool.reserveMinimumCapacity(pool.getFileCount() + 2);
-			const database = new pool.OpfsSAHPoolDb(
-				databaseFilename(appId, name, account),
-			);
-			return {
-				...sqliteOver(database, sqlite),
-				async close() {
-					database.close();
-				},
-			};
-		});
+	async open(appId, name, account) {
+		const { pool, sqlite } = await poolReady(appId, account);
+		// getFileCount counts assigned filenames, not capacity or connections.
+		// Leave room for a journal per database, including transactions held
+		// across run() calls.
+		// This is capacity allocation, not the exclusive lifetime reservation.
+		await pool.reserveMinimumCapacity(2 * (pool.getFileCount() + 1));
+		const database = new pool.OpfsSAHPoolDb(
+			databaseFilename(appId, name, account),
+		);
+		return {
+			...sqliteOver(database, sqlite),
+			async close() {
+				database.close();
+			},
+		};
 	},
-	delete(appId, name, account) {
-		return inPool(async () => {
-			const file = databaseFilename(appId, name, account);
-			const { pool } = await poolReady();
-			pool.unlink(file);
-			pool.unlink(`${file}-journal`);
-		});
+	async delete(appId, name, account) {
+		const file = databaseFilename(appId, name, account);
+		const { pool } = await poolReady(appId, account);
+		pool.unlink(file);
+		pool.unlink(`${file}-journal`);
+	},
+	async release(appId, account) {
+		const name = poolName(appId, account);
+		const pending = pools.get(name);
+		if (!pending) return;
+		const { pool } = await pending;
+		pool.pauseVfs();
+		pools.delete(name);
 	},
 });
 const dispatch = createDeviceDispatcher(owner);

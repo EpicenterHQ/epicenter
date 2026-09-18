@@ -24,6 +24,8 @@ async function deleteFiles(
 			mock.module('@sqlite.org/sqlite-wasm', () => ({
 				default: async () => ({
 					installOpfsSAHPoolVfs: async () => ({
+						unpauseVfs: async () => {},
+						pauseVfs() {},
 						unlink(file) { files.push(file); return true; },
 					}),
 				}),

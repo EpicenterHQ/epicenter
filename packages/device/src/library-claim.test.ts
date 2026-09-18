@@ -17,9 +17,7 @@ function unopenedOwner() {
 		async open() {
 			throw new Error('No physical database requested.');
 		},
-		async delete() {
-			throw new Error('No physical database requested.');
-		},
+		async delete() {},
 	});
 }
 
@@ -36,7 +34,6 @@ test('a raw SQLite claim refuses standalone SQL before backend acquisition', asy
 		},
 		appId,
 	);
-	expect(expectErr(await storage.acquire()).name).toBe('AlreadyOpen');
 	expect(expectErr(await storage.value.open('search')).name).toBe(
 		'AlreadyOpen',
 	);
@@ -68,7 +65,7 @@ test('a SQL lifetime excludes raw SQLite claims until its close completes', asyn
 		},
 		appId,
 	);
-	expectOk(await storage.acquire());
+	expectOk(await storage.value.delete('unused'));
 	expect(expectErr(await claimSqlite(appId)).name).toBe('AlreadyOpen');
 	const closing = storage.close();
 	expect(expectErr(await claimSqlite(appId)).name).toBe('AlreadyOpen');
@@ -80,7 +77,7 @@ test('a SQL lifetime excludes raw SQLite claims until its close completes', asyn
 test('library claims remain independent of device SQLite and each other', async () => {
 	const appId = 'so.epicenter.claim-identities';
 	const storage = createAppSqlite(unopenedOwner(), appId);
-	expectOk(await storage.acquire());
+	expectOk(await storage.value.delete('unused'));
 	const claims = [];
 	for (const replica of [
 		{ library: 'local' as const },
@@ -109,7 +106,7 @@ test('backend acquisition failure releases the claim and close finishes', async 
 		},
 		appId,
 	);
-	expect(expectErr(await storage.acquire())).toMatchObject({
+	expect(expectErr(await storage.value.delete('unused'))).toMatchObject({
 		name: 'StorageFailed',
 		cause,
 	});
@@ -140,7 +137,7 @@ test('close during acquisition waits for backend release before releasing the li
 		},
 		appId,
 	);
-	const acquiring = storage.acquire();
+	const acquiring = storage.value.delete('unused');
 	await started.promise;
 	const closing = storage.close();
 	expect(expectErr(await claimSqlite(appId)).name).toBe('AlreadyOpen');
@@ -169,7 +166,7 @@ test('failed physical close permanently retains the library claim', async () => 
 		},
 		appId,
 	);
-	expectOk(await storage.acquire());
+	expectOk(await storage.value.delete('unused'));
 	await expect(storage.close()).rejects.toThrow('physical close failed');
 	expect(expectErr(await claimSqlite(appId)).name).toBe('AlreadyOpen');
 });

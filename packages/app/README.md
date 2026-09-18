@@ -299,8 +299,28 @@ with another account's transport.
 `app.device.sqlite.open(name)` and `delete(name)` address a file by app ID,
 captured account, and database name. Desktop files live at
 `<dataRoot>/apps/<appId>/device/<owner>/sqlite/<name>.sqlite`; browser files use
-the serialized `[appId, owner, name]` tuple in the OPFS pool. Each app/owner
-has one exclusive SQLite lifetime. Data-library claims remain separate.
+the serialized `[appId, owner, name]` tuple in a separate OPFS pool for each
+app/owner. The first SQL open or delete acquires the SQL lifetime; App readiness
+does not start a SQLite worker or native socket. Data-library claims remain
+separate, so a second App for the same app/owner is still refused.
+
+Browser close drains admitted work, closes every connection, then pauses that
+owner's pool before releasing its claim. Other owners can keep using SQLite in
+the same page or another window. Returning to a closed owner reactivates its
+pool without deleting files. A failed physical close or pool release is terminal
+and retains ownership; repeating close returns the same failure. Failed pool
+activation can retry on the next SQL operation. Failed lifetime acquisition
+requires closing the rejected handle and constructing a fresh one.
+
+Pool capacity includes a journal slot per named database, including transactions
+held across calls. It is not an exclusive claim or an unlimited budget for
+SQL-created attached databases and temporary files. The installed SQLite build
+defaults to memory-backed temporary storage. Prefer `batch()` for transactions
+that should complete in one operation.
+
+The per-owner pool layout is a clean break. Files in the old origin-wide
+`.epicenter` pool remain untouched and are not opened or adopted automatically.
+Row stores, blobs, and recordings keep their existing locations.
 
 `app.device.secrets.put(label, value)`, `get(label)`, and `delete(label)` address
 credentials by app ID, captured account, and label. Browser secrets remain in document memory;

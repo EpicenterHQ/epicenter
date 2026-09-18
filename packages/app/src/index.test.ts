@@ -171,7 +171,7 @@ test('default resources preserve blobs and the no-account AI catalog', async () 
 	const app = application.open();
 	try {
 		expectOk(await app.ready);
-		expect(acquire).toHaveBeenCalledWith(appId, undefined);
+		expect(acquire).not.toHaveBeenCalled();
 		const blobId = expectOk(
 			await app.blobs.local.add(new Blob(['default bytes'])),
 		);
@@ -236,6 +236,8 @@ test('an explicit runtime selects all resources while explicit AI omits default 
 	const app = application.open();
 	try {
 		expectOk(await app.ready);
+		expect(calls.sort()).toEqual(['blobs', 'recording', 'secrets']);
+		expectOk(await app.device.sqlite.delete('unused'));
 		expect(calls.sort()).toEqual(['blobs', 'recording', 'secrets', 'sqlite']);
 		expect(app.device.connections.custom).toBeNull();
 		expect(app.account).toBeUndefined();

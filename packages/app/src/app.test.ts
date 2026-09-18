@@ -782,6 +782,7 @@ test('physical SQL close retains the library claim across sibling definitions', 
 	const duplicate = sibling();
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	await duplicate.close();
+	expectOk(await first.device.sqlite.open('search'));
 	const closing = first.close();
 	try {
 		await started.promise;
@@ -795,6 +796,7 @@ test('physical SQL close retains the library claim across sibling definitions', 
 	}
 	const reopened = sibling();
 	expectOk(await reopened.ready);
+	expectOk(await reopened.device.sqlite.open('search'));
 	expect(acquisitions).toBe(2);
 	await reopened.close();
 });
@@ -917,6 +919,7 @@ test('retained AI shares readiness and close drains response work before releasi
 	const client = app.device.connections.runtime!.client;
 	expect(app.device.connections.custom).toBeNull();
 	expectOk(await app.ready);
+	expectOk(await app.device.sqlite.open('search'));
 	const request = (async () => await client.models.list())();
 	void request.catch(() => {});
 	await started.promise;
@@ -1067,7 +1070,7 @@ test('one captured Account supplies library and AI; local opening never borrows 
 	expect(inferenceRequests).toBe(1);
 });
 
-test('opening failure retires retained SDK clients through internal close', async () => {
+test('SQL acquisition failure does not block App readiness and close still retires SDK clients', async () => {
 	let requests = 0;
 	const app = defineApplication({
 		appId: 'test.' + crypto.randomUUID(),
@@ -1093,7 +1096,9 @@ test('opening failure retires retained SDK clients through internal close', asyn
 		},
 	}).open();
 	const retained = app.device.connections.runtime!.client;
-	expectErr(await app.ready);
+	expectOk(await app.ready);
+	expectErr(await app.device.sqlite.open('unavailable'));
+	await app.close();
 	await expect((async () => await retained.models.list())()).rejects.toThrow();
 	expect(requests).toBe(0);
 	await app.close();
@@ -1156,6 +1161,7 @@ test('App close drains admitted secret writes before releasing its SQL lifetime'
 	}).open();
 	expectOk(await app.ready);
 	const saving = app.device.secrets.put(secretLabel('gmail'), 'token');
+	expectOk(await app.device.sqlite.delete('unused'));
 	const closing = app.close();
 	expect(() => app.device.secrets.put(secretLabel('gmail'), 'late')).toThrow();
 	await Promise.resolve();
@@ -1209,6 +1215,7 @@ test('a secret operation can reenter close and forwards its storage Result uncha
 		ai: { runtime: null, account: null },
 	}).open();
 	expectOk(await app.ready);
+	expectOk(await app.device.sqlite.delete('unused'));
 	const writing = app.device.secrets.put(secretLabel('gmail'), 'token');
 	await entered.promise;
 	expect(released).toBe(false);
@@ -1342,7 +1349,7 @@ test.each([
 		await duplicate.close().catch(() => {});
 	} else {
 		await app.close();
-		expect(sqlClosed).toBe(true);
+		expect(sqlClosed).toBe(false);
 	}
 });
 
