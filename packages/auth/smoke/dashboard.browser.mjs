@@ -387,7 +387,11 @@ try {
 	await page.waitForURL(`${origin}${continuation}`);
 	assert.equal(db.session.length, 2);
 	const persisted = await page.evaluate(() =>
-		JSON.parse(localStorage.getItem(`so.epicenter.dashboard.auth.persisted:${location.origin}`)),
+		JSON.parse(
+			localStorage.getItem(
+				`so.epicenter.dashboard.auth.persisted:${location.origin}`,
+			),
+		),
 	);
 	assert.equal(persisted.principalId, alice.id);
 	assert(persisted.token && persisted.token !== signed);

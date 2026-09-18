@@ -459,7 +459,9 @@ try {
 	}
 	async function snapshot(page) {
 		return page.evaluate(async () => {
-			const { app, data, library, account } = await import('/src/lib/bootstrap.ts');
+			const { app, data, library, account } = await import(
+				'/src/lib/bootstrap.ts'
+			);
 			const row = data.tables.recordings.rows.toSorted((a, b) =>
 				b.recordedAt.localeCompare(a.recordedAt),
 			)[0];

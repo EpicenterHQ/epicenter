@@ -10,8 +10,8 @@
  * store is a programmer error rather than a result.
  */
 import type { ConformanceIssue, JsonObject } from '@epicenter/data/definition';
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { LibraryClaimError } from '@epicenter/device/library-claim';
+import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 /**
  * The store capability itself is gone: the store was disposed.

@@ -63,9 +63,10 @@ export type WhisperingRecordings = {
 };
 
 /** Recording rows reference local bytes and explicitly uploaded URLs. */
-export function createWhisperingRecordings(
-	app: { tables: WhisperingData['tables']; blobs: WhisperingAppHandle['blobs'] },
-) {
+export function createWhisperingRecordings(app: {
+	tables: WhisperingData['tables'];
+	blobs: WhisperingAppHandle['blobs'];
+}) {
 	let rows: Recording[] = [];
 	let sorted: Recording[] = [];
 	let nonconforming: NonconformingRow[] = [];

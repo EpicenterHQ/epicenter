@@ -1,8 +1,8 @@
-import { resolveCompletionState } from './completion.svelte.js';
 import { connectionLabel } from '@epicenter/app-shell/inference-picker';
 import { getApp } from '../application.js';
-import { resolveTranscriptionState } from '../operations/transcribe.js';
 import { settings } from '../operations/settings.js';
+import { resolveTranscriptionState } from '../operations/transcribe.js';
+import { resolveCompletionState } from './completion.svelte.js';
 
 /**
  * The Polish control's effective state, derived from two independent facts:

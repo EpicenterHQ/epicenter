@@ -39,8 +39,8 @@ import { expect, test } from 'bun:test';
 	{ by: <TValue>(derive: () => TValue) => derive() },
 );
 
-import { skillsDefinition } from '@epicenter/skills';
 import { asPrincipalId } from '@epicenter/principal';
+import { skillsDefinition } from '@epicenter/skills';
 import { openSkillsRuntime } from './application.js';
 
 /** The account these skipped tests will open under once Skills has auth. */

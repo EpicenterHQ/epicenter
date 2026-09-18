@@ -293,8 +293,7 @@ test('retirement retries the retained UI cleanup after unmount before releasing 
 		'../whispering/ui-session'
 	);
 	const { createDeparture } = await import('@epicenter/app-shell/departure');
-	const notification =
-		Promise.withResolvers<void>();
+	const notification = Promise.withResolvers<void>();
 	const session = createWhisperingUiSession({
 		selections: createInferenceSelections({
 			storageKey: 'recording-close',

@@ -1,13 +1,13 @@
-import { createLogger, type Logger } from 'wellcrafted/logger';
-import { defineErrors } from 'wellcrafted/error';
 import {
+	type AuthenticationResponseJSON,
 	generateAuthenticationOptions,
 	generateRegistrationOptions,
+	type RegistrationResponseJSON,
 	verifyAuthenticationResponse,
 	verifyRegistrationResponse,
-	type AuthenticationResponseJSON,
-	type RegistrationResponseJSON,
 } from '@simplewebauthn/server';
+import { defineErrors } from 'wellcrafted/error';
+import { createLogger, type Logger } from 'wellcrafted/logger';
 
 /** Both Bun SQLite and Durable Object SQLite execute this transaction synchronously. */
 export type SelfHostAuthDatabase = {

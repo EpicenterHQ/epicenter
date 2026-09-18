@@ -9,10 +9,14 @@
  * transient spins the backoff against it forever.
  */
 
-import { defineTable, field, plainText } from '@epicenter/data/definition';
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
-import { defineData } from '@epicenter/data/definition';
+import {
+	defineData,
+	defineTable,
+	field,
+	plainText,
+} from '@epicenter/data/definition';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { MAIN_SUBPROTOCOL } from '@epicenter/sync';
 import type {

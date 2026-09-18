@@ -19,18 +19,15 @@
  * connection selection never changes where microphone audio is sent.
  */
 
-import {
-
-	TranscribeError,
-} from '@epicenter/client';
+import { TranscribeError } from '@epicenter/client';
+import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
 import {
 	createVadRecorder,
 	type DeviceStreamError,
 	type VadRecorderError,
 } from '@epicenter/recorder';
-import { Err, Ok, tryAsync, type Result } from 'wellcrafted/result';
 import type OpenAI from 'openai';
-import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
+import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { base } from '$app/paths';
 
 /**
@@ -59,7 +56,9 @@ export function createDictation(client: OpenAI | null) {
 	// failures travel in the Result handed to onTranscript.
 	let deliveries: Promise<void> = Promise.resolve();
 	let starting:
-		| Promise<Result<void, VadRecorderError | DeviceStreamError | TranscribeError>>
+		| Promise<
+				Result<void, VadRecorderError | DeviceStreamError | TranscribeError>
+		  >
 		| undefined;
 	let stopping: Promise<Result<void, VadRecorderError>> | undefined;
 	let closing: Promise<void> | undefined;
@@ -111,9 +110,14 @@ export function createDictation(client: OpenAI | null) {
 			onTranscript,
 		}: {
 			onTranscript: (result: Result<string, TranscribeError>) => void;
-		}): Promise<Result<void, VadRecorderError | DeviceStreamError | TranscribeError>> {
+		}): Promise<
+			Result<void, VadRecorderError | DeviceStreamError | TranscribeError>
+		> {
 			if (closed || stopping || status !== 'idle') return Ok(undefined);
-            if (!client) return TranscribeError.TransportFailed({ cause: new Error('This Account does not supply transcription.') });
+			if (!client)
+				return TranscribeError.TransportFailed({
+					cause: new Error('This Account does not supply transcription.'),
+				});
 			if (starting) return starting;
 			const generation = ++callbackGeneration;
 			starting = (async () => {
@@ -143,13 +147,20 @@ export function createDictation(client: OpenAI | null) {
 									// No language hint: a learner may dictate their question in the
 									// language they are studying, so Whisper auto-detects (ADR-0105).
 									await tryAsync({
-                                        try: async () => {
-                                            const result = await client.audio.transcriptions.create({ file: new File([blob], 'dictation.webm', { type: blob.type }), model: HOSTED_TRANSCRIPTION_MODEL });
-                                            if (typeof result.text !== 'string') throw new Error('Transcription returned no text.');
-                                            return result.text;
-                                        },
-                                        catch: cause => TranscribeError.TransportFailed({ cause }),
-                                    }),
+										try: async () => {
+											const result = await client.audio.transcriptions.create({
+												file: new File([blob], 'dictation.webm', {
+													type: blob.type,
+												}),
+												model: HOSTED_TRANSCRIPTION_MODEL,
+											});
+											if (typeof result.text !== 'string')
+												throw new Error('Transcription returned no text.');
+											return result.text;
+										},
+										catch: (cause) =>
+											TranscribeError.TransportFailed({ cause }),
+									}),
 								);
 							})
 							// transcribe is Result-typed and never rejects; this only keeps a

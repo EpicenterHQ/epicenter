@@ -4,8 +4,8 @@
 import { expect, test } from 'bun:test';
 import { asPrincipalId } from '@epicenter/principal';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createBrowserAuth } from './browser-auth.js';
 import { isCallbackAuthClient } from './auth-contract.js';
+import { createBrowserAuth } from './browser-auth.js';
 
 test('the composed browser callback client exposes non-destructive sign-in cancellation', async () => {
 	using environment = setup();

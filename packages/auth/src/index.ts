@@ -3,8 +3,8 @@ export type {
 	Account,
 	AuthClient,
 	AuthFetch,
-	AuthState,
 	AuthStartup,
+	AuthState,
 	CallbackAuthClient,
 	SessionAuthClient,
 } from './auth-contract.js';

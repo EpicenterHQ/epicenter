@@ -18,9 +18,10 @@
  */
 
 import { expect, mock, test } from 'bun:test';
+import type { OpenAiTurnContext } from '@epicenter/client';
 import type * as Y from '@y/y';
 import OpenAI from 'openai';
-import type { OpenAiTurnContext } from '@epicenter/client';
+
 let probeEngine: ((data: () => OpenAiTurnContext) => Promise<void>) | undefined;
 
 (globalThis as unknown as { $state: unknown }).$state = Object.assign(

@@ -1,14 +1,14 @@
 import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { isOpenWebSocketDenial } from '@epicenter/sync/transport';
 import { Ok } from 'wellcrafted/result';
+import { createAccountManagementUrl } from './account-management.js';
 import type {
 	Account,
 	AuthClient,
 	AuthFetch,
-	AuthState,
 	AuthStartup,
+	AuthState,
 } from './auth-contract.js';
-import { createAccountManagementUrl } from './account-management.js';
 import { AuthError, OpenWebSocketDenied } from './auth-errors.js';
 import type { AuthIdentityState } from './auth-identity-state.js';
 import { getProfileVia } from './read-api-session.js';

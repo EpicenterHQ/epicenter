@@ -80,7 +80,9 @@ test('the dial offers the main subprotocol beside the bearer', async () => {
 
 	const store = await openMemory(definition);
 	const connection = attachStoreSync({
-		onRetired() { throw new Error('Unexpected retirement in this transport test'); },
+		onRetired() {
+			throw new Error('Unexpected retirement in this transport test');
+		},
 		store,
 		address: { baseURL: BASE_URL, dataId: definition.id, generation: 1 },
 		transport:

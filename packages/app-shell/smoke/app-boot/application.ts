@@ -39,7 +39,8 @@ export const app = new URL(location.href).searchParams.has('connect')
 			acquire: async () => {
 				const opening = new URL(location.href).searchParams.get('opening');
 				if (opening === 'held') await probe.opening;
-				if (opening === 'failed') throw new Error('Fixture storage is unavailable.');
+				if (opening === 'failed')
+					throw new Error('Fixture storage is unavailable.');
 				return Ok({
 					durable: {
 						async commit() {
@@ -58,7 +59,7 @@ export const ready = app?.ready.then((result) => {
 });
 export const departure = createDeparture({
 	account: auth.auth?.state.account,
-	auth: app ? auth.auth ?? undefined : undefined,
+	auth: app ? (auth.auth ?? undefined) : undefined,
 	async close() {
 		await app?.close();
 		probe.events.push('closed');

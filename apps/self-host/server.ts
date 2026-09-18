@@ -1,4 +1,3 @@
-import { signInPage, signInScript } from './sign-in.js';
 /** Bun self-hosting uses the same admitted users, passkeys and sessions as Worker. */
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -10,13 +9,14 @@ import {
 	mountSessionApp,
 	mountTranscriptionApp,
 	OAuthError,
+	type ResolveBearerPrincipal,
 	rateLimit,
 	requireBearerPrincipal,
 	ServerBindings,
-	type ResolveBearerPrincipal,
 } from '@epicenter/server/bun';
 import { openSelfHostAuth } from '@epicenter/server/self-host-auth/bun';
 import { type } from 'arktype';
+import { signInPage, signInScript } from './sign-in.js';
 import { resolveSelfHostTrustedOrigins } from './trusted-origins.js';
 
 const InstanceBindings = ServerBindings.merge({

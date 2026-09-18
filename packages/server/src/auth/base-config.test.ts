@@ -19,7 +19,13 @@ const baseURL = 'http://localhost:8787';
 function createProductionShapedAuth() {
 	return betterAuth({
 		...BASE_AUTH_CONFIG,
-		database: memoryAdapter({ user: [], account: [], session: [], verification: [], passkey: [] }),
+		database: memoryAdapter({
+			user: [],
+			account: [],
+			session: [],
+			verification: [],
+			passkey: [],
+		}),
 		baseURL,
 		secret: 'test-secret-test-secret-test-secret',
 		socialProviders: { google: { clientId: 'x', clientSecret: 'y' } },

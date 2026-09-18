@@ -6,9 +6,9 @@ import { openDB } from 'idb';
 import { tryAsync } from 'wellcrafted/result';
 import { StoreError } from './errors.js';
 import {
+	type BrowserDurableSchema,
 	createIdbUpdates,
 	readIdbUpdates,
-	type BrowserDurableSchema,
 } from './idb-updates.js';
 import { copyBytes } from './log.js';
 import type { DurableOp, DurableSnapshot } from './persistence.js';

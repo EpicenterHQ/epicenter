@@ -90,7 +90,9 @@ try {
 	await page.getByRole('button', { name: 'Connect', exact: true }).click();
 	await page.getByText(/Synced/).waitFor({ timeout: 20_000 });
 	await page.getByRole('button', { name: 'Account', exact: true }).click();
-	await page.getByRole('button', { name: 'Change connection', exact: true }).click();
+	await page
+		.getByRole('button', { name: 'Change connection', exact: true })
+		.click();
 	await page
 		.getByRole('button', { name: 'Use Epicenter Cloud', exact: true })
 		.click();

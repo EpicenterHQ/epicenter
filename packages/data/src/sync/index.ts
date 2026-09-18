@@ -6,10 +6,10 @@ export { type AttachStoreSyncOptions, attachStoreSync } from './attach.js';
 export {
 	AuthorityError,
 	applyAuthoritySchema,
-	type LogEntry,
-	openSyncAuthority,
-	openCurrentAuthority,
 	type CurrentAuthority,
+	type LogEntry,
+	openCurrentAuthority,
+	openSyncAuthority,
 	type SyncAuthority,
 } from './authority.js';
 export {

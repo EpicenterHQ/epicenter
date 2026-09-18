@@ -11,6 +11,7 @@ import { Hono } from 'hono';
 import { createAiCatalog } from './ai-catalog.js';
 import { createAiCatalogRoutes } from './ai-catalog-routes.js';
 import { createProcessMemoryAppSecrets } from './app-secrets.js';
+
 const disposals: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
 	await Promise.all(disposals.splice(0).map((dispose) => dispose()));

@@ -1,7 +1,7 @@
 /** Real-browser transaction controls for the current-cache proof, never imported by production. */
 import * as Y from '@y/y';
-import { createRow, tableRoot } from '../../../src/store/document.js';
 import { openCurrentCache } from '../../../src/store/current-cache.js';
+import { createRow, tableRoot } from '../../../src/store/document.js';
 
 let backing: NonNullable<Awaited<ReturnType<typeof openCurrentCache>>['data']>;
 let raw: IDBDatabase | undefined;

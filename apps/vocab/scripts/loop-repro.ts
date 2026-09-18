@@ -7,7 +7,6 @@
  *   bun run apps/vocab/scripts/loop-repro.ts qwen3:30b-a3b-instruct-2507-q4_K_M
  */
 
-import OpenAI from 'openai';
 import {
 	type AgentMessage,
 	type AgentMessageStore,
@@ -15,6 +14,7 @@ import {
 	createConversation,
 } from '@epicenter/agent';
 import { type AgentEngine, createOpenAiAgentEngine } from '@epicenter/client';
+import OpenAI from 'openai';
 import { VOCAB_SYSTEM_PROMPT } from '../vocab.js';
 
 const model = process.argv[2] ?? 'qwen3:30b-a3b-instruct-2507-q4_K_M';

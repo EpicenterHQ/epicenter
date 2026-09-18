@@ -8,8 +8,8 @@ import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import type { SqliteDatabase } from '@epicenter/sqlite';
+import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openCurrentAuthority } from '../../src/sync/authority.js';
 

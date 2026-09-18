@@ -1,7 +1,7 @@
 /** Run production restricted SQL in Chromium or WebKit: bun run this-file [--webkit]. */
 import { mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { chromium, webkit } from 'playwright';
 import { build } from 'vite';
 

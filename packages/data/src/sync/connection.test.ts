@@ -13,10 +13,14 @@
  * where nothing was ever delivered.
  */
 
-import { field, plainText } from '@epicenter/data/definition';
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-import { defineData, defineTable } from '@epicenter/data/definition';
+import {
+	defineData,
+	defineTable,
+	field,
+	plainText,
+} from '@epicenter/data/definition';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import type { Result } from 'wellcrafted/result';
 
@@ -28,8 +32,8 @@ import {
 import { openSyncAuthority } from './authority.js';
 import {
 	createSyncConnection,
-	type SyncDial,
 	type SyncAttempt,
+	type SyncDial,
 } from './connection.js';
 import { encodeFrame } from './frames.js';
 import { createSyncHub, type HubConnection } from './hub.js';

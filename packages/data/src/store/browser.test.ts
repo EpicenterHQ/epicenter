@@ -28,21 +28,21 @@ import { field, plainText } from '@epicenter/data/definition';
  * real Chromium across a real reload.
  */
 import 'fake-indexeddb/auto';
-import { installTestLocks } from '@epicenter/device/test-locks';
 import { claimLibrary } from '@epicenter/device/library-claim';
+import { installTestLocks } from '@epicenter/device/test-locks';
 
 installTestLocks();
 
-import { describe, expect, test, spyOn } from 'bun:test';
-import {
-	createAppSqlite,
-	type DeviceSqliteOwner,
-} from '@epicenter/device/owner';
+import { describe, expect, spyOn, test } from 'bun:test';
 import {
 	type DataDefinition,
 	defineData,
 	defineTable,
 } from '@epicenter/data/definition';
+import {
+	createAppSqlite,
+	type DeviceSqliteOwner,
+} from '@epicenter/device/owner';
 import { asPrincipalId } from '@epicenter/principal';
 import { Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk as expectOkResult } from 'wellcrafted/testing';
@@ -1118,20 +1118,30 @@ test('a request failure remains inside the commit rejection and rolls back', asy
 });
 
 test('device SQLite and data generations have independent ownership', async () => {
- const database = databaseFor('sql-owner');
- const account = accountFor(ALICE);
- const owner: DeviceSqliteOwner = { async acquire() { return {
-  async open() { throw new Error('unused'); }, async delete() {}, async close() {},
- }; } };
- const sql = createAppSqlite(owner, APP);
- expectOkResult(await sql.value.delete('ownership-probe'));
- expectOkResult(await createGeneration(database, { appId: APP, account }));
- const document = expectOkResult(await openDatabase(database, { appId: APP, generation: GEN, account }));
- await sql.close();
- const reopened = createAppSqlite(owner, APP);
- expectOkResult(await reopened.value.delete('ownership-probe'));
- await reopened.close();
- await document.close();
+	const database = databaseFor('sql-owner');
+	const account = accountFor(ALICE);
+	const owner: DeviceSqliteOwner = {
+		async acquire() {
+			return {
+				async open() {
+					throw new Error('unused');
+				},
+				async delete() {},
+				async close() {},
+			};
+		},
+	};
+	const sql = createAppSqlite(owner, APP);
+	expectOkResult(await sql.value.delete('ownership-probe'));
+	expectOkResult(await createGeneration(database, { appId: APP, account }));
+	const document = expectOkResult(
+		await openDatabase(database, { appId: APP, generation: GEN, account }),
+	);
+	await sql.close();
+	const reopened = createAppSqlite(owner, APP);
+	expectOkResult(await reopened.value.delete('ownership-probe'));
+	await reopened.close();
+	await document.close();
 });
 
 test('blocked IndexedDB deletion retains library exclusion until the request settles', async () => {
@@ -1198,9 +1208,10 @@ for (const operation of ['open', 'create', 'resolve'] as const) {
 						? createGeneration(database, { appId, account })
 						: resolveGeneration(database, { appId, account }),
 				).rejects.toThrow('Cleanup failed');
-			expect(expectErr(await claimLibrary(appId, {library:'personal',account})).name).toBe(
-				'AlreadyOpen',
-			);
+			expect(
+				expectErr(await claimLibrary(appId, { library: 'personal', account }))
+					.name,
+			).toBe('AlreadyOpen');
 		} finally {
 			closing.mockRestore();
 		}

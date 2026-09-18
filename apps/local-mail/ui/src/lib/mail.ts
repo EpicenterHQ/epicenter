@@ -18,6 +18,7 @@ import {
 } from '@epicenter/local-mail/accounts';
 import { CALLBACK_PATH } from '@epicenter/local-mail/authorization-return';
 import { DEFAULT_MAIL_CONFIG } from '@epicenter/local-mail/config';
+import { openIntentStore } from '@epicenter/local-mail/intent-store';
 import {
 	type LabelSummary,
 	type MailStatus,
@@ -33,7 +34,6 @@ import {
 } from '@epicenter/local-mail/outbox';
 import { openLocalMailStorage } from '@epicenter/local-mail/storage';
 import { gmailAuthorization } from '#platform/gmail-authorization';
-import { openIntentStore } from '@epicenter/local-mail/intent-store';
 import { app } from './application.js';
 import { gmailIdentity } from './identity.js';
 

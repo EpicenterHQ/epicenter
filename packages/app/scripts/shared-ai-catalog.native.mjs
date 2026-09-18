@@ -225,8 +225,11 @@ async function start() {
 				throw new Error(`Native process exited: ${nativeProcess.exitCode}`);
 			try {
 				return (
-					(await fetch(`http://127.0.0.1:${port}/_epicenter/ai/no-account/connections`))
-						.status === 401
+					(
+						await fetch(
+							`http://127.0.0.1:${port}/_epicenter/ai/no-account/connections`,
+						)
+					).status === 401
 				);
 			} catch {
 				return false;
@@ -427,7 +430,10 @@ try {
 	const first = await start();
 	assert.deepEqual(await records(a), []);
 	assert.deepEqual(await records(b), []);
-	const legacy = await evaluate(a, `return localStorage.getItem('${a}.app-ai-connections');`);
+	const legacy = await evaluate(
+		a,
+		`return localStorage.getItem('${a}.app-ai-connections');`,
+	);
 	assert.equal(JSON.parse(legacy).connections[0].id, 'native-legacy');
 	assert.equal(await evaluate(a, 'return acceptance.selected();'), null);
 	assert.equal(await evaluate(b, 'return acceptance.selected();'), null);
@@ -442,7 +448,10 @@ try {
 		a,
 		`acceptance.select(${JSON.stringify(id)}); acceptance.retain(${JSON.stringify(id)});`,
 	);
-	const removable = await evaluate(b, `return acceptance.add(${JSON.stringify({ name: 'Second fixture', baseUrl: endpoint, models: ['manual'] })});`);
+	const removable = await evaluate(
+		b,
+		`return acceptance.add(${JSON.stringify({ name: 'Second fixture', baseUrl: endpoint, models: ['manual'] })});`,
+	);
 	await evaluate(b, `acceptance.select(${JSON.stringify(removable)});`);
 	await evaluate(b, `return acceptance.run(${JSON.stringify(id)});`);
 	assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[0]}`);
@@ -570,8 +579,17 @@ try {
 		(await records(a)).some((record) => record.id === 'native-legacy'),
 		false,
 	);
-	assert.equal((await records(a)).some((record) => record.id === removable), false);
-	assert.equal(await evaluate(a, `return localStorage.getItem('${a}.app-ai-connections');`), legacy);
+	assert.equal(
+		(await records(a)).some((record) => record.id === removable),
+		false,
+	);
+	assert.equal(
+		await evaluate(
+			a,
+			`return localStorage.getItem('${a}.app-ai-connections');`,
+		),
+		legacy,
+	);
 	assert.deepEqual(
 		await evaluate(a, 'return acceptance.selected();'),
 		selectedA,

@@ -5,8 +5,8 @@
  */
 import { env, evictDurableObject, runInDurableObject } from 'cloudflare:test';
 import { expect, test } from 'vitest';
-import { createAuthenticator, registration } from './authenticator.js';
 import type { EnrollmentAdmission } from './admission.js';
+import { createAuthenticator, registration } from './authenticator.js';
 
 declare global {
 	namespace Cloudflare {

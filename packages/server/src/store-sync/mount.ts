@@ -12,11 +12,11 @@ import { createMiddleware } from 'hono/factory';
 import { extractUpgradeBearer } from '../auth/extract-upgrade-bearer.js';
 import { OAuthError } from '../auth/oauth-errors.js';
 import { isWebSocketUpgrade } from '../is-websocket-upgrade.js';
+import { resolveLibraryPrefix } from '../library.js';
 import { setPrincipalOrReject } from '../middleware/require-auth.js';
 import { storeCollectionName } from '../principal.js';
 import type { ServerBindings } from '../server-bindings.js';
 import type { Env, ResolveBearerPrincipal } from '../types.js';
-import { resolveLibraryPrefix } from '../library.js';
 
 export type StoreAuthorityStub = { fetch(request: Request): Promise<Response> };
 /** Historical ledger access is only used to refuse implicit migration. */

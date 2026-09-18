@@ -24,7 +24,12 @@ export const corsMiddleware = createMiddleware<Env>(async (c, next) => {
 		// one now. The blob store's `If-None-Match: *` is not a counterexample:
 		// that header rides a presigned PUT straight to S3, which never passes
 		// through this middleware and answers to the bucket's own CORS config.
-		allowHeaders: ['Content-Type', 'Authorization', 'Upgrade', 'X-Epicenter-Principal'],
+		allowHeaders: [
+			'Content-Type',
+			'Authorization',
+			'Upgrade',
+			'X-Epicenter-Principal',
+		],
 		allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
 	})(c, next);
 });

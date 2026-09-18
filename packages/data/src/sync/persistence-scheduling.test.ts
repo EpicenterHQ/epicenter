@@ -11,9 +11,8 @@ import { expectOk } from 'wellcrafted/testing';
 import { createSqliteDurablePort } from '../store/log.js';
 import type { DurableOp } from '../store/persistence.js';
 import { createStoreOverPort, syncEngineOf } from '../store/store.js';
-import { encodeFrame } from './frames.js';
 import { createSyncConnection } from './connection.js';
-import { decodeFrame } from './frames.js';
+import { decodeFrame, encodeFrame } from './frames.js';
 
 const definition = defineData({
 	id: 'so.epicenter.scheduling',

@@ -42,12 +42,18 @@ for (const engine of [chromium, webkit]) {
 			await page.goto(`${origin}?local&opening=${opening}`);
 			if (opening === 'held') {
 				await page.getByText('Opening your changes…').waitFor();
-				assert.equal(await page.getByRole('button', { name: 'Choose connection' }).count(), 0);
+				assert.equal(
+					await page.getByRole('button', { name: 'Choose connection' }).count(),
+					0,
+				);
 				await page.evaluate(() => window.bootProbe.releaseOpening());
 				await page.getByRole('button', { name: 'Choose connection' }).waitFor();
 			} else {
 				await page.getByRole('button', { name: 'Try again' }).waitFor();
-				assert.equal(await page.getByRole('button', { name: 'Choose connection' }).count(), 0);
+				assert.equal(
+					await page.getByRole('button', { name: 'Choose connection' }).count(),
+					0,
+				);
 				await Promise.all([
 					page.waitForNavigation(),
 					page.getByRole('button', { name: 'Try again' }).click(),
@@ -115,7 +121,9 @@ for (const engine of [chromium, webkit]) {
 			if (local)
 				await page.getByText('Connect to your server', { exact: true }).click();
 			else
-				await page.getByRole('button', { name: 'Change server', exact: true }).click();
+				await page
+					.getByRole('button', { name: 'Change server', exact: true })
+					.click();
 			await page.getByLabel('Server URL').fill('https://next.example');
 			await page.evaluate(() => {
 				const original = Storage.prototype.setItem;
@@ -143,7 +151,9 @@ for (const engine of [chromium, webkit]) {
 				page.getByRole('button', { name: 'Connect', exact: true }).click(),
 			]);
 			assert.equal(
-				await page.evaluate(() => JSON.parse(localStorage.getItem('probe.auth.server')).origin),
+				await page.evaluate(
+					() => JSON.parse(localStorage.getItem('probe.auth.server')).origin,
+				),
 				'https://next.example',
 			);
 			assert.deepEqual(errors, []);

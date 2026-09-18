@@ -1,488 +1,488 @@
 {
-  "package": "@y/y",
-  "version": "14.0.0-rc.24",
-  "bun": "1.3.1",
-  "date": "2026-09-09T07:27:45.591Z",
-  "results": [
-    {
-      "bodySize": 1000,
-      "delivery": "offline",
-      "operation": "pull",
-      "iterations": 100,
-      "elapsedMs": 33.38150000000002,
-      "updateCount": 0,
-      "updateBytes": 0,
-      "baselineBytes": 1104,
-      "foldedBytes": 1104,
-      "openMs": 0.1792080000000169,
-      "writers": 1,
-      "structs": 4,
-      "folderReadBytes": 1634400,
-      "folderWriteBytes": 817200,
-      "persisted": {
-        "rows": 2,
-        "bytes": 1128
-      }
-    },
-    {
-      "bodySize": 1000,
-      "delivery": "offline",
-      "operation": "unchanged-push",
-      "iterations": 100,
-      "elapsedMs": 7.862916999999982,
-      "updateCount": 0,
-      "updateBytes": 0,
-      "baselineBytes": 1104,
-      "foldedBytes": 1104,
-      "openMs": 0.15995799999998894,
-      "writers": 1,
-      "structs": 4,
-      "folderReadBytes": 817200,
-      "folderWriteBytes": 0,
-      "persisted": {
-        "rows": 2,
-        "bytes": 1128
-      }
-    },
-    {
-      "bodySize": 1000,
-      "delivery": "offline",
-      "operation": "title-push",
-      "iterations": 100,
-      "elapsedMs": 41.511167,
-      "updateCount": 100,
-      "updateBytes": 4861,
-      "baselineBytes": 1104,
-      "foldedBytes": 1127,
-      "openMs": 0.3104579999999828,
-      "writers": 1,
-      "structs": 6,
-      "folderReadBytes": 1634360,
-      "folderWriteBytes": 817180,
-      "persisted": {
-        "rows": 39,
-        "bytes": 3566
-      }
-    },
-    {
-      "bodySize": 1000,
-      "delivery": "offline",
-      "operation": "body-push",
-      "iterations": 100,
-      "elapsedMs": 46.08700000000002,
-      "updateCount": 100,
-      "updateBytes": 109221,
-      "baselineBytes": 1104,
-      "foldedBytes": 1221,
-      "openMs": 0.18391600000001063,
-      "writers": 1,
-      "structs": 5,
-      "folderReadBytes": 1644500,
-      "folderWriteBytes": 822250,
-      "persisted": {
-        "rows": 39,
-        "bytes": 107923
-      }
-    },
-    {
-      "bodySize": 1000,
-      "delivery": "acknowledged-each-push",
-      "operation": "pull",
-      "iterations": 100,
-      "elapsedMs": 26.573500000000024,
-      "updateCount": 0,
-      "updateBytes": 0,
-      "baselineBytes": 1104,
-      "foldedBytes": 1104,
-      "openMs": 0.20112499999999045,
-      "writers": 1,
-      "structs": 4,
-      "folderReadBytes": 1634400,
-      "folderWriteBytes": 817200,
-      "persisted": {
-        "rows": 2,
-        "bytes": 1128
-      }
-    },
-    {
-      "bodySize": 1000,
-      "delivery": "acknowledged-each-push",
-      "operation": "unchanged-push",
-      "iterations": 100,
-      "elapsedMs": 7.801750000000027,
-      "updateCount": 0,
-      "updateBytes": 0,
-      "baselineBytes": 1104,
-      "foldedBytes": 1104,
-      "openMs": 0.12258400000001757,
-      "writers": 1,
-      "structs": 4,
-      "folderReadBytes": 817200,
-      "folderWriteBytes": 0,
-      "persisted": {
-        "rows": 2,
-        "bytes": 1128
-      }
-    },
-    {
-      "bodySize": 1000,
-      "delivery": "acknowledged-each-push",
-      "operation": "title-push",
-      "iterations": 100,
-      "elapsedMs": 41.75562500000001,
-      "updateCount": 100,
-      "updateBytes": 4861,
-      "baselineBytes": 1104,
-      "foldedBytes": 1127,
-      "openMs": 0.07549999999997681,
-      "writers": 1,
-      "structs": 6,
-      "folderReadBytes": 1634360,
-      "folderWriteBytes": 817180,
-      "persisted": {
-        "rows": 39,
-        "bytes": 2988
-      }
-    },
-    {
-      "bodySize": 1000,
-      "delivery": "acknowledged-each-push",
-      "operation": "body-push",
-      "iterations": 100,
-      "elapsedMs": 48.67879099999999,
-      "updateCount": 100,
-      "updateBytes": 109221,
-      "baselineBytes": 1104,
-      "foldedBytes": 1221,
-      "openMs": 0.09208299999994551,
-      "writers": 1,
-      "structs": 5,
-      "folderReadBytes": 1644500,
-      "folderWriteBytes": 822250,
-      "persisted": {
-        "rows": 39,
-        "bytes": 43875
-      }
-    },
-    {
-      "bodySize": 100000,
-      "delivery": "offline",
-      "operation": "pull",
-      "iterations": 100,
-      "elapsedMs": 121.62208300000003,
-      "updateCount": 0,
-      "updateBytes": 0,
-      "baselineBytes": 100105,
-      "foldedBytes": 100105,
-      "openMs": 0.12412500000004911,
-      "writers": 1,
-      "structs": 4,
-      "folderReadBytes": 21434400,
-      "folderWriteBytes": 10717200,
-      "persisted": {
-        "rows": 2,
-        "bytes": 100129
-      }
-    },
-    {
-      "bodySize": 100000,
-      "delivery": "offline",
-      "operation": "unchanged-push",
-      "iterations": 100,
-      "elapsedMs": 37.412375,
-      "updateCount": 0,
-      "updateBytes": 0,
-      "baselineBytes": 100105,
-      "foldedBytes": 100105,
-      "openMs": 0.1109159999999747,
-      "writers": 1,
-      "structs": 4,
-      "folderReadBytes": 10717200,
-      "folderWriteBytes": 0,
-      "persisted": {
-        "rows": 2,
-        "bytes": 100129
-      }
-    },
-    {
-      "bodySize": 100000,
-      "delivery": "offline",
-      "operation": "title-push",
-      "iterations": 100,
-      "elapsedMs": 146.95054100000004,
-      "updateCount": 100,
-      "updateBytes": 4861,
-      "baselineBytes": 100105,
-      "foldedBytes": 100128,
-      "openMs": 0.11354100000005474,
-      "writers": 1,
-      "structs": 6,
-      "folderReadBytes": 21434360,
-      "folderWriteBytes": 10717180,
-      "persisted": {
-        "rows": 39,
-        "bytes": 102567
-      }
-    },
-    {
-      "bodySize": 100000,
-      "delivery": "offline",
-      "operation": "body-push",
-      "iterations": 100,
-      "elapsedMs": 205.46612499999992,
-      "updateCount": 100,
-      "updateBytes": 10009321,
-      "baselineBytes": 100105,
-      "foldedBytes": 100222,
-      "openMs": 0.07712500000002365,
-      "writers": 1,
-      "structs": 5,
-      "folderReadBytes": 21444500,
-      "folderWriteBytes": 10722250,
-      "persisted": {
-        "rows": 39,
-        "bytes": 10107024
-      }
-    },
-    {
-      "bodySize": 100000,
-      "delivery": "acknowledged-each-push",
-      "operation": "pull",
-      "iterations": 100,
-      "elapsedMs": 118.12141700000006,
-      "updateCount": 0,
-      "updateBytes": 0,
-      "baselineBytes": 100105,
-      "foldedBytes": 100105,
-      "openMs": 0.10945799999990413,
-      "writers": 1,
-      "structs": 4,
-      "folderReadBytes": 21434400,
-      "folderWriteBytes": 10717200,
-      "persisted": {
-        "rows": 2,
-        "bytes": 100129
-      }
-    },
-    {
-      "bodySize": 100000,
-      "delivery": "acknowledged-each-push",
-      "operation": "unchanged-push",
-      "iterations": 100,
-      "elapsedMs": 34.019207999999935,
-      "updateCount": 0,
-      "updateBytes": 0,
-      "baselineBytes": 100105,
-      "foldedBytes": 100105,
-      "openMs": 0.0859170000001086,
-      "writers": 1,
-      "structs": 4,
-      "folderReadBytes": 10717200,
-      "folderWriteBytes": 0,
-      "persisted": {
-        "rows": 2,
-        "bytes": 100129
-      }
-    },
-    {
-      "bodySize": 100000,
-      "delivery": "acknowledged-each-push",
-      "operation": "title-push",
-      "iterations": 100,
-      "elapsedMs": 157.9758750000001,
-      "updateCount": 100,
-      "updateBytes": 4861,
-      "baselineBytes": 100105,
-      "foldedBytes": 100128,
-      "openMs": 0.07195799999999508,
-      "writers": 1,
-      "structs": 6,
-      "folderReadBytes": 21434360,
-      "folderWriteBytes": 10717180,
-      "persisted": {
-        "rows": 39,
-        "bytes": 101989
-      }
-    },
-    {
-      "bodySize": 100000,
-      "delivery": "acknowledged-each-push",
-      "operation": "body-push",
-      "iterations": 100,
-      "elapsedMs": 246.47366699999998,
-      "updateCount": 100,
-      "updateBytes": 10009321,
-      "baselineBytes": 100105,
-      "foldedBytes": 100222,
-      "openMs": 0.07433300000002419,
-      "writers": 1,
-      "structs": 5,
-      "folderReadBytes": 21444500,
-      "folderWriteBytes": 10722250,
-      "persisted": {
-        "rows": 39,
-        "bytes": 3904914
-      }
-    },
-    {
-      "bodySize": 1000000,
-      "delivery": "offline",
-      "operation": "pull",
-      "iterations": 100,
-      "elapsedMs": 928.200458,
-      "updateCount": 0,
-      "updateBytes": 0,
-      "baselineBytes": 1000105,
-      "foldedBytes": 1000105,
-      "openMs": 0.12974999999960346,
-      "writers": 1,
-      "structs": 4,
-      "folderReadBytes": 201434400,
-      "folderWriteBytes": 100717200,
-      "persisted": {
-        "rows": 2,
-        "bytes": 1000129
-      }
-    },
-    {
-      "bodySize": 1000000,
-      "delivery": "offline",
-      "operation": "unchanged-push",
-      "iterations": 100,
-      "elapsedMs": 266.0636669999999,
-      "updateCount": 0,
-      "updateBytes": 0,
-      "baselineBytes": 1000105,
-      "foldedBytes": 1000105,
-      "openMs": 0.10824999999977081,
-      "writers": 1,
-      "structs": 4,
-      "folderReadBytes": 100717200,
-      "folderWriteBytes": 0,
-      "persisted": {
-        "rows": 2,
-        "bytes": 1000129
-      }
-    },
-    {
-      "bodySize": 1000000,
-      "delivery": "offline",
-      "operation": "title-push",
-      "iterations": 100,
-      "elapsedMs": 1059.759,
-      "updateCount": 100,
-      "updateBytes": 4861,
-      "baselineBytes": 1000105,
-      "foldedBytes": 1000128,
-      "openMs": 0.11349999999993088,
-      "writers": 1,
-      "structs": 6,
-      "folderReadBytes": 201434360,
-      "folderWriteBytes": 100717180,
-      "persisted": {
-        "rows": 39,
-        "bytes": 1002567
-      }
-    },
-    {
-      "bodySize": 1000000,
-      "delivery": "offline",
-      "operation": "body-push",
-      "iterations": 100,
-      "elapsedMs": 1484.5993749999998,
-      "updateCount": 100,
-      "updateBytes": 100009321,
-      "baselineBytes": 1000105,
-      "foldedBytes": 1000222,
-      "openMs": 0.09754199999952107,
-      "writers": 1,
-      "structs": 5,
-      "folderReadBytes": 201444500,
-      "folderWriteBytes": 100722250,
-      "persisted": {
-        "rows": 39,
-        "bytes": 101007024
-      }
-    },
-    {
-      "bodySize": 1000000,
-      "delivery": "acknowledged-each-push",
-      "operation": "pull",
-      "iterations": 100,
-      "elapsedMs": 888.0312089999998,
-      "updateCount": 0,
-      "updateBytes": 0,
-      "baselineBytes": 1000105,
-      "foldedBytes": 1000105,
-      "openMs": 0.11187499999959982,
-      "writers": 1,
-      "structs": 4,
-      "folderReadBytes": 201434400,
-      "folderWriteBytes": 100717200,
-      "persisted": {
-        "rows": 2,
-        "bytes": 1000129
-      }
-    },
-    {
-      "bodySize": 1000000,
-      "delivery": "acknowledged-each-push",
-      "operation": "unchanged-push",
-      "iterations": 100,
-      "elapsedMs": 278.09508300000016,
-      "updateCount": 0,
-      "updateBytes": 0,
-      "baselineBytes": 1000105,
-      "foldedBytes": 1000105,
-      "openMs": 0.10391600000002654,
-      "writers": 1,
-      "structs": 4,
-      "folderReadBytes": 100717200,
-      "folderWriteBytes": 0,
-      "persisted": {
-        "rows": 2,
-        "bytes": 1000129
-      }
-    },
-    {
-      "bodySize": 1000000,
-      "delivery": "acknowledged-each-push",
-      "operation": "title-push",
-      "iterations": 100,
-      "elapsedMs": 1116.4968749999998,
-      "updateCount": 100,
-      "updateBytes": 4661,
-      "baselineBytes": 1000104,
-      "foldedBytes": 1000126,
-      "openMs": 0.11329100000057224,
-      "writers": 1,
-      "structs": 6,
-      "folderReadBytes": 201434360,
-      "folderWriteBytes": 100717180,
-      "persisted": {
-        "rows": 39,
-        "bytes": 1001911
-      }
-    },
-    {
-      "bodySize": 1000000,
-      "delivery": "acknowledged-each-push",
-      "operation": "body-push",
-      "iterations": 100,
-      "elapsedMs": 1542.364666999999,
-      "updateCount": 100,
-      "updateBytes": 100009321,
-      "baselineBytes": 1000105,
-      "foldedBytes": 1000222,
-      "openMs": 0.11124999999992724,
-      "writers": 1,
-      "structs": 5,
-      "folderReadBytes": 201444500,
-      "folderWriteBytes": 100722250,
-      "persisted": {
-        "rows": 39,
-        "bytes": 39004914
-      }
-    }
-  ]
+	"package": "@y/y",
+	"version": "14.0.0-rc.24",
+	"bun": "1.3.1",
+	"date": "2026-09-09T07:27:45.591Z",
+	"results": [
+		{
+			"bodySize": 1000,
+			"delivery": "offline",
+			"operation": "pull",
+			"iterations": 100,
+			"elapsedMs": 33.38150000000002,
+			"updateCount": 0,
+			"updateBytes": 0,
+			"baselineBytes": 1104,
+			"foldedBytes": 1104,
+			"openMs": 0.1792080000000169,
+			"writers": 1,
+			"structs": 4,
+			"folderReadBytes": 1634400,
+			"folderWriteBytes": 817200,
+			"persisted": {
+				"rows": 2,
+				"bytes": 1128
+			}
+		},
+		{
+			"bodySize": 1000,
+			"delivery": "offline",
+			"operation": "unchanged-push",
+			"iterations": 100,
+			"elapsedMs": 7.862916999999982,
+			"updateCount": 0,
+			"updateBytes": 0,
+			"baselineBytes": 1104,
+			"foldedBytes": 1104,
+			"openMs": 0.15995799999998894,
+			"writers": 1,
+			"structs": 4,
+			"folderReadBytes": 817200,
+			"folderWriteBytes": 0,
+			"persisted": {
+				"rows": 2,
+				"bytes": 1128
+			}
+		},
+		{
+			"bodySize": 1000,
+			"delivery": "offline",
+			"operation": "title-push",
+			"iterations": 100,
+			"elapsedMs": 41.511167,
+			"updateCount": 100,
+			"updateBytes": 4861,
+			"baselineBytes": 1104,
+			"foldedBytes": 1127,
+			"openMs": 0.3104579999999828,
+			"writers": 1,
+			"structs": 6,
+			"folderReadBytes": 1634360,
+			"folderWriteBytes": 817180,
+			"persisted": {
+				"rows": 39,
+				"bytes": 3566
+			}
+		},
+		{
+			"bodySize": 1000,
+			"delivery": "offline",
+			"operation": "body-push",
+			"iterations": 100,
+			"elapsedMs": 46.08700000000002,
+			"updateCount": 100,
+			"updateBytes": 109221,
+			"baselineBytes": 1104,
+			"foldedBytes": 1221,
+			"openMs": 0.18391600000001063,
+			"writers": 1,
+			"structs": 5,
+			"folderReadBytes": 1644500,
+			"folderWriteBytes": 822250,
+			"persisted": {
+				"rows": 39,
+				"bytes": 107923
+			}
+		},
+		{
+			"bodySize": 1000,
+			"delivery": "acknowledged-each-push",
+			"operation": "pull",
+			"iterations": 100,
+			"elapsedMs": 26.573500000000024,
+			"updateCount": 0,
+			"updateBytes": 0,
+			"baselineBytes": 1104,
+			"foldedBytes": 1104,
+			"openMs": 0.20112499999999045,
+			"writers": 1,
+			"structs": 4,
+			"folderReadBytes": 1634400,
+			"folderWriteBytes": 817200,
+			"persisted": {
+				"rows": 2,
+				"bytes": 1128
+			}
+		},
+		{
+			"bodySize": 1000,
+			"delivery": "acknowledged-each-push",
+			"operation": "unchanged-push",
+			"iterations": 100,
+			"elapsedMs": 7.801750000000027,
+			"updateCount": 0,
+			"updateBytes": 0,
+			"baselineBytes": 1104,
+			"foldedBytes": 1104,
+			"openMs": 0.12258400000001757,
+			"writers": 1,
+			"structs": 4,
+			"folderReadBytes": 817200,
+			"folderWriteBytes": 0,
+			"persisted": {
+				"rows": 2,
+				"bytes": 1128
+			}
+		},
+		{
+			"bodySize": 1000,
+			"delivery": "acknowledged-each-push",
+			"operation": "title-push",
+			"iterations": 100,
+			"elapsedMs": 41.75562500000001,
+			"updateCount": 100,
+			"updateBytes": 4861,
+			"baselineBytes": 1104,
+			"foldedBytes": 1127,
+			"openMs": 0.07549999999997681,
+			"writers": 1,
+			"structs": 6,
+			"folderReadBytes": 1634360,
+			"folderWriteBytes": 817180,
+			"persisted": {
+				"rows": 39,
+				"bytes": 2988
+			}
+		},
+		{
+			"bodySize": 1000,
+			"delivery": "acknowledged-each-push",
+			"operation": "body-push",
+			"iterations": 100,
+			"elapsedMs": 48.67879099999999,
+			"updateCount": 100,
+			"updateBytes": 109221,
+			"baselineBytes": 1104,
+			"foldedBytes": 1221,
+			"openMs": 0.09208299999994551,
+			"writers": 1,
+			"structs": 5,
+			"folderReadBytes": 1644500,
+			"folderWriteBytes": 822250,
+			"persisted": {
+				"rows": 39,
+				"bytes": 43875
+			}
+		},
+		{
+			"bodySize": 100000,
+			"delivery": "offline",
+			"operation": "pull",
+			"iterations": 100,
+			"elapsedMs": 121.62208300000003,
+			"updateCount": 0,
+			"updateBytes": 0,
+			"baselineBytes": 100105,
+			"foldedBytes": 100105,
+			"openMs": 0.12412500000004911,
+			"writers": 1,
+			"structs": 4,
+			"folderReadBytes": 21434400,
+			"folderWriteBytes": 10717200,
+			"persisted": {
+				"rows": 2,
+				"bytes": 100129
+			}
+		},
+		{
+			"bodySize": 100000,
+			"delivery": "offline",
+			"operation": "unchanged-push",
+			"iterations": 100,
+			"elapsedMs": 37.412375,
+			"updateCount": 0,
+			"updateBytes": 0,
+			"baselineBytes": 100105,
+			"foldedBytes": 100105,
+			"openMs": 0.1109159999999747,
+			"writers": 1,
+			"structs": 4,
+			"folderReadBytes": 10717200,
+			"folderWriteBytes": 0,
+			"persisted": {
+				"rows": 2,
+				"bytes": 100129
+			}
+		},
+		{
+			"bodySize": 100000,
+			"delivery": "offline",
+			"operation": "title-push",
+			"iterations": 100,
+			"elapsedMs": 146.95054100000004,
+			"updateCount": 100,
+			"updateBytes": 4861,
+			"baselineBytes": 100105,
+			"foldedBytes": 100128,
+			"openMs": 0.11354100000005474,
+			"writers": 1,
+			"structs": 6,
+			"folderReadBytes": 21434360,
+			"folderWriteBytes": 10717180,
+			"persisted": {
+				"rows": 39,
+				"bytes": 102567
+			}
+		},
+		{
+			"bodySize": 100000,
+			"delivery": "offline",
+			"operation": "body-push",
+			"iterations": 100,
+			"elapsedMs": 205.46612499999992,
+			"updateCount": 100,
+			"updateBytes": 10009321,
+			"baselineBytes": 100105,
+			"foldedBytes": 100222,
+			"openMs": 0.07712500000002365,
+			"writers": 1,
+			"structs": 5,
+			"folderReadBytes": 21444500,
+			"folderWriteBytes": 10722250,
+			"persisted": {
+				"rows": 39,
+				"bytes": 10107024
+			}
+		},
+		{
+			"bodySize": 100000,
+			"delivery": "acknowledged-each-push",
+			"operation": "pull",
+			"iterations": 100,
+			"elapsedMs": 118.12141700000006,
+			"updateCount": 0,
+			"updateBytes": 0,
+			"baselineBytes": 100105,
+			"foldedBytes": 100105,
+			"openMs": 0.10945799999990413,
+			"writers": 1,
+			"structs": 4,
+			"folderReadBytes": 21434400,
+			"folderWriteBytes": 10717200,
+			"persisted": {
+				"rows": 2,
+				"bytes": 100129
+			}
+		},
+		{
+			"bodySize": 100000,
+			"delivery": "acknowledged-each-push",
+			"operation": "unchanged-push",
+			"iterations": 100,
+			"elapsedMs": 34.019207999999935,
+			"updateCount": 0,
+			"updateBytes": 0,
+			"baselineBytes": 100105,
+			"foldedBytes": 100105,
+			"openMs": 0.0859170000001086,
+			"writers": 1,
+			"structs": 4,
+			"folderReadBytes": 10717200,
+			"folderWriteBytes": 0,
+			"persisted": {
+				"rows": 2,
+				"bytes": 100129
+			}
+		},
+		{
+			"bodySize": 100000,
+			"delivery": "acknowledged-each-push",
+			"operation": "title-push",
+			"iterations": 100,
+			"elapsedMs": 157.9758750000001,
+			"updateCount": 100,
+			"updateBytes": 4861,
+			"baselineBytes": 100105,
+			"foldedBytes": 100128,
+			"openMs": 0.07195799999999508,
+			"writers": 1,
+			"structs": 6,
+			"folderReadBytes": 21434360,
+			"folderWriteBytes": 10717180,
+			"persisted": {
+				"rows": 39,
+				"bytes": 101989
+			}
+		},
+		{
+			"bodySize": 100000,
+			"delivery": "acknowledged-each-push",
+			"operation": "body-push",
+			"iterations": 100,
+			"elapsedMs": 246.47366699999998,
+			"updateCount": 100,
+			"updateBytes": 10009321,
+			"baselineBytes": 100105,
+			"foldedBytes": 100222,
+			"openMs": 0.07433300000002419,
+			"writers": 1,
+			"structs": 5,
+			"folderReadBytes": 21444500,
+			"folderWriteBytes": 10722250,
+			"persisted": {
+				"rows": 39,
+				"bytes": 3904914
+			}
+		},
+		{
+			"bodySize": 1000000,
+			"delivery": "offline",
+			"operation": "pull",
+			"iterations": 100,
+			"elapsedMs": 928.200458,
+			"updateCount": 0,
+			"updateBytes": 0,
+			"baselineBytes": 1000105,
+			"foldedBytes": 1000105,
+			"openMs": 0.12974999999960346,
+			"writers": 1,
+			"structs": 4,
+			"folderReadBytes": 201434400,
+			"folderWriteBytes": 100717200,
+			"persisted": {
+				"rows": 2,
+				"bytes": 1000129
+			}
+		},
+		{
+			"bodySize": 1000000,
+			"delivery": "offline",
+			"operation": "unchanged-push",
+			"iterations": 100,
+			"elapsedMs": 266.0636669999999,
+			"updateCount": 0,
+			"updateBytes": 0,
+			"baselineBytes": 1000105,
+			"foldedBytes": 1000105,
+			"openMs": 0.10824999999977081,
+			"writers": 1,
+			"structs": 4,
+			"folderReadBytes": 100717200,
+			"folderWriteBytes": 0,
+			"persisted": {
+				"rows": 2,
+				"bytes": 1000129
+			}
+		},
+		{
+			"bodySize": 1000000,
+			"delivery": "offline",
+			"operation": "title-push",
+			"iterations": 100,
+			"elapsedMs": 1059.759,
+			"updateCount": 100,
+			"updateBytes": 4861,
+			"baselineBytes": 1000105,
+			"foldedBytes": 1000128,
+			"openMs": 0.11349999999993088,
+			"writers": 1,
+			"structs": 6,
+			"folderReadBytes": 201434360,
+			"folderWriteBytes": 100717180,
+			"persisted": {
+				"rows": 39,
+				"bytes": 1002567
+			}
+		},
+		{
+			"bodySize": 1000000,
+			"delivery": "offline",
+			"operation": "body-push",
+			"iterations": 100,
+			"elapsedMs": 1484.5993749999998,
+			"updateCount": 100,
+			"updateBytes": 100009321,
+			"baselineBytes": 1000105,
+			"foldedBytes": 1000222,
+			"openMs": 0.09754199999952107,
+			"writers": 1,
+			"structs": 5,
+			"folderReadBytes": 201444500,
+			"folderWriteBytes": 100722250,
+			"persisted": {
+				"rows": 39,
+				"bytes": 101007024
+			}
+		},
+		{
+			"bodySize": 1000000,
+			"delivery": "acknowledged-each-push",
+			"operation": "pull",
+			"iterations": 100,
+			"elapsedMs": 888.0312089999998,
+			"updateCount": 0,
+			"updateBytes": 0,
+			"baselineBytes": 1000105,
+			"foldedBytes": 1000105,
+			"openMs": 0.11187499999959982,
+			"writers": 1,
+			"structs": 4,
+			"folderReadBytes": 201434400,
+			"folderWriteBytes": 100717200,
+			"persisted": {
+				"rows": 2,
+				"bytes": 1000129
+			}
+		},
+		{
+			"bodySize": 1000000,
+			"delivery": "acknowledged-each-push",
+			"operation": "unchanged-push",
+			"iterations": 100,
+			"elapsedMs": 278.09508300000016,
+			"updateCount": 0,
+			"updateBytes": 0,
+			"baselineBytes": 1000105,
+			"foldedBytes": 1000105,
+			"openMs": 0.10391600000002654,
+			"writers": 1,
+			"structs": 4,
+			"folderReadBytes": 100717200,
+			"folderWriteBytes": 0,
+			"persisted": {
+				"rows": 2,
+				"bytes": 1000129
+			}
+		},
+		{
+			"bodySize": 1000000,
+			"delivery": "acknowledged-each-push",
+			"operation": "title-push",
+			"iterations": 100,
+			"elapsedMs": 1116.4968749999998,
+			"updateCount": 100,
+			"updateBytes": 4661,
+			"baselineBytes": 1000104,
+			"foldedBytes": 1000126,
+			"openMs": 0.11329100000057224,
+			"writers": 1,
+			"structs": 6,
+			"folderReadBytes": 201434360,
+			"folderWriteBytes": 100717180,
+			"persisted": {
+				"rows": 39,
+				"bytes": 1001911
+			}
+		},
+		{
+			"bodySize": 1000000,
+			"delivery": "acknowledged-each-push",
+			"operation": "body-push",
+			"iterations": 100,
+			"elapsedMs": 1542.364666999999,
+			"updateCount": 100,
+			"updateBytes": 100009321,
+			"baselineBytes": 1000105,
+			"foldedBytes": 1000222,
+			"openMs": 0.11124999999992724,
+			"writers": 1,
+			"structs": 5,
+			"folderReadBytes": 201444500,
+			"folderWriteBytes": 100722250,
+			"persisted": {
+				"rows": 39,
+				"bytes": 39004914
+			}
+		}
+	]
 }

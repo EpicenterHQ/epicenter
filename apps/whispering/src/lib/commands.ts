@@ -3,7 +3,10 @@ import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import { pushToTalk } from '$lib/operations/push-to-talk';
 import { runRecipeOnClipboard } from '$lib/operations/recipe-clipboard';
-import { cancelRecording, toggleVadRecording } from '$lib/operations/recording.svelte.js';
+import {
+	cancelRecording,
+	toggleVadRecording,
+} from '$lib/operations/recording.svelte.js';
 import type { Reach } from '$lib/utils/key-binding';
 import type { WhisperingApp } from '$lib/whispering/app';
 

@@ -6,6 +6,7 @@
 import { expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { DeviceError } from './index.js';
 import {
 	createAppSqlite,
 	createDeviceDispatcher,
@@ -13,10 +14,10 @@ import {
 	createTransportSqliteOwner,
 	type SqliteBackend,
 } from './owner.js';
-import { DeviceError } from './index.js';
 import type { DeviceResponse } from './protocol.js';
 
 import { installTestLocks } from './test-locks.js';
+
 installTestLocks();
 
 const appId = 'so.epicenter.test';

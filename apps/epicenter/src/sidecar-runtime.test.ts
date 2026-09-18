@@ -11,9 +11,9 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EventEmitter } from 'node:events';
 import {
 	createNativePort,
 	createReadyFrame,
@@ -641,7 +641,9 @@ test('local frame limits reject only that request while pipe write failure compl
 	const emptyFrame = JSON.parse(writes[0]!);
 	emptyFrame.serialized = '';
 	emptyFrame.requestId = '3';
-	const exactPayload = 'x'.repeat(8 * 1024 * 1024 - Buffer.byteLength(JSON.stringify(emptyFrame)));
+	const exactPayload = 'x'.repeat(
+		8 * 1024 * 1024 - Buffer.byteLength(JSON.stringify(emptyFrame)),
+	);
 	await expect(native.storeAuth(exactPayload)).rejects.toThrow('frame exceeds');
 	controller.enqueue(
 		JSON.stringify({ type: 'native-result', requestId: '1', status: 'ok' }),

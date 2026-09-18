@@ -1,6 +1,7 @@
 /** Production OPFS worker evidence; fixtures contain synthetic data only. */
-import { createBrowserSqliteOwner } from '../../../src/browser.js';
+
 import { expectOk } from 'wellcrafted/testing';
+import { createBrowserSqliteOwner } from '../../../src/browser.js';
 import { QUERY_LIMITS } from '../../../src/query.js';
 
 const observations: Record<string, unknown> = {};

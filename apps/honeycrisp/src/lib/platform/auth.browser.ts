@@ -7,7 +7,6 @@ export const authStartup = createBrowserAuth({
 	baseURL: APP_URLS.API,
 });
 
-
 if (import.meta.hot) {
 	import.meta.hot.dispose(() => authStartup[Symbol.dispose]());
 

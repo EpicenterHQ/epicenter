@@ -2,8 +2,9 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 const root = join(import.meta.dir, '../../..');
 const appRequire = createRequire(join(root, 'packages/app/package.json'));
 const whisperingRequire = createRequire(
@@ -102,13 +103,19 @@ const server = await createServer({
 						res.end(html);
 						return;
 					}
-					const failure = /^\/errors\/(401|403|429|malformed)\/v1\/models$/.exec(req.url);
+					const failure =
+						/^\/errors\/(401|403|429|malformed)\/v1\/models$/.exec(req.url);
 					if (failure) {
 						res.setHeader('content-type', 'application/json');
-						res.statusCode = failure[1] === 'malformed' ? 200 : Number(failure[1]);
-						res.end(JSON.stringify(failure[1] === 'malformed'
-							? { data: [{ id: 123 }] }
-							: { error: { message: 'Fixture rejection' } }));
+						res.statusCode =
+							failure[1] === 'malformed' ? 200 : Number(failure[1]);
+						res.end(
+							JSON.stringify(
+								failure[1] === 'malformed'
+									? { data: [{ id: 123 }] }
+									: { error: { message: 'Fixture rejection' } },
+							),
+						);
 						return;
 					}
 					if (req.url === '/models/v1/models') {
@@ -237,15 +244,24 @@ try {
 		['429', 'The endpoint returned 429.'],
 		['malformed', "This endpoint didn't return an OpenAI model list."],
 	]) {
-		await page.evaluate(failure => window.acceptance.add({
-			name: `Failure ${failure}`,
-			baseUrl: `${location.origin}/errors/${failure}/v1`,
-			models: [],
-		}), failure);
+		await page.evaluate(
+			(failure) =>
+				window.acceptance.add({
+					name: `Failure ${failure}`,
+					baseUrl: `${location.origin}/errors/${failure}/v1`,
+					models: [],
+				}),
+			failure,
+		);
 		await page.locator('button[role="combobox"]').click();
-		await page.getByText(`Edit Failure ${failure} or enter a model`, { exact: true }).click();
+		await page
+			.getByText(`Edit Failure ${failure} or enter a model`, { exact: true })
+			.click();
 		await page.getByText(message, { exact: false }).waitFor();
-		assert.equal(await page.evaluate(() => window.acceptance.selected().model), 'after-failure');
+		assert.equal(
+			await page.evaluate(() => window.acceptance.selected().model),
+			'after-failure',
+		);
 		await page.keyboard.press('Escape');
 	}
 	assert.deepEqual(errors, []);
