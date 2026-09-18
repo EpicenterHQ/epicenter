@@ -33,6 +33,7 @@ function setup(
 	};
 	const owner = createAppAi({
 		connections: records,
+		configuredFetch: (input, init) => fetch(input, init),
 		lifetime: {
 			signal: controller.signal,
 			assertUsable: () => controller.signal.throwIfAborted(),
