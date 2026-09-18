@@ -54,8 +54,8 @@ product decision and proof of its loss boundary.
 
 ## Implementation evidence
 
-`packages/data/src/sync/authority.ts` contains activation and retirement.
-`packages/data/src/store/current-cache.ts` owns durable cache state.
+`packages/app/src/data/sync/authority.ts` contains activation and retirement.
+`packages/app/src/data/store/current-cache.ts` owns durable cache state.
 `apps/honeycrisp/scripts/library-retirement.ts` drives activation through a
 test-only service binding and exercises stale devices, invalidation, and reload.
 It is evidence for the mechanism, not an exposed recovery workflow.

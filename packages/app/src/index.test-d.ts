@@ -1,12 +1,7 @@
 /** Flat declarations preserve schema inference and the captured Account overload. */
 import { expectTypeOf } from 'bun:test';
+import { defineTable, field, type KvOf, type RowOf } from '@epicenter/app';
 import type { Account } from '@epicenter/auth';
-import {
-	defineTable,
-	field,
-	type KvOf,
-	type RowOf,
-} from '@epicenter/data/definition';
 import { defineApp } from './index.js';
 
 const notes = defineApp({

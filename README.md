@@ -47,10 +47,9 @@ invalidation or race protection. The rich half is in there too: a row's node is
 a nested type on the row, not a second document with an address of its own.
 
 ```typescript
-import { openDatabase } from '@epicenter/data/browser';
-import { defineData, defineTable, field, plainText } from '@epicenter/data/definition';
+import { defineApp, defineTable, field, plainText } from '@epicenter/app';
 
-const notesDefinition = defineData({
+const notesDefinition = defineApp({
 	id: 'com.example.notes',
 	kv: {},
 	tables: {
@@ -63,18 +62,24 @@ const notesDefinition = defineData({
 	},
 });
 
-// Opening is the asynchronous boundary; reads and writes are synchronous.
-const { data, error } = await openDatabase(notesDefinition, { generation: 1 });
+// Open once for this page. Stores become usable after readiness.
+const app = notesDefinition.open();
+const { error } = await app.ready;
 if (error !== null) throw error;
+const data = app.device;
 
 const note = data.tables.notes.create({ title: 'Hello', pinned: false, folderId: null });
 
 const listed = data.tables.notes.rows;             // synchronous flat rows
 const stop = data.tables.notes.subscribe(() => { /* re-read rows */ });
+
+// Before leaving the application:
+stop();
+await app.close();
 ```
 
-A *data definition* is one application's declaration of its durable data: pure
-JSON field descriptors, no storage and no lifecycle of its own. It is
+An application declaration describes its durable data and exposes `.open()`.
+Constructing it opens no storage and captures no account. It is
 release-local and never migrates your data. A row it cannot read is reported
 beside the rows it can, with the reason and the raw values intact, and an
 ordinary write repairs it.
@@ -91,7 +96,7 @@ Sync is one Cloudflare Durable Object per (account, application). Being signed
 in on two devices is the entire sharing model: nothing is paired, invited, or
 approved.
 
-[Read the data package docs](packages/data/README.md) | [What it replaced, and why](docs/the-store-and-what-it-replaced.md)
+[Read the application API](packages/app/README.md) | [What it replaced, and why](docs/the-store-and-what-it-replaced.md)
 
 ## Status
 
@@ -149,8 +154,7 @@ These packages carry the main architecture.
 
 | Package | Role | License |
 | --- | --- | --- |
-| [`@epicenter/data`](packages/data) | The store: one Yjs document per application, a synchronous surface over it, and the transport that carries it. | AGPL-3.0-or-later |
-| [`@epicenter/data/definition`](packages/data/src/definition) | The inert data-definition vocabulary: JSON field descriptors, row addresses, and nonconformance. | AGPL-3.0-or-later |
+| [`@epicenter/app`](packages/app) | Application declarations and lifetime, with the store, persistence, and sync engine inside the package. | AGPL-3.0-or-later |
 | [`@epicenter/sqlite`](packages/sqlite) | Neutral embedded-SQLite driver with Browser, Bun, and Durable Object adapters. It owns no product schema. | AGPL-3.0-or-later |
 | [`@epicenter/sync`](packages/sync) | The WebSocket subprotocol vocabulary both halves of a handshake must agree on. | AGPL-3.0-or-later |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte component library used by multiple apps. | AGPL-3.0-or-later |

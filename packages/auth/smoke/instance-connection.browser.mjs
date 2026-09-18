@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const { chromium } = createRequire(
-	new URL('../../data/package.json', import.meta.url),
+	new URL('../../app/package.json', import.meta.url),
 )('playwright');
 const appURL = process.env.APP_URL ?? 'http://localhost:5175';
 const instanceURL = process.env.INSTANCE_URL ?? 'http://localhost:18879';
@@ -90,7 +90,9 @@ try {
 	await page.getByRole('button', { name: 'Connect', exact: true }).click();
 	await page.getByText(/Synced/).waitFor({ timeout: 20_000 });
 	await page.getByRole('button', { name: 'Account', exact: true }).click();
-	await page.getByRole('button', { name: 'Change connection', exact: true }).click();
+	await page
+		.getByRole('button', { name: 'Change connection', exact: true })
+		.click();
 	await page
 		.getByRole('button', { name: 'Use Epicenter Cloud', exact: true })
 		.click();

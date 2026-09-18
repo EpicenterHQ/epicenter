@@ -7,7 +7,7 @@
 - **Supersedes:** [ADR-0344](0344-an-epicenter-owns-one-data-session-and-opening-it-is-a-verb.md) at its mechanism (the four-state `EpicenterState`, `open()` as a promise, `state`, `onStateChange`, and `eraseReplica` on the handle; its title and its inert constructor stand), and [ADR-0232](0232-a-page-lifetime-is-one-auth-generation-and-a-permanently-denied-sync-stops-for-good.md) (a page lifetime is one auth generation, and a permanently denied sync stops for good). Both of its rules are withdrawn, and the second is why the first existed. A credential refusal is decided locally, so the driver never had to stop, and once it does not stop there is nothing a reload was for.
 - **Amends:** [ADR-0230](0230-an-auth-client-always-offers-openwebsocket-and-a-model-that-cannot-sync-denies-permanently.md) at its mechanism only. The `denied` signal ADR-0232 added to the `SyncDial` contract is deleted, `permanence` is deleted, and its open question about parking and resuming is answered by there being nothing to park. "Denies permanently" now means the model refuses from a literal on every dial, reported as `'no-credential-model'` and dialled again. Its rule stands and is what this record leans on: every client offers `openWebSocket`, and whether a client can sync is answered at runtime rather than by a type.
 - **Relates:** [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md) (superseded at its title by ADR-0342's rejection; what this leans on is its one composition shape), [ADR-0222](0222-a-host-owns-how-to-make-a-socket-and-the-library-owns-everything-done-with-one.md) (the host says how to make a socket, the library says what to do with one), [ADR-0340](0340-an-opened-store-knows-its-own-address-and-its-own-connection.md) (a store answers `sync.status()` for whatever connection drives it), [ADR-0344](0344-an-epicenter-owns-one-data-session-and-opening-it-is-a-verb.md) (opening is a verb), [ADR-0345](0345-the-root-layout-is-chrome-and-the-callback-decides-what-may-live-above-a-page.md) (which node boots an app)
-- **Built.** `epicenter.open()` is synchronous and answers a `DataSession`, all three applications key one session component on the principal, and the reload gate and `fromEpicenter` are deleted. The driver half is across `packages/sync`, `packages/auth`, and `packages/data/src/sync`.
+- **Built.** `epicenter.open()` is synchronous and answers a `DataSession`, all three applications key one session component on the principal, and the reload gate and `fromEpicenter` are deleted. The driver half is across `packages/sync`, `packages/auth`, and `packages/app/src/data/sync`.
 
 ## Context
 
@@ -60,7 +60,7 @@ on its status.**
 `SyncRefusal` in `@epicenter/sync` is the closed union
 `'signed-out' | 'reauth-required' | 'auth-unavailable' | 'no-credential-model'`,
 and `OpenWebSocketDenial` is `{ name, message, code: SyncRefusal }` with no
-`permanence`. `packages/data/src/sync/attach.ts` reports a recognised rejection
+`permanence`. `packages/app/src/data/sync/attach.ts` reports a recognised rejection
 as `closed(cause.code)` and anything else as `onTransportError(cause)` followed
 by `closed()`. The driver has one close callback, records the code on
 `status().refusal`, sets `lastReconnect` to `'refused'`, and dials again on the

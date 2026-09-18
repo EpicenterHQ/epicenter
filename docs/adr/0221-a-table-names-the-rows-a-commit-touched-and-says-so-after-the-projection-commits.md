@@ -9,9 +9,9 @@
   (one document, rows nested on a table root),
   [ADR-0213](0213-a-lens-is-arktype-json-and-an-application-queries-only-its-own-projection.md)
   (the projection `db.query` reads).
-- Evidence: `packages/data/evidence/delta-names-the-row.test.ts`,
-  `packages/data/evidence/bench/subscription.ts`,
-  `packages/data/src/store/store.test.ts`.
+- Evidence: `packages/app/evidence/data/delta-names-the-row.test.ts`,
+  `packages/app/evidence/data/bench/subscription.ts`,
+  `packages/app/src/data/store/store.test.ts`.
 
 - **Amended in the shape it delivers.** The ids are what stands: `subscribe`
   hands the listener the rows a commit touched, collected from the table root's

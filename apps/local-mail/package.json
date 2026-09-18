@@ -32,10 +32,10 @@
 	},
 	"dependencies": {
 		"@epicenter/device": "workspace:*",
-		"@epicenter/data": "workspace:*",
 		"oauth4webapi": "catalog:",
 		"typebox": "catalog:",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"@epicenter/app": "workspace:*"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",

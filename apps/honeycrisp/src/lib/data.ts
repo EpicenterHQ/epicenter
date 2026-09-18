@@ -1,6 +1,13 @@
-import { defineApp } from '@epicenter/app';
+import {
+	type AppStore,
+	type ContentCodec,
+	defineApp,
+	defineTable,
+	field,
+	plainText,
+	type RowOf,
+} from '@epicenter/app';
 import { APPS } from '@epicenter/constants/apps';
-import { field } from '@epicenter/data/definition';
 /**
  * Honeycrisp's inert application declaration.
  *
@@ -12,13 +19,6 @@ import { field } from '@epicenter/data/definition';
  * (ADR-0268).
  */
 
-import type { AppStore } from '@epicenter/app';
-import {
-	type ContentCodec,
-	defineTable,
-	plainText,
-	type RowOf,
-} from '@epicenter/data/definition';
 import { fragmentToPm, pmToFragment } from '@y/prosemirror';
 import * as Y from '@y/y';
 import { EditorState } from 'prosemirror-state';
@@ -83,7 +83,7 @@ const noteMarkdown: ContentCodec = {
 	// Whole rather than diffed. `@y/prosemirror` has `docDiffToDelta` and does
 	// not export it. The cost is not fidelity, it is concurrency: a peer typing
 	// into a paragraph this removes loses those keystrokes
-	// (`packages/data/evidence/rewriting-a-body.test.ts`). A person is told the
+	// (`packages/app/evidence/data/rewriting-a-body.test.ts`). A person is told the
 	// note's text moved in both places before they answer, and answering `file`
 	// is them saying the file wins.
 	rewrite: (node, text) => {

@@ -39,7 +39,7 @@ new to send, and `persistence.get()` reports `blocked` while that is true.
 
 That report currently reaches nobody. No application reads it: the only
 consumer outside this package is `persistOnHide` calling `flush()`
-(`packages/data/src/store/flush-on-hide.ts`). So the honest statement of this
+(`packages/app/src/data/store/flush-on-hide.ts`). So the honest statement of this
 decision is that a blocked device stops syncing SILENTLY, and the surface that
 would make it visible is unbuilt. That surface is the price of this record, and
 it is owed rather than paid.

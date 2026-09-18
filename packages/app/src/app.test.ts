@@ -6,14 +6,9 @@
  */
 import 'fake-indexeddb/auto';
 import { expect, spyOn, test } from 'bun:test';
+import { defineTable, field, plainText } from '@epicenter/app';
+import * as dataBrowser from '@epicenter/app/store/browser';
 import type { Account } from '@epicenter/auth';
-import * as dataBrowser from '@epicenter/data/browser';
-import {
-	defineData,
-	defineTable,
-	field,
-	plainText,
-} from '@epicenter/data/definition';
 import {
 	type AppSqliteDatabase,
 	type DeviceError,
@@ -30,9 +25,9 @@ import { asPrincipalId, deviceOwnerPath } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { encodeFrame } from '../../data/src/sync/frames.js';
 import { createAiConnections } from './ai-connections.js';
 import { browser, createBrowserAppBlobs } from './browser.js';
+import { encodeFrame } from './data/sync/frames.js';
 import { defineApp } from './index.js';
 import { openApp } from './open.js';
 import { createBrowserRecording } from './recording/browser.js';
@@ -54,7 +49,7 @@ const testSqlite: DeviceSqliteOwner = {
 };
 const testBlobs = createBrowserAppBlobs();
 
-const definition = defineData({
+const definition = defineApp({
 	id: 'so.epicenter.app-test',
 	kv: {},
 	tables: {
@@ -770,7 +765,7 @@ test('physical SQL close retains the library claim across schema variants', asyn
 		ai: { runtime: null, account: null },
 	}).open();
 	expectOk(await first.ready);
-	const siblingDefinition = defineData({
+	const siblingDefinition = defineApp({
 		id: 'so.epicenter.sibling',
 		tables: {},
 		kv: {},
@@ -1638,7 +1633,7 @@ test('App retirement during attachment refuses readiness without auto-releasing 
 
 test('replacing the Account cannot submit Alice pending Personal edits as Bob', async () => {
 	const { createSessionAuth } = await import('@epicenter/auth');
-	const { decodeFrame } = await import('../../data/src/sync/frames.js');
+	const { decodeFrame } = await import('./data/sync/frames.js');
 	const appId = `shared.${crypto.randomUUID()}`;
 	let person = 'alice';
 	const submissions: string[] = [];

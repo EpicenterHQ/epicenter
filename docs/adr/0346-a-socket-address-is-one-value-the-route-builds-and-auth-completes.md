@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-04
-- **Unbuilt:** nothing. Built in `packages/sync/src/transport.ts`, `packages/sync/src/store-route.ts`, `packages/data/src/sync/attach.ts`, `packages/auth`, and `packages/server/src/store-sync/browser-dial.test.ts`.
+- **Unbuilt:** nothing. Built in `packages/sync/src/transport.ts`, `packages/sync/src/store-route.ts`, `packages/app/src/data/sync/attach.ts`, `packages/auth`, and `packages/server/src/store-sync/browser-dial.test.ts`.
 - **Relates:** [ADR-0095](0095-websocket-room-auth-uses-route-owned-subprotocol-bearers.md) (why the bearer is a subprotocol at all), [ADR-0222](0222-a-host-owns-how-to-make-a-socket-and-the-library-owns-everything-done-with-one.md) (the host supplies the dial, the library owns what is done with the socket), [ADR-0340](0340-an-opened-store-knows-its-own-address-and-its-own-connection.md) (where `dataId`, `generation`, and `baseURL` are read from), [ADR-0092](0092-identity-is-the-partition.md) (why no partition ever reaches the query string)
 
 ## Context
@@ -13,7 +13,7 @@ The client-side dial was two values that had to agree, built in two places.
 `[MAIN_SUBPROTOCOL, 'bearer.<token>']`. `AuthClient.openWebSocket(url, protocols?)`
 took both as parameters and appended the bearer itself.
 
-`packages/data/src/sync/attach.ts` then declared its own structural port,
+`packages/app/src/data/sync/attach.ts` then declared its own structural port,
 `StoreSocketTransport { openWebSocket(url: string | URL): Promise<WebSocket> }`,
 with one parameter. It called that port with the URL alone. `strict` was on,
 and it did not help: a function with an extra optional parameter is assignable
@@ -33,7 +33,7 @@ offered list was never on the browser path at all.
 
 The tests could not have caught this, because none of them ran the code that
 builds the boundary. `packages/server/workers/e2e.test.ts` hand-wrote the
-`Sec-WebSocket-Protocol` header string. `packages/data/src/sync/attach.test.ts`
+`Sec-WebSocket-Protocol` header string. `packages/app/src/data/sync/attach.test.ts`
 faked the transport with a function that ignored protocols. Both constructed a
 correct handshake instead of observing the one the app produces.
 

@@ -4,7 +4,7 @@ import type { Brand } from 'wellcrafted/brand';
 /**
  * The authenticated principal id, and the partition key everything derives from.
  *
- * This identity leaf exists because `@epicenter/data` and
+ * This identity leaf exists because `@epicenter/app/store` and
  * `@epicenter/auth` both need it and neither depends on the other: the store
  * opens a local database with no auth at all (`application.open()`), and the auth client
  * runs with no store (the hosted dashboard). A leaf is what two siblings share.

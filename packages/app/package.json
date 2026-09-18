@@ -2,7 +2,7 @@
 	"name": "@epicenter/app",
 	"version": "0.0.1",
 	"private": true,
-	"description": "One application's Epicenter Data session.",
+	"description": "Application declarations, store, sync, and application lifetime.",
 	"type": "module",
 	"imports": {
 		"#platform/resources": {
@@ -27,19 +27,30 @@
 		"./clipboard": "./src/clipboard.ts",
 		"./native-ai": "./src/native-ai.ts",
 		"./recorder": "./src/recorder.ts",
-		"./epicenter-host": "./src/epicenter-host.ts"
+		"./epicenter-host": "./src/epicenter-host.ts",
+		"./field": "./src/data/field/index.ts",
+		"./definition": "./src/data/definition/index.ts",
+		"./artifact": "./src/data/artifact/index.ts",
+		"./artifact/format": "./src/data/artifact/format.ts",
+		"./artifact/checkout": "./src/data/artifact/checkout.ts",
+		"./direct": "./src/data/direct.ts",
+		"./flush-on-hide": "./src/data/store/flush-on-hide.ts",
+		"./memory": "./src/data/store/memory.ts",
+		"./sync": "./src/data/sync/index.ts",
+		"./store": "./src/data/store/store.ts",
+		"./store/browser": "./src/data/store/browser.ts"
 	},
 	"scripts": {
-		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.epicenter-host.json",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.epicenter-host.json && tsc --noEmit -p tsconfig.data.json && tsc --noEmit -p tsconfig.data.dom.json && tsc --noEmit -p evidence/data/browser/durable-store/tsconfig.json && tsc --noEmit -p evidence/data/browser/write-cost/tsconfig.json && tsc --noEmit -p evidence/data/browser/port-cost/tsconfig.json",
 		"test": "bun test --isolate",
-		"smoke:recording": "bun scripts/browser-smoke.ts"
+		"smoke:recording": "bun scripts/browser-smoke.ts",
+		"bench": "bun src/data/__benchmarks__/root-rotation.bench.ts && bun src/data/__benchmarks__/checkout.bench.ts"
 	},
 	"dependencies": {
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/blobs": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
-		"@epicenter/data": "workspace:*",
 		"@epicenter/device": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"nanoid": "catalog:",
@@ -48,10 +59,13 @@
 		"@tauri-apps/api": "catalog:",
 		"@tauri-apps/plugin-clipboard-manager": "^2.3.0",
 		"@epicenter/principal": "workspace:*",
-		"@epicenter/sync": "workspace:*"
+		"@epicenter/sync": "workspace:*",
+		"@epicenter/sqlite": "workspace:*",
+		"@y/y": "14.0.0-rc.24",
+		"idb": "^8.0.3",
+		"typebox": "catalog:"
 	},
 	"devDependencies": {
-		"@epicenter/sqlite": "workspace:*",
 		"@types/bun": "catalog:",
 		"fake-indexeddb": "^6.2.5",
 		"typescript": "catalog:",

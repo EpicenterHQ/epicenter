@@ -5,9 +5,9 @@
  * the export contains descriptive Markdown without loading audio bytes.
  */
 import { expect, spyOn, test } from 'bun:test';
+import { InstantString } from '@epicenter/app/field';
+import { openMemory } from '@epicenter/app/memory';
 import { generateBlobId } from '@epicenter/blobs';
-import { InstantString } from '@epicenter/data/field';
-import { openMemory } from '@epicenter/data/memory';
 import { strFromU8, unzipSync } from 'fflate';
 import yaml from 'js-yaml';
 import { Ok } from 'wellcrafted/result';

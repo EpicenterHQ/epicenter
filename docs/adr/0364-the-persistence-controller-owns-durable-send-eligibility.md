@@ -21,7 +21,7 @@ depend on the adapter. Tests over SQLite could miss races in browser persistence
 **The persistence controller owns the transition from accepted updates to durable,
 sendable work.**
 
-`packages/data/src/store/persistence.ts` allocates monotone IDs, queues appends and
+`packages/app/src/data/store/persistence.ts` allocates monotone IDs, queues appends and
 acknowledgements, mirrors confirmed rows, merges unsubmitted owed rows, and wakes
 sync through `onSendable` after a successful commit. The store owns the live
 `Y.Doc` and supplies authored or received bytes to that controller.

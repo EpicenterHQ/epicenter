@@ -1,6 +1,12 @@
-import { defineApp } from '@epicenter/app';
+import {
+	defineApp,
+	defineTable,
+	field,
+	plainText,
+	type RowOf,
+} from '@epicenter/app';
+import type { DeclaredData } from '@epicenter/app/store';
 import { APPS } from '@epicenter/constants/apps';
-import { field } from '@epicenter/data/definition';
 /**
  * Vocab's inert workspace declaration: the workspace id it owns, its tables, and its device-local
  * values. Isomorphic: no IndexedDB, WebSockets, Svelte state, or browser APIs.
@@ -18,10 +24,9 @@ import { field } from '@epicenter/data/definition';
  */
 
 import type { AgentMessage } from '@epicenter/agent';
+
 import { conversationsTable } from '@epicenter/chat';
 import type { ServableModel } from '@epicenter/constants/ai-providers';
-import type { DeclaredData } from '@epicenter/data';
-import { defineTable, plainText, type RowOf } from '@epicenter/data/definition';
 
 /**
  * Vocab runs a single model. It is an app constant, not a per-conversation

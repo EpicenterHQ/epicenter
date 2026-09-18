@@ -47,7 +47,7 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 		// workspace member depends on since the store moved to `@y/y`, so it was
 		// inert. Retargeting it at `@y/y` is worse than inert: `dedupe` resolves
 		// from the app root, and an app that reaches the CRDT only through
-		// `@epicenter/data` does not declare it, so Rollup fails the production
+		// `@epicenter/app/store` does not declare it, so Rollup fails the production
 		// build with an unresolved import. One install is what actually keeps
 		// CRDT identity, and the lockfile is where that is enforced.
 		server: {

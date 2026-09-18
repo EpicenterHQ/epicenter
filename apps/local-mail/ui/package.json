@@ -55,7 +55,6 @@
 		"@epicenter/app": "workspace:*",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/constants": "workspace:*",
-		"@epicenter/data": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"wellcrafted": "catalog:"
 	},

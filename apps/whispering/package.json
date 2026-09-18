@@ -108,7 +108,6 @@
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
-		"@epicenter/data": "workspace:*",
 		"@epicenter/device": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",

@@ -1,3 +1,4 @@
+import { defineApp, defineTable, field, plainText } from '@epicenter/app';
 /**
  * What the store's dial actually offers when a real auth client is the
  * transport.
@@ -9,7 +10,7 @@
  * `epicenter`. So a browser replica offered exactly `['bearer.…']` and every
  * dial came back 400.
  *
- * `packages/data`'s own dial test fakes the transport, and `packages/auth`'s
+ * `packages/app/src/data`'s own dial test fakes the transport, and `packages/auth`'s
  * contract test fakes the caller, so each half passed while the pair was
  * broken. This file is where they meet: the real `attachStoreSync`, the real
  * `createSessionAuth`, and a `WebSocket` constructor that records what it was
@@ -17,22 +18,17 @@
  */
 
 import { expect, test } from 'bun:test';
+
+import { openMemory } from '@epicenter/app/memory';
+import { attachStoreSync } from '@epicenter/app/sync';
 import { createSessionAuth } from '@epicenter/auth';
-import {
-	defineData,
-	defineTable,
-	field,
-	plainText,
-} from '@epicenter/data/definition';
-import { openMemory } from '@epicenter/data/memory';
-import { attachStoreSync } from '@epicenter/data/sync';
 import { asPrincipalId } from '@epicenter/principal';
 import {
 	BEARER_SUBPROTOCOL_PREFIX,
 	MAIN_SUBPROTOCOL,
 } from '@epicenter/sync/auth-subprotocol';
 
-const definition = defineData({
+const definition = defineApp({
 	id: 'so.epicenter.subprotocol-test',
 	kv: {},
 	tables: {
@@ -80,7 +76,9 @@ test('the dial offers the main subprotocol beside the bearer', async () => {
 
 	const store = await openMemory(definition);
 	const connection = attachStoreSync({
-		onRetired() { throw new Error('Unexpected retirement in this transport test'); },
+		onRetired() {
+			throw new Error('Unexpected retirement in this transport test');
+		},
 		store,
 		address: { baseURL: BASE_URL, dataId: definition.id, generation: 1 },
 		transport:

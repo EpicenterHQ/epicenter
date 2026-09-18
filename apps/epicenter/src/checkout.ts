@@ -59,7 +59,6 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { isAppId } from '@epicenter/constants/app-data';
 // One import, and it is the entry point that holds no CRDT: this module writes
 // and reads files and interprets none of them, so nothing here may reach the
 // half of the checkout that opens a store.
@@ -70,7 +69,8 @@ import {
 	MANIFEST_PATH,
 	parseCheckout,
 	parseRowPath,
-} from '@epicenter/data/artifact/format';
+} from '@epicenter/app/artifact/format';
+import { isAppId } from '@epicenter/constants/app-data';
 
 /**
  * The folder is not the one the write was prepared against.

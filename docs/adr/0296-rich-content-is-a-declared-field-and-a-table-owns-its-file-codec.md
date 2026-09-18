@@ -104,7 +104,7 @@ The signature this record told the reader not to simplify is simplified.
 **The mechanism this record named is real; the conclusion drawn from it was too
 broad.** Re-measured on the same `@y/y@14.0.0-rc.24`, and pinned in
 <!-- doc-path-check: ignore-next-line (a file this superseded record described, since deleted) -->
-`packages/data/evidence/detached-rich-field.test.ts`:
+`packages/app/evidence/data/detached-rich-field.test.ts`:
 
 | This record claimed | Re-measured |
 | --- | --- |

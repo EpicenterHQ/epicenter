@@ -5,7 +5,7 @@ services over an already opened handle. The package does not open storage,
 construct browser or Node runtimes, expose Yjs GUIDs, or register actions.
 
 ```ts
-import { openDatabase } from '@epicenter/data/browser';
+import { openDatabase } from '@epicenter/app/store/browser';
 import { skillsDefinition } from '@epicenter/skills';
 
 const { data: skills, error } = await openDatabase(skillsDefinition, {

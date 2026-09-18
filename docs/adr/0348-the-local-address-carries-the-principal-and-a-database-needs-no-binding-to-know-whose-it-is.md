@@ -98,7 +98,7 @@ application-level removal operation owns recovery before any new open or sync.
   `.../instance/...` and Yjs would interleave two unrelated histories with no
   error. That is exactly the failure ADR-0325's binding prevented, and it is
   being accepted rather than mitigated. `generationPrefix` in
-  `packages/data/src/store/browser.ts` is the one line that has to change.
+  `packages/app/src/data/store/browser.ts` is the one line that has to change.
 - **Every `v4` record on every shipped Honeycrisp device is stranded, on
   purpose, silently.** The next boot resolves nothing under the `v5` prefix,
   asks the authority, fetches its copy, and writes it at the new name. What is

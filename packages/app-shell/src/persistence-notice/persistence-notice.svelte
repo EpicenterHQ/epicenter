@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { PersistenceCapability } from '@epicenter/data';
+	import type { PersistenceCapability } from '@epicenter/app/store';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';

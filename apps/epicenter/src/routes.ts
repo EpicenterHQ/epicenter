@@ -9,7 +9,7 @@
  * SPA reaches domain code.
  */
 
-import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
+import { CHECKOUT_PATH } from '@epicenter/app/artifact/checkout';
 import {
 	CALLBACK_PATH as MAIL_CALLBACK_PATH,
 	PENDING_CALLBACK_PATH as MAIL_PENDING_CALLBACK_PATH,

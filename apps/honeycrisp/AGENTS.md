@@ -114,7 +114,7 @@ only the default one is checked by an editor.
   get it at once.
 - Do not put `workspace`, `replica`, `authority`, `document`, or `sync cursor`
   in anything a person reads. They are the right words in this file and in
-  `packages/data`, and the wrong ones in a tooltip.
+  `packages/app/src/data`, and the wrong ones in a tooltip.
 - Do not detect the host at runtime. The build already answered.
 - Do not migrate, import, or delete data belonging to another build. The web
   build and the hosted build are two stores on one machine, and nothing moves

@@ -1,3 +1,5 @@
+import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import type { ReplicaData } from '@epicenter/app/store';
 /**
  * Test-only: a replica that lives inside `workerd`, driven by the real driver.
  *
@@ -21,15 +23,9 @@
  */
 
 import { DurableObject } from 'cloudflare:workers';
-import {
-	defineData,
-	defineTable,
-	plainText,
-	type ReplicaData,
-} from '@epicenter/data';
-import { field } from '@epicenter/data/definition';
-import { openAccountStore, syncEngineOf } from '@epicenter/data/direct';
-import { attachStoreSync, type SyncConnection } from '@epicenter/data/sync';
+
+import { openAccountStore, syncEngineOf } from '@epicenter/app/direct';
+import { attachStoreSync, type SyncConnection } from '@epicenter/app/sync';
 import { asPrincipalId } from '@epicenter/principal';
 import {
 	createDurableObjectSqliteAdapter,
@@ -47,7 +43,7 @@ import { expectOk } from 'wellcrafted/testing';
 /** This harness covers fresh libraries; restore admission has its own Worker suite. */
 const PROBE_GENERATION = 1;
 
-const probeDefinition = defineData({
+const probeDefinition = defineApp({
 	id: 'so.epicenter.storeprobe',
 	kv: {},
 	tables: {

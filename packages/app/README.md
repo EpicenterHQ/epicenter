@@ -19,8 +19,7 @@ that scope to components requiring an account. This checks the captured
 identity, not network reachability or authorization for a particular request.
 
 ```ts
-import { defineApp } from '@epicenter/app';
-import { defineTable, field } from '@epicenter/data/definition';
+import { defineApp, defineTable, field } from '@epicenter/app';
 
 const application = defineApp({
  id: 'so.epicenter.notes',
@@ -46,9 +45,42 @@ The declaration exposes `id`, `title`, `kv`, and `tables` without opening
 storage or capturing an Account. Schema tools, artifact import/export, and
 `openMemory` accept that same declaration. Its tables describe fields; live
 rows belong to `app.device`, `app.account.personal`, or `app.account.shared`.
-The one `id` names both the application and its data. Lower-level consumers
-can still use `defineData` from `@epicenter/data/definition` without an App.
-Runtime and AI overrides stay in the opener's closure, outside the schema.
+The one `id` names both the application and its data. `defineApp` is the only
+full declaration constructor. Schema tools and tests use that same value;
+they do not call `.open()`. Runtime and AI overrides stay in the opener's
+closure, outside the schema.
+
+## Package boundaries
+
+`@epicenter/app` owns the declaration, application lifetime, and data engine.
+The root supplies `defineApp`, `defineTable`, `field`, content codecs, and
+inferred schema types. Engine consumers use independent entrypoints:
+
+| Import | Consumer and purpose |
+| --- | --- |
+| `@epicenter/app/definition` | Reusable table declarations, schema inspection, compilation |
+| `@epicenter/app/store` | Store handles and direct construction types |
+| `@epicenter/app/sync` | Client transport and server authority |
+| `@epicenter/app/artifact` | Render and read application files |
+| `@epicenter/app/artifact/format` | Host-side file framing without loading the store |
+| `@epicenter/app/artifact/checkout` | Working-copy pull and push |
+| `@epicenter/app/memory` | Bun-backed in-memory stores for tests |
+| `@epicenter/app/direct` | Explicit SQLite-backed account stores for probes |
+| `@epicenter/app/store/browser` | IndexedDB persistence owned by the App |
+| `@epicenter/app/field` | Field descriptors and date/string validation |
+
+The schema, store, sync, and format entrypoints do not import the App opener
+or browser/native platform implementations. A full declaration imported from
+the root statically loads platform modules, but opens no storage, starts no worker,
+and captures no Account. `import-boundaries.test.ts` checks both guarantees.
+The `/browser` entrypoint selects the complete application runtime;
+`/store/browser` owns browser persistence.
+
+`src/data/` holds the engine. Its [README](src/data/README.md) describes row,
+persistence, and synchronization behavior. The [architecture map](ARCHITECTURE.md)
+shows the package's consumers, module boundaries, and lifetime.
+
+## Runtime selection
 
 The package selects SQLite, secrets, blobs, and recording together for the build.
 Browser recording publishes into IndexedDB. Host recording publishes into the

@@ -10,7 +10,7 @@
 ## Context
 
 Two store kinds existed. A device store recorded `NO_AUTHORITY`
-(`packages/data/src/store/log.ts`) on its own appends, so it owed nobody and
+(`packages/app/src/data/store/log.ts`) on its own appends, so it owed nobody and
 `fold` compacted everything it held. An account store recorded NULL, which means
 owed, and `fold` skips owed rows. The constant survives, as the fold's baseline
 for bytes that arrived from elsewhere. One difference in one column, and above
@@ -31,7 +31,7 @@ reason anyone wanted that was a person using an application before signing in.
 **An authority mints every generation, so every store has an account.**
 
 A person signs in before anything else; that is the first run. There is one
-store kind and one address (`packages/data/src/store/browser.ts`).
+store kind and one address (`packages/app/src/data/store/browser.ts`).
 
 ```txt
 openDatabase(definition, { appId, generation, account })   account is required

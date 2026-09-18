@@ -69,8 +69,8 @@ currently runs.
 Some packages WERE published, before 2026-08. Those versions stay available under
 the license they shipped with, which the root [LICENSE](../../LICENSE) records.
 One of them, `@epicenter/field`, no longer exists as a package at all: its field
-palette lives in `packages/data/src/field` and is reached as
-`@epicenter/data/field` (ADR-0309).
+palette lives in `packages/app/src/data/field` and is reached as
+`@epicenter/app/field` (ADR-0309).
 
 ### Fixed version group
 

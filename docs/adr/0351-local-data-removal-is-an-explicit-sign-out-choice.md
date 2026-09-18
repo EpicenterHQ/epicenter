@@ -15,12 +15,12 @@ callback; Whispering withholds it because its audio has no principal-scoped
 removal path.
 
 `eraseReplica` in `packages/app/src/index.ts` closes the store and reopens on
-failure. `eraseGenerations` in `packages/data/src/store/browser.ts` deletes
+failure. `eraseGenerations` in `packages/app/src/data/store/browser.ts` deletes
 databases sequentially. A failure can therefore follow a successful deletion.
 Reopening is not rollback and can download data the person was removing.
 
 Local persistence and network authorization already have separate owners.
-`packages/data/src/store/persistence.ts` records saved updates and authority
+`packages/app/src/data/store/persistence.ts` records saved updates and authority
 acknowledgments. Credential refusal does not invalidate that local document.
 
 ## Decision

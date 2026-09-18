@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import type { SyncRefusal } from '@epicenter/data/sync';
+	import type { SyncRefusal } from '@epicenter/app/sync';
 
 	// What a refused dial says to a person, mapped exhaustively so a new
 	// refusal cannot arrive without a decision about this line. Two arms say
@@ -16,7 +16,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { AccountPopover } from '@epicenter/app-shell/account-popover';
-	import type { SyncConnectionStatus } from '@epicenter/data/sync';
+	import type { SyncConnectionStatus } from '@epicenter/app/sync';
 	import * as Collapsible from '@epicenter/ui/collapsible';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
 	import * as Sidebar from '@epicenter/ui/sidebar';
@@ -24,7 +24,7 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import { getAuth } from '$lib/auth.svelte.js';
-	import type { WorkingCopy } from '@epicenter/data/artifact/checkout';
+	import type { WorkingCopy } from '@epicenter/app/artifact/checkout';
 	import { getHoneycrisp } from '$lib/app.svelte.js';
 		import { navigation } from '$lib/navigation.svelte.js';
 	import FolderMenuItem from '../components/FolderMenuItem.svelte';

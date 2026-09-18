@@ -1,5 +1,5 @@
-import type { RowAbsentError } from '@epicenter/data';
-import { InstantString } from '@epicenter/data/field';
+import { InstantString } from '@epicenter/app/field';
+import type { RowAbsentError } from '@epicenter/app/store';
 import {
 	fromSubscription,
 	type ReactiveData,

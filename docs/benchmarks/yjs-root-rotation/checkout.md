@@ -6,7 +6,7 @@ fold scheduling before introducing document replacement for storage maintenance.
 ## Reproduce
 
 ```sh
-bun packages/data/src/__benchmarks__/checkout.bench.ts > /tmp/checkout.json
+bun packages/app/src/data/__benchmarks__/checkout.bench.ts > /tmp/checkout.json
 ```
 
 [Recorded results](2026-09-09-checkout.json) use `@y/y` 14.0.0-rc.24, Bun 1.3.1,

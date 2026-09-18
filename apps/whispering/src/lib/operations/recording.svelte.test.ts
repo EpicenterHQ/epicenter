@@ -4,13 +4,13 @@
  * actual storage durability is covered by the store and native adapter suites.
  */
 import { afterAll, expect, mock, setSystemTime, test } from 'bun:test';
+import { InstantString } from '@epicenter/app/field';
 import {
 	RecorderError,
 	type Recording,
 	type RecordingService,
 } from '@epicenter/app/recorder';
 import { BlobStoreError, generateBlobId } from '@epicenter/blobs';
-import { InstantString } from '@epicenter/data/field';
 import { asDeviceIdentifier } from '@epicenter/recorder';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { WhisperingApp } from '$lib/whispering/app';

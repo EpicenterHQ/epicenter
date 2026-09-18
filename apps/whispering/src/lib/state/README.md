@@ -45,7 +45,7 @@ The processing pipeline accepts only the resulting recording ID, so retrying
 transcription cannot publish another blob or create another row.
 
 ```typescript
-import { InstantString } from '@epicenter/data/field';
+import { InstantString } from '@epicenter/app/field';
 import { unwrap } from 'wellcrafted/result';
 import { getWhisperingApp } from '$lib/whispering/context';
 

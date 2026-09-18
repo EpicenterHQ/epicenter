@@ -21,8 +21,7 @@ tools opens no storage and captures no Account. Its one `id` names both the
 application and its data.
 
 ```ts
-import { defineApp } from '@epicenter/app';
-import { defineTable, field } from '@epicenter/data/definition';
+import { defineApp, defineTable, field } from '@epicenter/app';
 
 export const notes = defineApp({
   id: 'com.example.notes',
@@ -45,12 +44,12 @@ Signing in does not adopt signed-out data. Each app decides whether its primary
 route permits signed-out use.
 
 Schema consumers use the same declaration, including in-memory tests and
-artifact import/export. Lower-level consumers retain `defineData` and the
-openers in `@epicenter/data` when they need data without an App. Application
+artifact import/export. `defineApp` is the only full declaration constructor.
+Schema tools and memory openers consume it without opening an App. Application
 bootstraps leave store acquisition and sync ownership to the App.
 
 See the [App contract](../packages/app/README.md) for readiness and lifetime
-rules, and the [data contract](../packages/data/README.md) for schema and store
+rules, and the [data contract](../packages/app/src/data/README.md) for schema and store
 behavior.
 
 ## Layout

@@ -18,9 +18,9 @@
   (the authority reads nothing, which this preserves),
   [ADR-0214](0214-one-sqlite-file-holds-the-update-log-and-the-projection-and-history-lives-outside-the-crdt.md)
   (local persistence and history).
-- Evidence: `packages/data/src/sync/transport.test.ts` (including a seeded
-  convergence fuzz), `packages/data/evidence/retention.test.ts`,
-  `packages/data/evidence/workerd/results.md`.
+- Evidence: `packages/app/src/data/sync/transport.test.ts` (including a seeded
+  convergence fuzz), `packages/app/evidence/data/retention.test.ts`,
+  `packages/app/evidence/data/workerd/results.md`.
 
 ## Context
 

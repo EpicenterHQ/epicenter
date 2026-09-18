@@ -1,17 +1,15 @@
 import type { Account } from '@epicenter/auth';
 import type { BlobSources, BlobStore, RemoteBlobs } from '@epicenter/blobs';
 import { isAppId } from '@epicenter/constants/app-id';
-import {
-	compileData,
-	type DataDefinition,
-	type defineData,
-} from '@epicenter/data/definition';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import type { AccountIdentity } from '@epicenter/principal';
 import { createDefaultAppAi } from '#platform/ai';
 import { resources } from '#platform/resources';
 import type { AiTransport } from './ai.js';
 import type { AiConnections } from './ai-connections.js';
+import type { DeclaredTable } from './data/definition/declaration.js';
+import type { ValidateFields } from './data/definition/define.js';
+import { compileData, type DataDefinition } from './data/definition/index.js';
 import { type App, type AppStore, openApp } from './open.js';
 import type { RecordingFactory } from './recorder.js';
 
@@ -55,7 +53,13 @@ export function defineApp<const TDefinition extends DataDefinition>({
 	runtime = resources,
 	ai = createDefaultAppAi(),
 	...schema
-}: Parameters<typeof defineData<TDefinition>>[0] & {
+}: TDefinition & {
+	kv: ValidateFields<TDefinition['kv']>;
+	tables: {
+		[Name in keyof TDefinition['tables']]: TDefinition['tables'][Name] extends DeclaredTable
+			? TDefinition['tables'][Name]
+			: DeclaredTable;
+	};
 	runtime?: ApplicationRuntime;
 	ai?: AppAiBinding;
 }) {
@@ -95,3 +99,17 @@ export type AppAiBinding = {
 	connections?: (appId: string, account?: AccountIdentity) => AiConnections;
 	configuredFetch?: AiTransport['fetch'];
 };
+
+export { plainText } from './data/definition/content.js';
+export {
+	type ContentCodec,
+	ContentError,
+	type CreateRowOf,
+	type DataDefinition,
+	field,
+	type KvOf,
+	type RowOf,
+} from './data/definition/declaration.js';
+export { defineTable } from './data/definition/define.js';
+export type { JsonObject, JsonValue } from './data/definition/json.js';
+export { jsonValue } from './data/field/index.js';

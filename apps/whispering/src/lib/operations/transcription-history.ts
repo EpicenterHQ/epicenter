@@ -1,4 +1,4 @@
-import { InstantString } from '@epicenter/data/field';
+import { InstantString } from '@epicenter/app/field';
 import {
 	type AnyTaggedError,
 	defineErrors,

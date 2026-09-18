@@ -5,12 +5,12 @@
  * is the only such SQLite `workerd` supplies. This is NOT the browser storage
  * topology: a browser keeps its durable client facts in IndexedDB. The peer
  * keeps them in its one DO SQLite database through the engine seam
- * (`@epicenter/data/direct`), so this Worker-runtime test can run the real
+ * (`@epicenter/app/direct`), so this Worker-runtime test can run the real
  * `openAccountStore`, `createSyncClient`, and WebSocket protocol against
  * the real authority.
  *
  * Therefore this fixture proves authority hibernation and protocol convergence,
- * not browser persistence. Browser storage behavior belongs in `packages/data`
+ * not browser persistence. Browser storage behavior belongs in `packages/app/src/data`
  * browser tests.
  *
  * It is deliberately NOT exported from `worker/index.ts` and NOT in
@@ -18,24 +18,19 @@
  * deploys grows a class that exists for a test.
  */
 import { DurableObject } from 'cloudflare:workers';
-import {
-	defineData,
-	defineTable,
-	field,
-	plainText,
-} from '@epicenter/data/definition';
-import { openAccountStore } from '@epicenter/data/direct';
+import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { openAccountStore } from '@epicenter/app/direct';
 import {
 	createSyncClient,
 	decodeFrame,
 	type SyncClient,
-} from '@epicenter/data/sync';
+} from '@epicenter/app/sync';
 import {
 	createDurableObjectSqliteAdapter,
 	type DurableObjectSqliteStorage,
 } from '@epicenter/sqlite/durable-object';
 
-const labDatabase = defineData({
+const labDatabase = defineApp({
 	id: 'so.epicenter.synclab',
 	kv: {},
 	tables: {

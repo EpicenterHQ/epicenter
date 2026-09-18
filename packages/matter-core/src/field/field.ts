@@ -343,7 +343,7 @@ export type Field = { [K in Kind]: FieldOf<K> }[Kind];
  * indexing the marker by hand. The `kind === 'reference'` guard narrows `schema` to the
  * reference meta, whose `[REFERENCE_KEYWORD]` is a required string, so no cast is needed.
  *
- * This reads a field AFTER recognition. The schema-level floor in `@epicenter/data/definition`
+ * This reads a field AFTER recognition. The schema-level floor in `@epicenter/app/definition`
  * reads the marker off a raw `TSchema` BEFORE recognition (and sees through `nullable`),
  * a genuinely different input, so the two readers stay separate.
  */

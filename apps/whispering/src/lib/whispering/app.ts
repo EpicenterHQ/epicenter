@@ -1,7 +1,7 @@
 import type { App, AppStore } from '@epicenter/app';
+import type { SyncConnectionStatus } from '@epicenter/app/sync';
 import type { InferenceConnections } from '@epicenter/app-shell/inference-picker';
 import type { Account } from '@epicenter/auth';
-import type { SyncConnectionStatus } from '@epicenter/data/sync';
 import type { WhisperingSettingValues, whisperingDefinition } from '../data';
 import type { WhisperingRecording } from '../operations/recording.svelte.js';
 import { APPLICATION_DEFAULTS } from '../operations/settings.js';

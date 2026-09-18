@@ -39,7 +39,7 @@ That's the `epicenter` CLI. Karpathy's monthly health check becomes a script you
 Schemas are typed and enforced at runtime, not just documented:
 
 ```typescript
-import { defineTable, field, plainText } from "@epicenter/data/definition";
+import { defineTable, field, plainText } from "@epicenter/app/definition";
 
 const notes = defineTable({
   title: field.string(),

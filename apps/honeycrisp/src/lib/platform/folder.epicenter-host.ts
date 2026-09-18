@@ -8,4 +8,4 @@
  * whether to show a button; a build with no filesystem now has no working copy
  * to construct, and the components that take one are unreachable from it.
  */
-export { createWorkingCopy as openWorkingCopy } from '@epicenter/data/artifact/checkout';
+export { createWorkingCopy as openWorkingCopy } from '@epicenter/app/artifact/checkout';

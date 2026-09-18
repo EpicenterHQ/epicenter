@@ -8,7 +8,7 @@
 > **2026-09-05 amendment:** The `## Context` sentence below saying Honeycrisp's
 > standalone bundle "owns its own OPFS storage" is stale, and only in its
 > medium. A build that owns its own store owns an IndexedDB record in its own
-> storage partition (`packages/data/src/store/browser.ts`, which holds the only
+> storage partition (`packages/app/src/data/store/browser.ts`, which holds the only
 > persistence there is and states why there is no worker and no OPFS). Which
 > Epicenter owns the data is still fixed at build time by the condition this
 > record decides.

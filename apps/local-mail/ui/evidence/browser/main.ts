@@ -1,8 +1,7 @@
 import './style.css';
-import { defineApp } from '@epicenter/app';
+import { defineApp, defineTable, field } from '@epicenter/app';
+import { syncEngineOf } from '@epicenter/app/direct';
 import type { Account } from '@epicenter/auth';
-import { defineTable, field } from '@epicenter/data/definition';
-import { syncEngineOf } from '@epicenter/data/direct';
 import { mount } from 'svelte';
 import { expectOk } from 'wellcrafted/testing';
 import { openLocalMailStorage } from '../../../src/storage.js';

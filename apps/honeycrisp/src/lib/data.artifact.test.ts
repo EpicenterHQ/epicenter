@@ -8,10 +8,10 @@
  * actually be lost.
  */
 import { expect, test } from 'bun:test';
-import { readArtifact, renderArtifact } from '@epicenter/data/artifact';
-import { syncEngineOf } from '@epicenter/data/direct';
-import { InstantString } from '@epicenter/data/field';
-import { openMemory } from '@epicenter/data/memory';
+import { readArtifact, renderArtifact } from '@epicenter/app/artifact';
+import { syncEngineOf } from '@epicenter/app/direct';
+import { InstantString } from '@epicenter/app/field';
+import { openMemory } from '@epicenter/app/memory';
 import { pmToFragment } from '@y/prosemirror';
 import { expectOk } from 'wellcrafted/testing';
 import { honeycrispDefinition } from './data.js';

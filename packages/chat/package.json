@@ -18,9 +18,9 @@
 	},
 	"dependencies": {
 		"@epicenter/agent": "workspace:*",
-		"@epicenter/data": "workspace:*",
 		"@y/y": "14.0.0-rc.24",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"@epicenter/app": "workspace:*"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",

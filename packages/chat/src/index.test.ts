@@ -1,3 +1,4 @@
+import { defineApp } from '@epicenter/app';
 /**
  * What this package promises: the canonical table splices into an application's
  * own workspace, and a conversation's messages survive a restart of that
@@ -10,12 +11,12 @@
 
 import { expect, test } from 'bun:test';
 import type { AgentMessage } from '@epicenter/agent';
-import { defineData } from '@epicenter/data/definition';
-import { InstantString } from '@epicenter/data/field';
-import { createMemoryRecord, openMemory } from '@epicenter/data/memory';
+
+import { InstantString } from '@epicenter/app/field';
+import { createMemoryRecord, openMemory } from '@epicenter/app/memory';
 import { conversationsTable, createAgentMessageStore } from './index.js';
 
-const testDefinition = defineData({
+const testDefinition = defineApp({
 	id: 'so.epicenter.chat-test',
 	kv: {},
 	tables: {

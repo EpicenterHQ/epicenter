@@ -8,10 +8,10 @@ import { expect, spyOn, test } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { defineTable, field } from '@epicenter/app';
+import * as dataBrowser from '@epicenter/app/store/browser';
 import type { Account } from '@epicenter/auth';
 import { type BlobId, parseBlobId } from '@epicenter/blobs';
-import * as dataBrowser from '@epicenter/data/browser';
-import { defineData, defineTable, field } from '@epicenter/data/definition';
 import { secretLabel } from '@epicenter/device';
 import { createSqliteOwner } from '@epicenter/device/owner';
 import { installTestLocks } from '@epicenter/device/test-locks';
@@ -20,13 +20,13 @@ import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { encodeFrame } from '../../data/src/sync/frames.js';
 import { browser } from './browser.js';
+import { encodeFrame } from './data/sync/frames.js';
 import { defineApp } from './index.js';
 import { createBrowserRecording } from './recording/browser.js';
 
 installTestLocks();
-const definition = defineData({
+const definition = defineApp({
 	id: 'so.epicenter.scopes-test',
 	kv: {},
 	tables: {

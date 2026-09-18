@@ -13,10 +13,10 @@ resending existing images with each small edit.
 From the repository root:
 
 ```sh
-bun packages/data/evidence/bench/inline-images.ts
+bun packages/app/evidence/data/bench/inline-images.ts
 ```
 
-[Source](../../../packages/data/evidence/bench/inline-images.ts).
+[Source](../../../packages/app/evidence/data/bench/inline-images.ts).
 [Recorded results](2026-09-16-bun.json).
 
 Recorded on 2026-09-16 with Bun 1.3.14, `@y/y` 14.0.0-rc.24, macOS arm64.

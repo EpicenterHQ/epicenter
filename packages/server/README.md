@@ -30,7 +30,7 @@ The browser validates and installs the complete capture before making its cache
 usable. A usable cache can reopen offline.
 
 `StoreAuthority` adapts Worker storage and sockets to
-`openCurrentAuthority` in `@epicenter/data/sync`. That authority owns atomic
+`openCurrentAuthority` in `@epicenter/app/sync`. That authority owns atomic
 initialization, generation admission, replacement, and activation retry receipts.
 It holds opaque bytes; the browser owns document validation. A socket upgrade
 is not admission: an unavailable generation receives a retirement frame and
@@ -74,7 +74,7 @@ live in `apps/api/worker/billing/`, because they are hosted-only.
 ## Shared protocol packages
 
 These packages are private and AGPL-3.0-or-later. Merge rules and
-wire framing are in `@epicenter/data/sync`, embedded-SQLite normalization is in
+wire framing are in `@epicenter/app/sync`, embedded-SQLite normalization is in
 `@epicenter/sqlite`, and the routes, HTTP capture framing, and subprotocol vocabulary both halves
 use are in `@epicenter/sync`. Worker bindings and deployment composition remain
 in this package and its deployables.

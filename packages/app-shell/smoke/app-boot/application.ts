@@ -1,7 +1,8 @@
+import { defineApp, field } from '@epicenter/app';
+import { compileData } from '@epicenter/app/definition';
 import { createBrowserAuth } from '@epicenter/auth';
-import { compileData, defineData, field } from '@epicenter/data/definition';
 import { Ok } from 'wellcrafted/result';
-import { createStoreOverPort } from '../../../data/src/store/store.js';
+import { createStoreOverPort } from '../../../app/src/data/store/store.js';
 import { createDeparture } from '../../src/boot-screens/departure.js';
 import { probe } from './probe.js';
 
@@ -25,7 +26,7 @@ export const auth = createBrowserAuth({
 	baseURL: 'https://hosted.example',
 });
 const definition = compileData(
-	defineData({
+	defineApp({
 		id: 'test.boot-probe',
 		kv: { text: field.string() },
 		tables: {},
@@ -39,7 +40,8 @@ export const app = new URL(location.href).searchParams.has('connect')
 			acquire: async () => {
 				const opening = new URL(location.href).searchParams.get('opening');
 				if (opening === 'held') await probe.opening;
-				if (opening === 'failed') throw new Error('Fixture storage is unavailable.');
+				if (opening === 'failed')
+					throw new Error('Fixture storage is unavailable.');
 				return Ok({
 					durable: {
 						async commit() {
@@ -58,7 +60,7 @@ export const ready = app?.ready.then((result) => {
 });
 export const departure = createDeparture({
 	account: auth.auth?.state.account,
-	auth: app ? auth.auth ?? undefined : undefined,
+	auth: app ? (auth.auth ?? undefined) : undefined,
 	async close() {
 		await app?.close();
 		probe.events.push('closed');

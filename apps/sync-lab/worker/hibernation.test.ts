@@ -21,7 +21,7 @@
  * Convergence is asserted on the receiving test peer's own rows, read back
  * through the Workspace out of its own SQLite, never on a count the test kept.
  * The peer runs the real Store and sync client, but it is not a browser-storage
- * simulation: browser persistence is covered separately in `packages/data`.
+ * simulation: browser persistence is covered separately in `packages/app/src/data`.
  * The only numbers this file keeps are re-delivery observations, because a run
  * that re-sent nothing and a run that re-sent and was correctly ignored converge
  * identically.

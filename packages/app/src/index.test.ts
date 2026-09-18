@@ -7,14 +7,9 @@
 
 import 'fake-indexeddb/auto';
 import { expect, spyOn, test } from 'bun:test';
-import {
-	canonicalJson,
-	compileData,
-	defineData,
-	defineTable,
-	field,
-} from '@epicenter/data/definition';
-import { openMemory } from '@epicenter/data/memory';
+import { defineTable, field } from '@epicenter/app';
+import { canonicalJson, compileData } from '@epicenter/app/definition';
+import { openMemory } from '@epicenter/app/memory';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { Ok } from 'wellcrafted/result';
@@ -41,7 +36,7 @@ const sqlite: DeviceSqliteOwner = {
 };
 const blobs = createBrowserAppBlobs();
 
-const definition = defineData({ id: 'so.epicenter.notes', tables: {}, kv: {} });
+const definition = defineApp({ id: 'so.epicenter.notes', tables: {}, kv: {} });
 
 test('App readiness includes catalog hydration and failed hydration releases the library', async () => {
 	const hydrated = Promise.withResolvers<void>();
@@ -265,7 +260,7 @@ test('definition inference retains table and field names through a runtime overr
 });
 
 test('the same declaration compiles and opens in memory without acquiring App resources', async () => {
-	const schema = defineData({
+	const schema = defineApp({
 		id: 'test.schema',
 		kv: { language: field.string() },
 		tables: { notes: defineTable({ title: field.string() }) },

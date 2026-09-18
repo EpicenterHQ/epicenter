@@ -24,7 +24,7 @@ import { mountAuthRoutes } from '../../server/src/routes/auth.js';
 import { mountSessionApp } from '../../server/src/routes/session.js';
 
 const { chromium } = createRequire(
-	new URL('../../data/package.json', import.meta.url),
+	new URL('../../app/package.json', import.meta.url),
 )('playwright');
 const { Hono } = createRequire(
 	new URL('../../server/package.json', import.meta.url),
@@ -387,7 +387,11 @@ try {
 	await page.waitForURL(`${origin}${continuation}`);
 	assert.equal(db.session.length, 2);
 	const persisted = await page.evaluate(() =>
-		JSON.parse(localStorage.getItem(`so.epicenter.dashboard.auth.persisted:${location.origin}`)),
+		JSON.parse(
+			localStorage.getItem(
+				`so.epicenter.dashboard.auth.persisted:${location.origin}`,
+			),
+		),
 	);
 	assert.equal(persisted.principalId, alice.id);
 	assert(persisted.token && persisted.token !== signed);

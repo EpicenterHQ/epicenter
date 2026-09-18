@@ -174,7 +174,7 @@ To run Honeycrisp the way it ships, start the host: `bun dev:epicenter`. Honeycr
 
 There is no browser evidence script here. An account is required (ADR-0336), so
 a fresh Chromium meets the sign-in gate and never reaches a note. What proves
-the durability claim is `packages/data/evidence/browser/durable-store/`, which
+the durability claim is `packages/app/evidence/data/browser/durable-store/`, which
 drives the store itself across a real reload.
 
 ### Manual two-client check
@@ -192,7 +192,7 @@ storage partition (ADR-0177), so they are one device rather than two.
 - `@y/y` 14: row-owned note body documents
 - [Tailwind CSS](https://tailwindcss.com): styling
 - [Better Auth](https://better-auth.com): authentication
-- `@epicenter/data`: the store, its transport, and the data-definition vocabulary
+- `@epicenter/app/store`: the store, its transport, and the data-definition vocabulary
 - `@epicenter/sync`: the bearer-in-subprotocol handshake the upgrade uses
 - `@epicenter/svelte`: auth and browser lifecycle helpers
 - `@epicenter/ui`: shadcn-svelte component library

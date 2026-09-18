@@ -1,4 +1,10 @@
-import { defineTable, field } from '@epicenter/data/definition';
+import {
+	ContentError,
+	defineTable,
+	field,
+	type RowOf,
+} from '@epicenter/app/definition';
+import type { TypedTableHandle } from '@epicenter/app/store';
 import * as Y from '@y/y';
 /**
  * The canonical conversation shape every chat surface shares: the fields a
@@ -18,22 +24,8 @@ import * as Y from '@y/y';
  */
 
 import type { AgentMessage, AgentMessageStore } from '@epicenter/agent';
-/**
- * Two packages, because two different things are being named.
- *
- * `TypedTableHandle` is a runtime handle a store constructs, so it comes from
- * `@epicenter/data`. `RowOf` is inert contract vocabulary owned by
- * `@epicenter/data/definition`; `@epicenter/data` re-exports it, but reaching it
- * through the runtime would say this module builds its schema out of a SQLite
- * projection, which it never does.
- *
- * Both stay runtime dependencies. This package publishes raw TypeScript
- * (`exports` is `./src/index.ts`, with no build and no declaration emit), so a
- * consumer compiles these very lines, and a type-only import it cannot resolve
- * is as fatal as a value one.
- */
-import type { TypedTableHandle } from '@epicenter/data';
-import { ContentError, type RowOf } from '@epicenter/data/definition';
+/** Store handles and inert schema vocabulary have separate entrypoints in App. */
+
 import type { Brand } from 'wellcrafted/brand';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
@@ -54,7 +46,7 @@ export const asConversationId = (value: string): ConversationId =>
  *
  * @example
  * ```ts
- * export const vocabDefinition = defineData({
+ * export const vocabDefinition = defineApp({
  *   id: 'so.epicenter.vocab',
  *   tables: {
  *     conversations: conversationsTable,

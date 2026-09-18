@@ -6,7 +6,7 @@
 - **Date:** 2026-08-31
 - **Amends:** [ADR-0271](0271-a-workspace-mirrors-continuously-to-the-epicenter-folder-one-way.md) at the layout block and at the closed set of places. The one-way rule, the complete pass, and the manifest are unchanged and are what force everything below.
 - **Amends:** [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) at its line saying the human folder is untouched, which was written before this.
-- **Relates:** [ADR-0207](0207-rows-render-continuously-to-markdown-and-frontmatter-is-the-only-way-back.md) (the folder a person and an agent both read), [ADR-0216](0216-a-name-addressed-location-is-the-only-safe-place-for-a-write-two-devices-both-make.md) and `packages/data/src/store/claims.ts` (the refusal this borrows), [ADR-0303](0303-an-application-opens-epicenter-data-and-app-owned-sqlite-through-one-scoped-client.md) and [ADR-0313](0313-a-data-definition-ships-as-typescript-and-a-host-that-needs-one-imports-it.md) (a data id and an app id are not required to be equal)
+- **Relates:** [ADR-0207](0207-rows-render-continuously-to-markdown-and-frontmatter-is-the-only-way-back.md) (the folder a person and an agent both read), [ADR-0216](0216-a-name-addressed-location-is-the-only-safe-place-for-a-write-two-devices-both-make.md) and `packages/app/src/data/store/claims.ts` (the refusal this borrows), [ADR-0303](0303-an-application-opens-epicenter-data-and-app-owned-sqlite-through-one-scoped-client.md) and [ADR-0313](0313-a-data-definition-ships-as-typescript-and-a-host-that-needs-one-imports-it.md) (a data id and an app id are not required to be equal)
 
 ## Context
 

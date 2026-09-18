@@ -9,6 +9,7 @@ import { createAiCatalogRoutes } from './ai-catalog-routes.ts';
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AgentToolDefinition } from '@epicenter/agent';
+import { CHECKOUT_PATH } from '@epicenter/app/artifact/checkout';
 import {
 	type BlobId,
 	MAX_REMOTE_BLOB_BYTES,
@@ -16,7 +17,6 @@ import {
 } from '@epicenter/blobs';
 import type { BunBlobStore } from '@epicenter/blobs/bun';
 import { isAppId } from '@epicenter/constants/app-id';
-import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { createDeviceDispatcher } from '@epicenter/device/owner';
 import {

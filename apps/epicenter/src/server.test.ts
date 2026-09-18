@@ -35,9 +35,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentEngine, EngineChunk } from '@epicenter/agent';
+import { CHECKOUT_PATH } from '@epicenter/app/artifact/checkout';
 import { generateBlobId } from '@epicenter/blobs';
 import { type BunBlobStore, createBunBlobStore } from '@epicenter/blobs/bun';
-import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
 import { createDesktopSqliteOwner } from '@epicenter/device/desktop';
 import { DEVICE_PATH } from '@epicenter/device/protocol';
 import { LOCAL_MAIL_APP_ID } from '@epicenter/local-mail/storage';
@@ -2151,7 +2151,7 @@ describe('sidecar end-to-end smoke', () => {
 
 describe('checkout routes (ADR-0337)', () => {
 	/**
-	 * The seam neither side's tests reach. `packages/data`'s checkout test
+	 * The seam neither side's tests reach. `packages/app/src/data`'s checkout test
 	 * injects a `fetch` and asserts what would have crossed the wire;
 	 * `checkout.test.ts` here calls the host's functions directly. Between them
 	 * sits the routing, and an earlier per-file version declared a bare `*` tail

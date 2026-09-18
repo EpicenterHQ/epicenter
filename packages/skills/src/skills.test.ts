@@ -1,4 +1,10 @@
-import { field, jsonValue, plainText } from '@epicenter/data/definition';
+import {
+	defineApp,
+	defineTable,
+	field,
+	jsonValue,
+	plainText,
+} from '@epicenter/app';
 /**
  * Skills data tests, against the real workspace through a memory store.
  *
@@ -18,19 +24,19 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { defineData, defineTable } from '@epicenter/data/definition';
-import { InstantString } from '@epicenter/data/field';
+
+import { InstantString } from '@epicenter/app/field';
 import {
 	createMemoryRecord,
 	type MemoryRecord,
 	openMemory,
-} from '@epicenter/data/memory';
+} from '@epicenter/app/memory';
 import { expectOk } from 'wellcrafted/testing';
 import { exportSkillsToDisk, importSkillsFromDisk } from './node.js';
 import { type SkillsData, skillsDefinition } from './workspace.js';
 
 /** The Skills workspace as an earlier release declared it, before `sourceId`. */
-const historicalSkillsWorkspace = defineData({
+const historicalSkillsWorkspace = defineApp({
 	id: 'so.epicenter.skills',
 	kv: {},
 	tables: {

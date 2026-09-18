@@ -2,15 +2,15 @@
 
 - **Status:** Superseded
 - **Date:** 2026-08-08
-- **Superseded by:** [ADR-0238](0238-the-live-document-is-the-truth-while-open-and-persistence-is-a-visible-debt.md), which deletes the in-memory SQLite file this record's store committed into and makes IndexedDB own the durable facts directly, so the mirroring worker, the OPFS file it held, and the three relations that had to survive it all go with it. A page still holds the store, restated by [ADR-0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md) and implemented in `packages/data/src/store/browser.ts`; the durability alarm became the visible persistence debt of ADR-0238 and then one health bit ([ADR-0298](0298-the-authority-is-byte-blind-and-a-cursor-is-a-log-position.md)).
+- **Superseded by:** [ADR-0238](0238-the-live-document-is-the-truth-while-open-and-persistence-is-a-visible-debt.md), which deletes the in-memory SQLite file this record's store committed into and makes IndexedDB own the durable facts directly, so the mirroring worker, the OPFS file it held, and the three relations that had to survive it all go with it. A page still holds the store, restated by [ADR-0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md) and implemented in `packages/app/src/data/store/browser.ts`; the durability alarm became the visible persistence debt of ADR-0238 and then one health bit ([ADR-0298](0298-the-authority-is-byte-blind-and-a-cursor-is-a-log-position.md)).
 - **Relates:** [ADR-0215](0215-an-application-is-one-document-and-a-row-owns-a-nested-container.md)
   (the synchronous surface this preserves),
   [ADR-0214](0214-one-sqlite-file-holds-the-update-log-and-the-projection-and-history-lives-outside-the-crdt.md)
   (the file a store needs),
   [ADR-0177](0177-a-browser-replica-is-owned-by-a-storage-partition-and-origin-pair.md)
   (a WebView is a storage partition and origin pair).
-- Evidence: `packages/data/evidence/browser/sync-access-handle.ts` and
-  `packages/data/evidence/browser/durable-store/main.ts`. The Honeycrisp
+- Evidence: `packages/app/evidence/data/browser/sync-access-handle.ts` and
+  `packages/app/evidence/data/browser/durable-store/main.ts`. The Honeycrisp
   browser scripts that drove the same claim through the application are
   deleted: an account is required (ADR-0336), so a fresh browser context meets
   the sign-in gate and never reaches a note.
@@ -91,7 +91,7 @@ The store gains `onCommitted` beside `onLocalWork`. They are not
 interchangeable: the transport must not be nudged by bytes that arrived from a
 peer, and durability must not ignore them.
 
-`packages/data/evidence/browser/durable-store/main.ts` runs the whole thing
+`packages/app/evidence/data/browser/durable-store/main.ts` runs the whole thing
 across a real reload with three controls. The Honeycrisp script that did the
 same through the real application is deleted, because an account is required
 now (ADR-0336) and a fresh browser context stops at the sign-in gate.

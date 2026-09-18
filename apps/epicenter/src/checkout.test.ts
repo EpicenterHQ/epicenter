@@ -20,7 +20,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MANIFEST_PATH } from '@epicenter/data/artifact/checkout';
+import { MANIFEST_PATH } from '@epicenter/app/artifact/checkout';
 import {
 	CheckoutPreconditionFailedError,
 	checkoutFolderPath,

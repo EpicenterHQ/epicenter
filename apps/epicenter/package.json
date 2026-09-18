@@ -35,7 +35,6 @@
 		"@epicenter/blobs": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
-		"@epicenter/data": "workspace:*",
 		"@epicenter/local-mail": "workspace:*",
 		"@epicenter/matter-core": "workspace:*",
 		"@epicenter/principal": "workspace:*",
@@ -49,7 +48,8 @@
 		"@tauri-apps/api": "catalog:",
 		"hono": "catalog:",
 		"mime": "catalog:",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"@epicenter/app": "workspace:*"
 	},
 	"devDependencies": {
 		"@sveltejs/vite-plugin-svelte": "catalog:",

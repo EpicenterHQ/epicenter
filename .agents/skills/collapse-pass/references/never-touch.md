@@ -13,7 +13,7 @@ These appear in on-disk paths, sync wire format, or schemas other apps validate 
 "epicenter/{namespace}/workspace/{principalId}"
 ```
 
-The durable address of one browser document (`packages/data/src/store/browser.ts`), holding the three relations that have to survive a reload: `updates`, `outbox`, and `cursor`. It reads as ownership (ADR-0233): the application, then the private document or the account whose replica this is. Changing the shape detaches every existing store from its consumer, and what is lost is not the work (the authority still owes it to the device) but the guarantee that a reload sees it.
+The durable address of one browser document (`packages/app/src/data/store/browser.ts`), holding the three relations that have to survive a reload: `updates`, `outbox`, and `cursor`. It reads as ownership (ADR-0233): the application, then the private document or the account whose replica this is. Changing the shape detaches every existing store from its consumer, and what is lost is not the work (the authority still owes it to the device) but the guarantee that a reload sees it.
 
 Three identities meet here and none may stand in for another: the namespace (which application), the principal id (whose replica), and the authority document id (which current Yjs document, kept inside the store because rebuild changes it).
 
@@ -49,7 +49,7 @@ the wire as config.
 
 ### Root names inside a document
 
-An application is one `Y.Doc` whose roots are `tables:{name}` and `kv` (`packages/data/src/store/document.ts`). `Doc.get` is `setIfUndefined`, so it mints on miss, and a root can never be removed: renaming one strands every row under the old name permanently.
+An application is one `Y.Doc` whose roots are `tables:{name}` and `kv` (`packages/app/src/data/store/document.ts`). `Doc.get` is `setIfUndefined`, so it mints on miss, and a root can never be removed: renaming one strands every row under the old name permanently.
 
 ## Pause and ask before
 
@@ -67,7 +67,7 @@ The collapse pass should stop and surface to the user (not silently proceed) whe
 Default collapse-pass targets, narrowest to widest:
 
 1. `packages/auth`
-2. `packages/data`
+2. `packages/app`
 3. `packages/svelte`
 4. `apps/api`
 

@@ -9,7 +9,7 @@ import {
 	encodeFrame,
 	type Frame,
 	openCurrentAuthority,
-} from '@epicenter/data/sync';
+} from '@epicenter/app/sync';
 import {
 	createDurableObjectSqliteAdapter,
 	type DurableObjectSqliteStorage,

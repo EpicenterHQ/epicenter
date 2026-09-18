@@ -5,6 +5,7 @@
  */
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
+import { defineTable, field, plainText } from '@epicenter/app';
 import {
 	RecorderError,
 	type Recording,
@@ -12,7 +13,6 @@ import {
 } from '@epicenter/app/recorder';
 import type { Account } from '@epicenter/auth';
 import { generateBlobId } from '@epicenter/blobs';
-import { defineTable, field, plainText } from '@epicenter/data/definition';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { asPrincipalId } from '@epicenter/principal';
 import { asDeviceIdentifier } from '@epicenter/recorder';

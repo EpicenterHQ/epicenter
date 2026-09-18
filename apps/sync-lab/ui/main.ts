@@ -1,4 +1,4 @@
-import { field, plainText } from '@epicenter/data/definition';
+import { defineApp, defineTable, field, plainText } from '@epicenter/app';
 
 /**
  * THROWAWAY. One page, two devices, one row crossing between them.
@@ -9,13 +9,12 @@ import { field, plainText } from '@epicenter/data/definition';
  * thing no test in this repository can establish.
  */
 
-import { defineData, defineTable } from '@epicenter/data/definition';
-import { openAccountStore } from '@epicenter/data/direct';
-import { createSyncConnection } from '@epicenter/data/sync';
+import { openAccountStore } from '@epicenter/app/direct';
+import { createSyncConnection } from '@epicenter/app/sync';
 import { createBrowserSqliteAdapter } from '@epicenter/sqlite/browser';
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 
-const labDatabase = defineData({
+const labDatabase = defineApp({
 	id: 'so.epicenter.synclab',
 	kv: {},
 	tables: {
@@ -54,7 +53,9 @@ const store = db;
  * two of the four.
  */
 const connection = createSyncConnection({
-	onRetired() { throw new Error('This sync laboratory does not restore generations'); },
+	onRetired() {
+		throw new Error('This sync laboratory does not restore generations');
+	},
 	store,
 	dial: ({ cursor, opened, received, closed }) => {
 		const url = new URL('/sync', location.href);

@@ -1,3 +1,4 @@
+import { defineApp, defineTable, field, plainText } from '@epicenter/app';
 /**
  * The browser's dial, handed to the server's gate, with no header a test author
  * typed.
@@ -18,10 +19,10 @@
 
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
+
+import { openAccountStore } from '@epicenter/app/direct';
+import { attachStoreSync } from '@epicenter/app/sync';
 import { createSessionAuth, type PersistedAuthStorage } from '@epicenter/auth';
-import { defineData, defineTable, field, plainText } from '@epicenter/data';
-import { openAccountStore } from '@epicenter/data/direct';
-import { attachStoreSync } from '@epicenter/data/sync';
 import { asPrincipalId } from '@epicenter/principal';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import {
@@ -39,7 +40,7 @@ const BASE_URL = 'http://localhost:8787';
 const PRINCIPAL_ID = 'user-1';
 const ACCESS_TOKEN = 'access-token';
 
-const definition = defineData({
+const definition = defineApp({
 	id: 'so.epicenter.browserdial',
 	kv: {},
 	tables: {

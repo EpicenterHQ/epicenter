@@ -10,12 +10,12 @@
  * takes below is the only thing it is missing.
  */
 
-import type { ReplicaData } from '@epicenter/data';
+import type { ReplicaData } from '@epicenter/app/store';
 import {
 	type DatabaseAccount,
 	openDatabase,
 	resolveGeneration,
-} from '@epicenter/data/browser';
+} from '@epicenter/app/store/browser';
 import { skillsDefinition } from '@epicenter/skills';
 import { createSkillsState } from './state/skills-state.svelte.js';
 

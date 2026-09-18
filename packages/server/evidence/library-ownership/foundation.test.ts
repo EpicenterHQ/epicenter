@@ -10,7 +10,7 @@ import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openCurrentAuthority } from '@epicenter/data/sync';
+import { openCurrentAuthority } from '@epicenter/app/sync';
 import { asPrincipalId } from '@epicenter/principal';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
@@ -59,7 +59,7 @@ test('independent device caches choose one initial generation and retain it offl
 				process.execPath,
 				join(
 					import.meta.dir,
-					'../../../data/evidence/library-ownership/device.ts',
+					'../../../app/evidence/data/library-ownership/device.ts',
 				),
 				server.url.origin,
 			],

@@ -2,7 +2,7 @@
  * What a person reads when an application cannot open their data, and the one
  * thing they can do about it.
  *
- * `@epicenter/data` states a failure for whoever is debugging one: a refused
+ * `@epicenter/app/store` states a failure for whoever is debugging one: a refused
  * claim names the storage address it was refused at. That sentence is correct
  * and it is not what someone who opened a notes app should be handed. The
  * library keeps its words; this picks theirs (ADR-0244).
@@ -30,7 +30,7 @@
  * the word is what crosses this boundary.
  */
 
-import type { StoreError } from '@epicenter/data/browser';
+import type { StoreError } from '@epicenter/app/store/browser';
 import { extractErrorMessage } from 'wellcrafted/error';
 
 export type OpenFailure = {
@@ -60,7 +60,7 @@ export type OpenFailure = {
  *
  * `Partial<Record<StoreError['name'], …>>` is the whole of the compile-time
  * check: a misspelt arm is a build failure rather than a screen nobody reaches,
- * and the import is type-only, so nothing of `@epicenter/data` ships here.
+ * and the import is type-only, so nothing of `@epicenter/app/store` ships here.
  */
 const SENTENCES = {
 	AlreadyOpen: ({ appName, noun }) => ({

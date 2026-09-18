@@ -1,14 +1,14 @@
 /** Real editor, authenticated sockets, IndexedDB, and document reload across replacement. */
 import assert from 'node:assert/strict';
-import { syncEngineOf } from '@epicenter/data/direct';
-import { InstantString } from '@epicenter/data/field';
-import { openMemory } from '@epicenter/data/memory';
-import type { CurrentAuthority, Frame } from '@epicenter/data/sync';
+import { syncEngineOf } from '@epicenter/app/direct';
+import { InstantString } from '@epicenter/app/field';
+import { openMemory } from '@epicenter/app/memory';
+import type { CurrentAuthority, Frame } from '@epicenter/app/sync';
 import * as Y from '@y/y';
 import type { Page, WebSocketRoute } from 'playwright';
 import { expectOk } from 'wellcrafted/testing';
-import type { BrowserDurableSchema } from '../../../packages/data/src/store/idb-updates.js';
-import { decodeFrame } from '../../../packages/data/src/sync/frames.js';
+import type { BrowserDurableSchema } from '../../../packages/app/src/data/store/idb-updates.js';
+import { decodeFrame } from '../../../packages/app/src/data/sync/frames.js';
 import { honeycrispDefinition } from '../src/lib/data.js';
 
 /** Async service binding for the actual authority; payloads stay authority-owned. */
@@ -147,7 +147,10 @@ async function monitor(page: Page, origin: string) {
 				const decoded = decodeFrame(new Uint8Array(message));
 				assert.equal(decoded.error, null);
 				record.frames.push({ direction: 'received', kind: decoded.data.kind });
-				if (record.library === 'shared' && record.generation === network.holdGeneration) {
+				if (
+					record.library === 'shared' &&
+					record.generation === network.holdGeneration
+				) {
 					network.heldFrames.push(() => socket.send(message));
 					return;
 				}
@@ -307,7 +310,9 @@ export async function proveRetirement({
 	);
 	await alice.locator('.ProseMirror').press('ControlOrMeta+A');
 	await alice.locator('.ProseMirror').press('Backspace');
-	await alice.locator('.ProseMirror').pressSequentially('Offline work that must be retired');
+	await alice
+		.locator('.ProseMirror')
+		.pressSequentially('Offline work that must be retired');
 	await alice.locator('.ProseMirror').blur();
 	await alice
 		.getByText('Offline work that must be retired', { exact: true })
@@ -315,16 +320,25 @@ export async function proveRetirement({
 		.waitFor();
 	await alice.waitForFunction(async () => {
 		const path = '/src/lib/application.ts';
-		const { data }: typeof import('../src/lib/application.js') = await import(path);
-		return data?.tables.notes.rows.some((note) => note.title === 'Offline work that must be retired');
+		const { data }: typeof import('../src/lib/application.js') = await import(
+			path
+		);
+		return data?.tables.notes.rows.some(
+			(note) => note.title === 'Offline work that must be retired',
+		);
 	});
-	assert.equal(await alice.evaluate(async () => {
-		const path = '/src/lib/application.ts';
-		const { data }: typeof import('../src/lib/application.js') = await import(path);
-		if (!data) throw new Error('Expected the selected Shared store');
-		await data.persistence.flush();
-		return data.persistence.get();
-	}), 'saved');
+	assert.equal(
+		await alice.evaluate(async () => {
+			const path = '/src/lib/application.ts';
+			const { data }: typeof import('../src/lib/application.js') = await import(
+				path
+			);
+			if (!data) throw new Error('Expected the selected Shared store');
+			await data.persistence.flush();
+			return data.persistence.get();
+		}),
+		'saved',
+	);
 	await alice.reload();
 	await alice
 		.getByText('Offline work that must be retired', { exact: true })
@@ -382,7 +396,9 @@ export async function proveRetirement({
 	await bob.getByRole('button', { name: 'New note', exact: true }).click();
 	await bob.locator('.ProseMirror').press('ControlOrMeta+A');
 	await bob.locator('.ProseMirror').press('Backspace');
-	await bob.locator('.ProseMirror').pressSequentially('Accepted after replacement');
+	await bob
+		.locator('.ProseMirror')
+		.pressSequentially('Accepted after replacement');
 	await bob.locator('.ProseMirror').blur();
 	await bob
 		.getByText('Accepted after replacement', { exact: true })
@@ -499,7 +515,10 @@ export async function proveRetirement({
 	assert.equal(reopened.pending, 0);
 	const staleConnections = a.sockets
 		.slice(reconnectStart)
-		.filter((socket) => socket.library === 'shared' && socket.generation === before.generation);
+		.filter(
+			(socket) =>
+				socket.library === 'shared' && socket.generation === before.generation,
+		);
 	assert(staleConnections.length > 0);
 	for (const socket of staleConnections) {
 		assert.equal(

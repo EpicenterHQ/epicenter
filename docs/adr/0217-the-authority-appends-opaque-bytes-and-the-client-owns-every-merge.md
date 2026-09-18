@@ -32,10 +32,10 @@
   at root-document maintenance. Automatic snapshot folding remains the
   authority's bounded log mechanism. Public generations and whole-document
   replacement are deferred.
-- Evidence: `packages/data/evidence/validation.test.ts`,
-  `packages/data/evidence/workerd/results.md`,
-  `packages/data/evidence/bench/never-compact.ts`,
-  `packages/data/src/sync/transport.test.ts`.
+- Evidence: `packages/app/evidence/data/validation.test.ts`,
+  `packages/app/evidence/data/workerd/results.md`,
+  `packages/app/evidence/data/bench/never-compact.ts`,
+  `packages/app/src/data/sync/transport.test.ts`.
 
 ## Context
 

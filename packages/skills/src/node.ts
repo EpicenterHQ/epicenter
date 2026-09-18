@@ -8,7 +8,7 @@
 
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { InstantString } from '@epicenter/data/field';
+import { InstantString } from '@epicenter/app/field';
 import {
 	defineErrors,
 	extractErrorMessage,

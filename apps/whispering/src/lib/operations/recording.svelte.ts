@@ -1,9 +1,9 @@
+import { InstantString } from '@epicenter/app/field';
 import type { Recording, RecordingService } from '@epicenter/app/recorder';
 import {
 	RecorderError,
 	type RecordingEndedReason,
 } from '@epicenter/app/recorder';
-import { InstantString } from '@epicenter/data/field';
 import type { DeviceAcquisitionOutcome } from '@epicenter/recorder';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';

@@ -17,7 +17,7 @@ closed. Copying every store member also required facade edits for new operations
 **The factory implementing document operations owns acquisition, readiness,
 and closure of that same document.**
 
-`packages/data/src/store/store.ts` constructs its `Y.Doc`, named roots, table
+`packages/app/src/data/store/store.ts` constructs its `Y.Doc`, named roots, table
 handles, and KV handle synchronously. Acquisition supplies durable storage and
 its loaded snapshot. The factory hydrates the existing document before attaching
 its update listener. It constructs `createPersistenceController` with the real

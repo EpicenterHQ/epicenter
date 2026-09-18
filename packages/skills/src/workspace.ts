@@ -1,27 +1,25 @@
-/**
- * Skills' inert data definition: the definition id it owns and the two
- * tables in it.
- *
- * A data definition is pure JSON (ADR-0213, ADR-0240): closed field
- * descriptors, and nothing that knows about storage, sync, or
- * documents. The `skills` and `skillReferences` property names are the durable
- * table names, so they are what row addresses carry and what the projection's
- * relations are called.
- *
- * Structural row ids are minted by the store. `sourceId` is the portable
- * agentskills.io identity kept in SKILL.md frontmatter; it may be used to match
- * a later import, and it never becomes record identity.
- */
-
-import type { DeclaredData } from '@epicenter/data';
 import {
-	defineData,
+	defineApp,
 	defineTable,
 	field,
 	jsonValue,
 	plainText,
 	type RowOf,
-} from '@epicenter/data/definition';
+} from '@epicenter/app';
+import type { DeclaredData } from '@epicenter/app/store';
+
+/**
+ * Skills' inert data definition: the definition id it owns and the two
+ * tables in it.
+ *
+ * The declaration describes the schema without opening storage or capturing
+ * an Account. The `skills` and `skillReferences` property names are durable
+ * table names used by row addresses and artifact paths.
+ *
+ * Structural row ids are minted by the store. `sourceId` is the portable
+ * agentskills.io identity kept in SKILL.md frontmatter; it may be used to match
+ * a later import, and it never becomes record identity.
+ */
 
 const skillsTable = defineTable({
 	sourceId: field.string(),
@@ -68,7 +66,7 @@ const referencesTable = defineTable({
 	content: plainText(),
 });
 
-export const skillsDefinition = defineData({
+export const skillsDefinition = defineApp({
 	id: 'so.epicenter.skills',
 	title: 'Skills',
 	kv: {},

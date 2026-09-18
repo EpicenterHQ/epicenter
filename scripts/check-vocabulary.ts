@@ -100,7 +100,7 @@ const RULES: readonly Rule[] = [
 		instead: 'node (the container) or text (the characters)',
 		excludes: [],
 		scope: [
-			'packages/data/',
+			'packages/app/src/data/',
 			'packages/chat/',
 			'packages/skills/',
 			'packages/svelte/',

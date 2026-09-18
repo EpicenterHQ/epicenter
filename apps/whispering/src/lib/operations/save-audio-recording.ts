@@ -1,5 +1,5 @@
+import { InstantString } from '@epicenter/app/field';
 import type { BlobAlreadyExists, BlobStoreFailed } from '@epicenter/blobs';
-import { InstantString } from '@epicenter/data/field';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { WhisperingApp } from '$lib/whispering/app';
 import type { Recording } from '../whispering/recording.js';

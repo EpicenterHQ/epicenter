@@ -8,12 +8,12 @@ import { expect, spyOn, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { openAccountStore } from '@epicenter/app/direct';
+import { InstantString } from '@epicenter/app/field';
 import { BlobStoreError, generateBlobId } from '@epicenter/blobs';
 import { createAppBlobs } from '@epicenter/blobs/app';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
-import { openAccountStore } from '@epicenter/data/direct';
-import { InstantString } from '@epicenter/data/field';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { whisperingDefinition } from '../data';
@@ -45,7 +45,10 @@ async function setup(directory?: string) {
 		local,
 		sources: createBrowserBlobSources(local),
 	});
-	const app = { tables: data.tables, blobs: { remote: null, local: access.value } };
+	const app = {
+		tables: data.tables,
+		blobs: { remote: null, local: access.value },
+	};
 	const domain = createWhisperingRecordings(app);
 	return {
 		root,

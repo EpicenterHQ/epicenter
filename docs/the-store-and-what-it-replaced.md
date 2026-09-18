@@ -210,16 +210,16 @@ machine-produced, replaced wholesale, and rendered in a list.
 **Old:** TypeBox, `defineTable({ fields: { title: field.string() } })`.
 
 **New:** ordinary value field descriptors at the table's top level, one
-required `content` codec, pure JSON definitions, and application-owned
+optional `content` codec, inert application declarations, and application-owned
 recovery values (ADR-0255).
 
 ```ts
-import { defineData, field, plainText } from '@epicenter/data/definition';
+import { defineApp, defineTable, field, plainText } from '@epicenter/app';
 
-export const definition = defineData({
+export const definition = defineApp({
   id: 'so.epicenter.honeycrisp',
   kv: { theme: field.select(['light', 'dark']) },
-  tables: { notes: { title: field.string(), folderId: field.nullable(field.string()), content: plainText() } },
+  tables: { notes: defineTable({ title: field.string(), folderId: field.nullable(field.string()), content: plainText() }) },
 });
 ```
 
@@ -229,7 +229,7 @@ Three things bite immediately:
    attribute and the row alike. `field.nullable(inner)` accepts stored null,
    while a missing field is nonconforming.
 2. **Definitions do not own defaults.** Initialization and recovery values live
-   in application code, and `parseData` rejects declaration defaults.
+   in application code, and `compileData` rejects declaration defaults.
 3. **No transforming fields.** Date, instant, and datetime descriptors preserve
    their string representation, so values round-trip through storage.
    `update(id, { when: row.when })` would break.
@@ -238,7 +238,7 @@ Objects have no STRING expression, so `'{ status: ... }'` does not parse and
 `'object|null'` validates nothing. Today that means flattening a
 `{ status, completedAt, error }` shape into separate fields.
 
-`parseData` is the runtime parser for this closed descriptor vocabulary. It
+`compileData` is the runtime parser for this closed descriptor vocabulary. It
 accepts storage-valid JSON facts and leaves conformance to reads; it does not
 apply defaults or transform stored values. Flattening a value into several
 fields is an application choice, not a migration requirement.

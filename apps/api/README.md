@@ -42,7 +42,7 @@ Cloudflare Durable Objects are the hosted deployment target. Three things make t
 
 `StoreAuthority` (`packages/server/src/store-sync/authority.ts`) is a thin
 adapter and nothing more. Every rule about who has been sent what lives in
-`@epicenter/data/sync`, so what is deployed here and what the transport's tests
+`@epicenter/app/sync`, so what is deployed here and what the transport's tests
 drive are the same object rather than two that agree today. Routes, auth, AI,
 and validation are plain runtime-portable Hono.
 

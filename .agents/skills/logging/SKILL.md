@@ -130,7 +130,7 @@ Minting a variant is not the same as publishing one. Two kinds:
 | Export it? | Yes; renaming a variant is a breaking change | No, `const` at module scope |
 | Examples | `ReplicaError`, `DocumentPullError`, `DataReadError`, `TransportProtocolError` | `SyncSupervisorError`, `BrowserWorkerError`, `ObservationCarrierError` |
 
-Exporting a log-only set publishes a name no one can import for a reason and freezes a string you should stay free to reword. `packages/data` and `packages/lens` keep theirs private for exactly this; only errors that leave in a `Result` are in the published failure surface. Export a log-only set solely when a second file in the same package logs the same failure, and even then, only within the package.
+Exporting a log-only set publishes a name no one can import for a reason and freezes a string you should stay free to reword. `packages/app` and `packages/lens` keep theirs private for exactly this; only errors that leave in a `Result` are in the published failure surface. Export a log-only set solely when a second file in the same package logs the same failure, and even then, only within the package.
 
 **Name the variant key for the log line, not for the set.** `defineErrors` stamps `name` from the key alone; the `const` you assign the set to never reaches the sink. `createLogger`'s `source` supplies the namespace, so `[data/sync] { name: 'StatusSubscriberThrew' }` reads fine and the key stays short.
 

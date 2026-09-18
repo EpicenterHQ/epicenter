@@ -1,3 +1,4 @@
+import type { NonconformingRow } from '@epicenter/app/store';
 import type {
 	BlobId,
 	BlobNotFound,
@@ -6,7 +7,6 @@ import type {
 	BlobStoreFailed,
 	RemoteBlobsError,
 } from '@epicenter/blobs';
-import type { NonconformingRow } from '@epicenter/data';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 import type { WhisperingAppHandle, WhisperingData } from './app.js';
@@ -63,9 +63,10 @@ export type WhisperingRecordings = {
 };
 
 /** Recording rows reference local bytes and explicitly uploaded URLs. */
-export function createWhisperingRecordings(
-	app: { tables: WhisperingData['tables']; blobs: WhisperingAppHandle['blobs'] },
-) {
+export function createWhisperingRecordings(app: {
+	tables: WhisperingData['tables'];
+	blobs: WhisperingAppHandle['blobs'];
+}) {
 	let rows: Recording[] = [];
 	let sorted: Recording[] = [];
 	let nonconforming: NonconformingRow[] = [];

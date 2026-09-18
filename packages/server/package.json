@@ -23,7 +23,6 @@
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/blobs": "workspace:*",
 		"@epicenter/constants": "workspace:*",
-		"@epicenter/data": "workspace:*",
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",
 		"@epicenter/sync": "workspace:*",
@@ -39,7 +38,8 @@
 		"jose": "catalog:",
 		"nanoid": "catalog:",
 		"pg": "^8.20.0",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"@epicenter/app": "workspace:*"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.20.3",

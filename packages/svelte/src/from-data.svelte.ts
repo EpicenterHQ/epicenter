@@ -62,7 +62,7 @@ import { createSubscriber, SvelteMap } from 'svelte/reactivity';
 import type { Brand } from 'wellcrafted/brand';
 
 /**
- * The slice of `@epicenter/data`'s `TableHandle` this adapter touches: the
+ * The slice of `@epicenter/app/store`'s `TableHandle` this adapter touches: the
  * read verbs it makes reactive, and the invalidation feed it rides.
  *
  * Structural rather than imported, and that is a variance requirement, not a

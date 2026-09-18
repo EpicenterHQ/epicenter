@@ -4,7 +4,7 @@
 - **Date:** 2026-09-03
 - **Amends:** [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) at three bounded places. Its three verbs become one factory, `createWorkingCopy`, whose `pull` and `push` each run the whole sequence and take an approval through a callback; `diff` is not a verb any more. Its manifest keeps `kv`'s values rather than `kvHash`, and the sentence explaining why a hash was right there is withdrawn as wrong rather than as outgrown. Its host gains one promise it did not make, that a write lands only on the folder it was prepared against. The cycle, the completeness rule, absence as a fact, and the whole-or-nothing rule are unchanged.
 - **Relates:** [ADR-0338](0338-the-folder-wins-and-a-push-is-one-approval.md) (one approval, which this gives a shape), [ADR-0341](0341-the-folder-moves-only-when-a-person-says-so-in-both-directions.md) (both directions ask, which this stops asking each surface to implement), [ADR-0330](0330-an-agent-uses-the-surfaces-a-person-uses.md) (the concurrent writer this exists to survive)
-- **Built:** all of it, in `packages/data/src/artifact/checkout.ts`, `apps/epicenter/src/checkout.ts`, and `apps/honeycrisp`.
+- **Built:** all of it, in `packages/app/src/data/artifact/checkout.ts`, `apps/epicenter/src/checkout.ts`, and `apps/honeycrisp`.
 
 ## Context
 

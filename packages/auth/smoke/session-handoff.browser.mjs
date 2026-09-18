@@ -3,7 +3,7 @@
  * bun packages/auth/smoke/session-handoff.browser.mjs
  *
  * Opt-in smoke, outside bun's *.test.* discovery. Reuses Playwright declared by
- * packages/data and Hono declared by packages/server; installs nothing. Only a
+ * packages/app and Hono declared by packages/server; installs nothing. Only a
  * disposable Better Auth memory fixture is seeded, through internalAdapter.
  * No provider, deployment credentials, database URL, or existing UI is involved.
  */
@@ -26,7 +26,7 @@ import {
 import { mountSessionApp } from '../../server/src/routes/session.js';
 
 const { chromium } = createRequire(
-	new URL('../../data/package.json', import.meta.url),
+	new URL('../../app/package.json', import.meta.url),
 )('playwright');
 const { Hono } = createRequire(
 	new URL('../../server/package.json', import.meta.url),

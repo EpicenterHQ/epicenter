@@ -9,7 +9,7 @@ import {
 	runInDurableObject,
 	SELF,
 } from 'cloudflare:test';
-import { decodeFrame, type Frame } from '@epicenter/data/sync';
+import { decodeFrame, type Frame } from '@epicenter/app/sync';
 import { asPrincipalId } from '@epicenter/principal';
 import { readCurrentDownload } from '@epicenter/sync/current-download';
 import {

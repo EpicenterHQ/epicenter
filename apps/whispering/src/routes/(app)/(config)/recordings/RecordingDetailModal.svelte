@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import { InstantString } from '@epicenter/data/field';
+	import { InstantString } from '@epicenter/app/field';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { CopyButton } from '@epicenter/ui/copy-button';

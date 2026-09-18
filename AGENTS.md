@@ -16,7 +16,7 @@ apps/
 packages/
   server       shared Hono library both deployables consume;
                deployments differ by principal resolver
-  data         the store, data definitions, openers, sync, and projection
+  app          application declarations, lifetime, store, persistence, and sync
   ui           shadcn-svelte components
 specs/         planning docs
 docs/          reference materials

@@ -71,9 +71,9 @@ Use when two to six files move and the new location communicates intent (these b
 When components stack, show them from high-level to low-level with a one-line job per layer. Keep it to a thin form; full boxes are rarely worth it.
 
 ```txt
-openDatabase(definition, options)     high-level: open one local or account document
-  createStoreEngine(...)              mid-level:  Y.Doc + persistence + signals
-    defineData() / defineTable()      low-level: pure schema definitions
+defineApp({ tables, kv })            declare and validate the schema
+  declaration.open(account)          acquire application resources
+    app.ready                       wait for stores and capabilities
 ```
 
 ## Comparison Table

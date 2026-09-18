@@ -72,21 +72,20 @@ refused was a hosted surface that reached a host-owned replica instead.
 +---------------------------------------------------------------------------+
 | CORE                                                                      |
 |                                                                           |
-| @epicenter/data      the store and its definition, opener, sync, and SQL surfaces |
-| @epicenter/field     release-local field declarations                     |
+| @epicenter/app       declarations, lifetime, store, persistence, and sync |
+| @epicenter/app/field release-local field declarations                     |
 | @epicenter/sqlite    one engine seam over bun:sqlite and sqlite-wasm      |
 | @epicenter/sync      route contracts a browser can import                 |
 | @epicenter/server    the shared Hono library both deployables consume     |
 +---------------------------------------------------------------------------+
 ```
 
-`@epicenter/data` splits by what a caller has to load: `.` for the opened data
-surface, `./definition` for `defineData` and `parseData`, `./browser` for the
-one opener a person's data lands in, `./memory` for test support, `./sync` for
-the transport, `./direct` for the construction seam, and `./artifact` for the
-files a person keeps. The openers are separate because the memory opener imports
-`bun:sqlite` and the browser opener imports `idb`, and neither belongs in a
-barrel the other has to load. There is no `./projection`: the packaged SQL
+`@epicenter/app` supplies `defineApp`, `defineTable`, and `field` at its root.
+The declaration exposes its schema and opens a live App through `.open()`.
+Independent `/definition`, `/store`, `/sync`, and `/artifact/format`
+entrypoints let engine consumers load only their required modules. The Bun
+memory opener and browser persistence have separate entrypoints because their
+runtime dependencies differ. See the [application architecture](../packages/app/ARCHITECTURE.md). There is no `./projection`: the packaged SQL
 follower was deleted (ADR-0269), and a derived index is now app-owned, in
 memory, and rebuilt on read (ADR-0307).
 

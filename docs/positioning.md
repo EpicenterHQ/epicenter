@@ -58,7 +58,7 @@ One paragraph, for anyone giving us thirty seconds (website about page, CONTRIBU
 
 > Most apps trap your data in their database. Epicenter apps keep live state in CRDTs and project everything to ordinary files on your machine: Markdown you can read and edit, SQLite you can query. When an app stops mattering, your files don't. Start with Whispering, our desktop speech-to-text app; the shared workspace behind it is being built in the open in the same repo.
 
-The developer cut, for `@epicenter/data` and other toolkit surfaces (npm, package READMEs, technical talks):
+The developer cut, for `@epicenter/app/store` and other toolkit surfaces (npm, package READMEs, technical talks):
 
 > A local-first workspace engine for TypeScript apps: Yjs as the source of truth, Markdown and SQLite as the outputs.
 
@@ -108,7 +108,7 @@ Do not use hype words: `AI-native`, `agentic`, `next-gen`, `revolutionary`, `red
 ## What Epicenter Is
 
 - An **open-source, local-first workspace**: purpose-built apps plus Markdown folders you own
-- A **TypeScript library** (`@epicenter/data`) for building CRDT-backed apps with typed schemas, materializers, and actions
+- A **TypeScript library** (`@epicenter/app/store`) for building CRDT-backed apps with typed schemas, materializers, and actions
 - A **CLI** (`epicenter`) for running a headless watcher that syncs and materializes one workspace root
 - A **sync server** (AGPL, self-hostable) that relays CRDT updates between your devices
 
@@ -184,6 +184,6 @@ Trigger to split: if Competitor Positioning stops deriving from the spine or gro
 
 ## Package Copy
 
-Each package's npm description and keywords live in its `package.json`; that file is the owner and this doc does not duplicate it. The rule when writing one: user-facing packages derive from the user cuts of the spine, `@epicenter/data` derives from the developer cut, and every description leads with what the package does, not what category it is in.
+Each package's npm description and keywords live in its `package.json`; that file is the owner and this doc does not duplicate it. The rule when writing one: user-facing packages derive from the user cuts of the spine, `@epicenter/app/store` derives from the developer cut, and every description leads with what the package does, not what category it is in.
 
 Trigger to revisit: if package descriptions drift off-spine again, add a check script.

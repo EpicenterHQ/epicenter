@@ -9,7 +9,7 @@
   a measurement this record did not have: reading every row costs about two
   microseconds each, so a list over ten thousand notes paid roughly twenty
   milliseconds per keystroke
-  (`packages/data/evidence/bench/list-per-keystroke.ts`).
+  (`packages/app/evidence/data/bench/list-per-keystroke.ts`).
 - **What this record got right is unresolved rather than refuted.** Its
   argument is about LAYER, not about caching: parse cost belongs to the table,
   where every consumer gets it, rather than to one framework's adapter. That is

@@ -50,11 +50,11 @@ try {
 			}
 		}
 		const appModule = '/packages/app/src/index.ts';
-		const dataModule = '/packages/data/src/definition/index.ts';
+		const dataModule = '/packages/app/src/data/definition/index.ts';
 		const { defineApp }: typeof import('../src/index.js') = await import(
 			appModule
 		);
-		const { defineTable, field }: typeof import('@epicenter/data/definition') =
+		const { defineTable, field }: typeof import('@epicenter/app/definition') =
 			await import(dataModule);
 		const application = defineApp({
 			tables: { recordings: defineTable({ audioBlobId: field.string() }) },

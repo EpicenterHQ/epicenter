@@ -17,14 +17,14 @@ than document replacement.
 From the repository root:
 
 ```sh
-bun run --filter @epicenter/data bench
-bun test packages/data/src/__benchmarks__/root-rotation.test.ts
+bun run --filter @epicenter/app/store bench
+bun test packages/app/src/data/__benchmarks__/root-rotation.test.ts
 ```
 
 For machine-readable output without Bun's workspace output prefix:
 
 ```sh
-bun packages/data/src/__benchmarks__/root-rotation.bench.ts > /tmp/root-rotation.json
+bun packages/app/src/data/__benchmarks__/root-rotation.bench.ts > /tmp/root-rotation.json
 ```
 
 The runner verifies the installed package is **`@y/y` 14.0.0-rc.24** before

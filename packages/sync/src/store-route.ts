@@ -64,7 +64,7 @@ export const STORE_SYNC_ROUTE = {
 /**
  * An id a data definition could actually have declared (ADR-0276).
  *
- * The value is `defineData({ id })`, so `data` is the noun on both sides. It is
+ * The value is `defineApp({ id })`, so `data` is the noun on both sides. It is
  * not a database: ADR-0269 deleted the SQL projection the word came from. And
  * it is not a store: opening this definition produces one of those, and an
  * application opens two, local and account. This id names what they are

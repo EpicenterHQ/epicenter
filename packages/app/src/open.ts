@@ -1,14 +1,15 @@
-import type { Account } from '@epicenter/auth';
-import { createAppBlobs, createAppRemoteBlobs } from '@epicenter/blobs/app';
-import { isAppId } from '@epicenter/constants/app-id';
-import { acquireAppData } from '@epicenter/data/browser';
-import { compileData, type DataDefinition } from '@epicenter/data/definition';
+import { compileData, type DataDefinition } from '@epicenter/app/definition';
 import {
 	createStoreOverPort,
 	type DeclaredData,
 	StoreError,
 	StoreUnusableError,
-} from '@epicenter/data/store';
+} from '@epicenter/app/store';
+import { acquireAppData } from '@epicenter/app/store/browser';
+
+import type { Account } from '@epicenter/auth';
+import { createAppBlobs, createAppRemoteBlobs } from '@epicenter/blobs/app';
+import { isAppId } from '@epicenter/constants/app-id';
 import { claimLibrary } from '@epicenter/device/library-claim';
 import {
 	createAppSqlite,

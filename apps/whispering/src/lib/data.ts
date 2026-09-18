@@ -1,8 +1,16 @@
-import { defineApp } from '@epicenter/app';
+import {
+	defineApp,
+	defineTable,
+	field,
+	type KvOf,
+	plainText,
+	type RowOf,
+} from '@epicenter/app';
+import type { DeclaredData } from '@epicenter/app/store';
 import { BLOB_ID_ROUTE_REGEX } from '@epicenter/blobs';
 import { APPS } from '@epicenter/constants/apps';
-import { field } from '@epicenter/data/definition';
 import { runtime } from '#platform/runtime';
+
 /**
  * Whispering's inert application declaration.
  *
@@ -30,14 +38,6 @@ import { runtime } from '#platform/runtime';
  * type. What would have been optional is nullable with a `= null` default,
  * which a read applies and a write never stores.
  */
-
-import type { DeclaredData } from '@epicenter/data';
-import {
-	defineTable,
-	type KvOf,
-	plainText,
-	type RowOf,
-} from '@epicenter/data/definition';
 
 /** Runtime-minted structural row ids. */
 export type RecordingId = string;

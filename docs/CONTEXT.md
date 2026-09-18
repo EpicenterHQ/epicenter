@@ -176,8 +176,8 @@ shapes, see `docs/adr/`.
   manifest, bring selected old content into its files, and preview ordinary
   Push. Deleted rows return as newly admitted rows. File deletion permanently
   deletes the row; an application's Trash field is a normal frontmatter value.
-- **Data definition**: one application's inert, pure JSON declaration of its
-  durable data, created with `defineData` and read with `parseData` (ADR-0255).
+- **Data definition**: the schema exposed by an inert `defineApp` declaration,
+  compiled by `compileData` without opening an App.
   It is release-local: a newer release ships a newer declaration over the same
   durable data. Definitions have no defaults; initialization and recovery are
   application decisions.

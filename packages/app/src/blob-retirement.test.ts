@@ -13,8 +13,8 @@ import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { encodeFrame } from '../../data/src/sync/frames.js';
 import { browser } from './browser.js';
+import { encodeFrame } from './data/sync/frames.js';
 import { defineApp } from './index.js';
 
 installTestLocks();

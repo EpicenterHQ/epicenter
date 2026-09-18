@@ -38,7 +38,7 @@ converges to unexpected state or grows faster than its content.
   in this store is a log position rather than a vector. Both the cursor and the
   outbox are then DERIVED from one column on the update rows, `MAX(authoritySeq)`
   and `authoritySeq IS NULL`, so neither can disagree with the bytes it accounts
-  for (`packages/data/evidence/invariants.test.ts`, ADR-0298).
+  for (`packages/app/evidence/data/invariants.test.ts`, ADR-0298).
 - Use `Y.encodeStateVector(doc)` to describe local clocks, then `Y.encodeStateAsUpdateV2(doc, remoteStateVector)` to send only missing updates.
 - Persist and transmit bytes from the `updateV2` event. Replay them with `Y.applyUpdateV2(doc, update, origin)`.
 - Wrap multi-write user actions in `doc.transact(() => { ... }, origin)`. This reduces observer churn and gives persistence, providers, and undo logic a useful origin.
@@ -54,7 +54,7 @@ converges to unexpected state or grows faster than its content.
 - One socket per application, not one per open document. A replica connects to `STORE_SYNC_ROUTE.pattern` (`/api/store/v1/sync`, in `packages/sync/src/store-route.ts`) with a `namespace` naming the workspace and a `cursor` naming its own durably applied position, so a reconnect is a catch-up rather than a fresh start (ADR-0222).
 - Whose data it is never appears in the query. It comes from the resolved bearer, server-side, so there is no value a client can put in the URL that reaches another partition (ADR-0092).
 - Browser upgrades authenticate through exactly one `bearer.<token>` subprotocol entry, because a browser upgrade cannot set `Authorization`; the mount echoes only the main subprotocol on the 101, so the token never round-trips. Non-browser clients may use an `Authorization` header. Do not use cookie-only upgrades, query-string credentials, or post-accept authentication frames.
-- The wire is framing and nothing else: `push`, `ack`, `refuse`, `entry`, `offer`, `snapshot`, `wanted` (`packages/data/src/sync/frames.ts`). No frame knows what an update means, what a row is, or what Yjs is, which is exactly why chunking is safe at that layer.
+- The wire is framing and nothing else: `push`, `ack`, `refuse`, `entry`, `offer`, `snapshot`, `wanted` (`packages/app/src/data/sync/frames.ts`). No frame knows what an update means, what a row is, or what Yjs is, which is exactly why chunking is safe at that layer.
 - Large updates are chunked at `CHUNK_BYTES`, set by Cloudflare's documented Durable Object SQLite value cap rather than by anything about Yjs. Do not raise it to the measured wall; the documented limit is the one Cloudflare is entitled to enforce.
 - Presence is deliberately absent until a concrete consumer earns awareness state and disconnect cleanup. If added later, awareness is ephemeral and must never be persisted into the Y.Doc or the SQLite update log as canonical data.
 
@@ -127,7 +127,7 @@ second document store.
   through the listener would re-append them; the engine applies its history
   first and then attaches, and throws if a foreign apply ever reaches the
   listener, so a mistake here fails the open loudly rather than duplicating a
-  log (`packages/data/src/store/store.ts`).
+  log (`packages/app/src/data/store/store.ts`).
 - A locally authored append joins the durable queue owed. Authority-accepted
   bytes arrive on a remote origin and create no outbound obligation, which is
   what the one listener checks before appending.
@@ -169,12 +169,12 @@ What does not belong in a feature:
 - **Constructing the layout.** A feature does not decide which attribute a row
   keeps its content node under. It asks the table for the row and reads the declared
   field.
-- **Casting into shape.** `as Y.Type` outside `packages/data/src/store/` means
+- **Casting into shape.** `as Y.Type` outside `packages/app/src/data/store/` means
   something is reading a document the store owns without going through it.
 - **Reaching the document.** `doc.get(...)` in a feature bypasses the
   declaration, the conformance lens, and the durable queue at once.
 
-The store's own boundary is `packages/data/src/store/document.ts`: it holds one
+The store's own boundary is `packages/app/src/data/store/document.ts`: it holds one
 cast, at `rowType`, and states why (a container whose attributes are themselves
 types has no expressible configuration, so a table root stays untyped while a
 ROW's shape is declared). Everything downstream of that line is typed.
@@ -187,10 +187,10 @@ ROW's shape is declared). Everything downstream of that line is typed.
 - [GitHub issue #520](https://github.com/yjs/yjs/issues/520) - Conflict resolution discussion with dmonad
 - [fractional-indexing](https://github.com/rocicorp/fractional-indexing) - Production library
 - [YATA paper](https://www.researchgate.net/publication/310212186_Near_Real-Time_Peer-to-Peer_Shared_Editing_on_Extensible_Data_Types) - Academic foundation
-- `packages/data/src/store/document.ts`: the application-document grammar (roots, row types, field reads)
-- `packages/data/src/store/log.ts` and `packages/data/src/store/persistence.ts`: the durable update log, the outbox, and the persistence queue
-- `packages/data/evidence/invariants.test.ts`: the library behaviour this design rests on, pinned against the installed rc
-- `packages/data/src/sync/`: the Yjs 14 wire (frames, connection, client, authority)
+- `packages/app/src/data/store/document.ts`: the application-document grammar (roots, row types, field reads)
+- `packages/app/src/data/store/log.ts` and `packages/app/src/data/store/persistence.ts`: the durable update log, the outbox, and the persistence queue
+- `packages/app/evidence/data/invariants.test.ts`: the library behaviour this design rests on, pinned against the installed rc
+- `packages/app/src/data/sync/`: the Yjs 14 wire (frames, connection, client, authority)
 - [ADR-0295](../../../docs/adr/0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md): one document per application, and a row holds its rich content (supersedes ADR-0248)
 - [ADR-0309](../../../docs/adr/0309-a-field-holds-a-value-or-a-node-and-the-retired-words-fail-the-build.md): a row is its id, its values, and one node at `content`; the table declares what the node means
 - [ADR-0221](../../../docs/adr/0221-a-table-names-the-rows-a-commit-touched-and-says-so-after-the-projection-commits.md): what `subscribe` reports and when it fires

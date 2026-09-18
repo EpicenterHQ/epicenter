@@ -50,7 +50,6 @@
 		"@epicenter/app-shell": "workspace:*",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/constants": "workspace:*",
-		"@epicenter/data": "workspace:*",
 		"@epicenter/device": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/sync": "workspace:*",

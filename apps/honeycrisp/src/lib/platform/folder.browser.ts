@@ -1,4 +1,4 @@
-import type { createWorkingCopy } from '@epicenter/data/artifact/checkout';
+import type { createWorkingCopy } from '@epicenter/app/artifact/checkout';
 
 /**
  * There is no `~/Epicenter` folder in a browser tab.

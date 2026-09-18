@@ -182,7 +182,7 @@ Use `Use when...` phrasing. Describe user intent, not implementation mechanics. 
 Good:
 
 ```yaml
-description: Epicenter data API patterns for defineData, defineTable, table reads and writes, observation, artifacts, and sync attachment. Use when defining schemas, reading or writing data, observing changes, exporting artifacts, or composing sync.
+description: Epicenter data API patterns for defineApp, defineTable, table reads and writes, observation, artifacts, and sync attachment. Use when defining schemas, reading or writing data, observing changes, exporting artifacts, or composing sync.
 ```
 
 Weak:

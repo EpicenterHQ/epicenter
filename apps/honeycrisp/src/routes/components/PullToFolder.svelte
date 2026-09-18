@@ -3,7 +3,7 @@
 		PullPreview,
 		PullResult,
 		WorkingCopy,
-	} from '@epicenter/data/artifact/checkout';
+	} from '@epicenter/app/artifact/checkout';
 	import * as AlertDialog from '@epicenter/ui/alert-dialog';
 	import { Button, buttonVariants } from '@epicenter/ui/button';
 	import FolderDownIcon from '@lucide/svelte/icons/folder-down';

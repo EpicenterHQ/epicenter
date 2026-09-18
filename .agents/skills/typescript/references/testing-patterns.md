@@ -12,9 +12,9 @@ When a schema, builder, or configuration is only used once in a test, inline it 
 ### Bad Pattern (Extracted Variables)
 
 ```typescript
-test('builds a workspace bundle', () => {
-	const definition = defineData({
-		id: 'test-app',
+test('declares an app', () => {
+	const definition = defineApp({
+		id: 'test.app',
 		kv: { theme: field.string() },
 		tables: {
 			posts: defineTable({
@@ -24,26 +24,17 @@ test('builds a workspace bundle', () => {
 		},
 	});
 
-	expect(definition.id).toBe('test-app');
+	expect(definition.id).toBe('test.app');
 });
 ```
 
 ### Good Pattern (Inlined)
 
 ```typescript
-test('builds a workspace bundle', () => {
-	const definition = defineData({
-		id: 'test-app',
-		kv: { theme: field.string() },
-		tables: {
-			posts: defineTable({
-				title: field.string(),
-				content: plainText(),
-			}),
-		},
-	});
-
-	expect(definition.id).toBe('test-app');
+test('declares an app', () => {
+	expect(defineApp({
+		id: 'test.app', kv: {}, tables: {},
+	}).id).toBe('test.app');
 });
 ```
 
@@ -65,7 +56,7 @@ Extract to a variable when:
 
 ### Applies To
 
-- `defineData()`, `defineTable()`, `createDisposableCache()` builders
+- `defineApp()`, `defineTable()`, `createDisposableCache()` builders
 - Schema definitions (TypeBox `field.*` / `Type.*`, arktype, zod, etc.)
 - Configuration objects passed to factories
 - Mock functions used only once

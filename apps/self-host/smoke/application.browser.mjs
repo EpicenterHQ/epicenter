@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { openSelfHostAuth } from '@epicenter/server/self-host-auth/bun';
 
 const { chromium } = createRequire(
-	new URL('../../../packages/data/package.json', import.meta.url),
+	new URL('../../../packages/app/src/data/package.json', import.meta.url),
 )('playwright');
 const workerMode = process.argv.slice(2).includes('--worker');
 const root = join(import.meta.dir, '../../..');

@@ -1,5 +1,4 @@
-import { defineApp } from '@epicenter/app';
-import { defineTable, field } from '@epicenter/data/definition';
+import { defineApp, defineTable, field } from '@epicenter/app';
 
 export const mailDefinition = defineApp({
 	id: 'so.epicenter.local-mail',

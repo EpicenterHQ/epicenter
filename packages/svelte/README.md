@@ -22,7 +22,7 @@ This package is part of the Epicenter monorepo and is used internally. To use it
 
 ### `fromData`
 
-Adapts one opened `@epicenter/data` handle into Svelte reactivity, mirroring
+Adapts one opened `@epicenter/app/store` handle into Svelte reactivity, mirroring
 the declaration: `tables.<name>`, `kv`, and `persistence`, with the same verbs
 and the same types. Reads are reactive; writes pass through unchanged.
 

@@ -53,6 +53,7 @@ import {
 	defaultApprovalDecision,
 	type ToolCatalog,
 } from '@epicenter/agent';
+import { InstantString } from '@epicenter/app/field';
 import {
 	asConversationId,
 	type Conversation,
@@ -64,7 +65,6 @@ import {
 	createOpenAiAgentEngine,
 	type OpenAiTurnContext,
 } from '@epicenter/client';
-import { InstantString } from '@epicenter/data/field';
 import { bindAgentConversation } from '@epicenter/svelte';
 import type * as Y from '@y/y';
 import { SvelteMap } from 'svelte/reactivity';
