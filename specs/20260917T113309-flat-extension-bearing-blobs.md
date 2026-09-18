@@ -165,8 +165,8 @@ sidecar publication, and paired browser stores are removed.
 The native publication module is `apps/epicenter/src-tauri/src/flat_blobs.rs`;
 `blobs.rs` adds native app scoping. The host retains one Bun store per app for
 its lifetime so publication receipts survive later HTTP requests. Browser Stop
-pins the finalized bytes and actual-format key for retries. Archive v3 derives
-attachment formats from keys and keeps hosted HTTP(S) URL spans opaque.
+pins the finalized bytes and actual-format key for retries. Archive v3 was a
+historical checkpoint and was subsequently removed under ADR-0379.
 
 Independent reviews caught and resolved fresh-input retry identity, native/Bun
 root aliasing, hosted URLs incorrectly requiring local bytes during backup, and
@@ -240,7 +240,7 @@ The refinement passed 63 tests across eight files in separate focused runs and
 both Whispering target typechecks. The production host build passed. Root
 typechecking still reports the same 12 baseline `packages/data` diagnostics.
 `recordings.zip` contains Markdown and audio references, not audio payloads.
-Saved-byte/archive recovery does not promise recovery of unfinished microphone capture after restarting the application.
+Saved-byte publication does not promise recovery of unfinished microphone capture after restarting the application.
 
 ## Remaining acceptance work
 

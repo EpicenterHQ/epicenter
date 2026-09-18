@@ -163,20 +163,6 @@
 - Revisit when: An application genuinely needs a hierarchical file abstraction
   that the row and document model cannot express directly.
 
-## Decide what `@epicenter/sync` is called
-
-- Desired result: The package name describes its contents, or the contents move
-  somewhere that already fits.
-- Grounding: The package is now one file, the bearer-in-subprotocol WebSocket
-  handshake, after
-  [commit 0ecddff6](https://github.com/EpicenterHQ/epicenter/commit/0ecddff603)
-  deleted the Yjs wire it was named for. Two blockers kept the rename out of
-  that commit: it is published as `@epicenter/sync@0.3.0`, and folding it into
-  `@epicenter/auth` would move MIT code into an AGPL package, which
-  `docs/licensing/licensing-strategy.md` treats as a relicensing act.
-- Revisit when: The published toolkit surface is next revised, or the attach
-  relay's auth handshake changes.
-
 ## Revoke the `epicenter-cli` OAuth client row in each deployed database
 
 - Desired result: No deployment still advertises a registered OAuth client for
