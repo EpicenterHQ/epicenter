@@ -41,12 +41,12 @@ to hear. Voice work may shape that expression, but must not invent an event,
 fact, memory, reaction, certainty, or intention. Do not turn a sparse source
 into a polished generality.
 
-`authored-capture` identifies the source-authorized material and governs the
-first body's faithful amplification. Within that path, voice work may make only
-the mechanical repairs that `authored-capture` permits. During editorial
-development, this skill helps shape the proposed passage so it sounds like the
-writer before Braden evaluates it; after adoption, the ear pass verifies that
-the integrated passage still sounds like him rather than generic polish.
+`authored-capture` governs source authority and adoption for Vault writing.
+Shape the supplied thought directly within that authority; natural rewriting
+does not itself require adoption. When a proposed passage introduces new
+substance, help it sound like the writer before Braden evaluates it. The ear
+pass checks whether the resulting work still sounds like him rather than
+generic polish.
 
 After a whole draft exists, read it at speaking speed. Mark generic connective
 tissue, flattened rhythm, and places where the attention moves away from what
@@ -55,9 +55,9 @@ it. Keep a vivid turn when the source earns it.
 
 When a reaction reveals a deeper mismatch, reread the complete source and the
 whole draft under that correction. Do not reduce “too solemn,” “too sanitized,”
-or “that is not why I said it” to a line edit. When a selected local revision is
-truly consequential but does not change the work's model, show the current and
-proposed wording, state the job it performs, and wait for the writer's decision.
+or “that is not why I said it” to a line edit. Follow the destination's authority
+for revision; do not add a separate approval gate for wording it authorizes.
+Surface an unresolved change of meaning or posture through that destination.
 
 ## Match The Destination
 
