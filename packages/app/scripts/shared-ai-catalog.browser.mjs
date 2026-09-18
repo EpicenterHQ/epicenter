@@ -20,7 +20,7 @@ import { createDesktopAiConnections } from ${JSON.stringify(join(root, 'packages
 import { createBrowserInferenceSelections } from ${JSON.stringify(join(root, 'packages/app-shell/src/inference-selections.ts'))};
 const product = location.pathname.includes('vocab') ? 'vocab' : 'whispering';
 const lifetime = new AbortController();
-const owner = createAppAi({lifetime:{signal:lifetime.signal,assertUsable(){lifetime.signal.throwIfAborted()}},account:null,runtime:null,connections:createDesktopAiConnections({appId:product,storageKey:product})});
+const owner = createAppAi({lifetime:{signal:lifetime.signal,assertUsable(){lifetime.signal.throwIfAborted()}},account:null,runtime:null,connections:createDesktopAiConnections({})});
 const app = owner.value;
 const selections = createBrowserInferenceSelections(product);
 let retained;
@@ -66,15 +66,16 @@ let browser;
 const errors = [];
 let eventRequests = 0;
 try {
-	assert.equal((await fetch(`${origin}/_epicenter/ai/connections`)).status, 401);
+	assert.equal((await fetch(`${origin}/_epicenter/ai/no-account/connections`)).status, 401);
 	const boot = await fetch(BOOTSTRAP_ROUTE.url(origin), {method:'POST',headers:{origin,authorization:'Bearer test-launch-token'}});
 	assert.equal(boot.status, 204);
 	const cookie = boot.headers.get('set-cookie').split(';')[0];
-	assert.equal((await fetch(`${origin}/_epicenter/ai/connections`, {method:'POST',headers:{cookie,'content-type':'application/json'},body:'{}'})).status,403);
-	assert.equal((await fetch(`${origin}/_epicenter/ai/connections`, {method:'POST',headers:{cookie,origin:'https://untrusted.example','content-type':'application/json'},body:'{}'})).status,403);
+	assert.equal((await fetch(`${origin}/_epicenter/ai/no-account/connections`, {method:'POST',headers:{cookie,'content-type':'application/json'},body:'{}'})).status,403);
+	assert.equal((await fetch(`${origin}/_epicenter/ai/no-account/connections`, {method:'POST',headers:{cookie,origin:'https://untrusted.example','content-type':'application/json'},body:'{}'})).status,403);
+	assert.equal((await fetch(`${origin}/_epicenter/ai/no-account/connections`, {method:'POST',headers:{cookie,origin,'content-type':'application/json'},body:JSON.stringify({type:'import',source:'old',records:[]})})).status,400);
 	browser = await chromium.launch({headless:true});
 	const context = await browser.newContext();
-	context.on('request', request => { if (request.url().endsWith('/_epicenter/ai/events')) eventRequests++; });
+	context.on('request', request => { if (request.url().endsWith('/_epicenter/ai/no-account/events')) eventRequests++; });
 	await context.addCookies([{name:cookie.split('=')[0],value:cookie.slice(cookie.indexOf('=')+1),url:origin,httpOnly:true,sameSite:'Strict'}]);
 	await context.addInitScript(() => {
 		if (localStorage.getItem('seeded')) return;
@@ -87,13 +88,17 @@ try {
 	for (const tab of [whispering,vocab]) tab.on('pageerror', error => errors.push(error.message));
 	await Promise.all([whispering.goto(`${origin}/apps/whispering/`),vocab.goto(`${origin}/apps/vocab/`)]);
 	for (const tab of [whispering,vocab]) { await tab.waitForFunction(()=>window.acceptance); await tab.evaluate(()=>window.acceptance.ready); }
-	await vocab.waitForFunction(()=>window.acceptance.records().some(record=>record.id==='legacy-one'));
-	assert.deepEqual(await whispering.evaluate(()=>window.acceptance.selected()),{connectionId:'legacy-one',model:'manual'});
+	for (const tab of [whispering,vocab]) assert.deepEqual(await tab.evaluate(()=>window.acceptance.records()),[]);
+	const legacy = await whispering.evaluate(()=>[localStorage.getItem('whispering.app-ai-connections'),localStorage.getItem('whispering.app-ai-selections')]);
+	assert.equal(await whispering.evaluate(()=>window.acceptance.selected()),null);
 	assert.equal(await vocab.evaluate(()=>window.acceptance.selected()),null);
 	// Remain idle beyond Bun's default HTTP timeout; SSE heartbeats keep both subscriptions open.
 	await new Promise(resolve=>setTimeout(resolve,12_000));
 	assert.equal(eventRequests,2);
 	const id = await vocab.evaluate(()=>window.acceptance.add({baseUrl:'https://shared.example/v1',apiKey:'shared-key',models:['manual']}));
+	const removable = await vocab.evaluate(()=>window.acceptance.add({baseUrl:'https://second.example/v1',models:['manual']}));
+	await whispering.evaluate(id=>window.acceptance.select({connectionId:id,model:'manual'}),removable);
+	await vocab.evaluate(id=>window.acceptance.select({connectionId:id,model:'manual'}),id);
 	await whispering.waitForFunction(id=>window.acceptance.records().some(record=>record.id===id),id);
 	const record = await whispering.evaluate(id=>window.acceptance.records().find(record=>record.id===id),id);
 	assert.equal(record.hasApiKey,true); assert.equal('apiKey' in record,false);
@@ -110,14 +115,17 @@ try {
 	assert.equal(requests.at(-1).key,'Bearer rotated-key');
 	await vocab.evaluate(()=>window.acceptance.preview('https://preview.example/v1','preview-key'));
 	assert.equal(requests.at(-1).key,'Bearer preview-key');
-	await vocab.evaluate(()=>window.acceptance.remove('legacy-one'));
-	await whispering.waitForFunction(()=>!window.acceptance.records().some(record=>record.id==='legacy-one'));
+	await vocab.evaluate(id=>window.acceptance.remove(id),removable);
+	await whispering.waitForFunction(id=>!window.acceptance.records().some(record=>record.id===id),removable);
 	await whispering.evaluate(()=>window.acceptance.close());
 	await whispering.reload(); await whispering.waitForFunction(()=>window.acceptance); await whispering.evaluate(()=>window.acceptance.ready);
 	assert.equal((await whispering.evaluate(()=>window.acceptance.records())).some(record=>record.id==='legacy-one'),false);
-	assert.deepEqual(await whispering.evaluate(()=>window.acceptance.selected()),{connectionId:'legacy-one',model:'manual'});
+	assert.equal((await whispering.evaluate(()=>window.acceptance.records())).some(record=>record.id===removable),false);
+	assert.deepEqual(await whispering.evaluate(()=>window.acceptance.selected()),{connectionId:removable,model:'manual'});
+	assert.deepEqual(await vocab.evaluate(()=>window.acceptance.selected()),{connectionId:id,model:'manual'});
+	assert.deepEqual(await whispering.evaluate(()=>[localStorage.getItem('whispering.app-ai-connections'),localStorage.getItem('whispering.app-ai-selections')]),legacy);
 	assert.equal((await context.cookies()).some(cookie=>cookie.name==='provider'),false);
-	const metadata=await readFile(join(evidence,'ai/connections.json'),'utf8');
+	const metadata=await readFile(join(evidence,'ai/no-account/connections.json'),'utf8');
 	for (const key of ['legacy-key','shared-key','rotated-key','preview-key']) assert.equal(metadata.includes(key),false);
 	await Promise.all([whispering.evaluate(()=>window.acceptance.close()),vocab.evaluate(()=>window.acceptance.close())]);
 	assert.deepEqual(errors,[]);
@@ -125,8 +133,9 @@ try {
 	const reopened=await createAiCatalog({dataRoot:evidence,secrets});
 	assert.equal(reopened.getAll().connections.some(record=>record.id===id),true);
 	assert.equal(reopened.getAll().connections.some(record=>record.id==='legacy-one'),false);
+	assert.equal(reopened.getAll().connections.some(record=>record.id===removable),false);
 	await reopened.close();
-	await writeFile(join(evidence,'result.json'),JSON.stringify({passed:true,checks:['host session and Origin enforcement','two test SPA documents','idle SSE heartbeat','initial catalog and live updates','saved ID import','independent selections','key isolation','rotation retirement','preview','reload without deleted import resurrection','catalog reopen'],requests:requests.map(({key,...request})=>({...request,authenticated:Boolean(key)})),errors},null,2));
+	await writeFile(join(evidence,'result.json'),JSON.stringify({passed:true,checks:['host session and Origin enforcement','obsolete import command rejected','two test SPA documents','idle SSE heartbeat','initial catalog and live updates','legacy values retained without adoption','independent explicit selections','key isolation','rotation retirement','preview','reload without deleted connection resurrection','catalog reopen'],requests:requests.map(({key,...request})=>({...request,authenticated:Boolean(key)})),errors},null,2));
 	process.stdout.write(`Shared desktop AI browser acceptance passed: ${evidence}\n`);
 } finally {
 	await browser?.close(); await catalog.close(); await server.stop(true); auth[Symbol.dispose](); await host[Symbol.asyncDispose]();

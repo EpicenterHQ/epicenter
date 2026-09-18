@@ -28,7 +28,7 @@ import { createInferenceConnections } from '../src/inference-picker/connections.
 import { createAppAi } from '../../app/src/ai';
 import { createBrowserAppAi } from '../../app/src/browser';
 import { createBrowserInferenceSelections } from '../src/inference-selections';
-const records = createBrowserAppAi('picker-acceptance').connections();
+const records = createBrowserAppAi().connections('picker-acceptance');
 const hidden = (records) => records.map(({apiKey, ...record}) => ({ ...record, hasApiKey: Boolean(apiKey), accessVersion: apiKey ? 'credential' : 'anonymous' }));
 let blocked, release;
 let fail = false;
@@ -52,7 +52,10 @@ const owner = createAppAi({
 });
 const app = { ai: owner.value.ai, account: null };
 const selections = createBrowserInferenceSelections('picker-acceptance');
-const connections = createInferenceConnections({ app, selections, hostedModels: [] });
+const connections = createInferenceConnections({
+ connections: { runtime: app.ai.runtime, custom: app.ai.connections },
+ accountConnection: app.ai.account, selections, hostedModels: []
+});
 let shown = $state(true);
 let model = $state('');
 window.acceptance = {
@@ -97,6 +100,15 @@ const server = await createServer({
 					if (req.url === '/') {
 						res.setHeader('content-type', 'text/html');
 						res.end(html);
+						return;
+					}
+					const failure = /^\/errors\/(401|403|429|malformed)\/v1\/models$/.exec(req.url);
+					if (failure) {
+						res.setHeader('content-type', 'application/json');
+						res.statusCode = failure[1] === 'malformed' ? 200 : Number(failure[1]);
+						res.end(JSON.stringify(failure[1] === 'malformed'
+							? { data: [{ id: 123 }] }
+							: { error: { message: 'Fixture rejection' } }));
 						return;
 					}
 					if (req.url === '/models/v1/models') {
@@ -218,6 +230,24 @@ try {
 		await page.evaluate(() => window.acceptance.selected().model),
 		'after-failure',
 	);
+	await page.evaluate(() => window.acceptance.show());
+	for (const [failure, message] of [
+		['401', 'The endpoint rejected this API key.'],
+		['403', 'The endpoint rejected this API key.'],
+		['429', 'The endpoint returned 429.'],
+		['malformed', "This endpoint didn't return an OpenAI model list."],
+	]) {
+		await page.evaluate(failure => window.acceptance.add({
+			name: `Failure ${failure}`,
+			baseUrl: `${location.origin}/errors/${failure}/v1`,
+			models: [],
+		}), failure);
+		await page.locator('button[role="combobox"]').click();
+		await page.getByText(`Edit Failure ${failure} or enter a model`, { exact: true }).click();
+		await page.getByText(message, { exact: false }).waitFor();
+		assert.equal(await page.evaluate(() => window.acceptance.selected().model), 'after-failure');
+		await page.keyboard.press('Escape');
+	}
 	assert.deepEqual(errors, []);
 	await writeFile(
 		join(evidence, 'result.json'),
@@ -231,6 +261,7 @@ try {
 					'explicit key removal',
 					'cross-window observation',
 					'destroyed picker suppresses selection',
+					'SDK 401/403 identify rejected keys, 429 preserves status, malformed suggestions preserve selection',
 				],
 			},
 			null,

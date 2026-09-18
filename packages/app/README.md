@@ -140,8 +140,8 @@ Old product-scoped and profile-wide catalogs, selections, and provider settings
 remain untouched and unread. Opening does not migrate them, including when old
 values are malformed. Connect providers explicitly in the intended account.
 Whispering uses only the selected App client; its former Deepgram, ElevenLabs,
-and Mistral adapters are removed. Reintroducing those protocols requires catalog
-support, not another credential store in the application.
+and Mistral adapters are removed. Custom endpoints must accept the workflow's
+OpenAI SDK requests. There is no bespoke-protocol fallback or provider registry.
 
 The [native catalog acceptance](scripts/shared-ai-catalog-native/README.md)
 exercises two installed test apps through real macOS WebViews and the Rust

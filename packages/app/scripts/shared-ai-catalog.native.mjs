@@ -225,7 +225,7 @@ async function start() {
 				throw new Error(`Native process exited: ${nativeProcess.exitCode}`);
 			try {
 				return (
-					(await fetch(`http://127.0.0.1:${port}/_epicenter/ai/connections`))
+					(await fetch(`http://127.0.0.1:${port}/_epicenter/ai/no-account/connections`))
 						.status === 401
 				);
 			} catch {
@@ -363,7 +363,7 @@ try {
 		'fetch: app.fetch,',
 		`fetch: async (request, server) => {
  const response = await app.fetch(request, server);
- if (!new URL(request.url).pathname.endsWith('/_epicenter/ai/events') || !response.body) return response;
+ if (!new URL(request.url).pathname.endsWith('/_epicenter/ai/no-account/events') || !response.body) return response;
  const reader = response.body.getReader();
  let done = false;
  const activePath = ${JSON.stringify(join(evidence, 'events.json'))};
@@ -425,10 +425,12 @@ try {
 		'catalog_acceptance',
 	]);
 	const first = await start();
-	assert.equal(
-		(await records(a)).some((record) => record.id === 'native-legacy'),
-		true,
-	);
+	assert.deepEqual(await records(a), []);
+	assert.deepEqual(await records(b), []);
+	const legacy = await evaluate(a, `return localStorage.getItem('${a}.app-ai-connections');`);
+	assert.equal(JSON.parse(legacy).connections[0].id, 'native-legacy');
+	assert.equal(await evaluate(a, 'return acceptance.selected();'), null);
+	assert.equal(await evaluate(b, 'return acceptance.selected();'), null);
 	const id = await evaluate(
 		a,
 		`return acceptance.add(${JSON.stringify({ name: 'Fixture', baseUrl: endpoint, apiKey: fixtureKeys[0], models: ['manual'] })});`,
@@ -440,7 +442,8 @@ try {
 		a,
 		`acceptance.select(${JSON.stringify(id)}); acceptance.retain(${JSON.stringify(id)});`,
 	);
-	await evaluate(b, `acceptance.select('native-legacy');`);
+	const removable = await evaluate(b, `return acceptance.add(${JSON.stringify({ name: 'Second fixture', baseUrl: endpoint, models: ['manual'] })});`);
+	await evaluate(b, `acceptance.select(${JSON.stringify(removable)});`);
 	await evaluate(b, `return acceptance.run(${JSON.stringify(id)});`);
 	assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[0]}`);
 	assert.equal(requests.at(-1).cookie, null);
@@ -472,7 +475,7 @@ try {
 	assert.equal(
 		await evaluate(
 			a,
-			`return (await fetch('/_epicenter/ai/inference/${id}/${original.accessVersion}/models')).status;`,
+			`return (await fetch('/_epicenter/ai/no-account/inference/${id}/${original.accessVersion}/models')).status;`,
 		),
 		400,
 	);
@@ -482,7 +485,7 @@ try {
 	await evaluate(a, `return acceptance.run(${JSON.stringify(id)});`);
 	assert.equal(requests.at(-1).authorization, null);
 	await update(id, { apiKey: fixtureKeys[1] });
-	const metadataPath = join(profile, 'ai/connections.json');
+	const metadataPath = join(profile, 'ai/no-account/connections.json');
 	const saved = (await Bun.file(metadataPath).json()).connections.find(
 		(record) => record.id === id,
 	);
@@ -521,7 +524,7 @@ try {
 	checks.push(
 		'hidden key retention, rotation, removal, missing-key refusal and repair, stale-client retirement',
 	);
-	await evaluate(b, "await acceptance.remove('native-legacy');");
+	await evaluate(b, `await acceptance.remove(${JSON.stringify(removable)});`);
 	const selectedA = await evaluate(a, 'return acceptance.selected();');
 	const selectedB = await evaluate(b, 'return acceptance.selected();');
 	assert.notDeepEqual(selectedA, selectedB);
@@ -567,6 +570,8 @@ try {
 		(await records(a)).some((record) => record.id === 'native-legacy'),
 		false,
 	);
+	assert.equal((await records(a)).some((record) => record.id === removable), false);
+	assert.equal(await evaluate(a, `return localStorage.getItem('${a}.app-ai-connections');`), legacy);
 	assert.deepEqual(
 		await evaluate(a, 'return acceptance.selected();'),
 		selectedA,
@@ -578,7 +583,7 @@ try {
 	await evaluate(a, `return acceptance.run(${JSON.stringify(id)});`);
 	assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[2]}`);
 	checks.push(
-		'native and Bun process restart preserves ID, keychain credential, independent selections and deleted import marker',
+		'native and Bun process restart preserves ID, keychain credential, independent selections and legacy bytes without adoption or deleted connection resurrection',
 	);
 	fixtureHeld = true;
 	const beforeClose = requests.length;

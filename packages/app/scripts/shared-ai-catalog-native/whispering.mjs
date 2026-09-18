@@ -59,7 +59,7 @@ if(!button)return false;button.click();return true;`),
 	await click('button', 'Add');
 	const selected = await until('saved product selection', () =>
 		ui(
-			"return JSON.parse(localStorage.getItem('whispering.app-ai-selections')??'null')?.selections?.transcription;",
+			"return JSON.parse(localStorage.getItem('whispering/no-account.app-ai-selections')??'null')?.selections?.transcription;",
 		),
 	);
 	assert.equal(selected.model, model);
@@ -116,7 +116,7 @@ input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}
 	await until('Whispering transcript after reload', transcriptVisible);
 	assert.deepEqual(
 		await ui(
-			"return JSON.parse(localStorage.getItem('whispering.app-ai-selections')).selections.transcription;",
+			"return JSON.parse(localStorage.getItem('whispering/no-account.app-ai-selections')).selections.transcription;",
 		),
 		selected,
 	);

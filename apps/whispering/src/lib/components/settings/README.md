@@ -13,5 +13,6 @@ Both use the shared inference picker. No provider API keys pass through
 Its reset operation leaves retired provider settings untouched because those
 keys are no longer declared. Legacy credentials are not imported into an account.
 
-Deepgram, ElevenLabs, and Mistral's separate transcription protocols are not
-supported. Future support belongs in the connection catalog.
+Direct Deepgram and ElevenLabs protocols are unsupported. Mistral has no
+separate adapter. Custom endpoints must accept the workflow's OpenAI SDK
+request; the catalog does not translate provider-specific protocols.

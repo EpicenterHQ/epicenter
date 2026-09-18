@@ -38,7 +38,8 @@ recording shutdown; native capture still requires explicit recovery.
 Saved transcription reads bytes through the same App that recorded them. Its
 operation captures the selected SDK client, model, and hints before that read.
 Connection discovery only suggests models; it never selects a destination.
-Deepgram, ElevenLabs, and Mistral retain their distinct protocol adapters.
+Custom endpoints must accept the workflow's OpenAI SDK request. Direct Deepgram
+and ElevenLabs protocols are unsupported; Mistral has no separate adapter.
 
 ## Service Layer - Pure Business Logic + Platform Abstraction
 

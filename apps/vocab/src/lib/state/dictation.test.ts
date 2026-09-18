@@ -10,7 +10,6 @@ import { expectOk } from 'wellcrafted/testing';
 
 Reflect.set(globalThis, '$state', <T>(value: T) => value);
 mock.module('$app/paths', () => ({ base: '' }));
-mock.module('$lib/data', () => ({ VOCAB_STT_MODEL: 'whisper-1' }));
 
 let start = async (_options: { onSpeechEnd(blob: Blob): void }) =>
 	Ok(undefined);

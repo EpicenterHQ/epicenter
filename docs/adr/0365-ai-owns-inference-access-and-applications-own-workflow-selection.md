@@ -262,27 +262,18 @@ Applications use the SDK for requests.
 Whispering and Vocab retain their workflow choices without requiring those
 concepts in core App types.
 
-Browser connections and selections have separate version-1 stores under the existing
-application prefix: `.app-ai-connections` and `.app-ai-selections`. The
-application coordinator validates destination stores first, then imports missing
-stores under one exclusive Web Lock. An existing empty destination still wins.
-Pre-ID settings first become one committed combined envelope so every retry and
-document uses the same ID mapping. Each successful destination write survives a
-later write failure. Old bytes remain recovery data; live owners neither observe
-nor write the old keys.
+Browser connections persist at
+`epicenter/ai/<owner>.app-ai-connections`; selections persist separately at
+`<settingsKey>/<owner>.app-ai-selections`. Desktop metadata lives at
+`ai/<owner>/connections.json`. ADR-0404 defines the captured account's owner
+namespace, including `no-account`.
 
-Browser owners never convert legacy settings during synchronous construction. Connection-only callers can
-initialize normalized records under the same lock without parsing selections;
-pre-ID conversion belongs to the application coordinator. Keeping conversion
-outside opening preserves the synchronous App contract and prevents an import
-from overwriting another document's saved edits.
-
-Desktop opening imports normalized browser records before App readiness. The
-host records import sources in the same durable metadata commit as their records,
-so retries and reopen preserve IDs and never resurrect a deleted connection.
-Conflicting IDs fail import instead of retargeting saved workflow choices. Old
-browser bytes remain available for recovery, while all new desktop writes go to
-the shared owner. Product selections remain local and separate.
+Opening does not read or import old provider settings, product-scoped catalogs,
+selections, or the profile-wide desktop catalog. Old bytes remain untouched;
+they are recovery data, not usable configuration. People add connections and
+select models explicitly in the intended account. The desktop import command is
+removed. Existing version-1 catalog files retain inert import markers without
+using them to admit records or credentials.
 
 The Svelte adapter still earns observation and presentation. It loses custom
 connection CRUD forwarding and independent routing logic. `connectionFor` in
@@ -323,10 +314,10 @@ Whispering and Vocab retain selections through
 or removing a hidden desktop key. The old combined configuration owner and
 public aliases remain removed.
 
-`bun packages/app/scripts/ai-connections.browser.mjs` verifies browser migration
+`bun packages/app/scripts/ai-connections.browser.mjs` verifies browser account isolation
 and exact SDK routing. `bun packages/app/scripts/shared-ai-catalog.browser.mjs`
 verifies two test SPA documents through real host routes, session and Origin
-checks, SSE updates, import/reload, independent selections, credential isolation,
+checks, SSE updates, explicit setup/reload, independent selections, credential isolation,
 access retirement, and catalog reopen. It uses a process-memory secret owner;
 Rust keychain access and host process restart are outside that harness. `bun packages/app-shell/scripts/inference-picker.browser.mjs`
 verifies pending and failed saves, hidden key retention/removal, cross-window
@@ -335,10 +326,13 @@ updates, and suppression of late selection after the picker closes.
 `bun packages/app/scripts/shared-ai-catalog.native.mjs` closes the native
 catalog acceptance gap with two installed test applications in real macOS
 WebViews. It uses the existing Rust secret bridge and OS keychain, restarts
-both host processes, preserves product selections and deleted import markers,
+both host processes, preserves product selections and unadopted legacy bytes,
 and verifies SSE reconnect and upstream cancellation at each closure boundary.
 The [native procedure and evidence](../../packages/app/scripts/shared-ai-catalog-native/README.md)
 state the fixture's isolation and limits.
+
+The updated default native fixture passed on 2026-09-18 after account isolation.
+That run exercised model discovery, not the optional Whispering audio mode.
 
 The optional `--whispering` run also exercises the built desktop product's
 transcription picker, audio import, and saved transcript after a new document

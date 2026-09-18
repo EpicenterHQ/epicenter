@@ -30,7 +30,7 @@ if (!localStorage.getItem(`${product}.seeded`)) {
 				? [
 						{
 							id: 'native-legacy',
-							name: 'Imported fixture',
+							name: 'Unadopted fixture',
 							baseUrl: 'http://127.0.0.1:1/v1',
 							models: ['manual'],
 						},

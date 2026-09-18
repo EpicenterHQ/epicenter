@@ -1,6 +1,6 @@
 /**
  * Desktop AI catalog persistence and access tests.
- * Verifies serialized durable updates, keychain isolation, import identity,
+ * Verifies serialized durable updates, keychain isolation, legacy-data retention,
  * reactive snapshots, and retirement when credentials or destinations change.
  */
 import { afterEach, expect, spyOn, test } from 'bun:test';
@@ -279,37 +279,74 @@ test('failed keychain or metadata writes leave the saved catalog unchanged', asy
 	expect(deletes).toBe(1);
 });
 
-test('imports preserve IDs and tombstones across restart and reject identity conflicts', async () => {
+test('opening and editing retain version-1 records and inert import markers without reading keys', async () => {
 	const { catalog, dataRoot, secrets } = await setup();
+	const entry = await add(catalog, 'retained-key');
+	await catalog.close();
+	const path = join(dataRoot, 'ai/no-account/connections.json');
+	const saved = JSON.parse(await readFile(path, 'utf8'));
+	saved.imports = ['vocab:vocab'];
+	const original = JSON.stringify(saved);
+	await writeFile(path, original);
+	let reads = 0;
+	const reopened = await createAiCatalog({
+		dataRoot,
+		secrets: {
+			...secrets,
+			async get() {
+				reads++;
+				throw new Error('The keychain is unavailable.');
+			},
+		},
+	});
+	cleanup.push(() => reopened.close());
+	expect(await readFile(path, 'utf8')).toBe(original);
+	expect(reopened.getAll().connections).toEqual([entry]);
+	await reopened.execute({
+		type: 'update',
+		id: entry.id,
+		patch: { name: 'Renamed' },
+	});
+	expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({
+		...saved,
+		revision: saved.revision + 1,
+		connections: [{ ...saved.connections[0], name: 'Renamed' }],
+	});
+	expect(reads).toBe(0);
+});
+
+test('an obsolete import command is rejected without changing storage or touching credentials', async () => {
+	let secretOperations = 0;
+	const unexpected = async () => {
+		secretOperations++;
+		throw new Error('No credential operation is allowed.');
+	};
+	const { catalog, dataRoot } = await setup({
+		secrets: { get: unexpected, put: unexpected, delete: unexpected },
+	});
+	await add(catalog);
+	const path = join(dataRoot, 'ai/no-account/connections.json');
+	const original = await readFile(path, 'utf8');
+	const snapshot = catalog.getAll();
 	const command = {
-		type: 'import' as const,
+		type: 'import',
 		source: 'vocab:vocab',
 		records: [
 			{
 				id: 'legacy-id',
-				name: 'Mine',
 				baseUrl: 'https://models.example/v1',
-				apiKey: 'secret',
-				models: ['model'],
+				apiKey: 'old-key',
 			},
 		],
 	};
-	await catalog.execute(command);
-	expect(catalog.getAll().connections[0]!.id).toBe('legacy-id');
-	await expect(
-		catalog.execute({
-			...command,
-			source: 'whispering:whispering',
-			records: [{ ...command.records[0]!, apiKey: 'different' }],
-		}),
-	).rejects.toThrow('conflicts');
-	await catalog.execute({ type: 'remove', id: 'legacy-id' });
-	await catalog.close();
-	const reopened = await createAiCatalog({ dataRoot, secrets });
-	cleanup.push(() => reopened.close());
-	await reopened.execute(command);
-	expect(reopened.getAll().connections).toEqual([]);
-	expect(reopened.getAll().revision).toBe(2);
+	// Host routes accept JSON; the removed operation must also fail at runtime.
+	// @ts-expect-error The import command is no longer part of the public API.
+	await expect(catalog.execute(command)).rejects.toThrow(
+		'Invalid AI catalog command',
+	);
+	expect(catalog.getAll()).toEqual(snapshot);
+	expect(await readFile(path, 'utf8')).toBe(original);
+	expect(secretOperations).toBe(0);
 });
 
 test('malformed saved metadata and endpoint credentials fail without exposing them', async () => {

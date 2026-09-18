@@ -30,8 +30,8 @@ import {
 } from '@epicenter/recorder';
 import { Err, Ok, tryAsync, type Result } from 'wellcrafted/result';
 import type OpenAI from 'openai';
+import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
 import { base } from '$app/paths';
-import { VOCAB_STT_MODEL } from '$lib/data';
 
 /**
  * Where the mic is: closed, waiting for speech, or capturing a phrase.
@@ -144,7 +144,7 @@ export function createDictation(client: OpenAI | null) {
 									// language they are studying, so Whisper auto-detects (ADR-0105).
 									await tryAsync({
                                         try: async () => {
-                                            const result = await client.audio.transcriptions.create({ file: new File([blob], 'dictation.webm', { type: blob.type }), model: VOCAB_STT_MODEL });
+                                            const result = await client.audio.transcriptions.create({ file: new File([blob], 'dictation.webm', { type: blob.type }), model: HOSTED_TRANSCRIPTION_MODEL });
                                             if (typeof result.text !== 'string') throw new Error('Transcription returned no text.');
                                             return result.text;
                                         },

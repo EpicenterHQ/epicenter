@@ -26,18 +26,14 @@ export type AiCatalogCommand =
 	| { type: 'add'; input: AiCatalogInput }
 	| { type: 'update'; id: string; patch: Partial<AiCatalogInput> }
 	| { type: 'remove'; id: string }
-	| { type: 'reorder'; ids: string[] }
-	| {
-			type: 'import';
-			source: string;
-			records: (AiCatalogInput & { id: string })[];
-	  };
+	| { type: 'reorder'; ids: string[] };
 
 type SavedConnection = AiCatalogConnection & { secretVersion?: string };
 type SavedCatalog = {
 	version: 1;
 	revision: number;
 	connections: SavedConnection[];
+	/** Inert version-1 data, retained when an existing catalog is saved. */
 	imports: string[];
 };
 const secretAppId = 'so.epicenter.ai-catalog';
@@ -336,44 +332,6 @@ export async function createAiCatalog({
 					next.connections = command.ids.map(
 						(id) => next.connections.find((entry) => entry.id === id)!,
 					);
-					break;
-				}
-				case 'import': {
-					if (
-						typeof command.source !== 'string' ||
-						!command.source ||
-						!Array.isArray(command.records)
-					)
-						throw new Error('Invalid AI catalog import.');
-					if (next.imports.includes(command.source))
-						return { snapshot: snapshot(), result };
-					if (
-						new Set(command.records.map((record) => record.id)).size !==
-						command.records.length
-					)
-						throw new Error('Duplicate imported AI connection.');
-					for (const record of command.records) {
-						const candidate = input(record);
-						const existing = next.connections.find(
-							(entry) => entry.id === record.id,
-						);
-						if (!existing) {
-							next.connections.push(await prepare(record.id, candidate));
-							continue;
-						}
-						if (
-							existing.name !==
-								(candidate.name ?? new URL(candidate.baseUrl).host) ||
-							existing.baseUrl !== candidate.baseUrl ||
-							JSON.stringify(existing.models) !==
-								JSON.stringify(candidate.models ?? []) ||
-							(await key(existing)) !== (candidate.apiKey?.trim() || undefined)
-						)
-							throw new Error(
-								'An imported AI connection identity conflicts with the desktop catalog.',
-							);
-					}
-					next.imports.push(command.source);
 					break;
 				}
 				default:

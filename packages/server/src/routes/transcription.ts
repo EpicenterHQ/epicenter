@@ -2,8 +2,7 @@
  * `/v1/audio/transcriptions`: the OpenAI-compatible speech-to-text gateway
  * (ADR-0050, ADR-0056). The STT sibling of the chat gateway in `inference.ts`:
  * one swappable server speaking the OpenAI `audio/transcriptions` wire, reached
- * by the shared `transcribe()` client (`@epicenter/client`) over the same
- * Connection base. Pointing that client elsewhere (a self-hosted Speaches box, a
+ * by an App-owned OpenAI SDK client. Selecting another connection (a Speaches box, a
  * user's own key) is configuration, not code.
  *
  * It is a multipart passthrough proxy: validate the requested model against the
@@ -32,6 +31,7 @@
  *   - 502 `upstream_unreachable`   the provider could not be reached.
  */
 
+import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
 import { every } from 'hono/combine';
@@ -40,15 +40,14 @@ import { describeRoute } from 'hono-openapi';
 import { extractErrorMessage } from 'wellcrafted/error';
 import type { Env } from '../types.js';
 
-// The gateway's single upstream routing fact, kept local (mirroring
-// `inference.ts`): v1 serves OpenAI `whisper-1` over the OpenAI-compatible base,
-// reusing the deployment's existing `OPENAI_API_KEY` house key (the chat gateway
+// The gateway's upstream routing stays local: it serves the shared hosted model
+// over the OpenAI-compatible base, reusing the deployment's existing
+// `OPENAI_API_KEY` house key (the chat gateway
 // already provisions it). `whisper-1` returns `duration` under `verbose_json`,
 // which the per-minute meter reads; the `gpt-4o-transcribe` models do not support
 // `verbose_json`, so do not swap to them without giving the meter another
 // duration source. Held as inline constants until a real second upstream exists:
 // reintroduce a per-model routing table when one does, not before.
-const STT_MODEL = 'whisper-1';
 const STT_BASE_URL = 'https://api.openai.com/v1';
 const STT_HOUSE_KEY_ENV = 'OPENAI_API_KEY' as const;
 
@@ -99,7 +98,7 @@ export function mountTranscriptionApp<E extends Env = Env>(
 			}
 
 			const model = form.get('model');
-			if (model !== STT_MODEL) {
+			if (model !== HOSTED_TRANSCRIPTION_MODEL) {
 				return c.json(
 					openAiError(`Unknown model: ${String(model)}`, 'UnknownModel'),
 					400,
@@ -133,7 +132,7 @@ export function mountTranscriptionApp<E extends Env = Env>(
 			// client-supplied `response_format`, stray fields) is dropped on purpose.
 			const upstreamForm = new FormData();
 			upstreamForm.append('file', file);
-			upstreamForm.append('model', STT_MODEL);
+			upstreamForm.append('model', HOSTED_TRANSCRIPTION_MODEL);
 			upstreamForm.append('response_format', 'verbose_json');
 			const language = form.get('language');
 			if (typeof language === 'string')

@@ -43,6 +43,7 @@
  * The library remains billing-agnostic; everything here is cloud-only.
  */
 
+import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
 import type { CloudEnv } from '@epicenter/server';
 import { createMiddleware } from 'hono/factory';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -84,10 +85,7 @@ export const chargeOpenAiCreditsWithAutumn = createMiddleware<CloudEnv>(
 	},
 );
 
-// The hosted STT gateway pins one backend (mirrors `STT_MODEL` / `STT_BASE_URL`
-// in the library's transcription route), so the usage event's model and provider
-// are fixed here rather than read from the request.
-const HOSTED_STT_MODEL = 'whisper-1';
+// The gateway pins one upstream provider. Never trust request fields as billing metadata.
 const HOSTED_STT_PROVIDER = 'openai';
 
 /**
@@ -126,7 +124,7 @@ export const chargeOpenAiTranscriptionCredits = createMiddleware<CloudEnv>(
 		c.var.afterResponseQueue.push(
 			billing.trackAiTranscription({
 				seconds,
-				model: HOSTED_STT_MODEL,
+				model: HOSTED_TRANSCRIPTION_MODEL,
 				provider: HOSTED_STT_PROVIDER,
 			}),
 		);

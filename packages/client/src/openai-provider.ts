@@ -7,7 +7,7 @@ import type {
 	AgentEngine,
 	AgentEngineToolDefinition,
 	ModelMessage,
-} from './agent-engine.js';
+} from '@epicenter/agent-protocol';
 
 /** Captured client and prompts for one turn; the loop remains the tool executor. */
 export type OpenAiTurnContext = {

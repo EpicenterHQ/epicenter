@@ -17,26 +17,23 @@ export type {
 	AgentEngineRequest,
 	AgentEngineToolDefinition,
 	EngineChunk,
-	EngineFetch,
 	ModelMessage,
 	ModelToolCall,
-} from './agent-engine.js';
-export { CompleteError, complete } from './complete.js';
+} from '@epicenter/agent-protocol';
 export {
 	CONNECTION_PRESETS,
-	type Connection,
 	type ConnectionPreset,
-	ListModelsError,
-	listModels,
 	type PresetId,
-	type ResolvedConnection,
-	resolveConnection,
-} from './connection.js';
+} from './connection-presets.js';
+export {
+	CompleteError,
+	ListModelsError,
+	TranscribeError,
+} from './inference-errors.js';
 export {
 	createOpenAiAgentEngine,
 	type OpenAiTurnContext,
 } from './openai-provider.js';
-export { TranscribeError, transcribe } from './transcribe.js';
 
 /** Internal platform composition; construction performs no IO. */
 export function createRemoteBlobClient({

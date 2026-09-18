@@ -59,17 +59,6 @@ Guidelines:
 - Be conversational and encouraging.`;
 
 /**
- * The model Vocab dictates through. Pinned to OpenAI's `whisper-1`, the one
- * model the hosted speech-to-text gateway serves: it returns the `duration` the
- * per-minute meter reads, which the `gpt-4o-transcribe` models drop. An app
- * constant like {@link VOCAB_MODEL}: transcription is a stateless service, so
- * Vocab names its own model rather than borrow another app's. A user who points
- * a device connection at their own OpenAI key serving `whisper-1` dictates
- * through that instead (the connection registry resolves it first).
- */
-export const VOCAB_STT_MODEL = 'whisper-1';
-
-/**
  * A complete chat message: the unit Vocab persists. Each finished message is
  * written once, whole, as one JSON blob at the conversation's `messages` root,
  * keyed by its message id (ADR-0046/0047), the moment a turn finishes.

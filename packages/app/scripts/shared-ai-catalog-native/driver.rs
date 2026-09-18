@@ -61,8 +61,8 @@ fn start_catalog_acceptance(app: &DesktopAppHandle) {
                             delete_app_secret(
                                 &app.config().identifier,
                                 "so.epicenter.ai-catalog",
-                                &SecretAccount::Local(()),
                                 command["label"].as_str().unwrap(),
+                                None,
                             )?;
                             Ok(serde_json::Value::Bool(true))
                         }

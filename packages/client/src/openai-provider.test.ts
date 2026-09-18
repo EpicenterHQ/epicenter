@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import type { AgentEngineRequest, EngineChunk } from './agent-engine.js';
+import type { AgentEngineRequest, EngineChunk } from '@epicenter/agent-protocol';
 import OpenAI from 'openai';
 import { createOpenAiAgentEngine } from './openai-provider.js';
 

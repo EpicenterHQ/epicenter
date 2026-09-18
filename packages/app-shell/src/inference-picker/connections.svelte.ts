@@ -1,7 +1,8 @@
 import type { AppAi } from '@epicenter/app/ai';
 import { ListModelsError } from '@epicenter/client';
+import OpenAI from 'openai';
 import { createSubscriber } from 'svelte/reactivity';
-import { tryAsync, unwrap } from 'wellcrafted/result';
+import { Ok, type Result, tryAsync, unwrap } from 'wellcrafted/result';
 import {
 	accountInferenceId,
 	type InferenceSelections,
@@ -62,13 +63,7 @@ export function createInferenceConnections({
 		},
 		async refreshRuntime() {
 			if (!ai.runtime) return;
-			const result = await tryAsync({
-				try: async () =>
-					(await ai.runtime!.client.models.list()).data.map(
-						(model) => model.id,
-					),
-				catch: (cause) => ListModelsError.Unreachable({ cause }),
-			});
+			const result = await discoverModels(() => ai.runtime!.client);
 			if (!result.error) runtimeModels = result.data;
 		},
 		hostedModels,
@@ -77,25 +72,18 @@ export function createInferenceConnections({
 			return ai.connections!.getAll();
 		},
 		discover(baseUrl: string, apiKey?: string, savedId?: string) {
-			return tryAsync({
-				try: async () => {
-					const client = savedId
-						? ai.connections!.get(savedId)?.client
-						: ai.connections!.preview({ baseUrl, apiKey });
-					if (!client) throw new Error('AI connection no longer exists.');
-					return (await client.models.list()).data.map((model) => model.id);
-				},
-				catch: (cause) => ListModelsError.Unreachable({ cause }),
+			return discoverModels(() => {
+				const client = savedId
+					? ai.connections!.get(savedId)?.client
+					: ai.connections!.preview({ baseUrl, apiKey });
+				if (!client) throw new Error('AI connection no longer exists.');
+				return client;
 			});
 		},
 		async refresh(id: string) {
 			const connection = ai.connections!.get(id);
 			if (!connection) return;
-			const result = await tryAsync({
-				try: async () =>
-					(await connection.client.models.list()).data.map((model) => model.id),
-				catch: (cause) => ListModelsError.Unreachable({ cause }),
-			});
+			const result = await discoverModels(() => connection.client);
 			const models = unwrap(result);
 			const record = ai.connections!.get(id);
 			if (!record || record.client !== connection.client) return;
@@ -113,3 +101,24 @@ export function createInferenceConnections({
 export type InferenceConnections = ReturnType<
 	typeof createInferenceConnections
 >;
+
+/** Keep SDK request failures distinct from unusable model suggestions. */
+async function discoverModels(
+	client: () => OpenAI,
+): Promise<Result<string[], ListModelsError>> {
+	const result = await tryAsync({
+		try: async () => client().models.list(),
+		catch: (cause) =>
+			cause instanceof OpenAI.APIError && cause.status !== undefined
+				? ListModelsError.RequestFailed({ status: cause.status })
+				: ListModelsError.Unreachable({ cause }),
+	});
+	if (result.error !== null) return result;
+	const models = result.data.data;
+	if (
+		!Array.isArray(models) ||
+		models.some((model) => !model || typeof model.id !== 'string')
+	)
+		return ListModelsError.Malformed();
+	return Ok(models.map((model) => model.id));
+}

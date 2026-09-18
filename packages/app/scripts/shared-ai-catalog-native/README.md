@@ -62,7 +62,7 @@ The runner copies the current Rust and Bun host sources into the evidence
 directory. Only that copy gains file-driven window automation, a test event
 permission, WebKit store selection, and a Bun exit-code report. It also wraps
 the HTTP event response to count subscriptions and interrupt SSE. Catalog
-commands, import, secret dispatch, keyring storage, inference forwarding, and
+commands, secret dispatch, keyring storage, inference forwarding, and
 native shutdown use their existing implementations. The runner closes the
 host's prewarmed Whispering window before counting the two test subscriptions.
 
@@ -73,6 +73,14 @@ upstream abort. App closure, window destruction, and host shutdown must each
 cancel that body. Both native and Bun processes must exit with code zero.
 
 ## Recorded acceptance
+
+The current fixture requires explicit connection creation and leaves legacy
+browser settings untouched and unusable. Catalog metadata and product selections
+use the no-account namespace. The default fixture passed on 2026-09-18: real
+WebViews, keychain access, process restart, SSE reconnect, access retirement, and
+three upstream cancellations. The isolated keychain service was empty afterward.
+This run used model discovery; the optional Whispering audio mode was not rerun.
+The historical run below predates account isolation.
 
 The [2026-09-10 result](20260910-result.json) covers shared snapshots, independent
 selections, key omission, key retention/replacement/removal, same-key assignment,
