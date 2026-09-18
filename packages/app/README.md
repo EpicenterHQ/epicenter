@@ -126,24 +126,22 @@ Desktop sharing stays on one profile and does not sync between devices. The host
 serializes mutations and sends committed snapshots over SSE to open app windows.
 Browser mutations use a Web Lock, reread current storage before writing, and
 notify other owners in the same document or origin. Workflow selections remain
-product-local under `${settingsKey}.app-ai-selections` in both environments.
+product- and owner-local under `${settingsKey}/${owner}.app-ai-selections` in both environments.
 Switching libraries retains this configuration while opening new App clients.
 An explicit `ai` binding replaces the default. The host build's default already
 supplies native file inference as `app.device.connections.runtime`, so no application composes
 it; the browser default has no runtime transport.
 
-Applications with saved workflow choices await
-`initializeBrowserAiSettings(settingsKey)` from
-`@epicenter/app-shell/migrate-ai-settings` before opening. It splits the old
-combined envelope under a Web Lock, preserves IDs and successful writes across
-retries, and retains old bytes for recovery. Pre-ID settings are normalized once
-inside the same lock. A connection-only consumer can use
-`initializeAiConnections({ storage, storageKey, locks })` from
-`@epicenter/app/ai-connections` for already-normalized records.
+Whispering and Vocab open workflow selections with the same captured account as
+the App. No-account, different principals, and different authorities have separate
+choices. Returning to an owner restores that owner's selections and catalog.
 
-Desktop opening reads the matching account's host catalog. Old product-scoped
-and profile-wide catalogs remain untouched and are not imported automatically.
-New desktop saves go to the account's host catalog.
+Old product-scoped and profile-wide catalogs, selections, and provider settings
+remain untouched and unread. Opening does not migrate them, including when old
+values are malformed. Connect providers explicitly in the intended account.
+Whispering uses only the selected App client; its former Deepgram, ElevenLabs,
+and Mistral adapters are removed. Reintroducing those protocols requires catalog
+support, not another credential store in the application.
 
 The [native catalog acceptance](scripts/shared-ai-catalog-native/README.md)
 exercises two installed test apps through real macOS WebViews and the Rust

@@ -52,7 +52,7 @@
 		app.inferenceConnections.selections.onChange,
 		() => app.inferenceConnections.selections.get('transcription'),
 	);
-	const audioOnly = $derived(app.settings.get('transcriptionService') === 'connection' && transcriptionSelection.current === null);
+	const audioOnly = $derived(transcriptionSelection.current === null);
 	const transcriptionReadiness = $derived(getTranscriptionReadiness(app));
 	const hasActiveShortcut = $derived.by(() => {
 		const surface = captureSurface.current(app);

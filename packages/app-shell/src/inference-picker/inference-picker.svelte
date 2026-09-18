@@ -21,7 +21,7 @@
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { createMutation, QueryClient } from '@tanstack/svelte-query';
-	import { onDestroy, type Snippet } from 'svelte';
+	import { onDestroy } from 'svelte';
 		import type { InferenceConnections } from './connections.svelte.js';
 
 	type Props = {
@@ -40,10 +40,9 @@
 		/** Native file inference is useful to audio workflows only. */
 		includeRuntime?: boolean;
 		placeholder?: string;
-		additionalOptions?: Snippet<[close: () => void]>;
 	};
 
-	let { scope, model, onSelectModel, connections, disabled = false, accountModels, includeRuntime = false, placeholder = 'Select model', additionalOptions }: Props = $props();
+	let { scope, model, onSelectModel, connections, disabled = false, accountModels, includeRuntime = false, placeholder = 'Select model' }: Props = $props();
 	const ai = $derived(connections.ai);
 	const models = $derived(accountModels ?? connections.hostedModels);
 
@@ -373,7 +372,6 @@
 					{/each}
 
 					<Command.Separator />
-					{@render additionalOptions?.(() => { open = false; })}
 					<Command.Item
 						value="connect a provider"
 						onSelect={() => (view = 'connect')}

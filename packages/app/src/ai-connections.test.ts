@@ -116,29 +116,17 @@ test('a live owner stays empty after deletion instead of reimporting retained le
 	owner.close();
 });
 
-test('existing destination wins over normalized settings and old data requires initialization', async () => {
+test('legacy sources remain unread and untouched when opening an empty catalog', () => {
 	const fixture = setup();
-	fixture.values.set(
+	for (const key of [
 		'test.app-ai',
-		JSON.stringify({ version: 1, connections: [], selections: {} }),
-	);
-	expect(() => fixture.open()).toThrow('Initialize saved AI settings');
-	expect(fixture.values.has('test.app-ai-connections')).toBe(false);
-	fixture.values.set(
-		'test.app-ai-connections',
-		JSON.stringify({ version: 1, connections: [] }),
-	);
-	expect(fixture.open().getAll()).toEqual([]);
-});
-
-test('pre-ID sources require serialized application initialization without minting IDs', async () => {
-	const fixture = setup();
-	fixture.values.set(
 		'test.inference-connections',
-		JSON.stringify([{ baseUrl: 'https://old' }]),
-	);
-	expect(() => fixture.open()).toThrow('Initialize saved AI settings');
-	expect([...fixture.values.keys()]).toEqual(['test.inference-connections']);
+		'test.inference-targets',
+	])
+		fixture.values.set(key, 'malformed legacy credential bytes');
+	const before = [...fixture.values];
+	expect(fixture.open().getAll()).toEqual([]);
+	expect([...fixture.values]).toEqual(before);
 });
 
 test('malformed destinations fail without exposing credentials or resetting saved bytes', async () => {

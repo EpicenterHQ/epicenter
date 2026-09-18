@@ -26,10 +26,10 @@ describe('the active local model is device-local', () => {
 		expect(localModelKeys).toEqual([]);
 	});
 
-	it('leaves the transcription route synced, because a route is portable', () => {
-		// The route is a preference that means the same thing on every device, so
-		// it stays here. Keeping this alongside the assertion above is the point:
-		// the two decisions are separate, and only one of them travels.
-		expect(settingKeys).toContain('transcriptionService');
+	it('keeps only the selected model in the settings contract', () => {
+		expect(settingKeys).toContain('transcriptionModel');
+		expect(settingKeys).not.toContain('transcriptionService');
+		expect(settingKeys).not.toContain('completionProvider');
+		expect(settingKeys).not.toContain('transcriptionDeepgramModel');
 	});
 });

@@ -1,4 +1,5 @@
 import type { AppAi } from '@epicenter/app/ai';
+import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 
 export type InferenceTarget = { connectionId: string; model: string };
 
@@ -62,23 +63,13 @@ export function createInferenceSelections({
 	const key = `${storageKey}.app-ai-selections`;
 	let disposed = false;
 	const listeners = new Set<() => void>();
-	function load(initial = false) {
+	function load() {
 		const raw = storage.getItem(key);
-		if (
-			initial &&
-			raw === null &&
-			(storage.getItem(`${storageKey}.app-ai`) !== null ||
-				storage.getItem(`${storageKey}.inference-targets`) !== null ||
-				storage.getItem(`${storageKey}.inference-connections`) !== null)
-		)
-			throw new Error(
-				'Initialize legacy AI settings before opening inference selections.',
-			);
 		return raw === null
 			? { version: 1 as const, selections: {} }
 			: parseInferenceSelections(raw);
 	}
-	let state = load(true);
+	let state = load();
 	function assertOpen() {
 		if (disposed) throw new Error('Inference selections are disposed.');
 	}
@@ -129,7 +120,11 @@ export function createInferenceSelections({
 }
 export type InferenceSelections = ReturnType<typeof createInferenceSelections>;
 
-export function createBrowserInferenceSelections(storageKey: string) {
+export function createBrowserInferenceSelections(
+	appId: string,
+	account?: AccountIdentity,
+) {
+	const storageKey = `${appId}/${deviceOwnerPath(account)}`;
 	return createInferenceSelections({
 		storage: window.localStorage,
 		storageKey,

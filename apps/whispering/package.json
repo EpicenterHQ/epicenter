@@ -24,10 +24,6 @@
 			"epicenter-host": "./src/lib/services/download/index.tauri.ts",
 			"default": "./src/lib/services/download/index.browser.ts"
 		},
-		"#platform/http": {
-			"epicenter-host": "./src/lib/services/http/index.tauri.ts",
-			"default": "./src/lib/services/http/index.browser.ts"
-		},
 		"#platform/manual-recorder-config": {
 			"epicenter-host": "./src/lib/state/manual-recorder-config.tauri.ts",
 			"default": "./src/lib/state/manual-recorder-config.browser.ts"
@@ -116,7 +112,6 @@
 		"@epicenter/device": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
-		"@mistralai/mistralai": "^1.9.18",
 		"@standard-schema/spec": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
 		"@tanstack/svelte-table": "catalog:",
@@ -125,7 +120,6 @@
 		"@tauri-apps/plugin-deep-link": "catalog:",
 		"@tauri-apps/plugin-dialog": "^2.3.2",
 		"@tauri-apps/plugin-fs": "catalog:",
-		"@tauri-apps/plugin-http": "2.5.4",
 		"@tauri-apps/plugin-notification": "^2.3.0",
 		"@tauri-apps/plugin-opener": "catalog:",
 		"@tauri-apps/plugin-os": "^2.3.0",
@@ -136,7 +130,6 @@
 		"date-fns": "catalog:",
 		"dexie": "^4.0.11",
 		"dompurify": "^3.4.10",
-		"elevenlabs": "^1.59.0",
 		"fflate": "catalog:",
 		"idb": "^8.0.3",
 		"js-yaml": "^4.1.1",

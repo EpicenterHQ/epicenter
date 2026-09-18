@@ -17,17 +17,9 @@ import type { WhisperingApp, WhisperingAppHandle } from '../whispering/app.js';
 
 let activeApp: WhisperingAppHandle;
 let currentSelections: InferenceSelections;
-let bespoke: () => Promise<ReturnType<typeof Ok<string>>> = async () =>
-	Ok('bespoke words');
 mock.module('../application.js', () => ({
 	getApp: () => activeApp,
 	getSelections: () => currentSelections,
-}));
-mock.module('../state/secrets.svelte.js', () => ({
-	secrets: { get: () => ({ status: 'available', value: 'bespoke-key' }) },
-}));
-mock.module('../services/transcription/cloud/deepgram.js', () => ({
-	DeepgramTranscriptionServiceLive: { transcribe: () => bespoke() },
 }));
 const { transcribeAudio, transcribeAndPersist, captureTranscription } =
 	await import('./transcribe.js');
@@ -37,7 +29,7 @@ async function setup({
 	principal = 'alice',
 	selectModel = true,
 }: {
-	response?: () => Response;
+	response?: () => Response | Promise<Response>;
 	principal?: string;
 	selectModel?: boolean;
 } = {}) {
@@ -84,12 +76,10 @@ async function setup({
 		},
 	});
 	const values = new Map<string, unknown>([
-		['transcriptionService', 'connection'],
 		['transcriptionModel', 'saved-model'],
 		['transcriptionLanguage', 'en'],
 		['transcriptionPrompt', '  Spell carefully  '],
 		['dictionary', ['Epicenter', 'Yjs']],
-		['transcriptionDeepgramModel', 'nova-3'],
 	]);
 	const audio = new Blob([new Uint8Array([1, 2, 3])], {
 		type: 'audio/ogg;codecs=opus',
@@ -216,14 +206,12 @@ test('removal during blob loading retires the captured client instead of selecti
 	await fixture.close();
 });
 
-test('missing, mismatched, old provider, and another actor selections send no audio', async () => {
+test('missing, mismatched, and another actor selections send no audio', async () => {
 	for (const change of [
 		(f: Awaited<ReturnType<typeof setup>>) =>
 			f.app.device.connections.custom!.remove(f.id),
 		(f: Awaited<ReturnType<typeof setup>>) =>
 			f.values.set('transcriptionModel', 'mismatch'),
-		(f: Awaited<ReturnType<typeof setup>>) =>
-			f.values.set('transcriptionService', 'OpenAI'),
 		(f: Awaited<ReturnType<typeof setup>>) =>
 			f.selections.set('transcription', {
 				connectionId: 'account:["server","bob"]',
@@ -312,15 +300,15 @@ test('row deletion during local read prevents sending audio to inference', async
 	await fixture.close();
 });
 
-test('bespoke completion after retirement cannot publish transcript or history', async () => {
-	const fixture = await setup();
-	fixture.values.set('transcriptionService', 'Deepgram');
+test('SDK completion after retirement cannot publish transcript or history', async () => {
 	const started = Promise.withResolvers<void>();
-	const finished = Promise.withResolvers<ReturnType<typeof Ok<string>>>();
-	bespoke = () => {
-		started.resolve();
-		return finished.promise;
-	};
+	const finished = Promise.withResolvers<Response>();
+	const fixture = await setup({
+		response: () => {
+			started.resolve();
+			return finished.promise;
+		},
+	});
 	const patch = mock();
 	const domain = {
 		signal: fixture.controller.signal,
@@ -332,10 +320,30 @@ test('bespoke completion after retirement cannot publish transcript or history',
 	} as unknown as WhisperingApp;
 	const pending = transcribeAndPersist(domain, 'recording-id');
 	await started.promise;
-	await fixture.close();
-	finished.resolve(Ok('late words'));
-	expect(expectErr(await pending).name).toBe('Closed');
+	const closing = fixture.close();
+	finished.resolve(Response.json({ text: 'late words' }));
+	await closing;
+	expectErr(await pending);
 	expect(patch).not.toHaveBeenCalled();
+});
+
+test('retired provider settings cannot route audio or adopt a key', async () => {
+	for (const provider of [
+		'Deepgram',
+		'ElevenLabs',
+		'Mistral',
+		'OpenAI',
+		'Groq',
+		'speaches',
+	]) {
+		const fixture = await setup({ selectModel: false });
+		fixture.values.set('transcriptionService', provider);
+		fixture.values.set('providers.deepgram.apiKey', 'legacy-key');
+		expect(expectErr(await fixture.run()).name).toBe('SelectionRequired');
+		expect(fixture.requests).toHaveLength(0);
+		expect(fixture.values.get('providers.deepgram.apiKey')).toBe('legacy-key');
+		await fixture.close();
+	}
 });
 
 for (const { audio, filename, contentType } of [

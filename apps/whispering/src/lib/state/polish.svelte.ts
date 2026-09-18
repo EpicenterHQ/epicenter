@@ -1,6 +1,7 @@
 import { resolveCompletionState } from './completion.svelte.js';
-import { describeTranscriptionDestinationFromConfig } from '../operations/transcription-target.js';
-import { deviceConfig } from './device-config.svelte.js';
+import { connectionLabel } from '@epicenter/app-shell/inference-picker';
+import { getApp } from '../application.js';
+import { resolveTranscriptionState } from '../operations/transcribe.js';
 import { settings } from '../operations/settings.js';
 
 /**
@@ -31,11 +32,13 @@ export function polishStatus(): PolishStatus {
  * resolved completion target. Read at use per ADR 0012.
  */
 export function polishDestination(): string {
-	const audio = describeTranscriptionDestinationFromConfig({
-		service: settings.get('transcriptionService'),
-		getDeviceConfig: deviceConfig.get,
-	});
 	const state = resolveCompletionState();
+	const { client } = resolveTranscriptionState();
+	const audio = !client
+		? 'No transcription connection is selected.'
+		: client === getApp().device.connections.runtime?.client
+			? 'Transcribed on this device.'
+			: `Transcription via ${connectionLabel(client.baseURL)}.`;
 	const text = state.canRun
 		? `Text transformation via ${state.destination}.`
 		: 'Polish is not ready; the original transcript is kept.';

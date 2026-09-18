@@ -86,16 +86,16 @@ await recipes.set({ id, name, instructions, icon: null });
 
 ### `device-config.svelte.ts`
 
-Device-bound configuration backed by per-key localStorage. Secrets, hardware IDs, filesystem paths, and global OS shortcuts that should never sync across devices. Uses a SvelteMap for per-key reactivity with cross-tab sync via storage events.
+Recording hardware preferences and global shortcuts backed by per-key localStorage. Uses a SvelteMap for per-key reactivity with cross-tab sync via storage events. Provider credentials belong to the account-wide connection catalog. Retired provider settings remain untouched and unread.
 
 ```typescript
 import { deviceConfig } from '$lib/state/device-config.svelte';
 
 // Read config reactively
-const apiKey = deviceConfig.get('providers.openai.apiKey');
+const deviceId = deviceConfig.get('recording.navigator.deviceId');
 
 // Update config (writes to localStorage per-key)
-deviceConfig.set('providers.openai.apiKey', 'sk-...');
+deviceConfig.set('recording.navigator.deviceId', deviceId);
 
 // Get definition default (for "Default: X" placeholders)
 const defaultShortcut = deviceConfig.getDefault('shortcuts.global.toggleManualRecording');

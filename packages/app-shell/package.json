@@ -15,7 +15,6 @@
 		"./agent-chat": "./src/agent-chat/index.ts",
 		"./boot-screens": "./src/boot-screens/index.ts",
 		"./inference-selections": "./src/inference-selections.ts",
-		"./migrate-ai-settings": "./src/migrate-ai-settings.ts",
 		"./inference-picker": "./src/inference-picker/index.ts",
 		"./persistence-notice": "./src/persistence-notice/index.ts"
 	},
@@ -24,6 +23,7 @@
 		"test": "bun test"
 	},
 	"dependencies": {
+		"@epicenter/principal": "workspace:*",
 		"nanoid": "catalog:",
 		"@epicenter/agent": "workspace:*",
 		"@epicenter/auth": "workspace:*",

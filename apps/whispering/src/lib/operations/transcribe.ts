@@ -10,11 +10,6 @@ import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 import { getApp, getSelections } from '../application.js';
 import { isSupportedLanguage } from '../constants/languages.js';
 import type { RecordingId } from '../data.js';
-import { DeepgramTranscriptionServiceLive } from '../services/transcription/cloud/deepgram.js';
-import { ElevenLabsTranscriptionServiceLive } from '../services/transcription/cloud/elevenlabs.js';
-import { MistralTranscriptionServiceLive } from '../services/transcription/cloud/mistral.js';
-import { PROVIDERS } from '../services/transcription/providers.js';
-import { secrets } from '../state/secrets.svelte.js';
 import type { WhisperingApp } from '../whispering/app.js';
 import { settings } from './settings.js';
 import {
@@ -84,7 +79,6 @@ export function captureTranscription(owner: WhisperingApp) {
 			if (app.signal !== owner.signal)
 				return TranscriptionOperationError.Closed();
 			app.signal.throwIfAborted();
-			const service = settings.get('transcriptionService');
 			const language = settings.get('transcriptionLanguage');
 			const spokenLanguage = isSupportedLanguage(language) ? language : 'auto';
 			const prompt = [
@@ -93,59 +87,32 @@ export function captureTranscription(owner: WhisperingApp) {
 			]
 				.filter(Boolean)
 				.join(' ');
-			let transcribe: (
-				audio: Blob,
-			) => Promise<Result<string, TranscriptionError>>;
-			if (
-				service === 'Deepgram' ||
-				service === 'ElevenLabs' ||
-				service === 'Mistral'
-			) {
-				const provider = PROVIDERS[service];
-				const key = secrets.get(provider.apiKeyConfigKey);
-				const options = {
-					prompt,
-					spokenLanguage,
-					apiKey: key.status === 'available' ? key.value : '',
-					modelName: settings.get(provider.modelSettingKey),
-				};
-				const implementation = {
-					Deepgram: DeepgramTranscriptionServiceLive,
-					ElevenLabs: ElevenLabsTranscriptionServiceLive,
-					Mistral: MistralTranscriptionServiceLive,
-				}[service];
-				transcribe = (audio) => implementation.transcribe(audio, options);
-			} else {
-				// Previous provider fields are an explicit import source, never a fallback.
-				if (service !== 'connection')
-					return TranscriptionOperationError.SelectionRequired();
-				if (!getSelections().get('transcription')) return Ok(null);
-				const { client, model, account, canRun } = resolveTranscriptionState();
-				if (!client || !canRun)
-					return TranscriptionOperationError.SelectionRequired();
-				usesAccount = account;
-				transcribe = async (audio) => {
-					const response = await client.audio.transcriptions.create(
-						{
-							// Bun 1.3.14 retains a single source File's cached name.
-							file: new File(
-								[audio, ''],
-								`audio.${selectBlobFormat(audio).extension}`,
-								{
-									type: blobInputContentType(audio),
-								},
-							),
-							model,
-							language: spokenLanguage === 'auto' ? undefined : spokenLanguage,
-							prompt: prompt || undefined,
-						},
-						{ signal: app.signal },
-					);
-					return typeof response.text === 'string'
-						? Ok(response.text.trim())
-						: TranscriptionOperationError.Malformed();
-				};
-			}
+			if (!getSelections().get('transcription')) return Ok(null);
+			const { client, model, account, canRun } = resolveTranscriptionState();
+			if (!client || !canRun)
+				return TranscriptionOperationError.SelectionRequired();
+			usesAccount = account;
+			const transcribe = async (audio: Blob) => {
+				const response = await client.audio.transcriptions.create(
+					{
+						// Bun 1.3.14 retains a single source File's cached name.
+						file: new File(
+							[audio, ''],
+							`audio.${selectBlobFormat(audio).extension}`,
+							{
+								type: blobInputContentType(audio),
+							},
+						),
+						model,
+						language: spokenLanguage === 'auto' ? undefined : spokenLanguage,
+						prompt: prompt || undefined,
+					},
+					{ signal: app.signal },
+				);
+				return typeof response.text === 'string'
+					? Ok(response.text.trim())
+					: TranscriptionOperationError.Malformed();
+			};
 			return Ok(transcribe);
 		},
 		catch: (cause) => TranscriptionOperationError.TransportFailed({ cause }),

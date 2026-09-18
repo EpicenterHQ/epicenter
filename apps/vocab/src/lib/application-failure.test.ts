@@ -62,7 +62,14 @@ mock.module('@epicenter/app', () => ({
 }));
 mock.module('./data.js', () => ({ vocabDefinition: {} }));
 mock.module('./auth.js', () => ({
-	authStartup: { auth: { state: { status: 'signed-in', account: {} } } },
+	authStartup: {
+		auth: {
+			state: {
+				status: 'signed-in',
+				account: { authorityId: 'https://test.example', principalId: 'alice' },
+			},
+		},
+	},
 }));
 
 for (const cleanupThrows of [false, true]) {

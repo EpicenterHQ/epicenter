@@ -125,21 +125,11 @@ export function createAiConnections({
 	const key = `${storageKey}.app-ai-connections`;
 	let closed = false;
 	const listeners = new Set<(records: readonly AiConnectionRecord[]) => void>();
-	let state = load(true);
+	let state = load();
 
-	function load(initial = false) {
+	function load() {
 		const raw = storage.getItem(key);
 		if (raw !== null) return parseAiConnections(raw);
-		if (
-			initial &&
-			(storage.getItem(`${storageKey}.app-ai`) !== null ||
-				storage.getItem(`${storageKey}.inference-connections`) !== null ||
-				storage.getItem(`${storageKey}.inference-targets`) !== null)
-		) {
-			throw new Error(
-				'Initialize saved AI settings before opening custom connections.',
-			);
-		}
 		return { version: 1 as const, connections: [] as AiConnectionRecord[] };
 	}
 	function assertOpen() {
@@ -271,63 +261,4 @@ export function createAiConnections({
 			unsubscribe?.();
 		},
 	};
-}
-
-/**
- * Import only normalized records for applications without workflow selections.
- * Run before opening the App. Pre-ID settings require the application migration.
- */
-export async function initializeAiConnections({
-	storage,
-	storageKey,
-	locks,
-}: {
-	storage: Pick<Storage, 'getItem' | 'setItem'>;
-	storageKey: string;
-	locks: Pick<LockManager, 'request'>;
-}) {
-	await locks.request(`${storageKey}.app-ai-migration`, () => {
-		const key = `${storageKey}.app-ai-connections`;
-		const raw = storage.getItem(key);
-		if (raw !== null) {
-			parseAiConnections(raw);
-			return;
-		}
-		const normalized = storage.getItem(`${storageKey}.app-ai`);
-		if (normalized === null) {
-			if (
-				storage.getItem(`${storageKey}.inference-connections`) !== null ||
-				storage.getItem(`${storageKey}.inference-targets`) !== null
-			) {
-				throw new Error(
-					'Initialize legacy AI settings before opening custom connections.',
-				);
-			}
-			storage.setItem(key, JSON.stringify({ version: 1, connections: [] }));
-			return;
-		}
-		let value: unknown;
-		try {
-			value = JSON.parse(normalized);
-		} catch {
-			invalid();
-		}
-		if (!value || typeof value !== 'object' || Array.isArray(value)) invalid();
-		const entry = value as Record<string, unknown>;
-		if (
-			entry.version !== 1 ||
-			Object.keys(entry).some(
-				(key) => !['version', 'connections', 'selections'].includes(key),
-			)
-		)
-			invalid();
-		// Application migration owns selection validation. Core reads records only.
-		storage.setItem(
-			key,
-			JSON.stringify({
-				version: 1,
-				connections: validateAiConnectionRecords(entry.connections),
-			}),
-		);
-	});
 }

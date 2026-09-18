@@ -89,6 +89,8 @@ Nothing in that list works in the `bun dev:whispering` tab. The seams behind the
 
 ## Data boundary
 
+Whispering transcribes through an explicitly selected connection and model. Deepgram, ElevenLabs, and Mistral’s separate provider adapters are not supported. Existing provider keys remain stored but are not read or imported; configure a supported connection in the intended account.
+
 Whispering stores settings and recording metadata locally first. Audio leaves the device only when the selected transcription provider requires an upload. Transcription can go to a direct provider connection, the hosted Epicenter gateway, or a self-hosted endpoint.
 
 See the repository [trust model](../../docs/trust-model.md) for hosted sync and account boundaries.

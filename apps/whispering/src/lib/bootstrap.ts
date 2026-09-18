@@ -1,7 +1,6 @@
 import { defineApplication } from '@epicenter/app';
 import { createDeparture } from '@epicenter/app-shell/departure';
 import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference-selections';
-import { initializeBrowserAiSettings } from '@epicenter/app-shell/migrate-ai-settings';
 import { APPS } from '@epicenter/constants/apps';
 import { Ok, trySync } from 'wellcrafted/result';
 import { authClient } from '#platform/auth';
@@ -27,9 +26,8 @@ const application = defineApplication({
 	runtime,
 });
 const shouldOpen = !new URLSearchParams(location.search).has('connect');
-if (shouldOpen) await initializeBrowserAiSettings('whispering');
 export const selections = shouldOpen
-	? createBrowserInferenceSelections('whispering')
+	? createBrowserInferenceSelections('whispering', account)
 	: null;
 export const app = trySync({
 	try: () => {

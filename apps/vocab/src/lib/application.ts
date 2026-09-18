@@ -1,7 +1,6 @@
 import { defineApplication } from '@epicenter/app';
 import { createDeparture } from '@epicenter/app-shell/departure';
 import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference-selections';
-import { initializeBrowserAiSettings } from '@epicenter/app-shell/migrate-ai-settings';
 import { APPS } from '@epicenter/constants/apps';
 import { Ok, trySync } from 'wellcrafted/result';
 import { authStartup } from './auth.js';
@@ -13,9 +12,8 @@ const auth = authStartup.auth;
 export const account = auth?.state.account;
 const shouldOpen =
 	account !== undefined && !new URLSearchParams(location.search).has('connect');
-if (shouldOpen) await initializeBrowserAiSettings('vocab');
 export const selections = shouldOpen
-	? createBrowserInferenceSelections('vocab')
+	? createBrowserInferenceSelections('vocab', account)
 	: null;
 export const app = trySync({
 	try: () =>

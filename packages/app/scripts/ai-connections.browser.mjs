@@ -1,77 +1,104 @@
-/** Real browser storage migration and SDK destination acceptance. Run from root with Bun. */
+/** Account catalog and workflow isolation in real Chromium and WebKit storage. */
 import assert from 'node:assert/strict';
-import { chromium } from 'playwright';
-import { createServer } from 'vite';
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { chromium, webkit } from 'playwright';
+import { createServer } from 'vite';
 
-const evidence = await mkdtemp(join(tmpdir(), 'ai-connections-evidence-'));
-const requests = [];
-const errors = [];
 const root = join(import.meta.dir, '../../..');
-const html = `<!doctype html><title>AI settings acceptance</title><script type="module">
-import { createAppAi } from '/packages/app/src/ai.ts';
-import { createBrowserAppAi } from '/packages/app/src/browser.ts';
-import { initializeBrowserAiSettings } from '/packages/app-shell/src/migrate-ai-settings.ts';
-import { createBrowserInferenceSelections, matchInferenceTarget } from '/packages/app-shell/src/inference-selections.ts';
-const key = 'acceptance';
+const requireWhispering = createRequire(
+	join(root, 'apps/whispering/package.json'),
+);
+const { svelte } = await import(
+	requireWhispering.resolve('@sveltejs/vite-plugin-svelte')
+);
+const html = `<!doctype html><title>Account AI isolation</title><script type="module">
+import { createAppAi } from '/@fs${root}/packages/app/src/ai.ts';
+import { createBrowserAppAi } from '/@fs${root}/packages/app/src/browser.ts';
+import { createBrowserInferenceSelections, matchInferenceTarget } from '/@fs${root}/packages/app-shell/src/inference-selections.ts';
 let owner, selections, lifetime;
+const requests = [];
 window.acceptance = {
- async open() {
-  await initializeBrowserAiSettings(key);
+ async open(product, identity) {
   lifetime = new AbortController();
-  owner = createAppAi({ lifetime: { signal: lifetime.signal, assertUsable: () => lifetime.signal.throwIfAborted() }, account: null, runtime: null, connections: createBrowserAppAi(key).connections() });
-  selections = createBrowserInferenceSelections(key);
-  return { records: owner.value.ai.connections.getAll().map(({client,...record})=>record), target: selections.get('chat'), oldApi: 'configuration' in owner.value.ai || 'configured' in owner.value.ai };
+  const binding = createBrowserAppAi(async (input, init) => {
+   const request = new Request(input, init);
+   requests.push({ url: request.url, key: request.headers.get('authorization') });
+   return Response.json({ text: 'accepted' });
+  });
+  owner = createAppAi({
+   lifetime: { signal: lifetime.signal, assertUsable: () => lifetime.signal.throwIfAborted() },
+   account: null, runtime: null, configuredFetch: binding.configuredFetch,
+   connections: binding.connections(product, identity ?? undefined),
+  });
+  selections = createBrowserInferenceSelections(product, identity ?? undefined);
+  await owner.ready;
+  return this.snapshot();
  },
- selected() { return selections.get('chat'); },
- records() { return owner.value.ai.connections.getAll().map(({client,...record})=>record); },
- select(target) { selections.set('chat', target); },
- remove(id) { return owner.value.ai.connections.remove(id); },
+ snapshot() { return { records: owner.value.ai.connections.getAll().map(({client, ...record}) => record), target: selections.get('transcription') }; },
+ async add(key) {
+  const id = await owner.value.ai.connections.add({ baseUrl: location.origin + '/provider/v1', apiKey: key, models: ['manual'] });
+  selections.set('transcription', { connectionId: id, model: 'manual' });
+  return id;
+ },
+ select(target) { selections.set('transcription', target); },
  async run() {
-  const target = selections.get('chat');
-  const client = matchInferenceTarget({ ai: owner.value.ai, account: null }, target);
+  const target = selections.get('transcription');
+  const client = matchInferenceTarget(owner.value.ai, target);
   if (!client) return null;
-  return (await client.chat.completions.create({model:target.model,messages:[]})).choices[0].message.content;
+  await client.audio.transcriptions.create({ file: new File(['audio'], 'audio.wav'), model: target.model });
+  return requests.at(-1).key;
  },
- async close() { selections[Symbol.dispose](); lifetime.abort(); await owner.close(); },
+ async close() {
+  const records = owner.value.ai.connections;
+  const retained = records.getAll()[0]?.client;
+  const choices = selections;
+  choices[Symbol.dispose]();
+  lifetime.abort();
+  await owner.close();
+  let refused = 0;
+  try { records.getAll(); } catch { refused++; }
+  try { choices.get('transcription'); } catch { refused++; }
+  if (retained) { try { await retained.models.list(); } catch { refused++; } }
+  return refused;
+ },
+ async resetDeviceConfig() {
+  const { deviceConfig } = await import('/@fs${root}/apps/whispering/src/lib/state/device-config.svelte.ts');
+  deviceConfig.reset();
+ },
 };
 </script>`;
-let browser;
 const server = await createServer({
 	configFile: false,
-	root,
+	root: join(root, 'apps/whispering'),
+	logLevel: 'error',
+	resolve: {
+		alias: {
+			'$lib/report': '/@test/report',
+			$lib: join(root, 'apps/whispering/src/lib'),
+			'#platform/os': join(
+				root,
+				'apps/whispering/src/lib/platform/os.browser.ts',
+			),
+		},
+	},
 	server: { host: 'localhost', port: 0, watch: null },
 	plugins: [
+		svelte({ configFile: false }),
 		{
-			name: 'ai-acceptance',
+			name: 'account-ai-acceptance',
+			resolveId(id) {
+				if (id === '/@test/report') return id;
+			},
+			load(id) {
+				if (id === '/@test/report')
+					return 'export const report = { error() { throw new Error("Device config write failed"); } };';
+			},
 			configureServer(vite) {
-				vite.middlewares.use(async (req, res, next) => {
-					if (req.url === '/') {
-						res.setHeader('content-type', 'text/html');
-						res.end(html);
-						return;
-					}
-					if (req.url === '/inference/v1/chat/completions') {
-						let body = '';
-						for await (const chunk of req) body += chunk;
-						requests.push({
-							url: req.url,
-							authorization: req.headers.authorization,
-							body: JSON.parse(body),
-						});
-						res.setHeader('content-type', 'application/json');
-						res.end(
-							JSON.stringify({
-								choices: [
-									{ message: { role: 'assistant', content: 'accepted' } },
-								],
-							}),
-						);
-						return;
-					}
-					next();
+				vite.middlewares.use((req, res, next) => {
+					if (req.url !== '/') return next();
+					res.setHeader('content-type', 'text/html');
+					res.end(html);
 				});
 			},
 		},
@@ -80,134 +107,157 @@ const server = await createServer({
 try {
 	await server.listen();
 	const origin = server.resolvedUrls.local[0];
-	browser = await chromium.launch({ headless: true });
-	const context = await browser.newContext();
-	const first = await context.newPage();
-	const second = await context.newPage();
-	for (const page of [first, second])
-		page.on('pageerror', (error) => errors.push(error.message));
-	await Promise.all([first.goto(origin), second.goto(origin)]);
-	await Promise.all([
-		first.waitForFunction(() => window.acceptance),
-		second.waitForFunction(() => window.acceptance),
-	]);
-	await first.evaluate(() => {
-		localStorage.setItem(
-			'acceptance.inference-connections',
-			JSON.stringify([
-				{
-					baseUrl: location.origin + '/inference/v1',
-					apiKey: 'acceptance-key',
-					models: ['manual'],
-				},
-			]),
-		);
-		localStorage.setItem(
-			'acceptance.inference-targets',
-			JSON.stringify({
-				chat: {
-					connectionId: location.origin + '/inference/v1',
-					model: 'manual',
-				},
-			}),
-		);
-	});
-	const opened = await Promise.all([
-		first.evaluate(() => window.acceptance.open()),
-		second.evaluate(() => window.acceptance.open()),
-	]);
-	assert.equal(opened[0].records[0].id, opened[1].records[0].id);
-	assert.equal(opened[0].target.connectionId, opened[0].records[0].id);
-	assert.equal(opened[0].oldApi, false);
-	assert.equal(requests.length, 0);
-	assert.equal(await first.evaluate(() => window.acceptance.run()), 'accepted');
-	assert.deepEqual(requests, [
-		{
-			url: '/inference/v1/chat/completions',
-			authorization: 'Bearer acceptance-key',
-			body: { model: 'manual', messages: [] },
-		},
-	]);
-	await first.evaluate(() => window.acceptance.close());
-	await first.reload();
-	await first.waitForFunction(() => window.acceptance);
-	assert.deepEqual(
-		await first.evaluate(() => window.acceptance.open()),
-		opened[0],
-	);
-	await second.evaluate(() =>
-		window.acceptance.select({
-			connectionId: 'unresolved:missing',
-			model: 'manual',
-		}),
-	);
-	await first.waitForFunction(
-		() => window.acceptance.selected()?.connectionId === 'unresolved:missing',
-	);
-	assert.equal(await first.evaluate(() => window.acceptance.run()), null);
-	await second.evaluate(
-		(target) => window.acceptance.select(target),
-		opened[0].target,
-	);
-	await first.waitForFunction(
-		(id) => window.acceptance.selected()?.connectionId === id,
-		opened[0].records[0].id,
-	);
-	await second.evaluate(
-		(id) => window.acceptance.remove(id),
-		opened[0].records[0].id,
-	);
-	await first.waitForFunction(() => window.acceptance.records().length === 0);
-	assert.equal(await first.evaluate(() => window.acceptance.run()), null);
-	assert.equal(requests.length, 1);
-	const stored = await first.evaluate(() => ({
-		connections: JSON.parse(
-			localStorage.getItem('acceptance.app-ai-connections'),
-		),
-		selections: JSON.parse(
-			localStorage.getItem('acceptance.app-ai-selections'),
-		),
-		legacy: localStorage.getItem('acceptance.inference-connections'),
-		normalized: JSON.parse(localStorage.getItem('acceptance.app-ai')),
-	}));
-	assert.deepEqual(stored.connections.connections, []);
-	assert.equal(
-		stored.selections.selections.chat.connectionId,
-		opened[0].records[0].id,
-	);
-	assert.equal(stored.normalized.connections[0].id, opened[0].records[0].id);
-	assert.ok(stored.legacy);
-	await Promise.all([
-		first.evaluate(() => window.acceptance.close()),
-		second.evaluate(() => window.acceptance.close()),
-	]);
-	assert.deepEqual(errors, []);
-	await writeFile(
-		join(evidence, 'result.json'),
-		JSON.stringify(
-			{
-				passed: true,
-				checks: [
-					'concurrent documents share committed ID mapping',
-					'separate stores preserve IDs across reload',
-					'exact URL bearer and manual model through actual SDK',
-					'cross-document selection and deletion never reroute',
-					'old bytes retained',
-				],
-				requests,
-			},
-			null,
-			2,
-		),
-	);
-	console.log('AI browser acceptance passed:', evidence);
-} catch (cause) {
-	await writeFile(
-		join(evidence, 'failure.json'),
-		JSON.stringify({ error: String(cause), errors, requests }, null, 2),
-	);
-	throw cause;
+	for (const engine of [chromium, webkit]) {
+		const browser = await engine.launch({ headless: true });
+		try {
+			const context = await browser.newContext();
+			const page = await context.newPage();
+			const errors = [];
+			page.on('pageerror', (error) => {
+				errors.push(error.message);
+				console.error(error.message);
+			});
+			page.on('requestfailed', (request) =>
+				console.error(request.url(), request.failure()),
+			);
+			await page.goto(origin);
+			await page.waitForFunction(() => window.acceptance);
+			const legacy = await page.evaluate(() => {
+				const values = {};
+				for (const product of ['whispering', 'vocab', 'epicenter'])
+					for (const suffix of [
+						'app-ai',
+						'app-ai-connections',
+						'app-ai-selections',
+						'inference-connections',
+						'inference-targets',
+					])
+						values[product + '.' + suffix] =
+							'malformed legacy credential bytes';
+				for (const provider of [
+					'openai',
+					'groq',
+					'deepgram',
+					'elevenlabs',
+					'mistral',
+					'anthropic',
+					'google',
+					'openrouter',
+					'custom',
+					'speaches',
+				])
+					for (const field of ['apiKey', 'endpoint', 'modelId'])
+						values['whispering.device.providers.' + provider + '.' + field] =
+							JSON.stringify('legacy-' + provider);
+				for (const [key, value] of Object.entries(values))
+					localStorage.setItem(key, value);
+				return values;
+			});
+			const alice = {
+				authorityId: 'https://one.example',
+				principalId: 'Alice',
+			};
+			const bob = { authorityId: 'https://one.example', principalId: 'Bob' };
+			const otherAlice = {
+				authorityId: 'https://two.example',
+				principalId: 'Alice',
+			};
+			const owners = [null, alice, bob, otherAlice];
+			const saved = [];
+			for (let index = 0; index < owners.length; index++) {
+				const state = await page.evaluate(
+					(identity) => window.acceptance.open('whispering', identity),
+					owners[index],
+				);
+				assert.deepEqual(state, { records: [], target: null });
+				const id = await page.evaluate(
+					(key) => window.acceptance.add(key),
+					'key-' + index,
+				);
+				saved.push(id);
+				assert.equal(
+					await page.evaluate(() => window.acceptance.run()),
+					'Bearer key-' + index,
+				);
+				assert.equal(await page.evaluate(() => window.acceptance.close()), 3);
+			}
+			// Return to Alice, sign out to no-account, then return to Bob.
+			for (const index of [1, 0, 2, 1]) {
+				await page.reload();
+				await page.waitForFunction(() => window.acceptance);
+				const state = await page.evaluate(
+					(identity) => window.acceptance.open('whispering', identity),
+					owners[index],
+				);
+				assert.equal(state.records.length, 1);
+				assert.equal(state.target.connectionId, saved[index]);
+				assert.equal(
+					await page.evaluate(() => window.acceptance.run()),
+					'Bearer key-' + index,
+				);
+				const foreign = saved[(index + 1) % saved.length];
+				await page.evaluate(
+					(connectionId) =>
+						window.acceptance.select({ connectionId, model: 'manual' }),
+					foreign,
+				);
+				assert.equal(await page.evaluate(() => window.acceptance.run()), null);
+				await page.evaluate(
+					(connectionId) =>
+						window.acceptance.select({ connectionId, model: 'manual' }),
+					saved[index],
+				);
+				await page.evaluate(() => window.acceptance.close());
+			}
+			// Vocab shares Alice's catalog, but not Whispering's workflow selection.
+			const vocab = await page.evaluate(
+				(identity) => window.acceptance.open('vocab', identity),
+				alice,
+			);
+			assert.equal(vocab.records[0].id, saved[1]);
+			assert.equal(vocab.target, null);
+			await page.evaluate(
+				(connectionId) =>
+					window.acceptance.select({ connectionId, model: 'manual' }),
+				saved[1],
+			);
+			assert.equal(
+				await page.evaluate(() => window.acceptance.run()),
+				'Bearer key-1',
+			);
+			await page.evaluate(() => window.acceptance.close());
+			const bobVocab = await page.evaluate(
+				(identity) => window.acceptance.open('vocab', identity),
+				bob,
+			);
+			assert.equal(bobVocab.target, null);
+			assert.equal(bobVocab.records[0].id, saved[2]);
+			await page.evaluate(() => window.acceptance.close());
+			const aliceVocab = await page.evaluate(
+				(identity) => window.acceptance.open('vocab', identity),
+				alice,
+			);
+			assert.equal(aliceVocab.target.connectionId, saved[1]);
+			await page.evaluate(() => window.acceptance.close());
+			await page.evaluate(() => window.acceptance.resetDeviceConfig());
+			const after = await page.evaluate(
+				(keys) =>
+					Object.fromEntries(
+						keys.map((key) => [key, localStorage.getItem(key)]),
+					),
+				Object.keys(legacy),
+			);
+			assert.deepEqual(after, legacy);
+			assert.deepEqual(errors, []);
+			console.log(
+				engine.name() +
+					': owner isolation, return restoration, retired handles, cross-app catalog, and legacy-byte retention passed',
+			);
+			await context.close();
+		} finally {
+			await browser.close();
+		}
+	}
 } finally {
-	await browser?.close();
 	await server.close();
 }

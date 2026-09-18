@@ -130,21 +130,17 @@ test('malformed choices and unsupported versions fail without exposing or changi
 	}
 });
 
-test('opening before legacy conversion cannot hide saved scopes behind a new destination', () => {
+test('legacy sources cannot populate choices or block opening', () => {
+	const fixture = setup();
 	for (const key of [
 		'test.app-ai',
 		'test.inference-targets',
 		'test.inference-connections',
-	]) {
-		const fixture = setup();
-		fixture.values.set(key, 'legacy recovery bytes');
-		expect(() => fixture.open()).toThrow('Initialize legacy AI settings');
-		expect(fixture.values.has('test.app-ai-selections')).toBe(false);
-		expect(fixture.observers.size).toBe(0);
-		fixture.values.set(
-			'test.app-ai-selections',
-			JSON.stringify({ version: 1, selections: {} }),
-		);
-		expect(fixture.open().get('chat')).toBeNull();
-	}
+	])
+		fixture.values.set(key, 'malformed legacy recovery bytes');
+	const before = [...fixture.values];
+	const selections = fixture.open();
+	expect(selections.get('chat')).toBeNull();
+	expect([...fixture.values]).toEqual(before);
+	selections[Symbol.dispose]();
 });

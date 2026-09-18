@@ -44,7 +44,6 @@ describe('platform seams', () => {
 			'#platform/commands',
 			'#platform/dictation-indicator',
 			'#platform/download',
-			'#platform/http',
 			'#platform/manual-recorder-config',
 			'#platform/os',
 			'#platform/os-notify',

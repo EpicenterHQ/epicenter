@@ -120,23 +120,7 @@ const settingsKv = {
 	recordingTrigger: field.select(['vad', 'manual']),
 	recordingPausePlayback: field.boolean(),
 
-	transcriptionService: field.select([
-		'connection',
-		'epicenter',
-		'OpenAI',
-		'Groq',
-		'ElevenLabs',
-		'Deepgram',
-		'Mistral',
-		'local',
-		'speaches',
-	]),
 	transcriptionModel: field.string(),
-	transcriptionOpenaiModel: field.string(),
-	transcriptionGroqModel: field.string(),
-	transcriptionElevenlabsModel: field.string(),
-	transcriptionDeepgramModel: field.string(),
-	transcriptionMistralModel: field.string(),
 	/**
 	 * A plain string, not a union of the 58 supported languages.
 	 *
@@ -148,14 +132,6 @@ const settingsKv = {
 	transcriptionLanguage: field.string(),
 	transcriptionPrompt: field.string(),
 
-	completionProvider: field.select([
-		'OpenAI',
-		'Groq',
-		'Anthropic',
-		'Google',
-		'OpenRouter',
-		'Custom',
-	]),
 	completionModel: field.string(),
 
 	dictionary: field.nullable(field.tags()),
