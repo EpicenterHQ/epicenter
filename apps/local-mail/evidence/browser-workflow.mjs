@@ -61,13 +61,17 @@ const server = Bun.serve({
 const engine = process.argv.includes('--webkit') ? webkit : chromium;
 let browser;
 const observations = [];
+const errors = [];
 try {
 	browser = await engine.launchPersistentContext(join(temporary, 'profile'));
 	const page = await browser.newPage();
 	page.on('console', (message) => {
 		if (message.type() === 'error') console.error('browser:', message.text());
 	});
-	page.on('pageerror', (error) => console.error('page error:', error));
+	page.on('pageerror', (error) => {
+		errors.push(error.message);
+		console.error('page error:', error);
+	});
 	page.on('dialog', (dialog) => dialog.accept());
 	await page.goto(`http://localhost:${server.port}`);
 	await page.waitForFunction(
@@ -353,6 +357,7 @@ try {
 			fullPage: true,
 		});
 	}
+	assert(errors.length === 0, `Uncaught browser errors: ${errors.join('; ')}`);
 	console.log(
 		JSON.stringify(
 			{

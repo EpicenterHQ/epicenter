@@ -1,5 +1,5 @@
 /** Run after the browser UI build: bun apps/local-mail/evidence/route-smoke.mjs [--webkit].
- * Serves the actual SvelteKit output. Only HTTP auth/generation replies are fixtures;
+ * Serves the actual SvelteKit output. Only HTTP auth/library replies are fixtures;
  * route mounting, auth client, App, OPFS, MailShell, and saved-query persistence are real.
  */
 import { cp, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { currentLibraryResponse } from '../ui/evidence/current-library.js';
 
 const require = createRequire(new URL('../../../packages/data/package.json', import.meta.url));
 const { chromium, webkit } = require('playwright');
@@ -55,9 +56,16 @@ try {
     };
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
     if (url.pathname === '/api/session') return route.fulfill({ json: { principalId: 'route-smoke-person' }, headers });
-    if (url.pathname.endsWith('/generations')) return route.fulfill({
-      json: request.method() === 'GET' ? { generations: [] } : { generation: 1, position: 0 }, headers,
-    });
+    if (url.pathname.endsWith('/current')) {
+      const response = await currentLibraryResponse(new Request(request.url(), {
+        method: request.method(), body: request.postDataBuffer(),
+      }));
+      return route.fulfill({
+        status: response.status,
+        body: Buffer.from(await response.arrayBuffer()),
+        headers: { ...headers, ...Object.fromEntries(response.headers) },
+      });
+    }
     return route.fulfill({ status: 503, body: 'Synthetic route smoke has no remote service.', headers });
   });
   await browser.addInitScript(() => {

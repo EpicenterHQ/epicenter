@@ -1,5 +1,6 @@
 import { defineApplication } from '@epicenter/app';
 import type { Account } from '@epicenter/auth';
+import { currentLibraryResponse } from '../current-library.js';
 import { mailDefinition } from '../../src/lib/data.js';
 
 /** Synthetic account; App, SQLite, persistence, query policy, and panel are production. */
@@ -10,12 +11,7 @@ export const account: Account = {
 	async fetch(input, init) {
 		if (localStorage.getItem('evidence-offline') === 'true')
 			throw new TypeError('Fixture is offline');
-		return Response.json(
-			String(input).endsWith('/generations') &&
-				(!init?.method || init.method === 'GET')
-				? { generations: [] }
-				: { generation: 1, position: 0 },
-		);
+		return currentLibraryResponse(new Request(input, init));
 	},
 	async openWebSocket() {
 		throw new TypeError('Fixture has no cloud transport');

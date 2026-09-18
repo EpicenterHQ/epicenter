@@ -9,6 +9,7 @@ import { app, account } from './application.js';
 import { mail } from '../../src/lib/mail.js';
 import { openLocalMailStorage } from '../../../src/storage.js';
 import { expectOk } from 'wellcrafted/testing';
+import { currentLibraryResponse } from '../current-library.js';
 
 try {
 	const ready = await app.ready;
@@ -56,8 +57,8 @@ try {
 					definition: mailDefinition,
 				}).openPersonal({
 					...account,
-					fetch: async () =>
-						Response.json({ generations: [], generation: 1, position: 0 }),
+					fetch: (input, init) =>
+						currentLibraryResponse(new Request(input, init)),
 				});
 				expectOk(await peer.ready);
 				expectOk(syncEngineOf(peer).applyRemote(app.encodeStateSince()));
@@ -88,8 +89,8 @@ try {
 					}),
 				}).openPersonal({
 					...account,
-					fetch: async () =>
-						Response.json({ generations: [], generation: 1, position: 0 }),
+					fetch: (input, init) =>
+						currentLibraryResponse(new Request(input, init)),
 				});
 				expectOk(await peer.ready);
 				const repair = peer.tables.savedQueries.create({

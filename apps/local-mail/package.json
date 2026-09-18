@@ -27,6 +27,7 @@
 		"build:epicenter": "EPICENTER_HOST=1 bun run --cwd ui build",
 		"check:gmail-drift": "bun run test-support/check-gmail-discovery.ts",
 		"test": "bun test",
+		"test:browser": "bun run --cwd ui build && bun evidence/route-smoke.mjs && bun evidence/browser-workflow.mjs && bun evidence/gmail-authorization.mjs",
 		"typecheck": "tsc --noEmit && tsc --noEmit -p test-support/tsconfig.json"
 	},
 	"dependencies": {

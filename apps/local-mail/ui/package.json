@@ -19,9 +19,10 @@
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json && svelte-check --tsconfig ./evidence/tsconfig.json"
 	},
 	"devDependencies": {
+		"@epicenter/sync": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@epicenter/vite-config": "workspace:*",
 		"@lucide/svelte": "catalog:",

@@ -1,5 +1,16 @@
 # Browser workflow evidence
 
+Run all three Chromium checks, including the application build, from the
+repository root:
+
+```sh
+bun run --cwd apps/local-mail test:browser
+```
+
+These checks use temporary profiles and synthetic accounts. They require the
+Playwright Chromium binary. The UI's normal `typecheck` also checks the browser
+fixtures. Use the individual commands below for WebKit or a focused rerun.
+
 Run from the repository root:
 
 ```sh
@@ -44,6 +55,10 @@ checks both callbacks, SvelteKit hover preload, signed-out boot, ready-gated
 App/MailShell mounting, draft preflight cancellation, and saved-query reopening.
 Set `LOCAL_MAIL_ROUTE_SCREENSHOTS` to a directory to capture desktop and narrow
 layouts. These are application route checks, not a real sign-in ceremony.
+
+The route and panel fixtures answer current-library startup with the production
+download encoder. They echo the submitted seed as a new library; they do not
+simulate server arbitration or live synchronization.
 
 ## Gmail consent callbacks
 
