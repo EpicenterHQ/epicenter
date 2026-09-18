@@ -7,23 +7,23 @@ import { expect, mock, test } from 'bun:test';
 import { createDeparture } from '@epicenter/app-shell/departure';
 import { generateBlobId } from '@epicenter/blobs';
 import { Ok } from 'wellcrafted/result';
-import type { WhisperingApp } from '$lib/whispering/app';
+import type { WhisperingApp } from '../whispering/app.js';
 
 Reflect.set(globalThis, '$state', <T>(value: T) => value);
-mock.module('$lib/state/vad-recorder.svelte', () => ({
+mock.module('../state/vad-recorder.svelte.js', () => ({
 	vadRecorder: { state: 'IDLE' },
 }));
-mock.module('$lib/operations/analytics', () => ({
+mock.module('./analytics.js', () => ({
 	logAnalyticsEvent: async () => {},
 }));
-mock.module('$lib/report', () => ({ report: { info: () => {} } }));
+mock.module('../report/index.js', () => ({ report: { info: () => {} } }));
 let inference = async () => Ok('captured');
-mock.module('$lib/operations/transcribe', () => ({
+mock.module('./transcribe.js', () => ({
 	captureTranscription: () => inference,
 }));
 const processed: Array<{ recordingId: string; transcribe: unknown }> = [];
 const pipelines: Array<ReturnType<typeof Promise.withResolvers<void>>> = [];
-mock.module('$lib/operations/pipeline', () => ({
+mock.module('./pipeline.js', () => ({
 	processRecordingPipeline: (
 		_app: WhisperingApp,
 		input: { recordingId: string; transcribe: unknown },
@@ -34,8 +34,10 @@ mock.module('$lib/operations/pipeline', () => ({
 		return pipeline.promise;
 	},
 }));
-const { importFiles } = await import('./import');
-const { drainRecordingWork } = await import('../state/recording-active.svelte');
+const { importFiles } = await import('./import.js');
+const { drainRecordingWork } = await import(
+	'../state/recording-active.svelte.js'
+);
 
 test('failed import does not abandon its sibling before departure drains', async () => {
 	let recordingEnabled = true;

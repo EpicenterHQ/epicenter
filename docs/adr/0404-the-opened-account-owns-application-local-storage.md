@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0400](0400-device-sqlite-and-secrets-key-by-application-id.md).
 - **Relates:** [ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md): the desktop catalog is shared across an account's apps, not across people.
 
-- **Implementation checkpoint:** Account-scoped storage and opening overloads are being implemented in the working tree. This acceptance records the ownership decision; it does not certify completion or migration of existing data.
+- **Implementation checkpoint, 2026-09-18:** Account-scoped local storage and Account, undefined, and union opening overloads are implemented. App/device tests cover namespace isolation, durable reopen, acquisition, draining, and cleanup. The [single-SDK report](../reports/20260918-single-sdk-clean-break.md) and [flat-App report](../reports/20260918-flat-app-declaration.md) record verification and its limits. No existing data, credentials, or settings were migrated or adopted.
 
 ## Context
 

@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-18
 - **Amends:** [ADR-0391](0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md) at the declaration shape only: `defineApp({ id, title, kv, tables })` replaces `defineApplication({ appId, definition })`. Implementation selection remains a separate decision.
-- **Unbuilt:** `defineApp` and the migration of application declarations and schema consumers. The current export is `defineApplication` in `packages/app/src/index.ts`.
+- **Implemented:** `defineApp` in `packages/app/src/index.ts`. Honeycrisp, Vocab, Whispering, and Local Mail export the same inert declaration to their opening paths and schema consumers. Runtime selection remains outside this change.
 
 ## Context
 

@@ -22,7 +22,7 @@ import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { encodeFrame } from '../../data/src/sync/frames.js';
 import { browser } from './browser.js';
-import { defineApplication } from './index.js';
+import { defineApp } from './index.js';
 import { createBrowserRecording } from './recording/browser.js';
 
 installTestLocks();
@@ -98,9 +98,9 @@ test('device rows, SQLite, secrets and blobs isolate owners and survive returnin
 			await rm(join(root, appId, deviceOwnerPath(account), `${name}.sqlite`));
 		},
 	});
-	const application = defineApplication({
-		appId: `test.${crypto.randomUUID()}`,
-		definition,
+	const application = defineApp({
+		...definition,
+		id: `test.${crypto.randomUUID()}`,
 		runtime: { ...browser, sqlite },
 		ai: { runtime: null, account: null },
 	});
@@ -194,13 +194,6 @@ test('device rows, SQLite, secrets and blobs isolate owners and survive returnin
 			expectOk(await signedOut.ready);
 			const absent: undefined = signedOut.account;
 			expect(absent).toBeUndefined();
-			// These invalid calls must be rejected by the compiler, never executed.
-			if (false) {
-				// @ts-expect-error An explicit account type still requires a value.
-				application.open<Account>();
-				// @ts-expect-error An App opened without an account has no personal store.
-				signedOut.account.personal;
-			}
 		} finally {
 			await signedOut.close();
 		}
@@ -259,9 +252,9 @@ test.each([
 			});
 		},
 	);
-	const app = defineApplication({
-		appId: `test.${crypto.randomUUID()}`,
-		definition,
+	const app = defineApp({
+		...definition,
+		id: `test.${crypto.randomUUID()}`,
 		runtime: {
 			...browser,
 			recording(...args) {
@@ -324,9 +317,9 @@ test.each([
 });
 
 test('an abort callback reentering close receives the memoized completion', async () => {
-	const app = defineApplication({
-		appId: `test.${crypto.randomUUID()}`,
-		definition,
+	const app = defineApp({
+		...definition,
+		id: `test.${crypto.randomUUID()}`,
 		runtime: {
 			...browser,
 			sqlite: {

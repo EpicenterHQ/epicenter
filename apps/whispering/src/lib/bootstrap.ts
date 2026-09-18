@@ -1,10 +1,7 @@
-import { defineApplication } from '@epicenter/app';
 import { createDeparture } from '@epicenter/app-shell/departure';
 import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference-selections';
-import { APPS } from '@epicenter/constants/apps';
 import { Ok, trySync } from 'wellcrafted/result';
 import { authClient } from '#platform/auth';
-import { runtime } from '#platform/runtime';
 import { whisperingDefinition } from './data.js';
 
 // Loaded only by the mounted application opening path.
@@ -20,11 +17,6 @@ export const library: Library = (() => {
 	throw new Error('Your saved library choice could not be read.');
 })();
 export const canOpenShared = authClient.selectedServer !== null;
-const application = defineApplication({
-	appId: APPS.WHISPERING.id,
-	definition: whisperingDefinition,
-	runtime,
-});
 const shouldOpen = !new URLSearchParams(location.search).has('connect');
 export const selections = shouldOpen
 	? createBrowserInferenceSelections('whispering', account)
@@ -32,7 +24,7 @@ export const selections = shouldOpen
 export const app = trySync({
 	try: () => {
 		if (new URLSearchParams(location.search).has('connect')) return null;
-		return application.open(account);
+		return whisperingDefinition.open(account);
 	},
 	catch(cause) {
 		// Preserve the opening failure even if subscription cleanup also fails.

@@ -208,7 +208,7 @@ async function setup({
 	};
 	const directory = await mkdtemp(join(tmpdir(), 'account-relay-'));
 	const blobStores = new Map<string, ReturnType<typeof createBunBlobStore>>();
-	function blobs(appId: string, owner: string) {
+	function blobs(appId: string, owner = 'no-account') {
 		const key = JSON.stringify([appId, owner]);
 		let store = blobStores.get(key);
 		if (!store) {
@@ -600,11 +600,11 @@ async function until(condition: () => boolean) {
 test('saved native upload sends no bytes through the window Account broker and strips its control header', async () => {
 	await using context = await setup();
 	const id = generateBlobId('wav');
-	for (const owner of ['no-account', 'accounts/61/62']) {
+	for (const owner of [undefined, 'accounts/61/62']) {
 		expectOk(
 			await context
 				.blobs('so.epicenter.notes', owner)
-				.put(id, new Blob([owner])),
+				.put(id, new Blob([owner ?? 'no-account'])),
 		);
 	}
 	expectOk(

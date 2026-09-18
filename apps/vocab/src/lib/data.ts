@@ -1,3 +1,4 @@
+import { defineApp } from '@epicenter/app';
 import { APPS } from '@epicenter/constants/apps';
 import { field } from '@epicenter/data/definition';
 /**
@@ -12,21 +13,15 @@ import { field } from '@epicenter/data/definition';
  * sync; forking a field shape breaks sync compatibility with peers running the
  * canonical workspace.
  *
- * Composition lives in `src/lib/application.ts`: one `defineApplication`
- * over this definition and the account, which the one route opens explicitly
- * (ADR-0339, ADR-0344).
+ * `src/lib/application.ts` captures the Account and opens this declaration
+ * only after the primary route mounts.
  */
 
 import type { AgentMessage } from '@epicenter/agent';
 import { conversationsTable } from '@epicenter/chat';
 import type { ServableModel } from '@epicenter/constants/ai-providers';
 import type { DeclaredData } from '@epicenter/data';
-import {
-	defineData,
-	defineTable,
-	plainText,
-	type RowOf,
-} from '@epicenter/data/definition';
+import { defineTable, plainText, type RowOf } from '@epicenter/data/definition';
 
 /**
  * Vocab runs a single model. It is an app constant, not a per-conversation
@@ -108,7 +103,7 @@ const entriesTable = defineTable({
  * (ADR-0213). It is read from the DEVICE document in every generation: how this
  * screen renders is a fact about this screen, not portable work (ADR-0233).
  */
-export const vocabDefinition = defineData({
+export const vocabDefinition = defineApp({
 	id: APPS.VOCAB.id,
 	title: 'Vocab',
 	kv: {

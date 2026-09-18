@@ -1,7 +1,5 @@
-import { defineApplication } from '@epicenter/app';
 import { createDeparture } from '@epicenter/app-shell/departure';
 import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference-selections';
-import { APPS } from '@epicenter/constants/apps';
 import { Ok, trySync } from 'wellcrafted/result';
 import { authStartup } from './auth.js';
 import { vocabDefinition } from './data.js';
@@ -19,10 +17,7 @@ export const app = trySync({
 	try: () =>
 		account === undefined || new URLSearchParams(location.search).has('connect')
 			? null
-			: defineApplication({
-					appId: APPS.VOCAB.id,
-					definition: vocabDefinition,
-				}).open(account),
+			: vocabDefinition.open(account),
 	catch(cause) {
 		// Preserve the opening failure even if subscription cleanup also fails.
 		trySync({

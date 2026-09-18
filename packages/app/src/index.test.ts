@@ -1,5 +1,5 @@
 /**
- * What `defineApplication` decides before it acquires anything.
+ * What `defineApp` decides before it acquires anything.
  *
  * Checks lazy declaration, default storage and settings, independent runtime and
  * AI replacement, and definition inference through the public declaration.
@@ -7,7 +7,14 @@
 
 import 'fake-indexeddb/auto';
 import { expect, spyOn, test } from 'bun:test';
-import { defineData, defineTable, field } from '@epicenter/data/definition';
+import {
+	canonicalJson,
+	compileData,
+	defineData,
+	defineTable,
+	field,
+} from '@epicenter/data/definition';
+import { openMemory } from '@epicenter/data/memory';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { Ok } from 'wellcrafted/result';
@@ -15,7 +22,7 @@ import { expectOk } from 'wellcrafted/testing';
 import { resources } from '#platform/resources';
 import { createAiConnections } from './ai-connections.js';
 import { browser, createBrowserAppBlobs } from './browser.js';
-import { defineApplication } from './index.js';
+import { defineApp } from './index.js';
 
 installTestLocks();
 
@@ -40,9 +47,9 @@ test('App readiness includes catalog hydration and failed hydration releases the
 	const hydrated = Promise.withResolvers<void>();
 	const appId = `test.${crypto.randomUUID()}`;
 	let released = false;
-	const application = defineApplication({
-		appId,
-		definition,
+	const application = defineApp({
+		...definition,
+		id: appId,
 		runtime: { ...browser, sqlite, blobs },
 		ai: {
 			runtime: null,
@@ -74,9 +81,9 @@ test('App readiness includes catalog hydration and failed hydration releases the
 	expect((await app.ready).error).not.toBeNull();
 	expect(released).toBe(true);
 	await app.close();
-	const replacement = defineApplication({
-		appId,
-		definition,
+	const replacement = defineApp({
+		...definition,
+		id: appId,
 		runtime: { ...browser, sqlite, blobs },
 		ai: { account: null, runtime: null },
 	}).open();
@@ -84,43 +91,34 @@ test('App readiness includes catalog hydration and failed hydration releases the
 	await replacement.close();
 });
 
-test('the application id is explicit and independent from the definition id', () => {
-	// The opening application is its own segment of the store address
-	// (ADR-0324), so a reader application opening the notes definition is a
-	// different replica rather than the same one under another name.
-	expect(
-		defineApplication({
-			appId: 'so.epicenter.notes',
-			definition,
-			runtime: {
-				...browser,
-				sqlite,
-				blobs,
-			},
-			ai: { runtime: null, account: null },
-		}).appId,
-	).toBe('so.epicenter.notes');
-	expect(
-		defineApplication({
-			appId: 'so.epicenter.reader',
-			definition,
-			runtime: {
-				...browser,
-				sqlite,
-				blobs,
-			},
-			ai: { runtime: null, account: null },
-		}).appId,
-	).toBe('so.epicenter.reader');
+test('the declaration exposes one identity and the schema without implementation options', () => {
+	const application = defineApp({
+		...definition,
+		title: 'Notes',
+		runtime: { ...browser, sqlite, blobs },
+		ai: { runtime: null, account: null },
+	});
+	expect(application.id).toBe(definition.id);
+	expect(application.title).toBe('Notes');
+	expect(application.tables).toBe(definition.tables);
+	expect(application.kv).toBe(definition.kv);
+	expect(Object.keys(application).sort()).toEqual([
+		'id',
+		'kv',
+		'open',
+		'tables',
+		'title',
+	]);
+	expect(Object.isFrozen(application)).toBe(true);
 });
 
 test('an application id this platform cannot file refuses at construction', () => {
 	// It throws rather than answering a `Result`, because an id reaching this
 	// is a constant in a build and a wrong one is a bug, not a condition.
 	expect(() =>
-		defineApplication({
-			appId: 'not an app id',
-			definition,
+		defineApp({
+			...definition,
+			id: 'not an app id',
 			runtime: {
 				...browser,
 				sqlite,
@@ -134,11 +132,11 @@ test('an application id this platform cannot file refuses at construction', () =
 test('declaring the default application acquires neither browser storage nor AI settings', async () => {
 	const acquire = spyOn(resources.sqlite, 'acquire');
 	try {
-		const application = defineApplication({
-			appId: 'test.' + crypto.randomUUID(),
-			definition,
+		const application = defineApp({
+			...definition,
+			id: 'test.' + crypto.randomUUID(),
 		});
-		expect(application.appId).toStartWith('test.');
+		expect(application.id).toStartWith('test.');
 		expect(acquire).not.toHaveBeenCalled();
 	} finally {
 		acquire.mockRestore();
@@ -167,7 +165,7 @@ test('default resources preserve blobs and the no-account AI catalog', async () 
 	const acquire = spyOn(resources.sqlite, 'acquire').mockImplementation(
 		sqlite.acquire,
 	);
-	const application = defineApplication({ appId, definition });
+	const application = defineApp({ ...definition, id: appId });
 	const app = application.open();
 	try {
 		expectOk(await app.ready);
@@ -207,9 +205,9 @@ test('default resources preserve blobs and the no-account AI catalog', async () 
 test('an explicit runtime selects all resources while explicit AI omits default connections', async () => {
 	const calls: string[] = [];
 	const appId = 'test.' + crypto.randomUUID();
-	const application = defineApplication({
-		appId,
-		definition,
+	const application = defineApp({
+		...definition,
+		id: appId,
 		runtime: {
 			sqlite: {
 				async acquire(id) {
@@ -248,13 +246,10 @@ test('an explicit runtime selects all resources while explicit AI omits default 
 });
 
 test('definition inference retains table and field names through a runtime override', async () => {
-	const application = defineApplication({
-		appId: 'test.' + crypto.randomUUID(),
-		definition: defineData({
-			id: 'test.inference',
-			tables: { notes: defineTable({ title: field.string() }) },
-			kv: {},
-		}),
+	const application = defineApp({
+		tables: { notes: defineTable({ title: field.string() }) },
+		kv: {},
+		id: 'test.' + crypto.randomUUID(),
 		runtime: { ...browser, sqlite },
 		ai: { runtime: null, account: null },
 	});
@@ -264,13 +259,38 @@ test('definition inference retains table and field names through a runtime overr
 		app.device.tables.notes.create({ title: 'Typed title' });
 		const title: string = app.device.tables.notes.rows[0]!.title;
 		expect(title).toBe('Typed title');
-		if (false) {
-			// @ts-expect-error: definition has no tasks table.
-			app.device.tables.tasks;
-			// @ts-expect-error: title is a string field.
-			app.device.tables.notes.create({ title: 12 });
-		}
 	} finally {
 		await app.close();
+	}
+});
+
+test('the same declaration compiles and opens in memory without acquiring App resources', async () => {
+	const schema = defineData({
+		id: 'test.schema',
+		kv: { language: field.string() },
+		tables: { notes: defineTable({ title: field.string() }) },
+	});
+	const acquire = spyOn(resources.sqlite, 'acquire');
+	try {
+		for (const title of [undefined, 'Notes']) {
+			const input = { ...schema, ...(title === undefined ? {} : { title }) };
+			const declaration = defineApp({
+				...input,
+				runtime: browser,
+				ai: { runtime: null, account: null },
+			});
+			expect(canonicalJson(declaration)).toBe(canonicalJson(input));
+			expect(compileData(declaration)).toBe(compileData(declaration));
+			const memory = await openMemory(declaration);
+			try {
+				memory.tables.notes.create({ title: 'Shared schema' });
+				expect(memory.tables.notes.rows[0]?.title).toBe('Shared schema');
+			} finally {
+				await memory[Symbol.asyncDispose]();
+			}
+		}
+		expect(acquire).not.toHaveBeenCalled();
+	} finally {
+		acquire.mockRestore();
 	}
 });

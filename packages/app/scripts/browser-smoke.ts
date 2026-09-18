@@ -51,20 +51,15 @@ try {
 		}
 		const appModule = '/packages/app/src/index.ts';
 		const dataModule = '/packages/data/src/definition/index.ts';
-		const { defineApplication }: typeof import('../src/index.js') =
-			await import(appModule);
-		const {
-			defineData,
-			defineTable,
-			field,
-		}: typeof import('@epicenter/data/definition') = await import(dataModule);
-		const application = defineApplication({
-			appId: 'so.epicenter.recording-smoke',
-			definition: defineData({
-				id: 'so.epicenter.recording-smoke',
-				tables: { recordings: defineTable({ audioBlobId: field.string() }) },
-				kv: {},
-			}),
+		const { defineApp }: typeof import('../src/index.js') = await import(
+			appModule
+		);
+		const { defineTable, field }: typeof import('@epicenter/data/definition') =
+			await import(dataModule);
+		const application = defineApp({
+			tables: { recordings: defineTable({ audioBlobId: field.string() }) },
+			kv: {},
+			id: 'so.epicenter.recording-smoke',
 		});
 		const app = application.open();
 		const ready = await bounded('app ready', app.ready);

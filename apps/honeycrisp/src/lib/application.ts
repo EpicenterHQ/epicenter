@@ -1,6 +1,4 @@
-import { defineApplication } from '@epicenter/app';
 import { createDeparture } from '@epicenter/app-shell/departure';
-import { APPS } from '@epicenter/constants/apps';
 import { authStartup } from '#platform/auth';
 import { honeycrispDefinition } from './data.js';
 
@@ -18,13 +16,9 @@ export const library: Library = (() => {
 	throw new Error('Your saved library choice could not be read.');
 })();
 export const canOpenShared = authStartup.selectedServer !== null;
-const application = defineApplication({
-	appId: APPS.HONEYCRISP.id,
-	definition: honeycrispDefinition,
-});
 export const app = new URLSearchParams(location.search).has('connect')
 	? null
-	: application.open(account);
+	: honeycrispDefinition.open(account);
 export const data =
 	library === 'local'
 		? app?.device

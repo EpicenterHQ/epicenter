@@ -19,11 +19,14 @@ that scope to components requiring an account. This checks the captured
 identity, not network reachability or authorization for a particular request.
 
 ```ts
-import { defineApplication } from '@epicenter/app';
+import { defineApp } from '@epicenter/app';
+import { defineTable, field } from '@epicenter/data/definition';
 
-const application = defineApplication({
- appId: APP_ID,
- definition: honeycrispDefinition,
+const application = defineApp({
+ id: 'so.epicenter.notes',
+ title: 'Notes',
+ kv: { language: field.string() },
+ tables: { notes: defineTable({ title: field.string() }) },
 });
 const app = application.open(account);
 try {
@@ -38,6 +41,14 @@ try {
  await app.close();
 }
 ```
+
+The declaration exposes `id`, `title`, `kv`, and `tables` without opening
+storage or capturing an Account. Schema tools, artifact import/export, and
+`openMemory` accept that same declaration. Its tables describe fields; live
+rows belong to `app.device`, `app.account.personal`, or `app.account.shared`.
+The one `id` names both the application and its data. Lower-level consumers
+can still use `defineData` from `@epicenter/data/definition` without an App.
+Runtime and AI overrides stay in the opener's closure, outside the schema.
 
 The package selects SQLite, secrets, blobs, and recording together for the build.
 Browser recording publishes into IndexedDB. Host recording publishes into the
@@ -150,7 +161,7 @@ selections, SSE reconnect, and cancellation on App, window, and host closure.
 Its optional Whispering mode also verifies the desktop picker, imported audio,
 real transcription, and the saved result after document reload.
 
-`defineApplication` is inert. `application.open(account)` returns an App
+`defineApp` is inert. `application.open(account)` returns an App
 synchronously and begins acquisition. `app.ready` resolves when every opened
 store and the inference catalog are ready, or returns an opening failure.
 `open()` or `open(undefined)` performs no authority request or sync dial.

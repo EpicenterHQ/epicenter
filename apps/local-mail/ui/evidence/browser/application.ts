@@ -1,7 +1,7 @@
-import { defineApplication } from '@epicenter/app';
+import { defineApp } from '@epicenter/app';
 import type { Account } from '@epicenter/auth';
-import { currentLibraryResponse } from '../current-library.js';
 import { mailDefinition } from '../../src/lib/data.js';
+import { currentLibraryResponse } from '../current-library.js';
 
 /** Synthetic account; App, SQLite, persistence, query policy, and panel are production. */
 export const account: Account = {
@@ -21,7 +21,7 @@ export const account: Account = {
 		throw new Error('Fixture has no profile');
 	},
 };
-export const app = defineApplication({
-	appId: 'so.epicenter.local-mail-evidence',
-	definition: mailDefinition,
+export const app = defineApp({
+	...mailDefinition,
+	id: 'so.epicenter.local-mail-evidence',
 }).open(account);

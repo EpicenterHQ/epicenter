@@ -1,5 +1,4 @@
-import { defineApplication } from '@epicenter/app';
-import { defineData } from '@epicenter/data/definition';
+import { defineApp } from '@epicenter/app';
 import { createBrowserInferenceSelections } from '../../../app-shell/src/inference-selections.js';
 
 // Installed acceptance applications, not product builds. The build selects the
@@ -40,12 +39,11 @@ if (!localStorage.getItem(`${product}.seeded`)) {
 	);
 	localStorage.setItem(`${product}.seeded`, 'yes');
 }
-const app = defineApplication({
-	appId: product,
-	definition: defineData({ id: product, tables: {}, kv: {} }),
-}).open();
+const app = defineApp({ tables: {}, kv: {}, id: product }).open();
 const selections = createBrowserInferenceSelections(product);
-let retained: ReturnType<NonNullable<typeof app.device.connections.custom>['get']>;
+let retained: ReturnType<
+	NonNullable<typeof app.device.connections.custom>['get']
+>;
 let pending: Promise<string> | undefined;
 const ready = app.ready.then((result) => {
 	if (result.error) throw new Error(JSON.stringify(result.error));
@@ -55,13 +53,19 @@ Object.assign(window, {
 		ready,
 		documentId: crypto.randomUUID(),
 		records: () =>
-			app.device.connections.custom!.getAll().map(({ client: _, ...record }) => record),
+			app.device.connections
+				.custom!.getAll()
+				.map(({ client: _, ...record }) => record),
 		add: (
-			input: Parameters<NonNullable<typeof app.device.connections.custom>['add']>[0],
+			input: Parameters<
+				NonNullable<typeof app.device.connections.custom>['add']
+			>[0],
 		) => app.device.connections.custom!.add(input),
 		update: (
 			id: string,
-			patch: Parameters<NonNullable<typeof app.device.connections.custom>['update']>[1],
+			patch: Parameters<
+				NonNullable<typeof app.device.connections.custom>['update']
+			>[1],
 		) => app.device.connections.custom!.update(id, patch),
 		remove: (id: string) => app.device.connections.custom!.remove(id),
 		select: (id: string) =>
@@ -79,10 +83,13 @@ Object.assign(window, {
 			}
 		},
 		async run(id: string) {
-			return (await app.device.connections.custom!.get(id)!.client.models.list()).data;
+			return (
+				await app.device.connections.custom!.get(id)!.client.models.list()
+			).data;
 		},
 		start(id: string) {
-			pending = app.device.connections.custom!.get(id)!
+			pending = app.device.connections
+				.custom!.get(id)!
 				.client.models.list()
 				.then(
 					() => 'sent',

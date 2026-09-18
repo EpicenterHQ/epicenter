@@ -1,15 +1,16 @@
 import './style.css';
-import { defineApplication } from '@epicenter/app';
+import { defineApp } from '@epicenter/app';
+import type { Account } from '@epicenter/auth';
+import { defineTable, field } from '@epicenter/data/definition';
 import { syncEngineOf } from '@epicenter/data/direct';
-import { defineData, defineTable, field } from '@epicenter/data/definition';
-import { mailDefinition } from '../../src/lib/data.js';
 import { mount } from 'svelte';
-import Panel from './Panel.svelte';
-import { app, account } from './application.js';
-import { mail } from '../../src/lib/mail.js';
-import { openLocalMailStorage } from '../../../src/storage.js';
 import { expectOk } from 'wellcrafted/testing';
+import { openLocalMailStorage } from '../../../src/storage.js';
+import { mailDefinition } from '../../src/lib/data.js';
+import { mail } from '../../src/lib/mail.js';
 import { currentLibraryResponse } from '../current-library.js';
+import { account, app } from './application.js';
+import Panel from './Panel.svelte';
 
 try {
 	const ready = await app.ready;
@@ -52,16 +53,18 @@ try {
 				await app.close();
 			},
 			async remoteEdit(remove = false) {
-				const peer = defineApplication({
-					appId: 'so.epicenter.local-mail-evidence-peer',
-					definition: mailDefinition,
-				}).open({
+				const peer = defineApp({ ...mailDefinition, id: app.appId }).open({
 					...account,
+					principalId: 'synthetic-peer' as Account['principalId'],
 					fetch: (input, init) =>
 						currentLibraryResponse(new Request(input, init)),
 				});
 				expectOk(await peer.ready);
-				expectOk(syncEngineOf(peer.account!.personal).applyRemote(app.account!.personal.encodeStateSince()));
+				expectOk(
+					syncEngineOf(peer.account!.personal).applyRemote(
+						app.account!.personal.encodeStateSince(),
+					),
+				);
 				const row = peer.account!.personal.tables.savedQueries.rows[0]!;
 				if (remove) peer.account!.personal.tables.savedQueries.delete(row.id);
 				else
@@ -70,25 +73,27 @@ try {
 							sql: 'SELECT id FROM labels',
 						}),
 					);
-				expectOk(syncEngineOf(app.account!.personal).applyRemote(peer.account!.personal.encodeStateSince()));
+				expectOk(
+					syncEngineOf(app.account!.personal).applyRemote(
+						peer.account!.personal.encodeStateSince(),
+					),
+				);
 				await app.account!.personal.persistence.flush();
 				await peer.close();
 			},
 			async malformed() {
-				const peer = defineApplication({
-					appId: 'so.epicenter.local-mail-evidence-malformed',
-					definition: defineData({
-						id: mailDefinition.id,
-						kv: {},
-						tables: {
-							savedQueries: defineTable({
-								name: field.string(),
-								sql: field.boolean(),
-							}),
-						},
-					}),
+				const peer = defineApp({
+					kv: {},
+					tables: {
+						savedQueries: defineTable({
+							name: field.string(),
+							sql: field.boolean(),
+						}),
+					},
+					id: app.appId,
 				}).open({
 					...account,
+					principalId: 'synthetic-malformed' as Account['principalId'],
 					fetch: (input, init) =>
 						currentLibraryResponse(new Request(input, init)),
 				});
@@ -101,7 +106,11 @@ try {
 					name: 'Delete fixture',
 					sql: true,
 				});
-				expectOk(syncEngineOf(app.account!.personal).applyRemote(peer.account!.personal.encodeStateSince()));
+				expectOk(
+					syncEngineOf(app.account!.personal).applyRemote(
+						peer.account!.personal.encodeStateSince(),
+					),
+				);
 				await app.account!.personal.persistence.flush();
 				await peer.close();
 				return { repair: repair.id, remove: remove.id };

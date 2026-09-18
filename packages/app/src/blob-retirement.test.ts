@@ -7,7 +7,6 @@ import 'fake-indexeddb/auto';
 import { expect, spyOn, test } from 'bun:test';
 import type { Account } from '@epicenter/auth';
 import { generateBlobId, REMOTE_BLOB_ROUTES } from '@epicenter/blobs';
-import { defineData } from '@epicenter/data/definition';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { asPrincipalId } from '@epicenter/principal';
@@ -16,7 +15,7 @@ import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { encodeFrame } from '../../data/src/sync/frames.js';
 import { browser } from './browser.js';
-import { defineApplication } from './index.js';
+import { defineApp } from './index.js';
 
 installTestLocks();
 
@@ -99,9 +98,10 @@ test('document retirement aborts an upload and releases playback before explicit
 			};
 		},
 	};
-	const app = defineApplication({
-		appId,
-		definition: defineData({ id: appId, tables: {}, kv: {} }),
+	const app = defineApp({
+		tables: {},
+		kv: {},
+		id: appId,
 		runtime: { ...browser, sqlite },
 		ai: { runtime: null, account: null },
 	}).open(account);

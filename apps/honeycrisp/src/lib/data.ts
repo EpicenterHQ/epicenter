@@ -1,11 +1,11 @@
+import { defineApp } from '@epicenter/app';
 import { APPS } from '@epicenter/constants/apps';
 import { field } from '@epicenter/data/definition';
 /**
- * Honeycrisp's inert data definition.
+ * Honeycrisp's inert application declaration.
  *
- * A data definition is pure JSON: closed field descriptors for the fields,
- * and nothing that knows about storage, sync, or documents (ADR-0213,
- * ADR-0240). Runtimes own all of that.
+ * The root schema is inspectable without opening storage. Only `.open()`
+ * acquires the live App and its resources.
  *
  * The `folders` and `notes` property names are the durable table names. They
  * are what the row addresses carry and what the export names its folders
@@ -15,7 +15,6 @@ import { field } from '@epicenter/data/definition';
 import type { AppStore } from '@epicenter/app';
 import {
 	type ContentCodec,
-	defineData,
 	defineTable,
 	plainText,
 	type RowOf,
@@ -94,7 +93,7 @@ const noteMarkdown: ContentCodec = {
 	},
 };
 
-export const honeycrispDefinition = defineData({
+export const honeycrispDefinition = defineApp({
 	id: APPS.HONEYCRISP.id,
 	title: 'Honeycrisp',
 	kv: {},

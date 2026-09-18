@@ -24,7 +24,7 @@ import { expect, test } from 'bun:test';
 	{ by: <TValue>(derive: () => TValue) => derive() },
 );
 
-import { defineApplication } from '@epicenter/app';
+import { defineApp } from '@epicenter/app';
 import { browser, createBrowserAppBlobs } from '@epicenter/app/browser';
 import type { Account } from '@epicenter/auth';
 import { APPS } from '@epicenter/constants/apps';
@@ -167,9 +167,8 @@ function announcingAccount(principalId: string): Account {
  * nothing else can end what the open acquired (ADR-0340).
  */
 async function openWhispering(account: Account) {
-	const handle = defineApplication({
-		appId: APPS.WHISPERING.id,
-		definition: whisperingDefinition,
+	const handle = defineApp({
+		...whisperingDefinition,
 		runtime: {
 			...browser,
 			sqlite: testSqlite,
@@ -184,9 +183,8 @@ async function openWhispering(account: Account) {
 
 test('constructing a factory acquires no local database', async () => {
 	await resetStorage();
-	const handle = defineApplication({
-		appId: APPS.WHISPERING.id,
-		definition: whisperingDefinition,
+	const handle = defineApp({
+		...whisperingDefinition,
 		runtime: {
 			...browser,
 			sqlite: testSqlite,
@@ -199,7 +197,7 @@ test('constructing a factory acquires no local database', async () => {
 			name?.startsWith(`epicenter/${APPS.WHISPERING.id}/`),
 		),
 	).toEqual([]);
-	expect(handle.appId).toBe(APPS.WHISPERING.id);
+	expect(handle.id).toBe(APPS.WHISPERING.id);
 });
 
 test('settings recover application defaults, notify, and survive a reopen', async () => {

@@ -1,11 +1,13 @@
+import { defineApp } from '@epicenter/app';
 import { BLOB_ID_ROUTE_REGEX } from '@epicenter/blobs';
 import { APPS } from '@epicenter/constants/apps';
 import { field } from '@epicenter/data/definition';
+import { runtime } from '#platform/runtime';
 /**
- * Whispering's inert data definition.
+ * Whispering's inert application declaration.
  *
- * Pure JSON: closed field descriptors and nothing that knows about
- * storage, sync or documents (ADR-0213). Runtimes own all of that.
+ * The root schema is inspectable without opening storage. Only `.open()`
+ * acquires the live App and its resources.
  *
  * Three things about this file are decisions rather than transcription of the
  * old contract, and each is load-bearing.
@@ -31,7 +33,6 @@ import { field } from '@epicenter/data/definition';
 
 import type { DeclaredData } from '@epicenter/data';
 import {
-	defineData,
 	defineTable,
 	type KvOf,
 	plainText,
@@ -155,7 +156,8 @@ const settingsKv = {
 	shortcutOpenSettingsKeys: field.nullable(field.tags()),
 } as const;
 
-export const whisperingDefinition = defineData({
+export const whisperingDefinition = defineApp({
+	runtime,
 	id: APPS.WHISPERING.id,
 	title: 'Whispering',
 	kv: settingsKv,

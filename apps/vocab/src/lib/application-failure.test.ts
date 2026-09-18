@@ -51,16 +51,15 @@ afterAll(() => {
 		else Reflect.deleteProperty(globalThis, key);
 	}
 });
-mock.module('@epicenter/app', () => ({
-	defineApplication: () => ({
+mock.module('./data.js', () => ({
+	vocabDefinition: {
 		open() {
 			opens++;
 			expect(listeners.size).toBe(1);
 			throw failure;
 		},
-	}),
+	},
 }));
-mock.module('./data.js', () => ({ vocabDefinition: {} }));
 mock.module('./auth.js', () => ({
 	authStartup: {
 		auth: {

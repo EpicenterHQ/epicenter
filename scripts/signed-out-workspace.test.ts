@@ -36,15 +36,14 @@ for (const product of ['honeycrisp', 'whispering']) {
 					mock.module('@epicenter/app-shell/migrate-ai-settings', () => ({ initializeBrowserAiSettings: async () => {} }));
 					mock.module('@epicenter/app-shell/inference-selections', () => ({ createBrowserInferenceSelections: () => ({ [Symbol.dispose]() {} }) }));
 				}
-				mock.module(process.cwd() + '/src/lib/data.ts', () => ({ [product + 'Definition']: {} }));
 				mock.module('@epicenter/app-shell/departure', () => ({ createDeparture: () => ({}) }));
-				mock.module('@epicenter/app', () => ({ defineApplication: () => ({
+				mock.module(process.cwd() + '/src/lib/data.ts', () => ({ [product + 'Definition']: {
 					open(account) {
 						return { device: { owner: account?.principalId ?? 'no-account', library: 'local' },
 							account: account && { personal: { owner: account.principalId, library: 'personal' }, shared: { library: 'shared' } },
 							ready: Promise.resolve({ error: null }), close: async () => {} };
 					}
-				}) }));
+				} }));
 				const visits = [];
 				for (const principalId of [undefined, 'alice', undefined, 'alice']) {
 					auth.state.account = principalId ? { principalId } : undefined;

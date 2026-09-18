@@ -51,16 +51,15 @@ afterAll(() => {
 		else Reflect.deleteProperty(globalThis, key);
 	}
 });
-mock.module('@epicenter/app', () => ({
-	defineApplication: () => ({
+mock.module('./data.js', () => ({
+	whisperingDefinition: {
 		open() {
 			opens++;
 			expect(listeners.size).toBe(1);
 			throw failure;
 		},
-	}),
+	},
 }));
-mock.module('./data.js', () => ({ whisperingDefinition: {} }));
 mock.module('#platform/runtime', () => ({ runtime: {} }));
 mock.module('#platform/auth', () => ({
 	authClient: { auth: null, selectedServer: null },

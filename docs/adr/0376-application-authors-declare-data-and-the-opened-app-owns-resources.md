@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-08
-- **Unbuilt:** One `open(account)` returning the hub of ADR-0392; complete desktop Local Mail workflow verification.
-- **Implementation:** Runtime composition, App-owned saved recording, and the three separate openers are implemented. Real browser capture, App reads/playback, transcription, Polish, and reopen passed in all three libraries. Native file inference passed a real WebView. Complete desktop Local Mail verification remains separate.
+- **Unbuilt:** Complete desktop Local Mail workflow verification remains separate from the browser acceptance evidence.
+- **Implementation checkpoint, 2026-09-18:** Runtime composition and App-owned saved recording are implemented. One `open(account?)` now returns device and account scopes together (ADR-0392); it replaces the three separate openers described in this record. ADR-0405 replaces the nested declaration with `defineApp`. Real browser capture, App reads/playback, transcription, Polish, and reopen passed in all three libraries. Native file inference passed a real WebView. Complete desktop Local Mail verification remains separate.
 
 ## Context
 

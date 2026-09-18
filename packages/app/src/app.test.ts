@@ -33,7 +33,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { encodeFrame } from '../../data/src/sync/frames.js';
 import { createAiConnections } from './ai-connections.js';
 import { browser, createBrowserAppBlobs } from './browser.js';
-import { defineApplication } from './index.js';
+import { defineApp } from './index.js';
 import { openApp } from './open.js';
 import { createBrowserRecording } from './recording/browser.js';
 
@@ -64,9 +64,9 @@ const definition = defineData({
 });
 
 const create = () =>
-	defineApplication({
-		appId: 'so.epicenter.app-test',
-		definition,
+	defineApp({
+		...definition,
+		id: 'so.epicenter.app-test',
 		runtime: {
 			...browser,
 			sqlite: testSqlite,
@@ -180,9 +180,9 @@ test.each([
 			throw new Error('Not needed for SQLite scope.');
 		},
 	};
-	const epicenter = defineApplication({
-		appId: 'so.epicenter.app-test',
-		definition,
+	const epicenter = defineApp({
+		...definition,
+		id: 'so.epicenter.app-test',
 		runtime: {
 			...browser,
 			sqlite: owner,
@@ -263,9 +263,9 @@ test('closing waits for an admitted SQLite delete', async () => {
 			close: async () => undefined,
 		}),
 	};
-	const app = defineApplication({
-		appId: 'so.epicenter.app-test',
-		definition,
+	const app = defineApp({
+		...definition,
+		id: 'so.epicenter.app-test',
 		runtime: {
 			...browser,
 			sqlite: owner,
@@ -280,9 +280,9 @@ test('closing waits for an admitted SQLite delete', async () => {
 	const closing = app.close().then(() => {
 		closed = true;
 	});
-	const replacement = defineApplication({
-		appId: 'so.epicenter.app-test',
-		definition,
+	const replacement = defineApp({
+		...definition,
+		id: 'so.epicenter.app-test',
 		runtime: {
 			...browser,
 			sqlite: owner,
@@ -298,9 +298,9 @@ test('closing waits for an admitted SQLite delete', async () => {
 	await closing;
 	expect(closed).toBe(true);
 	await replacement.close();
-	const reopened = defineApplication({
-		appId: 'so.epicenter.app-test',
-		definition,
+	const reopened = defineApp({
+		...definition,
+		id: 'so.epicenter.app-test',
 		runtime: {
 			...browser,
 			sqlite: owner,
@@ -344,9 +344,9 @@ test('every retained SQL verb refuses closed use without reaching the shared own
 			close: async () => undefined,
 		}),
 	};
-	const app = defineApplication({
-		appId: 'so.epicenter.app-test',
-		definition,
+	const app = defineApp({
+		...definition,
+		id: 'so.epicenter.app-test',
 		runtime: {
 			...browser,
 			sqlite: owner,
@@ -422,9 +422,9 @@ test.each([
 			close: async () => undefined,
 		}),
 	};
-	const app = defineApplication({
-		appId: 'so.epicenter.app-test',
-		definition,
+	const app = defineApp({
+		...definition,
+		id: 'so.epicenter.app-test',
 		runtime: {
 			...browser,
 			sqlite: owner,
@@ -479,9 +479,9 @@ test('a late SQL open refuses publication and physically closes without deleting
 			deletes++;
 		},
 	});
-	const app = defineApplication({
-		appId: 'so.epicenter.app-test',
-		definition,
+	const app = defineApp({
+		...definition,
+		id: 'so.epicenter.app-test',
 		runtime: {
 			...browser,
 			sqlite: owner,
@@ -521,9 +521,9 @@ test('close drains admitted local writes before releasing the app claim', async 
 	await clearStorage();
 	const gate = Promise.withResolvers<void>();
 	const entered = Promise.withResolvers<void>();
-	const application = defineApplication({
-		appId: 'so.epicenter.app-test',
-		definition,
+	const application = defineApp({
+		...definition,
+		id: 'so.epicenter.app-test',
 		runtime: {
 			...browser,
 			sqlite: testSqlite,
@@ -717,17 +717,24 @@ test('account acquisition hydrates the existing handles and survives refused syn
 
 test('invalid definitions throw before opening storage', async () => {
 	await clearStorage();
-	const invalid = defineApplication({
-		appId: 'so.epicenter.app-test',
-		definition: { id: '', tables: {}, kv: {} },
-		runtime: {
-			...browser,
-			sqlite: testSqlite,
-			blobs: testBlobs,
-		},
-		ai: { runtime: null, account: null },
-	});
-	expect(() => invalid.open()).toThrow();
+	// Runtime validation also refuses defaults hidden by a broad schema type.
+	const invalid = () =>
+		defineApp({
+			id: 'so.epicenter.app-test',
+			tables: {},
+			kv: {
+				name: { ...field.string(), default: 'invalid' } as ReturnType<
+					typeof field.string
+				>,
+			},
+			runtime: {
+				...browser,
+				sqlite: testSqlite,
+				blobs: testBlobs,
+			},
+			ai: { runtime: null, account: null },
+		});
+	expect(invalid).toThrow();
 	expect(
 		(await indexedDB.databases()).filter(({ name }) =>
 			name?.split('/').includes('so.epicenter.app-test'),
@@ -735,7 +742,7 @@ test('invalid definitions throw before opening storage', async () => {
 	).toEqual([]);
 });
 
-test('physical SQL close retains the library claim across sibling definitions', async () => {
+test('physical SQL close retains the library claim across schema variants', async () => {
 	const started = Promise.withResolvers<void>();
 	const released = Promise.withResolvers<void>();
 	let acquisitions = 0;
@@ -752,9 +759,9 @@ test('physical SQL close retains the library claim across sibling definitions', 
 			};
 		},
 	};
-	const first = defineApplication({
-		appId: 'so.epicenter.app-test',
-		definition,
+	const first = defineApp({
+		...definition,
+		id: 'so.epicenter.app-test',
 		runtime: {
 			...browser,
 			sqlite: owner,
@@ -769,9 +776,9 @@ test('physical SQL close retains the library claim across sibling definitions', 
 		kv: {},
 	});
 	const sibling = () =>
-		defineApplication({
-			appId: 'so.epicenter.app-test',
-			definition: siblingDefinition,
+		defineApp({
+			...siblingDefinition,
+			id: 'so.epicenter.app-test',
 			runtime: {
 				...browser,
 				sqlite: owner,
@@ -804,9 +811,9 @@ test('physical SQL close retains the library claim across sibling definitions', 
 test('failed durable release retains SQL and the common library claim', async () => {
 	const appId = `test.${crypto.randomUUID()}`;
 	let sqlCloses = 0;
-	const epicenter = defineApplication({
-		appId,
-		definition,
+	const epicenter = defineApp({
+		...definition,
+		id: appId,
 		runtime: {
 			...browser,
 			blobs: testBlobs,
@@ -846,9 +853,9 @@ test('failed bootstrap cleanup retains library ownership without acquiring SQL',
 	const appId = `test.${crypto.randomUUID()}`;
 	let sqlCloses = 0;
 	let sqlAcquisitions = 0;
-	const epicenter = defineApplication({
-		appId,
-		definition,
+	const epicenter = defineApp({
+		...definition,
+		id: appId,
 		runtime: {
 			...browser,
 			blobs: testBlobs,
@@ -891,9 +898,9 @@ test('retained AI shares readiness and close drains response work before releasi
 	const started = Promise.withResolvers<void>();
 	const released: string[] = [];
 	let signal: AbortSignal | null | undefined;
-	const app = defineApplication({
-		appId: 'so.epicenter.capability-test',
-		definition,
+	const app = defineApp({
+		...definition,
+		id: 'so.epicenter.capability-test',
 		ai: {
 			account: null,
 			runtime: {
@@ -947,9 +954,9 @@ test.each([
 	let released = false;
 	let settled = false;
 	const appId = 'test.' + crypto.randomUUID();
-	const app = defineApplication({
-		appId,
-		definition,
+	const app = defineApp({
+		...definition,
+		id: appId,
 		ai: {
 			account: null,
 			runtime: {
@@ -1041,9 +1048,9 @@ test('one captured Account supplies library and AI; local opening never borrows 
 			throw new Error('No test profile');
 		},
 	};
-	const application = defineApplication({
-		appId,
-		definition,
+	const application = defineApp({
+		...definition,
+		id: appId,
 		ai: {
 			runtime: null,
 			account: (captured) => {
@@ -1077,9 +1084,9 @@ test('one captured Account supplies library and AI; local opening never borrows 
 
 test('SQL acquisition failure does not block App readiness and close still retires SDK clients', async () => {
 	let requests = 0;
-	const app = defineApplication({
-		appId: 'test.' + crypto.randomUUID(),
-		definition,
+	const app = defineApp({
+		...definition,
+		id: 'test.' + crypto.randomUUID(),
 		ai: {
 			account: null,
 			runtime: {
@@ -1132,9 +1139,9 @@ test('App close drains admitted secret writes before releasing its SQL lifetime'
 	const write = Promise.withResolvers<void>();
 	let backingClosed = false;
 	let writes = 0;
-	const app = defineApplication({
-		appId: 'so.epicenter.secret-drain',
-		definition,
+	const app = defineApp({
+		...definition,
+		id: 'so.epicenter.secret-drain',
 		runtime: {
 			...browser,
 			blobs: testBlobs,
@@ -1186,9 +1193,9 @@ test('a secret operation can reenter close and forwards its storage Result uncha
 	});
 	let closing: Promise<void> | undefined;
 	let released = false;
-	const app = defineApplication({
-		appId: 'so.epicenter.secret-reentrant',
-		definition,
+	const app = defineApp({
+		...definition,
+		id: 'so.epicenter.secret-reentrant',
 		runtime: {
 			...browser,
 			blobs: testBlobs,
@@ -1235,9 +1242,9 @@ test('a late capability constructor failure prevents scheduled acquisition and p
 	const released = Promise.withResolvers<void>();
 	const events: string[] = [];
 	const failure = new Error('Secrets construction failed');
-	const application = defineApplication({
-		appId,
-		definition,
+	const application = defineApp({
+		...definition,
+		id: appId,
 		ai: {
 			account: null,
 			runtime: null,
@@ -1283,9 +1290,9 @@ test('a late capability constructor failure prevents scheduled acquisition and p
 	expect(events).toContain('recording');
 	expect(events).toContain('ai');
 	expect(events).not.toContain('storage');
-	const next = defineApplication({
-		appId,
-		definition,
+	const next = defineApp({
+		...definition,
+		id: appId,
 		runtime: {
 			...browser,
 			blobs: testBlobs,
@@ -1318,9 +1325,9 @@ test.each([
 			throw new Error('Unused');
 		},
 	};
-	const application = defineApplication({
-		appId,
-		definition,
+	const application = defineApp({
+		...definition,
+		id: appId,
 		runtime: {
 			...browser,
 			blobs: testBlobs,
@@ -1365,9 +1372,9 @@ test('failed recorder cleanup still drains SQL and keeps the claim after drain',
 	const failure = new Error('Recorder cleanup failed');
 	let released = false;
 	let settled = false;
-	const application = defineApplication({
-		appId,
-		definition,
+	const application = defineApp({
+		...definition,
+		id: appId,
 		runtime: {
 			...browser,
 			blobs: testBlobs,
@@ -1491,9 +1498,9 @@ test('App retirement closes its recorder while retaining the library claim throu
 						},
 					}),
 	);
-	const application = defineApplication({
-		appId,
-		definition,
+	const application = defineApp({
+		...definition,
+		id: appId,
 		runtime: {
 			...browser,
 			blobs: testBlobs,
@@ -1605,9 +1612,9 @@ test('App retirement during attachment refuses readiness without auto-releasing 
 						},
 					}),
 	);
-	const app = defineApplication({
-		appId: `test.${crypto.randomUUID()}`,
-		definition,
+	const app = defineApp({
+		...definition,
+		id: `test.${crypto.randomUUID()}`,
 		runtime: {
 			...browser,
 			blobs: testBlobs,
@@ -1687,9 +1694,9 @@ test('replacing the Account cannot submit Alice pending Personal edits as Bob', 
 			return current(input, init);
 		},
 	});
-	const application = defineApplication({
-		appId,
-		definition,
+	const application = defineApp({
+		...definition,
+		id: appId,
 		runtime: { ...browser, sqlite: testSqlite, blobs: testBlobs },
 		ai: { runtime: null, account: null },
 	});

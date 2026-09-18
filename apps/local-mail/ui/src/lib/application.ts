@@ -1,4 +1,3 @@
-import { defineApplication } from '@epicenter/app';
 import { createDeparture } from '@epicenter/app-shell/departure';
 import { authStartup } from '#platform/auth';
 import { mailDefinition } from './data.js';
@@ -11,10 +10,7 @@ export const account = auth?.state.account;
 export const app =
 	account === undefined || new URLSearchParams(location.search).has('connect')
 		? null
-		: defineApplication({
-				appId: 'so.epicenter.local-mail',
-				definition: mailDefinition,
-			}).open(account);
+		: mailDefinition.open(account);
 
 export const departure = createDeparture({
 	libraryReplaced: app?.libraryReplaced,

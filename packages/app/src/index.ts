@@ -1,7 +1,11 @@
 import type { Account } from '@epicenter/auth';
 import type { BlobSources, BlobStore, RemoteBlobs } from '@epicenter/blobs';
 import { isAppId } from '@epicenter/constants/app-id';
-import type { DataDefinition } from '@epicenter/data/definition';
+import {
+	compileData,
+	type DataDefinition,
+	type defineData,
+} from '@epicenter/data/definition';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import type { AccountIdentity } from '@epicenter/principal';
 import { createDefaultAppAi } from '#platform/ai';
@@ -27,8 +31,7 @@ export type AppBlobFactory = (input: {
 }) => AppBlobComposition;
 
 /** Declare once; each open owns one auth generation and its device and account stores. */
-export type Application<TDefinition extends DataDefinition> = {
-	readonly appId: string;
+export type Application<TDefinition extends DataDefinition> = TDefinition & {
 	/** Open device storage, plus account stores when an Account is supplied. */
 	open(): App<TDefinition, undefined>;
 	open<TAccount extends Account | undefined>(
@@ -47,33 +50,42 @@ export type ApplicationRuntime = {
 	recording: RecordingFactory;
 };
 
-/** Declare one application, replacing runtime and AI independently when supplied. */
-export function defineApplication<const TDefinition extends DataDefinition>({
-	appId,
-	definition,
+/** Declare an inert, inspectable schema; each open owns one App lifetime. */
+export function defineApp<const TDefinition extends DataDefinition>({
 	runtime = resources,
 	ai = createDefaultAppAi(),
-}: {
-	appId: string;
-	definition: TDefinition;
+	...schema
+}: Parameters<typeof defineData<TDefinition>>[0] & {
 	runtime?: ApplicationRuntime;
 	ai?: AppAiBinding;
-}): Application<TDefinition> {
-	if (!isAppId(appId))
-		throw new Error(`The application id '${appId}' is not valid.`);
+}) {
+	// Supply the optional title type without widening inferred table or KV keys.
+	type Definition = Pick<
+		TDefinition & Pick<DataDefinition, 'title'>,
+		'id' | 'title' | 'kv' | 'tables'
+	>;
+	const { id, title, kv, tables } = schema;
+	if (!isAppId(id)) throw new Error(`The application id '${id}' is not valid.`);
 	const { sqlite, secrets, blobs, recording } = runtime;
-	const options = { appId, sqlite, secrets, blobs, recording, ai };
-	function open(): App<TDefinition, undefined>;
+	const options = { appId: id, sqlite, secrets, blobs, recording, ai };
+	function open(): App<Definition, undefined>;
 	function open<TAccount extends Account | undefined>(
 		account: TAccount,
-	): App<TDefinition, TAccount>;
+	): App<Definition, TAccount>;
 	function open(account?: Account) {
-		return openApp(definition, { ...options, account });
+		return openApp(declaration, { ...options, account });
 	}
-	return Object.freeze({
-		appId,
+	const declaration: Application<Definition> = Object.freeze({
+		id,
+		...(title === undefined ? {} : { title }),
+		kv,
+		tables,
 		open,
 	});
+	const compiled = compileData(declaration);
+	if (compiled.error !== null)
+		throw new Error(compiled.error.message, { cause: compiled.error });
+	return declaration;
 }
 
 /** Independent inference transport and connections selection. */

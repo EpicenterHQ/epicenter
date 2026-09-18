@@ -4,12 +4,12 @@ import {
 	IMPORTABLE_VIDEO_EXTENSIONS,
 	MAX_IMPORT_FILE_SIZE,
 	MAX_IMPORT_FILES,
-} from '$lib/constants/import-formats';
-import { logAnalyticsEvent } from '$lib/operations/analytics';
-import { processRecordingPipeline } from '$lib/operations/pipeline';
-import { report } from '$lib/report';
-import { trackRecordingWork } from '$lib/state/recording-active.svelte';
-import type { WhisperingApp } from '$lib/whispering/app';
+} from '../constants/import-formats.js';
+import { report } from '../report/index.js';
+import { trackRecordingWork } from '../state/recording-active.svelte.js';
+import type { WhisperingApp } from '../whispering/app.js';
+import { logAnalyticsEvent } from './analytics.js';
+import { processRecordingPipeline } from './pipeline.js';
 import { saveAudioRecording } from './save-audio-recording.js';
 import { captureTranscription } from './transcribe.js';
 

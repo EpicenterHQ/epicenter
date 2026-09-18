@@ -12,12 +12,7 @@ import {
 } from '@epicenter/app/recorder';
 import type { Account } from '@epicenter/auth';
 import { generateBlobId } from '@epicenter/blobs';
-import {
-	defineData,
-	defineTable,
-	field,
-	plainText,
-} from '@epicenter/data/definition';
+import { defineTable, field, plainText } from '@epicenter/data/definition';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { asPrincipalId } from '@epicenter/principal';
 import { asDeviceIdentifier } from '@epicenter/recorder';
@@ -25,7 +20,7 @@ import { createCurrentDownloadResponse } from '@epicenter/sync/current-download'
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { browser, createBrowserAppBlobs } from './browser.js';
-import { defineApplication } from './index.js';
+import { defineApp } from './index.js';
 
 installTestLocks();
 
@@ -119,7 +114,7 @@ function setup({
 			close() {
 				recorderCloses++;
 				closed = true;
-				return (closing ??= (async () => {
+				closing ??= (async () => {
 					await Promise.allSettled(pending);
 					if (active === null) {
 						const result = await current();
@@ -129,22 +124,20 @@ function setup({
 						const result = await cancel();
 						if (result.error) throw result.error;
 					}
-				})());
+				})();
+				return closing;
 			},
 		};
 	};
-	const epicenter = defineApplication({
-		appId,
-		definition: defineData({
-			id: appId,
-			kv: {},
-			tables: {
-				recordings: defineTable({
-					audio: field.string(),
-					content: plainText(),
-				}),
-			},
-		}),
+	const epicenter = defineApp({
+		kv: {},
+		tables: {
+			recordings: defineTable({
+				audio: field.string(),
+				content: plainText(),
+			}),
+		},
+		id: appId,
 		runtime: {
 			...browser,
 			sqlite: {
@@ -369,7 +362,8 @@ for (const failure of ['cancellation'] as const) {
 		});
 		const app = epicenter.open();
 		expectOk(await app.ready);
-		if (failure === 'cancellation') expectOk(await app.device.recording.start({}));
+		if (failure === 'cancellation')
+			expectOk(await app.device.recording.start({}));
 		await expect(app.close()).rejects.toMatchObject({ name: 'RecorderFailed' });
 		expect(releases()).toBe(0);
 		const duplicate = epicenter.open();
