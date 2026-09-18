@@ -2,29 +2,25 @@ import { isAppId } from '@epicenter/constants/app-id';
 import type { PrincipalId } from '@epicenter/principal';
 
 /** Server-owned destination; the authenticated principal remains the request actor. */
-export function libraryStoragePrefix(
+export function dataStoragePrefix(
 	appId: string,
-	library: 'personal' | 'shared',
+	scope: 'personal' | 'shared',
 	actor: PrincipalId,
 ): string {
-	return library === 'shared'
+	return scope === 'shared'
 		? `libraries/apps/${encodeURIComponent(appId)}/shared`
 		: `libraries/apps/${encodeURIComponent(appId)}/personal/${encodeURIComponent(actor)}`;
 }
 
 /** Admission grants Shared only on deployments that explicitly offer it. */
-export function resolveLibraryPrefix(
+export function resolveDataPrefix(
 	appId: string | undefined,
-	library: string | undefined,
+	scope: string | undefined,
 	actor: PrincipalId,
 	shared: boolean,
 ): string | undefined {
-	if (
-		!appId ||
-		!isAppId(appId) ||
-		(library !== 'personal' && library !== 'shared')
-	)
+	if (!appId || !isAppId(appId) || (scope !== 'personal' && scope !== 'shared'))
 		return;
-	if (library === 'shared' && !shared) return;
-	return libraryStoragePrefix(appId, library, actor);
+	if (scope === 'shared' && !shared) return;
+	return dataStoragePrefix(appId, scope, actor);
 }

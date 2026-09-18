@@ -2,8 +2,9 @@
 	"extends": "./tsconfig.json",
 	// The browser journey runs in Bun and evaluates callbacks in the app document.
 	"include": [
-		"scripts/library.browser.ts",
-		"scripts/library-retirement.ts",
+		"scripts/app.browser.ts",
+		"scripts/app-retirement.ts",
+		"scripts/app-auth.ts",
 		".svelte-kit/ambient.d.ts"
 	]
 }

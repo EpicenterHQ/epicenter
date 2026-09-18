@@ -1,5 +1,5 @@
 /**
- * Current-library authorization and addressing through deployed Worker routes.
+ * Current data authorization and addressing through deployed Worker routes.
  * Personal actors stay isolated, Shared selects one destination, and callers
  * cannot override the actor or reach independently writable history endpoints.
  */
@@ -10,17 +10,17 @@ import { expect, test } from 'vitest';
 
 const origin = 'http://example.com';
 function setup() {
-	const appId = `so.epicenter.library-${crypto.randomUUID()}`;
+	const appId = `so.epicenter.scope-${crypto.randomUUID()}`;
 	const dataId = 'so.epicenter.storeprobe';
-	const url = (library: 'personal' | 'shared') =>
-		CURRENT_ROUTE.url(origin, appId, library, dataId);
+	const url = (scope: 'personal' | 'shared') =>
+		CURRENT_ROUTE.url(origin, appId, scope, dataId);
 	const request = (
 		person: string,
-		library: 'personal' | 'shared',
+		scope: 'personal' | 'shared',
 		seed: number,
 		suffix = '',
 	) =>
-		SELF.fetch(url(library) + suffix, {
+		SELF.fetch(url(scope) + suffix, {
 			method: 'POST',
 			headers: { authorization: `Bearer device:${person}` },
 			body: new Uint8Array([seed]),
@@ -67,7 +67,7 @@ test('anonymous creation and caller-supplied Personal owners are refused', async
 	}
 });
 
-test('Shared libraries belonging to different applications remain isolated', async () => {
+test('Shared stores belonging to different applications remain isolated', async () => {
 	const first = setup();
 	const second = setup();
 	for (const [fixture, value] of [

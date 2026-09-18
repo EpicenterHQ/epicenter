@@ -11,8 +11,8 @@ import { join } from 'node:path';
 import { chromium, webkit } from 'playwright';
 import { build } from 'vite';
 import { createBunDevice } from '../../../apps/epicenter/src/test-sqlite.js';
+import { claimApp } from '../src/app-claim.js';
 import { createDesktopSqliteOwner } from '../src/desktop.js';
-import { claimApp } from '../src/library-claim.js';
 import { createAppSqlite, createDeviceDispatcher } from '../src/owner.js';
 import { installTestLocks } from '../src/test-locks.js';
 

@@ -7,17 +7,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
 import type { PlatformProxy } from 'wrangler';
-import {
-	type LibraryTestOperator,
-	proveRetirement,
-} from './library-retirement.js';
+import { type AppTestOperator, proveRetirement } from './app-retirement.js';
 
 // Use the same Wrangler installation as the self-hosted Worker below.
 const { getPlatformProxy }: typeof import('wrangler') = createRequire(
 	new URL('../../self-host/package.json', import.meta.url),
 )('wrangler');
 const root = join(import.meta.dir, '../../..');
-const directory = mkdtempSync(join(tmpdir(), 'honeycrisp-library-'));
+const directory = mkdtempSync(join(tmpdir(), 'honeycrisp-app-'));
 async function reserveOrigin() {
 	const reservation = Bun.serve({
 		hostname: 'localhost',
@@ -42,7 +39,7 @@ writeFileSync(
 	workerConfig,
 	JSON.stringify({
 		name: workerName,
-		main: join(root, 'apps/honeycrisp/scripts/library.worker.ts'),
+		main: join(root, 'apps/honeycrisp/scripts/app.worker.ts'),
 		compatibility_date: '2026-03-06',
 		compatibility_flags: ['nodejs_compat'],
 		send_metrics: false,
@@ -80,9 +77,9 @@ writeFileSync(
 				remote: false,
 			},
 			{
-				binding: 'LIBRARY_TEST',
+				binding: 'APP_TEST',
 				service: workerName,
-				entrypoint: 'LibraryTestOperator',
+				entrypoint: 'AppTestOperator',
 				remote: false,
 			},
 		],
@@ -132,7 +129,7 @@ const worker = start(
 const viteConfig = join(directory, 'vite.config.mts');
 writeFileSync(
 	viteConfig,
-	`import config from ${JSON.stringify(join(root, 'apps/honeycrisp/vite.config.ts'))};\nexport default { ...config, server: { ...config.server, watch: null, hmr: false } };\n`,
+	`import config from ${JSON.stringify(join(root, 'apps/honeycrisp/vite.config.ts'))};\nexport default { ...config, resolve: { ...config.resolve, alias: { ...config.resolve?.alias, "#platform/auth": ${JSON.stringify(join(root, 'apps/honeycrisp/scripts/app-auth.ts'))} } }, define: { ...config.define, "import.meta.env.VITE_HONEYCRISP_TEST_ORIGIN": ${JSON.stringify(JSON.stringify(origin))} }, server: { ...config.server, watch: null, hmr: false } };\n`,
 );
 const vite = start([
 	'dev:honeycrisp:ui',
@@ -157,7 +154,7 @@ type TestBindings = {
 		admit(input: { id: string; name: string }): Promise<{ url: string }>;
 		remove(id: string): Promise<void>;
 	};
-	LIBRARY_TEST: LibraryTestOperator & { ready(): Promise<boolean> };
+	APP_TEST: AppTestOperator & { ready(): Promise<boolean> };
 };
 let browser: Browser | undefined;
 let proxy: PlatformProxy<TestBindings> | undefined;
@@ -171,42 +168,64 @@ const sharedDownloads: Array<
 		bytes: number[];
 	}>
 > = [];
-async function select(page: Page, name: 'Local' | 'Personal' | 'Shared') {
-	await page.evaluate(async () => {
-		const path = '/src/lib/application.ts';
-		const module: typeof import('../src/lib/application.js') = await import(
-			path
-		);
-		module.departure.onChange(() => {
-			if (module.departure.state.phase === 'closed')
-				sessionStorage.setItem('closed-library', module.library);
-		});
-	});
-	const previous = await page
-		.locator('nav[aria-label="Library"] button[aria-pressed="true"]')
-		.innerText();
-	await page
-		.getByRole('navigation', { name: 'Library' })
-		.getByRole('button', { name, exact: true })
-		.click();
-	await page.waitForFunction(
-		(name) => localStorage.getItem('honeycrisp.library') === name,
-		name.toLowerCase(),
-	);
-	await page.getByRole('button', { name: 'New note', exact: true }).waitFor();
-	console.log('Selected library', name);
-	assert.equal(
-		await page.evaluate(() => sessionStorage.getItem('closed-library')),
-		previous.toLowerCase(),
-	);
-	assert.equal(
-		await page
-			.getByRole('navigation', { name: 'Library' })
-			.getByRole('button', { name, exact: true })
-			.getAttribute('aria-pressed'),
-		'true',
+async function select(page: Page, name: 'Local' | 'Personal') {
+	const before = await page.evaluate(() => ({
+		documents: sessionStorage.getItem('journey.documents'),
+		claims: sessionStorage.getItem('journey.claims'),
+	}));
+	await page.getByRole('link', { name, exact: true }).first().click();
+	await page.waitForURL(`**/${name.toLowerCase()}`);
+	if (name === 'Local')
+		await page.getByRole('button', { name: 'New note', exact: true }).waitFor();
+	assert.deepEqual(
+		await page.evaluate(() => ({
+			documents: sessionStorage.getItem('journey.documents'),
+			claims: sessionStorage.getItem('journey.claims'),
+		})),
+		before,
+		'Notes navigation must preserve the document and acquire no replacement App',
 	);
 }
+
+async function observeOwnership(page: Page) {
+	await page.addInitScript(() => {
+		sessionStorage.setItem(
+			'journey.documents',
+			String(Number(sessionStorage.getItem('journey.documents') ?? 0) + 1),
+		);
+		const request = navigator.locks.request.bind(navigator.locks);
+		navigator.locks.request = ((
+			...args: Parameters<LockManager['request']>
+		) => {
+			if (args[0].startsWith('epicenter.store:')) {
+				sessionStorage.setItem(
+					'journey.claims',
+					String(Number(sessionStorage.getItem('journey.claims') ?? 0) + 1),
+				);
+			}
+			return Reflect.apply(request, navigator.locks, args);
+		}) as LockManager['request'];
+	});
+}
+
+async function assertNoStores(page: Page) {
+	assert.equal(
+		await page.evaluate(
+			async () =>
+				(await navigator.locks.query()).held?.some((lock) =>
+					lock.name?.startsWith('epicenter.store:'),
+				) ?? false,
+		),
+		false,
+	);
+	assert.equal(
+		await page.evaluate(() =>
+			Number(sessionStorage.getItem('journey.claims') ?? 0),
+		),
+		0,
+	);
+}
+
 async function note(page: Page, text: string) {
 	await page.getByRole('button', { name: 'New note', exact: true }).click();
 	await page.locator('.ProseMirror').fill(text);
@@ -230,24 +249,24 @@ async function enroll(id: string) {
 	pages.push(page);
 	page.setDefaultTimeout(30_000);
 	// One App opens Personal and Shared together during bootstrap.
-	sharedDownloads.push(
-		page
-			.waitForResponse(
-				(response) =>
-					response.request().method() === 'POST' &&
-					response
-						.url()
-						.includes('/shared/data/so.epicenter.honeycrisp/current'),
-			)
-			.then(async (response) => {
+	page.on('response', (response) => {
+		if (
+			response.request().method() !== 'POST' ||
+			!response.url().includes('/shared/data/so.epicenter.honeycrisp/current')
+		)
+			return;
+		sharedDownloads.push(
+			(async () => {
 				assert.equal(response.status(), 200);
 				return {
 					generation: response.headers()['epicenter-generation'],
 					position: response.headers()['epicenter-log-position'],
 					bytes: [...(await response.body())],
 				};
-			}),
-	);
+			})(),
+		);
+	});
+
 	page.on('pageerror', (error) => errors.push(`${id}: ${error.message}`));
 	const cdp = await context.newCDPSession(page);
 	await cdp.send('WebAuthn.enable');
@@ -267,25 +286,16 @@ async function enroll(id: string) {
 		() => document.querySelector('h1')?.textContent === 'You are signed in',
 	);
 	console.log('Enrolled', id, 'connecting Honeycrisp');
-	await page.goto(`${appOrigin}/?connect`);
-	await page.getByText('Connect to your server', { exact: true }).click();
-	await page.getByPlaceholder('https://your-server.example').fill(origin);
-	await page.getByRole('button', { name: 'Connect', exact: true }).click();
+	await observeOwnership(page);
+	await page.goto(`${appOrigin}/connect`);
+	await assertNoStores(page);
 	await page
 		.getByRole('button', { name: 'Sign in to your server', exact: true })
 		.click();
-	await page.waitForURL(`${appOrigin}/`);
+	await page.waitForURL(`${appOrigin}/personal`);
 	await page.getByRole('button', { name: 'New note', exact: true }).waitFor();
 	console.log('Opened Honeycrisp', id);
-	assert.equal(
-		await page.evaluate(async () => {
-			const path = '/src/lib/application.ts';
-			const { account }: typeof import('../src/lib/application.js') =
-				await import(path);
-			return account?.principalId;
-		}),
-		id,
-	);
+
 	return page;
 }
 try {
@@ -299,7 +309,7 @@ try {
 	// Probe without side effects before issuing a non-repeatable enrollment grant.
 	for (let attempt = 0; ; attempt++) {
 		try {
-			assert.equal(await proxy.env.LIBRARY_TEST.ready(), true);
+			assert.equal(await proxy.env.APP_TEST.ready(), true);
 			break;
 		} catch (cause) {
 			if (attempt === 100) throw cause;
@@ -320,21 +330,9 @@ try {
 		await alice.getByText('Bob private note', { exact: true }).count(),
 		0,
 	);
-	const refusedPersonal = await bob.evaluate(async () => {
-		const modulePath = '/src/lib/application.ts';
-		const { account }: typeof import('../src/lib/application.js') =
-			await import(modulePath);
-		if (!account) throw new Error('Expected an authenticated account');
-		const path =
-			'/api/libraries/so.epicenter.honeycrisp/personal/data/so.epicenter.honeycrisp/current?owner=alice';
-		return (
-			await account.fetch(path, { method: 'POST', body: new Uint8Array() })
-		).status;
-	});
-	assert.equal(refusedPersonal, 403);
-	console.log('Bob cannot select Alice as Personal owner:', refusedPersonal);
-	await Promise.all([select(alice, 'Shared'), select(bob, 'Shared')]);
+
 	const canonical = await Promise.all(sharedDownloads);
+	assert.equal(canonical.length, 2);
 	assert(canonical[0]);
 	assert(canonical[0].generation);
 	assert(canonical[0].bytes.length > 0);
@@ -346,32 +344,47 @@ try {
 		canonical[0].position,
 		'with identical snapshot bytes',
 	);
-	await note(alice, 'Shared note from Alice');
-	await openNote(bob, 'Shared note from Alice');
-	await bob.locator('.ProseMirror').fill('Shared note edited by Bob');
-	await bob.locator('.ProseMirror').blur();
-	await alice
-		.getByText('Shared note edited by Bob', { exact: true })
-		.first()
-		.waitFor();
-	await bob.screenshot({ path: '/tmp/honeycrisp-shared-bob.png' });
 	await proveRetirement({
 		alice,
 		bob,
 		origin,
-		operator: proxy.env.LIBRARY_TEST,
+		operator: proxy.env.APP_TEST,
 		openNote,
 	});
+	await alice
+		.getByText('Alice private note', { exact: true })
+		.first()
+		.waitFor();
+	await select(alice, 'Local');
+	await note(alice, 'Alice device note');
 	await select(alice, 'Personal');
 	await alice
 		.getByText('Alice private note', { exact: true })
 		.first()
 		.waitFor();
 	assert.equal(
-		await alice.getByText('Replacement from Bob', { exact: true }).count(),
+		await alice.getByText('Alice device note', { exact: true }).count(),
 		0,
 	);
-	await alice.screenshot({ path: '/tmp/honeycrisp-personal-alice.png' });
+	for (let visit = 0; visit < 3; visit++) {
+		await select(alice, 'Local');
+		await alice
+			.getByText('Alice device note', { exact: true })
+			.first()
+			.waitFor();
+		await select(alice, 'Personal');
+		await alice
+			.getByText('Alice private note', { exact: true })
+			.first()
+			.waitFor();
+	}
+
+	await openNote(alice, 'Alice private note');
+	await alice.locator('.ProseMirror').fill('Alice final edit');
+	await select(alice, 'Local');
+	await select(alice, 'Personal');
+	await alice.getByText('Alice final edit', { exact: true }).first().waitFor();
+
 	let outage = true;
 	await alice.routeWebSocket(
 		`${origin.replace('http:', 'ws:')}/**`,
@@ -382,60 +395,67 @@ try {
 	);
 	await alice.route(`${origin}/**`, (route) => route.abort());
 	await alice.reload();
-	await alice
-		.getByText('Alice private note', { exact: true })
-		.first()
-		.waitFor();
-	assert.equal(
-		await alice.evaluate(async () => {
-			const path = '/src/lib/application.ts';
-			const { account }: typeof import('../src/lib/application.js') =
-				await import(path);
-			return account?.principalId;
-		}),
-		'alice',
-	);
-	await select(alice, 'Shared');
-	await alice
-		.getByText('Replacement from Bob', { exact: true })
-		.first()
-		.waitFor();
+	await alice.getByText('Alice final edit', { exact: true }).first().waitFor();
+
 	outage = false;
 	await alice.unroute(`${origin}/**`);
 	const localContext = await browser.newContext();
 	const local = await localContext.newPage();
 	pages.push(local);
 	local.setDefaultTimeout(30_000);
+	await observeOwnership(local);
+	await local.goto(`${appOrigin}/connect`);
+	await local
+		.getByRole('button', { name: 'Sign in to your server', exact: true })
+		.waitFor();
+	await assertNoStores(local);
+	for (const path of ['/local', '/personal']) {
+		await local.evaluate((path) => {
+			const link = document.createElement('a');
+			link.href = path;
+			link.textContent = `Preload ${path}`;
+			link.dataset.sveltekitPreloadCode = 'hover';
+			link.dataset.sveltekitPreloadData = 'off';
+			document.body.append(link);
+		}, path);
+		const hovered = local.getByRole('link', {
+			name: `Preload ${path}`,
+			exact: true,
+		});
+		if (path === '/local') {
+			await Promise.all([
+				local.waitForResponse(
+					(response) =>
+						response.url().includes('notes') &&
+						response.url().includes('page.svelte'),
+				),
+				hovered.hover(),
+			]);
+		} else await hovered.hover();
+	}
+	// Let imported route modules finish evaluating before checking acquisition.
+	await local.waitForTimeout(500);
+	await assertNoStores(local);
+	await local.goto(`${appOrigin}/auth/callback`);
+	await local.waitForTimeout(250);
+	await assertNoStores(local);
 	await local.goto(appOrigin);
-	await note(local, 'Only on this device');
+	await local.waitForURL(`${appOrigin}/personal`);
 	assert.equal(
-		await local.evaluate(async () => {
-			const path = '/src/lib/application.ts';
-			const { account }: typeof import('../src/lib/application.js') =
-				await import(path);
-			return account;
-		}),
-		undefined,
+		await local.getByRole('button', { name: 'New note', exact: true }).count(),
+		0,
 	);
+	await select(local, 'Local');
+	await note(local, 'Only on this device');
 	await local.reload();
 	await local
 		.getByText('Only on this device', { exact: true })
 		.first()
 		.waitFor();
-	await local
-		.getByRole('navigation', { name: 'Library' })
-		.getByRole('button', { name: 'Personal', exact: true })
-		.click();
-	await local.getByText('Choose where to connect.', { exact: true }).waitFor();
-	await local.reload();
-	await local.getByText('Choose where to connect.', { exact: true }).waitFor();
+	await select(local, 'Personal');
 	assert.equal(
 		await local.getByRole('button', { name: 'New note', exact: true }).count(),
 		0,
-	);
-	assert.equal(
-		await local.evaluate(() => localStorage.getItem('honeycrisp.library')),
-		'personal',
 	);
 	await select(local, 'Local');
 	await local
@@ -448,24 +468,14 @@ try {
 		0,
 	);
 	assert.equal(
-		await alice.getByText('Alice private note', { exact: true }).count(),
+		await alice.getByText('Alice final edit', { exact: true }).count(),
 		0,
 	);
-	await proxy.env.OPERATOR.remove('bob');
-	const removed = await bob.evaluate(async () => {
-		const modulePath = '/src/lib/application.ts';
-		const { account }: typeof import('../src/lib/application.js') =
-			await import(modulePath);
-		if (!account) throw new Error('Expected an authenticated account');
-		const result = await account.fetch('/api/session');
-		return result.status;
-	});
-	assert.equal(removed, 401);
-	console.log('Removal subsequent protected request:', JSON.stringify(removed));
+
 	assert.deepEqual(errors, []);
 	passed = true;
 	console.log(
-		'PASS: actual Honeycrisp UI, independent Alice/Bob browser storage, Personal isolation, Shared edit convergence and replacement retirement, Local signed-out isolation, remembered selection, cached Worker-outage reopening, and close-before-switch. Existing socket removal is not proven here.',
+		'PASS: route preloading and auxiliary pages acquire nothing; Local/Personal navigation preserves one App; separate stores retain notes; Personal isolation, account-wide retirement and cached outage reopening.',
 	);
 } finally {
 	if (!passed) {

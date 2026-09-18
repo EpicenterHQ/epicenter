@@ -6,13 +6,13 @@
 	import { ModeWatcher } from 'mode-watcher';
 	import '@epicenter/ui/app.css';
 
-	let { children } = $props();
+	let props = $props();
 
 </script>
 
 <svelte:head><title>Honeycrisp</title></svelte:head>
 
-<Tooltip.Provider>{@render children?.()}</Tooltip.Provider>
+<Tooltip.Provider>{@render props.children?.()}</Tooltip.Provider>
 
 <Toaster offset={16} closeButton />
 <!-- Both of these are mounted HERE, above the boot node, and that placement is

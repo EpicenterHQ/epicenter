@@ -56,8 +56,6 @@ async function openings(
 	local.ready;
 	// @ts-expect-error Closure failure is terminal.
 	local.canRetryClose;
-	// @ts-expect-error Revocation has one notification channel.
-	local.libraryReplaced;
 	// @ts-expect-error Accounts belong inside the options object.
 	openApp(notes, account);
 	// @ts-expect-error A runtime must supply all resources, with no ambient fallback.

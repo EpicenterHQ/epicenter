@@ -10,16 +10,16 @@ composition to read first.
 
 ## The store authority
 
-A stable library has one Durable Object authority. Personal addresses include
+Each data scope has one Durable Object authority. Personal addresses include
 application, authenticated actor, and data ID; Shared addresses include
 application and data ID and are enabled only by the self-hosted Worker.
 The generation is stored inside that authority, not in its object name.
 
 `mountStoreSyncApp` owns authentication and destination validation:
 
-- `POST /api/libraries/:appId/:library/data/:dataId/current` atomically
-  initializes an absent library and returns its complete current capture.
-- `GET /api/store/v1/sync` upgrades with `appId`, `library`, `dataId`,
+- `POST /api/apps/:appId/:scope/data/:dataId/current` atomically
+  initializes absent data and returns its complete current capture.
+- `GET /api/store/v1/sync` upgrades with `appId`, `scope`, `dataId`,
   `generation`, and an optional `cursor` in the query. The authority admits
   that generation before accepting edits.
 

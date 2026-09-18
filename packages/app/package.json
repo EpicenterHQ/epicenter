@@ -25,11 +25,11 @@
 		"./testing": "./src/testing.ts"
 	},
 	"scripts": {
-		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.data.json && tsc --noEmit -p tsconfig.data.dom.json && tsc --noEmit -p evidence/data/browser/durable-store/tsconfig.json && tsc --noEmit -p evidence/data/browser/write-cost/tsconfig.json && tsc --noEmit -p evidence/data/browser/port-cost/tsconfig.json && tsc --noEmit -p evidence/data/library-ownership/tsconfig.json",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.data.json && tsc --noEmit -p tsconfig.data.dom.json && tsc --noEmit -p evidence/data/browser/durable-store/tsconfig.json && tsc --noEmit -p evidence/data/browser/write-cost/tsconfig.json && tsc --noEmit -p evidence/data/browser/port-cost/tsconfig.json && tsc --noEmit -p evidence/data/app-ownership/tsconfig.json",
 		"test": "bun test --isolate",
 		"smoke:recording": "bun scripts/browser-smoke.ts",
 		"bench": "bun src/data/__benchmarks__/root-rotation.bench.ts && bun src/data/__benchmarks__/checkout.bench.ts",
-		"smoke:admission": "bun evidence/data/library-ownership/browser.ts"
+		"smoke:admission": "bun evidence/data/app-ownership/browser.ts"
 	},
 	"dependencies": {
 		"@epicenter/auth": "workspace:*",

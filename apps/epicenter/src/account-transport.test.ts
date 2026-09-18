@@ -38,6 +38,8 @@ async function setup({
 	const sessionRequests: Request[] = [];
 	const requests: {
 		path: string;
+		scope: string | null;
+		appId: string | null;
 		bearer: string | null;
 		body: string;
 		cookie: string | null;
@@ -94,6 +96,8 @@ async function setup({
 			}
 			requests.push({
 				path: url.pathname,
+				scope: url.searchParams.get('scope'),
+				appId: url.searchParams.get('appId'),
 				bearer: request.headers.get('authorization'),
 				body: request.method === 'POST' ? await request.text() : '',
 				cookie: request.headers.get('cookie'),
@@ -458,6 +462,8 @@ test('host refuses missing sessions, foreign origins and escaped destinations be
 test('desktop sync relays exact bytes, closes with its session, and closes again on account retirement', async () => {
 	await using context = await setup();
 	const address = STORE_SYNC_ROUTE.address(context.account.baseURL, {
+		appId: 'so.test.notes',
+		scope: 'personal',
 		dataId: 'so.test.notes',
 		generation: 1,
 		cursor: 0,
@@ -492,7 +498,12 @@ test('desktop sync relays exact bytes, closes with its session, and closes again
 	expect(
 		context.requests
 			.filter(({ path }) => path === STORE_SYNC_ROUTE.pattern)
-			.every(({ protocols }) => protocols === 'epicenter, bearer.initial'),
+			.every(
+				(request) =>
+					request.protocols === 'epicenter, bearer.initial' &&
+					request.appId === 'so.test.notes' &&
+					request.scope === 'personal',
+			),
 	).toBe(true);
 });
 

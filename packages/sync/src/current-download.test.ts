@@ -54,7 +54,7 @@ test('omitted, truncated, and extra update bytes cannot claim a complete capture
 	]) {
 		await expect(
 			readCurrentDownload(new Response(changed, { headers: response.headers })),
-		).rejects.toThrow('Current library download');
+		).rejects.toThrow('Current data download');
 	}
 });
 

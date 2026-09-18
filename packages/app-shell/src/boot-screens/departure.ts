@@ -33,7 +33,7 @@ export function createDeparture({
 		| undefined;
 	let closing: Promise<void> | undefined;
 	let departing: Promise<void> | undefined;
-	let endedBy: 'account' | 'library' | undefined;
+	let endedBy: 'account' | 'data' | undefined;
 	let closedSuccessfully = false;
 	let stopRetirement: (() => void) | undefined;
 
@@ -88,7 +88,7 @@ export function createDeparture({
 		({ signal }) => {
 			const retired = () => {
 				if (closedSuccessfully) return;
-				endedBy ??= 'library';
+				endedBy ??= 'data';
 				void finish().catch(() => {});
 			};
 			if (signal.aborted) retired();
@@ -127,7 +127,7 @@ export function createDeparture({
 						throw new Error(
 							endedBy === 'account'
 								? 'The account changed. Reopen the application.'
-								: 'The library was restored. Reload the application.',
+								: 'The data was replaced. Reload the application.',
 						);
 					publish('departing');
 					await action();

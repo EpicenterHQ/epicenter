@@ -351,10 +351,10 @@ Independent resources drain concurrently; one cleanup failure does not skip SQL
 cleanup. Admission is released only when all resource cleanup succeeds and no
 acquisition has left release unproven.
 
-Close discards unresolved capture and temporary native output. Published library
+Close discards unresolved capture and temporary native output. Published data
 files survive. Finish and save wanted audio while
 the App is still usable. Close never signs out,
-navigates, deletes credentials, or erases the library. It preserves the store's
+navigates, deletes credentials, or erases data. It preserves the store's
 existing persistence failure reporting; completed cleanup does not prove every
 edit reached durable storage or the server.
 
@@ -368,7 +368,7 @@ App retains the immutable Account supplied by auth. Same-owner credential
 refresh preserves that handle. Sign-out or replacement ends its transport;
 departure quiesces UI and closes App without erasing data.
 
-Library retirement means the server replaced a data generation. The affected
+Data retirement means the server replaced a data generation. The affected
 store fences and invalidates its cache. App closes its sibling resources and
 revokes retained operations through `app.signal`. Departure stops UI producers
 and observes the same terminal close. Failed invalidation retains ownership until
@@ -377,11 +377,10 @@ page teardown. There is no close retry or separate replacement notification.
 Departure observes retirement through page cleanup, then invokes `app.close()`
 directly. A successful close permits an authentication change and full navigation.
 A preflight refusal leaves the page usable. Failure after teardown begins is
-terminal. Changing the selected library after opening failed writes the selection
-and navigates to a fresh document; it neither mutates auth nor reopens in place.
+terminal. Recovery requires a fresh document; opening never retries in place.
 
 App admission validates and serializes only the account's addressing fields.
-Browser acquisition receives one account and library and derives both the local
+Browser acquisition receives one account and data scope and derives both the local
 cache address and sync routes from them. It cannot pair one account's cache
 with another account's transport.
 
@@ -432,7 +431,7 @@ Account opening requires `authorityId`. The package selects the platform SQLite
 owner by default; exceptional runtimes can compose one explicitly. SQL-only
 consumers can use the device package without opening a document.
 The remaining target contract
-and future whole-library removal are recorded in
+and future whole-App data removal are recorded in
 [ADR-0355](../../docs/adr/0355-local-and-account-sessions-share-the-application-data-api.md).
 
 Focused tests cover deferred acquisition, retained operations, and resource
@@ -451,7 +450,7 @@ const wrote = await clipboard.writeText(text); // Result<void, ClipboardError>
 ```
 
 `clipboard` is a platform module, not an App capability. A clipboard captures no
-application, library, or account, and it owns no resource, so nothing on it
+application or account, and it owns no resource, so nothing on it
 needs an opened App or ends at `app.close()`. A boot-failure screen can copy
 diagnostics before any App exists, and a copy button keeps working while a page
 departs. Import it directly; do not thread an App handle to reach it.

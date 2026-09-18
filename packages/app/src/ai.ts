@@ -143,7 +143,7 @@ export function createAppAi({
 								? caller.reason
 								: new Error('Inference access was retired.'),
 						);
-						// Cancellation must settle before App close can release the library.
+						// Cancellation must settle before App close can release the App.
 						void cancelBody(reader, signal.reason).then(done, done);
 					};
 					const body = new ReadableStream<Uint8Array>(

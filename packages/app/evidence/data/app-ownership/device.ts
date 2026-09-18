@@ -1,4 +1,4 @@
-/** Independent process: its own IndexedDB factory and current-library cache. */
+/** Independent process: its own IndexedDB factory and current-scope cache. */
 import { defineApp } from '@epicenter/app';
 import 'fake-indexeddb/auto';
 import { asPrincipalId } from '@epicenter/principal';
@@ -33,7 +33,7 @@ const account = {
 		throw new Error('No live sync in this startup fixture');
 	},
 };
-const options = { appId, library: 'personal' as const, account };
+const options = { appId, scope: 'personal' as const, account };
 
 const first = expectOk(
 	await acquireAppData(definition, options, {

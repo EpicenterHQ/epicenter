@@ -1,5 +1,7 @@
 <script lang="ts">
-	import type { Folder } from '$lib/data';
+	import type { ReactiveData } from '@epicenter/svelte';
+	import type { HoneycrispData } from '$lib/data.js';
+	import { deleteHoneycrispFolder, type Folder } from '$lib/data';
 	import * as AlertDialog from '@epicenter/ui/alert-dialog';
 	import { Button, buttonVariants } from '@epicenter/ui/button';
 	import * as Dialog from '@epicenter/ui/dialog';
@@ -11,12 +13,10 @@
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
-	import { getHoneycrisp } from '$lib/app.svelte.js';
 	import { navigation } from '$lib/navigation.svelte.js';
 
-	const honeycrisp = getHoneycrisp();
 
-	let { folder }: { folder: Folder } = $props();
+	let props: { data: ReactiveData<HoneycrispData>; folder: Folder; count: number } = $props();
 
 	// ─── Rename State ────────────────────────────────────────────────────
 
@@ -25,7 +25,7 @@
 
 	function commitRename() {
 		if (editingName.trim()) {
-			honeycrisp.tables.folders.rename(folder.id, editingName.trim());
+			props.data.tables.folders.update(props.folder.id, { name: editingName.trim() });
 		}
 		isEditing = false;
 		editingName = '';
@@ -41,7 +41,7 @@
 	let isPickingIcon = $state(false);
 
 	function setIcon(icon: string | null) {
-		honeycrisp.tables.folders.setIcon(folder.id, icon);
+		props.data.tables.folders.update(props.folder.id, { icon });
 		isPickingIcon = false;
 	}
 
@@ -70,17 +70,17 @@
 		</div>
 	{:else}
 		<Sidebar.MenuButton
-			isActive={navigation.folderId === folder.id}
-			onclick={() => navigation.selectFolder(folder.id)}
+			isActive={navigation.folderId === props.folder.id}
+			onclick={() => navigation.selectFolder(props.folder.id)}
 		>
-			{#if folder.icon}
-				<span class="text-base leading-none">{folder.icon}</span>
+			{#if props.folder.icon}
+				<span class="text-base leading-none">{props.folder.icon}</span>
 			{:else}
 				<FolderIcon class="size-4" />
 			{/if}
-			<span>{folder.name}</span>
+			<span>{props.folder.name}</span>
 			<span class="ml-auto text-xs text-muted-foreground">
-				{honeycrisp.tables.notes.countsByFolder[folder.id] ?? 0}
+				{props.count}
 			</span>
 		</Sidebar.MenuButton>
 		<DropdownMenu.Root>
@@ -96,19 +96,19 @@
 				<DropdownMenu.Item
 					onclick={() => {
 					isEditing = true;
-					editingName = folder.name;
+					editingName = props.folder.name;
 				}}
 				>
 					<PencilIcon class="mr-2 size-4" />
 					Rename
 				</DropdownMenu.Item>
 				<DropdownMenu.Item onclick={() => (isPickingIcon = true)}>
-					{#if folder.icon}
-						<span class="mr-2 text-base leading-none">{folder.icon}</span>
+					{#if props.folder.icon}
+						<span class="mr-2 text-base leading-none">{props.folder.icon}</span>
 					{:else}
 						<SmilePlusIcon class="mr-2 size-4" />
 					{/if}
-					{folder.icon ? 'Change icon' : 'Add icon'}
+					{props.folder.icon ? 'Change icon' : 'Add icon'}
 				</DropdownMenu.Item>
 				<DropdownMenu.Separator />
 				<DropdownMenu.Item
@@ -128,7 +128,7 @@
 		<Dialog.Header class="px-1 text-left">
 			<Dialog.Title class="text-sm">Folder icon</Dialog.Title>
 			<Dialog.Description class="text-xs">
-				Pick an emoji for {folder.name}.
+				Pick an emoji for {props.folder.name}.
 			</Dialog.Description>
 		</Dialog.Header>
 
@@ -166,7 +166,7 @@
 			</EmojiPicker.Viewport>
 		</EmojiPicker.Root>
 
-		{#if folder.icon}
+		{#if props.folder.icon}
 			<Button
 				variant="ghost"
 				size="sm"
@@ -192,8 +192,10 @@
 			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
 			<AlertDialog.Action
 				class={buttonVariants({ variant: 'destructive' })}
-				onclick={() =>
-					honeycrisp.tables.folders.delete(folder.id)}
+				onclick={() => {
+					deleteHoneycrispFolder(props.data, props.folder.id);
+					navigation.folderRemoved(props.folder.id);
+				}}
 			>
 				Delete
 			</AlertDialog.Action>

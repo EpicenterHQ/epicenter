@@ -28,13 +28,9 @@ test('named-session removal rejects further access while another admitted user r
 		},
 	} as unknown as Cloudflare.Env;
 	const appId = `so.epicenter.instance-${crypto.randomUUID()}`;
-	const request = (
-		token: string,
-		library: 'personal' | 'shared',
-		seed: number,
-	) =>
+	const request = (token: string, scope: 'personal' | 'shared', seed: number) =>
 		app.fetch(
-			new Request(CURRENT_ROUTE.url(origin, appId, library, appId), {
+			new Request(CURRENT_ROUTE.url(origin, appId, scope, appId), {
 				method: 'POST',
 				headers: { authorization: `Bearer ${token}` },
 				body: new Uint8Array([seed]),

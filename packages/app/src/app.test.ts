@@ -75,7 +75,6 @@ test('local handle opens without account and survives close and reopen', async (
 	const create = (account?: Account) =>
 		openApp(definition, { account, runtime });
 	const first = await create();
-	expect(first.device.library).toBe('local');
 	expect(first.account).toBeUndefined();
 
 	expect(Object.getPrototypeOf(first)).toBe(Object.prototype);
@@ -668,7 +667,7 @@ test('invalid definitions throw before opening storage', async () => {
 	expect(invalid).toThrow();
 });
 
-test('physical SQL close retains the library claim across schema variants', async () => {
+test('physical SQL close retains the App claim across schema variants', async () => {
 	const runtime = createMemoryRuntime();
 	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const started = Promise.withResolvers<void>();
@@ -736,7 +735,7 @@ test('physical SQL close retains the library claim across schema variants', asyn
 	await reopened.close();
 });
 
-test('failed durable release still closes SQL and retains the common library claim', async () => {
+test('failed durable release still closes SQL and retains the common App claim', async () => {
 	const runtime = createMemoryRuntime();
 	const acquireData = runtime.data;
 	runtime.data = async (...args) => {
@@ -783,7 +782,7 @@ test('failed durable release still closes SQL and retains the common library cla
 	// Failed disposal intentionally retains this isolated runtime's admission.
 });
 
-test('failed bootstrap cleanup retains library ownership without acquiring SQL', async () => {
+test('failed bootstrap cleanup retains App ownership without acquiring SQL', async () => {
 	const runtime = createMemoryRuntime();
 	const acquireData = runtime.data;
 	runtime.data = async (...args) => {
@@ -967,7 +966,7 @@ test.each([
 	expect(released).toBe(true);
 });
 
-test('one captured Account supplies library and AI; local opening never borrows it', async () => {
+test('one captured Account supplies data and AI; local opening never borrows it', async () => {
 	const runtime = createMemoryRuntime();
 	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const appId = 'test.' + crypto.randomUUID();
@@ -1409,7 +1408,7 @@ test('failed recorder cleanup still drains SQL and keeps the claim after drain',
 	await expect(duplicate).rejects.toMatchObject({ name: 'AlreadyOpen' });
 });
 
-test('App retirement closes its recorder while retaining the library claim after terminal invalidation failure', async () => {
+test('App retirement closes its recorder while retaining the App claim after terminal invalidation failure', async () => {
 	const runtime = createMemoryRuntime();
 	const appId = `test.${crypto.randomUUID()}`;
 	const events = new EventTarget();
@@ -1439,7 +1438,7 @@ test('App retirement closes its recorder while retaining the library claim after
 	};
 	const acquireData = runtime.data;
 	runtime.data = async (definition, options) =>
-		options.library === 'local'
+		options.scope === 'device'
 			? acquireData(definition, options)
 			: Ok({
 					durable: { commit() {} },
@@ -1549,7 +1548,7 @@ test('App retirement during attachment refuses readiness without auto-releasing 
 	};
 	const acquireData = runtime.data;
 	runtime.data = async (definition, options) =>
-		options.library === 'local'
+		options.scope === 'device'
 			? acquireData(definition, options)
 			: Ok({
 					durable: { commit() {} },

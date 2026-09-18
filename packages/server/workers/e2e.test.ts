@@ -39,7 +39,7 @@ function openAccount(label: string) {
 		/**
 		 * One device of this account, or of another when `principal` says so.
 		 *
-		 * Personal uses the resolved actor; Shared joins the application's library.
+		 * Personal uses the resolved actor; Shared joins the application's shared store.
 		 */
 		device(name: string, principal = account) {
 			const stub = env.REPLICA.get(
@@ -57,7 +57,7 @@ function openAccount(label: string) {
 			return {
 				open: (options?: {
 					connect?: boolean;
-					library?: 'personal' | 'shared';
+					scope?: 'personal' | 'shared';
 				}) =>
 					inside((replica) =>
 						replica.open(`device:${principal}`, ORIGIN, options),
@@ -193,7 +193,7 @@ describe('two devices on one account converge', () => {
 	it('a dataId no workspace could declare is refused', async () => {
 		const response = await SELF.fetch(
 			new Request(
-				`${ORIGIN}/api/store/v1/sync?appId=so.epicenter.storeprobe&library=personal&dataId=../escape&generation=1&cursor=0`,
+				`${ORIGIN}/api/store/v1/sync?appId=so.epicenter.storeprobe&scope=personal&dataId=../escape&generation=1&cursor=0`,
 				{
 					headers: {
 						Upgrade: 'websocket',
@@ -215,8 +215,8 @@ it('Alice and Bob converge on Shared rows while their Personal rows remain separ
 	const bob = vault.device('bob-shared', 'bob');
 	const personal = vault.device('alice-personal', 'alice');
 	await Promise.all([
-		alice.open({ library: 'shared' }),
-		bob.open({ library: 'shared' }),
+		alice.open({ scope: 'shared' }),
+		bob.open({ scope: 'shared' }),
 		personal.open(),
 	]);
 	await bound(alice);

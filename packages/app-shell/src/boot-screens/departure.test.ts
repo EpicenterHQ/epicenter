@@ -119,7 +119,7 @@ test('external signal retirement drains locally and prevents departure actions',
 		departure.go(() => {
 			events.push('auth');
 		}),
-	).rejects.toThrow('library');
+	).rejects.toThrow('data');
 	expect(events).toEqual(['drain', 'close']);
 });
 
@@ -163,7 +163,7 @@ test('retirement during UI drain suppresses the pending authentication change', 
 	await Promise.resolve();
 	controller.abort();
 	gate.resolve();
-	await expect(pending).rejects.toThrow('library');
+	await expect(pending).rejects.toThrow('data');
 	expect(navigated).toBe(false);
 });
 
@@ -205,7 +205,7 @@ test('retirement while page resource cleanup waits prevents authentication mutat
 	await entered.promise;
 	controller.abort();
 	release.resolve();
-	await expect(pending).rejects.toThrow('library');
+	await expect(pending).rejects.toThrow('data');
 	expect(changedAuth).toBe(false);
 });
 

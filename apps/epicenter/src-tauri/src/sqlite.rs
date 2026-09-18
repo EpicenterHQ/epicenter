@@ -769,7 +769,7 @@ mod tests {
     #[test]
     fn protocol_rejects_paths_extra_fields_and_invalid_blobs() {
         for value in [
-            json!({"kind":"open","appId":"so.epicenter.mail","replica":{"library":"local"},"name":"cache"}),
+            json!({"kind":"open","appId":"so.epicenter.mail","unexpected":true,"name":"cache"}),
             json!({"kind":"open","path":"/tmp/foreign","appId":"so.epicenter.mail","name":"cache"}),
             json!({"kind":"run","connection":"1:1","statement":{"sql":"SELECT ?","parameters":[{"blob":[256]}]}}),
         ] {

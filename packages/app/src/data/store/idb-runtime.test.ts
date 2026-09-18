@@ -1,6 +1,6 @@
 /**
  * Runtime-owned IndexedDB factories isolate identical durable addresses.
- * Local, personal, and shared libraries retain committed records when reopened
+ * Device, personal, and shared stores retain committed records when reopened
  * in the same factory, without changing the ambient browser factory.
  */
 import { expect, test } from 'bun:test';
@@ -13,10 +13,10 @@ import { expectOk } from 'wellcrafted/testing';
 import { acquireAppData } from './browser.js';
 
 test.each([
-	'local',
+	'device',
 	'personal',
 	'shared',
-] as const)('%s libraries isolate simultaneous factories and reopen their own committed records', async (library) => {
+] as const)('%s stores isolate simultaneous factories and reopen their own committed records', async (scope) => {
 	const appId = `so.epicenter.factory.${crypto.randomUUID()}`;
 	const definition = expectOk(
 		compileData(defineApp({ id: appId, kv: {}, tables: {} })),
@@ -48,7 +48,7 @@ test.each([
 		expectOk(
 			await acquireAppData(
 				definition,
-				{ appId, library, account },
+				{ appId, scope, account },
 				{ factory: indexedDB, keyRange: IDBKeyRange },
 			),
 		);

@@ -288,7 +288,7 @@ export type StoreBacking = {
 type StoreEngineOptions<
 	TError extends { name: string; message: string } = never,
 > = {
-	/** Local libraries retain changes without an authority acknowledgment. */
+	/** Device stores retain changes without an authority acknowledgment. */
 	local?: boolean;
 	/** An enclosing App can gate its stores on their shared resource lifetime. */
 	assertUsable?: () => void;
@@ -416,7 +416,6 @@ export function createStoreOverPort<
 	const lifetime = new AbortController();
 	let disposed = false;
 	let retired = false;
-	const libraryReplaced = Promise.withResolvers<void>();
 	let canRetryClose = false;
 	let invalidation: Promise<void> | undefined;
 	let discarded: Promise<void> | undefined;
@@ -457,7 +456,6 @@ export function createStoreOverPort<
 		invalidate();
 		discarded = controller.discard();
 		lifetime.abort();
-		libraryReplaced.resolve();
 	}
 
 	/**
@@ -1068,7 +1066,6 @@ export function createStoreOverPort<
 		// compiles it a second time (ADR-0340).
 		store,
 		lifetime: { assertUsable, signal: lifetime.signal },
-		libraryReplaced: libraryReplaced.promise,
 		get canRetryClose() {
 			return canRetryClose;
 		},

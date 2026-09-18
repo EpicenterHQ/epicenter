@@ -1,5 +1,5 @@
 /**
- * Atomic current-library creation in workerd: competing callers receive the
+ * Atomic current-data creation in workerd: competing callers receive the
  * canonical snapshot, eviction preserves it, and invalid creation publishes none.
  * Historical generations are refused without adoption or deletion.
  */
@@ -19,7 +19,7 @@ import {
 } from '@epicenter/sync/generations-route';
 import { expect, test } from 'vitest';
 import { expectOk } from 'wellcrafted/testing';
-import { libraryStoragePrefix } from '../src/library.js';
+import { dataStoragePrefix } from '../src/data-scope.js';
 import type { GenerationsLedger } from '../src/store-sync/generations.js';
 
 declare global {
@@ -44,7 +44,7 @@ function request(person: string, bytes: Uint8Array) {
 function authority(person: string) {
 	return env.STORE_AUTHORITY.get(
 		env.STORE_AUTHORITY.idFromName(
-			`${libraryStoragePrefix(appId, 'personal', asPrincipalId(person))}/data/${dataId}`,
+			`${dataStoragePrefix(appId, 'personal', asPrincipalId(person))}/data/${dataId}`,
 		),
 	);
 }
@@ -122,10 +122,10 @@ test('historical admitted generations refuse fresh Personal startup without chan
 	expect(await ledger.list()).toEqual([generation]);
 });
 
-test('the mounted socket refuses an uninitialized generation without creating a library', async () => {
+test('the mounted socket refuses an uninitialized generation without creating a store', async () => {
 	const person = crypto.randomUUID();
 	const response = await SELF.fetch(
-		`https://example.com/api/store/v1/sync?appId=${appId}&library=personal&dataId=${dataId}&generation=77`,
+		`https://example.com/api/store/v1/sync?appId=${appId}&scope=personal&dataId=${dataId}&generation=77`,
 		{
 			headers: {
 				authorization: `Bearer device:${person}`,

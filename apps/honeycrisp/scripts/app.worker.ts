@@ -30,7 +30,7 @@ export class StoreAuthority extends ProductionAuthority {
 }
 
 /** This entrypoint exists only in the temporary test configuration. */
-export class LibraryTestOperator extends WorkerEntrypoint<{
+export class AppTestOperator extends WorkerEntrypoint<{
 	STORE_AUTHORITY: DurableObjectNamespace<StoreAuthority>;
 }> {
 	/** Service discovery can restart Wrangler after its HTTP port is ready. */
@@ -38,7 +38,7 @@ export class LibraryTestOperator extends WorkerEntrypoint<{
 		return true;
 	}
 
-	private library() {
+	private authority() {
 		return this.env.STORE_AUTHORITY.get(
 			this.env.STORE_AUTHORITY.idFromName(
 				'libraries/apps/so.epicenter.honeycrisp/shared/data/so.epicenter.honeycrisp',
@@ -47,10 +47,10 @@ export class LibraryTestOperator extends WorkerEntrypoint<{
 	}
 
 	async capture() {
-		return this.library().captureForTest();
+		return this.authority().captureForTest();
 	}
 
 	async activate(request: Parameters<StoreAuthority['activateForTest']>[0]) {
-		return this.library().activateForTest(request);
+		return this.authority().activateForTest(request);
 	}
 }

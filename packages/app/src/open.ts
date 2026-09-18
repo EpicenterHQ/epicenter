@@ -1,7 +1,7 @@
 import type { Account } from '@epicenter/auth';
 import { createAppBlobs, createAppRemoteBlobs } from '@epicenter/blobs/app';
 import { isAppId } from '@epicenter/constants/app-id';
-import type { claimApp } from '@epicenter/device/library-claim';
+import type { claimApp } from '@epicenter/device/app-claim';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { createAppSqlite } from '@epicenter/device/owner';
 import type { AccountIdentity } from '@epicenter/principal';
@@ -104,22 +104,22 @@ export async function openApp<const TDefinition extends DataDefinition>(
 		});
 		cleanups.push(() => databases.close());
 		const scopes: AppDataScope[] = [
-			{ appId, library: 'local', account: identity },
+			{ appId, scope: 'device', account: identity },
 		];
 		if (account) {
-			scopes.push({ appId, library: 'personal', account });
+			scopes.push({ appId, scope: 'personal', account });
 			if (account.supportsShared)
-				scopes.push({ appId, library: 'shared', account });
+				scopes.push({ appId, scope: 'shared', account });
 		}
-		const documents = scopes.map((scope) => {
+		const documents = scopes.map((options) => {
 			const document = createStoreOverPort({
 				definition: parsed.data,
-				local: scope.library === 'local',
+				local: options.scope === 'device',
 				assertUsable,
 				async acquire() {
 					if (lifetime.signal.aborted) return StoreError.ClosedWhileOpening();
 					try {
-						return await runtime.data(parsed.data, scope);
+						return await runtime.data(parsed.data, options);
 					} catch (cause) {
 						acquisitionFailures.push(cause);
 						throw cause;
@@ -145,7 +145,6 @@ export async function openApp<const TDefinition extends DataDefinition>(
 					{
 						appId,
 						dataId: parsed.data.id,
-						library: scope.library,
 						signal: lifetime.signal,
 					},
 				),

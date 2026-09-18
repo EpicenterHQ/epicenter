@@ -116,7 +116,7 @@ const PROFILE: Surface[] = [
 	{
 		surface: 'current library',
 		method: 'POST',
-		url: `${ORIGIN}/api/libraries/so.epicenter.notes/personal/data/test.notes/current`,
+		url: `${ORIGIN}/api/apps/so.epicenter.notes/personal/data/test.notes/current`,
 		worker: 'served',
 		bun: 'absent',
 		why: 'No Bun store backend exists.',
@@ -385,7 +385,7 @@ test('current startup resolves a live session and refuses owner overrides before
 	};
 	const request = (token: string, suffix = '') =>
 		new Request(
-			`${ORIGIN}/api/libraries/so.epicenter.notes/personal/data/test.notes/current${suffix}`,
+			`${ORIGIN}/api/apps/so.epicenter.notes/personal/data/test.notes/current${suffix}`,
 			{
 				method: 'POST',
 				headers: { authorization: `Bearer ${token}`, origin: ORIGIN },
@@ -447,7 +447,7 @@ test('store upgrades resolve the subprotocol session and address only its princi
 	] as const) {
 		const response = await app.fetch(
 			new Request(
-				`${ORIGIN}/api/store/v1/sync?appId=so.epicenter.notes&library=personal&dataId=test.notes&generation=2`,
+				`${ORIGIN}/api/store/v1/sync?appId=so.epicenter.notes&scope=personal&dataId=test.notes&generation=2`,
 				{
 					headers: {
 						upgrade: 'websocket',

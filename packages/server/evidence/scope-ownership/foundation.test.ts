@@ -1,5 +1,5 @@
 /**
- * Library ownership foundation evidence.
+ * App ownership foundation evidence.
  * Runs current browser startup in separate processes against the live HTTP
  * mount and SQLite authority. Exercises a durable initialization prototype through
  * restart and competing writers, plus test-only named destination authorization.
@@ -59,7 +59,7 @@ test('independent device caches choose one initial generation and retain it offl
 				process.execPath,
 				join(
 					import.meta.dir,
-					'../../../app/evidence/data/library-ownership/device.ts',
+					'../../../app/evidence/data/app-ownership/device.ts',
 				),
 				server.url.origin,
 			],
@@ -100,7 +100,7 @@ test('independent device caches choose one initial generation and retain it offl
 	}
 }, 15000);
 
-test('socket routing requires a library address and delegates generation admission to its authority', async () => {
+test('socket routing requires a scope address and delegates generation admission to its authority', async () => {
 	const reached: string[] = [];
 	const app = new Hono<Env>();
 	mountStoreSyncApp(app, {
@@ -131,7 +131,7 @@ test('socket routing requires a library address and delegates generation admissi
 	).toBe(403);
 	expect(reached).toEqual([]);
 	const response = await app.request(
-		'/api/store/v1/sync?appId=so.epicenter.notes&library=personal&dataId=so.epicenter.notes&generation=77',
+		'/api/store/v1/sync?appId=so.epicenter.notes&scope=personal&dataId=so.epicenter.notes&generation=77',
 		{ headers },
 	);
 	expect(response.status).toBe(503);
@@ -152,7 +152,7 @@ test('socket routing requires a library address and delegates generation admissi
 
 for (const crash of ['reservation', 'snapshot', 'admission'] as const) {
 	test(`restart after ${crash} keeps one default and never exposes an incomplete snapshot`, () => {
-		const directory = mkdtempSync(join(tmpdir(), 'library-initial-'));
+		const directory = mkdtempSync(join(tmpdir(), 'scope-initial-'));
 		const open = () =>
 			openInitialization(
 				join(directory, 'ledger.sqlite'),
@@ -196,7 +196,7 @@ for (const crash of ['reservation', 'snapshot', 'admission'] as const) {
 }
 
 test('concurrent initializers reserve one generation and publish one complete winner', async () => {
-	const directory = mkdtempSync(join(tmpdir(), 'library-concurrent-'));
+	const directory = mkdtempSync(join(tmpdir(), 'scope-concurrent-'));
 	const clients = Array.from({ length: 12 }, () =>
 		openInitialization(
 			join(directory, 'ledger.sqlite'),
@@ -257,8 +257,8 @@ test('Alice and Bob share only remote Shared within one server and app', () => {
 	expect(bob.actor.principalId).toBe('bob');
 	const bindings = [a, b].flatMap((server) =>
 		['alice', 'bob'].flatMap((actor) =>
-			['personal', 'shared'].map((library) =>
-				authorize(server, actor, 'so.epicenter.notes', library),
+			['personal', 'shared'].map((scope) =>
+				authorize(server, actor, 'so.epicenter.notes', scope),
 			),
 		),
 	);
@@ -300,7 +300,7 @@ test('authorization rejects anonymous Shared, Cloud Shared, owner forgery, and m
 		'Invalid app',
 	);
 	expect(() => authorize(a, 'alice', 'so.epicenter.notes', 'unknown')).toThrow(
-		'Invalid library',
+		'Invalid scope',
 	);
 	expect(() => deployment('https://a.example', 'cloud')).toThrow(
 		'Reserved Cloud',

@@ -666,3 +666,6 @@ When you add an ADR, add its row here.
 | [0407](0407-app-owns-the-declaration-and-data-engine.md) | App owns the declaration and data engine | Accepted (amends 0405 at opening and package ownership; retires historical client generation helpers from 0292/0293) |
 | [0408](0408-one-app-opener-uses-a-complete-runtime.md) | One App opener uses a complete runtime | Accepted (amends 0407 at opening and 0391 at explicit runtime injection) |
 | [0409](0409-one-app-admission-covers-its-storage.md) | One App admission covers its storage | Proposed (bounded amendment to 0408) |
+
+| [0411](0411-honeycrisp-displays-data-from-one-app.md) | Honeycrisp displays data from one App | Accepted (amends 0369 for Honeycrisp route and bootstrap ownership) |
+| [0412](0412-app-data-addresses-name-scopes-not-libraries.md) | App data addresses name scopes, not libraries | Accepted (amends 0375 and 0392) |

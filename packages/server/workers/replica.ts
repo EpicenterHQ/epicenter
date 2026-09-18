@@ -40,7 +40,7 @@ import { readCurrentDownload } from '@epicenter/sync/current-download';
 import { CURRENT_ROUTE } from '@epicenter/sync/generations-route';
 import { expectOk } from 'wellcrafted/testing';
 
-/** This harness covers fresh libraries; restore admission has its own Worker suite. */
+/** This harness covers fresh stores; restore admission has its own Worker suite. */
 const PROBE_GENERATION = 1;
 
 const probeDefinition = defineApp({
@@ -73,7 +73,7 @@ export class StoreTestReplica extends DurableObject<Env> {
 	private connection: SyncConnection | undefined;
 	private store: ProbeReplica | undefined;
 	private bearer = '';
-	private library: 'personal' | 'shared' = 'personal';
+	private scope: 'personal' | 'shared' = 'personal';
 	private lastTransportError: string | undefined;
 
 	constructor(ctx: DurableObjectState, env: Env) {
@@ -92,14 +92,14 @@ export class StoreTestReplica extends DurableObject<Env> {
 		origin: string,
 		{
 			connect = true,
-			library = 'personal',
-		}: { connect?: boolean; library?: 'personal' | 'shared' } = {},
+			scope = 'personal',
+		}: { connect?: boolean; scope?: 'personal' | 'shared' } = {},
 	): Promise<void> {
 		if (this.store !== undefined) return;
 		await this.ctx.blockConcurrencyWhile(async () => {
 			if (this.store !== undefined) return;
 			this.bearer = bearer;
-			this.library = library;
+			this.scope = scope;
 			const database = createDurableObjectSqliteAdapter(
 				this.ctx.storage as unknown as DurableObjectSqliteStorage,
 			);
@@ -116,7 +116,7 @@ export class StoreTestReplica extends DurableObject<Env> {
 				CURRENT_ROUTE.url(
 					origin,
 					probeDefinition.id,
-					library,
+					scope,
 					probeDefinition.id,
 				),
 				{
@@ -198,7 +198,7 @@ export class StoreTestReplica extends DurableObject<Env> {
 				this.stopSync();
 			},
 			store,
-			address: { ...store, library: this.library },
+			address: { ...store, scope: this.scope },
 			transport: this.transport(),
 			onTransportError: (cause) => {
 				this.lastTransportError = String(cause);

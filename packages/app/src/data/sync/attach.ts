@@ -44,7 +44,7 @@ export type AttachStoreSyncOptions = {
 		dataId: string;
 		generation: number;
 		appId?: string;
-		library?: 'personal' | 'shared';
+		scope?: 'personal' | 'shared';
 	};
 	/**
 	 * How this replica opens its socket. `AuthClient` implements it: it takes
@@ -95,7 +95,7 @@ export function attachStoreSync({
 					STORE_SYNC_ROUTE.address(address.baseURL, {
 						dataId: address.dataId,
 						appId: address.appId,
-						library: address.library,
+						scope: address.scope,
 						generation: address.generation,
 						cursor,
 					}),

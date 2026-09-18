@@ -39,7 +39,7 @@ const sqlite: DeviceSqliteOwner = {
 
 const definition = defineApp({ id: 'so.epicenter.notes', tables: {}, kv: {} });
 
-test('App readiness includes catalog hydration and failed hydration releases the library', async () => {
+test('App readiness includes catalog hydration and failed hydration releases the App', async () => {
 	const runtime = createMemoryRuntime();
 	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const hydrated = Promise.withResolvers<void>();

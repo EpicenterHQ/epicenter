@@ -1,9 +1,9 @@
-/** Origin-wide exclusion for one application's account or local library. */
+/** Origin-wide exclusion for one application's account or local storage. */
 import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 
-export const LibraryClaimError = defineErrors({
+export const AppClaimError = defineErrors({
 	AlreadyOpen: ({ address }: { address: string }) => ({
 		message: `Another context already has ${address} open`,
 		address,
@@ -18,7 +18,7 @@ export const LibraryClaimError = defineErrors({
 		cause,
 	}),
 });
-export type LibraryClaimError = InferErrors<typeof LibraryClaimError>;
+export type AppClaimError = InferErrors<typeof AppClaimError>;
 
 // Keep this boundary usable from both DOM and Bun typecheck programs.
 type LockManager = {
@@ -29,9 +29,9 @@ type LockManager = {
 	): Promise<unknown>;
 };
 
-/** One App owns every library and SQL connection in this device namespace. */
+/** One App owns every store and SQL connection in this device namespace. */
 export function claimApp(appId: string, account?: AccountIdentity) {
-	// Preserve the original local-library key for exclusion with older windows.
+	// Keep the established exclusion key; changing it permits overlapping owners.
 	return claim(
 		`library:${JSON.stringify([appId, 'device', deviceOwnerPath(account)])}`,
 	);
@@ -39,10 +39,10 @@ export function claimApp(appId: string, account?: AccountIdentity) {
 
 async function claim(
 	address: string,
-): Promise<Result<{ release(): void }, LibraryClaimError>> {
+): Promise<Result<{ release(): void }, AppClaimError>> {
 	const locks = (globalThis as { navigator?: { locks?: LockManager } })
 		.navigator?.locks;
-	if (!locks) return LibraryClaimError.LocksUnsupported({ address });
+	if (!locks) return AppClaimError.LocksUnsupported({ address });
 	return new Promise((settle) => {
 		void Promise.resolve()
 			.then(() =>
@@ -51,7 +51,7 @@ async function claim(
 					{ mode: 'exclusive', ifAvailable: true },
 					(lock) => {
 						if (lock === null) {
-							settle(LibraryClaimError.AlreadyOpen({ address }));
+							settle(AppClaimError.AlreadyOpen({ address }));
 							return;
 						}
 						return new Promise<void>((release) => settle(Ok({ release })));
@@ -59,7 +59,7 @@ async function claim(
 				),
 			)
 			.catch((cause: unknown) =>
-				settle(LibraryClaimError.ClaimFailed({ address, cause })),
+				settle(AppClaimError.ClaimFailed({ address, cause })),
 			);
 	});
 }

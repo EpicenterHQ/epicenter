@@ -47,7 +47,7 @@ export const STORE_SYNC_ROUTE = {
 			generation: number;
 			cursor: number;
 			appId?: string;
-			library?: 'personal' | 'shared';
+			scope?: 'personal' | 'shared';
 		},
 	): WebSocketAddress {
 		const url = new URL(`${stripTrailing(baseURL)}${STORE_SYNC_ROUTE.pattern}`);
@@ -56,7 +56,7 @@ export const STORE_SYNC_ROUTE = {
 		url.searchParams.set('generation', String(params.generation));
 		url.searchParams.set('cursor', String(params.cursor));
 		if (params.appId) url.searchParams.set('appId', params.appId);
-		if (params.library) url.searchParams.set('library', params.library);
+		if (params.scope) url.searchParams.set('scope', params.scope);
 		return { url: url.toString(), protocols: [MAIN_SUBPROTOCOL] };
 	},
 } as const;

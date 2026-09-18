@@ -38,7 +38,7 @@ Application data.ts / reusable tables / Worker probes
 App account stores <-- sync protocol --> @epicenter/app/sync authority
           |                                      |
           v                                      v
- IndexedDB current-library cache          server-owned opaque bytes
+ IndexedDB current-data cache          server-owned opaque bytes
 
 The same declaration --> /artifact and /artifact/checkout
 Desktop folder I/O   --> /artifact/format (no App or store)
@@ -81,8 +81,8 @@ packages/app/
 |   |   |   |-- document.ts        Yjs document operations
 |   |   |   |-- persistence.ts     durable queue and flushing
 |   |   |   |-- persist.ts         browser persistent-storage request
-|   |   |   |-- browser.ts         App-owned current-library acquisition
-|   |   |   |-- current-cache.ts   IndexedDB current-library records
+|   |   |   |-- browser.ts         App-owned current-data acquisition
+|   |   |   |-- current-cache.ts   IndexedDB current-data records
 |   |   |   |-- idb-updates.ts     IndexedDB durable update log
 |   |   |   `-- memory.ts          Bun SQLite test opener
 |   |   |-- sync/                  transport, attachment, connection, authority

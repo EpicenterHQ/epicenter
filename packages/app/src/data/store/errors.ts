@@ -10,7 +10,7 @@
  * store is a programmer error rather than a result.
  */
 import type { ConformanceIssue, JsonObject } from '@epicenter/app/definition';
-import { LibraryClaimError } from '@epicenter/device/library-claim';
+import { AppClaimError } from '@epicenter/device/app-claim';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 /**
@@ -69,7 +69,7 @@ export type NonconformingRow = NonconformingValue & {
 };
 
 export const StoreError = {
-	...LibraryClaimError,
+	...AppClaimError,
 	...defineErrors({
 		ClosedWhileOpening: () => ({
 			message: 'The store was closed while it was opening.',

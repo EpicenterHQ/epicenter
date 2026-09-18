@@ -1,6 +1,6 @@
 import { defineApp } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
-/** Current startup installs canonical bytes, preserves offline outboxes by actor/library,
+/** Current startup installs canonical bytes, preserves offline outboxes by actor/scope,
  * and returns to ordinary bootstrap after durable retirement invalidation. */
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
@@ -24,14 +24,14 @@ function fixture() {
 	let online = true;
 	let calls = 0;
 	let generation = 1;
-	function options(actor: string, library: 'personal' | 'shared' = 'shared') {
+	function options(actor: string, scope: 'personal' | 'shared' = 'shared') {
 		const account = {
 			authorityId: 'server-a',
 			principalId: asPrincipalId(actor),
 		};
 		return {
 			appId,
-			library,
+			scope,
 			account: {
 				...account,
 				baseURL: 'https://server.test',
@@ -293,9 +293,7 @@ for (const pending of ['structs', 'deletes'] as const) {
 		);
 		expect(error).toMatchObject({
 			name: 'StorageFailed',
-			cause: new Error(
-				'Current library download has unresolved Yjs dependencies',
-			),
+			cause: new Error('Current data download has unresolved Yjs dependencies'),
 		});
 		const retry = expectOk(
 			await acquireAppData(f.definition, f.options('alice'), {

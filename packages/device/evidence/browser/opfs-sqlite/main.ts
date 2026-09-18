@@ -6,8 +6,8 @@
  */
 
 import { asPrincipalId } from '@epicenter/principal';
+import { claimApp } from '../../../src/app-claim.js';
 import { createBrowserSqliteOwner } from '../../../src/browser.js';
-import { claimApp } from '../../../src/library-claim.js';
 import { createAppSqlite, type SqliteLifetime } from '../../../src/owner.js';
 
 let workersStarted = 0;

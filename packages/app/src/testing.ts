@@ -3,7 +3,7 @@ import {
 	createBrowserBlobStore,
 } from '@epicenter/blobs/browser';
 import { createRemoteBlobClient } from '@epicenter/client';
-import { LibraryClaimError } from '@epicenter/device/library-claim';
+import { AppClaimError } from '@epicenter/device/app-claim';
 import { createMemorySqliteOwner } from '@epicenter/device/memory';
 import { deviceOwnerPath } from '@epicenter/principal';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
@@ -32,11 +32,11 @@ export function createMemoryRuntime() {
 		async claim(appId, account) {
 			const address = JSON.stringify([appId, deviceOwnerPath(account)]);
 			if (disposed)
-				return LibraryClaimError.ClaimFailed({
+				return AppClaimError.ClaimFailed({
 					address,
 					cause: new Error('Memory runtime is disposed.'),
 				});
-			if (held.has(address)) return LibraryClaimError.AlreadyOpen({ address });
+			if (held.has(address)) return AppClaimError.AlreadyOpen({ address });
 			held.add(address);
 			let released = false;
 			return Ok({

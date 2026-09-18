@@ -4,11 +4,9 @@
  import Session from './Session.svelte';
  import { auth, opening, departure } from './application.js';
  import { probe } from './probe.js';
- let showing = $state(true);
  departure.attachUi({
   async preflight() { if (probe.refuse) throw new Error('Stop recording first.'); },
   async quiesce() {
-   showing = false;
    probe.events.push('producer-stop');
    await tick();
    await probe.producer;
@@ -18,5 +16,5 @@
  });
 </script>
 <AppBoot startup={auth} {departure} {opening} appName="Probe" noun="changes">
- {#if showing}<Session />{/if}
+ <Session />
 </AppBoot>

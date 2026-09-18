@@ -31,7 +31,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromium, webkit, type Page } from 'playwright';
+import { chromium, type Page, webkit } from 'playwright';
 import { build } from 'vite';
 
 /**
@@ -276,7 +276,7 @@ try {
 		),
 	)) as Answer;
 	check(
-		'the competing library is refused before opening its pool',
+		'the competing App is refused before opening its pool',
 		!contested.ok && contested.errorName === 'AlreadyOpen',
 		contested.error ?? '',
 	);

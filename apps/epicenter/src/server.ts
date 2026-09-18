@@ -378,16 +378,14 @@ export function createHomeServer({
 	app.get('/_epicenter/account/sync', requirePrivateBroker, (c) => {
 		const dataId = c.req.query('dataId') ?? '';
 		const appId = c.req.query('appId');
-		const library = c.req.query('library');
+		const scope = c.req.query('scope');
 		const generation = Number(c.req.query('generation'));
 		const cursor = Number(c.req.query('cursor'));
 		if (
 			!dataId ||
 			(appId !== undefined && !isAppId(appId)) ||
-			(library !== undefined &&
-				library !== 'personal' &&
-				library !== 'shared') ||
-			(appId === undefined) !== (library === undefined) ||
+			(scope !== undefined && scope !== 'personal' && scope !== 'shared') ||
+			(appId === undefined) !== (scope === undefined) ||
 			!Number.isSafeInteger(generation) ||
 			generation < 0 ||
 			!Number.isSafeInteger(cursor) ||
@@ -402,7 +400,7 @@ export function createHomeServer({
 				generation,
 				cursor,
 				appId,
-				library,
+				scope,
 			}),
 		);
 	});

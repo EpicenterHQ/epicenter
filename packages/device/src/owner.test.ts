@@ -452,12 +452,7 @@ test('query cancellation bypasses the statement queue but waits for engine clean
 	expect(settled).toBe(false);
 	expect(calls).not.toContainEqual(['run']);
 	const closing = lifetime.close();
-	expect(calls).not.toContainEqual([
-		'close',
-		appId,
-		{ library: 'local' },
-		'search',
-	]);
+	expect(calls).not.toContainEqual(['close', appId, 'search']);
 	release.resolve();
 	expectErr(await query);
 	expectOk(await next);

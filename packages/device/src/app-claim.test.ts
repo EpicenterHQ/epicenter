@@ -5,7 +5,7 @@
 import { expect, test } from 'bun:test';
 import { asPrincipalId } from '@epicenter/principal';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { claimApp } from './library-claim.js';
+import { claimApp } from './app-claim.js';
 import { installTestLocks } from './test-locks.js';
 
 installTestLocks();
@@ -52,7 +52,7 @@ test('missing locks and failed requests return distinct claim failures', async (
 			process.execPath,
 			'--eval',
 			`
-   const { claimApp } = await import(${JSON.stringify(new URL('./library-claim.ts', import.meta.url).href)});
+   const { claimApp } = await import(${JSON.stringify(new URL('./app-claim.ts', import.meta.url).href)});
    Object.defineProperty(globalThis,'navigator',{configurable:true,value:{}});
    const results=[await claimApp('so.epicenter.errors')];
    navigator.locks={request(){throw new Error('thrown')}};

@@ -2,7 +2,7 @@
  * Bun-only data opening for tests. A fresh record belongs to the opened data;
  * a supplied record belongs to the caller and survives document disposal.
  *
- * This opens no App resources and claims no application library. Separate
+ * This opens no App resources and claims no application data. Separate
  * records let tests model independent replicas of the same declaration.
  * Applications open through `openApp` from `@epicenter/app/open`.
  */

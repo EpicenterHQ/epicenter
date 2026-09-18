@@ -10,7 +10,7 @@ import { defineApp, defineTable, field, plainText } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
 import { openApp } from '@epicenter/app/open';
 import type { Account } from '@epicenter/auth';
-import { claimApp } from '@epicenter/device/library-claim';
+import { claimApp } from '@epicenter/device/app-claim';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
@@ -94,7 +94,7 @@ test('current and local addresses retain their durable spellings', async () => {
 	}
 });
 
-test('a second App cannot acquire an open library and can retry after closure', async () => {
+test('a second App cannot acquire an open App and can retry after closure', async () => {
 	const definition = definitionFor();
 	const account = accountFor();
 	const first = await openApp(definition, { account: account });
@@ -159,7 +159,7 @@ test('invalid account segments never create a current cache', async () => {
 					parsed,
 					{
 						appId: definition.id,
-						library: 'personal',
+						scope: 'personal',
 						account: accountFor(person),
 					},
 					{ factory: indexedDB, keyRange: IDBKeyRange },
@@ -286,7 +286,7 @@ test('corrupt local bytes refuse every retry without retaining ownership', async
 	}
 });
 
-test('failed local acquisition cleanup retains library exclusion', async () => {
+test('failed local acquisition cleanup retains App exclusion', async () => {
 	const definition = definitionFor();
 	const closing = spyOn(IDBDatabase.prototype, 'close').mockImplementation(
 		() => {

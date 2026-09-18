@@ -6,11 +6,11 @@ shared credential owner in `@epicenter/server/self-host-auth` stores admission,
 passkeys, sessions, and recovery grants together. Cloud billing remains in
 `apps/api`.
 
-The library-ownership implementation is in progress. Both runtime entries serve
-passkey sign-in and named sessions. The Worker also serves store sync; Bun still
-needs its sync backend. Browser apps and desktop Settings can select this server
-and sign in through its issuer. Shared libraries and optional passwords remain
-unbuilt.
+Both runtime entries serve passkey sign-in and named sessions. The Worker
+serves Personal and Shared data synchronization; Bun still needs its sync
+backend. Desktop Settings and apps with server selection can choose this
+issuer. Honeycrisp fixes its issuer per build instead. Optional passwords
+remain unbuilt.
 Follow the [execution plan](../../specs/20260909T004225-library-ownership-execution.md)
 for remaining work and verification.
 
@@ -49,7 +49,7 @@ bun apps/self-host/scripts/manage-user.ts remove alice
 
 Recovery immediately invalidates Alice's old credentials and sessions and prints
 a replacement enrollment link for the same user ID. Removal disables access and
-outstanding grants. Neither command changes library content. Recovery cannot
+outstanding grants. Neither command changes application data. Recovery cannot
 restore a removed user, and `instance` is reserved to prevent accidental access
 to historical shared-token data.
 

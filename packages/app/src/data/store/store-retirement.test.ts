@@ -119,7 +119,6 @@ test('retirement fences retained writes before notification and close waits for 
 	expect(context.fenced()).toBe(true);
 	expect(context.lifetime.signal.aborted).toBe(true);
 	expect(() => update({ theme: 'late edit' })).toThrow(StoreUnusableError);
-	await context.libraryReplaced;
 	let closed = false;
 	const closing = context.close().then(() => {
 		closed = true;
@@ -140,7 +139,7 @@ test('invalidation can fail before observation and retry without reopening write
 	context.receive();
 	context.fail();
 	await new Promise<void>((resolve) => setImmediate(resolve));
-	await context.libraryReplaced;
+	expect(context.lifetime.signal.aborted).toBe(true);
 	await expect(context.close()).rejects.toThrow('invalidation failed');
 	expect(context.disposed()).toBe(0);
 	context.retry();
@@ -157,7 +156,7 @@ test('invalidation can fail before observation and retry without reopening write
 test('retirement during attachment never turns readiness cleanup into backing release', async () => {
 	await using context = setup(true);
 	await context.ready;
-	await context.libraryReplaced;
+	expect(context.lifetime.signal.aborted).toBe(true);
 	expect(context.isRetired).toBe(true);
 	expect(context.disposed()).toBe(0);
 	expect(() => context.lifetime.assertUsable()).toThrow(StoreUnusableError);
@@ -175,7 +174,7 @@ test('a close requested by lifetime abortion cannot pass the invalidation gate',
 		closing = context.close();
 	});
 	context.receive();
-	await context.libraryReplaced;
+	expect(context.lifetime.signal.aborted).toBe(true);
 	await Promise.resolve();
 	expect(context.disposed()).toBe(0);
 	context.invalidated();
@@ -188,7 +187,7 @@ test('a legacy backing without invalidation support remains unusable and unrelea
 	expectOk(await context.ready);
 	await new Promise<void>((resolve) => setImmediate(resolve));
 	context.receive();
-	await context.libraryReplaced;
+	expect(context.lifetime.signal.aborted).toBe(true);
 	await expect(context.close()).rejects.toThrow(
 		'does not support generation invalidation',
 	);

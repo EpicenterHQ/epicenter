@@ -12,7 +12,7 @@
 		"./desktop": "./src/desktop.ts",
 		"./protocol": "./src/protocol.ts",
 		"./query": "./src/query.ts",
-		"./library-claim": "./src/library-claim.ts",
+		"./app-claim": "./src/app-claim.ts",
 		"./test-locks": "./src/test-locks.ts"
 	},
 	"scripts": {

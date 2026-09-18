@@ -190,7 +190,7 @@ test('missing objects, invalid addresses and native control headers fail closed'
 	expect(
 		(
 			await app.request(
-				`${collection}?library=shared`,
+				`${collection}?scope=shared`,
 				{ method: 'POST' },
 				config,
 			)

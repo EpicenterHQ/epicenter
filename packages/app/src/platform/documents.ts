@@ -1,4 +1,4 @@
-import { claimApp } from '@epicenter/device/library-claim';
+import { claimApp } from '@epicenter/device/app-claim';
 import { acquireAppData } from '../data/store/browser.js';
 import { requestPersistentStorage } from '../data/store/persist.js';
 import type { AppRuntime } from '../open.js';

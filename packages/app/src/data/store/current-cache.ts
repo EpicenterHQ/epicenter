@@ -1,6 +1,6 @@
 /**
- * Synchronized-library cache at one stable IndexedDB address.
- * The caller owns the library claim until discard and App cleanup finish.
+ * Synchronized store cache at one stable IndexedDB address.
+ * The caller owns the App claim until discard and App cleanup finish.
  */
 import { tryAsync } from 'wellcrafted/result';
 import { StoreError } from './errors.js';

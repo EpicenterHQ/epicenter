@@ -71,7 +71,6 @@ test('the runtime opens the captured account current Personal library', async ()
 	const account = accountFor();
 	await using runtime = await openSkillsRuntime({ account });
 	expect(runtime.state.skills).toEqual([]);
-	expect(runtime.data.library).toBe('personal');
 	const names = (await indexedDB.databases()).map(({ name }) => name);
 	expect(names).toContain(
 		`epicenter/${skillsDefinition.id}/accounts/${account.authorityId}/${account.principalId}/data/${skillsDefinition.id}/personal/current`,

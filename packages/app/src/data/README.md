@@ -24,18 +24,18 @@ Worker probes. Disposing the data document leaves that connection open.
 `MemoryRecord` survives document disposal so a test can reopen the same bytes.
 These entrypoints do not load the App or its platform implementations.
 
-## Current-library startup
+## Current-data startup
 
 Applications await `openApp` from `@epicenter/app/open` for a ready App; see the
-[App README](../../README.md). The App captures its account and library choice,
-claims exclusive ownership, and calls `acquireAppData` for browser persistence.
+[App README](../../README.md). The App captures its account, claims exclusive ownership, and calls
+`acquireAppData` for every applicable data scope.
 Local opening needs no server. Personal and Shared opening use a cached current
-library when available; otherwise they POST an initialization candidate to the
-current-library route and install the canonical response.
+data document when available; otherwise they POST an initialization candidate to the
+current-data route and install the canonical response.
 
 The response contains a generation, snapshot, and every update through its
 captured head. Startup applies and validates all of them before atomically
-publishing a usable cache. Network failure does not establish that a library is
+publishing a usable cache. Network failure does not establish that the data is
 empty. Retirement fences retained writes and invalidates the old cache before
 releasing ownership. A subsequent open downloads the replacement.
 
@@ -55,7 +55,7 @@ The numbered-cache opener and its generation listing, creation, and erasure
 helpers are retired. Current startup never reads, migrates, or deletes those
 historical bytes. The server still refuses current Personal initialization
 with HTTP 409 when historical admitted generations exist; removing client
-helpers does not authorize a new empty library over that history.
+helpers does not authorize a new empty data document over that history.
 
 Skills retains its current startup refusal. Migrating its account-taking adapter
 does not choose a new auth or product model. The durable-store browser evidence
@@ -432,7 +432,7 @@ proved that omitting the resync reconnect wedges a device permanently. The
 store announces its own durable local work to the transport internally, so
 nothing has to remember to nudge it.
 
-The mounted authority has a stable application/library/data address resolved
+The mounted authority has a stable application/scope/data address resolved
 from the authenticated principal. It owns the current generation and its opaque
 positional log. Historical per-generation addresses are not the current mount;
 the historical ledger still prevents silently initializing over old data.

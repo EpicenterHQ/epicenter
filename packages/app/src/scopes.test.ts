@@ -175,17 +175,17 @@ test.each([
 	const invalidate = Promise.withResolvers<void>();
 	const acquireData = runtime.data;
 	runtime.data = async (definition, options) => {
-		const library = options.library;
-		if (library === 'local') return acquireData(definition, options);
+		const scope = options.scope;
+		if (scope === 'device') return acquireData(definition, options);
 		return Ok({
 			durable: { commit() {} },
 			loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
 			discard() {
-				invalidated.push(library);
+				invalidated.push(scope);
 				return invalidate.promise;
 			},
 			dispose() {
-				disposed.push(library);
+				disposed.push(scope);
 			},
 			replication: {
 				address: {
@@ -195,13 +195,13 @@ test.each([
 				},
 				transport: {
 					async openWebSocket() {
-						return Object.assign(events[library], {
+						return Object.assign(events[scope], {
 							readyState: 1,
 							binaryType: '',
 							send() {},
 							close() {
-								closed.push(library);
-								if (throwOnClose && library !== retiring) throw failure;
+								closed.push(scope);
+								if (throwOnClose && scope !== retiring) throw failure;
 							},
 						}) as unknown as WebSocket;
 					},

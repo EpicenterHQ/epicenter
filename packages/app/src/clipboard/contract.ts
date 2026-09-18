@@ -17,7 +17,7 @@ export const ClipboardError = defineErrors({
 });
 export type ClipboardError = InferErrors<typeof ClipboardError>;
 
-/** The system clipboard's text. It captures no App, library, or account. */
+/** The system clipboard's text. It captures no App or account. */
 export type Clipboard = {
 	/** The clipboard's text, or `null` when it holds no text. */
 	readText(): Promise<Result<string | null, ClipboardError>>;

@@ -75,13 +75,13 @@ export async function readCurrentDownload(
 	response: Response,
 ): Promise<CurrentDownload> {
 	if (!response.ok)
-		throw new Error(`Current library download returned ${response.status}`);
+		throw new Error(`Current data download returned ${response.status}`);
 	if (response.headers.get('content-type') !== CONTENT_TYPE)
-		throw new Error('Current library download has an unsupported content type');
+		throw new Error('Current data download has an unsupported content type');
 	function header(name: string) {
 		const text = response.headers.get(name);
 		if (!text || !/^[1-9][0-9]*$/.test(text))
-			throw new Error(`Current library download has an invalid ${name} header`);
+			throw new Error(`Current data download has an invalid ${name} header`);
 		const value = Number(text);
 		positiveInteger(value);
 		return value;
@@ -93,20 +93,20 @@ export async function readCurrentDownload(
 		body.byteLength < HEADER_BYTES ||
 		MAGIC.some((byte, index) => body[index] !== byte)
 	)
-		throw new Error('Current library download has an invalid format');
+		throw new Error('Current data download has an invalid format');
 	const view = new DataView(body.buffer);
 	const position = view.getFloat64(MAGIC.length);
 	positiveInteger(position);
 	if (position > head)
-		throw new Error('Current library download starts beyond its captured head');
+		throw new Error('Current data download starts beyond its captured head');
 	let offset = HEADER_BYTES;
 	function update() {
 		if (offset + 4 > body.byteLength)
-			throw new Error('Current library download is truncated');
+			throw new Error('Current data download is truncated');
 		const length = view.getUint32(offset);
 		offset += 4;
 		if (length === 0 || offset + length > body.byteLength)
-			throw new Error('Current library download has an incomplete update');
+			throw new Error('Current data download has an incomplete update');
 		const bytes = body.subarray(offset, offset + length);
 		offset += length;
 		return bytes;
@@ -116,8 +116,6 @@ export async function readCurrentDownload(
 	for (let seq = position + 1; seq <= head; seq++)
 		tail.push({ seq, bytes: update() });
 	if (offset !== body.byteLength)
-		throw new Error(
-			'Current library download extends beyond its captured head',
-		);
+		throw new Error('Current data download extends beyond its captured head');
 	return { generation, head, snapshot, tail };
 }

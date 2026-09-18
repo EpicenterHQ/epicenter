@@ -139,22 +139,8 @@ export const honeycrispDefinition = defineApp({
 });
 
 /**
- * One opened Honeycrisp store, whole.
- *
- * It used to be the typed view intersected with `persistence`, because a route
- * owned the open and handed the application the two things it renders. There
- * is no route-owned open any more (ADR-0339): the handle opens the store for
- * one session's lifetime, and what an application is given is what
- * `session.opened` resolved. The narrowing was also already leaking, because
- * `persistence` was not the only document fact a person is shown: the sync
- * status line is another, and it lives on the store's own `sync` capability
- * (ADR-0340).
- *
- * It carries no close, and that is the type rather than a promise: what ends a
- * replica is the closer its opener returned, which the handle holds (ADR-0340).
- * The tree owns the lifetime: the session component's cleanup closes when its
- * `{#key}` remounts or its `{#if}` flips (ADR-0350), which is the only end this
- * store has.
+ * The store handle consumed by the notes UI. Local and Personal share this
+ * schema and capability shape; their owning App closes them together.
  */
 export type HoneycrispData = NonNullable<
 	App<typeof honeycrispDefinition>['account']
@@ -184,13 +170,6 @@ export type Note = RowOf<typeof honeycrispDefinition.tables.notes>;
  * otherwise unreadable row is a legal write (ADR-0125).
  */
 export function deleteHoneycrispFolder(
-	/**
-	 * The two verbs this needs, rather than the whole store.
-	 *
-	 * Narrowed here rather than at the type, because the caller is the reactive
-	 * adapter's view: `fromData` returns the declared shape and not the
-	 * document, and a folder delete is rows and one commit either way.
-	 */
 	data: Pick<HoneycrispData, 'tables' | 'transact'>,
 	folderId: FolderId,
 ): void {

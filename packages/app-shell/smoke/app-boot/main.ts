@@ -1,4 +1,7 @@
-import { mount } from 'svelte';
+import { mount, unmount } from 'svelte';
 import App from './App.svelte';
 
-mount(App, { target: document.getElementById('app')! });
+const target = document.getElementById('app');
+if (!target) throw new Error('AppBoot fixture mount target is missing.');
+const app = mount(App, { target });
+Reflect.set(window, 'destroyBoot', () => unmount(app));

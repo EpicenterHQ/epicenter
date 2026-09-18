@@ -21,7 +21,7 @@ export function authorize(
 	server: ReturnType<typeof deployment>,
 	bearer: string | null,
 	appId: string,
-	library: string,
+	scope: string,
 	owner?: string,
 ) {
 	if (bearer !== 'alice' && bearer !== 'bob')
@@ -29,19 +29,19 @@ export function authorize(
 	if (!isAppId(appId)) throw new Error('Invalid app');
 	if (owner !== undefined)
 		throw new Error('Personal owner is derived, never supplied');
-	if (library !== 'personal' && library !== 'shared')
-		throw new Error('Invalid library');
-	if (library === 'shared' && server.kind === 'cloud')
+	if (scope !== 'personal' && scope !== 'shared')
+		throw new Error('Invalid scope');
+	if (scope === 'shared' && server.kind === 'cloud')
 		throw new Error('Shared unavailable');
 	const actor = { authorityId: server.authorityId, principalId: bearer };
 	const remote =
 		server.kind === 'cloud'
 			? `principals/${bearer}`
-			: `apps/${appId}/libraries/${library === 'personal' ? `personal/${bearer}` : 'shared'}`;
+			: `apps/${appId}/libraries/${scope === 'personal' ? `personal/${bearer}` : 'shared'}`;
 	const replica =
 		server.kind === 'cloud'
 			? `epicenter/${appId}/accounts/${actor.authorityId}/${bearer}`
-			: `epicenter/${appId}/accounts/${actor.authorityId}/${bearer}/libraries/${library}`;
+			: `epicenter/${appId}/accounts/${actor.authorityId}/${bearer}/libraries/${scope}`;
 	return {
 		actor,
 		remote: { origin: server.origin, root: remote },
@@ -54,10 +54,10 @@ export function authorize(
 			'account',
 			actor.authorityId,
 			bearer,
-			...(server.kind === 'cloud' ? [] : [library]),
+			...(server.kind === 'cloud' ? [] : [scope]),
 			name,
 		],
 		recording: replica,
-		lock: `epicenter.store:library:${JSON.stringify([appId, actor.authorityId, bearer, ...(server.kind === 'cloud' ? [] : [library])])}`,
+		lock: `epicenter.store:library:${JSON.stringify([appId, actor.authorityId, bearer, ...(server.kind === 'cloud' ? [] : [scope])])}`,
 	};
 }

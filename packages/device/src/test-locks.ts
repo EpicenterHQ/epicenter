@@ -2,13 +2,13 @@
  * An in-process Web Locks API, for runtimes that do not ship one.
  *
  * The same move `fake-indexeddb/auto` makes and for the same reason: the store
- * guards one library against competing producers with `navigator.locks`, that guard is
+ * guards one App against competing producers with `navigator.locks`, that guard is
  * the only one it has, and a test runtime without the API would silently not
  * test it. Supplying the platform is honest; making the production code carry
  * a second mechanism so an absent platform still works is not.
  *
  * Deliberately small. Exclusive mode and `ifAvailable` are the whole of what
- * `library-claim.ts` asks for, so they are the whole of what this provides: a shared
+ * `app-claim.ts` asks for, so they are the whole of what this provides: a shared
  * lock mode or a waiting queue would be inventing behavior nothing here can
  * observe. Scoped to one process, which is exactly the scope a test has.
  */
@@ -47,7 +47,7 @@ export function installTestLocks(): boolean {
 			held.add(name);
 			try {
 				// The lock is held for exactly as long as the callback's promise is
-				// pending, which is the contract `library-claim.ts` relies on to hold one
+				// pending, which is the contract `app-claim.ts` relies on to hold one
 				// for a store's whole lifetime.
 				return await callback({ name, mode: 'exclusive' });
 			} finally {

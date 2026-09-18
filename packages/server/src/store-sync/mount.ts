@@ -1,4 +1,4 @@
-/** Authenticated access to one application's current Personal or Shared library. */
+/** Authenticated access to one application's current Personal or Shared scope. */
 import {
 	CURRENT_ROUTE,
 	DATA_ID,
@@ -11,12 +11,12 @@ import { every } from 'hono/combine';
 import { createMiddleware } from 'hono/factory';
 import { extractUpgradeBearer } from '../auth/extract-upgrade-bearer.js';
 import { OAuthError } from '../auth/oauth-errors.js';
+import { resolveDataPrefix } from '../data-scope.js';
 import { isWebSocketUpgrade } from '../is-websocket-upgrade.js';
 import { setPrincipalOrReject } from '../middleware/require-auth.js';
 import { storeCollectionName } from '../principal.js';
 import type { ServerBindings } from '../server-bindings.js';
 import type { Env, ResolveBearerPrincipal } from '../types.js';
-import { resolveLibraryPrefix } from '../library.js';
 
 export type StoreAuthorityStub = { fetch(request: Request): Promise<Response> };
 /** Historical ledger access is only used to refuse implicit migration. */
@@ -51,13 +51,13 @@ export function mountStoreSyncApp<E extends Env = Env>(
 	function address(
 		c: Context<Env>,
 		appId: string | undefined,
-		library: string | undefined,
+		scope: string | undefined,
 		dataId: string | undefined,
 	) {
 		if (!dataId || !DATA_ID.test(dataId) || dataId.length > 128) return;
-		const prefix = resolveLibraryPrefix(
+		const prefix = resolveDataPrefix(
 			appId,
-			library,
+			scope,
 			c.var.principal.id,
 			opts.shared === true,
 		);
@@ -68,15 +68,15 @@ export function mountStoreSyncApp<E extends Env = Env>(
 	}
 	app.post(CURRENT_ROUTE.pattern, auth, async (c: Context<Env>) => {
 		const appId = c.req.param('appId');
-		const library = c.req.param('library');
+		const scope = c.req.param('scope');
 		const dataId = c.req.param('dataId');
-		const name = address(c, appId, library, dataId);
-		if (!name) return c.text('Library access refused', 403);
+		const name = address(c, appId, scope, dataId);
+		if (!name) return c.text('Data access refused', 403);
 		const store = opts.resolveStore(c.env);
 		// The new address cannot discover independently writable historical objects.
 		// Refuse rather than adopting a maximum or opening an empty replacement.
 		if (
-			library === 'personal' &&
+			scope === 'personal' &&
 			(
 				await store
 					.ledger(storeCollectionName(c.var.principal.id, dataId!))
@@ -84,7 +84,7 @@ export function mountStoreSyncApp<E extends Env = Env>(
 			).length > 0
 		)
 			return c.text(
-				'Historical library requires an explicit migration decision',
+				'Historical data requires an explicit migration decision',
 				409,
 			);
 		return store.authority(name).fetch(c.req.raw);
@@ -95,10 +95,10 @@ export function mountStoreSyncApp<E extends Env = Env>(
 		const name = address(
 			c,
 			c.req.query('appId'),
-			c.req.query('library'),
+			c.req.query('scope'),
 			c.req.query('dataId'),
 		);
-		if (!name) return c.text('Library access refused', 403);
+		if (!name) return c.text('Data access refused', 403);
 		const generation = Number(c.req.query('generation'));
 		if (!Number.isSafeInteger(generation) || generation < 1)
 			return c.text('Invalid generation', 400);

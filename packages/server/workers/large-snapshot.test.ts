@@ -26,7 +26,7 @@ import { describe, expect, it } from 'vitest';
 
 const ORIGIN = 'http://example.com';
 const DATA_ID = 'so.epicenter.storeprobe';
-const collection = `/api/libraries/${DATA_ID}/personal/data/${DATA_ID}/current`;
+const collection = `/api/apps/${DATA_ID}/personal/data/${DATA_ID}/current`;
 
 /**
  * Roughly a two-and-a-half thousand note vault at ADR-0294's measured 3.2 KB

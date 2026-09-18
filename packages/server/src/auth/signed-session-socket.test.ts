@@ -130,7 +130,7 @@ test('an issued session opens the hosted socket and revocation refuses its next 
 			}),
 		});
 		handler = async (request) => app.fetch(request);
-		const url = `${baseURL.replace('http:', 'ws:')}/api/store/v1/sync?appId=so.epicenter.socketproof&library=personal&dataId=so.epicenter.socketproof&generation=1`;
+		const url = `${baseURL.replace('http:', 'ws:')}/api/store/v1/sync?appId=so.epicenter.socketproof&scope=personal&dataId=so.epicenter.socketproof&generation=1`;
 		socket = new WebSocket(url, [MAIN_SUBPROTOCOL, bearerSubprotocol(token)]);
 		await new Promise<void>((resolve, reject) => {
 			socket!.addEventListener('open', () => resolve(), { once: true });

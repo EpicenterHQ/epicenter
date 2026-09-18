@@ -99,7 +99,7 @@ test('document retirement aborts an upload and releases playback before explicit
 		expect(expectErr(await upload).name).toBe('Failed');
 		expect(await released.promise).toBe(source.url);
 		expect(revoke).toHaveBeenCalledTimes(1);
-		// Library retirement did not retire the Account itself.
+		// App retirement did not retire the Account itself.
 		expect(await (await account.fetch(url)).text()).toBe('audio');
 		expect(() => app.blobs.remote!.get(url)).toThrow();
 		await new Promise<void>((resolve) => {

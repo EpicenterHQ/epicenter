@@ -157,7 +157,7 @@ async function dial(): Promise<Opening> {
 		address: {
 			baseURL: BASE_URL,
 			appId: definition.id,
-			library: 'personal',
+			scope: 'personal',
 			dataId: definition.id,
 			generation: 1,
 		},
@@ -189,7 +189,7 @@ test('the browser offers the main subprotocol and the bearer, in that order', as
 	expect(url.protocol).toBe('ws:');
 	expect(url.pathname).toBe('/api/store/v1/sync');
 	expect(url.searchParams.get('appId')).toBe(definition.id);
-	expect(url.searchParams.get('library')).toBe('personal');
+	expect(url.searchParams.get('scope')).toBe('personal');
 	expect(url.searchParams.get('dataId')).toBe(definition.id);
 	expect(url.searchParams.get('generation')).toBe('1');
 	expect(url.searchParams.get('cursor')).toBe('0');
@@ -236,7 +236,7 @@ test('the accepted upgrade echoes the main subprotocol and never the bearer', as
 test('Cloud refuses Shared before resolving its authority', async () => {
 	const opening = await dial();
 	const url = new URL(opening.url);
-	url.searchParams.set('library', 'shared');
+	url.searchParams.set('scope', 'shared');
 	const { app, seen } = createServer();
 	const response = await app.request(
 		upgradeRequest({ ...opening, url: url.toString() }),

@@ -2,7 +2,7 @@
  * Which build gets which credential.
  *
  * Honeycrisp has two: the hosted web SPA, and the build the desktop Epicenter
- * host serves. What separates them is auth and whether there is a folder. NOT
+ * host serves. What separates them is auth. NOT
  * their data: every build owns its own store and reaches the same authority per
  * account (ADR-0226), so there is no `#platform/application` seam any more and
  * nothing here asserts one. Nor their files and secrets: Honeycrisp opens
@@ -59,20 +59,6 @@ describe('platform seams', () => {
 				});
 			}
 		}
-	});
-});
-
-describe('the folder is a build fact', () => {
-	test('whether there is an Epicenter folder is decided at build time', async () => {
-		// Not a runtime probe, and not a failure a person reads. A page has no
-		// filesystem, so the browser build has no button rather than one that
-		// always refuses (ADR-0337).
-		expect(await leafSource('#platform/folder', 'default')).toContain(
-			'openWorkingCopy: typeof createWorkingCopy | undefined = undefined',
-		);
-		expect(await leafSource('#platform/folder', 'epicenter-host')).toContain(
-			'createWorkingCopy as openWorkingCopy',
-		);
 	});
 });
 

@@ -295,7 +295,7 @@ it('a valid bearer can reconnect through the real mount after socket expiry', as
 		resolveStore: () => ({ authority: () => stub, ledger: () => ledger }),
 	});
 	const seeded = await app.request(
-		'/api/libraries/so.epicenter.storeprobe/personal/data/so.epicenter.storeprobe/current',
+		'/api/apps/so.epicenter.storeprobe/personal/data/so.epicenter.storeprobe/current',
 		{
 			method: 'POST',
 			headers: { authorization: `Bearer ${token}` },
@@ -307,7 +307,7 @@ it('a valid bearer can reconnect through the real mount after socket expiry', as
 		new Uint8Array([42]),
 	);
 	const url =
-		'/api/store/v1/sync?appId=so.epicenter.storeprobe&library=personal&dataId=so.epicenter.storeprobe&generation=1&cursor=1';
+		'/api/store/v1/sync?appId=so.epicenter.storeprobe&scope=personal&dataId=so.epicenter.storeprobe&generation=1&cursor=1';
 	const upgrade = (bearer: string) =>
 		app.request(url, {
 			headers: {

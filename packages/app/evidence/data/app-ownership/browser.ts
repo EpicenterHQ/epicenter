@@ -1,5 +1,5 @@
 /**
- * Run: bun packages/app/evidence/data/library-ownership/browser.ts [--webkit]
+ * Run: bun packages/app/evidence/data/app-ownership/browser.ts [--webkit]
  * Real App readiness and teardown retain one browser admission boundary across
  * duplicate opens, repeated page reloads, immediate replacement, and failed cleanup.
  */

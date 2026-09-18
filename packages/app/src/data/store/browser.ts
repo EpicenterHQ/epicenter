@@ -1,5 +1,5 @@
 /**
- * Current-library and device storage for an App.
+ * Current data and device storage for an App.
  * The page owns its live Yjs document; IndexedDB keeps its durable update log.
  * Opening never discovers, migrates, or deletes historical numbered caches.
  */
@@ -83,7 +83,7 @@ export async function openIdbBacking(
 		catch: (cause) => StoreError.StorageFailed({ cause }),
 	});
 	// A returned failure proves the acquired connection was released. A cleanup
-	// exception must escape so the caller keeps its library reservation.
+	// exception must escape so the caller keeps its App reservation.
 	if (result.error) durable.close();
 	return result;
 }
@@ -95,7 +95,7 @@ function isSegment(value: string): boolean {
 	);
 }
 
-/** Preserve the existing account-cache prefix; the selected library follows it. */
+/** Preserve the existing account-cache prefix; the selected scope follows it. */
 function accountCachePrefix(
 	appId: string,
 	principalId: PrincipalId,
@@ -119,7 +119,7 @@ function accountCachePrefix(
 	);
 }
 
-/** The device library retains its original address, including its fixed final segment. */
+/** The device scope retains its original address, including its fixed final segment. */
 async function acquireLocalData(
 	definition: ParsedDataDefinition,
 	appId: string,
@@ -166,8 +166,8 @@ function captureAccount(account: DatabaseAccount): DatabaseAccount {
 }
 
 export type AppDataScope = { appId: string } & (
-	| { library: 'local'; account?: AccountIdentity }
-	| { library: 'personal' | 'shared'; account: DatabaseAccount }
+	| { scope: 'device'; account?: AccountIdentity }
+	| { scope: 'personal' | 'shared'; account: DatabaseAccount }
 );
 
 /** Acquire storage under the caller's exclusive App admission. */
@@ -176,20 +176,18 @@ export async function acquireAppData(
 	options: AppDataScope,
 	idb: IdbRealm,
 ): Promise<Result<StoreBacking, StoreError>> {
-	const { appId } = options;
-	if (options.library === 'local')
-		return acquireLocalData(definition, appId, idb, options.account);
-	const { library } = options;
+	if (options.scope === 'device')
+		return acquireLocalData(definition, options.appId, idb, options.account);
 	const account = captureAccount(options.account);
 	const prefix = accountCachePrefix(
-		appId,
+		options.appId,
 		account.principalId,
 		definition.id,
 		account.authorityId,
 	);
 	if (prefix.error) return prefix;
-	// A stable name per actor and selected library; generations live in its header.
-	const address = `${prefix.data}${library}/current`;
+	// A stable name per actor and selected scope; generations live in its header.
+	const address = `${prefix.data}${options.scope}/current`;
 	const opened = await openCurrentCache(address, idb);
 	if (opened.error) return opened;
 	const cache = opened.data;
@@ -200,7 +198,12 @@ export async function acquireAppData(
 			const body = new Uint8Array(Y.encodeStateAsUpdateV2(seed));
 			seed.destroy();
 			const response = await account.fetch(
-				CURRENT_ROUTE.url(account.baseURL, appId, library, definition.id),
+				CURRENT_ROUTE.url(
+					account.baseURL,
+					options.appId,
+					options.scope,
+					definition.id,
+				),
 				{
 					method: 'POST',
 					headers: { 'content-type': 'application/octet-stream' },
@@ -224,7 +227,7 @@ export async function acquireAppData(
 					validation.store.pendingDs !== null
 				)
 					throw new Error(
-						'Current library download has unresolved Yjs dependencies',
+						'Current data download has unresolved Yjs dependencies',
 					);
 				bytes = Y.encodeStateAsUpdateV2(validation);
 			} finally {
@@ -245,8 +248,8 @@ export async function acquireAppData(
 			replication: {
 				address: {
 					baseURL: account.baseURL,
-					appId,
-					library,
+					appId: options.appId,
+					scope: options.scope,
 					dataId: definition.id,
 					generation: loaded.generation,
 				},

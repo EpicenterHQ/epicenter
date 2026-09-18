@@ -112,7 +112,7 @@ export function kvRoot(document: Y.Doc): Y.Type {
  * misspelled table name would cost a permanent root.
  */
 function rowType(root: Y.Type, rowId: string): RowType | undefined {
-	// A table root stays at the library's default configuration, so its keys are
+	// A table root stays at the Yjs default configuration, so its keys are
 	// `string` and this is a plain read. It cannot be configured further: a
 	// `DeltaConf`'s `attrs` values must be `Fingerprintable` and a nested
 	// `Y.Type` is not one, so a container whose attributes are themselves types

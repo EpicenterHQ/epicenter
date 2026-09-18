@@ -8,10 +8,6 @@
 		"#platform/auth": {
 			"epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",
 			"default": "./src/lib/platform/auth.browser.ts"
-		},
-		"#platform/folder": {
-			"epicenter-host": "./src/lib/platform/folder.epicenter-host.ts",
-			"default": "./src/lib/platform/folder.browser.ts"
 		}
 	},
 	"scripts": {
@@ -21,7 +17,7 @@
 		"preview": "vite preview",
 		"deploy": "wrangler deploy",
 		"prepare": "svelte-kit sync || echo ''",
-		"test": "bun test",
+		"test": "bun test --isolate",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json && bun run typecheck:scripts",
 		"typecheck:scripts": "tsc -p tsconfig.scripts.json && tsc -p ../self-host/tsconfig.honeycrisp.json"
 	},
