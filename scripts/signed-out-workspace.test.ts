@@ -32,8 +32,6 @@ for (const product of ['honeycrisp', 'whispering']) {
 				const startup = { auth, selectedServer: 'https://server.example' };
 				mock.module('#platform/auth', () => ({ authStartup: startup, authClient: startup }));
 				if (product === 'whispering') {
-					mock.module('#platform/runtime', () => ({ runtime: {} }));
-					mock.module('@epicenter/app-shell/migrate-ai-settings', () => ({ initializeBrowserAiSettings: async () => {} }));
 					mock.module('@epicenter/app-shell/inference-selections', () => ({ createBrowserInferenceSelections: () => ({ [Symbol.dispose]() {} }) }));
 				}
 				mock.module('@epicenter/app-shell/departure', () => ({ createDeparture: () => ({}) }));

@@ -31,7 +31,7 @@
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.epicenter-host.json",
-		"test": "bun test",
+		"test": "bun test --isolate",
 		"smoke:recording": "bun scripts/browser-smoke.ts"
 	},
 	"dependencies": {

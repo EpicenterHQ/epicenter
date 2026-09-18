@@ -20,7 +20,7 @@
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun test"
+		"test": "bun test --isolate"
 	},
 	"dependencies": {
 		"@epicenter/principal": "workspace:*",
