@@ -8,6 +8,8 @@
 	its playback URL acquisition and disposes it on teardown.
 -->
 <script lang="ts">
+	import { resolve } from '$app/paths';
+	import { Link } from '@epicenter/ui/link';
 	import { Button } from '@epicenter/ui/button';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import AudioBlobPlayer from '$lib/components/AudioBlobPlayer.svelte';
@@ -34,14 +36,17 @@
 </script>
 
 <div class="flex w-full flex-col gap-2">
+	{#if transcript.trim()}
 	<TextPreviewDialog
 		id={viewTransition.recording(recordingId).transcript}
 		title="Transcript"
 		label="transcript"
 		text={transcript}
 		{rows}
-		disabled={!transcript.trim()}
 	/>
+	{:else}
+		<p class="text-sm text-muted-foreground">Audio saved. <Link href={resolve('/recordings')}>Transcribe from Recordings</Link>.</p>
+	{/if}
 	<!-- Delete is a companion action on the audio row, mirroring the copy button
 	     on the transcript row above: content stretches, its action caps the row.
 	     Icon-only with a tooltip; the confirmation dialog carries the words. -->

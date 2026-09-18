@@ -489,3 +489,30 @@ test('admitted audio finishes saving after UI admission closes without starting 
 		}
 	}
 });
+
+test('audio-only capture retains playable bytes without transcription, polish, delivery, or failure feedback', async () => {
+	const before = persistedTranscriptions.length;
+	const deliveries = deliverTranscriptionResult.mock.calls.length;
+	const polishes = polishSignals.length;
+	const failures = markFailed.mock.calls.length;
+	const transcribing = markTranscribing.mock.calls.length;
+	const row = domain.recordings.get(recording.id);
+	await processRecordingPipeline(app, {
+		recordingId: recording.id,
+		transcribe: null,
+	});
+	expect(persistedTranscriptions).toHaveLength(before);
+	expect(deliverTranscriptionResult.mock.calls).toHaveLength(deliveries);
+	expect(polishSignals).toHaveLength(polishes);
+	expect(markFailed.mock.calls).toHaveLength(failures);
+	expect(markTranscribing.mock.calls).toHaveLength(transcribing);
+	expect(domain.recordings.get(recording.id)).toEqual(row);
+	expect(
+		await expectOk(await domain.recordings.readAudio(recording.id)).text(),
+	).toBe('saved audio');
+	expect(reportInfo).toHaveBeenLastCalledWith({
+		title: 'Audio saved',
+		description:
+			'Choose a transcription model when you’re ready to turn it into text.',
+	});
+});

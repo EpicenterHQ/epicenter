@@ -35,9 +35,11 @@ const { transcribeAudio, transcribeAndPersist, captureTranscription } =
 async function setup({
 	response = () => Response.json({ text: '  spoken words  ' }),
 	principal = 'alice',
+	selectModel = true,
 }: {
 	response?: () => Response;
 	principal?: string;
+	selectModel?: boolean;
 } = {}) {
 	const requests: Request[] = [];
 	const savedConnections = new Map<string, string>();
@@ -107,10 +109,11 @@ async function setup({
 		apiKey: 'chosen-key',
 		models: [],
 	});
-	selections.set('transcription', {
-		connectionId: id,
-		model: 'saved-model',
-	});
+	if (selectModel)
+		selections.set('transcription', {
+			connectionId: id,
+			model: 'saved-model',
+		});
 	return {
 		app,
 		values,
@@ -275,7 +278,7 @@ test('capture retains the original inference target before recording exists', as
 		connectionId: fixture.id,
 		model: 'changed-model',
 	});
-	expectOk(await transcribe('recording-id'));
+	expectOk(await transcribe!('recording-id'));
 	const sent = await fixture.requests[0]!.formData();
 	expect(sent.get('model')).toBe('saved-model');
 	await fixture.close();
@@ -295,7 +298,7 @@ test('row deletion during local read prevents sending audio to inference', async
 		},
 	} as unknown as WhisperingApp;
 	expect(
-		expectErr(await captureTranscription(domain)('recording-id')).name,
+		expectErr(await captureTranscription(domain)!('recording-id')).name,
 	).toBe('Closed');
 	expect(fixture.requests).toHaveLength(0);
 	await fixture.close();
@@ -360,3 +363,27 @@ for (const { audio, filename, contentType } of [
 		}
 	});
 }
+
+test('no selection captures audio-only intent; later setup applies only to deliberate transcription', async () => {
+	const fixture = await setup({ selectModel: false });
+	const readAudio = mock(async () => Ok(fixture.audio));
+	const domain = {
+		signal: fixture.controller.signal,
+		recordings: { get: () => ({ id: 'recording-id' }), readAudio },
+	} as unknown as WhisperingApp;
+	const captured = captureTranscription(domain);
+	expect(captured).toBeNull();
+	expect(expectErr(await transcribeAudio('recording-id', domain)).name).toBe(
+		'SelectionRequired',
+	);
+	expect(readAudio).not.toHaveBeenCalled();
+	fixture.selections.set('transcription', {
+		connectionId: fixture.id,
+		model: 'saved-model',
+	});
+	expect(captured).toBeNull();
+	expectOk(await transcribeAudio('recording-id', domain));
+	expect(readAudio).toHaveBeenCalledTimes(1);
+	expect(fixture.requests).toHaveLength(1);
+	await fixture.close();
+});

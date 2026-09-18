@@ -52,6 +52,16 @@ export async function processRecordingPipeline(
 	const isDictation = deliverySource === 'recording';
 	const ownsFeedback =
 		isCurrentAttempt ?? (isDictation ? dictationLifecycle.reset() : () => true);
+	if (transcribe === null) {
+		if (ownsFeedback()) {
+			report.info({
+				title: 'Audio saved',
+				description:
+					'Choose a transcription model when you’re ready to turn it into text.',
+			});
+		}
+		return;
+	}
 	if (isDictation && ownsFeedback()) dictationLifecycle.markTranscribing();
 
 	// File import has no pill, so it keeps a progress toast; the dictation path is

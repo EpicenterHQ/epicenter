@@ -66,7 +66,7 @@ export function resolveTranscriptionState() {
 	};
 }
 
-/** Capture the workflow's inference selection before capture, import, or local I/O. */
+/** Capture the inference target before recording or import. No selection means audio only. */
 export function captureTranscription(owner: WhisperingApp) {
 	let usesAccount = false;
 	const prepared = trySync({
@@ -110,6 +110,7 @@ export function captureTranscription(owner: WhisperingApp) {
 				// Previous provider fields are an explicit import source, never a fallback.
 				if (service !== 'connection')
 					return TranscriptionOperationError.SelectionRequired();
+				if (!getSelections().get('transcription')) return Ok(null);
 				const { client, model, account, canRun } = resolveTranscriptionState();
 				if (!client || !canRun)
 					return TranscriptionOperationError.SelectionRequired();
@@ -140,12 +141,16 @@ export function captureTranscription(owner: WhisperingApp) {
 		},
 		catch: (cause) => TranscriptionOperationError.TransportFailed({ cause }),
 	});
+	const target = prepared.error ? Err(prepared.error) : prepared.data;
+	if (target.error) {
+		const error = target.error;
+		return async () => Err(error);
+	}
+	const selected = target.data;
+	if (selected === null) return null;
 	return async (
 		recordingId: RecordingId,
 	): Promise<Result<string, TranscriptionError>> => {
-		if (prepared.error) return Err(prepared.error);
-		const selected = prepared.data;
-		if (selected.error) return Err(selected.error);
 		const result = await tryAsync({
 			try: async () => {
 				if (owner.signal.aborted || !owner.recordings.get(recordingId))
@@ -154,7 +159,7 @@ export function captureTranscription(owner: WhisperingApp) {
 				if (owner.signal.aborted || !owner.recordings.get(recordingId))
 					return TranscriptionOperationError.Closed();
 				if (audio.error) return Err(audio.error);
-				const transcription = await selected.data(audio.data);
+				const transcription = await selected(audio.data);
 				if (owner.signal.aborted || !owner.recordings.get(recordingId))
 					return TranscriptionOperationError.Closed();
 				return transcription;
@@ -178,11 +183,14 @@ export function captureTranscription(owner: WhisperingApp) {
 }
 
 /** A deliberate transcription captures its selection when invoked. */
-export function transcribeAudio(
+export async function transcribeAudio(
 	recordingId: RecordingId,
 	owner: WhisperingApp,
 ) {
-	return captureTranscription(owner)(recordingId);
+	const transcribe = captureTranscription(owner);
+	return transcribe
+		? transcribe(recordingId)
+		: TranscriptionOperationError.SelectionRequired();
 }
 
 /** Every saved transcription attempts history only while its captured App is alive. */
@@ -192,6 +200,8 @@ export async function transcribeAndPersist(
 	transcribe = captureTranscription(app),
 ): Promise<Result<TranscriptionSuccess, TranscriptionError>> {
 	const signal = app.signal;
+	if (transcribe === null)
+		return TranscriptionOperationError.SelectionRequired();
 	const result = await transcribe(recordingId);
 	if (signal.aborted) return TranscriptionOperationError.Closed();
 	return recordTranscriptionOutcome(app, recordingId, result);
