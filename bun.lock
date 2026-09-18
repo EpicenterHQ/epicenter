@@ -613,6 +613,7 @@
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
+        "@epicenter/sqlite": "workspace:*",
         "@types/bun": "catalog:",
         "fake-indexeddb": "^6.2.5",
         "playwright": "^1.61.1",

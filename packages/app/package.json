@@ -51,6 +51,7 @@
 		"@epicenter/sync": "workspace:*"
 	},
 	"devDependencies": {
+		"@epicenter/sqlite": "workspace:*",
 		"@types/bun": "catalog:",
 		"fake-indexeddb": "^6.2.5",
 		"typescript": "catalog:",
