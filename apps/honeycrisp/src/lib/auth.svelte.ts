@@ -1,9 +1,4 @@
 import { fromAuth } from '@epicenter/auth/svelte';
-import { authStartup } from '#platform/auth';
+import { auth as platformAuth } from '#platform/auth';
 
-const auth = authStartup.auth ? fromAuth(authStartup.auth) : null;
-
-export function getAuth() {
-	if (!auth) throw new Error('Application UI requires a valid auth startup.');
-	return auth;
-}
+export const auth = fromAuth(platformAuth);

@@ -1,7 +1,6 @@
 /**
- * The application route owns library opening. Callback routes and their
- * ancestors never import the bootstrap or acquire an App; the mounted page
- * imports it dynamically, and VocabShell only consumes the opened App.
+ * AppBoot owns acquisition beneath the working route. Callback routes and their
+ * ancestors never import the bootstrap or acquire an App; the mounted AppBoot acquires it, and VocabShell only consumes the opened App.
  */
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -43,22 +42,14 @@ describe('the callback opens nothing', () => {
 		}
 	});
 
-	test('the mounted application page imports the bootstrap outside callback ancestors', async () => {
+	test('the page delegates acquisition to its mounted AppBoot', async () => {
 		const bootNode = join(routes, '+page.svelte');
 		const source = await Bun.file(bootNode).text();
-		expect(source).toContain("import('$lib/application.js')");
-		expect(source).toContain('onMount(() =>');
+		expect(source).toContain('definition={vocabDefinition}');
 		expect(source).toContain('<VocabShell ');
-		expect(source).toContain('data={app}');
-		expect(source).toContain('application.opening');
-		expect(
-			source.indexOf("import('$lib/application.js').then"),
-		).toBeGreaterThan(source.indexOf('onMount(() =>'));
+		expect(source).not.toMatch(/openApplication|createDeparture|attachUi/);
+		expect(source).not.toContain('showing');
 		expect(ancestorLayouts(callback)).not.toContain(bootNode);
-		const bootstrap = await Bun.file(
-			join(appRoot, 'src/lib/application.ts'),
-		).text();
-		expect(bootstrap).toContain('openApp(vocabDefinition, { account })');
 	});
 
 	test('the shell consumes the opened library without importing its bootstrap', async () => {

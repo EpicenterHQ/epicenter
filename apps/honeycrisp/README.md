@@ -11,11 +11,10 @@ Licensed under AGPL-3.0-or-later.
 
 `/` redirects to `/personal`. `/local` displays device notes and works signed
 out. `/personal` displays account notes or offers sign-in. Both URLs use one
-page component, which captures one Account and opens one App in its instance
-script. Switching views keeps that App alive.
+page component, whose mounted AppBoot captures one Account and opens one App. Switching views keeps that App alive.
 
 ```text
-notes page: capture Account -> openApp -> ready App
+notes page: AppBoot auth + definition -> ready App
   /local:    Notes data={app.device}
   /personal: Notes data={app.account.personal}
 ```

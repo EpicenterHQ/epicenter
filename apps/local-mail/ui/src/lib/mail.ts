@@ -34,7 +34,8 @@ import {
 } from '@epicenter/local-mail/outbox';
 import { openLocalMailStorage } from '@epicenter/local-mail/storage';
 import { gmailAuthorization } from '#platform/gmail-authorization';
-import { opening as openingApp } from './application.js';
+import type { App } from '@epicenter/app/open';
+import type { mailDefinition } from './data.js';
 import { gmailIdentity } from './identity.js';
 
 /** Where Google sends a person back to, on this application's own route. */
@@ -52,30 +53,49 @@ function base(): string {
 	return path.startsWith(marker) ? marker : '';
 }
 
-let opening: Promise<AccountWorkflow> | undefined;
-let closing: Promise<void> | undefined;
-const controller = new AbortController();
-const pending = new Set<Promise<unknown>>();
+type MailLifetime = {
+	app: App<typeof mailDefinition>;
+	controller: AbortController;
+	pending: Set<Promise<unknown>>;
+	workflow?: Promise<AccountWorkflow>;
+};
+let current: MailLifetime | undefined;
+
+/** The mounted shell owns admission and drains this attachment before its App closes. */
+export function attachMail(app: App<typeof mailDefinition>) {
+	if (current) throw new Error('Local Mail already has a mounted application.');
+	const lifetime: MailLifetime = {
+		app,
+		controller: new AbortController(),
+		pending: new Set(),
+	};
+	current = lifetime;
+	let closing: Promise<void> | undefined;
+	return function close() {
+		lifetime.controller.abort();
+		return (closing ??= Promise.allSettled(lifetime.pending).then(() => {
+			if (current === lifetime) current = undefined;
+		}));
+	};
+}
 
 function workflow(): Promise<AccountWorkflow> {
-	if (opening) return opening;
-	const attempt = (async () => {
-		const app = await openingApp;
-		if (!app) throw new Error('Local Mail has not opened.');
-		return {
-			storage: await openLocalMailStorage(app.device),
-			secrets: app.device.secrets,
-			get identity() {
-				return gmailIdentity();
-			},
-			config: DEFAULT_MAIL_CONFIG,
-			now: () => Date.now(),
-			activity: new Map(),
-		};
-	})();
-	opening = attempt;
+	if (!current) return Promise.reject(new Error('Local Mail has not opened.'));
+	const lifetime = current;
+	if (lifetime.workflow) return lifetime.workflow;
+	const attempt = (async () => ({
+		storage: await openLocalMailStorage(lifetime.app.device),
+		secrets: lifetime.app.device.secrets,
+		get identity() {
+			return gmailIdentity();
+		},
+		config: DEFAULT_MAIL_CONFIG,
+		now: () => Date.now(),
+		activity: new Map(),
+	}))();
+	lifetime.workflow = attempt;
 	void attempt.catch(() => {
-		if (opening === attempt) opening = undefined;
+		if (lifetime.workflow === attempt) lifetime.workflow = undefined;
 	});
 	return attempt;
 }
@@ -84,29 +104,23 @@ function operation<TArgs extends unknown[], TResult>(
 	run: (...args: TArgs) => Promise<TResult>,
 ) {
 	return (...args: TArgs): Promise<TResult> => {
-		if (controller.signal.aborted) {
+		const lifetime = current;
+		if (!lifetime || lifetime.controller.signal.aborted) {
 			return Promise.reject(new Error('Local Mail is closing.'));
 		}
 		const work = Promise.resolve().then(() => run(...args));
-		pending.add(work);
+		lifetime.pending.add(work);
 		void work.then(
-			() => pending.delete(work),
-			() => pending.delete(work),
+			() => lifetime.pending.delete(work),
+			() => lifetime.pending.delete(work),
 		);
 		return work;
 	};
 }
 
 export const mail = {
-	/** Stop new work, cancel the consent wait, and finish all admitted writes. */
-	close(): Promise<void> {
-		controller.abort();
-		// App closure follows this drain at the document departure boundary.
-		return (closing ??= Promise.allSettled(pending).then(() => undefined));
-	},
-
 	authorize: operation((request: AuthorizationRequest) =>
-		gmailAuthorization.authorize(request, controller.signal),
+		gmailAuthorization.authorize(request, current!.controller.signal),
 	),
 
 	accounts: operation(
@@ -237,7 +251,10 @@ export const mail = {
 			await workflow(),
 			sub,
 			sql,
-			AbortSignal.any([controller.signal, ...(signal ? [signal] : [])]),
+			AbortSignal.any([
+				current!.controller.signal,
+				...(signal ? [signal] : []),
+			]),
 		),
 	),
 

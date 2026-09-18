@@ -1,6 +1,5 @@
 <script lang="ts">
-	import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
-	import type { Account } from "@epicenter/auth";
+	import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference-selections';
 	import type { App } from '@epicenter/app/open';
 	import { createDictation } from "$lib/state/dictation.svelte";
 	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
@@ -30,15 +29,14 @@
 	// `data` and never asks which one it is.
 	let {
 		data: opened,
-		selections,
-		account,
 		removeLocalData,
 	}: {
-		account: Account;
 		data: App<typeof vocabDefinition>;
-		selections: InferenceSelections;
 		removeLocalData?: () => Promise<void>;
 	} = $props();
+
+	// svelte-ignore state_referenced_locally
+	const selections = createBrowserInferenceSelections('vocab', opened.account?.identity);
 
 	// `fromData` runs here rather than above, because this mounts exactly once
 	// per opened store and the adaptation is per store.
@@ -82,6 +80,7 @@
 				chat[Symbol.dispose]();
 				entries[Symbol.dispose]();
 				settings[Symbol.dispose]();
+				selections[Symbol.dispose]();
 			}
 		})();
 		return closing;

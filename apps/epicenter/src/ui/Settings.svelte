@@ -10,7 +10,7 @@
 		ACCOUNT_SIGN_IN_ROUTE,
 		ACCOUNT_SIGN_OUT_ROUTE,
 	} from '../routes.ts';
-	import { auth as startup } from './auth.js';
+	import { auth, bootstrap } from './auth.js';
 	import { isDesktopHost } from './runtime.ts';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Item from '@epicenter/ui/item';
@@ -31,7 +31,7 @@
 	 */
 
 	const launcher = createLaunch();
-	let server = $state(startup.selectedServer ?? '');
+	let server = $state(bootstrap.selectedServer ?? '');
 	let connecting = $state(false);
 	let signingIn = $state(false);
 	let connectionError = $state('');
@@ -81,24 +81,24 @@
 {#if isDesktopHost()}
 	<div class="grid gap-3 border-b p-3">
 		<h2 class="font-medium">Account</h2>
-		{#if startup.auth === null}
+		{#if bootstrap.recovery}
 			<p role="alert">Your saved server choice could not be read. Choose a server to continue. Your local data is still on this device.</p>
 		{:else}
-			<p>{startup.selectedServer === null ? 'Epicenter Cloud' : 'Your server'}: {startup.auth.state.status === 'signed-out' ? 'Signed out' : 'Signed in'}</p>
-			{#if startup.selectedServer !== null}<p class="break-all text-sm text-muted-foreground">{startup.selectedServer}</p>{/if}
+			<p>{bootstrap.selectedServer === null ? 'Epicenter Cloud' : 'Your server'}: {auth.getState().status === 'signed-out' ? 'Signed out' : 'Signed in'}</p>
+			{#if bootstrap.selectedServer !== null}<p class="break-all text-sm text-muted-foreground">{bootstrap.selectedServer}</p>{/if}
 		{/if}
 		<p class="text-muted-foreground">Changing accounts closes your applications and restarts Epicenter. Your existing local data stays with its original server.</p>
-		<Button disabled={connecting} onclick={() => void connect(startup.auth?.startSignIn !== undefined ? ACCOUNT_SIGN_IN_ROUTE.pattern : ACCOUNT_USE_CLOUD_ROUTE.pattern)}>
-			{startup.auth?.startSignIn !== undefined ? 'Sign in' : 'Use Epicenter Cloud'}
+		<Button disabled={connecting} onclick={() => void connect(auth.startSignIn !== undefined ? ACCOUNT_SIGN_IN_ROUTE.pattern : ACCOUNT_USE_CLOUD_ROUTE.pattern)}>
+			{auth.startSignIn !== undefined ? 'Sign in' : 'Use Epicenter Cloud'}
 		</Button>
 		{#if signingIn}
 			<p role="status">Finish signing in in your browser, then return here.</p>
 			<Button variant="outline" onclick={() => void connect(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern)}>Cancel sign-in</Button>
 		{/if}
-		{#if startup.selectedServer !== null && startup.auth?.startSignIn}
+		{#if bootstrap.selectedServer !== null && auth.startSignIn}
 			<Button variant="outline" disabled={connecting} onclick={() => void connect(ACCOUNT_USE_CLOUD_ROUTE.pattern)}>Use Epicenter Cloud</Button>
 		{/if}
-		{#if startup.auth && startup.auth.state.status !== 'signed-out'}
+		{#if auth.getState().status !== 'signed-out'}
 			<Button variant="outline" disabled={connecting} onclick={() => void connect(ACCOUNT_SIGN_OUT_ROUTE.pattern)}>Sign out</Button>
 		{/if}
 	</div>
@@ -106,15 +106,15 @@
 		class="grid gap-3 border-b p-3"
 		onsubmit={(event) => {
 			event.preventDefault();
-			void connect(ACCOUNT_CONNECT_ROUTE.pattern, { server: startup.selectedServer !== null && !changingServer ? startup.selectedServer : server });
+			void connect(ACCOUNT_CONNECT_ROUTE.pattern, { server: bootstrap.selectedServer !== null && !changingServer ? bootstrap.selectedServer : server });
 		}}
 	>
 		<h2 class="font-medium">Connect to your server</h2>
-		{#if startup.selectedServer !== null}
+		{#if bootstrap.selectedServer !== null}
 			<Button type="button" variant="ghost" disabled={connecting} onclick={() => changingServer = !changingServer}>{changingServer ? 'Keep current server' : 'Change server'}</Button>
 		{/if}
 		<Label for="instance-server">Server URL</Label>
-		<Input id="instance-server" type="url" required bind:value={server} placeholder="https://your-server.example" readonly={startup.selectedServer !== null && !changingServer} disabled={connecting} />
+		<Input id="instance-server" type="url" required bind:value={server} placeholder="https://your-server.example" readonly={bootstrap.selectedServer !== null && !changingServer} disabled={connecting} />
 		<div class="flex gap-2">
 			<Button type="submit" disabled={connecting}>Connect and restart</Button>
 		</div>

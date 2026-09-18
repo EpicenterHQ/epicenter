@@ -46,13 +46,12 @@ test('offline restoration and same-person repair preserve the selected server au
 	const b = sessionAt('https://b.example');
 	using aliceA = a.auth;
 	using aliceB = b.auth;
-	if (
-		aliceA.state.status === 'signed-out' ||
-		aliceB.state.status === 'signed-out'
-	)
+	const stateA = aliceA.getState();
+	const stateB = aliceB.getState();
+	if (stateA.status === 'signed-out' || stateB.status === 'signed-out')
 		throw new Error('Expected restored identities');
-	const accountA = aliceA.state.account;
-	const accountB = aliceB.state.account;
+	const accountA = stateA.account;
+	const accountB = stateB.account;
 	expect(a.requests).toEqual([]);
 	expect(b.requests).toEqual([]);
 	expect(accountA.principalId).toBe(accountB.principalId);
@@ -62,7 +61,7 @@ test('offline restoration and same-person repair preserve the selected server au
 	expect(accountA.authorityId).not.toBe('epicenter-api');
 	await accountA.fetch('/api/example');
 	expectOk(await aliceA.startSignIn());
-	expect(aliceA.state.account).toBe(accountA);
+	expect(aliceA.getState().account).toBe(accountA);
 	expect(accountA.authorityId).toBe(a.server.authorityId);
 	expect(b.requests).toEqual([]);
 	await expect(
@@ -76,12 +75,13 @@ test('offline restoration and same-person repair preserve the selected server au
 test('a non-Cloud callback repairs the same Account without acquiring dashboard links', async () => {
 	const { auth } = sessionAt('https://a.example');
 	using session = auth;
-	if (session.state.status === 'signed-out')
+	const state = session.getState();
+	if (state.status === 'signed-out')
 		throw new Error('Expected restored identity');
-	const account = session.state.account;
+	const account = state.account;
 	expect(session.accountManagementUrl).toBeUndefined();
 	expectOk(await session.completeSignIn());
-	expect(session.state.account).toBe(account);
+	expect(session.getState().account).toBe(account);
 	expect(session.accountManagementUrl).toBeUndefined();
 });
 
@@ -108,11 +108,12 @@ test('hosted browser composition retains Cloud bytes, callback support, and mana
 			appId: 'so.epicenter.notes',
 			baseURL: 'https://api.epicenter.so',
 		});
-		if (auth.state.status === 'signed-out')
+		const state = auth.getState();
+		if (state.status === 'signed-out')
 			throw new Error('Expected restored identity');
-		expect(auth.state.account.authorityId).toBe('epicenter-api');
+		expect(state.account.authorityId).toBe('epicenter-api');
 		expect(typeof auth.completeSignIn).toBe('function');
-		expect(auth.accountManagementUrl(auth.state.account, 'account').href).toBe(
+		expect(auth.accountManagementUrl(state.account, 'account').href).toBe(
 			'https://api.epicenter.so/dashboard/account?expectedPrincipal=alice',
 		);
 	} finally {

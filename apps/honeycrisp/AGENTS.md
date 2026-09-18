@@ -8,7 +8,7 @@ reference for how an app is built.
 ## One App across Local and Personal
 
 The `[collection=notes]` page captures one Account and owns one App across `/local`
-and `/personal`. Its instance script opens the App; module imports, route
+and `/personal`. Its mounted AppBoot captures and opens the App; module imports, route
 preloading, sign-in, and callbacks acquire no primary App. Personal is the
 default destination; Local also works signed out.
 

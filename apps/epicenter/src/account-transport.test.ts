@@ -198,9 +198,9 @@ async function setup({
 			},
 		},
 	});
-	if (auth.state.status === 'signed-out')
-		throw new Error('Missing test account');
-	const account = auth.state.account;
+	const captured = auth.getState();
+	if (captured.status === 'signed-out') throw new Error('Missing test account');
+	const account = captured.account;
 	const bootstrap = {
 		state: { status: 'signed-in' as const, principalId: account.principalId },
 		baseURL,
@@ -250,13 +250,13 @@ async function setup({
 			acceptSignInCallback: () => false,
 			account,
 			bootSnapshot: bootstrap,
-			get state() {
-				return auth.state.status === 'signed-out' ||
-					auth.state.account !== account
+			getState() {
+				const state = auth.getState();
+				return state.status === 'signed-out' || state.account !== account
 					? { status: 'signed-out' as const }
 					: {
-							status: auth.state.status,
-							principalId: auth.state.account.principalId,
+							status: state.status,
+							principalId: state.account.principalId,
 						};
 			},
 			startSignIn: auth.startSignIn,
@@ -321,8 +321,9 @@ async function setup({
 		fetch: windowFetch,
 		WebSocket: WindowSocket,
 	});
-	const windowAuth = startup.auth!;
-	if (windowAuth.state.status === 'signed-out')
+	const windowAuth = startup!;
+	const windowState = windowAuth.getState();
+	if (windowState.status === 'signed-out')
 		throw new Error('Missing window account');
 	return {
 		origin,
@@ -331,7 +332,7 @@ async function setup({
 		uploadAborted,
 		localBlobs,
 		blobs,
-		account: windowAuth.state.account,
+		account: windowState.account,
 		windowAuth,
 		auth,
 		requests,
@@ -550,7 +551,7 @@ test('caller cancellation terminates its relayed stream without retiring the acc
 	await context.streamCancelled.promise;
 	await reader.cancel().catch(() => undefined);
 	expect((await context.account.fetch('/api/still-active')).status).toBe(201);
-	expect(context.windowAuth.state.status).toBe('signed-in');
+	expect(context.windowAuth.getState().status).toBe('signed-in');
 });
 
 test('an old window cannot relay through the successor credential after account replacement', async () => {
@@ -569,7 +570,7 @@ test('an old window cannot relay through the successor credential after account 
 	);
 	const response = await context.account.fetch('/api/old-window');
 	expect(response.status).toBe(401);
-	expect(context.windowAuth.state.status).toBe('signed-out');
+	expect(context.windowAuth.getState().status).toBe('signed-out');
 	expect(context.requests.some(({ bearer }) => bearer === 'Bearer bob')).toBe(
 		false,
 	);

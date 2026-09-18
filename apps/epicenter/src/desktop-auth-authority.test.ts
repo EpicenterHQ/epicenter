@@ -145,7 +145,7 @@ test('cancelling browser sign-in preserves the boot Account and releases applica
 	context.finish();
 	await Bun.sleep(0);
 	expect(context.authority.account).toBe(account);
-	expect(context.authority.state.status).toBe('signed-in');
+	expect(context.authority.getState().status).toBe('signed-in');
 	expect(context.writes).toEqual([]);
 	expect(resumed).toBe(1);
 	expect(context.events).not.toContain('relaunch');
@@ -295,7 +295,7 @@ test('sign-out clears native storage before requesting relaunch', async () => {
 	expectOk(await context.authority.signOut());
 	expect(context.writes).toEqual([null]);
 	expect(context.events).toEqual(['stored', 'relaunch']);
-	expect(context.authority.state).toEqual({ status: 'signed-out' });
+	expect(context.authority.getState()).toEqual({ status: 'signed-out' });
 });
 
 test('sign-out waits for revocation completion before native relaunch', async () => {
@@ -319,7 +319,7 @@ test('sign-out waits for revocation completion before native relaunch', async ()
 		await until(() => context.writes.length === 1);
 		// Allow the native continuation to run while the HTTP response is held.
 		await Bun.sleep(0);
-		expect(context.authority.state).toEqual({ status: 'signed-out' });
+		expect(context.authority.getState()).toEqual({ status: 'signed-out' });
 		expect(context.writes).toEqual([null]);
 		expect(responseReturned).toBe(false);
 		expect(context.events).toEqual(['stored']);
@@ -461,7 +461,7 @@ test('failed relaunch after replacement leaves the captured boot Account permane
 	context.finish('bob-1');
 	expect((await pending).error).not.toBeNull();
 	expect(context.authority.account).toBe(boot);
-	expect(context.authority.state).toEqual({ status: 'signed-out' });
+	expect(context.authority.getState()).toEqual({ status: 'signed-out' });
 	expect(context.authority.bootSnapshot.state).toEqual({
 		status: 'signed-in',
 		principalId: ApiSessionResponse.assert({ principalId: 'alice' })
@@ -487,7 +487,7 @@ test('a signed-out boot never acquires an Account when sign-in cannot relaunch',
 	context.finish();
 	expect((await pending).error).not.toBeNull();
 	expect(context.authority.account).toBeNull();
-	expect(context.authority.state).toEqual({ status: 'signed-out' });
+	expect(context.authority.getState()).toEqual({ status: 'signed-out' });
 	expect(context.authority.bootSnapshot.state).toEqual({
 		status: 'signed-out',
 	});
@@ -624,7 +624,7 @@ test.each([
 	else expectOk(await context.authority.signOut());
 	expect((await old).error).not.toBeNull();
 	expect(context.authority.account).toBe(account);
-	expect(context.authority.state.status).toBe(
+	expect(context.authority.getState().status).toBe(
 		action === 'cancel' ? 'signed-in' : 'signed-out',
 	);
 	const current = context.authority.startSignIn();
@@ -678,7 +678,7 @@ test('an instance boots offline with its own identity and disconnects without ho
 		context.authority.account!.authorityId!,
 	);
 	expect(context.authority.baseURL).toBe('http://localhost:8788');
-	expect(context.authority.bootSnapshot.signInLocation).toBe('host-settings');
+	expect(context.authority.bootSnapshot.startSignIn).toBe(false);
 	expectOk(await context.authority.signOut());
 	expect(context.writes).toEqual([
 		JSON.stringify({
@@ -704,7 +704,7 @@ test('the configured Cloud origin cannot be selected as a custom issuer', async 
 	expect(context.events).toEqual([]);
 	expect(context.revoked).toEqual([]);
 	expect(context.authority.account).toBe(boot);
-	expect(context.authority.state.status).toBe('signed-in');
+	expect(context.authority.getState().status).toBe('signed-in');
 });
 
 test('sign-out cancels issuer selection while the native close barrier is pending', async () => {
@@ -858,7 +858,7 @@ test('server selection owns and waits for the application close barrier', async 
 	await Bun.sleep(0);
 	expect((await context.authority.useCloud()).error).not.toBeNull();
 	expect(context.writes).toEqual([]);
-	expect(context.authority.state.status).toBe('signed-in');
+	expect(context.authority.getState().status).toBe('signed-in');
 	closed.resolve();
 	expectOk(await selecting);
 	expect(context.events.at(-1)).toBe('relaunch');
@@ -873,7 +873,7 @@ test('a failed application close refuses sign-out without changing credentials o
 	expect((await context.authority.signOut()).error).not.toBeNull();
 	expect(context.writes).toEqual([]);
 	expect(context.events).toEqual([]);
-	expect(context.authority.state.status).toBe('signed-in');
+	expect(context.authority.getState().status).toBe('signed-in');
 	expect((await context.authority.useCloud()).error).not.toBeNull();
 });
 
@@ -949,7 +949,7 @@ for (const failure of ['candidate-save', 'old-sign-out'] as const) {
 		expect(
 			(await context.authority.connectInstance('https://new.example')).error,
 		).not.toBeNull();
-		expect(context.authority.state.status).toBe('signed-out');
+		expect(context.authority.getState().status).toBe('signed-out');
 		expect(context.events).not.toContain('relaunch');
 		expectOk(await context.authority.cancelConnection());
 		expect(context.writes.at(-1)).toBe(
@@ -1005,7 +1005,7 @@ test('failed hosted replacement drains its persistence before recovering the ori
 	await until(() => context.urls.length === 1);
 	context.finish('bob-2');
 	await clearing.promise;
-	expect(context.authority.state.status).toBe('signed-out');
+	expect(context.authority.getState().status).toBe('signed-out');
 	expect(context.events).toEqual([]);
 	expect(resumed).toBe(false);
 	release.resolve();
@@ -1030,7 +1030,7 @@ test('URL-only selection persists a named issuer without treating the old static
 		origin: 'https://self.example',
 		auth: null,
 	});
-	expect(context.authority.state.status).toBe('signed-out');
+	expect(context.authority.getState().status).toBe('signed-out');
 	await expect(old.fetch('/api/example')).rejects.toThrow();
 	expect(context.urls).toEqual([]);
 	expect(context.events.at(-1)).toBe('relaunch');
@@ -1065,7 +1065,7 @@ test('a named issuer restores offline and repairs Alice through its own PKCE han
 		},
 	});
 	const account = context.authority.account!;
-	expect(context.authority.state).toMatchObject({
+	expect(context.authority.getState()).toMatchObject({
 		status: 'signed-in',
 		principalId: 'alice',
 	});
@@ -1080,7 +1080,7 @@ test('a named issuer restores offline and repairs Alice through its own PKCE han
 		'alice-1',
 	);
 	await expect(account.fetch('/api/example')).rejects.toThrow();
-	expect(context.authority.state.status).toBe('reauth-required');
+	expect(context.authority.getState().status).toBe('reauth-required');
 	expect(context.authority.account).toBe(account);
 	const signingIn = context.authority.startSignIn({ reauthenticate: true });
 	await until(() => context.urls.length === 1);
@@ -1121,7 +1121,7 @@ test('first issuer sign-in persists Alice for a new host without exposing creden
 	context.finish('alice-1');
 	expectOk(await signingIn);
 	expect(context.authority.account).toBeNull();
-	expect(context.authority.state.status).toBe('signed-out');
+	expect(context.authority.getState().status).toBe('signed-out');
 	expect(JSON.parse(context.writes.at(-1)!)).toEqual({
 		method: 'issuer',
 		origin: 'https://self.example',

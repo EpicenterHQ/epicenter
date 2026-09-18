@@ -4,52 +4,36 @@ import type { Account, AuthClient } from '@epicenter/auth';
 export function createDeparture({
 	auth,
 	account,
-	beforeClose,
+	preflight,
+	quiesce,
 	opening,
 }: {
 	auth?: Pick<AuthClient, 'onStateChange'>;
 	account?: Account;
-	beforeClose?: () => void | Promise<void>;
+	preflight?: () => Promise<void>;
+	quiesce?: () => Promise<void>;
 	opening?: Promise<{ signal: AbortSignal; close(): Promise<void> }>;
 }) {
 	let state: {
-		phase:
-			| 'open'
-			| 'checking'
-			| 'closing'
-			| 'closed'
-			| 'departing'
-			| 'retired'
-			| 'failed'
-			| 'opening-failed';
+		phase: 'open' | 'closing' | 'closed' | 'retired' | 'failed';
 		error: unknown;
 	} = { phase: 'open', error: null };
 	const listeners = new Set<() => void>();
-	let ui:
-		| {
-				preflight?: () => Promise<void>;
-				quiesce: () => Promise<void>;
-		  }
-		| undefined;
 	let closing: Promise<void> | undefined;
 	let departing: Promise<void> | undefined;
-	let endedBy: 'account' | 'data' | undefined;
+	let endedBy: 'account' | 'data' | 'unmount' | undefined;
 	let closedSuccessfully = false;
 	let stopRetirement: (() => void) | undefined;
 
 	function publish(phase: typeof state.phase, error: unknown = null) {
-		// Opening failure remains terminal even when departure was already underway.
-		if (state.phase === 'opening-failed') return;
 		state = { phase, error };
 		for (const listener of listeners) listener();
 	}
 	function finish() {
 		if (closing) return closing;
-		if (state.phase === 'opening-failed') return Promise.reject(state.error);
 		closing = Promise.resolve().then(async () => {
-			publish('checking');
 			try {
-				if (endedBy === undefined) await ui?.preflight?.();
+				if (endedBy === undefined) await preflight?.();
 			} catch (error) {
 				if (endedBy === undefined) {
 					closing = undefined;
@@ -59,8 +43,7 @@ export function createDeparture({
 			}
 			publish('closing');
 			try {
-				await ui?.quiesce();
-				await beforeClose?.();
+				await quiesce?.();
 				const app = await opening;
 				// No await separates detaching retirement from App's synchronous revocation.
 				stopRetirement?.();
@@ -97,10 +80,10 @@ export function createDeparture({
 				stopRetirement = () => signal.removeEventListener('abort', retired);
 			}
 		},
-		(error) => publish('opening-failed', error),
+		() => {},
 	);
 	return {
-		get state() {
+		getState() {
 			return state;
 		},
 		onChange(listener: () => void) {
@@ -109,14 +92,13 @@ export function createDeparture({
 				listeners.delete(listener);
 			};
 		},
-		/** Register the mounted page's DOM and producer cleanup before rendering it. */
-		attachUi(callbacks: NonNullable<typeof ui>) {
-			if (state.phase !== 'open') return;
-			if (ui) throw new Error('This page already has a UI owner.');
-			ui = callbacks;
-		},
 		/** Used by native close acknowledgments as well as deliberate departures. */
 		close: finish,
+		/** Teardown cannot be vetoed and must suppress a pending navigation. */
+		abandon() {
+			endedBy ??= 'unmount';
+			return finish();
+		},
 		/** The first request owns the action; later requests share its result. */
 		go(action: () => Promise<void> | void) {
 			if (departing) return departing;
@@ -127,9 +109,10 @@ export function createDeparture({
 						throw new Error(
 							endedBy === 'account'
 								? 'The account changed. Reopen the application.'
-								: 'The data was replaced. Reload the application.',
+								: endedBy === 'data'
+									? 'The data was replaced. Reload the application.'
+									: 'The application page closed.',
 						);
-					publish('departing');
 					await action();
 				} catch (error) {
 					if (state.phase === 'open' && endedBy === undefined)

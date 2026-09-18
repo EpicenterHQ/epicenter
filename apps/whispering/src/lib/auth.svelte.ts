@@ -1,9 +1,10 @@
 import { fromAuth } from '@epicenter/auth/svelte';
-import { authClient } from '#platform/auth';
+import { auth } from '#platform/auth';
 
-const auth = authClient.auth ? fromAuth(authClient.auth) : null;
+const reactiveAuth = auth ? fromAuth(auth) : null;
 
 export function getAuth() {
- if (!auth) throw new Error('Application UI requires a valid auth startup.');
- return auth;
+	if (!reactiveAuth)
+		throw new Error('Application UI requires a valid auth startup.');
+	return reactiveAuth;
 }

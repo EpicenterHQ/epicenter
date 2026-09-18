@@ -64,7 +64,7 @@ function setup(options: { fetch?: AuthFetch } = {}) {
 			return launches;
 		},
 		get account() {
-			const state = auth.state;
+			const state = auth.getState();
 			if (state.status === 'signed-out') throw new Error('No test account');
 			return state.account;
 		},
@@ -280,9 +280,10 @@ test('retirement aborts a real HTTP response stream after headers have returned'
 				},
 			},
 		});
-		if (auth.state.status === 'signed-out')
+		const captured = auth.getState();
+		if (captured.status === 'signed-out')
 			throw new Error('Expected cached identity');
-		const response = await auth.state.account.fetch('/stream');
+		const response = await captured.account.fetch('/stream');
 		const reader = response.body!.getReader();
 		expect(new TextDecoder().decode((await reader.read()).value)).toBe('first');
 		expectOk(await auth.signOut());
@@ -329,10 +330,11 @@ test('socket verification gates bearer emission and shares the result with HTTP'
 			return new Response(null, { status: 204 });
 		},
 	});
-	if (auth.state.status === 'signed-out')
+	const captured = auth.getState();
+	if (captured.status === 'signed-out')
 		throw new Error('Expected cached identity');
-	const socket = auth.state.account.openWebSocket(address);
-	const http = auth.state.account.fetch('/resource');
+	const socket = captured.account.openWebSocket(address);
+	const http = captured.account.fetch('/resource');
 	await entered.promise;
 	expect(openings).toEqual([]);
 	verification.resolve(Response.json({ principalId: 'alice' }));

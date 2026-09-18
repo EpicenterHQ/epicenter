@@ -1,70 +1,57 @@
 <script lang="ts">
-	import { AppBoot } from '@epicenter/app-shell/boot-screens';
-	import { Loading } from '@epicenter/ui/loading';
-	import { authClient } from '#platform/auth';
-	import { onMount, tick } from 'svelte';
+	import { AppBoot, SignInScreen } from '@epicenter/app-shell/boot-screens';
+	import type { Departure } from '@epicenter/app-shell/departure';
+	import { auth, serverSelection } from '#platform/auth';
+	import { whisperingDefinition } from '$lib/data.js';
 	import WhisperingShell from './_components/WhisperingShell.svelte';
 	import LibrarySelection from '$lib/components/LibrarySelection.svelte';
 
 	let { children: routeChildren } = $props();
-	let application = $state.raw<Awaited<ReturnType<typeof import('$lib/application.js')['openApplication']>>>();
-	let error = $state('');
-	let showing = $state(true);
+	const connecting = !auth || new URLSearchParams(location.search).has('connect');
+	const library = (() => {
+		if (!auth?.getState().account) return 'local';
+		const saved = localStorage.getItem('whispering.library');
+		if (saved === null) return 'personal';
+		if (saved === 'local' || saved === 'personal' || saved === 'shared') return saved;
+		throw new Error('Your saved library choice could not be read.');
+	})();
 	let shell: WhisperingShell | undefined = $state();
-	let closeUi: (() => Promise<void>) | undefined;
-	onMount(() => {
-		let stopped = false;
-		void import('$lib/application.js').then(async ({ openApplication }) => {
-			if (stopped) return;
-			const opened = await openApplication();
-			if (stopped) { await opened.departure.close(); return; }
-			opened.departure.attachUi({
-				async preflight() {
-					const ready = await opened.opening;
-					if (!ready) return;
-					if (shell) await shell.preflight();
-					else {
-						const recovered = await ready.app.device.recording.current();
-						if (recovered.error) throw recovered.error;
-						if (recovered.data) throw new Error('Finish recording before closing Whispering.');
-					}
-				},
-				async quiesce() {
-					if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-					closeUi ??= shell?.close;
-					const closingUi = closeUi?.();
-					showing = false;
-					await tick();
-					await closingUi;
-				},
-			});
-			application = opened;
-		}).catch((cause) => { error = cause instanceof Error ? cause.message : 'Could not open Whispering.'; });
-		return () => { stopped = true; };
-	});
+	function selectLibrary(next: typeof library, leave?: Departure['go']) {
+		if (next === library) return Promise.resolve();
+		const navigate = () => {
+			localStorage.setItem('whispering.library', next);
+			location.assign(location.pathname + (!auth?.getState().account && next !== 'local' ? '?connect' : ''));
+		};
+		if (leave) return leave(navigate);
+		navigate();
+		return Promise.resolve();
+	}
 </script>
 
-{#if error}
-	<p role="alert">{error}</p>
-{:else if application}
-	{#snippet libraryMenu()}
-		{#if application}
-		<LibrarySelection library={application.library} canOpenShared={application.canOpenShared} select={application.selectLibrary} />
-		{/if}
-	{/snippet}
-	{#if !application.opening}<div class="p-3">{@render libraryMenu()}</div>{/if}
-	<AppBoot startup={authClient} departure={application.departure} opening={application.opening} appName="Whispering" noun="recordings">
+{#snippet libraryMenu(leave?: Departure['go'])}
+	<LibrarySelection {library} canOpenShared={auth?.getState().account?.supportsShared ?? false} select={(next) => selectLibrary(next, leave)} />
+{/snippet}
+
+{#if connecting}
+	<div class="p-3">{@render libraryMenu()}</div>
+	<SignInScreen {auth} selection={serverSelection} appName="Whispering" noun="recordings"
+		onCancel={() => location.replace(location.pathname)} />
+{:else}
+	<AppBoot {auth} definition={whisperingDefinition} selection={serverSelection} ui={shell}
+		appName="Whispering" noun="recordings">
 		{#snippet openingFailure()}
 			<div class="p-3">{@render libraryMenu()}</div>
 		{/snippet}
-		{#snippet children({ app, data })}
-		{#if application?.selections && showing}
-			<WhisperingShell {libraryMenu} selections={application.selections} openedApp={app} {data} account={application.account} bind:this={shell}>
-				{@render routeChildren()}
-			</WhisperingShell>
-		{/if}
+		{#snippet children(app, leave, account)}
+			{#snippet menu()}{@render libraryMenu(leave)}{/snippet}
+			{@const data = library === 'local' ? app.device : library === 'personal' ? app.account?.personal : app.account?.shared}
+			{#if data}
+				<WhisperingShell libraryMenu={menu} openedApp={app} {data} {account} bind:this={shell}>
+					{@render routeChildren()}
+				</WhisperingShell>
+			{:else}
+				<div class="p-3">{@render menu()}<p>Sign in to use this library.</p></div>
+			{/if}
 		{/snippet}
 	</AppBoot>
-{:else}
-	<Loading class="h-dvh" label="Opening your recordings…" />
 {/if}

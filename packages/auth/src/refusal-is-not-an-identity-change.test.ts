@@ -21,13 +21,13 @@ test('session refusal preserves the captured Account', async () => {
 		},
 		fetch: async () => new Response(null, { status: 401 }),
 	});
-	const before = auth.state;
+	const before = auth.getState();
 	if (before.status === 'signed-out')
 		throw new Error('Expected cached identity');
 	await expect(before.account.fetch('/resource')).rejects.toMatchObject({
 		code: 'reauth-required',
 	});
-	expect(auth.state).toEqual({
+	expect(auth.getState()).toEqual({
 		status: 'reauth-required',
 		account: before.account,
 	});

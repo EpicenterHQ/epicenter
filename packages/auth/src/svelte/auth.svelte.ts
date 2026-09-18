@@ -1,6 +1,6 @@
 import { createSubscriber } from 'svelte/reactivity';
 import type { Brand } from 'wellcrafted/brand';
-import type { AuthClient } from '../index.js';
+import type { AuthClient, AuthState } from '../index.js';
 
 /**
  * An auth client whose `state` tracks in Svelte.
@@ -21,7 +21,7 @@ import type { AuthClient } from '../index.js';
  * annotation still means what it meant.
  */
 export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> =
-	TClient & Brand<'ReactiveAuthClient'>;
+	TClient & { readonly state: AuthState } & Brand<'ReactiveAuthClient'>;
 
 /**
  * Bridge an auth client's state into Svelte's graph.
@@ -41,16 +41,15 @@ export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> =
  * wrap a client this module had not anticipated. One function takes any of
  * them.
  *
- * It spreads the client once and re-declares its state getter, so a client whose
- * OTHER members are live getters loses them. Every client in this package
- * states the rest as values, which is what makes the spread safe.
+ * Core clients expose `getState()` for explicit reads. This adapter adds the
+ * reactive `state` property and copies the client's methods and values.
  *
  * `createSubscriber` rather than a `$state.raw` shadow, and the difference is
  * not style. It is lazy: the subscription starts only while something is
  * actively reading inside a tracking context, and stops when the last reader
  * is destroyed. That is what lets one wrapped client serve both contracts at
  * once, because a boot-time read outside any effect subscribes to nothing and
- * simply falls through to the live getter. A shadow would subscribe eagerly,
+ * simply calls `getState()`. A shadow would subscribe eagerly,
  * once per component instance, for that component's whole life.
  *
  */
@@ -64,7 +63,7 @@ export function fromAuth<TClient extends AuthClient>(
 		...authClient,
 		get state() {
 			subscribeState();
-			return authClient.state;
+			return authClient.getState();
 		},
 	} as ReactiveAuthClient<TClient>;
 }

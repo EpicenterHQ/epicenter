@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
+	import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference-selections';
+	import { attachApplication } from '$lib/application.js';
 	import { recordingActive } from '$lib/state/recording-active.svelte';
 	import type { Account } from "@epicenter/auth";
 	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
@@ -28,7 +29,6 @@
 	let {
 		openedApp,
 		data,
-		selections,
 		account,
 		removeLocalData,
 		libraryMenu,
@@ -37,7 +37,6 @@
 		/** The ready framework App, owned and closed by the application document. */
 		openedApp: WhisperingAppHandle;
 		data: WhisperingData;
-		selections: InferenceSelections;
 		account: Account | undefined;
 		/**
 		 * Sign out and remove this account's local data, owned by the session
@@ -48,6 +47,11 @@
 		children: Snippet;
 		libraryMenu: Snippet;
 	} = $props();
+
+	// svelte-ignore state_referenced_locally
+	const selections = createBrowserInferenceSelections('whispering', openedApp.account?.identity);
+	// svelte-ignore state_referenced_locally
+	const detachApplication = attachApplication(openedApp, selections);
 
 	// One mount creates one UI session over the captured framework App.
 	/* svelte-ignore state_referenced_locally */
@@ -67,12 +71,16 @@
 			throw new Error('Finish recording and wait for it to save before closing Whispering.');
 	}
 
+	let closing: Promise<void> | undefined;
 	export function close(): Promise<void> {
-		return session[Symbol.asyncDispose]();
+		return closing ??= session[Symbol.asyncDispose]().then(() => {
+			selections[Symbol.dispose]();
+			detachApplication();
+		});
 	}
 
 	onDestroy(() =>
-		void session[Symbol.asyncDispose]().catch((cause: unknown) => {
+		void close().catch((cause: unknown) => {
 			log.warn(WhisperingUiSessionError.TeardownFailed({ cause }));
 		}),
 	);

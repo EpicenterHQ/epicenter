@@ -6,6 +6,7 @@
  * Run: bun packages/app-shell/smoke/app-boot.browser.mjs
  */
 import assert from 'node:assert/strict';
+import { observeBoot } from './observe-boot.mjs';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -67,7 +68,7 @@ const { chromium, webkit } = dataRequire('playwright');
 const server = await createServer({
 	configFile: false,
 	root: fixture,
-	plugins: [svelte({ configFile: false })],
+	plugins: [observeBoot(), svelte({ configFile: false })],
 	resolve: { dedupe: ['svelte'] },
 	server: {
 		host: '127.0.0.1',
@@ -97,7 +98,13 @@ try {
 					0,
 				);
 				await page.evaluate(() => window.bootProbe.releaseOpening());
-				await page.getByRole('button', { name: 'Choose connection' }).waitFor();
+				await page
+					.getByRole('button', { name: 'Choose connection' })
+					.waitFor()
+					.catch(async (error) => {
+						console.error(await page.locator('body').innerText(), errors);
+						throw error;
+					});
 			} else {
 				await page.getByRole('button', { name: 'Reload' }).waitFor();
 				assert.equal(
@@ -121,7 +128,10 @@ try {
 			page.on('pageerror', (error) => errors.push(error.message));
 			await page.goto(`${origin}?local&opening=held`);
 			await page.getByText('Opening your changes…').waitFor();
-			await page.evaluate(() => window.destroyBoot());
+			await page.evaluate(() => {
+				window.bootProbe.refuse = true;
+				return window.destroyBoot();
+			});
 			assert.equal(await page.locator('#app').innerHTML(), '');
 			assert.equal(
 				await page.evaluate(() => window.bootProbe.events.includes('closed')),
@@ -137,15 +147,85 @@ try {
 			);
 			const events = await page.evaluate(() => window.bootProbe.events);
 			assert(!events.includes('session-mounted'));
-			assert(events.includes('producer-done'));
-			assert(events.indexOf('closed') > events.indexOf('producer-done'));
-			assert(events.indexOf('closed') > events.indexOf('commit-end'));
+			assert(!events.includes('producer-stop'));
 			assert.deepEqual(errors, []);
 			await page.close();
 			console.log(
 				`AppBoot ${engine.name()}: unresolved opening closes after unmount.`,
 			);
 		}
+		{
+			const page = await browser.newPage();
+			page.setDefaultTimeout(10_000);
+			await page.goto(`${origin}?local`);
+			await page.getByRole('button', { name: 'Choose connection' }).waitFor();
+			await page.evaluate(() => {
+				window.bootProbe.refuse = true;
+				return window.destroyBoot();
+			});
+			await page.waitForFunction(() =>
+				window.bootProbe.events.includes('producer-stop'),
+			);
+			assert.equal(
+				await page.evaluate(() => window.bootProbe.events.includes('closed')),
+				false,
+			);
+			await page.evaluate(() => {
+				window.bootProbe.releaseProducer();
+				window.bootProbe.releaseCommit();
+			});
+			await page.waitForFunction(() =>
+				window.bootProbe.events.includes('closed'),
+			);
+			const events = await page.evaluate(() => window.bootProbe.events);
+			assert(events.indexOf('closed') > events.indexOf('producer-done'));
+			await page.close();
+			console.log(
+				`AppBoot ${engine.name()}: mounted producer drains after unmount.`,
+			);
+		}
+
+		{
+			const page = await browser.newPage();
+			page.setDefaultTimeout(10_000);
+			await page.goto(`${origin}?local&opening=held`);
+			await page.getByText('Opening your changes…').waitFor();
+			await page.evaluate(() => {
+				window.bootProbe.refuse = true;
+				window.observedBoot.departure.close().catch((error) => {
+					window.closeRefusal = error.message;
+				});
+				window.bootProbe.releaseOpening();
+			});
+			await page.waitForFunction(
+				() => window.closeRefusal === 'Stop recording first.',
+			);
+			assert(
+				await page
+					.getByRole('button', { name: 'Choose connection' })
+					.isVisible(),
+			);
+			assert.equal(
+				await page.evaluate(() =>
+					window.bootProbe.events.includes('producer-stop'),
+				),
+				false,
+			);
+			await page.evaluate(async () => {
+				window.bootProbe.refuse = false;
+				window.bootProbe.releaseProducer();
+				window.bootProbe.releaseCommit();
+				await window.observedBoot.departure.close();
+			});
+			assert(
+				await page.evaluate(() => window.bootProbe.events.includes('closed')),
+			);
+			await page.close();
+			console.log(
+				`AppBoot ${engine.name()}: close during opening awaits mounted preflight.`,
+			);
+		}
+
 		for (const local of [false, true]) {
 			const page = await browser.newPage();
 			page.setDefaultTimeout(10_000);
@@ -153,7 +233,13 @@ try {
 			const errors = [];
 			page.on('pageerror', (error) => errors.push(error.message));
 			await page.goto(origin + (local ? '?local' : ''));
-			await page.getByRole('button', { name: 'Choose connection' }).waitFor();
+			await page
+				.getByRole('button', { name: 'Choose connection' })
+				.waitFor()
+				.catch(async (error) => {
+					console.error(await page.locator('body').innerText(), errors);
+					throw error;
+				});
 			await page.evaluate(() => {
 				window.bootProbe.refuse = true;
 			});
@@ -199,7 +285,13 @@ try {
 			assert(events.indexOf('closed') > events.indexOf('commit-end'));
 			assert(!events.includes('candidate-verified'));
 			await page.getByRole('button', { name: 'Back to Probe' }).click();
-			await page.getByRole('button', { name: 'Choose connection' }).waitFor();
+			await page
+				.getByRole('button', { name: 'Choose connection' })
+				.waitFor()
+				.catch(async (error) => {
+					console.error(await page.locator('body').innerText(), errors);
+					throw error;
+				});
 			await page.evaluate(() => {
 				window.bootProbe.releaseProducer();
 				window.bootProbe.releaseCommit();

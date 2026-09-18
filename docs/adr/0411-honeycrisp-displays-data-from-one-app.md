@@ -4,11 +4,13 @@
 - **Date:** 2026-09-18
 - **Amends:** [ADR-0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) for Honeycrisp's page composition and view navigation.
 
+- **Amended by:** [ADR-0413](0413-app-boot-owns-the-working-page-lifetime.md) for shared boot ownership.
+
 ## Decision
 
 Honeycrisp opens one App for the working page's lifetime. Its matched notes
-route captures one Account and calls `openApp` in the component instance
-script. A stable promise supplies the ready App to rendering. Importing or
+route mounts AppBoot, which captures one Account and calls `openApp` in its
+component instance script. A stable promise supplies the ready App to rendering. Importing or
 preloading routes acquires no App; sign-in and callback routes own none.
 
 `/personal` displays `app.account.personal`; `/local` displays `app.device`.

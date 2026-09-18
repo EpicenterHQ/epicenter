@@ -262,6 +262,11 @@ test('Account replacement drains raw transcription without starting Polish or de
 	const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
 	let onAccountChange: (next: AuthState) => void = () => {};
 	const departure = createDeparture({
+		quiesce: async () => {
+			recordingEnabled = false;
+			quiescing.resolve();
+			await processing;
+		},
 		account: app.account,
 		auth: {
 			onStateChange(listener) {
@@ -269,21 +274,18 @@ test('Account replacement drains raw transcription without starting Polish or de
 				return () => {};
 			},
 		},
-		beforeClose: async () => {
-			lifetime.abort();
-		},
+		opening: Promise.resolve({
+			signal: lifetime.signal,
+			async close() {
+				lifetime.abort();
+			},
+		}),
 	});
 	const processing = processRecordingPipeline(app, {
 		transcribe: async () => Ok('captured transcription'),
 		recordingId: recording.id,
 	});
-	departure.attachUi({
-		quiesce: async () => {
-			recordingEnabled = false;
-			quiescing.resolve();
-			await processing;
-		},
-	});
+
 	await entered.promise;
 	onAccountChange({ status: 'signed-out' });
 	await quiescing.promise;

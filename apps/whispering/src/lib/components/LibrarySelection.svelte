@@ -5,7 +5,7 @@
 	import LibraryIcon from '@lucide/svelte/icons/library';
 	import { Err, tryAsync } from 'wellcrafted/result';
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import type { Library } from '../bootstrap.js';
+	type Library = 'local' | 'personal' | 'shared';
 
 	let { library, canOpenShared, select }: {
 		library: Library;

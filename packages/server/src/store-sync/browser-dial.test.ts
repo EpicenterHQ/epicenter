@@ -147,6 +147,7 @@ function upgradeRequest(opening: Opening, protocols = opening.protocols) {
 async function dial(): Promise<Opening> {
 	const { promise: opened, resolve } = Promise.withResolvers<Opening>();
 	const auth = createBrowserAuth(resolve);
+	const state = auth.getState();
 	const store = await openStore();
 	await using _store = store;
 	const connection = attachStoreSync({
@@ -162,11 +163,11 @@ async function dial(): Promise<Opening> {
 			generation: 1,
 		},
 		transport:
-			auth.state.status === 'signed-out'
+			state.status === 'signed-out'
 				? (() => {
 						throw new Error('No test account');
 					})()
-				: auth.state.account,
+				: state.account,
 		onTransportError: (cause) => {
 			throw cause;
 		},

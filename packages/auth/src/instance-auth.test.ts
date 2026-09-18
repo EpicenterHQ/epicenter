@@ -46,9 +46,9 @@ function setup(
 			return saved;
 		},
 		get account() {
-			if (auth.state.status === 'signed-out')
-				throw new Error('Expected account');
-			return auth.state.account;
+			const state = auth.getState();
+			if (state.status === 'signed-out') throw new Error('Expected account');
+			return state.account;
 		},
 		[Symbol.dispose]() {
 			auth[Symbol.dispose]();
@@ -67,7 +67,7 @@ test('first enrollment waits for verification and disconnect never revokes the s
 	});
 	const signingIn = context.auth.signIn('operator-token');
 	await entered.promise;
-	expect(context.auth.state.status).toBe('signed-out');
+	expect(context.auth.getState().status).toBe('signed-out');
 	expect(context.saved).toBeNull();
 	verified.resolve(Response.json({ principalId: 'instance' }));
 	expectOk(await signingIn);
@@ -91,7 +91,7 @@ for (const status of [401, 503]) {
 			fetch: async () => new Response(null, { status }),
 		});
 		expectErr(await context.auth.signIn('operator-token'));
-		expect(context.auth.state.status).toBe('signed-out');
+		expect(context.auth.getState().status).toBe('signed-out');
 		expect(context.saved).toBeNull();
 		expect(context.requests).toHaveLength(1);
 	});
@@ -112,7 +112,7 @@ test('cancelled token verification cannot reconnect after disconnect even when t
 	verified.resolve(Response.json({ principalId: 'instance' }));
 	expectErr(await signingIn);
 	await Promise.resolve();
-	expect(context.auth.state.status).toBe('signed-out');
+	expect(context.auth.getState().status).toBe('signed-out');
 	expect(context.saved).toBeNull();
 	expect(context.requests).toHaveLength(1);
 });
@@ -156,9 +156,9 @@ test('a refused instance credential reauthenticates the same Account with the en
 	});
 	const account = context.account;
 	await expect(account.fetch('/resource')).rejects.toBeDefined();
-	expect(context.auth.state.status).toBe('reauth-required');
+	expect(context.auth.getState().status).toBe('reauth-required');
 	expectOk(await context.auth.signIn('replacement'));
-	expect(context.auth.state.status).toBe('signed-in');
+	expect(context.auth.getState().status).toBe('signed-in');
 	expect(context.account).toBe(account);
 	expect(context.saved?.token).toBe('replacement');
 	await account.fetch('/resource');
@@ -170,7 +170,7 @@ test('an unexpected principal cannot enroll or replace an instance Account', asy
 		fetch: async () => Response.json({ principalId: 'cloud-person' }),
 	});
 	expectErr(await enrollment.auth.signIn('wrong-server-token'));
-	expect(enrollment.auth.state.status).toBe('signed-out');
+	expect(enrollment.auth.getState().status).toBe('signed-out');
 	expect(enrollment.saved).toBeNull();
 
 	using reentry = setup({
@@ -189,7 +189,7 @@ test('a cached non-instance principal remains stored without publishing an Accou
 		principalId: asPrincipalId('cloud-person'),
 	};
 	using context = setup({ initial });
-	expect(context.auth.state.status).toBe('signed-out');
+	expect(context.auth.getState().status).toBe('signed-out');
 	expect(context.saved).toBe(initial);
 	expect(context.requests).toHaveLength(0);
 });

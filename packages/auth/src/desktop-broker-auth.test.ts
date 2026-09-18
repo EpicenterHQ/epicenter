@@ -17,6 +17,7 @@
 import { expect, test } from 'bun:test';
 import { asPrincipalId } from '@epicenter/principal';
 import { MAIN_SUBPROTOCOL } from '@epicenter/sync';
+import { expectErr } from 'wellcrafted/testing';
 import { type AuthFetch, isCallbackAuthClient } from './auth-contract.ts';
 import {
 	createDesktopBrokerAuth,
@@ -27,7 +28,10 @@ const bootstrap = {
 	state: { status: 'signed-in', principalId: asPrincipalId('alice') },
 	authorityId: 'test-server',
 	baseURL: 'https://api.epicenter.so',
-	startSignIn: true, accountManagement: true, recovery: false, selectedServer: null,
+	startSignIn: true,
+	accountManagement: true,
+	recovery: false,
+	selectedServer: null,
 } as const;
 
 function recordingFetch(
@@ -42,6 +46,27 @@ function recordingFetch(
 	return { calls, fetch };
 }
 
+test('recovery exposes a signed-out client without account access or sign-in', async () => {
+	const { calls, fetch } = recordingFetch(() => new Response('unexpected'));
+	using auth = createDesktopBrokerAuth({
+		bootstrap: {
+			...bootstrap,
+			state: { status: 'signed-out' },
+			recovery: true,
+			startSignIn: false,
+			accountManagement: false,
+		},
+		brokerBaseURL: 'http://127.0.0.1:39130',
+		fetch,
+	});
+
+	expect(auth.getState()).toEqual({ status: 'signed-out' });
+	expect(auth.startSignIn).toBeUndefined();
+	expect(auth.accountManagementUrl).toBeUndefined();
+	expectErr(await auth.getProfile());
+	expect(calls).toHaveLength(0);
+});
+
 test('window fetch attaches no credential to any request', async () => {
 	const { calls, fetch } = recordingFetch(() => new Response('ok'));
 	const startup = createDesktopBrokerAuth({
@@ -49,7 +74,7 @@ test('window fetch attaches no credential to any request', async () => {
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch,
 	});
-	const auth = startup.auth!;
+	const auth = startup!;
 
 	await selectedAccount(auth).fetch('https://api.epicenter.so/api/session');
 	await expect(
@@ -78,7 +103,7 @@ test('desktop account POST preserves binary and multipart bodies as replayable b
 			return new Response(null, { status: 204 });
 		},
 	});
-	const account = selectedAccount(startup.auth!);
+	const account = selectedAccount(startup!);
 	try {
 		await account.fetch('/api/current?generation=1', {
 			method: 'POST',
@@ -115,7 +140,7 @@ test('desktop account POST preserves binary and multipart bodies as replayable b
 		expect(file).toBeInstanceOf(File);
 		expect(new Uint8Array(await (file as File).arrayBuffer())).toEqual(binary);
 	} finally {
-		startup[Symbol.dispose]();
+		startup?.[Symbol.dispose]();
 	}
 });
 
@@ -137,19 +162,19 @@ for (const interruption of ['account retirement', 'request cancellation']) {
 			},
 		});
 		const controller = new AbortController();
-		const pending = selectedAccount(startup.auth!).fetch('/api/current', {
+		const pending = selectedAccount(startup!).fetch('/api/current', {
 			method: 'POST',
 			body,
 			signal: controller.signal,
 		});
-		if (interruption === 'account retirement') startup[Symbol.dispose]();
+		if (interruption === 'account retirement') startup?.[Symbol.dispose]();
 		else controller.abort();
 		try {
 			await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
 			expect(dispatched).toBe(false);
 			expect(cancelled).toBe(true);
 		} finally {
-			startup[Symbol.dispose]();
+			startup?.[Symbol.dispose]();
 		}
 	});
 }
@@ -163,7 +188,7 @@ test('account commands post to the same-origin broker with cookies', async () =>
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch,
 	});
-	const auth = startup.auth!;
+	const auth = startup!;
 
 	expect((await auth.startSignIn!({ reauthenticate: true })).error).toBeNull();
 	expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
@@ -190,7 +215,7 @@ test('a failed broker command returns a typed auth error', async () => {
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch,
 	});
-	const auth = startup.auth!;
+	const auth = startup!;
 
 	const { error } = await auth.startSignIn!();
 	expect(error?.name).toBe('StartSignInFailed');
@@ -207,7 +232,7 @@ test('getProfile reads the broker projection, never the server transport', async
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch,
 	});
-	const auth = startup.auth!;
+	const auth = startup!;
 
 	const profile = await auth.getProfile();
 	expect(profile.error).toBeNull();
@@ -227,7 +252,7 @@ test('a retired desktop account cannot open a socket', async () => {
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch: async () => new Response(null, { status: 202 }),
 	});
-	const auth = startup.auth!;
+	const auth = startup!;
 	const account = selectedAccount(auth);
 	await auth.signOut();
 	await expect(
@@ -248,7 +273,7 @@ test('a late HTTP completion cannot republish an account after sign-out', async 
 				? response.promise
 				: new Response(null, { status: 202 }),
 	});
-	const auth = startup.auth!;
+	const auth = startup!;
 	const account = selectedAccount(auth);
 	const pending = account
 		.fetch('/api/example')
@@ -260,7 +285,7 @@ test('a late HTTP completion cannot republish an account after sign-out', async 
 		}),
 	);
 	expect(await pending).toMatchObject({ name: 'AbortError' });
-	expect(auth.state).toEqual({ status: 'signed-out' });
+	expect(auth.getState()).toEqual({ status: 'signed-out' });
 });
 
 test('the instance broker exposes its destination and delegates token entry to Home', () => {
@@ -269,17 +294,17 @@ test('the instance broker exposes its destination and delegates token entry to H
 			state: { status: 'signed-in', principalId: asPrincipalId('instance') },
 			authorityId: 'test-server',
 			baseURL: 'https://epicenter.example.com',
-			startSignIn: false, accountManagement: false, recovery: false, selectedServer: 'https://epicenter.example.com',
-			signInLocation: 'host-settings',
+			startSignIn: false,
+			accountManagement: false,
+			recovery: false,
+			selectedServer: 'https://epicenter.example.com',
 		},
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch: async () => new Response('ok'),
 	});
-	const auth = startup.auth!;
+	const auth = startup!;
 
 	expect(auth.baseURL).toBe('https://epicenter.example.com');
-	expect(startup.selectedServer).toBe('https://epicenter.example.com');
-	expect(startup.signInLocation).toBe('host-settings');
 	expect(auth.startSignIn).toBeUndefined();
 });
 
@@ -342,19 +367,22 @@ test('a desktop window is not a callback client', () => {
 			state: { status: 'signed-out' },
 			authorityId: 'test-server',
 			baseURL: 'https://api.epicenter.test',
-			startSignIn: true, accountManagement: true, recovery: false, selectedServer: null,
+			startSignIn: true,
+			accountManagement: true,
+			recovery: false,
+			selectedServer: null,
 		},
 		brokerBaseURL: 'http://127.0.0.1:4242',
 		fetch: async () => new Response(null, { status: 204 }),
 	});
-	const auth = startup.auth!;
+	const auth = startup!;
 
 	expect(isCallbackAuthClient(auth)).toBe(false);
 	auth[Symbol.dispose]();
 });
 
 function selectedAccount(auth: import('./auth-contract.js').AuthClient) {
-	const state = auth.state;
+	const state = auth.getState();
 	if (state.status === 'signed-out')
 		throw new Error('Expected a selected account');
 	return state.account;
@@ -374,16 +402,16 @@ test('an older success response cannot erase a newer desktop credential refusal'
 						headers: { 'x-epicenter-auth-state': 'reauth-required' },
 					}),
 	});
-	const auth = startup.auth!;
+	const auth = startup!;
 	const account = selectedAccount(auth);
 	const first = account.fetch('/api/old');
 	await account.fetch('/api/new');
-	expect(auth.state.status).toBe('reauth-required');
+	expect(auth.getState().status).toBe('reauth-required');
 	old.resolve(
 		new Response(null, { headers: { 'x-epicenter-auth-state': 'signed-in' } }),
 	);
 	await first;
-	expect(auth.state.status).toBe('reauth-required');
+	expect(auth.getState().status).toBe('reauth-required');
 	expect(selectedAccount(auth)).toBe(account);
 	auth[Symbol.dispose]();
 });
@@ -395,13 +423,13 @@ test('voluntary sign-out preserves the child Account until the host close barrie
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch: async () => barrier.promise,
 	});
-	const auth = startup.auth!;
+	const auth = startup!;
 	const account = selectedAccount(auth);
 	const signingOut = auth.signOut();
 	expect(selectedAccount(auth)).toBe(account);
 	barrier.resolve(new Response(null, { status: 202 }));
 	await signingOut;
-	expect(auth.state.status).toBe('signed-out');
+	expect(auth.getState().status).toBe('signed-out');
 });
 
 test('a refused host close barrier leaves the child Account usable', async () => {
@@ -411,7 +439,7 @@ test('a refused host close barrier leaves the child Account usable', async () =>
 		fetch: async () =>
 			new Response('Recording in another window', { status: 409 }),
 	});
-	const auth = startup.auth!;
+	const auth = startup!;
 	const account = selectedAccount(auth);
 	const result = await auth.signOut();
 	expect(result.error?.name).toBe('SignOutFailed');

@@ -16,12 +16,12 @@ test('the composed browser callback client exposes non-destructive sign-in cance
 	const client = startup.auth;
 	if (!client || !isCallbackAuthClient(client))
 		throw new Error('Expected a callback client');
-	if (client.state.status === 'signed-out')
+	if (client.getState().status === 'signed-out')
 		throw new Error('Expected a stored Account');
-	const account = client.state.account;
+	const account = client.getState().account;
 	await client.cancelSignIn();
-	expect(client.state.status).toBe('signed-in');
-	expect(client.state.account).toBe(account);
+	expect(client.getState().status).toBe('signed-in');
+	expect(client.getState().account).toBe(account);
 	expect(environment.cells.get(key)).toBe(credential);
 	expect(environment.navigations).toEqual([]);
 });
@@ -102,13 +102,13 @@ test('server replacement retires the captured Account and separates Alice on two
 			JSON.stringify({ token: 'alice-session', principalId: 'alice' }),
 		);
 	using first = environment.create();
-	const state = first.auth!.state;
+	const state = first.auth!.getState();
 	if (state.status === 'signed-out') throw new Error('Expected Alice');
 	expectOk(await first.connectInstance({ url: 'https://second.test' }));
 	expect(state.account.baseURL).toBe('https://first.test');
 	await expect(state.account.fetch('/resource')).rejects.toBeDefined();
 	using second = environment.create();
-	const next = second.auth!.state;
+	const next = second.auth!.getState();
 	if (next.status === 'signed-out') throw new Error('Expected Alice');
 	expect(next.account.authorityId).not.toBe(state.account.authorityId);
 	expect(next.account.principalId).toBe(state.account.principalId);
@@ -185,7 +185,7 @@ test.each([
 	expect(environment.cells.get(key)).toBe(credential);
 	using recovered = environment.create();
 	expect(recovered.selectedServer).toBeNull();
-	expect(recovered.auth!.state.status).toBe('signed-in');
+	expect(recovered.auth!.getState().status).toBe('signed-in');
 });
 
 test('historical instance restoration keeps its identity until explicit issuer selection', async () => {
@@ -198,7 +198,7 @@ test('historical instance restoration keeps its identity until explicit issuer s
 	);
 	using old = environment.create();
 	expect(old.auth!.startSignIn).toBeUndefined();
-	const state = old.auth!.state;
+	const state = old.auth!.getState();
 	if (state.status === 'signed-out')
 		throw new Error('Expected historical identity');
 	expect(state.account.principalId).toBe(asPrincipalId('instance'));
@@ -206,7 +206,7 @@ test('historical instance restoration keeps its identity until explicit issuer s
 	expect(environment.requests).toHaveLength(0);
 	expectOk(await old.connectInstance({}));
 	using next = environment.create();
-	expect(next.auth!.state.status).toBe('signed-out');
+	expect(next.auth!.getState().status).toBe('signed-out');
 	expect(next.auth!.startSignIn).toBeFunction();
 	await expect(state.account.fetch('/resource')).rejects.toBeDefined();
 });
@@ -247,8 +247,8 @@ test('hosted credentials are restored only at their saved server origin', () => 
 	);
 	using first = environment.create('https://first.test');
 	using second = environment.create('https://second.test');
-	expect(first.auth!.state.status).toBe('signed-in');
-	expect(second.auth!.state.status).toBe('signed-out');
+	expect(first.auth!.getState().status).toBe('signed-in');
+	expect(second.auth!.getState().status).toBe('signed-out');
 });
 
 test('URL-only selection opens the named issuer with callback support and no Cloud management', async () => {
@@ -289,14 +289,14 @@ test('named issuer restores Alice offline without adopting the historical instan
 		throw new TypeError('Offline');
 	});
 	using startup = environment.create();
-	const state = startup.auth!.state;
+	const state = startup.auth!.getState();
 	if (state.status === 'signed-out') throw new Error('Expected cached Alice');
 	expect(state.account.principalId).toBe(asPrincipalId('alice'));
 	expect(state.account.supportsShared).toBe(true);
 	expect(state.account.authorityId).not.toBe('epicenter-api');
 	expect(environment.requests).toHaveLength(0);
 	await expect(state.account.fetch('/resource')).rejects.toBeDefined();
-	expect(startup.auth!.state).toEqual({
+	expect(startup.auth!.getState()).toEqual({
 		status: 'signed-in',
 		account: state.account,
 	});
@@ -325,9 +325,9 @@ test('the configured Cloud origin cannot become a second authority through custo
 		JSON.stringify({ token: 'cloud', principalId: 'alice' }),
 	);
 	using startup = environment.create();
-	const account = startup.auth!.state;
+	const account = startup.auth!.getState();
 	expectErr(await startup.connectInstance({ url: 'https://hosted.test/' }));
-	expect(startup.auth!.state).toEqual(account);
+	expect(startup.auth!.getState()).toEqual(account);
 	expect(environment.cells.has('test.auth.server')).toBe(false);
 	expect(environment.requests).toHaveLength(0);
 	expect(environment.navigations).toHaveLength(0);

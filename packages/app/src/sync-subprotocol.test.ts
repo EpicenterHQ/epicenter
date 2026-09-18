@@ -74,6 +74,7 @@ test('the dial offers the main subprotocol beside the bearer', async () => {
 				: new Response(null, { status: 204 }),
 	});
 
+	const state = auth.getState();
 	const store = await openMemory(definition);
 	const connection = attachStoreSync({
 		onRetired() {
@@ -82,11 +83,11 @@ test('the dial offers the main subprotocol beside the bearer', async () => {
 		store,
 		address: { baseURL: BASE_URL, dataId: definition.id, generation: 1 },
 		transport:
-			auth.state.status === 'signed-out'
+			state.status === 'signed-out'
 				? (() => {
 						throw new Error('No test account');
 					})()
-				: auth.state.account,
+				: state.account,
 		onTransportError: (cause) => {
 			throw cause;
 		},

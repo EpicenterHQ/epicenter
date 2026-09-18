@@ -19,7 +19,7 @@ import { APPS } from '@epicenter/constants/apps';
  * sync; forking a field shape breaks sync compatibility with peers running the
  * canonical workspace.
  *
- * `src/lib/application.ts` captures the Account and opens this declaration
+ * `AppBoot` captures the Account and opens this declaration
  * only after the primary route mounts.
  */
 

@@ -1,5 +1,5 @@
 /** Bun owns immutable test builds and HTTP listeners; Playwright owns test attempts. */
-import { mkdtemp, rm, cp, readdir } from 'node:fs/promises';
+import { mkdtemp, rm, cp } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
@@ -25,11 +25,21 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 	});
 }
 try {
-	const buildApp = Bun.spawn(['bun', 'run', 'build'], {
-		cwd: new URL('../', import.meta.url).pathname,
-		stdout: 'inherit',
-		stderr: 'inherit',
-	});
+	const config = join(temporary, 'vite.config.mts');
+	await Bun.write(
+		config,
+		`import config from ${JSON.stringify(new URL('../vite.config.ts', import.meta.url).pathname)};
+import { observeBoot } from ${JSON.stringify(new URL('../../../../packages/app-shell/smoke/observe-boot.mjs', import.meta.url).pathname)};
+export default { ...config, plugins: [...config.plugins, observeBoot()] };`,
+	);
+	const buildApp = Bun.spawn(
+		['bun', 'x', 'vite', 'build', '--config', config],
+		{
+			cwd: new URL('../', import.meta.url).pathname,
+			stdout: 'inherit',
+			stderr: 'inherit',
+		},
+	);
 	if ((await buildApp.exited) !== 0)
 		throw new Error('Local Mail application build failed');
 	const directory = join(temporary, 'routes');
@@ -37,25 +47,7 @@ try {
 		recursive: true,
 	});
 	const index = await Bun.file(join(directory, 'index.html')).text();
-	const chunks = join(directory, '_app/immutable/chunks');
-	let applicationPath;
-	for (const name of await readdir(chunks)) {
-		if (
-			name.endsWith('.js') &&
-			(await Bun.file(join(chunks, name)).text()).includes(
-				'Local Mail has not opened.',
-			)
-		) {
-			applicationPath = `/_app/immutable/chunks/${name}`;
-			break;
-		}
-	}
-	if (!applicationPath)
-		throw new Error(
-			'Could not identify the application chunk in the built Local Mail bundle; review route-smoke chunk discovery.',
-		);
 	const metadata = {
-		applicationPath,
 		indexSha256: createHash('sha256').update(index).digest('hex'),
 	};
 	{
@@ -65,21 +57,7 @@ try {
 			root,
 			configFile: false,
 			logLevel: 'warn',
-			plugins: [
-				tailwindcss(),
-				svelte({ configFile: false }),
-				{
-					name: 'evidence-application',
-					enforce: 'pre',
-					resolveId(source, importer) {
-						if (
-							source === './application.js' &&
-							importer?.endsWith('/ui/src/lib/mail.ts')
-						)
-							return join(root, 'application.ts');
-					},
-				},
-			],
+			plugins: [tailwindcss(), svelte({ configFile: false })],
 			resolve: {
 				alias: [
 					{ find: '$lib', replacement: lib },

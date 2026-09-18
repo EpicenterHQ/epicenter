@@ -225,12 +225,8 @@ export function createDesktopAuthAuthority({
 							? { accountManagementUrl: createAccountManagementUrl }
 							: {},
 					);
-	const account =
-		!auth || auth.state.status === 'signed-out' ? null : auth.state.account;
+	const account = auth?.getState().account ?? null;
 	const bootSnapshot: DesktopAuthBootstrap = {
-		...(method === 'instance' || method === 'recovery'
-			? { signInLocation: 'host-settings' as const }
-			: {}),
 		state: projectBootIdentity(),
 		baseURL,
 		authorityId: instanceServer?.authorityId ?? 'epicenter-api',
@@ -281,7 +277,7 @@ export function createDesktopAuthAuthority({
 	}
 
 	async function recoverConnection() {
-		const current = auth?.state;
+		const current = auth?.getState();
 		if (
 			bootStorageRetired ||
 			(account !== null &&
@@ -321,7 +317,7 @@ export function createDesktopAuthAuthority({
 	}
 
 	function projectBootIdentity(): AuthIdentityState {
-		const current = auth?.state;
+		const current = auth?.getState();
 		if (
 			account === null ||
 			!current ||
@@ -370,8 +366,8 @@ export function createDesktopAuthAuthority({
 						if (result.error) await recoverConnection();
 						else if (
 							account !== null &&
-							auth.state.status !== 'signed-out' &&
-							auth.state.account === account
+							auth.getState().status !== 'signed-out' &&
+							auth.getState().account === account
 						)
 							await resumeApplications();
 						else nativeAuthPort.relaunch();
@@ -394,7 +390,7 @@ export function createDesktopAuthAuthority({
 		acceptSignInCallback,
 		bootSnapshot,
 		account,
-		get state() {
+		getState() {
 			return projectBootIdentity();
 		},
 		cancelConnection() {

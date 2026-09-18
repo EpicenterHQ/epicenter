@@ -97,7 +97,7 @@ const viteConfig = join(directory, 'vite.config.mts');
 const dependencyCache = realpathSync(join(root, 'node_modules/.bun'));
 writeFileSync(
 	viteConfig,
-	`import config from ${JSON.stringify(join(root, 'apps/whispering/vite.config.ts'))};\nexport default { ...config, server: { ...config.server, watch: null, hmr: false, fs: { ...config.server?.fs, allow: [...(config.server?.fs?.allow ?? []), ${JSON.stringify(root)}, ${JSON.stringify(dependencyCache)}] } } };\n`,
+	`import config from ${JSON.stringify(join(root, 'apps/whispering/vite.config.ts'))};\nimport { observeBoot } from ${JSON.stringify(join(root, 'packages/app-shell/smoke/observe-boot.mjs'))};\nexport default { ...config, plugins: [...config.plugins, observeBoot()], server: { ...config.server, watch: null, hmr: false, fs: { ...config.server?.fs, allow: [...(config.server?.fs?.allow ?? []), ${JSON.stringify(root)}, ${JSON.stringify(dependencyCache)}] } } };\n`,
 );
 const children = [];
 const logs = [];
@@ -348,14 +348,13 @@ try {
 		await eventually(
 			() =>
 				page.evaluate(async (library) => {
-					const { app, library: actual } = await import(
-						'/src/lib/bootstrap.ts'
-					);
-					return (
-						actual === library.toLowerCase() &&
-						app !== null &&
-						(await app.ready).error === null
-					);
+					const boot = globalThis.observedBoot;
+					if (!boot) return false;
+					const app = await boot.opening;
+					const actual = boot.account
+						? (localStorage.getItem('whispering.library') ?? 'personal')
+						: 'local';
+					return actual === library.toLowerCase() && !app.signal.aborted;
 				}, library),
 			`${library} App readiness`,
 		);
@@ -363,7 +362,11 @@ try {
 	async function savedAiChoices(page) {
 		return page.evaluate(
 			async ({ apiKey, nativeModel, polishModel }) => {
-				const { app, selections } = await import('/src/lib/bootstrap.ts');
+				const { getApp, getSelections } = await import(
+					'/src/lib/application.ts'
+				);
+				const app = getApp();
+				const selections = getSelections();
 				const records = JSON.parse(
 					localStorage.getItem('whispering.app-ai-connections'),
 				);
@@ -459,7 +462,12 @@ try {
 	}
 	async function snapshot(page) {
 		return page.evaluate(async () => {
-			const { app, data, library, account } = await import('/src/lib/bootstrap.ts');
+			const { account, opening } = globalThis.observedBoot;
+			const app = await opening;
+			const library = account
+				? (localStorage.getItem('whispering.library') ?? 'personal')
+				: 'local';
+			const data = library === 'local' ? app.device : app.account[library];
 			const row = data.tables.recordings.rows.toSorted((a, b) =>
 				b.recordedAt.localeCompare(a.recordedAt),
 			)[0];
@@ -511,7 +519,12 @@ try {
 		await eventually(
 			() =>
 				page.evaluate(async (polish) => {
-					const { data } = await import('/src/lib/bootstrap.ts');
+					const { account, opening } = globalThis.observedBoot;
+					const app = await opening;
+					const library = account
+						? (localStorage.getItem('whispering.library') ?? 'personal')
+						: 'local';
+					const data = library === 'local' ? app.device : app.account[library];
 					const row = data.tables.recordings.rows.toSorted((a, b) =>
 						b.recordedAt.localeCompare(a.recordedAt),
 					)[0];
@@ -570,9 +583,7 @@ try {
 			fullPage: true,
 		});
 		const choicesBeforeReload = await savedAiChoices(page);
-		await page.evaluate(async () =>
-			(await import('/src/lib/bootstrap.ts')).departure.close(),
-		);
+		await page.evaluate(async () => globalThis.observedBoot.departure.close());
 		await page.reload();
 		await opened(page, scope);
 		assert.deepEqual(await savedAiChoices(page), choicesBeforeReload);
@@ -630,10 +641,11 @@ try {
 	await capture(alice, 'Personal');
 	assert.equal(report.recordings.personal.actor, 'alice');
 	await alice.evaluate(async () => {
-		const module = await import('/src/lib/bootstrap.ts');
-		module.departure.onChange(() => {
-			if (module.departure.state.phase === 'closed')
-				sessionStorage.setItem('closed-library', module.library);
+		const boot = globalThis.observedBoot;
+		const library = localStorage.getItem('whispering.library') ?? 'personal';
+		boot.departure.onChange(() => {
+			if (boot.departure.getState().phase === 'closed')
+				sessionStorage.setItem('closed-library', library);
 		});
 	});
 	await alice
@@ -658,9 +670,7 @@ try {
 	report.blockedExternalRequests = blockedExternalRequests;
 	report.nativeCommands = fixture.admitted;
 	for (const page of pages)
-		await page.evaluate(async () =>
-			(await import('/src/lib/bootstrap.ts')).departure.close(),
-		);
+		await page.evaluate(async () => globalThis.observedBoot.departure.close());
 	assert.equal(
 		pageErrors.length,
 		0,

@@ -1,11 +1,7 @@
 /// <reference lib="dom" />
 
 import { tryAsync } from 'wellcrafted/result';
-import {
-	type AuthClient,
-	type AuthStartup,
-	isCallbackAuthClient,
-} from './auth-contract.js';
+import { type AuthClient, isCallbackAuthClient } from './auth-contract.js';
 import { AuthError } from './auth-errors.js';
 import { createBrowserRedirectAuth } from './browser-redirect-auth.js';
 import { createInstanceAuth } from './create-session-auth.js';
@@ -86,8 +82,8 @@ export function createBrowserAuth(
 				onStateChange: auth.onStateChange,
 				getProfile: auth.getProfile,
 				accountManagementUrl: auth.accountManagementUrl,
-				get state() {
-					return auth.state;
+				getState() {
+					return auth.getState();
 				},
 				...(startSignIn
 					? {
@@ -174,6 +170,6 @@ export function createBrowserAuth(
 			cancelSelection();
 			auth?.[Symbol.dispose]();
 		},
-	} satisfies AuthStartup;
+	};
 }
 export type BrowserAuth = ReturnType<typeof createBrowserAuth>;

@@ -352,15 +352,15 @@ export function createHomeServer({
 			outgoing.delete('content-encoding');
 			outgoing.delete('location');
 			outgoing.set('cache-control', 'no-store');
-			outgoing.set('x-epicenter-auth-state', desktopAuth.state.status);
+			outgoing.set('x-epicenter-auth-state', desktopAuth.getState().status);
 			return new Response(response.body, {
 				status: response.status,
 				statusText: response.statusText,
 				headers: outgoing,
 			});
 		} catch (error) {
-			c.header('x-epicenter-auth-state', desktopAuth.state.status);
-			if (desktopAuth.state.status === 'signed-out')
+			c.header('x-epicenter-auth-state', desktopAuth.getState().status);
+			if (desktopAuth.getState().status === 'signed-out')
 				return c.text('Signed out', 401);
 			if (
 				typeof error === 'object' &&

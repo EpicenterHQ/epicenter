@@ -230,14 +230,15 @@ test('same-owner refresh preserves an account client and sign-out retires its st
 	});
 	const { expectOk } = await import('wellcrafted/testing');
 	expectOk(await auth.startSignIn());
-	if (auth.state.status === 'signed-out') throw new Error('Expected Account');
-	const account = auth.state.account;
+	const state = auth.getState();
+	if (state.status === 'signed-out') throw new Error('Expected Account');
+	const account = state.account;
 	expect(account.principalId).toBe(asPrincipalId('alice'));
 	const { ai, close } = setup(account.fetch);
 	await ai.account!.client.models.list();
 	token = 'refreshed';
 	expectOk(await auth.startSignIn());
-	expect(auth.state.account).toBe(account);
+	expect(auth.getState().account).toBe(account);
 	await ai.account!.client.models.list();
 	expect(authorizations).toEqual(['Bearer first', 'Bearer refreshed']);
 	const stream = await ai.account!.client.chat.completions.create({

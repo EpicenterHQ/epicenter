@@ -2,7 +2,7 @@
 	import { isCallbackAuthClient } from '@epicenter/auth';
 	import { Loading } from '@epicenter/ui/loading';
 	import { resolve } from '$app/paths';
-	import { authClient } from '#platform/auth';
+	import { auth } from '#platform/auth';
 
 	// The one thing this route does, and it opens nothing: no store, no Web
 	// Lock, no IndexedDB (ADR-0345). It renders under the root layout alone,
@@ -19,8 +19,7 @@
 
 	$effect(() => {
 		void (async () => {
-			const auth = authClient.auth;
-			if (!auth || !isCallbackAuthClient(auth)) {
+						if (!auth || !isCallbackAuthClient(auth)) {
 				// The desktop build. Its sign-in goes through the host, which
 				// relaunches the process with the new identity, so no browser
 				// callback ever lands here and this sentence is unreachable in

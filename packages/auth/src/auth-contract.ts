@@ -32,7 +32,7 @@ export type AuthState =
 
 /** Auth selects accounts; applications hold the Account they opened. */
 export type AuthClient = {
-	state: AuthState;
+	getState(): AuthState;
 	baseURL: string;
 	accountManagementUrl?: typeof createAccountManagementUrl;
 	onStateChange(fn: (state: AuthState) => void): () => void;
@@ -57,19 +57,6 @@ export type SessionAuthClient = AuthClient & {
 /** Only a redirect launcher can consume a sign-in callback. */
 export type CallbackAuthClient = SessionAuthClient & {
 	completeSignIn(): Promise<Result<undefined, AuthError>>;
-};
-
-/** One document or host startup selection and its available sign-in actions. */
-export type AuthStartup = {
-	auth: AuthClient | null;
-	selectedServer: string | null;
-	/** Server selection and sign-in belong to host settings. */
-	signInLocation?: 'host-settings';
-	connectInstance?: (input: {
-		url?: string;
-	}) => Promise<Result<undefined, AuthError>>;
-	useCloud?: () => Promise<Result<undefined, AuthError>>;
-	[Symbol.dispose](): void;
 };
 
 export function isCallbackAuthClient(

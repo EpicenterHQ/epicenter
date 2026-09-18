@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { SignInScreen } from '@epicenter/app-shell/boot-screens';
 	import { resolve } from '$app/paths';
-	import { authStartup } from '#platform/auth';
+	import { auth } from '#platform/auth';
 </script>
 
 <SignInScreen
-	startup={authStartup}
+	{auth}
 	appName="Honeycrisp"
 	noun="notes"
 	onCancel={() => location.replace(resolve('/local'))}

@@ -24,14 +24,13 @@
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
-	import { getAuth } from '$lib/auth.svelte.js';
+	import { auth } from '$lib/auth.svelte.js';
 		import { navigation } from '$lib/navigation.svelte.js';
 	import FolderMenuItem from '../components/FolderMenuItem.svelte';
 	import NotesLinks from './NotesLinks.svelte';
 
 	let props: { data: ReactiveData<HoneycrispData> } = $props();
 
-	const auth = getAuth();
 	let sync = $state.raw<SyncConnectionStatus | undefined>(undefined);
 
 	$effect(() => {

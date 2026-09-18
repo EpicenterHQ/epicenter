@@ -17,7 +17,7 @@ test('application startup, draft protection and durable reopen', async ({
 	const response = await request.get(`${origin}/__evidence`);
 	assert(response.ok(), 'Browser build metadata unavailable');
 	const build = await response.json();
-	const { applicationPath } = build;
+
 	const observations = [];
 	const tabStates = [];
 	const observe = (message) => observations.push(message);
@@ -149,7 +149,7 @@ test('application startup, draft protection and durable reopen', async ({
 			.waitFor();
 		await noResources('Gmail callback');
 		assert(
-			!requests.includes(applicationPath),
+			await page.evaluate(() => !globalThis.observedBoot),
 			'Gmail callback imported the application chunk',
 		);
 		observe(
@@ -172,7 +172,7 @@ test('application startup, draft protection and durable reopen', async ({
 		await page.locator('div.text-destructive').waitFor();
 		await noResources('Epicenter auth callback');
 		assert(
-			!requests.includes(applicationPath),
+			await page.evaluate(() => !globalThis.observedBoot),
 			'Auth callback imported the application chunk',
 		);
 		observe('Auth callback with cached identity opens no primary library');
@@ -197,7 +197,7 @@ test('application startup, draft protection and durable reopen', async ({
 		await loadedMain;
 		await noResources('Primary-route preload');
 		assert(
-			!requests.includes(applicationPath),
+			await page.evaluate(() => !globalThis.observedBoot),
 			'Primary-route preload imported the application module',
 		);
 		observe(
@@ -272,22 +272,9 @@ test('application startup, draft protection and durable reopen', async ({
 		);
 	});
 	await test.step('drafts survive navigation and durable reopen', async () => {
-		// Inspect the already-mounted public application export in its actual bundle.
-		// This introduces no production hook and never imports it on a callback/preload.
-		await page.evaluate(async (path) => {
-			const module = await import(path);
-			globalThis.routeApplication = Object.values(module).find(
-				(value) =>
-					value &&
-					typeof value === 'object' &&
-					'departure' in value &&
-					'app' in value,
-			);
-			if (!globalThis.routeApplication)
-				throw new Error(
-					'Application export could not be found in built module.',
-				);
-		}, applicationPath);
+		await page.evaluate(() => {
+			globalThis.routeApplication = globalThis.observedBoot;
+		});
 		await sql.fill('dirty SQL kept after canceled departure');
 		await page.getByRole('button', { name: 'Mailbox', exact: true }).click();
 		const mailboxState = await inspectTabs(
@@ -330,7 +317,7 @@ test('application startup, draft protection and durable reopen', async ({
 		);
 		assert(
 			(await page.evaluate(
-				() => globalThis.routeApplication.departure.state.phase,
+				() => globalThis.routeApplication.departure.getState().phase,
 			)) === 'open',
 			'Canceled preflight closed the App',
 		);
@@ -345,7 +332,8 @@ test('application startup, draft protection and durable reopen', async ({
 		await page.evaluate(() => globalThis.routeApplication.departure.close());
 		assert(
 			await page.evaluate(
-				() => globalThis.routeApplication.departure.canReopen,
+				() =>
+					globalThis.routeApplication.departure.getState().phase === 'closed',
 			),
 			'Document cleanup did not release resources',
 		);
@@ -372,16 +360,9 @@ test('application startup, draft protection and durable reopen', async ({
 		await page
 			.getByText('Connect a Gmail account', { exact: true })
 			.waitFor({ state: 'attached' });
-		await page.evaluate(async (path) => {
-			const module = await import(path);
-			const application = Object.values(module).find(
-				(value) =>
-					value &&
-					typeof value === 'object' &&
-					'departure' in value &&
-					'app' in value,
-			);
-			const opened = await application.app.device.sqlite.open('local');
+		await page.evaluate(async () => {
+			const app = await globalThis.observedBoot.opening;
+			const opened = await app.device.sqlite.open('local');
 			if (opened.error) throw new Error(opened.error.message);
 			const seeded = await opened.data.batch([
 				{
@@ -392,7 +373,7 @@ test('application startup, draft protection and durable reopen', async ({
 				},
 			]);
 			if (seeded.error) throw new Error(seeded.error.message);
-		}, applicationPath);
+		});
 		await page.reload();
 		await page
 			.getByRole('button', { name: 'Saved queries', exact: true })

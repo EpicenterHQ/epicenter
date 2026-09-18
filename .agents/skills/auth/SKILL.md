@@ -56,7 +56,7 @@ It is not a hosted-session mode or an application auth client.
 
 An application session keeps one person and one server for its entire lifetime.
 
-`AuthClient` selects `state.account`; it exposes sign-in, sign-out, profile,
+`AuthClient` selects `getState().account`; it exposes sign-in, sign-out, profile,
 and state. Application HTTP and sockets use the captured Account.
 `AuthIdentityState` is the serializable principal projection for desktop
 bootstrap, with no credential or transport functions.
@@ -191,16 +191,17 @@ signature padding is illegal in raw WebSocket protocol names.
 
 ## Boot selection
 
-The mounted application route imports a plain TypeScript application module.
-That module reads the raw `authClient.state` once and opens one captured App.
-Keep Svelte adaptation in UI modules; `fromAuth` does not select the library.
-Callback, auxiliary route, and route-preload imports must not open the App.
+The mounted AppBoot instance reads the plain client's `getState()` once and
+opens one captured App from the inert definition. Imports and preloads acquire
+no App. Keep reactive `.state` reads in UI modules adapted with `fromAuth`.
+Callbacks and sign-in routes acquire no primary App.
 
-Honeycrisp and Vocab require an Account. Whispering may open its local library.
-Routes within an application share its App. Library changes await producer
-shutdown and App closure, then change identity and use full document navigation.
-A close failure prevents deliberate mutation/navigation. Only preflight refusal
-allows retry before teardown; a closed App never reopens in the same document.
+Honeycrisp and Whispering support signed-out local startup. Vocab requires an
+Account. Honeycrisp's Local and Personal routes display the nested handles on
+one App. Deliberate account/server changes drain producers and close the App
+before auth mutation and full document navigation. AppBoot owns generic UI
+shutdown; shells provide their actual idempotent drain. Failed cleanup prevents
+mutation/navigation. Only preflight refusal allows retry before teardown.
 
 Same-owner credential refresh/refusal preserves the App. Unexpected retirement
 immediately rejects network access and closes locally without selecting another

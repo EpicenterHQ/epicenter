@@ -1654,7 +1654,7 @@ test('replacing the Account cannot submit Alice pending Personal edits as Bob', 
 				ai: { runtime: null, account: null },
 			},
 		});
-	const state = auth.state;
+	const state = auth.getState();
 	if (state.status === 'signed-out') throw new Error('Expected cached Alice');
 	const alice = state.account;
 	const first = await openFixture(alice);
@@ -1668,7 +1668,7 @@ test('replacing the Account cannot submit Alice pending Personal edits as Bob', 
 	await expect(alice.fetch('/api/session')).rejects.toMatchObject({
 		name: 'AbortError',
 	});
-	const bobState = auth.state;
+	const bobState = auth.getState();
 	if (bobState.status === 'signed-out') throw new Error('Expected Bob');
 	const second = await openFixture(bobState.account);
 	try {

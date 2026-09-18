@@ -4,7 +4,6 @@ export type {
 	AuthClient,
 	AuthFetch,
 	AuthState,
-	AuthStartup,
 	CallbackAuthClient,
 	SessionAuthClient,
 } from './auth-contract.js';

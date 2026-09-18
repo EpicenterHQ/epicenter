@@ -1,6 +1,8 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { App } from '@epicenter/app/open';
+import type { mailDefinition } from './data.js';
 import type { ScopedSqlite } from '@epicenter/device/owner';
 import type { AccountWorkflow } from '@epicenter/local-mail/accounts';
 import type { GmailAuthorization } from './platform/types.js';
@@ -34,8 +36,7 @@ export async function openMailDocument({
 					setup(build) {
 						build.onResolve(
 							{
-								filter:
-									/^(\.\/application\.js|\.\/identity\.js|#platform\/gmail-authorization)$/,
+								filter: /^(\.\/identity\.js|#platform\/gmail-authorization)$/,
 							},
 							(args) => ({ path: args.path, namespace: 'document-fixture' }),
 						);
@@ -43,11 +44,9 @@ export async function openMailDocument({
 							{ filter: /.*/, namespace: 'document-fixture' },
 							(args) => ({
 								loader: 'js',
-								contents: args.path.includes('application')
-									? `export const app = globalThis[${JSON.stringify('MAIL_DOCUMENT_FIXTURE')}].app;`
-									: args.path.includes('identity')
-										? `export function gmailIdentity() { throw new Error('Local reads must not ask for Gmail identity.'); }`
-										: `export const gmailAuthorization = globalThis[${JSON.stringify('MAIL_DOCUMENT_FIXTURE')}].authorization;`,
+								contents: args.path.includes('identity')
+									? `export function gmailIdentity() { throw new Error('Local reads must not ask for Gmail identity.'); }`
+									: `export const gmailAuthorization = globalThis[${JSON.stringify('MAIL_DOCUMENT_FIXTURE')}].authorization;`,
 							}),
 						);
 					},
@@ -63,11 +62,17 @@ export async function openMailDocument({
 	}
 	const path = join(directory, 'mail.js');
 	await Bun.write(path, compiled.replaceAll('MAIL_DOCUMENT_FIXTURE', key));
-	const { mail } = (await import(path)) as typeof import('./mail.js');
+	const { attachMail, mail } = (await import(
+		path
+	)) as typeof import('./mail.js');
+	const close = attachMail({ device: app } as App<typeof mailDefinition>);
 	return {
 		mail,
+		close,
+		attach: (device: typeof app) =>
+			attachMail({ device } as App<typeof mailDefinition>),
 		async cleanup() {
-			await mail.close();
+			await close();
 			delete globals[key];
 			await rm(directory, { recursive: true, force: true });
 		},

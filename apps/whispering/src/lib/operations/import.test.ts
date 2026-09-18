@@ -126,15 +126,14 @@ test('retirement during import publication drains quietly and releases the libra
 		recordings: { create },
 	} as unknown as WhisperingApp;
 	const departure = createDeparture({
-		account: undefined,
-		opening: Promise.resolve({ signal: controller.signal, close }),
-	});
-	departure.attachUi({
 		quiesce: async () => {
 			quiescing.resolve();
 			await drainRecordingWork();
 		},
+		account: undefined,
+		opening: Promise.resolve({ signal: controller.signal, close }),
 	});
+
 	const before = processed.length;
 	const importing = importFiles(app, {
 		files: [new File(['retained'], 'speech.wav')],
@@ -145,7 +144,7 @@ test('retirement during import publication drains quietly and releases the libra
 	release.resolve();
 	await importing;
 	await departure.close();
-	expect(departure.state.phase).toBe('retired');
+	expect(departure.getState().phase).toBe('retired');
 	expect(close).toHaveBeenCalledTimes(1);
 	expect(create).not.toHaveBeenCalled();
 	expect(processed).toHaveLength(before);

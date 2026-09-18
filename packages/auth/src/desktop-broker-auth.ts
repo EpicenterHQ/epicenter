@@ -6,7 +6,6 @@ import type {
 	AuthClient,
 	AuthFetch,
 	AuthState,
-	AuthStartup,
 } from './auth-contract.js';
 import { createAccountManagementUrl } from './account-management.js';
 import { AuthError, OpenWebSocketDenied } from './auth-errors.js';
@@ -20,7 +19,6 @@ import { resolveTargetUrl } from './resolve-target-url.js';
  * never contains a bearer, refresh grant, or instance token.
  */
 export type DesktopAuthBootstrap = {
-	signInLocation?: 'host-settings';
 	state: AuthIdentityState;
 	authorityId: string;
 	baseURL: string;
@@ -102,14 +100,7 @@ export function createDesktopBrokerAuth({
 	brokerBaseURL: string;
 	fetch?: AuthFetch;
 	WebSocket?: typeof WebSocket;
-}): AuthStartup {
-	if (bootstrap.recovery)
-		return {
-			auth: null,
-			selectedServer: bootstrap.selectedServer,
-			signInLocation: 'host-settings',
-			[Symbol.dispose]() {},
-		};
+}): AuthClient {
 	const baseURL = bootstrap.baseURL;
 	const origin = new URL(baseURL).origin;
 	const broker = createDesktopBroker({ brokerBaseURL, fetch: fetchImpl });
@@ -267,7 +258,7 @@ export function createDesktopBrokerAuth({
 	if (bootstrap.state.status !== 'signed-out' && account)
 		state = { status: bootstrap.state.status, account };
 	const auth: AuthClient = {
-		get state() {
+		getState() {
 			return state;
 		},
 		baseURL,
@@ -312,14 +303,5 @@ export function createDesktopBrokerAuth({
 			listeners.clear();
 		},
 	};
-	return {
-		auth,
-		selectedServer: bootstrap.selectedServer,
-		...(bootstrap.signInLocation
-			? { signInLocation: bootstrap.signInLocation }
-			: {}),
-		[Symbol.dispose]() {
-			auth[Symbol.dispose]();
-		},
-	};
+	return auth;
 }

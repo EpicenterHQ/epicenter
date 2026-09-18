@@ -1,43 +1,22 @@
 <script lang="ts">
-	import { AppBoot } from '@epicenter/app-shell/boot-screens';
-	import { Loading } from '@epicenter/ui/loading';
+	import { AppBoot, SignInScreen } from '@epicenter/app-shell/boot-screens';
 	import { authStartup } from '$lib/auth.js';
-	import { onMount, tick } from 'svelte';
+	import { vocabDefinition } from '$lib/data.js';
 	import VocabShell from './components/VocabShell.svelte';
 
-	let application = $state.raw<typeof import('$lib/application.js')>();
-	let error = $state('');
-	let showing = $state(true);
+	const auth = authStartup.auth ?? undefined;
+	const connecting = !auth?.getState().account || new URLSearchParams(location.search).has('connect');
 	let shell: VocabShell | undefined = $state();
-	onMount(() => {
-		let stopped = false;
-		void import('$lib/application.js').then(async (opened) => {
-			if (stopped) { await opened.departure.close(); return; }
-			opened.departure.attachUi({
-				async quiesce() {
-					if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-					const closingUi = shell?.close();
-					showing = false;
-					await tick();
-					await closingUi;
-				},
-			});
-			application = opened;
-		}).catch((cause) => { error = cause instanceof Error ? cause.message : 'Could not open Vocab.'; });
-		return () => { stopped = true; };
-	});
 </script>
 
-{#if error}
-	<p role="alert">{error}</p>
-{:else if application}
-	<AppBoot startup={authStartup} departure={application.departure} opening={application.opening} appName="Vocab" noun="conversations">
+{#if connecting}
+	<SignInScreen {auth} selection={authStartup} appName="Vocab" noun="conversations"
+		onCancel={new URLSearchParams(location.search).has('connect') ? () => location.replace('/') : undefined} />
+{:else}
+	<AppBoot {auth} definition={vocabDefinition} selection={authStartup}
+		ui={shell} appName="Vocab" noun="conversations">
 		{#snippet children(app)}
-		{#if application && application.account && application.selections && showing}
-			<VocabShell selections={application.selections} data={app} account={application.account} bind:this={shell} />
-		{/if}
+			<VocabShell data={app} bind:this={shell} />
 		{/snippet}
 	</AppBoot>
-{:else}
-	<Loading class="h-dvh" label="Opening your conversations…" />
 {/if}

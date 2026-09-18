@@ -311,6 +311,12 @@ test('retirement cleanup failure after unmount is terminal and retains the activ
 	let closeUi: (() => Promise<void>) | undefined;
 	let closed = false;
 	const departure = createDeparture({
+		async quiesce() {
+			closeUi ??= shell?.close;
+			const closing = closeUi?.();
+			shell = undefined;
+			await closing;
+		},
 		account: undefined,
 		opening: Promise.resolve({
 			signal: notification.signal,
@@ -319,14 +325,7 @@ test('retirement cleanup failure after unmount is terminal and retains the activ
 			},
 		}),
 	});
-	departure.attachUi({
-		async quiesce() {
-			closeUi ??= shell?.close;
-			const closing = closeUi?.();
-			shell = undefined;
-			await closing;
-		},
-	});
+
 	vadRecorder.state = 'LISTENING';
 	vadFailure = new Error('Microphone graph still held');
 	notification.abort();
@@ -341,7 +340,7 @@ test('retirement cleanup failure after unmount is terminal and retains the activ
 			'Microphone graph still held',
 		);
 		expect(closed).toBe(false);
-		expect(departure.state.phase).toBe('failed');
+		expect(departure.getState().phase).toBe('failed');
 	} finally {
 		vadFailure = undefined;
 		await closeRecordingWork();

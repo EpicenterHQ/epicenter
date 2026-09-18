@@ -1,7 +1,6 @@
 /**
- * The application route owns library opening. Callback routes and their
- * ancestors never import the bootstrap or acquire an App. The mounted app layout
- * calls openApplication(), which imports bootstrap.ts once. WhisperingShell
+ * AppBoot owns acquisition beneath the working route. Callback routes and their
+ * ancestors never import the bootstrap or acquire an App. The shell registers the ready App for imperative product operations. WhisperingShell
  * only consumes the opened App.
  */
 import { describe, expect, test } from 'bun:test';
@@ -44,37 +43,21 @@ describe('the callback opens nothing', () => {
 		}
 	});
 
-	test('the mounted app layout opens through the cached bootstrap outside callback ancestors', async () => {
+	test('the page delegates acquisition to its mounted AppBoot', async () => {
 		const bootNode = join(routes, '(app)/+layout.svelte');
 		const source = await Bun.file(bootNode).text();
-		expect(source).toContain("import('$lib/application.js')");
-		expect(source).toContain('onMount(() =>');
+		expect(source).toContain('definition={whisperingDefinition}');
 		expect(source).toContain('<WhisperingShell ');
-		expect(source).toContain('openedApp={app} {data}');
-		expect(source).toContain('application.opening');
-		expect(
-			source.indexOf("import('$lib/application.js').then"),
-		).toBeGreaterThan(source.indexOf('onMount(() =>'));
+		expect(source).not.toMatch(/openApplication|createDeparture|attachUi/);
+		expect(source).not.toContain('showing');
 		expect(ancestorLayouts(callback)).not.toContain(bootNode);
-		expect(source).toContain('await openApplication()');
-		const application = await Bun.file(
-			join(appRoot, 'src/lib/application.ts'),
-		).text();
-		expect(application).toContain('export function openApplication()');
-		expect(application).toContain("opening ??= import('./bootstrap.js')");
-		const bootstrap = await Bun.file(
-			join(appRoot, 'src/lib/bootstrap.ts'),
-		).text();
-		expect(bootstrap).toContain('openApp(whisperingDefinition, { account })');
 	});
 
 	test('the shell consumes the opened library without importing its bootstrap', async () => {
 		const source = await Bun.file(
 			join(routes, '(app)/_components/WhisperingShell.svelte'),
 		).text();
-		expect(source).not.toMatch(
-			/(?:\$lib\/|\.\/|\.\.\/)(?:application|bootstrap)(?:\.js)?['"]/,
-		);
+		expect(source).not.toMatch(/openApplication/);
 		expect(source).not.toMatch(/openApplication\s*\(|<AppBoot\b/);
 		expect(source).not.toMatch(/\bopenApp\s*\(/);
 		expect(source).toContain('= $props()');

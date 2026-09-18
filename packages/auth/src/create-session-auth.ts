@@ -123,7 +123,7 @@ export function createSessionAuth(
 	return Object.assign(auth, {
 		cancelSignIn,
 		startSignIn({
-			reauthenticate = auth.state.status === 'reauth-required',
+			reauthenticate = auth.getState().status === 'reauth-required',
 		} = {}) {
 			return run('start', async (signal) => {
 				const result = await launcher.startSignIn({ signal, reauthenticate });
@@ -531,7 +531,7 @@ function createBearerAuth(
 		publish();
 	}
 	const auth = {
-		get state() {
+		getState() {
 			return state;
 		},
 		baseURL,

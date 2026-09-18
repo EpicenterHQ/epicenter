@@ -1,5 +1,7 @@
 <script lang="ts">
-	import type { MailData } from '$lib/data.js';
+	import type { App } from '@epicenter/app/open';
+	import type { mailDefinition } from '$lib/data.js';
+	import { onDestroy } from 'svelte';
 	import { Button } from '@epicenter/ui/button';
 	import SavedQueries from '$lib/components/SavedQueries.svelte';
 	import * as Dialog from '@epicenter/ui/dialog';
@@ -24,9 +26,20 @@
 	import StatusBar from '$lib/components/StatusBar.svelte';
 	import ConnectPanel from '$lib/components/ConnectPanel.svelte';
 	import RemoveAccountDialog from '$lib/components/RemoveAccountDialog.svelte';
-	import { mail } from '$lib/mail';
+	import { attachMail, mail } from '$lib/mail';
 
-	let { data }: { data: MailData } = $props();
+	let { app }: { app: App<typeof mailDefinition> } = $props();
+	// svelte-ignore state_referenced_locally
+	const closeMail = attachMail(app);
+	let closing: Promise<void> | undefined;
+	export function close() {
+		return closing ??= (async () => {
+			await queryClient.cancelQueries();
+			queryClient.clear();
+			await closeMail();
+		})();
+	}
+	onDestroy(() => { void close().catch(() => {}); });
 	let queryEditor = $state.raw<ReturnType<typeof SavedQueries>>();
 	export async function preflight() {
 		await queryEditor?.preflight();
@@ -369,7 +382,7 @@
 		>
 	</div>
 	<div hidden={view !== 'queries'} class="min-h-0 flex-1 overflow-auto">
-		<SavedQueries bind:this={queryEditor} {data} account={selectedAccount} />
+		<SavedQueries bind:this={queryEditor} data={app.account!.personal} account={selectedAccount} />
 	</div>
 	<div
 		hidden={view !== 'mail'}

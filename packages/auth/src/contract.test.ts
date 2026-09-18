@@ -73,9 +73,9 @@ function setup(
 			return stored;
 		},
 		get account() {
-			if (auth.state.status === 'signed-out')
-				throw new Error('Expected account');
-			return auth.state.account;
+			const state = auth.getState();
+			if (state.status === 'signed-out') throw new Error('Expected account');
+			return state.account;
 		},
 		select(token: string) {
 			selectedToken = token;
@@ -88,8 +88,8 @@ function setup(
 
 test('signed-out client has no callback method unless the launcher provides one', () => {
 	using context = setup();
-	expect(context.auth.state).toEqual({ status: 'signed-out' });
-	expect(context.auth.state.account).toBeUndefined();
+	expect(context.auth.getState()).toEqual({ status: 'signed-out' });
+	expect(context.auth.getState().account).toBeUndefined();
 	expect(isCallbackAuthClient(context.auth)).toBe(false);
 	expect('completeSignIn' in context.auth).toBe(false);
 });
@@ -98,7 +98,7 @@ test('cached principal boots offline without any network read or profile state',
 	using context = setup({ initial });
 	expect(context.account.principalId).toBe(initial.principalId);
 	expect(context.requests).toEqual([]);
-	expect('email' in context.auth.state).toBe(false);
+	expect('email' in context.auth.getState()).toBe(false);
 });
 
 test('completed sign-in verifies, persists, and publishes before success', async () => {
@@ -127,7 +127,7 @@ test('launched sign-in installs nothing and passes explicit reauthentication int
 	});
 	expectOk(await context.auth.startSignIn({ reauthenticate: true }));
 	expect(reauth).toBe(true);
-	expect(context.auth.state).toEqual({ status: 'signed-out' });
+	expect(context.auth.getState()).toEqual({ status: 'signed-out' });
 	expect(context.writes).toEqual([]);
 	expect(context.requests).toEqual([]);
 });
@@ -209,7 +209,7 @@ for (const status of [401, 403, 503]) {
 		expect(expectErr(await context.auth.startSignIn()).name).toBe(
 			'StartSignInFailed',
 		);
-		expect(context.auth.state.status).toBe('signed-out');
+		expect(context.auth.getState().status).toBe('signed-out');
 		expect(context.writes).toEqual([]);
 	});
 }
@@ -225,7 +225,7 @@ for (const status of [401, 403, 503]) {
 			code: status === 503 ? 'auth-unavailable' : 'reauth-required',
 		});
 		expect(context.account).toBe(captured);
-		expect(context.auth.state.status).toBe(
+		expect(context.auth.getState().status).toBe(
 			status === 503 ? 'signed-in' : 'reauth-required',
 		);
 		expect(context.requests.map((request) => request.url)).toEqual([
@@ -267,7 +267,7 @@ test('a mismatched restored principal retires the Account and clears the cell', 
 		name: 'AbortError',
 	});
 	await Bun.sleep(0);
-	expect(context.auth.state.status).toBe('signed-out');
+	expect(context.auth.getState().status).toBe('signed-out');
 	expect(context.stored).toBeNull();
 	expect(context.requests).toHaveLength(1);
 });
@@ -308,7 +308,7 @@ test('restored verification mismatch cannot clear a newer pending installation',
 	releaseWrite.resolve();
 	expectOk(await signIn);
 	expect(await resource).toBeInstanceOf(Response);
-	expect(context.auth.state.status).toBe('signed-in');
+	expect(context.auth.getState().status).toBe('signed-in');
 	expect(context.account).toBe(account);
 	expect(context.stored).toEqual({ ...initial, token: 'alice:2' });
 	expect(context.writes).toEqual([{ ...initial, token: 'alice:2' }]);
@@ -373,7 +373,10 @@ test('401 with an unchanged credential returns once and requires reauthenticatio
 	expect(response.status).toBe(401);
 	expect(await response.text()).toBe('rejected');
 	expect(context.requests).toHaveLength(2);
-	expect(context.auth.state).toEqual({ status: 'reauth-required', account });
+	expect(context.auth.getState()).toEqual({
+		status: 'reauth-required',
+		account,
+	});
 	expect(states).toEqual(['reauth-required']);
 });
 
@@ -404,7 +407,7 @@ test('a delayed 401 retries with a new same-Account revision without pausing it'
 	old.resolve(new Response(null, { status: 401 }));
 	expect(await (await pending).text()).toBe('new');
 	expect(sent).toEqual(['Bearer alice:1', 'Bearer alice:2']);
-	expect(context.auth.state).toEqual({ status: 'signed-in', account });
+	expect(context.auth.getState()).toEqual({ status: 'signed-in', account });
 });
 
 test('getProfile uses its captured Account and never follows replacement', async () => {
@@ -468,7 +471,7 @@ test('sign-out retires locally immediately but waits for the revocation deadline
 		completed = true;
 		return result;
 	});
-	expect(context.auth.state.status).toBe('signed-out');
+	expect(context.auth.getState().status).toBe('signed-out');
 	const signal = await entered.promise;
 	await Bun.sleep(0);
 	expect(context.stored).toBeNull();
@@ -494,7 +497,7 @@ test('sign-out waits for a delayed successful revocation after clearing storage'
 		completed = true;
 		return result;
 	});
-	expect(context.auth.state.status).toBe('signed-out');
+	expect(context.auth.getState().status).toBe('signed-out');
 	await entered.promise;
 	await Bun.sleep(0);
 	expect(context.stored).toBeNull();
@@ -625,7 +628,7 @@ for (const action of ['signOut', 'dispose'] as const) {
 		expect(context.writes.at(-1)).toEqual(
 			action === 'signOut' ? null : initial,
 		);
-		expect(context.auth.state.status).toBe('signed-out');
+		expect(context.auth.getState().status).toBe('signed-out');
 	});
 }
 
@@ -638,7 +641,7 @@ test('storage failure rejects installation without publishing it', async () => {
 	expect(expectErr(await context.auth.startSignIn()).name).toBe(
 		'StartSignInFailed',
 	);
-	expect(context.auth.state.status).toBe('signed-out');
+	expect(context.auth.getState().status).toBe('signed-out');
 	expect(context.stored).toBeNull();
 });
 
@@ -656,7 +659,7 @@ test('sign-out clears identity even when launcher cancellation and revocation fa
 		fetch: async () => new Response(null, { status: 503 }),
 	});
 	expect(expectErr(await context.auth.signOut()).name).toBe('SignOutFailed');
-	expect(context.auth.state.status).toBe('signed-out');
+	expect(context.auth.getState().status).toBe('signed-out');
 	expect(context.stored).toBeNull();
 });
 

@@ -19,7 +19,7 @@ signIn.onclick = async () => {
 };
 const check = document.querySelector<HTMLButtonElement>('#check')!;
 check.onclick = async () => {
-	const state = startup.auth?.state;
+	const state = startup.auth?.getState();
 	if (!state || state.status === 'signed-out') throw new Error('No Account');
 	const response = await state.account.fetch('/api/session');
 	output.textContent = `${response.status}:${state.account.principalId}`;
@@ -35,7 +35,7 @@ if (location.pathname === '/auth/callback') {
 	const result = await startup.auth?.startSignIn?.();
 	if (result?.error) throw result.error;
 } else {
-	const state = startup.auth?.state;
+	const state = startup.auth?.getState();
 	output.textContent =
 		state && state.status !== 'signed-out'
 			? state.account.principalId

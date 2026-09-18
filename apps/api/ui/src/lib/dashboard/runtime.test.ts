@@ -212,7 +212,7 @@ for (const successor of ['bob', 'alice']) {
 		const dashboards: ReturnType<typeof createDashboardRuntime>[] = [];
 		try {
 			expectOk(await auth.startSignIn());
-			const oldState = auth.state;
+			const oldState = auth.getState();
 			if (oldState.status === 'signed-out') throw new Error('Expected Alice');
 			const old = createDashboardRuntime(oldState.account);
 			dashboards.push(old);
@@ -221,7 +221,7 @@ for (const successor of ['bob', 'alice']) {
 			expectOk(await auth.signOut());
 			old[Symbol.dispose]();
 			expectOk(await auth.startSignIn());
-			const newState = auth.state;
+			const newState = auth.getState();
 			if (newState.status === 'signed-out')
 				throw new Error('Expected successor');
 			expect(newState.account).not.toBe(oldState.account);

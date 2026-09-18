@@ -1,3 +1,4 @@
+/** Mail operations drain per mounted App, including aborted consent and durable triage. */
 import { expect, test } from 'bun:test';
 import type { ScopedSqlite } from '@epicenter/device/owner';
 import { Ok } from 'wellcrafted/result';
@@ -137,7 +138,7 @@ test('document closure cancels queries and drains admitted work without closing 
 		const reading = f.mail.query('one', 'select 1');
 		const signal = await entered.promise;
 		let closed = false;
-		const closing = f.mail.close();
+		const closing = f.close();
 		void closing.then(() => {
 			closed = true;
 		});
@@ -147,7 +148,7 @@ test('document closure cancels queries and drains admitted work without closing 
 		release.resolve();
 		await reading;
 		await closing;
-		expect(f.mail.close()).toBe(closing);
+		expect(f.close()).toBe(closing);
 		expect(
 			(await f.storage.local.all('SELECT * FROM accounts')).error,
 		).toBeNull();
@@ -184,7 +185,7 @@ test('document closure aborts consent and waits for its owner to settle', async 
 		});
 		const signal = await entered.promise;
 		let closed = false;
-		const closing = f.mail.close().then(() => {
+		const closing = f.close().then(() => {
 			closed = true;
 		});
 		expect(signal.aborted).toBe(true);
@@ -227,7 +228,7 @@ test('failed triage rejects and closure waits for a durable assertion before rel
 		});
 		await entered.promise;
 		let closed = false;
-		const closing = f.mail.close().then(() => {
+		const closing = f.close().then(() => {
 			closed = true;
 		});
 		await Promise.resolve();
@@ -240,5 +241,31 @@ test('failed triage rejects and closure waits for a durable assertion before rel
 		).toEqual([{ want: 0 }]);
 	} finally {
 		await f.cleanup();
+	}
+});
+
+test('a new attachment uses new App storage after the preceding attachment closes', async () => {
+	const first = await fixture();
+	try {
+		await first.close();
+		let reads = 0;
+		const close = first.attach({
+			...first.app,
+			sqlite: {
+				...first.app.sqlite,
+				async open(name) {
+					reads++;
+					return first.app.sqlite.open(name);
+				},
+			},
+		});
+		try {
+			expect((await first.mail.accounts())[0]?.sub).toBe('one');
+			expect(reads).toBeGreaterThan(0);
+		} finally {
+			await close();
+		}
+	} finally {
+		await first.cleanup();
 	}
 });

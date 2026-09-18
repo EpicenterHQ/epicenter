@@ -3,17 +3,18 @@ import './style.css';
 import { defineApp, defineTable, field } from '@epicenter/app';
 import { syncEngineOf } from '@epicenter/app/data';
 import type { Account } from '@epicenter/auth';
-import { mount } from 'svelte';
+import { mount, unmount } from 'svelte';
 import { expectOk } from 'wellcrafted/testing';
 import { openLocalMailStorage } from '../../../src/storage.js';
 import { mailDefinition } from '../../src/lib/data.js';
-import { mail } from '../../src/lib/mail.js';
+import { attachMail, mail } from '../../src/lib/mail.js';
 import { currentLibraryResponse } from '../current-library.js';
 import { account, opening } from './application.js';
 import Panel from './Panel.svelte';
 
 try {
 	const app = await opening;
+	const closeMail = attachMail(app);
 	const storage = await openLocalMailStorage(app.device);
 	if (localStorage.getItem('evidence-seeded') !== 'true') {
 		for (const sub of ['one', 'two']) {
@@ -48,7 +49,8 @@ try {
 			app,
 			mail,
 			async close() {
-				await mail.close();
+				await unmount(panel);
+				await closeMail();
 				await app.close();
 			},
 			async remoteEdit(remove = false) {

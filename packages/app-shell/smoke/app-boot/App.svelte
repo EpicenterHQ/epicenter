@@ -1,20 +1,16 @@
 <script lang="ts">
- import { tick } from 'svelte';
  import AppBoot from '../../src/boot-screens/app-boot.svelte';
+ import SignInScreen from '../../src/boot-screens/sign-in-screen.svelte';
  import Session from './Session.svelte';
- import { auth, opening, departure } from './application.js';
- import { probe } from './probe.js';
- departure.attachUi({
-  async preflight() { if (probe.refuse) throw new Error('Stop recording first.'); },
-  async quiesce() {
-   probe.events.push('producer-stop');
-   await tick();
-   await probe.producer;
-   (await opening)?.device.kv.update({ text: 'final producer edit' });
-   probe.events.push('producer-done');
-  },
- });
+ import { auth, definition, runtime } from './application.js';
+ let session: Session | undefined = $state();
+ const connecting = new URL(location.href).searchParams.has('connect');
 </script>
-<AppBoot startup={auth} {departure} {opening} appName="Probe" noun="changes">
- <Session />
-</AppBoot>
+{#if connecting}
+ <SignInScreen auth={auth.auth ?? undefined} selection={auth} appName="Probe" noun="changes" onCancel={() => location.replace('/')} />
+{:else}
+ <AppBoot auth={auth.auth ?? undefined} selection={auth} {definition} {runtime}
+  ui={session} appName="Probe" noun="changes">
+  {#snippet children(app)}<Session {app} bind:this={session} />{/snippet}
+ </AppBoot>
+{/if}

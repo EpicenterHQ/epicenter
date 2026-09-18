@@ -1,87 +1,171 @@
-/**
- * Whispering captures one Account for opening and displays the selected store
- * from the ready App. Signed-out startup always displays device data regardless
- * of the saved choice. Separate processes isolate captured module state.
- * Honeycrisp startup is covered by its routed browser acceptance test.
- */
+/** Mount the actual route: signed-out startup ignores a saved remote selection. */
 import { expect, test } from 'bun:test';
-import { fileURLToPath } from 'node:url';
+import { mkdtemp, rm, realpath } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
 
-for (const saved of [null, 'local', 'personal', 'shared']) {
-	test(`Whispering opens device data after sign-out from ${saved}`, () => {
-		const result = Bun.spawnSync(
-			[
-				process.execPath,
-				'--eval',
-				`
-				import assert from 'node:assert/strict';
-				import { mock } from 'bun:test';
-				const saved = ${JSON.stringify(saved)};
-				const values = new Map([['whispering.library', saved]]);
-				globalThis.localStorage = {
-					getItem: key => values.get(key) ?? null,
-					setItem: (key, value) => values.set(key, value),
-				};
-				globalThis.location = { search: '' };
-				const auth = { state: { account: undefined } };
-				const startup = { auth, selectedServer: 'https://server.example' };
-				mock.module('#platform/auth', () => ({ authClient: startup }));
-				mock.module('@epicenter/app-shell/inference-selections', () => ({
-					createBrowserInferenceSelections: () => ({ [Symbol.dispose]() {} }),
-				}));
-				mock.module('@epicenter/app-shell/departure', () => ({ createDeparture: () => ({}) }));
-				const definition = { id: 'test.whispering' };
-				mock.module(process.cwd() + '/src/lib/data.ts', () => ({ whisperingDefinition: definition }));
-				const calls = [];
-				mock.module('@epicenter/app/open', () => ({
-					openApp(definitionArgument, options) {
-						assert.equal(definitionArgument, definition);
-						const pending = Promise.withResolvers();
-						calls.push({ account: options.account, pending });
-						return pending.promise;
-					},
-				}));
-				const visits = [];
-				for (const principalId of [undefined, 'alice', undefined, 'alice']) {
-					const account = principalId ? { principalId } : undefined;
-					auth.state.account = account;
-					const opened = await import(process.cwd() + '/src/lib/bootstrap.ts?visit=' + visits.length);
-					assert.equal(calls.length, visits.length + 1);
-					assert.equal(calls.at(-1).account, account);
-					assert.equal(opened.account, account);
-					// A later auth state must not change the Account or data this opening uses.
-					auth.state.account = { principalId: 'replacement' };
-					const app = {
-						device: { owner: principalId ?? 'no-account' },
-						account: account && { personal: {}, shared: {} },
-						signal: new AbortController().signal,
-						close: async () => {},
-					};
-					calls.at(-1).pending.resolve(app);
-					const ready = await opened.opening;
-					assert.equal(ready.app, app);
-					const library = account ? saved ?? 'personal' : 'local';
-					assert.equal(ready.data, library === 'local' ? app.device : app.account[library]);
-					visits.push({ library: opened.library, owner: ready.app.device.owner });
-				}
-				console.log(JSON.stringify({ visits, saved: values.get('whispering.library') }));
-			`,
-			],
+const repo = new URL('../', import.meta.url).pathname;
+const requireApp = createRequire(
+	new URL('../apps/whispering/package.json', import.meta.url),
+);
+const requireData = createRequire(
+	new URL('../packages/app/package.json', import.meta.url),
+);
+
+test('mounted Whispering uses device data for every signed-out saved selection', async () => {
+	const directory = await realpath(
+		await mkdtemp(join(tmpdir(), 'whispering-startup-')),
+	);
+	const { build } = await import(requireApp.resolve('vite'));
+	const { svelte } = await import(
+		requireApp.resolve('@sveltejs/vite-plugin-svelte')
+	);
+	const { chromium } = requireData('playwright');
+	const route = join(repo, 'apps/whispering/src/routes/(app)/+layout.svelte');
+	await Bun.write(
+		join(directory, 'index.html'),
+		'<div id="app"></div><script type="module" src="/main.ts"></script>',
+	);
+	await Bun.write(
+		join(directory, 'main.ts'),
+		`import { mount, unmount } from 'svelte'; import Root from './Root.svelte'; const component = mount(Root, { target: document.querySelector('#app') }); window.stop = () => unmount(component);`,
+	);
+	await Bun.write(
+		join(directory, 'Root.svelte'),
+		`<script>import Layout from ${JSON.stringify(route)};</script><Layout><p>route child</p></Layout>`,
+	);
+	await Bun.write(
+		join(directory, 'Shell.svelte'),
+		`<script>let { openedApp, data, account } = $props();</script><p id="selection">{JSON.stringify({ device: data === openedApp.device, account: account === undefined })}</p>`,
+	);
+	await Bun.write(join(directory, 'Menu.svelte'), '<span>Library menu</span>');
+	await Bun.write(
+		join(directory, 'auth.ts'),
+		`export const serverSelection = undefined; export const auth = { getState: () => ({ status: 'signed-out' }), onStateChange: () => () => {}, signOut: async () => ({error:null}) };`,
+	);
+	await Bun.write(
+		join(directory, 'data.ts'),
+		`import { defineApp } from ${JSON.stringify(join(repo, 'packages/app/src/index.ts'))}; export const whisperingDefinition = defineApp({ id: 'test.whispering-startup', tables: {}, kv: {} });`,
+	);
+	await build({
+		configFile: false,
+		root: directory,
+		plugins: [
 			{
-				cwd: fileURLToPath(new URL('../apps/whispering/', import.meta.url)),
-				stdout: 'pipe',
-				stderr: 'pipe',
+				name: 'startup-fixture',
+				enforce: 'pre',
+				transform(code: string, id: string) {
+					if (id !== route) return;
+					return code
+						.replace(
+							"from '#platform/auth'",
+							`from ${JSON.stringify(join(directory, 'auth.ts'))}`,
+						)
+						.replace(
+							"from '$lib/data.js'",
+							`from ${JSON.stringify(join(directory, 'data.ts'))}`,
+						)
+						.replace(
+							"from './_components/WhisperingShell.svelte'",
+							`from ${JSON.stringify(join(directory, 'Shell.svelte'))}`,
+						)
+						.replace(
+							"from '$lib/components/LibrarySelection.svelte'",
+							`from ${JSON.stringify(join(directory, 'Menu.svelte'))}`,
+						)
+						.replace(
+							'<script lang="ts">',
+							`<script lang="ts">import { createMemoryRuntime } from ${JSON.stringify(join(repo, 'packages/app/src/testing.ts'))}; const runtime = createMemoryRuntime();`,
+						)
+						.replace('<AppBoot ', '<AppBoot {runtime} ');
+				},
 			},
-		);
-		expect(result.exitCode, result.stderr.toString()).toBe(0);
-		expect(JSON.parse(result.stdout.toString())).toEqual({
-			visits: [
-				{ library: 'local', owner: 'no-account' },
-				{ library: saved ?? 'personal', owner: 'alice' },
-				{ library: 'local', owner: 'no-account' },
-				{ library: saved ?? 'personal', owner: 'alice' },
-			],
-			saved,
-		});
+			svelte({ configFile: false }),
+		],
+		resolve: {
+			dedupe: ['svelte'],
+			alias: Object.entries(requireApp('svelte/package.json').exports).flatMap(
+				([key, entry]) => {
+					const value = entry as
+						| string
+						| { browser?: string; default?: string };
+					const target =
+						typeof value === 'string'
+							? value
+							: (value.browser ?? value.default);
+					return target
+						? [
+								{
+									find: new RegExp(
+										`^${key === '.' ? 'svelte' : `svelte/${key.slice(2)}`}$`,
+									),
+									replacement: join(
+										dirname(requireApp.resolve('svelte/package.json')),
+										target,
+									),
+								},
+							]
+						: [];
+				},
+			),
+		},
+		build: { target: 'esnext', outDir: join(directory, 'dist') },
+		logLevel: 'error',
 	});
-}
+	const server = Bun.serve({
+		hostname: '127.0.0.1',
+		port: 0,
+		fetch(request) {
+			const path = new URL(request.url).pathname;
+			return new Response(
+				Bun.file(join(directory, 'dist', path === '/' ? 'index.html' : path)),
+			);
+		},
+	});
+	let browser;
+	try {
+		browser = await chromium.launch({ headless: true });
+		for (const saved of [null, 'local', 'personal', 'shared']) {
+			const page = await browser.newPage();
+			const errors: string[] = [];
+			page.on('pageerror', (error: Error) => errors.push(error.message));
+			page.on('console', (message) => {
+				if (message.type() === 'error') errors.push(message.text());
+			});
+			page.on('requestfailed', (request) =>
+				errors.push(request.url() + ': ' + request.failure()?.errorText),
+			);
+			await page.addInitScript((value: string | null) => {
+				if (value !== null) localStorage.setItem('whispering.library', value);
+			}, saved);
+			await page.goto(server.url.toString());
+			await page
+				.locator('#selection')
+				.waitFor({ timeout: 10000 })
+				.catch(async (cause) => {
+					throw new Error(
+						JSON.stringify({
+							errors,
+							body: await page.locator('body').innerText(),
+						}),
+						{ cause },
+					);
+				});
+			expect(JSON.parse(await page.locator('#selection').innerText())).toEqual({
+				device: true,
+				account: true,
+			});
+			expect(
+				await page.evaluate(() => localStorage.getItem('whispering.library')),
+			).toBe(saved);
+			await page.evaluate(() => window.stop());
+			expect(errors).toEqual([]);
+			await page.close();
+		}
+	} finally {
+		await browser?.close();
+		server.stop(true);
+		await rm(directory, { recursive: true, force: true });
+	}
+}, 60000);

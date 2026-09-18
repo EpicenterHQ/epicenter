@@ -3,12 +3,12 @@
 Auth selects an account; every application session keeps the Account it opened with.
 
 ```ts
-const startup = createBrowserAuth({
+const auth = createHostedBrowserRedirectAuth({
  appId: 'so.epicenter.example',
  baseURL: 'https://api.epicenter.so',
 });
-const state = startup.auth?.state;
-if (state && state.status !== 'signed-out') {
+const state = auth.getState();
+if (state.status !== 'signed-out') {
  const account = state.account;
  // Keep this Account for the lifetime of the opened application.
  const response = await account.fetch('/api/session');
@@ -67,7 +67,7 @@ There is no refresh-token exchange.
 
 ## Browser and dashboard
 
-`createBrowserAuth` reads the server selected for this document. Its startup
+`createBrowserAuth` reads the server selected for this document. Its selection
 object exposes `auth`, `connectInstance({ url })`, and `useCloud()`. A new server
 selection retires the current Account and takes effect in a fresh document.
 Application code closes its producers and App before invoking that change.
@@ -126,8 +126,10 @@ the host relays bytes and owns no application replica or reconnect loop.
 
 `AuthState` is signed-out, signed-in with an Account, or reauth-required with
 that same Account. Store apps capture the Account from the plain client in
-application bootstrap and keep one App per document. Svelte adapts auth with
-`fromAuth` only for UI tracking. Deliberate departure closes the App before
+the mounted AppBoot instance and keep one App per working page. Svelte adapts
+auth with `fromAuth` only for UI tracking through its reactive `.state` getter.
+The raw client exposes the explicit snapshot method `getState()`. Deliberate
+departure closes the App before
 mutating identity and navigating; unexpected retirement never opens a successor
 in the same document. Desktop children await the host close barrier before
 voluntary retirement.
