@@ -80,8 +80,7 @@ export function createDeparture({
 	}
 	const stopAuth =
 		auth?.onStateChange((next) => {
-			const nextAccount = next.status === 'signed-out' ? undefined : next.account;
-			if (nextAccount === account || state.phase === 'closed') return;
+			if (next.account === account || state.phase === 'closed') return;
 			endedBy = 'account';
 			if (state.phase === 'failed') return;
 			// Auth already retired transport. This only finishes the local page.

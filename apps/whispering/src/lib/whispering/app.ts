@@ -66,12 +66,10 @@ export type WhisperingApp = {
 export function createWhisperingDomains({
 	openedApp,
 	data,
-	account,
 }: {
 	/** The opened dataset owns tables, blobs, and recording. */
 	openedApp: WhisperingAppHandle;
 	data: WhisperingData;
-	account: Account | undefined;
 }) {
 	const settingsDomain = createWhisperingSettings({ kv: openedApp.device.kv });
 	const recordingsDomain = createWhisperingRecordings({
@@ -85,7 +83,6 @@ export function createWhisperingDomains({
 	let disposed = false;
 	return Object.freeze({
 		signal: openedApp.signal,
-		account,
 		settings: settingsDomain.settings,
 		recordings: recordingsDomain.recordings,
 		blobs: openedApp.blobs,

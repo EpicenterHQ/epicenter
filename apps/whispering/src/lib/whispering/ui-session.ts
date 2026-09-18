@@ -30,7 +30,7 @@ export function createWhisperingUiSession({
 	selections: InferenceSelections;
 	account: Account | undefined;
 }) {
-	const domains = createWhisperingDomains({ openedApp, data, account });
+	const domains = createWhisperingDomains({ openedApp, data });
 	const inference = createWhisperingConnections(openedApp, selections);
 	// Named members rather than a spread of `domains`, which used to carry
 	// `[Symbol.dispose]` into the object handed to every component through

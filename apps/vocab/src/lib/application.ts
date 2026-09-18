@@ -10,9 +10,7 @@ import { vocabDefinition } from './data.js';
 // Imported only after the application route mounts. Module lifetime fixes
 // both the Account and App across navigation in this document.
 const auth = authStartup.auth;
-const state = auth?.state;
-export const account =
-	!state || state.status === 'signed-out' ? undefined : state.account;
+export const account = auth?.state.account;
 const shouldOpen =
 	account !== undefined && !new URLSearchParams(location.search).has('connect');
 if (shouldOpen) await initializeBrowserAiSettings('vocab');

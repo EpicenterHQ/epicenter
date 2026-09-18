@@ -27,7 +27,7 @@ export type Account = AccountIdentity & {
 };
 
 export type AuthState =
-	| { status: 'signed-out' }
+	| { status: 'signed-out'; account?: undefined }
 	| { status: 'signed-in' | 'reauth-required'; account: Account };
 
 /** Auth selects accounts; applications hold the Account they opened. */

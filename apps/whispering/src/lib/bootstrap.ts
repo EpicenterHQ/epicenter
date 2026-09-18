@@ -10,20 +10,16 @@ import { whisperingDefinition } from './data.js';
 
 // Loaded only by the mounted application opening path.
 const auth = authClient.auth;
-const state = auth?.state;
-const signedInAccount =
-	!state || state.status === 'signed-out' ? undefined : state.account;
+export const account = auth?.state.account;
 export type Library = 'local' | 'personal' | 'shared';
 export const library: Library = (() => {
 	const saved = localStorage.getItem('whispering.library');
-	if (saved === null) return signedInAccount === undefined ? 'local' : 'personal';
+	if (saved === null) return account === undefined ? 'local' : 'personal';
 	if (saved === 'local' || saved === 'personal' || saved === 'shared')
 		return saved;
 	throw new Error('Your saved library choice could not be read.');
 })();
 export const canOpenShared = authClient.selectedServer !== null;
-// The captured account supplies account stores and inference beside device data.
-export const account = signedInAccount;
 const application = defineApplication({
 	appId: APPS.WHISPERING.id,
 	definition: whisperingDefinition,

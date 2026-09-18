@@ -7,9 +7,7 @@ import { mail } from './mail.js';
 // Only the mounted primary route imports this module. The document captures
 // its Account once; callback and preload routes never acquire a library.
 const auth = authStartup.auth;
-const state = auth?.state;
-export const account =
-	!state || state.status === 'signed-out' ? undefined : state.account;
+export const account = auth?.state.account;
 export const app =
 	account === undefined || new URLSearchParams(location.search).has('connect')
 		? null

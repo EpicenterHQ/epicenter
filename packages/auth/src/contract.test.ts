@@ -89,6 +89,7 @@ function setup(
 test('signed-out client has no callback method unless the launcher provides one', () => {
 	using context = setup();
 	expect(context.auth.state).toEqual({ status: 'signed-out' });
+	expect(context.auth.state.account).toBeUndefined();
 	expect(isCallbackAuthClient(context.auth)).toBe(false);
 	expect('completeSignIn' in context.auth).toBe(false);
 });
@@ -366,11 +367,14 @@ test('401 with an unchanged credential returns once and requires reauthenticatio
 				: new Response('rejected', { status: 401 }),
 	});
 	const account = context.account;
+	const states: string[] = [];
+	context.auth.onStateChange((state) => states.push(state.status));
 	const response = await account.fetch('/resource');
 	expect(response.status).toBe(401);
 	expect(await response.text()).toBe('rejected');
 	expect(context.requests).toHaveLength(2);
 	expect(context.auth.state).toEqual({ status: 'reauth-required', account });
+	expect(states).toEqual(['reauth-required']);
 });
 
 test('a delayed 401 retries with a new same-Account revision without pausing it', async () => {

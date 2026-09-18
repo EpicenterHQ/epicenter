@@ -7,9 +7,7 @@ import { honeycrispDefinition } from './data.js';
 // Imported only after the application route mounts. Module lifetime fixes
 // the library, Account, and App across navigation in this document.
 const auth = authStartup.auth;
-const state = auth?.state;
-export const account =
-	!state || state.status === 'signed-out' ? undefined : state.account;
+export const account = auth?.state.account;
 export type Library = 'local' | 'personal' | 'shared';
 export const library: Library = (() => {
 	const saved = localStorage.getItem('honeycrisp.library');

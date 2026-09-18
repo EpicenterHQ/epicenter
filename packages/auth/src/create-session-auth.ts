@@ -241,12 +241,7 @@ function createBearerAuth(
 					account: attachment.account,
 				}
 			: { status: 'signed-out' };
-		if (
-			next.status === state.status &&
-			(next.status === 'signed-out' ||
-				(state.status !== 'signed-out' && next.account === state.account))
-		)
-			return;
+		if (next.status === state.status && next.account === state.account) return;
 		state = next;
 		for (const listener of listeners) {
 			try {

@@ -209,8 +209,7 @@ test('settings recover application defaults, notify, and survive a reopen', asyn
 		const openedApp = await openWhispering(account);
 		const app = createWhisperingDomains({
 			openedApp,
-		data: openedApp.account!.personal,
-			account,
+			data: openedApp.account!.personal,
 		});
 
 		// Chosen by the application, applied by a read, never stored.
@@ -241,7 +240,6 @@ test('settings recover application defaults, notify, and survive a reopen', asyn
 	const reopened = createWhisperingDomains({
 		openedApp,
 		data: openedApp.account!.personal,
-		account,
 	});
 
 	expect(reopened.settings.get('recordingPausePlayback')).toBe(true);
@@ -261,7 +259,6 @@ test('the domains stop reading the store once they are disposed', async () => {
 	const app = createWhisperingDomains({
 		openedApp,
 		data: openedApp.account!.personal,
-		account,
 	});
 
 	app[Symbol.dispose]();
