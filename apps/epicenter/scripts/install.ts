@@ -6,14 +6,14 @@ import { RESERVED_APPLICATION_IDS } from '../src/applications.ts';
 const args = process.argv.slice(2);
 if (args[0] === '--help' || args[0] === '-h') {
 	process.stdout.write(
-		'Usage: bun run --cwd apps/epicenter install -- <release> [--data-dir <path>]\n',
+		'Usage: bun run --cwd apps/epicenter app:install -- <release> [--data-dir <path>]\n',
 	);
 	process.exit(0);
 }
 const releaseRoot = args.shift();
 if (releaseRoot === undefined || releaseRoot.startsWith('--')) {
 	throw new Error(
-		'Usage: bun run --cwd apps/epicenter install -- <release> [--data-dir <path>]',
+		'Usage: bun run --cwd apps/epicenter app:install -- <release> [--data-dir <path>]',
 	);
 }
 

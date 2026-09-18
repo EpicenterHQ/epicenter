@@ -144,7 +144,7 @@ Install it from the repository root:
 
 ```bash
 # Stop Epicenter first, then restart it after installation.
-bun run --cwd apps/epicenter install -- /path/to/release --data-dir /tmp/epicenter-data
+bun run --cwd apps/epicenter app:install -- /path/to/release --data-dir /tmp/epicenter-data
 ```
 
 Epicenter validates the manifest and static files, copies them into
