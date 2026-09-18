@@ -19,14 +19,20 @@ implementer is not evidence of a better review. Keeping the design is valid.
 
 ## Establish independence
 
-The coordinating agent starts one read-only reviewer subagent that did not
-implement the work. Use the runtime's available GPT-6 model with
+If you are already the delegated reviewer, perform the review yourself and
+launch no child agents. The following setup belongs to the coordinating agent.
+
+The coordinating agent appoints one read-only reviewer that did not implement
+the work. When the user has chosen Claude, use the consultation path below.
+Otherwise start a subagent using the runtime's available GPT-6 model with
 `fork_turns: "none"` and `reasoning_effort: "high"`.
 If subagent tools are unavailable, perform the pass locally and state that it
-was not independent. Do not invoke Claude unless the user explicitly requests it.
+was not independent. Do not invoke Claude without user authorization, including
+an existing request to include Claude during design reviews.
 
-Give the reviewer raw artifacts and open questions, without the implementer's
-preferred conclusion:
+Give the reviewer raw artifacts, concrete proposals, engineering reasoning, and
+open questions. Distinguish facts, hypotheses, preferences, and accepted
+constraints; the implementer's reasoning is contestable evidence, not the answer:
 
 - The accepted outcome, explicit constraints, and decision to be examined.
 - The plan and remaining work, including newly discovered facts.
@@ -34,6 +40,14 @@ preferred conclusion:
   task-owned uncommitted and untracked files. Distinguish unrelated work.
 - Relevant entrypoints, consumers, tests, and verification results. A summary
   alone is not sufficient evidence.
+
+Include actual and proposed code, representative callsites, and an ASCII diagram
+when it clarifies the design. Ask what the reviewer would build from the desired
+outcome and actual callers if the current abstraction did not exist. For an
+authorized Claude consultation, the coordinator uses
+[consult-claude](../consult-claude/SKILL.md) for the conversation and access
+boundary; Claude applies this review method as the appointed reviewer. Codex
+owns any requested experiments.
 
 For a proposal without implementation, supply the proposal and any existing
 system it would replace. Distinguish observed behavior from design assumptions;
@@ -43,8 +57,7 @@ Hold the reviewed surface stable until the reviewer returns. Use that interval
 for verification preparation or an independent question outside the surface.
 Do not begin work whose shape depends on the verdict.
 
-The reviewer does not edit the live checkout or launch child agents. If you
-received this skill as the delegated reviewer, perform the review yourself.
+The reviewer does not edit the live checkout.
 Additional reviewers need distinct unresolved questions; dividing this review
 into file lanes would hide the relationships it is meant to examine.
 

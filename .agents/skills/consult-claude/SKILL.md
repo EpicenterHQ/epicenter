@@ -1,77 +1,88 @@
 ---
 name: consult-claude
-description: Run Claude Code as an independent reviewer or research laboratory while you keep ownership of the live repository. Use when the user asks to consult Claude, requests a Claude review, or asks Claude to investigate or research independently.
+description: Get Claude Code's second opinion on a proposal or implementation. Use when the user asks to consult Claude, requests Claude's design judgment or research, or has asked to include Claude during design review. Do not enlist Claude merely because a task is complex.
 ---
 
 # Consult Claude
 
-Claude researches in an independent repository snapshot. Codex owns the living
-checkout, evaluates the evidence, and integrates the result. The launcher owns
-the snapshot and tool boundary; Claude Code owns the conversation and its
-lifecycle.
+Codex briefs Claude on the problem, proposed design, and reasoning. Claude reads
+the current checkout and returns its judgment, alternatives, and objections.
+Codex owns implementation and verification; when Claude needs a test, benchmark,
+or experiment, it requests that evidence from Codex.
 
-Give Claude one outcome, the settled values it must preserve, and source
-territory worth starting from. Do not give it your working theory, a menu of
-answers, or a prescribed method. Tell it what would make the research complete.
+## Make the design legible
+
+Supply the desired outcome, genuine constraints, actual and proposed API code,
+representative callsites, relevant implementation excerpts with source paths,
+and your engineering reasoning and unresolved questions. Use an ASCII diagram
+when it clarifies ownership, lifecycle, or data flow. Distinguish observed facts,
+proposals, assumptions, and preferences. Give enough concrete evidence to judge
+the decision immediately; Claude can read further to verify your account.
+
+For design questions, appoint Claude as the reviewer and have it apply
+[design-review](../design-review/SKILL.md) itself, without launching another
+reviewer. Explicitly ask for the strongest greenfield direction: starting from
+the desired outcome and actual callers, what would it build if the current
+abstraction did not exist? Treat your reasoning as evidence, not constraints.
+Ask for concrete signatures and callsites, what disappears, new complexity, and
+requirements being questioned. Keeping the design is valid when it earns its
+place. A narrow question does not require a full architectural report.
+
+## Send a brief
 
 Requires Bun, Git, and authenticated Claude Code 2.1.257 or later with access to
-the chosen model. This minimum includes the outside-read restriction used by
-the launcher. Start from the repository root:
+the selected model. Run from this repository; supply the brief directly on stdin:
 
 ```bash
-bun .agents/skills/consult-claude/scripts/consult-claude.ts start
+bun .agents/skills/consult-claude/scripts/consult-claude.ts <<'BRIEF'
+[Concrete question, code blocks, source paths, diagram, reasoning, uncertainties.]
+BRIEF
 ```
 
-Send the brief on stdin, then EOF. The launcher prints snapshot metadata and
-Claude's native session ID and management commands. It saves provenance in
-`run.json` beside the replica. `--name <name>` labels the run and native session;
-`--dry-run` previews the metadata and settings without creating a snapshot or
-calling Claude. `snapshotId` identifies the captured Git tree, retained at
-`refs/consultation/baseline` inside the replica. Read a baseline file with
-`git show <snapshotId>:<path>`; describe later experiments separately.
+The launcher runs one native print-mode turn in the current checkout with only
+Read, Glob, and Grep. Restricted mode, blocked MCP tools, disabled hooks, and
+outside-read restrictions enforce the boundary. It creates no replica, brief
+file, or checkpoint. Claude Code owns session storage. Keep the reviewed files
+stable during each turn; identify changed files when supplying fresh evidence.
 
-The default is Fable 5.1 (`claude-fable-5-1`). Pass `--model <alias-or-id>` to
-choose another model. `--model fable` follows the CLI's moving alias. The record
-states the requested model; inspect the native session before attributing a
-result to it, since access restrictions and fallback can change the model used.
-
-Monitor through Claude's native state and output:
+Read the native JSON result, including `result`, `session_id`, `is_error`, and
+any permission denials. A process starting or exiting successfully is not proof
+of a successful consultation. Preserve the session ID for follow-ups.
 
 ```bash
-claude agents --cwd <replicaPath> --json --all
-claude logs <native-id>
+bun .agents/skills/consult-claude/scripts/consult-claude.ts --resume <session_id> <<'EVIDENCE'
+[Requested evidence, commands and relevant raw output, changed source, next question.]
+EVIDENCE
 ```
 
-When the user needs the answer before you continue, keep monitoring the native
-session. Read its report at the printed `checkpointPath` when it finishes or
-needs a decision. A report is evidence, not a process signal: `failed`, `stopped`,
-and `blocked` need inspection even if no report exists. Report unavailable
-checks instead of treating a successful launch as a completed consultation.
+Resume only a completed consultation from this launcher, in the same checkout.
+The launcher reapplies the access boundary on every turn. If the shell tool
+yields a running process, keep monitoring it and provide progress updates.
+There is no interactive attach step.
 
-Follow up in the existing conversation with `claude attach <native-id>` in a
-PTY, or reply in the session's peek panel in `claude agents`. Attach also resumes
-stopped sessions with a saved conversation. Detach with Ctrl+Z to return to the
-shell and leave the session running. Do not start `--resume --bg` against a live
-session: Claude can copy it instead of continuing it.
+`--model` selects a model; the default remains `claude-fable-5-1`.
+`--dry-run` previews launch arguments without invoking Claude. Consult the native
+result or transcript before attributing findings to a model: access restrictions
+and fallback can change the model used.
 
-The replica includes tracked changes and untracked, non-ignored files. It has
-independent Git storage and no remote. Restricted mode confines file tools;
-sandbox settings restrict outside reads and shell network access. Claude can
-edit and experiment in the replica and use WebSearch. Ignored dependencies are
-absent, so some tests may be unavailable offline. Untracked nested repositories
-are rejected; ignore them or move them outside the source repository first.
-Restricted Git operations may require approval. Direct fetching or external
-actions require a deliberate change to the consultation's scope.
+## Adjudicate and continue
 
-Re-verify findings against the living checkout. When live work has materially
-moved on, start a new snapshot; do not refresh an existing laboratory beneath
-its conversation. Claude's patches are evidence, not changes to apply. Return
-its recommendation, material objections, and any remaining disagreement.
+Evaluate objections yourself. When Claude requests evidence, run useful checks
+within the user's existing authorization and return the commands, relevant raw
+results, and source state. An advice-only request does not authorize edits.
+Ask before materially expanding the task; prior authorization still applies.
 
-When changing launch behavior, check `claude --version`, `claude --help`, and
-the official [CLI reference](https://code.claude.com/docs/en/cli-reference),
-[agent view](https://code.claude.com/docs/en/agent-view),
-[model configuration](https://code.claude.com/docs/en/model-config), and
-[outside-read restrictions](https://code.claude.com/docs/en/settings-reference#permissions-blockreadsoutsideworkingdirectories).
-Keep native commands in the skill and snapshot mechanics in the launcher;
-do not add a second session manager to accommodate a CLI change.
+Codex normally runs experiments. If the user explicitly delegates experimental
+execution to Claude, arrange an appropriately isolated workspace for that task
+separately. This launcher never grants write or execution tools, and elapsed
+time alone does not justify a new workspace or broader delegation.
+
+Return the recommendation, supporting evidence, and remaining disagreement.
+Stop when the bounded decision has enough evidence; consensus is not required.
+
+Read [the example and evaluation cases](references/example-workflow.md) when
+evaluating this workflow or revising the skills. For launcher changes, verify
+`claude --version`, `claude --help`, the official
+[CLI reference](https://code.claude.com/docs/en/cli-reference), and
+[programmatic usage](https://code.claude.com/docs/en/headless). Native Claude
+sessions own conversation history; the launcher owns only access and transport.
