@@ -84,9 +84,14 @@ async function setup() {
 	});
 	selections.set('completion', { connectionId: id, model: 'chosen' });
 	currentApp = {
-		ai: owner.value.ai,
 		account: null,
-		kv: { get: (key: string) => values.get(key) },
+		device: {
+			connections: {
+				runtime: owner.value.ai.runtime,
+				custom: owner.value.ai.connections,
+			},
+			kv: { get: (key: string) => values.get(key) },
+		},
 	};
 	return {
 		values,
