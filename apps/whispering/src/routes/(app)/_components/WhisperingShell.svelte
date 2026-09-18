@@ -30,6 +30,7 @@
 		selections,
 		account,
 		removeLocalData,
+		libraryMenu,
 		children,
 	}: {
 		/** The ready framework App, owned and closed by the application document. */
@@ -43,6 +44,7 @@
 		 */
 		removeLocalData?: () => Promise<void>;
 		children: Snippet;
+		libraryMenu: Snippet;
 	} = $props();
 
 	// One mount creates one UI session over the captured framework App.
@@ -90,13 +92,14 @@
 			{#if isNarrow.current}
 				<div class="flex h-full min-h-svh flex-col">
 					<div class="flex-1 pb-14">
+						<div class="flex justify-end px-4 pt-3">{@render libraryMenu()}</div>
 						<ContentShell>{@render children()}</ContentShell>
 					</div>
 					<BottomNav />
 				</div>
 			{:else}
 				<Sidebar.Provider bind:open={sidebarOpen}>
-					<VerticalNav {removeLocalData} />
+					<VerticalNav {removeLocalData} {libraryMenu} />
 					<Sidebar.Inset>
 						<ContentShell>{@render children()}</ContentShell>
 					</Sidebar.Inset>

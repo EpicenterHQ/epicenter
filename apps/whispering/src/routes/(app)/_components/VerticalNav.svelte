@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { getWhisperingApp } from '$lib/whispering/context';
 	const app = getWhisperingApp();
 	import * as Sidebar from '@epicenter/ui/sidebar';
@@ -17,9 +18,11 @@
 
 	let {
 		removeLocalData,
+		libraryMenu,
 	}: {
 		/** See `WhisperingShell`. Absent means the popover offers sign-out only. */
 		removeLocalData?: () => Promise<void>;
+		libraryMenu: Snippet;
 	} = $props();
 
 	const sidebar = useSidebar();
@@ -53,6 +56,7 @@
 				</Sidebar.MenuButton>
 			</Sidebar.MenuItem>
 		</Sidebar.Menu>
+		{@render libraryMenu()}
 	</Sidebar.Header>
 
 	<Sidebar.Content>

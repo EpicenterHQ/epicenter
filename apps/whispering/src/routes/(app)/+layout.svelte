@@ -48,16 +48,22 @@
 {#if error}
 	<p role="alert">{error}</p>
 {:else if application}
-	<LibrarySelection library={application.library} canOpenShared={application.canOpenShared} select={application.selectLibrary} />
+	{#snippet libraryMenu()}
+		{#if application}
+		<LibrarySelection library={application.library} canOpenShared={application.canOpenShared} select={application.selectLibrary} />
+		{/if}
+	{/snippet}
+	{#if !application.app}<div class="p-3">{@render libraryMenu()}</div>{/if}
 	<AppBoot startup={authClient} departure={application.departure} hasApp={application.app !== null} appName="Whispering" noun="recordings">
 		{#if application.app && application.selections && showing}
 			{#await application.app.ready}
 				<Loading class="h-dvh" label="Opening your recordings…" />
 			{:then { error }}
 				{#if error !== null}
+					<div class="p-3">{@render libraryMenu()}</div>
 					<CannotOpenScreen appName="Whispering" noun="recordings" {error} retry={() => location.reload()} />
 				{:else}
-					<WhisperingShell selections={application.selections} openedApp={application.app} account={application.account} bind:this={shell}>
+					<WhisperingShell {libraryMenu} selections={application.selections} openedApp={application.app} account={application.account} bind:this={shell}>
 						{@render children()}
 					</WhisperingShell>
 				{/if}
