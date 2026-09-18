@@ -6,7 +6,7 @@ import type {
 	AiConnections,
 	CustomConnectionInput,
 } from './ai-connections.js';
-import type { AppAiBinding } from './compose.js';
+import type { AppAiBinding } from './runtime.js';
 import { createNativeInferenceTransport } from './native-ai.js';
 
 const log = createLogger('desktop-ai-connections');
@@ -250,10 +250,8 @@ export function createDesktopAiConnections({
 export function createEpicenterHostAppAi(): AppAiBinding {
 	return {
 		account: accountInference,
+		configuredFetch: globalThis.fetch.bind(globalThis),
 		runtime: createNativeInferenceTransport(),
 		connections: (_appId, account) => createDesktopAiConnections({ account }),
 	};
 }
-
-/** Default desktop composition selected by the package build condition. */
-export const createDefaultAppAi: () => AppAiBinding = createEpicenterHostAppAi;

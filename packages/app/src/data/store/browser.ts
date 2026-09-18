@@ -13,15 +13,13 @@ import {
 import { readCurrentDownload } from '@epicenter/sync/current-download';
 import { CURRENT_ROUTE } from '@epicenter/sync/generations-route';
 import * as Y from '@y/y';
-import { openDB } from 'idb';
 import { Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { openCurrentCache } from './current-cache.js';
 import { createDatabaseDocument } from './document.js';
 import type { DatabaseAccount } from './handles.js';
 import {
-	type BrowserDurableDatabase,
-	type BrowserDurableSchema,
 	createIdbUpdates,
+	openIdbDatabase,
 	readIdbUpdates,
 } from './idb-updates.js';
 import { requestPersistentStorage } from './persist.js';
@@ -29,18 +27,6 @@ import type { DurablePort, DurableSnapshot } from './persistence.js';
 import { type StoreBacking, StoreError } from './store.js';
 
 const UPDATES_STORE = 'updates';
-
-function openIndexedDb(address: string): Promise<BrowserDurableDatabase> {
-	// Keep the existing address and database version. Opening never upgrades
-	// or migrates a previous storage format.
-	return openDB<BrowserDurableSchema>(address, 1, {
-		upgrade(durable) {
-			if (!durable.objectStoreNames.contains(UPDATES_STORE)) {
-				durable.createObjectStore(UPDATES_STORE);
-			}
-		},
-	});
-}
 
 export type BrowserBacking = {
 	port: DurablePort;
@@ -74,9 +60,10 @@ export type BrowserBacking = {
  */
 export async function openIdbBacking(
 	address: string,
+	indexedDB: IDBFactory = globalThis.indexedDB,
 ): Promise<Result<BrowserBacking, StoreError>> {
 	const opened = await tryAsync({
-		try: () => openIndexedDb(address),
+		try: () => openIdbDatabase(address, [UPDATES_STORE], indexedDB),
 		catch: (cause) => StoreError.StorageFailed({ cause }),
 	});
 	if (opened.error) return opened;
@@ -135,15 +122,15 @@ function accountCachePrefix(
 async function acquireLocalData(
 	definition: ParsedDataDefinition,
 	appId: string,
+	indexedDB: IDBFactory,
 	account?: AccountIdentity,
 ): Promise<Result<StoreBacking, StoreError>> {
 	if (!isAppId(appId))
 		return StoreError.Unaddressable({
 			reason: `'${appId}' is not an application id`,
 		});
-	void requestPersistentStorage();
 	const address = `epicenter/${appId}/device/${deviceOwnerPath(account)}/data/${definition.id}/1`;
-	const opened = await openIdbBacking(address);
+	const opened = await openIdbBacking(address, indexedDB);
 	if (opened.error) return opened;
 	let backing = opened.data;
 	if (backing.loaded.updates.length === 0) {
@@ -158,7 +145,7 @@ async function acquireLocalData(
 		backing.close();
 		if (written.error) return written;
 		// Hydrate exactly what the next boot would read.
-		const reopened = await openIdbBacking(address);
+		const reopened = await openIdbBacking(address, indexedDB);
 		if (reopened.error) return reopened;
 		backing = reopened.data;
 	}
@@ -184,17 +171,18 @@ function captureAccount(account: DatabaseAccount): DatabaseAccount {
  */
 export async function acquireAppData(
 	definition: ParsedDataDefinition,
-	options: { appId: string } & (
+	options: { appId: string; indexedDB?: IDBFactory } & (
 		| { library: 'local'; account?: AccountIdentity }
 		| { library: 'personal' | 'shared'; account: DatabaseAccount }
 	),
 ): Promise<Result<StoreBacking, StoreError>> {
-	const { appId } = options;
+	const { appId, indexedDB = globalThis.indexedDB } = options;
+	// Explicit factories belong to another runtime, which owns its durability policy.
+	if (options.indexedDB === undefined) void requestPersistentStorage();
 	if (options.library === 'local')
-		return acquireLocalData(definition, appId, options.account);
+		return acquireLocalData(definition, appId, indexedDB, options.account);
 	const { library } = options;
 	const account = captureAccount(options.account);
-	void requestPersistentStorage();
 	const prefix = accountCachePrefix(
 		appId,
 		account.principalId,
@@ -204,7 +192,7 @@ export async function acquireAppData(
 	if (prefix.error) return prefix;
 	// A stable name per actor and selected library; generations live in its header.
 	const address = `${prefix.data}${library}/current`;
-	const opened = await openCurrentCache(address);
+	const opened = await openCurrentCache(address, indexedDB);
 	if (opened.error) return opened;
 	const cache = opened.data;
 	try {

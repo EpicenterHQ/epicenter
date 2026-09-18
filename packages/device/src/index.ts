@@ -10,7 +10,6 @@ import { isAppId } from '@epicenter/constants/app-id';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-import { LibraryClaimError } from './library-claim.js';
 import { isSecretLabel, type SecretLabel } from './protocol.js';
 
 export const DeviceError = {
@@ -35,7 +34,6 @@ export const DeviceError = {
 			message: 'The device storage owner returned an invalid response.',
 		}),
 	}),
-	...LibraryClaimError,
 };
 export type DeviceError = InferErrors<typeof DeviceError>;
 

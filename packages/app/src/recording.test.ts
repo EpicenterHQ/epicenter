@@ -3,7 +3,6 @@
  * Checks fixed local/account destinations, deferred acquisition/publication,
  * native recovery, and release before close resolves.
  */
-import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { defineTable, field, plainText } from '@epicenter/app';
 import {
@@ -13,20 +12,14 @@ import {
 } from '@epicenter/app/recorder';
 import type { Account } from '@epicenter/auth';
 import { generateBlobId } from '@epicenter/blobs';
-import { installTestLocks } from '@epicenter/device/test-locks';
 import { asPrincipalId } from '@epicenter/principal';
 import { asDeviceIdentifier } from '@epicenter/recorder';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { composeApp } from './compose.js';
+import { openApp } from './open.js';
 import { defineApp } from './index.js';
-import {
-	resources as browser,
-	createBrowserAppBlobs,
-} from './platform/browser.js';
-
-installTestLocks();
+import { createMemoryRuntime } from './testing.js';
 
 function setup({
 	startGate = Promise.resolve(),
@@ -37,6 +30,7 @@ function setup({
 	recoveryFails = false,
 	cancelFails = false,
 } = {}) {
+	const runtime = createMemoryRuntime();
 	const appId = 'test.' + crypto.randomUUID();
 	const bindings: { appId: string }[] = [];
 	let starts = 0;
@@ -144,34 +138,35 @@ function setup({
 		id: appId,
 	});
 	const openFixture = (account?: Account) =>
-		composeApp(fixtureDefinition, {
-			appId: fixtureDefinition.id,
+		openApp(fixtureDefinition, {
 			account,
-			...browser,
-			sqlite: {
-				acquire: async () => ({
-					open: async () => {
-						throw new Error('Unused');
-					},
-					delete: async () => {},
+			runtime: {
+				...runtime,
+				sqlite: {
+					acquire: async () => ({
+						open: async () => {
+							throw new Error('Unused');
+						},
+						delete: async () => {},
 
-					close: async () => {
-						releases++;
-					},
-				}),
+						close: async () => {
+							releases++;
+						},
+					}),
+				},
+				blobs(input) {
+					const blobs = runtime.blobs(input);
+					const put = blobs.local.put;
+					blobs.local.put = async (...args) => {
+						savingEntered.resolve();
+						await saveGate;
+						return put(...args);
+					};
+					return blobs;
+				},
+				recording,
+				ai: { runtime: null, account: null },
 			},
-			blobs(input) {
-				const blobs = createBrowserAppBlobs()(input);
-				const put = blobs.local.put;
-				blobs.local.put = async (...args) => {
-					savingEntered.resolve();
-					await saveGate;
-					return put(...args);
-				};
-				return blobs;
-			},
-			recording,
-			ai: { runtime: null, account: null },
 		});
 	return {
 		openFixture,

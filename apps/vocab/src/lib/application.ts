@@ -18,7 +18,7 @@ export const app = trySync({
 	try: () =>
 		account === undefined || new URLSearchParams(location.search).has('connect')
 			? null
-			: openApp(vocabDefinition, account),
+			: openApp(vocabDefinition, { account }),
 	catch(cause) {
 		// Preserve the opening failure even if subscription cleanup also fails.
 		trySync({

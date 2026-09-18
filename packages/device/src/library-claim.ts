@@ -29,43 +29,12 @@ type LockManager = {
 	): Promise<unknown>;
 };
 
-/** Refuse competing producers before discovery, network access, or storage opens. */
-export async function claimLibrary(
-	appId: string,
-	scope:
-		| { library: 'local'; account?: AccountIdentity }
-		| { library: 'personal' | 'shared'; account: AccountIdentity },
-): Promise<Result<{ release(): void }, LibraryClaimError>> {
-	// Project in canonical order: these bytes are shared with other openers.
-	let identity: typeof scope;
-	if (scope.library === 'local') {
-		return claim(
-			`library:${JSON.stringify([appId, 'device', deviceOwnerPath(scope.account)])}`,
-		);
-	} else {
-		const { authorityId, principalId } = scope.account;
-		for (const segment of [authorityId, principalId]) {
-			if (
-				typeof segment !== 'string' ||
-				segment === '' ||
-				segment === '.' ||
-				segment === '..' ||
-				/[\\/\p{Cc}]/u.test(segment)
-			)
-				throw new TypeError('Invalid library account address.');
-		}
-		identity = {
-			library: scope.library,
-			account: { authorityId, principalId },
-		};
-	}
-	const address = `library:${JSON.stringify([appId, identity])}`;
-	return claim(address);
-}
-
-/** Device SQL has one lifetime per app and captured account, independent of library. */
-export function claimSqlite(appId: string, account?: AccountIdentity) {
-	return claim(`sqlite:${JSON.stringify([appId, deviceOwnerPath(account)])}`);
+/** One App owns every library and SQL connection in this device namespace. */
+export function claimApp(appId: string, account?: AccountIdentity) {
+	// Preserve the original local-library key for exclusion with older windows.
+	return claim(
+		`library:${JSON.stringify([appId, 'device', deviceOwnerPath(account)])}`,
+	);
 }
 
 async function claim(

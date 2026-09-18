@@ -2,7 +2,7 @@
  * What `defineApp` decides before it acquires anything.
  *
  * Checks inert declarations, build-selected resources, and schema inference.
- * Internal composition exercises resource failures and lifetime cleanup.
+ * Public opening exercises injected resource failures and lifetime cleanup.
  */
 
 import 'fake-indexeddb/auto';
@@ -17,13 +17,10 @@ import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { resources } from '#platform/resources';
 import { createAiConnections } from './ai-connections.js';
-import { composeApp } from './compose.js';
+
 import { defineApp } from './index.js';
 import { openApp } from './open.js';
-import {
-	resources as browser,
-	createBrowserAppBlobs,
-} from './platform/browser.js';
+import { createMemoryRuntime } from './testing.js';
 
 installTestLocks();
 
@@ -40,38 +37,39 @@ const sqlite: DeviceSqliteOwner = {
 		close: async () => undefined,
 	}),
 };
-const blobs = createBrowserAppBlobs();
 
 const definition = defineApp({ id: 'so.epicenter.notes', tables: {}, kv: {} });
 
 test('App readiness includes catalog hydration and failed hydration releases the library', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const hydrated = Promise.withResolvers<void>();
 	const appId = `test.${crypto.randomUUID()}`;
 	let released = false;
 	const applicationDefinition = defineApp({ ...definition, id: appId });
 	const application = (account?: Account) =>
-		composeApp(applicationDefinition, {
-			appId: applicationDefinition.id,
+		openApp(applicationDefinition, {
 			account,
-			...browser,
-			sqlite,
-			blobs,
-			ai: {
-				runtime: null,
-				account: null,
-				connections() {
-					const owner = createAiConnections({
-						storageKey: appId,
-						storage: { getItem: () => null, setItem() {} },
-					});
-					return {
-						...owner,
-						ready: hydrated.promise,
-						close() {
-							released = true;
-							owner.close();
-						},
-					};
+			runtime: {
+				...runtime,
+				sqlite,
+				ai: {
+					runtime: null,
+					account: null,
+					connections() {
+						const owner = createAiConnections({
+							storageKey: appId,
+							storage: { getItem: () => null, setItem() {} },
+						});
+						return {
+							...owner,
+							ready: hydrated.promise,
+							close() {
+								released = true;
+								owner.close();
+							},
+						};
+					},
 				},
 			},
 		});
@@ -87,13 +85,13 @@ test('App readiness includes catalog hydration and failed hydration releases the
 	expect(released).toBe(true);
 	await app.close();
 	const replacementDefinition = defineApp({ ...definition, id: appId });
-	const replacement = composeApp(replacementDefinition, {
-		appId: replacementDefinition.id,
+	const replacement = openApp(replacementDefinition, {
 		account: undefined,
-		...browser,
-		sqlite,
-		blobs,
-		ai: { account: null, runtime: null },
+		runtime: {
+			...runtime,
+			sqlite,
+			ai: { account: null, runtime: null },
+		},
 	});
 	expectOk(await replacement.ready);
 	await replacement.close();
@@ -193,33 +191,37 @@ test('default resources preserve blobs and the no-account AI catalog', async () 
 	}
 });
 
-test('composition uses its resources and explicit AI omits default connections', async () => {
+test('an injected runtime supplies all resources and explicit AI omits default connections', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const calls: string[] = [];
 	const appId = 'test.' + crypto.randomUUID();
 	const applicationDefinition = defineApp({ ...definition, id: appId });
 	const application = (account?: Account) =>
-		composeApp(applicationDefinition, {
-			appId: applicationDefinition.id,
+		openApp(applicationDefinition, {
 			account,
-			sqlite: {
-				async acquire(id) {
-					calls.push('sqlite');
-					return sqlite.acquire(id);
+			runtime: {
+				...runtime,
+				sqlite: {
+					async acquire(id) {
+						calls.push('sqlite');
+						return sqlite.acquire(id);
+					},
 				},
+				blobs(input) {
+					calls.push('blobs');
+					return runtime.blobs(input);
+				},
+				secrets(...args) {
+					calls.push('secrets');
+					return runtime.secrets(...args);
+				},
+				recording(...args) {
+					calls.push('recording');
+					return runtime.recording(...args);
+				},
+				ai: { runtime: null, account: null },
 			},
-			blobs(input) {
-				calls.push('blobs');
-				return browser.blobs(input);
-			},
-			secrets(...args) {
-				calls.push('secrets');
-				return browser.secrets(...args);
-			},
-			recording(...args) {
-				calls.push('recording');
-				return browser.recording(...args);
-			},
-			ai: { runtime: null, account: null },
 		});
 	expect(calls).toEqual([]);
 	const app = application();
@@ -236,19 +238,18 @@ test('composition uses its resources and explicit AI omits default connections',
 	}
 });
 
-test('composition retains table and field names', async () => {
+test('public opening retains table and field names', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const applicationDefinition = defineApp({
 		tables: { notes: defineTable({ title: field.string() }) },
 		kv: {},
 		id: 'test.' + crypto.randomUUID(),
 	});
 	const application = (account?: Account) =>
-		composeApp(applicationDefinition, {
-			appId: applicationDefinition.id,
+		openApp(applicationDefinition, {
 			account,
-			...browser,
-			sqlite,
-			ai: { runtime: null, account: null },
+			runtime: { ...runtime, sqlite, ai: { runtime: null, account: null } },
 		});
 	const app = application();
 	try {

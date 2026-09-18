@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-12
+- **Amended by:** [ADR-0408](0408-one-app-opener-uses-a-complete-runtime.md) permits a complete runtime at App opening while retaining build-selected defaults and inert declarations. The runtime injection amendment is unbuilt.
 - **Amended by:** [ADR-0405](0405-one-flat-application-declaration-opens-the-live-app.md) at the declaration shape: one flat `defineApp({ id, title, kv, tables })` replaces the nested application/data pair.
 - **Proposed follow-ups:** [ADR-0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) proposes replacing build conditions with runtime selection. [ADR-0402](0402-a-window-label-is-identity-never-authority-and-the-capability-is-a-host-constant.md) proposes a host capability grant independent of window labels. Neither proposal changes the accepted selector here.
 - **Implementation checkpoint, 2026-09-18:** The package selects resources, AI, and clipboard leaves through `epicenter-host` and default conditions. ADR-0407 makes the declaration platform-free and moves acquisition to `/open`; explicit `runtime` and `ai` options and Whispering's `#platform/runtime` seam are removed. `settingsKey` is removed. ADR-0405 implements the flat declaration; ADR-0404 implements account-owned local storage. ADR-0403's runtime selector remains unbuilt. No storage-prefix migration is implied by this checkpoint.

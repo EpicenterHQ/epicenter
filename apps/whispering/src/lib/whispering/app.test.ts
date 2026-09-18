@@ -1,19 +1,11 @@
 /**
  * Whispering domains recover defaults, notify readers, retain settings across
- * reopening a durable record, and stop subscriptions when disposed.
+ * reopening the same runtime, and stop subscriptions when disposed.
  */
-import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
-import {
-	createMemoryRecord,
-	type MemoryRecord,
-	openMemory,
-} from '@epicenter/app/memory';
-import { createAppBlobs } from '@epicenter/blobs/app';
-import {
-	createBrowserBlobSources,
-	createBrowserBlobStore,
-} from '@epicenter/blobs/browser';
+import { openApp } from '@epicenter/app/open';
+import { createMemoryRuntime } from '@epicenter/app/testing';
+import { expectOk } from 'wellcrafted/testing';
 import { whisperingDefinition } from '../data.js';
 import { createWhisperingDomains } from './app.js';
 
@@ -30,33 +22,20 @@ Reflect.set(
 	}),
 );
 
-async function openWhispering(record: MemoryRecord) {
-	const data = await openMemory(whisperingDefinition, record);
-	const local = createBrowserBlobStore({ appId: whisperingDefinition.id });
-	const blobs = createAppBlobs({
-		local,
-		sources: createBrowserBlobSources(local),
-	});
-	return {
-		data,
-		device: { kv: data.kv },
-		signal: new AbortController().signal,
-		blobs: { local: blobs.value, remote: null },
-		async close() {
-			await blobs.close();
-			await data[Symbol.asyncDispose]();
-		},
-	};
+async function openWhispering(runtime: ReturnType<typeof createMemoryRuntime>) {
+	const app = openApp(whisperingDefinition, { runtime });
+	expectOk(await app.ready);
+	return app;
 }
 
 test('settings recover application defaults, notify, and survive a reopen', async () => {
-	const record = createMemoryRecord();
-	using _record = { [Symbol.dispose]: () => record.close() };
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	{
-		const openedApp = await openWhispering(record);
+		const openedApp = await openWhispering(runtime);
 		const app = createWhisperingDomains({
 			openedApp,
-			data: openedApp.data,
+			data: openedApp.device,
 		});
 
 		// Chosen by the application, applied by a read, never stored.
@@ -77,11 +56,11 @@ test('settings recover application defaults, notify, and survive a reopen', asyn
 		await openedApp.close();
 	}
 
-	// Reopening the same durable record restores the settings written above.
-	const openedApp = await openWhispering(record);
+	// Reopening the same runtime restores the settings written above.
+	const openedApp = await openWhispering(runtime);
 	const reopened = createWhisperingDomains({
 		openedApp,
-		data: openedApp.data,
+		data: openedApp.device,
 	});
 
 	expect(reopened.settings.get('recordingPausePlayback')).toBe(true);
@@ -95,12 +74,12 @@ test('the domains stop reading the store once they are disposed', async () => {
 	// `WhisperingApp`, so the session that built the domains is the only thing
 	// that can end them: a component reading the app through context has no
 	// `[Symbol.dispose]` to reach for.
-	const record = createMemoryRecord();
-	using _record = { [Symbol.dispose]: () => record.close() };
-	const openedApp = await openWhispering(record);
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
+	const openedApp = await openWhispering(runtime);
 	const app = createWhisperingDomains({
 		openedApp,
-		data: openedApp.data,
+		data: openedApp.device,
 	});
 
 	app[Symbol.dispose]();

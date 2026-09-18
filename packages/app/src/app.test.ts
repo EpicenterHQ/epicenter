@@ -4,10 +4,8 @@
  * Verifies the clean-break API owns local acquisition, readiness, and closure.
  * Reopening fake IndexedDB proves rows survive a handle lifetime, not a browser restart.
  */
-import 'fake-indexeddb/auto';
-import { expect, spyOn, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { defineTable, field, plainText } from '@epicenter/app';
-import * as dataBrowser from './data/store/browser.js';
 import type { Account } from '@epicenter/auth';
 import {
 	type AppSqliteDatabase,
@@ -19,23 +17,17 @@ import {
 	createSqliteOwner,
 	type DeviceSqliteOwner,
 } from '@epicenter/device/owner';
-import { installTestLocks } from '@epicenter/device/test-locks';
-import { asPrincipalId, deviceOwnerPath } from '@epicenter/principal';
+import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createAiConnections } from './ai-connections.js';
-import { composeApp } from './compose.js';
+import { openApp } from './open.js';
 import { encodeFrame } from './data/sync/frames.js';
 import { defineApp } from './index.js';
-import {
-	resources as browser,
-	createBrowserAppBlobs,
-} from './platform/browser.js';
+import { createMemoryRuntime } from './testing.js';
 
 import { createBrowserRecording } from './recording/browser.js';
-
-installTestLocks();
 
 const testSqlite: DeviceSqliteOwner = {
 	acquire: async () => ({
@@ -50,7 +42,6 @@ const testSqlite: DeviceSqliteOwner = {
 		close: async () => undefined,
 	}),
 };
-const testBlobs = createBrowserAppBlobs();
 
 const definition = defineApp({
 	id: 'so.epicenter.app-test',
@@ -60,16 +51,6 @@ const definition = defineApp({
 		recordings: defineTable({ audio: field.string(), content: plainText() }),
 	},
 });
-
-const create = (account?: Account) =>
-	composeApp(definition, {
-		appId: definition.id,
-		account,
-		...browser,
-		sqlite: testSqlite,
-		blobs: testBlobs,
-		ai: { runtime: null, account: null },
-	});
 
 /** The authority returns the stored seed bytes after minting a generation. */
 function createGenerationFetch(): Account['fetch'] {
@@ -89,24 +70,11 @@ function createGenerationFetch(): Account['fetch'] {
 	};
 }
 
-async function clearStorage() {
-	for (const { name } of await indexedDB.databases()) {
-		if (name === undefined) continue;
-		if (
-			!name.startsWith('epicenter/v5/so.epicenter.app-test/') &&
-			!name.startsWith('epicenter/so.epicenter.app-test/')
-		)
-			continue;
-		await new Promise<void>((resolve, reject) => {
-			const request = indexedDB.deleteDatabase(name);
-			request.onsuccess = () => resolve();
-			request.onerror = () => reject(request.error);
-		});
-	}
-}
-
 test('local handle opens without account and survives close and reopen', async () => {
-	await clearStorage();
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
+	const create = (account?: Account) =>
+		openApp(definition, { account, runtime });
 	const first = create();
 	expect(first.device.library).toBe('local');
 	expect(first.account).toBeUndefined();
@@ -130,7 +98,7 @@ test.each([
 	'before acquisition',
 	'during acquisition',
 ] as const)('capabilities retain the original account when a replacement is created %s', async (timing) => {
-	await clearStorage();
+	const runtime = createMemoryRuntime();
 	const requested = Promise.withResolvers<void>();
 	const releaseRequest = Promise.withResolvers<void>();
 	const identities: unknown[] = [];
@@ -179,13 +147,13 @@ test.each([
 		id: 'so.epicenter.app-test',
 	});
 	const openFixture = (account?: Account) =>
-		composeApp(fixtureDefinition, {
-			appId: fixtureDefinition.id,
+		openApp(fixtureDefinition, {
 			account,
-			...browser,
-			sqlite: owner,
-			blobs: testBlobs,
-			ai: { runtime: null, account: null },
+			runtime: {
+				...runtime,
+				sqlite: owner,
+				ai: { runtime: null, account: null },
+			},
 		});
 	const localApp = openFixture();
 	expect(() => localApp.device.sqlite.open('search')).toThrow('not ready');
@@ -208,16 +176,6 @@ test.each([
 		authorityId: 'test-authority',
 		principalId: asPrincipalId('alice'),
 	});
-	const names = (await indexedDB.databases()).map(({ name }) => name);
-	expect(names).toContain(
-		'epicenter/so.epicenter.app-test/accounts/test-authority/alice/data/so.epicenter.app-test/personal/current',
-	);
-	expect(names).toContain(
-		`epicenter/so.epicenter.app-test/device/${deviceOwnerPath(account)}/blobs`,
-	);
-	expect(names.some((name) => name?.includes('replacement-authority'))).toBe(
-		false,
-	);
 	expect(identities).toEqual([
 		'so.epicenter.app-test',
 		'so.epicenter.app-test',
@@ -228,6 +186,8 @@ test.each([
 });
 
 test('closing waits for an admitted SQLite delete', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	let beginDelete!: () => void;
 	let releaseDelete!: () => void;
 	const deleteStarted = new Promise<void>((resolve) => (beginDelete = resolve));
@@ -254,13 +214,13 @@ test('closing waits for an admitted SQLite delete', async () => {
 		...definition,
 		id: 'so.epicenter.app-test',
 	});
-	const app = composeApp(appDefinition, {
-		appId: appDefinition.id,
+	const app = openApp(appDefinition, {
 		account: undefined,
-		...browser,
-		sqlite: owner,
-		blobs: testBlobs,
-		ai: { runtime: null, account: null },
+		runtime: {
+			...runtime,
+			sqlite: owner,
+			ai: { runtime: null, account: null },
+		},
 	});
 	expectOk(await app.ready);
 	const deleting = app.device.sqlite.delete('search');
@@ -273,13 +233,13 @@ test('closing waits for an admitted SQLite delete', async () => {
 		...definition,
 		id: 'so.epicenter.app-test',
 	});
-	const replacement = composeApp(replacementDefinition, {
-		appId: replacementDefinition.id,
+	const replacement = openApp(replacementDefinition, {
 		account: undefined,
-		...browser,
-		sqlite: owner,
-		blobs: testBlobs,
-		ai: { runtime: null, account: null },
+		runtime: {
+			...runtime,
+			sqlite: owner,
+			ai: { runtime: null, account: null },
+		},
 	});
 	await Promise.resolve();
 	expect(closed).toBe(false);
@@ -293,19 +253,21 @@ test('closing waits for an admitted SQLite delete', async () => {
 		...definition,
 		id: 'so.epicenter.app-test',
 	});
-	const reopened = composeApp(reopenedDefinition, {
-		appId: reopenedDefinition.id,
+	const reopened = openApp(reopenedDefinition, {
 		account: undefined,
-		...browser,
-		sqlite: owner,
-		blobs: testBlobs,
-		ai: { runtime: null, account: null },
+		runtime: {
+			...runtime,
+			sqlite: owner,
+			ai: { runtime: null, account: null },
+		},
 	});
 	expectOk(await reopened.ready);
 	await reopened.close();
 });
 
 test('every retained SQL verb refuses closed use without reaching the shared owner', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const calls: string[] = [];
 	const owner: DeviceSqliteOwner = {
 		acquire: async () => ({
@@ -341,13 +303,13 @@ test('every retained SQL verb refuses closed use without reaching the shared own
 		...definition,
 		id: 'so.epicenter.app-test',
 	});
-	const app = composeApp(appDefinition, {
-		appId: appDefinition.id,
+	const app = openApp(appDefinition, {
 		account: undefined,
-		...browser,
-		sqlite: owner,
-		blobs: testBlobs,
-		ai: { runtime: null, account: null },
+		runtime: {
+			...runtime,
+			sqlite: owner,
+			ai: { runtime: null, account: null },
+		},
 	});
 	const { open, delete: remove } = app.device.sqlite;
 	for (const operation of [() => open('search'), () => remove('search')])
@@ -382,6 +344,9 @@ test.each([
 	'batch',
 	'query',
 ] as const)('an admitted SQL %s can reenter close and keeps the claim until it settles', async (verb) => {
+	const runtime = createMemoryRuntime();
+	const create = (account?: Account) =>
+		openApp(definition, { account, runtime });
 	const released = Promise.withResolvers<void>();
 	const started = Promise.withResolvers<void>();
 	let reentrant: Promise<void> | undefined;
@@ -421,13 +386,13 @@ test.each([
 		...definition,
 		id: 'so.epicenter.app-test',
 	});
-	const app = composeApp(appDefinition, {
-		appId: appDefinition.id,
+	const app = openApp(appDefinition, {
 		account: undefined,
-		...browser,
-		sqlite: owner,
-		blobs: testBlobs,
-		ai: { runtime: null, account: null },
+		runtime: {
+			...runtime,
+			sqlite: owner,
+			ai: { runtime: null, account: null },
+		},
 	});
 	expectOk(await app.ready);
 	const database = expectOk(await app.device.sqlite.open('search'));
@@ -453,6 +418,8 @@ test.each([
 });
 
 test('a late SQL open refuses publication and physically closes without deleting files', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const opening = Promise.withResolvers<
 		AppSqliteDatabase & { close(): Promise<void> }
 	>();
@@ -480,13 +447,13 @@ test('a late SQL open refuses publication and physically closes without deleting
 		...definition,
 		id: 'so.epicenter.app-test',
 	});
-	const app = composeApp(appDefinition, {
-		appId: appDefinition.id,
+	const app = openApp(appDefinition, {
 		account: undefined,
-		...browser,
-		sqlite: owner,
-		blobs: testBlobs,
-		ai: { runtime: null, account: null },
+		runtime: {
+			...runtime,
+			sqlite: owner,
+			ai: { runtime: null, account: null },
+		},
 	});
 	expectOk(await app.ready);
 	const pending = app.device.sqlite.open('search');
@@ -517,7 +484,8 @@ test('a late SQL open refuses publication and physically closes without deleting
 });
 
 test('close drains admitted local writes before releasing the app claim', async () => {
-	await clearStorage();
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const gate = Promise.withResolvers<void>();
 	const entered = Promise.withResolvers<void>();
 	const fixtureDefinition = defineApp({
@@ -525,22 +493,22 @@ test('close drains admitted local writes before releasing the app claim', async 
 		id: 'so.epicenter.app-test',
 	});
 	const openFixture = (account?: Account) =>
-		composeApp(fixtureDefinition, {
-			appId: fixtureDefinition.id,
+		openApp(fixtureDefinition, {
 			account,
-			...browser,
-			sqlite: testSqlite,
-			blobs(input) {
-				const bytes = testBlobs(input);
-				const put = bytes.local.put;
-				bytes.local.put = async (...args) => {
-					entered.resolve();
-					await gate.promise;
-					return put(...args);
-				};
-				return bytes;
+			runtime: {
+				...runtime,
+				blobs(input) {
+					const bytes = runtime.blobs(input);
+					const put = bytes.local.put;
+					bytes.local.put = async (...args) => {
+						entered.resolve();
+						await gate.promise;
+						return put(...args);
+					};
+					return bytes;
+				},
+				ai: { runtime: null, account: null },
 			},
-			ai: { runtime: null, account: null },
 		});
 	const app = openFixture();
 	expectOk(await app.ready);
@@ -564,7 +532,10 @@ test('close drains admitted local writes before releasing the app claim', async 
 });
 
 test('the app handle owns scoped blob reads and writes by BlobId', async () => {
-	await clearStorage();
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
+	const create = (account?: Account) =>
+		openApp(definition, { account, runtime });
 	const app = create();
 	expectOk(await app.ready);
 
@@ -581,7 +552,10 @@ test('the app handle owns scoped blob reads and writes by BlobId', async () => {
 });
 
 test('rows reference independently saved blobs and deleting a row leaves bytes intact', async () => {
-	await clearStorage();
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
+	const create = (account?: Account) =>
+		openApp(definition, { account, runtime });
 	const app = create();
 	expectOk(await app.ready);
 	const blobId = expectOk(
@@ -603,7 +577,10 @@ test('rows reference independently saved blobs and deleting a row leaves bytes i
 });
 
 test('closing during acquisition reports closure and releases the resource', async () => {
-	await clearStorage();
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
+	const create = (account?: Account) =>
+		openApp(definition, { account, runtime });
 	const app = create();
 	const closing = app.close();
 	expect(expectErr(await app.ready).name).toBe('ClosedWhileOpening');
@@ -611,7 +588,10 @@ test('closing during acquisition reports closure and releases the resource', asy
 });
 
 test('access is gated and a rejected duplicate cannot release the first app', async () => {
-	await clearStorage();
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
+	const create = (account?: Account) =>
+		openApp(definition, { account, runtime });
 	const first = create();
 	const notes = first.device.tables.notes;
 	const kv = first.device.kv;
@@ -643,7 +623,10 @@ test('access is gated and a rejected duplicate cannot release the first app', as
 });
 
 test('repeated close shares completion and permits a fresh open afterward', async () => {
-	await clearStorage();
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
+	const create = (account?: Account) =>
+		openApp(definition, { account, runtime });
 	const app = create();
 	expectOk(await app.ready);
 	app.device.tables.notes.create({ title: 'flushed on close' });
@@ -666,7 +649,10 @@ test('repeated close shares completion and permits a fresh open afterward', asyn
 });
 
 test('account acquisition hydrates the existing handles and survives refused sync', async () => {
-	await clearStorage();
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
+	const create = (account?: Account) =>
+		openApp(definition, { account, runtime });
 	const seed = create();
 	expectOk(await seed.ready);
 	seed.device.tables.notes.create({ title: 'from the account' });
@@ -718,7 +704,6 @@ test('account acquisition hydrates the existing handles and survives refused syn
 });
 
 test('invalid definitions throw before opening storage', async () => {
-	await clearStorage();
 	// Runtime validation also refuses defaults hidden by a broad schema type.
 	const invalid = () =>
 		defineApp({
@@ -731,14 +716,11 @@ test('invalid definitions throw before opening storage', async () => {
 			},
 		});
 	expect(invalid).toThrow();
-	expect(
-		(await indexedDB.databases()).filter(({ name }) =>
-			name?.split('/').includes('so.epicenter.app-test'),
-		),
-	).toEqual([]);
 });
 
 test('physical SQL close retains the library claim across schema variants', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const started = Promise.withResolvers<void>();
 	const released = Promise.withResolvers<void>();
 	let acquisitions = 0;
@@ -759,13 +741,13 @@ test('physical SQL close retains the library claim across schema variants', asyn
 		...definition,
 		id: 'so.epicenter.app-test',
 	});
-	const first = composeApp(firstDefinition, {
-		appId: firstDefinition.id,
+	const first = openApp(firstDefinition, {
 		account: undefined,
-		...browser,
-		sqlite: owner,
-		blobs: testBlobs,
-		ai: { runtime: null, account: null },
+		runtime: {
+			...runtime,
+			sqlite: owner,
+			ai: { runtime: null, account: null },
+		},
 	});
 	expectOk(await first.ready);
 	const siblingDefinition = defineApp({
@@ -774,17 +756,14 @@ test('physical SQL close retains the library claim across schema variants', asyn
 		kv: {},
 	});
 	const sibling = () =>
-		composeApp(
-			defineApp({ ...siblingDefinition, id: 'so.epicenter.app-test' }),
-			{
-				appId: 'so.epicenter.app-test',
-				account: undefined,
-				...browser,
+		openApp(defineApp({ ...siblingDefinition, id: 'so.epicenter.app-test' }), {
+			account: undefined,
+			runtime: {
+				...runtime,
 				sqlite: owner,
-				blobs: testBlobs,
 				ai: { runtime: null, account: null },
 			},
-		);
+		});
 	const duplicate = sibling();
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	await duplicate.close();
@@ -808,91 +787,105 @@ test('physical SQL close retains the library claim across schema variants', asyn
 });
 
 test('failed durable release retains SQL and the common library claim', async () => {
+	const runtime = createMemoryRuntime();
+	const acquireData = runtime.data;
+	runtime.data = async (...args) => {
+		const result = await acquireData(...args);
+		if (result.error) return result;
+		return Ok({
+			...result.data,
+			dispose() {
+				throw new Error('Durable close failed');
+			},
+		});
+	};
 	const appId = `test.${crypto.randomUUID()}`;
 	let sqlCloses = 0;
 	const fixtureDefinition = defineApp({ ...definition, id: appId });
 	const openFixture = (account?: Account) =>
-		composeApp(fixtureDefinition, {
-			appId: fixtureDefinition.id,
+		openApp(fixtureDefinition, {
 			account,
-			...browser,
-			blobs: testBlobs,
-			sqlite: {
-				async acquire(...args) {
-					const lifetime = await testSqlite.acquire(...args);
-					return {
-						...lifetime,
-						async close() {
-							sqlCloses++;
-						},
-					};
+			runtime: {
+				...runtime,
+				sqlite: {
+					async acquire(...args) {
+						const lifetime = await testSqlite.acquire(...args);
+						return {
+							...lifetime,
+							async close() {
+								sqlCloses++;
+							},
+						};
+					},
 				},
+				ai: { runtime: null, account: null },
 			},
-			ai: { runtime: null, account: null },
 		});
 	const app = openFixture();
 	expectOk(await app.ready);
 	expectOk(await app.device.sqlite.open('search'));
-	const close = spyOn(IDBDatabase.prototype, 'close');
-	close.mockImplementation(function (this: IDBDatabase) {
-		throw new Error('Durable close failed');
-	});
-	try {
-		await expect(app.close()).rejects.toThrow('Durable close failed');
-		expect(sqlCloses).toBe(0);
-		const duplicate = openFixture();
-		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
-		await duplicate.close();
-	} finally {
-		close.mockRestore();
-	}
+
+	await expect(app.close()).rejects.toThrow('Durable close failed');
+	expect(sqlCloses).toBe(0);
+	const duplicate = openFixture();
+	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
+	await duplicate.close();
+	// Failed disposal intentionally retains this isolated runtime's admission.
 });
 
 test('failed bootstrap cleanup retains library ownership without acquiring SQL', async () => {
+	const runtime = createMemoryRuntime();
+	const acquireData = runtime.data;
+	runtime.data = async (...args) => {
+		const result = await acquireData(...args);
+		if (result.error) return result;
+		return Ok({
+			...result.data,
+			loaded: { ...result.data.loaded, updates: [new Uint8Array([255])] },
+			dispose() {
+				throw new Error('Bootstrap close failed');
+			},
+		});
+	};
 	const appId = `test.${crypto.randomUUID()}`;
 	let sqlCloses = 0;
 	let sqlAcquisitions = 0;
 	const fixtureDefinition = defineApp({ ...definition, id: appId });
 	const openFixture = (account?: Account) =>
-		composeApp(fixtureDefinition, {
-			appId: fixtureDefinition.id,
+		openApp(fixtureDefinition, {
 			account,
-			...browser,
-			blobs: testBlobs,
-			sqlite: {
-				async acquire(...args) {
-					sqlAcquisitions++;
-					const lifetime = await testSqlite.acquire(...args);
-					return {
-						...lifetime,
-						async close() {
-							sqlCloses++;
-						},
-					};
+			runtime: {
+				...runtime,
+				sqlite: {
+					async acquire(...args) {
+						sqlAcquisitions++;
+						const lifetime = await testSqlite.acquire(...args);
+						return {
+							...lifetime,
+							async close() {
+								sqlCloses++;
+							},
+						};
+					},
 				},
+				ai: { runtime: null, account: null },
 			},
-			ai: { runtime: null, account: null },
 		});
-	const closing = spyOn(IDBDatabase.prototype, 'close').mockImplementation(
-		() => {
-			throw new Error('Bootstrap close failed');
-		},
-	);
-	try {
-		const app = openFixture();
-		expect(expectErr(await app.ready).name).toBe('StorageFailed');
-		await app.close();
-		expect(sqlCloses).toBe(0);
-		expect(sqlAcquisitions).toBe(0);
-		const duplicate = openFixture();
-		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
-		await duplicate.close();
-	} finally {
-		closing.mockRestore();
-	}
+
+	const app = openFixture();
+	expect(expectErr(await app.ready).name).toBe('StorageFailed');
+	await expect(app.close()).rejects.toThrow('Bootstrap close failed');
+	expect(sqlCloses).toBe(0);
+	expect(sqlAcquisitions).toBe(0);
+	const duplicate = openFixture();
+	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
+	await duplicate.close();
+	// Failed disposal intentionally retains this isolated runtime's admission.
 });
 
 test('retained AI shares readiness and close drains response work before releasing storage', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const drain = Promise.withResolvers<void>();
 	const started = Promise.withResolvers<void>();
 	const released: string[] = [];
@@ -901,29 +894,29 @@ test('retained AI shares readiness and close drains response work before releasi
 		...definition,
 		id: 'so.epicenter.capability-test',
 	});
-	const app = composeApp(appDefinition, {
-		appId: appDefinition.id,
+	const app = openApp(appDefinition, {
 		account: undefined,
-		...browser,
-		blobs: testBlobs,
-		sqlite: {
-			acquire: async () => ({
-				...(await testSqlite.acquire('so.epicenter.capability-test')),
-				close: async () => {
-					released.push('storage');
-				},
-			}),
-		},
-		ai: {
-			account: null,
-			runtime: {
-				baseURL: 'https://inference.test/v1',
-				fetch: async (_input, init) => {
-					signal = init?.signal;
-					started.resolve();
-					await drain.promise;
-					released.push('capability');
-					return Response.json({ data: [] });
+		runtime: {
+			...runtime,
+			sqlite: {
+				acquire: async () => ({
+					...(await testSqlite.acquire('so.epicenter.capability-test')),
+					close: async () => {
+						released.push('storage');
+					},
+				}),
+			},
+			ai: {
+				account: null,
+				runtime: {
+					baseURL: 'https://inference.test/v1',
+					fetch: async (_input, init) => {
+						signal = init?.signal;
+						started.resolve();
+						await drain.promise;
+						released.push('capability');
+						return Response.json({ data: [] });
+					},
 				},
 			},
 		},
@@ -950,51 +943,52 @@ test.each([
 	'recording',
 	'capability',
 ] as const)('close waits for both producers when %s cleanup fails', async (failing) => {
+	const runtime = createMemoryRuntime();
 	const drain = Promise.withResolvers<void>();
 	const started = Promise.withResolvers<void>();
 	let released = false;
 	let settled = false;
 	const appId = 'test.' + crypto.randomUUID();
 	const appDefinition = defineApp({ ...definition, id: appId });
-	const app = composeApp(appDefinition, {
-		appId: appDefinition.id,
+	const app = openApp(appDefinition, {
 		account: undefined,
-		...browser,
-		blobs: testBlobs,
-		sqlite: {
-			acquire: async () => ({
-				...(await testSqlite.acquire(appId)),
-				close: async () => {
-					released = true;
-				},
-			}),
-		},
-		recording: (id, options) => ({
-			...createBrowserRecording(id, options),
-			close: async () => {
-				if (failing === 'recording') throw new Error('recording failed');
-				await drain.promise;
-			},
-		}),
-		ai: {
-			account: null,
-			runtime: {
-				baseURL: 'https://inference.test/v1',
-				fetch: async () => {
-					started.resolve();
-					await drain.promise;
-					return Response.json({ data: [] });
-				},
-			},
-			connections: () => ({
-				...createAiConnections({
-					storageKey: appId,
-					storage: { getItem: () => null, setItem() {} },
+		runtime: {
+			...runtime,
+			sqlite: {
+				acquire: async () => ({
+					...(await testSqlite.acquire(appId)),
+					close: async () => {
+						released = true;
+					},
 				}),
-				close() {
-					if (failing === 'capability') throw new Error('capability failed');
+			},
+			recording: (id, options) => ({
+				...createBrowserRecording(id, options),
+				close: async () => {
+					if (failing === 'recording') throw new Error('recording failed');
+					await drain.promise;
 				},
 			}),
+			ai: {
+				account: null,
+				runtime: {
+					baseURL: 'https://inference.test/v1',
+					fetch: async () => {
+						started.resolve();
+						await drain.promise;
+						return Response.json({ data: [] });
+					},
+				},
+				connections: () => ({
+					...createAiConnections({
+						storageKey: appId,
+						storage: { getItem: () => null, setItem() {} },
+					}),
+					close() {
+						if (failing === 'capability') throw new Error('capability failed');
+					},
+				}),
+			},
 		},
 	});
 	expectOk(await app.ready);
@@ -1025,6 +1019,8 @@ test.each([
 });
 
 test('one captured Account supplies library and AI; local opening never borrows it', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const appId = 'test.' + crypto.randomUUID();
 	const supplied: Account[] = [];
 	let inferenceRequests = 0;
@@ -1050,17 +1046,16 @@ test('one captured Account supplies library and AI; local opening never borrows 
 	};
 	const fixtureDefinition = defineApp({ ...definition, id: appId });
 	const openFixture = (account?: Account) =>
-		composeApp(fixtureDefinition, {
-			appId: fixtureDefinition.id,
+		openApp(fixtureDefinition, {
 			account,
-			...browser,
-			sqlite: testSqlite,
-			blobs: testBlobs,
-			ai: {
-				runtime: null,
-				account: (captured) => {
-					supplied.push(captured);
-					return { baseURL: `${captured.baseURL}/v1`, fetch: captured.fetch };
+			runtime: {
+				...runtime,
+				ai: {
+					runtime: null,
+					account: (captured) => {
+						supplied.push(captured);
+						return { baseURL: `${captured.baseURL}/v1`, fetch: captured.fetch };
+					},
 				},
 			},
 		});
@@ -1083,28 +1078,30 @@ test('one captured Account supplies library and AI; local opening never borrows 
 });
 
 test('SQL acquisition failure does not block App readiness and close still retires SDK clients', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	let requests = 0;
 	const appDefinition = defineApp({
 		...definition,
 		id: 'test.' + crypto.randomUUID(),
 	});
-	const app = composeApp(appDefinition, {
-		appId: appDefinition.id,
+	const app = openApp(appDefinition, {
 		account: undefined,
-		...browser,
-		blobs: testBlobs,
-		sqlite: {
-			acquire: async () => {
-				throw new Error('storage unavailable');
+		runtime: {
+			...runtime,
+			sqlite: {
+				acquire: async () => {
+					throw new Error('storage unavailable');
+				},
 			},
-		},
-		ai: {
-			account: null,
-			runtime: {
-				baseURL: 'https://runtime.example/v1',
-				fetch: async () => {
-					requests++;
-					return Response.json({ data: [] });
+			ai: {
+				account: null,
+				runtime: {
+					baseURL: 'https://runtime.example/v1',
+					fetch: async () => {
+						requests++;
+						return Response.json({ data: [] });
+					},
 				},
 			},
 		},
@@ -1119,6 +1116,10 @@ test('SQL acquisition failure does not block App readiness and close still retir
 });
 
 test('App secrets require readiness and survive closing and reopening the same document scope', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
+	const create = (account?: Account) =>
+		openApp(definition, { account, runtime });
 	const label = secretLabel('gmail');
 	const app = create();
 	expect(() => app.device.secrets.put(label, 'before-ready')).toThrow(
@@ -1137,6 +1138,8 @@ test('App secrets require readiness and survive closing and reopening the same d
 });
 
 test('App close drains admitted secret writes before releasing its SQL lifetime', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const write = Promise.withResolvers<void>();
 	let backingClosed = false;
 	let writes = 0;
@@ -1144,35 +1147,35 @@ test('App close drains admitted secret writes before releasing its SQL lifetime'
 		...definition,
 		id: 'so.epicenter.secret-drain',
 	});
-	const app = composeApp(appDefinition, {
-		appId: appDefinition.id,
+	const app = openApp(appDefinition, {
 		account: undefined,
-		...browser,
-		blobs: testBlobs,
-		sqlite: {
-			acquire: async () => ({
-				open: async () => {
-					throw new Error('No database needed');
-				},
-				delete: async () => {},
-				close: async () => {
-					backingClosed = true;
+		runtime: {
+			...runtime,
+			sqlite: {
+				acquire: async () => ({
+					open: async () => {
+						throw new Error('No database needed');
+					},
+					delete: async () => {},
+					close: async () => {
+						backingClosed = true;
+					},
+				}),
+			},
+			secrets: (_appId, { assertUsable } = {}) => ({
+				close: () => write.promise,
+				value: {
+					put() {
+						assertUsable?.();
+						writes++;
+						return write.promise.then(() => Ok(undefined));
+					},
+					get: async () => Ok(null),
+					delete: async () => Ok(undefined),
 				},
 			}),
+			ai: { runtime: null, account: null },
 		},
-		secrets: (_appId, { assertUsable } = {}) => ({
-			close: () => write.promise,
-			value: {
-				put() {
-					assertUsable?.();
-					writes++;
-					return write.promise.then(() => Ok(undefined));
-				},
-				get: async () => Ok(null),
-				delete: async () => Ok(undefined),
-			},
-		}),
-		ai: { runtime: null, account: null },
 	});
 	expectOk(await app.ready);
 	const saving = app.device.secrets.put(secretLabel('gmail'), 'token');
@@ -1189,6 +1192,8 @@ test('App close drains admitted secret writes before releasing its SQL lifetime'
 });
 
 test('a secret operation can reenter close and forwards its storage Result unchanged', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const release = Promise.withResolvers<void>();
 	const entered = Promise.withResolvers<void>();
 	const failure = SecretError.StorageFailed({
@@ -1200,36 +1205,36 @@ test('a secret operation can reenter close and forwards its storage Result uncha
 		...definition,
 		id: 'so.epicenter.secret-reentrant',
 	});
-	const app = composeApp(appDefinition, {
-		appId: appDefinition.id,
+	const app = openApp(appDefinition, {
 		account: undefined,
-		...browser,
-		blobs: testBlobs,
-		sqlite: {
-			acquire: async () => ({
-				open: async () => {
-					throw new Error('No database needed');
-				},
-				delete: async () => {},
-				close: async () => {
-					released = true;
+		runtime: {
+			...runtime,
+			sqlite: {
+				acquire: async () => ({
+					open: async () => {
+						throw new Error('No database needed');
+					},
+					delete: async () => {},
+					close: async () => {
+						released = true;
+					},
+				}),
+			},
+			secrets: () => ({
+				close: () => release.promise,
+				value: {
+					put: async () => {
+						closing = app.close();
+						entered.resolve();
+						await release.promise;
+						return failure;
+					},
+					get: async () => Ok(null),
+					delete: async () => Ok(undefined),
 				},
 			}),
+			ai: { runtime: null, account: null },
 		},
-		secrets: () => ({
-			close: () => release.promise,
-			value: {
-				put: async () => {
-					closing = app.close();
-					entered.resolve();
-					await release.promise;
-					return failure;
-				},
-				get: async () => Ok(null),
-				delete: async () => Ok(undefined),
-			},
-		}),
-		ai: { runtime: null, account: null },
 	});
 	expectOk(await app.ready);
 	expectOk(await app.device.sqlite.delete('unused'));
@@ -1243,51 +1248,53 @@ test('a secret operation can reenter close and forwards its storage Result uncha
 });
 
 test('a late capability constructor failure prevents scheduled acquisition and prior capabilities', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const appId = `test.${crypto.randomUUID()}`;
 	const released = Promise.withResolvers<void>();
 	const events: string[] = [];
 	const failure = new Error('Secrets construction failed');
 	const fixtureDefinition = defineApp({ ...definition, id: appId });
 	const openFixture = (account?: Account) =>
-		composeApp(fixtureDefinition, {
-			appId: fixtureDefinition.id,
+		openApp(fixtureDefinition, {
 			account,
-			...browser,
-			blobs: testBlobs,
-			sqlite: {
-				acquire: async () => ({
-					...(await testSqlite.acquire(appId)),
-					close: async () => {
-						events.push('storage');
-						released.resolve();
-					},
-				}),
-			},
-			recording: (...args) => {
-				const recorder = createBrowserRecording(...args);
-				return {
-					...recorder,
-					async close() {
-						await recorder.close();
-						events.push('recording');
-					},
-				};
-			},
-			secrets: () => {
-				throw failure;
-			},
-			ai: {
-				account: null,
-				runtime: null,
-				connections: () => ({
-					...createAiConnections({
-						storageKey: appId,
-						storage: { getItem: () => null, setItem() {} },
+			runtime: {
+				...runtime,
+				sqlite: {
+					acquire: async () => ({
+						...(await testSqlite.acquire(appId)),
+						close: async () => {
+							events.push('storage');
+							released.resolve();
+						},
 					}),
-					close() {
-						events.push('ai');
-					},
-				}),
+				},
+				recording: (...args) => {
+					const recorder = createBrowserRecording(...args);
+					return {
+						...recorder,
+						async close() {
+							await recorder.close();
+							events.push('recording');
+						},
+					};
+				},
+				secrets: () => {
+					throw failure;
+				},
+				ai: {
+					account: null,
+					runtime: null,
+					connections: () => ({
+						...createAiConnections({
+							storageKey: appId,
+							storage: { getItem: () => null, setItem() {} },
+						}),
+						close() {
+							events.push('ai');
+						},
+					}),
+				},
 			},
 		});
 	expect(() => openFixture()).toThrow(failure);
@@ -1296,13 +1303,12 @@ test('a late capability constructor failure prevents scheduled acquisition and p
 	expect(events).toContain('ai');
 	expect(events).not.toContain('storage');
 	const nextDefinition = defineApp({ ...definition, id: appId });
-	const next = composeApp(nextDefinition, {
-		appId: nextDefinition.id,
+	const next = openApp(nextDefinition, {
 		account: undefined,
-		...browser,
-		blobs: testBlobs,
-		sqlite: testSqlite,
-		ai: { runtime: null, account: null },
+		runtime: {
+			...runtime,
+			ai: { runtime: null, account: null },
+		},
 	});
 	expectOk(await next.ready);
 	await next.close();
@@ -1312,6 +1318,7 @@ test.each([
 	false,
 	true,
 ])('failed data opening authorizes recorder recovery and retains the opening error when cleanup fails=%s', async (cleanupFails) => {
+	const runtime = createMemoryRuntime();
 	const appId = `test.${crypto.randomUUID()}`;
 	let cleanupAttempted = false;
 	let sqlClosed = false;
@@ -1331,27 +1338,27 @@ test.each([
 	};
 	const fixtureDefinition = defineApp({ ...definition, id: appId });
 	const openFixture = (account?: Account) =>
-		composeApp(fixtureDefinition, {
-			appId: fixtureDefinition.id,
+		openApp(fixtureDefinition, {
 			account,
-			...browser,
-			blobs: testBlobs,
-			sqlite: {
-				acquire: async () => ({
-					...(await testSqlite.acquire(appId)),
-					close: async () => {
-						sqlClosed = true;
+			runtime: {
+				...runtime,
+				sqlite: {
+					acquire: async () => ({
+						...(await testSqlite.acquire(appId)),
+						close: async () => {
+							sqlClosed = true;
+						},
+					}),
+				},
+				recording: (id, options) => ({
+					...createBrowserRecording(id, options),
+					async close() {
+						cleanupAttempted = true;
+						if (cleanupFails) throw cleanupFailure;
 					},
 				}),
+				ai: { runtime: null, account: null },
 			},
-			recording: (id, options) => ({
-				...createBrowserRecording(id, options),
-				async close() {
-					cleanupAttempted = true;
-					if (cleanupFails) throw cleanupFailure;
-				},
-			}),
-			ai: { runtime: null, account: null },
 		});
 	const app = openFixture(account);
 	const failure = expectErr(await app.ready);
@@ -1370,6 +1377,7 @@ test.each([
 });
 
 test('failed recorder cleanup still drains SQL and keeps the claim after drain', async () => {
+	const runtime = createMemoryRuntime();
 	const appId = `test.${crypto.randomUUID()}`;
 	const write = Promise.withResolvers<void>();
 	const entered = Promise.withResolvers<void>();
@@ -1378,45 +1386,45 @@ test('failed recorder cleanup still drains SQL and keeps the claim after drain',
 	let settled = false;
 	const fixtureDefinition = defineApp({ ...definition, id: appId });
 	const openFixture = (account?: Account) =>
-		composeApp(fixtureDefinition, {
-			appId: fixtureDefinition.id,
+		openApp(fixtureDefinition, {
 			account,
-			...browser,
-			blobs: testBlobs,
-			sqlite: {
-				async acquire(id) {
-					const lifetime = await testSqlite.acquire(id);
+			runtime: {
+				...runtime,
+				sqlite: {
+					async acquire(id) {
+						const lifetime = await testSqlite.acquire(id);
+						return {
+							...lifetime,
+							async open(name) {
+								const database = await lifetime.open(name);
+								return {
+									...database,
+									async run() {
+										entered.resolve();
+										await write.promise;
+										return Ok({ changes: 1 });
+									},
+								};
+							},
+							async close() {
+								released = true;
+								await lifetime.close();
+							},
+						};
+					},
+				},
+				recording: (...args) => {
+					const owner = createBrowserRecording(...args);
 					return {
-						...lifetime,
-						async open(name) {
-							const database = await lifetime.open(name);
-							return {
-								...database,
-								async run() {
-									entered.resolve();
-									await write.promise;
-									return Ok({ changes: 1 });
-								},
-							};
-						},
+						value: owner.value,
 						async close() {
-							released = true;
-							await lifetime.close();
+							await owner.close();
+							throw failure;
 						},
 					};
 				},
+				ai: { runtime: null, account: null },
 			},
-			recording: (...args) => {
-				const owner = createBrowserRecording(...args);
-				return {
-					value: owner.value,
-					async close() {
-						await owner.close();
-						throw failure;
-					},
-				};
-			},
-			ai: { runtime: null, account: null },
 		});
 	const app = openFixture();
 	expectOk(await app.ready);
@@ -1454,6 +1462,8 @@ test('failed recorder cleanup still drains SQL and keeps the claim after drain',
 });
 
 test('App retirement closes its recorder while retaining the library claim through invalidation failure and retry', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const appId = `test.${crypto.randomUUID()}`;
 	const events = new EventTarget();
 	const socket = Object.assign(events, {
@@ -1480,47 +1490,44 @@ test('App retirement closes its recorder while retaining the library claim throu
 			throw new Error('Unused');
 		},
 	};
-	const acquireData = dataBrowser.acquireAppData;
-	const acquire = spyOn(dataBrowser, 'acquireAppData').mockImplementation(
-		async (definition, options) =>
-			options.library === 'local'
-				? acquireData(definition, options)
-				: Ok({
-						durable: { commit() {} },
-						loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
-						discard: () => invalidation.promise,
-						dispose() {
-							disposed += 1;
+	const acquireData = runtime.data;
+	runtime.data = async (definition, options) =>
+		options.library === 'local'
+			? acquireData(definition, options)
+			: Ok({
+					durable: { commit() {} },
+					loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
+					discard: () => invalidation.promise,
+					dispose() {
+						disposed += 1;
+					},
+					replication: {
+						address: {
+							baseURL: account.baseURL,
+							dataId: definition.id,
+							generation: 1,
 						},
-						replication: {
-							address: {
-								baseURL: account.baseURL,
-								dataId: definition.id,
-								generation: 1,
-							},
-							transport: account,
-						},
-					}),
-	);
+						transport: account,
+					},
+				});
 	const fixtureDefinition = defineApp({ ...definition, id: appId });
 	const openFixture = (account?: Account) =>
-		composeApp(fixtureDefinition, {
-			appId: fixtureDefinition.id,
+		openApp(fixtureDefinition, {
 			account,
-			...browser,
-			blobs: testBlobs,
-			sqlite: testSqlite,
-			recording(...args) {
-				const owner = createBrowserRecording(...args);
-				return {
-					...owner,
-					close() {
-						recorderCloses += 1;
-						return owner.close();
-					},
-				};
+			runtime: {
+				...runtime,
+				recording(...args) {
+					const owner = createBrowserRecording(...args);
+					return {
+						...owner,
+						close() {
+							recorderCloses += 1;
+							return owner.close();
+						},
+					};
+				},
+				ai: { runtime: null, account: null },
 			},
-			ai: { runtime: null, account: null },
 		});
 	const app = openFixture(account);
 	try {
@@ -1558,11 +1565,12 @@ test('App retirement closes its recorder while retaining the library claim throu
 	} finally {
 		invalidation.resolve();
 		await app.close().catch(() => {});
-		acquire.mockRestore();
 	}
 });
 
 test('App retirement during attachment refuses readiness without auto-releasing its backing', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const invalidation = Promise.withResolvers<void>();
 	let disposed = 0;
 	const socket = {
@@ -1594,39 +1602,36 @@ test('App retirement during attachment refuses readiness without auto-releasing 
 			throw new Error('Unused');
 		},
 	};
-	const acquireData = dataBrowser.acquireAppData;
-	const acquire = spyOn(dataBrowser, 'acquireAppData').mockImplementation(
-		async (definition, options) =>
-			options.library === 'local'
-				? acquireData(definition, options)
-				: Ok({
-						durable: { commit() {} },
-						loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
-						discard: () => invalidation.promise,
-						dispose() {
-							disposed += 1;
+	const acquireData = runtime.data;
+	runtime.data = async (definition, options) =>
+		options.library === 'local'
+			? acquireData(definition, options)
+			: Ok({
+					durable: { commit() {} },
+					loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
+					discard: () => invalidation.promise,
+					dispose() {
+						disposed += 1;
+					},
+					replication: {
+						address: {
+							baseURL: account.baseURL,
+							dataId: definition.id,
+							generation: 1,
 						},
-						replication: {
-							address: {
-								baseURL: account.baseURL,
-								dataId: definition.id,
-								generation: 1,
-							},
-							transport: account,
-						},
-					}),
-	);
+						transport: account,
+					},
+				});
 	const appDefinition = defineApp({
 		...definition,
 		id: `test.${crypto.randomUUID()}`,
 	});
-	const app = composeApp(appDefinition, {
-		appId: appDefinition.id,
+	const app = openApp(appDefinition, {
 		account,
-		...browser,
-		blobs: testBlobs,
-		sqlite: testSqlite,
-		ai: { runtime: null, account: null },
+		runtime: {
+			...runtime,
+			ai: { runtime: null, account: null },
+		},
 	});
 	try {
 		expect(expectErr(await app.ready).name).toBe('ClosedWhileOpening');
@@ -1638,11 +1643,12 @@ test('App retirement during attachment refuses readiness without auto-releasing 
 	} finally {
 		invalidation.resolve();
 		await app.close().catch(() => {});
-		acquire.mockRestore();
 	}
 });
 
 test('replacing the Account cannot submit Alice pending Personal edits as Bob', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const { createSessionAuth } = await import('@epicenter/auth');
 	const { decodeFrame } = await import('./data/sync/frames.js');
 	const appId = `shared.${crypto.randomUUID()}`;
@@ -1702,13 +1708,12 @@ test('replacing the Account cannot submit Alice pending Personal edits as Bob', 
 	});
 	const fixtureDefinition = defineApp({ ...definition, id: appId });
 	const openFixture = (account?: Account) =>
-		composeApp(fixtureDefinition, {
-			appId: fixtureDefinition.id,
+		openApp(fixtureDefinition, {
 			account,
-			...browser,
-			sqlite: testSqlite,
-			blobs: testBlobs,
-			ai: { runtime: null, account: null },
+			runtime: {
+				...runtime,
+				ai: { runtime: null, account: null },
+			},
 		});
 	const state = auth.state;
 	if (state.status === 'signed-out') throw new Error('Expected cached Alice');

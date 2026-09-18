@@ -47,7 +47,7 @@ The service layer contains all business logic as **pure functions** with zero UI
 
 The key innovation is **build-time platform resolution** via Node-standard `#platform/*` subpath imports. Each platform-bound service lives in a folder with both implementations as sibling files plus a shared contract; the app's `package.json` `imports` map points each seam at the matching file per build condition:
 
-`openApp(whisperingDefinition, account)` from `@epicenter/app/open` acquires
+`openApp(whisperingDefinition, { account })` from `@epicenter/app/open` acquires
 storage, recording, and inference through App's build-selected resources.
 Whispering declares no runtime or AI override. Its own `#platform/*` seams
 continue to select app capabilities such as auth and native commands.

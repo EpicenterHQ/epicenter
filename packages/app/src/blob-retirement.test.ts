@@ -3,24 +3,20 @@
  * A real store retirement frame aborts an admitted upload and revokes an opened
  * playback URL while the captured Account itself remains available.
  */
-import 'fake-indexeddb/auto';
 import { expect, spyOn, test } from 'bun:test';
 import type { Account } from '@epicenter/auth';
 import { generateBlobId, REMOTE_BLOB_ROUTES } from '@epicenter/blobs';
-import type { DeviceSqliteOwner } from '@epicenter/device/owner';
-import { installTestLocks } from '@epicenter/device/test-locks';
 import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
-import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { composeApp } from './compose.js';
+import { openApp } from './open.js';
 import { encodeFrame } from './data/sync/frames.js';
 import { defineApp } from './index.js';
-import { resources as browser } from './platform/browser.js';
-
-installTestLocks();
+import { createMemoryRuntime } from './testing.js';
 
 test('document retirement aborts an upload and releases playback before explicit App close', async () => {
+	const runtime = createMemoryRuntime();
+	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
 	const appId = `test.${crypto.randomUUID()}`;
 	const baseURL = 'https://blob-retirement.test';
 	const events = new EventTarget();
@@ -75,37 +71,10 @@ test('document retirement aborts an upload and releases playback before explicit
 			throw new Error('Unused');
 		},
 	};
-	const sqlite: DeviceSqliteOwner = {
-		async acquire() {
-			return {
-				async open() {
-					return {
-						async run() {
-							return Ok({ changes: 0 });
-						},
-						async all() {
-							return Ok([]);
-						},
-						async query() {
-							return Ok({ columns: [], rows: [], truncated: false });
-						},
-						async batch() {
-							return Ok({ changes: [] });
-						},
-					};
-				},
-				async delete() {},
-				async close() {},
-			};
-		},
-	};
 	const appDefinition = defineApp({ tables: {}, kv: {}, id: appId });
-	const app = composeApp(appDefinition, {
-		appId: appDefinition.id,
+	const app = openApp(appDefinition, {
 		account,
-		...browser,
-		sqlite,
-		ai: { runtime: null, account: null },
+		runtime,
 	});
 	try {
 		expectOk(await app.ready);

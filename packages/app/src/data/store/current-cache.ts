@@ -2,27 +2,23 @@
  * Synchronized-library cache at one stable IndexedDB address.
  * The caller owns the library claim until discard and App cleanup finish.
  */
-import { openDB } from 'idb';
 import { tryAsync } from 'wellcrafted/result';
 import { StoreError } from './errors.js';
 import {
-	type BrowserDurableSchema,
 	createIdbUpdates,
+	openIdbDatabase,
 	readIdbUpdates,
 } from './idb-updates.js';
 import { copyBytes } from './log.js';
 import type { DurableOp, DurableSnapshot } from './persistence.js';
 
 /** Open a cache without authorizing remote creation or selecting a generation. */
-export async function openCurrentCache(address: string) {
+export async function openCurrentCache(
+	address: string,
+	indexedDB: IDBFactory = globalThis.indexedDB,
+) {
 	const opened = await tryAsync({
-		try: () =>
-			openDB<BrowserDurableSchema>(address, 1, {
-				upgrade(database) {
-					database.createObjectStore('updates');
-					database.createObjectStore('header');
-				},
-			}),
+		try: () => openIdbDatabase(address, ['updates', 'header'], indexedDB),
 		catch: (cause) => StoreError.StorageFailed({ cause }),
 	});
 	if (opened.error) return opened;

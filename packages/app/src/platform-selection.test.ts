@@ -22,7 +22,6 @@ const seams = Object.entries(imports);
 describe('platform seams', () => {
 	test('each platform-dependent capability selects a browser or host leaf', () => {
 		expect(seams.map(([specifier]) => specifier).sort()).toEqual([
-			'#platform/ai',
 			'#platform/clipboard',
 			'#platform/resources',
 		]);

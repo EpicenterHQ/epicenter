@@ -67,7 +67,7 @@ describe('the callback opens nothing', () => {
 		const bootstrap = await Bun.file(
 			join(appRoot, 'src/lib/bootstrap.ts'),
 		).text();
-		expect(bootstrap).toContain('openApp(whisperingDefinition, account)');
+		expect(bootstrap).toContain('openApp(whisperingDefinition, { account })');
 	});
 
 	test('the shell consumes the opened library without importing its bootstrap', async () => {

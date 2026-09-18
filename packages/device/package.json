@@ -7,6 +7,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./browser": "./src/browser.ts",
+		"./memory": "./src/memory.ts",
 		"./owner": "./src/owner.ts",
 		"./desktop": "./src/desktop.ts",
 		"./protocol": "./src/protocol.ts",

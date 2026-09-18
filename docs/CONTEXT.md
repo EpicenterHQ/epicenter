@@ -132,7 +132,7 @@ shapes, see `docs/adr/`.
 - **Library**: one application's data in one destination, named Local,
   Personal, or Shared (ADR-0375). Local is this machine, Personal is one signed-in
   person's server data, Shared is one self-hosted deployment's common data.
-- **App**: what `openApp(definition, account?)` returns: `device`,
+- **App**: what `openApp(definition, { account?, runtime? })` returns: `device`,
   an optional `account`, plus `signal`, `ready`, and `close`. `device` is always
   present; `account` is present when a person is signed in. The framework supplies
   libraries and safe storage; applications choose library views and write
@@ -294,11 +294,21 @@ shapes, see `docs/adr/`.
 - **Application declaration**: `defineApp({ id, title, kv, tables })` from
   `@epicenter/app` validates a platform-free schema. The same value feeds App
   opening, memory tests, caller-owned SQLite data, and artifact operations.
-- **App lifetime**: `openApp(definition, account?)` from `@epicenter/app/open`
+- **App lifetime**: `openApp(definition, { account?, runtime? })` from `@epicenter/app/open`
   returns a handle synchronously. `app.ready` settles acquisition; `app.close()`
   drains work and releases resources. `app.device` always exists;
   `app.account` exists when the caller supplied an Account. `compose.ts` owns
-  the private resource lifetime. Public declarations carry no runtime override.
+  the private resource lifetime. An optional complete runtime replaces the
+  build-selected implementation; the declaration remains inert. One admission
+  covers all App stores and lazy SQL. A failed `ready` means unusable, not
+  necessarily released: cleanup failure retains admission.
+- **Memory App runtime**: `createMemoryRuntime()` from `@epicenter/app/testing`
+  isolates document/blob IndexedDB storage and named SQL databases. App close
+  releases connections while runtime-owned storage survives reopening.
+  `runtime.dispose()` refuses held admission, then releases storage. SQL uses
+  SQLite WASM `memdb` anchors so physical App connection closure still rolls
+  back unfinished transactions. The account-wide AI catalog retains separate
+  coordination because multiple app IDs share it.
 - **Data document**: `openData(definition, sqlite)` from `@epicenter/app/data`
   opens over caller-owned SQLite. Disposing the document leaves the connection
   open. `openMemory` is Bun test support and can borrow a reusable memory record.

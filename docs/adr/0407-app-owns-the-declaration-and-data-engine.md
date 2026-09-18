@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-18
+- **Amended by:** [ADR-0408](0408-one-app-opener-uses-a-complete-runtime.md) at App opening and runtime injection: the target is `openApp(definition, { account?, runtime? })` with one complete memory runtime for application tests. This amendment is unbuilt; the signature and refusal of overrides below describe the implementation at this record's checkpoint.
 - **Amends:** [ADR-0405](0405-one-flat-application-declaration-opens-the-live-app.md) at opening and package ownership: the flat declaration remains; its `.open()` method and the separate data package are removed.
 - **Amends:** [ADR-0292](0292-a-database-opens-an-exact-generation-cache-first-and-bootstraps-account-misses.md) at client opening and [ADR-0293](0293-a-generation-is-created-by-importing-a-folder-and-the-ledger-row-is-its-existence.md) at client generation helpers: applications open the current library; historical numbered-cache APIs are retired without changing stored history.
 - **Relates:** [ADR-0391](0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md), whose build selection and refusal of public implementation overrides remain.

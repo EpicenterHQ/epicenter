@@ -1,57 +1,22 @@
 import type { Account } from '@epicenter/auth';
-import type { BlobSources, BlobStore, RemoteBlobs } from '@epicenter/blobs';
 import { createAppBlobs, createAppRemoteBlobs } from '@epicenter/blobs/app';
 import { isAppId } from '@epicenter/constants/app-id';
-import { claimLibrary } from '@epicenter/device/library-claim';
-import {
-	createAppSqlite,
-	type DeviceSqliteOwner,
-} from '@epicenter/device/owner';
+import { createAppSqlite } from '@epicenter/device/owner';
 import type { AccountIdentity } from '@epicenter/principal';
 import { createLogger } from 'wellcrafted/logger';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { resources } from '#platform/resources';
-import type { AiTransport } from './ai.js';
 import { createAppAi } from './ai.js';
-import type { AiConnections } from './ai-connections.js';
 import { compileData, type DataDefinition } from './data/definition/index.js';
-import { acquireAppData } from './data/store/browser.js';
 import {
 	createStoreOverPort,
 	type DeclaredData,
 	StoreError,
 	StoreUnusableError,
 } from './data/store/store.js';
-import type { RecordingFactory, RecordingOwner } from './recorder.js';
-
-export type AppBlobComposition = {
-	local: BlobStore;
-	sources: BlobSources;
-	remote: RemoteBlobs | null;
-};
-
-export type AppBlobFactory = (input: {
-	appId: string;
-	account?: Account;
-}) => AppBlobComposition;
-
-/** Independent inference transport and connections selection. */
-export type AppAiBinding = {
-	runtime: AiTransport | null;
-	account: ((account: Account) => AiTransport) | null;
-	connections?: (appId: string, account?: AccountIdentity) => AiConnections;
-	configuredFetch?: AiTransport['fetch'];
-};
+import type { RecordingOwner } from './recorder.js';
+import type { AppRuntime } from './runtime.js';
 
 const log = createLogger('app');
-
-export type AppResources = {
-	sqlite: DeviceSqliteOwner;
-	blobs: AppBlobFactory;
-	recording: RecordingFactory;
-	secrets: typeof resources.secrets;
-	ai?: AppAiBinding;
-};
 
 /** One auth generation owns the device scope and every available account store. */
 export function composeApp<
@@ -67,7 +32,9 @@ export function composeApp<
 		recording,
 		secrets,
 		ai,
-	}: AppResources & { appId: string; account: TAccount },
+		claim,
+		data,
+	}: AppRuntime & { appId: string; account: TAccount },
 ) {
 	if (!isAppId(appId))
 		throw new Error(`The application id '${appId}' is not valid.`);
@@ -91,7 +58,7 @@ export function composeApp<
 		assertUsable,
 		account: identity ?? undefined,
 	});
-	const claims: Array<() => void> = [];
+	let release: (() => void) | undefined;
 	const scopes: Array<
 		| { library: 'local'; account?: AccountIdentity }
 		| { library: 'personal' | 'shared'; account: Account }
@@ -100,17 +67,17 @@ export function composeApp<
 		scopes.push({ library: 'personal', account });
 		if (account.supportsShared) scopes.push({ library: 'shared', account });
 	}
-	const ownership = Promise.resolve().then(
-		async (): Promise<Result<void, StoreError>> => {
-			for (const scope of scopes) {
-				if (lifetime.signal.aborted) return StoreError.ClosedWhileOpening();
-				const claim = await claimLibrary(appId, scope);
-				if (claim.error) return claim;
-				claims.push(claim.data.release);
-			}
+	// Invoke admission now: a disposable runtime must reserve before we return.
+	const ownership = (async (): Promise<Result<void, StoreError>> => {
+		try {
+			const acquired = await claim(appId, identity ?? undefined);
+			if (acquired.error) return acquired;
+			release = acquired.data.release;
 			return Ok(undefined);
-		},
-	);
+		} catch (cause) {
+			return StoreError.StorageFailed({ cause });
+		}
+	})();
 	const documents = scopes.map((scope) => {
 		let released = true;
 		const document = createStoreOverPort({
@@ -122,7 +89,7 @@ export function composeApp<
 				if (owned.error) return owned;
 				if (lifetime.signal.aborted) return StoreError.ClosedWhileOpening();
 				released = false;
-				const opened = await acquireAppData(parsed.data, {
+				const opened = await data(parsed.data, {
 					appId,
 					...scope,
 				});
@@ -159,7 +126,7 @@ export function composeApp<
 	const device = documents[0]!;
 	let blobAccess: ReturnType<typeof createAppBlobs> | undefined;
 	let remoteBlobAccess: ReturnType<typeof createAppRemoteBlobs> | undefined;
-	let secretAccess: ReturnType<typeof resources.secrets> | undefined;
+	let secretAccess: ReturnType<AppRuntime['secrets']> | undefined;
 	let recorder: RecordingOwner | undefined;
 	let inference: ReturnType<typeof createAppAi> | undefined;
 	let closing: Promise<void> | undefined;
@@ -225,8 +192,10 @@ export function composeApp<
 					.every((result) => result.status === 'fulfilled')
 			) {
 				try {
+					await ownership;
 					await databases.close();
-					for (const release of claims.splice(0)) release();
+					release?.();
+					release = undefined;
 				} catch (reason) {
 					failures.push({ status: 'rejected', reason });
 				}

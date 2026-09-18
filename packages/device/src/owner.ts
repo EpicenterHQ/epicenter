@@ -3,7 +3,6 @@ import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import { Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { type AppSqliteDatabase, appIdOrThrow, DeviceError } from './index.js';
-import { claimSqlite } from './library-claim.js';
 import {
 	type DeviceRequest,
 	type DeviceResponse,
@@ -167,7 +166,7 @@ export type ScopedSqlite = {
 	delete(name: string): Promise<Result<void, DeviceError>>;
 };
 
-/** Validate the app id now; acquire lazily, including when a SQL-only document starts. */
+/** Acquire SQL lazily beneath the caller-owned App admission boundary. */
 export function createAppSqlite(
 	owner: DeviceSqliteOwner,
 	appId: string,
@@ -177,11 +176,7 @@ export function createAppSqlite(
 	}: { assertUsable?: () => void; account?: AccountIdentity } = {},
 ) {
 	appIdOrThrow(appId);
-	let pending:
-		| Promise<
-				Result<{ lifetime: SqliteLifetime; release(): void }, DeviceError>
-		  >
-		| undefined;
+	let pending: Promise<Result<SqliteLifetime, DeviceError>> | undefined;
 	let closed = false;
 	let closing: Promise<void> | undefined;
 	let operations = 0;
@@ -190,19 +185,10 @@ export function createAppSqlite(
 	const handles = new WeakMap<AppSqliteDatabase, AppSqliteDatabase>();
 
 	function acquire() {
-		return (pending ??= (async () => {
-			const claim = await claimSqlite(appId, account);
-			if (claim.error) return claim;
-			try {
-				return Ok({
-					lifetime: await owner.acquire(appId, account),
-					release: claim.data.release,
-				});
-			} catch (cause) {
-				claim.data.release();
-				return DeviceError.StorageFailed({ cause });
-			}
-		})());
+		return (pending ??= tryAsync({
+			try: () => owner.acquire(appId, account),
+			catch: (cause) => DeviceError.StorageFailed({ cause }),
+		}));
 	}
 	function closedResult() {
 		return DeviceError.StorageFailed({
@@ -262,7 +248,7 @@ export function createAppSqlite(
 					const result = await acquire();
 					if (result.error) return result;
 					const opened = await tryAsync({
-						try: () => result.data.lifetime.open(name),
+						try: () => result.data.open(name),
 						catch: (cause) => DeviceError.StorageFailed({ cause }),
 					});
 					if (opened.error) return opened;
@@ -281,7 +267,7 @@ export function createAppSqlite(
 					const result = await acquire();
 					if (result.error) return result;
 					return tryAsync({
-						try: () => result.data.lifetime.delete(name),
+						try: () => result.data.delete(name),
 						catch: (cause) => DeviceError.StorageFailed({ cause }),
 					});
 				});
@@ -295,8 +281,7 @@ export function createAppSqlite(
 				if (!pending) return;
 				const result = await pending;
 				if (result.error) return;
-				await result.data.lifetime.close();
-				result.data.release();
+				await result.data.close();
 			})());
 		},
 	};

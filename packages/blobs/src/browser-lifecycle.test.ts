@@ -9,20 +9,16 @@
  * - Missing reads are typed, deletion is idempotent, and failures stay typed
  */
 
+import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { indexedDB } from 'fake-indexeddb';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { generateBlobId } from './blob-id.js';
-import type { BlobStoreError } from './blob-store.js';
 import {
-	type BlobLockManager,
 	browserBlobStoreName,
 	createBrowserBlobSources,
 	createBrowserBlobStore,
-	eraseBlobStore,
 } from './browser.js';
-
-const testLocks = fakeLocks().locks;
 
 const APP_ID = 'so.epicenter.test';
 
@@ -33,11 +29,9 @@ function setup() {
 	const scope = { appId: `${APP_ID}.test${appSequence++}` };
 	return {
 		scope,
-		databaseName: browserBlobStoreName(scope),
 		blobs: createBrowserBlobStore({
 			...scope,
 			indexedDb: indexedDB,
-			locks: testLocks,
 		}),
 	};
 }
@@ -148,43 +142,11 @@ test('browser source creation failures remain typed after storage succeeds', asy
 	expect(error).toMatchObject({ name: 'BlobSourceFailed', id, cause });
 });
 
-function fakeLocks() {
-	const held = new Set<string>();
-	const readers = new Map<string, number>();
-	const locks: BlobLockManager = {
-		async request(name, { mode }, callback) {
-			if (held.has(name) || (mode === 'exclusive' && readers.has(name)))
-				return callback(null);
-			if (mode === 'exclusive') held.add(name);
-			else readers.set(name, (readers.get(name) ?? 0) + 1);
-			try {
-				return await callback({ name });
-			} finally {
-				if (mode === 'exclusive') held.delete(name);
-				else {
-					const count = (readers.get(name) ?? 1) - 1;
-					if (count === 0) readers.delete(name);
-					else readers.set(name, count);
-				}
-			}
-		},
-	};
-	return { held, locks };
-}
-
-async function databaseNames(): Promise<string[]> {
-	return (await indexedDB.databases())
-		.map(({ name }) => name)
-		.filter((name): name is string => name !== undefined);
-}
-
-test('erase refuses a put before its bytes finish converting, while another shared read succeeds', async () => {
+test('a read during byte conversion sees no unpublished bytes and succeeds after commit', async () => {
 	const { scope } = setup();
-	const { locks } = fakeLocks();
 	const store = createBrowserBlobStore({
 		...scope,
 		indexedDb: indexedDB,
-		locks,
 	});
 	const bytes = Promise.withResolvers<ArrayBuffer>();
 	const started = Promise.withResolvers<void>();
@@ -197,67 +159,7 @@ test('erase refuses a put before its bytes finish converting, while another shar
 	const put = store.put(id, blob);
 	await started.promise;
 	expect(expectErr(await store.stat(id)).name).toBe('BlobNotFound');
-	expect(
-		expectErr(await eraseBlobStore({ ...scope, indexedDb: indexedDB, locks }))
-			.name,
-	).toBe('BlobStoreHeld');
 	bytes.resolve(new TextEncoder().encode('pending').buffer);
 	expectOk(await put);
-	expectOk(await eraseBlobStore({ ...scope, indexedDb: indexedDB, locks }));
-	expect(await databaseNames()).not.toContain(browserBlobStoreName(scope));
+	expect(await expectOk(await store.get(id)).text()).toBe('pending');
 });
-
-test('an exclusive erase excludes every ordinary verb without opening a database', async () => {
-	const { scope, databaseName } = setup();
-	const { held, locks } = fakeLocks();
-	const store = createBrowserBlobStore({
-		...scope,
-		indexedDb: indexedDB,
-		locks,
-	});
-	held.add(`epicenter.blobs:${databaseName}`);
-	const id = generateBlobId('bin');
-	for (const result of await Promise.all([
-		store.put(id, new Blob(['blocked'])),
-		store.get(id),
-		store.stat(id),
-		store.delete(id),
-		store.list(),
-	])) {
-		expect(expectErr<BlobStoreError>(result)).toMatchObject({
-			name: 'BlobStoreFailed',
-			cause: { name: 'BlobStoreHeld' },
-		});
-	}
-	expect(await databaseNames()).not.toContain(databaseName);
-});
-
-test('a blocked delete reports failure but retains exclusion until the request actually settles', async () => {
-	const { scope } = setup();
-	const { locks } = fakeLocks();
-	const request = {} as IDBOpenDBRequest;
-	const indexedDb = {
-		deleteDatabase() {
-			queueMicrotask(() =>
-				request.onblocked?.(new Event('blocked') as IDBVersionChangeEvent),
-			);
-			return request;
-		},
-	} as unknown as IDBFactory;
-	const result = await eraseBlobStore({ ...scope, indexedDb, locks });
-	expect(expectErr(result).name).toBe('BlobEraseFailed');
-	const store = createBrowserBlobStore({
-		...scope,
-		indexedDb: indexedDB,
-		locks,
-	});
-	expect(expectErr(await store.get(generateBlobId('bin')))).toMatchObject({
-		cause: { name: 'BlobStoreHeld' },
-	});
-	request.onsuccess?.(new Event('success'));
-	// Let the request and lock-release promise settle.
-	await Bun.sleep(0);
-	expect(expectErr(await store.get(generateBlobId('bin'))).name).toBe(
-		'BlobNotFound',
-	);
-}, 15_000);

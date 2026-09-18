@@ -83,8 +83,9 @@ drains admitted operations without deleting committed bytes.
 Bun's `openFile(key)` lends a descriptor-backed `{ file, stat, close }` for
 streaming. Its caller must close the handle after consumption, cancellation,
 or failure. The desktop host owns that cleanup for GET, ranges, and uploads;
-HEAD only reads metadata. `eraseBlobStore({ appId })` explicitly deletes the
-browser app's whole blob database and is not account-library cleanup.
+HEAD only reads metadata. Browser operations rely on IndexedDB transactions for
+atomic publication. The App owns admission and drains operations before releasing
+its storage ownership; the blob store does not acquire per-operation Web Locks.
 
 ## Format and filenames
 

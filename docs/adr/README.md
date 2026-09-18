@@ -664,3 +664,5 @@ When you add an ADR, add its row here.
 | [0405](0405-one-flat-application-declaration-opens-the-live-app.md) | One flat application declaration opens the live App | Accepted (amends 0391 at declaration shape; opening amended by 0407) |
 | [0406](0406-one-application-schema-is-used-by-every-store.md) | One application schema is used by every store | Accepted |
 | [0407](0407-app-owns-the-declaration-and-data-engine.md) | App owns the declaration and data engine | Accepted (amends 0405 at opening and package ownership; retires historical client generation helpers from 0292/0293) |
+| [0408](0408-one-app-opener-uses-a-complete-runtime.md) | One App opener uses a complete runtime | Accepted (amends 0407 at opening and 0391 at explicit runtime injection) |
+| [0409](0409-one-app-admission-covers-its-storage.md) | One App admission covers its storage | Proposed (bounded amendment to 0408) |

@@ -11,7 +11,7 @@ export const account = auth?.state.account;
 export const app =
 	account === undefined || new URLSearchParams(location.search).has('connect')
 		? null
-		: openApp(mailDefinition, account);
+		: openApp(mailDefinition, { account });
 
 export const departure = createDeparture({
 	libraryReplaced: app?.libraryReplaced,

@@ -27,5 +27,5 @@ export const app = openApp(
 		...mailDefinition,
 		id: 'so.epicenter.local-mail-evidence',
 	}),
-	account,
+	{ account },
 );

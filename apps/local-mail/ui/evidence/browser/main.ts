@@ -54,10 +54,12 @@ try {
 			},
 			async remoteEdit(remove = false) {
 				const peer = openApp(defineApp({ ...mailDefinition, id: app.appId }), {
-					...account,
-					principalId: 'synthetic-peer' as Account['principalId'],
-					fetch: (input, init) =>
-						currentLibraryResponse(new Request(input, init)),
+					account: {
+						...account,
+						principalId: 'synthetic-peer' as Account['principalId'],
+						fetch: (input, init) =>
+							currentLibraryResponse(new Request(input, init)),
+					},
 				});
 				expectOk(await peer.ready);
 				expectOk(
@@ -94,10 +96,12 @@ try {
 						id: app.appId,
 					}),
 					{
-						...account,
-						principalId: 'synthetic-malformed' as Account['principalId'],
-						fetch: (input, init) =>
-							currentLibraryResponse(new Request(input, init)),
+						account: {
+							...account,
+							principalId: 'synthetic-malformed' as Account['principalId'],
+							fetch: (input, init) =>
+								currentLibraryResponse(new Request(input, init)),
+						},
 					},
 				);
 				expectOk(await peer.ready);

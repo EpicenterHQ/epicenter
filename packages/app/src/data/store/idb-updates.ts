@@ -1,6 +1,11 @@
 /** Shared append-sized IndexedDB persistence for numbered and current caches. */
 import * as Y from '@y/y';
-import type { DBSchema, IDBPDatabase, IDBPObjectStore } from 'idb';
+import {
+	type DBSchema,
+	type IDBPDatabase,
+	type IDBPObjectStore,
+	wrap,
+} from 'idb';
 import {
 	copyBytes,
 	NO_AUTHORITY,
@@ -27,6 +32,25 @@ export type BrowserDurableSchema = DBSchema & {
 };
 
 export type BrowserDurableDatabase = IDBPDatabase<BrowserDurableSchema>;
+
+/** Open this storage format using the runtime's IndexedDB factory. */
+export function openIdbDatabase(
+	address: string,
+	stores: readonly ('updates' | 'header')[],
+	indexedDB: IDBFactory,
+): Promise<BrowserDurableDatabase> {
+	// Version and names are durable addresses. This does not discover or migrate
+	// historical caches. Blocked opens and abnormal closure retain native behavior.
+	const request = indexedDB.open(address, 1);
+	const opened = wrap(request) as Promise<BrowserDurableDatabase>;
+	request.addEventListener('upgradeneeded', () => {
+		for (const store of stores) {
+			if (!request.result.objectStoreNames.contains(store))
+				request.result.createObjectStore(store);
+		}
+	});
+	return opened;
+}
 
 const UPDATES_STORE = 'updates';
 

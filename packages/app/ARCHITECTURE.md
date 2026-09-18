@@ -18,11 +18,11 @@ Application data.ts / reusable tables / Worker probes
           +----------+---------------------+-------------------+
           |                                |                   |
           v                                v                   v
- /open: openApp(definition, account?) /data: openData(...) /memory: openMemory(...)
+ /open: openApp(definition, options?) /data: openData(...) /memory: openMemory(...)
           |                         caller-owned SQLite   Bun test storage
           |                                |                   |
           v                                +---------+---------+
- build-selected resources                            |
+ complete runtime (default or injected)              |
           |                                          v
           v                                one data document engine
  one App lifetime                          tables / KV / persistence / sync
@@ -48,6 +48,12 @@ Desktop folder I/O   --> /artifact/format (no App or store)
 Disposing it drains persistence and leaves SQLite open. `openMemory` owns a new
 Bun memory connection unless its caller supplies a reusable `MemoryRecord`.
 Neither opener constructs application capabilities or captures an Account.
+Application tests in isolated Bun or compatible nonbrowser processes supply
+`createMemoryRuntime()` from `@epicenter/app/testing` to `openApp`. It requires
+fake IndexedDB constructors and refuses incompatible native constructors before
+changing globals. These tests use production readiness and closure with
+storage that survives until runtime disposal. Real browser integration tests
+use the default platform runtime.
 
 Skills uses `openApp` in its account-taking lifecycle adapter. Its route still
 refuses startup pending a product and authentication decision. The historical
@@ -61,7 +67,9 @@ packages/app/
 |-- package.json                   public boundaries and build conditions
 |-- src/
 |   |-- index.ts                   platform-free declaration and schema vocabulary
-|   |-- open.ts                    public openApp; selects package resources
+|   |-- open.ts                    public openApp; selects a complete runtime
+|   |-- runtime.ts                 AppRuntime resource contract
+|   |-- testing.ts                 isolated memory storage and admission
 |   |-- compose.ts                 private App readiness, retirement, and closure
 |   |-- data/
 |   |   |-- open.ts                public openData and syncEngineOf
@@ -95,9 +103,10 @@ packages/app/
 `-- scripts/                      browser and native capability evidence
 ```
 
-`canonicalJson` and its declaration module are removed. Runtime/AI override
-contracts remain private implementation details in `compose.ts`; the package
-exports no runtime wrapper or alternate public App constructor.
+`openApp` accepts `{ account?, runtime? }`. `AppRuntime` supplies admission,
+document storage, SQLite, secrets, blobs, recording, and AI together.
+`compose.ts` owns the one lifecycle used by all implementations. There is no
+second App constructor for tests and no partial runtime fallback.
 
 ## Import and runtime boundaries
 
@@ -108,7 +117,8 @@ Import                               Runtime requirement
 @epicenter/app/field                 platform-free field validation
 @epicenter/app/store                 type-only data handle facade
 @epicenter/app/data                  caller-supplied SQLite
-@epicenter/app/memory                bun:sqlite test storage
+@epicenter/app/memory                bun:sqlite data-engine test storage
+@epicenter/app/testing               isolated IndexedDB and SQLite WASM App runtime
 @epicenter/app/sync                  transport and authority; no App
 @epicenter/app/artifact              document/file conversion; no App
 @epicenter/app/artifact/format       file grammar; no store or App
@@ -116,10 +126,20 @@ Import                               Runtime requirement
 @epicenter/app/open                  build-selected application capabilities
 ```
 
-The package's `epicenter-host` and default conditions still select resources,
-AI bindings, and clipboard leaves. ADR-0403's runtime selector remains a
-proposal. Consumers preserve build conditions; application declarations expose
-no `runtime` or `ai` override.
+The package's `epicenter-host` and default conditions select the default
+complete runtime through `#platform/resources`, including its AI binding.
+Clipboard retains its independent platform seam. An explicit runtime replaces
+the default without altering the inert declaration. ADR-0403's automatic
+platform selector remains a proposal; consumers preserve build conditions.
+
+One App admission covers its document stores and lazy SQL lifetime. A second
+opener fails readiness immediately. Closure releases admission only after
+resource cleanup succeeds, so failed readiness alone does not authorize a
+replacement. The account-wide AI catalog spans multiple app IDs and retains
+its own serialization. The host SQL owner still protects independent windows.
+Memory SQL holds a runtime-owned `memdb` anchor and closes each App connection
+physically; committed bytes survive, unfinished transactions and temporary
+tables do not.
 
 The package uses `@epicenter/device`, `@epicenter/blobs`, `@epicenter/recorder`,
 and `@epicenter/client` for capabilities, and `@epicenter/sqlite`, `@y/y`, `idb`,

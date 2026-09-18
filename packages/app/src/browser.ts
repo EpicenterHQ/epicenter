@@ -1,11 +1,11 @@
 import { deviceOwnerPath } from '@epicenter/principal';
 import { type AiTransport, accountInference } from './ai.js';
 import { createAiConnections } from './ai-connections.js';
-import type { AppAiBinding } from './compose.js';
+import type { AppAiBinding } from './runtime.js';
 
 /** Origin-local settings; supported Epicenter accounts supply the /v1 gateway. */
 export function createBrowserAppAi(
-	configuredFetch?: AiTransport['fetch'],
+	configuredFetch: AiTransport['fetch'] = globalThis.fetch.bind(globalThis),
 ): AppAiBinding {
 	return {
 		runtime: null,
@@ -46,6 +46,3 @@ export function createBrowserAppAi(
 		},
 	};
 }
-
-/** Default browser composition selected by the package build condition. */
-export const createDefaultAppAi: () => AppAiBinding = createBrowserAppAi;

@@ -25,7 +25,7 @@ export const selections = shouldOpen
 export const app = trySync({
 	try: () => {
 		if (new URLSearchParams(location.search).has('connect')) return null;
-		return openApp(whisperingDefinition, account);
+		return openApp(whisperingDefinition, { account });
 	},
 	catch(cause) {
 		// Preserve the opening failure even if subscription cleanup also fails.

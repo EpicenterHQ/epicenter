@@ -10,7 +10,7 @@ import { defineApp, defineTable, field, plainText } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
 import { openApp } from '@epicenter/app/open';
 import type { Account } from '@epicenter/auth';
-import { claimLibrary } from '@epicenter/device/library-claim';
+import { claimApp } from '@epicenter/device/library-claim';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
@@ -84,7 +84,7 @@ test('current and local addresses retain their durable spellings', async () => {
 	const local = openApp(definition);
 	expectOk(await local.ready);
 	await local.close();
-	const app = openApp(definition, accountFor());
+	const app = openApp(definition, { account: accountFor() });
 	try {
 		expectOk(await app.ready);
 		const names = (await indexedDB.databases()).map(({ name }) => name);
@@ -98,20 +98,20 @@ test('current and local addresses retain their durable spellings', async () => {
 test('a second App cannot acquire an open library and can retry after closure', async () => {
 	const definition = definitionFor();
 	const account = accountFor();
-	const first = openApp(definition, account);
+	const first = openApp(definition, { account: account });
 	expectOk(await first.ready);
-	const second = openApp(definition, account);
+	const second = openApp(definition, { account: account });
 	expect(expectErr(await second.ready).name).toBe('AlreadyOpen');
 	await second.close();
 	await first.close();
-	const third = openApp(definition, account);
+	const third = openApp(definition, { account: account });
 	expectOk(await third.ready);
 	await third.close();
 });
 
 test('different applications and accounts cannot read each others rows', async () => {
 	const definition = definitionFor();
-	const first = openApp(definition, accountFor());
+	const first = openApp(definition, { account: accountFor() });
 	expectOk(await first.ready);
 	first.account.personal.tables.notes.create({ title: 'Alice kept work' });
 	await first.close();
@@ -119,7 +119,7 @@ test('different applications and accounts cannot read each others rows', async (
 		[definition, accountFor('bob')],
 		[definitionFor(), accountFor()],
 	] as const) {
-		const isolated = openApp(declaration, account);
+		const isolated = openApp(declaration, { account: account });
 		expectOk(await isolated.ready);
 		expect(isolated.account.personal.tables.notes.rows).toHaveLength(0);
 		await isolated.close();
@@ -128,7 +128,7 @@ test('different applications and accounts cannot read each others rows', async (
 	offline.fetch = async () => {
 		throw new Error('Offline');
 	};
-	const reopened = openApp(definition, offline);
+	const reopened = openApp(definition, { account: offline });
 	expectOk(await reopened.ready);
 	expect(
 		reopened.account.personal.tables.notes.rows.map((row) => row.title),
@@ -140,10 +140,10 @@ test('a failed current bootstrap releases ownership and a later attempt hydrates
 	const definition = definitionFor();
 	const unavailable = accountFor();
 	unavailable.fetch = async () => new Response(null, { status: 503 });
-	const failed = openApp(definition, unavailable);
+	const failed = openApp(definition, { account: unavailable });
 	expect(expectErr(await failed.ready).name).toBe('StorageFailed');
 	await failed.close();
-	const retry = openApp(definition, accountFor());
+	const retry = openApp(definition, { account: accountFor() });
 	expectOk(await retry.ready);
 	expect(retry.account.personal.tables.notes.rows).toHaveLength(0);
 	await retry.close();
@@ -205,7 +205,7 @@ test('opening leaves historical numbered and superseded caches untouched', async
 		await database.put('proof', payload, 'untouched');
 		database.close();
 	}
-	const app = openApp(definition, accountFor());
+	const app = openApp(definition, { account: accountFor() });
 	expectOk(await app.ready);
 	expect(app.account.personal.tables.notes.rows).toHaveLength(0);
 	await app.close();
@@ -237,7 +237,7 @@ test('local content text and attributes survive a close and reopen', async () =>
 
 test('owed updates compact without losing rows across an offline reopen', async () => {
 	const definition = definitionFor();
-	const app = openApp(definition, accountFor());
+	const app = openApp(definition, { account: accountFor() });
 	expectOk(await app.ready);
 	for (let index = 0; index < 70; index++) {
 		app.account.personal.tables.notes.create({ title: `note ${index}` });
@@ -251,7 +251,7 @@ test('owed updates compact without losing rows across an offline reopen', async 
 	offline.fetch = async () => {
 		throw new Error('Offline');
 	};
-	const reopened = openApp(definition, offline);
+	const reopened = openApp(definition, { account: offline });
 	expectOk(await reopened.ready);
 	expect(reopened.account.personal.tables.notes.rows).toHaveLength(70);
 	await reopened.close();
@@ -279,13 +279,9 @@ test('failed local acquisition cleanup retains library exclusion', async () => {
 	try {
 		const app = openApp(definition);
 		expect(expectErr(await app.ready).name).toBe('StorageFailed');
-		expect(
-			expectErr(await claimLibrary(definition.id, { library: 'local' })).name,
-		).toBe('AlreadyOpen');
+		expect(expectErr(await claimApp(definition.id)).name).toBe('AlreadyOpen');
 		await app.close();
-		expect(
-			expectErr(await claimLibrary(definition.id, { library: 'local' })).name,
-		).toBe('AlreadyOpen');
+		expect(expectErr(await claimApp(definition.id)).name).toBe('AlreadyOpen');
 	} finally {
 		closing.mockRestore();
 	}

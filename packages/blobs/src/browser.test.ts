@@ -13,24 +13,15 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { BlobId } from './blob-id.js';
 import { generateBlobId } from './blob-id.js';
 import {
-	type BlobLockManager,
 	browserBlobStoreName,
 	createBrowserBlobSources,
 	createBrowserBlobStore,
-	eraseBlobStore,
 } from './browser.js';
-
-const locks: BlobLockManager = {
-	async request(_name, _options, callback) {
-		return callback({});
-	},
-};
 
 function setup() {
 	const scope = {
 		appId: 'so.epicenter.flat.test',
 		indexedDb: new IDBFactory(),
-		locks,
 	};
 	return {
 		scope,
@@ -121,11 +112,12 @@ test('fresh records contain only id, ArrayBuffer bytes, and derived size and sur
 });
 
 test('concurrent duplicate publication commits one record and never replaces its bytes', async () => {
-	const { blobs } = setup();
+	const { scope, blobs } = setup();
+	const other = createBrowserBlobStore(scope);
 	const id = generateBlobId('wav');
 	const results = await Promise.all(
-		['first', 'second'].map((text) =>
-			blobs.put(id, new Blob([text], { type: 'audio/wav' })),
+		[blobs, other].map((store, index) =>
+			store.put(id, new Blob([String(index)], { type: 'audio/wav' })),
 		),
 	);
 	expect(results.filter((result) => result.error === null)).toHaveLength(1);
@@ -133,7 +125,10 @@ test('concurrent duplicate publication commits one record and never replaces its
 		results.filter((result) => result.error?.name === 'BlobAlreadyExists'),
 	).toHaveLength(1);
 	const saved = expectOk(await blobs.get(id));
-	expect(['first', 'second']).toContain(await saved.text());
+	expect(await saved.text()).toBe(
+		String(results.findIndex((result) => result.error === null)),
+	);
+	expect(await expectOk(await other.get(id)).text()).toBe(await saved.text());
 	expect(expectOk(await blobs.stat(id)).size).toBe(saved.size);
 });
 
@@ -325,20 +320,6 @@ test('synchronous transaction failure closes its connection and returns a typed 
 	expect(expectOk(await blobs.list()).items).toEqual([]);
 });
 
-test('a held Web Lock refuses access without creating a database', async () => {
-	const { scope } = setup();
-	const held = createBrowserBlobStore({
-		...scope,
-		locks: {
-			async request(_name, _options, callback) {
-				return callback(null);
-			},
-		},
-	});
-	expect(expectErr(await held.list()).name).toBe('BlobStoreFailed');
-	expect(await scope.indexedDb.databases()).toEqual([]);
-});
-
 test('a byte conversion failure leaves the database unopened and remains retryable', async () => {
 	const { scope, blobs } = setup();
 	const id = generateBlobId('bin');
@@ -351,39 +332,4 @@ test('a byte conversion failure leaves the database unopened and remains retryab
 	failed.mockRestore();
 	expectOk(await blobs.put(id, bytes));
 	expect(await expectOk(await blobs.get(id)).text()).toBe('original');
-});
-
-test('erase refuses while the flat publisher owns its shared operation lock', async () => {
-	const { scope } = setup();
-	const held = new Set<string>();
-	const cooperativeLocks: BlobLockManager = {
-		async request(name, _options, callback) {
-			if (held.has(name)) return callback(null);
-			held.add(name);
-			try {
-				return await callback({});
-			} finally {
-				held.delete(name);
-			}
-		},
-	};
-	const lockedScope = { ...scope, locks: cooperativeLocks };
-	const blobs = createBrowserBlobStore(lockedScope);
-	const id = generateBlobId('bin');
-	const bytes = new Blob(['saved']);
-	const entered = Promise.withResolvers<void>();
-	const release = Promise.withResolvers<ArrayBuffer>();
-	spyOn(bytes, 'arrayBuffer').mockImplementation(() => {
-		entered.resolve();
-		return release.promise;
-	});
-	const publishing = blobs.put(id, bytes);
-	await entered.promise;
-	expect(expectErr(await eraseBlobStore(lockedScope)).name).toBe(
-		'BlobStoreHeld',
-	);
-	release.resolve(new TextEncoder().encode('saved').buffer);
-	expectOk(await publishing);
-	expectOk(await eraseBlobStore(lockedScope));
-	expect(await scope.indexedDb.databases()).toEqual([]);
 });

@@ -32,13 +32,13 @@ export const notes = defineApp({
 ```
 
 The mounted application route captures the Account and opens that declaration
-once with `openApp(notes, account)` from `@epicenter/app/open`. Opening returns
+once with `openApp(notes, { account })` from `@epicenter/app/open`. Opening returns
 the live App synchronously; `app.ready` gates use of its stores and capabilities. Select a destination before reading or writing rows:
 `app.device`, `app.account.personal`, or an available `app.account.shared`.
 Rows and mutations are synchronous after readiness. Before replacing the
 Account, stop UI producers and await `app.close()`.
 
-`openApp(definition)` and `openApp(definition, undefined)` use the separate
+`openApp(definition)` and `openApp(definition, { account: undefined })` use the separate
 `no-account` namespace. Passing an Account scopes local resources to that owner and opens its account stores.
 Signing in does not adopt signed-out data. Each app decides whether its primary
 route permits signed-out use.
@@ -76,9 +76,12 @@ Honeycrisp's `#platform/auth` selects `auth.epicenter-host.ts` under the
 `tauri` leaf. Whispering also has host and browser leaves for its native UI and
 services.
 
-`@epicenter/app` selects its resource, AI, and clipboard implementations through
-its own package conditions. Its browser and host resources provide different
-SQLite, secret, blob, and recording implementations under the same App contract.
+`@epicenter/app` selects its default complete runtime through its own package
+conditions. AI belongs to that runtime; clipboard keeps an independent seam.
+Browser and host runtimes provide different SQLite, secret, blob, and recording
+implementations under the same App contract. Application tests inject
+`createMemoryRuntime()` from `@epicenter/app/testing` into the same `openApp`
+call. Closing the App preserves memory storage until runtime disposal.
 Runtime selection through `isTauri()` remains the proposal in ADR-0403; it is
 not the current implementation.
 
@@ -89,7 +92,7 @@ not the current implementation.
    durable ID, table names, and field names. Schema fields have no defaults;
    the application owns fallback values.
 2. Add the opening module beside it. Capture the Account once, call
-   `openApp(definition, account)`, and coordinate departure through that App.
+   `openApp(definition, { account })`, and coordinate departure through that App.
 3. Import the opening module from the mounted primary route. Callback and
    auxiliary routes must not open a primary library. Gate consumers on
    `app.ready`, then pass the selected store or capability to services and UI.

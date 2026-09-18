@@ -6,6 +6,7 @@
 import { expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { DeviceError } from './index.js';
 import {
 	createAppSqlite,
 	createDeviceDispatcher,
@@ -13,11 +14,7 @@ import {
 	createTransportSqliteOwner,
 	type SqliteBackend,
 } from './owner.js';
-import { DeviceError } from './index.js';
 import type { DeviceResponse } from './protocol.js';
-
-import { installTestLocks } from './test-locks.js';
-installTestLocks();
 
 const appId = 'so.epicenter.test';
 function setup() {
@@ -92,7 +89,7 @@ test('physical pool release follows connection close and retains exclusion until
 	await (await owner.acquire(appId)).close();
 });
 
-test('failed physical pool release is terminal and retains both owner and Web Lock', async () => {
+test('failed physical pool release is terminal and retains backend ownership', async () => {
 	const { owner, backend } = setup();
 	let releases = 0;
 	backend.release = async () => {
@@ -110,7 +107,7 @@ test('failed physical pool release is terminal and retains both owner and Web Lo
 	);
 	const competitor = createAppSqlite(owner, 'so.epicenter.failed-pool');
 	expect(expectErr(await competitor.value.open('search')).name).toBe(
-		'AlreadyOpen',
+		'StorageFailed',
 	);
 	await competitor.close();
 });
@@ -614,7 +611,7 @@ test('app SQL forwards owner statement failures as the original Result', async (
 	await storage.close();
 });
 
-test('SQL drain settles accepted work while retaining connections and the library claim', async () => {
+test('SQL drain settles accepted work while retaining connections and backend ownership', async () => {
 	const { owner, backend, calls } = setup();
 	const writing = Promise.withResolvers<void>();
 	const started = Promise.withResolvers<void>();
@@ -645,7 +642,7 @@ test('SQL drain settles accepted work while retaining connections and the librar
 	expect(calls).toEqual([['open', appId, 'search'], ['written']]);
 	const replacement = createAppSqlite(owner, appId);
 	expect(expectErr(await replacement.value.open('search')).name).toBe(
-		'AlreadyOpen',
+		'StorageFailed',
 	);
 	await replacement.close();
 	expect(Object.keys(storage.value).sort()).toEqual(['delete', 'open']);

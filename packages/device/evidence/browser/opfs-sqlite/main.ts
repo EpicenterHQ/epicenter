@@ -7,6 +7,7 @@
 
 import { asPrincipalId } from '@epicenter/principal';
 import { createBrowserSqliteOwner } from '../../../src/browser.js';
+import { claimApp } from '../../../src/library-claim.js';
 import { createAppSqlite, type SqliteLifetime } from '../../../src/owner.js';
 
 let workersStarted = 0;
@@ -29,10 +30,30 @@ const account =
 				principalId: asPrincipalId(person),
 			};
 const owner = createBrowserSqliteOwner();
-let storage = createAppSqlite(owner, APP_ID, { account });
-const otherStorage = createAppSqlite(owner, 'so.epicenter.other-evidence', {
-	account,
-});
+// This standalone SQL fixture owns the same admission boundary as an App.
+function openStorage(appId: string) {
+	const sqlite = createAppSqlite(owner, appId, { account });
+	let admission: ReturnType<typeof claimApp> | undefined;
+	const acquire = () => (admission ??= claimApp(appId, account));
+	return {
+		value: {
+			async open(name: string) {
+				const claim = await acquire();
+				return claim.error ? claim : sqlite.value.open(name);
+			},
+			async delete(name: string) {
+				const claim = await acquire();
+				return claim.error ? claim : sqlite.value.delete(name);
+			},
+		},
+		async close() {
+			await sqlite.close();
+			if (admission) (await admission).data?.release();
+		},
+	};
+}
+let storage = openStorage(APP_ID);
+const otherStorage = openStorage('so.epicenter.other-evidence');
 let rawStorage: SqliteLifetime | undefined;
 
 type Answer =
@@ -77,7 +98,7 @@ Object.assign(globalThis, {
 		});
 	},
 	resetStorage() {
-		storage = createAppSqlite(owner, APP_ID, { account });
+		storage = openStorage(APP_ID);
 	},
 	workerCount() {
 		return workersStarted;
@@ -90,7 +111,7 @@ Object.assign(globalThis, {
 			const stale = await retained.data.all('SELECT 1');
 			if (!stale.error)
 				return { ok: false, error: 'Closed connection accepted a statement.' };
-			storage = createAppSqlite(owner, APP_ID, { account });
+			storage = openStorage(APP_ID);
 			const reopened = await storage.value.open('local');
 			return reopened.error
 				? { ok: false, error: reopened.error.message }
@@ -98,7 +119,7 @@ Object.assign(globalThis, {
 		});
 	},
 	async duplicateOwner(): Promise<Answer> {
-		const duplicate = createAppSqlite(owner, APP_ID, { account });
+		const duplicate = openStorage(APP_ID);
 		const result = await duplicate.value.open('local');
 		await duplicate.close();
 		return result.error

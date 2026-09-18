@@ -9,10 +9,6 @@
 			"epicenter-host": "./src/platform/epicenter-host.ts",
 			"default": "./src/platform/browser.ts"
 		},
-		"#platform/ai": {
-			"epicenter-host": "./src/ai-connections.epicenter-host.ts",
-			"default": "./src/browser.ts"
-		},
 		"#platform/clipboard": {
 			"epicenter-host": "./src/clipboard/epicenter-host.ts",
 			"default": "./src/clipboard/browser.ts"
@@ -36,13 +32,15 @@
 		"./sync": "./src/data/sync/index.ts",
 		"./store": "./src/data/store/index.ts",
 		"./open": "./src/open.ts",
-		"./data": "./src/data/open.ts"
+		"./data": "./src/data/open.ts",
+		"./testing": "./src/testing.ts"
 	},
 	"scripts": {
-		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.epicenter-host.json && tsc --noEmit -p tsconfig.data.json && tsc --noEmit -p tsconfig.data.dom.json && tsc --noEmit -p evidence/data/browser/durable-store/tsconfig.json && tsc --noEmit -p evidence/data/browser/write-cost/tsconfig.json && tsc --noEmit -p evidence/data/browser/port-cost/tsconfig.json",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.epicenter-host.json && tsc --noEmit -p tsconfig.data.json && tsc --noEmit -p tsconfig.data.dom.json && tsc --noEmit -p evidence/data/browser/durable-store/tsconfig.json && tsc --noEmit -p evidence/data/browser/write-cost/tsconfig.json && tsc --noEmit -p evidence/data/browser/port-cost/tsconfig.json && tsc --noEmit -p evidence/data/library-ownership/tsconfig.json",
 		"test": "bun test --isolate",
 		"smoke:recording": "bun scripts/browser-smoke.ts",
-		"bench": "bun src/data/__benchmarks__/root-rotation.bench.ts && bun src/data/__benchmarks__/checkout.bench.ts"
+		"bench": "bun src/data/__benchmarks__/root-rotation.bench.ts && bun src/data/__benchmarks__/checkout.bench.ts",
+		"smoke:admission": "bun evidence/data/library-ownership/browser.ts"
 	},
 	"dependencies": {
 		"@epicenter/auth": "workspace:*",

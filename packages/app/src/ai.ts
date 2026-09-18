@@ -16,7 +16,9 @@ export function createAppAi({
 	account,
 	runtime,
 	connections,
-	configuredFetch = globalThis.fetch.bind(globalThis),
+	configuredFetch = async () => {
+		throw new Error('No configured inference transport is available.');
+	},
 }: {
 	lifetime: { assertUsable(): void; signal: AbortSignal };
 	account: (AiTransport & { identity: AccountIdentity }) | null;

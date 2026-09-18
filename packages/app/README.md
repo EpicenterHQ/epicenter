@@ -6,14 +6,14 @@ stores for one page lifetime. Whoever opens it stops product work and awaits
 the page coordinates departure.
 
 The captured account scopes local storage as well as synchronized stores.
-`openApp(definition)` and `openApp(definition, undefined)` select a separate
+`openApp(definition)` and `openApp(definition, { account: undefined })` select a separate
 `no-account` namespace.
 Signing in never adopts that namespace; returning to an account restores its
 own device data. Device storage stays local even when it belongs to an account.
 In apps that support signed-out use, sign-out returns to the no-account
 workspace, including recordings and audio created there before sign-in. That
 workspace is shared by everyone using the app signed out in the same profile.
-The return type preserves the argument: `openApp(definition, account)` with a definite Account
+The return type preserves the argument: `openApp(definition, { account })` with a definite Account
 has a definite `app.account`; opening without one gives `account: undefined`.
 A union argument retains the union. After `if (app.account)`, callers can pass
 that scope to components requiring an account. This checks the captured
@@ -29,7 +29,7 @@ const application = defineApp({
  kv: { language: field.string() },
  tables: { notes: defineTable({ title: field.string() }) },
 });
-const app = openApp(application, account);
+const app = openApp(application, { account });
 try {
  const result = await app.ready;
  if (result.error !== null) throw result.error;
@@ -48,10 +48,9 @@ storage or capturing an Account. Schema tools, artifact import/export, and
 `openMemory` accept that same declaration. Its tables describe fields; live
 rows belong to `app.device`, `app.account.personal`, or `app.account.shared`.
 The one `id` names both the application and its data. `defineApp` is the only
-full declaration constructor. Schema tools and tests use that same value;
-they do not import the App opener. The declaration graph is platform-free.
-`openApp` selects the package's build-specific resources; callers cannot override
-runtime or AI bindings.
+full declaration constructor. The declaration graph is platform-free. Schema
+tools and engine tests consume it directly. Application tests use the same
+`openApp` lifecycle as production, with a complete memory runtime.
 
 ## Package boundaries
 
@@ -61,14 +60,15 @@ inferred schema types. Engine consumers use independent entrypoints:
 
 | Import | Consumer and purpose |
 | --- | --- |
-| `@epicenter/app/open` | `openApp(definition, account?)` and App capability types |
+| `@epicenter/app/open` | `openApp(definition, { account?, runtime? })` and App capability types |
 | `@epicenter/app/definition` | Reusable table declarations, schema inspection, compilation |
 | `@epicenter/app/store` | Store handle and error types |
 | `@epicenter/app/sync` | Client transport and server authority |
 | `@epicenter/app/artifact` | Render and read application files |
 | `@epicenter/app/artifact/format` | Host-side file framing without loading the store |
 | `@epicenter/app/artifact/checkout` | Working-copy pull and push |
-| `@epicenter/app/memory` | Bun-backed in-memory stores for tests |
+| `@epicenter/app/testing` | `createMemoryRuntime()` for complete App tests in isolated test processes |
+| `@epicenter/app/memory` | Bun-backed in-memory stores for data-engine tests |
 | `@epicenter/app/data` | `openData(definition, sqlite)` and `syncEngineOf`; caller owns SQLite |
 | `@epicenter/app/field` | Field descriptors and date/string validation |
 
@@ -88,11 +88,58 @@ shows the package's consumers, module boundaries, and lifetime.
 
 ## Runtime selection
 
-The package selects SQLite, secrets, blobs, recording, and AI bindings through
-its `epicenter-host` and default build conditions. Browser recording publishes
-into IndexedDB. Host recording publishes into the same app directory served by
-the host's blob API. Applications pass only a declaration and optional Account
-to `openApp`; the package keeps resource composition private.
+`openApp(definition, { account, runtime })` captures identity and uses one
+complete runtime. Omit `runtime` to select this build's browser or
+`epicenter-host` implementation. An explicit runtime supplies admission,
+document storage, SQLite, blobs, secrets, recording, and AI connections. It
+replaces the default completely; missing capabilities never fall back to
+ambient browser or native resources.
+
+The App owns readiness, sync, retirement, and cleanup. Its runtime owns the
+storage behind those lifetimes. Browser recording publishes into IndexedDB.
+Host recording publishes into the same app directory served by the host's blob
+API. Account transport stays on the captured Account; a memory runtime does
+not replace a server with simulated success.
+
+```ts
+import { openApp } from '@epicenter/app/open';
+import { createMemoryRuntime } from '@epicenter/app/testing';
+
+const runtime = createMemoryRuntime();
+const app = openApp(application, { runtime });
+const ready = await app.ready;
+if (ready.error) throw ready.error;
+app.device.tables.notes.create({ title: 'Retained across App lifetimes' });
+await app.close();
+
+const reopened = openApp(application, { runtime });
+const reopenedReady = await reopened.ready;
+if (reopenedReady.error) throw reopenedReady.error;
+// The same runtime retains the committed rows, blobs, secrets, and SQL data.
+await reopened.close();
+await runtime.dispose();
+```
+
+`createMemoryRuntime` supports isolated Bun or compatible nonbrowser test
+processes. It supplies fake IndexedDB constructors and refuses incompatible
+native constructors before changing globals. Real browser integration tests
+use the default platform runtime. Each memory runtime owns an isolated
+IndexedDB factory and in-memory SQL storage. Closing an App releases its connections while retaining committed
+records for another App lifetime. SQLite WASM `memdb` anchor connections belong
+to the runtime. Each App gets separate connections, so close rolls back its
+unfinished transactions and discards temporary tables without losing committed
+data. Disposing the runtime closes the anchors and releases its storage
+and refuses while an App still holds ownership. Failed cleanup must finish
+before disposal or reopening is safe. Memory tests exercise production
+persistence and query implementations; capture and network operations do not
+pretend to succeed.
+
+A second App for the same app/account in one runtime fails readiness with
+`AlreadyOpen`. Browser tabs coordinate at the same boundary through one Web
+Lock. There is no waiting queue or takeover: close the first App, then create a
+fresh App to retry. Different app/account identities can open concurrently.
+Readiness failure makes an App unusable; it does not prove resources were
+released. Cleanup failure retains ownership to prevent unsafe replacement.
 
 ADR-0403 proposes runtime platform selection. That proposal remains unbuilt;
 consumers must still preserve the build condition used by the package.
@@ -173,10 +220,13 @@ Identity components use UTF-8 hex to preserve case on native filesystems.
 Desktop sharing stays on one profile and does not sync between devices. The host
 serializes mutations and sends committed snapshots over SSE to open app windows.
 Browser mutations use a Web Lock, reread current storage before writing, and
-notify other owners in the same document or origin. Workflow selections remain
+notify other owners in the same document or origin. This catalog spans app IDs,
+so its mutation lock remains separate from App admission. Memory catalog
+mutations run synchronously within one process and publish changes to sibling
+Apps in that runtime. Workflow selections remain
 product- and owner-local under `${settingsKey}/${owner}.app-ai-selections` in both environments.
 Switching libraries retains this configuration while opening new App clients.
-An explicit `ai` binding replaces the default. The host build's default already
+A complete runtime supplies its own `ai` binding. The host build's default already
 supplies native file inference as `app.device.connections.runtime`, so no application composes
 it; the browser default has no runtime transport.
 
@@ -198,10 +248,10 @@ selections, SSE reconnect, and cancellation on App, window, and host closure.
 Its optional Whispering mode also verifies the desktop picker, imported audio,
 real transcription, and the saved result after document reload.
 
-`defineApp` is inert. `openApp(application, account)` returns an App
+`defineApp` is inert. `openApp(application, { account })` returns an App
 synchronously and begins acquisition. `app.ready` resolves when every opened
 store and the inference catalog are ready, or returns an opening failure.
-`open()` or `open(undefined)` performs no authority request or sync dial.
+`openApp(application)` performs no authority request or sync dial.
 
 `app.device` always exists. `app.account` is undefined when opened without an account. Otherwise it
 contains credential-free `identity`, `personal`, nullable `shared`, and nullable
@@ -308,8 +358,8 @@ permits another explicit close attempt; failed physical release stays terminal. 
 immediately, cancels owned AI requests, settles admitted recording and storage
 work, and releases playback sources. The document stops sync and attempts its
 final local persistence flush. SQL work drains even if another cleanup fails.
-App releases its SQL lifetime and library claim only after dependent resources
-have released successfully; failed release retains the claim.
+App releases its SQL lifetime and admission only after dependent resources
+have released successfully; failed release retains ownership.
 
 Close discards unresolved capture and temporary native output. Published library
 files survive. Finish and save wanted audio while
@@ -337,7 +387,7 @@ completes it before releasing storage. Failed invalidation retains ownership;
 permits retry when UI cleanup failed, and never closes storage before that
 cleanup succeeds.
 
-Library claims validate and serialize only the account's addressing fields.
+App admission validates and serializes only the account's addressing fields.
 Browser acquisition receives one account and library and derives both the local
 cache address and sync routes from them. It cannot pair one account's cache
 with another account's transport.
@@ -347,11 +397,12 @@ captured account, and database name. Desktop files live at
 `<dataRoot>/apps/<appId>/device/<owner>/sqlite/<name>.sqlite`; browser files use
 the serialized `[appId, owner, name]` tuple in a separate OPFS pool for each
 app/owner. The first SQL open or delete acquires the SQL lifetime; App readiness
-does not start a SQLite worker or native socket. Data-library claims remain
-separate, so a second App for the same app/owner is still refused.
+does not start a SQLite worker or native socket. The App already holds
+admission for this owner, so documents and SQL need no subordinate Web Locks.
+The host SQLite owner still excludes independent windows at its own boundary.
 
 Browser close drains admitted work, closes every connection, then pauses that
-owner's pool before releasing its claim. Other owners can keep using SQLite in
+owner's pool before the App releases admission. Other owners can keep using SQLite in
 the same page or another window. Returning to a closed owner reactivates its
 pool without deleting files. A failed physical close or pool release is terminal
 and retains ownership; repeating close returns the same failure. Failed pool

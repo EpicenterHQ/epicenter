@@ -3,7 +3,7 @@ import { expectTypeOf } from 'bun:test';
 import { defineTable, field, type KvOf, type RowOf } from '@epicenter/app';
 import type { Account } from '@epicenter/auth';
 import { defineApp } from './index.js';
-import { openApp } from './open.js';
+import { type AppRuntime, openApp } from './open.js';
 
 const notes = defineApp({
 	id: 'test.notes',
@@ -23,19 +23,40 @@ expectTypeOf(untitled.id).toEqualTypeOf<'test.untitled'>();
 expectTypeOf(untitled.title).toEqualTypeOf<string | undefined>();
 
 // Checked without opening any runtime resources.
-function openings(account: Account, maybe: Account | undefined) {
+function openings(
+	account: Account,
+	maybe: Account | undefined,
+	runtime: AppRuntime,
+	options: { account?: Account; runtime?: AppRuntime },
+) {
 	const local = openApp(notes);
-	const explicitLocal = openApp(notes, undefined);
-	const signedIn = openApp(notes, account);
-	const optional = openApp(notes, maybe);
+	const explicitLocal = openApp(notes, { account: undefined });
+	const runtimeOnly = openApp(notes, { runtime });
+	const emptyOptions = openApp(notes, {});
+	const signedIn = openApp(notes, { account });
+	const signedInRuntime = openApp(notes, { account, runtime });
+	const optional = openApp(notes, { account: maybe, runtime });
+	const optionalOptions = openApp(notes, options);
 	expectTypeOf(local.account).toEqualTypeOf<undefined>();
 	expectTypeOf(explicitLocal.account).toEqualTypeOf<undefined>();
+	expectTypeOf(runtimeOnly.account).toEqualTypeOf<undefined>();
+	expectTypeOf(emptyOptions.account).toEqualTypeOf<undefined>();
+	expectTypeOf(signedInRuntime.account).toEqualTypeOf<
+		typeof signedIn.account
+	>();
 	expectTypeOf(signedIn.account).not.toBeUndefined();
 	expectTypeOf(optional.account).toEqualTypeOf<
 		typeof signedIn.account | undefined
 	>();
+	expectTypeOf(optionalOptions.account).toEqualTypeOf<
+		typeof optional.account
+	>();
 	signedIn.account.personal.tables.notes.create({ title: 'Typed' });
 	local.device.kv.update({ language: 'en' });
+	// @ts-expect-error Accounts belong inside the options object.
+	openApp(notes, account);
+	// @ts-expect-error A runtime must supply all resources, with no ambient fallback.
+	openApp(notes, { runtime: { sqlite: runtime.sqlite } });
 	// @ts-expect-error A generic argument cannot supply an absent Account.
 	openApp<typeof notes, Account>(notes);
 	// @ts-expect-error An App opened without an account has no personal store.
@@ -64,11 +85,11 @@ void openings;
 function invalidDeclarations() {
 	// @ts-expect-error Declarations do not own live resources.
 	notes.open();
-	// @ts-expect-error The build chooses platform resources.
+	// @ts-expect-error Runtime resources belong to opening, not the declaration.
 	defineApp({ id: 'test.runtime', tables: {}, kv: {}, runtime: {} });
 	// @ts-expect-error AI wiring is not part of a schema.
 	defineApp({ id: 'test.ai', tables: {}, kv: {}, ai: {} });
-	// @ts-expect-error The public opener accepts an account, not resource options.
+	// @ts-expect-error An empty runtime cannot replace the complete implementation.
 	openApp(notes, { runtime: {} });
 	defineApp({
 		id: 'test.invalid',

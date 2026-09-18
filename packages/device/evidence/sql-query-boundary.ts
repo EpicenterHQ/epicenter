@@ -12,6 +12,7 @@ import { chromium, webkit } from 'playwright';
 import { build } from 'vite';
 import { createBunDevice } from '../../../apps/epicenter/src/test-sqlite.js';
 import { createDesktopSqliteOwner } from '../src/desktop.js';
+import { claimApp } from '../src/library-claim.js';
 import { createAppSqlite, createDeviceDispatcher } from '../src/owner.js';
 import { installTestLocks } from '../src/test-locks.js';
 
@@ -87,6 +88,8 @@ try {
 			},
 		},
 	});
+	const admission = await claimApp(appId);
+	if (admission.error) throw admission.error;
 	const device = createAppSqlite(
 		createDesktopSqliteOwner({
 			baseURL: `http://localhost:${native.port}`,
@@ -105,6 +108,7 @@ try {
 	} finally {
 		try {
 			await device.close();
+			admission.data.release();
 		} finally {
 			try {
 				await dispatch.close();

@@ -23,7 +23,7 @@ export async function openSkillsRuntime({
 	signal?: AbortSignal;
 }): Promise<SkillsRuntime> {
 	signal?.throwIfAborted();
-	const app = openApp(skillsDefinition, account);
+	const app = openApp(skillsDefinition, { account });
 	try {
 		const ready = await app.ready;
 		if (ready.error) throw ready.error;

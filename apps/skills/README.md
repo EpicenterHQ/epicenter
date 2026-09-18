@@ -1,7 +1,8 @@
 # Skills Editor
 
-A local browser editor for Epicenter agent skills. Records live in the Browser
-workspace runtime's canonical OPFS store. Instructions and reference bodies are
+An editor for Epicenter agent skills. Its route currently refuses startup
+pending a product and authentication decision. The Account-taking adapter
+opens the current Personal library through the shared App API and IndexedDB. Instructions and reference bodies are
 the `content` nodes on their owning rows in the workspace document. CodeMirror
 binds directly to those live nodes.
 
@@ -10,10 +11,11 @@ AGPL-3.0 licensed.
 
 ## Workspace composition
 
-The mounted root layout calls `openSkillsApplication()`, renders its stable boot
-promise with Svelte's `{#await}` block, and provides only the fully opened and
-hydrated application to descendants. Importing Skills modules does not open
-storage. The workspace declaration validates canonical JSON when it is read. Rows that do not
+`openSkillsRuntime({ account })` calls `openApp(skillsDefinition, { account })`,
+awaits readiness, and constructs UI state over `app.account.personal`. Its
+disposal stops UI state before closing the App. The mounted layout renders its
+current authentication refusal through Svelte's `{#await}` failure branch.
+Importing Skills modules opens no storage. The declaration validates row data. Rows that do not
 conform stay stored and appear in the UI's invalid-record count rather than
 being silently deleted or migrated.
 
@@ -40,9 +42,9 @@ palette. CodeMirror binds directly to the row's `content` field.
 
 ## Development
 
-The Browser OPFS runtime requires a cross-origin isolated page. The SvelteKit
-server hook and Vite dev and preview servers set the required COOP and COEP
-headers. Production proxies must preserve those headers.
+The SvelteKit server hook and Vite dev and preview servers set COOP and COEP
+headers. Document persistence uses IndexedDB; SQL is acquired only if a caller
+opens a named database through the App.
 
 From the repository root:
 

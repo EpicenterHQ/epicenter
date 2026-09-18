@@ -19,7 +19,7 @@ export const library: Library = (() => {
 export const canOpenShared = authStartup.selectedServer !== null;
 export const app = new URLSearchParams(location.search).has('connect')
 	? null
-	: openApp(honeycrispDefinition, account);
+	: openApp(honeycrispDefinition, { account });
 export const data =
 	library === 'local'
 		? app?.device

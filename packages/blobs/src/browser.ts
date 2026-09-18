@@ -2,11 +2,6 @@
 
 import { isAppId } from '@epicenter/constants/app-id';
 import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
-import {
-	defineErrors,
-	extractErrorMessage,
-	type InferErrors,
-} from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 import { assertBlobFormat, blobKeyFormat } from './blob-format.js';
 import type { BlobId } from './blob-id.js';
@@ -64,8 +59,8 @@ function openDatabase(
 			);
 		};
 		request.onupgradeneeded = (event) => {
-			// A rejected open must not later upgrade the database after its lock
-			// has been released. IndexedDB cannot cancel a pending open request.
+			// A rejected open must not later upgrade the database after its caller
+			// has received failure. IndexedDB cannot cancel a pending open request.
 			if (isBlocked || event.oldVersion !== 0) {
 				request.transaction?.abort();
 				return;
@@ -109,7 +104,7 @@ async function transact<TValue>(
 				const target = event.target;
 				requestError =
 					target !== null && 'error' in target ? target.error : undefined;
-				// Wait for abort before releasing the connection and operation lock.
+				// Wait for abort before closing the connection.
 			};
 		});
 		try {
@@ -148,13 +143,9 @@ function indexedStat(key: IDBValidKey) {
 
 /** Immutable ArrayBuffer records with a covering index for metadata reads. */
 export function createBrowserBlobStore(
-	scope: BrowserBlobScope & { indexedDb?: IDBFactory; locks?: BlobLockManager },
+	scope: BrowserBlobScope & { indexedDb?: IDBFactory },
 ): BlobStore {
-	const {
-		indexedDb = globalThis.indexedDB,
-		locks = (globalThis as { navigator?: { locks?: BlobLockManager } })
-			.navigator?.locks,
-	} = scope;
+	const { indexedDb = globalThis.indexedDB } = scope;
 	const database = browserBlobStoreName(scope);
 
 	async function operate<TValue, TError>(
@@ -166,28 +157,7 @@ export function createBrowserBlobStore(
 				id,
 				cause: new TypeError('Blob id must be a complete blob key.'),
 			});
-		if (!locks)
-			return BlobStoreError.BlobStoreFailed({
-				id,
-				cause: BrowserBlobStoreError.LocksUnsupported({ database }).error,
-			});
-		const result = await tryAsync({
-			try: () =>
-				locks.request(
-					`epicenter.blobs:${database}`,
-					{ mode: 'shared', ifAvailable: true },
-					async (lock): Promise<Result<TValue, TError | BlobStoreFailed>> => {
-						if (lock === null)
-							return BlobStoreError.BlobStoreFailed({
-								id,
-								cause: BrowserBlobStoreError.BlobStoreHeld({ database }).error,
-							});
-						return run();
-					},
-				),
-			catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
-		});
-		return result.error === null ? result.data : Err(result.error);
+		return run();
 	}
 
 	return {
@@ -371,181 +341,4 @@ export function createBrowserBlobSources(
 			} satisfies BlobSource);
 		},
 	};
-}
-
-/** How long an erase waits for another tab's connection to close. */
-const DELETE_BLOCKED_TIMEOUT_MS = 10_000;
-
-/**
- * The slice of the Web Locks API blob operations need, declared so a
- * test can hand in its own and so the assumption about the platform is
- * written down: shared operations, exclusive erasure, and refuse rather than queue.
- */
-export type BlobLockManager = {
-	request<TValue>(
-		name: string,
-		options: { mode: 'shared' | 'exclusive'; ifAvailable: true },
-		callback: (lock: unknown) => Promise<TValue>,
-	): Promise<TValue>;
-};
-
-function platformLocks(): BlobLockManager | undefined {
-	return (globalThis as { navigator?: { locks?: BlobLockManager } }).navigator
-		?.locks;
-}
-
-/**
- * Namespaced so it cannot collide with the lock the replica holds on its own
- * address, or with any other lock on an origin every Epicenter app shares.
- */
-function lockName(database: string): string {
-	return `epicenter.blobs:${database}`;
-}
-
-export const BrowserBlobStoreError = defineErrors({
-	/** No `navigator.locks`. Refused rather than run unguarded. */
-	LocksUnsupported: ({ database }: { database: string }) => ({
-		message: `This runtime has no Web Locks, so '${database}' cannot be accessed safely.`,
-		database,
-	}),
-	/** An incompatible operation holds this database right now. */
-	BlobStoreHeld: ({ database }: { database: string }) => ({
-		message: `'${database}' is held by another blob operation.`,
-		database,
-	}),
-	/** The lock request itself threw, for a reason nobody can name. */
-	LockRequestFailed: ({
-		database,
-		cause,
-	}: {
-		database: string;
-		cause: unknown;
-	}) => ({
-		message: `Could not take the lock on '${database}': ${extractErrorMessage(cause)}`,
-		database,
-		cause,
-	}),
-	/** The database delete failed or another tab kept it open too long. */
-	BlobEraseFailed: ({
-		database,
-		cause,
-	}: {
-		database: string;
-		cause: unknown;
-	}) => ({
-		message: `Could not erase '${database}': ${extractErrorMessage(cause)}`,
-		database,
-		cause,
-	}),
-});
-export type BrowserBlobStoreError = InferErrors<typeof BrowserBlobStoreError>;
-
-/**
- * Run one operation while holding a lock on one database, or
- * report why it could not be taken. `run` must resolve a `Result` and never
- * reject; a rejection here is reported as the lock request failing, which is
- * the one channel a thrown callback has.
- */
-async function withLock<TValue, TError>(
-	locks: BlobLockManager | undefined,
-	database: string,
-	mode: 'shared' | 'exclusive',
-	run: () => Promise<Result<TValue, TError>>,
-): Promise<Result<TValue, TError | BrowserBlobStoreError>> {
-	if (locks === undefined) {
-		return BrowserBlobStoreError.LocksUnsupported({ database });
-	}
-	const result = await tryAsync({
-		try: () =>
-			locks.request(
-				lockName(database),
-				{ mode, ifAvailable: true },
-				async (
-					lock,
-				): Promise<Result<TValue, TError | BrowserBlobStoreError>> =>
-					lock === null
-						? BrowserBlobStoreError.BlobStoreHeld({ database })
-						: run(),
-			),
-		catch: (cause) =>
-			BrowserBlobStoreError.LockRequestFailed({ database, cause }),
-	});
-	return result.error === null ? result.data : Err(result.error);
-}
-
-/**
- * Delete one database whole, waiting out a transient block.
- *
- * Cooperative operations have already released their shared locks and closed
- * their connections. A foreign connection can still block deletion. Report
- * that to the caller after a bound, but keep this promise pending: IndexedDB
- * cannot cancel the request, so its exclusive lock must outlive the timeout.
- */
-function deleteDatabase(
-	indexedDb: IDBFactory,
-	database: string,
-	reportBlocked: (cause: Error) => void,
-): Promise<void> {
-	return new Promise((resolve, reject) => {
-		const request = indexedDb.deleteDatabase(database);
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		request.onsuccess = () => {
-			clearTimeout(timer);
-			resolve();
-		};
-		request.onerror = () => {
-			clearTimeout(timer);
-			reject(request.error ?? new Error('Could not delete blob IndexedDB'));
-		};
-		request.onblocked = () => {
-			timer ??= setTimeout(
-				() =>
-					reportBlocked(
-						new Error(
-							'Another tab is holding this blob store open. Close it first.',
-						),
-					),
-				DELETE_BLOCKED_TIMEOUT_MS,
-			);
-		};
-	});
-}
-
-/**
- * Erase one application's local blob store on this browser.
- *
- * Every verb takes a shared lock for its entire operation; erase refuses
- * while any verb holds the database. Callers must stop producers
- * before erasing. These operation locks cannot prevent a surviving idle
- * handle or a newly opened session from creating the database afterward.
- */
-export function eraseBlobStore(
-	scope: BrowserBlobScope & {
-		indexedDb?: IDBFactory;
-		locks?: BlobLockManager;
-	},
-): Promise<Result<void, BrowserBlobStoreError>> {
-	const { indexedDb = globalThis.indexedDB, locks = platformLocks() } = scope;
-	const database = browserBlobStoreName(scope);
-	return eraseDatabase(indexedDb, locks, database);
-}
-
-/** A blocked delete can report failure, but keeps its lock until IndexedDB settles. */
-function eraseDatabase(
-	indexedDb: IDBFactory,
-	locks: BlobLockManager | undefined,
-	database: string,
-): Promise<Result<void, BrowserBlobStoreError>> {
-	return new Promise((settle) => {
-		void withLock(locks, database, 'exclusive', () =>
-			tryAsync({
-				try: () =>
-					deleteDatabase(indexedDb, database, (cause) =>
-						settle(BrowserBlobStoreError.BlobEraseFailed({ database, cause })),
-					),
-				catch: (cause) =>
-					BrowserBlobStoreError.BlobEraseFailed({ database, cause }),
-			}),
-		).then(settle);
-	});
 }

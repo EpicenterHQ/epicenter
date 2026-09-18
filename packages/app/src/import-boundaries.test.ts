@@ -88,3 +88,57 @@ for (const entrypoint of [
 		).toEqual([]);
 	});
 }
+
+for (const condition of [undefined, 'epicenter-host']) {
+	test(`explicit memory runtime opens without ${condition ?? 'browser'} platform globals`, async () => {
+		const child = Bun.spawn(
+			[
+				Bun.which('bun')!,
+				...(condition ? [`--conditions=${condition}`] : []),
+				'--eval',
+				`
+   for (const name of ['window','document','navigator','indexedDB','Worker']) Reflect.deleteProperty(globalThis,name);
+   const {defineApp} = await import('@epicenter/app');
+   const {openApp} = await import('@epicenter/app/open');
+   const {createMemoryRuntime} = await import('@epicenter/app/testing');
+   const runtime = createMemoryRuntime();
+   const app = openApp(defineApp({id:'test.no-platform',tables:{},kv:{}}),{runtime});
+   const ready = await app.ready;
+   if(ready.error) throw ready.error;
+   await app.close(); await runtime.dispose();
+   if(globalThis.indexedDB !== undefined) throw new Error('Installed an ambient storage factory');
+  `,
+			],
+			{ cwd: packageRoot, stdout: 'pipe', stderr: 'pipe' },
+		);
+		const [code, stderr] = await Promise.all([
+			child.exited,
+			new Response(child.stderr).text(),
+		]);
+		expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
+	});
+}
+
+test('memory runtime rejects foreign IDB constructors before installing any globals', async () => {
+	const child = Bun.spawn(
+		[
+			Bun.which('bun')!,
+			'--eval',
+			`
+  const {createMemoryRuntime} = await import('@epicenter/app/testing');
+  const names=['IDBCursor','IDBCursorWithValue','IDBDatabase','IDBIndex','IDBKeyRange','IDBObjectStore','IDBRequest'];
+  for(const name of names) Reflect.deleteProperty(globalThis,name);
+  globalThis.IDBTransaction=class ForeignTransaction {};
+  try {createMemoryRuntime();throw new Error('Accepted foreign constructors');}
+  catch(error) {if(!error.message.includes('isolated test process')) throw error;}
+  if(names.some(name=>globalThis[name]!==undefined)) throw new Error('Partially installed constructors');
+ `,
+		],
+		{ cwd: packageRoot, stdout: 'pipe', stderr: 'pipe' },
+	);
+	const [code, stderr] = await Promise.all([
+		child.exited,
+		new Response(child.stderr).text(),
+	]);
+	expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
+});

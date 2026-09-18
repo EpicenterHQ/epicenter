@@ -24,7 +24,7 @@
 		error: unknown;
 		/**
 		 * Open again. A prop rather than `location.reload()`, because opening is a
-		 * verb: the session owner replaces its session with `openApp(definition, account)`
+		 * verb: the session owner replaces its session with `openApp(definition, { account })`
 		 * using the same captured Account. Retrying keeps the document running.
 		 */
 		retry: () => void;

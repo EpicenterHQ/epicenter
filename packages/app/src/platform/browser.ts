@@ -1,3 +1,7 @@
+import { claimApp } from '@epicenter/device/library-claim';
+import { acquireAppData } from '../data/store/browser.js';
+import type { AppRuntime } from '../runtime.js';
+import { createBrowserAppAi } from '../browser.js';
 import {
 	createBrowserBlobSources,
 	createBrowserBlobStore,
@@ -7,7 +11,7 @@ import {
 	createBrowserSecrets,
 	createBrowserSqliteOwner,
 } from '@epicenter/device/browser';
-import type { AppBlobFactory } from '../compose.js';
+import type { AppBlobFactory } from '../runtime.js';
 import { createBrowserRecording } from '../recording/browser.js';
 
 export function createBrowserAppBlobs(): AppBlobFactory {
@@ -24,7 +28,10 @@ export function createBrowserAppBlobs(): AppBlobFactory {
 	};
 }
 
-export const resources = {
+export const resources: AppRuntime = {
+	claim: claimApp,
+	data: acquireAppData,
+	ai: createBrowserAppAi(),
 	sqlite: createBrowserSqliteOwner(),
 	blobs: createBrowserAppBlobs(),
 	recording: createBrowserRecording,

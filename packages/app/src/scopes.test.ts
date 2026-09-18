@@ -2,31 +2,21 @@
  * App storage follows the captured account, survives reopening, and never
  * crosses into another owner's namespace. Retirement stops sibling sync.
  */
-import 'fake-indexeddb/auto';
-import { Database } from 'bun:sqlite';
-import { expect, spyOn, test } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { expect, test } from 'bun:test';
 import { defineTable, field } from '@epicenter/app';
-import * as dataBrowser from './data/store/browser.js';
 import type { Account } from '@epicenter/auth';
 import { type BlobId, parseBlobId } from '@epicenter/blobs';
 import { secretLabel } from '@epicenter/device';
-import { createSqliteOwner } from '@epicenter/device/owner';
-import { installTestLocks } from '@epicenter/device/test-locks';
-import { asPrincipalId, deviceOwnerPath } from '@epicenter/principal';
-import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
+import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { composeApp } from './compose.js';
+import { openApp } from './open.js';
 import { encodeFrame } from './data/sync/frames.js';
 import { defineApp } from './index.js';
-import { resources as browser } from './platform/browser.js';
+import { createMemoryRuntime } from './testing.js';
 import { createBrowserRecording } from './recording/browser.js';
 
-installTestLocks();
 const definition = defineApp({
 	id: 'so.epicenter.scopes-test',
 	kv: {},
@@ -66,50 +56,15 @@ function accountFor(person: string, supportsShared = false): Account {
 }
 
 test('device rows, SQLite, secrets and blobs isolate owners and survive returning to each owner', async () => {
-	const root = await mkdtemp(join(tmpdir(), 'app-scopes-'));
-	const sqlite = createSqliteOwner({
-		async open(appId, name, account) {
-			const directory = join(root, appId, deviceOwnerPath(account));
-			await mkdir(directory, { recursive: true });
-			const database = new Database(join(directory, `${name}.sqlite`));
-			const driver = createBunSqliteAdapter(database);
-			return {
-				async run(sql, parameters) {
-					driver.run(sql, parameters);
-					return Ok({ changes: 1 });
-				},
-				async all(sql, parameters) {
-					return Ok(driver.all(sql, parameters));
-				},
-				async query() {
-					return Ok({ columns: [], rows: [], truncated: false });
-				},
-				async batch(statements) {
-					driver.transaction(() => {
-						for (const s of statements) driver.run(s.sql, s.parameters);
-					});
-					return Ok({ changes: [] });
-				},
-				async close() {
-					database.close();
-				},
-			};
-		},
-		async delete(appId, name, account) {
-			await rm(join(root, appId, deviceOwnerPath(account), `${name}.sqlite`));
-		},
-	});
+	const runtime = createMemoryRuntime();
 	const fixtureDefinition = defineApp({
 		...definition,
 		id: `test.${crypto.randomUUID()}`,
 	});
 	const openFixture = (account?: Account) =>
-		composeApp(fixtureDefinition, {
-			appId: fixtureDefinition.id,
+		openApp(fixtureDefinition, {
 			account,
-			...browser,
-			sqlite,
-			ai: { runtime: null, account: null },
+			runtime,
 		});
 	try {
 		const seen = new Set<string>();
@@ -204,7 +159,7 @@ test('device rows, SQLite, secrets and blobs isolate owners and survive returnin
 			await signedOut.close();
 		}
 	} finally {
-		await rm(root, { recursive: true, force: true });
+		await runtime.dispose();
 	}
 });
 
@@ -213,6 +168,7 @@ test.each([
 	['shared', false],
 	['personal', true],
 ] as const)('%s retirement stops siblings before cleanup even if transport close fails=%s', async (retiring, throwOnClose) => {
+	const runtime = createMemoryRuntime();
 	const events = { personal: new EventTarget(), shared: new EventTarget() };
 	const closed: string[] = [];
 	let recorderStopped = false;
@@ -220,74 +176,73 @@ test.each([
 	const invalidated: string[] = [];
 	const disposed: string[] = [];
 	const invalidate = Promise.withResolvers<void>();
-	const acquireData = dataBrowser.acquireAppData;
-	const acquisition = spyOn(dataBrowser, 'acquireAppData').mockImplementation(
-		async (definition, options) => {
-			const library = options.library;
-			if (library === 'local') return acquireData(definition, options);
-			return Ok({
-				durable: { commit() {} },
-				loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
-				discard() {
-					invalidated.push(library);
-					return invalidate.promise;
+	const acquireData = runtime.data;
+	runtime.data = async (definition, options) => {
+		const library = options.library;
+		if (library === 'local') return acquireData(definition, options);
+		return Ok({
+			durable: { commit() {} },
+			loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
+			discard() {
+				invalidated.push(library);
+				return invalidate.promise;
+			},
+			dispose() {
+				disposed.push(library);
+			},
+			replication: {
+				address: {
+					baseURL: 'https://scopes.test',
+					dataId: definition.id,
+					generation: 1,
 				},
-				dispose() {
-					disposed.push(library);
-				},
-				replication: {
-					address: {
-						baseURL: 'https://scopes.test',
-						dataId: definition.id,
-						generation: 1,
-					},
-					transport: {
-						async openWebSocket() {
-							return Object.assign(events[library], {
-								readyState: 1,
-								binaryType: '',
-								send() {},
-								close() {
-									closed.push(library);
-									if (throwOnClose && library !== retiring) throw failure;
-								},
-							}) as unknown as WebSocket;
-						},
+				transport: {
+					async openWebSocket() {
+						return Object.assign(events[library], {
+							readyState: 1,
+							binaryType: '',
+							send() {},
+							close() {
+								closed.push(library);
+								if (throwOnClose && library !== retiring) throw failure;
+							},
+						}) as unknown as WebSocket;
 					},
 				},
-			});
-		},
-	);
+			},
+		});
+	};
 	const appDefinition = defineApp({
 		...definition,
 		id: `test.${crypto.randomUUID()}`,
 	});
-	const app = composeApp(appDefinition, {
-		appId: appDefinition.id,
+	const app = openApp(appDefinition, {
 		account: accountFor('alice', true),
-		...browser,
-		recording(...args) {
-			const recorder = createBrowserRecording(...args);
-			return {
-				...recorder,
-				close() {
-					recorderStopped = true;
-					return recorder.close();
-				},
-			};
-		},
-		sqlite: {
-			async acquire() {
+		runtime: {
+			...runtime,
+			recording(...args) {
+				const recorder = createBrowserRecording(...args);
 				return {
-					async open() {
-						throw new Error('unused');
+					...recorder,
+					close() {
+						recorderStopped = true;
+						return recorder.close();
 					},
-					async delete() {},
-					async close() {},
 				};
 			},
+			sqlite: {
+				async acquire() {
+					return {
+						async open() {
+							throw new Error('unused');
+						},
+						async delete() {},
+						async close() {},
+					};
+				},
+			},
+			ai: { runtime: null, account: null },
 		},
-		ai: { runtime: null, account: null },
 	});
 	try {
 		expectOk(await app.ready);
@@ -320,31 +275,32 @@ test.each([
 	} finally {
 		invalidate.resolve();
 		await app.close().catch(() => {});
-		acquisition.mockRestore();
 	}
 });
 
 test('an abort callback reentering close receives the memoized completion', async () => {
+	const runtime = createMemoryRuntime();
 	const appDefinition = defineApp({
 		...definition,
 		id: `test.${crypto.randomUUID()}`,
 	});
-	const app = composeApp(appDefinition, {
-		appId: appDefinition.id,
+	const app = openApp(appDefinition, {
 		account: undefined,
-		...browser,
-		sqlite: {
-			async acquire() {
-				return {
-					async open() {
-						throw new Error('unused');
-					},
-					async delete() {},
-					async close() {},
-				};
+		runtime: {
+			...runtime,
+			sqlite: {
+				async acquire() {
+					return {
+						async open() {
+							throw new Error('unused');
+						},
+						async delete() {},
+						async close() {},
+					};
+				},
 			},
+			ai: { runtime: null, account: null },
 		},
-		ai: { runtime: null, account: null },
 	});
 	expectOk(await app.ready);
 	let reentrant: Promise<void> | undefined;
