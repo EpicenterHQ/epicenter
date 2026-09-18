@@ -4,6 +4,7 @@
  * cannot override the actor or reach independently writable history endpoints.
  */
 import { SELF } from 'cloudflare:test';
+import { readCurrentDownload } from '@epicenter/sync/current-download';
 import { CURRENT_ROUTE } from '@epicenter/sync/generations-route';
 import { expect, test } from 'vitest';
 
@@ -35,20 +36,20 @@ test('Personal selects the authenticated actor while Shared returns the same byt
 	] as const) {
 		const response = await request(person, 'personal', value);
 		expect(response.status).toBe(200);
-		expect(new Uint8Array(await response.arrayBuffer())).toEqual(
+		expect((await readCurrentDownload(response)).snapshot.bytes).toEqual(
 			new Uint8Array([value]),
 		);
 	}
 	const shared = await request('alice', 'shared', 33);
-	expect(new Uint8Array(await shared.arrayBuffer())).toEqual(
+	expect((await readCurrentDownload(shared)).snapshot.bytes).toEqual(
 		new Uint8Array([33]),
 	);
 	const joined = await request('bob', 'shared', 44);
-	expect(new Uint8Array(await joined.arrayBuffer())).toEqual(
+	expect((await readCurrentDownload(joined)).snapshot.bytes).toEqual(
 		new Uint8Array([33]),
 	);
 	const personal = await request('bob', 'personal', 55);
-	expect(new Uint8Array(await personal.arrayBuffer())).toEqual(
+	expect((await readCurrentDownload(personal)).snapshot.bytes).toEqual(
 		new Uint8Array([22]),
 	);
 });
@@ -74,12 +75,12 @@ test('Shared libraries belonging to different applications remain isolated', asy
 		[second, 8],
 	] as const) {
 		const response = await fixture.request('alice', 'shared', value);
-		expect(new Uint8Array(await response.arrayBuffer())).toEqual(
+		expect((await readCurrentDownload(response)).snapshot.bytes).toEqual(
 			new Uint8Array([value]),
 		);
 	}
 	const response = await first.request('bob', 'shared', 9);
-	expect(new Uint8Array(await response.arrayBuffer())).toEqual(
+	expect((await readCurrentDownload(response)).snapshot.bytes).toEqual(
 		new Uint8Array([7]),
 	);
 });

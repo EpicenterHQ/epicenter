@@ -114,29 +114,23 @@ const PROFILE: Surface[] = [
 		why: 'The Worker reuses the shared Durable Object backend; no Bun store backend exists.',
 	},
 	{
-		surface: 'generations list',
-		method: 'GET',
-		url: `${ORIGIN}/api/data/v1/test.notes/generations`,
-		worker: 'served',
-		bun: 'absent',
-		why: 'The Worker reuses the shared Durable Object backend; no Bun store backend exists.',
-	},
-	{
-		surface: 'generations import',
+		surface: 'current library',
 		method: 'POST',
-		url: `${ORIGIN}/api/data/v1/test.notes/generations`,
+		url: `${ORIGIN}/api/libraries/so.epicenter.notes/personal/data/test.notes/current`,
 		worker: 'served',
 		bun: 'absent',
-		why: 'The Worker reuses the shared Durable Object backend; no Bun store backend exists.',
+		why: 'No Bun store backend exists.',
 	},
-	{
-		surface: 'generation bootstrap',
-		method: 'GET',
-		url: `${ORIGIN}/api/data/v1/test.notes/generations/1`,
-		worker: 'served',
-		bun: 'absent',
-		why: 'The Worker reuses the shared Durable Object backend; no Bun store backend exists.',
-	},
+	...['generations', 'generations/initial', 'generations/1'].flatMap((path) =>
+		(['GET', 'POST'] as const).map((method) => ({
+			surface: method + ' historical ' + path,
+			method,
+			url: `${ORIGIN}/api/data/v1/test.notes/${path}`,
+			worker: 'absent' as const,
+			bun: 'absent' as const,
+			why: 'Historical generation endpoints are not mounted.',
+		})),
+	),
 	{
 		surface: 'named-user auth',
 		method: 'GET',
@@ -368,7 +362,7 @@ test('an unmounted path reads as absent on both runtimes', async () => {
 	}
 });
 
-test('store routes resolve a live admitted session before addressing its principal backend', async () => {
+test('current startup resolves a live session and refuses owner overrides before addressing storage', async () => {
 	const { default: app } = await import('./worker/index.js');
 	const addressed: string[] = [];
 	const fixture = await authenticationFixture();
@@ -376,28 +370,41 @@ test('store routes resolve a live admitted session before addressing its princip
 		API_PUBLIC_ORIGIN: ORIGIN,
 		SELF_HOST_AUTH: fixture.namespace,
 		GENERATIONS_LEDGER: {
+			idFromName: (name: string) => name,
+			get: () => ({ list: () => [] }),
+		},
+		STORE_AUTHORITY: {
 			idFromName(name: string) {
 				addressed.push(name);
 				return name;
 			},
-			get() {
-				return { list: () => [1] };
-			},
+			get: () => ({
+				fetch: () => new Response('authority reached', { status: 418 }),
+			}),
 		},
 	};
-	const request = (token: string) =>
+	const request = (token: string, suffix = '') =>
 		new Request(
-			`${ORIGIN}/api/data/v1/test.notes/generations?principalId=somebody-else`,
-			{ headers: { authorization: `Bearer ${token}` } },
+			`${ORIGIN}/api/libraries/so.epicenter.notes/personal/data/test.notes/current${suffix}`,
+			{
+				method: 'POST',
+				headers: { authorization: `Bearer ${token}`, origin: ORIGIN },
+				body: new Uint8Array([1]),
+			},
 		);
-	for (const token of ['', 'wrong-token']) {
+	for (const token of ['', 'wrong-token'])
 		expect((await app.fetch(request(token), env as never)).status).toBe(401);
-	}
+	for (const suffix of ['?owner=somebody-else', '?principalId=somebody-else'])
+		expect(
+			(await app.fetch(request(fixture.token, suffix), env as never)).status,
+		).toBe(403);
 	expect(addressed).toEqual([]);
-	const response = await app.fetch(request(fixture.token), env as never);
-	expect(response.status).toBe(200);
-	expect(await response.json()).toEqual({ generations: [1] });
-	expect(addressed).toEqual(['principals/alice/data/test.notes']);
+	expect((await app.fetch(request(fixture.token), env as never)).status).toBe(
+		418,
+	);
+	expect(addressed).toEqual([
+		'libraries/apps/so.epicenter.notes/personal/alice/data/test.notes',
+	]);
 	await fixture.auth.revokeSession(fixture.token);
 	expect((await app.fetch(request(fixture.token), env as never)).status).toBe(
 		401,
@@ -419,7 +426,7 @@ test('store upgrades resolve the subprotocol session and address only its princi
 				return name;
 			},
 			get() {
-				return { holds: (generation: number) => generation === 2 };
+				throw new Error('Socket admission must not read the historical ledger');
 			},
 		},
 		STORE_AUTHORITY: {
@@ -440,7 +447,7 @@ test('store upgrades resolve the subprotocol session and address only its princi
 	] as const) {
 		const response = await app.fetch(
 			new Request(
-				`${ORIGIN}/api/store/v1/sync?dataId=test.notes&generation=2&principalId=other`,
+				`${ORIGIN}/api/store/v1/sync?appId=so.epicenter.notes&library=personal&dataId=test.notes&generation=2`,
 				{
 					headers: {
 						upgrade: 'websocket',
@@ -452,7 +459,8 @@ test('store upgrades resolve the subprotocol session and address only its princi
 		);
 		expect(response.status).toBe(status);
 	}
-	for (const ledger of ledgers)
-		expect(ledger).toBe('principals/alice/data/test.notes');
-	expect(addressed).toEqual(['principals/alice/data/test.notes/generations/2']);
+	expect(ledgers).toEqual([]);
+	expect(addressed).toEqual([
+		'libraries/apps/so.epicenter.notes/personal/alice/data/test.notes',
+	]);
 });

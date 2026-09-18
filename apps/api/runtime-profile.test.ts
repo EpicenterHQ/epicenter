@@ -23,7 +23,7 @@
 import { expect, mock, test } from 'bun:test';
 import { generateBlobId, REMOTE_BLOB_ROUTES } from '@epicenter/blobs';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
-import { GENERATIONS_ROUTE, STORE_SYNC_ROUTE } from '@epicenter/sync';
+import { CURRENT_ROUTE, STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { makeSignature } from 'better-auth/crypto';
 
 // Exercise the real runtime compositions with a controllable database outage.
@@ -366,19 +366,44 @@ test('both runtime compositions fail closed on protected operations during a dat
 				expect(databaseCalls).toBe(callsBefore + 1);
 			}
 		}
-		for (const url of [
-			`${ORIGIN}${STORE_SYNC_ROUTE.pattern}`,
-			GENERATIONS_ROUTE.collection(ORIGIN, 'test.data'),
-			GENERATIONS_ROUTE.item(ORIGIN, 'test.data', 1),
-		]) {
+		for (const [method, url] of [
+			['GET', `${ORIGIN}${STORE_SYNC_ROUTE.pattern}`],
+			[
+				'POST',
+				CURRENT_ROUTE.url(
+					ORIGIN,
+					'so.epicenter.notes',
+					'personal',
+					'test.data',
+				),
+			],
+		] as const) {
 			const callsBefore = databaseCalls;
 			const response = await worker(
 				new Request(url, {
+					method,
 					headers: { authorization: `Bearer ${token}` },
 				}),
 			);
 			expect(response.status).toBe(500);
 			expect(databaseCalls).toBe(callsBefore + 1);
+		}
+		for (const path of [
+			'generations',
+			'generations/initial',
+			'generations/1',
+		]) {
+			for (const method of ['GET', 'POST']) {
+				const callsBefore = databaseCalls;
+				const response = await worker(
+					new Request(`${ORIGIN}/api/data/v1/test.data/${path}`, {
+						method,
+						headers: { authorization: `Bearer ${token}` },
+					}),
+				);
+				expect(response.status).toBe(404);
+				expect(databaseCalls).toBe(callsBefore);
+			}
 		}
 	} finally {
 		databaseUnavailable = false;

@@ -21,6 +21,7 @@
  * can be the size it needs to be.
  */
 import { SELF } from 'cloudflare:test';
+import { readCurrentDownload } from '@epicenter/sync/current-download';
 import { describe, expect, it } from 'vitest';
 
 const ORIGIN = 'http://example.com';
@@ -72,13 +73,15 @@ describe('a database larger than the value cap survives the round trip', () => {
 		});
 		expect(created.status).toBe(200);
 		expect(created.headers.get('epicenter-log-position')).toBe('1');
-		expect(await digest(await created.arrayBuffer())).toBe(expected);
+		expect(
+			await digest((await readCurrentDownload(created)).snapshot.bytes),
+		).toBe(expected);
 		const fetched = await request(principal, collection, {
 			method: 'POST',
 			body: new Uint8Array([99]),
 		});
 		expect(fetched.status).toBe(200);
-		const back = await fetched.arrayBuffer();
+		const back = (await readCurrentDownload(fetched)).snapshot.bytes;
 
 		// Length first, so a truncation reads as a number rather than as a
 		// digest mismatch that says nothing about how much is missing.

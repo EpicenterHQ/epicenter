@@ -3,6 +3,33 @@
 Date: 2026-09-09
 Status: In Progress
 
+## Current startup checkpoint: 2026-09-17
+
+The mounted current-library path is verified by 119 preserved Bun tests, 32
+Worker tests, and the full Honeycrisp browser journey. See the
+[situation report](../docs/reports/20260917-startup-and-unfinished-work.md)
+for exact commands, baseline comparisons, limits, and the remaining work.
+Historical generation discovery is not the current startup contract. The
+foundation fixture now runs independent current caches against the real SQLite
+authority; Worker evidence owns socket admission and retirement.
+
+Remaining implementation: Bun store transport and removal or migration of the
+historical browser helper consumers. Skills still has a deliberately refused
+boot and needs a product purpose before its App composition is chosen. The
+older durable-store browser fixture also uses historical helpers. The unmounted
+`/generations/initial` experiment was removed during integration on 2026-09-18;
+do not expose a second startup API. Keep the historical-data migration refusal.
+
+Remaining acceptance: packaged desktop credential brokerage and library
+selection, full offline shell loading, and the hardware/provider/OS runs in the
+[blob acceptance plan](20260917T113309-flat-extension-bearing-blobs.md).
+Cached data reopening during a Worker outage does not prove offline delivery
+of the application bundle. Historical rollout is conditional future work,
+not permission to migrate or erase anything now. The earlier recovery audit
+is complete under ADR-0379; no backup orchestration remains to implement.
+The two-scope App and connection transcription belong to the app-hub plan;
+platform selection and capabilities belong to the composition plan.
+
 ## Whispering integration checkpoint: 2026-09-09
 
 Whispering now selects Local, Personal, or Shared before opening its one App.

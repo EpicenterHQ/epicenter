@@ -4,13 +4,13 @@ The Epicenter store: one Yjs document per database, holding every row and every
 row's rich content, a synchronous surface over it, and the transport that
 carries it between a person's devices. AGPL-3.0-or-later.
 
-The package has one definition entrypoint and four runtime entrypoints:
+The main entrypoints are:
 
 | Import | What it gives you |
 | --- | --- |
 | `@epicenter/data` | the opened data surface |
 | `@epicenter/data/definition` | `defineData`, `compileData`, and the field descriptor vocabulary |
-| `@epicenter/data/browser` | `openDatabase(definition, { appId, generation, account })`, plus `resolveGeneration`, `createGeneration`, and `eraseGenerations` |
+| `@epicenter/data/browser` | `acquireAppData`, the App-owned current-library backing; historical generation helpers also remain (see below) |
 | `@epicenter/data/sync` | `createSyncConnection`, and the authority half a server runs |
 | `@epicenter/data/artifact` | `renderArtifact` renders Markdown; `readArtifact` reads Markdown into a fresh document. Ordinary edits use checkout instead. |
 | `@epicenter/data/artifact/checkout` | `createWorkingCopy` with previewed `pull` and `push`, using the checkout manifest as the three-way baseline |
@@ -21,67 +21,47 @@ imports `bun:sqlite` and the browser opener imports `idb`, so neither belongs in
 a barrel the other has to load. That is the whole reason the openers
 live at their own entry points rather than on `@epicenter/data`.
 
-## Opening is the only asynchronous thing
+## Current-library startup
 
-```ts
-import { openDatabase } from '@epicenter/data/browser';
+Applications open through `@epicenter/app` and await `app.ready`; see the
+[App README](../app/README.md). The App captures its account and library choice,
+claims exclusive ownership, and calls `acquireAppData` for browser persistence.
+Local opening needs no server. Personal and Shared opening use a cached current
+library when available; otherwise they POST an initialization candidate to the
+current-library route and install the canonical response.
 
-// One opener, and every argument is required. An authority mints every
-// generation (ADR-0336), so there is no shape with the account left out and
-// nothing downstream branches on whether one is present.
-const { data, error } = await openDatabase(honeycrispDefinition, {
-	appId: 'so.epicenter.honeycrisp',
-	generation,
-	account: { baseURL, principalId, fetch },
-});
-if (error !== null) return handle(error);
+The response contains a generation, snapshot, and every update through its
+captured head. Startup applies and validates all of them before atomically
+publishing a usable cache. Network failure does not establish that a library is
+empty. Retirement fences retained writes and invalidates the old cache before
+releasing ownership. A subsequent open downloads the replacement.
 
-await using opened = data;
-
-const notes = opened.tables.notes.rows;             // no await
-opened.tables.notes.update(id, { title: 'Draft' }); // no await
-```
-
-An inert data definition names the store it opens (ADR-0229), so there is one call and one
-name: the definition id is the document, the file, the folder and the authority
-address. Nothing takes a path or a database name. The runtime that comes back
-holds exactly this one definition for its whole life (ADR-0240); a newer
-declaration reads the same durable data by closing it and opening the next one.
-
-In a browser the caller also names the application doing the opening and which
-generation it means (ADR-0324, ADR-0292):
+The current account cache uses this IndexedDB name:
 
 ```text
-epicenter/<appId>/accounts/<authorityId>/<principalId>/data/<dataId>/<n>
+epicenter/<appId>/accounts/<authorityId>/<principalId>/data/<dataId>/<personal|shared>/current
 ```
 
-That address is the IndexedDB database name, so there is one database per
-GENERATION, two applications naming one data id keep their own replicas
-(ADR-0304), and two accounts on one device keep their own replicas. `v5` is the
-storage epoch: bumping it strands every existing record instead of migrating
-it, which is how the record's shape is allowed to change. Stranded records are
-left alone; nothing reads, adopts, or reaps them.
+The generation lives in its header. Both authority and actor scope the local
+copy, including a Shared replica. Another actor's pending edits cannot be
+replayed from this cache. The server owns the corresponding remote destination.
 
-The principal is a segment, so whose copy this is comes from the name rather
-than from anything written inside the record. The SERVER is not a segment: a
-build names one authority (ADR-0326) and is served from one origin, so it is a
-device-wide constant rather than an address.
+### Historical browser helpers
 
-`eraseGenerations` deletes discovered generations for one account definition.
-It leaves blobs, named SQL files, and other definitions untouched. It takes library exclusion before discovery, including against SQL-only owners.
-It is not an implementation of “remove local data.” See the
-[library erasure contract](../../docs/adr/0367-library-erasure-requires-exclusive-ownership-of-all-local-resources.md)
-for the ownership and backend work required before exposing that action.
+`openDatabase`, `resolveGeneration`, `createGeneration`, and
+`eraseGenerations` still exist in `browser.ts`. Their remote generation
+listing/import/download routes are not mounted by the current server. They are
+not the application startup API. Skills and the older durable-store browser
+fixture still reference them; that remaining transition is tracked in
+[the library ownership plan](../../specs/20260909T004225-library-ownership-execution.md).
 
-Opening replays a durable log into one `Y.Doc`. After that every read is a
-property access on a document already in memory, so nothing below returns a
-promise.
+`eraseGenerations` concerns historical numbered caches only. It is not a
+current-library removal operation. No migration or cleanup of persisted data
+runs as part of current startup.
 
-One active owner holds an application/account library across the browser origin.
-A second owner, including a sibling definition, another generation, or a SQL-only
-client, receives `AlreadyOpen` before discovery or storage opens. Close the first
-owner before opening another generation. Different applications and local/account
-libraries remain independent.
+Opening replays a durable log into one Yjs document. Once ready, table reads
+and edits are synchronous. The App retains its ownership claim until the store
+and its other resources finish closing.
 
 ## The surface
 

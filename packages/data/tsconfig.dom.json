@@ -6,6 +6,7 @@
 		"noUnusedParameters": true
 	},
 	"include": [
+		"evidence/library-ownership/device.ts",
 		"src/store/browser.ts",
 		"src/store/browser.test.ts",
 		"src/store/current-cache.ts",

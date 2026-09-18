@@ -5,6 +5,7 @@
  */
 /// <reference path="../../../apps/self-host/worker-configuration.d.ts" />
 import { env } from 'cloudflare:test';
+import { readCurrentDownload } from '@epicenter/sync/current-download';
 import { CURRENT_ROUTE } from '@epicenter/sync/generations-route';
 import { expect, test } from 'vitest';
 import app from '../../../apps/self-host/worker/index.js';
@@ -42,7 +43,7 @@ test('named-session removal rejects further access while another admitted user r
 		);
 	const created = await request('alice-session', 'shared', 42);
 	expect(created.status).toBe(200);
-	expect(new Uint8Array(await created.arrayBuffer())).toEqual(
+	expect((await readCurrentDownload(created)).snapshot.bytes).toEqual(
 		new Uint8Array([42]),
 	);
 	sessions.delete('alice-session');
@@ -51,12 +52,12 @@ test('named-session removal rejects further access while another admitted user r
 	await refused.arrayBuffer();
 	const joined = await request('bob-session', 'shared', 7);
 	expect(joined.status).toBe(200);
-	expect(new Uint8Array(await joined.arrayBuffer())).toEqual(
+	expect((await readCurrentDownload(joined)).snapshot.bytes).toEqual(
 		new Uint8Array([42]),
 	);
 	const personal = await request('bob-session', 'personal', 8);
 	expect(personal.status).toBe(200);
-	expect(new Uint8Array(await personal.arrayBuffer())).toEqual(
+	expect((await readCurrentDownload(personal)).snapshot.bytes).toEqual(
 		new Uint8Array([8]),
 	);
 });

@@ -14,18 +14,19 @@ import {
 import {
 	decodeFrame,
 	encodeFrame,
-	openCurrentAuthority,
 	type Frame,
+	openCurrentAuthority,
 } from '@epicenter/data/sync';
+import {
+	createDurableObjectSqliteAdapter,
+	type DurableObjectSqliteStorage,
+} from '@epicenter/sqlite/durable-object';
 import {
 	bearerSubprotocol,
 	formatSubprotocols,
 	MAIN_SUBPROTOCOL,
 } from '@epicenter/sync';
-import {
-	createDurableObjectSqliteAdapter,
-	type DurableObjectSqliteStorage,
-} from '@epicenter/sqlite/durable-object';
+import { readCurrentDownload } from '@epicenter/sync/current-download';
 import { Hono } from 'hono';
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest';
 import { expectOk } from 'wellcrafted/testing';
@@ -302,7 +303,7 @@ it('a valid bearer can reconnect through the real mount after socket expiry', as
 		},
 	);
 	expect(seeded.status).toBe(200);
-	expect(new Uint8Array(await seeded.arrayBuffer())).toEqual(
+	expect((await readCurrentDownload(seeded)).snapshot.bytes).toEqual(
 		new Uint8Array([42]),
 	);
 	const url =

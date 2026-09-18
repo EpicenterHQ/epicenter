@@ -6,6 +6,7 @@
 		"noUnusedParameters": true
 	},
 	"exclude": [
+		"evidence/library-ownership/device.ts",
 		"evidence/browser/durable-store",
 		"evidence/browser/write-cost",
 		"evidence/browser/port-cost",

@@ -9,6 +9,7 @@ import {
 	runInDurableObject,
 	SELF,
 } from 'cloudflare:test';
+import { decodeFrame, type Frame } from '@epicenter/data/sync';
 import { asPrincipalId } from '@epicenter/principal';
 import { readCurrentDownload } from '@epicenter/sync/current-download';
 import {
@@ -17,6 +18,7 @@ import {
 	LOG_POSITION_HEADER,
 } from '@epicenter/sync/generations-route';
 import { expect, test } from 'vitest';
+import { expectOk } from 'wellcrafted/testing';
 import { libraryStoragePrefix } from '../src/library.js';
 import type { GenerationsLedger } from '../src/store-sync/generations.js';
 
@@ -118,4 +120,41 @@ test('historical admitted generations refuse fresh Personal startup without chan
 	expect(response.status).toBe(409);
 	expect(await response.text()).toContain('migration');
 	expect(await ledger.list()).toEqual([generation]);
+});
+
+test('the mounted socket refuses an uninitialized generation without creating a library', async () => {
+	const person = crypto.randomUUID();
+	const response = await SELF.fetch(
+		`https://example.com/api/store/v1/sync?appId=${appId}&library=personal&dataId=${dataId}&generation=77`,
+		{
+			headers: {
+				authorization: `Bearer device:${person}`,
+				Upgrade: 'websocket',
+			},
+		},
+	);
+	expect(response.status).toBe(101);
+	const socket = response.webSocket!;
+	const frames: Frame[] = [];
+	const closed = new Promise<void>((resolve) => {
+		socket.addEventListener('close', () => {
+			socket.close();
+			resolve();
+		});
+	});
+	socket.addEventListener('message', (event) => {
+		frames.push(
+			expectOk(decodeFrame(new Uint8Array(event.data as ArrayBuffer))),
+		);
+	});
+	socket.accept();
+	await closed;
+	expect(frames).toEqual([{ kind: 'retired' }]);
+	expect(
+		await runInDurableObject(authority(person), (_instance, state) =>
+			state.storage.sql
+				.exec('SELECT generation FROM _current_generation')
+				.toArray(),
+		),
+	).toEqual([]);
 });

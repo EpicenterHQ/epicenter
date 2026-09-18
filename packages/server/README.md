@@ -2,38 +2,47 @@
 
 The AGPL Hono library both deployables compose: `apps/api` (hosted Epicenter
 Cloud, many principals behind Better Auth) and `apps/self-host` (the
-single-partition instance reference, every valid bearer resolving to the
-literal `instance` principal). A deployment builds the parent app with
+community-supported instance reference, with named sessions resolved to their
+admitted users). A deployment builds the parent app with
 `createServerApp`, supplies a bearer resolver, and mounts the surfaces it wants
 with the matching `mount*` primitive. `apps/api/worker/index.ts` is the
 composition to read first.
 
 ## The store authority
 
-One data domain's store syncs to one Durable Object per
-`(principalId, dataId, generation)`, named
-`principals/<principalId>/data/<dataId>/generations/<generation>` (ADR-0292,
-ADR-0298). Being signed in
-on two devices is the whole sharing model: there is nothing to pair, invite, or
-approve, and no identifier a client can supply that reaches another partition.
+A stable library has one Durable Object authority. Personal addresses include
+application, authenticated actor, and data ID; Shared addresses include
+application and data ID and are enabled only by the self-hosted Worker.
+The generation is stored inside that authority, not in its object name.
 
-`mountStoreSyncApp` in `src/store-sync/mount.ts` owns the authenticated
-upgrade. A WebSocket upgrade cannot set `Authorization`, so the credential
-arrives as one `bearer.<token>` subprotocol and the 101 echoes only the main
-one (ADR-0095). The principal is stamped from the resolved bearer and the
-object is addressed by it, so this surface cannot be pointed at another
-partition however the query is written.
+`mountStoreSyncApp` owns authentication and destination validation:
 
-`StoreAuthority` in `src/store-sync/authority.ts` is a thin adapter and nothing
-more. Every rule about who has been sent what lives in `@epicenter/data/sync`,
-so what is deployed and what the transport's own tests drive are the same
-object. The authority reads nothing (ADR-0298): it holds opaque bytes, hands
-them back in order, and folds acknowledged log prefixes. Nothing in it imports
-Yjs or a workspace.
+- `POST /api/libraries/:appId/:library/data/:dataId/current` atomically
+  initializes an absent library and returns its complete current capture.
+- `GET /api/store/v1/sync` upgrades with `appId`, `library`, `dataId`,
+  `generation`, and an optional `cursor` in the query. The authority admits
+  that generation before accepting edits.
 
-Rooms, the row-document HTTP pull, and the `src/epicenter-sync/` authority they
-shared were deleted with the superseded data stack (ADR-0227), and the store
-authority above is what replaced them.
+The download is framed by `@epicenter/sync/current-download`. Decode it with
+`readCurrentDownload`: its snapshot and ordered update tail cover the returned
+head. Treating the response body as one document update loses this contract.
+The browser validates and installs the complete capture before making its cache
+usable. A usable cache can reopen offline.
+
+`StoreAuthority` adapts Worker storage and sockets to
+`openCurrentAuthority` in `@epicenter/data/sync`. That authority owns atomic
+initialization, generation admission, replacement, and activation retry receipts.
+It holds opaque bytes; the browser owns document validation. A socket upgrade
+is not admission: an unavailable generation receives a retirement frame and
+closes without joining the live hub.
+
+Personal startup checks the historical `GenerationsLedger` only to refuse
+implicit migration. Historical listing, import, initial-selection, and
+snapshot endpoints are not mounted. Existing history remains untouched.
+
+Browser socket credentials use the bearer subprotocol; the response echoes
+only the main protocol. The authenticated principal selects the Personal
+owner. Caller-supplied owner overrides are refused.
 
 ## The other surfaces
 
@@ -51,8 +60,8 @@ choice and any deployment policy.
 The hosted app builds `createCloudContextMiddleware` once, then combines it
 with its session-bearer guard using Hono's `every`. The context middleware
 acquires the database, constructs auth, and closes the handle after queued work
-settles. Public HTML shells bypass it. Self-host supplies its instance-token
-guard directly and composes neither Better Auth nor Postgres.
+settles. Public HTML shells bypass it. Self-host supplies its named-session
+resolver and composes neither the hosted Better Auth context nor Postgres.
 
 Both deployments pass their auth middleware to the same feature mounts. Each
 mount registers exact methods and paths with Hono, keeping auth, validation,
@@ -62,10 +71,10 @@ route dependencies. Billing keeps a sub-app for its local error handler.
 Billing is not here and never comes here: the catalog, the routes, and Autumn
 live in `apps/api/worker/billing/`, because they are hosted-only.
 
-## What stays MIT
+## Shared protocol packages
 
-This library is AGPL, so the portable pieces live outside it. Merge rules and
+These packages are private and AGPL-3.0-or-later. Merge rules and
 wire framing are in `@epicenter/data/sync`, embedded-SQLite normalization is in
-`@epicenter/sqlite`, and the subprotocol handshake vocabulary both halves must
-agree on is in `@epicenter/sync`. None of those packages owns server schema or
-authority lifecycle.
+`@epicenter/sqlite`, and the routes, HTTP capture framing, and subprotocol vocabulary both halves
+use are in `@epicenter/sync`. Worker bindings and deployment composition remain
+in this package and its deployables.

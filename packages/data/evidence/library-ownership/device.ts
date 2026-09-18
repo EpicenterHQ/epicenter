@@ -1,18 +1,21 @@
-/** Independent process: its own IndexedDB factory and Web Locks registry. */
+/** Independent process: its own IndexedDB factory and current-library cache. */
 import 'fake-indexeddb/auto';
-import { installTestLocks } from '@epicenter/device/test-locks';
 import { asPrincipalId } from '@epicenter/principal';
 import { expectOk } from 'wellcrafted/testing';
-import { defineData } from '../../src/definition/index.js';
-import { resolveGeneration } from '../../src/store/browser.js';
+import { compileData, defineData } from '../../src/definition/index.js';
+import { acquireAppData } from '../../src/store/browser.js';
 
-installTestLocks();
 const baseURL = process.argv[2]!;
-const definition = defineData({
-	id: 'so.epicenter.firstopen',
-	tables: {},
-	kv: {},
-});
+const appId = 'so.epicenter.notes';
+const definition = expectOk(
+	compileData(
+		defineData({
+			id: 'so.epicenter.firstopen',
+			tables: {},
+			kv: {},
+		}),
+	),
+);
 let offline = false;
 const account = {
 	baseURL,
@@ -25,21 +28,24 @@ const account = {
 			headers: { authorization: 'Bearer alice' },
 		});
 	},
-	openWebSocket: () => {
-		throw new Error('No live sync in this reproduction');
+	openWebSocket: async (): Promise<WebSocket> => {
+		throw new Error('No live sync in this startup fixture');
 	},
 };
-const first = expectOk(
-	await resolveGeneration(definition, { appId: 'so.epicenter.notes', account }),
-);
+const options = { appId, library: 'personal' as const, account };
+
+const first = expectOk(await acquireAppData(definition, options));
+const generation = first.replication!.address.generation;
+const baseline = Array.from(first.loaded.updates[0]!);
+await first.dispose?.();
 offline = true;
-const reopened = expectOk(
-	await resolveGeneration(definition, { appId: 'so.epicenter.notes', account }),
-);
+const reopened = expectOk(await acquireAppData(definition, options));
 console.log(
 	JSON.stringify({
-		first: first.generation,
-		offline: reopened.generation,
+		first: generation,
+		offline: reopened.replication!.address.generation,
+		baseline,
 		caches: await indexedDB.databases(),
 	}),
 );
+await reopened.dispose?.();

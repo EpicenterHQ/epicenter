@@ -1,15 +1,20 @@
 /**
  * Library ownership foundation evidence.
- * Runs the live browser discovery in separate processes against the live HTTP
- * mount with test storage. Exercises a durable initialization prototype through
+ * Runs current browser startup in separate processes against the live HTTP
+ * mount and SQLite authority. Exercises a durable initialization prototype through
  * restart and competing writers, plus test-only named destination authorization.
  */
+
+import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Hono } from 'hono';
+import { openCurrentAuthority } from '@epicenter/data/sync';
 import { asPrincipalId } from '@epicenter/principal';
+import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
+import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
+import { Hono } from 'hono';
 import { Ok } from 'wellcrafted/result';
 import { OAuthError } from '../../src/auth/oauth-errors.js';
 import { mountStoreSyncApp } from '../../src/store-sync/mount.js';
@@ -18,10 +23,13 @@ import { authorize, deployment } from './contract.js';
 import { openInitialization } from './initial-generation.js';
 
 // The backend substitutes only durable storage. Discovery and routing are live code.
-test('independent device caches choose different generations and retain them offline', async () => {
-	const rows = new Map<number, boolean>();
-	let listings = 0;
-	const bothListed = Promise.withResolvers<void>();
+test('independent device caches choose one initial generation and retain it offline', async () => {
+	using database = new Database(':memory:');
+	const authority = openCurrentAuthority({
+		sqlite: createBunSqliteAdapter(database),
+	});
+	let requests = 0;
+	const bothRequested = Promise.withResolvers<void>();
 	const app = new Hono<Env>();
 	mountStoreSyncApp(app, {
 		resolveBearerPrincipal: async (_c, bearer) =>
@@ -29,30 +37,13 @@ test('independent device caches choose different generations and retain them off
 				? Ok({ id: asPrincipalId('alice') })
 				: OAuthError.InvalidToken(),
 		resolveStore: () => ({
-			ledger: () => ({
-				allocate() {
-					const n = rows.size + 1;
-					rows.set(n, false);
-					return n;
-				},
-				admit(n) {
-					rows.set(n, true);
-				},
-				holds: (n) => rows.get(n) === true,
-				async list() {
-					const result = [...rows]
-						.filter(([, admitted]) => admitted)
-						.map(([n]) => n);
-					if (++listings === 2) bothListed.resolve();
-					await bothListed.promise;
-					return result;
-				},
-			}),
+			ledger: () => ({ list: () => [] }),
 			authority: () => ({
 				async fetch(request) {
-					if ((await request.arrayBuffer()).byteLength === 0)
-						return new Response('empty', { status: 400 });
-					return Response.json({ position: 1 });
+					const bytes = new Uint8Array(await request.arrayBuffer());
+					if (++requests === 2) bothRequested.resolve();
+					await bothRequested.promise;
+					return createCurrentDownloadResponse(authority.ensureCurrent(bytes));
 				},
 			}),
 		}),
@@ -89,15 +80,18 @@ test('independent device caches choose different generations and retain them off
 					first: number;
 					offline: number;
 					caches: { name: string }[];
+					baseline: number[];
 				};
 			}),
 		);
-		expect(results.map((result) => result.first).sort()).toEqual([1, 2]);
-		expect([...rows.values()]).toEqual([true, true]);
+		expect(results.map((result) => result.first).sort()).toEqual([1, 1]);
+		expect(requests).toBe(2);
+		expect(results[0]!.baseline).toEqual(results[1]!.baseline);
+		expect(authority.capture().generation).toBe(1);
 		for (const result of results) {
 			expect(result.offline).toBe(result.first);
 			expect(result.caches.map((cache) => cache.name)).toContain(
-				`epicenter/so.epicenter.notes/accounts/test-authority/alice/data/so.epicenter.firstopen/${result.first}`,
+				`epicenter/so.epicenter.notes/accounts/test-authority/alice/data/so.epicenter.firstopen/personal/current`,
 			);
 		}
 	} finally {
@@ -106,8 +100,7 @@ test('independent device caches choose different generations and retain them off
 	}
 }, 15000);
 
-test('live socket routing reaches an unadmitted generation without consulting the ledger', async () => {
-	let ledgerReads = 0;
+test('socket routing requires a library address and delegates generation admission to its authority', async () => {
 	const reached: string[] = [];
 	const app = new Hono<Env>();
 	mountStoreSyncApp(app, {
@@ -116,47 +109,44 @@ test('live socket routing reaches an unadmitted generation without consulting th
 				? Ok({ id: asPrincipalId('alice') })
 				: OAuthError.InvalidToken(),
 		resolveStore: () => ({
-			ledger: () => ({
-				allocate: () => {
-					throw new Error('No import expected');
-				},
-				admit: () => {
-					throw new Error('No admission expected');
-				},
-				holds: () => {
-					ledgerReads++;
-					return false;
-				},
-				list: () => [],
-			}),
+			ledger: () => {
+				throw new Error('Socket admission belongs to the current authority');
+			},
 			authority: (name) => ({
 				async fetch() {
 					reached.push(name);
-					// Stop before an actual upgrade; reaching this stub proves the missing gate.
-					return new Response('authority reached', { status: 409 });
+					return new Response('Authority unavailable', { status: 503 });
 				},
 			}),
 		}),
 	});
+	const headers = { authorization: 'Bearer alice', upgrade: 'websocket' };
+	expect(
+		(
+			await app.request(
+				'/api/store/v1/sync?dataId=so.epicenter.notes&generation=77',
+				{ headers },
+			)
+		).status,
+	).toBe(403);
+	expect(reached).toEqual([]);
 	const response = await app.request(
-		'/api/store/v1/sync?dataId=so.epicenter.notes&generation=77',
-		{
-			headers: { authorization: 'Bearer alice', upgrade: 'websocket' },
-		},
+		'/api/store/v1/sync?appId=so.epicenter.notes&library=personal&dataId=so.epicenter.notes&generation=77',
+		{ headers },
 	);
-	expect(response.status).toBe(409);
+	expect(response.status).toBe(503);
 	expect(reached).toEqual([
-		'principals/alice/data/so.epicenter.notes/generations/77',
+		'libraries/apps/so.epicenter.notes/personal/alice/data/so.epicenter.notes',
 	]);
-	expect(ledgerReads).toBe(0);
-	const snapshot = await app.request(
-		'/api/data/v1/so.epicenter.notes/generations/77',
-		{
-			headers: { authorization: 'Bearer alice' },
-		},
-	);
-	expect(snapshot.status).toBe(404);
-	expect(ledgerReads).toBe(1);
+	for (const path of ['generations', 'generations/initial', 'generations/77']) {
+		expect(
+			(
+				await app.request('/api/data/v1/so.epicenter.notes/' + path, {
+					headers,
+				})
+			).status,
+		).toBe(404);
+	}
 	expect(reached).toHaveLength(1);
 });
 
