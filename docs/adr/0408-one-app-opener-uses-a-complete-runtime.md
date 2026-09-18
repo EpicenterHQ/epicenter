@@ -7,6 +7,8 @@
 - **Implementation:** The options opener, complete runtime, memory test support, and caller migration are implemented.
 - **Amended by:** [ADR-0409](0409-one-app-admission-covers-its-storage.md) proposes one App admission and explicit IndexedDB resources in place of the memory coordinator and global-constructor requirements below.
 
+- **Amended by:** [ADR-0410](0410-an-app-is-returned-ready-and-page-teardown-owns-recovery.md) proposes asynchronous opening and terminal lifecycle failures; complete runtime injection remains.
+
 ## Context
 
 Application tests should open the same App that production uses. Today,
