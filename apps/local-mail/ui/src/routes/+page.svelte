@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AppBoot, CannotOpenScreen } from '@epicenter/app-shell/boot-screens';
+	import { AppBoot } from '@epicenter/app-shell/boot-screens';
 	import { Loading } from '@epicenter/ui/loading';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { authStartup } from '#platform/auth';
@@ -65,25 +65,12 @@
 	<AppBoot
 		startup={authStartup}
 		departure={mounted.application.departure}
-		hasApp={mounted.application.app !== null}
+		ready={mounted.application.app?.ready}
 		appName="Local Mail"
 		noun="saved queries and mail"
 	>
 		{#if mounted.application.app && showing}
-			{#await mounted.application.app.ready}
-				<Loading class="h-dvh" label="Opening Local Mail…" />
-			{:then { error }}
-				{#if error !== null}
-					<CannotOpenScreen
-						appName="Local Mail"
-						noun="saved queries and mail"
-						{error}
-						retry={() => location.reload()}
-					/>
-				{:else}
-					<mounted.Shell bind:this={shell} data={mounted.application.app} />
-				{/if}
-			{/await}
+			<mounted.Shell bind:this={shell} data={mounted.application.app} />
 		{/if}
 	</AppBoot>
 {:else}

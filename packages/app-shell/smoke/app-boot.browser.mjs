@@ -33,6 +33,31 @@ const origin = server.resolvedUrls.local[0];
 for (const engine of [chromium, webkit]) {
 	const browser = await engine.launch({ headless: true });
 	try {
+		for (const opening of ['held', 'failed']) {
+			const page = await browser.newPage();
+			page.setDefaultTimeout(10_000);
+			page.setDefaultNavigationTimeout(10_000);
+			const errors = [];
+			page.on('pageerror', (error) => errors.push(error.message));
+			await page.goto(`${origin}?local&opening=${opening}`);
+			if (opening === 'held') {
+				await page.getByText('Opening your changes…').waitFor();
+				assert.equal(await page.getByRole('button', { name: 'Choose connection' }).count(), 0);
+				await page.evaluate(() => window.bootProbe.releaseOpening());
+				await page.getByRole('button', { name: 'Choose connection' }).waitFor();
+			} else {
+				await page.getByRole('button', { name: 'Try again' }).waitFor();
+				assert.equal(await page.getByRole('button', { name: 'Choose connection' }).count(), 0);
+				await Promise.all([
+					page.waitForNavigation(),
+					page.getByRole('button', { name: 'Try again' }).click(),
+				]);
+				await page.getByRole('button', { name: 'Try again' }).waitFor();
+			}
+			assert.deepEqual(errors, []);
+			await page.close();
+			console.log(`AppBoot ${engine.name()}: ${opening} readiness verified.`);
+		}
 		for (const local of [false, true]) {
 			const page = await browser.newPage();
 			const errors = [];

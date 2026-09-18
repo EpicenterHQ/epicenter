@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AppBoot, CannotOpenScreen } from '@epicenter/app-shell/boot-screens';
+	import { AppBoot } from '@epicenter/app-shell/boot-screens';
 	import { Loading } from '@epicenter/ui/loading';
 	import { authStartup } from '$lib/auth.js';
 	import { onMount, tick } from 'svelte';
@@ -31,17 +31,9 @@
 {#if error}
 	<p role="alert">{error}</p>
 {:else if application}
-	<AppBoot startup={authStartup} departure={application.departure} hasApp={application.app !== null} appName="Vocab" noun="conversations">
+	<AppBoot startup={authStartup} departure={application.departure} ready={application.app?.ready} appName="Vocab" noun="conversations">
 		{#if application.app && application.account && application.selections && showing}
-			{#await application.app.ready}
-				<Loading class="h-dvh" label="Opening your conversations…" />
-			{:then { error }}
-				{#if error !== null}
-					<CannotOpenScreen appName="Vocab" noun="conversations" {error} retry={() => location.reload()} />
-				{:else}
-					<VocabShell selections={application.selections} data={application.app} account={application.account} bind:this={shell} />
-				{/if}
-			{/await}
+			<VocabShell selections={application.selections} data={application.app} account={application.account} bind:this={shell} />
 		{/if}
 	</AppBoot>
 {:else}

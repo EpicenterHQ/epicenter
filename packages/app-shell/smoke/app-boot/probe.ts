@@ -1,5 +1,6 @@
 const commit = Promise.withResolvers<void>();
 const producer = Promise.withResolvers<void>();
+const opening = Promise.withResolvers<void>();
 
 export const probe = {
 	events: new Proxy(
@@ -15,6 +16,8 @@ export const probe = {
 	refuse: false,
 	releaseCommit: commit.resolve,
 	releaseProducer: producer.resolve,
+	releaseOpening: opening.resolve,
+	opening: opening.promise,
 	commit: commit.promise,
 	producer: producer.promise,
 };

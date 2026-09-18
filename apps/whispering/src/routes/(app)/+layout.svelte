@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AppBoot, CannotOpenScreen } from '@epicenter/app-shell/boot-screens';
+	import { AppBoot } from '@epicenter/app-shell/boot-screens';
 	import { Loading } from '@epicenter/ui/loading';
 	import { authClient } from '#platform/auth';
 	import { onMount, tick } from 'svelte';
@@ -54,20 +54,14 @@
 		{/if}
 	{/snippet}
 	{#if !application.app}<div class="p-3">{@render libraryMenu()}</div>{/if}
-	<AppBoot startup={authClient} departure={application.departure} hasApp={application.app !== null} appName="Whispering" noun="recordings">
+	<AppBoot startup={authClient} departure={application.departure} ready={application.app?.ready} appName="Whispering" noun="recordings">
+		{#snippet openingFailure()}
+			<div class="p-3">{@render libraryMenu()}</div>
+		{/snippet}
 		{#if application.app && application.selections && showing}
-			{#await application.app.ready}
-				<Loading class="h-dvh" label="Opening your recordings…" />
-			{:then { error }}
-				{#if error !== null}
-					<div class="p-3">{@render libraryMenu()}</div>
-					<CannotOpenScreen appName="Whispering" noun="recordings" {error} retry={() => location.reload()} />
-				{:else}
-					<WhisperingShell {libraryMenu} selections={application.selections} openedApp={application.app} account={application.account} bind:this={shell}>
-						{@render children()}
-					</WhisperingShell>
-				{/if}
-			{/await}
+			<WhisperingShell {libraryMenu} selections={application.selections} openedApp={application.app} account={application.account} bind:this={shell}>
+				{@render children()}
+			</WhisperingShell>
 		{/if}
 	</AppBoot>
 {:else}

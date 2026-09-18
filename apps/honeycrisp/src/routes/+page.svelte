@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AppBoot, CannotOpenScreen } from '@epicenter/app-shell/boot-screens';
+	import { AppBoot } from '@epicenter/app-shell/boot-screens';
 	import { Loading } from '@epicenter/ui/loading';
 	import { authStartup } from '#platform/auth';
 	import { onMount, tick } from 'svelte';
@@ -37,18 +37,12 @@
 	{#if !application.app}
 		<div class="fixed left-4 top-4 z-10">{@render librarySelection()}</div>
 	{/if}
-	<AppBoot startup={authStartup} departure={application.departure} hasApp={application.app !== null} appName="Honeycrisp" noun="notes">
+	<AppBoot startup={authStartup} departure={application.departure} ready={application.app?.ready} appName="Honeycrisp" noun="notes">
+		{#snippet openingFailure()}
+			<div class="fixed left-4 top-4 z-10">{@render librarySelection()}</div>
+		{/snippet}
 		{#if application.app && showing}
-			{#await application.app.ready}
-				<Loading class="h-dvh" label="Opening your notes…" />
-			{:then { error }}
-				{#if error !== null}
-					<div class="fixed left-4 top-4 z-10">{@render librarySelection()}</div>
-					<CannotOpenScreen appName="Honeycrisp" noun="notes" {error} retry={() => location.reload()} />
-				{:else}
-					<StoreShell data={application.app} {librarySelection} />
-				{/if}
-			{/await}
+			<StoreShell data={application.app} {librarySelection} />
 		{/if}
 	</AppBoot>
 {:else}

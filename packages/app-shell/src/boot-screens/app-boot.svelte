@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { AuthStartup } from '@epicenter/auth';
+	import type { Result } from 'wellcrafted/result';
 	import { fromSubscription } from '@epicenter/svelte';
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
@@ -8,13 +9,15 @@
 	import { provideConnectionScreen, provideSignOut } from './connection-screen-context.js';
 	import { attachDesktopClose } from './desktop-close.js';
 	import SignInScreen from './sign-in-screen.svelte';
+	import CannotOpenScreen from './cannot-open-screen.svelte';
 
-	let { startup, departure, hasApp, appName, noun, children }: {
+	let { startup, departure, ready, appName, noun, openingFailure, children }: {
 		startup: AuthStartup;
 		departure: Departure;
-		hasApp: boolean;
+		ready: Promise<Result<void, unknown>> | undefined;
 		appName: string;
 		noun: string;
+		openingFailure?: Snippet;
 		children: Snippet;
 	} = $props();
 	let nativeError = $state('');
@@ -51,8 +54,20 @@
 {#if nativeError}<p role="alert">{nativeError}</p>{/if}
 
 {#if status.current.phase === 'open' || status.current.phase === 'checking'}
-	{#if hasApp}
-		{@render children()}
+	{#if ready}
+		{#await ready}
+			<Loading class="h-dvh" label="Opening your {noun}…" />
+		{:then { error }}
+			{#if error !== null}
+				{@render openingFailure?.()}
+				<CannotOpenScreen {appName} {noun} {error} retry={() => location.reload()} />
+			{:else}
+				{@render children()}
+			{/if}
+		{:catch error}
+			{@render openingFailure?.()}
+			<CannotOpenScreen {appName} {noun} {error} retry={() => location.reload()} />
+		{/await}
 	{:else}
 		<SignInScreen {startup} {appName} {noun}
 			onCancel={new URLSearchParams(location.search).has('connect') ? () => location.replace('/') : undefined} />

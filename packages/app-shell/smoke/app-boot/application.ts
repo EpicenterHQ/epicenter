@@ -36,8 +36,11 @@ export const app = new URL(location.href).searchParams.has('connect')
 	? null
 	: createStoreOverPort({
 			definition: definition.data,
-			acquire: async () =>
-				Ok({
+			acquire: async () => {
+				const opening = new URL(location.href).searchParams.get('opening');
+				if (opening === 'held') await probe.opening;
+				if (opening === 'failed') throw new Error('Fixture storage is unavailable.');
+				return Ok({
 					durable: {
 						async commit() {
 							probe.events.push('commit-start');
@@ -46,11 +49,12 @@ export const app = new URL(location.href).searchParams.has('connect')
 						},
 					},
 					loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
-				}),
+				});
+			},
 		});
 export const ready = app?.ready.then((result) => {
-	if (result.error) throw result.error;
-	app?.view.kv.update({ text: 'accepted edit' });
+	if (result.error === null) app?.view.kv.update({ text: 'accepted edit' });
+	return result;
 });
 export const departure = createDeparture({
 	account: !auth.auth || auth.auth.state.status === 'signed-out' ? null : auth.auth.state.account,
