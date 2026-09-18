@@ -74,11 +74,12 @@ pub async fn enumerate_recording_devices(
 #[specta::specta]
 pub async fn register_recording_session(
     app_id: String,
+    account: Option<crate::device_owner::AccountIdentity>,
     session_id: String,
     recorder: State<'_, Mutex<Recorder>>,
     window: WebviewWindow,
 ) -> Result<()> {
-    lock(&recorder)?.register_session(window.label(), &session_id, &app_id)
+    lock(&recorder)?.register_session(window.label(), &session_id, &app_id, account)
 }
 
 /// Read only this document's live capture. No file or journal is recovered.
@@ -133,11 +134,11 @@ pub async fn start_recording(
         if let Some(current) = recorder.prepare_start(window.label(), &session_id, &request_id)? {
             return Ok(current);
         }
-        let app_id = recorder.session_app_id(window.label(), &session_id)?;
+        let destination = recorder.session_destination(window.label(), &session_id)?;
         let audio_blob_id = mint_wav_blob_id()?;
         let started = recorder.start(
             device_identifier.as_deref(),
-            &app_id,
+            &destination,
             audio_blob_id,
             window.label().into(),
             app_handle.clone(),

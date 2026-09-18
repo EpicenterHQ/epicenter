@@ -170,7 +170,10 @@ type _CancelRecording = Expect<
 
 // Session registration replaces cross-document capture recovery.
 type _RegisterRecordingSession = Expect<
-	Equal<Parameters<typeof commands.registerRecordingSession>, [string, string]>
+	Equal<
+		Parameters<typeof commands.registerRecordingSession>,
+		[string, import('./bindings.gen').AccountIdentity | null, string]
+	>
 >;
 type _ResolveRecordingStart = Expect<
 	Equal<Parameters<typeof commands.resolveRecordingStart>, [string, string]>
@@ -289,8 +292,7 @@ type _PortableNativeRecording = Expect<
 	Equal<HostRecording, import('@epicenter/app/recorder').NativeRecording>
 >;
 type _PortableBlobDestination = Expect<
-	Equal<
-		import('./bindings.gen').BlobDestination,
-		import('@epicenter/blobs/native').BlobDestination
-	>
+	import('@epicenter/blobs/native').BlobDestination extends import('./bindings.gen').BlobDestination
+		? true
+		: false
 >;

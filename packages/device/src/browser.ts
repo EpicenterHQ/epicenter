@@ -20,6 +20,7 @@
  * this through its own `#platform/*` seam.
  */
 
+import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 import { Ok } from 'wellcrafted/result';
 import { browserSqliteTransport as request } from './browser-sqlite.js';
 import {
@@ -59,10 +60,13 @@ const tabSecrets = new Map<string, Map<string, string>>();
 
 export function createBrowserSecrets(
 	appId: string,
-	{ assertUsable }: { assertUsable?: () => void } = {},
+	{
+		assertUsable,
+		account,
+	}: { assertUsable?: () => void; account?: AccountIdentity } = {},
 ): { value: SecretStore; close(): Promise<void> } {
 	appIdOrThrow(appId);
-	const key = appId;
+	const key = JSON.stringify([appId, deviceOwnerPath(account)]);
 	let values = tabSecrets.get(key);
 	if (!values) {
 		values = new Map<string, string>();

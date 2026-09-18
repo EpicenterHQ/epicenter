@@ -36,10 +36,10 @@ An SPA remains an independent product that can be hosted in a browser and
 integrated into Epicenter Desktop. The available inference access comes from
 its environment. Custom connections stay local to that environment:
 
-- Desktop shares one custom catalog across its apps for the local desktop
-  profile. Adding an endpoint there does not select it for every app.
-- A standalone browser app keeps its custom catalog in origin-local storage,
-  with product scoping where needed. Different origins need not share settings.
+- Desktop shares one custom catalog across an account's apps in the local
+  profile. Changing accounts selects another catalog (ADR-0404).
+- Browser apps on one origin share an account-scoped custom catalog.
+  Different origins do not share storage.
 - Applications retain their own explicit connection-and-model choices. A
   shared catalog does not create shared workflow defaults.
 
@@ -63,10 +63,10 @@ the application follows its own selection and lifetime rules.
 
 `app.device.connections` exposes the environment's custom catalog beside the
 host-supplied native runtime. Desktop stores
-metadata in `ai/connections.json` under its profile data directory. One host
+metadata in `ai/<owner>/connections.json` under its profile data directory. One host
 owner serializes writes, persists by atomic replacement, and broadcasts committed
 snapshots to its apps over SSE. Browser bindings use `localStorage` under the
-product's settings key, with Web Locks for writes and notifications for other
+account's storage key, with Web Locks for writes and notifications for other
 owners. Neither catalog belongs to a library or synchronizes across devices.
 
 The public mutation names are `add`, `update`, `remove`, and `reorder`. Their

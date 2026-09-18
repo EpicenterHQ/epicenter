@@ -17,6 +17,7 @@ use tauri::{AppHandle, Manager};
 #[serde(rename_all = "camelCase")]
 pub struct BlobDestination {
     pub app_id: String,
+    pub account: Option<crate::device_owner::AccountIdentity>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -79,6 +80,8 @@ pub(crate) fn blobs_directory(
     Ok(data_dir
         .join("apps")
         .join(&destination.app_id)
+        .join("device")
+        .join(crate::device_owner::path(destination.account.as_ref()).map_err(BlobError::failed)?)
         .join("blobs"))
 }
 
@@ -102,13 +105,15 @@ fn is_app_id(value: &str) -> bool {
 pub struct StagedBlob(publication::StagedBlob);
 
 impl StagedBlob {
-    pub(crate) fn for_app(app: &AppHandle, app_id: &str, id: &str) -> Result<Self, BlobError> {
+    pub(crate) fn for_app(
+        app: &AppHandle,
+        destination: &BlobDestination,
+        id: &str,
+    ) -> Result<Self, BlobError> {
         Self::stage(
             blobs_directory(
                 &app.state::<crate::app_data::DesktopPaths>().data_dir,
-                &BlobDestination {
-                    app_id: app_id.into(),
-                },
+                destination,
             )?,
             id,
         )
@@ -212,6 +217,32 @@ mod tests {
     use std::io::Write;
 
     #[test]
+    fn identical_blob_keys_publish_independently_for_each_account() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
+        let mut paths = HashSet::new();
+        for (authority, person) in [("one", "alice"), ("one", "bob"), ("two", "alice")] {
+            let destination = BlobDestination {
+                app_id: "so.epicenter.test".into(),
+                account: Some(crate::device_owner::AccountIdentity {
+                    authority_id: authority.into(),
+                    principal_id: person.into(),
+                }),
+            };
+            let path = blobs_directory(root.path(), &destination).unwrap();
+            assert!(paths.insert(path.clone()));
+            let mut staged = StagedBlob::stage(path.clone(), id).unwrap();
+            staged
+                .writer()
+                .unwrap()
+                .write_all(person.as_bytes())
+                .unwrap();
+            staged.commit().unwrap();
+            assert_eq!(read_file(&path, id).unwrap(), person.as_bytes());
+        }
+    }
+
+    #[test]
     fn native_mint_produces_unique_complete_wav_keys() {
         let mut ids = HashSet::new();
         for _ in 0..10000 {
@@ -236,23 +267,25 @@ mod tests {
     }
 
     #[test]
-    fn app_roots_do_not_include_account_or_library_identity() {
+    fn app_roots_include_the_captured_storage_owner() {
         let root = Path::new("data");
         assert_eq!(
             blobs_directory(
                 root,
                 &BlobDestination {
-                    app_id: "so.epicenter.notes".into()
+                    app_id: "so.epicenter.notes".into(),
+                    account: None,
                 }
             )
             .unwrap(),
-            root.join("apps/so.epicenter.notes/blobs")
+            root.join("apps/so.epicenter.notes/device/no-account/blobs")
         );
         for app_id in ["../outside", "invalid", "so.Epicenter.notes", "so..notes"] {
             assert!(blobs_directory(
                 root,
                 &BlobDestination {
-                    app_id: app_id.into()
+                    app_id: app_id.into(),
+                    account: None,
                 }
             )
             .is_err());

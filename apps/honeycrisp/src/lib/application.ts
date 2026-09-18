@@ -19,7 +19,6 @@ export const library: Library = (() => {
 export const canOpenShared = authStartup.selectedServer !== null;
 const application = defineApplication({
 	appId: APPS.HONEYCRISP.id,
-	settingsKey: 'honeycrisp',
 	definition: honeycrispDefinition,
 });
 export const app = new URLSearchParams(location.search).has('connect')

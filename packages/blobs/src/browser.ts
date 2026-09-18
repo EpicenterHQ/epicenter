@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 
 import { isAppId } from '@epicenter/constants/app-id';
+import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -28,12 +29,15 @@ const BLOBS = 'blobs';
 const SIZE_INDEX = 'by-id-size';
 
 /** One application's bytes on this browser profile and origin. */
-export type BrowserBlobScope = { appId: string };
+export type BrowserBlobScope = { appId: string; account?: AccountIdentity };
 
-/** Account and library changes never select another local byte store. */
-export function browserBlobStoreName({ appId }: BrowserBlobScope): string {
+/** The captured account selects local bytes; libraries within that App share them. */
+export function browserBlobStoreName({
+	appId,
+	account,
+}: BrowserBlobScope): string {
 	if (!isAppId(appId)) throw new TypeError('Invalid blob application ID.');
-	return `epicenter/${appId}/blobs`;
+	return `epicenter/${appId}/device/${deviceOwnerPath(account)}/blobs`;
 }
 
 type StoredBlob = { id: BlobId; bytes: ArrayBuffer; size: number };

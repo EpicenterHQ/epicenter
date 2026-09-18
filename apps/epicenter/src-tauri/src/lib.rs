@@ -31,6 +31,7 @@ mod command_names;
 pub mod app_data;
 #[path = "application-close.rs"]
 mod application_close;
+mod device_owner;
 mod sqlite;
 use application_close::ApplicationClose;
 
@@ -214,6 +215,7 @@ enum BunToRustNativeFrame {
         url: String,
     },
     PutAppSecret {
+        account: Option<device_owner::AccountIdentity>,
         #[serde(rename = "requestId")]
         request_id: String,
         #[serde(rename = "appId")]
@@ -222,6 +224,7 @@ enum BunToRustNativeFrame {
         value: String,
     },
     GetAppSecret {
+        account: Option<device_owner::AccountIdentity>,
         #[serde(rename = "requestId")]
         request_id: String,
         #[serde(rename = "appId")]
@@ -229,6 +232,7 @@ enum BunToRustNativeFrame {
         label: String,
     },
     DeleteAppSecret {
+        account: Option<device_owner::AccountIdentity>,
         #[serde(rename = "requestId")]
         request_id: String,
         #[serde(rename = "appId")]
@@ -1392,16 +1396,23 @@ fn handle_native_frame(
             send_native_result(app, generation, &request_id, result)
         }
         BunToRustNativeFrame::PutAppSecret {
+            account,
             request_id,
             app_id,
             label,
             value,
         } => {
-            let result =
-                write_app_secret(&app.config().identifier, &app_id, &label, &value);
+            let result = write_app_secret(
+                &app.config().identifier,
+                &app_id,
+                &label,
+                &value,
+                account.as_ref(),
+            );
             send_native_result(app, generation, &request_id, result)
         }
         BunToRustNativeFrame::GetAppSecret {
+            account,
             request_id,
             app_id,
             label,
@@ -1410,7 +1421,7 @@ fn handle_native_frame(
                 bail!("native requestId must be non-empty");
             }
             let state = app.state::<HostState>();
-            match read_app_secret(&app.config().identifier, &app_id, &label) {
+            match read_app_secret(&app.config().identifier, &app_id, &label, account.as_ref()) {
                 Ok(value) => send_native_frame(
                     &state,
                     generation,
@@ -1435,11 +1446,13 @@ fn handle_native_frame(
             }
         }
         BunToRustNativeFrame::DeleteAppSecret {
+            account,
             request_id,
             app_id,
             label,
         } => {
-            let result = delete_app_secret(&app.config().identifier, &app_id, &label);
+            let result =
+                delete_app_secret(&app.config().identifier, &app_id, &label, account.as_ref());
             send_native_result(app, generation, &request_id, result)
         }
         BunToRustNativeFrame::CloseApplications { request_id } => {

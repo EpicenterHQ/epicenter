@@ -42,9 +42,9 @@ function setup() {
 	};
 }
 
-test('the name selects one application without an account or library', () => {
+test('omitting the account selects the application no-account namespace', () => {
 	expect(browserBlobStoreName({ appId: APP_ID })).toBe(
-		`epicenter/${APP_ID}/blobs`,
+		`epicenter/${APP_ID}/device/no-account/blobs`,
 	);
 });
 

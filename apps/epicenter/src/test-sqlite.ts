@@ -9,6 +9,7 @@ import {
 	createSqliteOwner,
 	type DeviceSqliteOwner,
 } from '@epicenter/device/owner';
+import { deviceOwnerPath } from '@epicenter/principal';
 import type { SqliteValue } from '@epicenter/sqlite';
 import { Ok, type Result } from 'wellcrafted/result';
 
@@ -22,8 +23,13 @@ export type BunDevice = DeviceSqliteOwner;
  */
 export function createBunDevice(root: string): BunDevice {
 	return createSqliteOwner({
-		async open(appId, name) {
-			const directory = join(appDataDir(root, appId), 'local', 'sqlite');
+		async open(appId, name, account) {
+			const directory = join(
+				appDataDir(root, appId),
+				'device',
+				deviceOwnerPath(account),
+				'sqlite',
+			);
 			await mkdir(directory, { recursive: true });
 			const database = new Database(join(directory, `${name}.sqlite`), {
 				create: true,
@@ -36,8 +42,14 @@ export function createBunDevice(root: string): BunDevice {
 				throw cause;
 			}
 		},
-		async delete(appId, name) {
-			const path = join(appDataDir(root, appId), 'local', 'sqlite', `${name}.sqlite`);
+		async delete(appId, name, account) {
+			const path = join(
+				appDataDir(root, appId),
+				'device',
+				deviceOwnerPath(account),
+				'sqlite',
+				`${name}.sqlite`,
+			);
 			await Promise.all(
 				[path, `${path}-wal`, `${path}-shm`, `${path}-journal`].map((file) =>
 					rm(file, { force: true }),

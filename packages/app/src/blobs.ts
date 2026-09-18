@@ -4,10 +4,16 @@ import { isAppId } from '@epicenter/constants/app-id';
 import { resources } from '#platform/resources';
 
 /** Use app-local storage without opening a data library; close releases display URLs. */
-export function createLocalBlobs({ appId }: { appId: string }) {
+export function createLocalBlobs({
+	appId,
+	account,
+}: {
+	appId: string;
+	account?: Account;
+}) {
 	if (!isAppId(appId))
 		throw new Error(`The application id '${appId}' is not valid.`);
-	const bytes = resources.blobs({ appId });
+	const bytes = resources.blobs({ appId, account });
 	const owner = createAppBlobs(bytes);
 	return Object.freeze({ ...owner.value, close: owner.close });
 }

@@ -46,9 +46,20 @@ export const commands = {
 		typedError<null, RecorderError>(
 			__TAURI_INVOKE('cancel_recording', { audioBlobId, sessionId }),
 		),
-	registerRecordingSession: (appId: string, sessionId: string) =>
+	registerRecordingSession: (
+		appId: string,
+		account: {
+			authorityId: string;
+			principalId: string;
+		} | null,
+		sessionId: string,
+	) =>
 		typedError<null, RecorderError>(
-			__TAURI_INVOKE('register_recording_session', { appId, sessionId }),
+			__TAURI_INVOKE('register_recording_session', {
+				appId,
+				account,
+				sessionId,
+			}),
 		),
 	/**  Read only this document's live capture. No file or journal is recovered. */
 	currentRecording: (sessionId: string) =>
@@ -385,6 +396,11 @@ export const events = {
 };
 
 /* Types */
+export type AccountIdentity = {
+	authorityId: string;
+	principalId: string;
+};
+
 /**
  *  The one active local model as **Home** sees it: its exact identity and
  *  whether its file is on this machine right now.
@@ -445,6 +461,7 @@ export type AppliedHints = {
 /**  The application captured before a native writer creates its temporary file. */
 export type BlobDestination = {
 	appId: string;
+	account: AccountIdentity | null;
 };
 
 export type CatalogError =

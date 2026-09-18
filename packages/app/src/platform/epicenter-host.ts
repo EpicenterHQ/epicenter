@@ -10,7 +10,7 @@ import type { resources as browserResources } from './browser.js';
 export const resources: typeof browserResources = {
 	sqlite: createDesktopSqliteOwner(),
 	blobs({ appId, account }) {
-		const bytes = createWebviewBlobs({ appId });
+		const bytes = createWebviewBlobs({ appId, account });
 		return {
 			...bytes,
 			remote:

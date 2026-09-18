@@ -17,6 +17,7 @@ import {
 } from '@epicenter/blobs';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
 import { createRemoteBlobClient } from '@epicenter/client';
+import { deviceOwnerPath } from '@epicenter/principal';
 import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -206,7 +207,19 @@ async function setup({
 		selectedServer: null,
 	};
 	const directory = await mkdtemp(join(tmpdir(), 'account-relay-'));
-	const localBlobs = createBunBlobStore({ directory });
+	const blobStores = new Map<string, ReturnType<typeof createBunBlobStore>>();
+	function blobs(appId: string, owner: string) {
+		const key = JSON.stringify([appId, owner]);
+		let store = blobStores.get(key);
+		if (!store) {
+			store = createBunBlobStore({
+				directory: join(directory, String(blobStores.size)),
+			});
+			blobStores.set(key, store);
+		}
+		return store;
+	}
+	const localBlobs = blobs('so.epicenter.notes', deviceOwnerPath(account));
 	const host = await createHomeHost({
 		model: 'test',
 		engine: async function* () {},
@@ -226,7 +239,7 @@ async function setup({
 		launchToken: 'launch',
 		host,
 		staticAssets: { homePage: '<html><head></head></html>', applications: [] },
-		blobs: () => localBlobs,
+		blobs,
 		desktopAuth: {
 			baseURL,
 			callbackUrl: 'epicenter://auth/callback',
@@ -313,6 +326,7 @@ async function setup({
 		uploadStarted,
 		uploadAborted,
 		localBlobs,
+		blobs,
 		account: windowAuth.state.account,
 		windowAuth,
 		auth,
@@ -586,6 +600,13 @@ async function until(condition: () => boolean) {
 test('saved native upload sends no bytes through the window Account broker and strips its control header', async () => {
 	await using context = await setup();
 	const id = generateBlobId('wav');
+	for (const owner of ['no-account', 'accounts/61/62']) {
+		expectOk(
+			await context
+				.blobs('so.epicenter.notes', owner)
+				.put(id, new Blob([owner])),
+		);
+	}
 	expectOk(
 		await context.localBlobs.put(
 			id,

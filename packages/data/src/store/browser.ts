@@ -42,7 +42,11 @@ import {
 	type ParsedDataDefinition,
 } from '@epicenter/data/definition';
 import { claimLibrary } from '@epicenter/device/library-claim';
-import type { PrincipalId } from '@epicenter/principal';
+import {
+	type AccountIdentity,
+	deviceOwnerPath,
+	type PrincipalId,
+} from '@epicenter/principal';
 import { readCurrentDownload } from '@epicenter/sync/current-download';
 import {
 	CURRENT_ROUTE,
@@ -338,13 +342,16 @@ function generationPrefix(
 function localGenerationPrefix(
 	appId: string,
 	dataId: string,
+	account?: AccountIdentity,
 ): Result<string, StoreError> {
 	if (!isAppId(appId)) {
 		return StoreError.Unaddressable({
 			reason: `'${appId}' is not an application id`,
 		});
 	}
-	return Ok(`epicenter/${appId}/local/data/${dataId}/`);
+	return Ok(
+		`epicenter/${appId}/device/${deviceOwnerPath(account)}/data/${dataId}/`,
+	);
 }
 
 /**
@@ -536,10 +543,12 @@ async function acquireDatabase(
 		appId,
 		generation,
 		account,
+		deviceAccount,
 	}: {
 		appId: string;
 		generation: number;
 		account?: DatabaseAccount;
+		deviceAccount?: AccountIdentity;
 	},
 ): Promise<Result<StoreBacking, StoreError>> {
 	if (!isGeneration(generation)) {
@@ -554,7 +563,7 @@ async function acquireDatabase(
 				parsed.id,
 				account.authorityId,
 			)
-		: localGenerationPrefix(appId, parsed.id);
+		: localGenerationPrefix(appId, parsed.id, deviceAccount);
 	if (located.error !== null) return Err(located.error);
 
 	// Asked here rather than by an application, because this is the one place
@@ -631,13 +640,17 @@ async function acquireDatabase(
 export async function acquireAppData(
 	definition: ParsedDataDefinition,
 	options: { appId: string } & (
-		| { library: 'local' }
+		| { library: 'local'; account?: AccountIdentity }
 		| { library: 'personal' | 'shared'; account: DatabaseAccount }
 	),
 ): Promise<Result<StoreBacking, StoreError>> {
 	const { appId } = options;
 	if (options.library === 'local')
-		return acquireDatabase(definition, { appId, generation: 1 });
+		return acquireDatabase(definition, {
+			appId,
+			generation: 1,
+			deviceAccount: options.account,
+		});
 	const { library } = options;
 	const account = captureAccount(options.account);
 	void requestPersistentStorage();

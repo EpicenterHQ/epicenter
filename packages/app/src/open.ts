@@ -35,9 +35,20 @@ type OpenOptions = {
 };
 
 /** One auth generation owns the device scope and every available account store. */
-export function openApp<const TDefinition extends DataDefinition>(
+export function openApp<
+	const TDefinition extends DataDefinition,
+	TAccount extends Account | undefined = Account | undefined,
+>(
 	definition: TDefinition,
-	{ appId, account, sqlite, blobs, recording, secrets, ai }: OpenOptions,
+	{
+		appId,
+		account,
+		sqlite,
+		blobs,
+		recording,
+		secrets,
+		ai,
+	}: OpenOptions & { account: TAccount },
 ) {
 	if (!isAppId(appId))
 		throw new Error(`The application id '${appId}' is not valid.`);
@@ -57,15 +68,18 @@ export function openApp<const TDefinition extends DataDefinition>(
 		if (lifetime.signal.aborted) throw new StoreUnusableError();
 		if (!initialized) throw new Error('The App is not ready.');
 	}
-	const databases = createAppSqlite(sqlite, appId, { assertUsable });
+	const databases = createAppSqlite(sqlite, appId, {
+		assertUsable,
+		account: identity ?? undefined,
+	});
 	const claims: Array<() => void> = [];
 	const scopes: Array<
-		{ library: 'local' } | { library: 'personal' | 'shared'; account: Account }
-	> = [{ library: 'local' }];
+		| { library: 'local'; account?: AccountIdentity }
+		| { library: 'personal' | 'shared'; account: Account }
+	> = [{ library: 'local', account: identity ?? undefined }];
 	if (account) {
 		scopes.push({ library: 'personal', account });
-		if (account.supportsShared)
-			scopes.push({ library: 'shared', account });
+		if (account.supportsShared) scopes.push({ library: 'shared', account });
 	}
 	const ownership = Promise.resolve().then(
 		async (): Promise<Result<void, StoreError>> => {
@@ -256,6 +270,7 @@ export function openApp<const TDefinition extends DataDefinition>(
 			});
 		recorder = recording(appId, {
 			assertUsable,
+			account: identity ?? undefined,
 			write: (id, blob) => bytes.local.put(id, blob),
 		});
 		const transport =
@@ -264,10 +279,13 @@ export function openApp<const TDefinition extends DataDefinition>(
 			lifetime: { assertUsable, signal: lifetime.signal },
 			account: transport && identity ? { ...transport, identity } : null,
 			runtime: ai?.runtime ?? null,
-			connections: ai?.connections?.(appId) ?? null,
+			connections: ai?.connections?.(appId, identity ?? undefined) ?? null,
 			configuredFetch: ai?.configuredFetch,
 		});
-		secretAccess = secrets(appId, { assertUsable });
+		secretAccess = secrets(appId, {
+			assertUsable,
+			account: identity ?? undefined,
+		});
 		const deviceScope = Object.freeze(
 			Object.assign(device.value, {
 				sqlite: databases.value,
@@ -279,6 +297,15 @@ export function openApp<const TDefinition extends DataDefinition>(
 				}),
 			}),
 		);
+		const accountScope =
+			identity === null
+				? undefined
+				: Object.freeze({
+						identity,
+						personal: Object.freeze(documents[1]!.value),
+						shared: documents[2] ? Object.freeze(documents[2].value) : null,
+						connection: inference.value.ai.account,
+					});
 		return Object.freeze({
 			appId,
 			ready,
@@ -289,15 +316,10 @@ export function openApp<const TDefinition extends DataDefinition>(
 				return canRetryClose;
 			},
 			device: deviceScope,
-			account:
-				identity === null
-					? null
-					: Object.freeze({
-							identity,
-							personal: Object.freeze(documents[1]!.value),
-							shared: documents[2] ? Object.freeze(documents[2].value) : null,
-							connection: inference.value.ai.account,
-						}),
+			// Construction above follows the captured argument; preserve that fact for callers.
+			account: accountScope as TAccount extends Account
+				? NonNullable<typeof accountScope>
+				: undefined,
 			blobs: Object.freeze({
 				local: blobAccess.value,
 				remote: remoteBlobAccess?.value ?? null,
@@ -313,9 +335,10 @@ export function openApp<const TDefinition extends DataDefinition>(
 	}
 }
 
-export type App<TDefinition extends DataDefinition> = ReturnType<
-	typeof openApp<TDefinition>
->;
+export type App<
+	TDefinition extends DataDefinition,
+	TAccount extends Account | undefined = Account | undefined,
+> = ReturnType<typeof openApp<TDefinition, TAccount>>;
 /** A borrowed data store. Its App owns readiness and closure. */
 export type AppStore<TDefinition extends DataDefinition> = NonNullable<
 	App<TDefinition>['account']

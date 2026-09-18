@@ -1,5 +1,5 @@
 /** Origin-wide exclusion for one application's account or local library. */
-import type { AccountIdentity } from '@epicenter/principal';
+import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 
@@ -33,13 +33,15 @@ type LockManager = {
 export async function claimLibrary(
 	appId: string,
 	scope:
-		| { library: 'local' }
+		| { library: 'local'; account?: AccountIdentity }
 		| { library: 'personal' | 'shared'; account: AccountIdentity },
 ): Promise<Result<{ release(): void }, LibraryClaimError>> {
 	// Project in canonical order: these bytes are shared with other openers.
 	let identity: typeof scope;
 	if (scope.library === 'local') {
-		identity = { library: 'local' };
+		return claim(
+			`library:${JSON.stringify([appId, 'device', deviceOwnerPath(scope.account)])}`,
+		);
 	} else {
 		const { authorityId, principalId } = scope.account;
 		for (const segment of [authorityId, principalId]) {
@@ -61,9 +63,9 @@ export async function claimLibrary(
 	return claim(address);
 }
 
-/** Device SQL has one app-owned lifetime, independent of any data library. */
-export function claimSqlite(appId: string) {
-	return claim(`sqlite:${JSON.stringify(appId)}`);
+/** Device SQL has one lifetime per app and captured account, independent of library. */
+export function claimSqlite(appId: string, account?: AccountIdentity) {
+	return claim(`sqlite:${JSON.stringify([appId, deviceOwnerPath(account)])}`);
 }
 
 async function claim(

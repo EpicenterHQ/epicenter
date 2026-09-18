@@ -8,18 +8,20 @@ information belong in rows. Deleting a row does not delete its bytes.
 
 ## Storage and identity
 
-The storage environment selects the local namespace. Accounts select remote
-ownership.
+The App's captured account selects both local and remote ownership. Local
+storage remains on this device; it does not synchronize because it has an owner.
 
 | Platform | Location |
 | --- | --- |
-| Browser | IndexedDB database `epicenter/<appId>/blobs`, within the origin/profile |
-| Desktop | One ordinary file at `<dataRoot>/apps/<appId>/blobs/<blobId>` |
+| Browser | IndexedDB database `epicenter/<appId>/device/<owner>/blobs`, within the origin/profile |
+| Desktop | One ordinary file at `<dataRoot>/apps/<appId>/device/<owner>/blobs/<blobId>` |
 | Remote | `principals/<principalId>/apps/<appId>/blobs/<blobId>` in the server's object store |
 
-Local identity is the app ID on this device. Account and library changes do not
-move, hide, or erase local bytes. Native capture and Bun HTTP reads share the
-startup-selected app directory. Desktop WebViews use that HTTP store instead
+`<owner>` is `no-account` or `accounts/<encoded-authority>/<encoded-principal>`,
+with identity components encoded as UTF-8 hex. Account changes select another
+local namespace without moving or erasing existing bytes. Library changes
+within one App keep the same bytes. Native capture and Bun HTTP reads share
+the captured app/account directory. Desktop WebViews use that HTTP store instead
 of maintaining another copy in IndexedDB.
 
 `BlobId` is `blob_`, 21 random lowercase alphanumeric characters, one dot, and a

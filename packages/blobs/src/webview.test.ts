@@ -51,7 +51,9 @@ test('all local operations retain the app selected at construction', async () =>
 		contentType: 'audio/wav',
 	});
 	const source = expectOk(await sources.open(id));
-	expect(source.url).toBe(`/api/apps/so.epicenter.test/blobs/${id}`);
+	expect(source.url).toBe(
+		`/api/apps/so.epicenter.test/blobs/${id}?owner=no-account`,
+	);
 	source[Symbol.dispose]();
 	source[Symbol.dispose]();
 	expectOk(await local.delete(id));

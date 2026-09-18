@@ -1,11 +1,11 @@
 /**
- * App scope ownership: device state survives account replacement, account data
- * stays isolated, and retirement stops sibling sync before physical cleanup.
+ * App storage follows the captured account, survives reopening, and never
+ * crosses into another owner's namespace. Retirement stops sibling sync.
  */
 import 'fake-indexeddb/auto';
 import { Database } from 'bun:sqlite';
 import { expect, spyOn, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Account } from '@epicenter/auth';
@@ -14,7 +14,7 @@ import { defineData, defineTable, field } from '@epicenter/data/definition';
 import { secretLabel } from '@epicenter/device';
 import { createSqliteOwner } from '@epicenter/device/owner';
 import { installTestLocks } from '@epicenter/device/test-locks';
-import { asPrincipalId } from '@epicenter/principal';
+import { asPrincipalId, deviceOwnerPath } from '@epicenter/principal';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
@@ -62,11 +62,13 @@ function accountFor(person: string, supportsShared = false): Account {
 	});
 }
 
-test('device rows, SQLite and secrets survive signed-out, Alice and Bob lifetimes', async () => {
+test('device rows, SQLite, secrets and blobs isolate owners and survive returning to each owner', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'app-scopes-'));
 	const sqlite = createSqliteOwner({
-		async open(appId, name) {
-			const database = new Database(join(root, `${appId}-${name}.sqlite`));
+		async open(appId, name, account) {
+			const directory = join(root, appId, deviceOwnerPath(account));
+			await mkdir(directory, { recursive: true });
+			const database = new Database(join(directory, `${name}.sqlite`));
 			const driver = createBunSqliteAdapter(database);
 			return {
 				async run(sql, parameters) {
@@ -90,8 +92,8 @@ test('device rows, SQLite and secrets survive signed-out, Alice and Bob lifetime
 				},
 			};
 		},
-		async delete(appId, name) {
-			await rm(join(root, `${appId}-${name}.sqlite`));
+		async delete(appId, name, account) {
+			await rm(join(root, appId, deviceOwnerPath(account), `${name}.sqlite`));
 		},
 	});
 	const application = defineApplication({
@@ -101,38 +103,77 @@ test('device rows, SQLite and secrets survive signed-out, Alice and Bob lifetime
 		ai: { runtime: null, account: null },
 	});
 	try {
-		const local = application.open(undefined);
-		expectOk(await local.ready);
-		expect(local.account).toBeNull();
-		local.device.tables.notes.create({ title: 'device note' });
-		const database = expectOk(await local.device.sqlite.open('mail'));
-		expectOk(await database.run('CREATE TABLE cached (value TEXT)'));
-		expectOk(await database.run("INSERT INTO cached VALUES ('mail cache')"));
-		expectOk(
-			await local.device.secrets.put(secretLabel('gmail'), 'gmail-token'),
-		);
-		await local.close();
-		for (const person of ['alice', 'bob', 'alice']) {
-			const app = application.open(accountFor(person));
+		const seen = new Set<string>();
+		for (const person of [undefined, 'alice', 'bob', 'alice', undefined]) {
+			const owner = person ?? 'no-account';
+			const app = application.open(
+				person === undefined ? undefined : accountFor(person),
+			);
 			try {
 				expectOk(await app.ready);
-				expect(app.device.tables.notes.rows.map((r) => r.title)).toEqual([
-					'device note',
-				]);
+				expect(app.device.tables.notes.rows.map((r) => r.title)).toEqual(
+					seen.has(owner) ? [owner] : [],
+				);
 				const db = expectOk(await app.device.sqlite.open('mail'));
-				expect(expectOk(await db.all('SELECT value FROM cached'))).toEqual([
-					{ value: 'mail cache' },
-				]);
+				expectOk(
+					await db.run('CREATE TABLE IF NOT EXISTS cached (value TEXT)'),
+				);
+				expect(expectOk(await db.all('SELECT value FROM cached'))).toEqual(
+					seen.has(owner) ? [{ value: owner }] : [],
+				);
 				expect(
 					expectOk(await app.device.secrets.get(secretLabel('gmail'))),
-				).toBe('gmail-token');
-				expect(app.account!.shared).toBeNull();
-				const notes = app.account!.personal.tables.notes;
-				expect(notes.rows.every((r) => r.title === person)).toBe(true);
-				if (!notes.rows.length) notes.create({ title: person });
+				).toBe(seen.has(owner) ? owner : null);
+				const files = expectOk(await app.blobs.local.list()).items;
+				expect(files).toHaveLength(seen.has(owner) ? 1 : 0);
+				if (!seen.has(owner)) {
+					app.device.tables.notes.create({ title: owner });
+					expectOk(await db.run('INSERT INTO cached VALUES (?)', [owner]));
+					expectOk(await app.device.secrets.put(secretLabel('gmail'), owner));
+					expectOk(
+						await app.blobs.local.add(
+							new Blob([owner], { type: 'text/plain' }),
+						),
+					);
+				} else {
+					expect(
+						await expectOk(await app.blobs.local.get(files[0]!.id)).text(),
+					).toBe(owner);
+				}
+				if (app.account) {
+					const notes = app.account.personal.tables.notes;
+					expect(notes.rows.map((r) => r.title)).toEqual(
+						seen.has(owner) ? [owner] : [],
+					);
+					if (!seen.has(owner)) notes.create({ title: owner });
+				} else expect(app.account).toBeUndefined();
+				seen.add(owner);
 			} finally {
 				await app.close();
 			}
+		}
+		const signedIn = application.open(accountFor('alice'));
+		try {
+			expectOk(await signedIn.ready);
+			const principal: string = signedIn.account.identity.principalId;
+			expect(principal).toBe('alice');
+		} finally {
+			await signedIn.close();
+		}
+		const signedOut = application.open();
+		try {
+			expectOk(await signedOut.ready);
+			const absent: undefined = signedOut.account;
+			expect(absent).toBeUndefined();
+			// These invalid calls must be rejected by the compiler, never executed.
+			if (false) {
+				// @ts-expect-error An explicit account type still requires a value.
+				application.open<Account>();
+				// @ts-expect-error An App opened without an account has no personal store.
+				signedOut.account.personal;
+			}
+		} finally {
+			await signedOut.close();
 		}
 	} finally {
 		await rm(root, { recursive: true, force: true });

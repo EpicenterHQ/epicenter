@@ -1,4 +1,5 @@
 import type { BlobId, BlobStore } from '@epicenter/blobs';
+import type { AccountIdentity } from '@epicenter/principal';
 import type {
 	Device,
 	DeviceAcquisitionOutcome,
@@ -88,6 +89,7 @@ export type RecordingOwner = {
 };
 
 export type RecordingOptions = {
+	account?: AccountIdentity;
 	/** Private immutable writer into the same store as createLocalBlobs({ appId }). */
 	write: BlobStore['put'];
 	assertUsable?(): void;

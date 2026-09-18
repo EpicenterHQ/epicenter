@@ -26,7 +26,7 @@ import {
 	type DeviceSqliteOwner,
 } from '@epicenter/device/owner';
 import { installTestLocks } from '@epicenter/device/test-locks';
-import { asPrincipalId } from '@epicenter/principal';
+import { asPrincipalId, deviceOwnerPath } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -113,7 +113,7 @@ test('local handle opens without account and survives close and reopen', async (
 	await clearStorage();
 	const first = create().open();
 	expect(first.device.library).toBe('local');
-	expect(first.account).toBeNull();
+	expect(first.account).toBeUndefined();
 	expect(first.libraryReplaced).toBeUndefined();
 	expect(Object.getPrototypeOf(first)).toBe(Object.prototype);
 	expect(Object.hasOwn(first.device, 'tables')).toBe(true);
@@ -207,7 +207,11 @@ test.each([
 					secrets: createBrowserSecrets,
 				});
 	if (timing === 'during acquisition') await requested.promise;
-	const replacement: Account = Object.freeze({ ...account, principalId: asPrincipalId('bob'), baseURL: 'https://replacement.test' });
+	const replacement: Account = Object.freeze({
+		...account,
+		principalId: asPrincipalId('bob'),
+		baseURL: 'https://replacement.test',
+	});
 	expect(replacement).not.toBe(account);
 	releaseRequest.resolve();
 	expectOk(await accountApp.ready);
@@ -221,11 +225,16 @@ test.each([
 	expect(names).toContain(
 		'epicenter/so.epicenter.app-test/accounts/test-authority/alice/data/so.epicenter.app-test/personal/current',
 	);
-	expect(names).toContain('epicenter/so.epicenter.app-test/blobs');
+	expect(names).toContain(
+		`epicenter/so.epicenter.app-test/device/${deviceOwnerPath(account)}/blobs`,
+	);
 	expect(names.some((name) => name?.includes('replacement-authority'))).toBe(
 		false,
 	);
-	expect(identities).toEqual(['so.epicenter.app-test', 'so.epicenter.app-test']);
+	expect(identities).toEqual([
+		'so.epicenter.app-test',
+		'so.epicenter.app-test',
+	]);
 	await localApp.close();
 	expect(() => localDatabase.run('select 1')).toThrow();
 	await accountApp.close();
@@ -975,7 +984,8 @@ test.each([
 		},
 	}).open();
 	expectOk(await app.ready);
-	const request = (async () => await app.device.connections.runtime!.client.models.list())();
+	const request = (async () =>
+		await app.device.connections.runtime!.client.models.list())();
 	void request.catch(() => {});
 	await started.promise;
 	const closed = app.close();
@@ -1040,7 +1050,7 @@ test('one captured Account supplies library and AI; local opening never borrows 
 		},
 	});
 	const local = application.open();
-	expect((local.account?.connection ?? null)).toBeNull();
+	expect(local.account).toBeUndefined();
 	expect(supplied).toEqual([]);
 	expectOk(await local.ready);
 	await local.close();
@@ -1093,7 +1103,9 @@ test('App secrets require readiness and survive closing and reopening the same d
 	const label = secretLabel('gmail');
 	const first = create();
 	const app = first.open();
-	expect(() => app.device.secrets.put(label, 'before-ready')).toThrow('not ready');
+	expect(() => app.device.secrets.put(label, 'before-ready')).toThrow(
+		'not ready',
+	);
 	expectOk(await app.ready);
 	expectOk(await app.device.secrets.put(label, 'kept'));
 	await app.close();
@@ -1447,23 +1459,25 @@ test('App retirement closes its recorder while retaining the library claim throu
 	};
 	const acquireData = dataBrowser.acquireAppData;
 	const acquire = spyOn(dataBrowser, 'acquireAppData').mockImplementation(
-		async (definition, options) => options.library === 'local' ? acquireData(definition, options) :
-			Ok({
-				durable: { commit() {} },
-				loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
-				discard: () => invalidation.promise,
-				dispose() {
-					disposed += 1;
-				},
-				replication: {
-					address: {
-						baseURL: account.baseURL,
-						dataId: definition.id,
-						generation: 1,
-					},
-					transport: account,
-				},
-			}),
+		async (definition, options) =>
+			options.library === 'local'
+				? acquireData(definition, options)
+				: Ok({
+						durable: { commit() {} },
+						loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
+						discard: () => invalidation.promise,
+						dispose() {
+							disposed += 1;
+						},
+						replication: {
+							address: {
+								baseURL: account.baseURL,
+								dataId: definition.id,
+								generation: 1,
+							},
+							transport: account,
+						},
+					}),
 	);
 	const application = defineApplication({
 		appId,
@@ -1499,7 +1513,9 @@ test('App retirement closes its recorder while retaining the library claim throu
 		await app.libraryReplaced!;
 		expect(recorderCloses).toBe(1);
 		expect(disposed).toBe(0);
-		expect(() => app.account!.personal.tables.notes.create({ title: 'late' })).toThrow();
+		expect(() =>
+			app.account!.personal.tables.notes.create({ title: 'late' }),
+		).toThrow();
 		invalidation.reject(new Error('Invalidation failed'));
 		await expect(app.close()).rejects.toThrow('Invalidation failed');
 		expect(disposed).toBe(0);
@@ -1557,23 +1573,25 @@ test('App retirement during attachment refuses readiness without auto-releasing 
 	};
 	const acquireData = dataBrowser.acquireAppData;
 	const acquire = spyOn(dataBrowser, 'acquireAppData').mockImplementation(
-		async (definition, options) => options.library === 'local' ? acquireData(definition, options) :
-			Ok({
-				durable: { commit() {} },
-				loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
-				discard: () => invalidation.promise,
-				dispose() {
-					disposed += 1;
-				},
-				replication: {
-					address: {
-						baseURL: account.baseURL,
-						dataId: definition.id,
-						generation: 1,
-					},
-					transport: account,
-				},
-			}),
+		async (definition, options) =>
+			options.library === 'local'
+				? acquireData(definition, options)
+				: Ok({
+						durable: { commit() {} },
+						loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
+						discard: () => invalidation.promise,
+						dispose() {
+							disposed += 1;
+						},
+						replication: {
+							address: {
+								baseURL: account.baseURL,
+								dataId: definition.id,
+								generation: 1,
+							},
+							transport: account,
+						},
+					}),
 	);
 	const app = defineApplication({
 		appId: `test.${crypto.randomUUID()}`,
@@ -1668,7 +1686,9 @@ test('replacing the Account cannot submit Alice pending Personal edits as Bob', 
 	const alice = state.account;
 	const first = application.open(alice);
 	expectOk(await first.ready);
-	first.account!.personal.tables.notes.create({ title: 'Alice pending private queue' });
+	first.account!.personal.tables.notes.create({
+		title: 'Alice pending private queue',
+	});
 	person = 'bob';
 	expectOk(await auth.startSignIn());
 	await first.close();

@@ -6,6 +6,7 @@
  * This verifies filenames and delete routing, not OPFS durability or contention.
  */
 import { expect, test } from 'bun:test';
+
 async function deleteFiles(
 	requests: {
 		appId: string;
@@ -69,9 +70,9 @@ test('reopening targets the same database and its own journal', async () => {
 	const request = { appId, name: 'search' };
 	const files = await deleteFiles([request, request]);
 	expect(files).toEqual([
-		`/${encodeURIComponent(JSON.stringify([appId, 'local', 'search']))}.sqlite`,
-		`/${encodeURIComponent(JSON.stringify([appId, 'local', 'search']))}.sqlite-journal`,
-		`/${encodeURIComponent(JSON.stringify([appId, 'local', 'search']))}.sqlite`,
-		`/${encodeURIComponent(JSON.stringify([appId, 'local', 'search']))}.sqlite-journal`,
+		`/${encodeURIComponent(JSON.stringify([appId, 'no-account', 'search']))}.sqlite`,
+		`/${encodeURIComponent(JSON.stringify([appId, 'no-account', 'search']))}.sqlite-journal`,
+		`/${encodeURIComponent(JSON.stringify([appId, 'no-account', 'search']))}.sqlite`,
+		`/${encodeURIComponent(JSON.stringify([appId, 'no-account', 'search']))}.sqlite-journal`,
 	]);
 });

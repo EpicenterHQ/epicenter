@@ -1,5 +1,6 @@
 import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 import { createLogger } from 'wellcrafted/logger';
 import type { AppSecretOwner } from './app-secrets.js';
 
@@ -138,13 +139,15 @@ function parseSaved(value: unknown): SavedCatalog {
 export async function createAiCatalog({
 	dataRoot,
 	secrets,
+	account,
 	fetch: send = globalThis.fetch,
 }: {
 	dataRoot: string;
 	secrets: AppSecretOwner;
+	account?: AccountIdentity;
 	fetch?: typeof globalThis.fetch;
 }) {
-	const directory = join(dataRoot, 'ai');
+	const directory = join(dataRoot, 'ai', deviceOwnerPath(account));
 	const path = join(directory, 'connections.json');
 	await mkdir(directory, { recursive: true, mode: 0o700 });
 	let state: SavedCatalog;
@@ -200,6 +203,7 @@ export async function createAiCatalog({
 		const value = await secrets.get(
 			secretAppId,
 			label(entry.id, entry.secretVersion),
+			account,
 		);
 		if (value === null)
 			throw new Error('AI connection credentials are unavailable.');
@@ -211,6 +215,7 @@ export async function createAiCatalog({
 			await secrets.delete(
 				secretAppId,
 				label(entry.id, entry.secretVersion),
+				account,
 			);
 		} catch {
 			logger.error(new Error('Could not remove an unused AI credential.'));
@@ -271,7 +276,7 @@ export async function createAiCatalog({
 			};
 			if (apiKey !== undefined) {
 				try {
-					await secrets.put(secretAppId, label(id, version), apiKey);
+					await secrets.put(secretAppId, label(id, version), apiKey, account);
 				} catch {
 					throw new Error('Could not save AI connection credentials.');
 				}

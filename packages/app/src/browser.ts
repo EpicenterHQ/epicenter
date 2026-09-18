@@ -1,3 +1,4 @@
+import { deviceOwnerPath } from '@epicenter/principal';
 import { type AiTransport, accountInference } from './ai.js';
 import { createAiConnections } from './ai-connections.js';
 import type { AppAiBinding, ApplicationRuntime } from './index.js';
@@ -7,14 +8,14 @@ export { createBrowserAppBlobs } from './platform/browser.js';
 
 /** Origin-local settings; supported Epicenter accounts supply the /v1 gateway. */
 export function createBrowserAppAi(
-	storageKey: string,
 	configuredFetch?: AiTransport['fetch'],
 ): AppAiBinding {
 	return {
 		runtime: null,
 		account: accountInference,
 		configuredFetch,
-		connections() {
+		connections(_appId, account) {
+			const storageKey = `epicenter/ai/${deviceOwnerPath(account)}`;
 			return createAiConnections({
 				storage: window.localStorage,
 				storageKey,
@@ -55,5 +56,4 @@ export const browser: ApplicationRuntime = {
 };
 
 /** Default browser composition selected by the package build condition. */
-export const createDefaultAppAi: (storageKey: string) => AppAiBinding =
-	createBrowserAppAi;
+export const createDefaultAppAi: () => AppAiBinding = createBrowserAppAi;

@@ -1,8 +1,8 @@
 /** Desktop snapshot ordering and opening/closing across an asynchronous host boundary. */
 import { expect, test } from 'bun:test';
-import { createDesktopAiConnections } from './ai-connections.epicenter-host.js';
-import { createAppAi } from './ai.js';
 import type { AiTransport } from './ai.js';
+import { createAppAi } from './ai.js';
+import { createDesktopAiConnections } from './ai-connections.epicenter-host.js';
 
 function fixture(
 	fetch: AiTransport['fetch'] = async () => {
@@ -18,9 +18,6 @@ function fixture(
 	};
 	let closed = false;
 	const connections = createDesktopAiConnections({
-		appId: 'vocab',
-		storageKey: 'vocab',
-		storage: { getItem: () => null },
 		baseURL: 'http://127.0.0.1:1234',
 		fetch,
 		openEvents: () => events,
@@ -144,7 +141,7 @@ test('desktop transcription preserves multipart bytes and hints while the broker
 	const value = fixture(async (input, init) => {
 		const request = new Request(input, init);
 		expect(request.url).toBe(
-			'http://127.0.0.1:1234/_epicenter/ai/inference/one/access/audio/transcriptions',
+			'http://127.0.0.1:1234/_epicenter/ai/no-account/inference/one/access/audio/transcriptions',
 		);
 		expect(request.method).toBe('POST');
 		expect(request.headers.get('authorization')).toBeNull();

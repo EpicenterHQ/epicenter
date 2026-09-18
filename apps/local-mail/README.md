@@ -7,7 +7,8 @@ and press **Run** to inspect its downloaded messages and labels.
 One mounted application document owns one App. The App captures the Epicenter
 account and supplies synchronized data, local SQLite, and private secrets.
 Gmail accounts are separate: their Google subjects select individual cache
-files in that application's device scope, shared across Epicenter sign-in states.
+files within the captured Epicenter account's device scope. Switching Epicenter
+accounts does not expose another person's connected mailboxes.
 
 ## Saved queries and downloaded mail
 
@@ -76,10 +77,11 @@ work, and closes the App. A failed save prevents deliberate departure. Switching
 Epicenter accounts or servers requires closure and full document navigation.
 Refreshing credentials for the same owner preserves the App.
 
-Gmail caches, account registries, credentials, and pending work now use one
-device namespace per app. Signing in as a different Epicenter user retains
-these values. Earlier account-scoped storage is neither merged nor deleted;
-reconnect Gmail if it was registered only in an account namespace. Saved queries remain account data.
+Gmail caches, account registries, credentials, and pending work use one device
+namespace per app and Epicenter account. Returning to that account restores its
+local data. Disconnecting Gmail remains a separate product action. Earlier
+storage is neither merged nor deleted; reconnect Gmail in the intended account
+namespace. Saved queries remain synchronized account data.
 Durable schema version 1 is preserved;
 unknown durable schemas are refused. Unknown cache schemas can be rebuilt.
 

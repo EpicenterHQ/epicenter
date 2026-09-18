@@ -23,7 +23,6 @@ export const app = trySync({
 			? null
 			: defineApplication({
 					appId: APPS.VOCAB.id,
-					settingsKey: 'vocab',
 					definition: vocabDefinition,
 				}).open(account),
 	catch(cause) {

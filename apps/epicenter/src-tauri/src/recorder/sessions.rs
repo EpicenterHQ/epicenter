@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
 pub(super) struct Sessions {
-    documents: HashMap<String, (String, String)>,
+    documents: HashMap<String, (String, crate::blobs::BlobDestination)>,
     retired: HashSet<String>,
     files: HashMap<String, Finished>,
     requests: HashMap<(String, String), Option<String>>,
@@ -36,18 +36,23 @@ impl Recorder {
             file.recording.staged.discard();
         }
     }
-    pub fn register_session(&mut self, owner: &str, session: &str, app_id: &str) -> Result<()> {
+    pub fn register_session(
+        &mut self,
+        owner: &str,
+        session: &str,
+        app_id: &str,
+        account: Option<crate::device_owner::AccountIdentity>,
+    ) -> Result<()> {
         if session.is_empty() || session.len() > 128 || self.sessions.retired.contains(session) {
             return Err(RecorderError::not_recording("capture document has retired"));
         }
-        crate::blobs::blobs_directory(
-            std::path::Path::new(""),
-            &crate::blobs::BlobDestination {
-                app_id: app_id.into(),
-            },
-        )?;
+        let destination = crate::blobs::BlobDestination {
+            app_id: app_id.into(),
+            account,
+        };
+        crate::blobs::blobs_directory(std::path::Path::new(""), &destination)?;
         if let Some((current, current_app)) = self.sessions.documents.get(owner) {
-            if current == session && current_app == app_id {
+            if current == session && current_app == &destination {
                 return Ok(());
             }
             return Err(RecorderError::failed(
@@ -56,7 +61,7 @@ impl Recorder {
         }
         self.sessions
             .documents
-            .insert(owner.into(), (session.into(), app_id.into()));
+            .insert(owner.into(), (session.into(), destination));
         Ok(())
     }
 
@@ -74,7 +79,11 @@ impl Recorder {
         }
     }
 
-    pub fn session_app_id(&self, owner: &str, session: &str) -> Result<String> {
+    pub fn session_destination(
+        &self,
+        owner: &str,
+        session: &str,
+    ) -> Result<crate::blobs::BlobDestination> {
         self.require_session(owner, session)?;
         Ok(self.sessions.documents.get(owner).unwrap().1.clone())
     }

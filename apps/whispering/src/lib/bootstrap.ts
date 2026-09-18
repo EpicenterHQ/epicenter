@@ -23,8 +23,6 @@ export const canOpenShared = authClient.selectedServer !== null;
 const application = defineApplication({
 	appId: APPS.WHISPERING.id,
 	definition: whisperingDefinition,
-	// Pre-app-id storage prefix; the default AI binding reproduces the deleted seam.
-	settingsKey: 'whispering',
 	runtime,
 });
 const shouldOpen = !new URLSearchParams(location.search).has('connect');

@@ -1,3 +1,4 @@
+import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 import { createLogger } from 'wellcrafted/logger';
 import { type AiTransport, accountInference } from './ai.js';
 import type {
@@ -5,7 +6,6 @@ import type {
 	AiConnections,
 	CustomConnectionInput,
 } from './ai-connections.js';
-import { parseAiConnections } from './ai-connections.js';
 import type { AppAiBinding } from './index.js';
 import { createNativeInferenceTransport } from './native-ai.js';
 
@@ -56,23 +56,20 @@ function snapshot(value: unknown): Snapshot {
 
 /** One App's subscribed view of the desktop profile's durable catalog. */
 export function createDesktopAiConnections({
-	appId,
-	storageKey,
-	storage = window.localStorage,
+	account,
 	baseURL = window.location.origin,
 	fetch = globalThis.fetch.bind(globalThis),
 	openEvents = (url: string) => new EventSource(url, { withCredentials: true }),
 }: {
-	appId: string;
-	storageKey: string;
-	storage?: Pick<Storage, 'getItem'>;
+	account?: AccountIdentity;
 	baseURL?: string;
 	fetch?: AiTransport['fetch'];
 	openEvents?: (
 		url: string,
 	) => Pick<EventSource, 'onmessage' | 'onerror' | 'close'>;
 }): AiConnections {
-	const endpoint = new URL('/_epicenter/ai/', baseURL).href;
+	const owner = deviceOwnerPath(account).replaceAll('/', '_');
+	const endpoint = new URL(`/_epicenter/ai/${owner}/`, baseURL).href;
 	const controller = new AbortController();
 	const pending = new Set<Promise<unknown>>();
 	const initial = Promise.withResolvers<void>();
@@ -128,23 +125,6 @@ export function createDesktopAiConnections({
 		return operation;
 	}
 	const ready = (async () => {
-		// Browser migration normalizes pre-ID settings before the App opens. The host
-		// records this import durably, including empty imports and later deletions.
-		const raw = storage.getItem(`${storageKey}.app-ai-connections`);
-		if (raw !== null)
-			await execute({
-				type: 'import',
-				source: `${appId}:${storageKey}`,
-				records: parseAiConnections(raw).connections,
-			});
-		else if (
-			['app-ai', 'inference-connections', 'inference-targets'].some(
-				(suffix) => storage.getItem(`${storageKey}.${suffix}`) !== null,
-			)
-		)
-			throw new Error(
-				'Initialize saved AI settings before opening desktop connections.',
-			);
 		assertOpen();
 		events = openEvents(`${endpoint}events`);
 		events.onmessage = (event) => {
@@ -267,14 +247,13 @@ export function createDesktopAiConnections({
 }
 
 /** Same collection API; its persistence and credentials belong to the desktop host, and native file inference is the runtime transport. */
-export function createEpicenterHostAppAi(storageKey: string): AppAiBinding {
+export function createEpicenterHostAppAi(): AppAiBinding {
 	return {
 		account: accountInference,
 		runtime: createNativeInferenceTransport(),
-		connections: (appId) => createDesktopAiConnections({ appId, storageKey }),
+		connections: (_appId, account) => createDesktopAiConnections({ account }),
 	};
 }
 
 /** Default desktop composition selected by the package build condition. */
-export const createDefaultAppAi: (storageKey: string) => AppAiBinding =
-	createEpicenterHostAppAi;
+export const createDefaultAppAi: () => AppAiBinding = createEpicenterHostAppAi;

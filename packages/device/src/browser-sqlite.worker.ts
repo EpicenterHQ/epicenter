@@ -26,6 +26,7 @@
  * retry below asks it not to.
  */
 
+import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 import { createBrowserSqliteAdapter } from '@epicenter/sqlite/browser';
 import type { Database, Sqlite3Static } from '@sqlite.org/sqlite-wasm';
 import { Ok, tryAsync } from 'wellcrafted/result';
@@ -77,8 +78,12 @@ async function install() {
 	return { pool, sqlite };
 }
 
-function databaseFilename(appId: string, name: string): string {
-	return `/${encodeURIComponent(JSON.stringify([appId, 'local', name]))}.sqlite`;
+function databaseFilename(
+	appId: string,
+	name: string,
+	account?: AccountIdentity,
+): string {
+	return `/${encodeURIComponent(JSON.stringify([appId, deviceOwnerPath(account), name]))}.sqlite`;
 }
 
 // Capacity reservation and file allocation share the pool across app lifetimes.
@@ -90,11 +95,13 @@ function inPool<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 const owner = createSqliteOwner({
-	open(appId, name) {
+	open(appId, name, account) {
 		return inPool(async () => {
 			const { pool, sqlite } = await poolReady();
 			await pool.reserveMinimumCapacity(pool.getFileCount() + 2);
-			const database = new pool.OpfsSAHPoolDb(databaseFilename(appId, name));
+			const database = new pool.OpfsSAHPoolDb(
+				databaseFilename(appId, name, account),
+			);
 			return {
 				...sqliteOver(database, sqlite),
 				async close() {
@@ -103,9 +110,9 @@ const owner = createSqliteOwner({
 			};
 		});
 	},
-	delete(appId, name) {
+	delete(appId, name, account) {
 		return inPool(async () => {
-			const file = databaseFilename(appId, name);
+			const file = databaseFilename(appId, name, account);
 			const { pool } = await poolReady();
 			pool.unlink(file);
 			pool.unlink(`${file}-journal`);

@@ -200,7 +200,7 @@ test('missing locks, thrown requests and rejected requests preserve distinct cla
 		child.exited,
 	]);
 	expect({ stderr, exitCode }).toEqual({ stderr: '', exitCode: 0 });
-	const address = 'library:["so.epicenter.claim-errors",{"library":"local"}]';
+	const address = 'library:["so.epicenter.claim-errors","device","no-account"]';
 	expect(JSON.parse(stdout)).toEqual([
 		{ name: 'LocksUnsupported', address },
 		{ name: 'ClaimFailed', address, cause: 'request threw' },

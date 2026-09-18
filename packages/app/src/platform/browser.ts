@@ -12,7 +12,7 @@ import { createBrowserRecording } from '../recording/browser.js';
 
 export function createBrowserAppBlobs(): AppBlobFactory {
 	return ({ appId, account }) => {
-		const local = createBrowserBlobStore({ appId });
+		const local = createBrowserBlobStore({ appId, account });
 		return {
 			local,
 			sources: createBrowserBlobSources(local),

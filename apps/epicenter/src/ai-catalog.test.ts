@@ -5,13 +5,14 @@
  */
 import { afterEach, expect, spyOn, test } from 'bun:test';
 import * as filesystem from 'node:fs/promises';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createAiCatalog, type AiCatalog } from './ai-catalog.js';
+import { asPrincipalId } from '@epicenter/principal';
+import { type AiCatalog, createAiCatalog } from './ai-catalog.js';
 import {
-	createProcessMemoryAppSecrets,
 	type AppSecretOwner,
+	createProcessMemoryAppSecrets,
 } from './app-secrets.js';
 
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -47,6 +48,54 @@ async function add(catalog: AiCatalog, apiKey?: string) {
 	return catalog.getAll().connections.find((entry) => entry.id === result)!;
 }
 
+test('each account restores its own catalog and keys without adopting the no-account catalog', async () => {
+	const { catalog: local, dataRoot, secrets } = await setup();
+	await add(local, 'no-account-key');
+	const seen = new Set<string>();
+	for (const [authorityId, person] of [
+		['one', 'alice'],
+		['one', 'bob'],
+		['two', 'alice'],
+		['one', 'alice'],
+	]) {
+		const owner = `${authorityId}:${person}`;
+		const account = {
+			authorityId: authorityId!,
+			principalId: asPrincipalId(person!),
+		};
+		let authorization: string | null = null;
+		const catalog = await createAiCatalog({
+			dataRoot,
+			secrets,
+			account,
+			fetch: (async (_input, init) => {
+				authorization = new Headers(init?.headers).get('authorization');
+				return Response.json({ data: [] });
+			}) as typeof fetch,
+		});
+		try {
+			expect(catalog.getAll().connections).toHaveLength(
+				seen.has(owner) ? 1 : 0,
+			);
+			const entry = seen.has(owner)
+				? catalog.getAll().connections[0]!
+				: await add(catalog, owner);
+			const response = await catalog.proxy(
+				entry.id,
+				entry.accessVersion,
+				new Request('https://host.test/models'),
+				'models',
+			);
+			await response.text();
+			expect(authorization as string | null).toBe(`Bearer ${owner}`);
+			seen.add(owner);
+		} finally {
+			await catalog.close();
+		}
+	}
+	expect(local.getAll().connections).toHaveLength(1);
+});
+
 test('concurrent saves retain all records and restart preserves metadata without secrets', async () => {
 	const { catalog, dataRoot, secrets } = await setup();
 	await Promise.all([
@@ -57,7 +106,7 @@ test('concurrent saves retain all records and restart preserves metadata without
 	expect(snapshot.connections).toHaveLength(2);
 	expect(snapshot.revision).toBe(2);
 	const persisted = await readFile(
-		join(dataRoot, 'ai/connections.json'),
+		join(dataRoot, 'ai/no-account/connections.json'),
 		'utf8',
 	);
 	expect(persisted).not.toContain('private-alpha');
@@ -80,8 +129,9 @@ test('subscription starts immediately and publishes detached snapshots after com
 	expect(revisions).toEqual([0, 1]);
 	expect(catalog.getAll().connections).toHaveLength(1);
 	expect(
-		JSON.parse(await readFile(join(dataRoot, 'ai/connections.json'), 'utf8'))
-			.revision,
+		JSON.parse(
+			await readFile(join(dataRoot, 'ai/no-account/connections.json'), 'utf8'),
+		).revision,
 	).toBe(1);
 	stop();
 	await add(catalog);
@@ -221,7 +271,7 @@ test('failed keychain or metadata writes leave the saved catalog unchanged', asy
 	);
 	expect(catalog.getAll().connections).toEqual([]);
 	failKey = false;
-	await mkdir(join(dataRoot, 'ai/connections.json'));
+	await mkdir(join(dataRoot, 'ai/no-account/connections.json'));
 	await expect(add(catalog, 'secret')).rejects.toThrow(
 		'Could not save the AI catalog',
 	);
@@ -272,7 +322,7 @@ test('malformed saved metadata and endpoint credentials fail without exposing th
 	).rejects.toThrow('Invalid AI endpoint');
 	await catalog.close();
 	await writeFile(
-		join(dataRoot, 'ai/connections.json'),
+		join(dataRoot, 'ai/no-account/connections.json'),
 		'{"apiKey":"private"}',
 	);
 	await expect(createAiCatalog({ dataRoot, secrets })).rejects.toThrow(
@@ -388,7 +438,7 @@ test('metadata and destination edits preserve a missing credential reference wit
 	});
 	const entry = await add(catalog, 'lost-key');
 	const original = JSON.parse(
-		await readFile(join(dataRoot, 'ai/connections.json'), 'utf8'),
+		await readFile(join(dataRoot, 'ai/no-account/connections.json'), 'utf8'),
 	).connections[0];
 	await catalog.execute({
 		type: 'update',
@@ -409,7 +459,7 @@ test('metadata and destination edits preserve a missing credential reference wit
 	expect(changed.accessVersion).not.toBe(entry.accessVersion);
 	expect(changed.hasApiKey).toBe(true);
 	const persisted = JSON.parse(
-		await readFile(join(dataRoot, 'ai/connections.json'), 'utf8'),
+		await readFile(join(dataRoot, 'ai/no-account/connections.json'), 'utf8'),
 	).connections[0];
 	expect(persisted.secretVersion).toBe(original.secretVersion);
 	await expect(
@@ -501,7 +551,7 @@ test('a directory-sync failure retains old and newly committed keys after rename
 	const interception = spyOn(filesystem, 'open').mockImplementation(
 		async (...args) => {
 			const handle = await actualOpen(...args);
-			if (args[0] === join(dataRoot, 'ai')) {
+			if (args[0] === join(dataRoot, 'ai', 'no-account')) {
 				handle.sync = async () => {
 					directorySyncs++;
 					throw new Error('Directory sync unavailable');
@@ -522,7 +572,7 @@ test('a directory-sync failure retains old and newly committed keys after rename
 	expect(directorySyncs).toBe(1);
 	expect([...stored.values()].sort()).toEqual(['new-key', 'old-key']);
 	const committed = JSON.parse(
-		await readFile(join(dataRoot, 'ai/connections.json'), 'utf8'),
+		await readFile(join(dataRoot, 'ai/no-account/connections.json'), 'utf8'),
 	).connections[0];
 	expect(committed.accessVersion).toBe(
 		catalog.getAll().connections[0]!.accessVersion,

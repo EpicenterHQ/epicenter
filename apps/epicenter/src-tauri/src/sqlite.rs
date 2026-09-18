@@ -1,5 +1,6 @@
 //! One generation's physical SQLite resources. The TypeScript owner admits and
 //! orders work; this worker owns connections and never runs on the pipe reader.
+use crate::device_owner::{self, AccountIdentity};
 use rusqlite::{params_from_iter, types::ValueRef, Connection, InterruptHandle};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -40,11 +41,13 @@ pub struct Statement {
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Request {
     Open {
+        account: Option<AccountIdentity>,
         #[serde(rename = "appId")]
         app_id: String,
         name: String,
     },
     Delete {
+        account: Option<AccountIdentity>,
         #[serde(rename = "appId")]
         app_id: String,
         name: String,
@@ -224,7 +227,12 @@ struct Databases {
     stopped: Arc<AtomicBool>,
     interrupts: Arc<Mutex<HashMap<String, InterruptHandle>>>,
 }
-fn database_path(root: &std::path::Path, app_id: &str, name: &str) -> Result<PathBuf, String> {
+fn database_path(
+    root: &std::path::Path,
+    app_id: &str,
+    name: &str,
+    account: Option<&AccountIdentity>,
+) -> Result<PathBuf, String> {
     let labels = app_id.split('.').collect::<Vec<_>>();
     if labels.len() < 2
         || !labels.iter().all(|label| {
@@ -249,7 +257,8 @@ fn database_path(root: &std::path::Path, app_id: &str, name: &str) -> Result<Pat
     Ok(root
         .join("apps")
         .join(app_id)
-        .join("local")
+        .join("device")
+        .join(device_owner::path(account)?)
         .join("sqlite")
         .join(format!("{name}.sqlite")))
 }
@@ -310,8 +319,12 @@ impl Databases {
                     self.stopped.clone(),
                 )
             }
-            Request::Open { app_id, name } => {
-                let path = database_path(&self.root, &app_id, &name)?;
+            Request::Open {
+                app_id,
+                name,
+                account,
+            } => {
+                let path = database_path(&self.root, &app_id, &name, account.as_ref())?;
                 if self.connections.values().any(|(opened, _)| opened == &path) {
                     return Err("SQLite file is already open.".into());
                 }
@@ -333,8 +346,12 @@ impl Databases {
                 self.connections.insert(id.clone(), (path, connection));
                 Ok(json!({"connection":id}))
             }
-            Request::Delete { app_id, name } => {
-                let path = database_path(&self.root, &app_id, &name)?;
+            Request::Delete {
+                app_id,
+                name,
+                account,
+            } => {
+                let path = database_path(&self.root, &app_id, &name, account.as_ref())?;
                 if self.connections.values().any(|(opened, _)| opened == &path) {
                     return Err("SQLite file is still open.".into());
                 }
@@ -473,6 +490,75 @@ mod tests {
         json!({"kind":kind,"connection":connection,"statement":{"sql":sql,"parameters":[]}})
     }
     #[test]
+    fn native_requests_keep_each_account_database_separate() {
+        let root = tempfile::tempdir().unwrap();
+        let (tx, rx) = mpsc::sync_channel(64);
+        let mut worker = Worker::new(root.path().into(), 1, tx, Arc::new(AtomicBool::new(false)));
+        let mut seen = std::collections::HashSet::new();
+        for (authority, person) in [
+            ("one", "alice"),
+            ("one", "bob"),
+            ("two", "alice"),
+            ("one", "alice"),
+        ] {
+            let opened = request(
+                &worker,
+                &rx,
+                "open",
+                json!({"kind":"open","appId":"so.epicenter.mail","name":"cache","account":{"authorityId":authority,"principalId":person}}),
+            );
+            let connection = opened["data"]["connection"].as_str().unwrap();
+            assert_eq!(
+                request(
+                    &worker,
+                    &rx,
+                    "ddl",
+                    statement(
+                        "run",
+                        connection,
+                        "CREATE TABLE IF NOT EXISTS messages (id INTEGER)"
+                    )
+                )["status"],
+                "ok"
+            );
+            let count = request(
+                &worker,
+                &rx,
+                "count",
+                statement("all", connection, "SELECT count(*) AS n FROM messages"),
+            );
+            assert_eq!(
+                count["data"][0]["n"],
+                if seen.contains(&(authority, person)) {
+                    1
+                } else {
+                    0
+                }
+            );
+            if seen.insert((authority, person)) {
+                assert_eq!(
+                    request(
+                        &worker,
+                        &rx,
+                        "insert",
+                        statement("run", connection, "INSERT INTO messages VALUES (1)")
+                    )["status"],
+                    "ok"
+                );
+            }
+            assert_eq!(
+                request(
+                    &worker,
+                    &rx,
+                    "close",
+                    json!({"kind":"close","connection":connection})
+                )["status"],
+                "ok"
+            );
+        }
+        worker.stop();
+    }
+    #[test]
     fn values_transactions_and_scope_are_native_owned() {
         let root = tempfile::tempdir().unwrap();
         let (tx, rx) = mpsc::sync_channel(64);
@@ -564,7 +650,7 @@ mod tests {
         );
         assert!(!root
             .path()
-            .join("apps/so.epicenter.mail/local/sqlite/cache.sqlite")
+            .join("apps/so.epicenter.mail/device/no-account/sqlite/cache.sqlite")
             .exists());
         worker.stop();
     }
@@ -689,11 +775,12 @@ mod tests {
         ] {
             assert!(serde_json::from_value::<Request>(value).is_err());
         }
-        assert!(database_path(std::path::Path::new("/tmp"), "../escape", "cache").is_err());
+        assert!(database_path(std::path::Path::new("/tmp"), "../escape", "cache", None).is_err());
         assert!(database_path(
             std::path::Path::new("/tmp"),
             "so.epicenter.mail",
-            "../cache"
+            "../cache",
+            None
         )
         .is_err());
     }
@@ -701,16 +788,16 @@ mod tests {
     fn sqlite_paths_depend_only_on_application_and_database() {
         let root = std::path::Path::new("/tmp/device-sqlite-test");
         assert_eq!(
-            database_path(root, "so.epicenter.notes", "search").unwrap(),
-            root.join("apps/so.epicenter.notes/local/sqlite/search.sqlite")
+            database_path(root, "so.epicenter.notes", "search", None).unwrap(),
+            root.join("apps/so.epicenter.notes/device/no-account/sqlite/search.sqlite")
         );
         assert_ne!(
-            database_path(root, "so.epicenter.notes", "search").unwrap(),
-            database_path(root, "so.epicenter.mail", "search").unwrap()
+            database_path(root, "so.epicenter.notes", "search", None).unwrap(),
+            database_path(root, "so.epicenter.mail", "search", None).unwrap()
         );
         assert_ne!(
-            database_path(root, "so.epicenter.notes", "search").unwrap(),
-            database_path(root, "so.epicenter.notes", "other").unwrap()
+            database_path(root, "so.epicenter.notes", "search", None).unwrap(),
+            database_path(root, "so.epicenter.notes", "other", None).unwrap()
         );
     }
 }

@@ -145,10 +145,7 @@ test('declaring the default application acquires neither browser storage nor AI 
 	}
 });
 
-test.each([
-	undefined,
-	'legacy-settings',
-])('default resources preserve browser blob storage and AI settings key %s', async (settingsKey) => {
+test('default resources preserve blobs and the no-account AI catalog', async () => {
 	const appId = 'test.' + crypto.randomUUID();
 	const stored = new Map<string, string>();
 	const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
@@ -170,20 +167,22 @@ test.each([
 	const acquire = spyOn(resources.sqlite, 'acquire').mockImplementation(
 		sqlite.acquire,
 	);
-	const application = defineApplication({ appId, definition, settingsKey });
+	const application = defineApplication({ appId, definition });
 	const app = application.open();
 	try {
 		expectOk(await app.ready);
-		expect(acquire).toHaveBeenCalledWith(appId);
+		expect(acquire).toHaveBeenCalledWith(appId, undefined);
 		const blobId = expectOk(
 			await app.blobs.local.add(new Blob(['default bytes'])),
 		);
 		expect(await expectOk(await app.blobs.local.get(blobId)).text()).toBe(
 			'default bytes',
 		);
-		await app.device.connections.custom!.add({ baseUrl: 'https://inference.example/v1' });
+		await app.device.connections.custom!.add({
+			baseUrl: 'https://inference.example/v1',
+		});
 		expect([...stored.keys()]).toEqual([
-			`${settingsKey ?? appId}.app-ai-connections`,
+			'epicenter/ai/no-account.app-ai-connections',
 		]);
 		await app.close();
 		const reopened = application.open();
@@ -239,7 +238,7 @@ test('an explicit runtime selects all resources while explicit AI omits default 
 		expectOk(await app.ready);
 		expect(calls.sort()).toEqual(['blobs', 'recording', 'secrets', 'sqlite']);
 		expect(app.device.connections.custom).toBeNull();
-		expect((app.account?.connection ?? null)).toBeNull();
+		expect(app.account).toBeUndefined();
 		expect(app.device.connections.runtime).toBeNull();
 	} finally {
 		await app.close();

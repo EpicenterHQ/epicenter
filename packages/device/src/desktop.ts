@@ -6,27 +6,28 @@
  * Secrets use HTTP and survive SQLite closure.
  */
 
+import type { AccountIdentity } from '@epicenter/principal';
 import { Ok, type Result } from 'wellcrafted/result';
 import {
 	appIdOrThrow,
 	type Device,
 	DeviceError,
 	SecretError,
-	type SecretStore,
 	type SecretLabel,
+	type SecretStore,
 } from './index.js';
 import {
+	type AppSqliteTransport,
 	createAppSqlite,
 	createTransportSqliteOwner,
-	type AppSqliteTransport,
 } from './owner.js';
 import {
 	DEVICE_PATH,
-	parseSqliteFrame,
-	stringifySqliteFrame,
 	type DeviceRequest,
 	type DeviceResponse,
 	isDeviceResponse,
+	parseSqliteFrame,
+	stringifySqliteFrame,
 } from './protocol.js';
 
 export type CreateDesktopDeviceOptions = {
@@ -40,12 +41,12 @@ export function createDesktopSqliteOwner(
 	options: CreateDesktopDeviceOptions = {},
 ): import('./owner.js').DeviceSqliteOwner {
 	return {
-		async acquire(appId) {
+		async acquire(appId, account) {
 			const socket = createSqliteSocket(options);
 			try {
 				const lifetime = await createTransportSqliteOwner(
 					socket.request,
-				).acquire(appId);
+				).acquire(appId, account);
 				let closing: Promise<void> | undefined;
 				return {
 					open: lifetime.open,
@@ -215,8 +216,12 @@ export function createDesktopSecrets(
 	appId: string,
 	{
 		assertUsable,
+		account,
 		...options
-	}: CreateDesktopDeviceOptions & { assertUsable?: () => void } = {},
+	}: CreateDesktopDeviceOptions & {
+		assertUsable?: () => void;
+		account?: AccountIdentity;
+	} = {},
 ): { value: SecretStore; close(): Promise<void> } {
 	appIdOrThrow(appId);
 	const request = createOwnerRequest(options);
@@ -243,6 +248,7 @@ export function createDesktopSecrets(
 				return admitted(async () => {
 					const result = await request({
 						kind: 'secret-put',
+						account,
 						appId,
 						label,
 						value,
@@ -257,6 +263,7 @@ export function createDesktopSecrets(
 				return admitted(async () => {
 					const result = await request({
 						kind: 'secret-get',
+						account,
 						appId,
 						label,
 					});
@@ -274,6 +281,7 @@ export function createDesktopSecrets(
 				return admitted(async () => {
 					const result = await request({
 						kind: 'secret-delete',
+						account,
 						appId,
 						label,
 					});

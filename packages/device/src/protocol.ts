@@ -1,3 +1,4 @@
+import type { AccountIdentity } from '@epicenter/principal';
 import { isQueryResult, type QueryResult } from './query.js';
 /**
  * Messages exchanged by an application handle and the trusted desktop owner.
@@ -76,7 +77,7 @@ export type SqliteStatement = {
 	parameters?: readonly SqliteValue[];
 };
 
-type SqliteAddress = { appId: string };
+type SqliteAddress = { appId: string; account?: AccountIdentity };
 type SqliteSession = SqliteAddress & { lifetimeId: string };
 
 export type DeviceRequest =
@@ -113,17 +114,20 @@ export type DeviceRequest =
 	  })
 	| {
 			kind: 'secret-put';
+			account?: AccountIdentity;
 			appId: string;
 			label: string;
 			value: string;
 	  }
 	| {
 			kind: 'secret-get';
+			account?: AccountIdentity;
 			appId: string;
 			label: string;
 	  }
 	| {
 			kind: 'secret-delete';
+			account?: AccountIdentity;
 			appId: string;
 			label: string;
 	  };

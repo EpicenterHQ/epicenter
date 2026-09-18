@@ -28,7 +28,7 @@ export const PrincipalId = type('string').as<PrincipalId>();
 
 /**
  * The stable identity of one account, without credentials or network access.
- * A local library has no account and is represented by `null` at its opener.
+ * A device store may use this identity without any transport or synchronization.
  */
 export type AccountIdentity = {
 	readonly authorityId: string;

@@ -30,6 +30,12 @@ import {
 	stringifySqliteFrame,
 } from '@epicenter/device/protocol';
 import type { PendingCallback } from '@epicenter/local-mail/authorization-return';
+import {
+	type AccountIdentity,
+	asPrincipalId,
+	deviceOwnerPath,
+	isDeviceOwnerPath,
+} from '@epicenter/principal';
 import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { type Context, Hono, type Next } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
@@ -94,7 +100,7 @@ export type HomeServerOptions = {
 	/** Home's document and every compiled application's release build. */
 	staticAssets: EpicenterStaticAssets;
 	/** Canonical device-local bytes shared by every trusted app window. */
-	blobs: (appId: string) => BunBlobStore;
+	blobs: (appId: string, owner?: string) => BunBlobStore;
 	/** One credential owner for every compiled desktop window. */
 	desktopAuth: DesktopAuthAuthority;
 	/** Bun owner for app-scoped SQLite files. */
@@ -102,6 +108,7 @@ export type HomeServerOptions = {
 	/** Credential-store owner for one labeled secret per application account. */
 	appSecrets?: AppSecretOwner;
 	aiCatalog?: AiCatalog;
+	noAccountAiCatalog?: AiCatalog;
 };
 
 const SESSION_COOKIE = 'epicenter_session';
@@ -126,6 +133,7 @@ export function createHomeServer({
 	device,
 	appSecrets,
 	aiCatalog,
+	noAccountAiCatalog,
 }: HomeServerOptions) {
 	if (launchToken === '') {
 		throw new Error('Device refuses to serve without a launch token.');
@@ -254,7 +262,16 @@ export function createHomeServer({
 			return requireBrowserSession(c, next);
 		return requirePrivateBroker(c, next);
 	});
-	if (aiCatalog) app.route('/_epicenter/ai', createAiCatalogRoutes(aiCatalog));
+	if (aiCatalog)
+		app.route(
+			`/_epicenter/ai/${deviceOwnerPath(bootAccount ?? undefined).replaceAll('/', '_')}`,
+			createAiCatalogRoutes(aiCatalog),
+		);
+	if (bootAccount && noAccountAiCatalog)
+		app.route(
+			'/_epicenter/ai/no-account',
+			createAiCatalogRoutes(noAccountAiCatalog),
+		);
 
 	app.all('/_epicenter/account/http', async (c) => {
 		const account = desktopAuth.account;
@@ -296,7 +313,7 @@ export function createHomeServer({
 				c.req.raw.body !== null
 			)
 				return c.text('Invalid native blob upload', 400);
-			const store = blobs(appId);
+			const store = blobs(appId, deviceOwnerPath(account));
 			const stat = await store.stat(id);
 			if (stat.error)
 				return c.text(
@@ -598,6 +615,7 @@ export function createHomeServer({
 					request.appId,
 					request.label,
 					request.value,
+					request.account,
 				);
 				return c.json({ kind: request.kind } satisfies DeviceResponse);
 			}
@@ -606,6 +624,7 @@ export function createHomeServer({
 				const value = await appSecrets.get(
 					request.appId,
 					request.label,
+					request.account,
 				);
 				return c.json({
 					kind: request.kind,
@@ -614,7 +633,7 @@ export function createHomeServer({
 			}
 			if (request.kind === 'secret-delete') {
 				if (appSecrets === undefined) return c.text('Unavailable', 503);
-				await appSecrets.delete(request.appId, request.label);
+				await appSecrets.delete(request.appId, request.label, request.account);
 				return c.json({ kind: request.kind } satisfies DeviceResponse);
 			}
 			return c.text('Bad Request', 400);
@@ -710,35 +729,48 @@ export function createHomeServer({
 		}
 	});
 
-	type BlobEnv = { Variables: { appId: string; id: BlobId } };
+	type BlobEnv = { Variables: { appId: string; id: BlobId; owner: string } };
 	const blobApi = new Hono<BlobEnv>();
 	blobApi.use('*', async (c, next) => {
 		const appId = c.req.param('appId');
 		if (!appId || !isAppId(appId)) return c.text('Invalid application ID', 400);
 		c.set('appId', appId);
+		const owner = c.req.query('owner') ?? 'no-account';
+		if (!isDeviceOwnerPath(owner)) return c.text('Invalid storage owner', 400);
+		c.set('owner', owner);
 		await next();
 	});
 	blobApi.use('/:blobId/*', async (c, next) => {
 		const id = parseBlobId(c.req.param('blobId'));
-		if (!id || new URL(c.req.url).search !== '')
+		if (
+			!id ||
+			[...new URL(c.req.url).searchParams.keys()].some((key) => key !== 'owner')
+		)
 			return c.text('Invalid blob address', 400);
 		c.set('id', id);
 		await next();
 	});
 	blobApi.get('/', async (c) => {
 		const query = new URL(c.req.url).searchParams;
-		if ([...query.keys()].some((key) => key !== 'cursor' && key !== 'limit'))
+		if (
+			[...query.keys()].some(
+				(key) => key !== 'cursor' && key !== 'limit' && key !== 'owner',
+			)
+		)
 			return c.text('Invalid blob list options', 400);
 		const limit = query.get('limit');
 		const cursor = query.get('cursor');
-		const result = await blobs(c.var.appId).list({
+		const result = await blobs(c.var.appId, c.var.owner).list({
 			...(limit === null ? {} : { limit: Number(limit) }),
 			...(cursor === null ? {} : { cursor }),
 		});
 		return result.error ? c.text('Blob list failed', 400) : c.json(result.data);
 	});
 	blobApi.put('/:blobId', async (c) => {
-		const result = await blobs(c.var.appId).putRequest(c.var.id, c.req.raw);
+		const result = await blobs(c.var.appId, c.var.owner).putRequest(
+			c.var.id,
+			c.req.raw,
+		);
 		if (!result.error) return c.body(null, 201);
 		return c.text(
 			'Blob publication failed',
@@ -748,7 +780,7 @@ export function createHomeServer({
 	// Hono derives HEAD from GET; intercept it before file-body acquisition.
 	blobApi.use('/:blobId', async (c, next) => {
 		if (c.req.method !== 'HEAD') return next();
-		const result = await blobs(c.var.appId).stat(c.var.id);
+		const result = await blobs(c.var.appId, c.var.owner).stat(c.var.id);
 		if (result.error)
 			return c.text(
 				'Blob unavailable',
@@ -762,7 +794,7 @@ export function createHomeServer({
 		});
 	});
 	blobApi.get('/:blobId', async (c) => {
-		const result = await blobs(c.var.appId).openFile(c.var.id);
+		const result = await blobs(c.var.appId, c.var.owner).openFile(c.var.id);
 		if (result.error)
 			return c.text(
 				'Blob unavailable',
@@ -807,7 +839,7 @@ export function createHomeServer({
 		);
 	});
 	blobApi.delete('/:blobId', async (c) => {
-		const result = await blobs(c.var.appId).delete(c.var.id);
+		const result = await blobs(c.var.appId, c.var.owner).delete(c.var.id);
 		return result.error
 			? c.text('Blob deletion failed', 500)
 			: c.body(null, 204);
@@ -1020,8 +1052,30 @@ function parseDeviceRequest(
 		return undefined;
 	}
 	const kind = input.kind;
+	let account: AccountIdentity | undefined;
+	if (input.account !== undefined) {
+		const value = input.account;
+		if (
+			!value ||
+			typeof value !== 'object' ||
+			!('authorityId' in value) ||
+			!('principalId' in value) ||
+			typeof value.authorityId !== 'string' ||
+			typeof value.principalId !== 'string'
+		)
+			return undefined;
+		account = {
+			authorityId: value.authorityId,
+			principalId: asPrincipalId(value.principalId),
+		};
+		try {
+			deviceOwnerPath(account);
+		} catch {
+			return undefined;
+		}
+	}
 	if (kind.startsWith('sqlite-')) {
-		const address = { appId: input.appId };
+		const address = { appId: input.appId, account };
 		if (kind === 'sqlite-acquire') return { kind, ...address };
 		if (typeof input.lifetimeId !== 'string' || input.lifetimeId === '')
 			return undefined;
@@ -1088,19 +1142,20 @@ function parseDeviceRequest(
 			kind === 'secret-delete') &&
 		typeof input.label === 'string'
 	) {
-		if (!isSecretLabel(input.label))
-			return undefined;
+		if (!isSecretLabel(input.label)) return undefined;
 		if (kind === 'secret-put' && typeof input.value !== 'string')
 			return undefined;
 		return kind === 'secret-put'
 			? {
 					kind,
+					account,
 					appId: input.appId,
 					label: input.label,
 					value: input.value as string,
 				}
 			: {
 					kind,
+					account,
 					appId: input.appId,
 					label: input.label,
 				};

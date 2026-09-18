@@ -54,6 +54,7 @@ async function main(): Promise<void> {
 	let server: ReturnType<typeof Bun.serve> | undefined;
 	let lifecycleOwnsResources = false;
 	let aiCatalog: AiCatalog | undefined;
+	let noAccountAiCatalog: AiCatalog | undefined;
 
 	try {
 		const runtimeMode = parseRuntimeMode(Bun.argv);
@@ -77,13 +78,14 @@ async function main(): Promise<void> {
 		// Publication receipts and in-flight writes belong to the app for this
 		// host lifetime, including retries arriving in later HTTP requests.
 		const blobStores = new Map<string, BunBlobStore>();
-		const blobs = (appId: string) => {
-			let store = blobStores.get(appId);
+		const blobs = (appId: string, owner = 'no-account') => {
+			const key = JSON.stringify([appId, owner]);
+			let store = blobStores.get(key);
 			if (!store) {
 				store = createBunBlobStore({
-					directory: join(dataRoot, 'apps', appId, 'blobs'),
+					directory: join(dataRoot, 'apps', appId, 'device', owner, 'blobs'),
 				});
-				blobStores.set(appId, store);
+				blobStores.set(key, store);
 			}
 			return store;
 		};
@@ -91,7 +93,14 @@ async function main(): Promise<void> {
 		// The credential store is Rust's, reached over the private sidecar pipe.
 		// Bun sends two labels and never a keyring address (ADR-0310).
 		const appSecrets = createNativeAppSecrets(nativePort);
-		aiCatalog = await createAiCatalog({ dataRoot, secrets: appSecrets });
+		aiCatalog = await createAiCatalog({
+			dataRoot,
+			secrets: appSecrets,
+			account: auth.account ?? undefined,
+		});
+		noAccountAiCatalog = auth.account
+			? await createAiCatalog({ dataRoot, secrets: appSecrets })
+			: aiCatalog;
 
 		const appsDist = process.env.EPICENTER_APPS_DIST;
 		if (!appsDist) {
@@ -119,6 +128,7 @@ async function main(): Promise<void> {
 			device,
 			appSecrets,
 			aiCatalog,
+			noAccountAiCatalog,
 		});
 
 		server = Bun.serve({
@@ -139,6 +149,7 @@ async function main(): Promise<void> {
 					ownedDesktopAuth[Symbol.dispose]();
 					await Promise.all([
 						aiCatalog!.close(),
+						noAccountAiCatalog!.close(),
 						ownedHost[Symbol.asyncDispose](),
 					]);
 				},
@@ -150,7 +161,11 @@ async function main(): Promise<void> {
 		if (!lifecycleOwnsResources) {
 			if (server) void server.stop(true);
 			desktopAuth?.[Symbol.dispose]();
-			await Promise.all([aiCatalog?.close(), host?.[Symbol.asyncDispose]()]);
+			await Promise.all([
+				aiCatalog?.close(),
+				noAccountAiCatalog?.close(),
+				host?.[Symbol.asyncDispose](),
+			]);
 			await parentPipe.cancel();
 		}
 	}

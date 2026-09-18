@@ -474,7 +474,7 @@ impl Recorder {
     pub fn start(
         &mut self,
         requested_device: Option<&str>,
-        app_id: &str,
+        destination: &crate::blobs::BlobDestination,
         audio_blob_id: String,
         owner_label: String,
         app_handle: AppHandle,
@@ -497,7 +497,7 @@ impl Recorder {
         // Staging is opened before the microphone, so a recording that cannot be
         // written fails now rather than after an hour of captured speech.
         let capture = StagedCapture::open(
-            StagedBlob::for_app(&app_handle, app_id, &audio_blob_id)?,
+            StagedBlob::for_app(&app_handle, destination, &audio_blob_id)?,
             device_rate,
         )?;
 
@@ -1529,7 +1529,7 @@ mod tests {
         let worker = thread::spawn(move || await_resolution(capture, &cmd_rx));
         let mut recorder = Recorder::new();
         recorder
-            .register_session("owner", "document", "so.epicenter.test")
+            .register_session("owner", "document", "so.epicenter.test", None)
             .unwrap();
         let id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
         recorder.active = Some(HeldRecording {
@@ -1688,7 +1688,7 @@ mod tests {
         let root = staging_root();
         let mut recorder = Recorder::new();
         recorder
-            .register_session("window", "document", "so.epicenter.test")
+            .register_session("window", "document", "so.epicenter.test", None)
             .unwrap();
         assert!(recorder
             .resolve_start("window", "document", "late")
@@ -1733,7 +1733,7 @@ mod tests {
         let old = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
         let next = "blob_bbbbbbbbbbbbbbbbbbbbb.wav";
         recorder
-            .register_session("window", "document-1", "so.epicenter.test")
+            .register_session("window", "document-1", "so.epicenter.test", None)
             .unwrap();
         recording_owned_by(&mut recorder, &root, old, "window");
         recorder.remember_start("window", "document-1", "request-1", old);
@@ -1762,10 +1762,10 @@ mod tests {
             .is_err());
         recorder.close_document("window");
         assert!(recorder
-            .register_session("window", "document-1", "so.epicenter.test")
+            .register_session("window", "document-1", "so.epicenter.test", None)
             .is_err());
         recorder
-            .register_session("window", "document-2", "so.epicenter.test")
+            .register_session("window", "document-2", "so.epicenter.test", None)
             .unwrap();
         recording_owned_by(&mut recorder, &root, next, "window");
         recorder.close_session("window", "document-1");
@@ -1802,6 +1802,7 @@ mod tests {
             &data_root,
             &crate::blobs::BlobDestination {
                 app_id: app_id.into(),
+                account: None,
             },
         )
         .unwrap();
@@ -1813,7 +1814,7 @@ mod tests {
         let worker = thread::spawn(move || await_resolution(capture, &cmd_rx));
         let mut recorder = Recorder::new();
         recorder
-            .register_session("window", "document", app_id)
+            .register_session("window", "document", app_id, None)
             .unwrap();
         recorder.active = Some(HeldRecording {
             audio_blob_id: id.into(),
@@ -1846,7 +1847,7 @@ mod tests {
         let mut recorder = Recorder::new();
         let id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
         recorder
-            .register_session("window", "document", "so.epicenter.test")
+            .register_session("window", "document", "so.epicenter.test", None)
             .unwrap();
         recording_owned_by(&mut recorder, &root, id, "window");
         let first = recorder.stop_session("window", "document", id).unwrap();
@@ -1867,7 +1868,7 @@ mod tests {
         let id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
         let mut recorder = Recorder::new();
         recorder
-            .register_session("window", "document", "so.epicenter.test")
+            .register_session("window", "document", "so.epicenter.test", None)
             .unwrap();
         recording_owned_by(&mut recorder, &root, id, "window");
         // A occupied final entry must not be replaced, but finalization has

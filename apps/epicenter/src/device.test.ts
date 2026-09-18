@@ -7,6 +7,7 @@ import { expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { asPrincipalId } from '@epicenter/principal';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createBunDevice } from './test-sqlite.js';
 
@@ -16,6 +17,41 @@ async function setup() {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
 	return { root, owner: createBunDevice(root) };
 }
+
+test('account lifetimes hold independent files and reopen the same owner', async () => {
+	const { root, owner } = await setup();
+	const seen = new Set<string>();
+	try {
+		for (const [authorityId, principal] of [
+			['one', 'alice'],
+			['one', 'bob'],
+			['two', 'alice'],
+			['one', 'alice'],
+		]) {
+			const key = `${authorityId}:${principal}`;
+			const lifetime = await owner.acquire(appId, {
+				authorityId: authorityId!,
+				principalId: asPrincipalId(principal!),
+			});
+			try {
+				const db = await lifetime.open('mail');
+				expectOk(
+					await db.run('CREATE TABLE IF NOT EXISTS messages (owner TEXT)'),
+				);
+				expect(expectOk(await db.all('SELECT owner FROM messages'))).toEqual(
+					seen.has(key) ? [{ owner: key }] : [],
+				);
+				if (!seen.has(key))
+					expectOk(await db.run('INSERT INTO messages VALUES (?)', [key]));
+				seen.add(key);
+			} finally {
+				await lifetime.close();
+			}
+		}
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
 
 test('close retains file contents and refuses the retired lifetime', async () => {
 	const { root, owner } = await setup();
@@ -81,7 +117,15 @@ test('delete removes database sidecars and reopening never revives an old handle
 	const lifetime = await owner.acquire(appId);
 	const database = await lifetime.open('mail');
 	expectOk(await database.run('CREATE TABLE messages (id TEXT)'));
-	const path = join(root, 'apps', appId, 'local', 'sqlite', 'mail.sqlite');
+	const path = join(
+		root,
+		'apps',
+		appId,
+		'device',
+		'no-account',
+		'sqlite',
+		'mail.sqlite',
+	);
 	// Closed SQLite may remove its own journals; leftover sidecars must go too.
 	await Bun.write(`${path}-journal`, 'orphaned journal');
 	await lifetime.delete('mail');
@@ -114,26 +158,32 @@ test('concurrent open, delete, and reopen settle in issue order', async () => {
 });
 
 test('each app has one lifetime and independent files', async () => {
- const { root, owner } = await setup();
- const first = await owner.acquire(appId);
- await expect(owner.acquire(appId)).rejects.toThrow();
- const database = await first.open('mail');
- expectOk(await database.run('CREATE TABLE marker (value INTEGER)'));
- expectOk(await database.run('INSERT INTO marker VALUES (1)'));
- const other = await owner.acquire('so.epicenter.other');
- expect(expectOk(await (await other.open('mail')).all('SELECT name FROM sqlite_master'))).toEqual([]);
- await first.close();
- const reopened = await owner.acquire(appId);
- expect(expectOk(await (await reopened.open('mail')).all('SELECT value FROM marker'))).toEqual([{value: 1}]);
- await Promise.all([reopened.close(), other.close()]);
- await rm(root, { recursive: true });
+	const { root, owner } = await setup();
+	const first = await owner.acquire(appId);
+	await expect(owner.acquire(appId)).rejects.toThrow();
+	const database = await first.open('mail');
+	expectOk(await database.run('CREATE TABLE marker (value INTEGER)'));
+	expectOk(await database.run('INSERT INTO marker VALUES (1)'));
+	const other = await owner.acquire('so.epicenter.other');
+	expect(
+		expectOk(
+			await (await other.open('mail')).all('SELECT name FROM sqlite_master'),
+		),
+	).toEqual([]);
+	await first.close();
+	const reopened = await owner.acquire(appId);
+	expect(
+		expectOk(
+			await (await reopened.open('mail')).all('SELECT value FROM marker'),
+		),
+	).toEqual([{ value: 1 }]);
+	await Promise.all([reopened.close(), other.close()]);
+	await rm(root, { recursive: true });
 });
 
 test('owner validates scope and database names before constructing paths', async () => {
 	const { root, owner } = await setup();
-	await expect(
-		owner.acquire('../escape'),
-	).rejects.toThrow();
+	await expect(owner.acquire('../escape')).rejects.toThrow();
 	const lifetime = await owner.acquire(appId);
 	await expect(lifetime.open('../escape')).rejects.toThrow();
 	await expect(lifetime.delete('../escape')).rejects.toThrow();

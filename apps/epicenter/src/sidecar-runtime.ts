@@ -1,3 +1,4 @@
+import type { AccountIdentity } from '@epicenter/principal';
 import type { NativeSqliteRequest } from './device.js';
 /**
  * The private Rust-to-Bun startup protocol and the Bun sidecar lifecycle.
@@ -336,17 +337,20 @@ export function createNativePort(
 			| { type: 'open-auth-url'; url: string }
 			| {
 					type: 'put-app-secret';
+					account?: AccountIdentity;
 					appId: string;
 					label: string;
 					value: string;
 			  }
 			| {
 					type: 'get-app-secret';
+					account?: AccountIdentity;
 					appId: string;
 					label: string;
 			  }
 			| {
 					type: 'delete-app-secret';
+					account?: AccountIdentity;
 					appId: string;
 					label: string;
 			  },
@@ -448,15 +452,18 @@ export function createNativePort(
 			appId: string,
 			label: string,
 			value: string,
+			account?: AccountIdentity,
 		) {
-			await request({ type: 'put-app-secret', appId, label, value });
+			await request({ type: 'put-app-secret', appId, label, value, account });
 		},
 		async getAppSecret(
 			appId: string,
 			label: string,
+			account?: AccountIdentity,
 		) {
 			const value = await request({
 				type: 'get-app-secret',
+				account,
 				appId,
 				label,
 			});
@@ -467,8 +474,9 @@ export function createNativePort(
 		async deleteAppSecret(
 			appId: string,
 			label: string,
+			account?: AccountIdentity,
 		) {
-			await request({ type: 'delete-app-secret', appId, label });
+			await request({ type: 'delete-app-secret', appId, label, account });
 		},
 		async closeApplications() {
 			await request({ type: 'close-applications' });

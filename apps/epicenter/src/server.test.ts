@@ -218,8 +218,8 @@ function testDataDir(): string {
 function createTestBlobs(): HomeServerOptions['blobs'] {
 	const directory = testDataDir();
 	const stores = new Map<string, BunBlobStore>();
-	return (appId) => {
-		const key = appId;
+	return (appId, owner) => {
+		const key = JSON.stringify([appId, owner]);
 		let store = stores.get(key);
 		if (store === undefined) {
 			store = createBunBlobStore({
@@ -1355,6 +1355,29 @@ describe("Local Mail's desktop authorization callback", () => {
 });
 
 describe('local blob routes', () => {
+	test('the same blob ID reads different bytes for each device owner', async () => {
+		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
+		const blobs = createTestBlobs();
+		const id = generateBlobId('txt');
+		const owners = ['no-account', 'accounts/61/61', 'accounts/61/62'];
+		for (const owner of owners) {
+			expectOk(await blobs(TEST_APP_ID, owner).put(id, new Blob([owner])));
+		}
+		const server = await serveHost(host, PAGE, { blobs });
+		try {
+			for (const owner of owners) {
+				const response = await fetch(
+					`${server.url.origin}${testBlobUrl(id)}?owner=${encodeURIComponent(owner)}`,
+					{ headers: authenticatedHeaders(server) },
+				);
+				expect(response.status).toBe(200);
+				expect(await response.text()).toBe(owner);
+			}
+		} finally {
+			await server.stop(true);
+		}
+	});
+
 	test('GET, range, cancellation and 416 release borrowed files while HEAD opens none', async () => {
 		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
 		const directory = testDataDir();
@@ -1958,7 +1981,15 @@ describe('sidecar end-to-end smoke', () => {
 			expect(put.status).toBe(201);
 			expect(
 				await Bun.file(
-					join(dataDir, 'apps', 'so.epicenter.whispering', 'blobs', blobId),
+					join(
+						dataDir,
+						'apps',
+						'so.epicenter.whispering',
+						'device',
+						'no-account',
+						'blobs',
+						blobId,
+					),
 				).text(),
 			).toBe('native-selected bytes');
 			expect(

@@ -3,6 +3,7 @@ import type { BlobSources, BlobStore, RemoteBlobs } from '@epicenter/blobs';
 import { isAppId } from '@epicenter/constants/app-id';
 import type { DataDefinition } from '@epicenter/data/definition';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
+import type { AccountIdentity } from '@epicenter/principal';
 import { createDefaultAppAi } from '#platform/ai';
 import { resources } from '#platform/resources';
 import type { AiTransport } from './ai.js';
@@ -29,7 +30,10 @@ export type AppBlobFactory = (input: {
 export type Application<TDefinition extends DataDefinition> = {
 	readonly appId: string;
 	/** Open device storage, plus account stores when an Account is supplied. */
-	open(account?: Account): App<TDefinition>;
+	open(): App<TDefinition, undefined>;
+	open<TAccount extends Account | undefined>(
+		account: TAccount,
+	): App<TDefinition, TAccount>;
 };
 
 /** Complete implementation selection; App owns the opened resources.
@@ -47,13 +51,11 @@ export type ApplicationRuntime = {
 export function defineApplication<const TDefinition extends DataDefinition>({
 	appId,
 	definition,
-	settingsKey,
 	runtime = resources,
-	ai = createDefaultAppAi(settingsKey ?? appId),
+	ai = createDefaultAppAi(),
 }: {
 	appId: string;
 	definition: TDefinition;
-	settingsKey?: string;
 	runtime?: ApplicationRuntime;
 	ai?: AppAiBinding;
 }): Application<TDefinition> {
@@ -61,11 +63,16 @@ export function defineApplication<const TDefinition extends DataDefinition>({
 		throw new Error(`The application id '${appId}' is not valid.`);
 	const { sqlite, secrets, blobs, recording } = runtime;
 	const options = { appId, sqlite, secrets, blobs, recording, ai };
+	function open(): App<TDefinition, undefined>;
+	function open<TAccount extends Account | undefined>(
+		account: TAccount,
+	): App<TDefinition, TAccount>;
+	function open(account?: Account) {
+		return openApp(definition, { ...options, account });
+	}
 	return Object.freeze({
 		appId,
-		open(account?: Account) {
-			return openApp(definition, { ...options, account });
-		},
+		open,
 	});
 }
 
@@ -73,6 +80,6 @@ export function defineApplication<const TDefinition extends DataDefinition>({
 export type AppAiBinding = {
 	runtime: AiTransport | null;
 	account: ((account: Account) => AiTransport) | null;
-	connections?: (appId: string) => AiConnections;
+	connections?: (appId: string, account?: AccountIdentity) => AiConnections;
 	configuredFetch?: AiTransport['fetch'];
 };

@@ -1,6 +1,13 @@
-/** Canonical app-local bytes. No account, library, filesystem path, or credential. */
-export type BlobDestination = { appId: string };
+/** Native wire destination: application and credential-free storage owner. */
+import type { AccountIdentity } from '@epicenter/principal';
+export type BlobDestination = {
+	appId: string;
+	account: AccountIdentity | null;
+};
 
-export function blobDestination(appId: string): BlobDestination {
-	return { appId };
+export function blobDestination(
+	appId: string,
+	account?: AccountIdentity,
+): BlobDestination {
+	return { appId, account: account ?? null };
 }

@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 
 import { isAppId } from '@epicenter/constants/app-id';
+import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 import { Err, Ok, tryAsync } from 'wellcrafted/result';
 import { type BlobId, parseBlobId } from './blob-id.js';
 import { blobListOptions, isBlobMetadata } from './blob-metadata.js';
@@ -22,15 +23,19 @@ type HttpFetch = (
 /** Capture one app-local namespace on the authenticated desktop origin. */
 export function createWebviewBlobs({
 	appId,
+	account,
 	fetch: fetcher = globalThis.fetch,
 }: {
 	appId: string;
+	account?: AccountIdentity;
 	fetch?: HttpFetch;
 }): { local: BlobStore; sources: BlobSources } {
 	if (typeof appId !== 'string' || !isAppId(appId))
 		throw new TypeError('Invalid blob application ID.');
 	const prefix = `/api/apps/${encodeURIComponent(appId)}/blobs`;
-	const blobUrl = (id: BlobId) => `${prefix}/${id}`;
+	const owner = deviceOwnerPath(account);
+	const blobUrl = (id: BlobId) =>
+		`${prefix}/${id}?owner=${encodeURIComponent(owner)}`;
 	async function request(id: BlobId, init: RequestInit) {
 		return tryAsync({
 			try: () => {
@@ -50,7 +55,7 @@ export function createWebviewBlobs({
 			return tryAsync({
 				try: async () => {
 					const { cursor, limit } = blobListOptions(options);
-					const query = new URLSearchParams({ limit: String(limit) });
+					const query = new URLSearchParams({ limit: String(limit), owner });
 					if (cursor !== undefined) query.set('cursor', cursor);
 					const response = await fetcher(`${prefix}?${query}`, {
 						method: 'GET',

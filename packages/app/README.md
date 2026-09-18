@@ -5,6 +5,16 @@ stores for one page lifetime. Whoever opens it stops product work and awaits
 `app.close()` before replacing the account. Screens borrow a store or capability;
 the page coordinates departure.
 
+The captured account scopes local storage as well as synchronized stores.
+`open()` and `open(undefined)` select a separate `no-account` namespace.
+Signing in never adopts that namespace; returning to an account restores its
+own device data. Device storage stays local even when it belongs to an account.
+The return type preserves the argument: `open(account)` with a definite Account
+has a definite `app.account`; opening without one gives `account: undefined`.
+A union argument retains the union. After `if (app.account)`, callers can pass
+that scope to components requiring an account. This checks the captured
+identity, not network reachability or authorization for a particular request.
+
 ```ts
 import { defineApplication } from '@epicenter/app';
 
@@ -16,7 +26,7 @@ const app = application.open(account);
 try {
  const result = await app.ready;
  if (result.error !== null) throw result.error;
- // Device state is always available; account stores are nullable.
+ // Device state always exists; account presence follows the opening argument.
  app.device.tables;
  app.device.sqlite;
  app.account?.personal.tables;
@@ -37,8 +47,8 @@ conditions with runtime platform selection; that separate change is unbuilt.
 An independent `ai` binding replaces all default AI configuration.
 The text clipboard is not part of any runtime: `@epicenter/app/clipboard` is a
 standalone platform module, described under [Clipboard](#clipboard).
-`settingsKey` preserves an existing local AI-settings namespace; new applications
-default to their app ID.
+Custom AI configuration uses one account-scoped catalog across applications
+in the same profile/origin. Application declarations do not choose its storage key.
 
 The scope API implements the opener portion of ADR-0392. ADR-0391's removal of
 runtime overrides and ADR-0396's connection protocol remain separate proposals.
@@ -103,9 +113,11 @@ The default AI binding follows the package's build condition (a runtime check un
 
 | Environment | Connection persistence | Credentials |
 | --- | --- | --- |
-| Standalone browser | `${settingsKey}.app-ai-connections` in origin-local `localStorage` | Optional key in that local record |
-| `epicenter-host` | `ai/connections.json` under the host's profile data directory, shared across its apps | OS keychain, reached through the host broker |
+| Standalone browser | `epicenter/ai/<owner>.app-ai-connections` in origin-local `localStorage` | Optional key in that local record |
+| `epicenter-host` | `ai/<owner>/connections.json` under the host's profile data directory, shared across that account's apps | Account-scoped OS keychain, reached through the host broker |
 
+`<owner>` is `no-account` or `accounts/<encoded-authority>/<encoded-principal>`.
+Identity components use UTF-8 hex to preserve case on native filesystems.
 Desktop sharing stays on one profile and does not sync between devices. The host
 serializes mutations and sends committed snapshots over SSE to open app windows.
 Browser mutations use a Web Lock, reread current storage before writing, and
@@ -125,11 +137,9 @@ inside the same lock. A connection-only consumer can use
 `initializeAiConnections({ storage, storageKey, locks })` from
 `@epicenter/app/ai-connections` for already-normalized records.
 
-Desktop opening imports those normalized product records into the host catalog
-before readiness. The host records each product import durably, preserving IDs
-and optional keys. Reopening never resurrects subsequently deleted entries.
-Conflicting existing IDs fail opening instead of overwriting another endpoint.
-Legacy browser bytes remain recovery data. New desktop saves go to the host.
+Desktop opening reads the matching account's host catalog. Old product-scoped
+and profile-wide catalogs remain untouched and are not imported automatically.
+New desktop saves go to the account's host catalog.
 
 The [native catalog acceptance](scripts/shared-ai-catalog-native/README.md)
 exercises two installed test apps through real macOS WebViews and the Rust
@@ -143,7 +153,7 @@ synchronously and begins acquisition. `app.ready` resolves when every opened
 store and the inference catalog are ready, or returns an opening failure.
 `open()` or `open(undefined)` performs no authority request or sync dial.
 
-`app.device` always exists. `app.account` is null when signed out. Otherwise it
+`app.device` always exists. `app.account` is undefined when opened without an account. Otherwise it
 contains credential-free `identity`, `personal`, nullable `shared`, and nullable
 inference `connection`. Shared is available when the Account declares `supportsShared`, including named
 people on a self-hosted server. Each store has its own tables, KV, persistence, and sync status.
@@ -209,11 +219,12 @@ URL returned by remote `add`, never a temporary display URL. The remote locator
 includes server, app, authenticated owner, and object ID. Reads require that
 account; sharing a row does not grant another account access to its audio.
 
-Browser bytes live in `epicenter/<appId>/blobs` within the browser origin/profile.
-Desktop bytes are ordinary files at `<dataRoot>/apps/<appId>/blobs/<blobId>`.
+Browser bytes live in `epicenter/<appId>/device/<owner>/blobs` within the browser origin/profile.
+Desktop bytes are ordinary files at `<dataRoot>/apps/<appId>/device/<owner>/blobs/<blobId>`.
 Browser records contain `{ id, bytes, size }`; an index supports listing and
-size checks without reading the audio. All libraries of one app on that device share
-this local namespace. Signing out does not erase it. Remote storage is scoped
+size checks without reading the audio. All libraries in one captured App share
+this local namespace. Changing accounts selects another namespace; signing out
+does not erase the previous account's bytes. Remote storage is scoped
 by account and app. The user confirmed zero users and no existing data for the
 complete-key cutover. No migration, reset, or fallback reader runs.
 
@@ -222,7 +233,7 @@ may explicitly delete a known local key or remote object when its product
 workflow chooses to; storage never infers row ownership or performs automatic
 cleanup.
 
-Tools without a data library can use `createLocalBlobs({ appId })` and
+Tools without a data library can use `createLocalBlobs({ appId, account })` and
 `createRemoteBlobs({ appId, account })` from `@epicenter/app/blobs`. These browser/host constructors select
 the same platform storage as the App and expose `close()` for their independent
 request and display lifetimes. Bun scripts can use `@epicenter/blobs/bun` over
@@ -234,7 +245,7 @@ import { createBunBlobStore } from '@epicenter/blobs/bun';
 
 // The CLI receives the chosen profile's dataRoot explicitly.
 const storage = createBunBlobStore({
- directory: join(dataRoot, 'apps', appId, 'blobs'),
+ directory: join(dataRoot, 'apps', appId, 'device', 'no-account', 'blobs'),
 });
 const page = await storage.list({ limit: 100 });
 ```
@@ -281,18 +292,18 @@ Browser acquisition receives one account and library and derives both the local
 cache address and sync routes from them. It cannot pair one account's cache
 with another account's transport.
 
-`app.device.sqlite.open(name)` and `delete(name)` address a file by app ID and
-database name. Desktop files live at `<dataRoot>/apps/<appId>/local/sqlite/<name>.sqlite`;
-browser files use the serialized `[appId, "local", name]` tuple in the OPFS pool. Each app
+`app.device.sqlite.open(name)` and `delete(name)` address a file by app ID,
+captured account, and database name. Desktop files live at
+`<dataRoot>/apps/<appId>/device/<owner>/sqlite/<name>.sqlite`; browser files use
+the serialized `[appId, owner, name]` tuple in the OPFS pool. Each app/owner
 has one exclusive SQLite lifetime. Data-library claims remain separate.
 
 `app.device.secrets.put(label, value)`, `get(label)`, and `delete(label)` address
-credentials by app ID and label. Browser secrets remain in document memory;
+credentials by app ID, captured account, and label. Browser secrets remain in document memory;
 desktop secrets live in the keychain. Closing App preserves values. Secrets
-never enter synchronized rows. Neither SQLite nor secrets change namespace
-when the Epicenter account changes. Earlier account-scoped storage is not
-merged or deleted by this change. Existing device paths and keychain addresses
-are preserved.
+never enter synchronized rows. SQLite, secrets, device tables, blobs, and native
+recording use the same captured owner. Earlier storage is neither merged nor
+deleted; reconnect providers in the intended account namespace.
 
 `app.device.recording.start({})` acquires disposable capture. Successful Stop saves
 locally and returns a blob ID, duration, and byte length; it creates no row.
