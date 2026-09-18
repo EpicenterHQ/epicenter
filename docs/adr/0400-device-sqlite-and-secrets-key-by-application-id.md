@@ -1,7 +1,8 @@
 # 0400. Device SQLite and secrets key by application id
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-09-12
+- **Superseded by:** [ADR-0404](0404-the-opened-account-owns-application-local-storage.md): the captured account now scopes device storage as well as synchronized stores.
 - **Amends:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at the storage address of named SQLite files: `sqlite/<database-name>.sqlite` lives under the existing `local/` directory only, independent of the signed-in account. The data and blob addresses in that tree stand.
 - **Relates:** [ADR-0352](0352-an-account-s-data-and-a-device-s-files-are-two-packages-because-only-one-of-them-is-removed.md) (a device file is scoped by app, a replica by app and principal), [ADR-0310](0310-an-applications-provider-credential-is-a-labeled-secret-and-the-browser-keeps-none.md) (a secret is namespaced per application), [ADR-0306](0306-borrowed-data-is-disposable-and-a-persons-own-data-is-not.md) (what a device database holds), [ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) (the scope that owns both)
 - **Implemented:** 2026-09-18. SQLite owner, browser worker, host protocol, native paths, and secret stores accept app identity without replica/account scope. Existing device paths and serialized keychain addresses are preserved. Account namespaces are not merged or deleted.

@@ -2,10 +2,12 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
+- **Scope:** The flat declaration, common schema, and account-owned local storage are accepted separately in ADR-0405, ADR-0406, and ADR-0404. The remaining connection protocol proposals in this record are not accepted by those decisions.
+- **Unbuilt:** The unified connection protocol and remaining preference/selection persistence migrations.
 - **Supersedes:** [ADR-0389](0389-the-open-call-decides-the-app-s-type-and-a-local-app-has-no-account-members.md) at the opener shape: there is one `open(account)` and one object, so there is no `App` union discriminated by a `library` member and no account-only App type. Its rule that a store with no authority answers `sync.status()` with `undefined` stands as the behavior of `app.device`.
 - **Amends:** [ADR-0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) at "one library": a page owns one auth generation, not one library, and close-before-replacement on an account change stands; [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at the opening API: one open returns every library the person can reach, and the common data API, readiness, and closure remain; [ADR-0388](0388-the-app-owns-what-a-library-scopes-and-the-package-s-modules-supply-what-the-device-supplies.md) at the spelling of an App capability: a capability reads under the scope that owns it, so `sqlite` and `secrets` read as `app.device.sqlite` and `app.device.secrets`; [ADR-0390](0390-the-app-is-the-unit-of-ownership-and-a-capability-is-the-unit-of-sharing.md) at the spelling of the shared surface: shared code takes `app.device.connections` and `app.account?.connection` instead of `Pick<App, 'ai' | 'account'>`; its ownership rule stands.
-- **Relates:** [ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md) (the access surface, revised in place to `app.device.connections` and `app.account.connection`), [ADR-0375](0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md) (the three library names a person reads), [ADR-0399](0399-moving-data-into-an-account-is-a-row-copy.md) (optional application-owned copying), [ADR-0400](0400-device-sqlite-and-secrets-key-by-application-id.md) (how the device surfaces key), [ADR-0401](0401-a-record-names-its-destination-at-creation.md) (how a write picks a store), [ADR-0396](0396-a-connection-transcribes-and-owns-the-four-rules.md) (the one verb a connection carries), [ADR-0363](0363-an-inference-selection-identifies-the-connection-and-model.md) (the selection `device.kv` stores)
-- **Implementation checkpoint, 2026-09-18:** `application.open(account?: Account)` now returns device and account scopes together. All App callers use the new opener. Shared is available when the auth-owned Account declares `supportsShared`; public operations share App readiness and lifetime. SQLite and secrets use app-only scope (ADR-0400). `app.libraryReplaced` is a notification; cache invalidation and explicit retry belong to `close()`, with `canRetryClose` reporting eligibility. Page departure must quiesce producers before releasing resources. `device.connections` currently groups `runtime` and `custom` SDK capabilities; the unified connection protocol, separate device data declaration, and remaining Whispering preference/selection migrations below are still proposed.
+- **Relates:** [ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md) (the access surface, revised in place to `app.device.connections` and `app.account.connection`), [ADR-0375](0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md) (the three library names a person reads), [ADR-0399](0399-moving-data-into-an-account-is-a-row-copy.md) (optional application-owned copying), [ADR-0404](0404-the-opened-account-owns-application-local-storage.md) (how local storage is owned), [ADR-0401](0401-a-record-names-its-destination-at-creation.md) (how a write picks a store), [ADR-0396](0396-a-connection-transcribes-and-owns-the-four-rules.md) (the one verb a connection carries), [ADR-0363](0363-an-inference-selection-identifies-the-connection-and-model.md) (the selection `device.kv` stores)
+- **Implementation checkpoint, 2026-09-18:** `application.open(account?: Account)` now returns device and account scopes together. All App callers use the new opener. Shared is available when the auth-owned Account declares `supportsShared`; public operations share App readiness and lifetime. At that checkpoint SQLite and secrets used app-only scope; ADR-0404 replaces that decision with account-owned local storage. `app.libraryReplaced` is a notification; cache invalidation and explicit retry belong to `close()`, with `canRetryClose` reporting eligibility. Page departure must quiesce producers before releasing resources. `device.connections` currently groups `runtime` and `custom` SDK capabilities; the unified connection protocol and remaining Whispering preference/selection migrations below are still proposed. ADR-0406 rejects the separate device data declaration.
 
 ## Context
 
@@ -24,28 +26,27 @@ a library: Local, Personal, or Shared. Compute happens on a machine or a server:
 this device's native runtime, a custom endpoint, or the account's gateway. The
 account gateway serves both Personal and Shared on its server with one bearer.
 The native runtime transcribes a recording whichever library it was saved to. A
-custom endpoint is shared across desktop apps and belongs to no library. A
+custom endpoint is shared across the same account's desktop apps and belongs to no library. A
 design that lists libraries and connections as peers at the root, then splits
 the connections again by machine versus account inside an `ai` member, states
 the second gradation twice and the first one once.
 
-What every member does share is an owner. A microphone, a global shortcut, a
-native runtime, a custom endpoint, a credential, and a recording made without
-an account are true of this machine and stay true after sign-out. A personal
-library, a shared library, and the server's inference gateway are true of the
-signed-in person and end with the auth generation.
+Locality and ownership are separate. A microphone and native runtime are
+device capabilities. Stored rows, credentials, files, and custom endpoints
+belong to the account captured at opening, even when they never synchronize.
+Opening without an account selects a separate namespace (ADR-0404).
 
 ## Decision
 
-**One open returns an App with two scopes. `device` is always present and is
-everything true of this machine. `account` is present when a person is signed
-in and is everything true of that person on one server. Each store sits under
-the scope that owns it.**
+**One open captures an owner and returns device and account capabilities.
+`device` always exists and holds that owner's local data. `account` is defined
+when the opener receives an Account; otherwise its value is `undefined`.
+The return type preserves which argument was supplied.**
 
 ```ts
 const app = application.open(account);        // account is Account | undefined
 
-app.device                              // this machine; never synced
+app.device                              // captured owner's data here; never synced
   .kv  .tables                         // Local rows
   .sqlite  .secrets                     // borrowed data and credentials
   .connections                          // native runtime and custom endpoints
@@ -69,7 +70,7 @@ Opening several stores requires neither a destination picker nor an "Add to
 account" feature (ADR-0399). These handles now exist. The remaining connection and declaration changes below
 are separate from the opener migration.
 
-**`device` is the machine's store and the machine's reach.** Its `kv` holds
+**`device` is the captured owner's local store and device capabilities.** Its `kv` holds
 device preferences and workflow selections: the microphone, the global
 shortcuts, and the inference selection of ADR-0363. Its tables
 hold data a person created without an account or chose to keep on this
@@ -78,17 +79,16 @@ types `device`. Its `sqlite` holds borrowed or derived tabular data for any
 library, opened by name (ADR-0306). Its `secrets` holds credentials
 (ADR-0310). Its `connections` is the catalog of endpoints this machine can
 reach without an account: the native runtime the host supplies and the custom
-endpoints a person added, shared across desktop apps (ADR-0365). Its
+endpoints a person added, shared across that account's desktop apps (ADR-0365). Its
 `recording` saves completed audio into `app.blobs.local` (ADR-0366). The
 workflow captures its chosen library before starting, then creates an ordinary
-row referring to the returned BlobId (ADR-0393). A device value set while signed in survives sign-out
-because it never depended on the account.
+row referring to the returned BlobId (ADR-0393). Sign-out preserves stored
+values without making them available through another account's App.
 
-Local means this application's device storage or browser profile. Alice,
-Bob, and the signed-out state reach the same Local data within that boundary;
-separate profiles and devices do not. Local is not private to an Epicenter
-account. Signing in does not adopt Local records. An account recording row remains account data. Its locally saved bytes are
-app-local objects, accessible independently of the account.
+Local means this application's storage on this device or browser profile.
+Alice, Bob, and no account select separate local namespaces. Returning to an
+account restores its storage. Signing in does not adopt no-account records.
+Recording bytes use the same captured owner as the App's local tables.
 
 **`account` is the person's stores and the person's reach.** `personal` and
 `shared` are the two libraries a signed-in person reaches at once on one
@@ -102,9 +102,9 @@ person connected, so it does not sit in `device.connections`.
 `device` instance has no authority, so its `sync.status()` answers `undefined`
 and only rows synchronize in account libraries. Blob storage remains at
 `app.blobs.local` and `app.blobs.remote` as specified by ADR-0349 and ADR-0372.
-The latter exposes explicit hosting; neither library owns byte synchronization. The data definition declares the
-synchronized `kv` and `tables` once and declares `device`'s separately, so a
-key that belongs to this machine cannot be written into an account by mistake.
+The latter exposes explicit hosting; neither library owns byte synchronization. One data definition supplies `kv` and `tables` to every store (ADR-0406).
+Applications choose the destination; the type system does not prohibit
+writing a device preference into a synchronized store.
 
 **`sqlite`, `secrets`, `connections`, and `recording` exist only on `device`.**
 Borrowed data, credentials, the endpoint catalog, and the microphone are
@@ -112,10 +112,8 @@ machine-bound by nature. A derived database for the personal library is still
 a file on this machine and names its source itself.
 
 **A page still owns one auth generation.** An account change closes the page
-and opens the next one (ADR-0369). The hub does not make a live swap
-impossible; it removes the reason for one, since a person no longer loses the
-machine's store or catalog by signing in or out. Local data persists; the old
-App handle does not. Every capture, blob read, and
+and opens the next one (ADR-0369). Local data persists in its owner's
+namespace; the old App handle does not. Every capture, blob read, and
 in-flight inference call is bound to one lifetime signal, and a live `account`
 swap would turn that one-shot signal into a stream every consumer must observe
 again.
@@ -183,9 +181,8 @@ again.
 - **`sqlite` and `tables` on every scope for symmetry.** Rejected for
   `sqlite`: borrowed data has a different lifecycle from a person's own, and a
   visibly different surface is the signal.
-- **One `kv` declaration instantiated three times.** Rejected because a
-  microphone key would then exist on `personal.kv`, where a later write would
-  sync it.
+- **Separate device and account declarations.** Rejected by ADR-0406. One
+  schema applies to all stores; application code owns write placement.
 - **`settings` instead of `kv`.** Deferred until the other applications' `kv`
   contents are checked; a `kv` that holds non-settings state would make the
   rename a lie in the other direction.

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-12
+- **Amended by:** [ADR-0405](0405-one-flat-application-declaration-opens-the-live-app.md) at the declaration shape: one flat `defineApp({ id, title, kv, tables })` replaces the nested application/data pair.
 - **Unbuilt:** The `#platform/runtime` seam and the deletion of `runtime`, `ai`, and `settingsKey`. `packages/app/src/index.ts` still statically imports the browser runtime; Whispering still composes `runtime` through its own `#platform/runtime` seam and passes `settingsKey: 'whispering'`; no storage-prefix migration exists. Built: the package's host AI leaf supplies the native inference transport, and Whispering's `#platform/ai` seam is deleted.
 
 ## Context
