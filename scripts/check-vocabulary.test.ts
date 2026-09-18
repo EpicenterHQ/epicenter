@@ -59,7 +59,11 @@ function withRepo(fn: (dir: string) => void): void {
 
 test('the settled words pass', () => {
 	withRepo((dir) => {
-		write(dir, 'packages/data/src/row.ts', '// a field holds a value or a node\n');
+		write(
+			dir,
+			'packages/data/src/row.ts',
+			'// a field holds a value or a node\n',
+		);
 		commitAll(dir);
 		const { code, out } = run(dir);
 		expect(code).toBe(0);
@@ -107,9 +111,13 @@ test('dated records keep their words', () => {
 	});
 });
 
-test("Matter is its own universe and keeps its own words", () => {
+test('Matter is its own universe and keeps its own words', () => {
 	withRepo((dir) => {
-		write(dir, 'packages/matter-core/src/field.ts', '// the closed scalar metas\n');
+		write(
+			dir,
+			'packages/matter-core/src/field.ts',
+			'// the closed scalar metas\n',
+		);
 		write(dir, 'apps/matter/src/grid.svelte', '<!-- a scalar cell -->\n');
 		commitAll(dir);
 		expect(run(dir).code).toBe(0);
@@ -118,7 +126,11 @@ test("Matter is its own universe and keeps its own words", () => {
 
 test('an app with its own SQLite mirror may lift scalar columns', () => {
 	withRepo((dir) => {
-		write(dir, 'apps/local-books/src/entities.ts', '// extracted scalar columns\n');
+		write(
+			dir,
+			'apps/local-books/src/entities.ts',
+			'// extracted scalar columns\n',
+		);
 		commitAll(dir);
 		expect(run(dir).code).toBe(0);
 	});
@@ -133,7 +145,11 @@ test('prose is refused inside the store and allowed outside it', () => {
 	withRepo((dir) => {
 		// An ordinary English use, in a place the store's vocabulary does not reach.
 		write(dir, '.agents/skills/writing-voice/SKILL.md', 'Revise the prose.\n');
-		write(dir, 'packages/ui/src/markdown.svelte', '<div class="prose"></div>\n');
+		write(
+			dir,
+			'packages/ui/src/markdown.svelte',
+			'<div class="prose"></div>\n',
+		);
 		commitAll(dir);
 		expect(run(dir).code).toBe(0);
 	});
@@ -141,7 +157,11 @@ test('prose is refused inside the store and allowed outside it', () => {
 
 test('column is not checked, because real columns exist', () => {
 	withRepo((dir) => {
-		write(dir, 'packages/data/src/log.ts', '// the one column you have to understand\n');
+		write(
+			dir,
+			'packages/data/src/log.ts',
+			'// the one column you have to understand\n',
+		);
 		commitAll(dir);
 		expect(run(dir).code).toBe(0);
 	});
@@ -160,7 +180,7 @@ test('a marked line is allowed, and only that line', () => {
 		write(
 			dir,
 			'packages/data/src/row.ts',
-			'// vocab-check: ignore-next-line (YAML\'s word)\n// a YAML scalar\n// a scalar field\n',
+			"// vocab-check: ignore-next-line (YAML's word)\n// a YAML scalar\n// a scalar field\n",
 		);
 		commitAll(dir);
 		const { code, out } = run(dir);

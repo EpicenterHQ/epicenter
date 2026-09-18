@@ -1,177 +1,385 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Three questions that make any chart readable</title>
-<style>
-  :root {
-    --paper: #faf7f0; --ink: #1a1714; --body: #3a352e;
-    --quiet: #8b8478; --rule: #e6dfd0; --line: #cec5b2; --accent: #a8501f;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--paper); color: var(--body);
-         font: 19px/1.7 ui-serif, Georgia, "Iowan Old Style", serif;
-         -webkit-font-smoothing: antialiased; }
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>Three questions that make any chart readable</title>
+		<style>
+			:root {
+				--paper: #faf7f0;
+				--ink: #1a1714;
+				--body: #3a352e;
+				--quiet: #8b8478;
+				--rule: #e6dfd0;
+				--line: #cec5b2;
+				--accent: #a8501f;
+			}
+			* {
+				box-sizing: border-box;
+			}
+			body {
+				margin: 0;
+				background: var(--paper);
+				color: var(--body);
+				font:
+					19px / 1.7 ui-serif,
+					Georgia,
+					"Iowan Old Style",
+					serif;
+				-webkit-font-smoothing: antialiased;
+			}
 
-  /* THE MEASURE IS THE ONLY THING THAT CHANGED. Wide sections instead of a
+			/* THE MEASURE IS THE ONLY THING THAT CHANGED. Wide sections instead of a
      reading column; no margin notes, because nothing here is skippable. Every
      other house rule is untouched. */
-  section { max-width: 1120px; margin: 0 auto; padding: 0 40px; }
-  .hero { padding-top: 128px; padding-bottom: 116px; }
-  .kicker { font: 500 11px/1 ui-sans-serif, sans-serif; letter-spacing: .2em;
-            text-transform: uppercase; color: var(--quiet); margin: 0 0 26px; }
-  h1 { font-size: 64px; line-height: 1.04; margin: 0 0 26px; color: var(--ink);
-       font-weight: 600; letter-spacing: -.028em; max-width: 15ch; }
-  @media (max-width: 700px) { h1 { font-size: 40px; } }
-  .promise { font-size: 24px; line-height: 1.55; margin: 0; max-width: 44ch;
-             color: var(--body); }
-  .promise em { color: var(--accent); font-style: normal; }
+			section {
+				max-width: 1120px;
+				margin: 0 auto;
+				padding: 0 40px;
+			}
+			.hero {
+				padding-top: 128px;
+				padding-bottom: 116px;
+			}
+			.kicker {
+				font:
+					500 11px / 1 ui-sans-serif,
+					sans-serif;
+				letter-spacing: 0.2em;
+				text-transform: uppercase;
+				color: var(--quiet);
+				margin: 0 0 26px;
+			}
+			h1 {
+				font-size: 64px;
+				line-height: 1.04;
+				margin: 0 0 26px;
+				color: var(--ink);
+				font-weight: 600;
+				letter-spacing: -0.028em;
+				max-width: 15ch;
+			}
+			@media (max-width: 700px) {
+				h1 {
+					font-size: 40px;
+				}
+			}
+			.promise {
+				font-size: 24px;
+				line-height: 1.55;
+				margin: 0;
+				max-width: 44ch;
+				color: var(--body);
+			}
+			.promise em {
+				color: var(--accent);
+				font-style: normal;
+			}
 
-  .q { padding: 74px 40px; border-top: 1px solid var(--rule); }
-  .head { display: grid; grid-template-columns: 100px 1fr; gap: 34px;
-          align-items: start; margin-bottom: 40px; }
-  @media (max-width: 760px) { .head { grid-template-columns: 1fr; gap: 12px; } }
-  .n { font: 300 46px/1 ui-serif, Georgia, serif; color: var(--line);
-       letter-spacing: -.03em; }
-  .q h2 { font-size: 38px; line-height: 1.14; margin: 0 0 18px; color: var(--ink);
-          font-weight: 600; letter-spacing: -.022em; max-width: 20ch; }
-  @media (max-width: 700px) { .q h2 { font-size: 28px; } }
-  .q p { margin: 0 0 20px; max-width: 62ch; }
-  .q .lead { font-size: 21px; color: var(--body); }
-  .q.first .n, .q.first h2 { color: var(--accent); }
+			.q {
+				padding: 74px 40px;
+				border-top: 1px solid var(--rule);
+			}
+			.head {
+				display: grid;
+				grid-template-columns: 100px 1fr;
+				gap: 34px;
+				align-items: start;
+				margin-bottom: 40px;
+			}
+			@media (max-width: 760px) {
+				.head {
+					grid-template-columns: 1fr;
+					gap: 12px;
+				}
+			}
+			.n {
+				font:
+					300 46px / 1 ui-serif,
+					Georgia,
+					serif;
+				color: var(--line);
+				letter-spacing: -0.03em;
+			}
+			.q h2 {
+				font-size: 38px;
+				line-height: 1.14;
+				margin: 0 0 18px;
+				color: var(--ink);
+				font-weight: 600;
+				letter-spacing: -0.022em;
+				max-width: 20ch;
+			}
+			@media (max-width: 700px) {
+				.q h2 {
+					font-size: 28px;
+				}
+			}
+			.q p {
+				margin: 0 0 20px;
+				max-width: 62ch;
+			}
+			.q .lead {
+				font-size: 21px;
+				color: var(--body);
+			}
+			.q.first .n,
+			.q.first h2 {
+				color: var(--accent);
+			}
 
-  .plate { display: grid; grid-template-columns: 1.15fr 1fr; gap: 56px;
-           align-items: center; margin-left: 134px; }
-  @media (max-width: 900px) { .plate { grid-template-columns: 1fr; margin-left: 0; } }
-  svg { display: block; width: 100%; height: auto; }
-  text { font-family: ui-sans-serif, -apple-system, sans-serif; }
-  .cap { font: 15px/1.6 ui-sans-serif, -apple-system, sans-serif; color: var(--quiet);
-         max-width: 42ch; margin: 0; }
-  .cap b { color: var(--ink); font-weight: 600; }
+			.plate {
+				display: grid;
+				grid-template-columns: 1.15fr 1fr;
+				gap: 56px;
+				align-items: center;
+				margin-left: 134px;
+			}
+			@media (max-width: 900px) {
+				.plate {
+					grid-template-columns: 1fr;
+					margin-left: 0;
+				}
+			}
+			svg {
+				display: block;
+				width: 100%;
+				height: auto;
+			}
+			text {
+				font-family: ui-sans-serif, -apple-system, sans-serif;
+			}
+			.cap {
+				font:
+					15px / 1.6 ui-sans-serif,
+					-apple-system,
+					sans-serif;
+				color: var(--quiet);
+				max-width: 42ch;
+				margin: 0;
+			}
+			.cap b {
+				color: var(--ink);
+				font-weight: 600;
+			}
 
-  .close { padding: 96px 40px 140px; border-top: 2px solid var(--ink); margin-top: 74px; }
-  .close p { font-size: 26px; line-height: 1.5; color: var(--ink); max-width: 30ch;
-             margin: 0 0 20px; }
-  .close b { color: var(--accent); font-weight: 600; }
-  .close .tail { font-size: 19px; color: var(--body); max-width: 52ch; }
-</style>
-</head>
-<body>
+			.close {
+				padding: 96px 40px 140px;
+				border-top: 2px solid var(--ink);
+				margin-top: 74px;
+			}
+			.close p {
+				font-size: 26px;
+				line-height: 1.5;
+				color: var(--ink);
+				max-width: 30ch;
+				margin: 0 0 20px;
+			}
+			.close b {
+				color: var(--accent);
+				font-weight: 600;
+			}
+			.close .tail {
+				font-size: 19px;
+				color: var(--body);
+				max-width: 52ch;
+			}
+		</style>
+	</head>
+	<body>
+		<section class="hero">
+			<p class="kicker">Three questions &middot; ask them in order</p>
+			<h1>Three questions that make any chart readable</h1>
+			<p class="promise">
+				Ask them before you read a single number, and most misleading charts
+				fall apart on the first one &mdash;
+				<em>usually within five seconds</em>.
+			</p>
+		</section>
 
-<section class="hero">
-  <p class="kicker">Three questions &middot; ask them in order</p>
-  <h1>Three questions that make any chart readable</h1>
-  <p class="promise">Ask them before you read a single number, and most
-  misleading charts fall apart on the first one &mdash;
-  <em>usually within five seconds</em>.</p>
-</section>
+		<section class="q first">
+			<div class="head">
+				<div class="n">01</div>
+				<div>
+					<h2>What is one mark?</h2>
+					<p class="lead">
+						Every dot, bar or slice stands for one thing. Name that thing out
+						loud before anything else.
+					</p>
+					<p>
+						A bar might be one country, one person, one day, or one survey
+						response &mdash; and a chart that mixes them is not a chart, it is a
+						picture. This question alone catches most of what goes wrong,
+						because a chart whose mark you cannot name is usually hiding that it
+						has more than one.
+					</p>
+				</div>
+			</div>
+			<div class="plate">
+				<svg
+					viewBox="0 0 520 200"
+					role="img"
+					aria-label="A grid of marks, one highlighted"
+				>
+					<g fill="#cec5b2">
+						<circle cx="30" cy="40" r="6" />
+						<circle cx="80" cy="40" r="6" />
+						<circle cx="130" cy="40" r="6" />
+						<circle cx="180" cy="40" r="6" />
+						<circle cx="230" cy="40" r="6" />
+						<circle cx="280" cy="40" r="6" />
+						<circle cx="30" cy="90" r="6" />
+						<circle cx="80" cy="90" r="6" />
+						<circle cx="130" cy="90" r="6" />
+						<circle cx="180" cy="90" r="6" />
+						<circle cx="230" cy="90" r="6" />
+						<circle cx="280" cy="90" r="6" />
+						<circle cx="30" cy="140" r="6" />
+						<circle cx="80" cy="140" r="6" />
+						<circle cx="130" cy="140" r="6" />
+						<circle cx="180" cy="140" r="6" />
+						<circle cx="230" cy="140" r="6" />
+					</g>
+					<circle cx="280" cy="140" r="9" fill="#a8501f" />
+					<line
+						x1="296"
+						y1="140"
+						x2="326"
+						y2="140"
+						stroke="#a8501f"
+						stroke-width="1.2"
+					/>
+					<text x="334" y="136" font-size="14" fill="#a8501f" font-weight="600">
+						one mark
+					</text>
+					<text x="334" y="158" font-size="13.5" fill="#8b8478">
+						= one customer, one month
+					</text>
+				</svg>
+				<p class="cap">
+					<b>If you cannot finish the sentence</b>
+					&ldquo;each dot is one&hellip;&rdquo;, stop reading the chart. Nothing
+					below this question is worth answering yet.
+				</p>
+			</div>
+		</section>
 
-<section class="q first">
-  <div class="head">
-    <div class="n">01</div>
-    <div>
-      <h2>What is one mark?</h2>
-      <p class="lead">Every dot, bar or slice stands for one thing. Name that
-      thing out loud before anything else.</p>
-      <p>A bar might be one country, one person, one day, or one survey response
-      &mdash; and a chart that mixes them is not a chart, it is a picture. This
-      question alone catches most of what goes wrong, because a chart whose mark
-      you cannot name is usually hiding that it has more than one.</p>
-    </div>
-  </div>
-  <div class="plate">
-    <svg viewBox="0 0 520 200" role="img" aria-label="A grid of marks, one highlighted">
-      <g fill="#cec5b2">
-        <circle cx="30" cy="40" r="6"/><circle cx="80" cy="40" r="6"/><circle cx="130" cy="40" r="6"/>
-        <circle cx="180" cy="40" r="6"/><circle cx="230" cy="40" r="6"/><circle cx="280" cy="40" r="6"/>
-        <circle cx="30" cy="90" r="6"/><circle cx="80" cy="90" r="6"/><circle cx="130" cy="90" r="6"/>
-        <circle cx="180" cy="90" r="6"/><circle cx="230" cy="90" r="6"/><circle cx="280" cy="90" r="6"/>
-        <circle cx="30" cy="140" r="6"/><circle cx="80" cy="140" r="6"/><circle cx="130" cy="140" r="6"/>
-        <circle cx="180" cy="140" r="6"/><circle cx="230" cy="140" r="6"/>
-      </g>
-      <circle cx="280" cy="140" r="9" fill="#a8501f"/>
-      <line x1="296" y1="140" x2="326" y2="140" stroke="#a8501f" stroke-width="1.2"/>
-      <text x="334" y="136" font-size="14" fill="#a8501f" font-weight="600">one mark</text>
-      <text x="334" y="158" font-size="13.5" fill="#8b8478">= one customer, one month</text>
-    </svg>
-    <p class="cap"><b>If you cannot finish the sentence</b> &ldquo;each dot is
-    one&hellip;&rdquo;, stop reading the chart. Nothing below this question is
-    worth answering yet.</p>
-  </div>
-</section>
+		<section class="q">
+			<div class="head">
+				<div class="n">02</div>
+				<div>
+					<h2>What does distance mean?</h2>
+					<p class="lead">
+						Find out what is being turned into length, position or area &mdash;
+						and whether it starts at zero.
+					</p>
+					<p>
+						Length compares honestly only from a zero baseline. Position on a
+						line does not need one. Area is the one people read worst: doubling
+						a circle's radius quadruples what your eye sees, which is why
+						bubbles flatter big numbers and shrink small ones.
+					</p>
+				</div>
+			</div>
+			<div class="plate">
+				<svg
+					viewBox="0 0 520 200"
+					role="img"
+					aria-label="The same two values on a truncated axis and a zero axis"
+				>
+					<g>
+						<text x="0" y="16" font-size="13" fill="#8b8478">starts at 95</text>
+						<rect x="0" y="30" width="60" height="120" fill="#cec5b2" />
+						<rect x="76" y="8" width="60" height="142" fill="#a8501f" />
+						<line x1="-4" y1="150" x2="150" y2="150" stroke="#cec5b2" />
+						<text x="0" y="172" font-size="13" fill="#8b8478">
+							looks like double
+						</text>
+					</g>
+					<line x1="230" y1="10" x2="230" y2="170" stroke="#e6dfd0" />
+					<g transform="translate(300,0)">
+						<text x="0" y="16" font-size="13" fill="#8b8478">starts at 0</text>
+						<rect x="0" y="26" width="60" height="124" fill="#cec5b2" />
+						<rect x="76" y="22" width="60" height="128" fill="#a8501f" />
+						<line x1="-4" y1="150" x2="150" y2="150" stroke="#cec5b2" />
+						<text x="0" y="172" font-size="13" fill="#a8501f">
+							is a 3% difference
+						</text>
+					</g>
+				</svg>
+				<p class="cap">
+					<b>Same two numbers, both times.</b>
+					Only the baseline moved. If a chart uses length and hides its zero, it
+					is making an argument, not showing data.
+				</p>
+			</div>
+		</section>
 
-<section class="q">
-  <div class="head">
-    <div class="n">02</div>
-    <div>
-      <h2>What does distance mean?</h2>
-      <p class="lead">Find out what is being turned into length, position or
-      area &mdash; and whether it starts at zero.</p>
-      <p>Length compares honestly only from a zero baseline. Position on a line
-      does not need one. Area is the one people read worst: doubling a circle's
-      radius quadruples what your eye sees, which is why bubbles flatter big
-      numbers and shrink small ones.</p>
-    </div>
-  </div>
-  <div class="plate">
-    <svg viewBox="0 0 520 200" role="img" aria-label="The same two values on a truncated axis and a zero axis">
-      <g>
-        <text x="0" y="16" font-size="13" fill="#8b8478">starts at 95</text>
-        <rect x="0" y="30" width="60" height="120" fill="#cec5b2"/>
-        <rect x="76" y="8"  width="60" height="142" fill="#a8501f"/>
-        <line x1="-4" y1="150" x2="150" y2="150" stroke="#cec5b2"/>
-        <text x="0" y="172" font-size="13" fill="#8b8478">looks like double</text>
-      </g>
-      <line x1="230" y1="10" x2="230" y2="170" stroke="#e6dfd0"/>
-      <g transform="translate(300,0)">
-        <text x="0" y="16" font-size="13" fill="#8b8478">starts at 0</text>
-        <rect x="0" y="26" width="60" height="124" fill="#cec5b2"/>
-        <rect x="76" y="22" width="60" height="128" fill="#a8501f"/>
-        <line x1="-4" y1="150" x2="150" y2="150" stroke="#cec5b2"/>
-        <text x="0" y="172" font-size="13" fill="#a8501f">is a 3% difference</text>
-      </g>
-    </svg>
-    <p class="cap"><b>Same two numbers, both times.</b> Only the baseline moved.
-    If a chart uses length and hides its zero, it is making an argument, not
-    showing data.</p>
-  </div>
-</section>
+		<section class="q">
+			<div class="head">
+				<div class="n">03</div>
+				<div>
+					<h2>What is missing?</h2>
+					<p class="lead">
+						Charts are made of what someone chose to include. Ask what the frame
+						cuts off.
+					</p>
+					<p>
+						Three things go missing most often: the years before the ones shown,
+						the denominator that would turn a count into a rate, and the cases
+						that were dropped for being incomplete. None of them leaves a mark
+						on the page, which is exactly why you have to ask.
+					</p>
+				</div>
+			</div>
+			<div class="plate">
+				<svg
+					viewBox="0 0 520 200"
+					role="img"
+					aria-label="A rising trend shown alone, then in a longer context"
+				>
+					<path
+						d="M300 150 C 340 140, 380 118, 430 92 C 470 72, 496 58, 512 48"
+						fill="none"
+						stroke="#a8501f"
+						stroke-width="2.5"
+					/>
+					<path
+						d="M8 40 C 60 66, 110 122, 160 146 C 210 166, 260 158, 300 150"
+						fill="none"
+						stroke="#cec5b2"
+						stroke-width="2"
+						stroke-dasharray="5 4"
+					/>
+					<line x1="8" y1="176" x2="512" y2="176" stroke="#cec5b2" />
+					<line x1="300" y1="18" x2="300" y2="176" stroke="#e6dfd0" />
+					<text
+						x="308"
+						y="30"
+						font-size="13.5"
+						fill="#a8501f"
+						font-weight="600"
+					>
+						what you were shown
+					</text>
+					<text x="8" y="30" font-size="13.5" fill="#8b8478">
+						what came before
+					</text>
+				</svg>
+				<p class="cap">
+					<b>The solid line is a recovery, not a rise</b>
+					&mdash; but only the dashed part tells you that, and the dashed part
+					was not in the chart.
+				</p>
+			</div>
+		</section>
 
-<section class="q">
-  <div class="head">
-    <div class="n">03</div>
-    <div>
-      <h2>What is missing?</h2>
-      <p class="lead">Charts are made of what someone chose to include. Ask what
-      the frame cuts off.</p>
-      <p>Three things go missing most often: the years before the ones shown, the
-      denominator that would turn a count into a rate, and the cases that were
-      dropped for being incomplete. None of them leaves a mark on the page, which
-      is exactly why you have to ask.</p>
-    </div>
-  </div>
-  <div class="plate">
-    <svg viewBox="0 0 520 200" role="img" aria-label="A rising trend shown alone, then in a longer context">
-      <path d="M300 150 C 340 140, 380 118, 430 92 C 470 72, 496 58, 512 48"
-            fill="none" stroke="#a8501f" stroke-width="2.5"/>
-      <path d="M8 40 C 60 66, 110 122, 160 146 C 210 166, 260 158, 300 150"
-            fill="none" stroke="#cec5b2" stroke-width="2" stroke-dasharray="5 4"/>
-      <line x1="8" y1="176" x2="512" y2="176" stroke="#cec5b2"/>
-      <line x1="300" y1="18" x2="300" y2="176" stroke="#e6dfd0"/>
-      <text x="308" y="30" font-size="13.5" fill="#a8501f" font-weight="600">what you were shown</text>
-      <text x="8" y="30" font-size="13.5" fill="#8b8478">what came before</text>
-    </svg>
-    <p class="cap"><b>The solid line is a recovery, not a rise</b> &mdash; but only
-    the dashed part tells you that, and the dashed part was not in the chart.</p>
-  </div>
-</section>
-
-<section class="close">
-  <p>Ask them in order. <b>Most charts fail on the first one.</b></p>
-  <p class="tail">And when one fails, you are done &mdash; there is no reason to
-  work out what the numbers say until you know what a mark is.</p>
-</section>
-
-</body>
+		<section class="close">
+			<p>Ask them in order. <b>Most charts fail on the first one.</b></p>
+			<p class="tail">
+				And when one fails, you are done &mdash; there is no reason to work out
+				what the numbers say until you know what a mark is.
+			</p>
+		</section>
+	</body>
 </html>

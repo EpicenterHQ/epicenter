@@ -198,7 +198,9 @@ if (violations.length === 0) {
 
 console.error(`check:vocabulary: ${violations.length} retired word(s):\n`);
 for (const { file, line, word, instead, text } of violations) {
-	console.error(`::error file=${file},line=${line}::"${word}" is retired; use ${instead} (ADR-0309)`);
+	console.error(
+		`::error file=${file},line=${line}::"${word}" is retired; use ${instead} (ADR-0309)`,
+	);
 	console.error(`  ${file}:${line}  ${text}`);
 }
 console.error(

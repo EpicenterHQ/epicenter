@@ -1,221 +1,497 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Four things that make learning stick</title>
-<style>
-  :root {
-    --paper:  #faf7f0;
-    --ink:    #1a1714;
-    --body:   #3a352e;
-    --quiet:  #8b8478;
-    --rule:   #e6dfd0;
-    --accent: #a8501f;
-    --tint:   #f3ece0;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--paper); color: var(--body);
-    font: 18px/1.72 ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
-    -webkit-font-smoothing: antialiased;
-  }
-  .wrap { max-width: 1010px; margin: 0 auto; padding: 96px 34px 130px; }
-  .col  { max-width: 620px; }
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>Four things that make learning stick</title>
+		<style>
+			:root {
+				--paper: #faf7f0;
+				--ink: #1a1714;
+				--body: #3a352e;
+				--quiet: #8b8478;
+				--rule: #e6dfd0;
+				--accent: #a8501f;
+				--tint: #f3ece0;
+			}
+			* {
+				box-sizing: border-box;
+			}
+			body {
+				margin: 0;
+				background: var(--paper);
+				color: var(--body);
+				font:
+					18px / 1.72 ui-serif,
+					Georgia,
+					"Iowan Old Style",
+					"Times New Roman",
+					serif;
+				-webkit-font-smoothing: antialiased;
+			}
+			.wrap {
+				max-width: 1010px;
+				margin: 0 auto;
+				padding: 96px 34px 130px;
+			}
+			.col {
+				max-width: 620px;
+			}
 
-  /* margin notes sit beside the column; on narrow screens they fall inline */
-  .row { position: relative; }
-  aside {
-    position: absolute; left: 660px; top: 6px; width: 260px;
-    font: 14px/1.6 ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
-    color: var(--quiet);
-  }
-  aside b { color: var(--body); font-weight: 600; }
-  @media (max-width: 1010px) {
-    aside { position: static; width: auto; max-width: 620px; margin: 16px 0 26px;
-            padding-left: 16px; border-left: 2px solid var(--rule); }
-  }
+			/* margin notes sit beside the column; on narrow screens they fall inline */
+			.row {
+				position: relative;
+			}
+			aside {
+				position: absolute;
+				left: 660px;
+				top: 6px;
+				width: 260px;
+				font:
+					14px / 1.6 ui-sans-serif,
+					-apple-system,
+					"Segoe UI",
+					sans-serif;
+				color: var(--quiet);
+			}
+			aside b {
+				color: var(--body);
+				font-weight: 600;
+			}
+			@media (max-width: 1010px) {
+				aside {
+					position: static;
+					width: auto;
+					max-width: 620px;
+					margin: 16px 0 26px;
+					padding-left: 16px;
+					border-left: 2px solid var(--rule);
+				}
+			}
 
-  /* ---- hero: the promise, then one sentence that earns it ---- */
-  .kicker { font: 500 11px/1 ui-sans-serif, -apple-system, sans-serif;
-            letter-spacing: .18em; text-transform: uppercase; color: var(--quiet);
-            margin: 0 0 20px; }
-  h1 { font-size: 44px; line-height: 1.1; margin: 0 0 18px; color: var(--ink);
-       font-weight: 600; letter-spacing: -.02em; max-width: 15ch; }
-  .promise { font-size: 21px; line-height: 1.6; margin: 0; color: var(--body);
-             max-width: 48ch; }
-  .promise em { color: var(--accent); font-style: normal; }
+			/* ---- hero: the promise, then one sentence that earns it ---- */
+			.kicker {
+				font:
+					500 11px / 1 ui-sans-serif,
+					-apple-system,
+					sans-serif;
+				letter-spacing: 0.18em;
+				text-transform: uppercase;
+				color: var(--quiet);
+				margin: 0 0 20px;
+			}
+			h1 {
+				font-size: 44px;
+				line-height: 1.1;
+				margin: 0 0 18px;
+				color: var(--ink);
+				font-weight: 600;
+				letter-spacing: -0.02em;
+				max-width: 15ch;
+			}
+			.promise {
+				font-size: 21px;
+				line-height: 1.6;
+				margin: 0;
+				color: var(--body);
+				max-width: 48ch;
+			}
+			.promise em {
+				color: var(--accent);
+				font-style: normal;
+			}
 
-  .opening { margin: 76px 0 0; }
-  .opening p { margin: 0 0 22px; }
+			.opening {
+				margin: 76px 0 0;
+			}
+			.opening p {
+				margin: 0 0 22px;
+			}
 
-  p { margin: 0 0 22px; }
-  strong { color: var(--ink); font-weight: 600; }
+			p {
+				margin: 0 0 22px;
+			}
+			strong {
+				color: var(--ink);
+				font-weight: 600;
+			}
 
-  /* ---- the ladder: one idea per band, no box ---- */
-  .rungs { margin-top: 96px; }
-  .rung { padding: 54px 0 0; border-top: 1px solid var(--rule); margin-top: 54px; }
-  .rung:first-child { border-top: none; margin-top: 0; padding-top: 0; }
-  .num { font: 300 15px/1 ui-sans-serif, -apple-system, sans-serif;
-         letter-spacing: .2em; color: var(--quiet); margin: 0 0 14px; }
-  .rung h2 { font-size: 28px; line-height: 1.22; margin: 0 0 20px; color: var(--ink);
-             font-weight: 600; letter-spacing: -.015em; max-width: 20ch; }
-  .rung.lead h2 { color: var(--accent); }
-  .rung.lead .num { color: var(--accent); }
+			/* ---- the ladder: one idea per band, no box ---- */
+			.rungs {
+				margin-top: 96px;
+			}
+			.rung {
+				padding: 54px 0 0;
+				border-top: 1px solid var(--rule);
+				margin-top: 54px;
+			}
+			.rung:first-child {
+				border-top: none;
+				margin-top: 0;
+				padding-top: 0;
+			}
+			.num {
+				font:
+					300 15px / 1 ui-sans-serif,
+					-apple-system,
+					sans-serif;
+				letter-spacing: 0.2em;
+				color: var(--quiet);
+				margin: 0 0 14px;
+			}
+			.rung h2 {
+				font-size: 28px;
+				line-height: 1.22;
+				margin: 0 0 20px;
+				color: var(--ink);
+				font-weight: 600;
+				letter-spacing: -0.015em;
+				max-width: 20ch;
+			}
+			.rung.lead h2 {
+				color: var(--accent);
+			}
+			.rung.lead .num {
+				color: var(--accent);
+			}
 
-  .instead { font-size: 16px; color: var(--quiet); margin: 0;
-             padding-top: 16px; border-top: 1px solid var(--rule); max-width: 52ch; }
-  .instead b { color: var(--ink); font-weight: 600; }
+			.instead {
+				font-size: 16px;
+				color: var(--quiet);
+				margin: 0;
+				padding-top: 16px;
+				border-top: 1px solid var(--rule);
+				max-width: 52ch;
+			}
+			.instead b {
+				color: var(--ink);
+				font-weight: 600;
+			}
 
-  /* ---- the one figure, sized like a paragraph ---- */
-  figure { margin: 40px 0 8px; padding: 0; }
-  svg { display: block; width: 100%; height: auto; max-width: 620px; }
-  figcaption { margin-top: 16px; font: 14px/1.6 ui-sans-serif, -apple-system, sans-serif;
-               color: var(--quiet); max-width: 52ch; }
+			/* ---- the one figure, sized like a paragraph ---- */
+			figure {
+				margin: 40px 0 8px;
+				padding: 0;
+			}
+			svg {
+				display: block;
+				width: 100%;
+				height: auto;
+				max-width: 620px;
+			}
+			figcaption {
+				margin-top: 16px;
+				font:
+					14px / 1.6 ui-sans-serif,
+					-apple-system,
+					sans-serif;
+				color: var(--quiet);
+				max-width: 52ch;
+			}
 
-  /* ---- close ---- */
-  .close { margin-top: 100px; padding-top: 34px; border-top: 2px solid var(--ink); }
-  .close h2 { font-size: 24px; margin: 0 0 18px; color: var(--ink); font-weight: 600;
-              letter-spacing: -.01em; }
-  .close p { max-width: 54ch; }
-  .close .one { font-size: 21px; line-height: 1.6; color: var(--ink); }
-  .close .one b { color: var(--accent); font-weight: 600; }
-</style>
-</head>
-<body>
-<div class="wrap"><div class="col">
+			/* ---- close ---- */
+			.close {
+				margin-top: 100px;
+				padding-top: 34px;
+				border-top: 2px solid var(--ink);
+			}
+			.close h2 {
+				font-size: 24px;
+				margin: 0 0 18px;
+				color: var(--ink);
+				font-weight: 600;
+				letter-spacing: -0.01em;
+			}
+			.close p {
+				max-width: 54ch;
+			}
+			.close .one {
+				font-size: 21px;
+				line-height: 1.6;
+				color: var(--ink);
+			}
+			.close .one b {
+				color: var(--accent);
+				font-weight: 600;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="wrap">
+			<div class="col">
+				<p class="kicker">
+					Four ideas &middot; ordered by how much they matter
+				</p>
+				<h1>Four things that make learning stick</h1>
+				<p class="promise">
+					All four are uncomfortable while you do them. That is not a
+					coincidence &mdash; <em>it is the mechanism</em>.
+				</p>
 
-<p class="kicker">Four ideas &middot; ordered by how much they matter</p>
-<h1>Four things that make learning stick</h1>
-<p class="promise">All four are uncomfortable while you do them. That is not a
-coincidence &mdash; <em>it is the mechanism</em>.</p>
+				<div class="opening">
+					<div class="row">
+						<p>
+							Almost everyone studies by reading something again. It is the most
+							common method, one of the least effective, and it feels like the
+							best one, which is the entire problem.
+						</p>
+						<aside>
+							<b>Why it feels good.</b>
+							The second read is easy, and your brain reports that ease as
+							understanding. Psychologists call it fluency. It is a measurement
+							of how familiar the page looks, not of what you could do without
+							it.
+						</aside>
+					</div>
 
-<div class="opening">
-  <div class="row">
-    <p>Almost everyone studies by reading something again. It is the most common
-    method, one of the least effective, and it feels like the best one, which is
-    the entire problem.</p>
-    <aside><b>Why it feels good.</b> The second read is easy, and your brain
-    reports that ease as understanding. Psychologists call it fluency. It is a
-    measurement of how familiar the page looks, not of what you could do without
-    it.</aside>
-  </div>
+					<p>
+						The four things below all break that comfort on purpose. Each one
+						makes the session feel worse and the month feel better, and they are
+						ordered by how much of that trade they buy.
+					</p>
+				</div>
 
-  <p>The four things below all break that comfort on purpose. Each one makes the
-  session feel worse and the month feel better, and they are ordered by how much
-  of that trade they buy.</p>
-</div>
+				<div class="rungs">
+					<section class="rung lead">
+						<div class="row">
+							<p class="num">01</p>
+							<h2>Close the book and try to remember</h2>
+							<p>
+								Pulling a fact out of memory strengthens it far more than
+								putting it in again. Reading a chapter twice and reading it once
+								then writing down what you can recall take the same time, and
+								the second produces dramatically more a week later.
+							</p>
+							<p>
+								This is the single largest lever on the page. Everything below
+								is a way of arranging it.
+							</p>
+							<p class="instead">
+								<b>Instead of</b>
+								rereading your notes, shut them and write the page from memory.
+								Then open them and see what you missed.
+							</p>
+							<aside>
+								<b>The struggle is the point.</b>
+								If recall is effortless, no learning is happening &mdash; you
+								already had it. The difficulty is the work being done, not
+								evidence that it isn't working.
+							</aside>
+						</div>
+					</section>
 
-<div class="rungs">
+					<section class="rung">
+						<div class="row">
+							<p class="num">02</p>
+							<h2>Leave gaps between sessions</h2>
+							<p>
+								The same four hours spread across four weeks beat four hours in
+								one evening, and it is not close. Cramming works for Friday and
+								is mostly gone by the following Friday.
+							</p>
+							<p>
+								The reason is uncomfortable in the same way: you have to forget
+								a little before the review does anything. Reviewing something
+								you still remember perfectly is nearly free, and buys nearly
+								nothing.
+							</p>
+							<p class="instead">
+								<b>Instead of</b>
+								one long session, do four short ones far enough apart that the
+								start of each feels slightly hard.
+							</p>
+						</div>
+					</section>
 
-  <section class="rung lead">
-    <div class="row">
-      <p class="num">01</p>
-      <h2>Close the book and try to remember</h2>
-      <p>Pulling a fact out of memory strengthens it far more than putting it in
-      again. Reading a chapter twice and reading it once then writing down what
-      you can recall take the same time, and the second produces dramatically more
-      a week later.</p>
-      <p>This is the single largest lever on the page. Everything below is a way
-      of arranging it.</p>
-      <p class="instead"><b>Instead of</b> rereading your notes, shut them and
-      write the page from memory. Then open them and see what you missed.</p>
-      <aside><b>The struggle is the point.</b> If recall is effortless, no
-      learning is happening &mdash; you already had it. The difficulty is the work
-      being done, not evidence that it isn't working.</aside>
-    </div>
-  </section>
+					<figure>
+						<svg
+							viewBox="0 0 620 230"
+							role="img"
+							aria-label="Two forgetting curves: one study session versus four spaced sessions"
+						>
+							<line
+								x1="42"
+								y1="196"
+								x2="600"
+								y2="196"
+								stroke="#d8cfbc"
+								stroke-width="1"
+							/>
+							<line
+								x1="42"
+								y1="24"
+								x2="42"
+								y2="196"
+								stroke="#d8cfbc"
+								stroke-width="1"
+							/>
+							<text
+								x="34"
+								y="32"
+								fill="#8b8478"
+								font-size="11"
+								font-family="ui-sans-serif, sans-serif"
+								text-anchor="end"
+							>
+								all
+							</text>
+							<text
+								x="34"
+								y="199"
+								fill="#8b8478"
+								font-size="11"
+								font-family="ui-sans-serif, sans-serif"
+								text-anchor="end"
+							>
+								none
+							</text>
+							<text
+								x="321"
+								y="222"
+								fill="#8b8478"
+								font-size="11"
+								font-family="ui-sans-serif, sans-serif"
+								text-anchor="middle"
+							>
+								four weeks &rarr;
+							</text>
 
-  <section class="rung">
-    <div class="row">
-      <p class="num">02</p>
-      <h2>Leave gaps between sessions</h2>
-      <p>The same four hours spread across four weeks beat four hours in one
-      evening, and it is not close. Cramming works for Friday and is mostly gone
-      by the following Friday.</p>
-      <p>The reason is uncomfortable in the same way: you have to forget a little
-      before the review does anything. Reviewing something you still remember
-      perfectly is nearly free, and buys nearly nothing.</p>
-      <p class="instead"><b>Instead of</b> one long session, do four short ones
-      far enough apart that the start of each feels slightly hard.</p>
-    </div>
-  </section>
+							<!-- crammed once -->
+							<path
+								d="M42 40 C 90 130, 150 172, 600 190"
+								fill="none"
+								stroke="#bcb3a1"
+								stroke-width="2"
+							/>
+							<text
+								x="212"
+								y="162"
+								fill="#8b8478"
+								font-size="12.5"
+								font-family="ui-sans-serif, sans-serif"
+							>
+								one long session
+							</text>
 
-  <figure>
-    <svg viewBox="0 0 620 230" role="img" aria-label="Two forgetting curves: one study session versus four spaced sessions">
-      <line x1="42" y1="196" x2="600" y2="196" stroke="#d8cfbc" stroke-width="1"/>
-      <line x1="42" y1="24"  x2="42"  y2="196" stroke="#d8cfbc" stroke-width="1"/>
-      <text x="34" y="32"  fill="#8b8478" font-size="11" font-family="ui-sans-serif, sans-serif" text-anchor="end">all</text>
-      <text x="34" y="199" fill="#8b8478" font-size="11" font-family="ui-sans-serif, sans-serif" text-anchor="end">none</text>
-      <text x="321" y="222" fill="#8b8478" font-size="11" font-family="ui-sans-serif, sans-serif" text-anchor="middle">four weeks &rarr;</text>
+							<!-- spaced: four resets, each decaying more slowly -->
+							<path
+								d="M42 40 C 74 108, 110 128, 148 134"
+								fill="none"
+								stroke="#a8501f"
+								stroke-width="2.5"
+							/>
+							<path
+								d="M148 46 C 190 92, 230 108, 288 114"
+								fill="none"
+								stroke="#a8501f"
+								stroke-width="2.5"
+							/>
+							<path
+								d="M288 38 C 344 72, 400 84, 452 88"
+								fill="none"
+								stroke="#a8501f"
+								stroke-width="2.5"
+							/>
+							<path
+								d="M452 32 C 512 50, 556 56, 600 58"
+								fill="none"
+								stroke="#a8501f"
+								stroke-width="2.5"
+							/>
+							<g stroke="#a8501f" stroke-width="1.2" stroke-dasharray="3 3">
+								<line x1="148" y1="134" x2="148" y2="46" />
+								<line x1="288" y1="114" x2="288" y2="38" />
+								<line x1="452" y1="88" x2="452" y2="32" />
+							</g>
+							<g fill="#a8501f">
+								<circle cx="148" cy="46" r="3.5" />
+								<circle cx="288" cy="38" r="3.5" />
+								<circle cx="452" cy="32" r="3.5" />
+							</g>
+							<text
+								x="466"
+								y="26"
+								fill="#a8501f"
+								font-size="12.5"
+								font-family="ui-sans-serif, sans-serif"
+							>
+								four spaced sessions
+							</text>
+						</svg>
+						<figcaption>
+							Same total hours. Each review starts from a lower point than the
+							last one ended &mdash; that dip is the forgetting you needed, and
+							each curve afterwards falls more slowly than the one before.
+						</figcaption>
+					</figure>
 
-      <!-- crammed once -->
-      <path d="M42 40 C 90 130, 150 172, 600 190" fill="none" stroke="#bcb3a1" stroke-width="2"/>
-      <text x="212" y="162" fill="#8b8478" font-size="12.5" font-family="ui-sans-serif, sans-serif">one long session</text>
+					<section class="rung">
+						<div class="row">
+							<p class="num">03</p>
+							<h2>Shuffle the problems</h2>
+							<p>
+								Doing twenty of the same kind of problem in a row teaches you to
+								run one procedure. Mixing kinds forces you to work out
+								<em>which</em>
+								procedure applies, which is the part you will actually need
+								later, when nothing is labelled.
+							</p>
+							<p>
+								Blocked practice feels smoother and scores better during the
+								session. That is exactly why people keep choosing it.
+							</p>
+							<p class="instead">
+								<b>Instead of</b>
+								finishing all of chapter 4, take a few problems from chapters 1
+								through 4 and shuffle them.
+							</p>
+							<aside>
+								<b>Not only for studying.</b>
+								The same result shows up in sport and music practice, where
+								blocked repetition also produces a better session and a worse
+								performance.
+							</aside>
+						</div>
+					</section>
 
-      <!-- spaced: four resets, each decaying more slowly -->
-      <path d="M42 40 C 74 108, 110 128, 148 134" fill="none" stroke="#a8501f" stroke-width="2.5"/>
-      <path d="M148 46 C 190 92, 230 108, 288 114" fill="none" stroke="#a8501f" stroke-width="2.5"/>
-      <path d="M288 38 C 344 72, 400 84, 452 88" fill="none" stroke="#a8501f" stroke-width="2.5"/>
-      <path d="M452 32 C 512 50, 556 56, 600 58" fill="none" stroke="#a8501f" stroke-width="2.5"/>
-      <g stroke="#a8501f" stroke-width="1.2" stroke-dasharray="3 3">
-        <line x1="148" y1="134" x2="148" y2="46"/>
-        <line x1="288" y1="114" x2="288" y2="38"/>
-        <line x1="452" y1="88"  x2="452" y2="32"/>
-      </g>
-      <g fill="#a8501f">
-        <circle cx="148" cy="46" r="3.5"/><circle cx="288" cy="38" r="3.5"/><circle cx="452" cy="32" r="3.5"/>
-      </g>
-      <text x="466" y="26" fill="#a8501f" font-size="12.5" font-family="ui-sans-serif, sans-serif">four spaced sessions</text>
-    </svg>
-    <figcaption>Same total hours. Each review starts from a lower point than the
-    last one ended &mdash; that dip is the forgetting you needed, and each curve
-    afterwards falls more slowly than the one before.</figcaption>
-  </figure>
+					<section class="rung">
+						<div class="row">
+							<p class="num">04</p>
+							<h2>Say why, in your own words</h2>
+							<p>
+								After you learn something, explain how it connects to what you
+								already knew &mdash; and where it contradicts it. New facts
+								hooked onto old structure have far more ways to be found again.
+							</p>
+							<p>
+								This is the real reason explaining a subject to a beginner works
+								so well. The beginner is incidental; the work is in the
+								rephrasing.
+							</p>
+							<p class="instead">
+								<b>Instead of</b>
+								highlighting the sentence, write one of your own saying why it
+								is true.
+							</p>
+						</div>
+					</section>
+				</div>
 
-  <section class="rung">
-    <div class="row">
-      <p class="num">03</p>
-      <h2>Shuffle the problems</h2>
-      <p>Doing twenty of the same kind of problem in a row teaches you to run one
-      procedure. Mixing kinds forces you to work out <em>which</em> procedure
-      applies, which is the part you will actually need later, when nothing is
-      labelled.</p>
-      <p>Blocked practice feels smoother and scores better during the session.
-      That is exactly why people keep choosing it.</p>
-      <p class="instead"><b>Instead of</b> finishing all of chapter 4, take a few
-      problems from chapters 1 through 4 and shuffle them.</p>
-      <aside><b>Not only for studying.</b> The same result shows up in sport and
-      music practice, where blocked repetition also produces a better session and
-      a worse performance.</aside>
-    </div>
-  </section>
-
-  <section class="rung">
-    <div class="row">
-      <p class="num">04</p>
-      <h2>Say why, in your own words</h2>
-      <p>After you learn something, explain how it connects to what you already
-      knew &mdash; and where it contradicts it. New facts hooked onto old
-      structure have far more ways to be found again.</p>
-      <p>This is the real reason explaining a subject to a beginner works so
-      well. The beginner is incidental; the work is in the rephrasing.</p>
-      <p class="instead"><b>Instead of</b> highlighting the sentence, write one of
-      your own saying why it is true.</p>
-    </div>
-  </section>
-
-</div>
-
-<div class="close">
-  <h2>If you change one thing</h2>
-  <p class="one">Stop rereading. <b>Close the book and write down what you
-  remember</b>, then check. That one swap is most of the benefit on this page,
-  and you can start it this afternoon.</p>
-  <p>The other three make it compound. But they are refinements of the same move,
-  and none of them helps if you are still reviewing instead of retrieving.</p>
-</div>
-
-</div></div>
-</body>
+				<div class="close">
+					<h2>If you change one thing</h2>
+					<p class="one">
+						Stop rereading.
+						<b>Close the book and write down what you remember</b>, then check.
+						That one swap is most of the benefit on this page, and you can start
+						it this afternoon.
+					</p>
+					<p>
+						The other three make it compound. But they are refinements of the
+						same move, and none of them helps if you are still reviewing instead
+						of retrieving.
+					</p>
+				</div>
+			</div>
+		</div>
+	</body>
 </html>
