@@ -16,7 +16,9 @@ store already decides that.
 
 ## Decision
 
-**One application's `kv` and `tables` declarations apply to every store it opens.**
+**One application's `kv` and `tables` declarations apply to every store it
+opens.** The schema describes the shape a store may contain. The selected
+store describes ownership and synchronization.
 
 There is no separate device-definition API. Every store exposes the same typed
 keys and tables, while holding independent values and rows:
@@ -26,9 +28,11 @@ keys and tables, while holding independent values and rows:
 | `app.device` after `open()` | No account, within this app and device profile | None |
 | `app.device` after `open(alice)` | Alice, within this app and device profile | None |
 | `app.account.personal` | The captured account | Personal library sync |
-| `app.account.shared` when available | The deployment's Shared library, accessed through the captured account | Shared library sync |
+| `app.account.shared` when available | An optional deployment-defined shared library, accessed through the captured account | Shared library sync |
 
-**Application code chooses a value's destination when it writes.**
+**Application code chooses a value's destination when it writes.** The
+framework does not infer placement from a field name or merge values across
+stores.
 
 Using the declaration in ADR-0405, after readiness:
 
@@ -51,7 +55,8 @@ plan. Applications can consolidate their separate settings persistence into
 existing stores without adding another schema system.
 
 TypeScript validates keys and values, but does not reject a device-bound key
-written to Personal. Applications own placement and test behavior where an
+written to Personal. A shared schema provides shape compatibility, not
+placement correctness. Applications own placement and test behavior where an
 incorrect destination would matter. Sharing the schema does not require every
 store to contain every declared key or any rows in every table.
 

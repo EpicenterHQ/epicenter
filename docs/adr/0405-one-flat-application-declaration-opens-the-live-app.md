@@ -38,6 +38,10 @@ The single `id` names both the application and its data definition. `title`,
 `kv`, and `tables` retain their data-definition meanings and type inference.
 Application authors supply no nested `definition` and no second `appId`.
 
+`defineApp` is the application-level composition of a data declaration and an
+opener. The lower-level data package keeps `defineData` for consumers that
+declare or open data without constructing an application.
+
 **The returned declaration remains inspectable and inert; opening creates the live handle.**
 
 ```ts
@@ -51,12 +55,12 @@ const app = notes.open(alice);
 app.account.personal.tables.notes.create({ title: 'Meeting', body: '' });
 ```
 
-Importing or constructing the declaration opens no storage, starts no sync,
-and captures no Account. Schema consumers, including in-memory tests and
-artifact import/export, accept this same declaration. They need no duplicate
-schema object and no `.definition` wrapper. The live handle has no root
-`tables` or `kv`: a caller selects `device`, `account.personal`, or
-`account.shared` as its destination.
+The declaration exposes its schema at the root. Importing or constructing it
+opens no storage, starts no sync, and captures no Account. Schema consumers,
+including in-memory tests and artifact import/export, accept this same
+declaration. They need no duplicate schema object and no `.definition` wrapper.
+The live handle has no root `tables` or `kv`: a caller selects `device`,
+`account.personal`, or an available account library as its destination.
 
 The opening overloads retain the supplied Account's presence as decided in
 [ADR-0404](0404-the-opened-account-owns-application-local-storage.md). App

@@ -17,23 +17,28 @@ that never synchronizes.
 
 ## Decision
 
-The account supplied to `application.open(account)` owns the application's
-local storage for that lifetime. `open()` and `open(undefined)` select a
-separate `no-account` namespace. Neither sign-in nor sign-out transfers data.
-Returning to the same authority and principal restores the same local storage.
+The account supplied to `application.open(account)` is the owner of the
+application's local storage for that lifetime. `open()` and
+`open(undefined)` select a separate `no-account` namespace. Neither sign-in
+nor sign-out transfers data. Returning to the same authority and principal
+restores the same local storage.
 
-`app.device` describes locality. Its tables, named SQLite databases, secrets,
-and recording destination use the captured owner. `app.blobs.local` uses that
-same owner across the App's libraries. A local file belongs to this account on
-this device; personal tables additionally synchronize through that account.
+`app.device` describes the local capability scope, not an account-independent
+owner. Its tables, named SQLite databases, secrets, and recording destination
+use the captured owner. `app.blobs.local` uses that same owner across the
+App's libraries. A local file belongs to this account on this device; personal
+tables additionally synchronize through that account.
 
 Custom AI endpoints and keys are shared across apps within one account and
-profile. Browser sharing is additionally bounded by origin. The host's native
-inference capability remains available independently of account identity.
+profile. They are an account-scoped cross-application catalog, not
+application-local storage. Browser sharing is additionally bounded by origin.
+The host's native inference capability remains available independently of
+account identity.
 
-The App captures a credential-free authority/principal identity once. Storage
-paths, claims, keychain entries, native capture, and file reads derive from it.
-Application storage uses this owner consistently:
+The App captures a credential-free authority/principal identity once. Every
+application-owned local resource derives its namespace from that identity:
+storage paths, claims, keychain entries, native capture, and file reads. The
+application storage layout is:
 
 ```text
 apps/<appId>/device/
@@ -50,8 +55,8 @@ apps/<appId>/device/
 Browser storage keys and OS keychain addresses carry the equivalent owner.
 Device paths use `no-account` or `accounts/<authority>/<principal>`, with the
 two identity components encoded as UTF-8 hex to preserve case on native
-filesystems. These namespaces separate trusted applications' data; they are
-not a sandbox against code with access to the host profile.
+filesystems. These namespaces separate trusted applications' data and owners'
+data. They are not a sandbox against code with access to the host profile.
 
 The TypeScript return type preserves the opening argument. A definite Account
 produces a definite account scope; an omitted or undefined argument produces
