@@ -9,6 +9,7 @@
 		"evidence/library-ownership/device.ts",
 		"src/store/browser.ts",
 		"src/store/browser.test.ts",
+		"src/store/current-open.test.ts",
 		"src/store/current-cache.ts",
 		"evidence/browser/current-cache.ts",
 		"evidence/browser/current-cache/main.ts"

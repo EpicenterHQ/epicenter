@@ -1124,12 +1124,12 @@ test('device SQLite and data generations have independent ownership', async () =
   async open() { throw new Error('unused'); }, async delete() {}, async close() {},
  }; } };
  const sql = createAppSqlite(owner, APP);
- expectOkResult(await sql.acquire());
+ expectOkResult(await sql.value.delete('ownership-probe'));
  expectOkResult(await createGeneration(database, { appId: APP, account }));
  const document = expectOkResult(await openDatabase(database, { appId: APP, generation: GEN, account }));
  await sql.close();
  const reopened = createAppSqlite(owner, APP);
- expectOkResult(await reopened.acquire());
+ expectOkResult(await reopened.value.delete('ownership-probe'));
  await reopened.close();
  await document.close();
 });

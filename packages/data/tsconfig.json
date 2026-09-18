@@ -12,6 +12,7 @@
 		"evidence/browser/port-cost",
 		"src/store/browser.ts",
 		"src/store/browser.test.ts",
+		"src/store/current-open.test.ts",
 		"src/store/port-conformance.test.ts",
 		"evidence/browser/current-cache.ts",
 		"evidence/browser/current-cache",
