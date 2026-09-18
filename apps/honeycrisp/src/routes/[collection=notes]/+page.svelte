@@ -38,7 +38,7 @@
 	noun="notes"
 >
 	{#snippet children(app)}
-		{#if page.params.notes === 'local'}
+		{#if page.params.collection === 'local'}
 			<Notes data={app.device} />
 		{:else if app.account}
 			<Notes data={app.account.personal} />
