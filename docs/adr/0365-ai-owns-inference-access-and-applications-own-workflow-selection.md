@@ -300,7 +300,7 @@ account gateway or the native runtime into the custom catalog.
 
 `packages/app/src/ai-connections.ts` owns browser records.
 `packages/app/src/ai-connections.epicenter-host.ts` owns the desktop subscribed
-view; the package selects its default AI binding through `#platform/ai`.
+view; the package selects its default AI binding at runtime from the presence of the host (ADR-0403).
 `apps/epicenter/src/ai-catalog.ts` owns profile metadata, keychain references,
 and custom request forwarding. Its routes use the host's existing browser
 session and mutation Origin checks. Metadata writes sync the file and attempt

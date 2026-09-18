@@ -310,7 +310,7 @@ shapes, see `docs/adr/`.
   session.opened}`, and closes on unmount. The shell it mounts calls `fromData`
   once and passes the result down through typed context. Library modules stay
   inert, which `scripts/check-boot-purity.ts` enforces.
-- **`#platform/*`**: the build-time platform DI seam for multi-platform (Tauri) apps.
+- **`#platform/*`**: an app's build-time platform seam, selected by the `epicenter-host` condition in a build this repository runs. `@epicenter/app` currently uses the same mechanism. Proposed ADR-0403 would move the package's selection to `isTauri()` at runtime; that change is unbuilt.
 - **`session`**: the singleton holding the signed-in Epicenter lifecycle.
 - **Device settings vs synced settings**: per-device settings (global shortcuts,
   the microphone, the inference selection) versus synced settings (in-app

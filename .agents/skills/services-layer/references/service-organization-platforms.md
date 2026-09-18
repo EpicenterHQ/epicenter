@@ -32,7 +32,9 @@ import { TextServiceLive } from '#platform/text';
 
 The web bundle resolves `default`; the Epicenter host build activates the
 `epicenter-host` condition. Do not add a runtime `window.__TAURI_INTERNALS__` branch or a
-second platform registry.
+second platform registry in an app service. Proposed ADR-0403 would move
+`@epicenter/app` selection inside the package; current code still uses build
+conditions.
 
 Each implementation exports the same name and checks the shared contract:
 

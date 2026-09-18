@@ -1,6 +1,6 @@
 ---
 name: platform-seams
-description: Apply Epicenter’s `#platform/*` build-time seam across browser, Tauri, and host targets. Use when adding or changing a seam, build condition, typecheck leaf, or deciding whether code belongs behind one.
+description: Apply Epicenter’s `#platform/*` build-time seam across browser and host targets. Use when adding or changing a seam, build condition, typecheck leaf, or deciding whether code belongs behind one.
 metadata:
   author: epicenter
   version: '7.0'
@@ -92,6 +92,12 @@ They used to be conflated because `epicenter-host` also meant the host owned the
 build's replica. ADR-0226 removed that, so the condition is now about brokered
 credentials and nothing about data.
 
+**Current code and proposed direction.** `@epicenter/app` still selects its
+platform leaves through build conditions. Proposed ADR-0403 would move that
+selection inside the package with `isTauri()`. Until implemented, preserve the
+conditions required by current consumers. The proposal leaves app-level seams
+in place; consult it when changing the package's selection boundary.
+
 A build that owns its own storage uses neither host condition, whether a browser
 or a bundle serves it: a WebView is a storage partition and origin pair like any
 other (ADR-0177). Every build owns its own storage, so this is now always true.
@@ -117,9 +123,10 @@ of the import graph stays ordinary.
 
 - Adding a `#platform/*` seam for storage, a replica, or a database. Every build
   opens its own store; that seam is what ADR-0226 refused.
-- Branching on the platform at a `#platform/*` call site. Import the bare
-  specifier and let the build select the leaf.
-- Detecting the host at runtime. The build already answered.
+- Branching on the platform at an app's `#platform/*` call site. Import the
+  bare specifier and let the build select the leaf.
+- Detecting the host at runtime in an app seam. The build already answered.
+  Proposed ADR-0403 would make `@epicenter/app` an exception; it is unbuilt.
 - Using `satisfies` on a leaf instead of a `: Contract` annotation.
 - Importing a `.tauri.ts`-only symbol through `#platform/*`. It resolves to the
   browser leaf off Tauri; import it directly from the `.tauri` module inside

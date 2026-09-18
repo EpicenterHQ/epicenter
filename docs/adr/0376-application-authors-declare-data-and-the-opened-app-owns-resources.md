@@ -96,10 +96,12 @@ const application = defineApplication({
 ```
 
 `runtime` and the `epicenterHost` export are implemented. The explicit browser
-runtime is `browser` from `@epicenter/app/browser`.
+runtime is `browser` from `@epicenter/app/browser`. That is the shipped shape:
+ADR-0391 deletes the `runtime` option and both per-target exports, and
+ADR-0403 makes the selection a runtime check inside the package, so the block
+above reads as history once those land.
 An explicit runtime supplies the complete storage and capture binding; missing
-members are not filled from another runtime. A dual-platform app selects the
-value through one build-time import. No string registry, mutable global
+members are not filled from another runtime. No string registry, mutable global
 registration, or environment detection is needed.
 
 Omitting the runtime preserves today's defaults: build-selected SQLite and

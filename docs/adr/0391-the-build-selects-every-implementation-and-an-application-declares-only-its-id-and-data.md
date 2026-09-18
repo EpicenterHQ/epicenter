@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-12
 - **Amended by:** [ADR-0405](0405-one-flat-application-declaration-opens-the-live-app.md) at the declaration shape: one flat `defineApp({ id, title, kv, tables })` replaces the nested application/data pair.
+- **Amended by:** [ADR-0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) at the selector only: the package chooses each implementation at runtime from the presence of the host, so no `#platform/*` seam is added and the existing ones leave. The deletion of `runtime`, `ai`, and `settingsKey`, the host blob layout, and the whole-declaration rule stand. And by [ADR-0402](0402-a-window-label-is-identity-never-authority-and-the-capability-is-a-host-constant.md) at the precondition for flipping the default runtime: every window may call `current_recording`, so no window list gates it.
 - **Implementation checkpoint, 2026-09-18:** `packages/app/package.json` selects resource, AI, and clipboard leaves through `epicenter-host` and default conditions. `defineApp` statically imports `#platform/resources`; Honeycrisp, Vocab, and Local Mail use those defaults. Whispering still passes `runtime` from its own `#platform/runtime` seam. Explicit `runtime` and `ai` options still exist; `settingsKey` is removed. ADR-0405 implements the flat declaration; ADR-0404 implements account-owned local storage. ADR-0403's runtime selector and deletion of the explicit options remain unimplemented. No storage-prefix migration exists.
 
 ## Context

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-12
+- **Amended by:** [ADR-0402](0402-a-window-label-is-identity-never-authority-and-the-capability-is-a-host-constant.md) at "permissions the generic trusted app-window capabilities grant": the host grants them to every window. [ADR-0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) at "selected for the build by a `#platform/clipboard` seam": the package selects the leaf at runtime with `isTauri()`. The module, its two leaves, and the normalization stand.
 
 ## Context
 

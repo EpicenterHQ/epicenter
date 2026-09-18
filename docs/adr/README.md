@@ -656,8 +656,10 @@ When you add an ADR, add its row here.
 | [0397](0397-native-inference-selects-an-installed-model-explicitly.md) | Native inference selects an installed model explicitly | Proposed (amends 0180, 0012) |
 | [0398](0398-every-transcription-destination-speaks-the-openai-wire.md) | Every transcription destination speaks the OpenAI wire | Proposed (amends 0060) |
 | [0399](0399-moving-data-into-an-account-is-a-row-copy.md) | Cross-library copying is an application workflow | Proposed (supersedes 0143) |
-| [0400](0400-device-sqlite-and-secrets-key-by-application-id.md) | Device SQLite and secrets key by application id | Superseded by 0404 |
+| [0400](0400-device-sqlite-and-secrets-key-by-application-id.md) | Device SQLite and secrets key by application id | Accepted (superseded by 0404) |
 | [0401](0401-a-record-names-its-destination-at-creation.md) | A record names its destination at creation | Proposed |
+| [0402](0402-a-window-label-is-identity-never-authority-and-the-capability-is-a-host-constant.md) | A window label is identity, never authority, and the capability is a host constant | Proposed (amends 0189 at its capability-file consequence) |
+| [0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) | The package selects its platform leaves at runtime, and a consumer's build passes no condition | Proposed (amends 0388 and 0391 at the selector) |
 | [0404](0404-the-opened-account-owns-application-local-storage.md) | The opened account owns application-local storage | Accepted (supersedes 0400) |
 | [0405](0405-one-flat-application-declaration-opens-the-live-app.md) | One flat application declaration opens the live App | Accepted (amends 0391 at declaration shape) |
 | [0406](0406-one-application-schema-is-used-by-every-store.md) | One application schema is used by every store | Accepted |

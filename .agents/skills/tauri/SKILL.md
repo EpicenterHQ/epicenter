@@ -21,7 +21,7 @@ Skip DeepWiki for repo-local command naming and app-specific wrapper conventions
 
 - Expose focused Rust APIs with `#[tauri::command]`, register them with `generate_handler!`, and return `Result<T, E>` for fallible work.
 - Validate command inputs on the Rust side. TypeScript callers are not the trust boundary.
-- Keep capabilities least-privilege in `app.security.capabilities`, scoped to the windows or webviews that need them. Avoid broad permission wildcards.
+- Current Epicenter capabilities grant commands by window label. Keep command registrations and the relevant capability grants consistent. Proposed ADR-0402 would replace these with a host-wide constant; it is unbuilt and must not be assumed when adding a native call.
 - Treat CSP, `devCsp`, asset protocol configuration, `convertFileSrc`, `freezePrototype`, and remote IPC as security-sensitive config.
 - Long-lived Rust objects should be Tauri resources with frontend `ResourceId`s. Do not serialize complex long-lived objects through command responses.
 
@@ -248,6 +248,6 @@ Prefer app-owned identifiers over frontend-controlled paths when the native side
 - Recording operations should pass a recording id when Rust owns the recordings directory.
 - Model selection can pass a path, but Rust should canonicalize it and reject values outside the allowed app data model directory.
 - Markdown export, downloads, and temporary files should use focused commands rooted in app-owned directories rather than broad filesystem permissions.
-- Removing a capability from `capabilities/*.json`, `Cargo.toml`, or `package.json` should be paired with removing stale docs and UI that still describe that permission.
+- Removing a capability, plugin, or command should also remove stale docs and UI that describe it. Proposed ADR-0402 would consolidate capability verification into one schema comparison; current tests still cover separate window grants.
 
 The frontend can remember user intent. Rust enforces the filesystem boundary.
