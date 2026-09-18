@@ -9,6 +9,9 @@ The captured account scopes local storage as well as synchronized stores.
 `open()` and `open(undefined)` select a separate `no-account` namespace.
 Signing in never adopts that namespace; returning to an account restores its
 own device data. Device storage stays local even when it belongs to an account.
+In apps that support signed-out use, sign-out returns to the no-account
+workspace, including recordings and audio created there before sign-in. That
+workspace is shared by everyone using the app signed out in the same profile.
 The return type preserves the argument: `open(account)` with a definite Account
 has a definite `app.account`; opening without one gives `account: undefined`.
 A union argument retains the union. After `if (app.account)`, callers can pass
@@ -53,7 +56,8 @@ in the same profile/origin. Application declarations do not choose its storage k
 The scope API implements the opener portion of ADR-0392. ADR-0391's removal of
 runtime overrides and ADR-0396's connection protocol remain separate proposals.
 The current declaration supplies the same data definition to each store;
-separate device declarations and the remaining preferences migration are unbuilt.
+ADR-0406 rejects separate device declarations. The remaining preferences
+migration is unbuilt.
 
 `app.account?.connection` and `app.device.connections.runtime` are fixed nullable SDK client capabilities.
 `app.device.connections.custom` owns device-local custom endpoints, optional bearer keys,

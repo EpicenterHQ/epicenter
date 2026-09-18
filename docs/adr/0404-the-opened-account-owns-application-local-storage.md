@@ -23,6 +23,18 @@ application's local storage for that lifetime. `open()` and
 nor sign-out transfers data. Returning to the same authority and principal
 restores the same local storage.
 
+For applications that support signed-out use, signing in replaces the visible
+workspace with the account's workspace. An account with no existing data starts
+empty. Recordings made without an account remain in `no-account`; signing out
+returns to that workspace and restores access to those recordings and their
+audio. Returning to the account restores its own data in turn. No transfer or
+adoption prompt is required.
+
+The `no-account` namespace is shared by everyone using this application signed
+out in the same device profile or browser origin/profile. It does not identify
+a person. Applications must select their signed-out library after sign-out,
+even when the last signed-in view was Personal or Shared.
+
 `app.device` describes the local capability scope, not an account-independent
 owner. Its tables, named SQLite databases, secrets, and recording destination
 use the captured owner. `app.blobs.local` uses that same owner across the

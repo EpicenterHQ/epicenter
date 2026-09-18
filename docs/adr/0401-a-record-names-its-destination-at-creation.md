@@ -54,7 +54,8 @@ retain the owning handle for actions on each record.
   replace its consumers and verify them before removing obsolete wiring.
 - A caller already holding the chosen table needs no extra destination argument.
 - An application may omit Local from its interface or require sign-in. The
-  framework still supplies the Local library without making it account-private.
+  framework still supplies the captured owner's Local library (ADR-0404).
+  Opening without an account selects the separate no-account namespace.
 - Cross-library copying is optional application work (ADR-0399), not a required
   correction flow. A remembered destination, if offered, is device policy and
   must be checked against the newly opened account before use.

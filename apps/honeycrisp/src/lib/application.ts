@@ -10,8 +10,9 @@ const auth = authStartup.auth;
 export const account = auth?.state.account;
 export type Library = 'local' | 'personal' | 'shared';
 export const library: Library = (() => {
+	if (account === undefined) return 'local';
 	const saved = localStorage.getItem('honeycrisp.library');
-	if (saved === null) return account === undefined ? 'local' : 'personal';
+	if (saved === null) return 'personal';
 	if (saved === 'local' || saved === 'personal' || saved === 'shared')
 		return saved;
 	throw new Error('Your saved library choice could not be read.');

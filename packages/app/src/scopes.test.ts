@@ -9,6 +9,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Account } from '@epicenter/auth';
+import { type BlobId, parseBlobId } from '@epicenter/blobs';
 import * as dataBrowser from '@epicenter/data/browser';
 import { defineData, defineTable, field } from '@epicenter/data/definition';
 import { secretLabel } from '@epicenter/device';
@@ -18,7 +19,7 @@ import { asPrincipalId, deviceOwnerPath } from '@epicenter/principal';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { encodeFrame } from '../../data/src/sync/frames.js';
 import { browser } from './browser.js';
 import { defineApplication } from './index.js';
@@ -30,6 +31,7 @@ const definition = defineData({
 	kv: {},
 	tables: {
 		notes: defineTable({ title: field.string() }),
+		recordings: defineTable({ audioBlobId: field.string() }),
 	},
 });
 function accountFor(person: string, supportsShared = false): Account {
@@ -104,7 +106,16 @@ test('device rows, SQLite, secrets and blobs isolate owners and survive returnin
 	});
 	try {
 		const seen = new Set<string>();
-		for (const person of [undefined, 'alice', 'bob', 'alice', undefined]) {
+		const recordings = new Map<string, { id: string; audioBlobId: BlobId }>();
+		for (const person of [
+			undefined,
+			'alice',
+			undefined,
+			'alice',
+			'bob',
+			'alice',
+			undefined,
+		]) {
 			const owner = person ?? 'no-account';
 			const app = application.open(
 				person === undefined ? undefined : accountFor(person),
@@ -126,18 +137,36 @@ test('device rows, SQLite, secrets and blobs isolate owners and survive returnin
 				).toBe(seen.has(owner) ? owner : null);
 				const files = expectOk(await app.blobs.local.list()).items;
 				expect(files).toHaveLength(seen.has(owner) ? 1 : 0);
+				expect(app.device.tables.recordings.rows).toHaveLength(
+					seen.has(owner) ? 1 : 0,
+				);
+				for (const [otherOwner, recording] of recordings) {
+					if (otherOwner === owner) continue;
+					expect(
+						expectErr(await app.blobs.local.get(recording.audioBlobId)).name,
+					).toBe('BlobNotFound');
+				}
 				if (!seen.has(owner)) {
 					app.device.tables.notes.create({ title: owner });
 					expectOk(await db.run('INSERT INTO cached VALUES (?)', [owner]));
 					expectOk(await app.device.secrets.put(secretLabel('gmail'), owner));
-					expectOk(
-						await app.blobs.local.add(
-							new Blob([owner], { type: 'text/plain' }),
-						),
+					const audioBlobId = expectOk(
+						await app.blobs.local.add(new Blob([owner], { type: 'audio/wav' })),
 					);
+					const recording = app.device.tables.recordings.create({
+						audioBlobId,
+					});
+					recordings.set(owner, { id: recording.id, audioBlobId });
 				} else {
+					const recording = app.device.tables.recordings.rows[0]!;
+					expect({
+						id: recording.id,
+						audioBlobId: recording.audioBlobId,
+					}).toEqual(recordings.get(owner)!);
 					expect(
-						await expectOk(await app.blobs.local.get(files[0]!.id)).text(),
+						await expectOk(
+							await app.blobs.local.get(parseBlobId(recording.audioBlobId)!),
+						).text(),
 					).toBe(owner);
 				}
 				if (app.account) {
