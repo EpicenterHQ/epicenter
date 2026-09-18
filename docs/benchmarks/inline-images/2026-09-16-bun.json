@@ -1,0 +1,119 @@
+{
+	"date": "2026-09-16T12:48:24.188Z",
+	"bun": "1.3.14",
+	"yjs": "14.0.0-rc.24",
+	"platform": "darwin",
+	"architecture": "arm64",
+	"bodyCharacters": 2850,
+	"method": "Synthetic image payload as a row value; fresh processes; raw V2 bytes; three hydration trials. No image decoding, transport compression, disk persistence timing, projection, or editor rendering.",
+	"results": [
+		{
+			"mode": "url",
+			"rows": 100,
+			"imageBytes": 102400,
+			"snapshotBytes": 297523,
+			"encodeMs": 2.7699169999999995,
+			"readers": [
+				{
+					"hydrateMs": 2.761665999999998,
+					"rssDeltaBytes": 7503872,
+					"titleDeltaBytes": 59,
+					"snapshotAfterImageDeletionBytes": 291964
+				},
+				{
+					"hydrateMs": 2.905750000000001,
+					"rssDeltaBytes": 7290880,
+					"titleDeltaBytes": 59,
+					"snapshotAfterImageDeletionBytes": 291964
+				},
+				{
+					"hydrateMs": 2.8896669999999993,
+					"rssDeltaBytes": 7471104,
+					"titleDeltaBytes": 59,
+					"snapshotAfterImageDeletionBytes": 291964
+				}
+			]
+		},
+		{
+			"mode": "inline",
+			"rows": 100,
+			"imageBytes": 102400,
+			"snapshotBytes": 13947822,
+			"encodeMs": 7.261417000000002,
+			"readers": [
+				{
+					"hydrateMs": 3.7238749999999996,
+					"rssDeltaBytes": 21381120,
+					"titleDeltaBytes": 57,
+					"snapshotAfterImageDeletionBytes": 291954
+				},
+				{
+					"hydrateMs": 3.7836250000000007,
+					"rssDeltaBytes": 21348352,
+					"titleDeltaBytes": 57,
+					"snapshotAfterImageDeletionBytes": 291954
+				},
+				{
+					"hydrateMs": 3.8736250000000005,
+					"rssDeltaBytes": 21266432,
+					"titleDeltaBytes": 57,
+					"snapshotAfterImageDeletionBytes": 291954
+				}
+			]
+		},
+		{
+			"mode": "url",
+			"rows": 1000,
+			"imageBytes": 102400,
+			"snapshotBytes": 2975926,
+			"encodeMs": 8.906416,
+			"readers": [
+				{
+					"hydrateMs": 6.06475,
+					"rssDeltaBytes": 20480000,
+					"titleDeltaBytes": 59,
+					"snapshotAfterImageDeletionBytes": 2919968
+				},
+				{
+					"hydrateMs": 6.152667000000001,
+					"rssDeltaBytes": 19873792,
+					"titleDeltaBytes": 59,
+					"snapshotAfterImageDeletionBytes": 2919960
+				},
+				{
+					"hydrateMs": 6.099249999999998,
+					"rssDeltaBytes": 20185088,
+					"titleDeltaBytes": 59,
+					"snapshotAfterImageDeletionBytes": 2919968
+				}
+			]
+		},
+		{
+			"mode": "inline",
+			"rows": 1000,
+			"imageBytes": 102400,
+			"snapshotBytes": 139478926,
+			"encodeMs": 56.295666000000004,
+			"readers": [
+				{
+					"hydrateMs": 16.752625000000002,
+					"rssDeltaBytes": 158580736,
+					"titleDeltaBytes": 59,
+					"snapshotAfterImageDeletionBytes": 2919960
+				},
+				{
+					"hydrateMs": 14.733166000000004,
+					"rssDeltaBytes": 158842880,
+					"titleDeltaBytes": 58,
+					"snapshotAfterImageDeletionBytes": 2919967
+				},
+				{
+					"hydrateMs": 14.913000000000004,
+					"rssDeltaBytes": 158384128,
+					"titleDeltaBytes": 59,
+					"snapshotAfterImageDeletionBytes": 2919968
+				}
+			]
+		}
+	]
+}
