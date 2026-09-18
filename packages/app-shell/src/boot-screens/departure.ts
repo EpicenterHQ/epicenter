@@ -1,20 +1,16 @@
 import type { Account, AuthClient } from '@epicenter/auth';
 
-/** Quiesce page producers before closing resources; retry only unfinished cleanup. */
+/** Quiesce page producers before closing resources; a failed lifetime requires page teardown. */
 export function createDeparture({
 	auth,
 	account,
-	close,
-	libraryReplaced,
-	canRetryClose,
-	reload,
+	beforeClose,
+	opening,
 }: {
 	auth?: Pick<AuthClient, 'onStateChange'>;
 	account?: Account;
-	close: () => Promise<void>;
-	libraryReplaced?: Promise<void>;
-	canRetryClose?: () => boolean;
-	reload?: () => void;
+	beforeClose?: () => void | Promise<void>;
+	opening?: Promise<{ signal: AbortSignal; close(): Promise<void> }>;
 }) {
 	let state: {
 		phase:
@@ -24,7 +20,8 @@ export function createDeparture({
 			| 'closed'
 			| 'departing'
 			| 'retired'
-			| 'failed';
+			| 'failed'
+			| 'opening-failed';
 		error: unknown;
 	} = { phase: 'open', error: null };
 	const listeners = new Set<() => void>();
@@ -38,19 +35,21 @@ export function createDeparture({
 	let departing: Promise<void> | undefined;
 	let endedBy: 'account' | 'library' | undefined;
 	let closedSuccessfully = false;
-	let uiQuiesced = false;
-	let reloaded = false;
+	let stopRetirement: (() => void) | undefined;
+
 	function publish(phase: typeof state.phase, error: unknown = null) {
+		// Opening failure remains terminal even when departure was already underway.
+		if (state.phase === 'opening-failed') return;
 		state = { phase, error };
 		for (const listener of listeners) listener();
 	}
 	function finish() {
 		if (closing) return closing;
-		const retrying = state.phase === 'failed';
+		if (state.phase === 'opening-failed') return Promise.reject(state.error);
 		closing = Promise.resolve().then(async () => {
 			publish('checking');
 			try {
-				if (endedBy === undefined && !retrying) await ui?.preflight?.();
+				if (endedBy === undefined) await ui?.preflight?.();
 			} catch (error) {
 				if (endedBy === undefined) {
 					closing = undefined;
@@ -60,15 +59,14 @@ export function createDeparture({
 			}
 			publish('closing');
 			try {
-				if (!uiQuiesced) await ui?.quiesce();
-				uiQuiesced = true;
-				await close();
+				await ui?.quiesce();
+				await beforeClose?.();
+				const app = await opening;
+				// No await separates detaching retirement from App's synchronous revocation.
+				stopRetirement?.();
+				await app?.close();
 				closedSuccessfully = true;
 				publish(endedBy ? 'retired' : 'closed');
-				if (endedBy === 'library' && !reloaded) {
-					reloaded = true;
-					reload?.();
-				}
 			} catch (error) {
 				publish('failed', error);
 				throw error;
@@ -86,32 +84,22 @@ export function createDeparture({
 			// Auth already retired transport. This only finishes the local page.
 			void finish().catch(() => {});
 		}) ?? (() => {});
-	void libraryReplaced?.then(() => {
-		// Account replacement closes this page without automatically reopening it.
-		if (endedBy !== 'account') endedBy = 'library';
-		if (state.phase === 'open' || state.phase === 'checking')
-			publish('closing');
-		void finish().catch(() => {});
-	});
-	function retryable() {
-		return (
-			state.phase === 'failed' && (!uiQuiesced || canRetryClose?.() === true)
-		);
-	}
+	void opening?.then(
+		({ signal }) => {
+			const retired = () => {
+				if (closedSuccessfully) return;
+				endedBy ??= 'library';
+				void finish().catch(() => {});
+			};
+			if (signal.aborted) retired();
+			else {
+				signal.addEventListener('abort', retired, { once: true });
+				stopRetirement = () => signal.removeEventListener('abort', retired);
+			}
+		},
+		(error) => publish('opening-failed', error),
+	);
 	return {
-		/** Retry only when UI cleanup or the resource owner can still make progress. */
-		get canRetryClose() {
-			return retryable();
-		},
-		retryClose(): Promise<void> {
-			if (!retryable()) return closing ?? Promise.resolve();
-			closing = undefined;
-			return finish();
-		},
-		/** Navigation after failure is safe only when producers and storage closed. */
-		get canReopen() {
-			return closedSuccessfully;
-		},
 		get state() {
 			return state;
 		},

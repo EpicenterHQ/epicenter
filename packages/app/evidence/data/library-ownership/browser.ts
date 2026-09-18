@@ -107,6 +107,59 @@ try {
 	});
 	assert.equal(await call(first, 'openEvidence'), 'ready');
 	assert.equal(await call(first, 'closeEvidence'), 'closed');
+	// Known storage rolls back cleanly after hydration fails.
+	const rolledBack = await page();
+	await call(rolledBack, 'setOpeningFailure', true);
+	assert.equal(await call(rolledBack, 'openEvidence'), 'StorageFailed');
+	assert.equal(await call(rolledBack, 'cleanupAttemptsEvidence'), 1);
+	assert.equal(await call(first, 'openEvidence'), 'ready');
+	assert.equal(await call(first, 'closeEvidence'), 'closed');
+	await rolledBack.close();
+	// Hydration fails after acquiring storage; unsafe rollback retains admission.
+	const failed = await page();
+	await call(failed, 'setOpeningFailure', true);
+	await call(failed, 'setCleanupFailure', true);
+	assert.equal(await call(failed, 'openEvidence'), 'AggregateError');
+	assert.equal(await call(failed, 'cleanupAttemptsEvidence'), 1);
+	assert.ok(
+		((await call(failed, 'openingErrorsEvidence')) as string[]).includes(
+			'StorageFailed',
+		),
+	);
+	assert.equal(await call(first, 'openEvidence'), 'AlreadyOpen');
+	await failed.close();
+	await first.waitForFunction(async () => {
+		const { held } = await navigator.locks.query();
+		return !held?.some((lock) =>
+			lock.name?.includes('so.epicenter.admission-evidence'),
+		);
+	});
+	assert.equal(await call(first, 'openEvidence'), 'ready');
+	assert.equal(await call(first, 'closeEvidence'), 'closed');
+	// No public cancel API: destroying the page ends an unfinished acquisition.
+	const blocked = await page();
+	await call(blocked, 'setOpeningBlocked', true);
+	await blocked.evaluate(() => {
+		void (
+			globalThis as unknown as { openEvidence(): Promise<unknown> }
+		).openEvidence();
+	});
+	await first.waitForFunction(async () => {
+		const { held } = await navigator.locks.query();
+		return held?.some((lock) =>
+			lock.name?.includes('so.epicenter.admission-evidence'),
+		);
+	});
+	assert.equal(await call(first, 'openEvidence'), 'AlreadyOpen');
+	await blocked.close();
+	await first.waitForFunction(async () => {
+		const { held } = await navigator.locks.query();
+		return !held?.some((lock) =>
+			lock.name?.includes('so.epicenter.admission-evidence'),
+		);
+	});
+	assert.equal(await call(first, 'openEvidence'), 'ready');
+	assert.equal(await call(first, 'closeEvidence'), 'closed');
 	console.log(
 		`${engine.name()}: ${await call(first, 'memoryCoexistenceEvidence')}`,
 	);

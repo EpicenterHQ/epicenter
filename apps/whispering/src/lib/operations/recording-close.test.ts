@@ -272,7 +272,7 @@ test('push-to-talk release during startup saves through the composed workflow', 
 	expect(recordingActive(app)).toBe(false);
 });
 
-test('retirement retries the retained UI cleanup after unmount before releasing a failed active VAD', async () => {
+test('retirement cleanup failure after unmount is terminal and retains the active VAD', async () => {
 	mock.module('../whispering/app', () => ({
 		createWhisperingDomains: () => ({ settings: {}, [Symbol.dispose]() {} }),
 	}));
@@ -293,8 +293,7 @@ test('retirement retries the retained UI cleanup after unmount before releasing 
 		'../whispering/ui-session'
 	);
 	const { createDeparture } = await import('@epicenter/app-shell/departure');
-	const notification =
-		Promise.withResolvers<void>();
+	const notification = new AbortController();
 	const session = createWhisperingUiSession({
 		selections: createInferenceSelections({
 			storageKey: 'recording-close',
@@ -311,16 +310,14 @@ test('retirement retries the retained UI cleanup after unmount before releasing 
 	};
 	let closeUi: (() => Promise<void>) | undefined;
 	let closed = false;
-	let reloaded = false;
 	const departure = createDeparture({
 		account: undefined,
-		libraryReplaced: notification.promise,
-		close: async () => {
-			closed = true;
-		},
-		reload: () => {
-			reloaded = true;
-		},
+		opening: Promise.resolve({
+			signal: notification.signal,
+			async close() {
+				closed = true;
+			},
+		}),
 	});
 	departure.attachUi({
 		async quiesce() {
@@ -332,19 +329,19 @@ test('retirement retries the retained UI cleanup after unmount before releasing 
 	});
 	vadRecorder.state = 'LISTENING';
 	vadFailure = new Error('Microphone graph still held');
-	notification.resolve();
+	notification.abort();
 	try {
 		await Bun.sleep(0);
 		await expect(departure.close()).rejects.toBe(vadFailure);
 		expect(shell).toBeUndefined();
 		expect(closed).toBe(false);
-		expect(reloaded).toBe(false);
 		expect(vadRecorder.state).toBe('LISTENING');
 		vadFailure = undefined;
-		await departure.retryClose();
-		expect(vadRecorder.state).toBe('IDLE');
-		expect(closed).toBe(true);
-		expect(reloaded).toBe(true);
+		await expect(departure.close()).rejects.toThrow(
+			'Microphone graph still held',
+		);
+		expect(closed).toBe(false);
+		expect(departure.state.phase).toBe('failed');
 	} finally {
 		vadFailure = undefined;
 		await closeRecordingWork();

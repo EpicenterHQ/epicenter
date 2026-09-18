@@ -1,450 +1,261 @@
-/**
- * Page departure preserves close-before-selection and never reopens a closed App.
- * Tests cover delayed writes, competing actions, reversible preflight refusal,
- * terminal failures, and unexpected Account retirement.
- */
 import { expect, test } from 'bun:test';
-import type { Account, AuthClient, AuthState } from '@epicenter/auth';
 import { createDeparture } from './departure.js';
 
-function setup(
-	close: () => Promise<void> = async () => {},
-	replacement?: { libraryReplaced: Promise<void>; reload(): void },
-) {
-	let observer: (state: AuthState) => void = () => {};
-	const auth = {
-		onStateChange(listener: typeof observer) {
-			observer = listener;
-			return () => {
-				observer = () => {};
-			};
-		},
-	} satisfies Pick<AuthClient, 'onStateChange'>;
-	const account: Account = {
-		supportsShared: false,
-		authorityId: 'test',
-		principalId: 'alice' as Account['principalId'],
-		baseURL: 'https://example.test',
-		async fetch() {
-			return new Response();
-		},
-		async openWebSocket() {
-			throw new Error('Unused');
-		},
-		async getProfile() {
-			throw new Error('Unused');
-		},
-	};
-	const departure = createDeparture({ auth, account, close, ...replacement });
-	return {
-		departure,
-		retire: () => observer({ status: 'signed-out' }),
-		refresh: () => observer({ status: 'reauth-required', account }),
-	};
-}
-
-test('same-Account credential refusal keeps the page open', async () => {
-	let closed = false;
-	const { departure, refresh } = setup(async () => {
-		closed = true;
-	});
-	refresh();
-	await Bun.sleep(0);
-	expect(departure.state.phase).toBe('open');
-	expect(closed).toBe(false);
-	await departure.close();
-});
-
-test('final UI write and physical close settle before the first chosen action', async () => {
-	const released = Promise.withResolvers<void>();
+test('departure drains producers, closes storage, then changes authentication', async () => {
 	const events: string[] = [];
-	const { departure } = setup(async () => {
-		events.push('close');
-		await released.promise;
-		events.push('released');
+	const departure = createDeparture({
+		async beforeClose() {
+			events.push('close');
+		},
 	});
 	departure.attachUi({
 		async quiesce() {
-			events.push('last edit');
+			events.push('drain');
+		},
+	});
+	await departure.go(() => {
+		events.push('auth');
+	});
+	expect(events).toEqual(['drain', 'close', 'auth']);
+});
+
+test('concurrent departures share one cleanup and the first action', async () => {
+	const gate = Promise.withResolvers<void>();
+	const events: string[] = [];
+	const departure = createDeparture({
+		async beforeClose() {
+			events.push('close');
+			await gate.promise;
 		},
 	});
 	const first = departure.go(() => {
-		events.push('account A');
+		events.push('first');
 	});
 	const second = departure.go(() => {
-		events.push('account B');
+		events.push('second');
 	});
 	expect(second).toBe(first);
-	await Bun.sleep(0);
-	expect(events).toEqual(['last edit', 'close']);
-	released.resolve();
+	gate.resolve();
 	await first;
-	expect(events).toEqual(['last edit', 'close', 'released', 'account A']);
+	expect(events).toEqual(['close', 'first']);
 });
 
-test('a preflight refusal leaves the page usable and permits retry', async () => {
+test('preflight veto leaves an untouched lifetime usable', async () => {
 	let recording = true;
-	let selected = false;
-	const { departure } = setup();
+	const departure = createDeparture({ async beforeClose() {} });
 	departure.attachUi({
 		async preflight() {
-			if (recording) throw new Error('Finish recording');
+			if (recording) throw Error('recording');
 		},
 		async quiesce() {},
 	});
-	await expect(
-		departure.go(() => {
-			selected = true;
-		}),
-	).rejects.toThrow('Finish recording');
+	await expect(departure.close()).rejects.toThrow('recording');
 	expect(departure.state.phase).toBe('open');
-	expect(selected).toBe(false);
 	recording = false;
-	await departure.go(() => {
-		selected = true;
-	});
-	expect(selected).toBe(true);
-});
-
-test('physical close failure prevents selection and remains terminal', async () => {
-	let closes = 0;
-	let selected = false;
-	const { departure } = setup(async () => {
-		closes++;
-		throw new Error('disk failed');
-	});
-	await expect(
-		departure.go(() => {
-			selected = true;
-		}),
-	).rejects.toThrow('disk failed');
-	await expect(
-		departure.go(() => {
-			selected = true;
-		}),
-	).rejects.toThrow('disk failed');
-	expect(departure.state.phase).toBe('failed');
-	expect(closes).toBe(1);
-	expect(departure.canReopen).toBe(false);
-	expect(selected).toBe(false);
-});
-
-test('quiescence failure retains storage and retries before allowing reopen', async () => {
-	let closed = false;
-	let busy = true;
-	let selected = false;
-	const { departure } = setup(async () => {
-		closed = true;
-	});
-	departure.attachUi({
-		async quiesce() {
-			if (busy) throw new Error('final write failed');
-		},
-	});
-	await expect(
-		departure.go(() => {
-			selected = true;
-		}),
-	).rejects.toThrow('final write failed');
-	expect(closed).toBe(false);
-	expect(selected).toBe(false);
-	expect(departure.state.phase).toBe('failed');
-	expect(departure.canReopen).toBe(false);
-	expect(departure.canRetryClose).toBe(true);
-	busy = false;
-	await departure.retryClose();
-	expect(closed).toBe(true);
-	expect(departure.canReopen).toBe(true);
-	expect(selected).toBe(false);
-});
-
-test('selection failure after close cannot trigger another action', async () => {
-	const { departure } = setup();
-	let second = false;
-	await expect(
-		departure.go(() => {
-			throw new Error('login failed');
-		}),
-	).rejects.toThrow('login failed');
-	await expect(
-		departure.go(() => {
-			second = true;
-		}),
-	).rejects.toThrow('login failed');
-	expect(second).toBe(false);
-	expect(departure.canReopen).toBe(true);
-});
-
-test('unexpected retirement bypasses voluntary preflight and closes locally', async () => {
-	let closed = false;
-	const { departure, retire } = setup(async () => {
-		closed = true;
-	});
-	departure.attachUi({
-		async preflight() {
-			throw new Error('recording');
-		},
-		async quiesce() {},
-	});
-	retire();
 	await departure.close();
-	expect(closed).toBe(true);
-	expect(departure.state.phase).toBe('retired');
-	await expect(departure.go(() => {})).rejects.toThrow('account changed');
+	expect(departure.state.phase).toBe('closed');
 });
 
-test('native close can acknowledge during a departure action without waiting for that action', async () => {
-	const { departure } = setup();
-	let acknowledged = false;
-	await departure.go(async () => {
-		await departure.close();
-		acknowledged = true;
-	});
-	expect(acknowledged).toBe(true);
-});
-
-test('retirement during preflight closes despite refusal and suppresses the selected action', async () => {
-	const checked = Promise.withResolvers<void>();
-	let closed = false;
-	let selected = false;
-	const { departure, retire } = setup(async () => {
-		closed = true;
-	});
-	departure.attachUi({ preflight: () => checked.promise, async quiesce() {} });
-	const pending = departure.go(() => {
-		selected = true;
-	});
-	await Bun.sleep(0);
-	retire();
-	checked.reject(new Error('Finish recording'));
-	await expect(pending).rejects.toThrow('account changed');
-	expect(closed).toBe(true);
-	expect(selected).toBe(false);
-});
-
-test('completed resource close remains noninteractive while the action is pending', async () => {
-	const selected = Promise.withResolvers<void>();
-	const { departure } = setup();
-	const pending = departure.go(() => selected.promise);
-	await Bun.sleep(0);
-	expect(departure.state.phase).toBe('departing');
-	selected.resolve();
-	await pending;
-	expect(departure.state.phase).toBe('departing');
-});
-
-test('library retirement quiesces UI and waits invalidation before close and reload', async () => {
-	const notification = Promise.withResolvers<void>();
-	const invalidation = Promise.withResolvers<void>();
-	const events: string[] = [];
-	const departure = createDeparture({
-		account: undefined,
-		libraryReplaced: notification.promise,
-		close: async () => {
-			await invalidation.promise;
-			events.push('close');
-		},
-		reload: () => {
-			events.push('reload');
-		},
-	});
-	departure.attachUi({
-		async preflight() {
-			throw new Error('Retirement must bypass preflight');
-		},
-		async quiesce() {
-			events.push('quiesce');
-		},
-	});
-	notification.resolve();
-	await Bun.sleep(0);
-	expect(events).toEqual(['quiesce']);
-	const closed = departure.close();
-	invalidation.resolve();
-	await closed;
-	expect(events).toEqual(['quiesce', 'close', 'reload']);
-	await departure.close();
-	expect(events).toHaveLength(3);
-});
-
-test('failed library invalidation retains ownership and retries cleanup without another UI drain', async () => {
-	const notification = Promise.withResolvers<void>();
-	const first = Promise.withResolvers<void>();
-	const retry = Promise.withResolvers<void>();
-	let closes = 0;
-	let quiesces = 0;
-	let reloads = 0;
-	const departure = createDeparture({
-		account: undefined,
-		libraryReplaced: notification.promise,
-		canRetryClose: () => closes === 1,
-		close: async () => {
-			await (closes++ === 0 ? first.promise : retry.promise);
-		},
-		reload: () => {
-			reloads += 1;
-		},
-	});
-	departure.attachUi({
-		async quiesce() {
-			quiesces += 1;
-		},
-	});
-	notification.resolve();
-	await Bun.sleep(0);
-	first.reject(new Error('Disk failed'));
-	await expect(departure.close()).rejects.toThrow('Disk failed');
-	expect(closes).toBe(1);
-	expect(departure.canRetryClose).toBe(true);
-	const finishing = departure.retryClose();
-	retry.resolve();
-	await finishing;
-	expect(quiesces).toBe(1);
-	expect(closes).toBe(2);
-	expect(reloads).toBe(1);
-});
-
-test('a retirement UI cleanup failure keeps the claim held and permits retry', async () => {
-	const notification = Promise.withResolvers<void>();
-	let busy = true;
-	let closed = false;
-	const departure = createDeparture({
-		account: undefined,
-		libraryReplaced: notification.promise,
-		close: async () => {
-			closed = true;
-		},
-		reload() {},
-	});
-	departure.attachUi({
-		async quiesce() {
-			if (busy) throw new Error('Producer still running');
-		},
-	});
-	notification.resolve();
-	await Bun.sleep(0);
-	await expect(departure.close()).rejects.toThrow('Producer still running');
-	expect(closed).toBe(false);
-	expect(departure.canReopen).toBe(false);
-	busy = false;
-	await departure.retryClose();
-	expect(closed).toBe(true);
-});
-
-test('retirement during voluntary UI drain takes over close ordering and suppresses auth changes', async () => {
-	const notification = Promise.withResolvers<void>();
-	const draining = Promise.withResolvers<void>();
-	const invalidating = Promise.withResolvers<void>();
-	let closed = false;
-	let selected = false;
-	const departure = createDeparture({
-		account: undefined,
-		libraryReplaced: notification.promise,
-		close: async () => {
-			await invalidating.promise;
-			closed = true;
-		},
-		reload() {},
-	});
-	departure.attachUi({ quiesce: () => draining.promise });
-	const going = departure.go(() => {
-		selected = true;
-	});
-	const refusal = going.catch((error: unknown) => error);
-	await Bun.sleep(0);
-	notification.resolve();
-	draining.resolve();
-	await Bun.sleep(0);
-	expect(closed).toBe(false);
-	invalidating.resolve();
-	expect(await refusal).toEqual(
-		new Error('The library was restored. Reload the application.'),
-	);
-	expect(closed).toBe(true);
-	expect(selected).toBe(false);
-});
-
-test('account replacement cannot release resources after failed UI cleanup', async () => {
-	let busy = true;
-	let closes = 0;
-	const { departure, retire } = setup(async () => {
-		closes++;
-	});
-	departure.attachUi({
-		async quiesce() {
-			if (busy) throw new Error('Producer still running');
-		},
-	});
-	retire();
-	await expect(departure.close()).rejects.toThrow('Producer still running');
-	expect(closes).toBe(0);
-	expect(departure.canRetryClose).toBe(true);
-	busy = false;
-	await departure.retryClose();
-	expect(closes).toBe(1);
-	expect(departure.state.phase).toBe('retired');
-});
-
-test('physical cleanup failure after library replacement does not offer a futile retry', async () => {
-	const replaced = Promise.withResolvers<void>();
-	let closes = 0;
-	const departure = createDeparture({
-		account: undefined,
-		libraryReplaced: replaced.promise,
-		canRetryClose: () => false,
-		async close() {
-			closes++;
-			throw new Error('Physical close failed');
-		},
-	});
-	replaced.resolve();
-	await Bun.sleep(0);
-	await expect(departure.close()).rejects.toThrow('Physical close failed');
-	expect(departure.canRetryClose).toBe(false);
-	await expect(departure.retryClose()).rejects.toThrow('Physical close failed');
-	expect(closes).toBe(1);
-});
-
-for (const fails of [false, true]) {
-	test(`account replacement prevents automatic reload when a late library event meets ${fails ? 'failed' : 'pending'} UI cleanup`, async () => {
-		const libraryReplaced = Promise.withResolvers<void>();
-		const draining = Promise.withResolvers<void>();
-		let busy = true;
-		let reloads = 0;
-		let closes = 0;
-		const { departure, retire } = setup(
-			async () => {
-				closes++;
-			},
-			{
-				libraryReplaced: libraryReplaced.promise,
-				reload() {
-					reloads++;
-				},
-			},
-		);
-		departure.attachUi({
-			async quiesce() {
-				if (busy) await draining.promise;
+for (const fails of ['drain', 'close', 'action']) {
+	test(`${fails} failure is terminal and cannot mutate authentication or retry cleanup`, async () => {
+		const events: string[] = [];
+		const departure = createDeparture({
+			async beforeClose() {
+				events.push('close');
+				if (fails === 'close') throw Error(fails);
 			},
 		});
-		retire();
-		const closing = departure.close();
-		if (fails) {
-			draining.reject(new Error('UI cleanup failed'));
-			await expect(closing).rejects.toThrow('UI cleanup failed');
-		}
-		libraryReplaced.resolve();
-		await Bun.sleep(0);
-		busy = false;
-		if (fails) await departure.retryClose();
-		else {
-			draining.resolve();
-			await closing;
-		}
-		expect(closes).toBe(1);
-		expect(reloads).toBe(0);
-		expect(departure.state.phase).toBe('retired');
-		await expect(departure.go(() => {})).rejects.toThrow('account changed');
+		departure.attachUi({
+			async quiesce() {
+				events.push('drain');
+				if (fails === 'drain') throw Error(fails);
+			},
+		});
+		await expect(
+			departure.go(() => {
+				events.push('action');
+				throw Error('action');
+			}),
+		).rejects.toThrow(fails);
+		const recorded = [...events];
+		await expect(
+			departure.go(() => {
+				events.push('second action');
+			}),
+		).rejects.toThrow(fails);
+		expect(events).toEqual(recorded);
+		expect(departure.state.phase).toBe('failed');
 	});
 }
+
+test('external signal retirement drains locally and prevents departure actions', async () => {
+	const controller = new AbortController();
+	const events: string[] = [];
+	const departure = createDeparture({
+		opening: Promise.resolve({
+			signal: controller.signal,
+			async close() {
+				controller.abort();
+			},
+		}),
+		async beforeClose() {
+			events.push('close');
+		},
+	});
+	departure.attachUi({
+		async preflight() {
+			throw Error('must bypass');
+		},
+		async quiesce() {
+			events.push('drain');
+		},
+	});
+	await Promise.resolve();
+	controller.abort();
+	await departure.close();
+	expect(events).toEqual(['drain', 'close']);
+	expect(departure.state.phase).toBe('retired');
+	await expect(
+		departure.go(() => {
+			events.push('auth');
+		}),
+	).rejects.toThrow('library');
+	expect(events).toEqual(['drain', 'close']);
+});
+
+test('normal App signal abortion does not mistake deliberate close for retirement', async () => {
+	const controller = new AbortController();
+	const departure = createDeparture({
+		opening: Promise.resolve({
+			signal: controller.signal,
+			async close() {
+				controller.abort();
+			},
+		}),
+		async beforeClose() {},
+	});
+	await Promise.resolve();
+	let navigated = false;
+	await departure.go(() => {
+		navigated = true;
+	});
+	expect(navigated).toBe(true);
+});
+
+test('retirement during UI drain suppresses the pending authentication change', async () => {
+	const controller = new AbortController();
+	const gate = Promise.withResolvers<void>();
+	const departure = createDeparture({
+		opening: Promise.resolve({
+			signal: controller.signal,
+			async close() {
+				controller.abort();
+			},
+		}),
+		async beforeClose() {},
+	});
+	departure.attachUi({ quiesce: () => gate.promise });
+	let navigated = false;
+	const pending = departure.go(() => {
+		navigated = true;
+	});
+	await Promise.resolve();
+	await Promise.resolve();
+	controller.abort();
+	gate.resolve();
+	await expect(pending).rejects.toThrow('library');
+	expect(navigated).toBe(false);
+});
+
+test('opening failure is displayed without a replacement opening', async () => {
+	const failure = Error('storage unavailable');
+	const opening = Promise.reject(failure);
+	const departure = createDeparture({
+		opening,
+		async beforeClose() {
+			await opening;
+		},
+	});
+	await Promise.resolve();
+	expect(departure.state).toEqual({ phase: 'opening-failed', error: failure });
+	await expect(departure.close()).rejects.toThrow('storage unavailable');
+});
+
+test('retirement while page resource cleanup waits prevents authentication mutation', async () => {
+	const controller = new AbortController();
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	let changedAuth = false;
+	const departure = createDeparture({
+		opening: Promise.resolve({
+			signal: controller.signal,
+			async close() {
+				controller.abort();
+			},
+		}),
+		async beforeClose() {
+			entered.resolve();
+			await release.promise;
+		},
+	});
+	const pending = departure.go(() => {
+		changedAuth = true;
+	});
+	void pending.catch(() => {});
+	await entered.promise;
+	controller.abort();
+	release.resolve();
+	await expect(pending).rejects.toThrow('library');
+	expect(changedAuth).toBe(false);
+});
+
+test('opening failure during departure retains the opening failure screen', async () => {
+	const opening = Promise.withResolvers<{
+		signal: AbortSignal;
+		close(): Promise<void>;
+	}>();
+	const entered = Promise.withResolvers<void>();
+	const departure = createDeparture({
+		opening: opening.promise,
+		beforeClose() {
+			entered.resolve();
+		},
+	});
+	const leaving = departure.go(() => {
+		throw new Error('Must not navigate');
+	});
+	void leaving.catch(() => {});
+	await entered.promise;
+	const failure = new Error('Opening failed');
+	opening.reject(failure);
+	await expect(leaving).rejects.toBe(failure);
+	expect(departure.state).toEqual({ phase: 'opening-failed', error: failure });
+});
+
+test('a preflight awaiting failed opening cannot restore an open departure', async () => {
+	const opening = Promise.withResolvers<{
+		signal: AbortSignal;
+		close(): Promise<void>;
+	}>();
+	const entered = Promise.withResolvers<void>();
+	const departure = createDeparture({ opening: opening.promise });
+	departure.attachUi({
+		async preflight() {
+			entered.resolve();
+			await opening.promise;
+		},
+		async quiesce() {
+			throw new Error('Must not quiesce an unopened page');
+		},
+	});
+	const leaving = departure.go(() => {
+		throw new Error('Must not navigate');
+	});
+	void leaving.catch(() => {});
+	await entered.promise;
+	const failure = new Error('Opening failed');
+	opening.reject(failure);
+	await expect(leaving).rejects.toBe(failure);
+	expect(departure.state).toEqual({ phase: 'opening-failed', error: failure });
+	await expect(departure.close()).rejects.toBe(failure);
+});

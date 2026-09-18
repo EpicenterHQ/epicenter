@@ -12,6 +12,10 @@ const values = new Map<string, string>();
 const failure = new Error('App resources could not open');
 let cleanupFails = false;
 let opens = 0;
+let readyApp = false;
+let closes = 0;
+const navigations: string[] = [];
+const lifetime = new AbortController();
 const storage = {
 	getItem: (key: string) => values.get(key) ?? null,
 	setItem(key: string, value: string) {
@@ -20,7 +24,14 @@ const storage = {
 };
 Object.defineProperties(globalThis, {
 	localStorage: { configurable: true, value: storage },
-	location: { configurable: true, value: { search: '' } },
+	location: {
+		configurable: true,
+		value: {
+			search: '',
+			pathname: '/',
+			assign: (path: string) => navigations.push(path),
+		},
+	},
 	navigator: {
 		configurable: true,
 		value: {
@@ -52,25 +63,67 @@ afterAll(() => {
 	}
 });
 mock.module('@epicenter/app/open', () => ({
-	openApp() {
+	async openApp() {
 		opens++;
 		expect(listeners.size).toBe(1);
+		if (readyApp)
+			return {
+				signal: lifetime.signal,
+				account: { personal: {}, shared: null },
+				async close() {
+					closes++;
+					lifetime.abort();
+				},
+			};
 		throw failure;
 	},
 }));
 mock.module('#platform/auth', () => ({
-	authClient: { auth: null, selectedServer: null },
+	authClient: {
+		get auth() {
+			return readyApp
+				? {
+						state: {
+							account: {
+								supportsShared: false,
+								authorityId: 'https://test.example',
+								principalId: 'person',
+							},
+						},
+						onStateChange() {
+							return () => {};
+						},
+					}
+				: null;
+		},
+		selectedServer: null,
+	},
 }));
 
 for (const cleanupThrows of [false, true]) {
-	test(`synchronous App opening failure removes storage listeners and preserves the error (cleanup throws: ${cleanupThrows})`, async () => {
+	test(`App opening rejection removes storage listeners and preserves the error (cleanup throws: ${cleanupThrows})`, async () => {
 		listeners.clear();
 		cleanupFails = cleanupThrows;
 		const before = opens;
-		await expect(
-			import(`./bootstrap.ts?sync-failure=${crypto.randomUUID()}`),
-		).rejects.toBe(failure);
+		const opened = await import(
+			`./bootstrap.ts?failure=${crypto.randomUUID()}`
+		);
+		await expect(opened.opening).rejects.toBe(failure);
 		expect(opens).toBe(before + 1);
 		expect(listeners.size).toBe(0);
 	});
 }
+
+test('an unavailable saved library closes the ready App and can select a fresh page', async () => {
+	readyApp = true;
+	cleanupFails = false;
+	values.set('whispering.library', 'shared');
+	const opened = await import(`./bootstrap.ts?choice=${crypto.randomUUID()}`);
+	await expect(opened.opening).rejects.toThrow('Sign in to open this library.');
+	expect(closes).toBe(1);
+	expect(listeners.size).toBe(0);
+	expect(opened.departure.state.phase).toBe('opening-failed');
+	await opened.selectLibrary('personal');
+	expect(values.get('whispering.library')).toBe('personal');
+	expect(navigations).toEqual(['/']);
+});

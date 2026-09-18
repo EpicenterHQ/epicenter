@@ -50,10 +50,8 @@ describe('the callback opens nothing', () => {
 		expect(source).toContain("import('$lib/application.js')");
 		expect(source).toContain('onMount(() =>');
 		expect(source).toContain('<WhisperingShell ');
-		expect(source).toContain(
-			'openedApp={application.app} data={application.data}',
-		);
-		expect(source).toContain('application.app?.ready');
+		expect(source).toContain('openedApp={app} {data}');
+		expect(source).toContain('application.opening');
 		expect(
 			source.indexOf("import('$lib/application.js').then"),
 		).toBeGreaterThan(source.indexOf('onMount(() =>'));

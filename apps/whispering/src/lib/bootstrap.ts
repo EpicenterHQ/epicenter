@@ -22,53 +22,50 @@ const shouldOpen = !new URLSearchParams(location.search).has('connect');
 export const selections = shouldOpen
 	? createBrowserInferenceSelections('whispering', account)
 	: null;
-export const app = trySync({
-	try: () => {
-		if (new URLSearchParams(location.search).has('connect')) return null;
-		return openApp(whisperingDefinition, { account });
-	},
-	catch(cause) {
-		// Preserve the opening failure even if subscription cleanup also fails.
-		trySync({
-			try: () => selections?.[Symbol.dispose](),
-			catch: () => Ok(undefined),
-		});
-		throw cause;
-	},
-}).data;
-export const data =
-	library === 'local'
-		? app?.device
-		: library === 'personal'
-			? app?.account?.personal
-			: app?.account?.shared;
-void app?.ready.then(({ error }) => {
-	if (error) selections?.[Symbol.dispose]();
-});
-let closing = false;
-export function isClosing() {
-	return closing;
-}
-
-/** Release the concrete App, including an acquisition that failed before UI mount. */
-export function closeApp() {
-	closing = true;
-	selections?.[Symbol.dispose]();
-	return app?.close() ?? Promise.resolve();
-}
+export const opening = shouldOpen
+	? openApp(whisperingDefinition, { account })
+			.then(async (app) => {
+				const data =
+					library === 'local'
+						? app.device
+						: library === 'personal'
+							? app.account?.personal
+							: app.account?.shared;
+				if (!data) {
+					await app.close();
+					throw new Error('Sign in to open this library.');
+				}
+				return { app, data };
+			})
+			.catch((cause) => {
+				trySync({
+					try: () => selections?.[Symbol.dispose](),
+					catch: () => Ok(undefined),
+				});
+				throw cause;
+			})
+	: undefined;
 export const departure = createDeparture({
-	libraryReplaced: app?.libraryReplaced,
-	canRetryClose: () => app?.canRetryClose ?? false,
-	reload: () => location.reload(),
-	auth: app && auth ? auth : undefined,
+	opening: opening?.then(({ app }) => app),
+	auth: opening ? (auth ?? undefined) : undefined,
 	account,
-	close: closeApp,
+	beforeClose() {
+		selections?.[Symbol.dispose]();
+	},
 });
 
 export function selectLibrary(next: Library) {
 	if (next === library) return Promise.resolve();
-	return departure.go(() => {
+	const navigate = () => {
 		localStorage.setItem('whispering.library', next);
-		location.assign(location.pathname);
-	});
+		location.assign(
+			location.pathname +
+				(account === undefined && next !== 'local' ? '?connect' : ''),
+		);
+	};
+	if (departure.state.phase === 'opening-failed') {
+		navigate();
+		return Promise.resolve();
+	}
+	return departure.go(navigate);
 }

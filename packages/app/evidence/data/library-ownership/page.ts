@@ -12,9 +12,14 @@ const definition = defineApp({
 	kv: {},
 });
 let failCleanup = false;
+let cleanupAttempts = 0;
+let failOpening = false;
+let blockOpening = false;
+let openingErrors: string[] = [];
 const runtime = {
 	...resources,
 	async data(...args: Parameters<typeof resources.data>) {
+		if (blockOpening) await new Promise(() => {});
 		const result = await resources.data(...args);
 		if (result.error) return result;
 		const port = result.data;
@@ -22,7 +27,13 @@ const runtime = {
 			...result,
 			data: {
 				...port,
+				get loaded() {
+					if (failOpening)
+						throw new Error('Injected document hydration failure');
+					return port.loaded;
+				},
 				async dispose() {
+					cleanupAttempts++;
 					if (failCleanup) throw new Error('Injected document cleanup failure');
 					await port.dispose?.();
 				},
@@ -30,14 +41,22 @@ const runtime = {
 		};
 	},
 };
-let app: ReturnType<typeof openApp<typeof definition>> | undefined;
+let app: Awaited<ReturnType<typeof openApp<typeof definition>>> | undefined;
 
 Object.assign(globalThis, {
 	async openEvidence() {
-		app = openApp(definition, { runtime });
-		const result = await app.ready;
-		return result.error?.name ?? 'ready';
+		try {
+			app = await openApp(definition, { runtime });
+			return 'ready';
+		} catch (error) {
+			openingErrors = (
+				error instanceof AggregateError ? error.errors : [error]
+			).map((cause: { name: string }) => cause.name);
+			return (error as { name: string }).name;
+		}
 	},
+	openingErrorsEvidence: () => openingErrors,
+	cleanupAttemptsEvidence: () => cleanupAttempts,
 	async closeEvidence() {
 		try {
 			await app?.close();
@@ -55,6 +74,12 @@ Object.assign(globalThis, {
 		return app!.device.tables.notes
 			.ids()
 			.map((id) => app!.device.tables.notes.get(id)?.title);
+	},
+	setOpeningFailure(value: boolean) {
+		failOpening = value;
+	},
+	setOpeningBlocked(value: boolean) {
+		blockOpening = value;
 	},
 	setCleanupFailure(value: boolean) {
 		failCleanup = value;
@@ -80,9 +105,9 @@ Object.assign(globalThis, {
 		});
 		const firstRuntime = createMemoryRuntime();
 		const secondRuntime = createMemoryRuntime();
-		const native = openApp(isolatedDefinition);
-		let first = openApp(isolatedDefinition, { runtime: firstRuntime });
-		let second = openApp(isolatedDefinition, { runtime: secondRuntime });
+		const native = await openApp(isolatedDefinition);
+		let first = await openApp(isolatedDefinition, { runtime: firstRuntime });
+		let second = await openApp(isolatedDefinition, { runtime: secondRuntime });
 		function check(held: boolean, message: string) {
 			if (!held) throw new Error(message);
 		}
@@ -93,7 +118,6 @@ Object.assign(globalThis, {
 		}
 		const idsByTitle = new Map<string, import('@epicenter/blobs').BlobId[]>();
 		try {
-			for (const opened of [native, first, second]) ok(await opened.ready);
 			for (const [opened, title] of [
 				[native, 'native'],
 				[first, 'memory-a'],
@@ -140,14 +164,13 @@ Object.assign(globalThis, {
 			}
 			await first.close();
 			await second.close();
-			first = openApp(isolatedDefinition, { runtime: firstRuntime });
-			second = openApp(isolatedDefinition, { runtime: secondRuntime });
+			first = await openApp(isolatedDefinition, { runtime: firstRuntime });
+			second = await openApp(isolatedDefinition, { runtime: secondRuntime });
 			for (const [opened, title] of [
 				[native, 'native'],
 				[first, 'memory-a'],
 				[second, 'memory-b'],
 			] as const) {
-				ok(await opened.ready);
 				check(
 					JSON.stringify(titles(opened)) === JSON.stringify([title]),
 					'Document reopen crossed runtime storage',

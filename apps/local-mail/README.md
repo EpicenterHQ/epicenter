@@ -57,7 +57,7 @@ updates the cache. Query results offer no message actions.
 ## Opening and closing
 
 `ui/src/lib/data.ts` declares data without opening resources. The primary route
-imports `application.ts` only after mounting, checks `app.ready`, and then
+imports `application.ts` only after mounting, awaits the `openApp` promise, and then
 renders the mail shell. Auth callbacks and Gmail consent callbacks open no
 primary library. Importing or preloading the route does not open one either.
 

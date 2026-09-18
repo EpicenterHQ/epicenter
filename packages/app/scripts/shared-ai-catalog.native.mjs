@@ -189,7 +189,6 @@ async function ready(product) {
 	await until(`${product} document`, () =>
 		evaluate(product, 'return Boolean(window.acceptance);'),
 	);
-	await evaluate(product, 'await acceptance.ready; return true;');
 }
 async function records(product) {
 	return evaluate(product, 'return acceptance.records();');
@@ -225,8 +224,11 @@ async function start() {
 				throw new Error(`Native process exited: ${nativeProcess.exitCode}`);
 			try {
 				return (
-					(await fetch(`http://127.0.0.1:${port}/_epicenter/ai/no-account/connections`))
-						.status === 401
+					(
+						await fetch(
+							`http://127.0.0.1:${port}/_epicenter/ai/no-account/connections`,
+						)
+					).status === 401
 				);
 			} catch {
 				return false;
@@ -426,7 +428,10 @@ try {
 	const first = await start();
 	assert.deepEqual(await records(a), []);
 	assert.deepEqual(await records(b), []);
-	const legacy = await evaluate(a, `return localStorage.getItem('${a}.app-ai-connections');`);
+	const legacy = await evaluate(
+		a,
+		`return localStorage.getItem('${a}.app-ai-connections');`,
+	);
 	assert.equal(JSON.parse(legacy).connections[0].id, 'native-legacy');
 	assert.equal(await evaluate(a, 'return acceptance.selected();'), null);
 	assert.equal(await evaluate(b, 'return acceptance.selected();'), null);
@@ -441,7 +446,10 @@ try {
 		a,
 		`acceptance.select(${JSON.stringify(id)}); acceptance.retain(${JSON.stringify(id)});`,
 	);
-	const removable = await evaluate(b, `return acceptance.add(${JSON.stringify({ name: 'Second fixture', baseUrl: endpoint, models: ['manual'] })});`);
+	const removable = await evaluate(
+		b,
+		`return acceptance.add(${JSON.stringify({ name: 'Second fixture', baseUrl: endpoint, models: ['manual'] })});`,
+	);
 	await evaluate(b, `acceptance.select(${JSON.stringify(removable)});`);
 	await evaluate(b, `return acceptance.run(${JSON.stringify(id)});`);
 	assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[0]}`);
@@ -569,8 +577,17 @@ try {
 		(await records(a)).some((record) => record.id === 'native-legacy'),
 		false,
 	);
-	assert.equal((await records(a)).some((record) => record.id === removable), false);
-	assert.equal(await evaluate(a, `return localStorage.getItem('${a}.app-ai-connections');`), legacy);
+	assert.equal(
+		(await records(a)).some((record) => record.id === removable),
+		false,
+	);
+	assert.equal(
+		await evaluate(
+			a,
+			`return localStorage.getItem('${a}.app-ai-connections');`,
+		),
+		legacy,
+	);
 	assert.deepEqual(
 		await evaluate(a, 'return acceptance.selected();'),
 		selectedA,
@@ -583,6 +600,23 @@ try {
 	assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[2]}`);
 	checks.push(
 		'native and Bun process restart preserves ID, keychain credential, independent selections and legacy bytes without adoption or deleted connection resurrection',
+	);
+	const beforeSqlReload = await evaluate(b, 'return acceptance.documentId;');
+	assert.equal(await evaluate(b, 'return acceptance.leaveSqlOpen();'), 'held');
+	await evaluate(b, 'setTimeout(() => location.reload(), 0); return true;');
+	await until('native SQL document reload', async () => {
+		const current = await evaluate(
+			b,
+			'return window.acceptance?.documentId ?? null;',
+		);
+		return current && current !== beforeSqlReload;
+	});
+	assert.deepEqual(
+		await evaluate(b, 'return acceptance.verifySqlTeardown();'),
+		{ rows: [], temporary: [] },
+	);
+	checks.push(
+		'document reload physically closes native SQL: uncommitted writes rolled back and TEMP state gone',
 	);
 	fixtureHeld = true;
 	const beforeClose = requests.length;
@@ -597,6 +631,7 @@ try {
 	await command('destroy', { product: a });
 	await evaluate(b, `acceptance.start(${JSON.stringify(id)});`);
 	await until('second held inference', () => requests.length > beforeClose + 1);
+	assert.equal(await evaluate(b, 'return acceptance.leaveSqlOpen();'), 'held');
 	await command('destroy', { product: b });
 	await until(
 		'window destruction releases SSE',
@@ -605,6 +640,13 @@ try {
 	await until('window destruction aborts upstream', () => fixtureAborts >= 2);
 	await command('launch', { product: b });
 	await ready(b);
+	assert.deepEqual(
+		await evaluate(b, 'return acceptance.verifySqlTeardown();'),
+		{ rows: [], temporary: [] },
+	);
+	checks.push(
+		'window destruction physically closes native SQL: uncommitted writes rolled back and TEMP state gone',
+	);
 	await evaluate(b, `acceptance.start(${JSON.stringify(id)});`);
 	await until(
 		'shutdown held inference',

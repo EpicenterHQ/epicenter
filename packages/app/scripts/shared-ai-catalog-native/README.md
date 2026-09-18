@@ -70,7 +70,18 @@ The compatible endpoint runs on loopback; the runner checks the authorization
 it receives.
 For closure checks it leaves a response body unfinished and observes each
 upstream abort. App closure, window destruction, and host shutdown must each
-cancel that body. Both native and Bun processes must exit with code zero.
+cancel that body. Before destroying one window, the fixture also leaves a native
+SQL connection with an uncommitted insert and a temporary table. A new window
+opens the same named database and must observe neither. This proves physical SQL
+connection teardown and transaction rollback independently of browser admission.
+The fixture also reloads that window and repeats the rollback and TEMP-table
+assertions. Both native and Bun processes must exit with code zero.
+
+The 2026-09-18 ready-App run passed these assertions. Whole-host shutdown still
+logs a late SQLite dispatcher cleanup failure: Rust stops its SQL worker before
+Bun requests connection closure after protocol EOF. Window and document teardown
+are verified independently. This run does not prove SQL state after whole-host
+shutdown; it does not treat the warning as a successful late close.
 
 ## Recorded acceptance
 

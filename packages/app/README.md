@@ -13,10 +13,8 @@ own device data. Device storage stays local even when it belongs to an account.
 In apps that support signed-out use, sign-out returns to the no-account
 workspace, including recordings and audio created there before sign-in. That
 workspace is shared by everyone using the app signed out in the same profile.
-The return type preserves the argument: `openApp(definition, { account })` with a definite Account
-has a definite `app.account`; opening without one gives `account: undefined`.
-A union argument retains the union. After `if (app.account)`, callers can pass
-that scope to components requiring an account. This checks the captured
+Account presence is a runtime fact. Narrow `app.account` before using its
+stores, even when the opening call supplied an Account. This checks the captured
 identity, not network reachability or authorization for a particular request.
 
 ```ts
@@ -29,11 +27,9 @@ const application = defineApp({
  kv: { language: field.string() },
  tables: { notes: defineTable({ title: field.string() }) },
 });
-const app = openApp(application, { account });
+const app = await openApp(application, { account });
 try {
- const result = await app.ready;
- if (result.error !== null) throw result.error;
- // Device state always exists; account presence follows the opening argument.
+ // Every returned App is ready. Account remains optional in the type.
  app.device.tables;
  app.device.sqlite;
  app.account?.personal.tables;
@@ -89,8 +85,8 @@ shows the package's consumers, module boundaries, and lifetime.
 ## Runtime selection
 
 `openApp(definition, { account, runtime })` captures identity and uses one
-complete runtime. Omit `runtime` to select this build's browser or
-`epicenter-host` implementation. An explicit runtime supplies admission,
+complete runtime. Omit `runtime` to select browser or native services with
+`isTauri()`. An explicit runtime supplies admission,
 document storage, SQLite, blobs, secrets, recording, and AI connections. It
 replaces the default completely; missing capabilities never fall back to
 ambient browser or native resources.
@@ -106,15 +102,11 @@ import { openApp } from '@epicenter/app/open';
 import { createMemoryRuntime } from '@epicenter/app/testing';
 
 const runtime = createMemoryRuntime();
-const app = openApp(application, { runtime });
-const ready = await app.ready;
-if (ready.error) throw ready.error;
+const app = await openApp(application, { runtime });
 app.device.tables.notes.create({ title: 'Retained across App lifetimes' });
 await app.close();
 
-const reopened = openApp(application, { runtime });
-const reopenedReady = await reopened.ready;
-if (reopenedReady.error) throw reopenedReady.error;
+const reopened = await openApp(application, { runtime });
 // The same runtime retains the committed rows, blobs, secrets, and SQL data.
 await reopened.close();
 await runtime.dispose();
@@ -128,17 +120,16 @@ records for another App lifetime. SQLite WASM `memdb` anchor connections belong
 to the runtime. Each App gets separate connections, so close rolls back its
 unfinished transactions and discards temporary tables without losing committed
 data. Disposing the runtime closes the anchors and releases its storage
-and refuses while an App still holds ownership. Failed cleanup must finish
-before disposal or reopening is safe. Memory tests exercise production
+and refuses while an App still holds ownership. Failed cleanup is terminal;
+page or process teardown releases the failed lifetime. Memory tests exercise production
 persistence and query implementations; capture and network operations do not
 pretend to succeed.
 
-A second App for the same app/account in one runtime fails readiness with
-`AlreadyOpen`. Browser tabs coordinate at the same boundary through one Web
-Lock. There is no waiting queue or takeover: close the first App, then create a
-fresh App to retry. Different app/account identities can open concurrently.
-Readiness failure makes an App unusable; it does not prove resources were
-released. Cleanup failure retains ownership to prevent unsafe replacement.
+A second opening for the same app/account in one runtime rejects with
+`AlreadyOpen`. Browser tabs coordinate through one Web Lock. There is no waiting
+queue or takeover. A successful close permits another opening. Failed opening or
+cleanup requires page teardown; cleanup failure retains ownership to prevent an
+unsafe replacement. Reload does not prove unsaved changes survived.
 
 The default runtime selects host services when `isTauri()` is true and browser
 services otherwise (ADR-0403). An explicit runtime bypasses detection. App-level
@@ -179,7 +170,7 @@ stays visible. Do not alias the namespace to a local `connections` variable.
 `getAll()` and `get(id)` return detached saved fields plus the cached SDK client.
 `subscribe(listener)` immediately supplies the current ordered snapshot and then
 supplies each committed update; it returns an unsubscribe function. Reads use the
-local snapshot after `app.ready`. They do not request model discovery.
+local snapshot available when `openApp` resolves. They do not request model discovery.
 
 ```ts
 const stop = app.device.connections.custom!.subscribe((entries) => {
@@ -226,7 +217,7 @@ mutations run synchronously within one process and publish changes to sibling
 Apps in that runtime. Workflow selections remain
 product- and owner-local under `${settingsKey}/${owner}.app-ai-selections` in both environments.
 Switching libraries retains this configuration while opening new App clients.
-A complete runtime supplies its own `ai` binding. The host build's default already
+A complete runtime supplies its own `ai` binding. The native default runtime already
 supplies native file inference as `app.device.connections.runtime`, so no application composes
 it; the browser default has no runtime transport.
 
@@ -248,9 +239,10 @@ selections, SSE reconnect, and cancellation on App, window, and host closure.
 Its optional Whispering mode also verifies the desktop picker, imported audio,
 real transcription, and the saved result after document reload.
 
-`defineApp` is inert. `openApp(application, { account })` returns an App
-synchronously and begins acquisition. `app.ready` resolves when every opened
-store and the inference catalog are ready, or returns an opening failure.
+`defineApp` is inert. `await openApp(application, { account })` returns a ready
+App after document and inference-catalog hydration. Failed opening rejects
+without publishing a partial handle. If rollback also fails, an `AggregateError`
+preserves the opening error as its cause and the claim stays held.
 `openApp(application)` performs no authority request or sync dial.
 
 `app.device` always exists. `app.account` is undefined when opened without an account. Otherwise it
@@ -268,32 +260,29 @@ KV uses `DeclaredData<T>` from `@epicenter/app/store`; broader capability types
 can be derived from the application's own handle.
 
 ```ts
-const app = openApp(definition, { account });
-const ready = await app.ready;
-if (ready.error) throw ready.error;
+const app = await openApp(definition, { account });
 if (app.account) {
   const personal = app.account.personal;
   // Use personal.tables and personal.kv here.
 }
 ```
 
-The shared `AppBoot` render gate accepts `ready={app?.ready}`. It handles loading
-and opening failures before rendering children. Imperative jobs await the same
-promise and handle its Result once. Shared components take the store or
-capability they use: `DeclaredData<T>` for tables and KV, `app.device.connections`, or
-`app.account?.connection`.
+Opening waits for acquired resources to settle before reporting a rollback outcome.
+An unfinished acquisition can therefore keep the opening promise pending; page
+teardown ends that attempt.
 
-The document, table handles, and KV handle exist before readiness. Their actual
-operations reject premature or closed use, including methods retained by a
-consumer. Hydration fills the same document; no forwarding facade replaces it.
-Invalid declarations throw before I/O. Library addresses are validated at the
-claim and storage boundaries. Auth constructs the immutable Account handle.
+The page owns the opening promise. `AppBoot` accepts `opening={opening}` and
+renders its children snippet with the resolved value. Rejection renders a
+terminal failure screen with page reload. Imperative jobs await that same promise.
+Shared components borrow the store or capability they use: `DeclaredData<T>` for
+tables and KV, `app.device.connections`, or `app.account?.connection`.
 
 The App constructs each resource once and exposes its actual operation object.
-The resource owner keeps its cleanup controls; consumers receive SQL, secret,
-blob, and recording operations without a separate close obligation. App gates public operations on combined readiness and lifetime. Each data
-engine owns hydration, persistence, and sync for its document. Retained methods reject premature or closed use;
-ordinary storage and transfer failures remain Results.
+The resource owner keeps cleanup controls. Consumers receive SQL, secret, blob,
+and recording operations without a separate close obligation. Retained methods
+reject closed or retired use; ordinary storage and transfer failures remain
+Results. The declaration is validated before storage acquisition. Auth constructs
+the immutable Account handle.
 
 ## Blobs
 
@@ -354,13 +343,13 @@ cleanup.
 Applications access blobs through their opened App. Its ownership, readiness,
 and closure cover blob requests and display resources.
 
-Concurrent `close()` calls return one completion promise. A failed cache invalidation
-permits another explicit close attempt; failed physical release stays terminal. Close rejects new work
-immediately, cancels owned AI requests, settles admitted recording and storage
-work, and releases playback sources. The document stops sync and attempts its
-final local persistence flush. SQL work drains even if another cleanup fails.
-App releases its SQL lifetime and admission only after dependent resources
-have released successfully; failed release retains ownership.
+Concurrent `close()` calls return one terminal completion promise, including
+when cleanup fails. Close revokes public operations immediately, cancels owned AI
+requests, settles admitted recording and storage work, and releases playback
+sources. Each document stops sync and attempts its final local persistence flush.
+Independent resources drain concurrently; one cleanup failure does not skip SQL
+cleanup. Admission is released only when all resource cleanup succeeds and no
+acquisition has left release unproven.
 
 Close discards unresolved capture and temporary native output. Published library
 files survive. Finish and save wanted audio while
@@ -379,14 +368,17 @@ App retains the immutable Account supplied by auth. Same-owner credential
 refresh preserves that handle. Sign-out or replacement ends its transport;
 departure quiesces UI and closes App without erasing data.
 
-Library retirement is different: the server has replaced a data generation.
-The affected store fences and invalidates its cache. App stops all sibling sync
-and refuses further public operations immediately. `app.libraryReplaced` notifies the page without exposing cache operations.
-Departure quiesces UI and calls `app.close()`. The store owns invalidation and
-completes it before releasing storage. Failed invalidation retains ownership;
-`app.canRetryClose` permits another explicit `close()` attempt. Departure also
-permits retry when UI cleanup failed, and never closes storage before that
-cleanup succeeds.
+Library retirement means the server replaced a data generation. The affected
+store fences and invalidates its cache. App closes its sibling resources and
+revokes retained operations through `app.signal`. Departure stops UI producers
+and observes the same terminal close. Failed invalidation retains ownership until
+page teardown. There is no close retry or separate replacement notification.
+
+Departure observes retirement through page cleanup, then invokes `app.close()`
+directly. A successful close permits an authentication change and full navigation.
+A preflight refusal leaves the page usable. Failure after teardown begins is
+terminal. Changing the selected library after opening failed writes the selection
+and navigates to a fresh document; it neither mutates auth nor reopens in place.
 
 App admission validates and serializes only the account's addressing fields.
 Browser acquisition receives one account and library and derives both the local
@@ -460,7 +452,7 @@ const wrote = await clipboard.writeText(text); // Result<void, ClipboardError>
 
 `clipboard` is a platform module, not an App capability. A clipboard captures no
 application, library, or account, and it owns no resource, so nothing on it
-needs `app.ready` or ends at `app.close()`. A boot-failure screen can copy
+needs an opened App or ends at `app.close()`. A boot-failure screen can copy
 diagnostics before any App exists, and a copy button keeps working while a page
 departs. Import it directly; do not thread an App handle to reach it.
 

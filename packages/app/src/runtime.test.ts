@@ -1,6 +1,6 @@
 /**
  * Complete runtime integration: production App lifetime over isolated storage,
- * physical SQL closure, synchronous admission, and failure-safe ownership.
+ * physical SQL closure, pending admission, and failure-safe ownership.
  */
 import { expect, spyOn, test } from 'bun:test';
 import { secretLabel } from '@epicenter/device';
@@ -19,9 +19,9 @@ const definition = defineApp({
 test('one runtime reopens committed storage while another is isolated', async () => {
 	const runtime = createMemoryRuntime();
 	const separate = createMemoryRuntime();
-	const first = openApp(definition, { runtime });
+	const first = await openApp(definition, { runtime });
 	await expect(runtime.dispose()).rejects.toThrow('open Apps');
-	expectOk(await first.ready);
+
 	first.device.tables.notes.create({ title: 'kept' });
 	const blobId = expectOk(await first.blobs.local.add(new Blob(['audio'])));
 	const secret = secretLabel('credential');
@@ -37,10 +37,9 @@ test('one runtime reopens committed storage while another is isolated', async ()
 	});
 	await first.close();
 	expect(() => db.run("INSERT INTO notes VALUES ('late')")).toThrow();
-	const reopened = openApp(definition, { runtime });
-	const isolated = openApp(definition, { runtime: separate });
-	expectOk(await reopened.ready);
-	expectOk(await isolated.ready);
+	const reopened = await openApp(definition, { runtime });
+	const isolated = await openApp(definition, { runtime: separate });
+
 	expect(reopened.device.tables.notes.rows.map((row) => row.title)).toEqual([
 		'kept',
 	]);
@@ -80,73 +79,59 @@ test('one runtime reopens committed storage while another is isolated', async ()
 	await runtime.dispose();
 	await separate.dispose();
 	const retired = openApp(definition, { runtime });
-	expect(expectErr(await retired.ready).name).toBe('ClaimFailed');
-	await retired.close();
+	await expect(retired).rejects.toMatchObject({ name: 'ClaimFailed' });
 });
 
-test('closing a refused duplicate cannot release the incumbent', async () => {
+test('a rejected duplicate cannot release the incumbent', async () => {
 	const runtime = createMemoryRuntime();
-	const first = openApp(definition, { runtime });
+	const first = await openApp(definition, { runtime });
 	const second = openApp(definition, { runtime });
-	expectOk(await first.ready);
-	expect(expectErr(await second.ready).name).toBe('AlreadyOpen');
-	await second.close();
+
+	await expect(second).rejects.toMatchObject({ name: 'AlreadyOpen' });
+
 	await expect(runtime.dispose()).rejects.toThrow('open Apps');
 	const third = openApp(definition, { runtime });
-	expect(expectErr(await third.ready).name).toBe('AlreadyOpen');
-	await third.close();
+	await expect(third).rejects.toMatchObject({ name: 'AlreadyOpen' });
+
 	await first.close();
 	await runtime.dispose();
 });
 
-test.each([
-	'close',
-	'constructor failure',
-] as const)('pending admission releases after %s', async (action) => {
+test('opening waits for admission and rolls back a failed constructor', async () => {
 	const runtime = createMemoryRuntime();
 	const gate = Promise.withResolvers<void>();
 	let released = false;
-	const injected = {
-		...runtime,
-		async claim(...args: Parameters<typeof runtime.claim>) {
-			const owned = expectOk(await runtime.claim(...args));
-			await gate.promise;
-			return Ok({
-				release() {
-					released = true;
-					owned.release();
-				},
-			});
+	const opening = openApp(definition, {
+		runtime: {
+			...runtime,
+			async claim(...args) {
+				const owned = expectOk(await runtime.claim(...args));
+				await gate.promise;
+				return Ok({
+					release() {
+						released = true;
+						owned.release();
+					},
+				});
+			},
+			blobs() {
+				throw new Error('construction failed');
+			},
 		},
-		blobs:
-			action === 'constructor failure'
-				? () => {
-						throw new Error('construction failed');
-					}
-				: runtime.blobs,
-	};
-	let closing: Promise<void> | undefined;
-	if (action === 'constructor failure') {
-		expect(() => openApp(definition, { runtime: injected })).toThrow(
-			'construction failed',
-		);
-	} else {
-		const app = openApp(definition, { runtime: injected });
-		closing = app.close();
-	}
+	});
+	void opening.catch(() => {});
 	await expect(runtime.dispose()).rejects.toThrow('open Apps');
 	expect(released).toBe(false);
 	gate.resolve();
-	if (closing) await closing;
-	// A throwing constructor has no handle; its shared cleanup owns this release.
-	for (let turn = 0; !released && turn < 100; turn++) await Bun.sleep(0);
+	await expect(opening).rejects.toThrow('construction failed');
 	expect(released).toBe(true);
 	await runtime.dispose();
 });
 
 test('failed document cleanup retains runtime admission and refuses disposal', async () => {
 	const runtime = createMemoryRuntime();
-	const app = openApp(definition, {
+	let cleanupAttempts = 0;
+	const app = await openApp(definition, {
 		runtime: {
 			...runtime,
 			async data(...args) {
@@ -154,6 +139,7 @@ test('failed document cleanup retains runtime admission and refuses disposal', a
 				return Ok({
 					...backing,
 					async dispose() {
+						cleanupAttempts++;
 						await backing.dispose?.();
 						throw new Error('cleanup failed');
 					},
@@ -161,26 +147,28 @@ test('failed document cleanup retains runtime admission and refuses disposal', a
 			},
 		},
 	});
-	expectOk(await app.ready);
-	await expect(app.close()).rejects.toThrow('cleanup failed');
+
+	const terminal = app.close();
+	expect(app.close()).toBe(terminal);
+	await expect(terminal).rejects.toThrow('cleanup failed');
 	await expect(runtime.dispose()).rejects.toThrow('open Apps');
 	const duplicate = openApp(definition, { runtime });
-	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
-	await duplicate.close();
-	expect(app.canRetryClose).toBe(false);
+	await expect(duplicate).rejects.toMatchObject({ name: 'AlreadyOpen' });
+
+	expect(app.close()).toBe(terminal);
 	await expect(app.close()).rejects.toThrow('cleanup failed');
+	expect(cleanupAttempts).toBe(1);
 	await expect(runtime.dispose()).rejects.toThrow('open Apps');
 });
 
 test('different Apps observe the shared memory AI catalog without a lock simulator', async () => {
 	const runtime = createMemoryRuntime();
-	const first = openApp(definition, { runtime });
-	const other = openApp(
+	const first = await openApp(definition, { runtime });
+	const other = await openApp(
 		defineApp({ ...definition, id: 'test.other-runtime-app' }),
 		{ runtime },
 	);
-	expectOk(await first.ready);
-	expectOk(await other.ready);
+
 	const changes: number[] = [];
 	const unsubscribe = other.device.connections.custom!.subscribe((rows) =>
 		changes.push(rows.length),
@@ -205,8 +193,8 @@ test('an injected runtime never falls back to ambient inference fetch', async ()
 	const runtime = createMemoryRuntime();
 	// The transport is intentionally unavailable; saved catalog entries still exist.
 	const ai = runtime.ai;
-	const app = openApp(definition, { runtime: { ...runtime, ai } });
-	expectOk(await app.ready);
+	const app = await openApp(definition, { runtime: { ...runtime, ai } });
+
 	const id = await app.device.connections.custom!.add({
 		baseUrl: 'https://must-not-connect.invalid/v1',
 	});
@@ -230,3 +218,90 @@ test('an injected runtime never falls back to ambient inference fetch', async ()
 	await app.close();
 	await runtime.dispose();
 });
+
+for (const cleanupFails of [false, true]) {
+	test(`a throwing backing getter rolls back known storage (cleanup fails: ${cleanupFails})`, async () => {
+		const runtime = createMemoryRuntime();
+		let disposals = 0;
+		const opening = openApp(definition, {
+			runtime: {
+				...runtime,
+				async data(...args) {
+					const backing = expectOk(await runtime.data(...args));
+					return Ok({
+						...backing,
+						get loaded(): typeof backing.loaded {
+							throw new Error('Hydration failed');
+						},
+						async dispose() {
+							disposals++;
+							await backing.dispose?.();
+							if (cleanupFails) throw new Error('Rollback failed');
+						},
+					});
+				},
+			},
+		});
+		await expect(opening).rejects.toMatchObject(
+			cleanupFails
+				? { name: 'AggregateError', cause: { name: 'StorageFailed' } }
+				: { name: 'StorageFailed' },
+		);
+		expect(disposals).toBe(1);
+		if (cleanupFails) {
+			await expect(openApp(definition, { runtime })).rejects.toMatchObject({
+				name: 'AlreadyOpen',
+			});
+			await expect(runtime.dispose()).rejects.toThrow('open Apps');
+		} else {
+			const reopened = await openApp(definition, { runtime });
+			await reopened.close();
+			await runtime.dispose();
+		}
+	});
+}
+
+for (const cleanupFails of [false, true]) {
+	test(`AI construction rolls back its acquired catalog (cleanup fails: ${cleanupFails})`, async () => {
+		const runtime = createMemoryRuntime();
+		let disposals = 0;
+		const failure = new Error('Subscription failed');
+		const opening = openApp(definition, {
+			runtime: {
+				...runtime,
+				ai: {
+					...runtime.ai,
+					connections(...args) {
+						const catalog = runtime.ai.connections!(...args);
+						return {
+							...catalog,
+							subscribe() {
+								throw failure;
+							},
+							async close() {
+								disposals++;
+								await catalog.close();
+								if (cleanupFails) throw new Error('Catalog cleanup failed');
+							},
+						};
+					},
+				},
+			},
+		});
+		if (cleanupFails) {
+			await expect(opening).rejects.toMatchObject({
+				name: 'AggregateError',
+				cause: failure,
+			});
+			await expect(openApp(definition, { runtime })).rejects.toMatchObject({
+				name: 'AlreadyOpen',
+			});
+		} else {
+			await expect(opening).rejects.toBe(failure);
+			const reopened = await openApp(definition, { runtime });
+			await reopened.close();
+			await runtime.dispose();
+		}
+		expect(disposals).toBe(1);
+	});
+}

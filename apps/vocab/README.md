@@ -56,7 +56,7 @@ vocab.ts                    # Shared isomorphic model (tables, KV, VocabMessage 
 ## Key decisions
 
 - `$lib/application.ts` captures the plain auth client's Account and opens one
-  App. The mounted application page imports it and awaits `app.ready` before
+  App. The mounted application page imports it and awaits the `openApp` promise before
   rendering `VocabShell`. Departure stops dictation and chat, closes the App,
   then changes identity and starts a fresh document. Switching conversations
   stays within the same App. Callback and route preloading open no library.

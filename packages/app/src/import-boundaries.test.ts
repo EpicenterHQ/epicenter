@@ -102,9 +102,7 @@ for (const host of [false, true]) {
    const {openApp} = await import('@epicenter/app/open');
    const {createMemoryRuntime} = await import('@epicenter/app/testing');
    const runtime = createMemoryRuntime();
-   const app = openApp(defineApp({id:'test.no-platform',tables:{},kv:{}}),{runtime});
-   const ready = await app.ready;
-   if(ready.error) throw ready.error;
+   const app = await openApp(defineApp({id:'test.no-platform',tables:{},kv:{}}),{runtime});
    await app.close(); await runtime.dispose();
    for (const name of ['indexedDB','IDBRequest','IDBTransaction','IDBKeyRange','IDBDatabase']) { if(globalThis[name] !== undefined) throw new Error('Installed ambient '+name); }
   `,
@@ -133,16 +131,14 @@ test('memory Apps ignore foreign IDB globals and leave them untouched', async ()
   const {defineApp,defineTable,field}=await import('@epicenter/app');
   const definition=defineApp({id:'test.foreign-idb',kv:{},tables:{notes:defineTable({title:field.string()})}});
   const runtime=createMemoryRuntime();
-  const app=openApp(definition,{runtime});
-  if((await app.ready).error) throw new Error('Opening failed');
+  const app=await openApp(definition,{runtime});
   app.device.tables.notes.create({title:'retained'});
   const added=await app.blobs.local.add(new Blob(['retained']));
   if(added.error) throw added.error;
   if((await app.blobs.local.stat(added.data)).error) throw new Error('Stat failed');
   if((await app.blobs.local.list({cursor:added.data})).error) throw new Error('Pagination failed');
   await app.close();
-  const reopened=openApp(definition,{runtime});
-  if((await reopened.ready).error) throw new Error('Reopening failed');
+  const reopened=await openApp(definition,{runtime});
   if(reopened.device.tables.notes.rows[0]?.title!=='retained') throw new Error('Lost data');
   await reopened.close();await runtime.dispose();
   if(names.some(name=>globalThis[name]!==sentinel.get(name))) throw new Error('Changed globals');

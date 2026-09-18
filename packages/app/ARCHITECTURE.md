@@ -32,7 +32,7 @@ Application data.ts / reusable tables / Worker probes
           +--> shared store: present when Account supports Shared
           +--> SQLite / secrets / blobs / recording / AI connections
           |
-          +--> app.ready: acquired stores and catalog are ready
+          +--> resolved App: stores and catalog are ready
           +--> app.close(): stop, drain, close, release ownership
 
 App account stores <-- sync protocol --> @epicenter/app/sync authority
@@ -131,9 +131,11 @@ check. An explicit runtime bypasses detection without altering the inert
 declaration. App-level authentication and UI build conditions remain separate.
 
 One App admission covers its document stores and lazy SQL lifetime. A second
-opener fails readiness immediately. Closure releases admission only after
-resource cleanup succeeds, so failed readiness alone does not authorize a
-replacement. The account-wide AI catalog spans multiple app IDs and retains
+opener rejects with AlreadyOpen. The page owns the opening promise; no partial
+handle is published. Closure caches its outcome permanently and releases
+admission only after resource cleanup succeeds. Failed opening or closure requires
+page teardown before another attempt. A thrown acquisition retains admission when
+release is unproven; a returned backing transfers directly to the store owner. The account-wide AI catalog spans multiple app IDs and retains
 its own serialization. The host SQL owner still protects independent windows.
 Memory SQL holds a runtime-owned `memdb` anchor and closes each App connection
 physically; committed bytes survive, unfinished transactions and temporary

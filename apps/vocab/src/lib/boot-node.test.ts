@@ -49,8 +49,8 @@ describe('the callback opens nothing', () => {
 		expect(source).toContain("import('$lib/application.js')");
 		expect(source).toContain('onMount(() =>');
 		expect(source).toContain('<VocabShell ');
-		expect(source).toContain('data={application.app}');
-		expect(source).toContain('application.app?.ready');
+		expect(source).toContain('data={app}');
+		expect(source).toContain('application.opening');
 		expect(
 			source.indexOf("import('$lib/application.js').then"),
 		).toBeGreaterThan(source.indexOf('onMount(() =>'));

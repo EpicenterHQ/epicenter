@@ -56,14 +56,12 @@ Object.assign(globalThis, {
 	async open(name: keyof typeof workspaces) {
 		const workspace = workspaces[name];
 		if (workspace === undefined) return { error: `no workspace named ${name}` };
-		const app = openApp(workspace);
-		const ready = await app.ready;
-		if (ready.error) {
-			await app.close();
-			return { error: ready.error.message };
+		try {
+			// Reload ends the page. The probe reads the ready App-owned local store.
+			db = (await openApp(workspace)).device;
+		} catch (error) {
+			return { error: error instanceof Error ? error.message : String(error) };
 		}
-		// Reload ends the page. The probe reads the real App-owned local store.
-		db = app.device;
 		show({ opened: name, dataId: workspace.id });
 		return { ok: true };
 	},

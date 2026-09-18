@@ -1,4 +1,4 @@
-/** Flat declarations preserve schema inference and the captured Account overload. */
+/** Flat declarations preserve schema inference and the ready handle and optional Account. */
 import { expectTypeOf } from 'bun:test';
 import { defineTable, field, type KvOf, type RowOf } from '@epicenter/app';
 import type { Account } from '@epicenter/auth';
@@ -23,20 +23,20 @@ expectTypeOf(untitled.id).toEqualTypeOf<'test.untitled'>();
 expectTypeOf(untitled.title).toEqualTypeOf<string | undefined>();
 
 // Checked without opening any runtime resources.
-function openings(
+async function openings(
 	account: Account,
 	maybe: Account | undefined,
 	runtime: AppRuntime,
 	options: { account?: Account; runtime?: AppRuntime },
 ) {
-	const local = openApp(notes);
-	const explicitLocal = openApp(notes, { account: undefined });
-	const runtimeOnly = openApp(notes, { runtime });
-	const emptyOptions = openApp(notes, {});
-	const signedIn = openApp(notes, { account });
-	const signedInRuntime = openApp(notes, { account, runtime });
-	const optional = openApp(notes, { account: maybe, runtime });
-	const optionalOptions = openApp(notes, options);
+	const local = await openApp(notes);
+	const explicitLocal = await openApp(notes, { account: undefined });
+	const runtimeOnly = await openApp(notes, { runtime });
+	const emptyOptions = await openApp(notes, {});
+	const signedIn = await openApp(notes, { account });
+	const signedInRuntime = await openApp(notes, { account, runtime });
+	const optional = await openApp(notes, { account: maybe, runtime });
+	const optionalOptions = await openApp(notes, options);
 
 	for (const opened of [
 		explicitLocal,
@@ -52,6 +52,12 @@ function openings(
 	if (signedIn.account)
 		signedIn.account.personal.tables.notes.create({ title: 'Typed' });
 	local.device.kv.update({ language: 'en' });
+	// @ts-expect-error A returned App is already ready.
+	local.ready;
+	// @ts-expect-error Closure failure is terminal.
+	local.canRetryClose;
+	// @ts-expect-error Revocation has one notification channel.
+	local.libraryReplaced;
 	// @ts-expect-error Accounts belong inside the options object.
 	openApp(notes, account);
 	// @ts-expect-error A runtime must supply all resources, with no ambient fallback.

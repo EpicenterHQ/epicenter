@@ -17,10 +17,8 @@ export async function openSkillsRuntime({
 	signal?: AbortSignal;
 }) {
 	signal?.throwIfAborted();
-	const app = openApp(skillsDefinition, { account });
+	const app = await openApp(skillsDefinition, { account });
 	try {
-		const ready = await app.ready;
-		if (ready.error) throw ready.error;
 		signal?.throwIfAborted();
 		const data = app.account!.personal;
 		const state = createSkillsState({ data });

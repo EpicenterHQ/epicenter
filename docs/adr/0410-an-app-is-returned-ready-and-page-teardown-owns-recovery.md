@@ -1,10 +1,9 @@
 # 0410. An App is returned ready and page teardown owns recovery
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-18
 - **Amends:** [ADR-0408](0408-one-app-opener-uses-a-complete-runtime.md) at opening and failure recovery: replace the immediate handle and public readiness promise with an asynchronous opener that returns a usable App.
-- **Relates:** [ADR-0409](0409-one-app-admission-covers-its-storage.md), whose single admission and safe release policy remain necessary.
-- **Unbuilt:** `openApp` still returns an immediate handle with `ready` and `canRetryClose`. Page boot and departure still support that contract.
+- **Relates:** [ADR-0409](0409-one-app-admission-covers-its-storage.md), a proposed admission decision; the implementation preserves one claim and safe release.
 
 ## Context
 

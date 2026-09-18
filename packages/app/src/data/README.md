@@ -26,7 +26,7 @@ These entrypoints do not load the App or its platform implementations.
 
 ## Current-library startup
 
-Applications call `openApp` from `@epicenter/app/open` and await `app.ready`; see the
+Applications await `openApp` from `@epicenter/app/open` for a ready App; see the
 [App README](../../README.md). The App captures its account and library choice,
 claims exclusive ownership, and calls `acquireAppData` for browser persistence.
 Local opening needs no server. Personal and Shared opening use a cached current

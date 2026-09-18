@@ -1,6 +1,5 @@
-<script lang="ts">
+<script lang="ts" generics="TOpened">
 	import type { AuthStartup } from '@epicenter/auth';
-	import type { Result } from 'wellcrafted/result';
 	import { fromSubscription } from '@epicenter/svelte';
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
@@ -11,14 +10,14 @@
 	import SignInScreen from './sign-in-screen.svelte';
 	import CannotOpenScreen from './cannot-open-screen.svelte';
 
-	let { startup, departure, ready, appName, noun, openingFailure, children }: {
+	let { startup, departure, opening, appName, noun, openingFailure, children }: {
 		startup: AuthStartup;
 		departure: Departure;
-		ready: Promise<Result<void, unknown>> | undefined;
+		opening: Promise<TOpened> | undefined;
 		appName: string;
 		noun: string;
 		openingFailure?: Snippet;
-		children: Snippet;
+		children: Snippet<[TOpened]>;
 	} = $props();
 	let nativeError = $state('');
 	const status = fromSubscription(
@@ -53,20 +52,18 @@
 
 {#if nativeError}<p role="alert">{nativeError}</p>{/if}
 
-{#if status.current.phase === 'open' || status.current.phase === 'checking'}
-	{#if ready}
-		{#await ready}
+{#if status.current.phase === 'opening-failed'}
+	{@render openingFailure?.()}
+	<CannotOpenScreen {appName} {noun} error={status.current.error} />
+{:else if status.current.phase === 'open' || status.current.phase === 'checking'}
+	{#if opening}
+		{#await opening}
 			<Loading class="h-dvh" label="Opening your {noun}…" />
-		{:then { error }}
-			{#if error !== null}
-				{@render openingFailure?.()}
-				<CannotOpenScreen {appName} {noun} {error} retry={() => location.reload()} />
-			{:else}
-				{@render children()}
-			{/if}
+		{:then opened}
+			{@render children(opened)}
 		{:catch error}
 			{@render openingFailure?.()}
-			<CannotOpenScreen {appName} {noun} {error} retry={() => location.reload()} />
+			<CannotOpenScreen {appName} {noun} {error} />
 		{/await}
 	{:else}
 		<SignInScreen {startup} {appName} {noun}
@@ -77,18 +74,12 @@
 		{#if status.current.phase !== 'failed' && status.current.phase !== 'retired'}
 			<Loading label="Closing your {noun}…" />
 		{:else}
-			{#if departure.canRetryClose}
-				<p>Could not finish closing your {noun}. Keep this window open and try again.</p>
-				<Button onclick={() => { void departure.retryClose().catch(() => {}); }}>Try again</Button>
-			{:else if departure.canReopen}
-				<Button onclick={() => location.reload()}>Reopen {appName}</Button>
-			{:else}
-				<p>Could not finish saving. Keep this window open.</p>
-			{/if}
+			<p>This application has stopped. Reload to open it again. Unsaved changes may be lost.</p>
+			<Button onclick={() => location.reload()}>Reload {appName}</Button>
 		{/if}
 	</div>
 {/if}
-{#if status.current.error !== null && !departure.canRetryClose}
+{#if status.current.error !== null && status.current.phase !== 'opening-failed'}
 	<div class="fixed inset-x-0 bottom-0 z-50 border-t bg-background p-4 text-center" role="alert">
 		<p>{status.current.error instanceof Error ? status.current.error.message : `Could not finish closing ${appName}.`}</p>
 	</div>

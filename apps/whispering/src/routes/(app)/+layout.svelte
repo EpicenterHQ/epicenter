@@ -6,7 +6,7 @@
 	import WhisperingShell from './_components/WhisperingShell.svelte';
 	import LibrarySelection from '$lib/components/LibrarySelection.svelte';
 
-	let { children } = $props();
+	let { children: routeChildren } = $props();
 	let application = $state.raw<Awaited<ReturnType<typeof import('$lib/application.js')['openApplication']>>>();
 	let error = $state('');
 	let showing = $state(true);
@@ -20,12 +20,11 @@
 			if (stopped) { await opened.departure.close(); return; }
 			opened.departure.attachUi({
 				async preflight() {
-					if (!opened.app) return;
-					const ready = await opened.app.ready;
-					if (ready.error) return;
+					const ready = await opened.opening;
+					if (!ready) return;
 					if (shell) await shell.preflight();
 					else {
-						const recovered = await opened.app.device.recording.current();
+						const recovered = await ready.app.device.recording.current();
 						if (recovered.error) throw recovered.error;
 						if (recovered.data) throw new Error('Finish recording before closing Whispering.');
 					}
@@ -53,16 +52,18 @@
 		<LibrarySelection library={application.library} canOpenShared={application.canOpenShared} select={application.selectLibrary} />
 		{/if}
 	{/snippet}
-	{#if !application.data}<div class="p-3">{@render libraryMenu()}</div>{/if}
-	<AppBoot startup={authClient} departure={application.departure} ready={application.data ? application.app?.ready : undefined} appName="Whispering" noun="recordings">
+	{#if !application.opening}<div class="p-3">{@render libraryMenu()}</div>{/if}
+	<AppBoot startup={authClient} departure={application.departure} opening={application.opening} appName="Whispering" noun="recordings">
 		{#snippet openingFailure()}
 			<div class="p-3">{@render libraryMenu()}</div>
 		{/snippet}
-		{#if application.app && application.data && application.selections && showing}
-			<WhisperingShell {libraryMenu} selections={application.selections} openedApp={application.app} data={application.data} account={application.account} bind:this={shell}>
-				{@render children()}
+		{#snippet children({ app, data })}
+		{#if application?.selections && showing}
+			<WhisperingShell {libraryMenu} selections={application.selections} openedApp={app} {data} account={application.account} bind:this={shell}>
+				{@render routeChildren()}
 			</WhisperingShell>
 		{/if}
+		{/snippet}
 	</AppBoot>
 {:else}
 	<Loading class="h-dvh" label="Opening your recordings…" />

@@ -1,5 +1,6 @@
 import { defineApp } from '@epicenter/app';
 import { openApp } from '@epicenter/app/open';
+import { unwrap } from 'wellcrafted/result';
 import { createBrowserInferenceSelections } from '../../../app-shell/src/inference-selections.js';
 
 // Installed acceptance applications, not product builds. The build selects the
@@ -40,18 +41,14 @@ if (!localStorage.getItem(`${product}.seeded`)) {
 	);
 	localStorage.setItem(`${product}.seeded`, 'yes');
 }
-const app = openApp(defineApp({ tables: {}, kv: {}, id: product }));
+const app = await openApp(defineApp({ tables: {}, kv: {}, id: product }));
 const selections = createBrowserInferenceSelections(product);
 let retained: ReturnType<
 	NonNullable<typeof app.device.connections.custom>['get']
 >;
 let pending: Promise<string> | undefined;
-const ready = app.ready.then((result) => {
-	if (result.error) throw new Error(JSON.stringify(result.error));
-});
 Object.assign(window, {
 	acceptance: {
-		ready,
 		documentId: crypto.randomUUID(),
 		records: () =>
 			app.device.connections
@@ -102,8 +99,32 @@ Object.assign(window, {
 			await app.close();
 			return pending ? await pending : 'closed';
 		},
+		async leaveSqlOpen() {
+			const database = unwrap(await app.device.sqlite.open('teardown-proof'));
+			unwrap(
+				await database.run('CREATE TABLE IF NOT EXISTS persisted (value TEXT)'),
+			);
+			unwrap(await database.run('DELETE FROM persisted'));
+			unwrap(
+				await database.run('CREATE TEMP TABLE old_connection (value TEXT)'),
+			);
+			unwrap(await database.run('BEGIN'));
+			unwrap(
+				await database.run("INSERT INTO persisted VALUES ('uncommitted')"),
+			);
+			return 'held';
+		},
+		async verifySqlTeardown() {
+			const database = unwrap(await app.device.sqlite.open('teardown-proof'));
+			const rows = unwrap(await database.all('SELECT value FROM persisted'));
+			const temporary = unwrap(
+				await database.all(
+					"SELECT name FROM sqlite_temp_master WHERE name = 'old_connection'",
+				),
+			);
+			return { rows, temporary };
+		},
 		violations: () => violations,
 	},
 });
-await ready;
 document.body.textContent = `${product}: ready`;

@@ -104,7 +104,6 @@ test('retirement during import publication drains quietly and releases the libra
 	const entered = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	const quiescing = Promise.withResolvers<void>();
-	const retirement = Promise.withResolvers<void>();
 	const blobId = generateBlobId('wav');
 	const bytes = new Map<string, Blob>();
 	const create = mock(async () => {
@@ -128,8 +127,7 @@ test('retirement during import publication drains quietly and releases the libra
 	} as unknown as WhisperingApp;
 	const departure = createDeparture({
 		account: undefined,
-		libraryReplaced: retirement.promise,
-		close,
+		opening: Promise.resolve({ signal: controller.signal, close }),
 	});
 	departure.attachUi({
 		quiesce: async () => {
@@ -143,13 +141,11 @@ test('retirement during import publication drains quietly and releases the libra
 	});
 	await entered.promise;
 	controller.abort(new Error('retired'));
-	retirement.resolve();
 	await quiescing.promise;
 	release.resolve();
 	await importing;
 	await departure.close();
 	expect(departure.state.phase).toBe('retired');
-	expect(departure.canRetryClose).toBe(false);
 	expect(close).toHaveBeenCalledTimes(1);
 	expect(create).not.toHaveBeenCalled();
 	expect(processed).toHaveLength(before);

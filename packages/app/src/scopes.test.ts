@@ -11,11 +11,11 @@ import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { openApp } from './open.js';
 import { encodeFrame } from './data/sync/frames.js';
 import { defineApp } from './index.js';
-import { createMemoryRuntime } from './testing.js';
+import { openApp } from './open.js';
 import { createBrowserRecording } from './recording/browser.js';
+import { createMemoryRuntime } from './testing.js';
 
 const definition = defineApp({
 	id: 'so.epicenter.scopes-test',
@@ -79,11 +79,10 @@ test('device rows, SQLite, secrets and blobs isolate owners and survive returnin
 			undefined,
 		]) {
 			const owner = person ?? 'no-account';
-			const app = openFixture(
+			const app = await openFixture(
 				person === undefined ? undefined : accountFor(person),
 			);
 			try {
-				expectOk(await app.ready);
 				expect(app.device.tables.notes.rows.map((r) => r.title)).toEqual(
 					seen.has(owner) ? [owner] : [],
 				);
@@ -143,17 +142,15 @@ test('device rows, SQLite, secrets and blobs isolate owners and survive returnin
 				await app.close();
 			}
 		}
-		const signedIn = openFixture(accountFor('alice'));
+		const signedIn = await openFixture(accountFor('alice'));
 		try {
-			expectOk(await signedIn.ready);
 			const principal: string = signedIn.account!.identity.principalId;
 			expect(principal).toBe('alice');
 		} finally {
 			await signedIn.close();
 		}
-		const signedOut = openFixture();
+		const signedOut = await openFixture();
 		try {
-			expectOk(await signedOut.ready);
 			expect(signedOut.account).toBeUndefined();
 		} finally {
 			await signedOut.close();
@@ -216,7 +213,7 @@ test.each([
 		...definition,
 		id: `test.${crypto.randomUUID()}`,
 	});
-	const app = openApp(appDefinition, {
+	const app = await openApp(appDefinition, {
 		account: accountFor('alice', true),
 		runtime: {
 			...runtime,
@@ -245,7 +242,6 @@ test.each([
 		},
 	});
 	try {
-		expectOk(await app.ready);
 		expect(app.account!.shared).not.toBeNull();
 		await Bun.sleep(0);
 		events[retiring].dispatchEvent(
@@ -265,12 +261,16 @@ test.each([
 		expect(invalidated).toEqual([retiring]);
 		expect(disposed).toEqual([]);
 		expect(() => app.device.tables.notes.create({ title: 'late' })).toThrow();
-		await app.libraryReplaced!;
+		await new Promise<void>((resolve) => {
+			if (app.signal.aborted) resolve();
+			else
+				app.signal.addEventListener('abort', () => resolve(), { once: true });
+		});
 		invalidate.resolve();
 
 		if (throwOnClose) await expect(app.close()).rejects.toBe(failure);
 		else await app.close();
-		expect(app.canRetryClose).toBe(false);
+
 		expect(new Set(disposed)).toEqual(new Set(['personal', 'shared']));
 	} finally {
 		invalidate.resolve();
@@ -284,7 +284,7 @@ test('an abort callback reentering close receives the memoized completion', asyn
 		...definition,
 		id: `test.${crypto.randomUUID()}`,
 	});
-	const app = openApp(appDefinition, {
+	const app = await openApp(appDefinition, {
 		account: undefined,
 		runtime: {
 			...runtime,
@@ -302,7 +302,7 @@ test('an abort callback reentering close receives the memoized completion', asyn
 			ai: { runtime: null, account: null },
 		},
 	});
-	expectOk(await app.ready);
+
 	let reentrant: Promise<void> | undefined;
 	app.signal.addEventListener('abort', () => {
 		reentrant = app.close();

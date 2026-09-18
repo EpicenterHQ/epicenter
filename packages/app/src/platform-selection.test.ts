@@ -45,8 +45,7 @@ test('an explicit memory runtime never reads the platform marker', async () => {
   const {defineApp} = await import('./src/index.ts');
   const {createMemoryRuntime} = await import('./src/testing.ts');
   const runtime = createMemoryRuntime();
-  const app = openApp(defineApp({id:'test.explicit-runtime',tables:{},kv:{}}),{runtime});
-  if ((await app.ready).error) throw new Error('Open failed');
+  const app = await openApp(defineApp({id:'test.explicit-runtime',tables:{},kv:{}}),{runtime});
   await app.close(); await runtime.dispose();
  `,
 		],
@@ -79,10 +78,10 @@ test('default host opening reports failed host storage without browser fallback'
   host.data=runtime.data;
   const {openApp}=await import('./src/open.ts');
   const {defineApp}=await import('./src/index.ts');
-  const app=openApp(defineApp({id:'test.host-failure',tables:{},kv:{}}));
-  const ready=await app.ready;
-  if(ready.error?.name!=='StorageFailed'||requests===0) throw new Error('Did not report host failure: '+JSON.stringify(ready));
-  await app.close();await runtime.dispose();
+  let failure;
+  try { await openApp(defineApp({id:'test.host-failure',tables:{},kv:{}})); } catch(error) { failure=error; }
+  if(failure?.name!=='StorageFailed'||requests===0) throw new Error('Did not report host failure: '+JSON.stringify(failure));
+  await runtime.dispose();
  `,
 		],
 		{ cwd, stdout: 'pipe', stderr: 'pipe' },

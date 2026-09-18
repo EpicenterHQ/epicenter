@@ -8,19 +8,14 @@ import { mail } from './mail.js';
 // its Account once; callback and preload routes never acquire a library.
 const auth = authStartup.auth;
 export const account = auth?.state.account;
-export const app =
+export const opening =
 	account === undefined || new URLSearchParams(location.search).has('connect')
-		? null
+		? undefined
 		: openApp(mailDefinition, { account });
 
 export const departure = createDeparture({
-	libraryReplaced: app?.libraryReplaced,
-	canRetryClose: () => app?.canRetryClose ?? false,
-	reload: () => location.reload(),
-	auth: app && auth ? auth : undefined,
+	opening,
+	auth: opening ? (auth ?? undefined) : undefined,
 	account,
-	async close() {
-		await mail.close();
-		await app?.close();
-	},
+	beforeClose: () => mail.close(),
 });

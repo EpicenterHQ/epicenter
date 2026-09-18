@@ -31,10 +31,12 @@
 {#if error}
 	<p role="alert">{error}</p>
 {:else if application}
-	<AppBoot startup={authStartup} departure={application.departure} ready={application.app?.ready} appName="Vocab" noun="conversations">
-		{#if application.app && application.account && application.selections && showing}
-			<VocabShell selections={application.selections} data={application.app} account={application.account} bind:this={shell} />
+	<AppBoot startup={authStartup} departure={application.departure} opening={application.opening} appName="Vocab" noun="conversations">
+		{#snippet children(app)}
+		{#if application && application.account && application.selections && showing}
+			<VocabShell selections={application.selections} data={app} account={application.account} bind:this={shell} />
 		{/if}
+		{/snippet}
 	</AppBoot>
 {:else}
 	<Loading class="h-dvh" label="Opening your conversations…" />

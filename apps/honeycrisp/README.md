@@ -24,7 +24,7 @@ callback or route preload opens nothing. Svelte adapts the opened App for UI
 reads; it does not choose or replace the library.
 
 ```txt
-authClient.state.account -> epicenter.openPersonal(account) -> app.ready
+authClient.state.account -> await openApp(definition, { account }) -> ready App
 page departure -> editor cleanup -> app.close() -> auth change -> full navigation
 ```
 
@@ -46,7 +46,7 @@ Every build opens its own store, with no platform seam, and reaches one
 authority per signed-in account (ADR-0225/0226). The desktop host serves
 Honeycrisp's bundle and brokers its credential; it owns none of its data.
 
-**Reads are synchronous after opening.** The route awaits `app.ready` before
+**Reads are synchronous after opening.** The route awaits the `openApp` promise before
 mounting `StoreShell`. Opening failure renders the shared recovery screen;
 signed-out startup renders connection controls without an App.
 

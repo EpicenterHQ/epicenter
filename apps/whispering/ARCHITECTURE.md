@@ -18,12 +18,12 @@ Whispering is one SPA in three layers, served by the Epicenter desktop host. Pla
 
 `src/lib/application.ts` acquires nothing on import. The mounted `(app)` layout
 calls `openApplication()`, which loads `bootstrap.ts` once. Bootstrap captures
-the library choice and raw auth Account. Local opens without an Account even
-when another library is signed in; Personal and Shared retain the authenticated
-person. Authentication callbacks and overlays open no primary library.
+the library choice and raw auth Account. Local uses device storage scoped to
+that captured Account, or the separate no-account namespace when signed out.
+Personal and Shared require the captured Account. Authentication callbacks and overlays open no primary library.
 `auth.svelte.ts` adds UI tracking after composition.
 
-The layout awaits `app.ready` before rendering `WhisperingShell`, which creates
+The layout observes the opening promise before rendering `WhisperingShell`, which creates
 its UI session, query client, and recording workflow. Application routes share
 the same App. Library changes close this page and use full document navigation.
 
@@ -47,8 +47,8 @@ The service layer contains all business logic as **pure functions** with zero UI
 
 The key innovation is **build-time platform resolution** via Node-standard `#platform/*` subpath imports. Each platform-bound service lives in a folder with both implementations as sibling files plus a shared contract; the app's `package.json` `imports` map points each seam at the matching file per build condition:
 
-`openApp(whisperingDefinition, { account })` from `@epicenter/app/open` acquires
-storage, recording, and inference through App's build-selected resources.
+`await openApp(whisperingDefinition, { account })` from `@epicenter/app/open` acquires
+storage, recording, and inference through App's `isTauri()`-selected resources.
 Whispering declares no runtime or AI override. Its own `#platform/*` seams
 continue to select app capabilities such as auth and native commands.
 The saved-recording contract lives at `@epicenter/app/recorder`.

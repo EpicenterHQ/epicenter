@@ -7,7 +7,6 @@ import type { CurrentAuthority, Frame } from '@epicenter/app/sync';
 import * as Y from '@y/y';
 import type { Page, WebSocketRoute } from 'playwright';
 import { expectOk } from 'wellcrafted/testing';
-import type { BrowserDurableSchema } from '../../../packages/app/src/data/store/idb-updates.js';
 import { decodeFrame } from '../../../packages/app/src/data/sync/frames.js';
 import { honeycrispDefinition } from '../src/lib/data.js';
 
@@ -48,7 +47,7 @@ async function cacheState(page: Page) {
 		try {
 			const transaction = database.transaction(['header', 'updates']);
 			const header = transaction.objectStore('header').get('generation');
-			const updates: IDBRequest<BrowserDurableSchema['updates']['value'][]> =
+			const updates: IDBRequest<Array<{ authoritySeq: number | null }>> =
 				transaction.objectStore('updates').getAll();
 			await new Promise((resolve, reject) => {
 				transaction.oncomplete = resolve;
@@ -211,9 +210,12 @@ async function interruptInvalidation(page: Page, mode: 'pause' | 'abort') {
 async function watchRetirement(page: Page) {
 	await page.evaluate(async () => {
 		const path = '/src/lib/application.ts';
-		const { app, data, departure }: typeof import('../src/lib/application.js') =
+		const { opening, departure }: typeof import('../src/lib/application.js') =
 			await import(path);
-		if (!app?.account || !data)
+		const opened = await opening;
+		if (!opened) throw new Error('Expected opening');
+		const { app, data } = opened;
+		if (!app.account || !data)
 			throw new Error('Expected an opened account App');
 		const note = data.tables.notes.rows[0];
 		if (!note) throw new Error('Expected a note');
@@ -221,7 +223,7 @@ async function watchRetirement(page: Page) {
 			content: note.content,
 			delayedCallbacks: [],
 		};
-		void app.libraryReplaced!.then(() => {
+		app.signal.addEventListener('abort', () => {
 			let refused = false;
 			try {
 				data.tables.notes.update(note.id, { title: 'Retired write' });
@@ -320,9 +322,9 @@ export async function proveRetirement({
 		.waitFor();
 	await alice.waitForFunction(async () => {
 		const path = '/src/lib/application.ts';
-		const { data }: typeof import('../src/lib/application.js') = await import(
-			path
-		);
+		const { opening }: typeof import('../src/lib/application.js') =
+			await import(path);
+		const data = (await opening)?.data;
 		return data?.tables.notes.rows.some(
 			(note) => note.title === 'Offline work that must be retired',
 		);
@@ -330,9 +332,9 @@ export async function proveRetirement({
 	assert.equal(
 		await alice.evaluate(async () => {
 			const path = '/src/lib/application.ts';
-			const { data }: typeof import('../src/lib/application.js') = await import(
-				path
-			);
+			const { opening }: typeof import('../src/lib/application.js') =
+				await import(path);
+			const data = (await opening)?.data;
 			if (!data) throw new Error('Expected the selected Shared store');
 			await data.persistence.flush();
 			return data.persistence.get();
@@ -376,6 +378,9 @@ export async function proveRetirement({
 		activated,
 		'Lost-response retry must return the receipt',
 	);
+	await bob
+		.getByRole('button', { name: 'Reload Honeycrisp', exact: true })
+		.click();
 	await bob.waitForFunction(
 		(count) =>
 			Number(sessionStorage.getItem('journey.documents')) === count + 1,
@@ -474,6 +479,9 @@ export async function proveRetirement({
 		for (const callback of journey.delayedCallbacks) callback();
 		journey.releaseInvalidation();
 	});
+	await alice
+		.getByRole('button', { name: 'Reload Honeycrisp', exact: true })
+		.click();
 	await alice.waitForFunction(
 		(count) =>
 			Number(sessionStorage.getItem('journey.documents')) === count + 1,
@@ -534,7 +542,7 @@ export async function proveRetirement({
 		'PASS: offline edit survives reopen; replacement retires idle B; stale A sends no outbox, stops editor callbacks, retains claim, invalidates, and reloads complete replacement contents before socket admission',
 	);
 
-	// An aborted invalidation retains the fenced App and claim; retry can finish.
+	// An aborted invalidation retains the fenced App and claim until page teardown.
 	await openNote(alice, 'Replacement from Bob');
 	await watchRetirement(alice);
 	await interruptInvalidation(alice, 'abort');
@@ -555,7 +563,7 @@ export async function proveRetirement({
 		const path = '/src/lib/application.ts';
 		const { departure }: typeof import('../src/lib/application.js') =
 			await import(path);
-		return departure.canRetryClose;
+		return departure.state.phase === 'failed';
 	});
 	assert.equal(await documents(alice), retryDocuments);
 	assert.equal((await cacheState(alice)).generation, activated.generation);
@@ -567,13 +575,13 @@ export async function proveRetirement({
 		).some((lock) => lock.name?.startsWith('epicenter.store:library:')),
 	);
 	a.failDownload = true;
-	await alice.getByRole('button', { name: 'Try again', exact: true }).click();
+	await alice.getByRole('button', { name: /Reload/, exact: true }).click();
 	await alice.waitForFunction(
 		(count) =>
 			Number(sessionStorage.getItem('journey.documents')) === count + 1,
 		retryDocuments,
 	);
-	await alice.getByRole('button', { name: 'Try again', exact: true }).waitFor();
+	await alice.getByRole('button', { name: /Reload/, exact: true }).waitFor();
 	assert.deepEqual(await cacheState(alice), {
 		generation: null,
 		rows: 0,
@@ -587,15 +595,18 @@ export async function proveRetirement({
 		'Download failure must not cause a reload loop',
 	);
 	a.failDownload = false;
-	await alice.getByRole('button', { name: 'Try again', exact: true }).click();
+	await alice.getByRole('button', { name: /Reload/, exact: true }).click();
 	await alice
 		.getByText('Replacement from Bob', { exact: true })
 		.first()
 		.waitFor();
 	assert.equal((await settled(alice)).generation, activated.generation + 1);
+	await bob
+		.getByRole('button', { name: 'Reload Honeycrisp', exact: true })
+		.click();
 	await settled(bob, activated.generation + 1);
 	console.log(
-		'PASS: failed invalidation retains the old claim; retry clears it; failed replacement download leaves no cache and recovers through normal bootstrap retry',
+		'PASS: failed invalidation retains the old claim; page teardown releases it; a failed replacement download requires another fresh page',
 	);
 
 	await alice.unroute(`${origin}/**`);

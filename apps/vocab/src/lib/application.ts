@@ -14,31 +14,20 @@ const shouldOpen =
 export const selections = shouldOpen
 	? createBrowserInferenceSelections('vocab', account)
 	: null;
-export const app = trySync({
-	try: () =>
-		account === undefined || new URLSearchParams(location.search).has('connect')
-			? null
-			: openApp(vocabDefinition, { account }),
-	catch(cause) {
-		// Preserve the opening failure even if subscription cleanup also fails.
-		trySync({
-			try: () => selections?.[Symbol.dispose](),
-			catch: () => Ok(undefined),
-		});
-		throw cause;
-	},
-}).data;
-void app?.ready.then(({ error }) => {
-	if (error) selections?.[Symbol.dispose]();
-});
+export const opening = shouldOpen
+	? openApp(vocabDefinition, { account }).catch((cause) => {
+			trySync({
+				try: () => selections?.[Symbol.dispose](),
+				catch: () => Ok(undefined),
+			});
+			throw cause;
+		})
+	: undefined;
 export const departure = createDeparture({
-	libraryReplaced: app?.libraryReplaced,
-	canRetryClose: () => app?.canRetryClose ?? false,
-	reload: () => location.reload(),
-	auth: app && auth ? auth : undefined,
+	opening,
+	auth: opening ? (auth ?? undefined) : undefined,
 	account,
-	close() {
+	beforeClose() {
 		selections?.[Symbol.dispose]();
-		return app?.close() ?? Promise.resolve();
 	},
 });

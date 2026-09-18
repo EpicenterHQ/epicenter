@@ -22,7 +22,7 @@ export const account: Account = {
 		throw new Error('Fixture has no profile');
 	},
 };
-export const app = openApp(
+export const opening = openApp(
 	defineApp({
 		...mailDefinition,
 		id: 'so.epicenter.local-mail-evidence',

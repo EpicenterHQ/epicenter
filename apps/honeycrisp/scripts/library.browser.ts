@@ -415,7 +415,7 @@ try {
 				await import(path);
 			return account;
 		}),
-		null,
+		undefined,
 	);
 	await local.reload();
 	await local
@@ -426,13 +426,9 @@ try {
 		.getByRole('navigation', { name: 'Library' })
 		.getByRole('button', { name: 'Personal', exact: true })
 		.click();
-	await local
-		.getByText('Sign in to open your notes.', { exact: true })
-		.waitFor();
+	await local.getByText('Choose where to connect.', { exact: true }).waitFor();
 	await local.reload();
-	await local
-		.getByText('Sign in to open your notes.', { exact: true })
-		.waitFor();
+	await local.getByText('Choose where to connect.', { exact: true }).waitFor();
 	assert.equal(
 		await local.getByRole('button', { name: 'New note', exact: true }).count(),
 		0,

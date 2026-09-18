@@ -132,8 +132,8 @@ shapes, see `docs/adr/`.
 - **Library**: one application's data in one destination, named Local,
   Personal, or Shared (ADR-0375). Local is this machine, Personal is one signed-in
   person's server data, Shared is one self-hosted deployment's common data.
-- **App**: what `openApp(definition, { account?, runtime? })` returns: `device`,
-  an optional `account`, plus `signal`, `ready`, and `close`. `device` is always
+- **App**: what `await openApp(definition, { account?, runtime? })` returns: `device`,
+  an optional `account`, plus `signal` and `close`. `device` is always
   present; `account` is present when a person is signed in. The framework supplies
   libraries and safe storage; applications choose library views and write
   destinations without a mandatory picker or copy feature. Each store sits
@@ -295,13 +295,14 @@ shapes, see `docs/adr/`.
   `@epicenter/app` validates a platform-free schema. The same value feeds App
   opening, memory tests, caller-owned SQLite data, and artifact operations.
 - **App lifetime**: `openApp(definition, { account?, runtime? })` from `@epicenter/app/open`
-  returns a handle synchronously. `app.ready` settles acquisition; `app.close()`
-  drains work and releases resources. `app.device` always exists;
+  resolves to a ready handle. The page owns the opening promise; `app.close()`
+  revokes operations, drains work, and releases resources. `app.device` always exists;
   `app.account` exists when the caller supplied an Account. `open.ts` owns
   the private resource lifetime. An optional complete runtime replaces the
   `isTauri()`-selected implementation; the declaration remains inert. One admission
-  covers all App stores and lazy SQL. A failed `ready` means unusable, not
-  necessarily released: cleanup failure retains admission.
+  covers all App stores and lazy SQL. Failed opening publishes no handle.
+  Close is terminal even on failure; unsafe cleanup retains admission until page
+  teardown. Reload does not prove unsaved changes survived.
 - **Memory App runtime**: `createMemoryRuntime()` from `@epicenter/app/testing`
   isolates document/blob IndexedDB storage and named SQL databases. App close
   releases connections while runtime-owned storage survives reopening.
@@ -313,7 +314,7 @@ shapes, see `docs/adr/`.
   opens over caller-owned SQLite. Disposing the document leaves the connection
   open. `openMemory` is Bun test support and can borrow a reusable memory record.
 - **Ready-application shape**: a mounted boot node captures auth once, opens an
-  App, and awaits `app.ready`. The shell borrows stores through `fromData`.
+  App through one opening promise, and renders only its resolved value. The shell borrows stores through `fromData`.
   Deliberate account changes stop UI producers and close the App before full
   navigation. Callbacks and auxiliary routes open no primary App.
 - **Capability**: the operation surface a consumer borrows from its owner,

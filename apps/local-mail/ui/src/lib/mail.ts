@@ -18,6 +18,7 @@ import {
 } from '@epicenter/local-mail/accounts';
 import { CALLBACK_PATH } from '@epicenter/local-mail/authorization-return';
 import { DEFAULT_MAIL_CONFIG } from '@epicenter/local-mail/config';
+import { openIntentStore } from '@epicenter/local-mail/intent-store';
 import {
 	type LabelSummary,
 	type MailStatus,
@@ -33,8 +34,7 @@ import {
 } from '@epicenter/local-mail/outbox';
 import { openLocalMailStorage } from '@epicenter/local-mail/storage';
 import { gmailAuthorization } from '#platform/gmail-authorization';
-import { openIntentStore } from '@epicenter/local-mail/intent-store';
-import { app } from './application.js';
+import { opening as openingApp } from './application.js';
 import { gmailIdentity } from './identity.js';
 
 /** Where Google sends a person back to, on this application's own route. */
@@ -60,6 +60,7 @@ const pending = new Set<Promise<unknown>>();
 function workflow(): Promise<AccountWorkflow> {
 	if (opening) return opening;
 	const attempt = (async () => {
+		const app = await openingApp;
 		if (!app) throw new Error('Local Mail has not opened.');
 		return {
 			storage: await openLocalMailStorage(app.device),

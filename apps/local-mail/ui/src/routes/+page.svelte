@@ -65,13 +65,15 @@
 	<AppBoot
 		startup={authStartup}
 		departure={mounted.application.departure}
-		ready={mounted.application.app?.ready}
+		opening={mounted.application.opening}
 		appName="Local Mail"
 		noun="saved queries and mail"
 	>
-		{#if mounted.application.app?.account && showing}
-			<mounted.Shell bind:this={shell} data={mounted.application.app.account.personal} />
+		{#snippet children(app)}
+		{#if mounted && app.account && showing}
+			<mounted.Shell bind:this={shell} data={app.account.personal} />
 		{/if}
+		{/snippet}
 	</AppBoot>
 {:else}
 	<Loading class="h-dvh" label="Opening Local Mail…" />

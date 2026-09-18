@@ -66,9 +66,7 @@ try {
 			kv: {},
 			id: 'so.epicenter.recording-smoke',
 		});
-		const app = openApp(application);
-		const ready = await bounded('app ready', app.ready);
-		if (ready.error) throw new Error(JSON.stringify(ready.error));
+		const app = await bounded('open app', openApp(application));
 		await (
 			globalThis as unknown as { disconnectForAcceptance(): Promise<void> }
 		).disconnectForAcceptance();
@@ -122,10 +120,7 @@ try {
 		if (cancelled.error) throw new Error(JSON.stringify(cancelled.error));
 		if (table.ids().length !== 1) throw new Error('Cancel created a row');
 		await bounded('close app', app.close());
-		const reopened = openApp(application);
-		const reopenedReady = await bounded('reopen ready', reopened.ready);
-		if (reopenedReady.error)
-			throw new Error(JSON.stringify(reopenedReady.error));
+		const reopened = await bounded('reopen app', openApp(application));
 		const persisted = await bounded(
 			'persisted read',
 			reopened.blobs.local.get(stopped.data.blobId),

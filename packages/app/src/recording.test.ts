@@ -16,9 +16,9 @@ import { asPrincipalId } from '@epicenter/principal';
 import { asDeviceIdentifier } from '@epicenter/recorder';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
-import { expectErr, expectOk } from 'wellcrafted/testing';
-import { openApp } from './open.js';
+import { expectOk } from 'wellcrafted/testing';
 import { defineApp } from './index.js';
+import { openApp } from './open.js';
 import { createMemoryRuntime } from './testing.js';
 
 function setup({
@@ -181,14 +181,13 @@ function setup({
 	};
 }
 
-test('opening binds recording once and readiness gates microphone acquisition', async () => {
+test('resolved opening binds recording once and permits microphone acquisition', async () => {
 	const { openFixture, bindings, starts, appId } = setup();
 	expect(bindings).toEqual([]);
-	const app = openFixture();
+	const app = await openFixture();
 	expect(bindings).toEqual([{ appId }]);
-	expect(() => app.device.recording.start({})).toThrow('not ready');
 	expect(starts()).toBe(0);
-	expectOk(await app.ready);
+
 	const session = expectOk(await app.device.recording.start({}));
 	expect(expectOk(await app.device.recording.current())).toBe(session);
 	expectOk(await session.cancel());
@@ -223,9 +222,9 @@ test('account recording keeps the opened identity when the supplied account chan
 			throw new Error('Unused');
 		},
 	};
-	const app = openFixture(account);
+	const app = await openFixture(account);
 	Reflect.set(account, 'authorityId', 'replacement');
-	expectOk(await app.ready);
+
 	const session = expectOk(await app.device.recording.start({}));
 	expect(expectOk(await app.device.recording.current())).toBe(session);
 	expect(bindings[0]?.appId).toBe(app.appId);
@@ -239,8 +238,8 @@ test('close waits for an admitted start and cancels its late capture', async () 
 		startGate: acquisition.promise,
 		cancelGate: release.promise,
 	});
-	const app = openFixture();
-	expectOk(await app.ready);
+	const app = await openFixture();
+
 	const pending = app.device.recording.start({});
 	let closed = false;
 	const closing = app.close().then(() => {
@@ -262,8 +261,8 @@ test('close drains admitted publication without cancelling it', async () => {
 	const { openFixture, cancels, stops } = setup({
 		stopGate: publication.promise,
 	});
-	const app = openFixture();
-	expectOk(await app.ready);
+	const app = await openFixture();
+
 	const session = expectOk(await app.device.recording.start({}));
 	const pending = session.stop();
 	let closed = false;
@@ -282,8 +281,8 @@ test('close drains admitted publication without cancelling it', async () => {
 test('Stop publishes through private storage after App close revokes public access', async () => {
 	const gate = Promise.withResolvers<void>();
 	const context = setup({ saveGate: gate.promise });
-	const app = context.openFixture();
-	expectOk(await app.ready);
+	const app = await context.openFixture();
+
 	const recording = expectOk(await app.device.recording.start({}));
 	const saving = recording.stop();
 	await context.savingEntered;
@@ -292,8 +291,8 @@ test('Stop publishes through private storage after App close revokes public acce
 	gate.resolve();
 	const saved = expectOk(await saving);
 	await closing;
-	const reopened = context.openFixture();
-	expectOk(await reopened.ready);
+	const reopened = await context.openFixture();
+
 	expect(
 		await expectOk(await reopened.blobs.local.get(saved.blobId)).text(),
 	).toBe('audio');
@@ -306,8 +305,8 @@ test('Stop publishes through private storage after App close revokes public acce
 
 test('close releases a session owned by its recorder even without a prior current call', async () => {
 	const { openFixture, cancels } = setup();
-	const app = openFixture();
-	expectOk(await app.ready);
+	const app = await openFixture();
+
 	expectOk(await app.device.recording.start({}));
 	await app.close();
 	expect(cancels()).toBe(1);
@@ -315,25 +314,12 @@ test('close releases a session owned by its recorder even without a prior curren
 
 test('a refused duplicate open cannot cancel the owning app capture', async () => {
 	const { openFixture, cancels } = setup();
-	const owner = openFixture();
-	expectOk(await owner.ready);
-	expectOk(await owner.device.recording.start({}));
-	const duplicate = openFixture();
-	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
-	await duplicate.close();
-	expect(cancels()).toBe(0);
-	await owner.close();
-	expect(cancels()).toBe(1);
-});
+	const owner = await openFixture();
 
-test('closing a duplicate before acquisition cannot cancel the owning app capture', async () => {
-	const { openFixture, cancels } = setup();
-	const owner = openFixture();
-	expectOk(await owner.ready);
 	expectOk(await owner.device.recording.start({}));
 	const duplicate = openFixture();
-	await duplicate.close();
-	expectErr(await duplicate.ready);
+	await expect(duplicate).rejects.toMatchObject({ name: 'AlreadyOpen' });
+
 	expect(cancels()).toBe(0);
 	await owner.close();
 	expect(cancels()).toBe(1);
@@ -341,37 +327,23 @@ test('closing a duplicate before acquisition cannot cancel the owning app captur
 
 test('close cancels a held capture without depending on a recovery read', async () => {
 	const { openFixture, cancels } = setup({ recoveryFailsAfterStart: true });
-	const app = openFixture();
-	expectOk(await app.ready);
+	const app = await openFixture();
+
 	expectOk(await app.device.recording.start({}));
 	await app.close();
 	expect(cancels()).toBe(1);
 });
 
-test('closing before readiness never admits a new recording', async () => {
-	const { openFixture, starts } = setup();
-	const app = openFixture();
-	await app.close();
-	expect(starts()).toBe(0);
-	expect(() => app.device.recording.start({})).toThrow();
+test('failed capture cancellation retains admission while independent SQL still closes', async () => {
+	const { openFixture, releases } = setup({ cancelFails: true });
+	const app = await openFixture();
+	expectOk(await app.device.sqlite.delete('unused'));
+	expectOk(await app.device.recording.start({}));
+	const terminal = app.close();
+	await expect(terminal).rejects.toMatchObject({ name: 'RecorderFailed' });
+	expect(app.close()).toBe(terminal);
+	expect(releases()).toBe(1);
+	await expect(openFixture()).rejects.toMatchObject({ name: 'AlreadyOpen' });
+	const other = await setup().openFixture();
+	await other.close();
 });
-
-for (const failure of ['cancellation'] as const) {
-	test(`failed ${failure} retains ownership while other libraries remain usable`, async () => {
-		const { openFixture, releases } = setup({
-			cancelFails: failure === 'cancellation',
-		});
-		const app = openFixture();
-		expectOk(await app.ready);
-		if (failure === 'cancellation')
-			expectOk(await app.device.recording.start({}));
-		await expect(app.close()).rejects.toMatchObject({ name: 'RecorderFailed' });
-		expect(releases()).toBe(0);
-		const duplicate = openFixture();
-		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
-		await duplicate.close();
-		const other = setup().openFixture();
-		expectOk(await other.ready);
-		await other.close();
-	});
-}

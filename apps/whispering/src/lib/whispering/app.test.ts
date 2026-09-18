@@ -23,8 +23,7 @@ Reflect.set(
 );
 
 async function openWhispering(runtime: ReturnType<typeof createMemoryRuntime>) {
-	const app = openApp(whisperingDefinition, { runtime });
-	expectOk(await app.ready);
+	const app = await openApp(whisperingDefinition, { runtime });
 	return app;
 }
 

@@ -30,7 +30,7 @@ export function createAppAi({
 	const ready = Promise.resolve(connections?.ready).then(() => {
 		hydrated = true;
 	});
-	// App.ready consumes this failure; construction must not leave an unhandled rejection.
+	// openApp consumes this failure; construction must not leave an unhandled rejection.
 	void ready.catch(() => {});
 	function assertUsable() {
 		lifetime.assertUsable();

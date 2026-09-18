@@ -49,16 +49,16 @@ for (const engine of [chromium, webkit]) {
 				await page.evaluate(() => window.bootProbe.releaseOpening());
 				await page.getByRole('button', { name: 'Choose connection' }).waitFor();
 			} else {
-				await page.getByRole('button', { name: 'Try again' }).waitFor();
+				await page.getByRole('button', { name: 'Reload' }).waitFor();
 				assert.equal(
 					await page.getByRole('button', { name: 'Choose connection' }).count(),
 					0,
 				);
 				await Promise.all([
 					page.waitForNavigation(),
-					page.getByRole('button', { name: 'Try again' }).click(),
+					page.getByRole('button', { name: 'Reload' }).click(),
 				]);
-				await page.getByRole('button', { name: 'Try again' }).waitFor();
+				await page.getByRole('button', { name: 'Reload' }).waitFor();
 			}
 			assert.deepEqual(errors, []);
 			await page.close();

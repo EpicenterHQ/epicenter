@@ -74,17 +74,19 @@ test('App readiness includes catalog hydration and failed hydration releases the
 		});
 	const app = application();
 	let ready = false;
-	void app.ready.then(() => {
-		ready = true;
-	});
+	void app.then(
+		() => {
+			ready = true;
+		},
+		() => {},
+	);
 	await Bun.sleep(0);
 	expect(ready).toBe(false);
 	hydrated.reject(new Error('Catalog unavailable.'));
-	expect((await app.ready).error).not.toBeNull();
+	await expect(app).rejects.toMatchObject({ name: 'StorageFailed' });
 	expect(released).toBe(true);
-	await app.close();
 	const replacementDefinition = defineApp({ ...definition, id: appId });
-	const replacement = openApp(replacementDefinition, {
+	const replacement = await openApp(replacementDefinition, {
 		account: undefined,
 		runtime: {
 			...runtime,
@@ -92,7 +94,7 @@ test('App readiness includes catalog hydration and failed hydration releases the
 			ai: { account: null, runtime: null },
 		},
 	});
-	expectOk(await replacement.ready);
+
 	await replacement.close();
 });
 
@@ -154,9 +156,8 @@ test('default resources preserve blobs and the no-account AI catalog', async () 
 		sqlite.acquire,
 	);
 	const application = defineApp({ ...definition, id: appId });
-	const app = openApp(application);
+	const app = await openApp(application);
 	try {
-		expectOk(await app.ready);
 		expect(acquire).not.toHaveBeenCalled();
 		const blobId = expectOk(
 			await app.blobs.local.add(new Blob(['default bytes'])),
@@ -171,9 +172,8 @@ test('default resources preserve blobs and the no-account AI catalog', async () 
 			'epicenter/ai/no-account.app-ai-connections',
 		]);
 		await app.close();
-		const reopened = openApp(application);
+		const reopened = await openApp(application);
 		try {
-			expectOk(await reopened.ready);
 			expect(
 				await expectOk(await reopened.blobs.local.get(blobId)).text(),
 			).toBe('default bytes');
@@ -223,9 +223,8 @@ test('an injected runtime supplies all resources and explicit AI omits default c
 			},
 		});
 	expect(calls).toEqual([]);
-	const app = application();
+	const app = await application();
 	try {
-		expectOk(await app.ready);
 		expect(calls.sort()).toEqual(['blobs', 'recording', 'secrets']);
 		expectOk(await app.device.sqlite.delete('unused'));
 		expect(calls.sort()).toEqual(['blobs', 'recording', 'secrets', 'sqlite']);
@@ -250,9 +249,8 @@ test('public opening retains table and field names', async () => {
 			account,
 			runtime: { ...runtime, sqlite, ai: { runtime: null, account: null } },
 		});
-	const app = application();
+	const app = await application();
 	try {
-		expectOk(await app.ready);
 		app.device.tables.notes.create({ title: 'Typed title' });
 		const title: string = app.device.tables.notes.rows[0]!.title;
 		expect(title).toBe('Typed title');

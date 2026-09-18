@@ -269,7 +269,7 @@ test('Account replacement drains raw transcription without starting Polish or de
 				return () => {};
 			},
 		},
-		close: async () => {
+		beforeClose: async () => {
 			lifetime.abort();
 		},
 	});

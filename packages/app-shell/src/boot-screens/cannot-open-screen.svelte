@@ -22,15 +22,9 @@
 		 * `openFailure`, which picks the sentence off its `name`.
 		 */
 		error: unknown;
-		/**
-		 * Open again. A prop rather than `location.reload()`, because opening is a
-		 * verb: the session owner replaces its session with `openApp(definition, { account })`
-		 * using the same captured Account. Retrying keeps the document running.
-		 */
-		retry: () => void;
 	};
 
-	let { appName, noun, error, retry }: CannotOpenScreenProps = $props();
+	let { appName, noun, error }: CannotOpenScreenProps = $props();
 
 	const failure = $derived(openFailure(error, { appName, noun }));
 </script>
@@ -47,7 +41,7 @@
 		<!-- No button under `none`. A runtime with no Web Locks is not repaired by
 		     trying again, and a button that cannot help is worse than no button. -->
 		{#if failure.repair !== 'none'}
-			<Button size="lg" onclick={retry}>Try again</Button>
+			<Button size="lg" onclick={() => location.reload()}>Reload</Button>
 		{/if}
 	</div>
 </div>

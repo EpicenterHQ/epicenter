@@ -9,9 +9,9 @@ import { generateBlobId, REMOTE_BLOB_ROUTES } from '@epicenter/blobs';
 import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { openApp } from './open.js';
 import { encodeFrame } from './data/sync/frames.js';
 import { defineApp } from './index.js';
+import { openApp } from './open.js';
 import { createMemoryRuntime } from './testing.js';
 
 test('document retirement aborts an upload and releases playback before explicit App close', async () => {
@@ -72,12 +72,11 @@ test('document retirement aborts an upload and releases playback before explicit
 		},
 	};
 	const appDefinition = defineApp({ tables: {}, kv: {}, id: appId });
-	const app = openApp(appDefinition, {
+	const app = await openApp(appDefinition, {
 		account,
 		runtime,
 	});
 	try {
-		expectOk(await app.ready);
 		await Bun.sleep(0);
 		const url = REMOTE_BLOB_ROUTES.objectUrl(
 			baseURL,
@@ -103,7 +102,11 @@ test('document retirement aborts an upload and releases playback before explicit
 		// Library retirement did not retire the Account itself.
 		expect(await (await account.fetch(url)).text()).toBe('audio');
 		expect(() => app.blobs.remote!.get(url)).toThrow();
-		await app.libraryReplaced;
+		await new Promise<void>((resolve) => {
+			if (app.signal.aborted) resolve();
+			else
+				app.signal.addEventListener('abort', () => resolve(), { once: true });
+		});
 	} finally {
 		await app.close();
 		revoke.mockRestore();

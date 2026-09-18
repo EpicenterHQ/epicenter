@@ -9,12 +9,11 @@ import { openLocalMailStorage } from '../../../src/storage.js';
 import { mailDefinition } from '../../src/lib/data.js';
 import { mail } from '../../src/lib/mail.js';
 import { currentLibraryResponse } from '../current-library.js';
-import { account, app } from './application.js';
+import { account, opening } from './application.js';
 import Panel from './Panel.svelte';
 
 try {
-	const ready = await app.ready;
-	if (ready.error) throw ready.error;
+	const app = await opening;
 	const storage = await openLocalMailStorage(app.device);
 	if (localStorage.getItem('evidence-seeded') !== 'true') {
 		for (const sub of ['one', 'two']) {
@@ -53,15 +52,17 @@ try {
 				await app.close();
 			},
 			async remoteEdit(remove = false) {
-				const peer = openApp(defineApp({ ...mailDefinition, id: app.appId }), {
-					account: {
-						...account,
-						principalId: 'synthetic-peer' as Account['principalId'],
-						fetch: (input, init) =>
-							currentLibraryResponse(new Request(input, init)),
+				const peer = await openApp(
+					defineApp({ ...mailDefinition, id: app.appId }),
+					{
+						account: {
+							...account,
+							principalId: 'synthetic-peer' as Account['principalId'],
+							fetch: (input, init) =>
+								currentLibraryResponse(new Request(input, init)),
+						},
 					},
-				});
-				expectOk(await peer.ready);
+				);
 				expectOk(
 					syncEngineOf(peer.account!.personal).applyRemote(
 						app.account!.personal.encodeStateSince(),
@@ -84,7 +85,7 @@ try {
 				await peer.close();
 			},
 			async malformed() {
-				const peer = openApp(
+				const peer = await openApp(
 					defineApp({
 						kv: {},
 						tables: {
@@ -104,7 +105,6 @@ try {
 						},
 					},
 				);
-				expectOk(await peer.ready);
 				const repair = peer.account!.personal.tables.savedQueries.create({
 					name: 'Repair fixture',
 					sql: false,
