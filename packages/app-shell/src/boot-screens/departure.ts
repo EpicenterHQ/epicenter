@@ -10,7 +10,7 @@ export function createDeparture({
 	reload,
 }: {
 	auth?: Pick<AuthClient, 'onStateChange'>;
-	account: Account | null;
+	account?: Account;
 	close: () => Promise<void>;
 	libraryReplaced?: Promise<void>;
 	canRetryClose?: () => boolean;
@@ -80,7 +80,7 @@ export function createDeparture({
 	}
 	const stopAuth =
 		auth?.onStateChange((next) => {
-			const nextAccount = next.status === 'signed-out' ? null : next.account;
+			const nextAccount = next.status === 'signed-out' ? undefined : next.account;
 			if (nextAccount === account || state.phase === 'closed') return;
 			endedBy = 'account';
 			if (state.phase === 'failed') return;

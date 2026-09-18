@@ -101,7 +101,7 @@ test('device rows, SQLite and secrets survive signed-out, Alice and Bob lifetime
 		ai: { runtime: null, account: null },
 	});
 	try {
-		const local = application.open(null);
+		const local = application.open(undefined);
 		expectOk(await local.ready);
 		expect(local.account).toBeNull();
 		local.device.tables.notes.create({ title: 'device note' });
@@ -272,7 +272,7 @@ test('an abort callback reentering close receives the memoized completion', asyn
 			},
 		},
 		ai: { runtime: null, account: null },
-	}).open(null);
+	}).open();
 	expectOk(await app.ready);
 	let reentrant: Promise<void> | undefined;
 	app.signal.addEventListener('abort', () => {

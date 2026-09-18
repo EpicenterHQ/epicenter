@@ -63,7 +63,7 @@ test('App readiness includes catalog hydration and failed hydration releases the
 			},
 		},
 	});
-	const app = application.open(null);
+	const app = application.open();
 	let ready = false;
 	void app.ready.then(() => {
 		ready = true;
@@ -79,7 +79,7 @@ test('App readiness includes catalog hydration and failed hydration releases the
 		definition,
 		runtime: { ...browser, sqlite, blobs },
 		ai: { account: null, runtime: null },
-	}).open(null);
+	}).open();
 	expectOk(await replacement.ready);
 	await replacement.close();
 });
@@ -171,7 +171,7 @@ test.each([
 		sqlite.acquire,
 	);
 	const application = defineApplication({ appId, definition, settingsKey });
-	const app = application.open(null);
+	const app = application.open();
 	try {
 		expectOk(await app.ready);
 		expect(acquire).toHaveBeenCalledWith(appId);
@@ -186,7 +186,7 @@ test.each([
 			`${settingsKey ?? appId}.app-ai-connections`,
 		]);
 		await app.close();
-		const reopened = application.open(null);
+		const reopened = application.open();
 		try {
 			expectOk(await reopened.ready);
 			expect(
@@ -234,7 +234,7 @@ test('an explicit runtime selects all resources while explicit AI omits default 
 		ai: { runtime: null, account: null },
 	});
 	expect(calls).toEqual([]);
-	const app = application.open(null);
+	const app = application.open();
 	try {
 		expectOk(await app.ready);
 		expect(calls.sort()).toEqual(['blobs', 'recording', 'secrets', 'sqlite']);
@@ -257,7 +257,7 @@ test('definition inference retains table and field names through a runtime overr
 		runtime: { ...browser, sqlite },
 		ai: { runtime: null, account: null },
 	});
-	const app = application.open(null);
+	const app = application.open();
 	try {
 		expectOk(await app.ready);
 		app.device.tables.notes.create({ title: 'Typed title' });

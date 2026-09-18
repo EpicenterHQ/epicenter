@@ -66,7 +66,7 @@ try {
 				kv: {},
 			}),
 		});
-		const app = application.open(null);
+		const app = application.open();
 		const ready = await bounded('app ready', app.ready);
 		if (ready.error) throw new Error(JSON.stringify(ready.error));
 		await (
@@ -122,7 +122,7 @@ try {
 		if (cancelled.error) throw new Error(JSON.stringify(cancelled.error));
 		if (table.ids().length !== 1) throw new Error('Cancel created a row');
 		await bounded('close app', app.close());
-		const reopened = application.open(null);
+		const reopened = application.open();
 		const reopenedReady = await bounded('reopen ready', reopened.ready);
 		if (reopenedReady.error)
 			throw new Error(JSON.stringify(reopenedReady.error));

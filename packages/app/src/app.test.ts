@@ -111,7 +111,7 @@ async function clearStorage() {
 
 test('local handle opens without account and survives close and reopen', async () => {
 	await clearStorage();
-	const first = create().open(null);
+	const first = create().open();
 	expect(first.device.library).toBe('local');
 	expect(first.account).toBeNull();
 	expect(first.libraryReplaced).toBeUndefined();
@@ -122,7 +122,7 @@ test('local handle opens without account and survives close and reopen', async (
 	first.device.tables.notes.create({ title: 'kept locally' });
 	await first.close();
 
-	const second = create().open(null);
+	const second = create().open();
 	expectOk(await second.ready);
 	expect(second.device.tables.notes.rows.map((row) => row.title)).toEqual([
 		'kept locally',
@@ -190,7 +190,7 @@ test.each([
 		},
 		ai: { runtime: null, account: null },
 	});
-	const localApp = epicenter.open(null);
+	const localApp = epicenter.open();
 	expect(() => localApp.device.sqlite.open('search')).toThrow('not ready');
 	expectOk(await localApp.ready);
 	const localDatabase = expectOk(await localApp.device.sqlite.open('search'));
@@ -263,7 +263,7 @@ test('closing waits for an admitted SQLite delete', async () => {
 			blobs: testBlobs,
 		},
 		ai: { runtime: null, account: null },
-	}).open(null);
+	}).open();
 	expectOk(await app.ready);
 	const deleting = app.device.sqlite.delete('search');
 	await deleteStarted;
@@ -280,7 +280,7 @@ test('closing waits for an admitted SQLite delete', async () => {
 			blobs: testBlobs,
 		},
 		ai: { runtime: null, account: null },
-	}).open(null);
+	}).open();
 	await Promise.resolve();
 	expect(closed).toBe(false);
 	expect(expectErr(await replacement.ready).name).toBe('AlreadyOpen');
@@ -298,7 +298,7 @@ test('closing waits for an admitted SQLite delete', async () => {
 			blobs: testBlobs,
 		},
 		ai: { runtime: null, account: null },
-	}).open(null);
+	}).open();
 	expectOk(await reopened.ready);
 	await reopened.close();
 });
@@ -344,7 +344,7 @@ test('every retained SQL verb refuses closed use without reaching the shared own
 			blobs: testBlobs,
 		},
 		ai: { runtime: null, account: null },
-	}).open(null);
+	}).open();
 	const { open, delete: remove } = app.device.sqlite;
 	for (const operation of [() => open('search'), () => remove('search')])
 		expect(operation).toThrow('not ready');
@@ -422,7 +422,7 @@ test.each([
 			blobs: testBlobs,
 		},
 		ai: { runtime: null, account: null },
-	}).open(null);
+	}).open();
 	expectOk(await app.ready);
 	const database = expectOk(await app.device.sqlite.open('search'));
 	const pending: Promise<Result<unknown, DeviceError>> =
@@ -434,7 +434,7 @@ test.each([
 	try {
 		await started.promise;
 		expect(reentrant).toBe(app.close());
-		const duplicate = create().open(null);
+		const duplicate = create().open();
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close();
 		released.resolve();
@@ -479,7 +479,7 @@ test('a late SQL open refuses publication and physically closes without deleting
 			blobs: testBlobs,
 		},
 		ai: { runtime: null, account: null },
-	}).open(null);
+	}).open();
 	expectOk(await app.ready);
 	const pending = app.device.sqlite.open('search');
 	const outcome = Promise.allSettled([pending]);
@@ -531,7 +531,7 @@ test('close drains admitted local writes before releasing the app claim', async 
 		},
 		ai: { runtime: null, account: null },
 	});
-	const app = application.open(null);
+	const app = application.open();
 	expectOk(await app.ready);
 	const writing = app.blobs.local.add(new Blob(['saved']));
 	await entered.promise;
@@ -544,7 +544,7 @@ test('close drains admitted local writes before releasing the app claim', async 
 	gate.resolve();
 	const blobId = expectOk(await writing);
 	await closing;
-	const reopened = application.open(null);
+	const reopened = application.open();
 	expectOk(await reopened.ready);
 	expect(await expectOk(await reopened.blobs.local.get(blobId)).text()).toBe(
 		'saved',
@@ -554,7 +554,7 @@ test('close drains admitted local writes before releasing the app claim', async 
 
 test('the app handle owns scoped blob reads and writes by BlobId', async () => {
 	await clearStorage();
-	const app = create().open(null);
+	const app = create().open();
 	expectOk(await app.ready);
 
 	const id = expectOk(
@@ -571,7 +571,7 @@ test('the app handle owns scoped blob reads and writes by BlobId', async () => {
 
 test('rows reference independently saved blobs and deleting a row leaves bytes intact', async () => {
 	await clearStorage();
-	const app = create().open(null);
+	const app = create().open();
 	expectOk(await app.ready);
 	const blobId = expectOk(
 		await app.blobs.local.add(new Blob(['recorded bytes'])),
@@ -582,7 +582,7 @@ test('rows reference independently saved blobs and deleting a row leaves bytes i
 		'recorded bytes',
 	);
 	await app.close();
-	const reopened = create().open(null);
+	const reopened = create().open();
 	expectOk(await reopened.ready);
 	expect(reopened.device.tables.recordings.get(row.id)).toBeUndefined();
 	expect(
@@ -593,7 +593,7 @@ test('rows reference independently saved blobs and deleting a row leaves bytes i
 
 test('closing during acquisition reports closure and releases the resource', async () => {
 	await clearStorage();
-	const app = create().open(null);
+	const app = create().open();
 	const closing = app.close();
 	expect(expectErr(await app.ready).name).toBe('ClosedWhileOpening');
 	await closing;
@@ -601,7 +601,7 @@ test('closing during acquisition reports closure and releases the resource', asy
 
 test('access is gated and a rejected duplicate cannot release the first app', async () => {
 	await clearStorage();
-	const first = create().open(null);
+	const first = create().open();
 	const notes = first.device.tables.notes;
 	const kv = first.device.kv;
 	const retainedAdd = first.blobs.local.add;
@@ -616,7 +616,7 @@ test('access is gated and a rejected duplicate cannot release the first app', as
 	expect(first.device.kv).toBe(kv);
 	expect(first.blobs.local.add).toBe(retainedAdd);
 
-	const duplicate = create().open(null);
+	const duplicate = create().open();
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	expect(() => duplicate.blobs.local.add(new Blob(['rejected']))).toThrow(
 		'disposed',
@@ -624,7 +624,7 @@ test('access is gated and a rejected duplicate cannot release the first app', as
 	await duplicate.close();
 	first.device.tables.notes.create({ title: 'still owned by the first app' });
 
-	const another = create().open(null);
+	const another = create().open();
 	expect(expectErr(await another.ready).name).toBe('AlreadyOpen');
 	await another.close();
 	expect(first.device.tables.notes.rows).toHaveLength(1);
@@ -633,7 +633,7 @@ test('access is gated and a rejected duplicate cannot release the first app', as
 
 test('repeated close shares completion and permits a fresh open afterward', async () => {
 	await clearStorage();
-	const app = create().open(null);
+	const app = create().open();
 	expectOk(await app.ready);
 	app.device.tables.notes.create({ title: 'flushed on close' });
 	const notes = app.device.tables.notes;
@@ -648,7 +648,7 @@ test('repeated close shares completion and permits a fresh open afterward', asyn
 	expect(() => encode()).toThrow();
 	await closing;
 
-	const reopened = create().open(null);
+	const reopened = create().open();
 	expectOk(await reopened.ready);
 	expect(reopened.device.tables.notes.rows[0]?.title).toBe('flushed on close');
 	await reopened.close();
@@ -656,7 +656,7 @@ test('repeated close shares completion and permits a fresh open afterward', asyn
 
 test('account acquisition hydrates the existing handles and survives refused sync', async () => {
 	await clearStorage();
-	const seed = create().open(null);
+	const seed = create().open();
 	expectOk(await seed.ready);
 	seed.device.tables.notes.create({ title: 'from the account' });
 	const snapshot = seed.device.encodeStateSince();
@@ -718,7 +718,7 @@ test('invalid definitions throw before opening storage', async () => {
 		},
 		ai: { runtime: null, account: null },
 	});
-	expect(() => invalid.open(null)).toThrow();
+	expect(() => invalid.open()).toThrow();
 	expect(
 		(await indexedDB.databases()).filter(({ name }) =>
 			name?.split('/').includes('so.epicenter.app-test'),
@@ -752,7 +752,7 @@ test('physical SQL close retains the library claim across sibling definitions', 
 			blobs: testBlobs,
 		},
 		ai: { runtime: null, account: null },
-	}).open(null);
+	}).open();
 	expectOk(await first.ready);
 	const siblingDefinition = defineData({
 		id: 'so.epicenter.sibling',
@@ -769,7 +769,7 @@ test('physical SQL close retains the library claim across sibling definitions', 
 				blobs: testBlobs,
 			},
 			ai: { runtime: null, account: null },
-		}).open(null);
+		}).open();
 	const duplicate = sibling();
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	await duplicate.close();
@@ -813,7 +813,7 @@ test('failed durable release retains SQL and the common library claim', async ()
 		},
 		ai: { runtime: null, account: null },
 	});
-	const app = epicenter.open(null);
+	const app = epicenter.open();
 	expectOk(await app.ready);
 	const close = spyOn(IDBDatabase.prototype, 'close');
 	close.mockImplementation(function (this: IDBDatabase) {
@@ -822,7 +822,7 @@ test('failed durable release retains SQL and the common library claim', async ()
 	try {
 		await expect(app.close()).rejects.toThrow('Durable close failed');
 		expect(sqlCloses).toBe(0);
-		const duplicate = epicenter.open(null);
+		const duplicate = epicenter.open();
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close();
 	} finally {
@@ -859,11 +859,11 @@ test('failed bootstrap cleanup retains SQL and library ownership before ready', 
 		},
 	);
 	try {
-		const app = epicenter.open(null);
+		const app = epicenter.open();
 		expect(expectErr(await app.ready).name).toBe('StorageFailed');
 		await app.close();
 		expect(sqlCloses).toBe(0);
-		const duplicate = epicenter.open(null);
+		const duplicate = epicenter.open();
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close();
 	} finally {
@@ -904,7 +904,7 @@ test('retained AI shares readiness and close drains response work before releasi
 				}),
 			},
 		},
-	}).open(null);
+	}).open();
 	const client = app.device.connections.runtime!.client;
 	expect(app.device.connections.custom).toBeNull();
 	expectOk(await app.ready);
@@ -973,7 +973,7 @@ test.each([
 				},
 			}),
 		},
-	}).open(null);
+	}).open();
 	expectOk(await app.ready);
 	const request = (async () => await app.device.connections.runtime!.client.models.list())();
 	void request.catch(() => {});
@@ -1039,7 +1039,7 @@ test('one captured Account supplies library and AI; local opening never borrows 
 			blobs: testBlobs,
 		},
 	});
-	const local = application.open(null);
+	const local = application.open();
 	expect((local.account?.connection ?? null)).toBeNull();
 	expect(supplied).toEqual([]);
 	expectOk(await local.ready);
@@ -1081,7 +1081,7 @@ test('opening failure retires retained SDK clients through internal close', asyn
 				},
 			},
 		},
-	}).open(null);
+	}).open();
 	const retained = app.device.connections.runtime!.client;
 	expectErr(await app.ready);
 	await expect((async () => await retained.models.list())()).rejects.toThrow();
@@ -1092,14 +1092,14 @@ test('opening failure retires retained SDK clients through internal close', asyn
 test('App secrets require readiness and survive closing and reopening the same document scope', async () => {
 	const label = secretLabel('gmail');
 	const first = create();
-	const app = first.open(null);
+	const app = first.open();
 	expect(() => app.device.secrets.put(label, 'before-ready')).toThrow('not ready');
 	expectOk(await app.ready);
 	expectOk(await app.device.secrets.put(label, 'kept'));
 	await app.close();
 	expect(() => app.device.secrets.get(label)).toThrow();
 	expect(() => app.device.secrets.delete(label)).toThrow();
-	const reopened = first.open(null);
+	const reopened = first.open();
 	expectOk(await reopened.ready);
 	expect(expectOk(await reopened.device.secrets.get(label))).toBe('kept');
 	expectOk(await reopened.device.secrets.delete(label));
@@ -1141,7 +1141,7 @@ test('App close drains admitted secret writes before releasing its SQL lifetime'
 			}),
 		},
 		ai: { runtime: null, account: null },
-	}).open(null);
+	}).open();
 	expectOk(await app.ready);
 	const saving = app.device.secrets.put(secretLabel('gmail'), 'token');
 	const closing = app.close();
@@ -1195,7 +1195,7 @@ test('a secret operation can reenter close and forwards its storage Result uncha
 			}),
 		},
 		ai: { runtime: null, account: null },
-	}).open(null);
+	}).open();
 	expectOk(await app.ready);
 	const writing = app.device.secrets.put(secretLabel('gmail'), 'token');
 	await entered.promise;
@@ -1254,7 +1254,7 @@ test('a late capability constructor failure prevents scheduled acquisition and p
 			},
 		},
 	});
-	expect(() => application.open(null)).toThrow(failure);
+	expect(() => application.open()).toThrow(failure);
 	await new Promise((resolve) => setTimeout(resolve, 0));
 	expect(events).toContain('recording');
 	expect(events).toContain('ai');
@@ -1268,7 +1268,7 @@ test('a late capability constructor failure prevents scheduled acquisition and p
 			sqlite: testSqlite,
 		},
 		ai: { runtime: null, account: null },
-	}).open(null);
+	}).open();
 	expectOk(await next.ready);
 	await next.close();
 });
@@ -1383,7 +1383,7 @@ test('failed recorder cleanup still drains SQL and keeps the claim after drain',
 		},
 		ai: { runtime: null, account: null },
 	});
-	const app = application.open(null);
+	const app = application.open();
 	expectOk(await app.ready);
 	for (const capability of [
 		app.device.sqlite,
@@ -1413,7 +1413,7 @@ test('failed recorder cleanup still drains SQL and keeps the claim after drain',
 	expectOk(await writing);
 	await expect(closing).rejects.toBe(failure);
 	expect(released).toBe(false);
-	const duplicate = application.open(null);
+	const duplicate = application.open();
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	await duplicate.close().catch(() => {});
 });

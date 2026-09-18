@@ -26,7 +26,7 @@ const log = createLogger('app');
 
 type OpenOptions = {
 	appId: string;
-	account: Account | null;
+	account?: Account;
 	sqlite: DeviceSqliteOwner;
 	blobs: AppBlobFactory;
 	recording: RecordingFactory;
@@ -45,7 +45,7 @@ export function openApp<const TDefinition extends DataDefinition>(
 	if (parsed.error)
 		throw new Error(parsed.error.message, { cause: parsed.error });
 	const identity: AccountIdentity | null =
-		account === null
+		account === undefined
 			? null
 			: Object.freeze({
 					authorityId: account.authorityId,
@@ -139,7 +139,7 @@ export function openApp<const TDefinition extends DataDefinition>(
 	let closing: Promise<void> | undefined;
 	let canRetryClose = false;
 	const libraryReplaced =
-		account === null
+		account === undefined
 			? undefined
 			: Promise.race(
 					documents.slice(1).map(({ document }) => document.libraryReplaced),
@@ -259,7 +259,7 @@ export function openApp<const TDefinition extends DataDefinition>(
 			write: (id, blob) => bytes.local.put(id, blob),
 		});
 		const transport =
-			account === null ? null : (ai?.account?.(account) ?? null);
+			account === undefined ? null : (ai?.account?.(account) ?? null);
 		inference = createAppAi({
 			lifetime: { assertUsable, signal: lifetime.signal },
 			account: transport && identity ? { ...transport, identity } : null,

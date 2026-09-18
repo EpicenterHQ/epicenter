@@ -17,7 +17,7 @@ export function createBrowserAppBlobs(): AppBlobFactory {
 			local,
 			sources: createBrowserBlobSources(local),
 			remote:
-				account === null
+				account === undefined
 					? null
 					: createRemoteBlobClient({ appId, account, local }),
 		};

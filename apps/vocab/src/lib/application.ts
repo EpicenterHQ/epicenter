@@ -12,16 +12,16 @@ import { vocabDefinition } from './data.js';
 const auth = authStartup.auth;
 const state = auth?.state;
 export const account =
-	!state || state.status === 'signed-out' ? null : state.account;
+	!state || state.status === 'signed-out' ? undefined : state.account;
 const shouldOpen =
-	account !== null && !new URLSearchParams(location.search).has('connect');
+	account !== undefined && !new URLSearchParams(location.search).has('connect');
 if (shouldOpen) await initializeBrowserAiSettings('vocab');
 export const selections = shouldOpen
 	? createBrowserInferenceSelections('vocab')
 	: null;
 export const app = trySync({
 	try: () =>
-		account === null || new URLSearchParams(location.search).has('connect')
+		account === undefined || new URLSearchParams(location.search).has('connect')
 			? null
 			: defineApplication({
 					appId: APPS.VOCAB.id,

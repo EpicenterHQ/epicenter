@@ -38,7 +38,7 @@
 		openedApp: WhisperingAppHandle;
 		data: WhisperingData;
 		selections: InferenceSelections;
-		account: Account | null;
+		account: Account | undefined;
 		/**
 		 * Sign out and remove this account's local data, owned by the session
 		 * component above because only it can sequence the close. Absent where

@@ -9,9 +9,9 @@ import { mail } from './mail.js';
 const auth = authStartup.auth;
 const state = auth?.state;
 export const account =
-	!state || state.status === 'signed-out' ? null : state.account;
+	!state || state.status === 'signed-out' ? undefined : state.account;
 export const app =
-	account === null || new URLSearchParams(location.search).has('connect')
+	account === undefined || new URLSearchParams(location.search).has('connect')
 		? null
 		: defineApplication({
 				appId: 'so.epicenter.local-mail',

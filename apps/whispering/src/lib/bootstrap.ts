@@ -12,11 +12,11 @@ import { whisperingDefinition } from './data.js';
 const auth = authClient.auth;
 const state = auth?.state;
 const signedInAccount =
-	!state || state.status === 'signed-out' ? null : state.account;
+	!state || state.status === 'signed-out' ? undefined : state.account;
 export type Library = 'local' | 'personal' | 'shared';
 export const library: Library = (() => {
 	const saved = localStorage.getItem('whispering.library');
-	if (saved === null) return signedInAccount === null ? 'local' : 'personal';
+	if (saved === null) return signedInAccount === undefined ? 'local' : 'personal';
 	if (saved === 'local' || saved === 'personal' || saved === 'shared')
 		return saved;
 	throw new Error('Your saved library choice could not be read.');

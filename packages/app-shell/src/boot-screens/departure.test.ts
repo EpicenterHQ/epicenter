@@ -238,7 +238,7 @@ test('library retirement quiesces UI and waits invalidation before close and rel
 	const invalidation = Promise.withResolvers<void>();
 	const events: string[] = [];
 	const departure = createDeparture({
-		account: null,
+		account: undefined,
 		libraryReplaced: notification.promise,
 		close: async () => {
 			await invalidation.promise;
@@ -275,7 +275,7 @@ test('failed library invalidation retains ownership and retries cleanup without 
 	let quiesces = 0;
 	let reloads = 0;
 	const departure = createDeparture({
-		account: null,
+		account: undefined,
 		libraryReplaced: notification.promise,
 		canRetryClose: () => closes === 1,
 		close: async () => {
@@ -309,7 +309,7 @@ test('a retirement UI cleanup failure keeps the claim held and permits retry', a
 	let busy = true;
 	let closed = false;
 	const departure = createDeparture({
-		account: null,
+		account: undefined,
 		libraryReplaced: notification.promise,
 		close: async () => {
 			closed = true;
@@ -338,7 +338,7 @@ test('retirement during voluntary UI drain takes over close ordering and suppres
 	let closed = false;
 	let selected = false;
 	const departure = createDeparture({
-		account: null,
+		account: undefined,
 		libraryReplaced: notification.promise,
 		close: async () => {
 			await invalidating.promise;
@@ -389,7 +389,7 @@ test('physical cleanup failure after library replacement does not offer a futile
 	const replaced = Promise.withResolvers<void>();
 	let closes = 0;
 	const departure = createDeparture({
-		account: null,
+		account: undefined,
 		libraryReplaced: replaced.promise,
 		canRetryClose: () => false,
 		async close() {

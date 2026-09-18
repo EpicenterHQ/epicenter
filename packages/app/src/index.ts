@@ -22,13 +22,14 @@ export type AppBlobComposition = {
 
 export type AppBlobFactory = (input: {
 	appId: string;
-	account: Account | null;
+	account?: Account;
 }) => AppBlobComposition;
 
 /** Declare once; each open owns one auth generation and its device and account stores. */
 export type Application<TDefinition extends DataDefinition> = {
 	readonly appId: string;
-	open(account: Account | null): App<TDefinition>;
+	/** Open device storage, plus account stores when an Account is supplied. */
+	open(account?: Account): App<TDefinition>;
 };
 
 /** Complete implementation selection; App owns the opened resources.
@@ -62,7 +63,7 @@ export function defineApplication<const TDefinition extends DataDefinition>({
 	const options = { appId, sqlite, secrets, blobs, recording, ai };
 	return Object.freeze({
 		appId,
-		open(account: Account | null) {
+		open(account?: Account) {
 			return openApp(definition, { ...options, account });
 		},
 	});

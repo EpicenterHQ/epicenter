@@ -190,7 +190,7 @@ test('opening binds recording once and readiness gates microphone acquisition', 
 	const { epicenter, bindings, starts, appId } = setup();
 	expect(bindings).toEqual([]);
 	expect(Object.hasOwn(epicenter, 'recording')).toBe(false);
-	const app = epicenter.open(null);
+	const app = epicenter.open();
 	expect(bindings).toEqual([{ appId }]);
 	expect(() => app.device.recording.start({})).toThrow('not ready');
 	expect(starts()).toBe(0);
@@ -245,7 +245,7 @@ test('close waits for an admitted start and cancels its late capture', async () 
 		startGate: acquisition.promise,
 		cancelGate: release.promise,
 	});
-	const app = epicenter.open(null);
+	const app = epicenter.open();
 	expectOk(await app.ready);
 	const pending = app.device.recording.start({});
 	let closed = false;
@@ -268,7 +268,7 @@ test('close drains admitted publication without cancelling it', async () => {
 	const { epicenter, cancels, stops } = setup({
 		stopGate: publication.promise,
 	});
-	const app = epicenter.open(null);
+	const app = epicenter.open();
 	expectOk(await app.ready);
 	const session = expectOk(await app.device.recording.start({}));
 	const pending = session.stop();
@@ -288,7 +288,7 @@ test('close drains admitted publication without cancelling it', async () => {
 test('Stop publishes through private storage after App close revokes public access', async () => {
 	const gate = Promise.withResolvers<void>();
 	const context = setup({ saveGate: gate.promise });
-	const app = context.epicenter.open(null);
+	const app = context.epicenter.open();
 	expectOk(await app.ready);
 	const recording = expectOk(await app.device.recording.start({}));
 	const saving = recording.stop();
@@ -298,7 +298,7 @@ test('Stop publishes through private storage after App close revokes public acce
 	gate.resolve();
 	const saved = expectOk(await saving);
 	await closing;
-	const reopened = context.epicenter.open(null);
+	const reopened = context.epicenter.open();
 	expectOk(await reopened.ready);
 	expect(
 		await expectOk(await reopened.blobs.local.get(saved.blobId)).text(),
@@ -312,7 +312,7 @@ test('Stop publishes through private storage after App close revokes public acce
 
 test('close releases a session owned by its recorder even without a prior current call', async () => {
 	const { epicenter, cancels } = setup();
-	const app = epicenter.open(null);
+	const app = epicenter.open();
 	expectOk(await app.ready);
 	expectOk(await app.device.recording.start({}));
 	await app.close();
@@ -321,10 +321,10 @@ test('close releases a session owned by its recorder even without a prior curren
 
 test('a refused duplicate open cannot cancel the owning app capture', async () => {
 	const { epicenter, cancels } = setup();
-	const owner = epicenter.open(null);
+	const owner = epicenter.open();
 	expectOk(await owner.ready);
 	expectOk(await owner.device.recording.start({}));
-	const duplicate = epicenter.open(null);
+	const duplicate = epicenter.open();
 	expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 	await duplicate.close();
 	expect(cancels()).toBe(0);
@@ -334,10 +334,10 @@ test('a refused duplicate open cannot cancel the owning app capture', async () =
 
 test('closing a duplicate before acquisition cannot cancel the owning app capture', async () => {
 	const { epicenter, cancels } = setup();
-	const owner = epicenter.open(null);
+	const owner = epicenter.open();
 	expectOk(await owner.ready);
 	expectOk(await owner.device.recording.start({}));
-	const duplicate = epicenter.open(null);
+	const duplicate = epicenter.open();
 	await duplicate.close();
 	expectErr(await duplicate.ready);
 	expect(cancels()).toBe(0);
@@ -347,7 +347,7 @@ test('closing a duplicate before acquisition cannot cancel the owning app captur
 
 test('close cancels a held capture without depending on a recovery read', async () => {
 	const { epicenter, cancels } = setup({ recoveryFailsAfterStart: true });
-	const app = epicenter.open(null);
+	const app = epicenter.open();
 	expectOk(await app.ready);
 	expectOk(await app.device.recording.start({}));
 	await app.close();
@@ -356,7 +356,7 @@ test('close cancels a held capture without depending on a recovery read', async 
 
 test('closing before readiness never admits a new recording', async () => {
 	const { epicenter, starts } = setup();
-	const app = epicenter.open(null);
+	const app = epicenter.open();
 	await app.close();
 	expect(starts()).toBe(0);
 	expect(() => app.device.recording.start({})).toThrow();
@@ -367,15 +367,15 @@ for (const failure of ['cancellation'] as const) {
 		const { epicenter, releases } = setup({
 			cancelFails: failure === 'cancellation',
 		});
-		const app = epicenter.open(null);
+		const app = epicenter.open();
 		expectOk(await app.ready);
 		if (failure === 'cancellation') expectOk(await app.device.recording.start({}));
 		await expect(app.close()).rejects.toMatchObject({ name: 'RecorderFailed' });
 		expect(releases()).toBe(0);
-		const duplicate = epicenter.open(null);
+		const duplicate = epicenter.open();
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close();
-		const other = setup().epicenter.open(null);
+		const other = setup().epicenter.open();
 		expectOk(await other.ready);
 		await other.close();
 	});

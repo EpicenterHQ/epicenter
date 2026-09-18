@@ -43,7 +43,7 @@ if (!localStorage.getItem(`${product}.seeded`)) {
 const app = defineApplication({
 	appId: product,
 	definition: defineData({ id: product, tables: {}, kv: {} }),
-}).open(null);
+}).open();
 const selections = createBrowserInferenceSelections(product);
 let retained: ReturnType<NonNullable<typeof app.device.connections.custom>['get']>;
 let pending: Promise<string> | undefined;

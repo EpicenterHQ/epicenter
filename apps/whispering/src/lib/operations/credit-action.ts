@@ -5,9 +5,9 @@ import type { NoticeAction } from '$lib/report';
 /** Keep the interrupted recording here while its account opens in the browser. */
 export function creditAction(
 	error: AnyTaggedError,
-	account: Pick<Account, 'baseURL' | 'principalId'> | null,
+	account: Pick<Account, 'baseURL' | 'principalId'> | undefined,
 ): NoticeAction | undefined {
-	if (error.name !== 'InsufficientCredits' || account === null) return undefined;
+	if (error.name !== 'InsufficientCredits' || account === undefined) return undefined;
 	const url = createAccountManagementUrl(account).href;
 	return {
 		label: 'Add credits',

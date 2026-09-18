@@ -45,7 +45,7 @@ export type WhisperingApp = {
 	readonly signal: AbortSignal;
 	/** The UI lifetime still accepts new capture. */
 	readonly recordingEnabled: boolean;
-	readonly account: Account | null;
+	readonly account: Account | undefined;
 	readonly settings: WhisperingSettings;
 	readonly inferenceConnections: InferenceConnections;
 	readonly recordings: WhisperingRecordings;
@@ -71,7 +71,7 @@ export function createWhisperingDomains({
 	/** The opened dataset owns tables, blobs, and recording. */
 	openedApp: WhisperingAppHandle;
 	data: WhisperingData;
-	account: Account | null;
+	account: Account | undefined;
 }) {
 	const settingsDomain = createWhisperingSettings({ kv: openedApp.device.kv });
 	const recordingsDomain = createWhisperingRecordings({

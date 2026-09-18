@@ -12,7 +12,7 @@ const application = defineApplication({
  appId: APP_ID,
  definition: honeycrispDefinition,
 });
-const app = application.open(account ?? null);
+const app = application.open(account);
 try {
  const result = await app.ready;
  if (result.error !== null) throw result.error;
@@ -138,10 +138,10 @@ selections, SSE reconnect, and cancellation on App, window, and host closure.
 Its optional Whispering mode also verifies the desktop picker, imported audio,
 real transcription, and the saved result after document reload.
 
-`defineApplication` is inert. `application.open(account ?? null)` returns an App
+`defineApplication` is inert. `application.open(account)` returns an App
 synchronously and begins acquisition. `app.ready` resolves when every opened
 store and the inference catalog are ready, or returns an opening failure.
-`open(null)` performs no authority request or sync dial.
+`open()` or `open(undefined)` performs no authority request or sync dial.
 
 `app.device` always exists. `app.account` is null when signed out. Otherwise it
 contains credential-free `identity`, `personal`, nullable `shared`, and nullable

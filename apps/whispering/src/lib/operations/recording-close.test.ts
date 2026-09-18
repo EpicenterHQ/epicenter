@@ -126,7 +126,7 @@ function recordingApp<T extends object>(
 
 test('closing admission during native finalization still saves the admitted recording', async () => {
 	const app = recordingApp({
-		account: null,
+		account: undefined,
 		recordingEnabled: true,
 		blobs: { removeLocal: async () => Ok(undefined) },
 	});
@@ -304,7 +304,7 @@ test('retirement retries the retained UI cleanup after unmount before releasing 
 		openedApp: {
 			device: { recording: { current: async () => Ok(null) } },
 		} as unknown as import('../whispering/app').WhisperingAppHandle,
-		account: null,
+		account: undefined,
 	});
 	let shell: { close(): Promise<void> } | undefined = {
 		close: () => session[Symbol.asyncDispose](),
@@ -313,7 +313,7 @@ test('retirement retries the retained UI cleanup after unmount before releasing 
 	let closed = false;
 	let reloaded = false;
 	const departure = createDeparture({
-		account: null,
+		account: undefined,
 		libraryReplaced: notification.promise,
 		close: async () => {
 			closed = true;

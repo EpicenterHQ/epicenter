@@ -14,7 +14,7 @@ export const resources: typeof browserResources = {
 		return {
 			...bytes,
 			remote:
-				account === null
+				account === undefined
 					? null
 					: createRemoteBlobClient({
 							appId,

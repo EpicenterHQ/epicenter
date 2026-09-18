@@ -28,7 +28,7 @@ export function createWhisperingUiSession({
 	openedApp: WhisperingAppHandle;
 	data: WhisperingData;
 	selections: InferenceSelections;
-	account: Account | null;
+	account: Account | undefined;
 }) {
 	const domains = createWhisperingDomains({ openedApp, data, account });
 	const inference = createWhisperingConnections(openedApp, selections);

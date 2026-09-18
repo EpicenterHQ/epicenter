@@ -12,7 +12,7 @@ import { Ok } from 'wellcrafted/result';
 
 let current: {
 	app: { ready: Promise<{ error: unknown }> } | null;
-	account: null;
+	account: undefined;
 	selections: InferenceSelections | null;
 	isClosing(): boolean;
 	closeApp(): Promise<void>;
@@ -36,11 +36,11 @@ async function setup(appReady: Promise<{ error: unknown }> | null) {
 	};
 	current = {
 		app: appReady ? { ready: appReady } : null,
-		account: null,
+		account: undefined,
 		selections,
 		isClosing: () => closing,
 		closeApp,
-		departure: createDeparture({ account: null, close: closeApp }),
+		departure: createDeparture({ account: undefined, close: closeApp }),
 	};
 	mock.module('./bootstrap.js', () => {
 		imports++;

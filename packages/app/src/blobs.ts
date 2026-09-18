@@ -7,7 +7,7 @@ import { resources } from '#platform/resources';
 export function createLocalBlobs({ appId }: { appId: string }) {
 	if (!isAppId(appId))
 		throw new Error(`The application id '${appId}' is not valid.`);
-	const bytes = resources.blobs({ appId, account: null });
+	const bytes = resources.blobs({ appId });
 	const owner = createAppBlobs(bytes);
 	return Object.freeze({ ...owner.value, close: owner.close });
 }

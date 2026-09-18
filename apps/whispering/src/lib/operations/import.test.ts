@@ -125,7 +125,7 @@ test('retirement during import publication drains quietly and releases the libra
 		recordings: { create },
 	} as unknown as WhisperingApp;
 	const departure = createDeparture({
-		account: null,
+		account: undefined,
 		libraryReplaced: retirement.promise,
 		close,
 	});

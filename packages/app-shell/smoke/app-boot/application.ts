@@ -57,7 +57,7 @@ export const ready = app?.ready.then((result) => {
 	return result;
 });
 export const departure = createDeparture({
-	account: !auth.auth || auth.auth.state.status === 'signed-out' ? null : auth.auth.state.account,
+	account: !auth.auth || auth.auth.state.status === 'signed-out' ? undefined : auth.auth.state.account,
 	auth: app ? auth.auth ?? undefined : undefined,
 	async close() {
 		await app?.close();
