@@ -6,10 +6,11 @@
 import { expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createDesktopDevice, createDesktopSqliteOwner } from './desktop.js';
+import { createDesktopSecrets, createDesktopSqliteOwner } from './desktop.js';
 import { secretLabel } from './index.js';
 import {
 	createDeviceDispatcher,
+	createAppSqlite,
 	createSqliteOwner,
 	type AppSqliteRequest,
 	type DeviceSqliteOwner,
@@ -99,8 +100,7 @@ test('SQL uses one lifetime socket and secrets survive its acknowledged close', 
 	const { owner, calls } = setup();
 	const transport = socketsFor(owner);
 	const http: string[] = [];
-	const storage = createDesktopDevice({
-		appId,
+	const options = {
 		baseURL: 'https://epicenter.test',
 		webSocket: transport.webSocket,
 		fetch: (async (_url, init) => {
@@ -108,14 +108,16 @@ test('SQL uses one lifetime socket and secrets survive its acknowledged close', 
 			http.push(request.kind);
 			return Response.json({ kind: request.kind, value: 'refresh' });
 		}) as typeof fetch,
-	});
+	};
+	const storage = createAppSqlite(createDesktopSqliteOwner(options), appId);
+	const secrets = createDesktopSecrets(appId, options);
 	expect(transport.sockets).toHaveLength(0);
-	const database = expectOk(await storage.sqlite.open('mail'));
+	const database = expectOk(await storage.value.open('mail'));
 	expectOk(await database.run('SELECT 1'));
 	await storage.close();
 	expectErr(await database.run('SELECT 1'));
-	expectOk(await storage.secrets.put(secretLabel('account-1'), 'refresh'));
-	expect(expectOk(await storage.secrets.get(secretLabel('account-1')))).toBe(
+	expectOk(await secrets.value.put(secretLabel('account-1'), 'refresh'));
+	expect(expectOk(await secrets.value.get(secretLabel('account-1')))).toBe(
 		'refresh',
 	);
 	expect(http).toEqual(['secret-put', 'secret-get']);

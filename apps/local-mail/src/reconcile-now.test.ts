@@ -13,7 +13,6 @@ import { accountWorkflow } from './accounts.test-support.js';
  */
 
 import { expect, test } from 'bun:test';
-import type { Device } from '@epicenter/device';
 import type { MailSession } from './accounts.ts';
 import {
 	type AccountWorkflow,
@@ -28,7 +27,6 @@ import { OAuthError } from './oauth.ts';
 import { readOutbox } from './outbox.ts';
 import type { GmailLabel, GmailMessage, HistoryPage } from './schema.ts';
 import { openTestSession, type TestSession } from './session.test-support.ts';
-import { LOCAL_MAIL_APP_ID } from './storage.ts';
 
 const SUB = 'account-one';
 const AT = '2026-09-04T12:00:00.000Z';
@@ -162,16 +160,23 @@ async function openApp(): Promise<{
 	const forgotten: string[] = [];
 	const app = accountWorkflow({
 		device: {
-			appId: LOCAL_MAIL_APP_ID,
-			secrets: { delete: async () => ({ data: undefined, error: null }) },
-		} as unknown as Device,
+			secrets: {
+				get: async () => {
+					throw new Error('A seeded session must not read credentials.');
+				},
+				put: async () => {
+					throw new Error('A seeded session must not write credentials.');
+				},
+				delete: async () => ({ data: undefined, error: null }),
+			},
+		},
 		storage: {
 			local: session.localDatabase,
 			mail: async () => session.mailboxDatabase,
 			forgetMail: async (sub: string) => {
 				forgotten.push(sub);
 			},
-		} as unknown as AccountWorkflow['storage'],
+		},
 		identity: { clientId: 'client', clientSecret: 'secret' },
 		config: DEFAULT_MAIL_CONFIG,
 		now: () => NOW,

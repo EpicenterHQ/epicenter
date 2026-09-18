@@ -11,8 +11,8 @@ import { join } from 'node:path';
 import { chromium, webkit } from 'playwright';
 import { build } from 'vite';
 import { createBunDevice } from '../../../apps/epicenter/src/test-sqlite.js';
-import { createDesktopDevice } from '../src/desktop.js';
-import { createDeviceDispatcher } from '../src/owner.js';
+import { createDesktopSqliteOwner } from '../src/desktop.js';
+import { createAppSqlite, createDeviceDispatcher } from '../src/owner.js';
 import { installTestLocks } from '../src/test-locks.js';
 
 const temporary = await mkdtemp(join(tmpdir(), 'local-mail-sql-boundary-'));
@@ -87,12 +87,14 @@ try {
 			},
 		},
 	});
-	const device = createDesktopDevice({
+	const device = createAppSqlite(
+		createDesktopSqliteOwner({
+			baseURL: `http://localhost:${native.port}`,
+		}),
 		appId,
-		baseURL: `http://localhost:${native.port}`,
-	});
+	);
 	try {
-		const opened = await device.sqlite.open('mail-synthetic');
+		const opened = await device.value.open('mail-synthetic');
 		if (opened.error) throw opened.error;
 		await characterize('desktop WebSocket / Bun file', async (verb, sql) => {
 			const answer = await opened.data[verb](sql);

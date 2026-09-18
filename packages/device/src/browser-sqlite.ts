@@ -91,6 +91,6 @@ function createBrowserSqliteTransport(): AppSqliteTransport {
 		});
 }
 
-// All app owners in this realm share the pool's worker and request IDs.
+// All app owners in this realm share the worker and request IDs, not a pool.
 // Constructing the transport performs no I/O; its first request starts it.
 export const browserSqliteTransport = createBrowserSqliteTransport();

@@ -12,9 +12,7 @@ function check(name: string, condition: boolean, value?: unknown) {
 
 try {
 	const owner = createBrowserSqliteOwner();
-	const lifetime = await owner.acquire('so.epicenter.query-evidence', {
-		library: 'local',
-	});
+	const lifetime = await owner.acquire('so.epicenter.query-evidence');
 	const db = await lifetime.open('queries');
 	expectOk(
 		await db.batch([
@@ -128,9 +126,7 @@ try {
 		JSON.stringify(final.rows) === '[[{"integer":"2"}]]',
 		final,
 	);
-	const otherLifetime = await owner.acquire('so.epicenter.query-other', {
-		library: 'local',
-	});
+	const otherLifetime = await owner.acquire('so.epicenter.query-other');
 	const other = await otherLifetime.open('queries');
 	expectOk(await other.run('CREATE TABLE private_rows(id INTEGER)'));
 	const firstQuery = db.query(
@@ -235,9 +231,7 @@ try {
 			null,
 	);
 	await lifetime.close();
-	const reopened = await owner.acquire('so.epicenter.query-evidence', {
-		library: 'local',
-	});
+	const reopened = await owner.acquire('so.epicenter.query-evidence');
 	const reopenedDb = await reopened.open('queries');
 	check(
 		'reopenPhysicalJson',
@@ -257,6 +251,10 @@ try {
 	Object.assign(globalThis, { evidence: { observations, failures } });
 } catch (error) {
 	Object.assign(globalThis, {
-		evidence: { failure: String(error), observations, failures },
+		evidence: {
+			failure: error instanceof Error ? error.message : JSON.stringify(error),
+			observations,
+			failures,
+		},
 	});
 }

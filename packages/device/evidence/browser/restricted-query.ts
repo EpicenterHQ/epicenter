@@ -44,7 +44,18 @@ try {
 				}
 			).evidence,
 	);
-	console.log(JSON.stringify({ engine: engine.name(), evidence }, null, 2));
+	console.log(
+		JSON.stringify(
+			{
+				engine: engine.name(),
+				failure: evidence.failure,
+				failures: evidence.failures,
+				checks: Object.keys(evidence.observations),
+			},
+			null,
+			2,
+		),
+	);
 	if (evidence.failure || evidence.failures.length)
 		throw new Error(evidence.failure ?? evidence.failures.join(', '));
 	const results = evidence.observations as Record<

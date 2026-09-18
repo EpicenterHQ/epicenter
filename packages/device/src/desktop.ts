@@ -10,7 +10,6 @@ import type { AccountIdentity } from '@epicenter/principal';
 import { Ok, type Result } from 'wellcrafted/result';
 import {
 	appIdOrThrow,
-	type Device,
 	DeviceError,
 	SecretError,
 	type SecretLabel,
@@ -18,7 +17,6 @@ import {
 } from './index.js';
 import {
 	type AppSqliteTransport,
-	createAppSqlite,
 	createTransportSqliteOwner,
 } from './owner.js';
 import {
@@ -30,7 +28,7 @@ import {
 	stringifySqliteFrame,
 } from './protocol.js';
 
-export type CreateDesktopDeviceOptions = {
+type DesktopStorageOptions = {
 	/** The trusted origin that owns the files and the keychain entries. */
 	baseURL?: string;
 	fetch?: typeof globalThis.fetch;
@@ -38,7 +36,7 @@ export type CreateDesktopDeviceOptions = {
 };
 
 export function createDesktopSqliteOwner(
-	options: CreateDesktopDeviceOptions = {},
+	options: DesktopStorageOptions = {},
 ): import('./owner.js').DeviceSqliteOwner {
 	return {
 		async acquire(appId, account) {
@@ -67,7 +65,7 @@ export function createDesktopSqliteOwner(
 function createSqliteSocket({
 	baseURL = globalThis.location?.origin,
 	webSocket: Socket = globalThis.WebSocket,
-}: CreateDesktopDeviceOptions) {
+}: DesktopStorageOptions) {
 	let socket: WebSocket | undefined;
 	let opening: Promise<void> | undefined;
 	let failed: DeviceError | undefined;
@@ -162,26 +160,6 @@ function createSqliteSocket({
 	};
 }
 
-/**
- * What the trusted origin owns, scoped to one application.
- *
- * The origin and the fetch are read here rather than at module scope, so a
- * seam leaf does not refuse a build before anything asked it for storage.
- */
-export function createDesktopDevice({
-	appId,
-	...options
-}: CreateDesktopDeviceOptions & { appId: string }): Device {
-	appIdOrThrow(appId);
-	const owner = createDesktopSqliteOwner(options);
-	const sqlite = createAppSqlite(owner, appId);
-	return {
-		sqlite: Object.freeze(sqlite.value),
-		close: () => sqlite.close(),
-		secrets: Object.freeze(createDesktopSecrets(appId, options).value),
-	};
-}
-
 type OwnerRequest = (
 	message: DeviceRequest,
 ) => Promise<Result<DeviceResponse, DeviceError>>;
@@ -189,7 +167,7 @@ type OwnerRequest = (
 function createOwnerRequest({
 	baseURL = globalThis.location?.origin,
 	fetch: fetchImplementation = globalThis.fetch,
-}: CreateDesktopDeviceOptions): OwnerRequest {
+}: DesktopStorageOptions): OwnerRequest {
 	if (!baseURL || !fetchImplementation) {
 		throw new Error('Desktop app storage needs an origin and fetch.');
 	}
@@ -218,7 +196,7 @@ export function createDesktopSecrets(
 		assertUsable,
 		account,
 		...options
-	}: CreateDesktopDeviceOptions & {
+	}: DesktopStorageOptions & {
 		assertUsable?: () => void;
 		account?: AccountIdentity;
 	} = {},

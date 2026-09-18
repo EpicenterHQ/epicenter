@@ -826,6 +826,7 @@ test('failed durable release retains SQL and the common library claim', async ()
 	});
 	const app = epicenter.open();
 	expectOk(await app.ready);
+	expectOk(await app.device.sqlite.open('search'));
 	const close = spyOn(IDBDatabase.prototype, 'close');
 	close.mockImplementation(function (this: IDBDatabase) {
 		throw new Error('Durable close failed');
@@ -841,9 +842,10 @@ test('failed durable release retains SQL and the common library claim', async ()
 	}
 });
 
-test('failed bootstrap cleanup retains SQL and library ownership before ready', async () => {
+test('failed bootstrap cleanup retains library ownership without acquiring SQL', async () => {
 	const appId = `test.${crypto.randomUUID()}`;
 	let sqlCloses = 0;
+	let sqlAcquisitions = 0;
 	const epicenter = defineApplication({
 		appId,
 		definition,
@@ -852,6 +854,7 @@ test('failed bootstrap cleanup retains SQL and library ownership before ready', 
 			blobs: testBlobs,
 			sqlite: {
 				async acquire(...args) {
+					sqlAcquisitions++;
 					const lifetime = await testSqlite.acquire(...args);
 					return {
 						...lifetime,
@@ -874,6 +877,7 @@ test('failed bootstrap cleanup retains SQL and library ownership before ready', 
 		expect(expectErr(await app.ready).name).toBe('StorageFailed');
 		await app.close();
 		expect(sqlCloses).toBe(0);
+		expect(sqlAcquisitions).toBe(0);
 		const duplicate = epicenter.open();
 		expect(expectErr(await duplicate.ready).name).toBe('AlreadyOpen');
 		await duplicate.close();
@@ -987,6 +991,7 @@ test.each([
 		},
 	}).open();
 	expectOk(await app.ready);
+	expectOk(await app.device.sqlite.open('search'));
 	const request = (async () =>
 		await app.device.connections.runtime!.client.models.list())();
 	void request.catch(() => {});

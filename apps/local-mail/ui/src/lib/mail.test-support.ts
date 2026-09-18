@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ScopedSqlite } from '@epicenter/device/owner';
 import type { AccountWorkflow } from '@epicenter/local-mail/accounts';
 import type { GmailAuthorization } from './platform/types.js';
 
@@ -14,7 +15,7 @@ export async function openMailDocument({
 	},
 }: {
 	app: {
-		sqlite: import('@epicenter/device').Device['sqlite'];
+		sqlite: ScopedSqlite;
 		secrets: AccountWorkflow['secrets'];
 	};
 	authorization?: GmailAuthorization;

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import type { Device } from '@epicenter/device';
+import type { ScopedSqlite } from '@epicenter/device/owner';
 import { Ok } from 'wellcrafted/result';
 import { createTestAppSqlite } from '../../../src/app-sqlite.test-support.js';
 import { openLocalMailStorage } from '../../../src/storage.js';
@@ -22,7 +22,7 @@ async function fixture() {
 				files.delete(name);
 				return Ok(undefined);
 			},
-		} satisfies Device['sqlite'],
+		} satisfies ScopedSqlite,
 		secrets: {
 			get: async () => {
 				throw new Error('No credential access');
@@ -160,7 +160,14 @@ test('document closure aborts consent and waits for its owner to settle', async 
 	const entered = Promise.withResolvers<AbortSignal>();
 	const release = Promise.withResolvers<URL>();
 	const f = await openMailDocument({
-		app: {} as Device,
+		app: {
+			get sqlite(): never {
+				throw new Error('Consent must not access SQLite.');
+			},
+			get secrets(): never {
+				throw new Error('Consent must not access credentials.');
+			},
+		},
 		authorization: {
 			authorize: (_request, signal) => {
 				entered.resolve(signal);

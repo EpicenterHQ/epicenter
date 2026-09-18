@@ -23,36 +23,11 @@
 import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 import { Ok } from 'wellcrafted/result';
 import { browserSqliteTransport as request } from './browser-sqlite.js';
-import {
-	appIdOrThrow,
-	type Device,
-	type SecretLabel,
-	type SecretStore,
-} from './index.js';
-import { createAppSqlite, createTransportSqliteOwner } from './owner.js';
+import { appIdOrThrow, type SecretLabel, type SecretStore } from './index.js';
+import { createTransportSqliteOwner } from './owner.js';
 
 export function createBrowserSqliteOwner(): import('./owner.js').DeviceSqliteOwner {
 	return createTransportSqliteOwner(request);
-}
-
-/**
- * What a browser tab can own, scoped to one application.
- *
- * All owners in this realm share one lazy worker. Each request carries its
- * application id, so sharing the pool does not share files.
- *
- * The scoped capability validates the name and returns owner failures as
- * Results, so this leaf has the same contract as the desktop owner.
- */
-export function createBrowserDevice({ appId }: { appId: string }): Device {
-	appIdOrThrow(appId);
-	const owner = createBrowserSqliteOwner();
-	const sqlite = createAppSqlite(owner, appId);
-	return {
-		sqlite: Object.freeze(sqlite.value),
-		close: () => sqlite.close(),
-		secrets: Object.freeze(createBrowserSecrets(appId).value),
-	};
 }
 
 /** In memory, for the life of the tab, permanently rather than provisionally. */

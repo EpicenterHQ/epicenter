@@ -10,7 +10,7 @@ import { accountWorkflow } from './accounts.test-support.js';
  */
 
 import { expect, test } from 'bun:test';
-import type { AppSqliteDatabase, Device, SecretStore } from '@epicenter/device';
+import type { AppSqliteDatabase, SecretStore } from '@epicenter/device';
 import { Ok } from 'wellcrafted/result';
 import {
 	assertAccountLabel,
@@ -25,7 +25,6 @@ import { DEFAULT_MAIL_CONFIG } from './config.ts';
 import { openIntentStore } from './intent-store.ts';
 import type { AuthorizationRequest } from './oauth.ts';
 import {
-	LOCAL_MAIL_APP_ID,
 	LOCAL_SCHEMA,
 	MAIL_CACHE_SCHEMA,
 	requireAccountFiling,
@@ -99,13 +98,8 @@ async function openApp(options: { refuse?: 'put' | 'delete' } = {}) {
 	}
 
 	const { secrets, held } = secretStore(options);
-	const device = {
-		appId: LOCAL_MAIL_APP_ID,
-		secrets,
-	} as unknown as Device;
-
 	const app = accountWorkflow({
-		device,
+		device: { secrets },
 		storage: {
 			local,
 			mail,

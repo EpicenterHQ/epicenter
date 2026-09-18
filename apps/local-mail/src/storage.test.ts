@@ -8,7 +8,7 @@
  */
 
 import { expect, test } from 'bun:test';
-import { type AppSqliteDatabase, type Device } from '@epicenter/device';
+import type { AppSqliteDatabase } from '@epicenter/device';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { createTestAppSqlite } from './app-sqlite.test-support.ts';
@@ -27,7 +27,6 @@ function testOwner() {
 	const files = new Map<string, ReturnType<typeof createTestAppSqlite>>();
 	const deleted: string[] = [];
 	const device = {
-		appId: 'so.epicenter.local-mail',
 		sqlite: {
 			open: async (name: string) => {
 				const existing = files.get(name);
@@ -43,7 +42,7 @@ function testOwner() {
 				return Ok(undefined);
 			},
 		},
-	} as unknown as Device;
+	};
 	return { device, files, deleted };
 }
 

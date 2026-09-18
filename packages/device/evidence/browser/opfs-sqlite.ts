@@ -31,7 +31,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromium, webkit } from 'playwright';
+import { chromium, webkit, type Page } from 'playwright';
 import { build } from 'vite';
 
 /**
@@ -93,6 +93,20 @@ const ready = (page: {
 	waitForFunction(expression: string): Promise<unknown>;
 }) => page.waitForFunction('typeof globalThis.run === "function"');
 
+async function callOn(
+	page: Page,
+	verb: string,
+	...args: unknown[]
+): Promise<Answer> {
+	return page.evaluate(
+		([name, rest]) =>
+			(globalThis as Record<string, (...a: unknown[]) => Promise<Answer>>)[
+				name
+			](...rest),
+		[verb, args] as const,
+	);
+}
+
 try {
 	const page = await browser.newPage();
 	page.on('pageerror', (error) =>
@@ -101,14 +115,8 @@ try {
 	await page.goto(origin);
 	await ready(page);
 
-	const call = async (verb: string, ...args: unknown[]): Promise<Answer> =>
-		(await page.evaluate(
-			([name, rest]) =>
-				(globalThis as Record<string, (...a: unknown[]) => Promise<Answer>>)[
-					name as string
-				](...(rest as unknown[])),
-			[verb, args] as const,
-		)) as Answer;
+	const call = (verb: string, ...args: unknown[]) =>
+		callOn(page, verb, ...args);
 
 	console.log('1. open, write, and read back through the binding');
 	const created = await call('run', 'local', 'CREATE TABLE t(n INTEGER)');
@@ -122,7 +130,7 @@ try {
 	);
 	const sibling = await call('otherApp', 'SELECT name FROM sqlite_master');
 	check(
-		'another app owner shares the pool with isolated files',
+		'another app owner shares the worker with an isolated pool',
 		sibling.ok && JSON.stringify(sibling.value) === '[]',
 		sibling.error ?? JSON.stringify(sibling.value),
 	);
@@ -331,6 +339,164 @@ try {
 		handoff.error ?? JSON.stringify(handoff.value),
 	);
 	await successor.close();
+	await call('resetStorage');
+	const returned = await call(
+		'all',
+		'local',
+		"SELECT name FROM sqlite_master WHERE name = 't2'",
+	);
+	check(
+		'the original window reactivates its cached pool after handoff',
+		returned.ok &&
+			JSON.stringify(returned.value) === JSON.stringify([{ name: 't2' }]),
+		returned.error ?? JSON.stringify(returned.value),
+	);
+	const untouched = await call('otherApp', 'SELECT count(*) AS c FROM sibling');
+	check(
+		'the other live pool still works after cross-window handoff',
+		untouched.ok &&
+			JSON.stringify(untouched.value) === JSON.stringify([{ c: 0 }]),
+		untouched.error ?? JSON.stringify(untouched.value),
+	);
+	await call('closeStorage');
+
+	console.log(
+		'\n9. failed pool activation retries without replacing the lifetime',
+	);
+	for (const cached of [false, true]) {
+		const blocker = await browser.newPage();
+		await blocker.goto(origin);
+		await ready(blocker);
+		const held = await callOn(blocker, 'rawOpen');
+		check(
+			'an uncoordinated worker holds the physical pool',
+			held.ok,
+			held.error ?? '',
+		);
+		const contender = cached ? page : await browser.newPage();
+		if (cached) await callOn(contender, 'resetStorage');
+		else {
+			await contender.goto(origin);
+			await ready(contender);
+		}
+		const refused = await callOn(contender, 'all', 'local', 'SELECT 1');
+		check(
+			`${cached ? 'cached activation' : 'initial installation'} reports physical contention`,
+			!refused.ok && refused.errorName === 'StorageFailed',
+			refused.error ?? '',
+		);
+		const freed = await callOn(blocker, 'rawClose');
+		check(
+			'the physical contender releases its pool',
+			freed.ok,
+			freed.error ?? '',
+		);
+		const retried = await callOn(
+			contender,
+			'all',
+			'local',
+			"SELECT name FROM sqlite_master WHERE name = 't2'",
+		);
+		check(
+			`${cached ? 'cached activation' : 'initial installation'} retries and preserves data`,
+			retried.ok &&
+				JSON.stringify(retried.value) === JSON.stringify([{ name: 't2' }]),
+			retried.error ?? JSON.stringify(retried.value),
+		);
+		await callOn(contender, 'closeStorage');
+		if (!cached) await contender.close();
+		await blocker.close();
+	}
+
+	console.log(
+		'\n10. the same app has independent account pools across windows',
+	);
+	const accountWindows = [];
+	for (const person of ['alice', 'bob']) {
+		const owned = await browser.newPage();
+		await owned.goto(`${origin}/?person=${person}`);
+		await ready(owned);
+		accountWindows.push(owned);
+		const empty = await callOn(
+			owned,
+			'all',
+			'local',
+			'SELECT name FROM sqlite_master',
+		);
+		check(
+			`${person} does not inherit no-account or another account's tables`,
+			empty.ok && JSON.stringify(empty.value) === '[]',
+			empty.error ?? JSON.stringify(empty.value),
+		);
+		const saved = await callOn(
+			owned,
+			'run',
+			'local',
+			'CREATE TABLE owner(name TEXT); INSERT INTO owner VALUES (?)',
+			[person],
+		);
+		check(
+			`${person} writes while another owner is live`,
+			saved.ok,
+			saved.error ?? '',
+		);
+	}
+	const [alice, bob] = accountWindows as [Page, Page];
+	const duplicateAlice = await browser.newPage();
+	await duplicateAlice.goto(`${origin}/?person=alice`);
+	await ready(duplicateAlice);
+	const duplicateAccount = await callOn(
+		duplicateAlice,
+		'all',
+		'local',
+		'SELECT 1',
+	);
+	check(
+		'a competing window for the same account is refused',
+		!duplicateAccount.ok && duplicateAccount.errorName === 'AlreadyOpen',
+		duplicateAccount.error ?? '',
+	);
+	await callOn(alice, 'closeStorage');
+	await callOn(duplicateAlice, 'closeStorage');
+	await callOn(duplicateAlice, 'resetStorage');
+	const aliceReopened = await callOn(
+		duplicateAlice,
+		'all',
+		'local',
+		'SELECT name FROM owner',
+	);
+	check(
+		'a fresh lifetime retries the failed claim and restores Alice',
+		aliceReopened.ok &&
+			JSON.stringify(aliceReopened.value) ===
+				JSON.stringify([{ name: 'alice' }]),
+		aliceReopened.error ?? JSON.stringify(aliceReopened.value),
+	);
+	const bobRetained = await callOn(
+		bob,
+		'all',
+		'local',
+		'SELECT name FROM owner',
+	);
+	check(
+		'Bob remains live while Alice closes and reopens',
+		bobRetained.ok &&
+			JSON.stringify(bobRetained.value) === JSON.stringify([{ name: 'bob' }]),
+		bobRetained.error ?? JSON.stringify(bobRetained.value),
+	);
+	await call('resetStorage');
+	const signedOut = await call(
+		'all',
+		'local',
+		"SELECT name FROM sqlite_master WHERE name = 't2'",
+	);
+	check(
+		'returning to no-account restores its separate database',
+		signedOut.ok &&
+			JSON.stringify(signedOut.value) === JSON.stringify([{ name: 't2' }]),
+		signedOut.error ?? JSON.stringify(signedOut.value),
+	);
+	await Promise.all([alice.close(), bob.close(), duplicateAlice.close()]);
 } finally {
 	await browser.close();
 	server.stop(true);

@@ -2,7 +2,7 @@ import type { QueryOptions, QueryResult } from './query.js';
 export type { QueryOptions, QueryResult, QueryValue } from './query.js';
 /**
  * Runtime-owned SQLite files and application secrets.
- * SQLite lifetimes and secrets are scoped by application id. Closing a lifetime releases connections and preserves
+ * SQLite lifetimes and secrets are scoped by application id and captured account. Closing a lifetime releases connections and preserves
  * files and secrets. Platform imports select the browser worker or native host.
  */
 
@@ -11,7 +11,6 @@ import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import { LibraryClaimError } from './library-claim.js';
-import type { ScopedSqlite } from './owner.js';
 import { isSecretLabel, type SecretLabel } from './protocol.js';
 
 export const DeviceError = {
@@ -125,25 +124,4 @@ export type SecretStore = {
 	put(label: SecretLabel, value: string): Promise<Result<void, SecretError>>;
 	get(label: SecretLabel): Promise<Result<string | null, SecretError>>;
 	delete(label: SecretLabel): Promise<Result<void, SecretError>>;
-};
-
-/**
- * What one application owns on this device: named SQLite files, and secrets.
- *
- * Both runtime constructors answer this, so an application annotates against
- * it once and its two platform leaves cannot drift. The application id is an
- * input to the constructor rather than a member here: it scopes every file
- * name and every keychain entry underneath, and nothing reading this object
- * needs to be told which application it belongs to.
- *
- * There is no `list` on either half, for the same reason: the application's own
- * rows are the only thing that knows a name exists. A name that was never
- * created deletes successfully, because the caller asked for it to be gone and
- * it is.
- */
-export type Device = {
-	/** Drain and close SQLite connections, preserving files and secrets. */
-	close(): Promise<void>;
-	readonly sqlite: ScopedSqlite;
-	readonly secrets: SecretStore;
 };

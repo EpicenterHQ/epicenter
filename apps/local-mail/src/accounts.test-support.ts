@@ -1,4 +1,3 @@
-import type { Device } from '@epicenter/device';
 import type { AccountWorkflow } from './accounts.js';
 import { DEFAULT_MAIL_CONFIG } from './config.js';
 
@@ -9,7 +8,7 @@ export function accountWorkflow({
 	config = DEFAULT_MAIL_CONFIG,
 	now = () => Date.now(),
 }: {
-	device: Pick<Device, 'secrets'>;
+	device: { secrets: AccountWorkflow['secrets'] };
 	storage: AccountWorkflow['storage'];
 	identity: AccountWorkflow['identity'];
 	config?: AccountWorkflow['config'];
