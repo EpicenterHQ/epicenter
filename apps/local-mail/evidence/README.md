@@ -1,121 +1,93 @@
-# Browser workflow evidence
+# Browser verification
 
-Run all three Chromium checks, including the application build, from the
-repository root:
+Playwright Test runs three stateful journeys in Chromium and WebKit. The tests
+use synthetic accounts in fresh browser contexts and exercise production UI,
+storage, and callback code. They require no Infisical login or Gmail credentials.
+
+From the repository root, install the suite's pinned browsers once, then run:
 
 ```sh
+bun run --cwd apps/local-mail/ui test:browser:install
 bun run --cwd apps/local-mail test:browser
 ```
 
-These checks use temporary profiles and synthetic accounts. They require the
-Playwright Chromium binary. The UI's normal `typecheck` also checks the browser
-fixtures. Use the individual commands below for WebKit or a focused rerun.
-
-Run from the repository root:
+The command builds the application and both fixture pages before running six
+tests. For a focused run:
 
 ```sh
-bun run apps/local-mail/evidence/browser-workflow.mjs
-bun run apps/local-mail/evidence/browser-workflow.mjs --webkit
-bun run --cwd apps/local-mail/ui node_modules/svelte-check/bin/svelte-check --tsconfig ./evidence/tsconfig.json
+bun run --cwd apps/local-mail test:browser --project=webkit route-smoke
+bun run --cwd apps/local-mail test:browser --project=chromium browser-workflow
+bun run --cwd apps/local-mail test:browser --project=chromium gmail-authorization
 ```
 
-The harness builds the production saved-query panel, App, browser persistence,
-and OPFS restricted-query worker. Playwright drives the rendered controls in a
-fresh temporary browser profile. The fixture supplies a synthetic Epicenter
-Account, two downloaded Gmail caches, and an account selector. It replaces only
-the mail module's application import with the fixture's real opened App.
-
-Checks cover invalid SQL saved without execution, offline reopen and editing,
-account-isolated runs, write rejection and recovery, exact positional results,
-dirty-draft navigation and departure, peer edit conflicts, malformed row repair
-and deletion, persistence failure and retry, and cancelled account-bound runs.
-The persistence failure comes from a temporary quota exception in the actual
-IndexedDB transaction API. Peer changes come from separate real Apps and the
-production data engine's remote-update boundary.
-
-This is panel and adapter evidence. It does not exercise the mounted primary
-route, production authentication, live Gmail, desktop WebView or native keychain.
-The fixture contains no real credentials and touches no existing browser profile.
-
-
-## Actual application routes
-
-Build the browser application, then run the route smoke:
+Add `--headed` to watch a journey in a real browser:
 
 ```sh
-bun run --cwd apps/local-mail/ui build
-bun run apps/local-mail/evidence/route-smoke.mjs
-bun run apps/local-mail/evidence/route-smoke.mjs --webkit
+bun run --cwd apps/local-mail test:browser --project=chromium --headed route-smoke
 ```
 
-The harness snapshots the built application into a temporary directory. It
-supplies cached synthetic identity and API replies, blocks live synchronization,
-and observes IndexedDB and Worker opening from outside the application. It
-checks both callbacks, SvelteKit hover preload, signed-out boot, ready-gated
-App/MailShell mounting, draft preflight cancellation, and saved-query reopening.
-Set `LOCAL_MAIL_ROUTE_SCREENSHOTS` to a directory to capture desktop and narrow
-layouts. These are application route checks, not a real sign-in ceremony.
+The runner lives in `apps/local-mail/ui/e2e/`; browser fixture sources remain
+in `apps/local-mail/ui/evidence/`. The `.e2e.mjs` suffix keeps these journeys out
+of Bun's unit-test discovery. Normal UI typechecking includes the browser
+fixture sources. Each journey keeps its state across named steps so reloading
+actually verifies what the preceding steps persisted.
 
-The route and panel fixtures answer current-library startup with the production
-download encoder. They echo the submitted seed as a new library; they do not
-simulate server arbitration or live synchronization.
+## What the journeys prove
 
-## Gmail consent callbacks
+| Journey | Coverage |
+| --- | --- |
+| Routes | Actual built SvelteKit callbacks and preload open no primary library; signed-out boot; ready-gated App and SQLite worker opening; draft protection; tab and connection navigation; saved-query reopening. |
+| Saved queries | Production panel, App, OPFS and restricted SQL; two account caches; offline reopen; write rejection; exact result values; peer conflicts and incompatible rows; IndexedDB quota failure and retry; cancelled account-bound runs. |
+| Gmail callbacks | Production PKCE builder and connected route; popup source, origin and path rejection; successful return; cancellation and closed windows; standalone callbacks; automation's popup-permission limitations. |
 
-```sh
-bun run apps/local-mail/evidence/gmail-authorization.mjs
-bun run apps/local-mail/evidence/gmail-authorization.mjs --webkit
-```
+The shared startup fixture uses the production download encoder to echo a new
+library's seed. It does not simulate server arbitration or live synchronization.
+Peer changes use separate real Apps and the production remote-update boundary.
+Quota faults occur in the actual IndexedDB transaction API.
 
-This harness runs the production PKCE builder, browser authorization module,
-and connected route with a synthetic consent page. It checks callback origin,
-source window, path, cancellation, closed windows, and retention of the primary
-document. It sends no request to Google and obtains no real token.
+Route and query journeys use fresh persistent profiles per test attempt, then
+clear their synthetic origin's OPFS before application startup: macOS WebKit
+can retain OPFS across different temporary profiles. They never clear it on
+reload within that profile. This tests document reopening, not browser-process
+restart or abrupt crash recovery. Offline query checks disable the synthetic
+account transport; the browser can still load application assets.
 
-Both automation engines also permit a popup opened without user activation.
-Their successful delayed-click case therefore does not establish ordinary
-browser popup permission. Test that behavior manually with normal permissions.
+The cancellation case observes a bounded interval for late results and then
+runs another query. It does not establish when the underlying worker stops.
+Both automated engines may allow popups without user activation; their results
+do not establish popup permission in an ordinary browser profile.
 
-No harness verifies native WebView interaction, OS keychain reopening, or live
-Gmail download/history/delivery. Those remain separate checks in the active spec.
+## Diagnosis and ownership
 
-## Planned end-to-end demo
+The runner retains traces and screenshots on failure, with named steps in its
+HTML report. JSON attachments retain route build metadata, tab states, and
+workflow observations. Reports live in `apps/local-mail/ui/playwright-report/`;
+failure artifacts live in `apps/local-mail/ui/test-results/`.
 
-Start with synthetic mail in a temporary profile, then repeat the provider and
-desktop checks with a designated Gmail test account. The current harnesses
-cover saved queries and routes; they do not yet drive a download interruption
-through the mounted app.
+`playwright.config.mjs` owns projects, timeouts and server startup. A Bun child
+process builds and serves immutable outputs on four separate local origins;
+Playwright workers do not need Bun globals. Shutdown removes temporary builds,
+and test teardown closes contexts and removes their temporary profiles.
+The default ports are 41770 through 41773. Set `LOCAL_MAIL_TEST_PORT` to change
+the starting port; existing servers are never reused. Keep one worker: concurrent
+attempts must not clear or write the same test origin's OPFS.
 
-Before the demo, reconcile Local Mail's App opening with the shared library
-API and pass both UI typechecks. On September 9, 2026, preparation found Local
-Mail still calling `openAccount` while the working shared API exposed
-`openPersonal`, plus a shared `acquireAppData` argument mismatch. A bundle build
-passed despite those errors, so building alone is not the entry criterion.
+The Local Mail browsers workflow runs on pull requests and pushes to main,
+installs browsers with this package's CLI, and uploads failure artifacts. It has
+no path filter because shared packages and build configuration affect these
+journeys. Hosted Linux execution must still pass in CI; local WebKit runs use
+the local operating system's build.
 
-| Step | Action | Evidence to capture |
-| --- | --- | --- |
-| Open and read | Mount the actual route with synthetic identity and a paginated Gmail HTTP fixture. Download mail and open a message. | Rendered subjects and body match the fixture. |
-| Interrupt and resume | Commit the first page, hold a later response, then close the page without running app departure. Reopen the same profile and sync. | Saved mail remains; the next listing uses the saved token. No first-page repeat when the token is accepted. |
-| Repeat unfinished work | Interrupt before a page commits, then retry. | The unfinished page repeats without duplicate messages or skipped IDs. |
-| Catch up | Add and delete fixture messages while the app is closed. Finish the scan and history catchup. | The cache matches the fixture's final mailbox. |
-| Query offline | Save a query, reopen offline, and run it against two distinct account caches. | Query text persists; results stay within the selected account. |
-| Recover from failure | Reject one continuation token, then allow the fresh scan. Separately fail a page request temporarily. | Restart is bounded; temporary failure retains the bookmark and saved mail. |
+## Remaining end-to-end evidence
 
-Drive the real Gmail HTTP client through intercepted requests. Keep the App,
-mail operations, SQLite worker, and rendered controls real. Record the request
-sequence alongside screenshots so a convincing screen cannot hide a repeated
-full download. The process-kill test in `src/sync.resume.test.ts` already proves
-recovery over a real SQLite file; this demo adds browser and UI evidence.
+These tests do not establish real Epicenter sign-in, live Gmail download,
+history catchup or delivery, native WebView behavior, or keychain reopening.
+The next browser journey should drive the real Gmail HTTP client through a
+paginated synthetic response, interrupt a download after one page commits,
+reopen, and verify that sync resumes from the saved bookmark. Record requests
+alongside rendered mail so a repeated full download cannot look like recovery.
 
-For the live pass, start `bun dev:local-mail` from the repository root with the
-development configuration available. Use normal popup permissions and a chosen
-test mailbox. Verify consent, initial download, interruption, reconnect if
-needed, and subsequent history updates. Browser Gmail credentials last only
-for the document, so reopening can require consent again even though downloaded
-mail and its bookmark survive.
-
-Finally repeat opening, interruption, and reopening in the desktop WebView,
-including keychain retrieval. Before testing delivery, explicitly choose the
-test message and label change: reconciliation can send pending triage. Keep
-existing profiles, caches, and pending changes out of the demo. Report browser,
-desktop, and live-provider results separately.
+A separate manual pass needs a designated Gmail test account and normal popup
+permissions. Verify desktop opening and keychain retrieval separately. Choose
+the test message and label change before testing delivery: reconciliation can
+send pending triage. Existing profiles and mailboxes are outside these tests.
