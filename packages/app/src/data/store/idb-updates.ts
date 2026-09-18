@@ -1,12 +1,6 @@
 /** Shared append-sized IndexedDB persistence for numbered and current caches. */
 import * as Y from '@y/y';
 import {
-	type DBSchema,
-	type IDBPDatabase,
-	type IDBPObjectStore,
-	wrap,
-} from 'idb';
-import {
 	copyBytes,
 	NO_AUTHORITY,
 	replay,
@@ -25,24 +19,53 @@ type StoredUpdateRecord = {
 	authoritySeq: number | null;
 };
 
-export type BrowserDurableSchema = DBSchema & {
-	updates: { key: number; value: StoredUpdateRecord };
-	/** Present only in the unmounted current cache; the shared engine touches updates only. */
-	header: { key: 'generation'; value: number };
-};
+/** The storage factory and key-range constructors belong to the same runtime. */
+export type IdbRealm = { factory: IDBFactory; keyRange: typeof IDBKeyRange };
 
-export type BrowserDurableDatabase = IDBPDatabase<BrowserDurableSchema>;
+export function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
+	return new Promise((resolve, reject) => {
+		request.addEventListener('success', () => resolve(request.result), {
+			once: true,
+		});
+		request.addEventListener('error', () => reject(request.error), {
+			once: true,
+		});
+	});
+}
 
-/** Open this storage format using the runtime's IndexedDB factory. */
+/** A request error starts abort; only the abort event proves rollback has finished. */
+export function idbTransactionDone(transaction: IDBTransaction): Promise<void> {
+	let firstError: DOMException | null = null;
+	const done = new Promise<void>((resolve, reject) => {
+		transaction.addEventListener('error', (event) => {
+			firstError ??= (event.target as IDBRequest).error;
+		});
+		transaction.addEventListener('complete', () => resolve(), { once: true });
+		transaction.addEventListener(
+			'abort',
+			() => {
+				reject(
+					firstError ??
+						transaction.error ??
+						new DOMException('Transaction aborted', 'AbortError'),
+				);
+			},
+			{ once: true },
+		);
+	});
+	// Synchronous JavaScript can throw before the caller reaches its settlement await.
+	void done.catch(() => {});
+	return done;
+}
+
+/** Open the existing format without discovering or migrating historical caches. */
 export function openIdbDatabase(
 	address: string,
 	stores: readonly ('updates' | 'header')[],
-	indexedDB: IDBFactory,
-): Promise<BrowserDurableDatabase> {
-	// Version and names are durable addresses. This does not discover or migrate
-	// historical caches. Blocked opens and abnormal closure retain native behavior.
-	const request = indexedDB.open(address, 1);
-	const opened = wrap(request) as Promise<BrowserDurableDatabase>;
+	idb: IdbRealm,
+): Promise<IDBDatabase> {
+	const request = idb.factory.open(address, 1);
+	const opened = idbRequest(request);
 	request.addEventListener('upgradeneeded', () => {
 		for (const store of stores) {
 			if (!request.result.objectStoreNames.contains(store))
@@ -55,16 +78,13 @@ export function openIdbDatabase(
 const UPDATES_STORE = 'updates';
 
 export async function readIdbUpdates(
-	updateStore: Pick<
-		IDBPObjectStore<BrowserDurableSchema, ['updates'], 'updates', 'readonly'>,
-		'getAll' | 'getAllKeys'
-	>,
+	updateStore: IDBObjectStore,
 ): Promise<DurableSnapshot> {
 	let rows: StoredUpdateRecord[];
 	let ids: number[];
 	[rows, ids] = await Promise.all([
-		updateStore.getAll(),
-		updateStore.getAllKeys(),
+		idbRequest(updateStore.getAll()),
+		idbRequest(updateStore.getAllKeys()) as Promise<number[]>,
 	]);
 
 	// One pass over the chain answers everything the snapshot holds, which
@@ -116,22 +136,25 @@ export async function readIdbUpdates(
 }
 
 export function createIdbUpdates(
-	durable: BrowserDurableDatabase,
+	durable: IDBDatabase,
 	loaded: DurableSnapshot,
+	idb: IdbRealm,
 ) {
 	let held = loaded.updates.length;
 	const port: DurablePort = {
 		async commit(ops: readonly DurableOp[]): Promise<void> {
 			const transaction = durable.transaction(UPDATES_STORE, 'readwrite');
+			const done = idbTransactionDone(transaction);
 			const updates = transaction.objectStore(UPDATES_STORE);
 			const writes: Promise<unknown>[] = [];
-			function track(request: Promise<unknown>): void {
+			function track(operation: IDBRequest): void {
+				const request = idbRequest(operation);
 				// Attach now: another awaited request may fail before settlement.
 				// Keep the original rejection for the batch's final await.
 				void request.catch(() => {});
 				writes.push(request);
 			}
-			track(transaction.done);
+			writes.push(done);
 			try {
 				let chain = held;
 				let grew = false;
@@ -179,10 +202,12 @@ export function createIdbUpdates(
 							// That is bounded by the document rather than by the
 							// backlog, and it is paid once per ack rather than per row.
 							// `evidence/browser/port-cost` measures both shapes.
-							const range = IDBKeyRange.upperBound(op.throughId);
+							const range = idb.keyRange.upperBound(op.throughId);
 							const [keys, rows] = await Promise.all([
-								updates.getAllKeys(range),
-								updates.getAll(range),
+								idbRequest(updates.getAllKeys(range)),
+								idbRequest(updates.getAll(range)) as Promise<
+									StoredUpdateRecord[]
+								>,
 							]);
 							for (const [index, key] of keys.entries()) {
 								const row = rows[index];
@@ -205,19 +230,17 @@ export function createIdbUpdates(
 				if (grew && chain >= SNAPSHOT_FOLD_THRESHOLD) {
 					const foldable: { id: number; bytes: Uint8Array }[] = [];
 					let position: number | null = null;
-					let at = await updates.openCursor();
-					while (at !== null) {
-						const row = at.value;
+					const [keys, rows] = await Promise.all([
+						idbRequest(updates.getAllKeys()),
+						idbRequest(updates.getAll()) as Promise<StoredUpdateRecord[]>,
+					]);
+					// Both requests enumerate ascending keys in this same transaction.
+					for (const [index, row] of rows.entries()) {
 						if (row.authoritySeq !== null) {
-							foldable.push({ id: at.key as number, bytes: row.bytes });
-							if (
-								row.authoritySeq !== null &&
-								row.authoritySeq > (position ?? -1)
-							) {
+							foldable.push({ id: keys[index] as number, bytes: row.bytes });
+							if (row.authoritySeq > (position ?? -1))
 								position = row.authoritySeq;
-							}
 						}
-						at = await at.continue();
 					}
 					const through = foldable.at(-1)?.id;
 					if (
@@ -258,8 +281,14 @@ export function createIdbUpdates(
 				} catch {
 					/* Already settled. */
 				}
-				await Promise.allSettled(writes);
-				throw cause;
+				const settled = await Promise.allSettled(writes);
+				// An earlier request may have caused later reads to fail with AbortError.
+				const failure = settled.find(
+					(result) =>
+						result.status === 'rejected' &&
+						result.reason?.name !== 'AbortError',
+				);
+				throw failure?.status === 'rejected' ? failure.reason : cause;
 			}
 		},
 	};
@@ -269,16 +298,27 @@ export function createIdbUpdates(
 		position: number;
 	}): Promise<void> {
 		const transaction = durable.transaction(UPDATES_STORE, 'readwrite');
-		const updates = transaction.objectStore(UPDATES_STORE);
-		void updates.put(
-			{
-				bytes: copyBytes(record.bytes),
-				authoritySeq: record.position,
-			},
-			1,
-		);
-		await transaction.done;
-		held = 1;
+		const done = idbTransactionDone(transaction);
+		try {
+			transaction.objectStore(UPDATES_STORE).put(
+				{
+					bytes: copyBytes(record.bytes),
+					authoritySeq: record.position,
+				},
+				1,
+			);
+			await done;
+			held = 1;
+		} catch (cause) {
+			try {
+				transaction.abort();
+			} catch {
+				/* Already settled. */
+			}
+			await done.catch(() => {});
+			throw cause;
+		}
 	}
+
 	return { port, create };
 }

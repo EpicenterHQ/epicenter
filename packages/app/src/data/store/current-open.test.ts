@@ -70,7 +70,12 @@ test('independent caches install canonical bytes and reopen offline without disc
 	const f = fixture();
 	const [alice, bob] = await Promise.all(
 		['alice', 'bob'].map(async (actor) =>
-			expectOk(await acquireAppData(f.definition, f.options(actor))),
+			expectOk(
+				await acquireAppData(f.definition, f.options(actor), {
+					factory: indexedDB,
+					keyRange: IDBKeyRange,
+				}),
+			),
 		),
 	);
 	expect(alice!.loaded.updates).toEqual([f.bytes]);
@@ -79,7 +84,10 @@ test('independent caches install canonical bytes and reopen offline without disc
 	await bob!.dispose?.();
 	f.offline();
 	const reopened = expectOk(
-		await acquireAppData(f.definition, f.options('alice')),
+		await acquireAppData(f.definition, f.options('alice'), {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
 	);
 	expect(reopened.loaded.updates).toEqual([f.bytes]);
 	expect(f.calls()).toBe(2);
@@ -89,15 +97,26 @@ test('independent caches install canonical bytes and reopen offline without disc
 test('Alice pending Shared edits cannot enter Bob Shared or Alice Personal', async () => {
 	const f = fixture();
 	const alice = expectOk(
-		await acquireAppData(f.definition, f.options('alice')),
+		await acquireAppData(f.definition, f.options('alice'), {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
 	);
 	await alice.durable.commit([
 		{ kind: 'append', id: 2, bytes: f.bytes, authoritySeq: undefined },
 	]);
 	await alice.dispose?.();
-	const bob = expectOk(await acquireAppData(f.definition, f.options('bob')));
+	const bob = expectOk(
+		await acquireAppData(f.definition, f.options('bob'), {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
+	);
 	const personal = expectOk(
-		await acquireAppData(f.definition, f.options('alice', 'personal')),
+		await acquireAppData(f.definition, f.options('alice', 'personal'), {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
 	);
 	expect(bob.loaded.outbox).toHaveLength(0);
 	expect(personal.loaded.outbox).toHaveLength(0);
@@ -105,7 +124,10 @@ test('Alice pending Shared edits cannot enter Bob Shared or Alice Personal', asy
 	await personal.dispose?.();
 	f.offline();
 	const again = expectOk(
-		await acquireAppData(f.definition, f.options('alice')),
+		await acquireAppData(f.definition, f.options('alice'), {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
 	);
 	expect(again.loaded.outbox).toHaveLength(1);
 	await again.dispose?.();
@@ -113,7 +135,12 @@ test('Alice pending Shared edits cannot enter Bob Shared or Alice Personal', asy
 
 test('retirement fences the backing and makes next startup download its replacement', async () => {
 	const f = fixture();
-	const old = expectOk(await acquireAppData(f.definition, f.options('alice')));
+	const old = expectOk(
+		await acquireAppData(f.definition, f.options('alice'), {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
+	);
 	const invalidation = old.discard!();
 	await expect(
 		old.durable.commit([
@@ -123,10 +150,18 @@ test('retirement fences the backing and makes next startup download its replacem
 	await invalidation;
 	await old.dispose?.();
 	f.offline();
-	expectErr(await acquireAppData(f.definition, f.options('alice')));
+	expectErr(
+		await acquireAppData(f.definition, f.options('alice'), {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
+	);
 	f.next();
 	const fresh = expectOk(
-		await acquireAppData(f.definition, f.options('alice')),
+		await acquireAppData(f.definition, f.options('alice'), {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
 	);
 	expect(fresh.replication?.address.generation).toBe(2);
 	expect(fresh.loaded.outbox).toHaveLength(0);
@@ -138,9 +173,17 @@ test('malformed download does not publish a usable cache', async () => {
 	const options = f.options('alice');
 	options.account.fetch = async () =>
 		new Response(f.bytes, { headers: { 'epicenter-generation': '1' } });
-	expectErr(await acquireAppData(f.definition, options));
+	expectErr(
+		await acquireAppData(f.definition, options, {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
+	);
 	const retry = expectOk(
-		await acquireAppData(f.definition, f.options('alice')),
+		await acquireAppData(f.definition, f.options('alice'), {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
 	);
 	expect(f.calls()).toBe(1);
 	await retry.dispose?.();
@@ -166,7 +209,12 @@ test('startup installs the complete captured tail before local use and offline r
 			snapshot: { position: 1, bytes: f.bytes },
 			tail,
 		});
-	const opened = expectOk(await acquireAppData(f.definition, options));
+	const opened = expectOk(
+		await acquireAppData(f.definition, options, {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
+	);
 	expect(opened.loaded.cursor).toBe(132);
 	expect(opened.loaded.outbox).toHaveLength(0);
 	const installed = createDatabaseDocument();
@@ -177,7 +225,10 @@ test('startup installs the complete captured tail before local use and offline r
 	await opened.dispose?.();
 	f.offline();
 	const reopened = expectOk(
-		await acquireAppData(f.definition, f.options('alice')),
+		await acquireAppData(f.definition, f.options('alice'), {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
 	);
 	expect(reopened.loaded).toEqual(opened.loaded);
 	await reopened.dispose?.();
@@ -196,9 +247,17 @@ test('a truncated tail leaves no cache and a later complete download can retry',
 		const body = new Uint8Array(await response.arrayBuffer());
 		return new Response(body.slice(0, -1), { headers: response.headers });
 	};
-	expectErr(await acquireAppData(f.definition, options));
+	expectErr(
+		await acquireAppData(f.definition, options, {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
+	);
 	const retry = expectOk(
-		await acquireAppData(f.definition, f.options('alice')),
+		await acquireAppData(f.definition, f.options('alice'), {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
 	);
 	expect(f.calls()).toBe(1);
 	expect(retry.loaded.cursor).toBe(1);
@@ -226,7 +285,12 @@ for (const pending of ['structs', 'deletes'] as const) {
 				snapshot: { position: 1, bytes: f.bytes },
 				tail: [{ seq: 2, bytes: delta }],
 			});
-		const error = expectErr(await acquireAppData(f.definition, options));
+		const error = expectErr(
+			await acquireAppData(f.definition, options, {
+				factory: indexedDB,
+				keyRange: IDBKeyRange,
+			}),
+		);
 		expect(error).toMatchObject({
 			name: 'StorageFailed',
 			cause: new Error(
@@ -234,7 +298,10 @@ for (const pending of ['structs', 'deletes'] as const) {
 			),
 		});
 		const retry = expectOk(
-			await acquireAppData(f.definition, f.options('alice')),
+			await acquireAppData(f.definition, f.options('alice'), {
+				factory: indexedDB,
+				keyRange: IDBKeyRange,
+			}),
 		);
 		expect(f.calls()).toBe(1);
 		await retry.dispose?.();

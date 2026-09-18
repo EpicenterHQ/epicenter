@@ -1,4 +1,5 @@
 /** Real browser App lifetime, with one opt-in document cleanup failure. */
+import { unwrap as ok } from 'wellcrafted/result';
 import { defineApp, defineTable, field } from '../../../src/index.js';
 import { openApp } from '../../../src/open.js';
 import { resources } from '../../../src/platform/browser.js';
@@ -57,5 +58,136 @@ Object.assign(globalThis, {
 	},
 	setCleanupFailure(value: boolean) {
 		failCleanup = value;
+	},
+});
+
+/** Memory factories must remain isolated without replacing native browser globals. */
+Object.assign(globalThis, {
+	async memoryCoexistenceEvidence() {
+		const nativeNames = Reflect.ownKeys(globalThis).filter(
+			(key): key is string =>
+				typeof key === 'string' &&
+				(key.startsWith('IDB') || key === 'indexedDB'),
+		);
+		const nativeGlobals = nativeNames.map((name) =>
+			Reflect.get(globalThis, name),
+		);
+		const { createMemoryRuntime } = await import('../../../src/testing.js');
+		const isolatedDefinition = defineApp({
+			id: 'so.epicenter.memory-coexistence',
+			tables: { notes: defineTable({ title: field.string() }) },
+			kv: {},
+		});
+		const firstRuntime = createMemoryRuntime();
+		const secondRuntime = createMemoryRuntime();
+		const native = openApp(isolatedDefinition);
+		let first = openApp(isolatedDefinition, { runtime: firstRuntime });
+		let second = openApp(isolatedDefinition, { runtime: secondRuntime });
+		function check(held: boolean, message: string) {
+			if (!held) throw new Error(message);
+		}
+		function titles(opened: typeof native) {
+			return opened.device.tables.notes
+				.ids()
+				.map((id) => opened.device.tables.notes.get(id)?.title);
+		}
+		const idsByTitle = new Map<string, import('@epicenter/blobs').BlobId[]>();
+		try {
+			for (const opened of [native, first, second]) ok(await opened.ready);
+			for (const [opened, title] of [
+				[native, 'native'],
+				[first, 'memory-a'],
+				[second, 'memory-b'],
+			] as const) {
+				opened.device.tables.notes.create({ title });
+				await opened.device.persistence.flush();
+				const ids = [
+					ok(
+						await opened.blobs.local.add(
+							new Blob([title], { type: 'text/plain' }),
+						),
+					),
+					ok(
+						await opened.blobs.local.add(
+							new Blob([title], { type: 'text/plain' }),
+						),
+					),
+				].sort();
+				idsByTitle.set(title, ids);
+				const stat = ok(await opened.blobs.local.stat(ids[0]!));
+				check(
+					stat.size === title.length &&
+						stat.contentType === 'text/plain;charset=utf-8',
+					'Blob stat crossed runtime storage',
+				);
+				const one = ok(await opened.blobs.local.list({ limit: 1 }));
+				check(
+					one.items.length === 1 &&
+						one.items[0]!.id === ids[0] &&
+						one.nextCursor !== undefined,
+					'First blob page is wrong',
+				);
+				const two = ok(
+					await opened.blobs.local.list({ limit: 1, cursor: one.nextCursor }),
+				);
+				check(
+					two.items.length === 1 && two.items[0]!.id === ids[1],
+					'Blob cursor uses wrong IndexedDB key range',
+				);
+				const database = ok(await opened.device.sqlite.open('notes'));
+				ok(await database.run('CREATE TABLE entries (title TEXT)'));
+				ok(await database.run('INSERT INTO entries VALUES (?)', [title]));
+			}
+			await first.close();
+			await second.close();
+			first = openApp(isolatedDefinition, { runtime: firstRuntime });
+			second = openApp(isolatedDefinition, { runtime: secondRuntime });
+			for (const [opened, title] of [
+				[native, 'native'],
+				[first, 'memory-a'],
+				[second, 'memory-b'],
+			] as const) {
+				ok(await opened.ready);
+				check(
+					JSON.stringify(titles(opened)) === JSON.stringify([title]),
+					'Document reopen crossed runtime storage',
+				);
+				check(
+					(await ok(
+						await opened.blobs.local.get(idsByTitle.get(title)![0]!),
+					).text()) === title,
+					'Blob reopen crossed runtime storage',
+				);
+				const database = ok(await opened.device.sqlite.open('notes'));
+				const result = ok(
+					await database.query('SELECT title FROM entries', {
+						tables: ['entries'],
+					}),
+				);
+				check(
+					JSON.stringify(result.rows) === JSON.stringify([[title]]),
+					'SQL reopen crossed runtime storage',
+				);
+			}
+			check(
+				nativeNames.every(
+					(name, index) =>
+						Reflect.get(globalThis, name) === nativeGlobals[index],
+				),
+				'Memory runtime changed native IndexedDB globals',
+			);
+			return 'native and two memory runtimes preserve globals and isolate documents, blobs, pagination, and SQL';
+		} finally {
+			await Promise.all([native.close(), first.close(), second.close()]);
+			await firstRuntime.dispose();
+			await secondRuntime.dispose();
+			check(
+				nativeNames.every(
+					(name, index) =>
+						Reflect.get(globalThis, name) === nativeGlobals[index],
+				),
+				'Memory disposal changed native IndexedDB globals',
+			);
+		}
 	},
 });

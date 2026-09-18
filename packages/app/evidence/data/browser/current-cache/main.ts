@@ -38,7 +38,10 @@ async function rejected(promise: Promise<unknown>) {
 
 const probe = {
 	async open() {
-		const result = await openCurrentCache(address);
+		const result = await openCurrentCache(address, {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		});
 		if (result.error) throw result.error;
 		backing = result.data;
 		return backing.loaded === undefined

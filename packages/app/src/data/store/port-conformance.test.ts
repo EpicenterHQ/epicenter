@@ -83,7 +83,10 @@ const indexedDbEngine: Engine = {
 	async create(label: string): Promise<Record> {
 		const address = `conformance/${label}`;
 		const open = async () => {
-			const opened = await openIdbBacking(address);
+			const opened = await openIdbBacking(address, {
+				factory: indexedDB,
+				keyRange: IDBKeyRange,
+			});
 			if (opened.error !== null) throw opened.error;
 			return opened.data;
 		};

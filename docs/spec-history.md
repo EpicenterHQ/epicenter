@@ -16,13 +16,14 @@
 >
 > **Regenerate (deterministic per ref set, lossless):** `bun scripts/generate-spec-history.ts`. The totals track the refs this clone can see; `--all` is deliberate so the timeline recovers specs that only lived on unmerged or deleted branches.
 
-**1428 specs ever** (524 still in tree, 904 removed).
+**1429 specs ever** (524 still in tree, 905 removed).
 
 
 ## 2026
 
 | Date | Spec | State | Path |
 |------|------|-------|------|
+| 2026-09-18 | app-runtime-and-admission | removed | specs/20260918T192656-app-runtime-and-admission.md |
 | 2026-09-07 | direct-session-auth.handoff | removed | specs/20260907T214002-direct-session-auth.handoff.md |
 | 2026-09-07 | direct-session-auth | removed | specs/20260907T214002-direct-session-auth.md |
 | 2026-09-05 | keyed-session-boot | in tree | specs/20260905T005141-keyed-session-boot.md |

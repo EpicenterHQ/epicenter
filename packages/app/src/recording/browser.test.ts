@@ -6,7 +6,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { BlobStoreError } from '@epicenter/blobs';
 import { createBrowserBlobStore } from '@epicenter/blobs/browser';
-import { IDBFactory } from 'fake-indexeddb';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createBrowserRecording } from './browser.js';
 
@@ -81,7 +81,7 @@ async function setup({
 			});
 		}
 	}
-	replaceGlobal('indexedDB', new IDBFactory());
+	const idb = { factory: new IDBFactory(), keyRange: IDBKeyRange };
 	replaceGlobal('MediaRecorder', Recorder);
 	replaceGlobal('navigator', {
 		locks: {
@@ -105,8 +105,10 @@ async function setup({
 	const appId = `test.${crypto.randomUUID()}`;
 	const local = createBrowserBlobStore({
 		appId,
+		idb,
 	});
 	return {
+		idb,
 		local,
 		owner: createBrowserRecording(appId, {
 			write: (id, blob) => local.put(id, blob),
@@ -121,10 +123,10 @@ async function setup({
 }
 
 test('stop commits into the independently opened app-local store', async () => {
-	const { owner, appId } = await setup();
+	const { owner, appId, idb } = await setup();
 	const recording = expectOk(await owner.value.start({}));
 	const saved = expectOk(await recording.stop());
-	const independent = createBrowserBlobStore({ appId });
+	const independent = createBrowserBlobStore({ appId, idb });
 	expect(await expectOk(await independent.get(saved.blobId)).text()).toBe(
 		'final',
 	);

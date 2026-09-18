@@ -6,7 +6,7 @@ import { createRemoteBlobClient } from '@epicenter/client';
 import { LibraryClaimError } from '@epicenter/device/library-claim';
 import { createMemorySqliteOwner } from '@epicenter/device/memory';
 import { deviceOwnerPath } from '@epicenter/principal';
-import * as indexedDb from 'fake-indexeddb';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { Ok } from 'wellcrafted/result';
 import { accountInference } from './ai.js';
 import { createAiConnections } from './ai-connections.js';
@@ -15,39 +15,12 @@ import { RecorderError } from './recorder.js';
 import type { AppRuntime } from './runtime.js';
 
 /**
- * Isolated storage for Bun or compatible nonbrowser test processes.
- * Requires fake IndexedDB constructors; incompatible native constructors are
- * rejected before globals change. Browser integration tests use the default runtime.
+ * Isolated storage using the same persistence services as production.
+ * Its IndexedDB factory and key ranges belong to this runtime; globals never change.
  * Apps close their handles; disposal erases this runtime's storage.
  */
 export function createMemoryRuntime() {
-	// idb wraps requests using instanceof. Supply absent constructors, never replace
-	// the ambient storage factory or swap globals when individual Apps open.
-	const constructors = [
-		'IDBCursor',
-		'IDBCursorWithValue',
-		'IDBDatabase',
-		'IDBIndex',
-		'IDBKeyRange',
-		'IDBObjectStore',
-		'IDBRequest',
-		'IDBTransaction',
-	] as const;
-	for (const name of constructors) {
-		if (globalThis[name] !== undefined && globalThis[name] !== indexedDb[name])
-			throw new Error(
-				'Memory runtime requires an isolated test process without native IndexedDB constructors.',
-			);
-	}
-	for (const name of constructors) {
-		if (globalThis[name] === undefined)
-			Object.defineProperty(globalThis, name, {
-				configurable: true,
-				writable: true,
-				value: indexedDb[name],
-			});
-	}
-	const factory = new indexedDb.IDBFactory();
+	const idb = { factory: new IDBFactory(), keyRange: IDBKeyRange };
 	const sql = createMemorySqliteOwner();
 	const held = new Set<string>();
 	const secrets = new Map<string, Map<string, string>>();
@@ -75,14 +48,14 @@ export function createMemoryRuntime() {
 			});
 		},
 		data(definition, scope) {
-			return acquireAppData(definition, { ...scope, indexedDB: factory });
+			return acquireAppData(definition, scope, idb);
 		},
 		sqlite: sql.owner,
 		blobs({ appId, account }) {
 			const local = createBrowserBlobStore({
 				appId,
 				account,
-				indexedDb: factory,
+				idb,
 			});
 			return {
 				local,
@@ -154,11 +127,7 @@ export function createMemoryRuntime() {
 		ai: {
 			runtime: null,
 			account: accountInference,
-			async configuredFetch() {
-				throw new Error(
-					'Memory runtime has no configured inference transport.',
-				);
-			},
+
 			connections(_appId, account) {
 				const key = deviceOwnerPath(account);
 				let listeners = changes.get(key);
@@ -197,10 +166,10 @@ export function createMemoryRuntime() {
 			disposed = true;
 			disposing = (async () => {
 				sql.dispose();
-				for (const { name } of await factory.databases()) {
+				for (const { name } of await idb.factory.databases()) {
 					if (name === undefined) continue;
 					await new Promise<void>((resolve, reject) => {
-						const request = factory.deleteDatabase(name);
+						const request = idb.factory.deleteDatabase(name);
 						request.onsuccess = () => resolve();
 						request.onerror = () => reject(request.error);
 						request.onblocked = () =>

@@ -81,13 +81,19 @@ let address = 0;
 async function backing() {
 	address += 1;
 	const name = `port-cost/${address}`;
-	const { data, error } = await openIdbBacking(name);
+	const { data, error } = await openIdbBacking(name, {
+		factory: indexedDB,
+		keyRange: IDBKeyRange,
+	});
 	if (error !== null) throw new Error(String(error.message));
 	return { ...data, name };
 }
 
 async function reopen(name: string) {
-	const { data, error } = await openIdbBacking(name);
+	const { data, error } = await openIdbBacking(name, {
+		factory: indexedDB,
+		keyRange: IDBKeyRange,
+	});
 	if (error !== null) throw new Error(String(error.message));
 	return data;
 }

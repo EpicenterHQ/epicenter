@@ -61,6 +61,11 @@ its `[id, size]` index entry. `stat` and `list` use index key cursors instead of
 retrieving audio buffers. No per-object media type or recording metadata is
 stored in IndexedDB.
 
+The browser store receives `idb: { factory, keyRange }` from its runtime.
+Production supplies the native IndexedDB factory and key-range constructor;
+memory runtimes supply both from their simulation without replacing browser
+globals. Compound index ranges use the constructor paired with that factory.
+
 Desktop files have no per-blob directories or JSON sidecars. Bun and Rust write
 same-directory temporary files named `.bun-*.tmp` and `.rust-*.tmp`. Publication
 flushes completed bytes, then creates a hard link without replacing an occupied

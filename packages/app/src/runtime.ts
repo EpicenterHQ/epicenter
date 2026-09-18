@@ -1,12 +1,15 @@
 import type { Account } from '@epicenter/auth';
 import type { BlobSources, BlobStore, RemoteBlobs } from '@epicenter/blobs';
-import type { AccountIdentity } from '@epicenter/principal';
-import type { AiTransport } from './ai.js';
-import type { AiConnections } from './ai-connections.js';
-import type { createBrowserSecrets } from '@epicenter/device/browser';
+import type { SecretStore } from '@epicenter/device';
 import type { claimApp } from '@epicenter/device/library-claim';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';
-import type { acquireAppData } from './data/store/browser.js';
+import type { AccountIdentity } from '@epicenter/principal';
+import type { Result } from 'wellcrafted/result';
+import type { AiTransport } from './ai.js';
+import type { AiConnections } from './ai-connections.js';
+import type { ParsedDataDefinition } from './data/definition/index.js';
+import type { AppDataScope } from './data/store/browser.js';
+import type { StoreBacking, StoreError } from './data/store/store.js';
 import type { RecordingFactory } from './recorder.js';
 
 export type AppBlobComposition = {
@@ -29,14 +32,22 @@ export type AppAiBinding = {
 	configuredFetch?: AiTransport['fetch'];
 };
 
+export type AppSecretFactory = (
+	appId: string,
+	options?: { assertUsable?: () => void; account?: AccountIdentity },
+) => { value: SecretStore; close(): Promise<void> };
+
 /** Complete resources beneath the shared App lifecycle; no ambient fallback. */
 export type AppRuntime = {
 	/** Disposable runtimes reserve synchronously, before the returned promise settles. */
 	claim: typeof claimApp;
-	data: typeof acquireAppData;
+	data(
+		definition: ParsedDataDefinition,
+		scope: AppDataScope,
+	): Promise<Result<StoreBacking, StoreError>>;
 	sqlite: DeviceSqliteOwner;
 	blobs: AppBlobFactory;
 	recording: RecordingFactory;
-	secrets: typeof createBrowserSecrets;
+	secrets: AppSecretFactory;
 	ai: AppAiBinding;
 };

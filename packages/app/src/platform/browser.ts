@@ -1,7 +1,3 @@
-import { claimApp } from '@epicenter/device/library-claim';
-import { acquireAppData } from '../data/store/browser.js';
-import type { AppRuntime } from '../runtime.js';
-import { createBrowserAppAi } from '../browser.js';
 import {
 	createBrowserBlobSources,
 	createBrowserBlobStore,
@@ -11,12 +7,21 @@ import {
 	createBrowserSecrets,
 	createBrowserSqliteOwner,
 } from '@epicenter/device/browser';
-import type { AppBlobFactory } from '../runtime.js';
+import { createBrowserAppAi } from '../browser.js';
 import { createBrowserRecording } from '../recording/browser.js';
+import type { AppRuntime } from '../runtime.js';
+import { nativeDocuments } from './documents.js';
 
-export function createBrowserAppBlobs(): AppBlobFactory {
-	return ({ appId, account }) => {
-		const local = createBrowserBlobStore({ appId, account });
+export const resources: AppRuntime = {
+	...nativeDocuments,
+	ai: createBrowserAppAi(),
+	sqlite: createBrowserSqliteOwner(),
+	blobs({ appId, account }) {
+		const local = createBrowserBlobStore({
+			appId,
+			account,
+			idb: { factory: globalThis.indexedDB, keyRange: globalThis.IDBKeyRange },
+		});
 		return {
 			local,
 			sources: createBrowserBlobSources(local),
@@ -25,15 +30,7 @@ export function createBrowserAppBlobs(): AppBlobFactory {
 					? null
 					: createRemoteBlobClient({ appId, account, local }),
 		};
-	};
-}
-
-export const resources: AppRuntime = {
-	claim: claimApp,
-	data: acquireAppData,
-	ai: createBrowserAppAi(),
-	sqlite: createBrowserSqliteOwner(),
-	blobs: createBrowserAppBlobs(),
+	},
 	recording: createBrowserRecording,
 	secrets: createBrowserSecrets,
 };

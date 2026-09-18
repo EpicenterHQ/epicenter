@@ -106,7 +106,7 @@ for (const condition of [undefined, 'epicenter-host']) {
    const ready = await app.ready;
    if(ready.error) throw ready.error;
    await app.close(); await runtime.dispose();
-   if(globalThis.indexedDB !== undefined) throw new Error('Installed an ambient storage factory');
+   for (const name of ['indexedDB','IDBRequest','IDBTransaction','IDBKeyRange','IDBDatabase']) { if(globalThis[name] !== undefined) throw new Error('Installed ambient '+name); }
   `,
 			],
 			{ cwd: packageRoot, stdout: 'pipe', stderr: 'pipe' },
@@ -119,19 +119,33 @@ for (const condition of [undefined, 'epicenter-host']) {
 	});
 }
 
-test('memory runtime rejects foreign IDB constructors before installing any globals', async () => {
+test('memory Apps ignore foreign IDB globals and leave them untouched', async () => {
 	const child = Bun.spawn(
 		[
 			Bun.which('bun')!,
 			'--eval',
 			`
-  const {createMemoryRuntime} = await import('@epicenter/app/testing');
-  const names=['IDBCursor','IDBCursorWithValue','IDBDatabase','IDBIndex','IDBKeyRange','IDBObjectStore','IDBRequest'];
-  for(const name of names) Reflect.deleteProperty(globalThis,name);
-  globalThis.IDBTransaction=class ForeignTransaction {};
-  try {createMemoryRuntime();throw new Error('Accepted foreign constructors');}
-  catch(error) {if(!error.message.includes('isolated test process')) throw error;}
-  if(names.some(name=>globalThis[name]!==undefined)) throw new Error('Partially installed constructors');
+  const names=['IDBCursor','IDBCursorWithValue','IDBDatabase','IDBFactory','IDBIndex','IDBKeyRange','IDBObjectStore','IDBRequest','IDBTransaction','indexedDB'];
+  const sentinel=new Map(names.map(name=>[name,class ForeignConstructor {}]));
+  for(const [name,value] of sentinel) globalThis[name]=value;
+  const {createMemoryRuntime}=await import('@epicenter/app/testing');
+  const {openApp}=await import('@epicenter/app/open');
+  const {defineApp,defineTable,field}=await import('@epicenter/app');
+  const definition=defineApp({id:'test.foreign-idb',kv:{},tables:{notes:defineTable({title:field.string()})}});
+  const runtime=createMemoryRuntime();
+  const app=openApp(definition,{runtime});
+  if((await app.ready).error) throw new Error('Opening failed');
+  app.device.tables.notes.create({title:'retained'});
+  const added=await app.blobs.local.add(new Blob(['retained']));
+  if(added.error) throw added.error;
+  if((await app.blobs.local.stat(added.data)).error) throw new Error('Stat failed');
+  if((await app.blobs.local.list({cursor:added.data})).error) throw new Error('Pagination failed');
+  await app.close();
+  const reopened=openApp(definition,{runtime});
+  if((await reopened.ready).error) throw new Error('Reopening failed');
+  if(reopened.device.tables.notes.rows[0]?.title!=='retained') throw new Error('Lost data');
+  await reopened.close();await runtime.dispose();
+  if(names.some(name=>globalThis[name]!==sentinel.get(name))) throw new Error('Changed globals');
  `,
 		],
 		{ cwd: packageRoot, stdout: 'pipe', stderr: 'pipe' },

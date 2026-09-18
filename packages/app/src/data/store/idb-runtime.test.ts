@@ -3,13 +3,12 @@
  * Local, personal, and shared libraries retain committed records when reopened
  * in the same factory, without changing the ambient browser factory.
  */
-import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { defineApp } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
 import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
-import { IDBFactory } from 'fake-indexeddb';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { expectOk } from 'wellcrafted/testing';
 import { acquireAppData } from './browser.js';
 
@@ -47,7 +46,11 @@ test.each([
 	};
 	const open = async (indexedDB: IDBFactory) =>
 		expectOk(
-			await acquireAppData(definition, { appId, library, account, indexedDB }),
+			await acquireAppData(
+				definition,
+				{ appId, library, account },
+				{ factory: indexedDB, keyRange: IDBKeyRange },
+			),
 		);
 	const [first, second] = await Promise.all(factories.map(open));
 	if (!first || !second) throw new Error('Both factories must open');
@@ -72,9 +75,6 @@ test.each([
 			1, 0,
 		]);
 		expect(globalThis.indexedDB).toBe(ambient);
-		expect(
-			(await ambient.databases()).some(({ name }) => name?.includes(appId)),
-		).toBe(false);
 	} finally {
 		await Promise.all(reopened.map((backing) => backing.dispose?.()));
 	}

@@ -16,7 +16,6 @@
 	},
 	"exports": {
 		".": "./src/index.ts",
-		"./blobs": "./src/blobs.ts",
 		"./ai": "./src/ai.ts",
 		"./ai-connections": "./src/ai-connections.ts",
 		"./clipboard": "./src/clipboard.ts",
@@ -58,7 +57,6 @@
 		"@epicenter/sync": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",
 		"@y/y": "14.0.0-rc.24",
-		"idb": "^8.0.3",
 		"typebox": "catalog:"
 	},
 	"devDependencies": {

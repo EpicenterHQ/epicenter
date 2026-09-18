@@ -213,7 +213,7 @@ test('untyped positional accounts are rejected before opening a signed-out App',
 test('an injected runtime never falls back to ambient inference fetch', async () => {
 	const runtime = createMemoryRuntime();
 	// The transport is intentionally unavailable; saved catalog entries still exist.
-	const { configuredFetch: _fetch, ...ai } = runtime.ai;
+	const ai = runtime.ai;
 	const app = openApp(definition, { runtime: { ...runtime, ai } });
 	expectOk(await app.ready);
 	const id = await app.device.connections.custom!.add({

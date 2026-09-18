@@ -11,7 +11,7 @@
 
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
-import { indexedDB } from 'fake-indexeddb';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { generateBlobId } from './blob-id.js';
 import {
@@ -26,13 +26,13 @@ let appSequence = 0;
 
 /** A distinct application namespace isolates each test's database. */
 function setup() {
-	const scope = { appId: `${APP_ID}.test${appSequence++}` };
+	const scope = {
+		appId: `${APP_ID}.test${appSequence++}`,
+		idb: { factory: new IDBFactory(), keyRange: IDBKeyRange },
+	};
 	return {
 		scope,
-		blobs: createBrowserBlobStore({
-			...scope,
-			indexedDb: indexedDB,
-		}),
+		blobs: createBrowserBlobStore(scope),
 	};
 }
 
@@ -48,8 +48,8 @@ test('invalid application identifiers fail before opening storage', () => {
 });
 
 test('separate applications cannot read one another', async () => {
-	const first = setup().blobs;
-	const second = setup().blobs;
+	const { scope, blobs: first } = setup();
+	const second = createBrowserBlobStore({ ...scope, appId: `${APP_ID}.other` });
 	const id = generateBlobId('bin');
 	expectOk(await first.put(id, new Blob(['first'])));
 	expectErr(await second.get(id));
@@ -144,10 +144,7 @@ test('browser source creation failures remain typed after storage succeeds', asy
 
 test('a read during byte conversion sees no unpublished bytes and succeeds after commit', async () => {
 	const { scope } = setup();
-	const store = createBrowserBlobStore({
-		...scope,
-		indexedDb: indexedDB,
-	});
+	const store = createBrowserBlobStore(scope);
 	const bytes = Promise.withResolvers<ArrayBuffer>();
 	const started = Promise.withResolvers<void>();
 	const blob = new Blob(['pending']);

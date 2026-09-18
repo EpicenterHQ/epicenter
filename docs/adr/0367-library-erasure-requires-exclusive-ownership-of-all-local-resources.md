@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-08
+- **Amended by:** [ADR-0409](0409-one-app-admission-covers-its-storage.md) proposes removal of the unused blob-store eraser and its operation locks. Whole-library erasure remains unavailable.
 - **Amended by:** [ADR-0380](0380-the-caller-owns-when-to-close-and-the-app-owns-resource-shutdown.md) at shutdown coordination: the App coordinates resource owners instead of the document owning every capability. Exclusive acquisition, physical release, and retention after failed release remain.
 - **Related:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md)
 - **Unbuilt:** Exclusion for independently constructed blob producers, complete resource enumeration, native capture/media coordination, and app-factory removal.

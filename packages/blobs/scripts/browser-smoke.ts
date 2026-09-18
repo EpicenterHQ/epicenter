@@ -82,7 +82,10 @@ try {
 					configurable: true,
 					value: async () => output.stream,
 				});
-				const store = createBrowserBlobStore(scope);
+				const store = createBrowserBlobStore({
+					...scope,
+					idb: { factory: indexedDB, keyRange: IDBKeyRange },
+				});
 				let producerType = '';
 				const owner = createBrowserRecording(scope.appId, {
 					write(id: Parameters<typeof store.put>[0], blob: Blob) {
@@ -117,7 +120,10 @@ try {
 					createBrowserBlobSources,
 					createAppBlobs,
 				} = await import(moduleUrl);
-				const store = createBrowserBlobStore(scope);
+				const store = createBrowserBlobStore({
+					...scope,
+					idb: { factory: indexedDB, keyRange: IDBKeyRange },
+				});
 				const stat = await store.stat(id);
 				if (stat.error || stat.data.size !== size)
 					throw new Error('Recording did not persist through document reload.');
@@ -159,7 +165,10 @@ try {
 					const { createBrowserBlobStore, generateBlobId } = await import(
 						moduleUrl
 					);
-					const store = createBrowserBlobStore(scope);
+					const store = createBrowserBlobStore({
+						...scope,
+						idb: { factory: indexedDB, keyRange: IDBKeyRange },
+					});
 					const bytes = new Uint8Array(bytesPerBlob);
 					for (let i = 0; i < bytes.length; i += 65536)
 						crypto.getRandomValues(
@@ -179,7 +188,10 @@ try {
 				async ({ scope, count, expectedBytes }) => {
 					const moduleUrl = '/blobs.js';
 					const { createBrowserBlobStore } = await import(moduleUrl);
-					const store = createBrowserBlobStore(scope);
+					const store = createBrowserBlobStore({
+						...scope,
+						idb: { factory: indexedDB, keyRange: IDBKeyRange },
+					});
 					// Forbid value-reading APIs during stat/list, including index values.
 					const forbid = () => {
 						throw new Error('Metadata operation requested a record value.');

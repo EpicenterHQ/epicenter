@@ -2,8 +2,9 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-18
-- **Amends:** [ADR-0408](0408-one-app-opener-uses-a-complete-runtime.md) at ownership: replace per-library claims and a simulated general lock manager with one App admission; scope pre-admission restrictions to owned storage and account-library acquisition.
-- **Implementation checkpoint:** One App admission, subordinate claim removal, blob erasure removal, and the memory runtime are implemented. Constructor independence remains under review.
+- **Amends:** [ADR-0367](0367-library-erasure-requires-exclusive-ownership-of-all-local-resources.md) at the unused blob-store eraser and its operation locks. Whole-library erasure remains unavailable.
+- **Amends:** [ADR-0408](0408-one-app-opener-uses-a-complete-runtime.md) at ownership and runtime resource selection: replace per-library claims and a simulated general lock manager with one App admission; scope pre-admission restrictions to owned storage and account-library acquisition.
+- **Implementation:** One App admission, complete runtimes, and constructor-independent memory storage.
 
 ## Context
 
@@ -46,10 +47,19 @@ the host SQL connection registry and operation drains: independent clients and
 physical-resource lifetimes still require them.
 
 Remove unused whole-blob-store erasure and its per-operation Web Locks after
-verifying ordinary transactional blob behavior. Per-blob deletion remains.
+verifying ordinary transactional blob behavior. Per-blob deletion remains. The unused standalone App blob openers are removed;
+application blob access belongs to the admitted App lifetime.
 Browser account-wide AI mutations retain their own cross-context coordination.
 Memory AI mutations use synchronous storage operations and notifications.
 There is no general memory implementation of shared, exclusive, or queued locks.
+
+Ambient platform resources are selected at the default runtime binding. Shared
+IndexedDB services receive a factory and its matching key-range constructor;
+they await native requests and transaction completion without consulting global
+constructor identity. Memory runtime construction never installs browser globals
+or rejects coexistence with native storage. This replaces the wrapper-dependent
+global-constructor requirement in 0408. Missing custom inference transports are
+unavailable; they do not fall back to ambient fetch.
 
 ## Consequences
 
@@ -67,6 +77,13 @@ The product compromise is explicit: a second window for the same namespace
 shows the existing already-open failure until the owner closes successfully.
 
 ## Considered alternatives
+
+- Installing fake IndexedDB constructors globally and rejecting native ones.
+  This compensates for the general `idb` wrapper's ambient `instanceof` checks.
+  Native request handling removes the cause while preserving one persistence
+  implementation. The matching factory/key-range pair is a resource input,
+  not a browser emulator.
+
 
 - Private storage per tab breaks the expectation that another window opens
   the same local workspace.

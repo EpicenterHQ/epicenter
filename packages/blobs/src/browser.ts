@@ -143,9 +143,11 @@ function indexedStat(key: IDBValidKey) {
 
 /** Immutable ArrayBuffer records with a covering index for metadata reads. */
 export function createBrowserBlobStore(
-	scope: BrowserBlobScope & { indexedDb?: IDBFactory },
+	scope: BrowserBlobScope & {
+		idb: { factory: IDBFactory; keyRange: typeof IDBKeyRange };
+	},
 ): BlobStore {
-	const { indexedDb = globalThis.indexedDB } = scope;
+	const { idb } = scope;
 	const database = browserBlobStoreName(scope);
 
 	async function operate<TValue, TError>(
@@ -167,7 +169,7 @@ export function createBrowserBlobStore(
 					try: async () => {
 						const { cursor, limit } = blobListOptions(options);
 						const items = await transact(
-							indexedDb,
+							idb.factory,
 							database,
 							'readonly',
 							(store) =>
@@ -176,7 +178,7 @@ export function createBrowserBlobStore(
 									const range =
 										cursor === undefined
 											? undefined
-											: IDBKeyRange.lowerBound(
+											: idb.keyRange.lowerBound(
 													[cursor, Number.MAX_SAFE_INTEGER],
 													true,
 												);
@@ -213,18 +215,26 @@ export function createBrowserBlobStore(
 					try: async () => {
 						assertBlobFormat(id, blob);
 						const bytes = await blob.arrayBuffer();
-						await transact(indexedDb, database, 'readwrite', async (store) => {
-							await requestResult(
-								store.add({
-									id,
-									bytes,
-									size: bytes.byteLength,
-								} satisfies StoredBlob),
-							);
-						});
+						await transact(
+							idb.factory,
+							database,
+							'readwrite',
+							async (store) => {
+								await requestResult(
+									store.add({
+										id,
+										bytes,
+										size: bytes.byteLength,
+									} satisfies StoredBlob),
+								);
+							},
+						);
 					},
 					catch: (cause) =>
-						cause instanceof DOMException && cause.name === 'ConstraintError'
+						typeof cause === 'object' &&
+						cause !== null &&
+						'name' in cause &&
+						cause.name === 'ConstraintError'
 							? BlobStoreError.BlobAlreadyExists({ id })
 							: BlobStoreError.BlobStoreFailed({ id, cause }),
 				}),
@@ -236,7 +246,7 @@ export function createBrowserBlobStore(
 					try: async () => {
 						const { contentType } = blobKeyFormat(id);
 						const record: StoredBlob | undefined = await transact(
-							indexedDb,
+							idb.factory,
 							database,
 							'readonly',
 							(store) => requestResult(store.get(id)),
@@ -263,16 +273,21 @@ export function createBrowserBlobStore(
 				const result = await tryAsync({
 					try: async () => {
 						blobKeyFormat(id);
-						return transact(indexedDb, database, 'readonly', async (store) => {
-							const range = IDBKeyRange.bound(
-								[id, 0],
-								[id, Number.MAX_SAFE_INTEGER],
-							);
-							const entry = await requestResult(
-								store.index(SIZE_INDEX).openKeyCursor(range),
-							);
-							return entry === null ? undefined : indexedStat(entry.key);
-						});
+						return transact(
+							idb.factory,
+							database,
+							'readonly',
+							async (store) => {
+								const range = idb.keyRange.bound(
+									[id, 0],
+									[id, Number.MAX_SAFE_INTEGER],
+								);
+								const entry = await requestResult(
+									store.index(SIZE_INDEX).openKeyCursor(range),
+								);
+								return entry === null ? undefined : indexedStat(entry.key);
+							},
+						);
 					},
 					catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
 				});
@@ -290,9 +305,14 @@ export function createBrowserBlobStore(
 				tryAsync({
 					try: async () => {
 						blobKeyFormat(id);
-						await transact(indexedDb, database, 'readwrite', async (store) => {
-							await requestResult(store.delete(id));
-						});
+						await transact(
+							idb.factory,
+							database,
+							'readwrite',
+							async (store) => {
+								await requestResult(store.delete(id));
+							},
+						);
 					},
 					catch: (cause) => BlobStoreError.BlobStoreFailed({ id, cause }),
 				}),

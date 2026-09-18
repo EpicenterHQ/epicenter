@@ -4,7 +4,7 @@
 - **Date:** 2026-09-12
 - **Amends:** [ADR-0388](0388-the-app-owns-what-a-library-scopes-and-the-package-s-modules-supply-what-the-device-supplies.md) at the selector only: a platform module is "imported directly and selected by the build" becomes "imported directly and selected by the package"; the membership rule, the family name, and the two-leaf shape stand. [ADR-0391](0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md) at the selector only: "a `#platform/*` seam inside `@epicenter/app` selects every implementation" becomes a runtime choice inside the package; the deletion of `runtime`, `ai`, and `settingsKey`, the host blob layout, and the whole-declaration rule stand. [ADR-0387](0387-the-clipboard-is-a-platform-module-beside-the-app-not-a-capability-on-it.md) at "selected for the build by a `#platform/clipboard` seam". [ADR-0304](0304-application-persistence-is-runtime-selected-and-scoped-by-its-owning-app.md) at its built-line claim that "nothing observable" in a WebView tells it apart from a browser tab: `isTauri()` is observable in every window Tauri creates, and Home already relies on it.
 - **Relates:** [ADR-0186](0186-an-app-reaches-epicenter-through-one-bundled-mit-client-it-installs-itself.md) (superseded for scope by ADR-0227, never on merit: "no plugin, alias, resolve condition, or externalization from an app's build" is the rule this record restores), [ADR-0190](0190-a-build-declares-which-epicenter-owns-its-data-not-which-window-it-runs-in.md) (why the condition was an ownership declaration; after ADR-0227 the two questions have one answer), [ADR-0347](0347-whisperings-seams-select-an-owner-and-the-tauri-condition-selects-nothing.md) (the app-level seams this record leaves alone), [ADR-0334](0334-a-deployed-app-is-a-trusted-app-because-deploying-it-was-the-consent.md) (the developer this record is for deploys their own build), [ADR-0402](0402-a-window-label-is-identity-never-authority-and-the-capability-is-a-host-constant.md) (why a host leaf works in every window)
-- **Unbuilt:** All of it. `packages/app/package.json` still maps `#platform/resources`, `#platform/ai`, and `#platform/clipboard` by the `epicenter-host` condition; `packages/app/src/platform-selection.test.ts` reads that map; the package's `tsconfig.epicenter-host.json` and the second `tsc` in its `typecheck` script exist only to reach those leaves; Vocab, which sets no condition, already ships the browser leaves into the host.
+- **Unbuilt:** All of it. `packages/app/package.json` still maps `#platform/resources` and `#platform/clipboard` by the `epicenter-host` condition; `packages/app/src/platform-selection.test.ts` reads that map; the package's `tsconfig.epicenter-host.json` and the second `tsc` in its `typecheck` script exist only to reach those leaves; Vocab, which sets no condition, already ships the browser leaves into the host.
 
 ## Context
 
@@ -117,3 +117,33 @@ package supplies.
   internals before any script runs in every window it creates, including
   `app-*`. If a host ever runs without Tauri, the fact becomes "is the host
   present" and it is still one check inside the package.
+
+## Review refinement, 2026-09-18
+
+The complete runtime in ADR-0408 moves the App selection to one proposed lazy
+function. Explicit runtime injection bypasses detection:
+
+```ts
+function defaultRuntime(): AppRuntime {
+ return isTauri() ? hostRuntime : browserRuntime;
+}
+// Within openApp:
+const runtime = options.runtime ?? defaultRuntime();
+```
+
+Both bindings already own module-level services, so another cache adds no
+storage or lifetime guarantee. App receives capabilities; shared document and
+blob implementations receive an IndexedDB factory and matching key-range
+constructor beneath that boundary. Application documents remain client-owned
+IndexedDB in both default environments. Native SQL, blobs, secrets, recording,
+and AI services vary independently of that document format.
+
+This selector remains unimplemented. Before replacing build selection, verify
+both leaves import without I/O under Bun, SSR, and an ordinary browser, measure
+bundle growth, and inventory callers whose desktop builds currently select
+browser services. Vocab and Skills omit the host condition. Changing selection
+changes where their capabilities look for data, even though documents stay put.
+Resolve any existing blob, SQL, and AI configuration transition explicitly;
+browser secrets are already ephemeral. `isTauri()` is sufficient only under the
+product constraint that the Tauri shell is the Epicenter host with its broker
+routes. It is environment selection, not authorization.

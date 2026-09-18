@@ -7,8 +7,12 @@
  */
 
 import { expect, spyOn, test } from 'bun:test';
-import 'fake-indexeddb/auto';
-import { IDBFactory, IDBIndex, IDBObjectStore } from 'fake-indexeddb';
+import {
+	IDBFactory,
+	IDBIndex,
+	IDBKeyRange,
+	IDBObjectStore,
+} from 'fake-indexeddb';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { BlobId } from './blob-id.js';
 import { generateBlobId } from './blob-id.js';
@@ -21,7 +25,7 @@ import {
 function setup() {
 	const scope = {
 		appId: 'so.epicenter.flat.test',
-		indexedDb: new IDBFactory(),
+		idb: { factory: new IDBFactory(), keyRange: IDBKeyRange },
 	};
 	return {
 		scope,
@@ -98,7 +102,7 @@ test('fresh records contain only id, ArrayBuffer bytes, and derived size and sur
 		contentType: 'video/webm',
 	});
 
-	const database = await open(scope.indexedDb, name);
+	const database = await open(scope.idb.factory, name);
 	expect(database.version).toBe(2);
 	expect(Array.from(database.objectStoreNames)).toEqual(['blobs']);
 	const store = database.transaction('blobs').objectStore('blobs');
@@ -244,9 +248,9 @@ test('each app has independent keys while browser sources own disposable URLs', 
 
 test('an unsupported existing schema fails without changing the database', async () => {
 	const { scope, name, blobs } = setup();
-	(await seedLegacy(scope.indexedDb, name)).close();
+	(await seedLegacy(scope.idb.factory, name)).close();
 	expect(expectErr(await blobs.list()).name).toBe('BlobStoreFailed');
-	const database = await open(scope.indexedDb, name);
+	const database = await open(scope.idb.factory, name);
 	expect(database.version).toBe(1);
 	expect(Array.from(database.objectStoreNames)).toEqual([
 		'blob-data',
@@ -257,14 +261,14 @@ test('an unsupported existing schema fails without changing the database', async
 
 test('blocked upgrade fails without a deferred upgrade without changing a blocked existing schema', async () => {
 	const { scope, name, blobs } = setup();
-	const legacy = await seedLegacy(scope.indexedDb, name);
+	const legacy = await seedLegacy(scope.idb.factory, name);
 	const id = generateBlobId('wav');
 	expect(
 		expectErr(await blobs.put(id, new Blob([], { type: 'audio/wav' }))).name,
 	).toBe('BlobStoreFailed');
 	legacy.close();
 	// This open queues behind the abandoned upgrade, which must abort itself.
-	const untouched = await open(scope.indexedDb, name);
+	const untouched = await open(scope.idb.factory, name);
 	expect(untouched.version).toBe(1);
 	expect(Array.from(untouched.objectStoreNames)).toEqual([
 		'blob-data',
@@ -328,8 +332,79 @@ test('a byte conversion failure leaves the database unopened and remains retryab
 		new Error('Buffer unavailable.'),
 	);
 	expect(expectErr(await blobs.put(id, bytes)).name).toBe('BlobStoreFailed');
-	expect(await scope.indexedDb.databases()).toEqual([]);
+	expect(await scope.idb.factory.databases()).toEqual([]);
 	failed.mockRestore();
 	expectOk(await blobs.put(id, bytes));
+	expect(await expectOk(await blobs.get(id)).text()).toBe('original');
+});
+
+test('injected storage works with absent or unrelated global IndexedDB constructors', async () => {
+	// A fresh process prevents another suite's fake-indexeddb/auto from supplying
+	// constructors and hiding an accidental ambient dependency.
+	const process = Bun.spawn(
+		[
+			Bun.argv[0]!,
+			'--eval',
+			`
+		import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
+		import { createBrowserBlobStore } from './src/browser.ts';
+		import { generateBlobId } from './src/blob-id.ts';
+		import { expectOk, expectErr } from 'wellcrafted/testing';
+		for (const foreign of [false, true]) {
+			const names = ['indexedDB', 'IDBKeyRange', 'IDBDatabase', 'IDBRequest', 'IDBTransaction', 'IDBObjectStore', 'IDBIndex', 'IDBCursor', 'DOMException'];
+			for (const name of names) {
+				if (name === 'DOMException') continue;
+				Reflect.deleteProperty(globalThis, name);
+				if (foreign) Object.defineProperty(globalThis, name, {
+					configurable: true,
+					get() { throw new Error('Ambient ' + name + ' was read'); },
+				});
+			}
+			const before = names.map(name => Object.getOwnPropertyDescriptor(globalThis, name));
+			const idb = { factory: new IDBFactory(), keyRange: IDBKeyRange };
+			const store = createBrowserBlobStore({ appId: 'test.isolation', idb });
+			const keys = [generateBlobId('bin'), generateBlobId('bin')].sort();
+			for (const key of keys) expectOk(await store.put(key, new Blob(['saved'])));
+			if (expectOk(await store.stat(keys[0])).size !== 5) throw new Error('Wrong size');
+			const page = expectOk(await store.list({ limit: 1 }));
+			const next = expectOk(await store.list({ cursor: page.nextCursor }));
+			if (next.items[0]?.id !== keys[1]) throw new Error('Wrong compound range');
+			if (expectErr(await store.put(keys[0], new Blob())).name !== 'BlobAlreadyExists') throw new Error('Lost collision');
+			for (const [index, name] of names.entries()) {
+				const after = Object.getOwnPropertyDescriptor(globalThis, name);
+				if (after?.get !== before[index]?.get || after?.value !== before[index]?.value) throw new Error('Changed global ' + name);
+			}
+		}
+		`,
+		],
+		{
+			cwd: new URL('..', import.meta.url).pathname,
+			stdout: 'pipe',
+			stderr: 'pipe',
+		},
+	);
+	const stderr = await new Response(process.stderr).text();
+	expect({ exitCode: await process.exited, stderr }).toEqual({
+		exitCode: 0,
+		stderr: '',
+	});
+});
+
+test('constraint failures do not depend on the DOMException constructor identity', async () => {
+	const { blobs } = setup();
+	const id = generateBlobId('bin');
+	expectOk(await blobs.put(id, new Blob(['original'])));
+	const constraint = spyOn(IDBObjectStore.prototype, 'add').mockImplementation(
+		() => {
+			throw { name: 'ConstraintError' };
+		},
+	);
+	try {
+		expect(expectErr(await blobs.put(id, new Blob(['replacement']))).name).toBe(
+			'BlobAlreadyExists',
+		);
+	} finally {
+		constraint.mockRestore();
+	}
 	expect(await expectOk(await blobs.get(id)).text()).toBe('original');
 });

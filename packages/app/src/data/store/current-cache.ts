@@ -6,6 +6,9 @@ import { tryAsync } from 'wellcrafted/result';
 import { StoreError } from './errors.js';
 import {
 	createIdbUpdates,
+	type IdbRealm,
+	idbRequest,
+	idbTransactionDone,
 	openIdbDatabase,
 	readIdbUpdates,
 } from './idb-updates.js';
@@ -13,12 +16,9 @@ import { copyBytes } from './log.js';
 import type { DurableOp, DurableSnapshot } from './persistence.js';
 
 /** Open a cache without authorizing remote creation or selecting a generation. */
-export async function openCurrentCache(
-	address: string,
-	indexedDB: IDBFactory = globalThis.indexedDB,
-) {
+export async function openCurrentCache(address: string, idb: IdbRealm) {
 	const opened = await tryAsync({
-		try: () => openIdbDatabase(address, ['updates', 'header'], indexedDB),
+		try: () => openIdbDatabase(address, ['updates', 'header'], idb),
 		catch: (cause) => StoreError.StorageFailed({ cause }),
 	});
 	if (opened.error) return opened;
@@ -27,9 +27,11 @@ export async function openCurrentCache(
 		try: async () => {
 			const read = database.transaction(['header', 'updates'], 'readonly');
 			const [generation, snapshot] = await Promise.all([
-				read.objectStore('header').get('generation'),
+				idbRequest(read.objectStore('header').get('generation')) as Promise<
+					number | undefined
+				>,
 				readIdbUpdates(read.objectStore('updates')),
-				read.done,
+				idbTransactionDone(read),
 			]);
 			if (
 				generation !== undefined &&
@@ -43,7 +45,9 @@ export async function openCurrentCache(
 			const loaded =
 				generation === undefined ? undefined : { generation, snapshot };
 			let engine =
-				loaded === undefined ? undefined : createIdbUpdates(database, snapshot);
+				loaded === undefined
+					? undefined
+					: createIdbUpdates(database, snapshot, idb);
 			let isFenced = false;
 			let isInstalling = false;
 			let discarding: Promise<void> | undefined;
@@ -88,22 +92,21 @@ export async function openCurrentCache(
 							['header', 'updates'],
 							'readwrite',
 						);
-						void transaction.done.catch(() => {});
+						const done = idbTransactionDone(transaction);
 						try {
 							if (
-								(await transaction.objectStore('header').get('generation')) !==
-								undefined
+								(await idbRequest(
+									transaction.objectStore('header').get('generation'),
+								)) !== undefined
 							) {
 								throw new Error('Current cache already has a generation');
 							}
-							await transaction.objectStore('updates').clear();
-							await transaction
+							transaction.objectStore('updates').clear();
+							transaction
 								.objectStore('updates')
 								.put({ bytes, authoritySeq: position }, 1);
-							await transaction
-								.objectStore('header')
-								.put(generation, 'generation');
-							await transaction.done;
+							transaction.objectStore('header').put(generation, 'generation');
+							await done;
 							const installed = {
 								updates: [bytes],
 								outbox: [],
@@ -115,7 +118,7 @@ export async function openCurrentCache(
 								throw new Error(
 									'Current cache backing retired during installation',
 								);
-							engine = createIdbUpdates(database, installed);
+							engine = createIdbUpdates(database, installed, idb);
 							return installed;
 						} catch (cause) {
 							try {
@@ -123,7 +126,7 @@ export async function openCurrentCache(
 							} catch {
 								/* Already settled. */
 							}
-							await transaction.done.catch(() => {});
+							await done.catch(() => {});
 							throw cause;
 						}
 					} finally {
@@ -139,18 +142,18 @@ export async function openCurrentCache(
 							['header', 'updates'],
 							'readwrite',
 						);
-						void transaction.done.catch(() => {});
+						const done = idbTransactionDone(transaction);
 						try {
-							await transaction.objectStore('header').clear();
-							await transaction.objectStore('updates').clear();
-							await transaction.done;
+							transaction.objectStore('header').clear();
+							transaction.objectStore('updates').clear();
+							await done;
 						} catch (cause) {
 							try {
 								transaction.abort();
 							} catch {
 								/* Already settled. */
 							}
-							await transaction.done.catch(() => {});
+							await done.catch(() => {});
 							throw cause;
 						}
 					})();

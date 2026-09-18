@@ -1,18 +1,16 @@
-import { claimApp } from '@epicenter/device/library-claim';
-import { acquireAppData } from '../data/store/browser.js';
-import type { AppRuntime } from '../runtime.js';
-import { createEpicenterHostAppAi } from '../ai-connections.epicenter-host.js';
 import { createWebviewBlobs } from '@epicenter/blobs/webview';
 import { createRemoteBlobClient } from '@epicenter/client';
 import {
 	createDesktopSecrets,
 	createDesktopSqliteOwner,
 } from '@epicenter/device/desktop';
+import { createEpicenterHostAppAi } from '../ai-connections.epicenter-host.js';
 import { createDesktopRecording } from '../recording/desktop.js';
+import type { AppRuntime } from '../runtime.js';
+import { nativeDocuments } from './documents.js';
 
 export const resources: AppRuntime = {
-	claim: claimApp,
-	data: acquireAppData,
+	...nativeDocuments,
 	ai: createEpicenterHostAppAi(),
 	sqlite: createDesktopSqliteOwner(),
 	blobs({ appId, account }) {

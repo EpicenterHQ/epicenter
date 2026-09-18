@@ -98,8 +98,18 @@ try {
 	assert.equal(await call(second, 'closeEvidence'), 'cleanup-failed');
 	assert.equal(await call(first, 'openEvidence'), 'AlreadyOpen');
 	await second.close();
+	// WebKit may acknowledge page closure before releasing that page's Web Locks.
+	await first.waitForFunction(async () => {
+		const { held } = await navigator.locks.query();
+		return !held?.some((lock) =>
+			lock.name?.includes('so.epicenter.admission-evidence'),
+		);
+	});
 	assert.equal(await call(first, 'openEvidence'), 'ready');
 	assert.equal(await call(first, 'closeEvidence'), 'closed');
+	console.log(
+		`${engine.name()}: ${await call(first, 'memoryCoexistenceEvidence')}`,
+	);
 	console.log(
 		`${engine.name()}: duplicate refusal, handoff, persistence, terminal cleanup retention and page teardown release passed`,
 	);

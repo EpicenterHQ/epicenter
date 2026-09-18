@@ -35,12 +35,22 @@ const account = {
 };
 const options = { appId, library: 'personal' as const, account };
 
-const first = expectOk(await acquireAppData(definition, options));
+const first = expectOk(
+	await acquireAppData(definition, options, {
+		factory: indexedDB,
+		keyRange: IDBKeyRange,
+	}),
+);
 const generation = first.replication!.address.generation;
 const baseline = Array.from(first.loaded.updates[0]!);
 await first.dispose?.();
 offline = true;
-const reopened = expectOk(await acquireAppData(definition, options));
+const reopened = expectOk(
+	await acquireAppData(definition, options, {
+		factory: indexedDB,
+		keyRange: IDBKeyRange,
+	}),
+);
 console.log(
 	JSON.stringify({
 		first: generation,

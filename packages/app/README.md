@@ -120,11 +120,10 @@ await reopened.close();
 await runtime.dispose();
 ```
 
-`createMemoryRuntime` supports isolated Bun or compatible nonbrowser test
-processes. It supplies fake IndexedDB constructors and refuses incompatible
-native constructors before changing globals. Real browser integration tests
-use the default platform runtime. Each memory runtime owns an isolated
-IndexedDB factory and in-memory SQL storage. Closing an App releases its connections while retaining committed
+`createMemoryRuntime` owns an isolated IndexedDB factory, its matching key-range
+constructor, and in-memory SQL storage. It changes no globals and can coexist
+with native browser storage. Browser integration tests also exercise the default
+platform runtime. Closing an App releases its connections while retaining committed
 records for another App lifetime. SQLite WASM `memdb` anchor connections belong
 to the runtime. Each App gets separate connections, so close rolls back its
 unfinished transactions and discards temporary tables without losing committed
@@ -333,25 +332,8 @@ may explicitly delete a known local key or remote object when its product
 workflow chooses to; storage never infers row ownership or performs automatic
 cleanup.
 
-Tools without a data library can use `createLocalBlobs({ appId, account })` and
-`createRemoteBlobs({ appId, account })` from `@epicenter/app/blobs`. These browser/host constructors select
-the same platform storage as the App and expose `close()` for their independent
-request and display lifetimes. Bun scripts can use `@epicenter/blobs/bun` over
-the canonical directory directly. These tools do not open Yjs documents:
-
-```ts
-import { join } from 'node:path';
-import { createBunBlobStore } from '@epicenter/blobs/bun';
-
-// The CLI receives the chosen profile's dataRoot explicitly.
-const storage = createBunBlobStore({
- directory: join(dataRoot, 'apps', appId, 'device', 'no-account', 'blobs'),
-});
-const page = await storage.list({ limit: 100 });
-```
-
-The standalone browser/host constructors do not discover desktop profiles from
-a Bun process.
+Applications access blobs through their opened App. Its ownership, readiness,
+and closure cover blob requests and display resources.
 
 Concurrent `close()` calls return one completion promise. A failed cache invalidation
 permits another explicit close attempt; failed physical release stays terminal. Close rejects new work

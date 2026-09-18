@@ -90,7 +90,7 @@ export type RecordingOwner = {
 
 export type RecordingOptions = {
 	account?: AccountIdentity;
-	/** Private immutable writer into the same store as createLocalBlobs({ appId }). */
+	/** Private immutable writer into the owning App's local blob store. */
 	write: BlobStore['put'];
 	assertUsable?(): void;
 };

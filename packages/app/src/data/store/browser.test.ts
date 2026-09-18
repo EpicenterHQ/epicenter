@@ -14,7 +14,7 @@ import { claimApp } from '@epicenter/device/library-claim';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
-import { openDB } from 'idb';
+import { idbRequest, idbTransactionDone } from './idb-updates.js';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { acquireAppData, openIdbBacking } from './browser.js';
 
@@ -156,11 +156,15 @@ test('invalid account segments never create a current cache', async () => {
 	for (const person of ['', 'alice/../bob', '.', '..']) {
 		expect(
 			expectErr(
-				await acquireAppData(parsed, {
-					appId: definition.id,
-					library: 'personal',
-					account: accountFor(person),
-				}),
+				await acquireAppData(
+					parsed,
+					{
+						appId: definition.id,
+						library: 'personal',
+						account: accountFor(person),
+					},
+					{ factory: indexedDB, keyRange: IDBKeyRange },
+				),
 			).name,
 		).toBe('Unaddressable');
 	}
@@ -197,12 +201,13 @@ test('opening leaves historical numbered and superseded caches untouched', async
 	];
 	const payload = new Uint8Array([7, 8, 9]);
 	for (const address of historical) {
-		const database = await openDB(address, 1, {
-			upgrade(database) {
-				database.createObjectStore('proof');
-			},
-		});
-		await database.put('proof', payload, 'untouched');
+		const opening = indexedDB.open(address, 1);
+		opening.onupgradeneeded = () => opening.result.createObjectStore('proof');
+		const database = await idbRequest(opening);
+		const write = database.transaction('proof', 'readwrite');
+		const done = idbTransactionDone(write);
+		write.objectStore('proof').put(payload, 'untouched');
+		await done;
 		database.close();
 	}
 	const app = openApp(definition, { account: accountFor() });
@@ -210,8 +215,12 @@ test('opening leaves historical numbered and superseded caches untouched', async
 	expect(app.account.personal.tables.notes.rows).toHaveLength(0);
 	await app.close();
 	for (const address of historical) {
-		const database = await openDB(address, 1);
-		expect(await database.get('proof', 'untouched')).toEqual(payload);
+		const database = await idbRequest(indexedDB.open(address, 1));
+		expect(
+			await idbRequest(
+				database.transaction('proof').objectStore('proof').get('untouched'),
+			),
+		).toEqual(payload);
 		database.close();
 	}
 });
@@ -244,8 +253,14 @@ test('owed updates compact without losing rows across an offline reopen', async 
 		await app.account.personal.persistence.flush();
 	}
 	await app.close();
-	const database = await openDB(currentAddress(definition.id), 1);
-	expect(await database.count('updates')).toBeLessThan(70);
+	const database = await idbRequest(
+		indexedDB.open(currentAddress(definition.id), 1),
+	);
+	expect(
+		await idbRequest(
+			database.transaction('updates').objectStore('updates').count(),
+		),
+	).toBeLessThan(70);
 	database.close();
 	const offline = accountFor();
 	offline.fetch = async () => {
@@ -259,7 +274,12 @@ test('owed updates compact without losing rows across an offline reopen', async 
 
 test('corrupt local bytes refuse every retry without retaining ownership', async () => {
 	const definition = definitionFor();
-	const backing = expectOk(await openIdbBacking(localAddress(definition.id)));
+	const backing = expectOk(
+		await openIdbBacking(localAddress(definition.id), {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
+	);
 	await backing.create({ bytes: new Uint8Array([1, 2, 3, 4, 5]), position: 0 });
 	backing.close();
 	for (let attempt = 0; attempt < 2; attempt++) {
@@ -288,7 +308,12 @@ test('failed local acquisition cleanup retains library exclusion', async () => {
 });
 
 test('a request failure remains inside the commit rejection and rolls back', async () => {
-	const backing = expectOk(await openIdbBacking('failed-request-is-contained'));
+	const backing = expectOk(
+		await openIdbBacking('failed-request-is-contained', {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
+	);
 	const put = IDBObjectStore.prototype.put;
 	// Force the second valid append to encounter a native request failure.
 	// The later ack yields before commit reaches its final settlement await.
@@ -318,7 +343,10 @@ test('a request failure remains inside the commit rejection and rolls back', asy
 		backing.close();
 	}
 	const reopened = expectOk(
-		await openIdbBacking('failed-request-is-contained'),
+		await openIdbBacking('failed-request-is-contained', {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
 	);
 	try {
 		expect(reopened.loaded.updates).toHaveLength(0);
@@ -336,11 +364,23 @@ test('a backing read failure closes the acquired connection before returning a R
 	);
 	const closing = spyOn(IDBDatabase.prototype, 'close');
 	try {
-		expect(expectErr(await openIdbBacking(address)).name).toBe('StorageFailed');
+		expect(
+			expectErr(
+				await openIdbBacking(address, {
+					factory: indexedDB,
+					keyRange: IDBKeyRange,
+				}),
+			).name,
+		).toBe('StorageFailed');
 		expect(closing).toHaveBeenCalledTimes(1);
 	} finally {
 		read.mockRestore();
 		closing.mockRestore();
 	}
-	expectOk(await openIdbBacking(address)).close();
+	expectOk(
+		await openIdbBacking(address, {
+			factory: indexedDB,
+			keyRange: IDBKeyRange,
+		}),
+	).close();
 });

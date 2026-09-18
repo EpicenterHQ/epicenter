@@ -19,10 +19,11 @@ import { createDatabaseDocument } from './document.js';
 import type { DatabaseAccount } from './handles.js';
 import {
 	createIdbUpdates,
+	type IdbRealm,
+	idbTransactionDone,
 	openIdbDatabase,
 	readIdbUpdates,
 } from './idb-updates.js';
-import { requestPersistentStorage } from './persist.js';
 import type { DurablePort, DurableSnapshot } from './persistence.js';
 import { type StoreBacking, StoreError } from './store.js';
 
@@ -60,10 +61,10 @@ export type BrowserBacking = {
  */
 export async function openIdbBacking(
 	address: string,
-	indexedDB: IDBFactory = globalThis.indexedDB,
+	idb: IdbRealm,
 ): Promise<Result<BrowserBacking, StoreError>> {
 	const opened = await tryAsync({
-		try: () => openIdbDatabase(address, [UPDATES_STORE], indexedDB),
+		try: () => openIdbDatabase(address, [UPDATES_STORE], idb),
 		catch: (cause) => StoreError.StorageFailed({ cause }),
 	});
 	if (opened.error) return opened;
@@ -73,9 +74,9 @@ export async function openIdbBacking(
 			const read = durable.transaction(UPDATES_STORE, 'readonly');
 			const [loaded] = await Promise.all([
 				readIdbUpdates(read.objectStore(UPDATES_STORE)),
-				read.done,
+				idbTransactionDone(read),
 			]);
-			const { port, create } = createIdbUpdates(durable, loaded);
+			const { port, create } = createIdbUpdates(durable, loaded, idb);
 
 			return { port, loaded, create, close: () => durable.close() };
 		},
@@ -122,7 +123,7 @@ function accountCachePrefix(
 async function acquireLocalData(
 	definition: ParsedDataDefinition,
 	appId: string,
-	indexedDB: IDBFactory,
+	idb: IdbRealm,
 	account?: AccountIdentity,
 ): Promise<Result<StoreBacking, StoreError>> {
 	if (!isAppId(appId))
@@ -130,7 +131,7 @@ async function acquireLocalData(
 			reason: `'${appId}' is not an application id`,
 		});
 	const address = `epicenter/${appId}/device/${deviceOwnerPath(account)}/data/${definition.id}/1`;
-	const opened = await openIdbBacking(address, indexedDB);
+	const opened = await openIdbBacking(address, idb);
 	if (opened.error) return opened;
 	let backing = opened.data;
 	if (backing.loaded.updates.length === 0) {
@@ -145,7 +146,7 @@ async function acquireLocalData(
 		backing.close();
 		if (written.error) return written;
 		// Hydrate exactly what the next boot would read.
-		const reopened = await openIdbBacking(address, indexedDB);
+		const reopened = await openIdbBacking(address, idb);
 		if (reopened.error) return reopened;
 		backing = reopened.data;
 	}
@@ -164,23 +165,20 @@ function captureAccount(account: DatabaseAccount): DatabaseAccount {
 	});
 }
 
-/**
- * Acquire browser data under the caller's exclusive library ownership.
- * App construction acquires the library before calling this primitive and keeps
- * that claim until document work and every other producer have released it.
- */
+export type AppDataScope = { appId: string } & (
+	| { library: 'local'; account?: AccountIdentity }
+	| { library: 'personal' | 'shared'; account: DatabaseAccount }
+);
+
+/** Acquire storage under the caller's exclusive App admission. */
 export async function acquireAppData(
 	definition: ParsedDataDefinition,
-	options: { appId: string; indexedDB?: IDBFactory } & (
-		| { library: 'local'; account?: AccountIdentity }
-		| { library: 'personal' | 'shared'; account: DatabaseAccount }
-	),
+	options: AppDataScope,
+	idb: IdbRealm,
 ): Promise<Result<StoreBacking, StoreError>> {
-	const { appId, indexedDB = globalThis.indexedDB } = options;
-	// Explicit factories belong to another runtime, which owns its durability policy.
-	if (options.indexedDB === undefined) void requestPersistentStorage();
+	const { appId } = options;
 	if (options.library === 'local')
-		return acquireLocalData(definition, appId, indexedDB, options.account);
+		return acquireLocalData(definition, appId, idb, options.account);
 	const { library } = options;
 	const account = captureAccount(options.account);
 	const prefix = accountCachePrefix(
@@ -192,7 +190,7 @@ export async function acquireAppData(
 	if (prefix.error) return prefix;
 	// A stable name per actor and selected library; generations live in its header.
 	const address = `${prefix.data}${library}/current`;
-	const opened = await openCurrentCache(address, indexedDB);
+	const opened = await openCurrentCache(address, idb);
 	if (opened.error) return opened;
 	const cache = opened.data;
 	try {

@@ -4,7 +4,8 @@
 - **Date:** 2026-09-18
 - **Amends:** [ADR-0407](0407-app-owns-the-declaration-and-data-engine.md) at App opening: an options object replaces the positional Account, and a complete runtime can be supplied publicly. Declaration and data-engine boundaries remain.
 - **Amends:** [ADR-0391](0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md) at implementation selection: the build selects the default runtime; explicit runtime injection is allowed at opening, never in declarations.
-- **Implementation checkpoint:** The options opener, complete runtime, memory test support, and caller migration are implemented. The constructor boundary is under further review in the active execution spec.
+- **Implementation:** The options opener, complete runtime, memory test support, and caller migration are implemented.
+- **Amended by:** [ADR-0409](0409-one-app-admission-covers-its-storage.md) proposes one App admission and explicit IndexedDB resources in place of the memory coordinator and global-constructor requirements below.
 
 ## Context
 

@@ -48,11 +48,11 @@ Desktop folder I/O   --> /artifact/format (no App or store)
 Disposing it drains persistence and leaves SQLite open. `openMemory` owns a new
 Bun memory connection unless its caller supplies a reusable `MemoryRecord`.
 Neither opener constructs application capabilities or captures an Account.
-Application tests in isolated Bun or compatible nonbrowser processes supply
-`createMemoryRuntime()` from `@epicenter/app/testing` to `openApp`. It requires
-fake IndexedDB constructors and refuses incompatible native constructors before
-changing globals. These tests use production readiness and closure with
-storage that survives until runtime disposal. Real browser integration tests
+Application tests supply `createMemoryRuntime()` from `@epicenter/app/testing`
+to `openApp`. It passes its IndexedDB factory and key-range constructor directly
+to shared native request handling, with no global mutation or constructor checks.
+These tests use production readiness and closure with storage that survives
+until runtime disposal. Real browser integration tests
 use the default platform runtime.
 
 Skills uses `openApp` in its account-taking lifecycle adapter. Its route still
