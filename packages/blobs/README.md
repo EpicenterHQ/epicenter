@@ -1,77 +1,162 @@
 # @epicenter/blobs
 
-Opaque blob identity and the shared blob contracts: one `BlobId` names an object locally, remotely, and in rows; `BlobStore` is the canonical local store apps read and write; `BlobRemote` is the optional, explicit copy seam (upload, download, purge) to one remote under the same id; `BlobSources` acquires disposable playback URLs over the local bytes.
+An app stores immutable bytes under a complete, extension-bearing key. That key
+is the desktop filename, browser database key, and reference held by a row.
+Applications use `app.blobs.local` for device bytes and `app.blobs.remote` for
+explicit hosting. Recording titles, transcripts, and other descriptive
+information belong in rows. Deleting a row does not delete its bytes.
 
-This package is the AGPL blob boundary. The root export owns the portable
-contracts; platform subpaths own the implementations that satisfy them. The
-browser subpath provides IndexedDB storage and object-URL sources. The Bun
-subpath provides filesystem storage for desktop hosts and scripts. The WebView
-subpath adapts the authenticated desktop origin back to the same portable
-contracts, including sources that hand out its stable relative media URL.
-Remote implementations compose over `BlobStore` rather than inventing a second
-application-facing store.
+## Storage and identity
 
-Browser remote implementations may compose directly over `BlobStore`: the
-public browser adapter is Blob-valued. Its IndexedDB codec stores
-`ArrayBuffer` plus content type because WebKit rejects persisted `Blob`/`File`
-values, then reconstructs a `Blob` on read. Desktop remote transfer is
-host-owned instead. It must stream between the Bun filesystem store and the
-remote without routing a whole recording through the WebView; composing a
-desktop remote over the WebView adapter's Blob-valued `get` would defeat that
-boundary.
+The App's captured account selects both local and remote ownership. Local
+storage remains on this device; it does not synchronize because it has an owner.
 
-## Identity
+| Platform | Location |
+| --- | --- |
+| Browser | IndexedDB database `epicenter/<appId>/device/<owner>/blobs`, within the origin/profile |
+| Desktop | One ordinary file at `<dataRoot>/apps/<appId>/device/<owner>/blobs/<blobId>` |
+| Remote | `principals/<principalId>/apps/<appId>/blobs/<blobId>` in the server's object store |
 
-- `BlobId` is `blob_` + 21 lowercase alphanumerics (CSPRNG nanoid). Safe verbatim as a filesystem name, S3 key segment, URL path segment, and XML text.
-- It is **not** a content hash. SHA-256 and dedup are not part of this contract.
-- Mint with `generateBlobId()`; parse untrusted input with `parseBlobId()`. The
-  `blob_` prefix exists so the parse boundary can reject the repo's bare-nanoid
-  row ids at runtime, not just at compile time.
+`<owner>` is `no-account` or `accounts/<encoded-authority>/<encoded-principal>`,
+with identity components encoded as UTF-8 hex. Account changes select another
+local namespace without moving or erasing existing bytes. Library changes
+within one App keep the same bytes. Native capture and Bun HTTP reads share
+the captured app/account directory. Desktop WebViews use that HTTP store instead
+of maintaining another copy in IndexedDB.
 
-## Model
+`BlobId` is `blob_`, 21 random lowercase alphanumeric characters, one dot, and a
+lowercase alphanumeric extension of 1 to 10 characters. Mint a complete key with
+`generateBlobId(extension)` and validate external input with `parseBlobId()`.
+The key is an opaque identity, not a content hash. Changing a title leaves it
+unchanged; conversion creates different bytes under a different key.
 
-- The local store is canonical for app operations. Blob capabilities are address-only: they act on ids the application already knows (no `list`, no `clear`), and application data supplies each id's meaning.
-- Blob bytes are immutable under an id. `put` refuses replacement, and `stat` reads size and content type without loading the bytes.
-- Missing bytes and immutable-ID collisions are expected, typed answers:
-  `BlobNotFound`, `RemoteBlobNotFound`, and `BlobAlreadyExists`. Operational
-  failures (`BlobStoreFailed`, `BlobRemoteFailed`) are separate variants
-  carrying `cause`.
-- Remote operations are one-shot and explicit. There is no background sync, no eager download, no retry queue, and no persisted failure state.
-- A remote download is idempotent. If the immutable id already exists in the
-  canonical local store, the remote implementation consumes that collision as
-  success because the requested local state is already present.
-- Playback URLs come from `BlobSources`, a sibling capability beside the
-  store, never a method on `BlobStore`. Each `open` returns one standard
-  `Disposable` handle: release is always safe and idempotent. The browser
-  implementation revokes its object URL exactly once; the WebView
-  implementation returns the host's stable same-origin locator and its
-  disposer is a harmless no-op. Bounded imperative consumers may `using` the
-  handle; component lifecycles call `[Symbol.dispose]()` from their cleanup.
+The September 17, 2026 cutover is a clean break: the user confirmed there are
+zero users and no existing data. There is no migration, reset, fallback reader,
+or automatic cleanup. Extensionless references are rejected. Opening a prior
+browser schema fails without converting or erasing it.
 
-For an independent local lifetime, compose the existing verbs: `get` the
-source bytes, mint a new `BlobId`, then `put` those bytes under the new id. That
-duplicates the bytes and makes the new id independently deletable. A dedicated
-`copy` verb is not part of the contract until a live caller needs more than
-that composition.
+## Local operations
 
-## Bun staging ownership
+The raw `BlobStore` exposes `put`, `get`, `stat`, `list`, and `delete`.
+Application access replaces raw `put` with `add(Blob)`, which selects the format
+and mints the key, and adds `open(key)` for playback. Known declared media types
+must agree with the key's format; saving does not convert bytes.
 
-Bun uploads stage under `.staging/bun/`; the Rust recorder stages native
-captures under `.staging/rust/`. Each operation removes its own staging
-directory when it fails.
+`put` refuses an occupied final key. Missing reads return `BlobNotFound`,
+collisions return `BlobAlreadyExists`, and storage failures return
+`BlobStoreFailed`. Deleting missing bytes succeeds. Local deletion acts on one
+validated key and does not consult rows or remote storage.
 
-The Rust recorder additionally deletes `.staging/rust/` wholesale at host
-startup, because a recording is now written progressively and a host that dies
-mid-capture leaves a partial WAV behind (ADR-0184). That sweep is safe only
-because the subtree has exactly one writer and Epicenter is single-instance, so
-no live publication can be in it. It deletes and never promotes: a partial
-capture is not a blob and startup does not make it one. Bun has no equivalent
-sweep, and adding one would need the exclusive writer lease this deliberately
-does not require.
+`stat` returns `{ size, contentType }` without reading the payload.
+`list({ cursor?, limit? })` returns `{ items, nextCursor? }`; each item contains
+`{ id, size, contentType }`. Pages sort keys lexically and start strictly after
+the cursor. The default limit is 100 and the maximum is 1,000. Listing includes
+rowless saved objects, excludes staging and nonregular entries, and is not a
+snapshot across concurrent writes.
 
-## Deliberately absent
+Browser schema version 2 contains one `blobs` object store with `keyPath: 'id'`.
+Each record is `{ id, bytes, size }`, where `bytes` is an ArrayBuffer and the
+writer derives `size` from those bytes. One transaction commits the record and
+its `[id, size]` index entry. `stat` and `list` use index key cursors instead of
+retrieving audio buffers. No per-object media type or recording metadata is
+stored in IndexedDB.
 
-- A `BlobRef` wrapper: callers already have the `BlobId`, and `stat` returns the
-  only metadata the store owns.
-- Local `copy`: `get` + a new `BlobId` + `put` is the explicit independent-life
-  composition, and there is no live caller that earns another primitive.
+Desktop files have no per-blob directories or JSON sidecars. Bun and Rust write
+same-directory temporary files named `.bun-*.tmp` and `.rust-*.tmp`. Publication
+flushes completed bytes, then creates a hard link without replacing an occupied
+name. Unix publishers sync directory entries before acknowledging success.
+Readers reject symbolic links and nonregular final entries. The configured app
+directory and its ancestors are trusted; these path-based operations do not
+protect against hostile replacement of the directory itself.
+
+Failed publication retains finalized bytes for retry. A failure after linking
+can leave a readable final object before the caller receives success. Bun
+compares fresh retry bodies against its retained staged bytes; native capture
+keeps its publication receipt. Cleanup acts only on the writer's own staging.
+Startup does not sweep historical files or another publisher's work.
+
+`open(key)` returns a disposable presentation URL. Browser sources revoke object
+URLs on release; host sources point to the local HTTP store. Persist the key,
+not a presentation URL. App closure releases acquired display resources and
+drains admitted operations without deleting committed bytes.
+
+Bun's `openFile(key)` lends a descriptor-backed `{ file, stat, close }` for
+streaming. Its caller must close the handle after consumption, cancellation,
+or failure. The desktop host owns that cleanup for GET, ranges, and uploads;
+HEAD only reads metadata. `eraseBlobStore({ appId })` explicitly deletes the
+browser app's whole blob database and is not account-library cleanup.
+
+## Format and filenames
+
+`blob-format.ts` owns supported media types, suffixes, aliases, and equivalence.
+A supported producer MIME type wins. Only an absent or generic MIME type can use
+a File's supported suffix; unknown formats use `.bin`. Filename evidence
+survives Blob-typed inputs without requiring a runtime `File` constructor.
+
+Local reads return the conventional type for the key. For example, `.wav` is
+`audio/wav`, `.webm` is `video/webm`, and `.ogg` and `.opus` are `audio/ogg`.
+JSON and text use `application/json;charset=utf-8` and
+`text/plain;charset=utf-8`, matching Bun's Blob behavior. These labels do not
+preserve arbitrary producer MIME parameters or convert the bytes.
+
+Direct uploads retain a declared MIME type and its parameters. Empty-MIME Files
+use the same format policy as local saves. Uploading a saved file uses its
+conventional type. Backup-specific storage and structural archives have been
+removed. Local bytes and explicitly hosted objects remain independent of row
+lifetime and working-copy recovery.
+
+The [ADR-0394 folder direction](../../docs/adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md)
+is document-only: Markdown, settings, and the checkout manifest carry
+references, without copying or fetching local or remote blob payloads. The
+[ADR-0395 recovery direction](../../docs/adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md)
+uses the current working-copy baseline rather than replacing it with an old
+manifest.
+
+Download callers supply complete friendly filenames. Download adapters save
+those names without choosing another audio extension. ZIP exports remain ZIPs.
+
+## Recording and hosting
+
+Successful recording Stop publishes completed audio and returns
+`{ blobId, durationMs, byteLength }`. `app.blobs.local.open(blobId)` resolves that
+saved key on either platform. Native capture produces WAV; browser capture uses
+its actual recorder output format. The saved key remains fixed through retries.
+Row creation happens afterward, so a failed row write can leave enumerable
+saved bytes. Cancel and App closure cannot retract a committed blob.
+
+`RemoteBlobs` supports `add(Blob)`, `addLocal(key)`, `get(url)`, `open(url)`, and
+`delete(url)`. Each explicit upload creates an independent remote key with a
+25 MiB limit. There is no synchronization queue or requirement to save locally
+before uploading. Desktop `addLocal` sends a control request through its captured
+Account; the host checks size and streams bytes without routing audio through
+the WebView.
+
+Uploads return an owner-pinned locator:
+
+```text
+https://<server>/api/apps/<appId>/principals/<principalId>/blobs/<blobId>
+```
+
+The URL identifies a private object; it grants no access. Reads and deletes use
+the captured Account and refuse foreign owners, apps, origins, and redirects.
+Account retirement disables that transport. Sharing a row does not share its
+owner's private audio. Failed or interrupted uploads preserve their local source
+and can leave an unreferenced remote object.
+
+## Verification
+
+Run focused storage and native interoperability checks from the repository root.
+The native Stop smoke requires Cargo, FFprobe, and FFmpeg:
+
+```sh
+bun test packages/blobs/src
+bun packages/blobs/scripts/native-smoke.ts
+bun packages/blobs/scripts/native-flat-smoke.ts
+bun packages/blobs/scripts/browser-smoke.ts
+```
+
+Synthetic browser recording, playback, reload, and metadata measurements cover
+WebKit and Chromium. Rust/Bun fixtures exercise independent publication and
+reading. These checks do not establish physical microphone behavior, installed
+WebView playback, or real object-provider acceptance. Native Windows publication
+is implemented; its execution and abrupt-power-loss durability remain unverified.

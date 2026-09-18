@@ -4,11 +4,14 @@ import {
 	IMPORTABLE_VIDEO_EXTENSIONS,
 	MAX_IMPORT_FILE_SIZE,
 	MAX_IMPORT_FILES,
-} from '$lib/constants/import-formats';
-import { logAnalyticsEvent } from '$lib/operations/analytics';
-import { processRecordingPipeline } from '$lib/operations/pipeline';
-import { report } from '$lib/report';
-import type { WhisperingApp } from '$lib/whispering/app';
+} from '../constants/import-formats.js';
+import { report } from '../report/index.js';
+import { trackRecordingWork } from '../state/recording-active.svelte.js';
+import type { WhisperingApp } from '../whispering/app.js';
+import { logAnalyticsEvent } from './analytics.js';
+import { processRecordingPipeline } from './pipeline.js';
+import { saveAudioRecording } from './save-audio-recording.js';
+import { captureTranscription } from './transcribe.js';
 
 type RejectedImportFile = { file: File; reason: string };
 
@@ -89,6 +92,7 @@ export async function importFiles(
 	app: WhisperingApp,
 	{ files }: { files: File[] },
 ): Promise<void> {
+	if (!app.recordingEnabled) throw new Error('Whispering is closing.');
 	const { valid, rejected } = partitionByImportPolicy(files);
 
 	if (rejected.length > 0) {
@@ -103,26 +107,23 @@ export async function importFiles(
 	if (valid.length === 0) return;
 
 	await Promise.all(
-		valid.map(async (file) => {
-			const finalized = await app.recordings.storeAudio(file);
-			if (finalized.error !== null) {
-				report.error({
-					title: 'Failed to save imported audio',
-					cause: finalized.error,
+		valid.map((file) =>
+			trackRecordingWork(async () => {
+				void logAnalyticsEvent(app, {
+					type: 'file_import_completed',
+					blob_size: file.size,
 				});
-				return;
-			}
 
-			void logAnalyticsEvent(app, {
-				type: 'file_import_completed',
-				blob_size: file.size,
-			});
-
-			await processRecordingPipeline(app, {
-				audioBlobId: finalized.data.audioBlobId,
-				durationMs: null,
-				deliverySource: 'import',
-			});
-		}),
+				const transcribe = captureTranscription(app);
+				const { data: recording, error } = await saveAudioRecording(app, file);
+				if (error !== null) throw error;
+				if (recording === null) return;
+				await processRecordingPipeline(app, {
+					recordingId: recording.id,
+					transcribe,
+					deliverySource: 'import',
+				});
+			}),
+		),
 	);
 }

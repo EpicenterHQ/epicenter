@@ -8,7 +8,7 @@
 	import { report } from '$lib/report';
 	import { isBuiltinRecipeId } from '$lib/state/builtin-recipes';
 	import { recipePicker } from '$lib/state/recipe-picker.svelte';
-	import type { Recipe } from '$lib/workspace';
+	import type { Recipe } from '$lib/data';
 	import { getWhisperingApp } from '$lib/whispering/context';
 
 	const app = getWhisperingApp();
@@ -28,7 +28,7 @@
 			title: `Running ${recipe.name}...`,
 			description: 'Reshaping your text with AI.',
 		});
-		const { data, error } = await runRecipe(app, { input, recipe });
+		const { data, error } = await runRecipe({ input, recipe });
 		if (error) {
 			loading.reject({
 				title: `Couldn't run ${recipe.name}`,

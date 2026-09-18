@@ -18,7 +18,11 @@
  */
 
 import { expect, mock, test } from 'bun:test';
+import type { OpenAiTurnContext } from '@epicenter/client';
 import type * as Y from '@y/y';
+import OpenAI from 'openai';
+
+let probeEngine: ((data: () => OpenAiTurnContext) => Promise<void>) | undefined;
 
 (globalThis as unknown as { $state: unknown }).$state = Object.assign(
 	<TValue>(value: TValue) => value,
@@ -36,7 +40,10 @@ mock.module('svelte/reactivity', () => ({ SvelteMap: Map }));
 // parts is not persistable, writes nothing: every message in a store below is a
 // user turn somebody deliberately sent.
 mock.module('@epicenter/client', () => ({
-	createOpenAiAgentEngine: () => async function* () {},
+	createOpenAiAgentEngine: ({ data }: { data: () => OpenAiTurnContext }) =>
+		async function* () {
+			await probeEngine?.(data);
+		},
 }));
 
 import type { AgentMessage } from '@epicenter/agent';
@@ -140,14 +147,30 @@ function createFakeChat() {
 		},
 	} as unknown as ConversationsTable;
 
+	const targets = new Map<string, { connectionId: string; model: string }>();
+	const clients = new Map([
+		['first-id', new OpenAI({ baseURL: 'http://first/v1', apiKey: 'test' })],
+		['second-id', new OpenAI({ baseURL: 'http://second/v1', apiKey: 'test' })],
+	]);
 	const chat = createAgentChatState({
 		table,
 		reportBackgroundError: (cause) => {
 			throw cause;
 		},
 		connections: {
-			resolveOrHosted: () => ({ baseUrl: 'http://test', apiKey: 'test' }),
-			canServe: () => true,
+			selections: {
+				set: (scope: string, target: { connectionId: string; model: string }) =>
+					targets.set(scope, target),
+			},
+			target: (scope: string, model: string) =>
+				targets.get(scope)?.model === model ? targets.get(scope) : null,
+			resolve: (scope: string, model: string) =>
+				targets.get(scope)?.model === model
+					? (clients.get(targets.get(scope)!.connectionId) ?? null)
+					: null,
+			canServe: (scope: string, model: string) =>
+				targets.get(scope)?.model === model &&
+				clients.has(targets.get(scope)!.connectionId),
 		} as never,
 		agent: {
 			buildSystemPrompts: () => ['system'],
@@ -157,6 +180,7 @@ function createFakeChat() {
 
 	return {
 		chat,
+		targets,
 		creates,
 		updates,
 		rows,
@@ -181,6 +205,7 @@ async function bootWithActiveTopic() {
 
 	const topicId = fake.chat.activeConversationId;
 	if (topicId === null) throw new Error('Boot left no active conversation');
+	fake.targets.set(topicId, { connectionId: 'first-id', model: DEFAULT_MODEL });
 	fake.chat.active?.sendMessage('what is the word for tea');
 	await settle();
 	expect(fake.document(topicId).texts()).toEqual(['what is the word for tea']);
@@ -272,4 +297,76 @@ test('a composed conversation carries the model forward like a blank one', async
 	await chat.createConversation({ title: 'Practice: 你好' });
 
 	expect(creates.at(-1)?.model).toBe(DEFAULT_MODEL);
+});
+
+test('an unavailable target prevents programmatic sends from writing a user turn', async () => {
+	const fake = createFakeChat();
+	const active = fake.chat.active!;
+	fake.targets.delete(active.id);
+	active.sendMessage('must not leave this device');
+	await settle();
+	expect(fake.document(active.id).texts()).toEqual([]);
+	fake.chat[Symbol.dispose]();
+});
+
+test('a new conversation carries the explicit connection choice', () => {
+	const fake = createFakeChat();
+	const active = fake.chat.active!;
+	fake.targets.set(active.id, {
+		connectionId: 'second-id',
+		model: active.model,
+	});
+	const next = fake.chat.createConversation();
+	expect(fake.targets.get(next)).toEqual({
+		connectionId: 'second-id',
+		model: active.model,
+	});
+	fake.chat[Symbol.dispose]();
+});
+
+test('a practice opening remains a draft when its inherited connection is unavailable', () => {
+	const fake = createFakeChat();
+	fake.targets.delete(fake.chat.active!.id);
+	const id = fake.chat.createConversation({
+		title: 'Practice',
+		opening: 'Practice these words',
+	});
+	expect(fake.chat.active!.inputValue).toBe('Practice these words');
+	expect(fake.document(id).texts()).toEqual([]);
+	fake.chat[Symbol.dispose]();
+});
+
+test('a run retains its captured destination across engine steps', async () => {
+	const started = Promise.withResolvers<void>();
+	const resume = Promise.withResolvers<void>();
+	const finished = Promise.withResolvers<void>();
+	const seen: string[] = [];
+	probeEngine = async (data) => {
+		seen.push(data().client.baseURL);
+		started.resolve();
+		await resume.promise;
+		seen.push(data().client.baseURL);
+		finished.resolve();
+	};
+	const fake = createFakeChat();
+	try {
+		const active = fake.chat.active!;
+		fake.targets.set(active.id, {
+			connectionId: 'first-id',
+			model: active.model,
+		});
+		active.sendMessage('start');
+		await started.promise;
+		fake.targets.set(active.id, {
+			connectionId: 'second-id',
+			model: active.model,
+		});
+		resume.resolve();
+		await finished.promise;
+		expect(seen).toEqual(['http://first/v1', 'http://first/v1']);
+	} finally {
+		resume.resolve();
+		probeEngine = undefined;
+		fake.chat[Symbol.dispose]();
+	}
 });

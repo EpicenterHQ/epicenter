@@ -2,7 +2,7 @@ import { field, plainText } from '@epicenter/data/definition';
 /**
  * The optimistic persistence boundary (ADR-0238, amended by ADR-0300):
  * acceptance is live, persistence is an ordered best-effort queue, and sync
- * may attempt accepted work before the durable prefix catches up.
+ * sends accepted work after its bytes become durable.
  *
  * These tests reach the SQLite file directly, like `sync.test.ts`, because
  * the properties under test are properties of the durable record's shape.
@@ -17,12 +17,12 @@ import {
 } from '@epicenter/data/definition';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import type { Logger } from 'wellcrafted/logger';
-import type { Result } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 
 import { createSqliteDurablePort } from './log.js';
 import { createPersistenceController, type DurableOp } from './persistence.js';
 import {
-	createAccountStoreOverPort,
+	createStoreOverPort,
 	type DeclaredData,
 	syncEngineOf,
 } from './store.js';
@@ -77,25 +77,30 @@ function expectOk<TValue, TError>(
  * which is exactly the failure shape the port contract promises: all or
  * nothing.
  */
-function openFailable() {
+async function openFailable() {
 	const raw = new Database(':memory:');
 	const sqlite = createBunSqliteAdapter(raw);
 	const inner = createSqliteDurablePort({ sqlite });
 	const gate = { failing: false };
 	/** Every batch the engine accepted, for tests that pin op ordering. */
 	const batches: DurableOp[][] = [];
-	const { store, close, view } = createAccountStoreOverPort({
+	const { store, close, view, ready } = createStoreOverPort({
 		definition: parsed(),
-		durable: {
-			commit(ops) {
-				if (gate.failing) throw new Error('durable storage refused');
-				inner.commit(ops);
-				batches.push([...ops]);
-			},
-		},
-		loaded: inner.load(),
+
 		log: silent,
+		acquire: async () =>
+			Ok({
+				durable: {
+					commit(ops) {
+						if (gate.failing) throw new Error('durable storage refused');
+						inner.commit(ops);
+						batches.push([...ops]);
+					},
+				},
+				loaded: inner.load(),
+			}),
 	});
+	expectOk(await ready);
 	return {
 		store,
 		close,
@@ -120,88 +125,100 @@ function openFailable() {
 }
 
 /** Reopen over the same durable sqlite: the restart. */
-function reopen(sqlite: ReturnType<typeof createBunSqliteAdapter>) {
+async function reopen(sqlite: ReturnType<typeof createBunSqliteAdapter>) {
 	const port = createSqliteDurablePort({ sqlite });
-	const { store, view } = createAccountStoreOverPort({
+	const { store, view, ready } = createStoreOverPort({
 		definition: parsed(),
-		durable: port,
-		loaded: port.load(),
+
 		log: silent,
+		acquire: async () => Ok({ durable: port, loaded: port.load() }),
 	});
+	expectOk(await ready);
 	return { store, db: view as unknown as DeclaredData<typeof database> };
 }
 
-function titles(db: ReturnType<typeof openFailable>['db']): string[] {
+function titles(db: Awaited<ReturnType<typeof openFailable>>['db']): string[] {
 	return db.tables.notes.rows.map((row) => row.title as string).sort();
 }
 
 describe('acceptance is live, durability is a visible debt', () => {
-	test('a blocked store keeps accepting, and reads follow immediately', () => {
-		const replica = openFailable();
+	test('a blocked store keeps accepting, and reads follow immediately', async () => {
+		const replica = await openFailable();
+		await replica.store.persistence.flush();
 		replica.gate.failing = true;
 
 		expectOk(replica.db.tables.notes.create({ title: 'first' }));
 		expectOk(replica.db.tables.notes.create({ title: 'second' }));
 
 		expect(titles(replica.db)).toEqual(['first', 'second']);
+		await new Promise<void>((resolve) => setImmediate(resolve));
 		expect(replica.store.persistence.get()).toBe('blocked');
 		// Nothing reached the durable engine.
 		expect(replica.durableUpdateCount()).toBe(0);
 		expect(replica.durableOutboxIds()).toEqual([]);
 	});
 
-	test('a later edit retries, and the retained work lands in order, once', () => {
-		const replica = openFailable();
+	test('a later edit retries, and the retained work lands in order, once', async () => {
+		const replica = await openFailable();
+		await replica.store.persistence.flush();
 		replica.gate.failing = true;
 		expectOk(replica.db.tables.notes.create({ title: 'a' }));
 		expectOk(replica.db.tables.notes.create({ title: 'b' }));
+		await new Promise<void>((resolve) => setImmediate(resolve));
 		expect(replica.store.persistence.get()).toBe('blocked');
 
 		replica.gate.failing = false;
 		// The next accepted edit is the retry trigger; no autonomous loop.
 		expectOk(replica.db.tables.notes.create({ title: 'c' }));
 
+		await new Promise<void>((resolve) => setImmediate(resolve));
 		expect(replica.store.persistence.get()).toBe('saved');
 		// Exactly one outbox entry per authored transaction, in order.
 		expect(replica.durableOutboxIds()).toEqual([1, 2, 3]);
 		// The durable log replays to the same three rows: nothing dropped,
 		// nothing duplicated.
-		const restarted = reopen(replica.sqlite);
+		const restarted = await reopen(replica.sqlite);
 		expect(titles(restarted.db)).toEqual(['a', 'b', 'c']);
 	});
 
 	test('an explicit flush() retries without needing another edit', async () => {
-		const replica = openFailable();
+		const replica = await openFailable();
+		await replica.store.persistence.flush();
 		replica.gate.failing = true;
 		expectOk(replica.db.tables.notes.create({ title: 'retained' }));
+		await new Promise<void>((resolve) => setImmediate(resolve));
 		expect(replica.store.persistence.get()).toBe('blocked');
 
 		replica.gate.failing = false;
 		await replica.store.persistence.flush();
 
+		await new Promise<void>((resolve) => setImmediate(resolve));
 		expect(replica.store.persistence.get()).toBe('saved');
 		expect(replica.durableOutboxIds()).toEqual([1]);
 	});
 
 	test('closing while blocked loses only the in-memory work, deliberately', async () => {
-		const replica = openFailable();
+		const replica = await openFailable();
 		expectOk(replica.db.tables.notes.create({ title: 'durable before' }));
+		await replica.store.persistence.flush();
 		replica.gate.failing = true;
 		expectOk(replica.db.tables.notes.create({ title: 'accepted only' }));
+		await new Promise<void>((resolve) => setImmediate(resolve));
 		expect(replica.store.persistence.get()).toBe('blocked');
 
 		// Disposal attempts one final flush and then lets go; it never hangs on
 		// a blocked engine.
 		await replica.close();
 
-		const restarted = reopen(replica.sqlite);
+		const restarted = await reopen(replica.sqlite);
 		expect(titles(restarted.db)).toEqual(['durable before']);
 		expect(restarted.store.persistence.get()).toBe('saved');
 	});
 
-	test('kv and type-field edits are accepted while blocked, like table writes', () => {
-		const replica = openFailable();
+	test('kv and type-field edits are accepted while blocked, like table writes', async () => {
+		const replica = await openFailable();
 		const made = expectOk(replica.db.tables.notes.create({ title: 'holder' }));
+		await replica.store.persistence.flush();
 		replica.gate.failing = true;
 
 		// KV: accepted live, visible at once.
@@ -216,33 +233,38 @@ describe('acceptance is live, durability is a visible debt', () => {
 		content.applyDelta(content.change.insert('typed while blocked') as never);
 		expect(content.toString()).toContain('typed while blocked');
 
+		await new Promise<void>((resolve) => setImmediate(resolve));
 		expect(replica.store.persistence.get()).toBe('blocked');
 		// Nothing reached the durable engine; everything above is the debt.
 		expect(replica.durableUpdateCount()).toBe(1);
 
 		replica.gate.failing = false;
 		expectOk(replica.db.tables.notes.create({ title: 'retry trigger' }));
+		await new Promise<void>((resolve) => setImmediate(resolve));
 		expect(replica.store.persistence.get()).toBe('saved');
-		const restarted = reopen(replica.sqlite);
+		const restarted = await reopen(replica.sqlite);
 		expect(restarted.db.kv.get('theme')).toBe('dark');
 		const survived = restarted.db.tables.notes.get(made.id)?.content;
 		expect(survived?.toString()).toContain('typed while blocked');
 	});
 
-	test('the status is subscribable, and transitions fire once per change', () => {
-		const replica = openFailable();
+	test('the status is subscribable, and transitions fire once per change', async () => {
+		const replica = await openFailable();
 		const seen: string[] = [];
 		replica.store.persistence.subscribe(() =>
 			seen.push(replica.store.persistence.get()),
 		);
 
+		await replica.store.persistence.flush();
 		replica.gate.failing = true;
 		expectOk(replica.db.tables.notes.create({ title: 'x' }));
-		expect(seen).toEqual(['blocked']);
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		expect(seen).toEqual(['pending', 'blocked']);
 
 		replica.gate.failing = false;
 		expectOk(replica.db.tables.notes.create({ title: 'y' }));
-		expect(seen).toEqual(['blocked', 'saved']);
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		expect(seen).toEqual(['pending', 'blocked', 'pending', 'saved']);
 	});
 
 	test('an asynchronous engine reports pending, and mid-flight edits coalesce in order', async () => {
@@ -252,22 +274,27 @@ describe('acceptance is live, durability is a visible debt', () => {
 		const sqlite = createBunSqliteAdapter(raw);
 		const inner = createSqliteDurablePort({ sqlite });
 		const release: (() => void)[] = [];
-		const { store, view } = createAccountStoreOverPort({
+		const { store, view, ready } = createStoreOverPort({
 			definition: parsed(),
-			durable: {
-				commit(ops) {
-					const batch = [...ops];
-					return new Promise<void>((resolve) => {
-						release.push(() => {
-							inner.commit(batch);
-							resolve();
-						});
-					});
-				},
-			},
-			loaded: inner.load(),
+
 			log: silent,
+			acquire: async () =>
+				Ok({
+					durable: {
+						commit(ops) {
+							const batch = [...ops];
+							return new Promise<void>((resolve) => {
+								release.push(() => {
+									inner.commit(batch);
+									resolve();
+								});
+							});
+						},
+					},
+					loaded: inner.load(),
+				}),
 		});
+		expectOk(await ready);
 		const db = view as unknown as DeclaredData<typeof database>;
 
 		expectOk(db.tables.notes.create({ title: 'a' }));
@@ -276,6 +303,7 @@ describe('acceptance is live, durability is a visible debt', () => {
 		// row.
 		expect(db.tables.notes.rows.map((row) => row.title)).toEqual(['a']);
 
+		await new Promise<void>((resolve) => setImmediate(resolve));
 		// Two more accepted mid-flight; they must ride the NEXT batch together.
 		expectOk(db.tables.notes.create({ title: 'b' }));
 		expectOk(db.tables.notes.create({ title: 'c' }));
@@ -296,14 +324,14 @@ describe('acceptance is live, durability is a visible debt', () => {
 				)
 				.map((row) => row.id),
 		).toEqual([1, 2, 3]);
-		const restarted = reopen(sqlite);
+		const restarted = await reopen(sqlite);
 		expect(titles(restarted.db)).toEqual(['a', 'b', 'c']);
 	});
 });
 
 describe('owed work collapses so an offline chain stays bounded (ADR-0301)', () => {
-	test('owed appends past the threshold merge into one row', () => {
-		const replica = openFailable();
+	test('owed appends past the threshold merge into one row', async () => {
+		const replica = await openFailable();
 		// A device with no connection: nothing is ever coalesced, so nothing is
 		// ever acknowledged, and under the old rule every one of these rows was
 		// unfoldable forever.
@@ -313,23 +341,25 @@ describe('owed work collapses so an offline chain stays bounded (ADR-0301)', () 
 
 		// Far fewer rows than edits, and every one of them still owed: a merge
 		// changes what carries the bytes, never whether the authority has them.
+		await replica.store.persistence.flush();
 		const owed = replica.durableOutboxIds();
 		expect(owed.length).toBeLessThan(80);
 		expect(replica.durableCursor()).toBe(0);
 
 		// And the document is intact across a restart, which is the only thing
 		// the merge is allowed to preserve.
-		const restarted = reopen(replica.sqlite);
+		const restarted = await reopen(replica.sqlite);
 		expect(restarted.db.tables.notes.rows.length).toBe(80);
 	});
 
-	test('work already handed to the sender is not replaced under it', () => {
-		const replica = openFailable();
+	test('work already handed to the sender is not replaced under it', async () => {
+		const replica = await openFailable();
 		for (let i = 0; i < 10; i += 1) {
 			expectOk(replica.db.tables.notes.create({ title: `early ${i}` }));
 		}
 		// The sender takes what exists. Everything at or below this id is now
 		// named by a submission that may still be in flight.
+		await replica.store.persistence.flush();
 		const sent = syncEngineOf(replica.store).coalesce();
 		if (sent === undefined) throw new Error('nothing to send');
 
@@ -339,59 +369,61 @@ describe('owed work collapses so an offline chain stays bounded (ADR-0301)', () 
 
 		// The rows the sender was handed are untouched, so the acknowledgement
 		// it is waiting on can still name them.
+		await replica.store.persistence.flush();
 		const owed = replica.durableOutboxIds();
 		expect(owed.filter((id) => id <= sent.id).length).toBe(10);
 		syncEngineOf(replica.store).acknowledge(sent.id, 7);
+		await replica.store.persistence.flush();
 		expect(replica.durableCursor()).toBe(7);
 		expect(replica.durableOutboxIds().every((id) => id > sent.id)).toBe(true);
 	});
 });
 
 describe('sync reads only durable facts', () => {
-	test('coalesce offers nothing while the append is still in the queue', () => {
-		const replica = openFailable();
+	test('coalesce offers nothing while the append is still in the queue', async () => {
+		const replica = await openFailable();
+		await replica.store.persistence.flush();
 		replica.gate.failing = true;
 		expectOk(replica.db.tables.notes.create({ title: 'not yet durable' }));
 
 		// The live document holds the edit and the person can see it; the sender
 		// cannot, because what is owed is a property of the durable record
-		// (ADR-0302). Nothing is lost by waiting: the sender's idle timer is a
-		// second and a flush is a microtask, so this gap only exists while
-		// storage is actually refusing.
+		// (ADR-0302). A blocked append cannot be sent until storage recovers.
 		expect(syncEngineOf(replica.store).coalesce()).toBeUndefined();
 
 		replica.gate.failing = false;
 		expectOk(replica.db.tables.notes.create({ title: 'now everything lands' }));
 		// Both edits land together and merge into one submission.
+		await replica.store.persistence.flush();
 		const merged = syncEngineOf(replica.store).coalesce();
 		expect(merged?.id).toBe(2);
 	});
 
-	test('onLocalWork fires at acceptance, not after persistence', () => {
-		const replica = openFailable();
+	test('onSendable fires when accepted bytes become durable', async () => {
+		const replica = await openFailable();
 		let nudges = 0;
-		syncEngineOf(replica.store).onLocalWork(() => {
+		syncEngineOf(replica.store).onSendable(() => {
 			nudges += 1;
 		});
 
-		// The nudge starts the sender's idle timer, and the timer is what makes
-		// nudging early safe: it asks what is owed a second later, by which point
-		// an unblocked flush has long since committed.
+		await replica.store.persistence.flush();
 		replica.gate.failing = true;
 		expectOk(replica.db.tables.notes.create({ title: 'accepted' }));
-		expect(nudges).toBe(1);
+		expect(nudges).toBe(0);
 
 		replica.gate.failing = false;
 		expectOk(replica.db.tables.notes.create({ title: 'flushed' }));
-		expect(nudges).toBe(2);
+		await replica.store.persistence.flush();
+		expect(nudges).toBe(1);
 	});
 
 	test('a remote update is live at once, and its cursor waits for the bytes', async () => {
-		const author = openFailable();
+		const author = await openFailable();
 		expectOk(author.db.tables.notes.create({ title: 'from the authority' }));
 		const update = author.store.encodeStateSince();
 
-		const replica = openFailable();
+		const replica = await openFailable();
+		await replica.store.persistence.flush();
 		replica.gate.failing = true;
 		expectOk(syncEngineOf(replica.store).applyRemote(update, { advanceTo: 7 }));
 
@@ -412,26 +444,25 @@ describe('sync reads only durable facts', () => {
 		replica.gate.failing = false;
 		await replica.store.persistence.flush();
 		expect(replica.durableCursor()).toBe(7);
-		const restarted = reopen(replica.sqlite);
+		const restarted = await reopen(replica.sqlite);
 		expect(titles(restarted.db)).toEqual(['from the authority']);
 		expect(syncEngineOf(restarted.store).cursor()).toBe(7);
 	});
 
-	test('an acknowledged entry is re-offered while its drop is retained', async () => {
-		const replica = openFailable();
+	test('an acknowledged entry stays off the live sender while its retirement is retained', async () => {
+		const replica = await openFailable();
 		expectOk(replica.db.tables.notes.create({ title: 'sent' }));
+		await replica.store.persistence.flush();
 		const sent = syncEngineOf(replica.store).coalesce();
 		if (sent === undefined) throw new Error('nothing to send');
 
+		await replica.store.persistence.flush();
 		replica.gate.failing = true;
 		syncEngineOf(replica.store).acknowledge(sent.id, 1);
 
-		// What is owed is read off the durable record and nothing else. The ack
-		// is queued behind the blocked flush, so on disk the entry is still
-		// owed and it goes out again. Redundant upload during a storage
-		// failure, and nothing worse: the authority already holds these bytes
-		// and an update is idempotent.
-		expect(syncEngineOf(replica.store).coalesce()?.id).toBe(sent.id);
+		// The durable record remains recoverable debt after a crash, but this
+		// session already knows the authority accepted it.
+		expect(syncEngineOf(replica.store).coalesce()).toBeUndefined();
 		expect(replica.durableOutboxIds()).toEqual([sent.id]);
 
 		// Once the flush lands, the ack does too and the entry stops being owed.
@@ -442,11 +473,12 @@ describe('sync reads only durable facts', () => {
 	});
 
 	test('a remote update lost with a blocked close is simply re-received', async () => {
-		const author = openFailable();
+		const author = await openFailable();
 		expectOk(author.db.tables.notes.create({ title: 'from the authority' }));
 		const update = author.store.encodeStateSince();
 
-		const replica = openFailable();
+		const replica = await openFailable();
+		await replica.store.persistence.flush();
 		replica.gate.failing = true;
 		expectOk(syncEngineOf(replica.store).applyRemote(update, { advanceTo: 1 }));
 		expect(titles(replica.db)).toEqual(['from the authority']);
@@ -454,7 +486,7 @@ describe('sync reads only durable facts', () => {
 
 		// The restart honestly recovers only the durable prefix: no row, and a
 		// cursor that never advanced, so the authority re-serves from zero.
-		const restarted = reopen(replica.sqlite);
+		const restarted = await reopen(replica.sqlite);
 		expect(titles(restarted.db)).toEqual([]);
 		expect(syncEngineOf(restarted.store).cursor()).toBe(0);
 
@@ -464,15 +496,18 @@ describe('sync reads only durable facts', () => {
 			syncEngineOf(restarted.store).applyRemote(update, { advanceTo: 1 }),
 		);
 		expect(titles(restarted.db)).toEqual(['from the authority']);
+		await restarted.store.persistence.flush();
 		expect(syncEngineOf(restarted.store).cursor()).toBe(1);
 	});
 
 	test('an acknowledgement drops only the work it names; queued work lands intact', async () => {
-		const replica = openFailable();
+		const replica = await openFailable();
 		expectOk(replica.db.tables.notes.create({ title: 'sent' }));
+		await replica.store.persistence.flush();
 		const sent = syncEngineOf(replica.store).coalesce();
 		if (sent === undefined) throw new Error('nothing to send');
 
+		await replica.store.persistence.flush();
 		replica.gate.failing = true;
 		expectOk(
 			replica.db.tables.notes.create({ title: 'authored while blocked' }),
@@ -485,7 +520,7 @@ describe('sync reads only durable facts', () => {
 		// One batch carried the retained append and the drop; the drop removed
 		// only the entry the authority confirmed, never the newer work.
 		expect(replica.durableOutboxIds()).toEqual([2]);
-		const restarted = reopen(replica.sqlite);
+		const restarted = await reopen(replica.sqlite);
 		expect(titles(restarted.db)).toEqual(['authored while blocked', 'sent']);
 	});
 });
@@ -503,8 +538,6 @@ describe('the controller against an asynchronous engine', () => {
 					waiting.push({ resolve, reject });
 				});
 			},
-			readDocument: (): Uint8Array[] => [],
-			listDocuments: (): string[] => [],
 			settle(outcome: 'ok' | 'fail'): Promise<void> {
 				const next = waiting.shift();
 				if (next === undefined) throw new Error('no batch in flight');
@@ -516,16 +549,10 @@ describe('the controller against an asynchronous engine', () => {
 		};
 	}
 
-	const append = (id: number): DurableOp => ({
-		kind: 'append',
-		id,
-		bytes: new Uint8Array([id]),
-		authoritySeq: undefined,
-	});
-
 	test('ops accepted mid-flight coalesce into the next batch', async () => {
 		const port = createManualPort();
 		const controller = createPersistenceController({
+			assertUsable: () => undefined,
 			port,
 			loaded: {
 				updates: [],
@@ -536,10 +563,11 @@ describe('the controller against an asynchronous engine', () => {
 			log: silent,
 		});
 
-		controller.enqueue([append(1)]);
+		controller.append(new Uint8Array([1]), undefined);
+		await new Promise<void>((resolve) => setImmediate(resolve));
 		expect(controller.persistence.get()).toBe('pending');
-		controller.enqueue([append(2)]);
-		controller.enqueue([append(3)]);
+		controller.append(new Uint8Array([2]), undefined);
+		controller.append(new Uint8Array([3]), undefined);
 
 		await port.settle('ok');
 		// The two accepted mid-flight went out together, in order.
@@ -555,6 +583,7 @@ describe('the controller against an asynchronous engine', () => {
 	test('a rejected batch is retained whole, ahead of later work', async () => {
 		const port = createManualPort();
 		const controller = createPersistenceController({
+			assertUsable: () => undefined,
 			port,
 			loaded: {
 				updates: [],
@@ -565,16 +594,84 @@ describe('the controller against an asynchronous engine', () => {
 			log: silent,
 		});
 
-		controller.enqueue([append(1), append(2)]);
+		controller.append(new Uint8Array([1]), undefined);
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		controller.append(new Uint8Array([2]), undefined);
+		controller.append(new Uint8Array([3]), undefined);
+		await port.settle('ok');
 		await port.settle('fail');
 		expect(controller.persistence.get()).toBe('blocked');
 
-		controller.enqueue([append(3)]);
+		controller.append(new Uint8Array([4]), undefined);
+		await new Promise<void>((resolve) => setImmediate(resolve));
 		await port.settle('ok');
 		expect(controller.persistence.get()).toBe('saved');
 		// One retry batch carrying everything, in the original order.
 		expect(
-			port.batches[1]?.map((op) => (op.kind === 'append' ? op.id : 0)),
-		).toEqual([1, 2, 3]);
+			port.batches.at(-1)?.map((op) => (op.kind === 'append' ? op.id : 0)),
+		).toEqual([2, 3, 4]);
 	});
+});
+
+test('discard drops queued work before its commit microtask and never retries it', async () => {
+	let commits = 0;
+	const controller = createPersistenceController({
+		port: {
+			commit() {
+				commits += 1;
+			},
+		},
+		loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
+		log: silent,
+		assertUsable() {},
+	});
+	controller.append(new Uint8Array([1]), undefined);
+	const discarded = controller.discard();
+	controller.append(new Uint8Array([2]), undefined);
+	controller.acknowledge(1, 1);
+	await discarded;
+	await controller.close();
+	expect(commits).toBe(0);
+	expect(controller.coalesce()).toBeUndefined();
+});
+
+test.each([
+	'resolve',
+	'reject',
+] as const)('discard waits an overlapping commit that will %s without restoring its queue', async (outcome) => {
+	const commit = Promise.withResolvers<void>();
+	let commits = 0;
+	let reports = 0;
+	const controller = createPersistenceController({
+		port: {
+			commit() {
+				commits += 1;
+				return commit.promise;
+			},
+		},
+		loaded: { updates: [], outbox: [], cursor: 0, lastId: 0 },
+		log: {
+			...silent,
+			error: () => {
+				reports += 1;
+			},
+		},
+		assertUsable() {},
+	});
+	controller.append(new Uint8Array([1]), undefined);
+	await Promise.resolve();
+	controller.append(new Uint8Array([2]), undefined);
+	let settled = false;
+	const discarded = controller.discard().then(() => {
+		settled = true;
+	});
+	await Promise.resolve();
+	expect(settled).toBe(false);
+	if (outcome === 'resolve') commit.resolve();
+	else commit.reject(new Error('Backing retirement refused this commit'));
+	await discarded;
+	await controller.close();
+	expect(commits).toBe(1);
+	expect(reports).toBe(0);
+	expect(controller.coalesce()).toBeUndefined();
 });

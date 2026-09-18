@@ -1,35 +1,20 @@
 /**
- * Whispering app acquisition tests.
+ * Whispering's domains over an account app handle.
  *
- * The device document opens for every page lifetime and holds this machine's
- * settings; the boot auth snapshot chooses whether an account replica also
- * opens and takes over the portable work (ADR-0233). These tests pin the split,
- * which is the whole of what this app's composition decides.
- *
- * Key behaviors:
- * - A signed-out boot has one document and never dials
- * - Settings recover application defaults and survive a restart
- * - Settings stay on the DEVICE document across signing in, so they neither
- *   travel to another machine nor disappear when an account opens
- * - Recordings written signed out stay on the device and are not shown to a
- *   signed-in generation, which reads the account replica instead
- * - An aborted boot rejects with the abort and leaves nothing open
- *
- * `fake-indexeddb` supplies the browser store's storage; the socket is a fake
- * whose frames come from the real sync protocol (`encodeFrame`).
+ * Exercises settings defaults, notifications, persistence across reopening,
+ * and domain disposal using the real IndexedDB opener.
  */
 import 'fake-indexeddb/auto';
-import { installTestLocks } from '@epicenter/data/test-locks';
+import { installTestLocks } from '@epicenter/device/test-locks';
 
 installTestLocks();
 
 import { expect, test } from 'bun:test';
-import { InstantString } from '@epicenter/data/field';
 
 // The recipes domain IS reactive state, so the runes are shimmed to their
 // non-reactive meaning (the pattern the other runtime tests use). These
-// assertions read imperatively: the question is which document a write landed
-// in, not whether a view recomputed.
+// assertions read imperatively: the question is what the boot acquired, not
+// whether a view recomputed.
 (globalThis as unknown as { $state: unknown }).$state = Object.assign(
 	<TValue>(value: TValue) => value,
 	{ raw: <TValue>(value: TValue) => value },
@@ -39,26 +24,33 @@ import { InstantString } from '@epicenter/data/field';
 	{ by: <TValue>(derive: () => TValue) => derive() },
 );
 
-import type { AuthClient } from '@epicenter/auth';
-import type { BlobStore } from '@epicenter/blobs';
-import { encodeFrame } from '@epicenter/data/sync';
+import { defineApp } from '@epicenter/app';
+import { browser, createBrowserAppBlobs } from '@epicenter/app/browser';
+import type { Account } from '@epicenter/auth';
+import { APPS } from '@epicenter/constants/apps';
+import type { DeviceSqliteOwner } from '@epicenter/device/owner';
+import { asPrincipalId } from '@epicenter/principal';
+import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
-import { openWhisperingApp, type WhisperingAppDependencies } from './app';
+import { expectOk } from 'wellcrafted/testing';
+import { whisperingDefinition } from '../data';
 
-const local: BlobStore = {
-	async put() {
-		return Ok(undefined);
-	},
-	async get() {
-		return Ok(new Blob());
-	},
-	async stat() {
-		return Ok({ size: 0, contentType: 'application/octet-stream' });
-	},
-	async delete() {
-		return Ok(undefined);
-	},
+const testSqlite: DeviceSqliteOwner = {
+	acquire: async () => ({
+		open: async () => ({
+			run: async () => Ok({ changes: 0 }),
+			all: async () => Ok([]),
+			query: async () => Ok({ columns: [], rows: [], truncated: false }),
+			batch: async () => Ok({ changes: [] }),
+		}),
+		delete: async () => undefined,
+
+		close: async () => undefined,
+	}),
 };
+const testBlobs = createBrowserAppBlobs();
+
+import { createWhisperingDomains } from './app';
 
 /**
  * Start each test from empty storage. IndexedDB outlives a test in this
@@ -68,7 +60,7 @@ const local: BlobStore = {
 async function resetStorage(): Promise<void> {
 	for (const database of await indexedDB.databases()) {
 		const name = database.name;
-		if (name === undefined) continue;
+		if (!name?.startsWith(`epicenter/${APPS.WHISPERING.id}/`)) continue;
 		await new Promise<void>((resolve, reject) => {
 			const request = indexedDB.deleteDatabase(name);
 			request.onsuccess = () => resolve();
@@ -78,9 +70,7 @@ async function resetStorage(): Promise<void> {
 }
 
 /**
- * A socket the test scripts: listeners attach through the same
- * `addEventListener` surface the real driver uses, and `deliver` hands the
- * client a real protocol frame.
+ * A socket that opens and closes through the real driver's event surface.
  */
 function createFakeSocket() {
 	const listeners = new Map<string, Set<(event: unknown) => void>>();
@@ -100,86 +90,66 @@ function createFakeSocket() {
 	return {
 		socket: socket as unknown as WebSocket,
 		open: () => dispatch('open', {}),
-		deliver(frame: Parameters<typeof encodeFrame>[0]) {
-			dispatch('message', { data: encodeFrame(frame).slice().buffer });
-		},
 	};
 }
 
 /**
- * The whole of what the app reads from auth: its boot state, the server's
- * base URL, and `openWebSocket`. Everything else throws, so a test fails
- * loudly if the app starts reaching further.
+ * The captured account used by these app tests: generation HTTP and sync.
+ * Profile reads throw so an unexpected request fails visibly.
  */
-function createFakeAuth({
-	status,
+function createFakeAccount({
 	principalId = 'principal-under-test',
 	openWebSocket = () => {
 		throw new Error('this generation must not dial');
 	},
 }: {
-	status: 'signed-out' | 'signed-in';
 	principalId?: string;
 	openWebSocket?: () => Promise<WebSocket>;
-}): AuthClient {
+}): Account {
 	const unused = () => {
 		throw new Error('not part of the app boot');
 	};
-	/**
-	 * The generations collection, in memory, per fake account.
-	 *
-	 * The one HTTP surface a boot touches (ADR-0292): which generations exist,
-	 * and one whole state to bootstrap from. Held per client so two fake
-	 * accounts are two accounts.
-	 */
-	const held = new Map<number, Uint8Array>();
-	const generations = async (
+	let state: Uint8Array | undefined;
+	const current = async (
 		input: Request | string | URL,
 		init?: RequestInit,
 	): Promise<Response> => {
-		const url = new URL(String(input instanceof Request ? input.url : input));
-		const item = /\/generations\/(\d+)$/.exec(url.pathname);
-		if (init?.method === 'POST') {
-			const generation = held.size + 1;
-			held.set(generation, new Uint8Array(init.body as ArrayBuffer));
-			return Response.json({ generation, position: 1 });
-		}
-		if (item !== null) {
-			const bytes = held.get(Number(item[1]));
-			if (bytes === undefined) return new Response(null, { status: 404 });
-			return new Response(bytes as unknown as BodyInit, {
-				headers: { 'epicenter-log-position': '1' },
-			});
-		}
-		return Response.json({ generations: [...held.keys()].sort() });
+		const request = new Request(input, init);
+		if (
+			request.method !== 'POST' ||
+			!new URL(request.url).pathname.endsWith('/current')
+		)
+			throw new Error(
+				`Unexpected library request: ${request.method} ${request.url}`,
+			);
+		state ??= new Uint8Array(await request.arrayBuffer());
+		return createCurrentDownloadResponse({
+			generation: 1,
+			head: 1,
+			snapshot: { position: 1, bytes: state },
+			tail: [],
+		});
 	};
 	return {
-		state: status === 'signed-out' ? { status } : { status, principalId },
-		connection: {
-			baseURL: 'https://api.test',
-			status: 'connected',
-			onChange: () => () => undefined,
-		},
-		onStateChange: () => () => undefined,
-		startSignIn: unused,
-		signOut: unused,
-		fetch: generations,
+		supportsShared: false,
+		authorityId: 'test-authority',
+		principalId: asPrincipalId(principalId),
+		baseURL: 'https://api.test',
+		fetch: current,
 		getProfile: unused,
 		openWebSocket,
-		[Symbol.dispose]: () => undefined,
-	} as unknown as AuthClient;
+	};
 }
 
 /**
- * An auth for one account whose every dial simply connects.
+ * An account whose every dial simply connects.
  *
  * There is nothing for a dial to announce any more: a replica used to be
  * unavailable until the authority named the document it belonged to, and the
  * generation is in the address now (ADR-0292).
  */
-function announcingAuth(principalId: string): AuthClient {
-	return createFakeAuth({
-		status: 'signed-in',
+function announcingAccount(principalId: string): Account {
+	return createFakeAccount({
 		principalId,
 		openWebSocket: async () => {
 			const fake = createFakeSocket();
@@ -189,123 +159,114 @@ function announcingAuth(principalId: string): AuthClient {
 	});
 }
 
-function dependencies(auth: AuthClient): WhisperingAppDependencies {
-	return {
-		auth,
-		blobs: { local, remote: null },
-	};
+/**
+ * The two halves `$lib/epicenter.svelte.ts` and the `(app)` layout compose
+ * between them, in one call because a test has no layout.
+ *
+ * The handle comes back beside the app, because `close` is on the handle and
+ * nothing else can end what the open acquired (ADR-0340).
+ */
+async function openWhispering(account: Account) {
+	const handle = defineApp({
+		...whisperingDefinition,
+		runtime: {
+			...browser,
+			sqlite: testSqlite,
+			blobs: testBlobs,
+		},
+		ai: { runtime: null, account: null },
+	});
+	const app = handle.open(account);
+	expectOk(await app.ready);
+	return app;
 }
 
-/** The whole create input; only the title matters to these tests. */
-function recordingFields(title: string) {
-	return {
-		audioBlobId: 'blob_aaaaaaaaaaaaaaaaaaaaa' as never,
-		title,
-		recordedAt: InstantString.fromDate(new Date('2026-08-10T00:00:00.000Z')),
-		recordedAtZone: 'UTC',
-		transcript: '',
-		polishedTranscript: null,
-		duration: null,
-	};
-}
-
-test('a signed-out boot opens nothing at all', async () => {
-	// It used to open a device document and never dial. An authority mints every
-	// generation (ADR-0336), so there is no such document to fall back to and
-	// the boot refuses instead. The three tests below still pin the device
-	// document and still fail; Whispering is one of the applications AGENTS.md
-	// lists as broken on purpose until it is rebuilt against the store, and
-	// rewriting them is that rebuild rather than this one.
+test('constructing a factory acquires no local database', async () => {
 	await resetStorage();
-	await expect(
-		openWhisperingApp(dependencies(createFakeAuth({ status: 'signed-out' }))),
-	).rejects.toThrow(/signed-in account/);
-	expect(await indexedDB.databases()).toEqual([]);
+	const handle = defineApp({
+		...whisperingDefinition,
+		runtime: {
+			...browser,
+			sqlite: testSqlite,
+			blobs: testBlobs,
+		},
+		ai: { runtime: null, account: null },
+	});
+	expect(
+		(await indexedDB.databases()).filter(({ name }) =>
+			name?.startsWith(`epicenter/${APPS.WHISPERING.id}/`),
+		),
+	).toEqual([]);
+	expect(handle.id).toBe(APPS.WHISPERING.id);
 });
 
-test('settings recover application defaults and survive a restart', async () => {
+test('settings recover application defaults, notify, and survive a reopen', async () => {
 	await resetStorage();
 	{
-		await using app = await openWhisperingApp(
-			dependencies(createFakeAuth({ status: 'signed-out' })),
-		);
+		const account = announcingAccount('alice');
+		const openedApp = await openWhispering(account);
+		const app = createWhisperingDomains({
+			openedApp,
+			data: openedApp.account!.personal,
+		});
+
 		// Chosen by the application, applied by a read, never stored.
-		expect(app.settings.get('transcriptionService')).toBe('local');
-		expect(app.settings.get('recordingAutoUpload')).toBe(false);
+		expect(app.settings.get('transcriptionModel')).toBe('');
+		expect(app.settings.get('recordingPausePlayback')).toBe(false);
 		expect(app.settings.get('soundManualStart')).toBe(true);
 
 		let notifications = 0;
 		const stop = app.settings.subscribe(() => {
 			notifications += 1;
 		});
-		app.settings.set('recordingAutoUpload', true);
-		expect(app.settings.get('recordingAutoUpload')).toBe(true);
+		app.settings.set('recordingPausePlayback', true);
+		expect(app.settings.get('recordingPausePlayback')).toBe(true);
 		expect(notifications).toBeGreaterThan(0);
 		stop();
 		await Bun.sleep(10);
+
+		app[Symbol.dispose]();
+		await openedApp.close();
 	}
 
-	await using reopened = await openWhisperingApp(
-		dependencies(createFakeAuth({ status: 'signed-out' })),
-	);
-	expect(reopened.settings.get('recordingAutoUpload')).toBe(true);
+	// The same account, opened again on the same device: settings live on the
+	// replica now, so surviving a reopen is the replica being found and reused
+	// rather than a second document being minted underneath it. It is also the
+	// close above being real: a lock still held would answer `AlreadyOpen`.
+	const account = announcingAccount('alice');
+	const openedApp = await openWhispering(account);
+	const reopened = createWhisperingDomains({
+		openedApp,
+		data: openedApp.account!.personal,
+	});
+
+	expect(reopened.settings.get('recordingPausePlayback')).toBe(true);
+
+	reopened[Symbol.dispose]();
+	await openedApp.close();
 });
 
-test('settings stay on the device document when an account opens', async () => {
+test('the domains stop reading the store once they are disposed', async () => {
+	// Disposal is on the value `createWhisperingDomains` returns and not on
+	// `WhisperingApp`, so the session that built the domains is the only thing
+	// that can end them: a component reading the app through context has no
+	// `[Symbol.dispose]` to reach for.
 	await resetStorage();
-	{
-		await using signedOut = await openWhisperingApp(
-			dependencies(createFakeAuth({ status: 'signed-out' })),
-		);
-		signedOut.settings.set('recordingAutoUpload', true);
-		signedOut.recordings.create(recordingFields('written on this device'));
-		await Bun.sleep(10);
-	}
+	const account = announcingAccount('alice');
+	const openedApp = await openWhispering(account);
+	const app = createWhisperingDomains({
+		openedApp,
+		data: openedApp.account!.personal,
+	});
 
-	await using signedIn = await openWhisperingApp(
-		dependencies(announcingAuth('alice')),
-	);
-	// The setting is a fact about this machine, so signing in neither loses it
-	// nor sends it anywhere.
-	expect(signedIn.settings.get('recordingAutoUpload')).toBe(true);
-	// The work is portable, so a signed-in generation reads the account replica.
-	// The device recording is retained but hidden; nothing copied it across.
-	expect(signedIn.recordings.count).toBe(0);
-});
+	app[Symbol.dispose]();
+	let notifications = 0;
+	app.settings.subscribe(() => {
+		notifications += 1;
+	});
+	openedApp.device.kv.update({ recordingPausePlayback: true });
+	await Bun.sleep(10);
 
-test('device work is still there after signing back out', async () => {
-	await resetStorage();
-	{
-		await using signedOut = await openWhisperingApp(
-			dependencies(createFakeAuth({ status: 'signed-out' })),
-		);
-		signedOut.recordings.create(recordingFields('written on this device'));
-		await Bun.sleep(10);
-	}
-	{
-		await using signedIn = await openWhisperingApp(
-			dependencies(announcingAuth('alice')),
-		);
-		signedIn.recordings.create(recordingFields('written on the account'));
-		await Bun.sleep(10);
-	}
-
-	await using signedOutAgain = await openWhisperingApp(
-		dependencies(createFakeAuth({ status: 'signed-out' })),
-	);
-	expect(signedOutAgain.recordings.sorted.map(({ title }) => title)).toEqual([
-		'written on this device',
-	]);
-});
-
-test('an aborted boot rejects with the abort', async () => {
-	await resetStorage();
-	const controller = new AbortController();
-	controller.abort(new Error('root unmounted'));
-
-	expect(
-		openWhisperingApp(dependencies(createFakeAuth({ status: 'signed-out' })), {
-			signal: controller.signal,
-		}),
-	).rejects.toThrow('root unmounted');
+	expect(notifications).toBe(0);
+	await openedApp.close();
 });

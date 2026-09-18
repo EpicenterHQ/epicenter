@@ -1,4 +1,9 @@
 <script lang="ts">
+	import { getWhisperingApp } from '$lib/whispering/context';
+	import { AuthError } from '@epicenter/auth';
+	import { tryAsync } from 'wellcrafted/result';
+	const app = getWhisperingApp();
+	import { getConnectionScreen, getSignOut } from '@epicenter/app-shell/boot-screens';
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
 	import { toastOnError } from '@epicenter/ui/sonner';
@@ -6,7 +11,8 @@
 	import { createMutation } from '@tanstack/svelte-query';
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import { resultMutationOptions } from 'wellcrafted/query';
-	import { auth } from '#platform/auth';
+	import { getAuth } from '$lib/auth.svelte.js';
+	const auth = getAuth();
 	import { tauri } from '#platform/tauri';
 	import { recordingActive } from '$lib/state/recording-active.svelte';
 
@@ -17,19 +23,21 @@
 
 	// Sign in/out reloads the page (Option A) and a reload kills an in-flight
 	// browser recording, so block account changes while a capture is active.
-	const accountLocked = $derived(recordingActive.current);
+	const accountLocked = $derived(recordingActive(app));
 
-	const startSignIn = createMutation(() =>
-		resultMutationOptions({
-			mutationKey: ['account', 'startSignIn'],
-			mutationFn: () => auth.startSignIn(),
-		}),
-	);
+	const openConnection = getConnectionScreen();
+	const leaveAndSignOut = getSignOut();
 
 	const signOut = createMutation(() =>
 		resultMutationOptions({
 			mutationKey: ['account', 'signOut'],
-			mutationFn: () => auth.signOut(),
+			mutationFn: () => tryAsync({
+				try: async () => {
+					if (!leaveAndSignOut) throw new Error('Application departure is unavailable.');
+					await leaveAndSignOut();
+				},
+				catch: (cause) => AuthError.SignOutFailed({ cause }),
+			}),
 			onError: (error) => toastOnError(error, 'Failed to sign out'),
 		}),
 	);
@@ -74,20 +82,12 @@
 			</Field.Field>
 		{:else}
 			<Field.Field>
-				{#if startSignIn.error}
-					<Field.Description class="text-destructive">
-						{startSignIn.error.message}
-					</Field.Description>
-				{/if}
 				<Button
 					class="w-full sm:w-auto sm:self-start"
-					onclick={() => startSignIn.mutate()}
-					disabled={startSignIn.isPending || accountLocked}
+					onclick={openConnection}
+					disabled={accountLocked}
 				>
-					{#if startSignIn.isPending}
-						<Spinner class="size-4" />
-						Signing in...
-					{:else if auth.state.status === 'reauth-required'}
+					{#if auth.state.status === 'reauth-required'}
 						Reconnect
 					{:else}
 						Sign in with Epicenter

@@ -2,58 +2,81 @@
 	"name": "@epicenter/whispering",
 	"private": true,
 	"version": "7.11.1",
-	"description": "Browser-deployable speech-to-text SPA hosted natively by Epicenter",
-	"exports": {
-		"./app": "./src/lib/whispering/app.ts",
-		"./commands": "./src/lib/commands.ts",
-		"./workspace": "./src/lib/workspace/index.ts"
-	},
+	"description": "Speech-to-text SPA served by the Epicenter desktop host",
 	"imports": {
-		"#platform/analytics": "./src/lib/services/analytics/index.tauri.ts",
+		"#platform/analytics": {
+			"epicenter-host": "./src/lib/services/analytics/index.tauri.ts",
+			"default": "./src/lib/services/analytics/index.browser.ts"
+		},
 		"#platform/auth": {
 			"epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",
 			"default": "./src/lib/platform/auth.browser.ts"
 		},
-		"#platform/base-path": {
-			"epicenter-host": "./src/lib/platform/base-path.epicenter-host.ts",
-			"default": "./src/lib/platform/base-path.browser.ts"
+		"#platform/commands": {
+			"epicenter-host": "./src/lib/commands.tauri.ts",
+			"default": "./src/lib/commands.browser.ts"
 		},
-		"#platform/binding": {
-			"epicenter-host": "./src/lib/platform/binding.epicenter-host.ts",
-			"default": "./src/lib/platform/binding.browser.ts"
+		"#platform/dictation-indicator": {
+			"epicenter-host": "./src/lib/dictation-indicator/DictationIndicator.tauri.svelte",
+			"default": "./src/lib/dictation-indicator/DictationIndicator.browser.svelte"
 		},
-		"#platform/blobs": {
-			"epicenter-host": "./src/lib/services/blobs/index.epicenter-host.ts",
-			"default": "./src/lib/services/blobs/index.browser.ts"
+		"#platform/download": {
+			"epicenter-host": "./src/lib/services/download/index.tauri.ts",
+			"default": "./src/lib/services/download/index.browser.ts"
 		},
-		"#platform/commands": "./src/lib/commands.tauri.ts",
-		"#platform/dictation-indicator": "./src/lib/dictation-indicator/DictationIndicator.tauri.svelte",
-		"#platform/download": "./src/lib/services/download/index.tauri.ts",
-		"#platform/http": "./src/lib/services/http/index.tauri.ts",
-		"#platform/manual-recorder-config": "./src/lib/state/manual-recorder-config.tauri.ts",
-		"#platform/os": "./src/lib/platform/os.tauri.ts",
-		"#platform/os-notify": "./src/lib/report/os-notify.tauri.ts",
-		"#platform/recorder": "./src/lib/services/recorder/index.tauri.ts",
-		"#platform/recording-mic-level": "./src/lib/recording-overlay/mic-level.tauri.ts",
-		"#platform/system-shortcuts": "./src/lib/platform/system-shortcuts.tauri.ts",
-		"#platform/tauri": "./src/lib/tauri.tauri.ts",
-		"#platform/text": "./src/lib/services/text/index.tauri.ts",
-		"#platform/window-events": "./src/lib/window-events.tauri.ts"
+		"#platform/manual-recorder-config": {
+			"epicenter-host": "./src/lib/state/manual-recorder-config.tauri.ts",
+			"default": "./src/lib/state/manual-recorder-config.browser.ts"
+		},
+		"#platform/os": {
+			"epicenter-host": "./src/lib/platform/os.tauri.ts",
+			"default": "./src/lib/platform/os.browser.ts"
+		},
+		"#platform/os-notify": {
+			"epicenter-host": "./src/lib/report/os-notify.tauri.ts",
+			"default": "./src/lib/report/os-notify.browser.ts"
+		},
+		"#platform/recording-mic-level": {
+			"epicenter-host": "./src/lib/recording-overlay/mic-level.tauri.ts",
+			"default": "./src/lib/recording-overlay/mic-level.browser.svelte.ts"
+		},
+		"#platform/system-shortcuts": {
+			"epicenter-host": "./src/lib/platform/system-shortcuts.tauri.ts",
+			"default": "./src/lib/platform/system-shortcuts.browser.ts"
+		},
+		"#platform/tauri": {
+			"epicenter-host": "./src/lib/tauri.tauri.ts",
+			"default": "./src/lib/tauri.browser.ts"
+		},
+		"#platform/text": {
+			"epicenter-host": "./src/lib/services/text/index.tauri.ts",
+			"default": "./src/lib/services/text/index.browser.ts"
+		},
+		"#platform/window-events": {
+			"epicenter-host": "./src/lib/window-events.tauri.ts",
+			"default": "./src/lib/window-events.browser.ts"
+		},
+		"#platform/runtime": {
+			"epicenter-host": "./src/lib/platform/runtime.epicenter-host.ts",
+			"default": "./src/lib/platform/runtime.browser.ts"
+		}
 	},
 	"scripts": {
 		"dev": "vite dev",
-		"test": "bun test",
+		"test": "bun test --isolate",
 		"build": "NODE_ENV=production vite build",
 		"build:epicenter": "EPICENTER_HOST=1 bun run build",
 		"check": "bun run typecheck",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.desktop.json",
-		"typecheck:desktop": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.desktop.json",
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json",
+		"typecheck:epicenter-host": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.epicenter-host.json",
 		"typecheck:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
 	},
 	"license": "AGPL-3.0-or-later",
 	"devDependencies": {
+		"@epicenter/sqlite": "workspace:*",
+		"@epicenter/sync": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@epicenter/vite-config": "workspace:*",
 		"@types/bun": "catalog:",
@@ -82,25 +105,21 @@
 		"@epicenter/app-shell": "workspace:*",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/blobs": "workspace:*",
+		"@epicenter/principal": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/data": "workspace:*",
+		"@epicenter/device": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
-		"@epicenter/skills": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
-		"@epicenter/sync": "workspace:*",
-		"@mistralai/mistralai": "^1.9.18",
-		"@sqlite.org/sqlite-wasm": "catalog:",
 		"@standard-schema/spec": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
 		"@tanstack/svelte-table": "catalog:",
 		"@tanstack/table-core": "9.0.0-alpha.10",
 		"@tauri-apps/api": "catalog:",
-		"@tauri-apps/plugin-clipboard-manager": "^2.3.0",
 		"@tauri-apps/plugin-deep-link": "catalog:",
 		"@tauri-apps/plugin-dialog": "^2.3.2",
 		"@tauri-apps/plugin-fs": "catalog:",
-		"@tauri-apps/plugin-http": "2.5.4",
 		"@tauri-apps/plugin-notification": "^2.3.0",
 		"@tauri-apps/plugin-opener": "catalog:",
 		"@tauri-apps/plugin-os": "^2.3.0",
@@ -111,15 +130,14 @@
 		"date-fns": "catalog:",
 		"dexie": "^4.0.11",
 		"dompurify": "^3.4.10",
-		"elevenlabs": "^1.59.0",
 		"fflate": "catalog:",
 		"idb": "^8.0.3",
 		"js-yaml": "^4.1.1",
 		"marked": "catalog:",
-		"mime": "catalog:",
 		"nanoid": "catalog:",
 		"tailwind-variants": "catalog:",
 		"typebox": "catalog:",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"openai": "^7.12.1"
 	}
 }

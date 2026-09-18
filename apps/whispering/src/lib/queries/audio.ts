@@ -8,8 +8,8 @@ export const audioKeys = defineKeys({
 	availability: (
 		id: Recording['id'],
 		audioBlobId: Recording['audioBlobId'],
-		uploadedAt: Recording['uploadedAt'],
-	) => ['audio', 'availability', id, audioBlobId, uploadedAt] as const,
+		audioUrl: Recording['audioUrl'],
+	) => ['audio', 'availability', id, audioBlobId, audioUrl] as const,
 });
 
 export function createAudioQueries(
@@ -18,14 +18,14 @@ export function createAudioQueries(
 ) {
 	return {
 		availability: (
-			recording: Accessor<Pick<Recording, 'id' | 'audioBlobId' | 'uploadedAt'>>,
+			recording: Accessor<Pick<Recording, 'id' | 'audioBlobId' | 'audioUrl'>>,
 		) => {
 			const current = recording();
 			return defineQuery({
 				queryKey: audioKeys.availability(
 					current.id,
 					current.audioBlobId,
-					current.uploadedAt,
+					current.audioUrl,
 				),
 				queryFn: () => app.recordings.audioAvailability(recording().id),
 			});

@@ -1,6 +1,6 @@
 # Whispering Architecture Deep Dive
 
-Whispering uses a clean three-layer architecture that shares one SPA between its browser deployment and the Epicenter desktop host. This is possible because platform differences are selected at build time and business logic stays separate from UI concerns.
+Whispering is one SPA in three layers, served by the Epicenter desktop host. Platform differences are selected at build time, and business logic stays separate from UI concerns.
 
 **Quick Navigation:** [Service Layer](#service-layer---pure-business-logic--platform-abstraction) | [Query Layer](#query-layer---adding-reactivity-and-state-management) | [Error Handling](#error-handling-with-wellcrafted)
 
@@ -14,22 +14,32 @@ Whispering uses a clean three-layer architecture that shares one SPA between its
          Reactive Updates
 ```
 
-## Workspace Composition
+## Application composition
 
-Whispering binds its inert data definition through one environment-owned SQLite runtime, acquired as one ready app inside the mounted Svelte root:
+`src/lib/application.ts` acquires nothing on import. The mounted `(app)` layout
+calls `openApplication()`, which loads `bootstrap.ts` once. Bootstrap captures
+the library choice and raw auth Account. Local opens without an Account even
+when another library is signed in; Personal and Shared retain the authenticated
+person. Authentication callbacks and overlays open no primary library.
+`auth.svelte.ts` adds UI tracking after composition.
 
-```txt
-defineData()                            src/lib/workspace/index.ts (inert schema)
-  -> openWhisperingApp()        src/lib/whispering/app.ts (transactional async open)
-    -> #platform/whispering             whisperingPlatform: the per-build dependencies
-      -> openWhisperingUiSession()      src/lib/whispering/ui-session.ts (app + query runtime)
-        -> (app)/+layout.svelte         raw {#await} owns pending / ready / failed
-          -> WhisperingUiSessionProvider      typed context for ready-only descendants
-```
+The layout awaits `app.ready` before rendering `WhisperingShell`, which creates
+its UI session, query client, and recording workflow. Application routes share
+the same App. Library changes close this page and use full document navigation.
 
-`src/lib/workspace/index.ts` defines the fixed application id, flat table fields, required row `content` codecs, and KV settings schema with no platform APIs. `openWhisperingApp(whisperingPlatform, { signal })` opens the Whispering application through the runtime the environment supplies, hydrates settings, recordings, and recipes, and resolves only with those UI-free product namespaces ready; any failure releases everything it opened and rejects. The (app) layout wraps that open in one UI session (`openWhisperingUiSession`), which composes the Svelte reactivity adapters, a session-scoped TanStack `QueryClient`, and the query namespace over the ready app, and owns their ordered disposal. The layout creates the session promise during component initialisation, so the `{#await}` observes it from the first microtask. The fulfilled branch mounts `WhisperingUiSessionProvider`, which only publishes the ready session: typed `getWhisperingApp()` / `getWhisperingQueries()` context plus the session's query client. Boot retry is a full page reload; unmount/HMR aborts the acquisition, and the layout is the single owner of session disposal. Bun scripts import `@epicenter/whispering/app` and `@epicenter/whispering/app/bun`, then use the same product API: `await using app = await openWhisperingApp(createWhisperingBunDependencies({ dataDir }))`. The one `dataDir` roots all persistent Bun storage (`<dataDir>/device/<dataId>/store.sqlite3`, `<dataDir>/blobs/`).
+Voluntary departure checks recording recovery and refuses while capture or
+saving needs attention. Terminal retirement stops new recording admission,
+awaits admitted recording work, releases VAD, and disposes the UI before storage
+closes. Imports and retries join the same complete-work drain. Admitted audio
+still saves after UI admission closes, but no further inference or delivery
+starts. Account transport retirement remains immediate. Reload alone is not an awaited
+recording shutdown; native capture still requires explicit recovery.
 
-The `#platform/whispering` leaves are pure dependency bindings of the workspace runtime plus the platform's composed blob capability (`#platform/blobs`): the web build (`whispering.browser.ts`) selects the device or account browser runtime from the boot auth state (`whispering.browser-runtime.ts`); the Epicenter-hosted build (`whispering.tauri.ts`) uses the same-origin desktop workspace runtime, whose `open` performs an honest host acquisition handshake. The app's recordings namespace owns row/blob consistency: audio storage, upload/download/purge, the `uploadedAt` marker, and deletion of the online copy, device copy, and row as one workflow. A row's values and its `content` node both live in the one Yjs 14 database document; there is no SQLite projection beside it (ADR-0269).
+Saved transcription reads bytes through the same App that recorded them. Its
+operation captures the selected SDK client, model, and hints before that read.
+Connection discovery only suggests models; it never selects a destination.
+Custom endpoints must accept the workflow's OpenAI SDK request. Direct Deepgram
+and ElevenLabs protocols are unsupported; Mistral has no separate adapter.
 
 ## Service Layer - Pure Business Logic + Platform Abstraction
 
@@ -37,46 +47,19 @@ The service layer contains all business logic as **pure functions** with zero UI
 
 The key innovation is **build-time platform resolution** via Node-standard `#platform/*` subpath imports. Each platform-bound service lives in a folder with both implementations as sibling files plus a shared contract; the app's `package.json` `imports` map points each seam at the matching file per build condition:
 
-```
-src/lib/services/recorder/
-  index.browser.ts    Browser MediaRecorder APIs
-  index.tauri.ts      Tauri recorder plugin
-  types.ts            Shared contract both impls are annotated with
-```
+Storage and saved recording are selected together through `#platform/runtime`:
+the browser leaf selects `browser`, and the host leaf selects `epicenterHost`
+from App. `#platform/ai` independently selects inference transport and configuration.
+The saved-recording contract lives at `@epicenter/app/recorder`.
+The UI session composes `createWhisperingRecording(app, openedApp.recording)`
+once and exposes `app.recording`. The workflow captures one framework recording service. Buttons and the overlay read the workflow state; UI disposal releases
+the capture subscription. The opened
+App owns capture admission, draining, cancellation, and storage closure. Device configuration
+selects browser device IDs or native device names through its matching seam.
 
-```jsonc
-// package.json
-{
-  "imports": {
-    "#platform/recorder": {
-      "tauri": "./src/lib/services/recorder/index.tauri.ts",
-      "default": "./src/lib/services/recorder/index.browser.ts"
-    }
-  }
-}
-```
+This mechanism is scoped to `#platform/*` only; every other bare import resolves normally. `tsconfig.json` typechecks the default resolution and `tsconfig.epicenter-host.json` repeats the check with the condition the Epicenter build activates. Each impl is annotated with the shared contract (`export const x: Contract = ...`, not `satisfies`, so the concrete type stays hidden and the variants stay in lockstep).
 
-The Tauri build activates the `tauri` condition; the web build falls through to `default` (browser):
-
-```ts
-// vite.config.ts
-const isEpicenterHost = process.env.EPICENTER_HOST === '1';
-export default defineConfig(async () => ({
-  resolve: {
-    // The `...defaultClientConditions` spread is load-bearing: custom
-    // conditions REPLACE Vite's defaults rather than adding to them.
-    ...(isEpicenterHost && {
-      conditions: ['tauri', ...defaultClientConditions],
-    }),
-  },
-}));
-```
-
-Consumers (for example the services barrel `src/lib/services/index.ts`) import the bare specifier `from '#platform/recorder'` with **no platform branch at the call site**. Vite resolves `index.tauri.ts` on Tauri builds and `index.browser.ts` on web builds; the off-target file is never resolved, so it is physically absent from the bundle (a build-time guarantee, not Rollup tree-shaking). This makes the web bundle structurally unable to ship Tauri APIs and vice versa: a Tauri-only file imported by shared code fails the web build instead of shipping a broken runtime.
-
-This mechanism is scoped to `#platform/*` only; every other bare import resolves normally. The browser typecheck uses the default condition, and `tsconfig.desktop.json` repeats the check with the `epicenter-host` and `tauri` conditions the Epicenter build activates (ADR-0190). Each impl is annotated with the shared contract (`export const x: Contract = ...`, not `satisfies`, so the concrete type stays hidden and the variants stay in lockstep).
-
-Tauri-only exports (Whispering's `tauriOnly` namespace in `src/lib/tauri.tauri.ts`) are imported **directly** by `.tauri.ts` files (`import { tauriOnly } from '$lib/tauri.tauri'`), not through a `#platform/*` seam, since that seam is null on web. Shared code that only needs the platform boolean reaches it through `import { tauri } from '#platform/tauri'` and checks `if (tauri)`.
+Tauri-only exports (Whispering's `tauriOnly` namespace in `src/lib/tauri.tauri.ts`) are imported **directly** by `.tauri.ts` files (`import { tauriOnly } from '$lib/tauri.tauri'`), not through a `#platform/*` seam, which does not export it. Shared code reaches the namespace through `import { tauri } from '#platform/tauri'` and narrows with `if (tauri)`; the export is annotated `Tauri | null` to force that narrowing.
 
 Services are **testable** (just pass mock parameters), **reusable** (work identically anywhere via the shared contract in `types.ts`), and **maintainable** (no hidden runtime branches).
 
@@ -112,7 +95,7 @@ The query layer (`$lib/queries`) is where TanStack Query reactivity gets injecte
 The query layer's role has narrowed to things that don't fit in workspace rows:
 
 - **External APIs**: Transcription mutations (`queries.transcription.*`) around the transcription operations
-- **Microphone enumeration**: Async device list with loading states (`manualRecorder.enumerateDevices`). Recorder state itself lives in `$lib/state/manual-recorder.svelte.ts` and `$lib/state/vad-recorder.svelte.ts` as `$state`, not queries.
+- **Microphone enumeration**: Async device list with loading states (`app.recording.enumerateDevices`). Recorder state itself lives in `$lib/operations/recording.svelte.ts` and `$lib/state/vad-recorder.svelte.ts` as `$state`, not queries.
 - **Audio blob access**: Too large for workspace rows, still served via the blob store (`queries.audio.availability`, `queries.download.downloadRecording`)
 
 This design keeps services pure and platform-agnostic while giving the UI immediate reactivity for domain data and cached access for external resources.

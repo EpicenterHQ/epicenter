@@ -1,207 +1,442 @@
 # @epicenter/app
 
-The handle an application reaches its capabilities through: its Epicenter Data,
-its own SQLite files, and its secrets. AGPL-3.0-or-later.
+An opened App owns this application's device state and its signed-in account
+stores for one page lifetime. Whoever opens it stops product work and awaits
+`app.close()` before replacing the account. Screens borrow a store or capability;
+the page coordinates departure.
 
-Every capability is scoped by the application's id, and the application states
-that id once. A store's address carries the opening application (ADR-0324), and
-the handle supplies it.
-
-`apps/local-mail` is the app that uses this handle today, with no definition and
-no account: its whole surface is `sqlite` and `secrets`.
-
-The constructor is `createEpicenter`, one of it, at the root. It is not
-`createEpicenterClient`, which is the HTTP client in `packages/client` and a
-different concern with a different lifetime.
-
-## The runtime is the binding's import path
-
-There is one `createEpicenter` and it serves every build. What varies by runtime
-is a Bun-owned file and a keychain, so that is what the runtime subpaths export:
-a binding, which an application selects through its own `#platform/binding` seam
-and composes in one file.
+The captured account scopes local storage as well as synchronized stores.
+`open()` and `open(undefined)` select a separate `no-account` namespace.
+Signing in never adopts that namespace; returning to an account restores its
+own device data. Device storage stays local even when it belongs to an account.
+In apps that support signed-out use, sign-out returns to the no-account
+workspace, including recordings and audio created there before sign-in. That
+workspace is shared by everyone using the app signed out in the same profile.
+The return type preserves the argument: `open(account)` with a definite Account
+has a definite `app.account`; opening without one gives `account: undefined`.
+A union argument retains the union. After `if (app.account)`, callers can pass
+that scope to components requiring an account. This checks the captured
+identity, not network reachability or authorization for a particular request.
 
 ```ts
-// src/lib/platform/binding.browser.ts
-import type { EpicenterBindingFactory } from '@epicenter/app';
-import { createBrowserBinding } from '@epicenter/app/browser';
+import { defineApp } from '@epicenter/app';
+import { defineTable, field } from '@epicenter/data/definition';
 
-export const binding: EpicenterBindingFactory = createBrowserBinding();
+const application = defineApp({
+ id: 'so.epicenter.notes',
+ title: 'Notes',
+ kv: { language: field.string() },
+ tables: { notes: defineTable({ title: field.string() }) },
+});
+const app = application.open(account);
+try {
+ const result = await app.ready;
+ if (result.error !== null) throw result.error;
+ // Device state always exists; account presence follows the opening argument.
+ app.device.tables;
+ app.device.sqlite;
+ app.account?.personal.tables;
+ app.account?.shared?.tables;
+} finally {
+ await app.close();
+}
 ```
+
+The declaration exposes `id`, `title`, `kv`, and `tables` without opening
+storage or capturing an Account. Schema tools, artifact import/export, and
+`openMemory` accept that same declaration. Its tables describe fields; live
+rows belong to `app.device`, `app.account.personal`, or `app.account.shared`.
+The one `id` names both the application and its data. Lower-level consumers
+can still use `defineData` from `@epicenter/data/definition` without an App.
+Runtime and AI overrides stay in the opener's closure, outside the schema.
+
+The package selects SQLite, secrets, blobs, and recording together for the build.
+Browser recording publishes into IndexedDB. Host recording publishes into the
+same app directory served by the host's blob API. The complete `browser` runtime
+is exported from `@epicenter/app/browser`, and `epicenterHost` from
+`@epicenter/app/epicenter-host`. An explicit runtime replaces all four capabilities.
+Custom runtimes must publish recordings into the blob store they expose;
+TypeScript cannot prove compatibility. ADR-0403 proposes replacing build
+conditions with runtime platform selection; that separate change is unbuilt.
+An independent `ai` binding replaces all default AI configuration.
+The text clipboard is not part of any runtime: `@epicenter/app/clipboard` is a
+standalone platform module, described under [Clipboard](#clipboard).
+Custom AI configuration uses one account-scoped catalog across applications
+in the same profile/origin. Application declarations do not choose its storage key.
+
+The scope API implements the opener portion of ADR-0392. ADR-0391's removal of
+runtime overrides and ADR-0396's connection protocol remain separate proposals.
+The current declaration supplies the same data definition to each store;
+ADR-0406 rejects separate device declarations. The remaining preferences
+migration is unbuilt.
+
+`app.account?.connection` and `app.device.connections.runtime` are fixed nullable SDK client capabilities.
+`app.device.connections.custom` owns device-local custom endpoints, optional bearer keys,
+and their clients. A binding without a custom store exposes `connections: null`.
 
 ```ts
-// src/lib/epicenter.ts, one file for every build
-import { createEpicenter } from '@epicenter/app';
-import { binding } from '#platform/binding';
-
-export const epicenter = createEpicenter({ appId, definition, account, binding });
+if (app.device.connections.custom) {
+ const id = await app.device.connections.custom.add({
+  name: 'My server',
+  baseUrl: 'https://inference.example/v1',
+  apiKey: providerKey,
+  models: ['chosen-model'],
+ });
+ await app.device.connections.custom.get(id)!.client.chat.completions.create({
+  model: 'chosen-model',
+  messages,
+ });
+}
 ```
 
-There is no runtime sniff here and there must not be one: the desktop build runs
-in a WebView, so `typeof window` cannot tell it apart from a browser tab. An
-application selects its leaf through the `#platform/*` build condition the
-repository already uses for the auth seam; a build that forgot to fails to
-resolve rather than quietly running the wrong owner.
+Write the full `app.device.connections.custom` path at call sites so the capability's owner
+stays visible. Do not alias the namespace to a local `connections` variable.
 
-| Import | What it gives you |
-| --- | --- |
-| `@epicenter/app` | `createEpicenter`, the types, the errors, and the name mints |
-| `@epicenter/app/browser` | `createBrowserBinding`, over this origin's OPFS and tab memory |
-| `@epicenter/app/desktop` | `createDesktopBinding`, over the trusted owner's files and the OS keychain |
-| `@epicenter/app/protocol` | the request and response shapes both ends of the desktop seam read |
+`getAll()` and `get(id)` return detached saved fields plus the cached SDK client.
+`subscribe(listener)` immediately supplies the current ordered snapshot and then
+supplies each committed update; it returns an unsubscribe function. Reads use the
+local snapshot after `app.ready`. They do not request model discovery.
 
-| Binding | `sqlite` | `secrets` |
+```ts
+const stop = app.device.connections.custom!.subscribe((entries) => {
+ renderConnections(entries);
+});
+await app.device.connections.custom!.update(id, { name: 'Renamed server' });
+stop();
+```
+
+`add`, `update`, `remove`, and `reorder` return promises. Await them before
+selecting a new connection or showing success. Rename, reorder, and model-list
+edits preserve clients; endpoint and credential changes retire them. Desktop
+explicit key assignment always retires the old client, including assigning the
+same value. Omit `apiKey` from an update to retain it; supply `''` to remove it.
+
+Browser entries may contain the explicit key. Desktop entries expose
+`hasApiKey` and omit the key; the host applies it to requests. Never sync, log,
+or serialize a client-bearing entry. `preview({ baseUrl, apiKey? })` creates an
+unsaved client for `models.list()` discovery. All clients and collection methods
+obey App readiness and retirement. App close drains their requests. A client
+does not promise reachability or support for every SDK endpoint.
+
+Applications own workflow selections. Whispering and Vocab use the plain
+TypeScript selection owner and exact matcher in
+`@epicenter/app-shell/inference-selections`; Svelte only observes those choices.
+Missing connections, changed accounts, and mismatched models never select a
+replacement destination. See the [AI boundary decision](../../docs/adr/0365-ai-owns-inference-access-and-applications-own-workflow-selection.md).
+
+The default AI binding follows the package's build condition (a runtime check under ADR-0403; unbuilt):
+
+| Environment | Connection persistence | Credentials |
 | --- | --- | --- |
-| browser | SQLite WASM over this origin's OPFS | tab memory, forgotten on close |
-| desktop | the trusted owner, over `/api/app-storage` | the OS keychain |
-| host | the Bun process's own connection | the OS keychain, directly |
+| Standalone browser | `epicenter/ai/<owner>.app-ai-connections` in origin-local `localStorage` | Optional key in that local record |
+| `epicenter-host` | `ai/<owner>/connections.json` under the host's profile data directory, shared across that account's apps | Account-scoped OS keychain, reached through the host broker |
 
-No binding carries the store. It is client-owned in every runtime (ADR-0226,
-ADR-0227), so `data` is composed above the seam rather than through it.
+`<owner>` is `no-account` or `accounts/<encoded-authority>/<encoded-principal>`.
+Identity components use UTF-8 hex to preserve case on native filesystems.
+Desktop sharing stays on one profile and does not sync between devices. The host
+serializes mutations and sends committed snapshots over SSE to open app windows.
+Browser mutations use a Web Lock, reread current storage before writing, and
+notify other owners in the same document or origin. Workflow selections remain
+product- and owner-local under `${settingsKey}/${owner}.app-ai-selections` in both environments.
+Switching libraries retains this configuration while opening new App clients.
+An explicit `ai` binding replaces the default. The host build's default already
+supplies native file inference as `app.device.connections.runtime`, so no application composes
+it; the browser default has no runtime transport.
 
-**A binding is a function of `appId`, not a value beside one.** The handle
-resolves the id and hands it over, so the files and the keychain cannot be
-scoped to a different application than the store. That mismatch is the pair
-ADR-0339 is named for, and this is what makes it unrepresentable rather than
-checked.
+Whispering and Vocab open workflow selections with the same captured account as
+the App. No-account, different principals, and different authorities have separate
+choices. Returning to an owner restores that owner's selections and catalog.
 
-The Bun host is the third implementation of `EpicenterBinding`
-(`apps/epicenter/src/app-binding.ts`), so an application's background half runs
-the same code against the same handle (ADR-0323).
+Old product-scoped and profile-wide catalogs, selections, and provider settings
+remain untouched and unread. Opening does not migrate them, including when old
+values are malformed. Connect providers explicitly in the intended account.
+Whispering uses only the selected App client; its former Deepgram, ElevenLabs,
+and Mistral adapters are removed. Custom endpoints must accept the workflow's
+OpenAI SDK requests. There is no bespoke-protocol fallback or provider registry.
 
-## The surface
+The [native catalog acceptance](scripts/shared-ai-catalog-native/README.md)
+exercises two installed test apps through real macOS WebViews and the Rust
+keychain bridge. It verifies cross-app updates, process restart, independent
+selections, SSE reconnect, and cancellation on App, window, and host closure.
+Its optional Whispering mode also verifies the desktop picker, imported audio,
+real transcription, and the saved result after document reload.
 
-```ts
-const epicenter = createEpicenter({ appId, definition, account, binding });
+`defineApp` is inert. `application.open(account)` returns an App
+synchronously and begins acquisition. `app.ready` resolves when every opened
+store and the inference catalog are ready, or returns an opening failure.
+`open()` or `open(undefined)` performs no authority request or sync dial.
 
-epicenter.appId              // string, frozen
-epicenter.sqlite.open(name)  // Promise<Result<AppSqliteDatabase, AppError>>
-epicenter.sqlite.delete(name)// Promise<Result<void, AppError>>
-epicenter.secrets            // SecretStore
-epicenter.account            // the AuthClient the application passed in
-epicenter.state              // EpicenterState<TDefinition>, read-only
-epicenter.open()             // Promise<Result<ReplicaData<TDefinition>, DataOpenError>>
-epicenter.onStateChange(fn)  // () => void, the unsubscribe
-epicenter.close()            // Promise<void>
-epicenter.eraseReplica()     // Promise<Result<void, StoreError>>
-```
+`app.device` always exists. `app.account` is undefined when opened without an account. Otherwise it
+contains credential-free `identity`, `personal`, nullable `shared`, and nullable
+inference `connection`. Shared is available when the Account declares `supportsShared`, including named
+people on a self-hosted server. Each store has its own tables, KV, persistence, and sync status.
+There is no flat `app.tables`, library discriminator, or alternate opener.
 
-```ts
-type EpicenterState<TDefinition> =
-	| { status: 'closed' }
-	| { status: 'opening' }
-	| { status: 'ready'; data: ReplicaData<TDefinition> }
-	| { status: 'failed'; error: DataOpenError };
-```
+The shared `AppBoot` render gate accepts `ready={app?.ready}`. It handles loading
+and opening failures before rendering children. Imperative jobs await the same
+promise and handle its Result once. Shared components take the store or
+capability they use: `AppStore<T>`, `app.device.connections`, or
+`app.account?.connection`.
 
-**`definition` and `account` arrive together or not at all.** An authority mints
-every generation (ADR-0336), so there is no accountless store and no store
-without sync. Pass neither and the handle has no `data` and no `account`, in the
-type as well as at runtime; pass both and it has the superset.
+The document, table handles, and KV handle exist before readiness. Their actual
+operations reject premature or closed use, including methods retained by a
+consumer. Hydration fills the same document; no forwarding facade replaces it.
+Invalid declarations throw before I/O. Library addresses are validated at the
+claim and storage boundaries. Auth constructs the immutable Account handle.
 
-**`appId` is explicit.** It normally matches `definition.id`, but the opening
-application is an independent part of the store address. Keeping it explicit
-means every handle states the scope it opens, including when it opens another
-application's data.
+The App constructs each resource once and exposes its actual operation object.
+The resource owner keeps its cleanup controls; consumers receive SQL, secret,
+blob, and recording operations without a separate close obligation. App gates public operations on combined readiness and lifetime. Each data
+engine owns hydration, persistence, and sync for its document. Retained methods reject premature or closed use;
+ordinary storage and transfer failures remain Results.
 
-**Construction is inert, and `open` is the only thing that acquires.**
-`createEpicenter` claims no Web Lock, touches no IndexedDB, and makes no round
-trip. `open` does all three, plus the sync dial and the flush-on-hide listener,
-and an application calls it once from its root after authentication is ready.
-`data` used to be a lazy getter whose READ started the open, which put
-substantial asynchronous resource acquisition behind property syntax: an
-application could not say when it happened, a surface could not retry it, and a
-`{ ...epicenter }` anywhere claimed a lock.
+## Blobs
 
-`open` resolves a `Result`, and the error is the store's own rather than an
-`AppError` wrapping it: a boot gate switches on the failure's `name` to choose
-between a retry and an erase. Two variants are the session's rather than the
-store's. `DataSessionError.SessionClosed` answers a caller whose open was closed
-underneath, instead of handing back `Ok` over a store whose every verb throws;
-`DataSessionError.OpenerThrew` contains an opener that rejected, which would
-otherwise leave the session in `opening` with no way back.
+An immutable blob has one complete, extension-bearing key. The same key names
+its desktop file, browser record, and row reference. Successful Stop publishes
+that key before the application creates a recording row. The
+[blob package](../blobs/README.md) owns storage and format interpretation.
 
-**Repetition is deterministic, and each case is a different answer.** While
-`opening`, callers join the one attempt. While `ready`, `open` resolves the
-open store and acquires nothing. While `failed`, it RETRIES, which is what
-makes "close the other window, then try again" a repair a person can perform
-without reloading the document. After a `close`, it opens again.
-
-**`close` is idempotent and returns the session to `closed`.** It is not
-terminal: terminal was a property of the memo, and preserving it would need a
-fifth state that only a hot reload and a test could observe. A close that lands
-mid-open ends what that open acquired and publishes nothing for it.
-
-**`state.data` is the typed application data and nothing else.** It carries no
-`open`, no `close`, no `erase`, and no disposal, because the lock, the socket,
-and the listener were acquired together and are released together (ADR-0340).
-A component takes `state.data`; the lifetime stays with whoever built the
-handle.
-
-Every method answers a `Result`. Runtime differences are typed failures, never
-branches: a browser build has no keychain, and the application handles that
-because the type obliges it to.
-
-What throws is what a build got wrong: `createEpicenter` on an application id
-this platform cannot file, and the two name mints below. Everything that can
-fail at runtime returns.
-
-### The SQLite handle
+Every App exposes `app.blobs.local`. `app.blobs.remote` is null without an
+account and exposes remote hosting when signed in. Keep these full paths at
+call sites. Bytes have independent lifetimes from rows and from each other.
+There are no attachment fields, transfer queues, or automatic downloads.
 
 ```ts
-const mail = await epicenter.sqlite.open(databaseName('mail'));
+const added = await app.blobs.local.add(file);
+if (added.error) return showError(added.error);
+app.device.tables.recordings.create({ audioBlobId: added.data, audioUrl: null });
 
-mail.run(sql, parameters?)     // Promise<Result<{ changes: number }, AppError>>
-mail.all<TRow>(sql, params?)   // Promise<Result<TRow[], AppError>>
-mail.batch(statements)         // Promise<Result<{ changes: number[] }, AppError>>
+// Later, after an explicit Upload action while signed in:
+if (!app.blobs.remote) return;
+const uploaded = await app.blobs.remote.addLocal(added.data);
+if (uploaded.error) return showError(uploaded.error);
+// Save uploaded.data, the durable remote URL, in the row.
 ```
 
-All, run, and batch. There is no `transaction`, so `batch` is how several
-statements become one commit, and no `close`: `sqlite.delete(name)` is the only
-thing that ends a handle. The handle takes no schema and runs no migration.
+Local access supports `add`, `get`, `open`, `stat`, `list`, and `delete`.
+`list({ cursor?, limit? })` returns metadata and an optional `nextCursor`;
+it enumerates committed IDs without loading their bodies. Its cursor is an
+exclusive BlobId in lexical order, with a default page size of 100 and a maximum
+of 1,000. Concurrent writes do not make enumeration a snapshot.
 
-### Secrets
+Remote access supports `add(Blob)`, `addLocal(blobId)`, `get(url)`, `open(url)`,
+and `delete(url)`. Each upload creates a new remote object, initially limited
+to 25 MiB. A native `addLocal` sends a descriptor through the captured account
+broker; the host reads and uploads its file without putting the audio in the
+WebView. It does not create a synchronization obligation.
+
+`get` returns bytes. `open` returns `{ url, [Symbol.dispose]() }` for display;
+release that source when its image, video, or audio player is done. Store the
+URL returned by remote `add`, never a temporary display URL. The remote locator
+includes server, app, authenticated owner, and object ID. Reads require that
+account; sharing a row does not grant another account access to its audio.
+
+Browser bytes live in `epicenter/<appId>/device/<owner>/blobs` within the browser origin/profile.
+Desktop bytes are ordinary files at `<dataRoot>/apps/<appId>/device/<owner>/blobs/<blobId>`.
+Browser records contain `{ id, bytes, size }`; an index supports listing and
+size checks without reading the audio. All libraries in one captured App share
+this local namespace. Changing accounts selects another namespace; signing out
+does not erase the previous account's bytes. Remote storage is scoped
+by account and app. The user confirmed zero users and no existing data for the
+complete-key cutover. No migration, reset, or fallback reader runs.
+
+Deleting a row leaves its local bytes and uploaded objects intact. An application
+may explicitly delete a known local key or remote object when its product
+workflow chooses to; storage never infers row ownership or performs automatic
+cleanup.
+
+Tools without a data library can use `createLocalBlobs({ appId, account })` and
+`createRemoteBlobs({ appId, account })` from `@epicenter/app/blobs`. These browser/host constructors select
+the same platform storage as the App and expose `close()` for their independent
+request and display lifetimes. Bun scripts can use `@epicenter/blobs/bun` over
+the canonical directory directly. These tools do not open Yjs documents:
 
 ```ts
-epicenter.secrets.put(label, value)  // Promise<Result<void, SecretError>>
-epicenter.secrets.get(label)         // Promise<Result<string | null, SecretError>>
-epicenter.secrets.delete(label)      // Promise<Result<void, SecretError>>
+import { join } from 'node:path';
+import { createBunBlobStore } from '@epicenter/blobs/bun';
+
+// The CLI receives the chosen profile's dataRoot explicitly.
+const storage = createBunBlobStore({
+ directory: join(dataRoot, 'apps', appId, 'device', 'no-account', 'blobs'),
+});
+const page = await storage.list({ limit: 100 });
 ```
 
-Three verbs and no enumeration, and no way to ask whether this runtime keeps a
-secret across a session: a browser build answers `null` from `get` after a
-reload, which is the same answer a new desktop device gives.
+The standalone browser/host constructors do not discover desktop profiles from
+a Bun process.
 
-## Names are checked where they are minted
+Concurrent `close()` calls return one completion promise. A failed cache invalidation
+permits another explicit close attempt; failed physical release stays terminal. Close rejects new work
+immediately, cancels owned AI requests, settles admitted recording and storage
+work, and releases playback sources. The document stops sync and attempts its
+final local persistence flush. SQL work drains even if another cleanup fails.
+App releases its SQL lifetime and library claim only after dependent resources
+have released successfully; failed release retains the claim.
 
-`DatabaseName` and `SecretLabel` are branded, so the check happens once at the
-name rather than once per call:
+Close discards unresolved capture and temporary native output. Published library
+files survive. Finish and save wanted audio while
+the App is still usable. Close never signs out,
+navigates, deletes credentials, or erases the library. It preserves the store's
+existing persistence failure reporting; completed cleanup does not prove every
+edit reached durable storage or the server.
+
+The App cancels remote blob requests on closure and drains admitted work before
+releasing ownership. An interrupted upload may have committed a remote orphan.
+Raw Yjs content is borrowed: stop editor bindings before
+closing its owner. App workflows spanning multiple awaited calls must also handle
+closure between those calls.
+
+App retains the immutable Account supplied by auth. Same-owner credential
+refresh preserves that handle. Sign-out or replacement ends its transport;
+departure quiesces UI and closes App without erasing data.
+
+Library retirement is different: the server has replaced a data generation.
+The affected store fences and invalidates its cache. App stops all sibling sync
+and refuses further public operations immediately. `app.libraryReplaced` notifies the page without exposing cache operations.
+Departure quiesces UI and calls `app.close()`. The store owns invalidation and
+completes it before releasing storage. Failed invalidation retains ownership;
+`app.canRetryClose` permits another explicit `close()` attempt. Departure also
+permits retry when UI cleanup failed, and never closes storage before that
+cleanup succeeds.
+
+Library claims validate and serialize only the account's addressing fields.
+Browser acquisition receives one account and library and derives both the local
+cache address and sync routes from them. It cannot pair one account's cache
+with another account's transport.
+
+`app.device.sqlite.open(name)` and `delete(name)` address a file by app ID,
+captured account, and database name. Desktop files live at
+`<dataRoot>/apps/<appId>/device/<owner>/sqlite/<name>.sqlite`; browser files use
+the serialized `[appId, owner, name]` tuple in a separate OPFS pool for each
+app/owner. The first SQL open or delete acquires the SQL lifetime; App readiness
+does not start a SQLite worker or native socket. Data-library claims remain
+separate, so a second App for the same app/owner is still refused.
+
+Browser close drains admitted work, closes every connection, then pauses that
+owner's pool before releasing its claim. Other owners can keep using SQLite in
+the same page or another window. Returning to a closed owner reactivates its
+pool without deleting files. A failed physical close or pool release is terminal
+and retains ownership; repeating close returns the same failure. Failed pool
+activation can retry on the next SQL operation. Failed lifetime acquisition
+requires closing the rejected handle and constructing a fresh one.
+
+Pool capacity includes a journal slot per named database, including transactions
+held across calls. It is not an exclusive claim or an unlimited budget for
+SQL-created attached databases and temporary files. The installed SQLite build
+defaults to memory-backed temporary storage. Prefer `batch()` for transactions
+that should complete in one operation.
+
+The per-owner pool layout is a clean break. Files in the old origin-wide
+`.epicenter` pool remain untouched and are not opened or adopted automatically.
+Row stores, blobs, and recordings keep their existing locations.
+
+`app.device.secrets.put(label, value)`, `get(label)`, and `delete(label)` address
+credentials by app ID, captured account, and label. Browser secrets remain in document memory;
+desktop secrets live in the keychain. Closing App preserves values. Secrets
+never enter synchronized rows. SQLite, secrets, device tables, blobs, and native
+recording use the same captured owner. Earlier storage is neither merged nor
+deleted; reconnect providers in the intended account namespace.
+
+`app.device.recording.start({})` acquires disposable capture. Successful Stop saves
+locally and returns a blob ID, duration, and byte length; it creates no row.
+See [Saved recordings](#saved-recordings) for ordering.
+
+Opening is cache-first. A device with a local generation can open it offline;
+a device without a cached generation must reach the current authority to atomically
+select or download the canonical generation. Personal and Shared caches include
+the authenticated actor, so account replacement cannot replay another actor’s writes. The app owns persistence, sync, and teardown.
+
+Account opening requires `authorityId`. The package selects the platform SQLite
+owner by default; exceptional runtimes can compose one explicitly. SQL-only
+consumers can use the device package without opening a document.
+The remaining target contract
+and future whole-library removal are recorded in
+[ADR-0355](../../docs/adr/0355-local-and-account-sessions-share-the-application-data-api.md).
+
+Focused tests cover deferred acquisition, retained operations, and resource
+release. The saved-recording smoke captures synthetic microphone input
+in Chromium, plays it offline, and verifies identical bytes after App
+close/reopen. This does not establish browser-process capture recovery,
+physical microphone behavior, or physical device acceptance.
+
+## Clipboard
 
 ```ts
-const LOCAL = databaseName('local');            // throws: a constant in a build
-const filed = isSecretLabel(sub) ? sub : null;  // narrows: a value that arrived
+import { clipboard } from '@epicenter/app/clipboard';
+
+const read = await clipboard.readText(); // Result<string | null, ClipboardError>
+const wrote = await clipboard.writeText(text); // Result<void, ClipboardError>
 ```
 
-`databaseName` and `secretLabel` throw, because a name reaching them is a
-constant and a wrong one is a bug. A name derived from something that arrived at
-runtime is narrowed with `isDatabaseName` or `isSecretLabel` where it is born, so
-the application can say what the person did rather than what the grammar is.
+`clipboard` is a platform module, not an App capability. A clipboard captures no
+application, library, or account, and it owns no resource, so nothing on it
+needs `app.ready` or ends at `app.close()`. A boot-failure screen can copy
+diagnostics before any App exists, and a copy button keeps working while a page
+departs. Import it directly; do not thread an App handle to reach it.
 
-The desktop owner validates again on arrival: a brand is a compile-time fact, and
-a request crossing the sidecar carries no types. The browser leaf has no second
-line, because there is no owner on the other side of it; what a bad name reaches
-there is OPFS, whose names are flat, so the blast radius of a JS caller casting
-past the brand is one oddly named file in this origin.
+The package selects the implementation for the build; ADR-0403 replaces the
+seam with an `isTauri()` check in the public file (unbuilt). The default leaf uses the
+page's Clipboard API, which requires document focus and the browser's clipboard
+grant. The `epicenter-host` leaf uses the host's clipboard plugin, which also
+works while the window is unfocused, as a global shortcut needs. Today only the
+`app-*` and `whispering` windows hold the plugin's read-text and write-text
+permissions; ADR-0402 grants every native verb to every window (unbuilt).
 
-`@epicenter/app/protocol` owns the grammar both ends read, plus
-`APP_STORAGE_PATH` and the message types. The application id reuses `isAppId`
-from `@epicenter/constants/app-id`.
+Text only. `readText()` returns `null` for an empty clipboard. Platform failures
+return `ClipboardRead` or `ClipboardWrite` errors with the platform cause.
+Pasting into another application's cursor, preserving rich pasteboard contents,
+and synthetic keystrokes are not clipboard operations: they need accessibility
+grants and foreground focus, and they belong to the product that delivers text,
+as Whispering's text service does.
 
-## Why it is shaped this way
+## Saved recordings
 
-This README states the surface as it is today. The decisions behind it are
-ADR-0339 (one epicenter, and an account is what adds a store), ADR-0316 (one
-scoped handle), ADR-0312 (all, run, and batch), ADR-0310 (secrets as labels),
-ADR-0321 (named files an application opens and deletes), and ADR-0181 (runtime
-differences as typed failures). Read those for the reasoning, not for the
-signatures.
+Stop is the save boundary:
+
+```ts
+const started = await app.device.recording.start({});
+if (started.error) return showError(started.error);
+const recording = started.data;
+const stopped = await recording.stop();
+if (stopped.error) return showError(stopped.error);
+app.device.tables.recordings.create({
+ audioBlobId: stopped.data.blobId,
+ audioUrl: null,
+});
+const source = await app.blobs.local.open(stopped.data.blobId);
+// Release source.data with Symbol.dispose when playback ends.
+```
+
+`@epicenter/app/recorder` owns capture sessions with an immutable ID and device
+information. The live capture ID and saved blob key have separate roles.
+Stop publishes into the same app-local store used by
+`app.blobs.local`. Native WAV capture writes progressively; browser capture
+publishes its completed Blob under a key selected from its actual output format.
+The returned key includes its extension and remains fixed through save retries.
+No finished-file token crosses the public API.
+A failed row creation leaves saved audio discoverable through local `list()`.
+
+Cancel removes unfinished capture. It cannot retract a committed blob.
+`onEnded` reports unexpected termination, including to a late subscriber;
+the application decides whether to stop or cancel. `current()` inspects this
+document's held session, without recovering capture from another document.
+Reload and host restart may discard unfinished capture.
+
+App close cancels unfinished capture and drains an already-admitted Stop using
+its private storage writer. Public blob access is already revoked at that point.
+Applications finish wanted capture before deliberate closure. The recorder
+owns neither upload nor inference policy.
+
+Text-only dictation should own temporary capture and release it with its session;
+it need not publish saved recordings. There is no dictation capability on the
+App: an application composes capture with its selected connection's
+`client.audio.transcriptions.create` SDK operation. The browser stream/VAD
+primitives remain independent of this saved-artifact API.
+
+Run `bun run test` for lifecycle checks and `bun run smoke:recording` for Chromium
+capture, storage, decoding, metering, and cancellation with a synthetic microphone.
+The test command isolates each file's module mocks. For combined App and app-shell
+checks from the repository root, use `bun test --isolate packages/app`.
+
+License: AGPL-3.0-or-later.

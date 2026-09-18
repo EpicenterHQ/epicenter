@@ -309,22 +309,21 @@ has rather than a privileged local one.
 
 ---
 
-## Blobs, which did NOT change
+## Blobs have independent local and remote lifetimes
 
-Worth stating because the host rule sounds like it should have.
+Rows store ordinary blob keys or URLs. The blob store does not know which rows
+reference them. Keys are minted opaque identities, not content hashes.
 
-`packages/blobs` has no `@epicenter/*` import at all: the row layer only ever
-stored an opaque id, and the blob layer never knew a row existed. A blob is
-content-addressed and write-once, so it cannot diverge, so it creates none of
-the failure modes the host rule refuses.
+`app.blobs.local` saves immutable bytes in the app's device-local namespace.
+`app.blobs.remote` exposes explicit account-scoped hosting. Upload creates a
+remote object and returns its URL; it does not move or delete the local object.
+The application decides whether to store that URL in a row. Row synchronization
+never schedules byte transfers, and deleting a row does not delete either object.
 
-Its durable home is the object store. The host holds local bytes, some uploaded
-and some queued, and the row says which. **When one uploads is the
-application's policy** — Epicenter supplies the verbs and has no opinion about
-batching, Wi-Fi or retention.
-
-The asymmetry to know: an un-uploaded blob exists on exactly one machine. The
-blob plane does not have the row plane's guarantees.
+Local-only bytes remain on that device. Materialized Markdown preserves their
+keys and remote URLs as values, without copying or fetching the bytes. Copying
+or zipping that folder does not back up its referenced audio. See ADR-0393,
+ADR-0394, and ADR-0395 for references, materialization, and content recovery.
 
 ---
 

@@ -1,8 +1,8 @@
 # 0223. A page holds the store, and only three small relations have to survive
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-08-08
-  this branch. Reconcile at merge time (`docs/adr/README.md`).
+- **Superseded by:** [ADR-0238](0238-the-live-document-is-the-truth-while-open-and-persistence-is-a-visible-debt.md), which deletes the in-memory SQLite file this record's store committed into and makes IndexedDB own the durable facts directly, so the mirroring worker, the OPFS file it held, and the three relations that had to survive it all go with it. A page still holds the store, restated by [ADR-0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md) and implemented in `packages/data/src/store/browser.ts`; the durability alarm became the visible persistence debt of ADR-0238 and then one health bit ([ADR-0298](0298-the-authority-is-byte-blind-and-a-cursor-is-a-log-position.md)).
 - **Relates:** [ADR-0215](0215-an-application-is-one-document-and-a-row-owns-a-nested-container.md)
   (the synchronous surface this preserves),
   [ADR-0214](0214-one-sqlite-file-holds-the-update-log-and-the-projection-and-history-lives-outside-the-crdt.md)

@@ -10,6 +10,7 @@
 
 pub const COMMANDS: &[&str] = &[
     "launch_application",
+    "finish_application_close",
     "write_text",
     "simulate_enter_keystroke",
     "simulate_copy_keystroke",
@@ -17,9 +18,14 @@ pub const COMMANDS: &[&str] = &[
     "start_recording",
     "stop_recording",
     "cancel_recording",
+    "register_recording_session",
     "current_recording",
+    "resolve_recording_start",
+    "close_recording_session",
     "encode_recording_for_upload",
     "transcribe_recording",
+    "transcribe_audio_bytes",
+    "list_inference_models",
     "prewarm_model",
     "open_accessibility_settings",
     "request_accessibility_permission",

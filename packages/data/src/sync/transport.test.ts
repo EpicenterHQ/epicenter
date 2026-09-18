@@ -26,10 +26,10 @@ import {
 } from '@epicenter/data/definition';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import * as Y from '@y/y';
-import type { Result } from 'wellcrafted/result';
+import { expectOk } from 'wellcrafted/testing';
 import {
-	createAccountStore,
 	type DeclaredData,
+	openAccountStore,
 	syncEngineOf,
 	type TableHandle,
 	type UntypedDeclaredData,
@@ -59,22 +59,6 @@ const database = defineData({
 	},
 });
 
-function expectOk<TValue, TError>(
-	result: Result<TValue, TError> | TValue,
-): TValue {
-	if (
-		typeof result === 'object' &&
-		result !== null &&
-		'data' in result &&
-		'error' in result
-	) {
-		const outcome = result as Result<TValue, TError>;
-		if (outcome.error !== null) throw outcome.error;
-		return outcome.data as TValue;
-	}
-	return result as TValue;
-}
-
 /** This replica's whole state, as a snapshot carries it. */
 function snapshotOf(replica: { data: Replica['data'] }): Uint8Array {
 	return syncEngineOf(replica.data).encodeSnapshot();
@@ -88,7 +72,7 @@ function editorOf(replica: Replica, rowId: string) {
 }
 
 /**
- * One table on an untyped binding.
+ * One table's rows on an untyped binding.
  *
  * An untyped view holds a record of tables, so every one reads as possibly
  * absent. Where a
@@ -96,9 +80,9 @@ function editorOf(replica: Replica, rowId: string) {
  * deliberately; everywhere else the database declares it, and this says so once.
  */
 function tableOf(
-	view: { tables: Readonly<Record<string, TableHandle>> },
+	view: { tables: Readonly<Record<string, Pick<TableHandle, 'rows'>>> },
 	name: string,
-): TableHandle {
+): Pick<TableHandle, 'rows'> {
 	const handle = view.tables[name];
 	if (handle === undefined)
 		throw new Error(`this database declares no '${name}'`);
@@ -108,8 +92,8 @@ function tableOf(
 /**
  * A network that delivers in order, and only when told to.
  *
- * Nothing is asynchronous, so a test can hold messages in the wire and assert
- * on what each side believes while they are still there.
+ * Delivery is explicit, so a test can hold messages and inspect either side.
+ * Each delivered frame yields to persistence before the next frame runs.
  */
 function createWire() {
 	const queue: (() => void)[] = [];
@@ -118,12 +102,14 @@ function createWire() {
 			queue.push(task);
 		},
 		/** Deliver everything, including whatever delivery itself produces. */
-		settle() {
+		async settle() {
+			await new Promise<void>((resolve) => setImmediate(resolve));
 			let guard = 0;
 			while (queue.length > 0) {
 				guard += 1;
 				if (guard > 10_000) throw new Error('the wire never settled');
 				(queue.shift() as () => void)();
+				await new Promise<void>((resolve) => setImmediate(resolve));
 			}
 		},
 		/**
@@ -135,9 +121,10 @@ function createWire() {
 		 * schedules are "everything arrived" and "nothing did", and a partial
 		 * transfer is neither.
 		 */
-		step(count = 1) {
+		async step(count = 1) {
 			for (let index = 0; index < count && queue.length > 0; index += 1) {
 				(queue.shift() as () => void)();
+				await new Promise<void>((resolve) => setImmediate(resolve));
 			}
 		},
 		inFlight: () => queue.length,
@@ -146,7 +133,7 @@ function createWire() {
 
 type Wire = ReturnType<typeof createWire>;
 
-function openReplica(
+async function openReplica(
 	label: string,
 	hub: ReturnType<typeof createSyncHub>,
 	wire: Wire,
@@ -162,8 +149,8 @@ function openReplica(
 	 */
 	through: DataDefinition = database,
 	sqlite = createBunSqliteAdapter(new Database(':memory:')),
-): Replica {
-	const data = createAccountStore({ definition: through, sqlite });
+): Promise<Replica> {
+	const data = await openAccountStore({ definition: through, sqlite });
 
 	// One runtime, two static views of it: the typed view costs nothing and is
 	// honest for every replica running the default database; a replica running
@@ -233,7 +220,7 @@ function openReplica(
 			hub.leave(connection);
 			client.detach();
 			await data[Symbol.asyncDispose]();
-			return openReplica(label, hub, wire, next, sqlite);
+			return await openReplica(label, hub, wire, next, sqlite);
 		},
 		titles: () => db.tables.notes.rows.map((row) => row.title).sort(),
 	};
@@ -244,7 +231,7 @@ type Replica = {
 	/** This device's durable record, for the few tests that assert on rows. */
 	sqlite: ReturnType<typeof createBunSqliteAdapter>;
 	/** The whole opened handle: one object since the store stopped nesting. */
-	data: ReturnType<typeof createAccountStore>;
+	data: Awaited<ReturnType<typeof openAccountStore>>;
 	db: DeclaredData<typeof database>;
 	bound: UntypedDeclaredData;
 	client: ReturnType<typeof createSyncClient>;
@@ -262,11 +249,11 @@ function openAuthority(snapshotFloorBytes?: number) {
 	return { sqlite, authority, hub: createSyncHub({ authority, batch: 8 }) };
 }
 
-function setup(snapshotFloorBytes?: number) {
+async function setup(snapshotFloorBytes?: number) {
 	const wire = createWire();
 	const { sqlite, authority, hub } = openAuthority(snapshotFloorBytes);
-	const phone = openReplica('phone', hub, wire);
-	const laptop = openReplica('laptop', hub, wire);
+	const phone = await openReplica('phone', hub, wire);
+	const laptop = await openReplica('laptop', hub, wire);
 	return { wire, sqlite, authority, hub, phone, laptop };
 }
 
@@ -326,84 +313,91 @@ function durableCursorNeverLeads(replicas: Replica[]): void {
 const TINY_FLOOR = 512;
 
 describe('two replicas converge through a log of opaque bytes', () => {
-	test('a row created on one device arrives on the other', () => {
-		const { wire, phone, laptop } = setup();
+	test('a row created on one device arrives on the other', async () => {
+		const { wire, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
 
-		expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
+		phone.db.tables.notes.create({ title: 'Groceries' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		expect(laptop.titles()).toEqual(['Groceries']);
 		expect(laptop.client.status().unresolvedDependencies).toBe(false);
 	});
 
-	test('CONTROL: it does NOT arrive when the wire never delivers', () => {
+	test('CONTROL: it does NOT arrive when the wire never delivers', async () => {
 		// The control this whole file exists for. An earlier experiment on this
 		// branch passed because its harness delivered nothing and the assertion
 		// happened to be about the sender. If this test ever fails, the one above
 		// is measuring the harness rather than the transport.
-		const { phone, laptop } = setup();
+		const { phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
 
-		expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
+		phone.db.tables.notes.create({ title: 'Groceries' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		// wire.settle() deliberately omitted.
+		// await wire.settle() deliberately omitted.
 
 		expect(laptop.titles()).toEqual([]);
 	});
 
-	test('edits made on both devices while connected merge', () => {
-		const { wire, phone, laptop } = setup();
+	test('edits made on both devices while connected merge', async () => {
+		const { wire, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
 
-		expectOk(phone.db.tables.notes.create({ title: 'from the phone' }));
-		expectOk(laptop.db.tables.notes.create({ title: 'from the laptop' }));
+		phone.db.tables.notes.create({ title: 'from the phone' });
+		laptop.db.tables.notes.create({ title: 'from the laptop' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
+		await laptop.data.persistence.flush();
 		laptop.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		expect(phone.titles()).toEqual(['from the laptop', 'from the phone']);
 		expect(laptop.titles()).toEqual(phone.titles());
 	});
 
-	test('a device that was offline is caught up by the same path as a live relay', () => {
-		const { wire, phone, laptop } = setup();
+	test('a device that was offline is caught up by the same path as a live relay', async () => {
+		const { wire, phone, laptop } = await setup();
 		phone.connect();
 
 		for (let index = 0; index < 30; index += 1) {
-			expectOk(phone.db.tables.notes.create({ title: `note ${index}` }));
+			phone.db.tables.notes.create({ title: `note ${index}` });
+			await phone.data.persistence.flush();
 			phone.client.flush();
-			wire.settle();
+			await wire.settle();
 		}
 
 		// The laptop has been absent the whole time and holds nothing.
 		expect(laptop.titles()).toEqual([]);
 		laptop.connect();
-		wire.settle();
+		await wire.settle();
 
 		expect(laptop.titles()).toHaveLength(30);
 		expect(laptop.client.status().cursor).toBe(30);
 		expect(laptop.client.status().unresolvedDependencies).toBe(false);
 	});
 
-	test('database work authored while offline is published on the first dial', () => {
-		const { wire, authority, phone, laptop } = setup();
+	test('database work authored while offline is published on the first dial', async () => {
+		const { wire, authority, phone, laptop } = await setup();
 		laptop.connect();
 
 		// The phone never connects while it writes.
-		expectOk(phone.db.tables.notes.create({ title: 'written on a plane' }));
-		expectOk(phone.db.tables.notes.create({ title: 'also on a plane' }));
+		phone.db.tables.notes.create({ title: 'written on a plane' });
+		phone.db.tables.notes.create({ title: 'also on a plane' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 		expect(laptop.titles()).toEqual([]);
 
 		phone.connect();
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		// The reversal the generation address bought (ADR-0292). This work used
 		// to be DISCARDED: a replica that grew before it was stamped belonged to
@@ -415,31 +409,34 @@ describe('two replicas converge through a log of opaque bytes', () => {
 		expect(expectOk(authority.head())).toBe(1);
 	});
 
-	test('a deletion replicates, which a state vector could never have told us', () => {
-		const { wire, phone, laptop } = setup();
+	test('a deletion replicates, which a state vector could never have told us', async () => {
+		const { wire, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
-		const note = expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
+		const note = phone.db.tables.notes.create({ title: 'Groceries' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 		expect(laptop.titles()).toEqual(['Groceries']);
 
 		phone.db.tables.notes.delete(note.id);
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		expect(laptop.titles()).toEqual([]);
 	});
 
 	test("text written into a row's content node replicates with the row", async () => {
-		const { wire, phone, laptop } = setup();
+		const { wire, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
-		const note = expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
+		const note = phone.db.tables.notes.create({ title: 'Groceries' });
 		const text = editorOf(phone, note.id);
 		text.applyDelta(text.change.insert('buy milk') as never);
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		const arrived = editorOf(laptop, note.id);
 		expect(arrived.length).toBe('buy milk'.length);
@@ -447,28 +444,29 @@ describe('two replicas converge through a log of opaque bytes', () => {
 });
 
 describe('the ack is what makes a refusal visible', () => {
-	test('an update is owed until the authority names its position', () => {
-		const { wire, phone, laptop } = setup();
+	test('an update is owed until the authority names its position', async () => {
+		const { wire, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
 		// Let the document announcements land, so the first flush can stamp
 		// and send rather than holding the work for the greeting.
-		wire.settle();
-		expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
+		await wire.settle();
+		phone.db.tables.notes.create({ title: 'Groceries' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
 
 		// The push is on the wire and no ack has come back.
 		expect(phone.client.status().inFlight).toBe(true);
 		expect(phone.client.status().owed).toBeGreaterThan(0);
 
-		wire.settle();
+		await wire.settle();
 
 		expect(phone.client.status().inFlight).toBe(false);
 		expect(phone.client.status().owed).toBe(0);
 		expect(phone.client.status().cursor).toBe(1);
 	});
 
-	test('a refused update is held, reported, and never silently dropped', () => {
+	test('a refused update is held, reported, and never silently dropped', async () => {
 		// The failure `workerd` hides: a throw in `webSocketMessage` does not close
 		// the socket, so without an answer a refused update simply evaporates and
 		// every layer reports success.
@@ -477,7 +475,7 @@ describe('the ack is what makes a refusal visible', () => {
 		// left. The authority never reads the bytes, so "this is not a valid
 		// update" is not a sentence anything on the server can say; what the
 		// collector still knows is how many chunks it was promised.
-		const { wire, authority, hub, phone } = setup();
+		const { wire, authority, hub, phone } = await setup();
 		phone.connect();
 
 		const answers: Uint8Array[] = [];
@@ -512,20 +510,21 @@ describe('the ack is what makes a refusal visible', () => {
 
 		// The authority answered rather than going quiet, and it named the
 		// submission, so the client knows exactly which work it still owes.
-		expect(answers).toHaveLength(1);
-		const refusal = expectOk(decodeFrame(answers[0] as Uint8Array));
+		expect(answers).toHaveLength(2);
+		expect(expectOk(decodeFrame(answers[0]!))).toEqual({ kind: 'admitted' });
+		const refusal = expectOk(decodeFrame(answers[1] as Uint8Array));
 		if (refusal.kind !== 'refuse')
 			throw new Error(`answered with ${refusal.kind}`);
 		expect(refusal.submission).toBe(7);
 
 		// And nothing was stored, so no device will ever be handed a fragment.
-		wire.settle();
+		await wire.settle();
 		expect(expectOk(authority.head())).toBe(0);
 		expect(phone.titles()).toEqual([]);
 	});
 
-	test('an offline backlog past the merge threshold converges on one dial', () => {
-		const { wire, phone, laptop } = setup();
+	test('an offline backlog past the merge threshold converges on one dial', async () => {
+		const { wire, phone, laptop } = await setup();
 		laptop.connect();
 
 		// Every other offline test in this file writes two rows, so until this
@@ -533,10 +532,11 @@ describe('the ack is what makes a refusal visible', () => {
 		// needs more owed rows than the threshold, and no socket to have taken
 		// any of them.
 		for (let index = 0; index < 80; index += 1) {
-			expectOk(phone.db.tables.notes.create({ title: `plane ${index}` }));
+			phone.db.tables.notes.create({ title: `plane ${index}` });
 		}
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 		expect(laptop.titles()).toEqual([]);
 
 		const rowCount = () =>
@@ -557,8 +557,9 @@ describe('the ack is what makes a refusal visible', () => {
 		expect(phone.client.cursor()).toBe(0);
 
 		phone.connect();
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		// Every edit made on the plane is on the other device, none of them
 		// individually addressable by the time they left.
@@ -568,21 +569,22 @@ describe('the ack is what makes a refusal visible', () => {
 		expect(owedCount()).toBe(0);
 	});
 
-	test('a replica that never hears an ack still owes the work after reconnecting', () => {
-		const { wire, phone, laptop } = setup();
+	test('a replica that never hears an ack still owes the work after reconnecting', async () => {
+		const { wire, phone, laptop } = await setup();
 		laptop.connect();
 		phone.connect();
-		wire.settle();
-		expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
+		await wire.settle();
+		phone.db.tables.notes.create({ title: 'Groceries' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
 		expect(phone.client.status().inFlight).toBe(true);
 
 		// The socket dies with the push in flight and the ack never written.
 		phone.disconnect();
-		wire.settle();
+		await wire.settle();
 
 		phone.connect();
-		wire.settle();
+		await wire.settle();
 
 		expect(laptop.titles()).toEqual(['Groceries']);
 		expect(phone.client.status().owed).toBe(0);
@@ -590,34 +592,35 @@ describe('the ack is what makes a refusal visible', () => {
 });
 
 describe('the log grows with sends rather than with transactions', () => {
-	test('twenty transactions coalesce into one entry', () => {
-		const { wire, authority, phone, laptop } = setup();
+	test('twenty transactions coalesce into one entry', async () => {
+		const { wire, authority, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
 
 		for (let index = 0; index < 20; index += 1) {
-			expectOk(phone.db.tables.notes.create({ title: `note ${index}` }));
+			phone.db.tables.notes.create({ title: `note ${index}` });
 			// Every transaction nudges, as a real caller would. The idle timer is
 			// what collapses them, not the caller being careful.
 			phone.client.nudge();
 		}
-		wire.settle();
+		await wire.settle();
 
 		expect(expectOk(authority.head())).toBe(1);
 		expect(laptop.titles()).toHaveLength(20);
 	});
 
-	test('CONTROL: flushing each one instead produces twenty entries', () => {
+	test('CONTROL: flushing each one instead produces twenty entries', async () => {
 		// Without this the test above passes for a client that silently drops
 		// nineteen transactions, which looks identical from the authority's side.
-		const { wire, authority, phone, laptop } = setup();
+		const { wire, authority, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
 
 		for (let index = 0; index < 20; index += 1) {
-			expectOk(phone.db.tables.notes.create({ title: `note ${index}` }));
+			phone.db.tables.notes.create({ title: `note ${index}` });
+			await phone.data.persistence.flush();
 			phone.client.flush();
-			wire.settle();
+			await wire.settle();
 		}
 
 		expect(expectOk(authority.head())).toBe(20);
@@ -627,18 +630,17 @@ describe('the log grows with sends rather than with transactions', () => {
 
 describe('chunking is framing, and carries what no single frame could', () => {
 	test('an update past the storage cap survives the round trip', async () => {
-		const { wire, phone, laptop } = setup();
+		const { wire, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
-		const note = expectOk(
-			phone.db.tables.notes.create({ title: 'a big paste' }),
-		);
+		const note = phone.db.tables.notes.create({ title: 'a big paste' });
 		const text = editorOf(phone, note.id);
 		// One transaction, well past 2,097,152 bytes. There is no seam here for a
 		// coalescing bound to cut at, which is why the fix is framing at storage.
 		text.applyDelta(text.change.insert('x'.repeat(3_000_000)) as never);
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		const arrived = editorOf(laptop, note.id);
 		expect(arrived.length).toBe(3_000_000);
@@ -646,7 +648,7 @@ describe('chunking is framing, and carries what no single frame could', () => {
 		expect(laptop.client.status().unresolvedDependencies).toBe(false);
 	});
 
-	test('CONTROL: it really was chunked, and one chunk alone is not an update', () => {
+	test('CONTROL: it really was chunked, and one chunk alone is not an update', async () => {
 		// If the update had fit in one frame the test above would prove nothing
 		// about reassembly. This asserts the split happened AND that a lone piece
 		// is independently worthless, so concatenation is doing real work.
@@ -679,31 +681,30 @@ describe('a socket that dies part way through a chunked transfer', () => {
 		// partial nobody ever acked is one the client still owes. The outbox is
 		// cleared by the ack and by nothing else, so this is what stands between a
 		// dropped socket and a paste that no device ever sees again.
-		const { wire, authority, phone, laptop } = setup();
+		const { wire, authority, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
-		const note = expectOk(
-			phone.db.tables.notes.create({ title: 'a big paste' }),
-		);
+		const note = phone.db.tables.notes.create({ title: 'a big paste' });
 		const text = editorOf(phone, note.id);
 		text.applyDelta(text.change.insert('x'.repeat(3_000_000)) as never);
+		await phone.data.persistence.flush();
 		phone.client.flush();
 
 		// It really was chunked: one frame would be one message on the wire.
 		expect(wire.inFlight()).toBeGreaterThan(1);
-		wire.step();
+		await wire.step();
 		// The hub is holding chunk 0 and has stored nothing, which is the whole
 		// point of reassembling before appending: a truncated entry in the log is
 		// the poison pill this design spends real effort to make impossible.
 		expect(expectOk(authority.head())).toBe(0);
 
 		phone.disconnect();
-		wire.settle();
+		await wire.settle();
 		expect(expectOk(authority.head())).toBe(0);
 		expect(laptop.titles()).toEqual([]);
 
 		phone.connect();
-		wire.settle();
+		await wire.settle();
 
 		expect(laptop.titles()).toEqual(['a big paste']);
 		const arrived = editorOf(laptop, note.id);
@@ -715,18 +716,17 @@ describe('a socket that dies part way through a chunked transfer', () => {
 		// Without this the test above passes for a hub that stored the fragment, or
 		// for a laptop that had somehow seen the paste already. Nothing recovers a
 		// half-delivered submission except the client re-offering it.
-		const { wire, authority, phone, laptop } = setup();
+		const { wire, authority, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
-		const note = expectOk(
-			phone.db.tables.notes.create({ title: 'a big paste' }),
-		);
+		const note = phone.db.tables.notes.create({ title: 'a big paste' });
 		const text = editorOf(phone, note.id);
 		text.applyDelta(text.change.insert('x'.repeat(3_000_000)) as never);
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.step();
+		await wire.step();
 		phone.disconnect();
-		wire.settle();
+		await wire.settle();
 
 		expect(expectOk(authority.head())).toBe(0);
 		expect(laptop.titles()).toEqual([]);
@@ -736,7 +736,7 @@ describe('a socket that dies part way through a chunked transfer', () => {
 		expect(phone.client.status().owed).toBeGreaterThan(0);
 	});
 
-	test('a partial submission does not survive the connection that opened it', () => {
+	test('a partial submission does not survive the connection that opened it', async () => {
 		// The other half of "lost to eviction is safe": the authority must not
 		// staple a returning client's chunks onto a stranger's fragment. Each
 		// connection gets its own collector and `leave` drops it, so a submission
@@ -783,7 +783,7 @@ describe('a socket that dies part way through a chunked transfer', () => {
 		expect(answers).toEqual([]);
 	});
 
-	test('CONTROL: the same two chunks on one connection DO complete it', () => {
+	test('CONTROL: the same two chunks on one connection DO complete it', async () => {
 		// Without this the test above passes for a hub that ignores every push.
 		const { authority, hub } = openAuthority();
 		const answers: Uint8Array[] = [];
@@ -812,17 +812,16 @@ describe('a socket that dies part way through a chunked transfer', () => {
 		// The authority's side of the same failure. This replica can only be served
 		// by the snapshot, because the entries it covers are deleted, so a snapshot
 		// that dies in flight and is not retried is a device that never syncs again.
-		const { wire, authority, phone, laptop } = setup();
+		const { wire, authority, phone, laptop } = await setup();
 		phone.connect();
-		const note = expectOk(
-			phone.db.tables.notes.create({ title: 'a big paste' }),
-		);
+		const note = phone.db.tables.notes.create({ title: 'a big paste' });
 		const text = editorOf(phone, note.id);
 		text.applyDelta(text.change.insert('x'.repeat(3_000_000)) as never);
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 		// The hub asked for a snapshot; the offer's encode is asynchronous.
-		wire.settle();
+		await wire.settle();
 		// The snapshot is not staged by hand here: a 3 MB paste is past the floor on
 		// its own, so the hub asked the phone for one and the tail is already gone.
 		expect(expectOk(authority.snapshotPosition())).toBe(1);
@@ -830,9 +829,9 @@ describe('a socket that dies part way through a chunked transfer', () => {
 
 		laptop.connect();
 		expect(wire.inFlight()).toBeGreaterThan(1);
-		wire.step();
+		await wire.step();
 		laptop.disconnect();
-		wire.settle();
+		await wire.settle();
 
 		// One chunk of a snapshot is not state, and the replica knows it holds
 		// nothing rather than believing it is caught up.
@@ -840,7 +839,7 @@ describe('a socket that dies part way through a chunked transfer', () => {
 		expect(laptop.client.status().cursor).toBe(0);
 
 		laptop.connect();
-		wire.settle();
+		await wire.settle();
 
 		expect(laptop.titles()).toEqual(['a big paste']);
 		const arrived = editorOf(laptop, note.id);
@@ -861,7 +860,10 @@ describe('a socket that dies part way through a chunked transfer', () => {
  */
 describe('reassembly holds partials in memory, and only in memory', () => {
 	/** One replica's whole state, cut into more chunks than any case needs. */
-	function cutUpdate(source: ReturnType<typeof openReplica>, limit = 16) {
+	function cutUpdate(
+		source: Awaited<ReturnType<typeof openReplica>>,
+		limit = 16,
+	) {
 		const bytes = source.data.encodeStateSince();
 		const chunks = intoChunks(bytes, limit);
 		if (chunks.length < 4) throw new Error(`only ${chunks.length} chunks`);
@@ -878,9 +880,9 @@ describe('reassembly holds partials in memory, and only in memory', () => {
 		};
 	}
 
-	test('chunks that arrive out of order reassemble into the update they were cut from', () => {
-		const { phone, laptop } = setup();
-		expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
+	test('chunks that arrive out of order reassemble into the update they were cut from', async () => {
+		const { phone, laptop } = await setup();
+		phone.db.tables.notes.create({ title: 'Groceries' });
 		const { bytes, chunks } = cutUpdate(phone);
 		const collector = createChunkCollector({ limitBytes: 1 << 20 });
 
@@ -901,11 +903,11 @@ describe('reassembly holds partials in memory, and only in memory', () => {
 		expect(laptop.titles()).toEqual(['Groceries']);
 	});
 
-	test('CONTROL: one chunk short is never whole, and the replica stays empty', () => {
+	test('CONTROL: one chunk short is never whole, and the replica stays empty', async () => {
 		// Without this, "out of order still reassembles" would pass for a collector
 		// that hands back whatever it holds on the first frame.
-		const { phone, laptop } = setup();
-		expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
+		const { phone, laptop } = await setup();
+		phone.db.tables.notes.create({ title: 'Groceries' });
 		const { chunks } = cutUpdate(phone);
 		const collector = createChunkCollector({ limitBytes: 1 << 20 });
 
@@ -918,12 +920,12 @@ describe('reassembly holds partials in memory, and only in memory', () => {
 		expect(laptop.titles()).toEqual([]);
 	});
 
-	test('a chunk that arrives twice does not count twice', () => {
+	test('a chunk that arrives twice does not count twice', async () => {
 		// Re-delivery is ordinary here: a reconnect re-sends a submission from its
 		// first chunk, so a collector that counted frames rather than filled slots
 		// would call a submission whole while a hole was still in it.
-		const { phone, laptop } = setup();
-		expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
+		const { phone, laptop } = await setup();
+		phone.db.tables.notes.create({ title: 'Groceries' });
 		const { bytes, chunks } = cutUpdate(phone);
 		const collector = createChunkCollector({ limitBytes: 1 << 20 });
 
@@ -940,9 +942,9 @@ describe('reassembly holds partials in memory, and only in memory', () => {
 		expect(laptop.titles()).toEqual(['Groceries']);
 	});
 
-	test('CONTROL: repeats alone never fill the holes they duplicate', () => {
-		const { phone, laptop } = setup();
-		expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
+	test('CONTROL: repeats alone never fill the holes they duplicate', async () => {
+		const { phone, laptop } = await setup();
+		phone.db.tables.notes.create({ title: 'Groceries' });
 		const { chunks } = cutUpdate(phone);
 		const collector = createChunkCollector({ limitBytes: 1 << 20 });
 
@@ -957,7 +959,7 @@ describe('reassembly holds partials in memory, and only in memory', () => {
 		expect(laptop.titles()).toEqual([]);
 	});
 
-	test('a partial nobody finishes is held until something forgets it', () => {
+	test('a partial nobody finishes is held until something forgets it', async () => {
 		// Nothing ages a partial out, and that is deliberate rather than an
 		// oversight: eviction on a timer would drop a submission a slow client is
 		// still sending. The bound is the byte limit, and the release is the
@@ -991,7 +993,7 @@ describe('reassembly holds partials in memory, and only in memory', () => {
 		expect(collector.bufferedBytes()).toBe(0);
 	});
 
-	test('past the limit the partial is dropped and the sender is told', () => {
+	test('past the limit the partial is dropped and the sender is told', async () => {
 		// The ceiling that makes "held in memory" bounded rather than a promise. A
 		// client that opens submissions and never finishes them is asking the
 		// authority to hold bytes forever, and the answer is a refusal it can act
@@ -1033,15 +1035,16 @@ describe('a partial that outlives the socket that opened it', () => {
 	async function stallMidEntry() {
 		// A floor nothing reaches, so both snapshots here are staged deliberately
 		// and the sizes are the real ones the transport would produce.
-		const { wire, authority, phone, laptop } = setup(Number.MAX_SAFE_INTEGER);
-		phone.connect();
-		const note = expectOk(
-			phone.db.tables.notes.create({ title: 'a big paste' }),
+		const { wire, authority, phone, laptop } = await setup(
+			Number.MAX_SAFE_INTEGER,
 		);
+		phone.connect();
+		const note = phone.db.tables.notes.create({ title: 'a big paste' });
 		const text = editorOf(phone, note.id);
 		text.applyDelta(text.change.insert('x'.repeat(4_000_000)) as never);
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 		expectOk(authority.replaceSnapshot(1, snapshotOf(phone)));
 		const first = expectOk(authority.snapshot());
 		const snapshotChunks = intoChunks(first?.bytes as Uint8Array).length;
@@ -1049,8 +1052,9 @@ describe('a partial that outlives the socket that opened it', () => {
 		// That difference is the whole scenario, and it is what a delta and a whole
 		// state at the same position ordinarily look like.
 		text.applyDelta(text.change.insert('y'.repeat(3_000_000)) as never);
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 		expect(
 			intoChunks(expectOk(authority.since(1))[0]?.bytes as Uint8Array),
 		).toHaveLength(2);
@@ -1070,9 +1074,9 @@ describe('a partial that outlives the socket that opened it', () => {
 		// its socket dies. It is now holding a partial at position 2, two chunks
 		// wide, that will never be completed by anything.
 		laptop.connect();
-		wire.step(snapshotChunks + 1);
+		await wire.step(snapshotChunks + 1);
 		laptop.disconnect();
-		wire.settle();
+		await wire.settle();
 		expect(laptop.client.status().cursor).toBe(1);
 		expect(await readNodeText(laptop, note.id)).toBe(4_000_000);
 
@@ -1085,7 +1089,7 @@ describe('a partial that outlives the socket that opened it', () => {
 		).toHaveLength(4);
 
 		laptop.connect();
-		wire.settle();
+		await wire.settle();
 
 		// This used to leave the replica at 4,000,000 in silence. A partial from
 		// the dead socket sat at position 2, a four-chunk snapshot arrived at the
@@ -1101,13 +1105,13 @@ describe('a partial that outlives the socket that opened it', () => {
 		expect(laptop.client.status().lastError).toBeUndefined();
 	});
 
-	test('a reassembly failure asks to be reconnected instead of going quiet', () => {
+	test('a reassembly failure asks to be reconnected instead of going quiet', async () => {
 		// The second half of the fix, on its own. Even if frames that contradict
 		// their own count reach a replica, it must say so: a partial nothing will
 		// ever complete stops the replica dead while every layer reports success.
-		const { wire, phone } = setup();
+		const { wire, phone } = await setup();
 		phone.connect();
-		wire.settle();
+		await wire.settle();
 
 		const first = phone.client.receive(
 			encodeFrame({
@@ -1142,14 +1146,14 @@ describe('a partial that outlives the socket that opened it', () => {
 
 		laptop.connect();
 		// One extra step for the document announcement that opens every join.
-		wire.step(1 + snapshotChunks);
+		await wire.step(1 + snapshotChunks);
 		laptop.disconnect();
-		wire.settle();
+		await wire.settle();
 		expect(laptop.client.status().cursor).toBe(1);
 
 		expectOk(authority.replaceSnapshot(2, snapshotOf(phone)));
 		laptop.connect();
-		wire.settle();
+		await wire.settle();
 
 		expect(await readNodeText(laptop, note.id)).toBe(7_000_000);
 		expect(laptop.client.status().cursor).toBe(2);
@@ -1158,10 +1162,10 @@ describe('a partial that outlives the socket that opened it', () => {
 });
 
 describe('the cursor is contiguous, and a jump is refused rather than absorbed', () => {
-	test('an entry that skips a position is not applied and moves nothing', () => {
-		const { wire, phone } = setup();
+	test('an entry that skips a position is not applied and moves nothing', async () => {
+		const { wire, phone } = await setup();
 		phone.connect();
-		wire.settle();
+		await wire.settle();
 		const before = phone.client.status().cursor;
 
 		const skipped = phone.client.receive(
@@ -1178,13 +1182,14 @@ describe('the cursor is contiguous, and a jump is refused rather than absorbed',
 		expect(phone.client.status().cursor).toBe(before);
 	});
 
-	test('CONTROL: the very next position IS applied, so the check is not refusing everything', () => {
-		const { wire, phone, laptop } = setup();
+	test('CONTROL: the very next position IS applied, so the check is not refusing everything', async () => {
+		const { wire, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
-		expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
+		phone.db.tables.notes.create({ title: 'Groceries' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		expect(laptop.client.status().cursor).toBe(1);
 		expect(laptop.titles()).toEqual(['Groceries']);
@@ -1192,17 +1197,19 @@ describe('the cursor is contiguous, and a jump is refused rather than absorbed',
 });
 
 describe('sustained traffic through one authority', () => {
-	test('a thousand sends stay contiguous and converge', () => {
-		const { wire, authority, phone, laptop } = setup();
+	test('a thousand sends stay contiguous and converge', async () => {
+		const { wire, authority, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
 
 		for (let index = 0; index < 500; index += 1) {
-			expectOk(phone.db.tables.notes.create({ title: `phone ${index}` }));
+			phone.db.tables.notes.create({ title: `phone ${index}` });
+			await phone.data.persistence.flush();
 			phone.client.flush();
-			expectOk(laptop.db.tables.notes.create({ title: `laptop ${index}` }));
+			laptop.db.tables.notes.create({ title: `laptop ${index}` });
+			await laptop.data.persistence.flush();
 			laptop.client.flush();
-			wire.settle();
+			await wire.settle();
 		}
 
 		expect(expectOk(authority.head())).toBe(1000);
@@ -1216,14 +1223,14 @@ describe('sustained traffic through one authority', () => {
 });
 
 describe('an entry that will not apply is loud, not silent', () => {
-	test('the replica reports it, names the position, and moves nothing', () => {
+	test('the replica reports it, names the position, and moves nothing', async () => {
 		// The poison pill seen from the only place it is ever visible. This
 		// returned Ok and set no error, so a bricked device looked exactly like an
 		// idle one: it stopped syncing and every layer reported success. Nothing
 		// recovers a failure nobody is told about.
-		const { wire, phone } = setup();
+		const { wire, phone } = await setup();
 		phone.connect();
-		wire.settle();
+		await wire.settle();
 		const before = phone.client.status().cursor;
 
 		const outcome = phone.client.receive(
@@ -1244,7 +1251,7 @@ describe('an entry that will not apply is loud, not silent', () => {
 		expect(phone.client.status().cursor).toBe(before);
 	});
 
-	test('the authority stores bytes it cannot read, and only the reader finds out', () => {
+	test('the authority stores bytes it cannot read, and only the reader finds out', async () => {
 		// The whole server half of this story, end to end. The authority used to
 		// decode every update and refuse what threw; that check was never a proof
 		// (it let 44 of ~5,900 single-byte corruptions through), cost more than
@@ -1252,9 +1259,9 @@ describe('an entry that will not apply is loud, not silent', () => {
 		// make end-to-end encryption impossible. So garbage is accepted, given a
 		// position, and relayed. Nothing on the server has an opinion about it, and
 		// the replica that cannot apply it is the one that says so.
-		const { wire, authority, hub, phone } = setup();
+		const { wire, authority, hub, phone } = await setup();
 		phone.connect();
-		wire.settle();
+		await wire.settle();
 
 		const answers: Uint8Array[] = [];
 		const writer: HubConnection = {
@@ -1274,7 +1281,7 @@ describe('an entry that will not apply is loud, not silent', () => {
 		);
 
 		// Accepted: acknowledged at a position, and in the log byte for byte.
-		const answer = expectOk(decodeFrame(answers[0] as Uint8Array));
+		const answer = expectOk(decodeFrame(answers[1] as Uint8Array));
 		if (answer.kind !== 'ack') throw new Error(`answered with ${answer.kind}`);
 		expect(answer.seq).toBe(1);
 		expect(expectOk(authority.head())).toBe(1);
@@ -1284,37 +1291,39 @@ describe('an entry that will not apply is loud, not silent', () => {
 
 		// And the failure surfaces where the bytes are finally read, naming the
 		// position an operator has to neutralise.
-		wire.settle();
+		await wire.settle();
 		const stuck = phone.client.status().lastError;
 		expect(stuck?.name).toBe('Unapplyable');
 		expect((stuck as { seq?: number } | undefined)?.seq).toBe(1);
 		expect(phone.client.status().cursor).toBe(0);
 	});
 
-	test('CONTROL: a good entry at the same position applies and reports nothing', () => {
-		const { wire, phone, laptop } = setup();
+	test('CONTROL: a good entry at the same position applies and reports nothing', async () => {
+		const { wire, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
-		expectOk(laptop.db.tables.notes.create({ title: 'Groceries' }));
+		laptop.db.tables.notes.create({ title: 'Groceries' });
+		await laptop.data.persistence.flush();
 		laptop.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		expect(phone.client.status().lastError).toBeUndefined();
 		expect(phone.titles()).toEqual(['Groceries']);
 	});
 
-	test('neutralising the position in the log unsticks the replica', () => {
+	test('neutralising the position in the log unsticks the replica', async () => {
 		// Why no server-side check is needed to RECOVER from a poison pill. The
 		// log is append-only and every entry is individually addressable, so the
 		// repair is to overwrite one row with an empty update, which every
 		// document applies as a no-op. The sequence stays contiguous and every
 		// replica walks straight past it.
-		const { wire, phone, laptop } = setup();
+		const { wire, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
-		expectOk(laptop.db.tables.notes.create({ title: 'Groceries' }));
+		laptop.db.tables.notes.create({ title: 'Groceries' });
+		await laptop.data.persistence.flush();
 		laptop.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		const empty = new Y.Doc({ gc: true });
 		const noop = new Uint8Array(Y.encodeStateAsUpdateV2(empty));
@@ -1365,41 +1374,44 @@ describe('an ack naming a position this replica never received through', () => {
 	 *
 	 * Returns with the phone pinned at 1 and the log at 3.
 	 */
-	function pinnedBehindTheLog() {
-		const { wire, authority, hub, phone, laptop } = setup();
+	async function pinnedBehindTheLog() {
+		const { wire, authority, hub, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
 
 		// Entry 1: ordinary work, and the phone takes it.
-		expectOk(laptop.db.tables.notes.create({ title: 'Groceries' }));
+		laptop.db.tables.notes.create({ title: 'Groceries' });
+		await laptop.data.persistence.flush();
 		laptop.client.flush();
-		wire.settle();
+		await wire.settle();
 		expect(phone.client.status().cursor).toBe(1);
 
 		// Entry 2: bytes no replica can apply. The authority stores them without
 		// an opinion, and the phone pins at 1 rather than walking past them.
 		poison(hub, 1, new Uint8Array([1, 2, 3, 4, 5, 6]));
-		wire.settle();
+		await wire.settle();
 		expect(phone.client.status().lastError?.name).toBe('Unapplyable');
 
 		// Entry 3: more ordinary work, which the phone now reads as a gap.
-		expectOk(laptop.db.tables.notes.create({ title: 'Milk' }));
+		laptop.db.tables.notes.create({ title: 'Milk' });
+		await laptop.data.persistence.flush();
 		laptop.client.flush();
-		wire.settle();
+		await wire.settle();
 		expect(phone.client.status().cursor).toBe(1);
 		expect(expectOk(authority.head())).toBe(3);
 
 		return { wire, hub, phone, laptop };
 	}
 
-	test('the durable cursor stays put and the work stays owed', () => {
-		const { wire, phone } = pinnedBehindTheLog();
+	test('the durable cursor stays put and the work stays owed', async () => {
+		const { wire, phone } = await pinnedBehindTheLog();
 
 		// The phone authors its own work while pinned. The authority takes it at
 		// 4 and says so, which is three past where this replica actually is.
-		expectOk(phone.db.tables.notes.create({ title: 'Eggs' }));
+		phone.db.tables.notes.create({ title: 'Eggs' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		// One assertion, because `name: 'Gap'` alone cannot fail here: entry 3
 		// already reported a gap before the ack arrived. Only `received` tells the
@@ -1421,11 +1433,12 @@ describe('an ack naming a position this replica never received through', () => {
 	});
 
 	test('a restart inside the window dials from the entries it still needs', async () => {
-		const { wire, phone } = pinnedBehindTheLog();
+		const { wire, phone } = await pinnedBehindTheLog();
 
-		expectOk(phone.db.tables.notes.create({ title: 'Eggs' }));
+		phone.db.tables.notes.create({ title: 'Eggs' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		// The crash that turns a durable stamp into loss. Nothing in memory
 		// survives, so the only thing deciding where this device resumes is the
@@ -1439,7 +1452,7 @@ describe('an ack naming a position this replica never received through', () => {
 		expect(syncEngineOf(restarted.data).coalesce()).not.toBeUndefined();
 	});
 
-	test('an ack behind the cursor is refused too, after a snapshot jumped past it', () => {
+	test('an ack behind the cursor is refused too, after a snapshot jumped past it', async () => {
 		// The third arm, and the reason the check is `!==` rather than `>`. A
 		// snapshot is the ONE licensed cursor jump, so it can carry a replica past
 		// a submission that is still in flight; the ack then names a position
@@ -1447,11 +1460,12 @@ describe('an ack naming a position this replica never received through', () => {
 		// stamping under `MAX(authoritySeq)` cannot move it. That is a property of
 		// the fold's arithmetic, not a rule anything stated, and a fold that ever
 		// stopped taking the maximum would turn it into a silent cursor rewind.
-		const { wire, phone } = setup();
+		const { wire, phone } = await setup();
 		phone.connect();
-		wire.settle();
+		await wire.settle();
 
-		expectOk(phone.db.tables.notes.create({ title: 'Eggs' }));
+		phone.db.tables.notes.create({ title: 'Eggs' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
 		const outstanding = phone.client.status().inFlightSubmission;
 		expect(outstanding).toBeDefined();
@@ -1484,14 +1498,15 @@ describe('an ack naming a position this replica never received through', () => {
 		expect(phone.client.status().cursor).toBe(9);
 	});
 
-	test('CONTROL: an ack at the next position is taken and the outbox clears', () => {
+	test('CONTROL: an ack at the next position is taken and the outbox clears', async () => {
 		// Without this the guard could refuse EVERY ack and the tests above would
 		// still pass, while the replica never retired a single row.
-		const { wire, phone } = setup();
+		const { wire, phone } = await setup();
 		phone.connect();
-		expectOk(phone.db.tables.notes.create({ title: 'Eggs' }));
+		phone.db.tables.notes.create({ title: 'Eggs' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		expect(phone.client.status().lastError).toBeUndefined();
 		expect(phone.client.status().needsResync).toBe(false);
@@ -1514,9 +1529,9 @@ describe('an ack naming a position this replica never received through', () => {
 	 * apply.
 	 */
 	for (const seed of [3, 19, 2024, 55555]) {
-		test(`seed ${seed}: a pinned replica never records a position it skipped`, () => {
+		test(`seed ${seed}: a pinned replica never records a position it skipped`, async () => {
 			const random = createRandom(seed);
-			const { wire, authority, hub, phone, laptop } = setup();
+			const { wire, authority, hub, phone, laptop } = await setup();
 			phone.connect();
 			laptop.connect();
 
@@ -1525,7 +1540,7 @@ describe('an ack naming a position this replica never received through', () => {
 			let sawPinnedWithWorkInFlight = false;
 			for (let round = 0; round < 40; round += 1) {
 				const author = random.chance(0.5) ? phone : laptop;
-				expectOk(author.db.tables.notes.create({ title: `r${round}` }));
+				author.db.tables.notes.create({ title: `r${round}` });
 				// Whether a submission is still in flight when the next ack lands is
 				// the whole variable, so flushing is a coin toss rather than a step.
 				if (random.chance(0.7)) author.client.flush();
@@ -1535,7 +1550,7 @@ describe('an ack naming a position this replica never received through', () => {
 					poison(hub, round + 100, new Uint8Array([7, 7, 7, 7]));
 					poisoned = true;
 				}
-				if (random.chance(0.6)) wire.settle();
+				if (random.chance(0.6)) await wire.settle();
 				if (random.chance(0.2)) phone.disconnect();
 				if (random.chance(0.3)) phone.connect();
 				const state = phone.client.status();
@@ -1545,7 +1560,7 @@ describe('an ack naming a position this replica never received through', () => {
 				durableCursorNeverLeads([phone, laptop]);
 			}
 
-			wire.settle();
+			await wire.settle();
 			durableCursorNeverLeads([phone, laptop]);
 			// CONTROLS. A schedule that poisoned nothing, or that poisoned the log
 			// while the phone happened to be idle, satisfies every assertion above
@@ -1560,13 +1575,14 @@ describe('an ack naming a position this replica never received through', () => {
 
 describe('the authority keeps a snapshot and a tail, not a log', () => {
 	test('a snapshot replaces the entries it covers, and storage stops growing', async () => {
-		const { wire, authority, phone, laptop } = setup();
+		const { wire, authority, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
 		for (let index = 0; index < 30; index += 1) {
-			expectOk(phone.db.tables.notes.create({ title: `note ${index}` }));
+			phone.db.tables.notes.create({ title: `note ${index}` });
+			await phone.data.persistence.flush();
 			phone.client.flush();
-			wire.settle();
+			await wire.settle();
 		}
 		const head = expectOk(authority.head());
 		const before = expectOk(authority.since(0, 1_000)).length;
@@ -1586,14 +1602,15 @@ describe('the authority keeps a snapshot and a tail, not a log', () => {
 		// The case the whole shape exists for. The tail this replica needed is
 		// gone, so it can only be served by the snapshot, and it is carrying work
 		// nobody has seen.
-		const { wire, authority, phone, laptop } = setup();
+		const { wire, authority, phone, laptop } = await setup();
 		phone.connect();
 		laptop.connect();
 		laptop.disconnect();
 		for (let index = 0; index < 30; index += 1) {
-			expectOk(phone.db.tables.notes.create({ title: `note ${index}` }));
+			phone.db.tables.notes.create({ title: `note ${index}` });
+			await phone.data.persistence.flush();
 			phone.client.flush();
-			wire.settle();
+			await wire.settle();
 		}
 
 		// The tail is gone, so this replica can only be served by the snapshot.
@@ -1603,11 +1620,12 @@ describe('the authority keeps a snapshot and a tail, not a log', () => {
 
 		// This work is offline but not unlabelled: the replica already adopted
 		// this database document before it went away.
-		expectOk(laptop.db.tables.notes.create({ title: 'WRITTEN OFFLINE' }));
+		laptop.db.tables.notes.create({ title: 'WRITTEN OFFLINE' });
 		laptop.connect();
-		wire.settle();
+		await wire.settle();
+		await laptop.data.persistence.flush();
 		laptop.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		expect(laptop.titles()).toHaveLength(31);
 		expect(laptop.titles()).toContain('WRITTEN OFFLINE');
@@ -1621,19 +1639,22 @@ describe('the authority keeps a snapshot and a tail, not a log', () => {
 		// A never-compacted log holds the update that CREATED a row forever
 		// (`evidence/retention.test.ts`); a snapshot is current state and carries
 		// no trace of it.
-		const { wire, authority, phone } = setup();
+		const { wire, authority, phone } = await setup();
 		phone.connect();
 		const secret = 'SECRET-CANARY-therapist';
-		const note = expectOk(phone.db.tables.notes.create({ title: secret }));
+		const note = phone.db.tables.notes.create({ title: secret });
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 		phone.db.tables.notes.delete(note.id);
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 		for (let index = 0; index < 40; index += 1) {
-			expectOk(phone.db.tables.notes.create({ title: `filler ${index}` }));
+			phone.db.tables.notes.create({ title: `filler ${index}` });
+			await phone.data.persistence.flush();
 			phone.client.flush();
-			wire.settle();
+			await wire.settle();
 		}
 		expectOk(
 			authority.replaceSnapshot(expectOk(authority.head()), snapshotOf(phone)),
@@ -1657,16 +1678,17 @@ describe('the authority keeps a snapshot and a tail, not a log', () => {
 });
 
 describe('who may replace the snapshot', () => {
-	test('a connection the authority has NOT sent everything to is refused', () => {
+	test('a connection the authority has NOT sent everything to is refused', async () => {
 		// The half of the condition the hub owns, and the half that separates this
 		// from the client-posted baseline an earlier design died on. The check is
 		// against the authority's own record of what it sent, never against what
 		// the replica says about itself.
-		const { wire, authority, hub, phone } = setup();
+		const { wire, authority, hub, phone } = await setup();
 		phone.connect();
-		expectOk(phone.db.tables.notes.create({ title: 'real work' }));
+		phone.db.tables.notes.create({ title: 'real work' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 		const head = expectOk(authority.head());
 
 		const answers: Uint8Array[] = [];
@@ -1693,8 +1715,7 @@ describe('who may replace the snapshot', () => {
 			}),
 		);
 
-		const refusal = answers.map((bytes) => expectOk(decodeFrame(bytes))).at(-1);
-		expect(refusal?.kind).toBe('refuse');
+		expect(answers).toEqual([]);
 		// And nothing was destroyed: the work is still there.
 		expect(phone.titles()).toEqual(['real work']);
 	});
@@ -1702,12 +1723,13 @@ describe('who may replace the snapshot', () => {
 	test('CONTROL: the same offer from a current connection IS accepted', async () => {
 		// Without this the refusal above passes for a hub that refuses every
 		// offer, which would mean snapshots never happen at all.
-		const { wire, authority, phone } = setup();
+		const { wire, authority, phone } = await setup();
 		phone.connect();
 		for (let index = 0; index < 10; index += 1) {
-			expectOk(phone.db.tables.notes.create({ title: `note ${index}` }));
+			phone.db.tables.notes.create({ title: `note ${index}` });
+			await phone.data.persistence.flush();
 			phone.client.flush();
-			wire.settle();
+			await wire.settle();
 		}
 
 		const head = expectOk(authority.head());
@@ -1718,12 +1740,13 @@ describe('who may replace the snapshot', () => {
 		expect(phone.titles()).toHaveLength(10);
 	});
 
-	test('an offer running past the end of the log is refused by the authority', () => {
-		const { wire, authority, phone } = setup();
+	test('an offer running past the end of the log is refused by the authority', async () => {
+		const { wire, authority, phone } = await setup();
 		phone.connect();
-		expectOk(phone.db.tables.notes.create({ title: 'one' }));
+		phone.db.tables.notes.create({ title: 'one' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 		const head = expectOk(authority.head());
 
 		// Past the end of the log: it would stand for entries nobody has written.
@@ -1738,16 +1761,17 @@ describe('the snapshot path under sustained traffic', () => {
 		// The scale that broke a live run against Cloudflare. The floor is dropped
 		// so the snapshot path is reached with ordinary test traffic rather than
 		// with a real vault.
-		const { wire, authority, phone, laptop } = setup(TINY_FLOOR);
+		const { wire, authority, phone, laptop } = await setup(TINY_FLOOR);
 		phone.connect();
 		laptop.connect();
 
 		for (let index = 0; index < 300; index += 1) {
-			expectOk(phone.db.tables.notes.create({ title: `note ${index}` }));
+			phone.db.tables.notes.create({ title: `note ${index}` });
+			await phone.data.persistence.flush();
 			phone.client.flush();
-			wire.settle();
+			await wire.settle();
 			// A requested snapshot offer encodes asynchronously before it sends.
-			wire.settle();
+			await wire.settle();
 			expect(phone.client.status().inFlight).toBe(false);
 		}
 
@@ -1797,11 +1821,16 @@ const twoTableDatabase = defineData({
 
 describe('two devices whose databases disagree', () => {
 	/** One partition, two devices, each running the release it was given. */
-	function pair(updatedDatabase: DataDefinition) {
+	async function pair<
+		const TDatabase extends typeof newerDatabase | typeof twoTableDatabase,
+	>(updatedDatabase: TDatabase) {
 		const wire = createWire();
 		const { authority, hub } = openAuthority();
-		const updated = openReplica('updated', hub, wire, updatedDatabase);
-		const older = openReplica('older', hub, wire);
+		const updated = await openReplica('updated', hub, wire, updatedDatabase);
+		const updatedDb = updated.bound as DeclaredData<TDatabase>;
+		const updatedNotes: DeclaredData<TDatabase>['tables']['notes'] =
+			updatedDb.tables.notes;
+		const older = await openReplica('older', hub, wire);
 		updated.connect();
 		older.connect();
 		return {
@@ -1810,23 +1839,23 @@ describe('two devices whose databases disagree', () => {
 			hub,
 			updated,
 			older,
-			updatedNotes: tableOf(updated.bound, 'notes'),
-			olderNotes: tableOf(older.bound, 'notes'),
+			updatedDb,
+			updatedNotes,
+			olderNotes: older.db.tables.notes,
 		};
 	}
 
-	test('a field the older release cannot name survives a round trip through it', () => {
+	test('a field the older release cannot name survives a round trip through it', async () => {
 		// The case that decides whether a release can be rolled out to one device at
 		// a time. If the older release rewrote rows as its own database sees them, every
 		// edit made on the un-updated phone would silently strip the new field from
 		// the updated laptop's rows.
 		const { wire, updated, updatedNotes, older, olderNotes } =
-			pair(newerDatabase);
-		const made = expectOk(
-			updatedNotes.create({ title: 'Groceries', pinned: true }),
-		);
+			await pair(newerDatabase);
+		const made = updatedNotes.create({ title: 'Groceries', pinned: true });
+		await updated.data.persistence.flush();
 		updated.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		// The older release sees the row, minus the one field it cannot name, and
 		// reports no trouble: an undeclared key is not a conformance failure.
@@ -1835,8 +1864,9 @@ describe('two devices whose databases disagree', () => {
 		expect(seen.rows).toMatchObject([{ id: made.id, title: 'Groceries' }]);
 
 		expectOk(olderNotes.update(made.id, { title: 'Groceries and milk' }));
+		await older.data.persistence.flush();
 		older.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		// Both halves in one assertion, and each is the other's control. The new
 		// title proves the round trip actually happened; `pinned` proves it did not
@@ -1848,35 +1878,36 @@ describe('two devices whose databases disagree', () => {
 		});
 	});
 
-	test('CONTROL: the older release can still destroy the row entirely', () => {
+	test('CONTROL: the older release can still destroy the row entirely', async () => {
 		// Without this, "the field survived" would pass for a channel that carries
 		// nothing back from the older device at all. A delete authored there has to
 		// reach the updated device and take the row with it.
 		const { wire, updated, updatedNotes, older, olderNotes } =
-			pair(newerDatabase);
-		const made = expectOk(
-			updatedNotes.create({ title: 'Groceries', pinned: true }),
-		);
+			await pair(newerDatabase);
+		const made = updatedNotes.create({ title: 'Groceries', pinned: true });
+		await updated.data.persistence.flush();
 		updated.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		olderNotes.delete(made.id);
+		await older.data.persistence.flush();
 		older.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		expect(updatedNotes.get(made.id)).toBeUndefined();
 		expect(updatedNotes.ids()).toEqual([]);
 	});
 
-	test('a row the newer release cannot read is reported, not dropped', () => {
+	test('a row the newer release cannot read is reported, not dropped', async () => {
 		// The other direction, which is what the updated device sees for every row
 		// the un-updated one writes. A row it cannot read is still a row and is
 		// still in the CRDT: the failure names the address and carries what did
 		// pass, so the application can repair it or show it.
-		const { wire, updatedNotes, older, olderNotes } = pair(newerDatabase);
-		const made = expectOk(olderNotes.create({ title: 'Groceries' }));
+		const { wire, updatedNotes, older, olderNotes } = await pair(newerDatabase);
+		const made = olderNotes.create({ title: 'Groceries' });
+		await older.data.persistence.flush();
 		older.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		const seen = updatedNotes;
 		expect(seen.rows).toEqual([]);
@@ -1891,15 +1922,14 @@ describe('two devices whose databases disagree', () => {
 		expect(updatedNotes.ids()).toEqual([made.id]);
 	});
 
-	test('CONTROL: a row the newer release CAN read is in rows and reported nowhere', () => {
+	test('CONTROL: a row the newer release CAN read is in rows and reported nowhere', async () => {
 		// Without this, "reported rather than dropped" would pass for a database that
 		// reports every row it is handed.
-		const { wire, updated, updatedNotes, older } = pair(newerDatabase);
-		const made = expectOk(
-			updatedNotes.create({ title: 'Groceries', pinned: false }),
-		);
+		const { wire, updated, updatedNotes, older } = await pair(newerDatabase);
+		const made = updatedNotes.create({ title: 'Groceries', pinned: false });
+		await updated.data.persistence.flush();
 		updated.client.flush();
-		wire.settle();
+		await wire.settle();
 		expect(older.titles()).toEqual(['Groceries']);
 
 		const seen = updatedNotes;
@@ -1914,13 +1944,13 @@ describe('two devices whose databases disagree', () => {
 		// transport rather than inside one store. The older device relays and stores
 		// rows of a table it has no name for, and they are there the moment it is
 		// updated, without anybody re-sending anything.
-		const { wire, updated, updatedNotes, older } = pair(twoTableDatabase);
-		expectOk(updatedNotes.create({ title: 'Groceries' }));
-		const task = expectOk(
-			tableOf(updated.bound, 'tasks').create({ label: 'buy milk' }),
-		);
+		const { wire, updated, updatedDb, updatedNotes, older } =
+			await pair(twoTableDatabase);
+		updatedNotes.create({ title: 'Groceries' });
+		const task = updatedDb.tables.tasks.create({ label: 'buy milk' });
+		await updated.data.persistence.flush();
 		updated.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		expect(older.titles()).toEqual(['Groceries']);
 		// It holds no handle for the table it has no name for.
@@ -1939,14 +1969,15 @@ describe('two devices whose databases disagree', () => {
 		// the likeliest way a declaration ever changes.
 		const wire = createWire();
 		const { hub } = openAuthority();
-		const updating = openReplica('updating', hub, wire);
-		const other = openReplica('other', hub, wire);
-		const otherNotes = tableOf(other.bound, 'notes');
+		const updating = await openReplica('updating', hub, wire);
+		const other = await openReplica('other', hub, wire);
+		const otherNotes = other.db.tables.notes;
 		updating.connect();
 		other.connect();
-		expectOk(otherNotes.create({ title: 'Groceries' }));
+		otherNotes.create({ title: 'Groceries' });
+		await other.data.persistence.flush();
 		other.client.flush();
-		wire.settle();
+		await wire.settle();
 		expect(updating.titles()).toEqual(['Groceries']);
 
 		// The device is updated (ADR-0240): close this runtime, reopen the same
@@ -1955,7 +1986,8 @@ describe('two devices whose databases disagree', () => {
 		const upgraded = await updating.upgrade(newerDatabase);
 		upgraded.connect();
 
-		const upgradedNotes = tableOf(upgraded.bound, 'notes');
+		const upgradedDb = upgraded.bound as DeclaredData<typeof newerDatabase>;
+		const upgradedNotes = upgradedDb.tables.notes;
 		// The pre-existing row is REPORTED rather than repaired or dropped, because
 		// `pinned` is declared without a default and that row predates it
 		// (ADR-0213). It is still in the CRDT, and `conforming` carries what could
@@ -1970,14 +2002,15 @@ describe('two devices whose databases disagree', () => {
 
 		// CONTROL: the new field really is there now, which is exactly what the
 		// old relation was missing. A drop that failed to recreate fails here.
-		expect(
-			expectOk(upgradedNotes.create({ title: 'Bread', pinned: true })).pinned,
-		).toBe(true);
+		expect(upgradedNotes.create({ title: 'Bread', pinned: true }).pinned).toBe(
+			true,
+		);
 
 		// And it keeps syncing rather than stopping dead at the next entry.
-		expectOk(otherNotes.create({ title: 'Milk' }));
+		otherNotes.create({ title: 'Milk' });
+		await other.data.persistence.flush();
 		other.client.flush();
-		wire.settle();
+		await wire.settle();
 		expect(upgraded.client.status().lastError).toBeUndefined();
 		expect(upgradedNotes.ids()).toHaveLength(3);
 	});
@@ -1987,22 +2020,24 @@ describe('two devices whose databases disagree', () => {
 		// same file succeeds, and the device keeps syncing.
 		const wire = createWire();
 		const { hub } = openAuthority();
-		const updating = openReplica('updating', hub, wire);
-		const other = openReplica('other', hub, wire);
-		const otherNotes = tableOf(other.bound, 'notes');
+		const updating = await openReplica('updating', hub, wire);
+		const other = await openReplica('other', hub, wire);
+		const otherNotes = other.db.tables.notes;
 		updating.connect();
 		other.connect();
-		expectOk(otherNotes.create({ title: 'Groceries' }));
+		otherNotes.create({ title: 'Groceries' });
+		await other.data.persistence.flush();
 		other.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		const upgraded = await updating.upgrade(twoTableDatabase);
 		upgraded.connect();
 
 		expect(tableOf(upgraded.bound, 'tasks').rows).toMatchObject([]);
-		expectOk(otherNotes.create({ title: 'Bread' }));
+		otherNotes.create({ title: 'Bread' });
+		await other.data.persistence.flush();
 		other.client.flush();
-		wire.settle();
+		await wire.settle();
 		expect(upgraded.titles()).toEqual(['Bread', 'Groceries']);
 		expect(upgraded.client.status().lastError).toBeUndefined();
 	});
@@ -2012,7 +2047,7 @@ describe('two devices whose databases disagree', () => {
 		// rows, or for a `tasks` relation that was somehow already populated.
 		const wire = createWire();
 		const { hub } = openAuthority();
-		const absent = openReplica('absent', hub, wire);
+		const absent = await openReplica('absent', hub, wire);
 
 		const upgraded = await absent.upgrade(twoTableDatabase);
 
@@ -2068,8 +2103,10 @@ async function fuzz(
 	const random = createRandom(seed);
 	const wire = createWire();
 	const { authority, hub } = openAuthority(TINY_FLOOR);
-	const devices = Array.from({ length: replicas }, (_, index) =>
-		openReplica(`device-${index}`, hub, wire),
+	const devices = await Promise.all(
+		Array.from({ length: replicas }, (_, index) =>
+			openReplica(`device-${index}`, hub, wire),
+		),
 	);
 	/** What every replica must end up holding, tracked outside the system. */
 	const expected = new Map<string, string>();
@@ -2101,7 +2138,7 @@ async function fuzz(
 		const roll = random.next();
 		if (roll < 0.45 || mine.length === 0) {
 			const title = `r${round} from ${index}`;
-			const made = expectOk(device.db.tables.notes.create({ title }));
+			const made = device.db.tables.notes.create({ title });
 			mine.push(made.id);
 			expected.set(made.id, title);
 			seen.creates += 1;
@@ -2128,9 +2165,9 @@ async function fuzz(
 		}
 
 		if (random.chance(0.6)) device.client.flush();
-		if (random.chance(0.5)) wire.settle();
+		if (random.chance(0.5)) await wire.settle();
 		// A snapshot offer requested mid-schedule encodes asynchronously.
-		if (random.chance(0.5)) wire.settle();
+		if (random.chance(0.5)) await wire.settle();
 		if (random.chance(0.12)) disconnect(random.below(replicas));
 		if (random.chance(0.25)) connect(random.below(replicas));
 		// Checked every round rather than at the end. A durable cursor ahead of
@@ -2143,19 +2180,19 @@ async function fuzz(
 	// Everyone comes back and everything drains. A replica reporting `needsResync`
 	// is reconnected, which is the repair a caller owes it.
 	for (let index = 0; index < replicas; index += 1) connect(index);
-	wire.settle();
+	await wire.settle();
 	for (let index = 0; index < replicas; index += 1) {
 		if (devices[index]?.client.status().needsResync !== true) continue;
 		disconnect(index);
 		connect(index);
-		wire.settle();
+		await wire.settle();
 	}
 	for (const device of devices) device.client.flush();
-	wire.settle();
+	await wire.settle();
 	// A second pass, because a flush can only carry what the previous settle
 	// delivered, and a device that reconnected last needs one more exchange.
 	for (const device of devices) device.client.flush();
-	wire.settle();
+	await wire.settle();
 
 	return { devices, authority, expected, seen };
 }
@@ -2202,20 +2239,15 @@ describe('random schedules, and everyone still agrees', () => {
 	});
 });
 
-describe('admission is catch-up, and there is nothing else to check', () => {
-	// Four verdicts became two (ADR-0292). `bootstrap` and `retired` existed to
-	// answer "is this replica's state part of the history this log describes",
-	// and the generation is in the address now: a replica reaching this hub was
-	// addressed at this generation, which is created once and never mutated in
-	// place, so the question cannot be asked wrongly. What is left is membership
-	// and storage trouble.
-	test('any connection is admitted and caught up from its own cursor', () => {
-		const { wire, hub, phone } = setup();
+describe('wire admission precedes catch-up and membership requires delivery', () => {
+	test('any connection is admitted and caught up from its own cursor', async () => {
+		const { wire, hub, phone } = await setup();
 		phone.connect();
 		for (let index = 0; index < 3; index += 1) {
-			expectOk(phone.db.tables.notes.create({ title: `note ${index}` }));
+			phone.db.tables.notes.create({ title: `note ${index}` });
+			await phone.data.persistence.flush();
 			phone.client.flush();
-			wire.settle();
+			await wire.settle();
 		}
 
 		const sent: Uint8Array[] = [];
@@ -2225,19 +2257,20 @@ describe('admission is catch-up, and there is nothing else to check', () => {
 		};
 		expect(hub.join(late)).toBe('admitted');
 		expect(hub.attached()).toBe(2);
-		// Everything after its cursor, and nothing before: no announcement, no
-		// handshake, no second dial.
+		// Admission precedes everything after its cursor.
 		expect(sent.map((bytes) => expectOk(decodeFrame(bytes)))).toEqual([
+			{ kind: 'admitted' },
 			expect.objectContaining({ kind: 'entry', seq: 3 }),
 		]);
 	});
 
-	test('a cursor at the head is admitted and sent nothing', () => {
-		const { wire, hub, phone } = setup();
+	test('a cursor at the head receives only admission', async () => {
+		const { wire, hub, phone } = await setup();
 		phone.connect();
-		expectOk(phone.db.tables.notes.create({ title: 'current' }));
+		phone.db.tables.notes.create({ title: 'current' });
+		await phone.data.persistence.flush();
 		phone.client.flush();
-		wire.settle();
+		await wire.settle();
 
 		const sent: Uint8Array[] = [];
 		const caughtUp: HubConnection = {
@@ -2246,14 +2279,16 @@ describe('admission is catch-up, and there is nothing else to check', () => {
 		};
 		expect(hub.join(caughtUp)).toBe('admitted');
 		expect(hub.attached()).toBe(2);
-		expect(sent).toHaveLength(0);
+		expect(sent.map((bytes) => expectOk(decodeFrame(bytes)))).toEqual([
+			{ kind: 'admitted' },
+		]);
 	});
 
-	test('an unreadable log fails closed: no admission and no frame', () => {
+	test('a catch-up failure removes membership after wire admission', async () => {
 		const { authority } = openAuthority();
 		const broken: SyncAuthority = {
 			...authority,
-			head: () => AuthorityError.StorageFailed({ cause: new Error('io') }),
+			snapshot: () => AuthorityError.StorageFailed({ cause: new Error('io') }),
 		};
 		const hub = createSyncHub({ authority: broken });
 		const sent: Uint8Array[] = [];
@@ -2263,6 +2298,8 @@ describe('admission is catch-up, and there is nothing else to check', () => {
 		};
 		expect(hub.join(connection)).toBe('unavailable');
 		expect(hub.attached()).toBe(0);
-		expect(sent).toHaveLength(0);
+		expect(sent.map((bytes) => expectOk(decodeFrame(bytes)))).toEqual([
+			{ kind: 'admitted' },
+		]);
 	});
 });

@@ -8,6 +8,7 @@
 - **Unbuilt:** all of it.
 - **Amended by:** [ADR-0285](0285-a-generation-is-a-url-parameter-and-a-device-stores-no-selection.md) at where the choice lives: the local ledger database, the stored selection, and the in-app switch are withdrawn, and the generation becomes a URL parameter. Held-and-chosen and fully-live are unchanged.
 - **Amended by:** [ADR-0286](0286-every-generation-is-minted-from-an-artifact-and-compaction-is-an-export-then-an-import.md) at compaction, which stops being an in-memory path of its own and becomes an export followed by an import.
+- **Amended by:** [ADR-0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) at product recovery: no generation picker or writable historical generation is required; recovery uses the current working copy and ordinary Push while generation and retirement mechanisms remain separate.
 
 ## Context
 

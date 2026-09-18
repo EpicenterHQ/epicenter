@@ -10,6 +10,8 @@ const DASHBOARD_DEV_PORT = 5178;
 
 export default defineConfig({
 	plugins: [sveltekit(), tailwindcss()],
+	// The chart and shared tooltip must read the same LayerChart context.
+	resolve: { dedupe: ['layerchart'] },
 	server: {
 		port: DASHBOARD_DEV_PORT,
 		strictPort: true,
@@ -20,9 +22,9 @@ export default defineConfig({
 				changeOrigin: true,
 			},
 			// Everything under /auth is a Better Auth API endpoint (sign-in/social,
-			// sign-out, oauth2/*, passkey/*, get-session, .well-known/*), so the whole
+			// sign-out, session/*, passkey/*, get-session), so the whole
 			// prefix forwards to the Worker. The hosted auth UI pages (/sign-in,
-			// /consent) live at root and are served by SvelteKit directly, so
+			// /session/callback) live at root and are served by SvelteKit directly, so
 			// neither collides with this proxy.
 			'/auth': {
 				target: `http://localhost:${APPS.API.port}`,

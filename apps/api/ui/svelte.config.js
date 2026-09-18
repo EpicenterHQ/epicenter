@@ -5,7 +5,7 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 const config = {
 	kit: {
 		// The cloud UI is one root-based SPA covering every hosted browser
-		// surface (/dashboard, /sign-in, /consent). The
+		// surface (/dashboard, /sign-in, /session/callback). The
 		// fallback shell is deliberately NOT index.html: Workers static assets
 		// auto-serve index.html for `/`, which would shadow the Worker's root
 		// health endpoint. Server routes decide which URLs get the shell.

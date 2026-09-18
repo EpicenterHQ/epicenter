@@ -33,35 +33,15 @@ export default defineConfig(
 		// .mjs that Vite's dep optimizer can't pre-bundle (it 404s on
 		// .vite/deps/ort-wasm-simd-threaded.mjs). Keep that package and its wasm
 		// subpath native, but still prebundle vad-web so Vite converts its
-		// CommonJS entry to ESM for browser dev mode.
-		optimizeDeps: {
-			// @sqlite.org/sqlite-wasm resolves its .wasm relative to its own
-			// module URL inside the records Worker; pre-bundling breaks that.
-			exclude: [
-				'onnxruntime-web',
-				'onnxruntime-web/wasm',
-				'@sqlite.org/sqlite-wasm',
-			],
-		},
-		// The records Worker (module type) transitively includes sqlite-wasm;
-		// its chunk needs ES output and current syntax, same as honeycrisp.
-		worker: { format: 'es' },
-		build: { target: 'esnext' },
+		// CommonJS entry to ESM for browser dev mode. `mergeConfig` concatenates
+		// this with whatever the base config excludes.
+		optimizeDeps: { exclude: ['onnxruntime-web', 'onnxruntime-web/wasm'] },
 		resolve: {
-			// Build-time platform DI over the `#platform/*` subpaths (package.json
-			// "imports"). This build activates both conditions because both are
-			// true of it, and they answer different questions: `epicenter-host`
-			// selects the leaves whose owner is the Bun host (its replica,
-			// credential, deployment choice, blob bytes, and asset base), `tauri`
-			// the leaves that call native commands. Whispering has no build where
-			// they come apart, but Honeycrisp does, which is why they are named
-			// apart rather than collapsed (ADR-0190). The web build uses `default`
-			// (browser) for every seam, so a desktop-only file imported by shared
-			// code is unresolvable there and fails at vite build time rather than
-			// at user runtime. The `...defaultClientConditions` spread is
-			// load-bearing: custom conditions REPLACE Vite's defaults.
+			// Host builds select brokered auth and native capabilities. Browser
+			// builds select the default leaves. Both own their own data store.
+			// Preserve Vite's defaults when adding the host condition.
 			...(isEpicenterHost && {
-				conditions: ['epicenter-host', 'tauri', ...defaultClientConditions],
+				conditions: ['epicenter-host', ...defaultClientConditions],
 			}),
 		},
 	}),

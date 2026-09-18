@@ -165,3 +165,8 @@ export type _JsonArrayStatic = Expect<
 		JsonValue[]
 	>
 >;
+
+// @ts-expect-error: byte ownership is not a field constructor.
+export type _NoBlobBuilder = typeof field.blob;
+// @ts-expect-error: byte ownership is not a field constructor.
+export type _NoAttachmentBuilder = typeof field.attachment;

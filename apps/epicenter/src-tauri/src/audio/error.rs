@@ -8,6 +8,9 @@ use thiserror::Error;
 /// does not cross the IPC boundary.
 #[derive(Error, Debug)]
 pub enum AudioError {
+    #[error("Audio blob read failed: {0}")]
+    BlobRead(#[from] crate::blobs::BlobError),
+
     #[error("Audio decode failed: {message}")]
     DecodeFailed { message: String },
 

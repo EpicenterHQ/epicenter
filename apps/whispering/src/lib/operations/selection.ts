@@ -1,3 +1,4 @@
+import { type ClipboardError, clipboard } from '@epicenter/app/clipboard';
 import type { Result } from 'wellcrafted/result';
 import type { TextError } from '#platform/text';
 import { services } from '$lib/services';
@@ -23,9 +24,9 @@ const COPY_SETTLE_MS = 100;
  * text service returns NotSupported for `simulateCopyKeystroke`.
  */
 export async function captureSelection(): Promise<
-	Result<string | null, TextError>
+	Result<string | null, TextError | ClipboardError>
 > {
-	const saved = await services.text.readFromClipboard();
+	const saved = await clipboard.readText();
 	if (saved.error) return saved;
 	const originalClipboard = saved.data;
 
@@ -34,13 +35,13 @@ export async function captureSelection(): Promise<
 
 	await new Promise((resolve) => setTimeout(resolve, COPY_SETTLE_MS));
 
-	const selection = await services.text.readFromClipboard();
+	const selection = await clipboard.readText();
 
 	// Restore the user's clipboard regardless of how the read went. An empty
 	// original is left as-is: an extra clipboard entry is a smaller surprise than
 	// guessing how to clear it.
 	if (originalClipboard !== null) {
-		await services.text.copyToClipboard(originalClipboard);
+		await clipboard.writeText(originalClipboard);
 	}
 
 	return selection;

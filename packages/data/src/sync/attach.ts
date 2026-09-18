@@ -3,99 +3,100 @@
  *
  * ADR-0222 left a host exactly one thing to write: how to make a socket. This
  * is that one thing, written once, because it turned out to be the same
- * everywhere: build the store route's URL, hand the socket's four events to
- * the driver, and classify a rejection as a permanent denial or a close.
- * Reconnecting, backoff, cursor placement, and the unacknowledged-submission
- * watchdog all stay in `createSyncConnection`, where they always were.
+ * everywhere: build the store route's address, hand the socket's events to the
+ * driver, and say whether a rejection was a credential refusal or a transport
+ * failure. Reconnecting, backoff, cursor placement, and the
+ * unacknowledged-submission watchdog all stay in `createSyncConnection`, where
+ * they always were.
  *
  * It lives beside the driver rather than in the app that first wrote it,
- * because the classification is correctness rather than taste: getting
- * "permanent" wrong spins a backoff against a refusal forever, or gives up on
- * a network blip. What an application actually varies is the data id it opens.
+ * because the classification decides what a person is shown: a refusal is a
+ * status line naming what auth needs, and anything else is a background error
+ * for the log. What an application actually varies is the data id it opens.
  *
- * The credential model arrives as a two-member port, not as an `AuthClient`.
- * That keeps this file MIT alongside the rest of the store, and an
- * `AuthClient` satisfies it structurally with no adapter.
+ * The credential model arrives as a `SocketTransport`, the contract
+ * `@epicenter/sync` declares beside the address it is dialled with. An
+ * `AuthClient` implements it, so nothing here knows what a credential is: the
+ * route builds the address, and auth appends the bearer to it.
  */
 
-import { isOpenWebSocketDenial } from '@epicenter/sync/auth-subprotocol';
 import { STORE_SYNC_ROUTE } from '@epicenter/sync/store-route';
 import {
-	type ReplicaDocument,
-	registerSyncConnection,
-} from '../store/store.js';
+	isOpenWebSocketDenial,
+	type SocketTransport,
+} from '@epicenter/sync/transport';
+import { type DataDocument, registerSyncConnection } from '../store/store.js';
 import { createSyncConnection, type SyncConnection } from './connection.js';
 
 /**
- * How this host reaches its authority over a socket.
- *
- * Structurally satisfied by `AuthClient`, whose `openWebSocket` carries the
- * bearer as a subprotocol because a browser upgrade cannot set
- * `Authorization`, and which resolves only with a credentialed socket.
+ * `WebSocket.OPEN`, as the number the standard fixes it to, because this file
+ * only ever holds a socket a transport made and never touches the global
+ * constructor.
  */
-export type StoreSocketTransport = {
-	/**
-	 * Open a credentialed socket, or reject.
-	 *
-	 * Waits for in-flight machine work such as a token refresh, never for a
-	 * human, so a rejection means signed out rather than slow. A rejection
-	 * recognised by `isOpenWebSocketDenial` with `permanence: 'permanent'`
-	 * stops the driver for good; anything else is a transient close.
-	 */
-	openWebSocket(url: string | URL): Promise<WebSocket>;
-};
+const SOCKET_OPEN = 1;
 
 export type AttachStoreSyncOptions = {
+	/** The hydrated document this connection carries. */
+	store: DataDocument;
+	/** The replication address resolved when its backing was acquired. */
+	address: {
+		baseURL: string;
+		dataId: string;
+		generation: number;
+		appId?: string;
+		library?: 'personal' | 'shared';
+	};
 	/**
-	 * The open account replica this connection carries, which is also the
-	 * address it dials.
-	 *
-	 * The data id and the generation used to arrive beside it, read off the
-	 * same open the caller passed here. A connection is opened against the
-	 * store it drives, so there was never a second address to describe
-	 * (ADR-0340). The generation is the whole of membership (ADR-0292): it is
-	 * created once and never mutated in place, so a socket addressed from the
-	 * store can only be carrying this history's bytes, and there is nothing to
-	 * announce, nothing to compare, and no supersession to conclude.
+	 * How this replica opens its socket. `AuthClient` implements it: it takes
+	 * the address the route built and appends the bearer subprotocol, because a
+	 * browser upgrade cannot set `Authorization`.
 	 */
-	store: ReplicaDocument;
-	transport: StoreSocketTransport;
+	transport: SocketTransport;
 	/**
 	 * A dial failed for a reason time might repair: verification unreachable,
 	 * plain network trouble. Reported rather than raised, because the driver's
 	 * own backoff owns the retry and nobody is holding a promise for it.
 	 */
 	onTransportError: (cause: unknown) => void;
+	/** End this App lifetime after authenticated generation retirement. */
+	onRetired: () => void;
+	onConnected?: () => void;
 };
 
 /**
- * Attach sync to an open account replica, for this app generation's lifetime,
+ * Attach sync to an open account replica, for as long as the store is open,
  * and start it.
  *
- * Only an account generation calls this (ADR-0233): a local document never
- * syncs, so a signed-out boot has nothing to attach.
+ * Only account-backed documents attach a connection. Local documents have no
+ * replication address or transport.
  *
- * Whether sync can work is decided by the first dial rather than by inspecting
- * auth here, and a permanent denial is not a failure: the store opened from
- * local state before this was called and works offline without it (ADR-0292).
- * A credential arriving later never resumes this connection; acquiring one
- * changes auth state, and reloading on that change dials fresh.
+ * Whether sync can work is decided by each dial rather than by inspecting auth
+ * here, and a refusal is not a failure: the store opened from local state
+ * before this was called and works offline without it (ADR-0292). A credential
+ * arriving later needs no signal, because the driver is still dialling and the
+ * next dial simply succeeds.
  */
 export function attachStoreSync({
 	store,
+	address,
 	transport,
 	onTransportError,
+	onRetired,
+	onConnected,
 }: AttachStoreSyncOptions): SyncConnection {
 	const connection = createSyncConnection({
 		store,
-		dial: ({ cursor, opened, received, closed, denied }) => {
+		onRetired,
+		dial: ({ cursor, opened, received, closed }) => {
 			let socket: WebSocket | undefined;
 			let abandoned = false;
 			void transport
 				.openWebSocket(
-					STORE_SYNC_ROUTE.url(store.baseURL, {
-						dataId: store.dataId,
-						generation: store.generation,
+					STORE_SYNC_ROUTE.address(address.baseURL, {
+						dataId: address.dataId,
+						appId: address.appId,
+						library: address.library,
+						generation: address.generation,
 						cursor,
 					}),
 				)
@@ -107,32 +108,38 @@ export function attachStoreSync({
 						}
 						socket = opening;
 						opening.binaryType = 'arraybuffer';
-						opening.addEventListener('open', () =>
-							opened({ send: (bytes) => opening.send(bytes) }),
-						);
 						opening.addEventListener('message', (event) => {
 							if (typeof event.data === 'string') return;
 							received(new Uint8Array(event.data as ArrayBuffer));
 						});
 						opening.addEventListener('close', () => closed());
 						opening.addEventListener('error', () => opening.close());
+						// A transport may hand back a socket that is already open, and an
+						// open socket never fires `open`: waiting for one would leave the
+						// driver with a live socket it never sends on, and nothing would
+						// time out, because the connection is perfectly healthy. A
+						// browser's `new WebSocket` is always CONNECTING here, so this
+						// reads `false` for every dial a page makes.
+						if (opening.readyState === SOCKET_OPEN) {
+							opened({ send: (bytes) => opening.send(bytes) });
+							onConnected?.();
+							return;
+						}
+						opening.addEventListener('open', () => {
+							opened({ send: (bytes) => opening.send(bytes) });
+							onConnected?.();
+						});
 					},
 					(cause) => {
 						if (abandoned) return;
-						// A permanent denial means no dial in this generation can ever
-						// succeed, so the driver stops instead of retrying a refusal on
-						// backoff. Expected whenever this generation's credential needs
-						// reauth, so it is a lifecycle fact, not a background error.
-						if (
-							isOpenWebSocketDenial(cause) &&
-							cause.permanence === 'permanent'
-						) {
-							// No callback beside it. A denial is readable from
-							// `store.sync.status().denied` for as long as this
-							// connection is attached, and the one surface that renders
-							// it polls that (ADR-0340); a second channel saying the same
-							// thing had no caller in this repository.
-							denied();
+						// A refusal is a lifecycle fact, not a background error: the
+						// credential model said no, which is expected the whole time a
+						// person is signed out or needs to reauth. It travels as data
+						// on the one close callback and is readable from
+						// `store.sync.status().refusal` for as long as this connection
+						// is attached, which is what the status line renders (ADR-0340).
+						if (isOpenWebSocketDenial(cause)) {
+							closed(cause.code);
 							return;
 						}
 						onTransportError(cause);

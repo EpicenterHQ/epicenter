@@ -12,14 +12,11 @@
 		"./artifact/format": "./src/artifact/format.ts",
 		"./artifact/checkout": "./src/artifact/checkout.ts",
 		"./direct": "./src/direct.ts",
-		"./blobs": "./src/store/blobs.ts",
 		"./flush-on-hide": "./src/store/flush-on-hide.ts",
-		"./blobs/opfs": "./src/store/blobs.opfs.ts",
 		"./memory": "./src/store/memory.ts",
 		"./browser": "./src/store/browser.ts",
-		"./test-locks": "./src/store/test-locks.ts",
-		"./test-opfs": "./src/store/test-opfs.ts",
-		"./sync": "./src/sync/index.ts"
+		"./sync": "./src/sync/index.ts",
+		"./store": "./src/store/store.ts"
 	},
 	"files": [
 		"src",
@@ -29,10 +26,13 @@
 	"license": "AGPL-3.0-or-later",
 	"scripts": {
 		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.dom.json && tsc --noEmit -p evidence/browser/durable-store/tsconfig.json && tsc --noEmit -p evidence/browser/write-cost/tsconfig.json && tsc --noEmit -p evidence/browser/port-cost/tsconfig.json",
-		"test": "bun test"
+		"test": "bun test",
+		"bench": "bun src/__benchmarks__/root-rotation.bench.ts && bun src/__benchmarks__/checkout.bench.ts"
 	},
 	"dependencies": {
+		"@epicenter/blobs": "workspace:*",
 		"@epicenter/constants": "workspace:*",
+		"@epicenter/device": "workspace:*",
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",
 		"@epicenter/sync": "workspace:*",

@@ -13,8 +13,8 @@ export type WhisperingContext = {
 };
 
 /**
- * Typed context supplied synchronously by `WhisperingUiSessionProvider` inside the
- * fulfilled boot branch. The focused getters below are ready-only by
+ * Typed context supplied synchronously by `WhisperingShell` inside the `ready`
+ * branch of the boot node. The focused getters below are ready-only by
  * construction: nothing outside that branch can reach either dependency.
  */
 const [getWhisperingContext, setWhisperingContext] =

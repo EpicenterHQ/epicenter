@@ -109,7 +109,7 @@ export const WhisperingBackgroundError = defineErrors({
   }),
 });
 
-export type WhisperingAppDependencies = {
+export type WhisperingAppOptions = {
   reportBackgroundError(cause: unknown): void;
 };
 ```

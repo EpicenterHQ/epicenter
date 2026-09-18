@@ -10,8 +10,8 @@
  *
  * Nothing else here is runtime-specific. The cloud's Postgres connection and
  * `waitUntil` drain are cloud concerns the cloud installs itself
- * ({@link mountCloudDb}), because only Better Auth and billing use them. The
- * instance composes neither.
+ * ({@link createCloudContextMiddleware}) on database-dependent routes. Public shells
+ * bypass that middleware; the instance composes no Postgres.
  *
  * Generic over the context `E`: the cloud composes `createServerApp<CloudEnv>` so
  * it can add db + Better Auth state, the instance composes `createServerApp()`
@@ -32,7 +32,7 @@ import type { Env } from './types.js';
 export type Identity = {
 	/**
 	 * This deployment's canonical public origin, resolved from the per-request
-	 * `env`. Becomes the Better Auth `baseURL`, OAuth issuer, and token audience,
+	 * `env`. Becomes the Better Auth `baseURL` and hosted callback origin,
 	 * so it must be stable per deployment and never inferred from `c.req.url`.
 	 * `apps/api` returns `env.API_PUBLIC_ORIGIN ?? PRODUCTION_API_URL` (dev
 	 * override, else the baked constant); `apps/self-host` returns the operator-set
@@ -63,7 +63,7 @@ export type Identity = {
  *
  * The deployment is responsible for exposing a health endpoint on `/`. The cloud's
  * relational-auth context (`c.var.auth`, `c.var.db`) is NOT installed here: the
- * cloud adds it via {@link mountCloudAuth} + {@link mountCloudDb}, so the
+ * cloud adds it via {@link createCloudContextMiddleware}, so the
  * single-partition instance composes no Better Auth and no Postgres (ADR-0076).
  */
 export function createServerApp<E extends Env = Env>({
@@ -76,7 +76,7 @@ export function createServerApp<E extends Env = Env>({
 	// the env binding, no DB) so downstream middleware, including CORS and the
 	// cookie-CSRF guard, can scope the trusted-origin allow-list to this
 	// deployment. The origin is supplied explicitly and never inferred from the
-	// request, so the auth audience is stable per deployment.
+	// request, so hosted callback URLs are stable per deployment.
 	app.use('*', async (c, next) => {
 		const baseURL = resolveOrigin(c.env);
 		c.set('authBaseURL', baseURL);

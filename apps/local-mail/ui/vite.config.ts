@@ -1,13 +1,20 @@
-import { sveltekit } from '@sveltejs/kit/vite';
-import tailwindcss from '@tailwindcss/vite';
-import { defaultClientConditions, defineConfig, type Plugin } from 'vite';
+import { workspaceAppViteConfig } from '@epicenter/vite-config';
+import {
+	defaultClientConditions,
+	defineConfig,
+	mergeConfig,
+	type Plugin,
+} from 'vite';
 
 // Two builds from one source. Under `EPICENTER_HOST=1` the SPA is served by
 // Epicenter below `/apps/mail/` and reaches the host's SQLite files and
-// credential store; otherwise it is a standalone static build over IndexedDB,
-// OPFS, and a credential that lives as long as the tab (ADR-0310).
+// credential store; otherwise it is a standalone static build over OPFS and a
+// credential that lives as long as the tab (ADR-0310).
 const isEpicenterHost = process.env.EPICENTER_HOST === '1';
 
+// Not in `APPS`: that table maps an app to its production origin, and Local
+// Mail is a desktop application with no hosted one. The port is a dev fact and
+// lives where it is used.
 const SPA_DEV_PORT = 5177;
 
 /**
@@ -29,15 +36,16 @@ function denyFramingInDev(): Plugin {
 	};
 }
 
-export default defineConfig({
-	plugins: [sveltekit(), tailwindcss(), denyFramingInDev()],
-	resolve: {
-		// Build-time platform DI over `#platform/binding`. The spread is
-		// load-bearing: custom conditions REPLACE Vite's defaults, so a seam
-		// mistake fails at build time rather than at a person's runtime.
-		...(isEpicenterHost && {
-			conditions: ['epicenter-host', ...defaultClientConditions],
-		}),
-	},
-	server: { port: SPA_DEV_PORT, strictPort: true },
-});
+export default defineConfig(
+	mergeConfig(workspaceAppViteConfig({ port: SPA_DEV_PORT }), {
+		plugins: [denyFramingInDev()],
+		resolve: {
+			// Build-time platform DI for auth and App resources. The spread is
+			// load-bearing: custom conditions REPLACE Vite's defaults, so a seam
+			// mistake fails at build time rather than at a person's runtime.
+			...(isEpicenterHost && {
+				conditions: ['epicenter-host', ...defaultClientConditions],
+			}),
+		},
+	}),
+);

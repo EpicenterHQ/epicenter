@@ -4,7 +4,7 @@
 	"private": true,
 	"type": "module",
 	"sideEffects": false,
-	"description": "Browser microphone capture and voice-activity detection: stream acquisition, device helpers, and Silero VAD.",
+	"description": "Portable recording sessions, browser stream acquisition, and voice activity detection.",
 	"keywords": [
 		"audio",
 		"recorder",
@@ -26,7 +26,8 @@
 		"typescript": "catalog:"
 	},
 	"scripts": {
-		"typecheck": "tsc --noEmit"
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
 	},
 	"license": "AGPL-3.0-or-later"
 }

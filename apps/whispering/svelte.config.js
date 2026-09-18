@@ -1,6 +1,7 @@
-// Both hosts consume static SPA assets. The browser build stays at `build/`
-// for Cloudflare Workers + Assets; Epicenter's build writes into its packaged
-// asset tree and serves the SPA below its stable loopback route.
+// The SPA is static assets either way. The default output stays at `build/`,
+// which is the dev and unhosted `bun run build` artifact; the Epicenter build
+// writes into the host's packaged asset tree and serves the SPA below its
+// stable loopback route.
 // See: https://v2.tauri.app/start/frontend/sveltekit/ for more info
 import staticAdapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
@@ -18,9 +19,6 @@ const config = {
 			fallback: 'index.html', // SPA fallback for dynamic routes
 		}),
 		...(isEpicenterHost && { paths: { base: '/apps/whispering' } }),
-		alias: {
-			$routes: './src/routes',
-		},
 		// No `csp` block here on purpose. adapter-static prerenders every page,
 		// and SvelteKit's prerender path only ever emits the *enforcing*
 		// `<meta http-equiv="content-security-policy">` tag: `reportOnly` is

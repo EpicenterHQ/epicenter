@@ -620,7 +620,7 @@ function agentsFile(definition: ParsedDataDefinition): string {
 		lines.push(
 			'',
 			table.content === undefined
-				? 'The text below the frontmatter is written out of these rows and never read back.'
+				? 'These files contain fields only. Do not add body text below the frontmatter; it cannot be imported.'
 				: 'The text below the frontmatter is this row, written out and read back.',
 			'',
 		);
@@ -1773,9 +1773,8 @@ async function untouched(
  * so a codec whose two readers disagreed would show a plan its own push
  * refuses.
  *
- * The absent codec answers no rather than being unreachable: `compileData`
- * refuses a table that declares none, so `ParsedTable.content` is optional in
- * a shape the compiler cannot produce.
+ * A table without a codec cannot read body text back. Its field edits remain
+ * independent of this body check.
  */
 function readsBack(table: ParsedTable, text: string): boolean {
 	const codec = table.content;

@@ -19,7 +19,7 @@ import { Database } from 'bun:sqlite';
 import type { DataDefinition } from '@epicenter/data/definition';
 import type { SqliteDatabase } from '@epicenter/sqlite';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
-import { createAccountStore, type Data } from './store.js';
+import { type Data, openAccountStore } from './store.js';
 
 /**
  * One durable record, held in memory, that outlives the stores opened over it.
@@ -47,19 +47,12 @@ export function createMemoryRecord(): MemoryRecord {
  * record the caller passed in is the caller's to close, which is what makes
  * reopening it meaningful.
  */
-/**
- * Asynchronous before it needs to be, on purpose.
- *
- * Nothing in this body awaits anything. The signature matches every other
- * opener's, and a browser opener genuinely awaits IndexedDB, so the shape is
- * the entry point's rather than this one's (ADR-0229).
- */
 export async function openMemory<const TDatabase extends DataDefinition>(
 	definition: TDatabase,
 	record?: MemoryRecord,
 ): Promise<Data<TDatabase>> {
 	const durable = record ?? createMemoryRecord();
-	return createAccountStore({
+	return openAccountStore({
 		definition,
 		sqlite: durable.sqlite,
 		dispose: record === undefined ? () => durable.close() : undefined,

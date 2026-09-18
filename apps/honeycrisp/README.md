@@ -18,23 +18,27 @@ browser as a static site.
 
 ### Data layer
 
-Honeycrisp declares one inert data definition over `so.epicenter.honeycrisp` (`src/lib/data/index.ts`) and opens it as a store the app owns:
+`src/lib/application.ts` reads the plain auth client once and opens the notes
+for that Account. The application route imports it after mounting, so an auth
+callback or route preload opens nothing. Svelte adapts the opened App for UI
+reads; it does not choose or replace the library.
 
 ```txt
-createEpicenter({ appId, definition, account, binding })  the handle, composed once, inert
-epicenter.open()                                          the one thing that acquires
-epicenter.state                                           closed | opening | ready | failed
-epicenter.state.data                                      the store, on `ready`
-epicenter.eraseReplica()                                  the one deleting verb
-data.tables.notes.rows                                    synchronous from here on
+authClient.state.account -> epicenter.openPersonal(account) -> app.ready
+page departure -> editor cleanup -> app.close() -> auth change -> full navigation
 ```
+
+The same page keeps its App across note selection and application navigation.
+Changing account or server starts a fresh document, resetting transient UI.
+Whole-library removal is unavailable.
 
 The definition names the application, and `open` resolves which exact
 generation of it to open: the newest copy this device holds, else the account's
 newest, else a fresh one (ADR-0292, ADR-0339). Nobody chooses that number and
 no URL carries it. The store lives at
-`epicenter/v4/so.epicenter.honeycrisp/so.epicenter.honeycrisp/<n>`: the opening
-application, the data id, then the number (ADR-0324).
+`epicenter/so.epicenter.honeycrisp/accounts/<authority-id>/<principal-id>/data/so.epicenter.honeycrisp/<n>`:
+the opening application, the principal whose copy it is, the data id, then the
+number (ADR-0324, amended by ADR-0348).
 The document shape is the shared `app`/`kv`/`tables:<name>` grammar in
 [ADR-0257](../../docs/adr/0257-the-application-document-has-named-kv-and-table-roots.md).
 
@@ -42,10 +46,9 @@ Every build opens its own store, with no platform seam, and reaches one
 authority per signed-in account (ADR-0225/0226). The desktop host serves
 Honeycrisp's bundle and brokers its credential; it owns none of its data.
 
-**Reads are synchronous after opening.** The handle opens the store by
-replaying a durable log into one `Y.Doc`, then `data.tables.notes.rows` returns
-rows, not a promise. `fromEpicenter` is what the route renders while that
-settles: `signed-out | opening | ready | failed`, with the store on `ready`.
+**Reads are synchronous after opening.** The route awaits `app.ready` before
+mounting `StoreShell`. Opening failure renders the shared recovery screen;
+signed-out startup renders connection controls without an App.
 
 **Nothing polls and nothing refreshes.** `data.tables.notes.subscribe(...)`
 reports which rows a commit touched, for a local write and for bytes that
@@ -75,17 +78,24 @@ Normal deletion is soft deletion: the note row gets a `deletedAt` timestamp and 
 ### Auth and sync
 
 Signing in comes before the notes, because an authority mints every generation
-(ADR-0336): there is no signed-out notebook to fall back to, and `AccountGate`
-is what a signed-out person meets. Signing in opens the store and attaches
-sync, and that is the whole of the sharing model. Every device signed into one
-account dials one authority
+(ADR-0336): there is no signed-out notebook to fall back to. A signed-out
+person meets the sign-in screen, which `routes/+page.svelte` mounts. Signing in
+opens the store and attaches sync, and that is the whole of the sharing model.
+Every device signed into one account dials one authority
 (`principals/<id>/data/so.epicenter.honeycrisp`) and converges; there is
 nothing to pair, invite, or approve.
 
-A store records the account it was created for and refuses to open as anybody
-else (ADR-0325). When somebody else's notes are still on the device,
-`AccountGate` says so and offers two ways out: sign in as that account, or
-erase this device's copy. Nothing is deleted until a person confirms it.
+A store's address carries the principal, so two accounts on one device hold two
+replicas and neither can open the other's. Somebody else signing in here does
+not meet a refusal; they get their own empty notebook, and the first person's
+notes stay where they were. Erasing this device's copy is the account popover's
+`Forget this device`, which a person invokes and confirms; nothing is deleted
+as a step in a protocol (ADR-0281).
+
+The boot screens come from `@epicenter/app-shell/boot-screens`, and
+`routes/+page.svelte` lends them the two words that are Honeycrisp's: its name,
+and `notes`. There are three sentences for a failed open: another window has
+the notes open, this browser has no Web Locks, and everything else.
 
 `src/lib/sync.ts` is Honeycrisp's entire share of the transport: a URL.
 Reconnecting on close, reconnecting when the client is stuck behind a gap,

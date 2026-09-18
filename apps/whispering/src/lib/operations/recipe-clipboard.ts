@@ -1,6 +1,6 @@
+import { clipboard } from '@epicenter/app/clipboard';
 import { tauri } from '#platform/tauri';
 import { report } from '$lib/report';
-import { services } from '$lib/services';
 import { recipePicker } from '$lib/state/recipe-picker.svelte';
 
 /**
@@ -10,12 +10,12 @@ import { recipePicker } from '$lib/state/recipe-picker.svelte';
  * shortcut fired from another app; on web the picker just opens. See ADR-0099.
  */
 export async function runRecipeOnClipboard() {
-	const { data: clipboard, error } = await services.text.readFromClipboard();
+	const { data: text, error } = await clipboard.readText();
 	if (error) {
 		report.error({ title: "Couldn't read your clipboard", cause: error });
 		return;
 	}
-	const input = clipboard?.trim() ? clipboard : '';
+	const input = text?.trim() ? text : '';
 	if (!input) {
 		report.info({
 			title: 'Your clipboard is empty',

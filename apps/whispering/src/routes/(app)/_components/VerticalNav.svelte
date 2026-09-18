@@ -1,4 +1,7 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
+	import { getWhisperingApp } from '$lib/whispering/context';
+	const app = getWhisperingApp();
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { useSidebar } from '@epicenter/ui/sidebar';
 	import MoonIcon from '@lucide/svelte/icons/moon';
@@ -8,9 +11,19 @@
 	import { GithubIcon } from '$lib/components/icons';
 	import studioMicrophone from '$lib/assets/studio-microphone.png';
 	import { NAV_ITEMS } from './nav-items';
-	import { auth } from '#platform/auth';
+	import { getAuth } from '$lib/auth.svelte.js';
+	const auth = getAuth();
 	import { AccountPopover } from '@epicenter/app-shell/account-popover';
 	import { recordingActive } from '$lib/state/recording-active.svelte';
+
+	let {
+		removeLocalData,
+		libraryMenu,
+	}: {
+		/** See `WhisperingShell`. Absent means the popover offers sign-out only. */
+		removeLocalData?: () => Promise<void>;
+		libraryMenu: Snippet;
+	} = $props();
 
 	const sidebar = useSidebar();
 </script>
@@ -43,6 +56,7 @@
 				</Sidebar.MenuButton>
 			</Sidebar.MenuItem>
 		</Sidebar.Menu>
+		{@render libraryMenu()}
 	</Sidebar.Header>
 
 	<Sidebar.Content>
@@ -73,10 +87,25 @@
 		<Sidebar.Menu>
 			<!-- Account / sync (route-independent: visible on the bare home page) -->
 			<Sidebar.MenuItem>
+				<!-- `onRemoveLocalData` is passed only where the platform can remove
+			     one account's audio and leave another's. In the browser build the
+			     audio is the account's own IndexedDB database,
+			     `epicenter/<app-id>/accounts/<authority-id>/<principal-id>/blobs` (ADR-0349), and the
+			     session component erases it right after the generations. The
+			     desktop leaf exports no erase: the host keeps one flat
+			     `<root>/blobs` behind `/api/local-blobs` for everybody who has
+			     ever signed in on this machine, keyed by nothing, so removing the
+			     replica there would delete the recordings and leave their audio
+			     behind. What the desktop half still needs is a principal segment
+			     in the Bun store's root, an authenticated route to reach it, and
+			     the WebView adapter for that route. Until then the desktop popover
+			     offers sign-out only, and the recordings are still safe at the
+			     account. -->
 				<AccountPopover
 					{auth}
 					syncNoun="recordings"
-					disabledReason={recordingActive.current
+					onRemoveLocalData={removeLocalData}
+					disabledReason={recordingActive(app)
 						? 'Stop recording to change your account'
 						: undefined}
 				/>

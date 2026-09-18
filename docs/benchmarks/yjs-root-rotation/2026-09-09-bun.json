@@ -1,0 +1,539 @@
+{
+	"date": "2026-09-09T07:13:52.956Z",
+	"package": "@y/y",
+	"version": "14.0.0-rc.24",
+	"bun": "1.3.1",
+	"platform": "darwin",
+	"arch": "arm64",
+	"cpu": "Apple M4 Max",
+	"results": [
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 1
+			},
+			"variant": "current-fold",
+			"operationMs": 0,
+			"encodeMs": 2.8182499999999777,
+			"samples": [
+				{
+					"bytes": 308836,
+					"structs": 20500,
+					"writers": 2,
+					"openMs": 12.966666000000004,
+					"rssDelta": 8716288
+				},
+				{
+					"bytes": 308836,
+					"structs": 20500,
+					"writers": 2,
+					"openMs": 13.255291999999997,
+					"rssDelta": 8175616
+				},
+				{
+					"bytes": 308836,
+					"structs": 20500,
+					"writers": 2,
+					"openMs": 12.716583,
+					"rssDelta": 9125888
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 1
+			},
+			"variant": "wrapped-fold",
+			"operationMs": 0,
+			"encodeMs": 1.3917500000000018,
+			"samples": [
+				{
+					"bytes": 167365,
+					"structs": 20501,
+					"writers": 2,
+					"openMs": 13.266457999999986,
+					"rssDelta": 7651328
+				},
+				{
+					"bytes": 167365,
+					"structs": 20501,
+					"writers": 2,
+					"openMs": 13.02516700000001,
+					"rssDelta": 7667712
+				},
+				{
+					"bytes": 167365,
+					"structs": 20501,
+					"writers": 2,
+					"openMs": 14.724209000000002,
+					"rssDelta": 6537216
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 1
+			},
+			"variant": "replace-container",
+			"operationMs": 6.0792920000000095,
+			"encodeMs": 0.35349999999994,
+			"samples": [
+				{
+					"bytes": 18506,
+					"structs": 504,
+					"writers": 3,
+					"openMs": 3.5652079999999984,
+					"rssDelta": 540672
+				},
+				{
+					"bytes": 18506,
+					"structs": 504,
+					"writers": 3,
+					"openMs": 3.6566660000000013,
+					"rssDelta": 737280
+				},
+				{
+					"bytes": 18506,
+					"structs": 504,
+					"writers": 3,
+					"openMs": 3.9195410000000095,
+					"rssDelta": 557056
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 1
+			},
+			"variant": "fresh-document",
+			"operationMs": 1.347250000000031,
+			"encodeMs": 0.26595799999995506,
+			"samples": [
+				{
+					"bytes": 18429,
+					"structs": 501,
+					"writers": 1,
+					"openMs": 3.5281249999999886,
+					"rssDelta": 638976
+				},
+				{
+					"bytes": 18429,
+					"structs": 501,
+					"writers": 1,
+					"openMs": 3.3403750000000088,
+					"rssDelta": 589824
+				},
+				{
+					"bytes": 18429,
+					"structs": 501,
+					"writers": 1,
+					"openMs": 3.6180420000000026,
+					"rssDelta": 589824
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 100
+			},
+			"variant": "current-fold",
+			"operationMs": 0,
+			"encodeMs": 2.621458999999959,
+			"samples": [
+				{
+					"bytes": 311104,
+					"structs": 20500,
+					"writers": 101,
+					"openMs": 15.346542,
+					"rssDelta": 9256960
+				},
+				{
+					"bytes": 311104,
+					"structs": 20500,
+					"writers": 101,
+					"openMs": 15.533750000000012,
+					"rssDelta": 8011776
+				},
+				{
+					"bytes": 311104,
+					"structs": 20500,
+					"writers": 101,
+					"openMs": 15.170292000000003,
+					"rssDelta": 10829824
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 100
+			},
+			"variant": "wrapped-fold",
+			"operationMs": 0,
+			"encodeMs": 1.4957500000000437,
+			"samples": [
+				{
+					"bytes": 170920,
+					"structs": 20501,
+					"writers": 101,
+					"openMs": 15.197541999999999,
+					"rssDelta": 8437760
+				},
+				{
+					"bytes": 170920,
+					"structs": 20501,
+					"writers": 101,
+					"openMs": 14.38604199999999,
+					"rssDelta": 8552448
+				},
+				{
+					"bytes": 170920,
+					"structs": 20501,
+					"writers": 101,
+					"openMs": 14.951209000000006,
+					"rssDelta": 6881280
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 100
+			},
+			"variant": "replace-container",
+			"operationMs": 3.116041999999652,
+			"encodeMs": 0.359375,
+			"samples": [
+				{
+					"bytes": 20682,
+					"structs": 603,
+					"writers": 102,
+					"openMs": 4.303582999999989,
+					"rssDelta": 802816
+				},
+				{
+					"bytes": 20682,
+					"structs": 603,
+					"writers": 102,
+					"openMs": 4.391874999999999,
+					"rssDelta": 802816
+				},
+				{
+					"bytes": 20682,
+					"structs": 603,
+					"writers": 102,
+					"openMs": 6.180499999999995,
+					"rssDelta": 655360
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 100
+			},
+			"variant": "fresh-document",
+			"operationMs": 1.0432909999999538,
+			"encodeMs": 0.2450420000000122,
+			"samples": [
+				{
+					"bytes": 18430,
+					"structs": 501,
+					"writers": 1,
+					"openMs": 3.50895899999999,
+					"rssDelta": 557056
+				},
+				{
+					"bytes": 18430,
+					"structs": 501,
+					"writers": 1,
+					"openMs": 3.601416999999998,
+					"rssDelta": 573440
+				},
+				{
+					"bytes": 18430,
+					"structs": 501,
+					"writers": 1,
+					"openMs": 3.7581670000000003,
+					"rssDelta": 606208
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 1000
+			},
+			"variant": "current-fold",
+			"operationMs": 0,
+			"encodeMs": 3.1868750000003274,
+			"samples": [
+				{
+					"bytes": 329726,
+					"structs": 20500,
+					"writers": 1001,
+					"openMs": 29.320624999999993,
+					"rssDelta": 15253504
+				},
+				{
+					"bytes": 329726,
+					"structs": 20500,
+					"writers": 1001,
+					"openMs": 18.11462499999999,
+					"rssDelta": 12238848
+				},
+				{
+					"bytes": 329726,
+					"structs": 20500,
+					"writers": 1001,
+					"openMs": 16.29070800000001,
+					"rssDelta": 12746752
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 1000
+			},
+			"variant": "wrapped-fold",
+			"operationMs": 0,
+			"encodeMs": 2.537916000000223,
+			"samples": [
+				{
+					"bytes": 200224,
+					"structs": 20501,
+					"writers": 1001,
+					"openMs": 15.685082999999992,
+					"rssDelta": 7864320
+				},
+				{
+					"bytes": 200224,
+					"structs": 20501,
+					"writers": 1001,
+					"openMs": 16.316625000000002,
+					"rssDelta": 9338880
+				},
+				{
+					"bytes": 200224,
+					"structs": 20501,
+					"writers": 1001,
+					"openMs": 16.400209000000004,
+					"rssDelta": 7798784
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 1000
+			},
+			"variant": "replace-container",
+			"operationMs": 2.8872910000000047,
+			"encodeMs": 0.9519579999996495,
+			"samples": [
+				{
+					"bytes": 39391,
+					"structs": 1503,
+					"writers": 1002,
+					"openMs": 6.024790999999993,
+					"rssDelta": 1032192
+				},
+				{
+					"bytes": 39391,
+					"structs": 1503,
+					"writers": 1002,
+					"openMs": 5.704874999999987,
+					"rssDelta": 1196032
+				},
+				{
+					"bytes": 39391,
+					"structs": 1503,
+					"writers": 1002,
+					"openMs": 5.890749999999997,
+					"rssDelta": 1474560
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 1000
+			},
+			"variant": "fresh-document",
+			"operationMs": 1.022041999999601,
+			"encodeMs": 0.18779199999971752,
+			"samples": [
+				{
+					"bytes": 18430,
+					"structs": 501,
+					"writers": 1,
+					"openMs": 3.596874999999997,
+					"rssDelta": 638976
+				},
+				{
+					"bytes": 18430,
+					"structs": 501,
+					"writers": 1,
+					"openMs": 5.701166999999998,
+					"rssDelta": 557056
+				},
+				{
+					"bytes": 18430,
+					"structs": 501,
+					"writers": 1,
+					"openMs": 3.662290999999982,
+					"rssDelta": 688128
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 10000
+			},
+			"variant": "current-fold",
+			"operationMs": 0,
+			"encodeMs": 21.331292000000758,
+			"samples": [
+				{
+					"bytes": 517912,
+					"structs": 20500,
+					"writers": 10001,
+					"openMs": 23.485083000000003,
+					"rssDelta": 18890752
+				},
+				{
+					"bytes": 517912,
+					"structs": 20500,
+					"writers": 10001,
+					"openMs": 25.563209000000015,
+					"rssDelta": 17285120
+				},
+				{
+					"bytes": 517912,
+					"structs": 20500,
+					"writers": 10001,
+					"openMs": 23.23058299999998,
+					"rssDelta": 18268160
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 10000
+			},
+			"variant": "wrapped-fold",
+			"operationMs": 0,
+			"encodeMs": 12.61133399999926,
+			"samples": [
+				{
+					"bytes": 459142,
+					"structs": 20501,
+					"writers": 10001,
+					"openMs": 25.624540999999994,
+					"rssDelta": 15581184
+				},
+				{
+					"bytes": 459142,
+					"structs": 20501,
+					"writers": 10001,
+					"openMs": 25.097542000000004,
+					"rssDelta": 14368768
+				},
+				{
+					"bytes": 459142,
+					"structs": 20501,
+					"writers": 10001,
+					"openMs": 25.974833000000004,
+					"rssDelta": 15253504
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 10000
+			},
+			"variant": "replace-container",
+			"operationMs": 3.1311249999998836,
+			"encodeMs": 4.602042000000438,
+			"samples": [
+				{
+					"bytes": 227609,
+					"structs": 10503,
+					"writers": 10002,
+					"openMs": 17.132665999999986,
+					"rssDelta": 10387456
+				},
+				{
+					"bytes": 227609,
+					"structs": 10503,
+					"writers": 10002,
+					"openMs": 16.759,
+					"rssDelta": 11681792
+				},
+				{
+					"bytes": 227609,
+					"structs": 10503,
+					"writers": 10002,
+					"openMs": 15.732790999999992,
+					"rssDelta": 11173888
+				}
+			]
+		},
+		{
+			"workload": {
+				"liveRows": 100,
+				"deletedRows": 10000,
+				"writingSessions": 10000
+			},
+			"variant": "fresh-document",
+			"operationMs": 1.0493750000005093,
+			"encodeMs": 0.17795899999873654,
+			"samples": [
+				{
+					"bytes": 18430,
+					"structs": 501,
+					"writers": 1,
+					"openMs": 3.8218749999999915,
+					"rssDelta": 737280
+				},
+				{
+					"bytes": 18430,
+					"structs": 501,
+					"writers": 1,
+					"openMs": 3.978291999999996,
+					"rssDelta": 704512
+				},
+				{
+					"bytes": 18430,
+					"structs": 501,
+					"writers": 1,
+					"openMs": 3.2851670000000013,
+					"rssDelta": 606208
+				}
+			]
+		}
+	]
+}

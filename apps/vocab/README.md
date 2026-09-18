@@ -8,7 +8,7 @@ Multilingual chat tutor. A learner asks about a word, phrase, or sentence; the t
 
 **Markdown + readings**: Settled assistant messages render through `@epicenter/ui/markdown` via `ReadingMarkdown.svelte`, which resolves the deterministic per-script romanizers whose script appears in the passage (`src/lib/readings/`, ADR-0105) and composes them behind the shared Markdown component. Readings are a client-side derived view over clean text: pure, offline, lazily loaded per script, with no model call and no network, so a reading can only be missing, never wrong. The shared Markdown component owns sanitization, markdown rendering, and `<ruby>` output. Chinese (`pinyin-pro`), Japanese kana (`wanakana`), and Cyrillic (`transliteration`) ship today; adding a language is one provider file plus one registry line.
 
-**Workspace state**: `vocabDefinition` in `vocab.ts` is the shared isomorphic definition. It defines `epicenter-vocab`, the flat `conversations` table with its content codec, the KV settings, the Vocab model constant, and the `VocabMessage` shape. Transcripts are content nodes on conversation rows, not child documents. `openVocabBrowser()` reads auth once at boot: signed out uses bare local IndexedDB storage, signed in uses principal-scoped storage plus relay sync.
+**Workspace state**: `vocabDefinition` in `vocab.ts` is the shared isomorphic definition. It defines `epicenter-vocab`, the flat `conversations` table with its content codec, the KV settings, the Vocab model constant, and the `VocabMessage` shape. Transcripts are content nodes on conversation rows, not child documents. The boot node reads auth and gates: signed out renders the sign-in screen and opens nothing, signed in opens the principal-scoped replica with sync attached.
 
 ```txt
 vocabDefinition
@@ -17,7 +17,7 @@ vocabDefinition
 
 **UI state**: split by lifetime. `src/routes/components/VocabShell.svelte` owns the page-local conversation list, active id, and CRUD. The per-conversation runtime lives in `ConversationView.svelte`, mounted via `{#key activeConversationId}`, so each conversation gets a real component lifecycle. `ConversationView` reads the active row's `content` node and hands it to the shared chat controller, which streams the live turn into `$state`, persists finished messages, and exposes `messages` / `isThinking` / `isGenerating` / `error` plus `send` / `stop` / `retry`.
 
-**Auth**: Google OAuth through the shared Epicenter auth path. Sign-in is optional: Vocab boots into the local workspace first, then uses principal-scoped storage and sync on signed-in boots. `AccountPopover` is the account surface.
+**Auth**: Google OAuth through the shared Epicenter auth path. Sign-in is required to reach the app: there is no unowned store to boot into (ADR-0336), and a signed-out person meets the sign-in screen. `AccountPopover` is the account surface.
 
 **Providers**: `@epicenter/constants/ai-providers` owns the shared servable model registry. `vocab.ts` owns Vocab's Gemini model.
 
@@ -26,9 +26,9 @@ vocabDefinition
 ```
 src/
   lib/
-    platform/auth.ts       # OAuth auth client
-    platform/binding.ts    # who owns this build's SQLite files and secrets
-    epicenter.svelte.ts    # the one handle: createEpicenter + fromEpicenter
+    auth.ts                # Plain auth client
+    application.ts         # One captured Account and App per document
+    auth.svelte.ts        # UI auth tracking
     state/
       dictation.svelte.ts              # dictation state and interruption handling
       inference-connections.svelte.ts  # hosted/custom inference connection registry
@@ -42,7 +42,7 @@ src/
   routes/
     +layout.svelte         # Root layout with Toaster
     +layout.ts             # SSR disabled (CSR only)
-    +page.svelte             # Opens the store, and renders its four states
+    +page.svelte           # Imports the App after mounting and renders readiness
     auth/callback/+page.svelte # OAuth callback return to app shell
     components/
       VocabShell.svelte        # Main layout: chat state, sidebar + chat area + readings toggle
@@ -55,14 +55,11 @@ vocab.ts                    # Shared isomorphic model (tables, KV, VocabMessage 
 
 ## Key decisions
 
-- The store is opened explicitly. `$lib/epicenter.svelte.ts` composes one
-  `createEpicenter` over the definition and the account and adapts it with
-  `fromEpicenter`; `routes/+page.svelte` calls `epicenter.open()` once after
-  reading auth and renders `closed | opening | ready | failed`, handing
-  `state.data` to `VocabShell` (ADR-0339, ADR-0344). Vocab's own opener is
-  gone, and with it the flush-on-hide listener it never had: the shared opener
-  asks the page for a flush before it goes, so the last few seconds of typing
-  survive.
+- `$lib/application.ts` captures the plain auth client's Account and opens one
+  App. The mounted application page imports it and awaits `app.ready` before
+  rendering `VocabShell`. Departure stops dictation and chat, closes the App,
+  then changes identity and starts a fresh document. Switching conversations
+  stays within the same App. Callback and route preloading open no library.
 - The conversation list and each transcript live in the database document: metadata is ordinary row values and messages are keyed attributes on the row's `content` node. There is no `chatMessages` table.
 - The live answer streams in component `$state`, not the synced doc (ADR-0046): vocab is capability-free, so re-asking is free and only finished messages need to sync. Each finished message is one LWW JSON blob keyed by message id, written the moment a normal app would POST the row.
 - The cloud never writes the doc: it is a blind relay plus a stateless metered inference stream (ADR-0033).

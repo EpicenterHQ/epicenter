@@ -1,7 +1,6 @@
 import { join } from 'node:path';
 import {
 	appDataDir,
-	type ComposedAppId,
 	epicenterDataRoot,
 	partitionDir,
 } from '@epicenter/constants/app-data';
@@ -15,15 +14,11 @@ import {
  * Everything below the result belongs to this app, and nothing outside it
  * receives a path into it.
  *
- * The id is pinned to `ComposedAppId` because that is the list catalog admission
- * reserves: an id here that drifted from that list would leave this directory
- * claimable by an admitted folder of the same name (ADR-0201).
+ * The CLI defaults to production storage. Set EPICENTER_DATA_DIR explicitly
+ * to use a development directory. Local Books owns its app identifier.
  */
 export function booksDataDir(): string {
-	return appDataDir(
-		epicenterDataRoot(),
-		'so.epicenter.local-books' satisfies ComposedAppId,
-	);
+	return appDataDir(epicenterDataRoot(), 'so.epicenter.local-books');
 }
 
 /**

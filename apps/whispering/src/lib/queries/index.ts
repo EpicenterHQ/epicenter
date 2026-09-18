@@ -14,7 +14,7 @@ export function createWhisperingQueries(
 ) {
 	return {
 		audio: createAudioQueries(app, runtime),
-		download: createDownloadQueries(runtime),
+		download: createDownloadQueries(app, runtime),
 		transcription: createTranscriptionQueries(app, runtime),
 	};
 }

@@ -9,17 +9,9 @@
  * self-hosted Node binary (against Garage, AWS S3, ...). The endpoint is
  * configuration, not code: that is the blob store's answer to vendor lock-in.
  *
- * Blob bytes never pass through the server. PUT and GET are presigned and the
- * client talks to the store directly; only the cheap control-plane operations
- * (exists for reads, list for the index, delete) are signed and made
- * server-side here. Grounded against the aws4fetch source and Cloudflare R2
- * docs; see
- * ADR-0089 (presigned S3 kernel) as amended by ADR-0148 (opaque BlobId).
- *
- * Presigned PUTs use SigV4's `UNSIGNED-PAYLOAD`: the server never reads or
- * hashes the bytes. `Content-Type` and `If-None-Match: *` are signed headers.
- * The latter makes one opaque BlobId immutable at the object-store boundary:
- * the first PUT wins and a repeated PUT receives 412 Precondition Failed.
+ * Blob uploads and reads use authenticated server requests signed with SigV4.
+ * PUT sends `Content-Type` and uses `If-None-Match: *`; the first PUT wins and a
+ * repeated PUT receives 412 Precondition Failed.
  */
 
 import { AwsClient } from 'aws4fetch';
@@ -35,17 +27,6 @@ export type S3BlobStoreConfig = {
 	bucket: string;
 };
 
-/** Result of presigning a PUT: the URL plus the headers the client must echo. */
-export type PresignedPut = {
-	url: string;
-	/**
-	 * Headers the client MUST send, byte-identical, on the actual PUT, or the
-	 * store answers `403 SignatureDoesNotMatch`. They are signed headers, not
-	 * query params, so aws4fetch leaves them for the client to replicate.
-	 */
-	requiredHeaders: Record<string, string>;
-};
-
 /** One object returned by {@link createS3BlobStore.list}. */
 export type S3Object = { key: string; size: number; uploaded: string };
 
@@ -56,10 +37,8 @@ export type S3BlobStore = ReturnType<typeof createS3BlobStore>;
  * Build a blob store bound to one S3 endpoint/bucket. Construct per request
  * from `c.env`; `AwsClient` is cheap.
  *
- * `service: 's3'` and the configured `region` are set explicitly rather than
- * left to aws4fetch's host parsing: the `UNSIGNED-PAYLOAD` default for
- * presigned PUTs is gated on `service === 's3'`, and a non-R2 endpoint would
- * not host-parse to the right service/region at all.
+ * Set service and region explicitly so every S3-compatible endpoint uses
+ * the configured signature scope without relying on host-name parsing.
  */
 export function createS3BlobStore(config: S3BlobStoreConfig) {
 	const client = new AwsClient({
@@ -93,9 +72,13 @@ export function createS3BlobStore(config: S3BlobStoreConfig) {
 		return out;
 	}
 
-	async function deleteObject(key: string): Promise<void> {
+	async function deleteObject(
+		key: string,
+		signal?: AbortSignal,
+	): Promise<void> {
 		const res = await client.fetch(objectUrl(key).toString(), {
 			method: 'DELETE',
+			signal,
 		});
 		if (!res.ok && res.status !== 404) {
 			throw new Error(`S3 DELETE ${key} failed: ${res.status}`);
@@ -103,59 +86,25 @@ export function createS3BlobStore(config: S3BlobStoreConfig) {
 	}
 
 	return {
-		/**
-		 * Presign a create-only PUT. `contentType` and `If-None-Match: *` are
-		 * pinned into the signature, so the client must echo both verbatim.
-		 */
-		async presignPut({
-			key,
-			contentType,
-			expiresInSeconds,
-		}: {
-			key: string;
-			contentType: string;
-			expiresInSeconds: number;
-		}): Promise<PresignedPut> {
-			const url = objectUrl(key);
-			url.searchParams.set('X-Amz-Expires', String(expiresInSeconds));
-
-			const signed = await client.sign(url, {
+		/** Publish one immutable object through the authenticated server. */
+		async put(key: string, body: Blob, signal?: AbortSignal) {
+			const response = await client.fetch(objectUrl(key).toString(), {
 				method: 'PUT',
 				headers: {
-					'content-type': contentType,
+					'content-type': body.type || 'application/octet-stream',
 					'if-none-match': '*',
+					'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
 				},
-				// signQuery: signature in the query string (a presigned URL).
-				// allHeaders: pin both content-type and if-none-match; aws4fetch
-				// otherwise excludes them from the canonical signed-header set.
-				aws: { signQuery: true, allHeaders: true },
+				body,
+				signal,
 			});
-
-			return {
-				url: signed.url,
-				requiredHeaders: {
-					'content-type': contentType,
-					'if-none-match': '*',
-				},
-			};
+			await response.body?.cancel();
+			if (!response.ok) throw new Error(`S3 PUT failed: ${response.status}`);
 		},
-
-		/** Presign a short-lived GET. Redirect target for an auth-gated read. */
-		async presignGet({
-			key,
-			expiresInSeconds,
-		}: {
-			key: string;
-			expiresInSeconds: number;
-		}): Promise<string> {
-			const url = objectUrl(key);
-			url.searchParams.set('X-Amz-Expires', String(expiresInSeconds));
-			const signed = await client.sign(new Request(url, { method: 'GET' }), {
-				aws: { signQuery: true },
-			});
-			return signed.url;
+		/** Read through the server; no signed URL leaves the storage boundary. */
+		get(key: string, signal?: AbortSignal) {
+			return client.fetch(objectUrl(key).toString(), { signal });
 		},
-
 		/**
 		 * HeadObject existence check: does this key already exist? Used as the
 		 * existence gate before a read. Size and upload time are the
@@ -186,7 +135,7 @@ export function createS3BlobStore(config: S3BlobStoreConfig) {
 		/**
 		 * Delete every object under `prefix` (list-then-delete; idempotent, so an
 		 * account-deletion coordinator can re-run it after a partial failure). Not
-		 * atomic: an already-presigned PUT can land after this sweep completes.
+		 * atomic: an in-flight PUT can land after this sweep completes.
 		 */
 		async deletePrefix(prefix: string): Promise<void> {
 			for (const object of await list(prefix)) {

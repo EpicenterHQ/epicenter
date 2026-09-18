@@ -20,14 +20,18 @@ declare namespace Cloudflare {
 	type ServerBindings = import('@epicenter/server').ServerBindings;
 
 	interface Env extends ServerBindings {
-		// Deployment-owned config the library never reads by name; this
-		// deployment reads them in its own resolvers (ADR-0066). `API_PUBLIC_ORIGIN`
-		// is this instance's public origin (a wrangler.jsonc var); `INSTANCE_TOKEN`
-		// is the operator-supplied bearer (a `wrangler secret put` secret) the
-		// edge resolver constant-time compares each request.
 		API_PUBLIC_ORIGIN: string;
 		TRUSTED_BROWSER_ORIGINS: string;
-		INSTANCE_TOKEN: string;
+		SELF_HOST_CALLBACKS: string;
+		SELF_HOST_AUTH: DurableObjectNamespace<
+			import('@epicenter/server/self-host-auth/worker').SelfHostAuthOwner
+		>;
+		STORE_AUTHORITY: DurableObjectNamespace<
+			import('@epicenter/server').StoreAuthority
+		>;
+		GENERATIONS_LEDGER: DurableObjectNamespace<
+			import('@epicenter/server').GenerationsLedger
+		>;
 	}
 }
 

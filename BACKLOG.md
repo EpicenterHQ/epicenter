@@ -1,14 +1,16 @@
 # Backlog
 
-## Remove Local Mail's headless continuous watcher
+## Establish hosted erasure before external onboarding
 
-- Desired result: Remove `local-mail reconcile --watch` so the open desktop app
-  is the only continuous reconcile owner while a one-shot `reconcile` remains
-  available for explicit delivery and freshness.
-- Grounding:
-  [ADR-0116](docs/adr/0116-local-mail-is-desktop-first-one-bun-engine-no-background-mail-service.md)
-  says Local Mail does not update automatically while the app is closed.
-- Revisit when: Local Mail next changes its CLI or synchronization lifecycle.
+- Desired result: Attribute every hosted allocation to its account and locally
+  verify an operator-run procedure that retires access and removes owned data.
+- Grounding: Account deletion currently refuses before destructive work. Empty
+  API namespaces were observed on 2026-09-08, but complete allocation ownership
+  and an operator deletion procedure remain unbuilt. See
+  [ADR-0360](docs/adr/0360-defer-automated-hosted-account-deletion.md).
+- Revisit when: Preparing to onboard external users. Automated retries and a
+  self-service endpoint stay deferred until the product needs them or operator
+  deletion becomes recurring work. Self-hosted reset is outside this scope.
 
 ## Make Sign in with Apple a supported product path
 
@@ -161,25 +163,11 @@
 - Revisit when: An application genuinely needs a hierarchical file abstraction
   that the row and document model cannot express directly.
 
-## Decide what `@epicenter/sync` is called
-
-- Desired result: The package name describes its contents, or the contents move
-  somewhere that already fits.
-- Grounding: The package is now one file, the bearer-in-subprotocol WebSocket
-  handshake, after
-  [commit 0ecddff6](https://github.com/EpicenterHQ/epicenter/commit/0ecddff603)
-  deleted the Yjs wire it was named for. Two blockers kept the rename out of
-  that commit: it is published as `@epicenter/sync@0.3.0`, and folding it into
-  `@epicenter/auth` would move MIT code into an AGPL package, which
-  `docs/licensing/licensing-strategy.md` treats as a relicensing act.
-- Revisit when: The published toolkit surface is next revised, or the attach
-  relay's auth handshake changes.
-
 ## Revoke the `epicenter-cli` OAuth client row in each deployed database
 
 - Desired result: No deployment still advertises a registered OAuth client for
   the deleted CLI.
-- Grounding: `apps/api/scripts/seed-oauth-clients.ts` only upserts the clients
+- Grounding: The [removed OAuth seed](https://github.com/EpicenterHQ/epicenter/blob/f59fc1e19f/apps/api/scripts/seed-oauth-clients.ts) only upserts the clients
   it knows about; it never deletes. The `epicenter-cli` row seeded before that
   client was removed from `buildTrustedOAuthClients` therefore survives in every
   database that was seeded, still carrying its `/cli-callback` redirect URI. It
@@ -189,6 +177,8 @@
   'epicenter-cli'` per deployed database, or setting `disabled = true` to keep
   the row for audit. Deliberately not executed here: this is a production
   database mutation, not a code change.
+  The direct-session implementation removes these registration surfaces for
+  fresh deployments; it has not changed any deployed database.
 - Revisit when: The next production deploy of `apps/api`, or sooner if an audit
   of registered OAuth clients is run.
 

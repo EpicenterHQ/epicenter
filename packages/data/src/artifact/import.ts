@@ -211,8 +211,8 @@ function admitRow({
 
 	if (content !== '') {
 		// A body with no codec to read it has nowhere to go, and dropping it is
-		// the data loss this refuses. That covers a table this definition no
-		// longer declares and a definition that arrived as JSON.
+		// the data loss this refuses. That includes intentional codec omission,
+		// removed tables, and definitions that arrived as JSON.
 		if (codec === undefined) {
 			return ImportError.UncodedBody({ table: tableName, rowId });
 		}

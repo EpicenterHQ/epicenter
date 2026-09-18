@@ -1,21 +1,20 @@
+import { defineApp } from '@epicenter/app';
+import { APPS } from '@epicenter/constants/apps';
 import { field } from '@epicenter/data/definition';
-import { APP_ID } from './app-id.js';
 /**
- * Honeycrisp's inert data definition.
+ * Honeycrisp's inert application declaration.
  *
- * A data definition is pure JSON: closed field descriptors for the fields,
- * and nothing that knows about storage, sync, or documents (ADR-0213,
- * ADR-0240). Runtimes own all of that.
+ * The root schema is inspectable without opening storage. Only `.open()`
+ * acquires the live App and its resources.
  *
  * The `folders` and `notes` property names are the durable table names. They
  * are what the row addresses carry and what the export names its folders
  * (ADR-0268).
  */
 
-import type { ReplicaData } from '@epicenter/data';
+import type { AppStore } from '@epicenter/app';
 import {
 	type ContentCodec,
-	defineData,
 	defineTable,
 	plainText,
 	type RowOf,
@@ -94,8 +93,8 @@ const noteMarkdown: ContentCodec = {
 	},
 };
 
-export const honeycrispDefinition = defineData({
-	id: APP_ID,
+export const honeycrispDefinition = defineApp({
+	id: APPS.HONEYCRISP.id,
 	title: 'Honeycrisp',
 	kv: {},
 	tables: {
@@ -145,18 +144,19 @@ export const honeycrispDefinition = defineData({
  * It used to be the typed view intersected with `persistence`, because a route
  * owned the open and handed the application the two things it renders. There
  * is no route-owned open any more (ADR-0339): the handle opens the store for
- * this page's lifetime, and what an application is given is what
- * `epicenter.state.data` carries. The narrowing was also already leaking, because
+ * one session's lifetime, and what an application is given is what
+ * `session.opened` resolved. The narrowing was also already leaking, because
  * `persistence` was not the only document fact a person is shown: the sync
  * status line is another, and it lives on the store's own `sync` capability
  * (ADR-0340).
  *
  * It carries no close, and that is the type rather than a promise: what ends a
  * replica is the closer its opener returned, which the handle holds (ADR-0340).
- * The page owns the lifetime, and a change of auth generation replaces the
- * document (ADR-0088), which is the only end this store has.
+ * The tree owns the lifetime: the session component's cleanup closes when its
+ * `{#key}` remounts or its `{#if}` flips (ADR-0350), which is the only end this
+ * store has.
  */
-export type HoneycrispData = ReplicaData<typeof honeycrispDefinition>;
+export type HoneycrispData = AppStore<typeof honeycrispDefinition>;
 
 export type Folder = RowOf<typeof honeycrispDefinition.tables.folders>;
 export type Note = RowOf<typeof honeycrispDefinition.tables.notes>;

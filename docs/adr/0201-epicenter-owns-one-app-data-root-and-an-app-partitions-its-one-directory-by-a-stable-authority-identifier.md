@@ -14,6 +14,12 @@
   What stands: one application-data root per machine, one directory per trusted
   app named by its id, and the rule that the directory is a place and never an
   inter-app API.
+- **Amended by:** [ADR-0349](0349-local-blobs-belong-to-the-app-on-this-device.md) at the open question this record left, "a
+  separate question about who tells the recorder where blobs live, and it is not
+  decided here": the planned recorder handoff takes `{ appId, principalId }`
+  at start and targets `<root>/apps/<app-id>/<principal-id>/blobs/`. For blobs this
+  replaces the kind-first `partitionDir` spelling. The root question is not
+  otherwise reopened.
 - **Amends:** [ADR-0062](0062-local-books-stores-oauth-tokens-in-a-single-0600-file.md) at one clause, the location of the token file, which is now the app directory's root and keeps its `0600` mode and its exclusion from any mirror directory; [ADR-0072](0072-local-books-ships-as-a-standalone-cli-the-daemon-surface-is-deferred.md) at one clause, where a standalone CLI's data lives, leaving its standalone shape and deferred daemon untouched.
 - **Completed by:** [ADR-0202](0202-a-provider-account-belongs-to-the-app-whose-durable-state-it-names-and-epicenter-brokers-none.md), which answers the one question this record left open: who owns the provider grant that names a partition. It amends nothing here.
 - **Corrected 2026-08-03, before merge, at one clause: which apps "an app" is.** A draft of ADR-0202 narrowed it to a closed set of host-composed engines and gave an admitted app (ADR-0179) no directory at all. That narrowing is withdrawn as a product decision, and the rule is restated below at the width it was always written at: **every trusted app Epicenter runs or admits has one place.** Nothing else in this record moves. Both records are unmerged, so this is an edit to an unlanded decision rather than a rewrite of a governing one.
@@ -21,7 +27,7 @@
 - **Corrected 2026-08-03, before merge, at one word and everything that word was dragging: the host names a place, it does not allocate one.** Allocation is the vocabulary of a resource handed out and taken back, and this record kept the word while spending five lines denying every part of it (no allocation call, no handle, no host verb, nothing created at admission). The id is the only thing here with two possible claimants, and the path is a pure function of it, so naming is not a softer synonym for allocating but the accurate description. Nothing about the shape moves. The denials shrink to the one sentence that gives the reason, and the Decision statement now says what the host actually does.
 - **Relates:** [ADR-0203](0203-epicenter-owns-only-what-is-already-contended.md) (the general rule this record is one application of: the id is contended and the directory is not, which is why the host names rather than allocates, and why reach is refused rather than deferred), [ADR-0198](0198-a-durable-local-mail-write-is-a-per-message-label-assertion-in-a-sibling-intent-database.md) (untouched, and deliberately: an intent store's durability is a rule about ordinary operation inside a partition, and this record decides only where the partition is), [ADR-0151](0151-local-workspace-stores-use-owner-first-directories.md) (owner-first directories inside the replica plane; this record governs the plane beside it), [ADR-0161](0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0179](0179-an-installed-app-is-an-inert-built-folder-admitted-through-one-static-artifact-boundary.md), [ADR-0181](0181-every-app-receives-one-portable-epicenter-capability-handle.md) (the closed capability namespace, which this record does not widen), [ADR-0183](0183-epicenter-mediates-the-effects-it-owns-and-names-the-rest-unmediated.md), [ADR-0190](0190-a-build-declares-which-epicenter-owns-its-data-not-which-window-it-runs-in.md), [ADR-0196](0196-local-mails-mirror-is-a-reader-and-one-full-message-fetch-is-its-entire-budget.md), [ADR-0197](0197-a-mirrors-corpus-version-names-its-artifact-and-only-the-app-knows-when-one-is-ready.md) (the filename grammar inside a partition; this record decides the directory that grammar is applied in), [ADR-0199](0199-one-account-reconciler-is-local-mails-only-gmail-writer.md) (the one writer, whose delivery is how an intent store empties during ordinary operation inside a partition)
 - **Relates, not in this tree:** ADR-0191 (the Epicenter host process owns the mail engine in process) and ADR-0193 (durable authorities and disposable materializations) are on open branches. Where this record depends on one, it says so and restates the borrowed clause rather than linking a file that does not exist here.
-- **In force, partly executed.** The root, the app directory, and the single partition directory are code in both apps, and the desktop host now resolves the root through the same TypeScript function rather than being handed one Rust computed. The partition *name* has not changed yet: Local Mail still names one by the account's email address, so the strand-on-rename defect described below is open until the `sub` adoption ships. One clause is unimplemented and this line is where it is admitted.
+- **In force, partly executed.** The root, the app directory, and the single partition directory are code in both apps, and native desktop startup now passes its resolved paths to Bun (amended 2026-09-08). The partition *name* has not changed yet: Local Mail still names one by the account's email address, so the strand-on-rename defect described below is open until the `sub` adoption ships. One clause is unimplemented and this line is where it is admitted.
 - **Repriced 2026-08-02, then re-decided as a clean break.** An intermediate draft argued that because ADR-0198's intent store had shipped as code, this record owed the old directory a relocation and the identity change an emptiness gate. That reasoning is withdrawn: Local Mail has no released install, so everything under the pre-record path is local development state, and buying a migration for it costs a code path that outlives its only use. What survives the withdrawal is the *fact* the reprice was built on, which is about the future rather than the past: a partition holds something irreplaceable, so the identifier naming it has to be one the provider promises to keep.
 - **Re-challenged 2026-08-02, shape unchanged, argument replaced.** Every level was collapse-tested against the code that had shipped. The shape survived; two of the arguments for it did not. "Listing partitions is a directory read" was false against both apps, which enumerate from their token stores, and `apps/` had never been argued at all. Both are repaired below by the one rule the levels actually follow.
 
@@ -130,64 +136,47 @@ authority naming something inside a partition would earn exactly one more
 segment; a second directory for the same app, a per-app root, or a `cacheDir`
 would earn none, because no hand-off happens at any of them.
 
-### One root, one implementation
+### One desktop startup owns its paths
 
-The root is the directory the `so.epicenter` bundle identity names on each
-platform. `EPICENTER_DATA_DIR` overrides it, for tests and for a person who
-wants their data elsewhere, and it has to be absolute: a relative override is
-refused rather than resolved, because resolving one against the working
-directory is the same drift a relative `XDG_DATA_HOME` is ignored for one
-paragraph below. One TypeScript function owns this resolution and is
-the authority on it, because a standalone CLI has no Tauri and needs the answer
-anyway; a second independent implementation of the same path is a drift hazard
-between a host and a CLI that must agree on which mailbox they are both writing
-to.
+Amended 2026-09-08: native startup owns the desktop's resolved paths. The previous
+rule made Bun resolve its own root to match standalone CLIs, while Rust retained
+a second resolver for recording. That split failed in development: Rust used
+`so.epicenter.dev`, while Bun always used `so.epicenter`. A production-only
+comparison test could not establish the runtime invariant.
 
-The path is not a matter of taste, so this record states it exactly rather than
-leaving it to a hand comparison. Tauri 2.11's `app_data_dir()` is
-`dirs::data_dir()` joined with the configured `identifier`
-(`tauri-2.11.5/src/path/desktop.rs:247`), and `dirs` 6.0 resolves `data_dir()`
-as `$HOME/Library/Application Support` on macOS, `$XDG_DATA_HOME` **only when it
-is an absolute path** and `$HOME/.local/share` otherwise on Linux, and
-`FOLDERID_RoamingAppData` on Windows (`dirs-6.0.0/src/mac.rs:12`, `lin.rs:11`,
-`win.rs:10`). Two of those clauses are already wrong in both apps today: each
-accepts any non-empty `XDG_DATA_HOME`, and neither has a Windows branch at all,
-so a Windows install silently lands in `%USERPROFILE%\.local\share`. The
-TypeScript resolver is therefore a correction, not a transcription, and its
-conformance to those three rules is a unit test rather than a one-time manual
-check.
+`DesktopPaths` is resolved and managed once before recorder cleanup or sidecar
+launch. Tauri's `app_local_data_dir()` selects the data directory from the running
+bundle identifier: Application Support on macOS, absolute `XDG_DATA_HOME` or
+`~/.local/share` on Linux, and Local AppData on Windows. `EPICENTER_DATA_DIR`
+overrides it. Empty overrides count as unset; relative paths are refused.
 
-Rust keeps `app_data_dir()` for the native concern that is genuinely its own.
-It had two call sites: `lib.rs` computed the root to pass to the sidecar, and
-`recorder/blob.rs` computes `<root>/blobs` for the staged-recording store, which
-runs in Rust and cannot be handed a value the sidecar has not sent yet. Deleting
-the first is what this record asks for and it is done; deleting the second is a
-separate question about who tells the recorder where blobs live, and it is not
-decided here. Until it is, exactly one Rust resolution remains, in
-`src-tauri/src/app_data.rs`, and it derives a subdirectory the sidecar also
-derives, so the two are pinned equal by a test that runs both implementations on
-one machine rather than by reading either side.
+The same startup selects the working copy: `~/Epicenter` for `so.epicenter` and
+`~/Epicenter Dev` for `so.epicenter.dev`. These are stable destinations, independent
+of display names. `EPICENTER_FOLDER_DIR` overrides the destination. An unknown
+bundle identifier needs an explicit working-copy directory.
 
-That surviving resolution owns the override too, and it has to. While Rust
-passed the root down, an ambient `EPICENTER_DATA_DIR` was overwritten and could
-not split anything. Once the sidecar resolves its own root and honours the
-variable, a recorder that only knew the platform default would write recordings
-to one `blobs/` while the host served another. So the Rust side applies the same
-two rules the TypeScript resolver does, empty means unset and relative is
-refused, and the test covers that branch as well as the platform one.
+Rust sends required `dataDir` and `folderDir` fields through boot protocol v3.
+The recorder reads the managed data directory; Bun uses the received paths.
+Sidecar restarts reuse the same directories. No desktop TypeScript resolver,
+roaming fallback, or cross-language equality subprocess remains. Tests cover
+both configured identities, overrides, and the startup message contract.
 
-One participant cannot be repaired this way and is named here rather than left
-to be discovered: `apps/whispering/src/lib/services/fs-paths.ts` resolves
-`<root>/blobs` in the WebView through Tauri's `appDataDir()`, which is the same
-`PathResolver::app_data_dir` the recorder uses, so it agrees on the platform
-default by construction and misses the override, which a WebView has no way to
-read. The consequence is one button opening the wrong folder, which is why it
-waits for the wave that settles the recorder's root rather than earning a native
-verb of its own now.
+Keyring services use the running bundle identifier for both the desktop auth
+cell and application secrets. Production addresses remain unchanged; development
+starts with its own credentials. Model settings retain Tauri's app-config
+location, already scoped by that identifier.
 
-No app computes an application-data path. `LOCAL_MAIL_DIR`, `LOCAL_BOOKS_DIR`,
-and `--data-dir` are deleted, along with both platform switches. There is one
-override for one root, not one per app.
+Standalone Local Books retains the TypeScript production-default resolver.
+That is CLI convenience, not desktop authority. A CLI targeting development
+uses `EPICENTER_DATA_DIR` explicitly. Removing automatic CLI defaults would be a
+separate product change. The former `COMPOSED_APP_IDS` reservation list is deleted:
+no admission code consumed it. Apps own their identifiers; the shared grammar
+continues to validate directory segments.
+
+Windows data previously stored in Roaming AppData is not automatically moved.
+The desktop README documents copying it with writers stopped, retaining the old
+directory for native settings, or selecting the existing directory explicitly. Development data formerly written by Bun under
+the production root is left there; this change neither merges nor deletes it.
 
 ### Every app has a directory, and no app receives a storage service
 
@@ -573,12 +562,8 @@ directory is the thing handed to a read-only SQL surface or an agent.
   `--realm` or sets `LOCAL_BOOKS_QB_REALM`. The replacement is `listRealms()`,
   not a directory read: a company that authenticated and never synced has no
   directory and is still connected, so the disk cannot answer the question.
-- Rust owns one less fact. It stopped computing the root for the sidecar, which
-  now resolves its own. It keeps the one resolution the staged-recording blob
-  store needs, and that one is checked against the TypeScript resolver by
-  running both on the machine the test is on: a `dirs` bump, a Tauri change, or
-  an edited bundle identifier fails a test instead of silently splitting a
-  person's data between the desktop and a CLI.
+- Amended 2026-09-08: Rust owns desktop path selection. Bun receives the selected
+  paths, so startup no longer depends on two resolvers agreeing.
 - Two current resolution bugs are fixed on the way past. A non-absolute
   `XDG_DATA_HOME` is now ignored rather than honoured, matching what the desktop
   host does, and Windows gets a real branch instead of landing in
@@ -614,9 +599,10 @@ directory is the thing handed to a read-only SQL surface or an agent.
   them in one process, and the arrangement has no answer for what the second root
   is doing there.
 - **Keep Rust computing `EPICENTER_DATA_DIR` and add a TypeScript resolver for
-  the CLI.** Rejected: the CLI needs a TypeScript implementation regardless, so
-  keeping the Rust one leaves two implementations of a path that a host and a CLI
-  must agree on exactly or corrupt each other's view of a mailbox.
+  the CLIs.** Originally rejected to avoid duplicate resolution. Reconsidered
+  2026-09-08: Rust now sends the resolved paths in the boot frame, without
+  overwriting the environment. The desktop consumes one value; a standalone
+  CLI's production default is a separate convenience.
 - **Let one app read a peer's directory, read-only, since it is all local
   anyway.** Rejected: "all local" is an argument about the filesystem, and the
   cost is paid in the API. A peer that reads a mirror pins its stored shape, and

@@ -3,6 +3,7 @@
 - **Status:** Superseded
 - **Date:** 2026-07-18
 - **Superseded by:** [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md)
+- **Relates:** [ADR-0349](0349-local-blobs-belong-to-the-app-on-this-device.md) (where this record's `upload`, `download`, and `purge` vocabulary survives, as verbs on `epicenter.blobs` against the authority)
 
 ## Context
 

@@ -4,9 +4,9 @@ import type { Brand } from 'wellcrafted/brand';
 /**
  * The authenticated principal id, and the partition key everything derives from.
  *
- * This is the whole package, and it is a package because `@epicenter/data` and
+ * This identity leaf exists because `@epicenter/data` and
  * `@epicenter/auth` both need it and neither depends on the other: the store
- * opens a local database with no auth at all (`openLocal`), and the auth client
+ * opens a local database with no auth at all (`application.open()`), and the auth client
  * runs with no store (the hosted dashboard). A leaf is what two siblings share.
  *
  * On hosted Cloud, this is the principal Better Auth resolved for the request.
@@ -25,6 +25,16 @@ import type { Brand } from 'wellcrafted/brand';
  */
 export type PrincipalId = string & Brand<'PrincipalId'>;
 export const PrincipalId = type('string').as<PrincipalId>();
+
+/**
+ * The stable identity of one account, without credentials or network access.
+ * A device store may use this identity without any transport or synchronization.
+ */
+export type AccountIdentity = {
+	readonly authorityId: string;
+	readonly principalId: PrincipalId;
+};
+
 /**
  * Syntactic sugar for `value as PrincipalId`. The function body is a single typed
  * cast; the constrained `string` parameter is what earns it over a raw `as`

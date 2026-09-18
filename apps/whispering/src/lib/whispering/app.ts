@@ -1,51 +1,29 @@
-import { createEpicenter } from '@epicenter/app';
-import type { AuthClient } from '@epicenter/auth';
-import type { ReplicaData } from '@epicenter/data';
+import type { App, AppStore } from '@epicenter/app';
+import type { InferenceConnections } from '@epicenter/app-shell/inference-picker';
+import type { Account } from '@epicenter/auth';
 import type { SyncConnectionStatus } from '@epicenter/data/sync';
-import { binding } from '#platform/binding';
-import { APP_ID } from '../app-id';
-import {
-	type WhisperingSettingValues,
-	whisperingDefinition,
-} from '../workspace';
+import type { WhisperingSettingValues, whisperingDefinition } from '../data';
+import type { WhisperingRecording } from '../operations/recording.svelte.js';
+import { APPLICATION_DEFAULTS } from '../operations/settings.js';
 
 import {
 	createWhisperingRecipes,
 	type WhisperingRecipes,
 } from './recipes.svelte';
-import type { WhisperingBlobs } from './recording-audio';
 import {
 	createWhisperingRecordings,
 	type WhisperingRecordings,
 } from './recordings';
 
-export type { WhisperingBlobs } from './recording-audio';
-
-/** One account's retained replica of the portable work. */
-export type WhisperingAccountData = ReplicaData<typeof whisperingDefinition>;
-
-/** Environment-owned inputs for one fully acquired Whispering app. */
-export type WhisperingAppDependencies = {
-	/**
-	 * This build's auth. Read once, as a boot snapshot: it chooses whether this
-	 * generation also opens an account replica, and whose (ADR-0233).
-	 */
-	auth: AuthClient;
-	blobs: WhisperingBlobs;
-	/**
-	 * Where work nobody awaited goes when it fails: a sync dial that could not
-	 * reach the network, a discard on the way to adopting a superseded document.
-	 */
-};
+/** One local or account dataset's retained portable work. */
+export type WhisperingAppHandle = App<typeof whisperingDefinition>;
+export type WhisperingData = AppStore<typeof whisperingDefinition>;
 
 /**
  * Hydrated, UI-free settings over typed singleton values.
  *
- * Always the DEVICE document's `kv`, signed in or out. Which microphone
- * shortcut this machine listens for, which transcription service it can reach,
- * and whether it plays a sound are facts about this machine, not portable work
- * (ADR-0233). Recordings and recipes travel; the way this install behaves does
- * not.
+ * Settings use `openedApp.device.kv`, scoped to the captured account or the
+ * separate no-account workspace. They remain local when an account is open.
  */
 export type WhisperingSettings = {
 	get<TKey extends keyof WhisperingSettingValues>(
@@ -62,194 +40,64 @@ export type WhisperingSettings = {
 	subscribe(listener: () => void): () => void;
 };
 
-/** Release-local initialization and recovery values for the device KV. */
-// TYPED COMPLETE, not `Partial`. `read` below builds the settings object by
-// walking these keys, so a key declared in `settingsKv` and missing here would
-// vanish from settings silently rather than fall back. `Partial` allowed
-// exactly that; the full record makes the drift a compile error.
-const APPLICATION_DEFAULTS: WhisperingSettingValues = {
-	soundManualStart: true,
-	soundManualStop: true,
-	soundManualCancel: true,
-	soundVadStart: true,
-	soundVadCapture: true,
-	soundVadStop: true,
-	soundTranscriptionComplete: true,
-	soundRecipeComplete: true,
-	outputTranscriptionClipboard: true,
-	outputTranscriptionCursor: false,
-	outputTranscriptionEnter: false,
-	outputRecipeClipboard: true,
-	outputRecipeCursor: false,
-	outputRecipeEnter: false,
-	recordingTrigger: 'manual',
-	recordingPausePlayback: false,
-	recordingAutoUpload: false,
-	transcriptionService: 'local',
-	transcriptionOpenaiModel: 'whisper-1',
-	transcriptionGroqModel: 'whisper-large-v3-turbo',
-	transcriptionElevenlabsModel: 'scribe_v2',
-	transcriptionDeepgramModel: 'nova-3',
-	transcriptionMistralModel: 'voxtral-mini-latest',
-	transcriptionLanguage: 'auto',
-	transcriptionPrompt: '',
-	completionProvider: 'Google',
-	completionModel: 'gemini-2.5-flash',
-	dictionary: null,
-	polishEnabled: true,
-	polishInstructions: 'Fix grammar and punctuation. Keep my wording.',
-	analyticsEnabled: true,
-	shortcutPushToTalkModifiers: null,
-	shortcutPushToTalkKeys: null,
-	shortcutToggleManualRecordingModifiers: null,
-	shortcutToggleManualRecordingKeys: null,
-	shortcutCancelRecordingModifiers: null,
-	shortcutCancelRecordingKeys: null,
-	shortcutToggleVadRecordingModifiers: null,
-	shortcutToggleVadRecordingKeys: null,
-	shortcutOpenRecipePickerModifiers: null,
-	shortcutOpenRecipePickerKeys: null,
-	shortcutRunRecipeOnClipboardModifiers: null,
-	shortcutRunRecipeOnClipboardKeys: null,
-	shortcutOpenSettingsModifiers: null,
-	shortcutOpenSettingsKeys: null,
-};
-
 export type WhisperingApp = {
+	readonly signal: AbortSignal;
+	/** The UI lifetime still accepts new capture. */
+	readonly recordingEnabled: boolean;
+	readonly account: Account | undefined;
 	readonly settings: WhisperingSettings;
+	readonly inferenceConnections: InferenceConnections;
 	readonly recordings: WhisperingRecordings;
+	readonly blobs: WhisperingAppHandle['blobs'];
 	readonly recipes: WhisperingRecipes;
+	readonly recording: WhisperingRecording;
 	/**
-	 * What sync is doing, or undefined when this generation has no account or
-	 * its dials were permanently denied. A denied bound replica works offline
-	 * and shows nothing, correctly.
+	 * What sync is doing, or undefined when no connection is attached.
+	 *
+	 * A refused dial is part of what it is doing: `status().refusal` names the
+	 * refusal, and the surface rendering it decides which ones a person can act
+	 * on.
 	 */
 	syncStatus(): SyncConnectionStatus | undefined;
-	[Symbol.asyncDispose](): Promise<void>;
 };
 
-/**
- * Acquire one ready Whispering app over its two documents.
- *
- * The device document opens for every page lifetime and holds this machine's
- * settings. When the boot auth snapshot carries an identity, that principal's
- * retained account replica opens too and sync attaches, and the portable work
- * (recordings, recipes) comes from it; a signed-out generation reads and writes
- * that work on the device document instead. A surface never sees the choice:
- * one `recordings` and one `recipes`, over one document, for the whole
- * generation.
- *
- * The account arm opens one exact generation and is safe to edit the moment it
- * resolves (ADR-0292): a cache hit is already bound and a miss bootstraps the
- * whole state first, so there is no second moment and no boot gate. It never
- * falls back to the device document, because silently writing a signed-in
- * person's recordings into device storage is the one outcome nobody can undo
- * later.
- */
-export async function openWhisperingApp(
-	{ auth, blobs }: WhisperingAppDependencies,
-	{ signal }: { signal?: AbortSignal } = {},
-): Promise<WhisperingApp> {
-	signal?.throwIfAborted();
-	// An account is required: a store is one replica of an authority, so a
-	// signed-out generation has no document to fall back to. An auth state
-	// carrying no usable principal id is refused inside `openDatabase` as
-	// `Unaddressable` rather than guessed at.
-	if (auth.state.status === 'signed-out') {
-		throw new Error(
-			'Whispering opens a replica, and that needs a signed-in account.',
-		);
-	}
-	signal?.throwIfAborted();
-	const account = await openAccountRuntime({ auth, signal });
-
-	const work = account.data;
-	const settingsDomain = createWhisperingSettings({ kv: work.kv });
+/** Build settings, saved recordings, and recipes over one ready framework App. */
+export function createWhisperingDomains({
+	openedApp,
+	data,
+}: {
+	/** The opened dataset owns tables, blobs, and recording. */
+	openedApp: WhisperingAppHandle;
+	data: WhisperingData;
+}) {
+	const settingsDomain = createWhisperingSettings({ kv: openedApp.device.kv });
 	const recordingsDomain = createWhisperingRecordings({
-		table: work.tables.recordings,
-		blobs,
+		tables: data.tables,
+		blobs: openedApp.blobs,
 	});
 	const recipesDomain = createWhisperingRecipes({
-		table: work.tables.recipes,
+		table: data.tables.recipes,
 	});
 
 	let disposed = false;
 	return Object.freeze({
+		signal: openedApp.signal,
 		settings: settingsDomain.settings,
 		recordings: recordingsDomain.recordings,
+		blobs: openedApp.blobs,
 		recipes: recipesDomain,
-		syncStatus: () => account?.syncStatus(),
-		async [Symbol.asyncDispose]() {
+		// Read off the store's own connection (ADR-0340) rather than off a
+		// `SyncConnection` this file held, and passed through whole: a refusal is
+		// data on that status, and the surface decides what to say about it.
+		syncStatus: () => data.sync.status(),
+		[Symbol.dispose]() {
 			if (disposed) return;
 			disposed = true;
 			recipesDomain[Symbol.dispose]();
 			recordingsDomain[Symbol.dispose]();
 			settingsDomain[Symbol.dispose]();
-			await account?.dispose();
 		},
 	});
-}
-
-/** The account arm plus the disposal only the app may run. */
-type AccountRuntime = {
-	data: WhisperingAccountData;
-	syncStatus(): SyncConnectionStatus | undefined;
-	dispose(): Promise<void>;
-};
-
-/**
- * Open one account's replica through the one opener there is (ADR-0339).
- *
- * This file used to hold its own copy: resolve the generation, open the exact
- * address, attach sync, hand back a disposer, and unwind all of it by hand on
- * the way out. Every line of that is in `@epicenter/app`, and one line of it
- * was not here at all: the shared opener registers the page-hide flush, so the
- * last few seconds before a tab closes reach durable storage instead of being
- * lost with no error anywhere.
- *
- * Construction is inert and `open` is the verb (ADR-0344), so the handle is
- * built and opened in one place and the abort is checked around it rather than
- * threaded through it. The handle is module-local to this call because
- * `close` is on it, and this app's disposal is the only thing allowed to run
- * it.
- */
-async function openAccountRuntime({
-	auth,
-	signal,
-}: {
-	auth: AuthClient;
-	signal?: AbortSignal;
-}): Promise<AccountRuntime> {
-	const handle = createEpicenter({
-		appId: APP_ID,
-		definition: whisperingDefinition,
-		account: auth,
-		binding,
-	});
-	const opened = await handle.open();
-	if (opened.error !== null) throw opened.error;
-	const data = opened.data;
-
-	// An abort that lands while the open was in flight releases everything the
-	// open took, which is the whole of what this used to unwind by hand.
-	try {
-		signal?.throwIfAborted();
-	} catch (cause) {
-		await handle.close();
-		throw cause;
-	}
-
-	return {
-		data,
-		// Read off the store's own connection (ADR-0340) rather than off a
-		// `SyncConnection` this file held: a denied replica works offline and
-		// shows nothing, correctly.
-		syncStatus: () => {
-			const status = data.sync.status();
-			return status?.denied === false ? status : undefined;
-		},
-		dispose: () => handle.close(),
-	};
 }
 
 type SettingKey = keyof WhisperingSettingValues;
@@ -271,8 +119,8 @@ type SettingKey = keyof WhisperingSettingValues;
  * is a read, a write names its keys, and application recovery handles missing
  * values without creating a row to hold them.
  */
-function createWhisperingSettings({ kv }: { kv: WhisperingAccountData['kv'] }) {
-	let values = { ...APPLICATION_DEFAULTS } as WhisperingSettingValues;
+function createWhisperingSettings({ kv }: { kv: WhisperingData['kv'] }) {
+	let values: WhisperingSettingValues = { ...APPLICATION_DEFAULTS };
 	const listeners = new Set<() => void>();
 	const notify = () => {
 		for (const listener of listeners) listener();
@@ -312,7 +160,7 @@ function createWhisperingSettings({ kv }: { kv: WhisperingAccountData['kv'] }) {
 			write({ [key]: value } as Partial<WhisperingSettingValues>);
 		},
 		getDefault<TKey extends SettingKey>(key: TKey) {
-			return APPLICATION_DEFAULTS[key] as WhisperingSettingValues[TKey];
+			return APPLICATION_DEFAULTS[key];
 		},
 		reset() {
 			write(APPLICATION_DEFAULTS);

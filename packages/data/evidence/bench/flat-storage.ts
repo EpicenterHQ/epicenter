@@ -30,7 +30,7 @@ import { Database } from 'bun:sqlite';
 import { defineData } from '@epicenter/data/definition';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 
-import { createAccountStore, syncEngineOf } from '../../src/store/store.js';
+import { openAccountStore, syncEngineOf } from '../../src/store/store.js';
 import { openSyncAuthority } from '../../src/sync/authority.js';
 
 const evidenceDatabase = defineData({
@@ -49,8 +49,8 @@ const LIVE_ROWS = 300;
 const CHECKPOINT_EVERY = 500;
 const OPERATIONS = 6_000;
 
-function openReplica() {
-	const db = createAccountStore({
+async function openReplica() {
+	const db = await openAccountStore({
 		definition: evidenceDatabase,
 		sqlite: createBunSqliteAdapter(new Database(':memory:')),
 	});
@@ -64,13 +64,13 @@ function openReplica() {
  * append-only log, so the two columns are the two designs measured against the
  * identical workload rather than against each other's benchmarks.
  */
-function run({ snapshots }: { snapshots: boolean }) {
+async function run({ snapshots }: { snapshots: boolean }) {
 	const authority = openSyncAuthority({
 		sqlite: createBunSqliteAdapter(new Database(':memory:')),
 		// Low enough that a bench-sized vault reaches the snapshot path at all.
 		snapshotFloorBytes: 16 * 1024,
 	});
-	const { store, db } = openReplica();
+	const { store, db } = await openReplica();
 	const alive: string[] = [];
 	const samples: { operations: number; stored: number; tail: number }[] = [];
 
@@ -91,6 +91,7 @@ function run({ snapshots }: { snapshots: boolean }) {
 			if (edited.error !== null) throw edited.error;
 		}
 
+		await store.persistence.flush();
 		const owed = syncEngineOf(store).coalesce();
 		if (owed !== undefined) {
 			const position = authority.append(owed.bytes);
@@ -131,8 +132,8 @@ function run({ snapshots }: { snapshots: boolean }) {
 	return { samples, liveRows: rows.length };
 }
 
-const withSnapshots = run({ snapshots: true });
-const control = run({ snapshots: false });
+const withSnapshots = await run({ snapshots: true });
+const control = await run({ snapshots: false });
 
 console.log(
 	`a working vault of about ${LIVE_ROWS} live rows, created, edited and deleted continuously\n`,

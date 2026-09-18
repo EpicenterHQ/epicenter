@@ -14,7 +14,7 @@
 	import { report } from '$lib/report';
 	import { isBuiltinRecipeId } from '$lib/state/builtin-recipes';
 	import { generateDefaultRecipe } from '$lib/state/recipes.svelte';
-	import type { Recipe } from '$lib/workspace';
+	import type { Recipe } from '$lib/data';
 	import { getWhisperingApp } from '$lib/whispering/context';
 
 	const app = getWhisperingApp();

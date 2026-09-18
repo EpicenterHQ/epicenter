@@ -2,7 +2,7 @@
  * Recipes, read straight out of the document.
  *
  * A user recipe's identity IS its minted row id, and the built-in ones ship in
- * code under a `builtin:` prefix and are not rows at all (`workspace/index.ts`,
+ * code under a `builtin:` prefix and are not rows at all (`data.ts`,
  * ADR-0099, ADR-0206). So the `sourceId` column and the two-way id map that
  * used to live here are both gone.
  *
@@ -15,8 +15,8 @@
  * of order. Reads are synchronous now (ADR-0215), so none of that can happen.
  */
 import type { NonconformingRow } from '@epicenter/data';
+import type { Recipe, WhisperingData } from '../data';
 import { BUILTIN_RECIPES } from '../state/builtin-recipes';
-import type { Recipe, WhisperingData } from '../workspace';
 
 /** The shipped recipes are read-only, so editing one writes a copy. */
 const BUILTIN_PREFIX = 'builtin:';

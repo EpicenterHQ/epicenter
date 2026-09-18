@@ -11,8 +11,10 @@
  * ever invalidates the live document.
  */
 
+import * as Y from '@y/y';
 import { defineErrors } from 'wellcrafted/error';
 import type { Logger } from 'wellcrafted/logger';
+import { copyBytes, SNAPSHOT_FOLD_THRESHOLD } from './log.js';
 
 /** One unsent entry, at the local position that orders it. */
 export type OutboxEntry = { id: number; bytes: Uint8Array };
@@ -164,33 +166,14 @@ const PersistenceError = defineErrors({
 });
 
 export type PersistenceController = {
-	/**
-	 * Accept ops in order and request one coalesced flush attempt.
-	 *
-	 * On a synchronous port the attempt runs before this returns, so a
-	 * successful write is durable when the accepting verb returns.
-	 */
-	enqueue(ops: readonly DurableOp[]): void;
-	/** The public status surface, frozen for the store to expose. */
+	/** End the retired in-memory queue without submitting or retrying its work. */
+	discard(): Promise<void>;
+	close(): Promise<void>;
+	append(bytes: Uint8Array, authoritySeq: number | undefined): void;
+	acknowledge(throughId: number, authoritySeq: number): void;
+	coalesce(): OutboxEntry | undefined;
+	onSendable(listener: () => void): () => void;
 	persistence: PersistenceCapability;
-	/**
-	 * What the durable engine has confirmed, and the sender's only input
-	 * (ADR-0302).
-	 *
-	 * A mirror rather than a query, because `coalesce` is synchronous and no
-	 * port can answer `authoritySeq IS NULL` synchronously. It is also what
-	 * recovers locally persisted work after a restart, so it would exist for
-	 * that alone.
-	 */
-	durableOutbox(): readonly OutboxEntry[];
-	/**
-	 * How far through the authority's log the durable record accounts for.
-	 *
-	 * The same mirror `durableOutbox` reads, and read for the same reason: a
-	 * cursor derived from confirmed bytes can only LAG, and lagging is free
-	 * because a re-received entry is applied again and an update is
-	 * idempotent.
-	 */
 	durableCursor(): number;
 };
 
@@ -198,30 +181,38 @@ export function createPersistenceController({
 	port,
 	loaded,
 	log,
+	assertUsable,
 }: {
 	port: DurablePort;
 	loaded: DurableSnapshot;
 	log: Logger;
+	assertUsable(): void;
 }): PersistenceController {
 	/** Accepted ops the durable engine has not confirmed, in order. */
 	let queue: DurableOp[] = [];
-	/** Whether a batch is out against an asynchronous port. */
-	let inFlight = false;
-	/** Whether ops arrived while a batch was out. */
-	let again = false;
+	/** One drain owns every commit, including native synchronous adapters. */
+	let running: Promise<void> | undefined;
+	/** A new request permits one retry after an in-flight failure. */
+	let requested = false;
 
 	// The durable mirror: what the engine has confirmed, advanced only on a
 	// successful flush. Reading it never touches storage, which is what lets
 	// the sync sender stay synchronous over an asynchronous engine.
 	let outbox: OutboxEntry[] = [...loaded.outbox];
 	let cursor = loaded.cursor;
+	let nextId = loaded.lastId + 1;
+	let lastCoalescedId = 0;
+	// This session already received these acknowledgements. A restart forgets
+	// this floor and recovers any retirement that did not reach storage.
+	let acknowledgedThroughId = 0;
+	let closed = false;
+	let discarded = false;
+	const sendableListeners = new Set<() => void>();
 
 	const statusListeners = new Set<() => void>();
-	/** Callers awaiting `flush()`, resolved whenever the controller settles. */
-	let settled: (() => void)[] = [];
 
 	function status(): PersistenceStatus {
-		if (inFlight || again) return 'pending';
+		if (running !== undefined) return 'pending';
 		if (queue.length > 0) return 'blocked';
 		return 'saved';
 	}
@@ -236,8 +227,9 @@ export function createPersistenceController({
 	 * on has already been accepted by the live document, so a broken listener
 	 * is that listener's bug.
 	 */
-	function notify(listeners: Iterable<() => void>): void {
+	function notify(listeners: ReadonlySet<() => void>): void {
 		for (const listener of [...listeners]) {
+			if (!listeners.has(listener)) continue;
 			try {
 				listener();
 			} catch (cause) {
@@ -251,13 +243,6 @@ export function createPersistenceController({
 		if (next === lastStatus) return;
 		lastStatus = next;
 		notify(statusListeners);
-	}
-
-	function settle(): void {
-		if (inFlight || again) return;
-		const waiting = settled;
-		settled = [];
-		for (const resolve of waiting) resolve();
 	}
 
 	/**
@@ -297,6 +282,37 @@ export function createPersistenceController({
 		}
 	}
 
+	function maintain(): void {
+		if (queue.length > 0) return;
+		const owed = outbox.filter(
+			(entry) => entry.id > lastCoalescedId && entry.id > acknowledgedThroughId,
+		);
+		if (owed.length < SNAPSHOT_FOLD_THRESHOLD) return;
+		queue.push({
+			kind: 'mergeOwed',
+			id: nextId++,
+			replaces: owed.map((entry) => entry.id),
+			bytes: merge(owed),
+		});
+	}
+
+	function merge(entries: readonly OutboxEntry[]): Uint8Array {
+		if (entries.length === 1) return copyBytes(entries[0]!.bytes);
+		return new Uint8Array(
+			Y.mergeUpdatesV2(
+				entries.map((entry) =>
+					copyBytes(entry.bytes),
+				) as Uint8Array<ArrayBuffer>[],
+			),
+		);
+	}
+
+	function enqueue(ops: readonly DurableOp[]): void {
+		if (discarded || ops.length === 0) return;
+		queue.push(...ops);
+		void flush();
+	}
+
 	function failed(batch: readonly DurableOp[], cause: unknown): void {
 		// Everything comes back, in order, ahead of whatever arrived meanwhile.
 		// The live document already holds this work; only the durable copy is
@@ -307,80 +323,110 @@ export function createPersistenceController({
 		);
 	}
 
-	/**
-	 * Hand the whole queue to the port. Synchronous ports finish inline, so a
-	 * verb on Bun returns with its write durable; asynchronous ports coalesce
-	 * everything accepted mid-flight into the next batch.
-	 */
-	function attempt(): void {
-		if (inFlight) {
-			again = true;
-			return;
-		}
-		if (queue.length === 0) {
-			notifyStatus();
-			settle();
-			return;
-		}
-		const batch = queue;
-		queue = [];
-		let outcome: void | Promise<void>;
-		try {
-			outcome = port.commit(batch);
-		} catch (cause) {
-			failed(batch, cause);
-			notifyStatus();
-			settle();
-			return;
-		}
-		if (outcome === undefined) {
-			succeeded(batch);
-			notifyStatus();
-			settle();
-			return;
-		}
-		inFlight = true;
-		notifyStatus();
-		void outcome
-			.then(
-				() => succeeded(batch),
-				(cause) => failed(batch, cause),
-			)
-			.finally(() => {
-				inFlight = false;
-				if (again) {
-					again = false;
-					attempt();
-					return;
-				}
-				notifyStatus();
-				settle();
-			});
-	}
-
+	/** One completion path makes durability independent of adapter timing. */
 	function flush(): Promise<void> {
-		attempt();
-		if (!inFlight && !again) return Promise.resolve();
-		return new Promise((resolve) => {
-			settled.push(resolve);
+		if (discarded) return running ?? Promise.resolve();
+		if (running !== undefined) {
+			requested = true;
+			return running;
+		}
+		if (queue.length === 0) return Promise.resolve();
+		// Publish ownership before invoking the port or notifying subscribers.
+		running = Promise.resolve().then(async () => {
+			try {
+				while (queue.length > 0) {
+					requested = false;
+					const batch = queue;
+					queue = [];
+					try {
+						await port.commit(batch);
+					} catch (cause) {
+						if (discarded) return;
+						failed(batch, cause);
+						if (requested) continue;
+						break;
+					}
+					if (discarded) return;
+					succeeded(batch);
+					if (
+						!closed &&
+						batch.some(
+							(op) =>
+								op.kind === 'mergeOwed' ||
+								(op.kind === 'append' && op.authoritySeq === undefined),
+						)
+					) {
+						notify(sendableListeners);
+					}
+					maintain();
+				}
+			} finally {
+				// Release ownership in the same continuation as the last commit.
+				// A chained finalizer would leave a microtask gap that strands edits.
+				running = undefined;
+				notifyStatus();
+			}
 		});
+		notifyStatus();
+		return running;
 	}
 
 	return {
-		enqueue(ops: readonly DurableOp[]): void {
-			if (ops.length === 0) return;
-			queue.push(...ops);
-			attempt();
+		discard() {
+			discarded = true;
+			closed = true;
+			queue = [];
+			outbox = [];
+			requested = false;
+			sendableListeners.clear();
+			statusListeners.clear();
+			return running ?? Promise.resolve();
+		},
+		close() {
+			closed = true;
+			sendableListeners.clear();
+			statusListeners.clear();
+			// close may be called inside the transaction whose update has not
+			// reached enqueue yet. Drain after that synchronous stack completes.
+			return Promise.resolve().then(flush);
+		},
+		append(bytes, authoritySeq) {
+			enqueue([{ kind: 'append', id: nextId++, bytes, authoritySeq }]);
+		},
+		acknowledge(throughId, authoritySeq) {
+			acknowledgedThroughId = Math.max(acknowledgedThroughId, throughId);
+			enqueue([{ kind: 'ack', throughId, authoritySeq }]);
+		},
+		coalesce() {
+			const entries = outbox.filter(
+				(entry) => entry.id > acknowledgedThroughId,
+			);
+			const last = entries.at(-1);
+			if (last === undefined) return undefined;
+			lastCoalescedId = Math.max(lastCoalescedId, last.id);
+			return { id: last.id, bytes: merge(entries) };
+		},
+		onSendable(listener) {
+			sendableListeners.add(listener);
+			return () => {
+				sendableListeners.delete(listener);
+			};
 		},
 		persistence: Object.freeze({
-			get: status,
+			get() {
+				assertUsable();
+				return status();
+			},
 			subscribe(listener: () => void): () => void {
+				assertUsable();
 				statusListeners.add(listener);
 				return () => statusListeners.delete(listener);
 			},
-			flush,
+			flush() {
+				assertUsable();
+				return flush();
+			},
 		}),
-		durableOutbox: () => outbox,
 		durableCursor: () => cursor,
 	};
 }

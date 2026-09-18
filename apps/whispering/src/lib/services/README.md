@@ -36,13 +36,16 @@ services/
 |-- blobs/
 |-- download/
 |-- http/
-|-- recorder/
 |-- text/
 |-- transcription/
 |-- local-shortcut-manager.ts
 |-- sound/
 `-- index.ts
 ```
+
+`text/` is delivery into other applications: cursor paste and synthetic
+keystrokes. Plain clipboard reads and writes are the shared `clipboard` from
+`@epicenter/app/clipboard`; call sites import it directly.
 
 Check the directory and `apps/whispering/package.json#imports` for the current
 set. This tree explains the ownership shape, not a permanent inventory.
@@ -57,7 +60,9 @@ and `satisfies DownloadService` without a construction-only factory.
 Use a factory only when construction inputs, isolated mutable state, resource
 lifetime, or teardown earn one. Browser and CPAL recorder factories qualify
 because they create recording sessions that own stop, cancel, subscription, and
-teardown state.
+teardown state. Those factories now live in `@epicenter/recorder`; Whispering
+binds `openedApp.recording` to one UI session's `app.recording` workflow.
+It owns reactive capture state; the public stop saves a row and runs transcription.
 
 ## Build-Time Platform Injection
 
@@ -66,7 +71,7 @@ imports:
 
 ```jsonc
 "#platform/text": {
-  "tauri": "./src/lib/services/text/index.tauri.ts",
+  "epicenter-host": "./src/lib/services/text/index.tauri.ts",
   "default": "./src/lib/services/text/index.browser.ts"
 }
 ```
@@ -77,8 +82,8 @@ Shared code imports one stable name:
 import { TextServiceLive } from '#platform/text';
 ```
 
-The web build resolves `default`. The Epicenter/Tauri build activates the
-`tauri` condition. The off-target file is not part of that module graph. Do not
+The web build resolves `default`. The Epicenter host build activates the
+`epicenter-host` condition. The off-target file is not part of that module graph. Do not
 add runtime `window.__TAURI_INTERNALS__` checks or parallel service registries.
 
 Each branch exports the same public name and conforms to the same contract.
@@ -120,13 +125,17 @@ platform imports resolve:
 export const services = {
 	analytics: AnalyticsServiceLive,
 	text: TextServiceLive,
-	blobs: BlobsLive,
-	blobSources: BlobSourcesLive,
 	download: DownloadServiceLive,
 	localShortcutManager: LocalShortcutManagerLive,
 	sound: PlaySoundServiceLive,
 } as const;
 ```
+
+Recording reads choose local audio first, then an explicitly stored remote
+`audioUrl` through the account when local bytes are unavailable. This domain read
+is not automatic background byte synchronization. Publication, playback, and
+export are explicit product operations; the services layer does not infer row
+ownership or transfer unrelated bytes.
 
 Runtime-selected provider services do not need to live in this barrel. The
 operation that owns dispatch may import them directly.

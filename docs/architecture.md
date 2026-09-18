@@ -11,6 +11,35 @@ package READMEs and code. For how this replaced the previous stack, verb by
 verb, see
 [`the store and what it replaced`](the-store-and-what-it-replaced.md).
 
+## The direction
+
+> Epicenter keeps your data understandable and your actions explicit. Account
+> records synchronize; files have independent local and remote lives. Recordings
+> save locally first and reach another device only through an explicit upload.
+> Your data can become readable Markdown that you or an agent can edit, then
+> push back into the app. Recovering older content uses that same workflow.
+> A separate backup product is deferred.
+
+The working folder contains documents, settings, and a checkout manifest. Blob
+IDs and remote URLs remain ordinary references; materialization neither copies
+local audio nor fetches remote audio. Saving a copy of that folder preserves its
+current contents, including unpushed edits, not every byte the app can reference.
+
+Pull writes app data to the folder. Push previews and applies folder edits
+relative to the manifest. Deleting a tracked Markdown file deletes its row on
+approved Push, but never deletes its blobs. Trash is an application field.
+Recover selected old content by first pulling the current working copy, keeping
+its manifest, then copying in old content and pushing. Missing rows receive fresh
+identities; invalid content can be edited and retried.
+
+This folder workflow is wired into host-backed Honeycrisp. Whispering's existing
+Markdown ZIP is a one-way recording export, without a manifest, settings, or
+audio; it is not yet the same workflow. Unused backup orchestration and structural
+archives are removed; live library safeguards remain under
+[ADR-0379](adr/0379-reconstruction-is-an-explicit-destructive-library-operation.md). [ADR-0394](adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md)
+and [ADR-0395](adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md)
+record the folder and recovery decisions.
+
 ## One runtime
 
 A desktop SPA in a WebView, over a store the client owns (ADR-0227). The Bun
@@ -181,9 +210,11 @@ structs.
 
 ## The authority owns availability, not meaning
 
-One Durable Object per principal, application, and generation, named
-`principals/<id>/data/<dataId>/generations/<generation>` (ADR-0292,
-ADR-0298). It appends opaque bytes and reads nothing about their meaning.
+The mounted authority uses a stable application/library/data address resolved
+from the authenticated principal. It owns the current generation and appends
+opaque bytes without interpreting row values. Historical per-generation objects
+are a different layout; the historical ledger still prevents silently opening
+an empty replacement over existing data.
 
 Being signed in is the whole of the sharing model. The route stamps the
 principal from the bearer and addresses one Durable Object by it, so every
@@ -193,9 +224,10 @@ The host supplies only `dial`, a function that makes a socket. The library owns
 the cursor, attach and detach, reconnect on close and on `needsResync`, and the
 unacknowledged-submission watchdog (ADR-0222).
 
-Blobs are a separate plane and were never CRDT-backed. They are content
-addressed bytes logged against the server, with local ones queued until they
-are uploaded.
+Blobs are a separate plane and were never CRDT-backed. Rows store opaque minted
+keys or ordinary remote URLs. App-local bytes and account-remote objects have
+independent lifetimes; uploads are explicit, with no automatic byte sync or
+row-driven cleanup.
 
 ## Two deployables, one library
 
@@ -206,12 +238,9 @@ differ by principal resolver: an instance resolves every valid bearer to the
 literal `instance` principal (ADR-0075, amended by ADR-0092). Billing is
 hosted-only and lives in `apps/api/worker/billing/`.
 
-## What is broken right now
+## Implementation status
 
-ADR-0227 was executed as a clean break, so the applications that had not moved
-are broken on purpose and their data on the old stack is gone: `apps/whispering`,
-`apps/vocab`, `apps/skills`, `apps/epicenter`, `packages/chat`,
-`packages/skills`, and `packages/app-shell`'s agent chat. Green:
-`packages/data`, `packages/sync`, `packages/sqlite`,
-`packages/svelte-utils`, `apps/api`, `apps/self-host`, `apps/honeycrisp`, and
-`apps/sync-lab`.
+ADRs describe decisions, not a current build report. Check the affected app's
+code and verification scripts before treating historical migration checkpoints
+as present failures. The archive/recovery cleanup plan above names the remaining
+work without classifying live startup and synchronization safeguards as obsolete.

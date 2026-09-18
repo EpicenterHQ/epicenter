@@ -7,7 +7,7 @@ import {
 import { defineErrors } from 'wellcrafted/error';
 import { once } from 'wellcrafted/function';
 import { createLogger } from 'wellcrafted/logger';
-import { whisperingPath } from '$lib/constants/urls';
+import { resolve } from '$app/paths';
 import {
 	RECORDING_OVERLAY_WINDOW_LABEL,
 	recordingOverlayReady,
@@ -66,7 +66,7 @@ const ensureReadyListener = once(
 async function createOverlayWindow(): Promise<WebviewWindow | null> {
 	await ensureReadyListener();
 	const overlayUrl = new URL(
-		whisperingPath('/recording-overlay'),
+		resolve('/recording-overlay'),
 		window.location.origin,
 	).href;
 

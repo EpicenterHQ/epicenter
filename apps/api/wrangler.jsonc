@@ -8,8 +8,8 @@
 	// Build the cloud UI SPA before publishing. Wrangler runs build.command for
 	// `deploy` and `versions upload`, so local, CI prod, and CI preview build
 	// through one definition. Skip it for `dev`/`types`: the local `wrangler dev`
-	// loop (scripts/dev.ts) builds the UI only when the shell is missing so the
-	// edit loop stays fast.
+	// launcher (scripts/dev.ts) rebuilds the UI at startup so clients and the
+	// hosted sign-in page use the same session handoff.
 	"build": {
 		"command": "case \"$WRANGLER_COMMAND\" in dev|types) ;; *) bun run --cwd ui build ;; esac"
 	},

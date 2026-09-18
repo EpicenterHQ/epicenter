@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid/non-secure';
-import type { Recipe } from '$lib/workspace';
+import type { Recipe } from '$lib/data';
 
 /**
  * `createRecipes` is gone, and nothing replaced it.

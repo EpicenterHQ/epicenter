@@ -3,7 +3,7 @@
  *
  * Named for what it does rather than for a layer. It was `@epicenter/data/direct`
  * and there is no engine here: `syncEngineOf` is one accessor and the rest is a
- * constructor, while the actual engine lives in `store/store.ts` where nothing
+ * opener, while the actual engine lives in `store/store.ts` where nothing
  * calls itself one.
  *
  * Not the public story. An application opens its data through a runtime's
@@ -19,11 +19,9 @@
  * Account stores only. A local store declares `replication: 'none'`, and every
  * runtime that reaches this seam is a sync peer, so there has never been a
  * caller for one and there is no shape of caller that would want it.
- * `createLocalStore` stays in `store/store.js` for the tests that construct one
- * directly.
  */
 export {
 	type CreateStoreOptions,
-	createAccountStore,
+	openAccountStore,
 	syncEngineOf,
 } from './store/store.js';

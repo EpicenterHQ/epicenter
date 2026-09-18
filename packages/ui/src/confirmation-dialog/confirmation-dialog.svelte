@@ -68,6 +68,7 @@
 	function createConfirmationDialog() {
 		let isOpen = $state(false);
 		let isPending = $state(false);
+		let hasFailed = $state(false);
 		let inputText = $state('');
 		let options = $state.raw<ConfirmationDialogOptions | null>(null);
 
@@ -80,6 +81,9 @@
 			},
 			get isPending() {
 				return isPending;
+			},
+			get hasFailed() {
+				return hasFailed;
 			},
 			get inputText() {
 				return inputText;
@@ -95,8 +99,10 @@
 			 * Opens the confirmation dialog with the given options.
 			 */
 			open(opts: ConfirmationDialogOptions) {
-				options = opts;
+				// Every opening owns a distinct completion, even if opts is reused.
+				options = { ...opts };
 				isPending = false;
+				hasFailed = false;
 				inputText = '';
 				isOpen = true;
 			},
@@ -107,6 +113,7 @@
 			close() {
 				isOpen = false;
 				isPending = false;
+				hasFailed = false;
 				inputText = '';
 				options = null;
 			},
@@ -125,23 +132,21 @@
 			 * shows a loading state until it resolves.
 			 */
 			async confirm() {
-				if (!options) return;
+				if (!isOpen || !options || isPending) return;
 				if (options.input && inputText !== options.input.confirmationText)
 					return;
 
+				const current = options;
+				isPending = true;
+				hasFailed = false;
 				try {
-					const result = options.onConfirm();
-
-					if (result instanceof Promise) {
-						isPending = true;
-						try {
-							await result;
-						} finally {
-							isPending = false;
-						}
-					}
+					await current.onConfirm();
+					if (options === current) isOpen = false;
+				} catch (error) {
+					if (options === current) hasFailed = true;
+					throw error;
 				} finally {
-					isOpen = false;
+					if (options === current) isPending = false;
 				}
 			},
 
@@ -149,8 +154,10 @@
 			 * Handles the cancel action.
 			 */
 			cancel() {
-				options?.onCancel?.();
-				isOpen = false;
+				if (!isOpen || isPending) return;
+				const current = options;
+				current?.onCancel?.();
+				if (options === current) isOpen = false;
 			},
 		};
 	}
@@ -166,12 +173,19 @@
 </script>
 
 <AlertDialog.Root bind:open={confirmationDialog.isOpen}>
-	<AlertDialog.Content class="sm:max-w-xl">
+	<AlertDialog.Content
+		class="sm:max-w-xl"
+		onEscapeKeydown={(event) => {
+			event.preventDefault();
+			confirmationDialog.cancel();
+		}}
+	>
 		<form
 			method="POST"
 			onsubmit={(e) => {
 				e.preventDefault();
-				confirmationDialog.confirm();
+				// confirm owns inline failure feedback; callers may add domain detail.
+				void confirmationDialog.confirm().catch(() => {});
 			}}
 			class="flex flex-col gap-4"
 		>
@@ -191,13 +205,31 @@
 				/>
 			{/if}
 
+			{#if confirmationDialog.hasFailed}
+				<p role="alert" class="text-sm text-destructive">
+					Could not complete the action. Try again.
+				</p>
+			{/if}
+
 			<AlertDialog.Footer>
 				<AlertDialog.Cancel
 					type="button"
-					onclick={confirmationDialog.cancel}
+					onclick={(event) => {
+						event.preventDefault();
+						confirmationDialog.cancel();
+					}}
+					onkeydown={(event) => {
+						if (event.key !== 'Enter' && event.key !== ' ') return;
+						event.preventDefault();
+						confirmationDialog.cancel();
+					}}
 					disabled={confirmationDialog.isPending}
 				>
-					{confirmationDialog.options?.cancel?.text ?? 'Cancel'}
+					{#snippet child({ props })}
+						<button {...props} disabled={confirmationDialog.isPending}>
+							{confirmationDialog.options?.cancel?.text ?? 'Cancel'}
+						</button>
+					{/snippet}
 				</AlertDialog.Cancel>
 				<AlertDialog.Action
 					type="submit"

@@ -4,14 +4,14 @@ import { field, plainText } from '@epicenter/data/definition';
  *
  * A browser store is addressed by the application that opened it, the data it
  * holds, and which history it is (ADR-0324), at an exact generation
- * (ADR-0292): `epicenter/v4/<app-id>/<data-id>/<n>`, one IndexedDB database
- * and one open claim per GENERATION.
+ * (ADR-0292): `epicenter/<app-id>/accounts/<authority-id>/<principal-id>/data/<data-id>/<n>`, one IndexedDB database
+ * and one active owner per application/account library.
  *
  * Key behaviors:
  * - The address is composed of exactly those four parts, under the format
  *   version, and nothing about who owns the store
  * - Two applications naming one data id keep their own replicas (ADR-0304)
- * - A second open of one address is refused with AlreadyOpen
+ * - A second owner of one library is refused with AlreadyOpen
  * - A second generation is a second address, and the first is untouched
  * - An application id, a generation number, or an account that cannot be named
  *   is refused before anything is claimed or created
@@ -28,16 +28,21 @@ import { field, plainText } from '@epicenter/data/definition';
  * real Chromium across a real reload.
  */
 import 'fake-indexeddb/auto';
-import { installTestLocks } from './test-locks.js';
+import { claimLibrary } from '@epicenter/device/library-claim';
+import { installTestLocks } from '@epicenter/device/test-locks';
 
 installTestLocks();
 
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import {
 	type DataDefinition,
 	defineData,
 	defineTable,
 } from '@epicenter/data/definition';
+import {
+	createAppSqlite,
+	type DeviceSqliteOwner,
+} from '@epicenter/device/owner';
 import { asPrincipalId } from '@epicenter/principal';
 import { Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk as expectOkResult } from 'wellcrafted/testing';
@@ -47,6 +52,7 @@ import {
 	type DatabaseAccount,
 	eraseGenerations,
 	openDatabase,
+	openIdbBacking,
 	resolveGeneration,
 } from './browser.js';
 import { openMemory } from './memory.js';
@@ -90,8 +96,25 @@ const GEN = 1;
 /** The application every test here opens as, unless it is testing the segment. */
 const APP = 'so.epicenter.browsertest';
 
-const storeAddress = (dataId: string, generation = GEN, appId = APP) =>
-	`epicenter/v4/${appId}/${dataId}/${generation}`;
+/**
+ * The dial half of an account, for tests that never dial.
+ *
+ * `openDatabase` and `resolveGeneration` reach the authority over `fetch`
+ * only; the socket belongs to `attachStoreSync`, which these tests do not
+ * attach. Throwing rather than stubbing a socket keeps that true: a test that
+ * starts dialling fails here rather than passing over a fake.
+ */
+const neverDials: DatabaseAccount['openWebSocket'] = () => {
+	throw new Error('this test opens a store and never dials');
+};
+
+const storeAddress = (
+	dataId: string,
+	generation = GEN,
+	appId = APP,
+	principalId: string = ALICE,
+) =>
+	`epicenter/${appId}/accounts/test-authority/${principalId}/data/${dataId}/${generation}`;
 
 /**
  * An account port that serves one generation and assigns numbers locally.
@@ -106,6 +129,7 @@ function accountFor(
 ): DatabaseAccount {
 	return {
 		baseURL,
+		authorityId: 'test-authority',
 		principalId,
 		fetch: async (input, init) => {
 			if (init?.method === 'POST') {
@@ -119,6 +143,7 @@ function accountFor(
 				headers: { 'epicenter-log-position': String(served.position) },
 			});
 		},
+		openWebSocket: neverDials,
 	};
 }
 
@@ -178,13 +203,14 @@ async function databaseNames(): Promise<string[]> {
 }
 
 describe('one address per application, data id, and generation (ADR-0324)', () => {
-	test('the address is the app id, the data id, and the number, under v4', async () => {
+	test('the address includes application, authority, principal, data, and generation', async () => {
 		const database = databaseFor('address');
 		const opened = expectOk(await openAccountData(database, ALICE));
 		expect(await databaseNames()).toContain(storeAddress(database.id));
-		// And nothing about who owns it. The server and the principal used to be
-		// four segments here; they are what the store REPORTS now, and ADR-0325
-		// stamps the same pair inside it.
+		// The principal is a segment. The SERVER is not, and that is the half of
+		// the old partition this scheme still refuses: a build names one
+		// authority, so it is a device-wide constant rather than an address.
+		expect(storeAddress(database.id)).toContain(`/${ALICE}/`);
 		expect(storeAddress(database.id)).not.toContain(encodeURIComponent(CLOUD));
 		expect(opened.baseURL).toBe(CLOUD);
 		expect(opened.principalId).toBe(ALICE);
@@ -332,8 +358,10 @@ describe('one address per application, data id, and generation (ADR-0324)', () =
 		const before = await databaseNames();
 		const account: DatabaseAccount = {
 			baseURL: CLOUD,
+			authorityId: 'test-authority',
 			principalId: ALICE,
 			fetch: async () => new Response(null, { status: 503 }),
+			openWebSocket: neverDials,
 		};
 
 		const refused = expectErr(
@@ -346,7 +374,10 @@ describe('one address per application, data id, and generation (ADR-0324)', () =
 		expect(await databaseNames()).toEqual(before);
 	});
 
-	test('an account that names no server or principal is refused, and makes no database', async () => {
+	test('an account that names no principal is refused, and makes no database', async () => {
+		// The server is no longer part of an address, so a spelling it could not
+		// canonicalize is no longer a naming failure: what remains here is the
+		// principal, which is a segment.
 		const database = databaseFor('unaddressable');
 		const before = await databaseNames();
 
@@ -354,20 +385,10 @@ describe('one address per application, data id, and generation (ADR-0324)', () =
 			await openStore(database, {
 				appId: APP,
 				generation: GEN,
-				account: accountFor(asPrincipalId('   ') as typeof ALICE),
+				account: accountFor(asPrincipalId('') as typeof ALICE),
 			}),
 		);
 		expect(refused.name).toBe('Unaddressable');
-		expect(await databaseNames()).toEqual(before);
-
-		const malformed = expectErr(
-			await openStore(database, {
-				appId: APP,
-				generation: GEN,
-				account: accountFor(ALICE, 'not a URL'),
-			}),
-		);
-		expect(malformed.name).toBe('Unaddressable');
 		expect(await databaseNames()).toEqual(before);
 
 		// And the refusal held no claim, so a real account still opens.
@@ -384,6 +405,7 @@ describe('which generation to open (ADR-0292, ADR-0293)', () => {
 	): DatabaseAccount {
 		return {
 			baseURL: CLOUD,
+			authorityId: 'test-authority',
 			principalId: ALICE,
 			fetch: async (_input, init) => {
 				if (init?.method === 'POST') {
@@ -399,6 +421,7 @@ describe('which generation to open (ADR-0292, ADR-0293)', () => {
 					headers: { 'content-type': 'application/json' },
 				});
 			},
+			openWebSocket: neverDials,
 		};
 	}
 
@@ -409,10 +432,12 @@ describe('which generation to open (ADR-0292, ADR-0293)', () => {
 
 		const account: DatabaseAccount = {
 			baseURL: CLOUD,
+			authorityId: 'test-authority',
 			principalId: ALICE,
 			fetch: async () => {
 				throw new Error('a cached generation asks nobody');
 			},
+			openWebSocket: neverDials,
 		};
 		const resolved = expectOk(
 			await resolveGeneration(database, { appId: APP, account }),
@@ -450,6 +475,53 @@ describe('which generation to open (ADR-0292, ADR-0293)', () => {
 		expect(resolved.generation).toBe(9);
 	});
 
+	test('concurrent first opens cannot mint two generations', async () => {
+		const database = databaseFor('resolveconcurrentfirst');
+		let enterListing!: () => void;
+		const listingEntered = new Promise<void>((resolve) => {
+			enterListing = resolve;
+		});
+		let releaseListing!: () => void;
+		const listingReleased = new Promise<void>((resolve) => {
+			releaseListing = resolve;
+		});
+		const account: DatabaseAccount = {
+			baseURL: CLOUD,
+			authorityId: 'test-authority',
+			principalId: ALICE,
+			fetch: async (_input, init) => {
+				if (init?.method === 'POST')
+					return new Response(JSON.stringify({ generation: 9, position: 0 }), {
+						headers: { 'content-type': 'application/json' },
+					});
+				enterListing();
+				await listingReleased;
+				return new Response(JSON.stringify({ generations: [] }), {
+					headers: { 'content-type': 'application/json' },
+				});
+			},
+			openWebSocket: neverDials,
+		};
+
+		const first = resolveGeneration(database, { appId: APP, account });
+		await listingEntered;
+		const second = resolveGeneration(database, { appId: APP, account });
+		releaseListing();
+		const [firstResult, secondResult] = await Promise.all([first, second]);
+		const opened = expectOk(
+			firstResult.error === null ? firstResult : secondResult,
+		);
+		const refused = expectErr(
+			firstResult.error !== null ? firstResult : secondResult,
+		);
+		expect(refused.name).toBe('AlreadyOpen');
+		expect(opened.generation).toBe(9);
+		const retried = expectOk(
+			await resolveGeneration(database, { appId: APP, account }),
+		);
+		expect(retried.generation).toBe(9);
+	});
+
 	test('a listing that cannot be read mints nothing', async () => {
 		// Three shapes of "the account did not answer", and none of them may be
 		// read as empty: a refusal, a body that is not a listing, and a listing
@@ -473,82 +545,95 @@ describe('which generation to open (ADR-0292, ADR-0293)', () => {
 	});
 });
 
-describe('a generation belongs to the account it was created for (ADR-0325)', () => {
-	test('a second account is refused the copy the first one left here', async () => {
-		// The hazard, and it is quiet rather than loud: two authorities mint
-		// numbers independently, so a `1` exists under both, and Yjs converges
-		// instead of erroring. Without the binding Bob would open Alice's rows,
-		// report himself as their principal, and offer her owed appends to his
-		// authority.
-		const database = databaseFor('binding');
+describe('a replica belongs to the account in its address', () => {
+	test('two principals on one device hold two replicas', async () => {
+		// The hazard the written-once binding used to answer, answered by the
+		// name instead: two authorities mint numbers independently, so a `1`
+		// exists under both, and Yjs converges instead of erroring. Bob cannot
+		// open Alice's bytes because he never addresses them.
+		const database = databaseFor('twoprincipals');
 		const alice = expectOk(await openAccountData(database, ALICE));
 		alice.tables.notes.create({ title: "alice's note" });
 		await alice[Symbol.asyncDispose]();
 
+		const bob = expectOk(await openAccountData(database, BOB));
+		expect(titles(bob)).toEqual([]);
+		bob.tables.notes.create({ title: "bob's note" });
+		await bob[Symbol.asyncDispose]();
+
+		const names = await databaseNames();
+		expect(names).toContain(storeAddress(database.id, GEN, APP, ALICE));
+		expect(names).toContain(storeAddress(database.id, GEN, APP, BOB));
+
+		// And neither of them saw the other's work.
+		const backToAlice = expectOk(await openAccountData(database, ALICE));
+		expect(titles(backToAlice)).toEqual(["alice's note"]);
+		await backToAlice[Symbol.asyncDispose]();
+	});
+
+	test('an account that names no principal is refused, and creates nothing', async () => {
+		// A signed-out client states an empty principal, which is not a segment.
+		// Refusing is the whole of what this used to need a written-once stamp
+		// and a comparison at every open to decide.
+		const database = databaseFor('noprincipal');
+		const before = await databaseNames();
 		const refused = expectErr(
 			await openStore(database, {
 				appId: APP,
 				generation: GEN,
-				account: accountFor(BOB),
+				account: {
+					baseURL: CLOUD,
+					authorityId: 'test-authority',
+					principalId: asPrincipalId(''),
+					fetch: async () => new Response(null, { status: 404 }),
+					openWebSocket: neverDials,
+				},
 			}),
 		);
-		expect(refused.name).toBe('BoundElsewhere');
-
-		// And the refusal left the record and the claim alone: nothing is
-		// deleted as a step in a protocol (ADR-0281), and Alice comes back to
-		// what she wrote.
-		expect(await databaseNames()).toContain(storeAddress(database.id));
-		const back = expectOk(await openAccountData(database, ALICE));
-		expect(titles(back)).toEqual(["alice's note"]);
-		await back[Symbol.asyncDispose]();
+		expect(refused.name).toBe('Unaddressable');
+		expect(await databaseNames()).toEqual(before);
 	});
 
-	test('the same principal on a second server is a different account', async () => {
-		// The half an address could never carry alone: the same principal
-		// identifier can exist on two independent servers.
-		const database = databaseFor('twoservers');
-		const cloud = expectOk(await openAccountData(database, ALICE, CLOUD));
-		await cloud[Symbol.asyncDispose]();
-
+	test('a principal holding a slash is refused rather than encoded', async () => {
+		// A durable name is not the place to be lenient. `PrincipalId` is a
+		// branded string with no grammar of its own, so this is the one guard
+		// between a remote assertion and a storage name.
+		const database = databaseFor('slashprincipal');
+		const before = await databaseNames();
 		const refused = expectErr(
 			await openStore(database, {
 				appId: APP,
 				generation: GEN,
-				account: accountFor(ALICE, 'https://home.example.com'),
+				account: {
+					baseURL: CLOUD,
+					authorityId: 'test-authority',
+					principalId: asPrincipalId('alice/../bob'),
+					fetch: async () => new Response(null, { status: 404 }),
+					openWebSocket: neverDials,
+				},
 			}),
 		);
-		expect(refused.name).toBe('BoundElsewhere');
+		expect(refused.name).toBe('Unaddressable');
+		expect(await databaseNames()).toEqual(before);
 	});
 
-	test('a trailing slash is not a different account', async () => {
-		// Which is why `canonicalBaseURL` survived the address collapse. It
-		// normalizes what is compared, not what is named.
-		const database = databaseFor('spelling');
-		const first = expectOk(await openAccountData(database, ALICE, CLOUD));
-		first.tables.notes.create({ title: 'kept work' });
-		await first[Symbol.asyncDispose]();
-
-		const equivalent = expectOk(
-			await openAccountData(database, ALICE, `${CLOUD}/?ignored=true#ignored`),
-		);
-		expect(titles(equivalent)).toEqual(['kept work']);
-		await equivalent[Symbol.asyncDispose]();
-	});
-
-	test("erasing is the person's, and it takes every generation at once", async () => {
-		// Plural because the refusal is: erasing only the one that was refused
-		// would refuse the next number down and ask again.
+	test("erasing is the person's, and it takes every generation of theirs", async () => {
+		// Plural in the generation, because a person forgetting their copy means
+		// all of it: erasing only the newest leaves the number below it to be
+		// opened next boot.
 		const database = databaseFor('erase');
 		for (const generation of [1, 2]) {
 			// The stub authority mints the number this iteration asks for, which
 			// is what a real one does across an import and a re-import.
 			const account: DatabaseAccount = {
 				baseURL: CLOUD,
+				authorityId: 'test-authority',
 				principalId: ALICE,
 				fetch: async () =>
 					new Response(JSON.stringify({ generation, position: 0 }), {
 						headers: { 'content-type': 'application/json' },
 					}),
+				openWebSocket: neverDials,
 			};
 			await createGeneration(database, { appId: APP, account });
 			const opened = expectOk(
@@ -559,16 +644,47 @@ describe('a generation belongs to the account it was created for (ADR-0325)', ()
 		expect(await databaseNames()).toContain(storeAddress(database.id, 2));
 
 		const erased = expectOk(
-			await eraseGenerations({ appId: APP, dataId: database.id }),
+			await eraseGenerations({
+				appId: APP,
+				authorityId: 'test-authority',
+				principalId: ALICE,
+				dataId: database.id,
+			}),
 		);
 		expect(erased.erased).toBe(2);
 		expect(await databaseNames()).not.toContain(storeAddress(database.id, 1));
 		expect(await databaseNames()).not.toContain(storeAddress(database.id, 2));
+	});
 
-		// And the account that was refused can now make its own.
+	test("forgetting one account's copy leaves the other's alone", async () => {
+		// The principal is a segment of the prefix, so an erase cannot reach
+		// past the account that asked for it. This is what makes the verb safe
+		// to offer from an account surface on a shared device.
+		const database = databaseFor('eraseone');
+		const alice = expectOk(await openAccountData(database, ALICE));
+		alice.tables.notes.create({ title: "alice's note" });
+		await alice[Symbol.asyncDispose]();
 		const bob = expectOk(await openAccountData(database, BOB));
-		expect(titles(bob)).toEqual([]);
+		bob.tables.notes.create({ title: "bob's note" });
 		await bob[Symbol.asyncDispose]();
+
+		const erased = expectOk(
+			await eraseGenerations({
+				appId: APP,
+				authorityId: 'test-authority',
+				principalId: ALICE,
+				dataId: database.id,
+			}),
+		);
+		expect(erased.erased).toBe(1);
+
+		const names = await databaseNames();
+		expect(names).not.toContain(storeAddress(database.id, GEN, APP, ALICE));
+		expect(names).toContain(storeAddress(database.id, GEN, APP, BOB));
+
+		const backToBob = expectOk(await openAccountData(database, BOB));
+		expect(titles(backToBob)).toEqual(["bob's note"]);
+		await backToBob[Symbol.asyncDispose]();
 	});
 
 	test('an erase with a generation still open deletes nothing at all', async () => {
@@ -581,7 +697,12 @@ describe('a generation belongs to the account it was created for (ADR-0325)', ()
 		held.tables.notes.create({ title: 'still open' });
 
 		const refused = expectErr(
-			await eraseGenerations({ appId: APP, dataId: database.id }),
+			await eraseGenerations({
+				appId: APP,
+				authorityId: 'test-authority',
+				principalId: ALICE,
+				dataId: database.id,
+			}),
 		);
 		expect(refused.name).toBe('AlreadyOpen');
 		expect(await databaseNames()).toContain(storeAddress(database.id));
@@ -590,9 +711,51 @@ describe('a generation belongs to the account it was created for (ADR-0325)', ()
 		// Closing it is the repair, and the claims the refusal took are released.
 		await held[Symbol.asyncDispose]();
 		const erased = expectOk(
-			await eraseGenerations({ appId: APP, dataId: database.id }),
+			await eraseGenerations({
+				appId: APP,
+				authorityId: 'test-authority',
+				principalId: ALICE,
+				dataId: database.id,
+			}),
 		);
 		expect(erased.erased).toBe(1);
+	});
+
+	test('a v4 record is not addressed, adopted, or erased', async () => {
+		// The clean break, stated once. A record written under the previous
+		// address is left exactly where it is: nothing reads it, and the erase
+		// does not reap it either, so an upgrade is never the moment somebody's
+		// unsynced work becomes unrecoverable.
+		const database = databaseFor('stranded');
+		const legacy = `epicenter/v4/${APP}/${database.id}/1`;
+		await new Promise<void>((resolve, reject) => {
+			const request = indexedDB.open(legacy, 1);
+			request.onupgradeneeded = () => {
+				request.result.createObjectStore('updates');
+			};
+			request.onsuccess = () => {
+				request.result.close();
+				resolve();
+			};
+			request.onerror = () => reject(request.error);
+		});
+
+		const opened = expectOk(await openAccountData(database, ALICE));
+		expect(titles(opened)).toEqual([]);
+		await opened[Symbol.asyncDispose]();
+
+		expect(
+			expectOk(
+				await eraseGenerations({
+					appId: APP,
+					authorityId: 'test-authority',
+					principalId: ALICE,
+					dataId: database.id,
+				}),
+			).erased,
+		).toBe(1);
+		expect(await databaseNames()).toContain(legacy);
+		await deleteDatabase(legacy);
 	});
 });
 
@@ -648,9 +811,13 @@ describe('the durable facts live in IndexedDB directly (ADR-0238)', () => {
 		// "owed to an authority" on every store kind (ADR-0301). A `v3` record
 		// named the server and principal it belonged to, so read under this
 		// shape it could be offered to an authority its address never scoped it
-		// to (ADR-0324). None is a shape this reader can honestly interpret. It
-		// does not detect and wipe them. It does not address them.
-		expect(storeAddress('so.epicenter.x')).toContain('/v4/');
+		// to (ADR-0324). A `v4` record named neither, so read under this shape it
+		// would be adopted by whoever signed in next. None is a shape this reader
+		// can honestly interpret. It does not detect and wipe them. It does not
+		// address them.
+		expect(storeAddress('so.epicenter.x')).toContain(
+			'/accounts/test-authority/',
+		);
 	});
 
 	test('a superseded record at the same logical address is not opened', async () => {
@@ -662,7 +829,7 @@ describe('the durable facts live in IndexedDB directly (ADR-0238)', () => {
 
 		// Spelled as `v1`, because that is the shape this payload is: a `state`
 		// object store holding one checkpoint. What the test pins is the version
-		// segment, and every superseded spelling of it sits at a name the v4
+		// segment, and every superseded spelling of it sits at a name the v5
 		// reader never enumerates.
 		await seedPreviousGeneration(
 			`epicenter/v1/${database.id}/account/${encodeURIComponent(CLOUD)}/${ALICE}`,
@@ -751,7 +918,7 @@ describe('the clean break: storage from before the generation address', () => {
 	});
 });
 
-describe('one refusal per cause, because a boot gate switches on the name', () => {
+describe('one refusal per cause, because a boot node switches on the name', () => {
 	/**
 	 * Run one body with `navigator.locks` taken away, and put it back.
 	 *
@@ -908,4 +1075,163 @@ describe("a row's content node survives a reopen (ADR-0295)", () => {
 		expect(content?.getAttr('cursor' as never)).toBe(8);
 		await reopened[Symbol.asyncDispose]();
 	});
+});
+
+test('a request failure remains inside the commit rejection and rolls back', async () => {
+	const backing = expectOk(await openIdbBacking('failed-request-is-contained'));
+	const put = IDBObjectStore.prototype.put;
+	// Force the second valid append to encounter a native request failure.
+	// The later ack yields before commit reaches its final settlement await.
+	IDBObjectStore.prototype.put = function (value) {
+		return this.add(value, 1);
+	};
+	try {
+		await expect(
+			backing.port.commit([
+				{
+					kind: 'append',
+					id: 1,
+					bytes: new Uint8Array([0, 0]),
+					authoritySeq: undefined,
+				},
+				{
+					kind: 'append',
+					id: 2,
+					bytes: new Uint8Array([0, 0]),
+					authoritySeq: undefined,
+				},
+				{ kind: 'ack', throughId: 2, authoritySeq: 1 },
+			]),
+		).rejects.toThrow();
+	} finally {
+		IDBObjectStore.prototype.put = put;
+		backing.close();
+	}
+	const reopened = expectOk(
+		await openIdbBacking('failed-request-is-contained'),
+	);
+	try {
+		expect(reopened.loaded.updates).toHaveLength(0);
+	} finally {
+		reopened.close();
+	}
+});
+
+test('device SQLite and data generations have independent ownership', async () => {
+	const database = databaseFor('sql-owner');
+	const account = accountFor(ALICE);
+	const owner: DeviceSqliteOwner = {
+		async acquire() {
+			return {
+				async open() {
+					throw new Error('unused');
+				},
+				async delete() {},
+				async close() {},
+			};
+		},
+	};
+	const sql = createAppSqlite(owner, APP);
+	expectOkResult(await sql.value.delete('ownership-probe'));
+	expectOkResult(await createGeneration(database, { appId: APP, account }));
+	const document = expectOkResult(
+		await openDatabase(database, { appId: APP, generation: GEN, account }),
+	);
+	await sql.close();
+	const reopened = createAppSqlite(owner, APP);
+	expectOkResult(await reopened.value.delete('ownership-probe'));
+	await reopened.close();
+	await document.close();
+});
+
+test('blocked IndexedDB deletion retains library exclusion until the request settles', async () => {
+	const database = databaseFor('blocked-delete');
+	const account = accountFor(ALICE);
+	expectOkResult(await createGeneration(database, { appId: APP, account }));
+	const request = indexedDB.open(storeAddress(database.id));
+	const blocker = await new Promise<IDBDatabase>((resolve, reject) => {
+		request.onsuccess = () => resolve(request.result);
+		request.onerror = () => reject(request.error);
+	});
+	const deleting = Promise.withResolvers<void>();
+	blocker.onversionchange = () => deleting.resolve();
+	let settled = false;
+	const erasing = eraseGenerations({
+		appId: APP,
+		authorityId: account.authorityId,
+		principalId: account.principalId,
+		dataId: database.id,
+	}).then((result) => {
+		settled = true;
+		return result;
+	});
+	try {
+		await deleting.promise;
+		expect(settled).toBe(false);
+		expect(
+			expectErr(await resolveGeneration(database, { appId: APP, account }))
+				.name,
+		).toBe('AlreadyOpen');
+	} finally {
+		blocker.close();
+	}
+	expect(expectOkResult(await erasing).erased).toBe(1);
+	expect(await databaseNames()).not.toContain(storeAddress(database.id));
+	expectOkResult(await createGeneration(database, { appId: APP, account }));
+});
+
+for (const operation of ['open', 'create', 'resolve'] as const) {
+	test(`failed ${operation} acquisition cleanup retains library exclusion`, async () => {
+		const appId = `test.${crypto.randomUUID()}`;
+		const database = databaseFor(`failed-${operation}-cleanup`);
+		const account = accountFor(ALICE);
+		if (operation === 'resolve')
+			account.fetch = async (_input, init) =>
+				init?.method === 'POST'
+					? Response.json({ generation: GEN, position: 0 })
+					: Response.json({ generations: [] });
+		const closing = spyOn(IDBDatabase.prototype, 'close').mockImplementation(
+			() => {
+				throw new Error('Cleanup failed');
+			},
+		);
+		try {
+			if (operation === 'open')
+				expect(
+					expectErr(
+						await openDatabase(database, { appId, generation: GEN, account }),
+					).name,
+				).toBe('StorageFailed');
+			else
+				await expect(
+					operation === 'create'
+						? createGeneration(database, { appId, account })
+						: resolveGeneration(database, { appId, account }),
+				).rejects.toThrow('Cleanup failed');
+			expect(
+				expectErr(await claimLibrary(appId, { library: 'personal', account }))
+					.name,
+			).toBe('AlreadyOpen');
+		} finally {
+			closing.mockRestore();
+		}
+	});
+}
+
+test('a backing read failure closes the acquired connection before returning a Result', async () => {
+	const address = `test.${crypto.randomUUID()}`;
+	const read = spyOn(IDBObjectStore.prototype, 'getAll').mockImplementationOnce(
+		() => {
+			throw new Error('Read failed');
+		},
+	);
+	const closing = spyOn(IDBDatabase.prototype, 'close');
+	try {
+		expect(expectErr(await openIdbBacking(address)).name).toBe('StorageFailed');
+		expect(closing).toHaveBeenCalledTimes(1);
+	} finally {
+		read.mockRestore();
+		closing.mockRestore();
+	}
+	expectOkResult(await openIdbBacking(address)).close();
 });

@@ -2,30 +2,61 @@
 	"name": "@epicenter/app",
 	"version": "0.0.1",
 	"private": true,
-	"description": "The scoped application storage handle for Epicenter applications.",
+	"description": "One application's Epicenter Data session.",
 	"type": "module",
+	"imports": {
+		"#platform/resources": {
+			"epicenter-host": "./src/platform/epicenter-host.ts",
+			"default": "./src/platform/browser.ts"
+		},
+		"#platform/ai": {
+			"epicenter-host": "./src/ai-connections.epicenter-host.ts",
+			"default": "./src/browser.ts"
+		},
+		"#platform/clipboard": {
+			"epicenter-host": "./src/clipboard/epicenter-host.ts",
+			"default": "./src/clipboard/browser.ts"
+		}
+	},
 	"exports": {
 		".": "./src/index.ts",
+		"./blobs": "./src/blobs.ts",
 		"./browser": "./src/browser.ts",
-		"./desktop": "./src/desktop.ts",
-		"./protocol": "./src/protocol.ts"
+		"./ai": "./src/ai.ts",
+		"./ai-connections": "./src/ai-connections.ts",
+		"./clipboard": "./src/clipboard.ts",
+		"./native-ai": "./src/native-ai.ts",
+		"./recorder": "./src/recorder.ts",
+		"./epicenter-host": "./src/epicenter-host.ts"
 	},
 	"scripts": {
-		"typecheck": "tsc --noEmit",
-		"test": "bun test"
+		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.epicenter-host.json",
+		"test": "bun test --isolate",
+		"smoke:recording": "bun scripts/browser-smoke.ts"
 	},
 	"dependencies": {
 		"@epicenter/auth": "workspace:*",
+		"@epicenter/blobs": "workspace:*",
+		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/data": "workspace:*",
-		"@epicenter/sqlite": "workspace:*",
-		"@sqlite.org/sqlite-wasm": "catalog:",
-		"wellcrafted": "catalog:"
+		"@epicenter/device": "workspace:*",
+		"@epicenter/recorder": "workspace:*",
+		"nanoid": "catalog:",
+		"openai": "^7.12.1",
+		"wellcrafted": "catalog:",
+		"@tauri-apps/api": "catalog:",
+		"@tauri-apps/plugin-clipboard-manager": "^2.3.0",
+		"@epicenter/principal": "workspace:*",
+		"@epicenter/sync": "workspace:*"
 	},
 	"devDependencies": {
+		"@epicenter/sqlite": "workspace:*",
 		"@types/bun": "catalog:",
 		"fake-indexeddb": "^6.2.5",
-		"typescript": "catalog:"
+		"typescript": "catalog:",
+		"playwright": "^1.61.1",
+		"vite": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

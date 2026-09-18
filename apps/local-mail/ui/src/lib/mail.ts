@@ -1,62 +1,44 @@
-/**
- * Every read and write this surface performs, in this page.
- *
- * There is no `/api` any more (ADR-0317). What used to be a typed HTTP client
- * against a Bun host is now direct calls into Local Mail's own modules over the
- * scoped Epicenter handle: the same functions the desktop's hidden
- * synchronization worker calls, in the same process as the person clicking.
- *
- * The verbs are unchanged in shape because the components never cared where the
- * work happened; what changed is that a read no longer crosses a socket, so an
- * act is visible to the next read without a round trip to argue about.
- *
- * The overlay is applied here rather than in a component. A read of the mailbox
- * is Gmail's facts with this machine's undelivered triage applied, and loading
- * the pending assertions is the one step that makes that true, so no caller can
- * forget it.
+/** Page-owned mail operations over the app's scoped storage.
+ * Mailbox reads include this device's undelivered triage.
  */
 
 import {
+	type AccountWorkflow,
+	assertAccountLabel,
 	type ConnectedAccount,
-	createMailApp,
 	discardPending,
 	finishConnect,
 	listAccounts,
-	type MailApp,
-	openSession,
-	pendingWork,
-	recordSynced,
+	queryAccount,
+	readAccountOutbox,
+	reconcileNow,
 	removeAccount,
 	startConnect,
+	withMailbox,
 } from '@epicenter/local-mail/accounts';
-import { assertMessageLabels } from '@epicenter/local-mail/assert';
 import { CALLBACK_PATH } from '@epicenter/local-mail/authorization-return';
-import { overlayOf } from '@epicenter/local-mail/mailbox';
+import { DEFAULT_MAIL_CONFIG } from '@epicenter/local-mail/config';
+import { openIntentStore } from '@epicenter/local-mail/intent-store';
+import {
+	type LabelSummary,
+	type MailStatus,
+	type MessageDetail,
+	type MessageSummary,
+	overlayOf,
+} from '@epicenter/local-mail/mailbox';
 import type { AuthorizationRequest } from '@epicenter/local-mail/oauth';
-import { reconcileAccount } from '@epicenter/local-mail/reconcile';
-import { claimReconcile } from '@epicenter/local-mail/reconcile-claim';
-import { readMailStatus } from '@epicenter/local-mail/status';
+import {
+	type Outbox,
+	type PassOutcome,
+	readBlockedAccounts,
+} from '@epicenter/local-mail/outbox';
 import { openLocalMailStorage } from '@epicenter/local-mail/storage';
-import { epicenter } from './epicenter';
-import { gmailIdentity } from './identity';
-
-let opening: Promise<MailApp> | null = null;
-
-/** Open the application once per page, and hand the same handle to every call. */
-function app(): Promise<MailApp> {
-	opening ??= (async () => {
-		const storage = await openLocalMailStorage(epicenter);
-		return createMailApp({
-			epicenter,
-			storage,
-			identity: gmailIdentity(),
-		});
-	})();
-	return opening;
-}
+import { gmailAuthorization } from '#platform/gmail-authorization';
+import { app } from './application.js';
+import { gmailIdentity } from './identity.js';
 
 /** Where Google sends a person back to, on this application's own route. */
-export function redirectUri(): string {
+function redirectUri(): string {
 	return new URL(
 		CALLBACK_PATH,
 		`${window.location.origin}${base()}/`,
@@ -70,34 +52,92 @@ function base(): string {
 	return path.startsWith(marker) ? marker : '';
 }
 
-export type { ConnectedAccount };
+let opening: Promise<AccountWorkflow> | undefined;
+let closing: Promise<void> | undefined;
+const controller = new AbortController();
+const pending = new Set<Promise<unknown>>();
+
+function workflow(): Promise<AccountWorkflow> {
+	if (opening) return opening;
+	const attempt = (async () => {
+		if (!app) throw new Error('Local Mail has not opened.');
+		return {
+			storage: await openLocalMailStorage(app.device),
+			secrets: app.device.secrets,
+			get identity() {
+				return gmailIdentity();
+			},
+			config: DEFAULT_MAIL_CONFIG,
+			now: () => Date.now(),
+			activity: new Map(),
+		};
+	})();
+	opening = attempt;
+	void attempt.catch(() => {
+		if (opening === attempt) opening = undefined;
+	});
+	return attempt;
+}
+
+function operation<TArgs extends unknown[], TResult>(
+	run: (...args: TArgs) => Promise<TResult>,
+) {
+	return (...args: TArgs): Promise<TResult> => {
+		if (controller.signal.aborted) {
+			return Promise.reject(new Error('Local Mail is closing.'));
+		}
+		const work = Promise.resolve().then(() => run(...args));
+		pending.add(work);
+		void work.then(
+			() => pending.delete(work),
+			() => pending.delete(work),
+		);
+		return work;
+	};
+}
 
 export const mail = {
-	accounts: async (): Promise<ConnectedAccount[]> => listAccounts(await app()),
-
-	/** Step one of connecting: the URL to visit, and what to hold until we return. */
-	beginConnect: async (): Promise<AuthorizationRequest> =>
-		startConnect(await app(), { redirectUri: redirectUri() }),
-
-	/** Step two: redeem the code Google sent back and record the account. */
-	finishConnect: async (
-		request: AuthorizationRequest,
-		callbackUrl: URL,
-	): Promise<ConnectedAccount> => {
-		const connected = await finishConnect(await app(), {
-			request,
-			callbackUrl,
-		});
-		if (connected.error !== null) throw new Error(connected.error.message);
-		return connected.data;
+	/** Stop new work, cancel the consent wait, and finish all admitted writes. */
+	close(): Promise<void> {
+		controller.abort();
+		// App closure follows this drain at the document departure boundary.
+		return (closing ??= Promise.allSettled(pending).then(() => undefined));
 	},
 
-	/** What Gmail has not been told about yet, which is what removal turns on. */
-	pending: async (sub: string) => pendingWork(await app(), sub),
+	authorize: operation((request: AuthorizationRequest) =>
+		gmailAuthorization.authorize(request, controller.signal),
+	),
+
+	accounts: operation(
+		async (): Promise<ConnectedAccount[]> => listAccounts(await workflow()),
+	),
+
+	/** Step one of connecting: the URL to visit, and what to hold until we return. */
+	beginConnect: operation(
+		async (): Promise<AuthorizationRequest> =>
+			startConnect(await workflow(), { redirectUri: redirectUri() }),
+	),
+
+	/** Step two: redeem the code Google sent back and record the account. */
+	finishConnect: operation(
+		async (
+			request: AuthorizationRequest,
+			callbackUrl: URL,
+		): Promise<ConnectedAccount> => {
+			const connected = await finishConnect(await workflow(), {
+				request,
+				callbackUrl,
+			});
+			if (connected.error !== null) throw new Error(connected.error.message);
+			return connected.data;
+		},
+	),
 
 	/** Abandon this account's undelivered triage. A thing to mean on purpose. */
-	discard: async (sub: string): Promise<number> =>
-		discardPending(await app(), sub),
+	discard: operation(
+		async (sub: string): Promise<number> =>
+			discardPending(await workflow(), sub),
+	),
 
 	/**
 	 * Remove one account from this device.
@@ -106,99 +146,120 @@ export const mail = {
 	 * so a caller can offer the two answers that exist: deliver first, or
 	 * discard. Nothing is deleted on the refusal (ADR-0320).
 	 */
-	remove: async (
-		sub: string,
-	): Promise<{ removed: true } | { removed: false; pending: number }> => {
-		const gone = await removeAccount(await app(), sub);
-		if (gone.error === null) return { removed: true };
-		if (gone.error.name === 'OwesWork') {
-			return { removed: false, pending: gone.error.pending };
-		}
-		throw new Error(gone.error.message);
-	},
+	remove: operation(
+		async (
+			sub: string,
+		): Promise<{ removed: true } | { removed: false; pending: number }> => {
+			const gone = await removeAccount(await workflow(), sub);
+			if (gone.error === null) return { removed: true };
+			if (gone.error.name === 'OwesWork') {
+				return { removed: false, pending: gone.error.pending };
+			}
+			throw new Error(gone.error.message);
+		},
+	),
 
-	status: async (sub: string) =>
-		readMailStatus(await openSession(await app(), sub)),
-
-	labels: async (sub: string) => {
-		const session = await openSession(await app(), sub);
-		return { labels: await session.mailbox.listLabels() };
-	},
-
-	messages: async (
-		sub: string,
-		query: {
-			label?: string;
-			search?: string;
-			limit?: number;
-			offset?: number;
-		} = {},
-	) => {
-		const session = await openSession(await app(), sub);
-		const overlay = overlayOf(await session.intents.pending());
-		return {
-			messages: await session.mailbox.listMessages({
-				labelId: query.label,
-				search: query.search,
-				limit: query.limit ?? 100,
-				offset: query.offset ?? 0,
-				overlay,
-			}),
-		};
-	},
-
-	message: async (sub: string, id: string) => {
-		const session = await openSession(await app(), sub);
-		const overlay = overlayOf(await session.intents.pending());
-		return session.mailbox.getMessageDetail(id, overlay);
-	},
+	/** How much of Gmail this device holds for one account, and how fresh it is. */
+	status: operation(
+		async (sub: string): Promise<MailStatus> =>
+			withMailbox(await workflow(), sub, (mailbox) => mailbox.status()),
+	),
 
 	/**
-	 * One reconcile pass, or a note that one is already running.
+	 * The outbox: what Gmail has not been told about, and why not.
 	 *
-	 * A busy claim is not a failure: whoever holds it is delivering and pulling,
-	 * so there is nothing new to say and nothing to invalidate.
+	 * Entirely durable, so it answers the same after a reload as before one, and
+	 * it says nothing about whether a pass is running: the page knows that from
+	 * the pass it is running.
 	 */
-	reconcile: async (sub: string) => {
-		const opened = await app();
-		const taken = claimReconcile(sub);
-		if (taken.error !== null) {
-			return { reconciled: false as const, message: taken.error.message };
-		}
-		const { claim, release } = taken.data;
-		try {
-			const outcome = await reconcileAccount(await openSession(opened, sub), {
-				forceFull: false,
-				readOnly: false,
-				claim,
-			});
-			if (outcome.pull.failure === null) await recordSynced(opened, sub);
-			return outcome;
-		} finally {
-			release();
-		}
-	},
+	outbox: operation(
+		async (sub: string): Promise<Outbox> =>
+			readAccountOutbox(await workflow(), sub),
+	),
+
+	/**
+	 * Which connected accounts cannot move without a person, for the switcher's
+	 * mark. The durable file only, so asking about every account does not open
+	 * every account's mail file.
+	 */
+	blocked: operation(
+		async (subs: readonly string[]): Promise<Set<string>> =>
+			readBlockedAccounts((await workflow()).storage.local, subs),
+	),
+
+	/** This account's mirrored label set, for the rail and for naming a label. */
+	labels: operation(
+		async (sub: string): Promise<LabelSummary[]> =>
+			withMailbox(await workflow(), sub, (mailbox) => mailbox.listLabels()),
+	),
+
+	messages: operation(
+		async (
+			sub: string,
+			query: {
+				label?: string;
+				search?: string;
+				limit?: number;
+				offset?: number;
+			} = {},
+		): Promise<MessageSummary[]> => {
+			const owner = await workflow();
+			return withMailbox(owner, sub, async (mailbox) =>
+				mailbox.listMessages({
+					labelId: query.label,
+					search: query.search,
+					limit: query.limit ?? 100,
+					offset: query.offset ?? 0,
+					overlay: overlayOf(
+						await openIntentStore(owner.storage.local, sub).pending(),
+					),
+				}),
+			);
+		},
+	),
+
+	message: operation(
+		async (sub: string, id: string): Promise<MessageDetail | null> => {
+			const owner = await workflow();
+			return withMailbox(owner, sub, async (mailbox) =>
+				mailbox.getMessageDetail(
+					id,
+					overlayOf(await openIntentStore(owner.storage.local, sub).pending()),
+				),
+			);
+		},
+	),
+
+	/** Run explicit SQL against this Gmail account's downloaded messages and labels. */
+	query: operation(async (sub: string, sql: string, signal?: AbortSignal) =>
+		queryAccount(
+			await workflow(),
+			sub,
+			sql,
+			AbortSignal.any([controller.signal, ...(signal ? [signal] : [])]),
+		),
+	),
+
+	/**
+	 * Reconcile this account now: deliver what is owed, then pull.
+	 *
+	 * Resolves when the pass has finished and written what it did, so a caller
+	 * can read the outbox straight after and see the result. Asking twice at
+	 * once is one pass, not two, and asking repeatedly is safe.
+	 */
+	reconcile: operation(
+		async (sub: string): Promise<PassOutcome> =>
+			(await reconcileNow(await workflow(), sub)).pass,
+	),
 
 	/**
 	 * Record a triage act. It is durable and visible to the very next read before
 	 * this resolves; the reconciler delivers it to Gmail later.
 	 */
-	assert: async (
-		sub: string,
-		input: { ids: string[]; addLabels?: string[]; removeLabels?: string[] },
-	) => {
-		// A session already satisfies `AssertDeps`; rebuilding it field by field
-		// here was three chances to hand the act path a different account's store.
-		const recorded = await assertMessageLabels({
-			deps: await openSession(await app(), sub),
-			input: {
-				ids: input.ids,
-				addLabels: input.addLabels ?? [],
-				removeLabels: input.removeLabels ?? [],
-			},
-			readOnly: false,
-		});
-		if (recorded.error !== null) throw new Error(recorded.error.message);
-		return recorded.data;
-	},
+	assert: operation(
+		async (
+			sub: string,
+			assertion: { messageId: string; labelId: string; want: boolean },
+		): Promise<void> => assertAccountLabel(await workflow(), sub, assertion),
+	),
 };

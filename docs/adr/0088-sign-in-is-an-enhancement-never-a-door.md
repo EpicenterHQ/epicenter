@@ -1,6 +1,7 @@
 # 0088. Sign-in is an enhancement, never a door
 
-- **Status:** Accepted
+- **Status:** Superseded at its title. Sign-in IS a door (ADR-0342, rejected 2026-09-06: an ephemeral signed-out session would lose a person's work silently, so an unauthenticated state blocks interaction). Every application renders a sign-in screen and opens no store while signed out. What survives is cited below.
+- **Amended by:** [ADR-0350](0350-a-data-session-is-a-value-the-tree-owns-and-sync-runs-for-the-life-of-the-store.md) at its page-lifetime and reload clauses, which are withdrawn: a session is keyed on the principal and nothing reloads. What still stands and is still cited: one composition shape, the account popover as the only auth surface, and `apps/api/ui` exempt.
 - **Date:** 2026-07-01
 - **Amended by:** [ADR-0342](0342-sign-in-is-the-door-to-keeping-not-to-using.md) at "No Epicenter workspace app gates behind sign-in", and at the two mechanisms under it that ADR-0336 removed: the signed-out bare IndexedDB document and the Add / Delete / Keep migration. An application without an account works and keeps nothing; signing in is what makes a store durable. The rest of this record stands, including the one every live citation is about: a page lifetime is one auth generation.
 

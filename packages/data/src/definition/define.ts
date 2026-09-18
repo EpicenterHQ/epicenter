@@ -55,7 +55,7 @@ type ValidateFields<T extends FieldMap> = {
 		: RejectDefault<T[K]>;
 };
 
-type ValidateTable<T extends { readonly content: ContentCodec }> = {
+type ValidateTable<T extends Record<string, unknown>> = {
 	[K in keyof T]: K extends typeof CONTENT_FIELD
 		? T[K] extends ContentCodec
 			? T[K]
@@ -72,20 +72,16 @@ type ValidateTable<T extends { readonly content: ContentCodec }> = {
 /**
  * Declare one table.
  *
- * **Every table declares its content codec**, because the platform cannot know
- * what a table's node means and there is no safe default: rendering a node as
- * text and reading the rendering back turns attributes into one literal string
- * that prints identically. A table whose content is exactly its text says
- * `plainText()`; a table whose node means something else says so itself.
+ * Content is optional and has no default codec. Omit it for fields-only
+ * artifacts; populated nodes then refuse export and incoming body text refuses
+ * import. Every row still owns a live content node.
  *
- * The return ERASES the codec down to `ContentCodec`, which costs nothing now
- * that a codec is a pair over one node rather than over a row. A
- * `DataDefinition` holds every table under one shape, so it cannot be generic
- * over each table's fields.
+ * A supplied codec must implement all three verbs. The return preserves the
+ * exact declaration and adds only its authoring brand.
  */
-export function defineTable<
-	const TTable extends { readonly content: ContentCodec },
->(table: TTable & ValidateTable<TTable>): DeclaredMark & TTable {
+export function defineTable<const TTable extends Record<string, unknown>>(
+	table: TTable & ValidateTable<TTable>,
+): DeclaredMark & TTable {
 	// The brand is a phantom: declared, never assigned, and asserted here.
 	return table as unknown as DeclaredMark & TTable;
 }

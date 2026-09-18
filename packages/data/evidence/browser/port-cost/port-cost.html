@@ -532,8 +532,7 @@
 				}
 				return true;
 			};
-			var hasProperty = (obj, key) =>
-				Object.prototype.hasOwnProperty.call(obj, key);
+			var hasProperty = (obj, key) => Object.hasOwn(obj, key);
 			var equalFlat = (a, b) =>
 				a === b ||
 				(size(a) === size(b) &&
@@ -2875,7 +2874,7 @@
 					return ['.*'];
 				}
 				if ($$union.check(s)) {
-					return s.shape.map(_schemaStringTemplateToRegex).flat(1);
+					return s.shape.flatMap(_schemaStringTemplateToRegex);
 				}
 				unexpectedCase();
 			};
@@ -3026,8 +3025,7 @@
 					? $union(
 							...schemas
 								.map($)
-								.map(($s) => ($$union.check($s) ? $s.shape : [$s]))
-								.flat(1),
+								.flatMap(($s) => ($$union.check($s) ? $s.shape : [$s])),
 						)
 					: schemas.length === 1
 						? schemas[0]
@@ -10140,9 +10138,7 @@ ${err.toString()}`);
 			function HasPropertyKey(value, key) {
 				const isProtoField =
 					IsEqual(key, '__proto__') || IsEqual(key, 'constructor');
-				return isProtoField
-					? Object.prototype.hasOwnProperty.call(value, key)
-					: key in value;
+				return isProtoField ? Object.hasOwn(value, key) : key in value;
 			}
 			function EntriesRegExp(value) {
 				return Keys(value).map((key) => [new RegExp(`^${key}$`), value[key]]);
@@ -10869,7 +10865,7 @@ ${err.toString()}`);
 				return typeof value === 'number';
 			}
 			var ByteMarker;
-			(function (ByteMarker2) {
+			((ByteMarker2) => {
 				ByteMarker2[(ByteMarker2['Array'] = 0)] = 'Array';
 				ByteMarker2[(ByteMarker2['BigInt'] = 1)] = 'BigInt';
 				ByteMarker2[(ByteMarker2['Boolean'] = 2)] = 'Boolean';
@@ -16575,7 +16571,7 @@ ${err.toString()}`);
 			}
 
 			// ../../node_modules/.bun/typebox@1.1.23/node_modules/typebox/build/type/engine/helpers/keys.mjs
-			var integerKeyPattern = new RegExp('^(?:0|[1-9][0-9]*)$');
+			var integerKeyPattern = /^(?:0|[1-9][0-9]*)$/;
 			function ConvertToIntegerKey(value) {
 				const normal = `${value}`;
 				return integerKeyPattern.test(normal) ? parseInt(normal) : value;
@@ -24216,14 +24212,14 @@ ${err.toString()}`);
 			// ../../node_modules/.bun/nanoid@5.1.14/node_modules/nanoid/index.browser.js
 			var random2 = (bytes) => crypto.getRandomValues(new Uint8Array(bytes));
 			var customRandom = (alphabet, defaultSize, getRandom) => {
-				let safeByteCutoff = 256 - (256 % alphabet.length);
+				const safeByteCutoff = 256 - (256 % alphabet.length);
 				if (safeByteCutoff === 256) {
-					let mask = alphabet.length - 1;
+					const mask = alphabet.length - 1;
 					return (size2 = defaultSize) => {
 						if (!size2) return '';
 						let id3 = '';
 						while (true) {
-							let bytes = getRandom(size2);
+							const bytes = getRandom(size2);
 							let j = size2;
 							while (j--) {
 								id3 += alphabet[bytes[j] & mask];
@@ -24232,12 +24228,12 @@ ${err.toString()}`);
 						}
 					};
 				}
-				let step = Math.ceil((1.6 * 256 * defaultSize) / safeByteCutoff);
+				const step = Math.ceil((1.6 * 256 * defaultSize) / safeByteCutoff);
 				return (size2 = defaultSize) => {
 					if (!size2) return '';
 					let id3 = '';
 					while (true) {
-						let bytes = getRandom(step);
+						const bytes = getRandom(step);
 						let j = step;
 						while (j--) {
 							if (bytes[j] < safeByteCutoff) {

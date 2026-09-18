@@ -1,6 +1,6 @@
 ---
 name: spec-execution
-description: Execute `specs/*.md` plans through working checkpoints. Use when the user says "execute this spec", "implement this plan", "run the spec", or points at a spec file.
+description: Execute implementation plans through working checkpoints and independent adversarial steering. Use when the user says "execute this spec", "implement this plan", "run the spec", or points at a spec file.
 metadata:
   author: epicenter
   version: '1.0'
@@ -8,7 +8,15 @@ metadata:
 
 # Spec Execution
 
-When handed a specification document (a `specs/*.md` file), execute it methodically in waves. A wave is an implementation checkpoint: after it lands, the repo should build, relevant tests should pass, and the spec should describe what is now true.
+Execute the accepted outcome in waves. Each wave produces working code and new
+evidence about the design. The remaining plan must respond to that evidence:
+consumer migrations can reveal that several adapters share one misplaced
+invariant, or that a later wave no longer needs to exist. Passing tests proves
+behavior; it does not settle ownership.
+
+Use the active spec when one exists. For a plan supplied in conversation, keep
+the same checkpoints in working notes without creating a spec just for the
+ritual. Spec preflight and retirement below apply only to actual spec files.
 
 Commits should follow the shape of the work. Commit after a wave when that wave is a natural review unit. Combine waves into one larger commit when the changes are tightly coupled. Break a large wave into smaller commits when that makes the history easier to audit. The goal is working checkpoints first, readable git history second.
 
@@ -27,20 +35,22 @@ PLAN WAVES (which tasks are parallel vs sequential?)
 WAVE N
   1. Execute tasks (sub-agents when useful)
   2. Verify (type-check, tests if applicable)
-  3. Update spec (check off items, add notes)
-  4. Commit or checkpoint, based on review shape
+  3. Independent adversarial review of cumulative implementation + remaining plan
+  4. Adjudicate findings, reshape remaining waves, implement and verify repairs
+  5. Record decisions in spec or working notes; commit or checkpoint
     |
     v
-REPEAT until spec is complete
+REPEAT toward accepted outcome using the revised plan
     |
     v
 FINAL REVIEW (post-implementation-review, harvest decisions to docs/adr/, delete spent spec)
 ```
 
-Default to continuing. After a wave passes verification, move to the next
-unchecked item until the spec is complete. Ask the user only when continuing
-requires a product decision, destructive action, broad reshape, or resolving a
-conflict with current code.
+Default to continuing after the checkpoint has been reviewed and its findings
+resolved. A grounded structural change within the accepted outcome does not
+need renewed permission merely because it touches more files. Ask when the
+choice changes the product outcome, exceeds authorization, requires a
+destructive action, or depends on a judgment the repository cannot settle.
 
 ## Phase 0: Preflight the Spec
 
@@ -78,43 +88,20 @@ Break the spec's implementation plan into execution waves. A wave is a set of ch
 
 Breaking API changes are allowed inside a wave. The boundary matters: by the end of the wave, update affected consumers, migrations, tests, or documentation so the repo is coherent again.
 
-### Deciding Parallel vs Sequential
+### Plan for evidence
 
-Use sub-agents whenever the runtime permits and the task has a clean ownership boundary. The question is whether each task is small, bounded, and non-overlapping enough to delegate safely, and whether delegated tasks should run concurrently or sequentially.
+Record the task-start baseline and pre-existing working changes so each review
+can include earlier committed waves without attributing unrelated edits to this
+task. Track task-owned untracked files as well as tracked changes.
 
-| Condition | Ordering |
-| --- | --- |
-| Tasks touch different files/modules | Parallel |
-| Task B imports from Task A's output | Sequential (A before B) |
-| Tasks modify the same file | Sequential (avoid conflicts) |
-| Tasks are in different spec phases | Sequential (phase order) |
-| Tasks within a phase are independent | Parallel |
+Name each wave's working outcome, dependencies, and verification. Put a review
+checkpoint after each substantive wave, before dependent implementation starts.
+A substantive wave establishes or changes an API, ownership boundary, lifecycle,
+or consumer integration. Do not turn every edit or mechanical batch into a
+checkpoint. Review earlier when discoveries undermine the next planned step.
 
-### Wave Planning Checklist
-
-Before executing, write out your wave plan:
-
-```
-Wave 1: [Foundation, types and interfaces]
-  - Task 1.1 (parallel with 1.2)
-  - Task 1.2 (parallel with 1.1)
-  - Checkpoint: verify and update spec
-  - Commit: optional, if this is a reviewable unit
-
-Wave 2: [Core logic, depends on Wave 1 types]
-  - Task 2.1 (sequential, modifies shared module)
-  - Task 2.2 (after 2.1, uses its exports)
-  - Checkpoint: verify and update spec
-  - Commit: likely, because this changes behavior
-
-Wave 3: [Integration, consumers of Wave 2]
-  - Task 3.1 (parallel with 3.2)
-  - Task 3.2 (parallel with 3.1)
-  - Checkpoint: verify and update spec
-  - Commit: combine with Wave 2 if the API and consumers should be reviewed together
-```
-
-Proceed after planning. Ask first only for product choices, destructive actions, broad reshape risk, or conflicts with current code.
+Keep later waves provisional. Commit boundaries follow reviewable changes and
+need not coincide with steering checkpoints.
 
 ## Phase 3: Execute Waves
 
@@ -131,59 +118,54 @@ Use sub-agents for owned implementation work when they are available. They are s
 
 ### 2. Verify the Wave
 
-After all tasks in a wave complete:
+Run the wave's planned checks on affected packages and consumers. Use broader
+checks when the change crosses those boundaries or the plan requires them.
 
-```bash
-bun typecheck                 # repo-standard type-check
-bun test                       # if tests exist for changed code
-```
+Resolve regressions introduced by the task before proceeding. Attribute
+failures against the task-start baseline using the review skill's procedure;
+report unrelated baseline failures without expanding the task to repair them.
+If a failure prevents validating the changed behavior, find an independent
+check or identify the unresolved blocker. A failing command alone does not
+establish which change caused it.
 
-If verification fails, fix issues before proceeding. Don't carry broken state into the next wave.
+### 3. Review and steer
 
-### 3. Update the Spec
+Run [design-review](../design-review/SKILL.md) on the cumulative implementation
+and remaining plan. It owns reviewer setup, evidence, structural judgment, and
+adjudication.
 
-Check off completed items in the spec's Implementation Plan:
+Resolve the checkpoint before dependent implementation starts. Rewrite remaining
+waves around accepted findings and delete tasks made unnecessary by a stronger
+invariant. The checkpoint may conclude that the current plan should continue
+unchanged.
 
-```markdown
-- [x] **1.1** Add IconDefinition type
-- [x] **1.2** Add CoverDefinition type
-- [ ] **2.1** Update factory functions
-```
+### 4. Record the checkpoint
 
-If implementation deviated from the spec (it often does), add a note:
+Update the spec or working notes with what is now true, the verification,
+accepted and consequential rejected findings, and how the remaining plan
+changed. Mark completed items and remove or replace obsolete future work;
+appending a discovery while leaving contradicted tasks active is plan drift.
 
-```markdown
-- [x] **1.1** Add IconDefinition type
-  > **Note**: Used discriminated union instead of enum as originally planned.
-  > Rationale: better type narrowing in consumers.
-```
+### 5. Commit or Checkpoint the Wave
 
-If you discovered something during implementation, add it to the spec's Research Findings or Edge Cases section.
-
-### 4. Commit or Checkpoint the Wave
-
-Each committed unit should include BOTH the code changes AND the spec updates that describe those changes. This keeps history honest: each commit shows what was planned, what changed, and what was actually built.
+When a spec exists, include its checkpoint updates with the corresponding code
+changes in each committed unit. For a conversation plan, keep the checkpoint in
+working notes. Commit only when authorized by the user's request.
 
 You do not have to create one commit per wave; use the commit shape that best fits the review, as described at the top of this skill. If the user wants one large commit, keep intermediate working checkpoints and create one final commit at the end.
 
-Follow `git` and `standalone-commits` skill conventions:
-
-```
-feat(scope): wave description, what this wave accomplishes
-
-- Completed spec items 1.1, 1.2
-- [Any notable deviations or discoveries]
-```
-
-Stage specific files. Never `git add .` or `git add -A`.
+For authorized commits, load `git` and `standalone-commits` for staging and
+history conventions.
 
 ## Phase 4: Final Review
 
 After all waves complete:
 
-1. **Run `post-implementation-review`** against the files touched by the spec.
-   Use the findings to clean up stale abstractions, dead paths, invariant drift,
-   naming issues, and missing verification before handoff.
+1. **Close against the accepted outcome.** The final checkpoint review covers
+   the cumulative implementation and remaining obligations. It also serves as
+   the final `post-implementation-review`; repeat only for subsequent material
+   changes or unresolved findings. Verify that the result satisfies the outcome,
+   rather than merely completing the latest checklist.
 2. **Harvest durable decisions into `docs/adr/`.** A spec is scaffolding, not the
    durable record (see `specs/README.md` and the AGENTS.md routing). For each
    load-bearing decision the work settled (an architecture or ownership choice, an
@@ -207,63 +189,28 @@ After all waves complete:
    the spec deletion, matching the commit strategy chosen earlier.
 
 The durable "why" now lives in the ADR; the "what landed" narrative belongs in the
-pull request body. When writing the PR, load `git` and follow the PR narrative
-guidance there. Nothing durable stays behind in the spec.
+pull request body. When writing the PR, load `pull-request`. Nothing durable stays behind in the spec.
 
-## Sub-Agent Prompts
+## Implementation subagent prompts
 
 The primary agent orchestrates: it plans waves, launches sub-agents when useful, verifies results, updates the spec, and commits. It may implement tightly coupled or blocking work directly when delegation would add coordination cost or risk.
 
-When spinning up sub-agents, each agent needs:
+Implementation agents get bounded lanes. Each needs:
 
-- **The specific spec section** it's implementing (not the whole spec)
+- **The specific plan section** it's implementing
 - **The files it should read** before making changes
 - **The primary files it owns**
 - **The patterns to follow** (reference relevant skills)
-- **Questions that need the user**: product decisions, destructive actions, broad reshaping, or current-code conflicts
+- **Escalation**: return cross-lane discoveries to the primary agent; it resolves
+  code conflicts and decides whether missing product judgment or authorization
+  requires the user
 
-Keep sub-agent prompts focused. A sub-agent that knows too much will try to do too much.
+This narrow context applies to implementation agents. The independent reviewer
+needs the cumulative view described in [design-review](../design-review/SKILL.md).
 
-## When Things Go Wrong
+## Recover without losing the outcome
 
-| Situation | Response |
-| --- | --- |
-| Type-check fails after a wave | Fix before moving on. Don't carry broken state. |
-| Sub-agent changed files outside its owned lane | Inspect them. Revert speculative or unrelated edits. Keep grounded correctness or verification fixes, then record the deviation in the spec. |
-| Spec item is ambiguous mid-implementation | Stop. Ask the user. Add clarification to the spec. |
-| Discovery invalidates a later spec phase | Update the spec's plan. Inform the user. Re-plan remaining waves. |
-| Tests fail | Fix the tests or the code. Update spec if the test failure reveals a spec gap. |
-
-## Anti-Patterns
-
-### Execute Without Planning
-
-```
-"Let me just start implementing..."
-```
-
-No. Read the spec, plan waves, then execute. Planning should start the work, not become a reason to stop.
-
-### Giant Wave
-
-```
-Wave 1: Implement everything in the spec
-```
-
-If a wave touches more than 5-8 files, ask whether it still represents one coherent working checkpoint. Sometimes a broad breaking change needs to happen together, but default to smaller waves when reviewability or verification would improve.
-
-### Spec Drift
-
-```
-Code diverges from spec but spec is never updated
-```
-
-The spec is a living document. Every commit should leave the spec accurate to what was actually built.
-
-### Over-Parallel
-
-```
-Wave 1: 12 sub-agents all running at once
-```
-
-More than 3-4 parallel sub-agents gets chaotic. Group related tasks and keep parallelism manageable.
+If an implementation agent crosses its lane, inspect the changes before
+integrating them. Keep grounded fixes within the authorized outcome; remove
+speculative edits without disturbing pre-existing work. Record consequential
+discoveries in the checkpoint and revise dependent work before resuming.

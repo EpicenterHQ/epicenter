@@ -1,12 +1,7 @@
 /**
- * The app-data root, an app's directory, and a validated partition (ADR-0201).
- *
- * The platform table is the load-bearing part. A host resolving the root through
- * Tauri and a CLI resolving it here have to name one directory, so each row
- * below is transcribed from the source the desktop actually runs
- * (`tauri-2.11.5/src/path/desktop.rs:247` joins `dirs::data_dir()` with the
- * bundle identifier; `dirs-6.0.0/src/{mac,lin,win}.rs` resolve `data_dir()`).
- * Ambient inputs are passed as a value so every row runs on one machine.
+ * Standalone CLI production defaults and app-owned directory boundaries.
+ * Tests cover platform variable selection, explicit overrides, and path escapes.
+ * Desktop paths are selected natively and arrive through the sidecar boot frame.
  */
 
 import { expect, test } from 'bun:test';
@@ -14,14 +9,12 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
 	appDataDir,
-	COMPOSED_APP_IDS,
 	type DataRootSystem,
 	EPICENTER_BUNDLE_IDENTIFIER,
 	epicenterDataRoot,
-	epicenterFolderRoot,
 	isAppId,
 	partitionDir,
-} from './app-data.ts';
+} from './app-data.js';
 
 const system = (overrides: Partial<DataRootSystem> = {}): DataRootSystem => ({
 	env: {},
@@ -62,7 +55,7 @@ test('other Unix platforms follow the Linux rules', () => {
 	);
 });
 
-test('Windows resolves under roaming APPDATA, not local, and not XDG', () => {
+test('Windows resolves under LOCALAPPDATA even when roaming and XDG paths exist', () => {
 	expect(
 		epicenterDataRoot(
 			system({
@@ -74,13 +67,20 @@ test('Windows resolves under roaming APPDATA, not local, and not XDG', () => {
 				},
 			}),
 		),
-	).toBe(join('C:\\Users\\person\\AppData\\Roaming', 'so.epicenter'));
+	).toBe(join('C:\\Users\\person\\AppData\\Local', 'so.epicenter'));
 });
 
-test('Windows without APPDATA refuses rather than guessing', () => {
-	expect(() => epicenterDataRoot(system({ platform: 'win32' }))).toThrow(
-		/APPDATA/,
-	);
+test('Windows refuses missing or empty LOCALAPPDATA even when APPDATA exists', () => {
+	for (const localAppData of [undefined, '']) {
+		expect(() =>
+			epicenterDataRoot(
+				system({
+					platform: 'win32',
+					env: { LOCALAPPDATA: localAppData, APPDATA: '/roaming' },
+				}),
+			),
+		).toThrow(/LOCALAPPDATA/);
+	}
 });
 
 test('EPICENTER_DATA_DIR wins on every platform', () => {
@@ -137,54 +137,6 @@ test('the bundle identifier equals the desktop bundle it has to match', () => {
 	);
 });
 
-test('the folder root is the home directory, capitalized, no dot', () => {
-	// The same shape on all three, because `homedir()` is the one input: Bun
-	// resolves it through `uv_os_homedir` on Windows (USERPROFILE) and
-	// HOME-then-getpwuid_r on POSIX, matching Node. Nothing platform-specific
-	// belongs here; a person's home directory is not an ambient guess the way
-	// an application-data directory is.
-	expect(epicenterFolderRoot({ env: {}, homeDir: '/Users/person' })).toBe(
-		'/Users/person/Epicenter',
-	);
-	expect(epicenterFolderRoot({ env: {}, homeDir: '/home/person' })).toBe(
-		'/home/person/Epicenter',
-	);
-	expect(
-		epicenterFolderRoot({ env: {}, homeDir: 'C:\\Users\\person' }),
-	).toContain('Epicenter');
-});
-
-test('the folder root is not the data root, and that is the point', () => {
-	// ADR-0207 refused putting a human surface in the machine-facing root, and
-	// ADR-0010 is the failure it refused: a continuous producer writing into
-	// ~/Library/Application Support, where no person or agent would ever look.
-	const home = '/Users/person';
-	expect(epicenterFolderRoot({ env: {}, homeDir: home })).not.toBe(
-		epicenterDataRoot(system({ platform: 'darwin', homeDir: home })),
-	);
-});
-
-test('EPICENTER_FOLDER_DIR wins, and a relative one is refused', () => {
-	expect(
-		epicenterFolderRoot({
-			env: { EPICENTER_FOLDER_DIR: '/mnt/vault' },
-			homeDir: '/Users/person',
-		}),
-	).toBe('/mnt/vault');
-	expect(
-		epicenterFolderRoot({
-			env: { EPICENTER_FOLDER_DIR: '' },
-			homeDir: '/Users/person',
-		}),
-	).toBe('/Users/person/Epicenter');
-	expect(() =>
-		epicenterFolderRoot({
-			env: { EPICENTER_FOLDER_DIR: 'vault' },
-			homeDir: '/Users/person',
-		}),
-	).toThrow('absolute');
-});
-
 test('an app directory sits under apps/', () => {
 	expect(appDataDir('/root', 'so.epicenter.local-mail')).toBe(
 		'/root/apps/so.epicenter.local-mail',
@@ -192,12 +144,6 @@ test('an app directory sits under apps/', () => {
 	expect(appDataDir('/root', 'so.epicenter.local-books')).toBe(
 		'/root/apps/so.epicenter.local-books',
 	);
-});
-
-test('every id the composition root spent composes', () => {
-	for (const id of COMPOSED_APP_IDS) {
-		expect(appDataDir('/root', id)).toBe(`/root/apps/${id}`);
-	}
 });
 
 test('a bare folder name is not an app id', () => {

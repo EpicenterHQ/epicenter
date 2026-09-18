@@ -7,7 +7,7 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import { CAPTURE_SURFACE_OPTIONS } from '$lib/constants/audio';
-	import { selectCaptureSurface } from '$lib/operations/recording';
+	import { selectCaptureSurface } from '$lib/operations/recording.svelte.js';
 	import { captureSurface } from '$lib/state/capture-surface.svelte';
 	import { getWhisperingApp } from '$lib/whispering/context';
 

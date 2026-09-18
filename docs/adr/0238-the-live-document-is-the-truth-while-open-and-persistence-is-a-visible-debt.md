@@ -1,9 +1,14 @@
 # 0238. The live document is the truth while open, and persistence is a visible debt
 
 - **Status:** Accepted
+- **Built 2026-09-06, including the surface.** The title said persistence is a VISIBLE debt while `blocked` was reported to nobody. `PersistenceNotice` in `@epicenter/app-shell` is the surface, mounted by all three applications' shells: it renders only `blocked`, says that changes are not being saved on this device and that closing the window loses them, and offers `flush()` as a retry. Blocking the exit while blocked was considered and refused: the notice is
+  always on screen, so a person signing out has already been told, and a rule
+  that stops them leaving would trap somebody whose disk is genuinely full. The
+  point of making the state visible is that no exit path needs its own rule.
 - **Amended by:** [ADR-0298](0298-the-authority-is-byte-blind-and-a-cursor-is-a-log-position.md) at sync delivery. The authority is byte-blind and positional; a replica's owed suffix is still read from its durable update log.
 - **Date:** 2026-08-12
-  this branch. Reconcile at merge time (`docs/adr/README.md`).
+- **Supersedes:** [ADR-0223](0223-a-page-holds-the-store-and-only-three-small-relations-have-to-survive.md). Its in-memory SQLite, the worker that mirrored it to an OPFS file, and the three relations are gone; IndexedDB owns the durable facts directly. "A page holds the store" survives through ADR-0227.
+- **Amends:** [ADR-0190](0190-a-build-declares-which-epicenter-owns-its-data-not-which-window-it-runs-in.md) at its OPFS clause only: the store's browser record is IndexedDB at the ADR-0348 address. The keychain clause and the decision that a build declares its owner stand.
 - **Amends:** [ADR-0237](0237-nonconformance-is-a-reads-only-error-and-a-disposed-store-throws.md)
   at the storage arm: the `storage-failed` poison is withdrawn, and an unusable
   store now means only a disposed one. `QueryFailed` widens by one cause: a

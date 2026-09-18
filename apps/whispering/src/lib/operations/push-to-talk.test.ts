@@ -1,66 +1,61 @@
+/** Verifies push-to-talk resolves only its owned recording and drains pending startup. */
 import { expect, mock, test } from 'bun:test';
 import { type BlobId, generateBlobId } from '@epicenter/blobs';
 import type { WhisperingApp } from '$lib/whispering/app';
 
 let recorderState: 'STOPPED' | 'RECORDING' = 'STOPPED';
 let recorderIsStarting = false;
-const startManualRecording =
-	mock<(app: WhisperingApp) => Promise<BlobId | null>>();
-const stopManualRecordingById = mock(async () => {});
+const start = mock<() => Promise<BlobId | null>>();
+const stop = mock(async () => {});
 
 mock.module('$lib/report', () => ({
 	log: { warn: mock() },
 	report: { info: mock() },
 }));
-mock.module('$lib/state/manual-recorder.svelte', () => ({
-	manualRecorder: {
-		get state() {
-			return recorderState;
-		},
-		get isStarting() {
-			return recorderIsStarting;
-		},
+const recording = {
+	start,
+	stop,
+	get state() {
+		return recorderState;
 	},
-}));
-mock.module('./recording', () => ({
-	startManualRecording,
-	stopManualRecordingById,
-}));
-
+	get isStarting() {
+		return recorderIsStarting;
+	},
+};
 const { pushToTalk } = await import('./push-to-talk');
-const app = {} as WhisperingApp;
+const app = { recording } as unknown as WhisperingApp;
 
 test('dispose stops an active push-to-talk recording before app teardown', async () => {
-	const recordingId = generateBlobId();
-	startManualRecording.mockImplementationOnce(async () => recordingId);
+	const recordingId = generateBlobId('wav');
+	start.mockImplementationOnce(async () => recordingId);
 
 	await pushToTalk.start(app);
 	recorderState = 'RECORDING';
 	await pushToTalk.dispose(app);
 
-	expect(stopManualRecordingById).toHaveBeenLastCalledWith(app, recordingId);
+	expect(stop).toHaveBeenLastCalledWith(recordingId);
 	recorderState = 'STOPPED';
 });
 
 test('dispose cannot retire another app session', async () => {
-	const recordingId = generateBlobId();
+	const recordingId = generateBlobId('wav');
 	const otherApp = {} as WhisperingApp;
-	const stopsBefore = stopManualRecordingById.mock.calls.length;
-	startManualRecording.mockImplementationOnce(async () => recordingId);
+	const stopsBefore = stop.mock.calls.length;
+	start.mockImplementationOnce(async () => recordingId);
 
 	await pushToTalk.start(app);
 	recorderState = 'RECORDING';
 	await pushToTalk.dispose(otherApp);
 
-	expect(stopManualRecordingById).toHaveBeenCalledTimes(stopsBefore);
+	expect(stop).toHaveBeenCalledTimes(stopsBefore);
 	await pushToTalk.dispose(app);
 	recorderState = 'STOPPED';
 });
 
 test('dispose invalidates and drains a recording start already in flight', async () => {
-	const recordingId = generateBlobId();
+	const recordingId = generateBlobId('wav');
 	let resolveStart!: (id: BlobId) => void;
-	startManualRecording.mockImplementationOnce(
+	start.mockImplementationOnce(
 		() =>
 			new Promise((resolve) => {
 				resolveStart = resolve;
@@ -68,11 +63,11 @@ test('dispose invalidates and drains a recording start already in flight', async
 	);
 	recorderIsStarting = true;
 
-	const start = pushToTalk.start(app);
+	const starting = pushToTalk.start(app);
 	const disposal = pushToTalk.dispose(app);
 	resolveStart(recordingId);
-	await Promise.all([start, disposal]);
+	await Promise.all([starting, disposal]);
 
-	expect(stopManualRecordingById).toHaveBeenLastCalledWith(app, recordingId);
+	expect(stop).toHaveBeenLastCalledWith(recordingId);
 	recorderIsStarting = false;
 });

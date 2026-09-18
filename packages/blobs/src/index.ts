@@ -1,3 +1,4 @@
+export * from './blob-format.js';
 export * from './blob-id.js';
 export * from './blob-remote.js';
 export * from './blob-source.js';

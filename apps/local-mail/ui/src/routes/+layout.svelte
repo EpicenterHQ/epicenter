@@ -7,9 +7,9 @@
 
 	let { children } = $props();
 
-	// The mirror is a local SQLite read: refetch is cheap and staleness matters
-	// (a background reconcile pass changes rows), so keep staleTime
-	// short and refetch on focus.
+	// The mirror is a local SQLite read, so refetch is cheap and staleness
+	// matters: a reconcile pass changes rows underneath an open page. Keep
+	// staleTime short and refetch on focus.
 	const queryClient = new QueryClient({
 		defaultOptions: {
 			queries: { staleTime: 5_000, retry: 1 },

@@ -12,7 +12,8 @@
 	import { report } from '$lib/report';
 	import { tauri } from '#platform/tauri';
 	import { manualRecorderConfig } from '#platform/manual-recorder-config';
-	import { manualRecorder } from '$lib/state/manual-recorder.svelte';
+		import { getWhisperingApp } from '$lib/whispering/context';
+	const app = getWhisperingApp();
 
 	let {
 		iconViewTransitionName,
@@ -24,7 +25,7 @@
 	const combobox = useCombobox();
 
 	const getDevicesQuery = createQuery(() => ({
-		...manualRecorder.enumerateDevices.options,
+		...app.recording.enumerateDevices(),
 		enabled: combobox.open,
 	}));
 

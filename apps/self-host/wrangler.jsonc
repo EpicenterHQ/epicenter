@@ -5,41 +5,31 @@
 	"compatibility_date": "2026-03-06",
 	"compatibility_flags": ["nodejs_compat", "enable_request_signal"],
 	"send_metrics": false,
-
-	// --- Deployment-owned vars ---
 	"vars": {
-		// API_PUBLIC_ORIGIN: this instance's public origin. Self-hosters set
-		// their own domain here; it is the token audience and Better Auth baseURL.
+		// Replace with this deployment's canonical HTTPS origin.
 		"API_PUBLIC_ORIGIN": "https://instance.example.com",
-		// Comma-separated exact origins of separately hosted browser clients.
-		// Leave empty when clients are same-origin or Tauri.
-		"TRUSTED_BROWSER_ORIGINS": ""
+		// Exact browser app origins allowed through CORS.
+		"TRUSTED_BROWSER_ORIGINS": "",
+		// JSON array of exact application callback URLs. Empty refuses handoff.
+		"SELF_HOST_CALLBACKS": "[]"
 	},
-
-	// --- Deployment-owned secrets ---
-	// Set via `wrangler secret put`. Self-hosting is the trust boundary: this
-	// instance runs on infrastructure you operate, so Epicenter never holds or
-	// sees the data stored here. Self-hosted = functionally zero-knowledge
-	// against Epicenter.
-	//
-	// INSTANCE_TOKEN: the one operator-supplied bearer that authenticates every
-	// request (ADR-0075). Generate it with `bun run gen-token` and set it with
-	// `wrangler secret put INSTANCE_TOKEN`; hand the same value to whoever should
-	// have access and paste it into their client instance setting. There is no
-	// OAuth and no allowlist: "solo" vs "shared" is only how many people hold it.
-	// It is the ONLY required secret: the instance composes no Better Auth, so
-	// there is no `BETTER_AUTH_SECRET` (ADR-0075).
-	//
-	// AI provider house keys (OPENAI_API_KEY, GEMINI_API_KEY) are optional:
-	// `wrangler secret put` one to serve that provider through this gateway, or
-	// omit it and that provider returns 503 ProviderNotConfigured. House-key-only
-	// (ADR-0054): a member who wants their own key points their client at a custom
-	// backend instead.
-	"secrets": {
-		"required": ["INSTANCE_TOKEN"]
-	}
-
-	// No Hyperdrive or Durable Object bindings: the instance composes no Postgres
-	// and no store sync today. It serves session, inference, transcription, and
-	// blobs; two devices do not converge through this reference Worker.
+	// Optional provider house keys and BLOBS_S3_* configuration stay deployment-owned.
+	// Named users enroll through the auth owner. INSTANCE_TOKEN no longer authorizes requests.
+	"durable_objects": {
+		"bindings": [
+			{ "name": "STORE_AUTHORITY", "class_name": "StoreAuthority" },
+			{ "name": "GENERATIONS_LEDGER", "class_name": "GenerationsLedger" },
+			{ "name": "SELF_HOST_AUTH", "class_name": "SelfHostAuthOwner" }
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["StoreAuthority", "GenerationsLedger"]
+		},
+		{
+			"tag": "v2-auth",
+			"new_sqlite_classes": ["SelfHostAuthOwner"]
+		}
+	]
 }

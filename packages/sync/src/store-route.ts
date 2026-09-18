@@ -1,10 +1,10 @@
 /**
- * The store transport's one connect URL, shared by every replica and the route
- * that answers them.
+ * The store transport's one connect address, shared by every replica and the
+ * route that answers them.
  *
  * It lives here rather than in the server because both halves need it and only
- * one of them is a server: a browser replica builds this URL, and a page has no
- * business importing Hono to learn what path to ask for.
+ * one of them is a server: a browser replica builds this address, and a page
+ * has no business importing Hono to learn what path to ask for.
  *
  * One path, and the addressing lives in the query. A replica says which
  * application id it is syncing and how far through the log it has read.
@@ -13,25 +13,20 @@
  * another partition (ADR-0092).
  */
 
-import {
-	BEARER_SUBPROTOCOL_PREFIX,
-	MAIN_SUBPROTOCOL,
-} from './auth-subprotocol.js';
+import { MAIN_SUBPROTOCOL } from './auth-subprotocol.js';
+import type { WebSocketAddress } from './transport.js';
 
 const stripTrailing = (value: string): string => value.replace(/\/+$/, '');
 
 export const STORE_SYNC_ROUTE = {
 	pattern: '/api/store/v1/sync',
 	/**
-	 * The subprotocols a replica offers: the main one plus `bearer.<token>`,
-	 * because a browser upgrade cannot set `Authorization`. The mount echoes only
-	 * the main one on the 101, so the token never round-trips.
-	 */
-	subprotocols(bearer: string): string[] {
-		return [MAIN_SUBPROTOCOL, `${BEARER_SUBPROTOCOL_PREFIX}${bearer}`];
-	},
-	/**
 	 * Where this replica connects, asking for everything after `cursor`.
+	 *
+	 * The URL and the subprotocol list travel together because a dial needs
+	 * both: a browser upgrade cannot set `Authorization`, so the main
+	 * subprotocol rides beside the URL and auth appends `bearer.<token>` to the
+	 * same list (ADR-0346).
 	 *
 	 * The cursor is the replica's own durably applied position in this
 	 * generation's log, so a reconnect is a catch-up rather than a fresh start
@@ -45,16 +40,24 @@ export const STORE_SYNC_ROUTE = {
 	 * compare on a dial. What used to be an opaque stamp negotiated at first
 	 * entanglement is now a number the page already had in its URL.
 	 */
-	url(
+	address(
 		baseURL: string,
-		params: { dataId: string; generation: number; cursor: number },
-	): string {
+		params: {
+			dataId: string;
+			generation: number;
+			cursor: number;
+			appId?: string;
+			library?: 'personal' | 'shared';
+		},
+	): WebSocketAddress {
 		const url = new URL(`${stripTrailing(baseURL)}${STORE_SYNC_ROUTE.pattern}`);
 		url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
 		url.searchParams.set('dataId', params.dataId);
 		url.searchParams.set('generation', String(params.generation));
 		url.searchParams.set('cursor', String(params.cursor));
-		return url.toString();
+		if (params.appId) url.searchParams.set('appId', params.appId);
+		if (params.library) url.searchParams.set('library', params.library);
+		return { url: url.toString(), protocols: [MAIN_SUBPROTOCOL] };
 	},
 } as const;
 

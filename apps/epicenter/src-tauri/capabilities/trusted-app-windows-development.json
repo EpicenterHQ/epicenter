@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "trusted-app-windows-development",
-	"description": "The native API a development trusted app window reaches: unrestricted HTTP(S) egress through the Tauri HTTP plugin (ADR-0179), and the recording and transcription operations the public @epicenter/app client exposes (ADR-0186). Not a sandbox, because an app window already runs as Epicenter on the shared origin; this file is API wiring, so it names product operations and never model administration, device enumeration, or unrelated Whispering authority. Whispering remains explicit until it joins the derived catalog.",
+	"description": "The native API a development trusted app window reaches: unrestricted HTTP(S) egress through the Tauri HTTP plugin (ADR-0179), the recording and transcription operations the public @epicenter/app client exposes (ADR-0186), and the text clipboard @epicenter/app/clipboard reads and writes. Not a sandbox, because an app window already runs as Epicenter on the shared origin; this file is API wiring, so it names product operations and never model administration, device enumeration, or unrelated Whispering authority. Whispering remains explicit until it joins the derived catalog.",
 	"local": false,
 	"windows": ["app-*", "whispering"],
 	"remote": {
@@ -20,10 +20,17 @@
 		"allow-start-recording",
 		"allow-stop-recording",
 		"allow-cancel-recording",
+		"allow-register-recording-session",
 		"allow-current-recording",
+		"allow-resolve-recording-start",
+		"allow-close-recording-session",
 		"allow-transcribe-recording",
+		"allow-transcribe-audio-bytes",
+		"allow-list-inference-models",
 		"allow-prewarm-model",
 		"allow-get-local-transcription-readiness",
+		"clipboard-manager:allow-read-text",
+		"clipboard-manager:allow-write-text",
 		"core:event:allow-listen",
 		"core:event:allow-unlisten"
 	]

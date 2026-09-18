@@ -13,6 +13,7 @@ import { Hono } from 'hono';
 import {
 	type GenerationsLedgerStub,
 	mountStoreSyncApp,
+	type StoreAuthorityStub,
 } from '../src/store-sync/mount.js';
 import type { Env, ResolveBearerPrincipal } from '../src/types.js';
 
@@ -38,6 +39,7 @@ const resolveTestPrincipal: ResolveBearerPrincipal<Env> = async (
 const app = new Hono<Env>();
 mountStoreSyncApp(app, {
 	resolveBearerPrincipal: resolveTestPrincipal,
+	shared: true,
 	resolveStore: (env) => {
 		const bindings = env as unknown as {
 			STORE_AUTHORITY: DurableObjectNamespace;
@@ -47,7 +49,7 @@ mountStoreSyncApp(app, {
 			authority: (name) =>
 				bindings.STORE_AUTHORITY.get(
 					bindings.STORE_AUTHORITY.idFromName(name),
-				) as unknown as { fetch(request: Request): Promise<Response> },
+				) as unknown as StoreAuthorityStub,
 			ledger: (name) =>
 				bindings.GENERATIONS_LEDGER.get(
 					bindings.GENERATIONS_LEDGER.idFromName(name),

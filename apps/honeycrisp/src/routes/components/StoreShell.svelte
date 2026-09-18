@@ -1,21 +1,30 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
+	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { SidebarProvider } from '@epicenter/ui/sidebar';
-	import type { ReactiveData } from '@epicenter/svelte';
+	import { fromData } from '@epicenter/svelte';
 	import { createHoneycrisp, setHoneycrisp } from '$lib/app.svelte.js';
 	import type { HoneycrispData } from '$lib/data';
-	import { openWorkingCopy } from '#platform/folder';
 	import { navigation } from '$lib/navigation.svelte.js';
 	import CommandPalette from './CommandPalette.svelte';
 	import NoteBodyPane from './NoteBodyPane.svelte';
 	import NoteList from './NoteList.svelte';
 	import HoneycrispSidebar from './Sidebar.svelte';
 
-	// The opened store, awake, and everything a sidebar shows about it is read
-	// off it. The route used to hand four props down, assembled by the opener it
+	// The opened store, raw, and everything a sidebar shows about it is read off
+	// it. The route used to hand four props down, assembled by the opener it
 	// owned; the store states its own address and its own connection now
-	// (ADR-0340), and `fromEpicenter` adapted its reads before handing it over.
-	let { data }: { data: ReactiveData<HoneycrispData> } = $props();
+	// (ADR-0340). `fromData` runs here rather than above, because this component
+	// mounts exactly once per opened store and the adaptation is per store.
+	let {
+		data: opened,
+		removeLocalData,
+		librarySelection,
+	}: { data: HoneycrispData; librarySelection: Snippet; removeLocalData?: () => Promise<void> } = $props();
+
+	/* svelte-ignore state_referenced_locally */
+	const data = fromData(opened);
 
 	// The application object is provided here rather than by a component whose
 	// whole body was this line. `setContext` must run during initialisation, and
@@ -26,19 +35,13 @@
 	/* svelte-ignore state_referenced_locally */
 	const honeycrisp = setHoneycrisp(createHoneycrisp({ data }));
 
-	// A denied connection renders the same as no connection at all: the store
-	// opened from local state before a socket was attempted, and the status
-	// line goes quiet rather than saying something is wrong.
-	const syncStatus = () => {
-		const status = data.sync.status();
-		return status?.denied === false ? status : undefined;
-	};
-	// Nothing to construct in a build with no filesystem: the seam hands out
-	// the capability rather than a flag, so a browser build has no working copy
-	// and the components that take one are never mounted (ADR-0337).
-	/* svelte-ignore state_referenced_locally */
-	const folder = openWorkingCopy?.(data);
+	// Passed through whole. A refusal is data on the status now, and the sidebar
+	// is what decides which refusals a person can act on and which ones render
+	// as nothing.
+	const syncStatus = () => data.sync.status();
 </script>
+
+<PersistenceNotice persistence={data.persistence} />
 
 <svelte:window
 	onkeydown={(e) => {
@@ -56,12 +59,12 @@
 />
 
 <SidebarProvider>
-	<HoneycrispSidebar {syncStatus} {folder} />
+	<HoneycrispSidebar {librarySelection} {syncStatus} folder={undefined} {removeLocalData} />
 
 	<main class="flex h-screen flex-1 overflow-hidden">
 		<Resizable.PaneGroup direction="horizontal">
 			<Resizable.Pane defaultSize={35} minSize={20}>
-				<NoteList hasFolder={folder !== undefined} />
+				<NoteList hasFolder={false} />
 			</Resizable.Pane>
 			<Resizable.Handle />
 			<Resizable.Pane defaultSize={65} minSize={30} class="flex flex-col">

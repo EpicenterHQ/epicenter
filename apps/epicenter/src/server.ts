@@ -1,5 +1,7 @@
+import type { AiCatalog } from './ai-catalog.ts';
+import { createAiCatalogRoutes } from './ai-catalog-routes.ts';
 /**
- * The Bun-owned Epicenter origin: trusted SPA documents, Home APIs, and the
+ * The Bun-owned Device origin: trusted SPA documents, Home APIs, and the
  * Home session WebSocket. The launch credential can only mint short-lived
  * browser sessions at the bootstrap route; it never appears in a URL or
  * durable browser storage.
@@ -8,25 +10,40 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AgentToolDefinition } from '@epicenter/agent';
 import {
-	APP_STORAGE_PATH,
-	type AppStorageRequest,
-	type AppStorageResponse,
+	type BlobId,
+	MAX_REMOTE_BLOB_BYTES,
+	parseBlobId,
+} from '@epicenter/blobs';
+import type { BunBlobStore } from '@epicenter/blobs/bun';
+import { isAppId } from '@epicenter/constants/app-id';
+import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
+import type { DeviceSqliteOwner } from '@epicenter/device/owner';
+import { createDeviceDispatcher } from '@epicenter/device/owner';
+import {
+	DEVICE_PATH,
+	type DeviceRequest,
+	type DeviceResponse,
 	isDatabaseName,
 	isSecretLabel,
+	parseSqliteFrame,
 	type SqliteStatement,
-} from '@epicenter/app/protocol';
-import { getProfileVia } from '@epicenter/auth';
-import { type BlobId, type BlobRemote, parseBlobId } from '@epicenter/blobs';
-import type { BunBlobStore } from '@epicenter/blobs/bun';
-import { epicenterFolderRoot, isAppId } from '@epicenter/constants/app-data';
-import { CHECKOUT_PATH } from '@epicenter/data/artifact/checkout';
+	stringifySqliteFrame,
+} from '@epicenter/device/protocol';
 import type { PendingCallback } from '@epicenter/local-mail/authorization-return';
+import {
+	type AccountIdentity,
+	asPrincipalId,
+	deviceOwnerPath,
+	isDeviceOwnerPath,
+} from '@epicenter/principal';
+import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { type Context, Hono, type Next } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
 import { getCookie, setCookie } from 'hono/cookie';
+import { createLogger } from 'wellcrafted/logger';
+import { createAccountRelay } from './account-relay.ts';
 import type { AppSecretOwner } from './app-secrets.ts';
-import type { BunAppStorage } from './app-storage.ts';
-import { type Application, listApplications } from './applications.ts';
+import type { Application } from './applications.ts';
 import {
 	CheckoutPreconditionFailedError,
 	checkoutFolderPath,
@@ -34,7 +51,6 @@ import {
 	writeCheckout,
 } from './checkout.ts';
 import type { DesktopAuthAuthority } from './desktop-auth-authority.ts';
-import { createDesktopAuthorityFetch } from './desktop-authority-fetch.ts';
 import {
 	type HomeHost,
 	type HomeSessionSnapshot,
@@ -42,19 +58,20 @@ import {
 } from './host.ts';
 import { PLACEHOLDER_PAGES } from './placeholder-pages.ts';
 import {
-	ACCOUNT_PROFILE_ROUTE,
+	ACCOUNT_CANCEL_CONNECTION_ROUTE,
+	ACCOUNT_CONNECT_ROUTE,
 	ACCOUNT_SIGN_IN_ROUTE,
 	ACCOUNT_SIGN_OUT_ROUTE,
+	ACCOUNT_USE_CLOUD_ROUTE,
 	APPLICATIONS_ROUTE,
 	BOOTSTRAP_ROUTE,
 	BUILT_IN_ROUTES,
 	CHECKOUT_ROUTE,
-	LOCAL_BLOB_REMOTE_ROUTES,
-	LOCAL_BLOB_ROUTE,
 	MAIL_CALLBACK_ROUTE,
 	MAIL_PENDING_CALLBACK_ROUTE,
 	SESSION_ROUTE,
 	SESSION_STREAM_ROUTE,
+	SIGN_IN_CALLBACK_ROUTE,
 } from './routes.ts';
 import type { EpicenterStaticAssets } from './static-assets.ts';
 
@@ -73,6 +90,8 @@ export type ApplicationsResponse = {
 };
 
 export type HomeServerOptions = {
+	/** Working copy directory selected by native startup. */
+	folderRoot: string;
 	host: HomeHost;
 	/** Exact active origin, including the Rust-selected explicit port. */
 	origin: string;
@@ -81,20 +100,15 @@ export type HomeServerOptions = {
 	/** Home's document and every compiled application's release build. */
 	staticAssets: EpicenterStaticAssets;
 	/** Canonical device-local bytes shared by every trusted app window. */
-	blobs: BunBlobStore;
+	blobs: (appId: string, owner?: string) => BunBlobStore;
 	/** One credential owner for every compiled desktop window. */
 	desktopAuth: DesktopAuthAuthority;
-	/**
-	 * Host-owned remote copy capability over the same local bytes, or `null`
-	 * when this signed-out process generation has none. The composition root
-	 * builds it from the desktop authority, so these routes never see a
-	 * credential or a destination URL.
-	 */
-	blobRemote: BlobRemote | null;
 	/** Bun owner for app-scoped SQLite files. */
-	appStorage?: BunAppStorage;
+	device?: DeviceSqliteOwner;
 	/** Credential-store owner for one labeled secret per application account. */
 	appSecrets?: AppSecretOwner;
+	aiCatalog?: AiCatalog;
+	noAccountAiCatalog?: AiCatalog;
 };
 
 const SESSION_COOKIE = 'epicenter_session';
@@ -105,28 +119,26 @@ const MAX_BROWSER_SESSIONS = 32;
  * happened: whether the account connected is decided in the Mail window, which
  * is where the person is about to look.
  */
-const MAIL_CALLBACK_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Local Mail</title></head><body><p>Google has answered. You can close this tab and return to Epicenter.</p></body></html>`;
-const SESSION_SHELL = `<!doctype html><html><head><meta charset="utf-8"><title>Epicenter</title><script>window.__EPICENTER_SESSION_READY__.then(() => window.location.reload())</script></head><body></body></html>`;
+const MAIL_CALLBACK_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Local Mail</title></head><body><p>Google has answered. You can close this tab and return to Device.</p></body></html>`;
+const SESSION_SHELL = `<!doctype html><html><head><meta charset="utf-8"><title>Device</title><script>window.__EPICENTER_SESSION_READY__.then(() => window.location.reload())</script></head><body></body></html>`;
 
 export function createHomeServer({
+	folderRoot,
 	host,
 	origin,
 	launchToken,
 	staticAssets,
 	blobs,
 	desktopAuth,
-	blobRemote,
-	appStorage,
+	device,
 	appSecrets,
+	aiCatalog,
+	noAccountAiCatalog,
 }: HomeServerOptions) {
 	if (launchToken === '') {
-		throw new Error('Epicenter refuses to serve without a launch token.');
+		throw new Error('Device refuses to serve without a launch token.');
 	}
-	// Resolved once, here, rather than per request. `epicenterFolderRoot` reads
-	// the environment and refuses a relative override by throwing, and a
-	// misconfiguration should stop the boot loudly rather than turn every folder
-	// pass into a 500 (ADR-0271).
-	const folderRoot = epicenterFolderRoot();
+	const bootAccount = desktopAuth.account;
 	const activeUrl = validateOrigin(origin);
 	const activeHost = activeUrl.host;
 	const sessionHashes = new Set<string>();
@@ -161,8 +173,8 @@ export function createHomeServer({
 				contentSecurityPolicy(everyPage, APPLICATION_CONNECT_ORIGINS[id]),
 			]),
 	);
-	const deploymentFetch = createDesktopAuthorityFetch(desktopAuth);
-	const { upgradeWebSocket, websocket } = createBunWebSocket();
+	const { upgradeWebSocket, websocket: homeWebsocket } = createBunWebSocket();
+	const relay = createAccountRelay(homeWebsocket);
 	const app = new Hono();
 
 	app.use('*', async (c, next) => {
@@ -205,6 +217,21 @@ export function createHomeServer({
 		});
 		return c.body(null, 204);
 	});
+	// Development has no installed macOS URL handler. The pending authority
+	// accepts only its exact callback and random state; no Home cookie is used.
+	if (desktopAuth.callbackUrl === SIGN_IN_CALLBACK_ROUTE.url(origin)) {
+		app.get(SIGN_IN_CALLBACK_ROUTE.pattern, (c) => {
+			c.header('cache-control', 'no-store');
+			if (!desktopAuth.acceptSignInCallback(c.req.url))
+				return c.text(
+					'This sign-in attempt is no longer active. Start again in Epicenter.',
+					400,
+				);
+			return c.html(
+				'<!doctype html><html><head><meta charset="utf-8"><title>Epicenter</title></head><body><p>Return to Epicenter to finish signing in. You can close this tab.</p></body></html>',
+			);
+		});
+	}
 	const hasBrowserSession = (c: Context) => {
 		const session = getCookie(c, SESSION_COOKIE);
 		return session !== undefined && sessionHashes.has(tokenHash(session));
@@ -219,24 +246,204 @@ export function createHomeServer({
 		if (c.req.header('origin') !== origin) return c.text('Forbidden', 403);
 		await next();
 	};
-	// The account broker carries only host-owned identity commands and the
-	// profile projection. There is deliberately no authorize/bearer-grant
-	// route: no credential ever crosses into a WebView, so the windows keep
-	// the loopback-only CSP. The read-only profile GET is session-guarded
-	// without the origin check because a browser omits the Origin header on
-	// same-origin GETs.
+	// Windows issue identity commands and relay Account traffic through Bun;
+	// no server credential crosses into a WebView. GET and HEAD require the
+	// browser session without an Origin header, which same-origin reads omit.
+	// Mutations and sync upgrades additionally require the exact Origin.
 	app.use('/_epicenter/account/*', async (c, next) => {
-		if (c.req.method === 'GET') return requireBrowserSession(c, next);
+		if (c.req.method === 'GET' || c.req.method === 'HEAD')
+			return requireBrowserSession(c, next);
 		return requirePrivateBroker(c, next);
 	});
 
-	app.get(ACCOUNT_PROFILE_ROUTE.pattern, async (c) => {
-		const profile = await getProfileVia(deploymentFetch, desktopAuth.baseURL);
-		if (profile.error !== null) return c.text('Profile unavailable', 502);
-		return c.json(profile.data);
+	app.use('/_epicenter/ai/*', async (c, next) => {
+		c.header('cache-control', 'no-store');
+		if (c.req.method === 'GET' || c.req.method === 'HEAD')
+			return requireBrowserSession(c, next);
+		return requirePrivateBroker(c, next);
+	});
+	if (aiCatalog)
+		app.route(
+			`/_epicenter/ai/${deviceOwnerPath(bootAccount ?? undefined).replaceAll('/', '_')}`,
+			createAiCatalogRoutes(aiCatalog),
+		);
+	if (bootAccount && noAccountAiCatalog)
+		app.route(
+			'/_epicenter/ai/no-account',
+			createAiCatalogRoutes(noAccountAiCatalog),
+		);
+
+	app.all('/_epicenter/account/http', async (c) => {
+		const account = desktopAuth.account;
+		if (!account) return c.text('Signed out', 401);
+		const path = c.req.query('path');
+		if (!path?.startsWith('/') || path.startsWith('//') || path.includes('\\'))
+			return c.text('Invalid account path', 400);
+		const target = new URL(path, account.baseURL);
+		if (
+			target.origin !== new URL(account.baseURL).origin ||
+			!(
+				target.pathname.startsWith('/api/') ||
+				target.pathname.startsWith('/v1/')
+			)
+		)
+			return c.text('Invalid account path', 400);
+		const headers = relayHeaders(c.req.raw.headers);
+		const localId = c.req.header('x-epicenter-local-blob-id');
+		headers.delete('x-epicenter-local-blob-id');
+		let body: BodyInit | undefined =
+			c.req.method === 'GET' || c.req.method === 'HEAD'
+				? undefined
+				: (c.req.raw.body ?? undefined);
+		let upload: ReturnType<typeof ownedFileBody> | undefined;
+		if (localId !== undefined) {
+			// The captured Account owns both cancellation and the destination.
+			// The control request contains no bytes for WebKit to materialize.
+			if (!bootAccount || account !== bootAccount)
+				return c.text('Account retired', 401);
+			const match = /^\/api\/apps\/([^/]+)\/blobs$/.exec(target.pathname);
+			const appId = match?.[1];
+			const id = parseBlobId(localId);
+			if (
+				c.req.method !== 'POST' ||
+				target.search !== '' ||
+				!appId ||
+				!isAppId(appId) ||
+				!id ||
+				c.req.raw.body !== null
+			)
+				return c.text('Invalid native blob upload', 400);
+			const store = blobs(appId, deviceOwnerPath(account));
+			const stat = await store.stat(id);
+			if (stat.error)
+				return c.text(
+					'Local blob unavailable',
+					stat.error.name === 'BlobNotFound' ? 404 : 500,
+				);
+			if (stat.data.size > MAX_REMOTE_BLOB_BYTES)
+				return c.text('Blob is too large', 413);
+			const opened = await store.openFile(id);
+			if (opened.error)
+				return c.text(
+					'Local blob unavailable',
+					opened.error.name === 'BlobNotFound' ? 404 : 500,
+				);
+			upload = ownedFileBody(
+				opened.data.file,
+				opened.data.close,
+				opened.data.stat.size,
+			);
+			body = upload.stream;
+			headers.set('content-type', opened.data.stat.contentType);
+			headers.set('content-length', String(opened.data.stat.size));
+		}
+		try {
+			const response = await account.fetch(
+				new Request(target, {
+					method: c.req.method,
+					headers,
+					body,
+					signal: c.req.raw.signal,
+					redirect: 'manual',
+				}),
+			);
+			const outgoing = relayHeaders(response.headers);
+			outgoing.delete('set-cookie');
+			outgoing.delete('content-encoding');
+			outgoing.delete('location');
+			outgoing.set('cache-control', 'no-store');
+			outgoing.set('x-epicenter-auth-state', desktopAuth.state.status);
+			return new Response(response.body, {
+				status: response.status,
+				statusText: response.statusText,
+				headers: outgoing,
+			});
+		} catch (error) {
+			c.header('x-epicenter-auth-state', desktopAuth.state.status);
+			if (desktopAuth.state.status === 'signed-out')
+				return c.text('Signed out', 401);
+			if (
+				typeof error === 'object' &&
+				error !== null &&
+				'name' in error &&
+				error.name === 'AccountUnavailable' &&
+				'code' in error
+			)
+				return c.text('Account network access unavailable', 401);
+			return c.text('Account transport unavailable', 502);
+		} finally {
+			await upload?.close();
+		}
+	});
+	app.get('/_epicenter/account/sync', requirePrivateBroker, (c) => {
+		const dataId = c.req.query('dataId') ?? '';
+		const appId = c.req.query('appId');
+		const library = c.req.query('library');
+		const generation = Number(c.req.query('generation'));
+		const cursor = Number(c.req.query('cursor'));
+		if (
+			!dataId ||
+			(appId !== undefined && !isAppId(appId)) ||
+			(library !== undefined &&
+				library !== 'personal' &&
+				library !== 'shared') ||
+			(appId === undefined) !== (library === undefined) ||
+			!Number.isSafeInteger(generation) ||
+			generation < 0 ||
+			!Number.isSafeInteger(cursor) ||
+			cursor < 0
+		)
+			return c.text('Invalid sync address', 400);
+		return relay.upgrade(
+			c,
+			desktopAuth.account,
+			STORE_SYNC_ROUTE.address(desktopAuth.baseURL, {
+				dataId,
+				generation,
+				cursor,
+				appId,
+				library,
+			}),
+		);
+	});
+
+	app.post(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern, async (c) => {
+		const result = await desktopAuth.cancelConnection();
+		if (result.error) return c.text('Could not resume applications.', 500);
+		return c.body(null, 204);
+	});
+	app.post(ACCOUNT_CONNECT_ROUTE.pattern, async (c) => {
+		const body: unknown = await c.req.json().catch(() => null);
+		if (
+			typeof body !== 'object' ||
+			body === null ||
+			!('server' in body) ||
+			typeof body.server !== 'string'
+		)
+			return c.text('Enter a server URL.', 400);
+		const result = await desktopAuth.connectInstance(body.server);
+		if (result.error)
+			return c.text('Could not select this server. Check the server URL.', 502);
+		return c.body(null, 202);
+	});
+	app.post(ACCOUNT_USE_CLOUD_ROUTE.pattern, async (c) => {
+		const result = await desktopAuth.useCloud();
+		if (result.error) return c.text('Could not change servers.', 500);
+		return c.body(null, 202);
 	});
 	app.post(ACCOUNT_SIGN_IN_ROUTE.pattern, async (c) => {
-		const result = await desktopAuth.startSignIn();
+		const body: unknown = await c.req.json().catch(() => null);
+		if (
+			typeof body !== 'object' ||
+			body === null ||
+			Array.isArray(body) ||
+			('reauthenticate' in body && typeof body.reauthenticate !== 'boolean')
+		)
+			return c.text('Invalid sign-in options.', 400);
+		const result = await desktopAuth.startSignIn({
+			reauthenticate:
+				'reauthenticate' in body ? (body.reauthenticate as boolean) : undefined,
+		});
 		if (result.error) return c.text('Sign-in failed', 502);
 		return c.body(null, 202);
 	});
@@ -309,6 +516,10 @@ export function createHomeServer({
 	app.get('/apps/*', (c) => c.text('Not Found', 404));
 
 	app.use(APPLICATIONS_ROUTE.pattern, requireBrowserSession);
+	// Application-scoped blob routes are host APIs over private local files. The
+	// generic application listing is already guarded above; this wildcard keeps
+	// newly added app routes behind the same browser session by default.
+	app.use('/api/apps/*', requireBrowserSession);
 	app.use('/api/mail/*', requireBrowserSession);
 	// Taking is destructive, because one authorization is redeemable once and a
 	// second reader would be redeeming a code Google has already spent.
@@ -319,36 +530,113 @@ export function createHomeServer({
 		return c.json({ callbackUrl: callback } satisfies PendingCallback);
 	});
 	app.use('/api/home/*', requireBrowserSession);
-	app.use('/api/local-blobs/*', requireBrowserSession);
-	app.use(`${APP_STORAGE_PATH}/*`, requirePrivateBroker);
-	app.post(APP_STORAGE_PATH, async (c) => {
-		const request = parseAppStorageRequest(await readJsonObject(c.req.raw));
+	app.use(`${DEVICE_PATH}/*`, requirePrivateBroker);
+	app.get(`${DEVICE_PATH}/sqlite`, async (c, next) => {
+		if (device === undefined) return c.text('Unavailable', 503);
+		const response = await upgradeWebSocket(() => {
+			const dispatcher = createDeviceDispatcher(device);
+			let closed = false;
+			const close = () => {
+				if (closed) return;
+				closed = true;
+				void dispatcher.close().catch((cause: unknown) => {
+					createLogger('epicenter/sqlite').error(
+						new Error('SQLite socket cleanup failed.', { cause }),
+					);
+				});
+			};
+			return {
+				onMessage(event, ws) {
+					if (closed) return;
+					const frame =
+						typeof event.data === 'string'
+							? parseSqliteFrame(event.data)
+							: undefined;
+					if (
+						typeof frame !== 'object' ||
+						frame === null ||
+						!('id' in frame) ||
+						!Number.isSafeInteger(frame.id)
+					) {
+						close();
+						ws.close(1008, 'Invalid SQLite request.');
+						return;
+					}
+					const input = 'request' in frame ? frame.request : null;
+					const request = parseDeviceRequest(
+						typeof input === 'object' && input !== null && !Array.isArray(input)
+							? (input as Record<string, unknown>)
+							: null,
+					);
+					if (
+						request === undefined ||
+						request.kind === 'secret-put' ||
+						request.kind === 'secret-get' ||
+						request.kind === 'secret-delete'
+					) {
+						ws.send(
+							stringifySqliteFrame({
+								id: frame.id,
+								failure: 'Invalid SQLite request.',
+							}),
+						);
+						return;
+					}
+					void dispatcher.request(request).then(
+						(response) => {
+							if (!closed)
+								ws.send(stringifySqliteFrame({ id: frame.id, response }));
+						},
+						() => {
+							if (!closed)
+								ws.send(
+									stringifySqliteFrame({
+										id: frame.id,
+										failure: 'Application storage failed',
+									}),
+								);
+						},
+					);
+				},
+				onClose: close,
+				onError: close,
+			};
+		})(c, next);
+		return response ?? c.text('Expected WebSocket upgrade', 400);
+	});
+
+	app.post(DEVICE_PATH, async (c) => {
+		const request = parseDeviceRequest(await readJsonObject(c.req.raw));
 		if (request === undefined) return c.text('Bad Request', 400);
 		try {
 			if (request.kind === 'secret-put') {
 				if (appSecrets === undefined) return c.text('Unavailable', 503);
-				await appSecrets.put(request.appId, request.label, request.value);
-				return c.json({ kind: request.kind } satisfies AppStorageResponse);
+				await appSecrets.put(
+					request.appId,
+					request.label,
+					request.value,
+					request.account,
+				);
+				return c.json({ kind: request.kind } satisfies DeviceResponse);
 			}
 			if (request.kind === 'secret-get') {
 				if (appSecrets === undefined) return c.text('Unavailable', 503);
-				const value = await appSecrets.get(request.appId, request.label);
+				const value = await appSecrets.get(
+					request.appId,
+					request.label,
+					request.account,
+				);
 				return c.json({
 					kind: request.kind,
 					value,
-				} satisfies AppStorageResponse);
+				} satisfies DeviceResponse);
 			}
 			if (request.kind === 'secret-delete') {
 				if (appSecrets === undefined) return c.text('Unavailable', 503);
-				await appSecrets.delete(request.appId, request.label);
-				return c.json({ kind: request.kind } satisfies AppStorageResponse);
+				await appSecrets.delete(request.appId, request.label, request.account);
+				return c.json({ kind: request.kind } satisfies DeviceResponse);
 			}
-			if (appStorage === undefined) return c.text('Unavailable', 503);
-			if (request.kind === 'sqlite-delete') {
-				await appStorage.delete(request.appId, request.name);
-				return c.json({ kind: request.kind } satisfies AppStorageResponse);
-			}
-			return c.json(await runAppStatements(appStorage, request));
+			return c.text('Bad Request', 400);
 		} catch {
 			return c.text('Application storage failed', 500);
 		}
@@ -371,15 +659,17 @@ export function createHomeServer({
 		} satisfies HomeSessionResponse),
 	);
 
-	// What Home lists as launchable: the release's trusted compiled applications.
+	// What Home lists as launchable: every validated compiled or installed app.
 	app.get(APPLICATIONS_ROUTE.pattern, (c) =>
 		c.json({
-			apps: listApplications(),
+			apps: staticAssets.applications.map(
+				({ id, title }) => ({ id, title }) satisfies Application,
+			),
 		} satisfies ApplicationsResponse),
 	);
 
 	/**
-	 * One database's working copy in `~/Epicenter` (ADR-0337).
+	 * One database's working copy in `~/Device` (ADR-0337).
 	 *
 	 * `PUT` is `pull`'s half: the application says what its store holds and the
 	 * host replaces the folder with it. `GET` is `push`'s, and what `pull` reads
@@ -389,9 +679,7 @@ export function createHomeServer({
 	 * parsed. The host owns the root, the refusal, and the atomic swap; the
 	 * application owns what any of it means.
 	 *
-	 * The root is resolved once, at construction, so a misconfigured
-	 * `EPICENTER_FOLDER_DIR` fails the boot loudly instead of throwing inside
-	 * every request.
+	 * Native startup validates the root before the server is constructed.
 	 */
 	const checkoutFolder = (c: {
 		req: { param(name: string): string | undefined };
@@ -441,41 +729,63 @@ export function createHomeServer({
 		}
 	});
 
-	app.put(LOCAL_BLOB_ROUTE.pattern, async (c) => {
-		const id = parseBlobId(c.req.param('blobId'));
-		if (id === undefined) return c.text('Invalid blob id', 400);
-		const result = await blobs.putRequest(id, c.req.raw);
-		if (result.error === null) return c.body(null, 201);
-		switch (result.error.name) {
-			case 'BlobAlreadyExists':
-				return c.text('Blob already exists', 409);
-			case 'BlobStoreFailed':
-				return c.text('Blob store failed', 500);
-			default:
-				return result.error satisfies never;
-		}
+	type BlobEnv = { Variables: { appId: string; id: BlobId; owner: string } };
+	const blobApi = new Hono<BlobEnv>();
+	blobApi.use('*', async (c, next) => {
+		const appId = c.req.param('appId');
+		if (!appId || !isAppId(appId)) return c.text('Invalid application ID', 400);
+		c.set('appId', appId);
+		const owner = c.req.query('owner') ?? 'no-account';
+		if (!isDeviceOwnerPath(owner)) return c.text('Invalid storage owner', 400);
+		c.set('owner', owner);
+		await next();
 	});
-
-	// Hono derives HEAD from GET before considering explicit HEAD routes. A
-	// middleware guard keeps HEAD metadata-only and preserves Content-Length.
-	app.use(LOCAL_BLOB_ROUTE.pattern, async (c, next) => {
-		if (c.req.method !== 'HEAD') {
-			await next();
-			return;
-		}
+	blobApi.use('/:blobId/*', async (c, next) => {
 		const id = parseBlobId(c.req.param('blobId'));
-		if (id === undefined) return c.text('Invalid blob id', 400);
-		const result = await blobs.stat(id);
-		if (result.error !== null) {
-			switch (result.error.name) {
-				case 'BlobNotFound':
-					return c.text('Blob not found', 404);
-				case 'BlobStoreFailed':
-					return c.text('Blob store failed', 500);
-				default:
-					return result.error satisfies never;
-			}
-		}
+		if (
+			!id ||
+			[...new URL(c.req.url).searchParams.keys()].some((key) => key !== 'owner')
+		)
+			return c.text('Invalid blob address', 400);
+		c.set('id', id);
+		await next();
+	});
+	blobApi.get('/', async (c) => {
+		const query = new URL(c.req.url).searchParams;
+		if (
+			[...query.keys()].some(
+				(key) => key !== 'cursor' && key !== 'limit' && key !== 'owner',
+			)
+		)
+			return c.text('Invalid blob list options', 400);
+		const limit = query.get('limit');
+		const cursor = query.get('cursor');
+		const result = await blobs(c.var.appId, c.var.owner).list({
+			...(limit === null ? {} : { limit: Number(limit) }),
+			...(cursor === null ? {} : { cursor }),
+		});
+		return result.error ? c.text('Blob list failed', 400) : c.json(result.data);
+	});
+	blobApi.put('/:blobId', async (c) => {
+		const result = await blobs(c.var.appId, c.var.owner).putRequest(
+			c.var.id,
+			c.req.raw,
+		);
+		if (!result.error) return c.body(null, 201);
+		return c.text(
+			'Blob publication failed',
+			result.error.name === 'BlobAlreadyExists' ? 409 : 500,
+		);
+	});
+	// Hono derives HEAD from GET; intercept it before file-body acquisition.
+	blobApi.use('/:blobId', async (c, next) => {
+		if (c.req.method !== 'HEAD') return next();
+		const result = await blobs(c.var.appId, c.var.owner).stat(c.var.id);
+		if (result.error)
+			return c.text(
+				'Blob unavailable',
+				result.error.name === 'BlobNotFound' ? 404 : 500,
+			);
 		return new Response(null, {
 			headers: {
 				...blobResponseHeaders(result.data.contentType),
@@ -483,112 +793,58 @@ export function createHomeServer({
 			},
 		});
 	});
-
-	app.get(LOCAL_BLOB_ROUTE.pattern, async (c) => {
-		const id = parseBlobId(c.req.param('blobId'));
-		if (id === undefined) return c.text('Invalid blob id', 400);
-		const result = await blobs.openFile(id);
-		if (result.error !== null) {
-			switch (result.error.name) {
-				case 'BlobNotFound':
-					return c.text('Blob not found', 404);
-				case 'BlobStoreFailed':
-					return c.text('Blob store failed', 500);
-				default:
-					return result.error satisfies never;
-			}
-		}
-		const rangeHeader = c.req.header('range');
-		if (rangeHeader !== undefined) {
-			const range = parseByteRange(rangeHeader, result.data.stat.size);
-			if (range === undefined) {
-				return new Response('Range Not Satisfiable', {
-					status: 416,
-					headers: {
-						...blobResponseHeaders(result.data.stat.contentType),
-						'content-range': `bytes */${result.data.stat.size}`,
-					},
-				});
-			}
-			return new Response(
-				result.data.file.slice(
-					range.start,
-					range.endExclusive,
-					result.data.stat.contentType,
-				),
-				{
-					status: 206,
-					headers: {
-						...blobResponseHeaders(result.data.stat.contentType),
-						'content-length': String(range.endExclusive - range.start),
-						'content-range': `bytes ${range.start}-${range.endExclusive - 1}/${result.data.stat.size}`,
-					},
-				},
+	blobApi.get('/:blobId', async (c) => {
+		const result = await blobs(c.var.appId, c.var.owner).openFile(c.var.id);
+		if (result.error)
+			return c.text(
+				'Blob unavailable',
+				result.error.name === 'BlobNotFound' ? 404 : 500,
 			);
-		}
-		return new Response(result.data.file, {
-			headers: {
-				...blobResponseHeaders(result.data.stat.contentType),
-				'content-length': String(result.data.stat.size),
-			},
-		});
-	});
-
-	app.delete(LOCAL_BLOB_ROUTE.pattern, async (c) => {
-		const id = parseBlobId(c.req.param('blobId'));
-		if (id === undefined) return c.text('Invalid blob id', 400);
-		const result = await blobs.delete(id);
-		if (result.error !== null) return c.text('Blob store failed', 500);
-		return c.body(null, 204);
-	});
-
-	// Remote copy operations: the blob id in the path is the only input. The
-	// host's own deployment authority supplies the target and credential, so
-	// no request body, destination URL, or authorization header is read.
-	const requireBlobRemote = (
-		operate: (
-			remote: BlobRemote,
-			id: BlobId,
-		) => Promise<
-			| Awaited<ReturnType<BlobRemote['upload']>>
-			| Awaited<ReturnType<BlobRemote['download']>>
-			| Awaited<ReturnType<BlobRemote['purge']>>
-		>,
-	) => {
-		return async (c: Context) => {
-			const id = parseBlobId(c.req.param('blobId'));
-			if (id === undefined) return c.text('Invalid blob id', 400);
-			if (blobRemote === null) {
-				return c.text('Remote storage unavailable', 503);
-			}
-			const result = await operate(blobRemote, id);
-			if (result.error === null) return c.body(null, 204);
-			switch (result.error.name) {
-				case 'BlobNotFound':
-				case 'RemoteBlobNotFound':
-					return c.text(result.error.message, 404);
-				case 'BlobStoreFailed':
-					return c.text('Blob store failed', 500);
-				case 'BlobRemoteFailed':
-					return c.text('Remote operation failed', 502);
-				default:
-					return result.error satisfies never;
-			}
+		const { file, stat, close } = result.data;
+		const headers = {
+			...blobResponseHeaders(stat.contentType),
+			'content-length': String(stat.size),
 		};
-	};
-	app.post(
-		LOCAL_BLOB_REMOTE_ROUTES.upload.pattern,
-		requireBlobRemote((remote, id) => remote.upload(id)),
-	);
-	app.post(
-		LOCAL_BLOB_REMOTE_ROUTES.download.pattern,
-		requireBlobRemote((remote, id) => remote.download(id)),
-	);
-	app.post(
-		LOCAL_BLOB_REMOTE_ROUTES.purge.pattern,
-		requireBlobRemote((remote, id) => remote.purge(id)),
-	);
-
+		const requestedRange = c.req.header('range');
+		if (requestedRange === undefined)
+			return new Response(ownedFileBody(file, close, stat.size).stream, {
+				headers,
+			});
+		const range = parseByteRange(requestedRange, stat.size);
+		if (!range) {
+			await close();
+			return new Response(null, {
+				status: 416,
+				headers: {
+					...headers,
+					'content-length': '0',
+					'content-range': `bytes */${stat.size}`,
+				},
+			});
+		}
+		return new Response(
+			ownedFileBody(
+				file.slice(range.start, range.endExclusive, stat.contentType),
+				close,
+				range.endExclusive - range.start,
+			).stream,
+			{
+				status: 206,
+				headers: {
+					...headers,
+					'content-length': String(range.endExclusive - range.start),
+					'content-range': `bytes ${range.start}-${range.endExclusive - 1}/${stat.size}`,
+				},
+			},
+		);
+	});
+	blobApi.delete('/:blobId', async (c) => {
+		const result = await blobs(c.var.appId, c.var.owner).delete(c.var.id);
+		return result.error
+			? c.text('Blob deletion failed', 500)
+			: c.body(null, 204);
+	});
+	app.route('/api/apps/:appId/blobs', blobApi);
 	app.get(
 		SESSION_STREAM_ROUTE.pattern,
 		upgradeWebSocket(() => {
@@ -618,7 +874,7 @@ export function createHomeServer({
 		}),
 	);
 
-	return { app, websocket };
+	return { app, websocket: relay.websocket };
 }
 
 /**
@@ -647,6 +903,67 @@ function injectAuthBootstrap(
 	return body === -1
 		? `${element}${page}`
 		: `${page.slice(0, body)}${element}${page.slice(body)}`;
+}
+
+/** Own the borrowed file until HTTP consumption finishes or is cancelled. */
+function ownedFileBody(
+	file: Blob,
+	closeFile: () => Promise<void>,
+	size: number,
+) {
+	const reader = file.stream().getReader();
+	let closed: Promise<void> | undefined;
+	let cancelled = false;
+	let remaining = size;
+	function close() {
+		closed ??= (async () => {
+			try {
+				await reader.cancel();
+			} finally {
+				await closeFile();
+			}
+		})();
+		return closed;
+	}
+	return {
+		close,
+		stream: new ReadableStream<Uint8Array>({
+			async pull(controller) {
+				try {
+					if (remaining === 0 || closed) {
+						await close();
+						if (!cancelled) controller.close();
+						return;
+					}
+					const { done, value } = await reader.read();
+					if (cancelled) return;
+					if (closed) {
+						controller.close();
+						return;
+					}
+					if (done)
+						throw new Error('Blob stream ended before its declared length.');
+					remaining -= value.byteLength;
+					if (remaining < 0)
+						throw new Error('Blob stream exceeded its declared length.');
+					controller.enqueue(value);
+					// Bun 1.3.14 can stall at the end of a descriptor-backed slice.
+					// The validated stat/range length owns completion and cancellation.
+					if (remaining === 0) {
+						await close();
+						if (!cancelled) controller.close();
+					}
+				} catch (cause) {
+					if (!cancelled) controller.error(cause);
+					await close().catch(() => {});
+				}
+			},
+			cancel() {
+				cancelled = true;
+				return close();
+			},
+		}),
+	};
 }
 
 function blobResponseHeaders(contentType: string): Record<string, string> {
@@ -702,7 +1019,7 @@ function validateOrigin(origin: string): URL {
 	try {
 		url = new URL(origin);
 	} catch {
-		throw new Error(`Invalid Epicenter origin: ${origin}`);
+		throw new Error(`Invalid Device origin: ${origin}`);
 	}
 	if (
 		url.origin !== origin ||
@@ -713,7 +1030,7 @@ function validateOrigin(origin: string): URL {
 		url.password !== ''
 	) {
 		throw new Error(
-			'Epicenter origin must be exact http://127.0.0.1:<port> without credentials or a path.',
+			'Device origin must be exact http://127.0.0.1:<port> without credentials or a path.',
 		);
 	}
 	return url;
@@ -723,9 +1040,9 @@ function tokenHash(token: string): string {
 	return createHash('sha256').update(token).digest('base64url');
 }
 
-function parseAppStorageRequest(
+function parseDeviceRequest(
 	input: Record<string, unknown> | null,
-): AppStorageRequest | undefined {
+): DeviceRequest | undefined {
 	if (
 		input === null ||
 		typeof input.kind !== 'string' ||
@@ -735,31 +1052,89 @@ function parseAppStorageRequest(
 		return undefined;
 	}
 	const kind = input.kind;
-	if (
-		(kind === 'sqlite-run' || kind === 'sqlite-all') &&
-		typeof input.name === 'string'
-	) {
-		const statement = parseSqliteStatement(input.statement);
-		return statement === undefined || !isDatabaseName(input.name)
-			? undefined
-			: { kind, appId: input.appId, name: input.name, statement };
-	}
-	if (kind === 'sqlite-delete' && typeof input.name === 'string') {
-		return isDatabaseName(input.name)
-			? { kind, appId: input.appId, name: input.name }
-			: undefined;
-	}
-	if (kind === 'sqlite-batch' && typeof input.name === 'string') {
-		if (!isDatabaseName(input.name) || !Array.isArray(input.statements)) {
+	let account: AccountIdentity | undefined;
+	if (input.account !== undefined) {
+		const value = input.account;
+		if (
+			!value ||
+			typeof value !== 'object' ||
+			!('authorityId' in value) ||
+			!('principalId' in value) ||
+			typeof value.authorityId !== 'string' ||
+			typeof value.principalId !== 'string'
+		)
+			return undefined;
+		account = {
+			authorityId: value.authorityId,
+			principalId: asPrincipalId(value.principalId),
+		};
+		try {
+			deviceOwnerPath(account);
+		} catch {
 			return undefined;
 		}
-		const statements: SqliteStatement[] = [];
-		for (const value of input.statements) {
-			const statement = parseSqliteStatement(value);
-			if (statement === undefined) return undefined;
-			statements.push(statement);
+	}
+	if (kind.startsWith('sqlite-')) {
+		const address = { appId: input.appId, account };
+		if (kind === 'sqlite-acquire') return { kind, ...address };
+		if (typeof input.lifetimeId !== 'string' || input.lifetimeId === '')
+			return undefined;
+		const session = { ...address, lifetimeId: input.lifetimeId };
+		if (kind === 'sqlite-close') return { kind, ...session };
+		if (kind === 'sqlite-open' || kind === 'sqlite-delete') {
+			return typeof input.name === 'string' && isDatabaseName(input.name)
+				? { kind, ...session, name: input.name }
+				: undefined;
 		}
-		return { kind, appId: input.appId, name: input.name, statements };
+		if (typeof input.connectionId !== 'string' || input.connectionId === '')
+			return undefined;
+		const connection = { ...session, connectionId: input.connectionId };
+		if (kind === 'sqlite-run' || kind === 'sqlite-all') {
+			const statement = parseSqliteStatement(input.statement);
+			return statement === undefined
+				? undefined
+				: { kind, ...connection, statement };
+		}
+		if (kind === 'sqlite-query' || kind === 'sqlite-cancel') {
+			if (
+				typeof input.queryId !== 'string' ||
+				input.queryId.length === 0 ||
+				input.queryId.length > 128
+			)
+				return undefined;
+			if (kind === 'sqlite-cancel')
+				return { kind, ...connection, queryId: input.queryId };
+			const statement = parseSqliteStatement(input.statement);
+			if (
+				!statement ||
+				new TextEncoder().encode(statement.sql).length > 65536 ||
+				!Array.isArray(input.tables) ||
+				input.tables.length > 128 ||
+				!input.tables.every(
+					(table): table is string =>
+						typeof table === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(table),
+				)
+			)
+				return undefined;
+			return {
+				kind,
+				...connection,
+				queryId: input.queryId,
+				statement,
+				tables: input.tables,
+			};
+		}
+		if (kind === 'sqlite-batch') {
+			if (!Array.isArray(input.statements)) return undefined;
+			const statements: SqliteStatement[] = [];
+			for (const value of input.statements) {
+				const statement = parseSqliteStatement(value);
+				if (statement === undefined) return undefined;
+				statements.push(statement);
+			}
+			return { kind, ...connection, statements };
+		}
+		return undefined;
 	}
 	if (
 		(kind === 'secret-put' ||
@@ -773,48 +1148,19 @@ function parseAppStorageRequest(
 		return kind === 'secret-put'
 			? {
 					kind,
+					account,
 					appId: input.appId,
 					label: input.label,
 					value: input.value as string,
 				}
-			: { kind, appId: input.appId, label: input.label };
+			: {
+					kind,
+					account,
+					appId: input.appId,
+					label: input.label,
+				};
 	}
 	return undefined;
-}
-
-async function runAppStatements(
-	storage: BunAppStorage,
-	request: Extract<
-		AppStorageRequest,
-		{ kind: 'sqlite-run' | 'sqlite-all' | 'sqlite-batch' }
-	>,
-): Promise<AppStorageResponse> {
-	switch (request.kind) {
-		case 'sqlite-run': {
-			const database = await storage.open(request.appId, request.name);
-			const result = await database.run(
-				request.statement.sql,
-				request.statement.parameters,
-			);
-			if (result.error !== null) throw result.error;
-			return { kind: request.kind, changes: result.data.changes };
-		}
-		case 'sqlite-all': {
-			const database = await storage.open(request.appId, request.name);
-			const result = await database.all(
-				request.statement.sql,
-				request.statement.parameters,
-			);
-			if (result.error !== null) throw result.error;
-			return { kind: request.kind, rows: result.data };
-		}
-		case 'sqlite-batch': {
-			const database = await storage.open(request.appId, request.name);
-			const result = await database.batch(request.statements);
-			if (result.error !== null) throw result.error;
-			return { kind: request.kind, changes: result.data.changes };
-		}
-	}
 }
 
 function parseSqliteStatement(value: unknown):
@@ -842,7 +1188,10 @@ function parseSqliteStatement(value: unknown):
 
 function isSqliteValue(value: unknown): boolean {
 	return (
-		value === null || typeof value === 'string' || typeof value === 'number'
+		value === null ||
+		typeof value === 'string' ||
+		(typeof value === 'number' && Number.isFinite(value)) ||
+		value instanceof Uint8Array
 	);
 }
 
@@ -895,7 +1244,7 @@ function contentSecurityPolicy(
 		// `'wasm-unsafe-eval'` permits WebAssembly compilation and nothing else:
 		// it does not restore `eval` or `new Function`, which is why it exists
 		// separately from `'unsafe-eval'`. Voice activity detection runs
-		// onnxruntime in this WebView over assets Epicenter itself ships, so
+		// onnxruntime in this WebView over assets Device itself ships, so
 		// WebAssembly is a first-party capability of the app window rather than
 		// something a policy is being bent to tolerate. Without it the browser
 		// refuses the compile and the recording trigger dies mid-boot.
@@ -933,4 +1282,27 @@ function parseFrame(data: unknown): unknown {
 	} catch {
 		return undefined;
 	}
+}
+
+/** Only end-to-end application headers cross the credential boundary. */
+function relayHeaders(source: Headers): Headers {
+	const headers = new Headers(source);
+	const connectionHeaders = headers.get('connection')?.split(',') ?? [];
+	for (const name of [
+		...connectionHeaders,
+		'authorization',
+		'cookie',
+		'host',
+		'connection',
+		'keep-alive',
+		'proxy-authenticate',
+		'proxy-authorization',
+		'te',
+		'trailer',
+		'transfer-encoding',
+		'upgrade',
+		'content-length',
+	])
+		headers.delete(name.trim());
+	return headers;
 }

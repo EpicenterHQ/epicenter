@@ -1,0 +1,35 @@
+{
+	"name": "@epicenter/device",
+	"version": "0.0.1",
+	"private": true,
+	"description": "This device's files and secrets, scoped to one application, per runtime.",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./browser": "./src/browser.ts",
+		"./owner": "./src/owner.ts",
+		"./desktop": "./src/desktop.ts",
+		"./protocol": "./src/protocol.ts",
+		"./query": "./src/query.ts",
+		"./library-claim": "./src/library-claim.ts",
+		"./test-locks": "./src/test-locks.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit && tsc --noEmit -p evidence/browser/opfs-sqlite/tsconfig.json",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@epicenter/constants": "workspace:*",
+		"@epicenter/principal": "workspace:*",
+		"@epicenter/sqlite": "workspace:*",
+		"@sqlite.org/sqlite-wasm": "catalog:",
+		"wellcrafted": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"playwright": "^1.61.1",
+		"typescript": "catalog:",
+		"vite": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

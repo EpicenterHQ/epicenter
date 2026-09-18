@@ -59,6 +59,7 @@ const PROBE_APP = 'so.epicenter.durability-probe';
  */
 const PROBE_ACCOUNT = {
 	baseURL: 'https://probe.invalid',
+	authorityId: 'probe-authority',
 	principalId: 'probe' as never,
 	fetch: (async (_input: string | URL, init?: RequestInit) =>
 		new Response(
@@ -69,7 +70,12 @@ const PROBE_ACCOUNT = {
 			),
 			{ headers: { 'content-type': 'application/json' } },
 		)) as never,
-	WebSocket: undefined as never,
+	// The probe opens and reloads; it never dials, so a socket that threw would
+	// be as good as one that never resolves. `WebSocket` was the pre-0346
+	// spelling of the same absence.
+	openWebSocket: (() => {
+		throw new Error('the durable-store probe never dials');
+	}) as never,
 };
 
 let db: ProbeApplication | undefined;

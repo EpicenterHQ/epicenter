@@ -8,16 +8,18 @@
  * for real (ADR-0319).
  */
 
-import type { AppSqliteDatabase } from '@epicenter/app';
+import type { AppSqliteDatabase } from '@epicenter/device';
 import { createTestAppSqlite } from './app-sqlite.test-support.ts';
 import { type IntentStore, openIntentStore } from './intent-store.ts';
 import { type Mailbox, openMailbox } from './mailbox.ts';
+import { openPassRecord, type PassRecord } from './outbox.ts';
 import { LOCAL_SCHEMA, MAIL_CACHE_SCHEMA } from './storage.ts';
 
 export type TestSession = {
 	sub: string;
 	mailbox: Mailbox;
 	intents: IntentStore;
+	passes: PassRecord;
 	/** The two databases, for a test that reopens handles over them. */
 	mailboxDatabase: AppSqliteDatabase;
 	localDatabase: AppSqliteDatabase;
@@ -51,6 +53,7 @@ export async function openTestSession(
 		localDatabase: local,
 		mailbox: openMailbox(mail),
 		intents: openIntentStore(local, sub),
+		passes: openPassRecord(local, sub),
 		async row<TRow>(
 			sql: string,
 			parameters: readonly (string | number | null)[] = [],

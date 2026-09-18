@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getVocabSurface } from "$lib/surface";
 	import { AccountPopover } from '@epicenter/app-shell/account-popover';
 	import type { ConversationHandle } from '@epicenter/app-shell/agent-chat';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
@@ -7,8 +8,7 @@
 	import MessageSquarePlusIcon from '@lucide/svelte/icons/message-square-plus';
 	import MessageSquareTextIcon from '@lucide/svelte/icons/message-square-text';
 	import TrashIcon from '@lucide/svelte/icons/trash';
-	import { auth } from '$lib/platform/auth';
-	import { dictation } from '$lib/state/dictation.svelte';
+	import { getAuth } from '$lib/auth.svelte.js';
 	import EntriesPanel from './EntriesPanel.svelte';
 
 	let {
@@ -17,13 +17,18 @@
 		onCreate,
 		onSwitch,
 		onPractice,
+		removeLocalData,
 	}: {
 		conversations: ConversationHandle[];
 		activeConversationId: ConversationId | null;
 		onCreate: () => void;
 		onSwitch: (conversationId: ConversationId) => void;
 		onPractice: (entryTexts: string[]) => void;
+		/** Erase this account's copy and reopen, which only the session can do. */
+		removeLocalData?: () => Promise<void>;
 	} = $props();
+	const auth = getAuth();
+	const { dictation } = getVocabSurface();
 </script>
 
 <Sidebar.Root collapsible="icon">
@@ -40,6 +45,7 @@
 					disabledReason={dictation.status !== 'idle'
 						? 'Finish dictating to change your account'
 						: undefined}
+					onRemoveLocalData={removeLocalData}
 				/>
 			</div>
 		</div>

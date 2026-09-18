@@ -238,10 +238,12 @@ export function createSyncClient({
 
 		const submission = nextSubmission;
 		nextSubmission += 1;
-		connection.outstanding = { submission, throughId: entry.id };
+		const sending = connection;
+		sending.outstanding = { submission, throughId: entry.id };
 		const chunks = intoChunks(entry.bytes, CHUNK_BYTES);
 		for (const [index, chunk] of chunks.entries()) {
-			connection.socket.send(
+			if (connection !== sending) return Ok(undefined);
+			sending.socket.send(
 				encodeFrame({
 					kind: 'push',
 					submission,
@@ -364,10 +366,11 @@ export function createSyncClient({
 			// to report.
 			return Ok(undefined);
 		}
-		const sender = connection.socket;
+		const sending = connection;
 		const chunks = intoChunks(bytes, CHUNK_BYTES);
 		for (const [index, chunk] of chunks.entries()) {
-			sender.send(
+			if (connection !== sending) return Ok(undefined);
+			sending.socket.send(
 				encodeFrame({
 					kind: 'offer',
 					position,
@@ -518,6 +521,10 @@ export function createSyncClient({
 				}
 				case 'wanted':
 					return offerSnapshot(frame.position);
+				case 'admitted':
+				case 'retired':
+					// The connection driver owns admission and lifetime retirement.
+					return Ok(undefined);
 				case 'push':
 				case 'offer':
 					// A client never receives either. Ignored rather than thrown on,

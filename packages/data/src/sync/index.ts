@@ -1,12 +1,14 @@
-export {
-	type AttachStoreSyncOptions,
-	attachStoreSync,
-	type StoreSocketTransport,
-} from './attach.js';
+// Re-exported beside the status that carries it: a surface reading
+// `SyncConnectionStatus.refusal` has to map the union exhaustively, and one
+// import is the whole of what that costs.
+export type { SyncRefusal } from '@epicenter/sync/transport';
+export { type AttachStoreSyncOptions, attachStoreSync } from './attach.js';
 export {
 	AuthorityError,
 	applyAuthoritySchema,
+	type CurrentAuthority,
 	type LogEntry,
+	openCurrentAuthority,
 	openSyncAuthority,
 	type SyncAuthority,
 } from './authority.js';

@@ -18,7 +18,7 @@
  * belongs in this file's expectations once it is decided.
  */
 import 'fake-indexeddb/auto';
-import { installTestLocks } from './test-locks.js';
+import { installTestLocks } from '@epicenter/device/test-locks';
 
 installTestLocks();
 
@@ -352,55 +352,30 @@ for (const engine of ENGINES) {
 		});
 
 		test("the controller's mirror agrees with the record it mirrors", async () => {
-			// The sender never reads storage. `coalesce` is synchronous over an
-			// asynchronous port, so `durableOutbox()` returns a RAM mirror that
-			// `succeeded()` advances by hand, in JavaScript, using the same rules
-			// the port applies in its own dialect. That is two implementations of
-			// one question, and the rest of this file pins the two PORTS against
-			// each other without ever pinning the mirror against them.
-			//
-			// So: drive one controller through every op kind, then ask both. What
-			// the sender believes is owed has to be what a fresh open would find.
 			const record = await engine.create(`mirror-${counter}`);
 			const opened = await record.reopen();
 			const controller = createPersistenceController({
+				assertUsable: () => undefined,
 				port: opened.port,
 				loaded: opened.loaded,
 				log: silent,
 			});
-
-			const written = chain(4);
-			const ids: number[] = [];
-			for (const bytes of written) {
-				nextId += 1;
-				ids.push(nextId);
-				controller.enqueue([
-					{ kind: 'append', id: nextId, bytes, authoritySeq: undefined },
-				]);
-			}
-			// The first two land with the authority; the last two collapse into
-			// one owed row above every id it replaces.
-			controller.enqueue([
-				{ kind: 'ack', throughId: ids[1] as number, authoritySeq: 12 },
-			]);
-			nextId += 1;
-			const merged = nextId;
-			controller.enqueue([
-				{
-					kind: 'mergeOwed',
-					replaces: ids.slice(2),
-					id: merged,
-					bytes: new Uint8Array(
-						Y.mergeUpdatesV2(written.slice(2) as Uint8Array<ArrayBuffer>[]),
-					),
-				},
-			]);
+			const written = chain(82);
+			for (const bytes of written.slice(0, 2))
+				controller.append(bytes, undefined);
+			await controller.persistence.flush();
+			const sent = controller.coalesce();
+			if (sent === undefined) throw new Error('The first two updates are owed');
+			controller.acknowledge(sent.id, 12);
+			for (const bytes of written.slice(2)) controller.append(bytes, undefined);
 			await controller.persistence.flush();
 
-			const believed = controller.durableOutbox().map((entry) => entry.id);
+			const believed = controller.coalesce();
 			const { loaded } = await record.reopen();
-			expect(believed).toEqual(loaded.outbox.map((entry) => entry.id));
-			expect(believed).toEqual([merged]);
+			expect(believed?.id).toBe(loaded.outbox.at(-1)?.id);
+			expect(loaded.outbox.length).toBeLessThan(80);
+			expect(valueOf([...written.slice(0, 2), believed!.bytes])).toBe('v81');
+			expect(valueOf(loaded.updates)).toBe('v81');
 			expect(controller.durableCursor()).toBe(loaded.cursor);
 			expect(loaded.cursor).toBe(12);
 		});
@@ -470,6 +445,25 @@ for (const engine of ENGINES) {
 			expect(loaded.cursor).toBe(4);
 			expect(valueOf(loaded.updates)).toBe('v1');
 			expect(loaded.lastId).toBe(two.id);
+		});
+		test('a failed fold rolls back every append in its batch', async () => {
+			const record = await engine.create(`failed-fold-${counter}`);
+			const updates = chain(63);
+			updates.push(new Uint8Array([255]));
+			await expect(
+				record.commit(
+					updates.map((bytes, index) => ({
+						kind: 'append' as const,
+						id: index + 1,
+						bytes,
+						authoritySeq: 1,
+					})),
+				),
+			).rejects.toThrow();
+			const { loaded } = await record.reopen();
+			expect(loaded.updates).toEqual([]);
+			expect(loaded.cursor).toBe(0);
+			expect(loaded.lastId).toBe(0);
 		});
 	});
 }

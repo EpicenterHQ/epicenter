@@ -26,7 +26,16 @@ docs/          reference materials
 
 One runtime: a desktop SPA in a WebView over a client-owned store (ADR-0227). The host serves bundles and brokers credentials and owns no application data (ADR-0226).
 
-ADR-0227 was executed as a clean break, so these are broken on purpose until they are rebuilt against the store: `apps/whispering`, `apps/vocab`, `apps/skills`, `apps/epicenter`, `packages/chat`, `packages/skills`, and app-shell's agent chat.
+ADR-0227 was executed as a clean break. `apps/skills`, `packages/chat`, `packages/skills`, and app-shell's agent chat all typecheck, so do not treat them as scrap: what they lack is a decision about what they are for, not a compiler pass. `apps/epicenter` serves bundles and forwards authenticated HTTP and live sync through its boot Account. Windows hold no server credentials; each app owns its store and sync lifetime.
+
+The three store applications are `apps/honeycrisp`, `apps/vocab`, and
+`apps/whispering`. Each application document owns one fixed library (ADR-0369; ADR-0392 proposes one auth generation per page instead).
+Plain TypeScript captures the raw auth Account and opens the App; Svelte adapts
+it at the UI boundary. Honeycrisp and Vocab require identity; Whispering also
+supports local startup. Deliberate account/server changes close UI producers
+and the App before authentication changes and full document navigation.
+Callbacks and auxiliary routes open no primary library. Same-owner refresh
+preserves the App; unexpected retirement closes locally without replacement.
 
 Migration reference: `docs/the-store-and-what-it-replaced.md`.
 
@@ -147,7 +156,7 @@ Audience decides vocabulary: what a person reads uses the word they already have
 | UI copy, errors shown to them, deep links, README front doors | types, functions, library error messages |
 
 - Do not soften `authority`, `replica`, `projection`, or `principal` in code to sound friendlier, and do not let one of them reach a person.
-- A library states a failure precisely; the app decides what a person is told about it. Worked example: `apps/honeycrisp/src/lib/boot-failure.ts`. Vocabulary decision: ADR-0244.
+- A library states a failure precisely; the app decides what a person is told about it. Worked example: `packages/app-shell/src/boot-screens/open-failure.ts`, which takes each app's nouns rather than choosing them. Vocabulary decision: ADR-0244.
 - Keep user-facing text direct and concrete.
 
 **Punctuation.** Avoid en dash characters (`U+2013`). Prefer colon, comma, semicolon, or sentence break over em dash characters (`U+2014`), especially in UI strings, docs, comments, JSDoc, and commit messages.

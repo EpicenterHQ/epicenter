@@ -41,37 +41,38 @@ import {
 	type DataDefinitionParseError,
 	type ParsedDataDefinition,
 } from '@epicenter/data/definition';
-import type { PrincipalId } from '@epicenter/principal';
+import { claimLibrary } from '@epicenter/device/library-claim';
 import {
+	type AccountIdentity,
+	deviceOwnerPath,
+	type PrincipalId,
+} from '@epicenter/principal';
+import { readCurrentDownload } from '@epicenter/sync/current-download';
+import {
+	CURRENT_ROUTE,
 	GENERATIONS_ROUTE,
 	LOG_POSITION_HEADER,
 } from '@epicenter/sync/generations-route';
 import * as Y from '@y/y';
-import { type DBSchema, deleteDB, type IDBPDatabase, openDB } from 'idb';
+import { deleteDB, openDB } from 'idb';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import { claimDocument, releaseDocument } from './claims.js';
+import { openCurrentCache } from './current-cache.js';
 import { createDatabaseDocument } from './document.js';
 import type { DatabaseAccount } from './handles.js';
 import {
-	copyBytes,
-	NO_AUTHORITY,
-	replay,
-	SNAPSHOT_FOLD_THRESHOLD,
-} from './log.js';
+	type BrowserDurableDatabase,
+	type BrowserDurableSchema,
+	createIdbUpdates,
+	readIdbUpdates,
+} from './idb-updates.js';
 import { requestPersistentStorage } from './persist.js';
-import type {
-	DurableOp,
-	DurablePort,
-	DurableSnapshot,
-	OutboxEntry,
-} from './persistence.js';
+import type { DurablePort, DurableSnapshot } from './persistence.js';
 import {
-	createAccountStoreOverPort,
-	type DataDocument,
+	createStoreOverPort,
 	type DeclaredData,
 	type ReplicaData,
+	type StoreBacking,
 	StoreError,
-	type UntypedDeclaredData,
 } from './store.js';
 
 /**
@@ -98,56 +99,23 @@ export type { DatabaseAccount } from './handles.js';
 export type { DataDocument, ReplicaDocument } from './store.js';
 
 /**
- * What one generation is bound to, written once and never rewritten
- * (ADR-0325).
- *
- * The canonical server identity and the verified principal: the two facts the
- * address stopped carrying when ADR-0324 reduced it to an application, a data
- * id, and a number. They have to live somewhere, because two authorities mint
- * generation numbers independently and Yjs merges rather than erroring, so
- * without this a `7` from one account silently interleaves with a `7` from
- * another.
- */
-export type DatabaseBinding = {
-	readonly baseURL: string;
-	readonly principalId: PrincipalId;
-};
-
-/**
- * The durable facts, one object store each (ADR-0238, ADR-0295, ADR-0325).
+ * The durable fact, one object store (ADR-0238, ADR-0295).
  *
  * `updates` is this generation's Yjs update log, keyed by the append id the
  * store assigned. The outbox and the cursor are read off it rather than kept
- * beside it. `binding` holds one record, written in the transaction that
- * creates the generation. Both names are persisted; changing either requires
- * an IndexedDB migration.
+ * beside it. The name is persisted; changing it requires an IndexedDB
+ * migration.
  *
- * Two stores are gone with the designs they served. `tombstones` went with the
- * document split (ADR-0295): there is no second address a row deletion could
- * retire. `identity` went with the membership stamp (ADR-0292): the generation
- * is in the address, so a record here can only belong to the history its name
- * says it does. `binding` is not that stamp coming back. `identity` asked
- * which history these bytes were, which the address answers now; this asks
- * whose they are, which no address can answer, because a principal is asserted
- * by a remote party at first sign-in and local data can already exist by then.
+ * Three stores are gone with the designs they served. `tombstones` went with
+ * the document split (ADR-0295): there is no second address a row deletion
+ * could retire. `identity` went with the membership stamp (ADR-0292): the
+ * generation is in the address, so a record here can only belong to the history
+ * its name says it does. `binding` went the same way: it recorded the server
+ * and the principal a generation was created for, because ADR-0324's address
+ * named neither, and the principal is a segment of the address again, so a
+ * record here can only belong to the account its name says it does.
  */
-type StoredUpdateRecord = {
-	bytes: Uint8Array;
-	/** `null` is owed: the authority has no position for these bytes. */
-	authoritySeq: number | null;
-};
-
-type BrowserDurableSchema = DBSchema & {
-	updates: { key: number; value: StoredUpdateRecord };
-	binding: { key: string; value: DatabaseBinding };
-};
-
-type BrowserDurableDatabase = IDBPDatabase<BrowserDurableSchema>;
-
 const UPDATES_STORE = 'updates';
-const BINDING_STORE = 'binding';
-/** The one key `binding` ever holds. A generation is bound to one authority. */
-const BINDING_KEY = 'binding';
 
 function openIndexedDb(address: string): Promise<BrowserDurableDatabase> {
 	// Version 1, and it is a constant rather than a starting point: the address
@@ -167,33 +135,15 @@ function openIndexedDb(address: string): Promise<BrowserDurableDatabase> {
 			if (!durable.objectStoreNames.contains(UPDATES_STORE)) {
 				durable.createObjectStore(UPDATES_STORE);
 			}
-			if (!durable.objectStoreNames.contains(BINDING_STORE)) {
-				durable.createObjectStore(BINDING_STORE);
-			}
 		},
 	});
 }
 
 /** Delete one store's IndexedDB definition whole. Our own connection is closed first. */
 function deleteIndexedDb(address: string): Promise<void> {
-	return new Promise((resolve, reject) => {
-		let blocked = false;
-		void deleteDB(address, {
-			blocked() {
-				// `deleteDB` waits for the other tab. This caller must instead know
-				// that its requested wipe did not happen before it reloads.
-				blocked = true;
-				reject(
-					new Error('Another tab is holding this store open. Close it first.'),
-				);
-			},
-		}).then(
-			() => {
-				if (!blocked) resolve();
-			},
-			(cause) => reject(cause),
-		);
-	});
+	// IndexedDB deletion cannot be cancelled. Keep the caller's library claim
+	// until the actual request settles, including while another connection blocks it.
+	return deleteDB(address);
 }
 
 /** One address's durable engine, loaded and ready to commit batches. */
@@ -201,34 +151,19 @@ export type BrowserBacking = {
 	port: DurablePort;
 	loaded: DurableSnapshot;
 	/**
-	 * Who this record was created for, or `undefined` when it holds nothing
-	 * (ADR-0325).
-	 *
-	 * Read at open and compared. Nothing writes it but `create`, which makes a
-	 * rebound database unrepresentable rather than detected.
-	 */
-	binding: DatabaseBinding | undefined;
-	/**
-	 * Bring this address into being: one whole state, its position, and the
-	 * binding, in ONE transaction (ADR-0325).
+	 * Bring this address into being: one whole state and its position, in ONE
+	 * transaction.
 	 *
 	 * A separate verb rather than a `DurableOp`, because it is not one. The
-	 * port is the seam two engines implement (`port-conformance.test.ts`) and a
-	 * SQLite record writes its binding inside the transaction that creates the
-	 * file's schema, which is a different mechanism for the same rule. What
-	 * both promise is that a generation never exists unbound, not that they
-	 * write it the same way.
+	 * port is the seam two engines implement (`port-conformance.test.ts`), and
+	 * what both promise is that a generation is created whole.
 	 *
 	 * It does NOT check that the address is empty, and that is deliberate: both
 	 * callers already branch on `loaded.updates.length` because they answer
 	 * differently, and each holds the document claim across that branch, so a
 	 * third check here would be a second guard saying a third thing.
 	 */
-	create(record: {
-		bytes: Uint8Array;
-		position: number;
-		binding: DatabaseBinding;
-	}): Promise<void>;
+	create(record: { bytes: Uint8Array; position: number }): Promise<void>;
 	close(): void;
 };
 
@@ -242,224 +177,35 @@ export type BrowserBacking = {
  * against its own expectations is how the two came to disagree about the fold,
  * the identity stamp, and what a duplicate key does.
  *
- * Not an opener. It hands back a port, what was loaded, and the binding;
- * composing a store over those is `openDatabase`'s job.
+ * Not an opener. It hands back a port and what was loaded; composing a store
+ * over those is `openDatabase`'s job.
  */
 export async function openIdbBacking(
 	address: string,
 ): Promise<Result<BrowserBacking, StoreError>> {
-	return tryAsync({
+	const opened = await tryAsync({
+		try: () => openIndexedDb(address),
+		catch: (cause) => StoreError.StorageFailed({ cause }),
+	});
+	if (opened.error) return opened;
+	const durable = opened.data;
+	const result = await tryAsync({
 		try: async () => {
-			const durable = await openIndexedDb(address);
+			const read = durable.transaction(UPDATES_STORE, 'readonly');
+			const [loaded] = await Promise.all([
+				readIdbUpdates(read.objectStore(UPDATES_STORE)),
+				read.done,
+			]);
+			const { port, create } = createIdbUpdates(durable, loaded);
 
-			const read = durable.transaction(
-				[UPDATES_STORE, BINDING_STORE],
-				'readonly',
-			);
-			const updateStore = read.objectStore(UPDATES_STORE);
-			const rows = await updateStore.getAll();
-			const ids = (await updateStore.getAllKeys()) as number[];
-			const binding = await read.objectStore(BINDING_STORE).get(BINDING_KEY);
-			await read.done;
-
-			// One pass over the chain answers everything the snapshot holds, which
-			// is the shape of the collapse: the outbox and the cursor are read off
-			// the appends rather than kept beside them.
-			const stored: { id: number; bytes: Uint8Array }[] = [];
-			const outbox: OutboxEntry[] = [];
-			let cursor = 0;
-			let lastId = 0;
-			// Not copied, and the SQL port's `copyBytes` is not an inconsistency
-			// here. `bun:sqlite` can hand back a view over memory it still owns,
-			// so that port has to copy; `getAll` structured-clones, so these
-			// arrays are already this caller's alone. Copying them again bought
-			// nothing and cost a second whole document on every boot, because the
-			// baseline row IS the whole document.
-			//
-			// One array per row, shared by `stored` and `outbox`: an owed row
-			// appears in both and neither ever writes through it.
-			for (const [index, row] of rows.entries()) {
-				const id = ids[index] as number;
-				if (id > lastId) lastId = id;
-				const bytes = row.bytes;
-				stored.push({ id, bytes });
-				if (row.authoritySeq === null) {
-					// NULL means owed, on every store kind (ADR-0301). A store with
-					// no authority records `NO_AUTHORITY` on its own appends, so it
-					// reaches this branch for nothing and needs no flag to say so.
-					outbox.push({ id, bytes });
-				} else if (row.authoritySeq > cursor) {
-					cursor = row.authoritySeq;
-				}
-			}
-			// Not sorted, because they are already in order and saying so is the
-			// point. `getAll` returns an object store's rows in ascending key
-			// order, and both arrays are pushed in that one iteration. Sorting
-			// them was a no-op on every real input, and worse than a no-op as
-			// documentation: this loop ALREADY depends on that ordering, pairing
-			// `rows[index]` with `ids[index]`, so a defensive sort implied a
-			// doubt the line above it does not share. The fold and `held` depend
-			// on it too. One dependency, stated once.
-			let held = stored.length;
-
-			const loaded: DurableSnapshot = {
-				updates: stored.map((row) => row.bytes),
-				outbox,
-				cursor,
-				lastId,
-			};
-
-			const port: DurablePort = {
-				async commit(ops: readonly DurableOp[]): Promise<void> {
-					const transaction = durable.transaction(UPDATES_STORE, 'readwrite');
-					const updates = transaction.objectStore(UPDATES_STORE);
-					let chain = held;
-					let grew = false;
-					for (const op of ops) {
-						switch (op.kind) {
-							case 'append': {
-								void updates.put(
-									{
-										bytes: copyBytes(op.bytes),
-										authoritySeq: op.authoritySeq ?? null,
-									},
-									op.id,
-								);
-								chain += 1;
-								grew = true;
-								break;
-							}
-							case 'mergeOwed': {
-								for (const replaced of op.replaces) {
-									void updates.delete(replaced);
-								}
-								void updates.put(
-									{ bytes: copyBytes(op.bytes), authoritySeq: null },
-									op.id,
-								);
-								chain = chain - op.replaces.length + 1;
-								break;
-							}
-							case 'ack': {
-								// One statement's worth of work, and the shape it takes here
-								// is what a keyed object store makes cheap. A cursor walk
-								// costs one round trip PER ROW to advance, which is what
-								// made a wide ack -- a device reconnecting with a day of
-								// offline work owed -- the slowest thing this port does.
-								// Reading the range in two requests and issuing the stamps
-								// without awaiting them costs two round trips for the whole
-								// batch instead of one per row.
-								//
-								// The reads are the price: the range includes the baseline,
-								// so a wide ack holds one document in memory while it runs.
-								// That is bounded by the document rather than by the
-								// backlog, and it is paid once per ack rather than per row.
-								// `evidence/browser/port-cost` measures both shapes.
-								const range = IDBKeyRange.upperBound(op.throughId);
-								const [keys, rows] = await Promise.all([
-									updates.getAllKeys(range),
-									updates.getAll(range),
-								]);
-								for (const [index, key] of keys.entries()) {
-									const row = rows[index];
-									if (row === undefined || row.authoritySeq !== null) continue;
-									void updates.put(
-										{ ...row, authoritySeq: op.authoritySeq },
-										key,
-									);
-									grew = true;
-								}
-								break;
-							}
-						}
-					}
-
-					// The same fold the SQL engine applies, and the same question:
-					// an acknowledged row may be replaced by a whole-document
-					// re-encode, an owed row may not (ADR-0301). A store with no
-					// authority holds no owed rows, so it collapses everything here
-					// without being told which kind it is.
-					if (grew && chain >= SNAPSHOT_FOLD_THRESHOLD) {
-						const foldable: { id: number; bytes: Uint8Array }[] = [];
-						let position: number | null = null;
-						let at = await updates.openCursor();
-						while (at !== null) {
-							const row = at.value;
-							if (row.authoritySeq !== null) {
-								foldable.push({ id: at.key as number, bytes: row.bytes });
-								if (
-									row.authoritySeq !== null &&
-									row.authoritySeq > (position ?? -1)
-								) {
-									position = row.authoritySeq;
-								}
-							}
-							at = await at.continue();
-						}
-						const through = foldable.at(-1)?.id;
-						if (
-							foldable.length >= SNAPSHOT_FOLD_THRESHOLD &&
-							through !== undefined
-						) {
-							const folded = replay(
-								foldable.map((row) => ({ seq: row.id, bytes: row.bytes })),
-							);
-							let baseline: Uint8Array;
-							try {
-								baseline = new Uint8Array(Y.encodeStateAsUpdateV2(folded));
-							} finally {
-								folded.destroy();
-							}
-							for (const row of foldable) void updates.delete(row.id);
-							// The baseline inherits the highest position it replaced, so
-							// on a syncing store it is not owed and is never offered back.
-							void updates.put(
-								{ bytes: baseline, authoritySeq: position ?? NO_AUTHORITY },
-								through,
-							);
-							chain = chain - foldable.length + 1;
-						}
-					}
-
-					await transaction.done;
-					// Advanced only after the batch landed, so a retried batch
-					// recomputes from the same starting point.
-					held = chain;
-				},
-			};
-
-			async function create(record: {
-				bytes: Uint8Array;
-				position: number;
-				binding: DatabaseBinding;
-			}): Promise<void> {
-				const transaction = durable.transaction(
-					[UPDATES_STORE, BINDING_STORE],
-					'readwrite',
-				);
-				const updates = transaction.objectStore(UPDATES_STORE);
-				void updates.put(
-					{
-						bytes: copyBytes(record.bytes),
-						authoritySeq: record.position,
-					},
-					1,
-				);
-				void transaction.objectStore(BINDING_STORE).put(
-					{
-						baseURL: record.binding.baseURL,
-						principalId: record.binding.principalId,
-					},
-					BINDING_KEY,
-				);
-				await transaction.done;
-				held = 1;
-			}
-
-			return { port, loaded, binding, create, close: () => durable.close() };
+			return { port, loaded, create, close: () => durable.close() };
 		},
 		catch: (cause) => StoreError.StorageFailed({ cause }),
 	});
+	// A returned failure proves the acquired connection was released. A cleanup
+	// exception must escape so the caller keeps its library reservation.
+	if (result.error) durable.close();
+	return result;
 }
 
 /**
@@ -492,91 +238,47 @@ export async function openIdbBacking(
  * the application and says nothing about the owner. Read under this shape a
  * `v3` record could be offered to an authority its address never scoped it to,
  * which is the one thing the address used to prevent, so those names are left
- * where they are and ADR-0325's stamp answers the question instead.
+ * where they are.
+ *
+ * `v5` puts the principal back. A `v4` record named the application and the
+ * data and said nothing about whose copy it was; this shape names the account,
+ * so two people on one browser profile hold two records instead of meeting a
+ * refusal over one. Read under this shape a `v4` record would be adopted by
+ * whoever signed in next, which is exactly what its written-once binding
+ * existed to prevent, so `v4` names are left where they are and nothing here
+ * reads, adopts, or deletes them.
  */
-const STORE_GENERATION = 'v4';
 
 /**
- * Normalize a server identity before it becomes a durable fact.
+ * Whether a value can be one segment of an address.
  *
- * No longer part of the address (ADR-0324): what this canonicalizes is what a
- * replica REPORTS as its server, so that `https://api.example.com` and the
- * same URL with a trailing slash are one identity rather than two. A path
- * prefix remains part of an Epicenter deployment; query and fragment are not
- * server identity.
- */
-function canonicalBaseURL(raw: string): string | undefined {
-	const trimmed = raw.trim();
-	if (trimmed === '') return undefined;
-
-	let url: URL;
-	try {
-		url = new URL(trimmed);
-	} catch {
-		return undefined;
-	}
-	if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-		return undefined;
-	}
-	if (url.hostname === '') return undefined;
-	if (url.username !== '' || url.password !== '') return undefined;
-	url.search = '';
-	url.hash = '';
-	return `${url.origin}${url.pathname}`.replace(/\/+$/, '');
-}
-
-/**
- * What this account binds a generation to, canonical (ADR-0325).
+ * Applied where a caller's string becomes part of a durable name. A segment
+ * holding a `/` would be read as two, and `.` or `..` are path words rather
+ * than names.
  *
- * These two facts used to be four segments of a storage name, so a spelling
- * that could not be canonicalized had nowhere to live and was refused as an
- * address. They are written inside the database at creation now and compared at
- * open, and refused here for the same reason: a database that cannot name its
- * server cannot be compared against one.
+ * A principal id is what this exists for. `PrincipalId` is a branded string
+ * with no grammar of its own, because it is whatever the authority minted; it
+ * reaches this file from a remote assertion, and a durable name is not the
+ * place to be lenient about what one may contain.
  */
-function canonicalBinding(account: {
-	baseURL: string;
-	principalId: PrincipalId;
-}): Result<DatabaseBinding, StoreError> {
-	const baseURL = canonicalBaseURL(account.baseURL);
-	if (baseURL === undefined || account.principalId.trim() === '') {
-		return StoreError.Unaddressable({
-			reason: 'this account names no server and principal',
-		});
-	}
-	return Ok({ baseURL, principalId: account.principalId });
-}
-
-/**
- * Whether a record's binding is the one signing in.
- *
- * Exact equality on both halves, over the canonical spelling, which is why
- * `canonicalBaseURL` survived ADR-0324's address collapse: a trailing slash is
- * not a different account and must not read as one.
- */
-function isSameBinding(
-	held: DatabaseBinding | undefined,
-	opening: DatabaseBinding,
-): boolean {
+function isSegment(value: string): boolean {
 	return (
-		held !== undefined &&
-		held.baseURL === opening.baseURL &&
-		held.principalId === opening.principalId
+		value !== '' && !value.includes('/') && value !== '.' && value !== '..'
 	);
 }
 
 /**
- * Where one database's generations live in this browser, up to the number
- * (ADR-0324, ADR-0292).
+ * Where one account's generations of one database live in this browser, up to
+ * the number (ADR-0324, ADR-0292).
  *
  * ```txt
- * epicenter/v4/<app-id>/<data-id>/
+ * epicenter/<app-id>/accounts/<authority-id>/<principal-id>/data/<data-id>/
  * ```
  *
  * The PREFIX rather than an address, because both callers want it: one appends
  * a number to open exactly that generation, the other matches it to enumerate
- * what this device holds. The trailing `/` is load-bearing: it is what stops
- * `foo.bar` from prefix-matching `foo.barbaz`.
+ * what this device holds for this account. The trailing `/` is load-bearing: it
+ * is what stops `foo.bar` from prefix-matching `foo.barbaz`.
  *
  * The app id is the OPENING application's, which is not the data id: two
  * applications may name one data id and each keeps its own replica, converging
@@ -585,6 +287,19 @@ function isSameBinding(
  * (ADR-0334): the segment partitions storage by naming and never by
  * enforcement. It is checked against `isAppId` only so that a claim can never
  * contain a `/` and be read as somebody else's address.
+ *
+ * **The principal is a segment, so two accounts on one device are two records
+ * rather than one contested one.** It sits BELOW the app id because the desktop
+ * spelling has to be the same address: an application owns its directory
+ * (ADR-0314), so `apps/<app-id>/data/<version>/<principal-id>/...` is the only
+ * ordering both substrates can share. It is not canonicalized, only refused:
+ * an identifier is compared byte for byte by whoever issued it, and normalizing
+ * one here would invent an equivalence the authority never stated.
+ *
+ * The server is deliberately NOT a segment. A build names one authority
+ * (ADR-0326) and a browser build is served from one origin, so it is the
+ * device-wide constant ADR-0324 refused. If an authority ever becomes
+ * selectable inside one origin, this is the line that has to gain a segment.
  *
  * The generation is the last segment and is a NUMBER: enumeration parses it
  * rather than sorting it, because `9` sorts above `10`.
@@ -595,14 +310,48 @@ function isSameBinding(
  */
 function generationPrefix(
 	appId: string,
+	principalId: PrincipalId,
 	dataId: string,
+	authorityId: string,
 ): Result<string, StoreError> {
 	if (!isAppId(appId)) {
 		return StoreError.Unaddressable({
 			reason: `'${appId}' is not an application id`,
 		});
 	}
-	return Ok(`epicenter/${STORE_GENERATION}/${appId}/${dataId}/`);
+	if (!isSegment(principalId)) {
+		// The value, the way the `appId` arm above names its own. `isSegment`
+		// refuses four things and only one of them is "no principal", so a
+		// message asserting the account named nothing would send whoever reads it
+		// to the auth client instead of to the id. Naming it is safe because this
+		// is a library error and nothing person-facing renders it (ADR-0244).
+		return StoreError.Unaddressable({
+			reason: `'${principalId}' is not an address segment`,
+		});
+	}
+	if (!isSegment(authorityId)) {
+		return StoreError.Unaddressable({
+			reason: `'${authorityId}' is not an address segment`,
+		});
+	}
+	return Ok(
+		`epicenter/${appId}/accounts/${authorityId}/${principalId}/data/${dataId}/`,
+	);
+}
+
+function localGenerationPrefix(
+	appId: string,
+	dataId: string,
+	account?: AccountIdentity,
+): Result<string, StoreError> {
+	if (!isAppId(appId)) {
+		return StoreError.Unaddressable({
+			reason: `'${appId}' is not an application id`,
+		});
+	}
+	return Ok(
+		`epicenter/${appId}/device/${deviceOwnerPath(account)}/data/${dataId}/`,
+	);
 }
 
 /**
@@ -643,11 +392,7 @@ export type OpenDatabaseOptions = {
 	appId: string;
 	/** The exact generation to open. Never discovered, never defaulted. */
 	generation: number;
-	/**
-	 * The account this generation belongs to. Required, and there is no second
-	 * shape: an authority mints every generation, so a database with no account
-	 * is not a kind this package can open.
-	 */
+	/** The account this exact-generation replica belongs to. */
 	account: DatabaseAccount;
 };
 
@@ -697,12 +442,22 @@ async function fetchGeneration(
 	}
 }
 
+/** Capture ownership and transport together before asynchronous discovery. */
+function captureAccount(account: DatabaseAccount): DatabaseAccount {
+	return Object.freeze({
+		authorityId: account.authorityId,
+		principalId: account.principalId,
+		baseURL: account.baseURL,
+		fetch: account.fetch,
+		openWebSocket: account.openWebSocket,
+	});
+}
+
 /**
  * Open one exact generation of one database, cache-first (ADR-0292).
  *
- * One opener, and one store. An authority mints every generation, so the
- * device store this used to fork against is gone, and with it the
- * `sync === undefined` discriminant and the second address grammar.
+ * This low-level opener addresses a known account generation and leaves sync
+ * attachment to its caller. Application construction uses the claimed acquisition primitive below.
  *
  * The sequence, and every step of it is load-bearing:
  *
@@ -728,20 +483,87 @@ export async function openDatabase<const TDatabase extends DataDefinition>(
 ): Promise<
 	Result<OpenedDatabase<TDatabase>, StoreError | DataDefinitionParseError>
 > {
+	account = captureAccount(account);
+	const { data: parsed, error: parseError } = compileData(definition);
+	if (parseError !== null) return Err(parseError);
+	const located = generationPrefix(
+		appId,
+		account.principalId,
+		parsed.id,
+		account.authorityId,
+	);
+	if (located.error) return located;
+	if (!isGeneration(generation))
+		return StoreError.Unaddressable({
+			reason: `'${generation}' is not a generation number`,
+		});
+	const parts = createStoreOverPort({
+		definition: parsed,
+		async acquire() {
+			const claim = await claimLibrary(appId, { library: 'personal', account });
+			if (claim.error) return claim;
+			const acquired = await acquireDatabase(parsed, {
+				appId,
+				generation,
+				account,
+			});
+			if (acquired.error) {
+				claim.data.release();
+				return acquired;
+			}
+			return Ok({
+				...acquired.data,
+				async dispose() {
+					await acquired.data.dispose?.();
+					claim.data.release();
+				},
+			});
+		},
+	});
+	const ready = await parts.ready;
+	if (ready.error !== null) return ready;
+	return Ok({
+		store: Object.freeze(
+			Object.assign(parts.store, parts.view as DeclaredData<TDatabase>, {
+				appId,
+				dataId: parsed.id,
+				generation,
+				baseURL: account.baseURL,
+				principalId: account.principalId,
+			}),
+		),
+		close: parts.close,
+	});
+}
+
+/** Acquire an exact generation's durable backing without constructing a document. */
+async function acquireDatabase(
+	parsed: ParsedDataDefinition,
+	{
+		appId,
+		generation,
+		account,
+		deviceAccount,
+	}: {
+		appId: string;
+		generation: number;
+		account?: DatabaseAccount;
+		deviceAccount?: AccountIdentity;
+	},
+): Promise<Result<StoreBacking, StoreError>> {
 	if (!isGeneration(generation)) {
 		return StoreError.Unaddressable({
 			reason: `'${generation}' is not a generation number`,
 		});
 	}
-	// Parsed before anything is claimed or opened: a declaration may arrive as
-	// data, and a refusal here is a boot outcome rather than a programmer
-	// error (ADR-0240).
-	const { data: parsed, error: parseError } = compileData(definition);
-	if (parseError !== null) return Err(parseError);
-
-	const opening = canonicalBinding(account);
-	if (opening.error !== null) return Err(opening.error);
-	const located = generationPrefix(appId, parsed.id);
+	const located = account
+		? generationPrefix(
+				appId,
+				account.principalId,
+				parsed.id,
+				account.authorityId,
+			)
+		: localGenerationPrefix(appId, parsed.id, deviceAccount);
 	if (located.error !== null) return Err(located.error);
 
 	// Asked here rather than by an application, because this is the one place
@@ -751,12 +573,9 @@ export async function openDatabase<const TDatabase extends DataDefinition>(
 	void requestPersistentStorage();
 
 	const address = `${located.data}${generation}`;
-	const { error: claimError } = await claimDocument(address);
-	if (claimError !== null) return Err(claimError);
 
 	const opened = await openIdbBacking(address);
 	if (opened.error !== null) {
-		releaseDocument(address);
 		return Err(opened.error);
 	}
 	let backing = opened.data;
@@ -764,29 +583,32 @@ export async function openDatabase<const TDatabase extends DataDefinition>(
 	if (backing.loaded.updates.length === 0) {
 		// A miss. Whatever happens next, the shell this open just created must
 		// not be left behind reading as a hit.
-		const fetched = await fetchGeneration(account, parsed.id, generation);
+		const fetched = account
+			? await fetchGeneration(account, parsed.id, generation)
+			: Ok({
+					bytes: new Uint8Array(
+						Y.encodeStateAsUpdateV2(createDatabaseDocument()),
+					),
+					position: 0,
+				});
 		if (fetched.error !== null) {
 			backing.close();
-			releaseDocument(address);
 			await deleteIndexedDb(address).catch(() => undefined);
 			return Err(fetched.error);
 		}
 		// One transaction, after the whole body has been read, so a failed
-		// bootstrap leaves no half-written database, and the binding lands with
-		// the bytes rather than after them (ADR-0325). The position rides on the
+		// bootstrap leaves no half-written database. The position rides on the
 		// append, which is where every cursor is read from (ADR-0298).
 		const { error: writeError } = await tryAsync({
 			try: () =>
 				backing.create({
 					bytes: fetched.data.bytes,
 					position: fetched.data.position,
-					binding: opening.data,
 				}),
 			catch: (cause) => StoreError.StorageFailed({ cause }),
 		});
 		if (writeError !== null) {
 			backing.close();
-			releaseDocument(address);
 			return Err(writeError);
 		}
 		// Reopened rather than patched in memory: what hydrates has to be what
@@ -795,74 +617,119 @@ export async function openDatabase<const TDatabase extends DataDefinition>(
 		backing.close();
 		const reopened = await openIdbBacking(address);
 		if (reopened.error !== null) {
-			releaseDocument(address);
 			return Err(reopened.error);
 		}
 		backing = reopened.data;
 	}
 
-	// The one refusal (ADR-0325). A cache hit that was created for somebody else
-	// is not this account's data, and merging it would be silent: Yjs converges
-	// rather than erroring, and generation numbers are small integers, so a `7`
-	// here and a `7` there usually both exist. Nothing is deleted as a step
-	// (ADR-0281); the caller is told, and a person invokes `eraseGenerations`.
-	//
-	// A record holding bytes and no binding is refused by the same arm, and
-	// cannot be produced by this file: `create` writes both or neither.
-	if (!isSameBinding(backing.binding, opening.data)) {
-		backing.close();
-		releaseDocument(address);
-		return StoreError.BoundElsewhere({ dataId: parsed.id, generation });
-	}
-
 	const held = backing;
-	// What can throw here is the hydration replay meeting a stored update it
-	// cannot decode, which is "the store could not read its durable record":
-	// contained so a corrupt record refuses the boot instead of leaking the
-	// claim and the open connection.
-	let parts: {
-		store: DataDocument;
-		close: () => Promise<void>;
-		view: UntypedDeclaredData;
-		definition: ParsedDataDefinition;
-	};
+	return Ok({
+		durable: held.port,
+		loaded: held.loaded,
+		dispose() {
+			held.close();
+		},
+	});
+}
+
+/**
+ * Acquire browser data under the caller's exclusive library ownership.
+ * App construction acquires the library before calling this primitive and keeps
+ * that claim until document work and every other producer have released it.
+ */
+export async function acquireAppData(
+	definition: ParsedDataDefinition,
+	options: { appId: string } & (
+		| { library: 'local'; account?: AccountIdentity }
+		| { library: 'personal' | 'shared'; account: DatabaseAccount }
+	),
+): Promise<Result<StoreBacking, StoreError>> {
+	const { appId } = options;
+	if (options.library === 'local')
+		return acquireDatabase(definition, {
+			appId,
+			generation: 1,
+			deviceAccount: options.account,
+		});
+	const { library } = options;
+	const account = captureAccount(options.account);
+	void requestPersistentStorage();
+	const prefix = generationPrefix(
+		appId,
+		account.principalId,
+		definition.id,
+		account.authorityId,
+	);
+	if (prefix.error) return prefix;
+	// A stable name per actor and selected library; generations live in its header.
+	const address = `${prefix.data}${library}/current`;
+	const opened = await openCurrentCache(address);
+	if (opened.error) return opened;
+	const cache = opened.data;
 	try {
-		parts = createAccountStoreOverPort({
-			definition: parsed,
-			durable: held.port,
-			loaded: held.loaded,
-			dispose: () => {
-				held.close();
-				releaseDocument(address);
+		let loaded = cache.loaded;
+		if (loaded === undefined) {
+			const seed = createDatabaseDocument();
+			const body = new Uint8Array(Y.encodeStateAsUpdateV2(seed));
+			seed.destroy();
+			const response = await account.fetch(
+				CURRENT_ROUTE.url(account.baseURL, appId, library, definition.id),
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/octet-stream' },
+					body,
+				},
+			);
+			const {
+				generation,
+				head,
+				snapshot: baseline,
+				tail,
+			} = await readCurrentDownload(response);
+			// Reconstruct the captured head before publishing a usable cache.
+			const validation = createDatabaseDocument();
+			let bytes: Uint8Array;
+			try {
+				Y.applyUpdateV2(validation, baseline.bytes);
+				for (const entry of tail) Y.applyUpdateV2(validation, entry.bytes);
+				if (
+					validation.store.pendingStructs !== null ||
+					validation.store.pendingDs !== null
+				)
+					throw new Error(
+						'Current library download has unresolved Yjs dependencies',
+					);
+				bytes = Y.encodeStateAsUpdateV2(validation);
+			} finally {
+				validation.destroy();
+			}
+			const snapshot = await cache.install({
+				generation,
+				bytes,
+				position: head,
+			});
+			loaded = { generation, snapshot };
+		}
+		return Ok({
+			durable: cache.port,
+			loaded: loaded.snapshot,
+			discard: cache.discard,
+			dispose: cache.close,
+			replication: {
+				address: {
+					baseURL: account.baseURL,
+					appId,
+					library,
+					dataId: definition.id,
+					generation: loaded.generation,
+				},
+				transport: account,
 			},
 		});
 	} catch (cause) {
-		held.close();
-		releaseDocument(address);
+		cache.close();
 		return StoreError.StorageFailed({ cause });
 	}
-
-	// The whole address, stamped by the one party that knows it (ADR-0340).
-	// Four of these five facts arrived as arguments and were thrown away after
-	// they resolved a document name; keeping them is not new state.
-	//
-	// `close` comes back BESIDE the store rather than on it. What a caller has
-	// to end here is more than the document: whoever attaches sync and a
-	// page-hide listener holds those too, and a disposal on the store would
-	// free one of the three and leave a connection running against a document
-	// whose every verb throws.
-	return Ok({
-		store: Object.freeze({
-			...(parts.view as DeclaredData<TDatabase>),
-			...parts.store,
-			appId,
-			dataId: parsed.id,
-			generation,
-			baseURL: opening.data.baseURL,
-			principalId: opening.data.principalId,
-		}),
-		close: parts.close,
-	});
 }
 
 /**
@@ -881,9 +748,6 @@ export async function openDatabase<const TDatabase extends DataDefinition>(
  * generation is created once and never mutated in place, so a second write
  * here would be a caller confusing import with sync.
  *
- * The binding lands in the same transaction as the bytes (ADR-0325), so a
- * generation never exists unbound and no code path updates one afterwards.
- *
  * Not exported. Both call sites are `createGeneration` below, and the split is
  * the two halves of one operation rather than a surface: without a number
  * there is nothing to write under, and choosing the number is what
@@ -891,18 +755,19 @@ export async function openDatabase<const TDatabase extends DataDefinition>(
  */
 async function writeGeneration({
 	appId,
+	principalId,
+	authorityId,
 	dataId,
 	generation,
 	state,
-	binding,
 	position = 0,
 }: {
 	appId: string;
+	principalId: PrincipalId;
+	authorityId: string;
 	dataId: string;
 	generation: number;
 	state: Uint8Array;
-	/** Written in the same transaction as the state (ADR-0325). */
-	binding: DatabaseBinding;
 	position?: number;
 }): Promise<Result<void, StoreError>> {
 	if (!isGeneration(generation)) {
@@ -910,32 +775,26 @@ async function writeGeneration({
 			reason: `'${generation}' is not a generation number`,
 		});
 	}
-	const located = generationPrefix(appId, dataId);
+	const located = generationPrefix(appId, principalId, dataId, authorityId);
 	if (located.error !== null) return Err(located.error);
 	const address = `${located.data}${generation}`;
 
-	const { error: claimError } = await claimDocument(address);
-	if (claimError !== null) return Err(claimError);
+	const opened = await openIdbBacking(address);
+	if (opened.error !== null) return Err(opened.error);
+	const backing = opened.data;
 	try {
-		const opened = await openIdbBacking(address);
-		if (opened.error !== null) return Err(opened.error);
-		const backing = opened.data;
-		try {
-			// Not `AlreadyOpen`: nobody holds this document, and telling a
-			// person to close another window would name a repair that cannot
-			// help. A generation is written once (ADR-0293).
-			if (backing.loaded.updates.length > 0) {
-				return StoreError.GenerationExists({ dataId, generation });
-			}
-			await backing.create({ bytes: state, position, binding });
-			return Ok(undefined);
-		} catch (cause) {
-			return StoreError.StorageFailed({ cause });
-		} finally {
-			backing.close();
+		// Not `AlreadyOpen`: nobody holds this document, and telling a
+		// person to close another window would name a repair that cannot
+		// help. A generation is written once (ADR-0293).
+		if (backing.loaded.updates.length > 0) {
+			return StoreError.GenerationExists({ dataId, generation });
 		}
+		await backing.create({ bytes: state, position });
+		return Ok(undefined);
+	} catch (cause) {
+		return StoreError.StorageFailed({ cause });
 	} finally {
-		releaseDocument(address);
+		backing.close();
 	}
 }
 
@@ -984,19 +843,51 @@ export async function createGeneration(
 	const { data: parsed, error: parseError } = compileData(definition);
 	if (parseError !== null) return Err(parseError);
 
+	account = captureAccount(account);
+	const located = generationPrefix(
+		appId,
+		account.principalId,
+		parsed.id,
+		account.authorityId,
+	);
+	if (located.error) return located;
+	const claim = await claimLibrary(appId, { library: 'personal', account });
+	if (claim.error) return claim;
+	const result = await postNewGeneration(parsed, { appId, account, from });
+	claim.data.release();
+	return result;
+}
+
+async function postNewGeneration(
+	parsed: ParsedDataDefinition,
+	{
+		appId,
+		account,
+		from,
+	}: { appId: string; account: DatabaseAccount; from?: Uint8Array },
+): Promise<Result<{ generation: number }, StoreError>> {
 	const state =
 		from ?? new Uint8Array(Y.encodeStateAsUpdateV2(createDatabaseDocument()));
 
-	const binding = canonicalBinding(account);
-	if (binding.error !== null) return Err(binding.error);
+	// Refused before the state is posted, so an account this device cannot name
+	// never reaches the authority: the number would come back and have nowhere
+	// to be written.
+	const located = generationPrefix(
+		appId,
+		account.principalId,
+		parsed.id,
+		account.authorityId,
+	);
+	if (located.error !== null) return Err(located.error);
 	const posted = await postGeneration(account, parsed.id, state);
 	if (posted.error !== null) return Err(posted.error);
 	const { error } = await writeGeneration({
 		appId,
+		principalId: account.principalId,
+		authorityId: account.authorityId,
 		dataId: parsed.id,
 		generation: posted.data.generation,
 		state,
-		binding: binding.data,
 		position: posted.data.position,
 	});
 	return error === null
@@ -1081,8 +972,31 @@ export async function resolveGeneration(
 > {
 	const { data: parsed, error: parseError } = compileData(definition);
 	if (parseError !== null) return Err(parseError);
+	const located = generationPrefix(
+		appId,
+		account.principalId,
+		parsed.id,
+		account.authorityId,
+	);
+	if (located.error !== null) return Err(located.error);
+	account = captureAccount(account);
+	const claim = await claimLibrary(appId, { library: 'personal', account });
+	if (claim.error) return claim;
+	const result = await discoverGeneration(parsed, { appId, account });
+	claim.data.release();
+	return result;
+}
 
-	const held = await newestGeneration({ appId, dataId: parsed.id });
+async function discoverGeneration(
+	parsed: ParsedDataDefinition,
+	{ appId, account }: { appId: string; account: DatabaseAccount },
+): Promise<Result<{ generation: number }, StoreError>> {
+	const held = await newestGeneration({
+		appId,
+		principalId: account.principalId,
+		authorityId: account.authorityId,
+		dataId: parsed.id,
+	});
 	if (held !== undefined) return Ok({ generation: held });
 
 	const listed = await listGenerations(account, parsed.id);
@@ -1093,7 +1007,7 @@ export async function resolveGeneration(
 		return Ok({ generation: Math.max(...listed.data) });
 	}
 
-	return createGeneration(definition, { appId, account });
+	return await postNewGeneration(parsed, { appId, account });
 }
 
 /** Which generations the authority holds, oldest first. */
@@ -1133,62 +1047,57 @@ async function listGenerations(
 }
 
 /**
- * Erase every generation of this database this device holds (ADR-0325).
+ * Erase the discovered generations of one account definition on this device.
  *
- * The repair a person invokes after `BoundElsewhere`, and the only verb in this
- * file that deletes. It is plural because the refusal is: a device that holds
- * one account's generations holds all of them under one prefix, so erasing the
- * one that was refused would refuse the next one down and ask again.
+ * This is not whole-library removal: it excludes blobs, named SQL files, and
+ * other definitions. It takes library exclusion before discovery, so no document
+ * or SQL-only owner can race allocation or erasure. Direct blob primitives still
+ * need producer coordination. Do not wire this to an account removal action.
  *
- * Never called as a step in a protocol (ADR-0281). Opening does not repair
- * itself, sign-out deletes nothing, and no rebind writes over a binding. A
- * person decides that the copy on this device is not theirs to keep, and this
- * is what they invoked.
- *
- * **Every generation is claimed before any is deleted, so this is all or
- * nothing.** IndexedDB blocks a delete on a live connection, and half an erase
- * is the one outcome nobody can act on: the person is told it failed while
- * some of their notes are already gone. A generation another window holds open
- * answers `AlreadyOpen`, which names the repair, and nothing is deleted.
+ * Delete oldest first so an interrupted erase leaves the newest generation.
+ * Retrying discovers what remains. Only current address names are selected.
  */
+
 export async function eraseGenerations({
 	appId,
+	authorityId,
+	principalId,
 	dataId,
 }: {
 	appId: string;
+	authorityId: string;
+	principalId: PrincipalId;
 	dataId: string;
 }): Promise<Result<{ erased: number }, StoreError>> {
-	const located = generationPrefix(appId, dataId);
+	const located = generationPrefix(appId, principalId, dataId, authorityId);
 	if (located.error !== null) return Err(located.error);
-	const names = await heldGenerationNames(located.data);
-
-	// The same claim an open takes, so "somebody has this open" has one answer
-	// on this origin rather than a second one read off a delete that blocked.
-	const claimed: string[] = [];
-	const release = () => {
-		for (const name of claimed) releaseDocument(name);
-	};
-	for (const name of names) {
-		const { error } = await claimDocument(name);
-		if (error !== null) {
-			release();
-			return Err(error);
-		}
-		claimed.push(name);
-	}
+	const claim = await claimLibrary(appId, {
+		library: 'personal',
+		account: { authorityId, principalId },
+	});
+	if (claim.error) return claim;
 
 	try {
-		for (const name of names) {
+		const names = await heldGenerationNames(located.data);
+		// Oldest first, so an interrupted erase leaves the newest generation
+		// rather than a number nobody chose. `heldGenerationNames` answers in no
+		// order, and the remainder after the prefix is the number by grammar.
+		const oldestFirst = [...names].sort(
+			(left, right) =>
+				Number(left.slice(located.data.length)) -
+				Number(right.slice(located.data.length)),
+		);
+		for (const name of oldestFirst) {
 			const { error } = await tryAsync({
 				try: () => deleteIndexedDb(name),
 				catch: (cause) => StoreError.StorageFailed({ cause }),
 			});
 			if (error !== null) return Err(error);
 		}
+		return Ok({ erased: names.length });
 	} finally {
-		release();
+		claim.data.release();
 	}
-	return Ok({ erased: names.length });
 }
 
 /** Every IndexedDB name under one generation prefix, in no order. */
@@ -1218,22 +1127,27 @@ async function heldGenerationNames(prefix: string): Promise<string[]> {
  * empty is the half that forks a notebook. Every caller wants the whole
  * decision, so the whole decision is what is public.
  *
- * `appId` and `dataId` rather than a definition, so this stays a question with
- * no error channel. A device that holds none and a device that cannot name an
- * address both answer the same way, and the honest answer is "none".
+ * Identifiers rather than a definition, so this stays a question with no error
+ * channel. A device that holds none and a device that cannot name an address
+ * both answer the same way, and the honest answer is "none".
  *
- * It takes no account, because an account is not in the address any more
- * (ADR-0324). What this counts is every generation of this database this
- * application holds, and ADR-0325's stamp is what says whose they are.
+ * It takes the principal, because the account is in the address again. What it
+ * counts is every generation of this database that THIS account holds through
+ * this application, so a copy another person left on the same device is not
+ * miscounted as one to open.
  */
 async function newestGeneration({
 	appId,
+	principalId,
+	authorityId,
 	dataId,
 }: {
 	appId: string;
+	principalId: PrincipalId;
+	authorityId: string;
 	dataId: string;
 }): Promise<number | undefined> {
-	const located = generationPrefix(appId, dataId);
+	const located = generationPrefix(appId, principalId, dataId, authorityId);
 	// A name this store cannot build addresses nothing, so there is nothing
 	// here to find. `openDatabase` refuses the same input loudly; this one is a
 	// question about what is on disk and the honest answer is "none".

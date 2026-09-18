@@ -67,8 +67,7 @@ export type ContentError = InferErrors<typeof ContentError>;
  * "render it as text" is not a safe fallback: `toString` is a debug rendering,
  * not a serialization, and feeding its output back through `insert` turns an
  * attribute-bearing node into one literal string that PRINTS IDENTICALLY. A
- * table that declared nothing would round-trip through that silently, so every
- * table states what its content is.
+ * table that declares no codec can export only an empty node.
  *
  * **`decode` mints and `rewrite` edits, and they are not the same verb.**
  * `decode` builds a node for a row that does not exist yet, and the node it
@@ -136,10 +135,8 @@ export const CONTENT_FIELD = 'content';
  * edited in place, merging internally, and written below the fence through the
  * codec declared here.
  *
- * `content` is optional HERE and required at the authoring call. A definition
- * that arrived as JSON cannot carry a function, so the serialized form has no
- * codec; `defineTable` demands one, and the export refuses a row whose node
- * has content and whose table declares nothing to write it with.
+ * `content` is optional, with no default codec. Export refuses a populated
+ * node without a codec; import refuses a nonempty body without one.
  */
 export type TableDeclaration = {
 	/** Value field descriptors live directly on the table. */
@@ -202,9 +199,8 @@ export type DataDefinition = {
  * is a real defect in structural recovery and it is not a reason to reach for
  * the escape hatch, because `Type.Union` never had it.
  *
- * The old return type also carried `& { anyOf: readonly [S, …] }` so the shape
- * could be read back at the type level. Nothing ever read it: `nullableParts`
- * recognizes a nullable field at RUNTIME, off an untyped record.
+ * TypeBox retains the tuple for the owning-field input lens; runtime compilation
+ * recognizes the same nullable shape from its serialized schema.
  */
 function nullable<S extends TSchema>(inner: S) {
 	return Type.Union([inner, Type.Null()]);
@@ -269,7 +265,7 @@ export type RowOf<T extends TableDeclaration> = {
 } & TableValues<T>;
 
 /**
- * What `create` takes: the values, and the node if the caller built one.
+ * What `create` takes: values and an optional content node.
  *
  * The node is OPTIONAL, and that is what keeps a programmatic `create` from
  * having to build an empty one it does not care about: an omitted node is
@@ -281,8 +277,8 @@ export type RowOf<T extends TableDeclaration> = {
  * across them; `createRow` refuses an integrated node rather than letting
  * either happen.
  */
-export type CreateRowOf<T extends TableDeclaration> = TableValues<T> & {
-	content?: Y.Type;
-};
+export type CreateRowOf<T extends TableDeclaration> = {
+	[K in keyof TableFields<T>]: Static<TableFields<T>[K]>;
+} & { content?: Y.Type };
 
 export type KvOf<TDatabase extends DataDefinition> = FieldsOut<TDatabase['kv']>;

@@ -1,4 +1,20 @@
+<script lang="ts" module>
+	import type { SyncRefusal } from '@epicenter/data/sync';
+
+	// What a refused dial says to a person, mapped exhaustively so a new
+	// refusal cannot arrive without a decision about this line. Two arms say
+	// nothing: a device with no credential and a window that can never hold one
+	// are not conditions to repair here, and a status line about them is noise.
+	const REFUSAL_LINE = {
+		'signed-out': undefined,
+		'reauth-required': 'Sign in to sync',
+		'auth-unavailable': 'Offline',
+		'no-credential-model': undefined,
+	} satisfies Record<SyncRefusal, string | undefined>;
+</script>
+
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { AccountPopover } from '@epicenter/app-shell/account-popover';
 	import type { SyncConnectionStatus } from '@epicenter/data/sync';
 	import * as Collapsible from '@epicenter/ui/collapsible';
@@ -7,23 +23,29 @@
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
-	import { auth } from '#platform/auth';
+	import { getAuth } from '$lib/auth.svelte.js';
 	import type { WorkingCopy } from '@epicenter/data/artifact/checkout';
 	import { getHoneycrisp } from '$lib/app.svelte.js';
-	import { navigation } from '$lib/navigation.svelte.js';
+		import { navigation } from '$lib/navigation.svelte.js';
 	import FolderMenuItem from '../components/FolderMenuItem.svelte';
 	import PullToFolder from './PullToFolder.svelte';
 	import SendFolderEdits from './SendFolderEdits.svelte';
 
 	let {
+		librarySelection,
 		syncStatus,
 		folder,
+		removeLocalData,
 	}: {
+		librarySelection: Snippet;
 		syncStatus: () => SyncConnectionStatus | undefined;
 		/** The `~/Epicenter` folder, or nothing in a build with no filesystem. */
 		folder: WorkingCopy | undefined;
+		/** Erase this account's copy and reopen, which only the session can do. */
+		removeLocalData?: () => Promise<void>;
 	} = $props();
 
+	const auth = getAuth();
 	const honeycrisp = getHoneycrisp();
 	let sync = $state.raw<SyncConnectionStatus | undefined>(undefined);
 
@@ -34,6 +56,33 @@
 		}, 1_000);
 		return () => clearInterval(timer);
 	});
+
+	const line = $derived.by(() => {
+		if (sync === undefined) return undefined;
+		if (sync.refusal !== undefined) return REFUSAL_LINE[sync.refusal];
+		return `${sync.connected ? 'Synced' : 'Offline'} · ${sync.cursor} changes received`;
+	});
+
+	// The tooltip answers for the line above it. Under a refusal that line is
+	// about the credential, so the connected-and-caught-up explanation would be
+	// answering a question nobody asked.
+	const lineTitle = $derived(
+		sync?.refusal === undefined
+			? 'Whether this device is connected and caught up with your other devices.'
+			: undefined,
+	);
+
+	// Never shown under a refusal. A window that is refused locally every thirty
+	// seconds climbs this count for the life of the page, which says nothing
+	// about the network.
+	const retries = $derived(
+		sync !== undefined &&
+			sync.refusal === undefined &&
+			!sync.connected &&
+			sync.failures > 0
+			? sync.failures
+			: undefined,
+	);
 
 </script>
 
@@ -48,10 +97,12 @@
 				<AccountPopover
 					{auth}
 					syncNoun="notes"
+					onRemoveLocalData={removeLocalData}
 				/>
 				<Sidebar.Trigger />
 			</div>
 		</div>
+		<div class="px-2">{@render librarySelection()}</div>
 		<div class="px-2 pb-1">
 			<Sidebar.Input
 				placeholder="Search notes…"
@@ -132,14 +183,14 @@
 			<SendFolderEdits {folder} />
 			<PullToFolder {folder} />
 		{/if}
-		{#if sync}
+		{#if line !== undefined}
 			<div
 				class="text-muted-foreground px-2 pb-1 text-[11px] tabular-nums"
-				title="Whether this device is connected and caught up with your other devices."
+				title={lineTitle}
 			>
-				{sync.connected ? 'Synced' : 'Offline'} · {sync.cursor} changes received
-				{#if !sync.connected && sync.attempts > 0}
-					· {sync.attempts} failed {sync.attempts === 1 ? 'retry' : 'retries'}
+				{line}
+				{#if retries !== undefined}
+					· {retries} failed {retries === 1 ? 'retry' : 'retries'}
 				{/if}
 			</div>
 		{/if}

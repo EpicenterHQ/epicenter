@@ -14,8 +14,8 @@ mock.module('$app/navigation', () => ({
 	goto: mock(),
 }));
 
-mock.module('$lib/constants/urls', () => ({
-	WHISPERING_RECORDINGS_PATHNAME: '/apps/whispering/recordings',
+mock.module('$app/paths', () => ({
+	resolve: (pathname: string) => `/apps/whispering${pathname}`,
 }));
 
 mock.module('$lib/operations/sink', () => ({

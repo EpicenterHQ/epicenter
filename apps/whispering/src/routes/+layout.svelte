@@ -1,7 +1,10 @@
 <script lang="ts">
+	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';
+	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { ModeWatcher } from 'mode-watcher';
 	import { onNavigate } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { FlushEditsOnHide } from '@epicenter/svelte';
 	import '@epicenter/ui/app.css';
 	// Whispering's brand overrides, layered after the shared theme so they win.
@@ -11,9 +14,10 @@
 	let { children } = $props();
 
 	// The root layout serves every surface: the (app) group, the auth
-	// callback, and the recording-overlay webview. It owns chrome only; the
-	// (app) layout owns the app boot, so the other surfaces never
-	// open SQLite.
+	// callback, and the recording-overlay webview. It owns chrome and
+	// providers only; the (app) layout owns the app boot, so the other
+	// surfaces never open SQLite (ADR-0345).
+
 
 	onNavigate((navigation) => {
 		if (!document.startViewTransition) return;
@@ -22,9 +26,9 @@
 		// playing a longer animation for someone who asked for less.
 		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
-		return new Promise((resolve) => {
+		return new Promise((settle) => {
 			document.startViewTransition(async () => {
-				resolve();
+				settle();
 				await navigation.complete;
 			});
 		});
@@ -33,7 +37,7 @@
 
 <svelte:head> <title>Whispering</title> </svelte:head>
 
-{@render children()}
+<Tooltip.Provider>{@render children()}</Tooltip.Provider>
 
 <Toaster
 	offset={16}
@@ -50,6 +54,12 @@
 		},
 	}}
 />
+<!-- Beside the toaster and outside the (app) group, because the one dialog
+     that must outlive the session is the destructive exit's: confirming it
+     closes the session, which unmounts everything under the shell, and a
+     dialog mounted there would be torn down under the person who is reading
+     its outcome. Same placement as Honeycrisp's and Vocab's. -->
+<ConfirmationDialog />
 <ModeWatcher defaultMode="dark" track={false} />
 <FlushEditsOnHide />
 

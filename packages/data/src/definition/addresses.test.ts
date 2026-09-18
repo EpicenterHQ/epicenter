@@ -37,6 +37,16 @@ describe('the durable name grammars (ADR-0206)', () => {
 		);
 	});
 
+	test('a dotless segment is never a data id, so a sibling under an account prefix cannot collide', () => {
+		// The browser blob store lives at `epicenter/v5/<app>/<principal>/blobs`,
+		// beside `<data-id>/<n>` (ADR-0349). The grammar is what keeps them apart:
+		// a data id is reverse-domain, so a bare word is never one, and any later
+		// sibling spelled as a bare word inherits the same guarantee.
+		for (const sibling of ['blobs', 'temp', 'derived', 'v5']) {
+			expect(isDataId(sibling, DATA_ADDRESS_CEILINGS)).toBe(false);
+		}
+	});
+
 	test('every grammar is bounded in bytes, not characters', () => {
 		const ceilings = { dataIdBytes: 4, tableNameBytes: 4, rowIdBytes: 4 };
 		expect(isRowId('aaaa', ceilings)).toBe(true);

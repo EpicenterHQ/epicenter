@@ -5,6 +5,7 @@ node_modules
 /dist
 /build
 /package
+/playwright-report
 
 # OS
 .DS_Store

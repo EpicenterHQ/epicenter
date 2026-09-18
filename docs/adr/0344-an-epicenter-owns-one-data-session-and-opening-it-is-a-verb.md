@@ -1,8 +1,7 @@
 # 0344. An epicenter owns one data session, and opening it is a verb
 
-- **Status:** Proposed
+- **Status:** Superseded by [ADR-0350](0350-a-data-session-is-a-value-the-tree-owns-and-sync-runs-for-the-life-of-the-store.md) at its mechanism. What stands is the title: an epicenter owns one data session, opening it is a verb, construction acquires nothing, and a store cannot end itself. What is withdrawn is every shape below. `open()` is synchronous and answers a `DataSession` value rather than a promise; the four-state `EpicenterState`, `state`, and `onStateChange` are deleted; `eraseReplica` moved onto the session as `erase`. The states this record argued a surface should switch on are branches of one settled promise now: pending is `{#await}`, refused is its `error`, ready is its `data`, and there is no `closed`, because a caller holding the session is holding the thing that has it.
 - **Date:** 2026-09-03
-- **Unbuilt:** nothing. Built across `packages/app`, `packages/svelte`, `packages/data/src/store`, and `apps/honeycrisp`.
 - **Amends:** [ADR-0339](0339-an-application-creates-one-epicenter-and-an-account-is-what-adds-a-store.md) at "`data` is a lazy getter that memoizes". The one-handle, one-store, five-noun, and store's-own-error decisions stand; what is withdrawn is the property that starts an open when it is read, and the memo that made a failure permanent for the life of the page.
 - **Relates:** [ADR-0340](0340-an-opened-store-knows-its-own-address-and-its-own-connection.md) (a store cannot end itself, which is what makes the session the owner), [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md) (a page lifetime is one auth generation), [ADR-0229](0229-a-lens-names-the-store-it-opens-and-opening-is-one-call.md) (why a second open of one document is refused), [ADR-0325](0325-a-database-is-bound-to-one-authority-and-re-homing-is-export-and-import.md)
 
@@ -119,8 +118,8 @@ handle.
 refusals `open` answers with, and it arrives as `failed` carrying
 `StoreError.AlreadyOpen`. Promoting it would put one failure in the state
 machine and the rest in an error, so a surface would switch on `status` and then
-switch on `name` anyway. Honeycrisp already does the second switch, in one
-place, in `boot-failure.ts`.
+switch on `name` anyway. Honeycrisp already does the second switch, in its boot
+node, narrowing on `DataOpenError`'s `name`.
 
 **`AlreadyOpen` means a confirmed ownership conflict and nothing else.** Three
 refusals are split out of it, because an application's boot gate names a repair

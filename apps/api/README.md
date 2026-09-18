@@ -58,7 +58,12 @@ dashboard shell comes from `ASSETS`, and billing needs the Autumn secret and the
 after-response drain. `runtime-profile.test.ts` is where that divergence is
 declared and checked against both entries.
 
-Better Auth handles identity. Hosted Epicenter requires Google, GitHub, and Microsoft social sign-in (email/password is disabled in `base-config.ts`), plus an OAuth provider plugin that turns the hub into a standards-compliant OAuth server. Desktop and mobile clients authenticate via OAuth/PKCE flows, get a token, and use it for all subsequent API calls and WebSocket connections.
+Better Auth owns identity and sessions. Hosted Epicenter configures Google,
+GitHub, Microsoft, and Apple social sign-in, with optional passkeys and no
+email/password flow. Browser apps, the dashboard, and the Bun desktop host
+receive independent signed sessions through a PKCE/state handoff. Resources
+validate those session bearers against live session rows. Epicenter no longer
+issues OAuth access/refresh grants to its applications.
 
 ## Trust model
 
@@ -101,10 +106,12 @@ For the full argument:
 ```
 Cloudflare Workers
 ├── Hono app (worker/index.ts)
-│   ├── /auth/*                Better Auth (social OAuth, OAuth provider)
+│   ├── /auth/*                Better Auth (social login, sessions, handoff, passkeys)
+│   ├── /sign-in               hosted browser sign-in
+│   ├── /session/callback      dashboard handoff completion
 │   ├── /api/session           the principal projection
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
-│   ├── /api/blobs             content-addressed blob store (presigned S3)
+│   ├── /api/apps/:appId/blobs owner-pinned opaque blob objects (S3-compatible backend)
 │   ├── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │   └── /api/store/v1/sync     store sync upgrade (mountStoreSyncApp)
 │
@@ -116,11 +123,19 @@ API keys for AI providers are environment secrets (`wrangler secret put`). They 
 
 ## Development
 
+For the real browser sign-in and billing flow with an isolated Homebrew
+Postgres cluster, follow [Local account integration](./ACCOUNT-INTEGRATION.md).
+
 Prerequisites: Bun, local PostgreSQL, and Infisical CLI authentication
 (`infisical login`). `bun run dev` pipes secrets from Infisical's dev
 environment into Wrangler via `process.env`, so Postgres alone is not enough.
 This package owns the hosted API `.infisical.json`; account-wide operator
 commands live in `ops`. The monorepo root intentionally has no Infisical config.
+
+The launcher rebuilds the hosted UI at startup. After editing that UI while
+Wrangler is running, restart the root dev command or run
+`bun run --cwd apps/api/ui build`. A leftover sign-in page can use a different
+handoff protocol from the current clients.
 
 ### Local Postgres setup
 

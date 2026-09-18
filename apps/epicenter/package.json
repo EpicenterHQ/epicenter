@@ -19,6 +19,7 @@
 		"clean:dist": "bun run scripts/clean-dist.ts",
 		"desktop:build": "tauri build",
 		"desktop:build:remote": "infisical run --silent --env=prod --path=/apps/local-mail --project-config-dir=../api -- tauri build",
+		"app:install": "bun run scripts/install.ts",
 		"dev": "bun run dev:desktop",
 		"dev:desktop": "tauri dev --config src-tauri/tauri.dev.conf.json",
 		"tauri": "tauri",
@@ -27,8 +28,9 @@
 		"typecheck:home": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
+		"openai": "^7.12.1",
 		"@epicenter/agent": "workspace:*",
-		"@epicenter/app": "workspace:*",
+		"@epicenter/device": "workspace:*",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/blobs": "workspace:*",
 		"@epicenter/client": "workspace:*",
@@ -36,6 +38,7 @@
 		"@epicenter/data": "workspace:*",
 		"@epicenter/local-mail": "workspace:*",
 		"@epicenter/matter-core": "workspace:*",
+		"@epicenter/principal": "workspace:*",
 		"@epicenter/server": "workspace:*",
 		"@epicenter/skills": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",

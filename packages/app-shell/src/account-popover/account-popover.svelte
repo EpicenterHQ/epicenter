@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { AuthError } from '@epicenter/auth';
+	import { tryAsync } from 'wellcrafted/result';
 	import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
 	import type { Snippet } from 'svelte';
 	import { Button } from '@epicenter/ui/button';
@@ -8,6 +10,7 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import CircleUser from '@lucide/svelte/icons/circle-user';
 	import DatabaseZap from '@lucide/svelte/icons/database-zap';
+	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import {
 		createMutation,
@@ -17,6 +20,7 @@
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { resultMutationOptions, resultQueryOptions } from 'wellcrafted/query';
 	import SignInPanel from './sign-in-panel.svelte';
+	import { getConnectionScreen, getSignOut } from '../boot-screens/connection-screen-context.js';
 
 	const accountProfileQueryClient = new QueryClient({
 		defaultOptions: {
@@ -29,8 +33,7 @@
 	/**
 	 * Shared account popover.
 	 *
-	 * Renders auth identity and sign-out. When a Data runtime is present, it also
-	 * renders a plain sync status from its narrow observation surface.
+	 * Renders hosted auth identity, account website navigation, and sign-out.
 	 *
 	 * Mount once in each app's root layout, alongside `<ConfirmationDialog />`
 	 * and inside a `<Tooltip.Provider>`: the trigger pill renders a tooltip,
@@ -46,24 +49,35 @@
 		syncNoun: string;
 		/**
 		 * When set, the account actions that reload the page (sign in, sign out,
-		 * forget device, and connecting, retrying, or changing a self-hosted
-		 * instance) are disabled and this reason is shown, as the trigger tooltip, a
-		 * line inside the popover, and a line inside the instance modal while it is
-		 * open. The trigger itself stays openable so the reason is discoverable (a
-		 * disabled trigger swallows hover, hiding the one message that matters). Lets
-		 * a host block account changes at an unsafe moment, e.g. while a recording is
-		 * in progress. Omit to leave it enabled.
+		 * and forget device) are disabled and this reason is shown, as the trigger
+		 * tooltip and as a line inside the popover. The trigger itself stays
+		 * openable so the reason is discoverable (a disabled trigger swallows hover,
+		 * hiding the one message that matters). Lets a host block account changes at
+		 * an unsafe moment, e.g. while a recording is in progress. Omit to leave it
+		 * enabled.
 		 */
 		disabledReason?: string;
 		/**
-		 * If provided, exposes a Forget this device button. The callback is
-		 * the destructive primitive that clears the local replica. The popover
-		 * confirms with the user, awaits the
-		 * callback, then reloads the page; reload after wipe is universal
-		 * in this context so the component owns it rather than asking
-		 * every caller to remember.
+		 * If provided, exposes "Sign out and remove local data".
+		 *
+		 * The callback owns the ORDER, because only it can: capture the principal,
+		 * close the session, clear the credential, then delete. Clearing before
+		 * deleting is what makes an interrupted removal safe on a shared device.
+		 * The next person meets a sign-in door rather than the owner's notes, and
+		 * the owner, signing back in, sees what is left and removes again.
+		 *
+		 * **Pass it only when the callback removes all of this account's local
+		 * data.** The copy below promises that everything online is safe and
+		 * everything local is gone. Whispering's browser build passes it, with a
+		 * callback that erases the audio after the replica; its desktop build
+		 * withholds it because the host's audio is not scoped by principal, so
+		 * the second half would be false there.
+		 *
+		 * Throw to report a failure; the popover catches it and shows it. There is
+		 * no recovery screen and no removal record: removal is idempotent, so a
+		 * retry is the same call and it finishes the job.
 		 */
-		onForgetDevice?: () => void | Promise<void>;
+		onRemoveLocalData?: () => void | Promise<void>;
 		/** Optional replacement for the compact account icon trigger. */
 		trigger?: Snippet<[{ props: Record<string, unknown> }]>;
 	};
@@ -71,44 +85,44 @@
 	let {
 		auth,
 		syncNoun,
-		onForgetDevice,
+		onRemoveLocalData,
 		disabledReason,
 		trigger,
 	}: AccountPopoverProps = $props();
 
 	let popoverOpen = $state(false);
-	let forgettingDevice = $state(false);
+	const openConnection = getConnectionScreen();
+	const leaveAndSignOut = getSignOut();
+	let removing = $state(false);
 	const isSignedIn = $derived(auth.state.status === 'signed-in');
-	// A page-reloading account change (sign in/out, forget device) is unsafe right
-	// now; the reason is shown and those actions are disabled. Reconnect is safe
-	// (it never reloads), so it stays enabled.
+	// The app can refuse account actions while capture is active.
 	const accountLocked = $derived(!!disabledReason);
-	const accountCacheKey = $derived(
-		auth.state.status === 'signed-out' ? null : auth.state.principalId,
-	);
-	// Identity lives on the auth client: `state` carries the principal partition,
-	// and `getProfile()` reads presentational identity (the email) on demand.
-	// TanStack Query owns the reactive cache here, keyed by account, and
-	// `resultQueryOptions` bridges the Result into its throw-on-error contract.
+	// A new auth selection gets its own profile query. The controller captures
+	// its account when the request begins; retirement cancels a stale read.
 	const profile = createQuery(
 		() =>
 			resultQueryOptions({
-				queryKey: ['account-profile', accountCacheKey],
+				queryKey: ['account-profile', auth.state],
 				queryFn: () => auth.getProfile(),
 				enabled: auth.state.status !== 'signed-out',
-				staleTime: Infinity,
+				staleTime: 0,
 			}),
 		() => accountProfileQueryClient,
 	);
 	const accountLabel = $derived(
-		profile.data?.email ?? (profile.error ? 'Offline' : 'Loading...'),
+		profile.data?.email ?? (profile.data ? 'Your server' : profile.error ? 'Offline' : 'Loading...'),
 	);
 
 	const signOut = createMutation(
 		() =>
 			resultMutationOptions({
 				mutationKey: ['account', 'signOut'],
-				mutationFn: () => auth.signOut(),
+				mutationFn: async () => {
+					if (leaveAndSignOut) {
+						return tryAsync({ try: leaveAndSignOut, catch: (cause) => AuthError.SignOutFailed({ cause }) });
+					}
+					return auth.signOut();
+				},
 				onMutate: () => {
 					popoverOpen = false;
 				},
@@ -143,24 +157,29 @@
 		return undefined;
 	});
 
-	function forgetDevice() {
-		if (!onForgetDevice) return;
+	function removeLocalData() {
+		if (!onRemoveLocalData) return;
 		popoverOpen = false;
 		confirmationDialog.open({
-			title: 'Forget this device?',
-			description: 'This deletes local data for this account on this device.',
-			confirm: { text: 'Forget device', variant: 'destructive' },
+			title: 'Sign out and remove local data?',
+			// What survives, what does not, and what this never touches, in that
+			// order. The account keeps everything that reached it, so the only loss
+			// is work this device never managed to send, and a person deciding this
+			// should be told which half is which. Do not call it a cache: the thing
+			// being removed may be the only copy.
+			description: `This signs you out and removes this account’s ${syncNoun} from this device. Anything already synced to your account stays there; anything not yet synced is gone. Files you exported and folders you chose are untouched.`,
+			confirm: { text: 'Sign out and remove', variant: 'destructive' },
 			onConfirm: async () => {
-				forgettingDevice = true;
+				removing = true;
 				try {
-					await onForgetDevice();
+					await onRemoveLocalData();
 					window.location.reload();
 				} catch (error) {
-					toast.error('Failed to forget this device', {
+					toast.error('Could not remove this device’s data', {
 						description: extractErrorMessage(error),
 					});
 				} finally {
-					forgettingDevice = false;
+					removing = false;
 				}
 			},
 		});
@@ -173,7 +192,13 @@
 			{#if trigger}
 				{@render trigger({ props })}
 			{:else}
-				<Button {...props} variant="ghost" size="icon-sm" {tooltip}>
+				<Button
+					{...props}
+					variant="ghost"
+					size="icon-sm"
+					{tooltip}
+					aria-label="Account"
+				>
 					<!-- Identity glyph stays fixed; the sync dot sits at its
 					     bottom-right like a presence badge (top-right would read
 					     as a notification). -->
@@ -203,11 +228,26 @@
 				{#if disabledReason}
 					<p class="text-xs text-muted-foreground">{disabledReason}</p>
 				{/if}
-				<div class="border-t pt-3 flex gap-2">
+				<div class="border-t pt-3 flex flex-col gap-1">
+					{#if auth.accountManagementUrl}
+						<Button
+							href={auth.accountManagementUrl(auth.state.account, 'account').href}
+							target="_blank"
+							rel="noopener noreferrer"
+							variant="ghost"
+							size="sm"
+							class="w-full justify-start"
+							onclick={() => (popoverOpen = false)}
+						>
+							<ExternalLink class="size-3.5" />
+							Manage account
+							<span class="sr-only">(opens in browser)</span>
+						</Button>
+					{/if}
 					<Button
 						variant="ghost"
 						size="sm"
-						class="flex-1"
+						class="w-full justify-start"
 						onclick={() => signOut.mutate()}
 						disabled={accountLocked}
 					>
@@ -215,21 +255,21 @@
 						Sign out
 					</Button>
 				</div>
-				{#if onForgetDevice}
+				{#if onRemoveLocalData}
 					<div class="border-t pt-3">
 						<Button
 							variant="ghost-destructive"
 							size="sm"
 							class="w-full justify-start"
-							onclick={forgetDevice}
-							disabled={forgettingDevice || accountLocked}
+							onclick={removeLocalData}
+							disabled={removing || accountLocked}
 						>
-							{#if forgettingDevice}
+							{#if removing}
 								<Spinner class="size-3.5" />
 							{:else}
 								<DatabaseZap class="size-3.5" />
 							{/if}
-							Forget this device
+							Sign out and remove local data
 						</Button>
 					</div>
 				{/if}
@@ -239,6 +279,8 @@
 					<SignInPanel {auth} {syncNoun} {disabledReason} />
 			</div>
 		{/if}
+		{#if openConnection && auth.state.status === 'signed-in'}
+			<div class="px-4 pb-4"><Button variant="outline" class="w-full" onclick={openConnection} disabled={accountLocked}>Change connection</Button></div>
+		{/if}
 	</Popover.Content>
 </Popover.Root>
-

@@ -1,8 +1,8 @@
 import { os } from '#platform/os';
 import { createSystemShortcuts } from '#platform/system-shortcuts';
 import type { Command } from '$lib/commands';
-import { createFocusedShortcuts } from '$lib/platform/focused-shortcuts';
-import type { Shortcuts } from '$lib/platform/types';
+import { createFocusedShortcuts } from '$lib/shortcuts/focused';
+import type { Shortcuts } from '$lib/shortcuts/types';
 import { keyBindingToLabel } from '$lib/utils/key-binding';
 import type { WhisperingApp } from '$lib/whispering/app';
 

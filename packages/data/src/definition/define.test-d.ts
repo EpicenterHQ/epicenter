@@ -14,7 +14,9 @@
  * erroring is itself an error.
  */
 
+import type * as Y from '@y/y';
 import { plainText } from './content.js';
+import type { CreateRowOf, RowOf } from './declaration.js';
 
 import { defineData, defineTable, field } from './index.js';
 
@@ -42,9 +44,31 @@ defineTable({
 	content: field.string(),
 });
 
+const fieldsOnly = defineTable({ name: field.string(), sql: field.string() });
+declare const fieldsOnlyRow: RowOf<typeof fieldsOnly>;
+const rowName: string = fieldsOnlyRow.name;
+const rowSql: string = fieldsOnlyRow.sql;
+const rowNode: Y.Type = fieldsOnlyRow.content;
+const newRow: CreateRowOf<typeof fieldsOnly> = {
+	name: 'Inbox',
+	sql: 'SELECT 1',
+};
+void [rowName, rowSql, rowNode, newRow];
+// @ts-expect-error omission does not widen the exact field keys
+fieldsOnlyRow.unknown;
+// @ts-expect-error SQL remains required
+const incomplete: CreateRowOf<typeof fieldsOnly> = { name: 'Inbox' };
 defineTable({
-	// @ts-expect-error every table declares its content codec
-	title: field.string(),
+	// @ts-expect-error explicit undefined is not a codec
+	content: undefined,
+});
+defineTable({
+	// @ts-expect-error a supplied codec requires rewrite
+	content: { encode: plainText().encode, decode: plainText().decode },
+});
+defineTable({
+	// @ts-expect-error reserved keys also fail without a codec
+	ID: field.string(),
 });
 
 defineTable({

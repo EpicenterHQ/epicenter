@@ -1,0 +1,133 @@
+{
+	"passed": true,
+	"identifier": "so.epicenter.catalog-acceptance.1b933842-66df-4e48-8655-bcc1251ae6e5",
+	"checks": [
+		"built installed test apps use the default desktop binding and real Rust keychain",
+		"hidden key retention, rotation, removal, missing-key refusal and repair, stale-client retirement",
+		"real WebKit EventSource reconnect receives subsequent catalog updates",
+		"native and Bun process restart preserves ID, keychain credential, independent selections and deleted import marker",
+		"App close, window destruction and native shutdown release SSE and admitted inference bodies",
+		"actual Whispering desktop picker, imported audio, real transcription and persisted result after reload"
+	],
+	"first": {
+		"bunPid": 8835,
+		"nativePid": 8782
+	},
+	"second": {
+		"bunPid": 9102,
+		"nativePid": 9078
+	},
+	"cspObservations": [
+		[
+			{
+				"blocked": "eval",
+				"directive": "script-src",
+				"line": 471,
+				"source": "http://127.0.0.1:49783/apps/so.epicenter.catalog-test-a/assets/index-CT4H-WEp.js"
+			}
+		],
+		[
+			{
+				"blocked": "eval",
+				"directive": "script-src",
+				"line": 471,
+				"source": "http://127.0.0.1:49783/apps/so.epicenter.catalog-test-b/assets/index-Db81qTLK.js"
+			}
+		]
+	],
+	"productAcceptance": {
+		"product": "built Whispering desktop SPA",
+		"library": "Local",
+		"selected": {
+			"connectionId": "f521e838-e70b-4a9b-8bdc-3d4d12691b81",
+			"model": "handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf"
+		},
+		"sharedConnection": {
+			"accessVersion": "af43e378-4088-4a01-9987-7c949c3ec0db",
+			"baseUrl": "http://127.0.0.1:49782/product/v1",
+			"hasApiKey": true,
+			"id": "f521e838-e70b-4a9b-8bdc-3d4d12691b81",
+			"models": [
+				"handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf"
+			],
+			"name": "Native product acceptance"
+		},
+		"inference": {
+			"path": "/product/v1/audio/transcriptions",
+			"authenticated": true,
+			"model": "handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf",
+			"byteLength": 125098,
+			"sha256": "670143d613a171e117c12afff18e32b0079286a299f70391d2b64157eadd9952",
+			"status": 200,
+			"transcript": "The application closes its inference clients after the work has finished."
+		},
+		"documents": {
+			"first": 1789053940331,
+			"second": 1789053943083
+		},
+		"transcriptAfterReload": true,
+		"automation": "DOM click/input/change events; existing speech WAV supplied to the file input",
+		"engine": "real cached Whisper Tiny behind a fixture endpoint using Tauri MockRuntime"
+	},
+	"requests": [
+		{
+			"path": "/v1/models",
+			"cookie": null,
+			"authenticated": true
+		},
+		{
+			"path": "/v1/models",
+			"cookie": null,
+			"authenticated": true
+		},
+		{
+			"path": "/v1/models",
+			"cookie": null,
+			"authenticated": true
+		},
+		{
+			"path": "/v1/models",
+			"cookie": null,
+			"authenticated": false
+		},
+		{
+			"path": "/v1/models",
+			"cookie": null,
+			"authenticated": true
+		},
+		{
+			"path": "/changed/v1/models",
+			"cookie": null,
+			"authenticated": true
+		},
+		{
+			"path": "/changed/v1/models",
+			"cookie": null,
+			"authenticated": true
+		},
+		{
+			"path": "/changed/v1/models",
+			"cookie": null,
+			"authenticated": true
+		},
+		{
+			"path": "/changed/v1/models",
+			"cookie": null,
+			"authenticated": true
+		},
+		{
+			"path": "/changed/v1/models",
+			"cookie": null,
+			"authenticated": true
+		}
+	],
+	"fixtureAborts": 3,
+	"webviewStoreId": [
+		95, 181, 173, 8, 215, 49, 93, 66, 185, 78, 132, 96, 71, 48, 58, 218
+	],
+	"fixtureCredentialsRemoved": 1,
+	"fixtureKeychainEmpty": true,
+	"inferenceCleanup": {
+		"settingsUnchanged": true
+	}
+}

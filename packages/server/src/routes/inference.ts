@@ -41,7 +41,8 @@ import {
 	type ServableModel,
 } from '@epicenter/constants/ai-providers';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
-import { Hono, type MiddlewareHandler } from 'hono';
+import type { Context, Hono, MiddlewareHandler } from 'hono';
+import { every } from 'hono/combine';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { describeRoute } from 'hono-openapi';
 import { extractErrorMessage } from 'wellcrafted/error';
@@ -82,101 +83,6 @@ function clampStatus(status: number): ContentfulStatusCode {
 	return 502;
 }
 
-const inferenceApp = new Hono<Env>().post(
-	API_ROUTES.ai.completions.pattern,
-	describeRoute({
-		description: 'OpenAI-compatible Chat Completions inference gateway',
-		tags: ['ai'],
-	}),
-	async (c) => {
-		const raw = await c.req.json().catch(() => null);
-		if (!raw || typeof raw !== 'object') {
-			return c.json(
-				openAiError('Invalid request body.', 'invalid_request'),
-				400,
-			);
-		}
-		const body = raw as Record<string, unknown>;
-
-		const model = body.model;
-		if (typeof model !== 'string' || !(model in MODELS_BY_ID)) {
-			return c.json(
-				openAiError(`Unknown model: ${String(model)}`, 'UnknownModel'),
-				400,
-			);
-		}
-		if (!Array.isArray(body.messages) || body.messages.length === 0) {
-			return c.json(
-				openAiError('messages must be a non-empty array.', 'invalid_request'),
-				400,
-			);
-		}
-
-		const { provider } = MODELS_BY_ID[model as ServableModel];
-		const upstream = PROVIDER_UPSTREAM[provider];
-		// House-key-only (ADR-0054): the gateway holds the key and never reads one
-		// from the body, so it provably never receives a user's provider key.
-		const apiKey = c.env[upstream.houseKeyEnv];
-		if (!apiKey) {
-			return c.json(
-				openAiError(`${provider} is not configured.`, 'ProviderNotConfigured'),
-				503,
-			);
-		}
-
-		let upstreamResponse: Response;
-		try {
-			upstreamResponse = await fetch(`${upstream.baseURL}/chat/completions`, {
-				method: 'POST',
-				headers: {
-					'content-type': 'application/json',
-					authorization: `Bearer ${apiKey}`,
-				},
-				body: JSON.stringify(body),
-				signal: c.req.raw.signal,
-			});
-		} catch (error) {
-			return c.json(
-				openAiError(extractErrorMessage(error), 'upstream_unreachable'),
-				502,
-			);
-		}
-
-		if (!upstreamResponse.ok || !upstreamResponse.body) {
-			// OpenAI and Gemini-compat answer errors in the OpenAI shape; forward the
-			// provider's body verbatim with its status when it parses, else wrap it.
-			const text = await upstreamResponse.text().catch(() => '');
-			const status = clampStatus(upstreamResponse.status);
-			let payload: unknown;
-			try {
-				payload = JSON.parse(text);
-			} catch {
-				payload = null;
-			}
-			if (payload && typeof payload === 'object' && 'error' in payload) {
-				return c.json(payload as Record<string, unknown>, status);
-			}
-			return c.json(
-				openAiError(
-					text || `Upstream returned ${upstreamResponse.status}.`,
-					'upstream_error',
-				),
-				status,
-			);
-		}
-
-		// Pure passthrough (ADR-0054): the client normalizes provider quirks (it
-		// must, for custom backends), so the gateway forwards the stream untouched.
-		return new Response(upstreamResponse.body, {
-			status: 200,
-			headers: {
-				'content-type': 'text/event-stream',
-				'cache-control': 'no-cache',
-			},
-		});
-	},
-);
-
 /**
  * Mount the OpenAI-compatible inference gateway on a deployment's server app.
  *
@@ -193,7 +99,103 @@ export function mountInferenceApp<E extends Env = Env>(
 		policies?: MiddlewareHandler<E>[];
 	},
 ): void {
-	const policies = opts.policies ?? [];
-	app.use(API_ROUTES.ai.completions.prefixPattern, opts.auth, ...policies);
-	app.route('/', inferenceApp);
+	const auth = every(opts.auth, ...(opts.policies ?? []));
+	app.post(
+		API_ROUTES.ai.completions.pattern,
+		auth,
+		describeRoute({
+			description: 'OpenAI-compatible Chat Completions inference gateway',
+			tags: ['ai'],
+		}),
+		async (c: Context<Env>) => {
+			const raw = await c.req.json().catch(() => null);
+			if (!raw || typeof raw !== 'object') {
+				return c.json(
+					openAiError('Invalid request body.', 'invalid_request'),
+					400,
+				);
+			}
+			const body = raw as Record<string, unknown>;
+
+			const model = body.model;
+			if (typeof model !== 'string' || !(model in MODELS_BY_ID)) {
+				return c.json(
+					openAiError(`Unknown model: ${String(model)}`, 'UnknownModel'),
+					400,
+				);
+			}
+			if (!Array.isArray(body.messages) || body.messages.length === 0) {
+				return c.json(
+					openAiError('messages must be a non-empty array.', 'invalid_request'),
+					400,
+				);
+			}
+
+			const { provider } = MODELS_BY_ID[model as ServableModel];
+			const upstream = PROVIDER_UPSTREAM[provider];
+			// House-key-only (ADR-0054): the gateway holds the key and never reads one
+			// from the body, so it provably never receives a user's provider key.
+			const apiKey = c.env[upstream.houseKeyEnv];
+			if (!apiKey) {
+				return c.json(
+					openAiError(
+						`${provider} is not configured.`,
+						'ProviderNotConfigured',
+					),
+					503,
+				);
+			}
+
+			let upstreamResponse: Response;
+			try {
+				upstreamResponse = await fetch(`${upstream.baseURL}/chat/completions`, {
+					method: 'POST',
+					headers: {
+						'content-type': 'application/json',
+						authorization: `Bearer ${apiKey}`,
+					},
+					body: JSON.stringify(body),
+					signal: c.req.raw.signal,
+				});
+			} catch (error) {
+				return c.json(
+					openAiError(extractErrorMessage(error), 'upstream_unreachable'),
+					502,
+				);
+			}
+
+			if (!upstreamResponse.ok || !upstreamResponse.body) {
+				// OpenAI and Gemini-compat answer errors in the OpenAI shape; forward the
+				// provider's body verbatim with its status when it parses, else wrap it.
+				const text = await upstreamResponse.text().catch(() => '');
+				const status = clampStatus(upstreamResponse.status);
+				let payload: unknown;
+				try {
+					payload = JSON.parse(text);
+				} catch {
+					payload = null;
+				}
+				if (payload && typeof payload === 'object' && 'error' in payload) {
+					return c.json(payload as Record<string, unknown>, status);
+				}
+				return c.json(
+					openAiError(
+						text || `Upstream returned ${upstreamResponse.status}.`,
+						'upstream_error',
+					),
+					status,
+				);
+			}
+
+			// Pure passthrough (ADR-0054): the client normalizes provider quirks (it
+			// must, for custom backends), so the gateway forwards the stream untouched.
+			return new Response(upstreamResponse.body, {
+				status: 200,
+				headers: {
+					'content-type': 'text/event-stream',
+					'cache-control': 'no-cache',
+				},
+			});
+		},
+	);
 }

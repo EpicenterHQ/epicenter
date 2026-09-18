@@ -1,97 +1,112 @@
 # Apps
 
-There is one runtime: a desktop SPA in a WebView, served by a Bun host over a
-store the client owns (ADR-0227). The host serves bundles and brokers
-credentials; it owns no application data and constructs no database (ADR-0226).
-Hosted web as a second runtime with a host-owned replica is refused, and so are
-third-party installed apps, for now.
+Epicenter's desktop applications run as SPAs in Tauri WebViews. The Tauri host
+launches a Bun sidecar that serves bundles, HTTP, WebSockets, and the Home
+session; Rust owns native mechanisms. Each application owns its App and data
+stores. The host brokers credentials and device resources without opening an
+application's synchronized store. Browser builds support development and
+browser use through the same App contract.
 
-Not every folder here is that. `api` and `self-host` are server deployables,
-`landing` is a public site, `local-books` and `local-mail` are headless mirrors
-with their own CLIs, and `sync-lab` is a throwaway harness for watching a row
-cross the wire. The rest of this page is about the surfaces that hold a person's
-data.
+This directory also contains server deployables (`api` and `self-host`), the
+public `landing` site, the `local-books` accounting CLI, and the `sync-lab`
+harness. Local Mail has a Svelte UI in `local-mail/ui` and Gmail cache and triage
+operations in `local-mail/src`. The rest of this page describes applications
+that open an App.
 
 ## How a surface is put together
 
-An application declares one inert default data definition and opens its own
-store through it. The application ID and the definition's data ID usually use
-the same reverse-domain string, but they are separate concepts: an application
-can open another data domain, and a data domain can be opened by another
-application or tool.
+An application declares its identity and schema once with `defineApp`. The
+returned declaration is inert: inspecting its fields or passing it to schema
+tools opens no storage and captures no Account. Its one `id` names both the
+application and its data.
 
-```txt
-defineData({ id, title, kv, tables })
-  pure JSON: one durable data domain; no storage, network, or framework
+```ts
+import { defineApp } from '@epicenter/app';
+import { defineTable, field } from '@epicenter/data/definition';
 
-openDatabase(definition, { generation, account? })
-  one Yjs document in the page, one IndexedDB object store of updates,
-  one database per generation (ADR-0261, ADR-0292)
-
-data.tables.notes.rows
-  synchronous from here on
+export const notes = defineApp({
+  id: 'com.example.notes',
+  title: 'Notes',
+  kv: {},
+  tables: { notes: defineTable({ title: field.string() }) },
+});
 ```
 
-Opening the store is the only asynchronous thing the application does.
-`data.tables.notes.rows` returns rows synchronously, and
-`data.tables.notes.subscribe(...)`
-reports which rows a commit touched, for a local write and for bytes from
-another device alike (ADR-0221). Nothing polls, and there is no generation
-counter to keep.
+The mounted application route captures the Account and opens that declaration
+once. Opening returns the live App synchronously; `app.ready` gates use of its
+stores and capabilities. Select a destination before reading or writing rows:
+`app.device`, `app.account.personal`, or an available `app.account.shared`.
+Rows and mutations are synchronous after readiness. Before replacing the
+Account, stop UI producers and await `app.close()`.
 
-Every build opens its own store, with no seam deciding where data lives. Two
-windows on one machine converge through the same authority every other device
-uses, because a surface is a replica of one authority per signed-in account
-(ADR-0225). Sign-in is never a door: the app works completely signed out, and
-signing in attaches sync.
+`open()` and `open(undefined)` use the separate `no-account` namespace. Passing
+an Account scopes local resources to that owner and opens its account stores.
+Signing in does not adopt signed-out data. Each app decides whether its primary
+route permits signed-out use.
 
-The full contract for the store is in
-[`packages/data/README.md`](../packages/data/README.md).
+Schema consumers use the same declaration, including in-memory tests and
+artifact import/export. Lower-level consumers retain `defineData` and the
+openers in `@epicenter/data` when they need data without an App. Application
+bootstraps leave store acquisition and sync ownership to the App.
+
+See the [App contract](../packages/app/README.md) for readiness and lifetime
+rules, and the [data contract](../packages/data/README.md) for schema and store
+behavior.
 
 ## Layout
 
-The inert data definition is exported from the app's definition module, and
-runtime composition sits beside it:
+The inert application declaration stays separate from the module that captures
+a live Account. Honeycrisp and Vocab use this layout. Whispering exposes
+`openApplication()` from `application.ts`; calling it loads `bootstrap.ts` once.
 
-```txt
+```text
 apps/<app>/
-├── src/lib/workspace/index.ts   the data definition and its row types
-├── src/lib/                     the store opener, sync, and app services
-├── src/                         SvelteKit routes and components
-└── package.json                 "exports": { ".": "./src/lib/workspace/index.ts" }
+|-- src/lib/data.ts          defineApp declaration, row types, and codecs
+|-- src/lib/application.ts   captured Account, App, and departure
+|-- src/routes/             mounted opening path and UI
+`-- package.json
 ```
 
-`honeycrisp` uses that nesting. Follow the existing package shape. The
-application document's physical root grammar is documented in
-`../docs/adr/0257-the-application-document-has-named-kv-and-table-roots.md`.
+Schema consumers import `data.ts` without importing the live opening module.
+The application document's physical root grammar is documented in
+[ADR-0257](../docs/adr/0257-the-application-document-has-named-kv-and-table-roots.md).
 
-Where a build genuinely differs, put the difference behind a `#platform/*`
-build-time subpath import rather than a runtime branch. Honeycrisp's
-`#platform/auth` resolves to `auth.epicenter-host.ts`, `auth.tauri.ts`, or
-`auth.browser.ts` under the `epicenter-host`, `tauri`, and default conditions.
-Auth keeps a seam because the host really does broker a credential its windows
-cannot obtain; storage does not, because it does not differ.
+Application-specific platform differences use `#platform/*` subpath imports.
+Honeycrisp's `#platform/auth` selects `auth.epicenter-host.ts` under the
+`epicenter-host` condition and `auth.browser.ts` by default. It has no separate
+`tauri` leaf. Whispering also has host and browser leaves for its native UI and
+services.
+
+`@epicenter/app` selects its resource, AI, and clipboard implementations through
+its own package conditions. Its browser and host resources provide different
+SQLite, secret, blob, and recording implementations under the same App contract.
+Runtime selection through `isTauri()` remains the proposal in ADR-0403; it is
+not the current implementation.
 
 ## Adding an app
 
-1. Write the data definition at `apps/<app>/src/lib/workspace/index.ts`: one
-   `defineData({ id, kv, tables })` value plus its row types. Read the data
-   rules first, especially that there are no optional fields or definition
-   defaults.
-2. Point `package.json` `exports["."]` at that file.
-3. Add the store opener beside it, and a `dial` if the app syncs. The host
-   supplies the socket; `@epicenter/data/sync` owns everything done with one
-   (ADR-0222).
-4. Open the definition once where the app is acquired and pass the opened data
-   handle to ordinary services. Do not spread it through the UI.
-5. Add the app to `docs/licensing/licensing-strategy.md` and, if it needs the
-   hosted API in development, a `dev:<app>` script at the repo root.
+1. Declare `defineApp({ id, title, kv, tables })` in
+   `apps/<app>/src/lib/data.ts`, alongside row types and codecs. Preserve the
+   durable ID, table names, and field names. Schema fields have no defaults;
+   the application owns fallback values.
+2. Add the opening module beside it. Capture the Account once, call the
+   declaration's `.open(account)`, and coordinate departure through that App.
+3. Import the opening module from the mounted primary route. Callback and
+   auxiliary routes must not open a primary library. Gate consumers on
+   `app.ready`, then pass the selected store or capability to services and UI.
+4. Stop producers and await `app.close()` before changing account or server
+   and navigating to a fresh document.
+5. If the app needs the hosted API in development, add a `dev:<app>` script at
+   the repo root.
 
 ## Where each surface stands
 
-`honeycrisp` is the surface built on the store, and its
-[README](honeycrisp/README.md) is the worked example.
+Honeycrisp, Vocab, Whispering, and Local Mail declare their schemas with
+`defineApp` and open them from the primary route's bootstrap. Honeycrisp's
+[README](honeycrisp/README.md) is the notes application's worked example;
+[Local Mail's README](local-mail/README.md) explains its synchronized saved
+queries and account-owned Gmail cache.
 
-`whispering`, `vocab`, `skills`, and `epicenter` now compile against the store.
-The superseded data stack was deleted before they were migrated, deliberately,
-so old data is not imported into the new model (ADR-0227).
+Epicenter owns the desktop host and Home session. It does not open these
+applications' stores. The older store migration deliberately did not import
+the superseded data stack (ADR-0227).

@@ -1,5 +1,5 @@
 import { goto } from '$app/navigation';
-import { WHISPERING_RECORDINGS_PATHNAME } from '$lib/constants/urls';
+import { resolve } from '$app/paths';
 import type { DeliveryOutcome } from '$lib/operations/delivery-reach';
 import {
 	clipboardSink,
@@ -158,7 +158,7 @@ async function deliverToSink({
 	const recordingsAction = linkedRecording
 		? {
 				label: 'Go to recordings',
-				onClick: () => goto(WHISPERING_RECORDINGS_PATHNAME),
+				onClick: () => goto(resolve('/recordings')),
 			}
 		: undefined;
 

@@ -79,9 +79,8 @@ export type ParsedTable = {
 	/**
 	 * How this table's content node becomes text, carried unread (ADR-0296).
 	 *
-	 * Absent when the definition arrived as JSON, which cannot carry a
-	 * function. What that costs is paid at the artifact boundary, where a node
-	 * with content and no codec is a refusal in both directions.
+	 * Absent when the table declares no codec. The artifact boundary refuses
+	 * populated nodes on export and nonempty bodies on import.
 	 */
 	content?: ContentCodec;
 	conformance(payload: JsonObject): Conformance;
@@ -187,9 +186,9 @@ function compileDefinition(
 			});
 		}
 		const table = declaration as TableDeclaration;
-		if (!(CONTENT_FIELD in table) || !isContentCodec(table.content)) {
+		if (CONTENT_FIELD in table && !isContentCodec(table.content)) {
 			return DataDefinitionParseError.Malformed({
-				reason: `table '${tableName}' must declare a content codec`,
+				reason: `table '${tableName}' declares an invalid content codec`,
 			});
 		}
 		const result = compileTable(tableName, table);

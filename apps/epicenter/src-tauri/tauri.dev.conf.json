@@ -5,6 +5,7 @@
 	"app": {
 		"security": {
 			"capabilities": [
+				"application-close-development",
 				"home-model-administration-development",
 				"mail-gmail-authorization-development",
 				"home-launch-application-development",

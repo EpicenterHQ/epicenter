@@ -9,6 +9,7 @@
  * rule that decides which verbs exist: a read is what this release's
  * declaration can see, and a write is what it may say.
  */
+
 import type {
 	ConformanceIssue,
 	CreateRowOf,
@@ -20,7 +21,8 @@ import type {
 	RowOf,
 	TableDeclaration,
 } from '@epicenter/data/definition';
-import type { PrincipalId } from '@epicenter/principal';
+import type { AccountIdentity, PrincipalId } from '@epicenter/principal';
+import type { SocketTransport } from '@epicenter/sync/transport';
 import type * as Y from '@y/y';
 import type { Result } from 'wellcrafted/result';
 
@@ -92,6 +94,7 @@ export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
 	 * The declaration is a read lens, so creation does not validate the supplied
 	 * values or field names. The returned object is the typed write view, while
 	 * a later `get` reports how the current lens interprets the stored payload.
+	 *
 	 */
 	create(fields: TInput): TRow;
 	/**
@@ -274,27 +277,6 @@ export type DeclaredData<TDatabase extends DataDefinition> = {
 };
 
 /**
- * One application's opened data: what the definition declared, and the file
- * under `store`.
- *
- * Named for what it is to the caller. The application itself is a bigger
- * thing that owns UI, state, and sync attachments; what an opener returns is
- * that application's DATA, which is exactly what the reference app already
- * called it (`HoneycrispData`, bound as `db`).
- *
- * The split is by who calls it. `tables` and `kv` are what an
- * application does; `store` holds pressure, the CRDT verbs, and, on a
- * replica, sync: what a transport needs and a feature never touches. Merging
- * the two put thirteen names on one object where four are used, and cost a
- * forwarded getter and a cast to build it. SQL is deliberately not here: an
- * index is a follower an application composes, not a verb the store owes.
- *
- * The view and the store are born together: an opened runtime holds exactly
- * one data definition for its whole life (ADR-0240), so there is no verb
- * that takes a second view of a live store. A newer definition reads the same
- * durable data by closing this runtime and opening the next one.
- */
-/**
  * One application's stored state, by root, with no declaration applied.
  *
  * Every table root the document actually holds, whether or not this release
@@ -339,14 +321,6 @@ export type Data<TDatabase extends DataDefinition> = DeclaredData<TDatabase> &
 	DataDocument &
 	AsyncDisposable;
 
-/**
- * Account data that knows the server it belongs to.
- *
- * What a browser opener returns once an account is present, and what
- * `attachStoreSync` needs in order to address a socket. Both used to declare
- * this shape themselves, in two files, and only structural typing kept the two
- * copies interchangeable.
- */
 /**
  * A store an application holds, which it cannot close.
  *
@@ -487,15 +461,9 @@ export type DocumentPressure = {
 /**
  * One opened document's runtime: the live Yjs state and its durable record.
  *
- * Every verb here is a fact about the document itself: measure it, encode it,
- * hear it commit, watch its persistence. The data definition is not on
- * this surface, because it is not a verb: the engine closed over it at
- * construction and every table handle and the KV handle read the one parsed
- * definition for the store's whole life
- * (ADR-0240). What tells the two store kinds apart is `sync`, present on both
- * and carrying the discriminating value: `undefined` on a device-owned
- * document, a `SyncCapability` on a replica. Every store has local
- * persistence; only a replica has a synchronization capability.
+ * Measure the document, encode it, hear commits, and inspect persistence.
+ * The parsed definition is captured once. Local and account data share these
+ * operations; sync status is undefined when no connection is attached.
  */
 export type DataDocument = {
 	/**
@@ -550,11 +518,9 @@ export type DataDocument = {
 	 * its own surface below. Delivered BEFORE table and KV notifications in
 	 * the same flush, and that order is a contract: a composed follower marks
 	 * itself dirty here, so it is already dirty by the time any table
-	 * subscriber reads through it. Strictly wider than `onLocalWork`, and the
-	 * two are not
-	 * interchangeable: the transport wants to know that THIS replica owes the
-	 * authority something, so bytes that arrived from a peer must not nudge
-	 * it, while this fires for those too.
+	 * subscriber reads through it. The transport instead listens for durable
+	 * outbound work through `onSendable`; this also fires for remote changes
+	 * and fires before their persistence completes.
 	 */
 	onCommitted(listener: () => void): () => void;
 	/**
@@ -569,8 +535,7 @@ export type DataDocument = {
 	/**
 	 * The app-facing facts of this store's entanglement with its authority.
 	 *
-	 * Always present, because an account is required: a database is minted by
-	 * an authority, so there is no second shape whose `sync` is missing. The
+	 * Always present; local documents report no attached connection. The
 	 * delivery machinery underneath (applying peer bytes, the outbox, cursors,
 	 * the acknowledgement bookkeeping) is deliberately not public. Only the
 	 * transport drives it, and it reaches it through `syncEngineOf` inside this
@@ -595,11 +560,8 @@ export type DataDocument = {
 /**
  * A store that knows the server it belongs to.
  *
- * The one thing it adds over `DataDocument` is the address its opener stamped
- * on it. There is no second document kind to discriminate against: an account
- * is required, so a store with no authority is not a shape this package can
- * produce. The `ReplicaDocument` this was once a union with is gone with the
- * device store.
+ * Exact-generation low-level openers retain this address for artifacts and
+ * diagnostics. The common app handle does not require replica metadata.
  */
 export type ReplicaDocument = DataDocument & {
 	/**
@@ -626,31 +588,21 @@ export type ReplicaDocument = DataDocument & {
 };
 
 /**
- * That this store replicates, and the key its transport is registered against.
- *
- * It carries no facts, and it used to carry one: the document identity, which
- * was a boot gate's whole question (ADR-0231). The generation is in the address
- * now, so a replica is bound the moment it opens and there is nothing left to
- * wait for (ADR-0292). What is left is the discriminant the store types already
- * had, plus an object identity `syncEngineOf` can key on, so a wrapper that
- * spreads the store keeps the door reachable.
- *
- * Connection health, attempts, and in-flight submissions belong to the
- * connection driving the socket and were never here.
+ * The attached connection's status, keyed by this capability's object identity.
+ * Local stores have no registered replication engine and report no connection.
  */
 export type SyncCapability = {
-	readonly replicates: true;
 	/**
 	 * What the attached connection reports, or `undefined` when none is
-	 * attached or the host denied it permanently.
+	 * attached.
 	 *
 	 * Pull-only, and polled rather than subscribed. Connection health changes on
 	 * a socket's schedule, so a reactive adapter holding it would be polling
 	 * underneath and calling the result state; `from-data.svelte.ts` refuses
 	 * that boundary by name. The store holds the connection so a status has one
 	 * owner, not so a reader can dial: there is no `connect`, no `disconnect`,
-	 * and no `retry` here, because the driver owns its backoff and a permanent
-	 * denial is a fact about this auth generation rather than a button.
+	 * and no `retry` here, because the driver owns its backoff and dials for as
+	 * long as the store is open, refusal or not.
 	 */
 	status(): SyncConnectionStatus | undefined;
 };
@@ -658,15 +610,18 @@ export type SyncCapability = {
 /**
  * The account half of an address, and how this device reaches its authority.
  *
- * A two-member port rather than an `AuthClient`, for the same reason
- * `attach.ts` takes one: it keeps this file free of the auth package, and an
- * `AuthClient` satisfies it structurally with no adapter. `fetch` is here and
- * not in `attach` because opening a generation this device does not hold is an
- * HTTP request, not a socket (ADR-0292).
+ * Capture this value for the data session. Its principal and server stay fixed,
+ * and its HTTP and socket transport must never adopt another account's
+ * credentials. `Account` from `@epicenter/auth` satisfies this contract directly.
+ *
+ * `fetch` opens generations this device does not hold; `openWebSocket` carries
+ * later updates for the store's lifetime. Keeping this structural contract here
+ * lets data openers consume accounts without depending on the auth package.
  */
-export type DatabaseAccount = {
+export type DatabaseAccount = AccountIdentity & {
 	readonly baseURL: string;
-	readonly principalId: PrincipalId;
 	/** A credentialed fetch, waiting on machine work but never on a human. */
 	fetch(input: string | URL, init?: RequestInit): Promise<Response>;
+	/** A credentialed dial, which the sync driver repeats for the store's life. */
+	openWebSocket: SocketTransport['openWebSocket'];
 };

@@ -1,0 +1,115 @@
+<script lang="ts">
+	import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
+	import { recordingActive } from '$lib/state/recording-active.svelte';
+	import type { Account } from "@epicenter/auth";
+	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
+	import { fromData } from '@epicenter/svelte';
+	import * as Sidebar from '@epicenter/ui/sidebar';
+	import * as Tooltip from '@epicenter/ui/tooltip';
+	import { QueryClientProvider } from '@tanstack/svelte-query';
+	import { onDestroy, type Snippet } from 'svelte';
+	import { MediaQuery } from 'svelte/reactivity';
+	import { createLogger } from 'wellcrafted/logger';
+	import DictationIndicator from '#platform/dictation-indicator';
+	import type { WhisperingAppHandle, WhisperingData } from '$lib/whispering/app';
+	import { setWhisperingContext } from '$lib/whispering/context';
+	import {
+		createWhisperingUiSession,
+		WhisperingUiSessionError,
+	} from '$lib/whispering/ui-session';
+	import AppEffects from './AppEffects.svelte';
+	import BottomNav from './BottomNav.svelte';
+	import ContentShell from './ContentShell.svelte';
+	import GlobalDialogs from './GlobalDialogs.svelte';
+	import VerticalNav from './VerticalNav.svelte';
+
+	const log = createLogger('whispering/ui-session');
+
+	let {
+		openedApp,
+		data,
+		selections,
+		account,
+		removeLocalData,
+		libraryMenu,
+		children,
+	}: {
+		/** The ready framework App, owned and closed by the application document. */
+		openedApp: WhisperingAppHandle;
+		data: WhisperingData;
+		selections: InferenceSelections;
+		account: Account | undefined;
+		/**
+		 * Sign out and remove this account's local data, owned by the session
+		 * component above because only it can sequence the close. Absent where
+		 * the platform cannot remove one account's audio and leave another's.
+		 */
+		removeLocalData?: () => Promise<void>;
+		children: Snippet;
+		libraryMenu: Snippet;
+	} = $props();
+
+	// One mount creates one UI session over the captured framework App.
+	/* svelte-ignore state_referenced_locally */
+	const view = fromData(data);
+	/* svelte-ignore state_referenced_locally */
+	const session = createWhisperingUiSession({
+		openedApp,
+		data,
+		selections,
+		account,
+	});
+
+	setWhisperingContext({ app: session.app, queries: session.queries });
+
+	export async function preflight(): Promise<void> {
+		if (session.app.recordingEnabled && recordingActive(session.app))
+			throw new Error('Finish recording and wait for it to save before closing Whispering.');
+	}
+
+	export function close(): Promise<void> {
+		return session[Symbol.asyncDispose]();
+	}
+
+	onDestroy(() =>
+		void session[Symbol.asyncDispose]().catch((cause: unknown) => {
+			log.warn(WhisperingUiSessionError.TeardownFailed({ cause }));
+		}),
+	);
+
+	let sidebarOpen = $state(false);
+
+	// Sidebar when wide, bottom bar on narrow viewports (phone, small window).
+	const isNarrow = new MediaQuery('(max-width: 767px)');
+</script>
+
+<PersistenceNotice persistence={view.persistence} />
+
+	<QueryClientProvider client={session.queryClient}>
+		<!-- Uses UI package defaults (300ms delay, 150ms skip) -->
+		<Tooltip.Provider>
+			<!-- Once, at the session root and outside the responsive nav branch, so
+			     switching between the two navs does not re-run it. -->
+			<AppEffects />
+
+			{#if isNarrow.current}
+				<div class="flex h-full min-h-svh flex-col">
+					<div class="flex-1 pb-14">
+						<div class="flex justify-end px-4 pt-3">{@render libraryMenu()}</div>
+						<ContentShell>{@render children()}</ContentShell>
+					</div>
+					<BottomNav />
+				</div>
+			{:else}
+				<Sidebar.Provider bind:open={sidebarOpen}>
+					<VerticalNav {removeLocalData} {libraryMenu} />
+					<Sidebar.Inset>
+						<ContentShell>{@render children()}</ContentShell>
+					</Sidebar.Inset>
+				</Sidebar.Provider>
+			{/if}
+
+			<GlobalDialogs />
+			<DictationIndicator />
+		</Tooltip.Provider>
+	</QueryClientProvider>

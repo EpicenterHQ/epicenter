@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import DevAccessibilityToggle from '$lib/components/DevAccessibilityToggle.svelte';
 	import MacosAccessibilityGuideDialog from '$lib/components/MacosAccessibilityGuideDialog.svelte';
 	import MoreDetailsDialog from '$lib/components/MoreDetailsDialog.svelte';
@@ -11,8 +10,11 @@
 	component mounts them once for the whole app. It lives at the session root,
 	outside the responsive nav branch, so resizing across the breakpoint never
 	tears a dialog down mid-interaction.
+
+	`ConfirmationDialog` is not here: it is in the root layout, because the
+	destructive exit confirms through it and then closes the session this
+	component lives under.
 -->
-<ConfirmationDialog />
 <MacosAccessibilityGuideDialog />
 <MoreDetailsDialog />
 <RecipePicker />

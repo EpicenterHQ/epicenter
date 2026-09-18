@@ -1,83 +1,68 @@
-import type { BlobId } from '@epicenter/blobs';
-import { InstantString } from '@epicenter/data/field';
 import {
 	deliverTranscriptionResult,
 	type TranscriptionSource,
 } from '$lib/operations/delivery';
 import { polishWillRun, runPolish } from '$lib/operations/run-polish';
 import { playSoundIfEnabled } from '$lib/operations/sound';
-import { transcribeAndPersist } from '$lib/operations/transcribe';
+import {
+	type captureTranscription,
+	transcribeAndPersist,
+} from '$lib/operations/transcribe';
 import { saveRecordingHistory } from '$lib/operations/transcription-history';
 import { report } from '$lib/report';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
 import { polishHud } from '$lib/state/polish-hud.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
+import { creditAction } from './credit-action.js';
 
 /**
- * Argument shape for the pipeline. The recorder produces a
- * `RecorderStopResult`; the VAD path and file import path build the
- * equivalent finalized shape. `deliverySource` is forwarded
- * straight to delivery, so it shares delivery's `TranscriptionSource` type.
+ * Every producer supplies a saved recording row. The capture attempt owns
+ * feedback while inference and history retain their original row and App lifetime.
  */
 type PipelineInput = {
-	audioBlobId: BlobId;
-	durationMs: number | null;
+	recordingId: string;
 	deliverySource?: TranscriptionSource;
+	isCurrentAttempt?: () => boolean;
+	transcribe: ReturnType<typeof captureTranscription>;
 };
 
 /**
- * Processes finalized local audio through row creation, transcription, and
- * polishing.
- *
- * Audio bytes never live in pipeline state. Every acquisition path has
- * committed the local blob before calling this operation.
+ * Transcribes and polishes an existing row without publishing bytes or creating rows.
  *
  * `deliverySource` only shapes the success copy (recording vs file import).
  */
 export async function processRecordingPipeline(
 	app: WhisperingApp,
-	{ audioBlobId, durationMs, deliverySource = 'recording' }: PipelineInput,
+	{
+		recordingId,
+		deliverySource = 'recording',
+		isCurrentAttempt,
+		transcribe,
+	}: PipelineInput,
 ) {
-	const now = InstantString.now();
+	const lifetime = app.signal;
+	lifetime.throwIfAborted();
+	const recording = app.recordings.get(recordingId);
+	if (!recording || !app.recordingEnabled) return;
 
 	// A live dictation (not a file import) drives the dictation pill. The
 	// recorder is already idle by the time we get here, so the lifecycle hands
 	// the pill from `recording` to `transcribing`. File imports have their own
 	// surface, so they leave the dictation lifecycle untouched.
 	const isDictation = deliverySource === 'recording';
-	if (isDictation) dictationLifecycle.markTranscribing();
-
-	// Row creation owns row/blob consistency: on failure it removes the
-	// already-committed audio and rethrows, so a lost row never strands bytes.
-	const recording = app.recordings.create({
-		audioBlobId,
-		title: '',
-		recordedAt: now,
-		recordedAtZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		transcript: '',
-		polishedTranscript: null,
-		duration: durationMs,
-		// The recording domain initializes the transcription columns explicitly, so
-		// a fresh recording is `pending` with no completion and no error.
-	});
-
-	if (app.settings.get('recordingAutoUpload')) {
-		// One new row earns one best-effort attempt. Manual upload calls the same
-		// workflow; there is no history scan, queue, persisted failure, or retry.
-		void app.recordings
-			.uploadAudio(recording.id)
-			.then(({ error }) => {
-				if (error !== null) {
-					report.info({
-						title: 'Recording kept on this device',
-						description: error.message,
-					});
-				}
-			})
-			.catch((cause) => {
-				report.error({ title: 'Automatic upload failed', cause });
+	const ownsFeedback =
+		isCurrentAttempt ?? (isDictation ? dictationLifecycle.reset() : () => true);
+	if (transcribe === null) {
+		if (ownsFeedback()) {
+			report.info({
+				title: 'Audio saved',
+				description:
+					'Choose a transcription model when you’re ready to turn it into text.',
 			});
+		}
+		return;
 	}
+	if (isDictation && ownsFeedback()) dictationLifecycle.markTranscribing();
 
 	// File import has no pill, so it keeps a progress toast; the dictation path is
 	// driven by the lifecycle markers above (the pill), with no toast.
@@ -89,16 +74,20 @@ export async function processRecordingPipeline(
 			});
 
 	const { data: transcription, error: transcribeError } =
-		await transcribeAndPersist(app, recording.id, audioBlobId);
+		await transcribeAndPersist(app, recording.id, transcribe);
+	if (lifetime.aborted || !app.recordingEnabled) return;
 
 	if (transcribeError) {
+		const action = creditAction(transcribeError, app.account);
 		if (isDictation) {
+			if (!ownsFeedback()) return;
 			dictationLifecycle.markFailed({
 				tier: 'transcription',
 				error: transcribeError,
 			});
+			if (action) report.error({ cause: transcribeError, action });
 		} else {
-			transcribeLoading?.reject({ cause: transcribeError });
+			transcribeLoading?.reject({ cause: transcribeError, action });
 		}
 		return;
 	}
@@ -119,23 +108,24 @@ export async function processRecordingPipeline(
 	// import has no pill to cancel from and keeps its own progress toast. The pill
 	// shows the HUD only when an AI pass actually runs (not in speed mode); begin/end
 	// bracket the call so the controller is dropped on success, failure, or abort.
-	const willPolish = polishWillRun(app, transcribedText);
-	const showPolishHud = willPolish && isDictation;
+	const willPolish = polishWillRun(transcribedText);
+	const showPolishHud = willPolish && isDictation && ownsFeedback();
 	let signal: AbortSignal | undefined;
 	if (showPolishHud) {
 		dictationLifecycle.markPolishing();
-		signal = polishHud.begin();
+		signal = polishHud.begin(ownsFeedback);
 	}
-	const { data: polishedText, error: polishError } = await runPolish(app, {
+	const { data: polishedText, error: polishError } = await runPolish({
 		input: transcribedText,
 		signal,
 	});
-	if (showPolishHud) polishHud.end();
+	if (signal) polishHud.end(signal);
+	if (lifetime.aborted || !app.recordingEnabled) return;
 	// Polish is best-effort: a failed AI pass carries the raw transcript in
 	// `fallback`, so a transcript is never lost to a polish error. Surface the
 	// failure without blocking delivery.
 	const deliveredText = polishError ? polishError.fallback : polishedText;
-	if (polishError) {
+	if (polishError && ownsFeedback()) {
 		report.info({
 			title: 'Polishing skipped',
 			description: polishError.message,
@@ -153,25 +143,28 @@ export async function processRecordingPipeline(
 		});
 		if (polishedHistory.error !== null) history = polishedHistory;
 	}
+	if (lifetime.aborted || !app.recordingEnabled) return;
 
 	// The transcript is "ready" once it is polished and about to be delivered, so
 	// the completion sound and the resolved loading notice both fire here.
-	void playSoundIfEnabled(app, 'transcriptionComplete');
+	if (ownsFeedback()) void playSoundIfEnabled(app, 'transcriptionComplete');
 	const { outcome: transcriptDelivery, notice: transcribeNotice } =
 		await deliverTranscriptionResult(app, {
 			text: deliveredText,
 			source: deliverySource,
 		});
+	if (lifetime.aborted || !app.recordingEnabled) return;
 	if (isDictation) {
 		// The delivered transcript is the dictation receipt. Every reach is a success,
 		// even when history could not be confirmed, so this is always `delivered`; the reach decides
 		// whether the pill flashes (clean `output`) or persists (a reduced
 		// `clipboard`).
-		dictationLifecycle.markDelivered(transcriptDelivery.reach);
+		if (ownsFeedback())
+			dictationLifecycle.markDelivered(transcriptDelivery.reach);
 	} else {
 		transcribeLoading?.resolve(transcribeNotice);
 	}
-	if (history.error !== null) {
+	if (history.error !== null && ownsFeedback()) {
 		report.info({
 			title: 'Transcription delivered, but history may be incomplete',
 			description: history.error.message,

@@ -1,13 +1,12 @@
 import { platformCommands } from '#platform/commands';
 import { goto } from '$app/navigation';
-import { whisperingPath } from '$lib/constants/urls';
+import { resolve } from '$app/paths';
 import { pushToTalk } from '$lib/operations/push-to-talk';
 import { runRecipeOnClipboard } from '$lib/operations/recipe-clipboard';
 import {
 	cancelRecording,
-	toggleManualRecording,
 	toggleVadRecording,
-} from '$lib/operations/recording';
+} from '$lib/operations/recording.svelte.js';
 import type { Reach } from '$lib/utils/key-binding';
 import type { WhisperingApp } from '$lib/whispering/app';
 
@@ -91,7 +90,7 @@ const sharedCommands = [
 		// fires (a click arrives with no edge). It ships with the default global
 		// recording chord; push-to-talk ships unbound for users who prefer a hold.
 		on: ['Pressed'],
-		run: (app) => toggleManualRecording(app),
+		run: (app) => app.recording.toggle(),
 	},
 	{
 		id: 'cancelRecording',
@@ -127,7 +126,7 @@ const sharedCommands = [
 		// registers globally; it fires only with Whispering in front. See ADR-0052.
 		reach: 'focused',
 		on: ['Pressed'],
-		run: () => goto(whisperingPath('/settings')),
+		run: () => goto(resolve('/settings')),
 	},
 ] as const satisfies SatisfiedCommand[];
 

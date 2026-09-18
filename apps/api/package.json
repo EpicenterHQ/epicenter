@@ -20,8 +20,6 @@
 		"typegen": "wrangler types",
 		"auth:generate:remote": "infisical run --env=prod --path=/ops --path=/api -- bun x @better-auth/cli generate --yes --config ./better-auth.config.ts --output ../../packages/server/src/db/schema/auth.ts",
 		"db:generate": "drizzle-kit generate",
-		"oauth:seed:local": "bun scripts/seed-oauth-clients.ts",
-		"oauth:seed:remote": "infisical run --env=prod --path=/ops -- bun scripts/seed-oauth-clients.ts",
 		"db:drop": "drizzle-kit drop",
 		"db:push:local": "drizzle-kit push",
 		"db:migrate:remote": "infisical run --env=prod --path=/ops -- drizzle-kit migrate",
@@ -30,7 +28,6 @@
 	},
 	"dependencies": {
 		"@better-auth/drizzle-adapter": "catalog:",
-		"@better-auth/oauth-provider": "catalog:",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/blobs": "workspace:*",
 		"@epicenter/constants": "workspace:*",

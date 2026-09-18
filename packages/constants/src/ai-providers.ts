@@ -1,5 +1,5 @@
 /**
- * AI provider registry and model catalog for hosted chat.
+ * Hosted chat catalog and the hosted transcription model identifier.
  *
  * `AI_MODELS` is the single source of the live provider vocabulary: `AiProvider`
  * is derived from it, and `AI_PROVIDERS` must carry a label for every provider
@@ -75,6 +75,9 @@ export const AI_MODELS = [
 	{ id: 'gpt-5.5', provider: 'openai', label: 'Best', credits: 10 },
 	{ id: 'gemini-3.5-flash', provider: 'gemini', label: 'Fast', credits: 2 },
 ] as const satisfies readonly AiModel[];
+
+/** The gateway, usage events, and application choices share this model ID. */
+export const HOSTED_TRANSCRIPTION_MODEL = 'whisper-1';
 
 export type ServableModel = (typeof AI_MODELS)[number]['id'];
 

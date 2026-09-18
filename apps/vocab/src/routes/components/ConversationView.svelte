@@ -4,20 +4,30 @@
 		AgentChatThread,
 		type ConversationHandle,
 	} from '@epicenter/app-shell/agent-chat';
-	import { complete } from '@epicenter/client';
+	import { getConnectionScreen } from '@epicenter/app-shell/boot-screens';
+	import { CompleteError } from '@epicenter/client';
+ import { tryAsync } from 'wellcrafted/result';
 	import { Button } from '@epicenter/ui/button';
 	import CheckIcon from '@lucide/svelte/icons/check';
+	import { untrack } from 'svelte';
 	import {
 		buildEntryCandidatePrompt,
 		parseEntryCandidates,
 	} from '$lib/entry-candidates';
-	import { auth } from '$lib/platform/auth';
-	import { inferenceConnections } from '$lib/state/inference-connections.svelte';
+	import { getAuth } from '$lib/auth.svelte.js';
 	import { getVocabSurface } from '$lib/surface';
 	import DictationButton from './DictationButton.svelte';
 	import ReadingMarkdown from './ReadingMarkdown.svelte';
 
+	const auth = getAuth();
+	const accountManagementUrl = auth.accountManagementUrl;
 	const { entries } = getVocabSurface();
+	const openConnection = getConnectionScreen();
+	// The route keys this whole surface on Account identity, like its inference client.
+	const account = untrack(() => {
+		const state = auth.state;
+		return state.status === 'signed-out' ? undefined : state.account;
+	});
 
 	let {
 		active,
@@ -131,13 +141,20 @@
 		const controller = new AbortController();
 		entryCandidateAbortController = controller;
 		entryCandidateRequest = { messageId, status: 'loading', candidates: [] };
-		const connection = inferenceConnections.resolveOrHosted(model);
-		const { data, error } = await complete(connection, {
-			model,
-			systemPrompt: buildEntryCandidatePrompt(),
-			userPrompt: passage,
-			signal: controller.signal,
-		});
+		const connection = active ? inferenceConnections.resolve(active.id, model) : null;
+		if (!connection) {
+			entryCandidateRequest = { messageId, status: 'error', candidates: [], detail: 'Choose a connection in the model menu before suggesting entries.' };
+			return;
+		}
+        const { data, error } = await tryAsync({
+            try: async () => {
+                const result = await connection.chat.completions.create({ model, messages: [{ role: 'system', content: buildEntryCandidatePrompt() }, { role: 'user', content: passage }], stream: false }, { signal: controller.signal });
+                const text = result.choices?.[0]?.message?.content;
+                if (typeof text !== 'string') throw new Error('The response contained no text.');
+                return text;
+            },
+            catch: cause => CompleteError.TransportFailed({ cause }),
+        });
 		// A dismiss, a cancel, or a request for another message may have superseded
 		// this one while it was in flight; drop the stale result rather than
 		// overwrite. (A cancel nulls the request, so an aborted request lands here.)
@@ -178,6 +195,7 @@
 		const draft = active.inputValue.trim();
 		active.inputValue = draft ? `${draft} ${text}` : text;
 	}
+	const { inferenceConnections } = getVocabSurface();
 </script>
 
 <svelte:document onselectionchange={handleSelectionChange} />
@@ -199,13 +217,15 @@
 		conversation={active}
 		connections={inferenceConnections}
 		placeholder="Ask about a word, phrase, or sentence you're learning..."
-		onSignIn={() => void auth.startSignIn()}
-		onUpgrade={() =>
-			void window.open(
-					new URL('/dashboard', auth.connection.baseURL).toString(),
+		onSignIn={openConnection}
+		onUpgrade={accountManagementUrl ? () => {
+			if (!account) return;
+			window.open(
+				accountManagementUrl(account).href,
 				'_blank',
 				'noopener',
-			)}
+			);
+		} : undefined}
 	>
 		{#snippet inputAccessory()}
 			<DictationButton disabled={isGenerating} onTranscript={appendTranscript} />

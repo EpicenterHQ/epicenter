@@ -21,7 +21,7 @@
  * runtime tests in this repo use.
  */
 import 'fake-indexeddb/auto';
-import { installTestLocks } from '@epicenter/data/test-locks';
+import { installTestLocks } from '@epicenter/device/test-locks';
 
 installTestLocks();
 
@@ -39,14 +39,19 @@ import { expect, test } from 'bun:test';
 	{ by: <TValue>(derive: () => TValue) => derive() },
 );
 
+import { asPrincipalId } from '@epicenter/principal';
 import { skillsDefinition } from '@epicenter/skills';
 import { openSkillsRuntime } from './application.js';
 
 /** The account these skipped tests will open under once Skills has auth. */
 const ACCOUNT = {
 	baseURL: 'https://api.epicenter.so',
-	principalId: 'skills' as never,
+	authorityId: 'test-authority',
+	principalId: asPrincipalId('skills'),
 	fetch: async () => new Response(null, { status: 404 }),
+	openWebSocket() {
+		throw new Error('Skipped Skills fixture has no sync server.');
+	},
 };
 
 async function resetStorage(): Promise<void> {

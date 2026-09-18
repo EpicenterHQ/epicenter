@@ -17,10 +17,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6", features = [] }
 
 [dev-dependencies]
-# `test` gives the mock runtime, which is how `app_data`'s tests reach the real
-# `PathResolver::app_data_dir` and compare it to the TypeScript resolver that
-# owns the same path (ADR-0201). Test builds only: dev-dependency features are
-# not unified into the shipped binary.
+# The mock runtime verifies native path selection for both bundled identities.
+# Test builds only: these features do not enter the shipped binary.
 tauri = { version = "2.11", features = ["test"] }
 
 [dependencies]
@@ -33,12 +31,16 @@ hf-hub = { version = "0.5", features = ["tokio"] }
 hound = "3.5"
 keyring = "4"
 lazy_static = "1.4"
+libc = "0.2"
 log = "0.4"
 ogg = "0.9"
 rayon = "1.10"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 rubato = "0.15"
+rusqlite = { version = "=0.40.2", features = ["bundled", "hooks", "limits"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 specta = "=2.0.0-rc.25"
 specta-typescript = "=0.0.12"
 symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4"] }
@@ -57,6 +59,7 @@ tauri-plugin-os = "2"
 tempfile = "3.8"
 thiserror = "2.0.12"
 tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io", "rt"] }
 tracing = "0.1.41"
 transcribe-cpp = { version = "0.1.0", default-features = false }
 audiopus = "0.3.0-rc.0"

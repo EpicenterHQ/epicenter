@@ -112,7 +112,7 @@ describe('round-trip: the native enum wire-form', () => {
 // ============================================================================
 
 describe('the palette catalog', () => {
-	test('exactly the thirteen kinds, including date, instant, json, and reference', () => {
+	test('the catalog includes every declared field kind', () => {
 		const expected: Kind[] = [
 			'boolean',
 			'date',
@@ -455,4 +455,9 @@ describe('the rejection lane: unsupported shapes match no meta', () => {
 			expect(recognize(schema)).toBeNull();
 		});
 	}
+});
+
+test('retired byte ownership markers are outside the field vocabulary', () => {
+	for (const marker of ['x-attachment', 'x-blob'])
+		expect(recognize({ type: 'string', [marker]: true })).toBeNull();
 });

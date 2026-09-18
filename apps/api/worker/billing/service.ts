@@ -475,6 +475,12 @@ export function createBillingService(
 		const result = await autumn.billing.attach({
 			customerId: identity.principalId,
 			planId: PLAN_IDS.creditTopUp,
+			featureQuantities: [
+				{
+					featureId: FEATURE_IDS.aiCredits,
+					quantity: PLANS[PLAN_IDS.creditTopUp].creditsPerPurchase,
+				},
+			],
 			successUrl: input.successUrl,
 		});
 		return { checkoutUrl: result.paymentUrl };

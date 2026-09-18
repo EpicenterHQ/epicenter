@@ -78,6 +78,7 @@
 	<ChatErrorBanner {conversation} {onSignIn} {onUpgrade} />
 
 	<CrossDeviceModelGap
+		scope={conversation.id}
 		model={conversation.model}
 		{connections}
 		onUseDefault={() => conversation.useDefaultModel()}
@@ -88,6 +89,7 @@
 	     spans backends. -->
 	<div class="flex items-center gap-2 bg-background px-2 pt-1.5">
 		<InferencePicker
+			scope={conversation.id}
 			model={conversation.model}
 			onSelectModel={(model) => (conversation.model = model)}
 			{connections}

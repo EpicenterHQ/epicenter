@@ -1,17 +1,21 @@
 <script lang="ts">
+	import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
+	import type { Account } from "@epicenter/auth";
+	import type { App } from '@epicenter/app';
+	import { createDictation } from "$lib/state/dictation.svelte";
+	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
 	import { createAgentChatState } from '@epicenter/app-shell/agent-chat';
 	import { Button } from '@epicenter/ui/button';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { VOCAB_MODEL, VOCAB_SYSTEM_PROMPT } from '$lib/data';
-	import type { ReactiveData } from '@epicenter/svelte';
+	import { fromData } from '@epicenter/svelte';
 	import type { vocabDefinition } from '$lib/data';
-	import type { ReplicaData } from '@epicenter/data';
 	import { onDestroy } from 'svelte';
 	import { runVocabMutation } from '$lib/mutation';
 	import { buildPracticeOpening } from '$lib/practice';
 	import { reportBackgroundError } from '$lib/report';
 	import { createEntriesState } from '$lib/state/entries.svelte';
-	import { inferenceConnections } from '$lib/state/inference-connections.svelte';
+	import { createVocabConnections } from '$lib/state/inference-connections.svelte';
 	import { createSettingsState } from '$lib/state/settings.svelte';
 	import { setVocabSurface } from '$lib/surface';
 	import ConversationView from './ConversationView.svelte';
@@ -25,14 +29,31 @@
 	// One document, because an account is required. Everything below reads
 	// `data` and never asks which one it is.
 	let {
-		data,
-	}: { data: ReactiveData<ReplicaData<typeof vocabDefinition>> } = $props();
+		data: opened,
+		selections,
+		account,
+		removeLocalData,
+	}: {
+		account: Account;
+		data: App<typeof vocabDefinition>;
+		selections: InferenceSelections;
+		removeLocalData?: () => Promise<void>;
+	} = $props();
+
+	// `fromData` runs here rather than above, because this mounts exactly once
+	// per opened store and the adaptation is per store.
+	/* svelte-ignore state_referenced_locally */
+	const data = fromData(opened.account!.personal);
 
 	// Read once, not `$derived`: the route mounts this exactly once per opened
 	// store, so `data` never changes while this component lives.
 	/* svelte-ignore state_referenced_locally */
 	const entries = createEntriesState({ data });
-	setVocabSurface({ entries });
+	/* svelte-ignore state_referenced_locally */
+	const inferenceConnections = createVocabConnections(opened, selections);
+	/* svelte-ignore state_referenced_locally */
+	const dictation = createDictation(opened.account?.connection?.client ?? null);
+	setVocabSurface({ entries, inferenceConnections, dictation });
 
 	// The shared chat registry (ADR-0047/0059) with Vocab's variation injected:
 	// capability-free (no tools, no approval), one general multilingual system
@@ -50,13 +71,22 @@
 	});
 
 	/* svelte-ignore state_referenced_locally */
-	const settings = createSettingsState({ data });
+	const settings = createSettingsState({ data: opened.device });
 
-	onDestroy(() => {
-		chat[Symbol.dispose]();
-		entries[Symbol.dispose]();
-		settings[Symbol.dispose]();
-	});
+	let closing: Promise<void> | undefined;
+	export function close(): Promise<void> {
+		closing ??= (async () => {
+			try {
+				await dictation.close();
+			} finally {
+				chat[Symbol.dispose]();
+				entries[Symbol.dispose]();
+				settings[Symbol.dispose]();
+			}
+		})();
+		return closing;
+	}
+	onDestroy(() => void close().catch(() => {}));
 
 	/**
 	 * Practice opens its own conversation, titled after the chosen entries, and
@@ -74,8 +104,11 @@
 	}
 </script>
 
+<PersistenceNotice persistence={data.persistence} />
+
 <Sidebar.Provider>
 	<VocabSidebar
+		{removeLocalData}
 		conversations={chat.conversations}
 		activeConversationId={chat.activeConversationId}
 		onCreate={() =>

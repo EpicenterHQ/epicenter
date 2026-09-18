@@ -33,7 +33,7 @@ shapes, see `docs/adr/`.
 - **Epicenter store**: the storage backing one replica: the durable ledger a
   crash cannot reconstruct, which is the update log, with the outbox and the
   cursor read off it. One IndexedDB object store in the browser, with no worker
-  and no OPFS (ADR-0223, ADR-0241).
+  and no OPFS (ADR-0238, ADR-0241).
 - **Generation**: one whole database, created once by importing a folder and
   never mutated in place (ADR-0293). It is an exact ADDRESS: the number is in
   the local record's name, in the authority's Durable Object name, and in the
@@ -132,14 +132,58 @@ shapes, see `docs/adr/`.
   durable ledgers behind a persistence controller, and a synchronous surface
   over both. Opening one is the only asynchronous operation an application
   has.
+- **Library**: one application's data in one destination, named Local,
+  Personal, or Shared (ADR-0375). Local is this machine, Personal is one signed-in
+  person's server data, Shared is one self-hosted deployment's common data.
+- **App hub** (unbuilt, ADR-0392): what one `open(account)` returns: `device`,
+  an optional `account`, plus `signal`, `ready`, and `close`. `device` is always
+  present; `account` is present when a person is signed in. The framework supplies
+  libraries and safe storage; applications choose library views and write
+  destinations without a mandatory picker or copy feature. Each store sits
+  under the scope that owns it. A page owns one auth generation, and an account
+  change ends it. Today three openers each return one library instead.
+- **Device scope** (unbuilt, ADR-0392): `app.device`, everything true of this
+  application's device storage or browser profile. The same store implementation with no
+  authority, plus `sqlite`, `secrets`, `connections`, and `recording`, which
+  exist nowhere else. Its tables hold the library a person reads as Local. Local data and device
+  preferences survive account changes; they are not account-private.
+  Reopening replaces the handle, not the Local data. Blob storage is app-local
+  and independent of these row libraries.
+- **Account scope** (unbuilt, ADR-0392): `app.account`, everything true of the
+  signed-in person on one server, present only while signed in. It holds
+  `identity`, the `personal` store, the optional `shared` store, and
+  `connection`, that server's inference gateway. It ends with the auth
+  generation.
+- **Blob reference** (ADR-0393): a local BlobId or remote URL stored as an
+  ordinary row value. A row can reference several blobs and several rows can
+  reference one blob. Row deletion does not delete bytes. There is no owning
+  attachment field or automatic byte transfer.
+- **Saved capture** (ADR-0366): Stop publishes completed audio into the app-local
+  blob store and returns its key. The workflow then creates its recording row
+  in the destination retained before capture. Failed row creation leaves the
+  blob available. Unfinished capture may be lost on reload or termination.
+- **Cross-library copy** (optional application workflow, ADR-0399): an app
+  composes reads and ordinary destination creation. New rows get new IDs.
+  Copying blob references does not upload bytes or transfer remote ownership.
+  Sign-in does not move Local data.
+- **Materialization** (ADR-0394): readable row Markdown, settings, and checkout
+  metadata. Blob keys and URLs remain references; Pull copies no audio and
+  downloads no remote objects. Local rows remain Local.
+- **Saved folder** (ADR-0394): a copy or ZIP of the materialization as it stands,
+  including unpushed edits. It contains no blob payloads or exact-state recovery
+  guarantee. Server backup retention and a dedicated restore UI are deferred.
+- **Content recovery** (ADR-0395): Pull a current working copy, preserve its
+  manifest, bring selected old content into its files, and preview ordinary
+  Push. Deleted rows return as newly admitted rows. File deletion permanently
+  deletes the row; an application's Trash field is a normal frontmatter value.
 - **Data definition**: one application's inert, pure JSON declaration of its
   durable data, created with `defineData` and read with `parseData` (ADR-0255).
   It is release-local: a newer release ships a newer declaration over the same
   durable data. Definitions have no defaults; initialization and recovery are
   application decisions.
 - **Opened data**: the synchronous typed surface (`tables`, `kv`, `documents`,
-  `store`, and `transact`) an opened runtime holds over one data definition.
-  Born with the store; nothing rebinds a live runtime.
+  `store`, and `transact`) an opened store holds over one data definition.
+  Born with the store; nothing rebinds a live store.
 - **Database document**: the one Yjs document a database is (ADR-0295),
   persisted under the log name `app`. Its top-level roots are the bare named
   root `kv` and one `tables:<name>` root per declared table (ADR-0257). A row is
@@ -216,9 +260,11 @@ shapes, see `docs/adr/`.
 - **`dial`**: the one thing a host supplies to the transport, a function that
   makes a socket. The library owns the cursor, attach and detach, reconnect, and
   the unacknowledged-submission watchdog (ADR-0222).
-- **Blob**: content-addressed bytes logged against the server, a separate plane
-  from rows that was never CRDT-backed. Local blobs may sit queued until they are
-  uploaded.
+- **Blob**: immutable bytes with their own identity and lifetime. Local objects
+  belong to the app on this device and use extension-bearing BlobIds (ADR-0349).
+  Explicit remote uploads create independent account-owned objects and return
+  URLs (ADR-0372). Neither row synchronization nor row deletion transfers or
+  deletes bytes.
 - **Worker**: running behavior that observes Epicenter state and writes results
   back. Workers may be local (every node runs them) or agent-bound (one
   configured agent answers). A conversation is answered by the client agent loop
@@ -239,8 +285,10 @@ shapes, see `docs/adr/`.
   streams the live turn into a snapshot the UI renders, and persists finished
   messages as rows (ADR-0047). It replaced the older doc-observing _answerer_,
   which ADR-0047 removed.
-- **Materializer**: a local, addressless worker that projects Epicenter data
-  into another store (markdown, sqlite). Matter is the one surviving user.
+- **Working-copy materialization**: Markdown documents, settings, and a checkout
+  manifest. Pull writes app data to the folder; Push applies approved folder
+  edits against the saved baseline. Blob IDs and URLs remain references: neither
+  operation copies, fetches, or deletes blob bytes (ADR-0394, ADR-0395).
 - **`attach*` vs `create*`**: `attach*` are side-effectful primitives that register
   listeners at call time; `create*` are pure construction.
 
@@ -254,18 +302,23 @@ shapes, see `docs/adr/`.
 - **Data session**: what `epicenter` owns once a definition and an account are
   passed. Construction is inert; `open` acquires the document, the Web Lock,
   the persistence connection, the sync socket, and the flush-on-hide listener,
-  and `close` releases all five. `state` reports `closed | opening | ready |
-  failed`, and the typed data rides on `ready`. Nothing on `state.data` can end
-  the session.
-- **Ready-application shape**: one session opened from the application root
-  after auth is ready, rendered through the four states of `epicenter.state`,
-  with `state.data` passed down through typed context. Library modules stay
+  and `close` releases all five. `open()` is synchronous and answers a
+  `DataSession` whose `opened` settles once; nothing on the store it resolves
+  can end the session (ADR-0350).
+- **Ready-application shape**: a boot node reads auth reactively and keys one
+  session component on the principal; that component opens, renders `{#await
+  session.opened}`, and closes on unmount. The shell it mounts calls `fromData`
+  once and passes the result down through typed context. Library modules stay
   inert, which `scripts/check-boot-purity.ts` enforces.
-- **`#platform/*`**: the build-time platform DI seam for multi-platform (Tauri) apps.
+- **`#platform/*`**: an app's build-time platform seam, selected by the `epicenter-host` condition in a build this repository runs. `@epicenter/app` currently uses the same mechanism. Proposed ADR-0403 would move the package's selection to `isTauri()` at runtime; that change is unbuilt.
 - **`session`**: the singleton holding the signed-in Epicenter lifecycle.
-- **deviceConfig vs synced values**: per-device settings (global shortcuts,
-  machine collisions) versus synced settings (local shortcuts). The asymmetry is
-  deliberate.
+- **Device settings vs synced settings**: per-device settings (global shortcuts,
+  the microphone, the inference selection) versus synced settings (in-app
+  shortcuts). The asymmetry is deliberate (ADR-0007): machine-world settings face
+  per-device collisions and OS keys. Device settings live in Whispering's
+  `deviceConfig` today and belong in `device.kv` (unbuilt, ADR-0392). The
+  machine's endpoint catalog is `app.device.connections` and the server's
+  gateway is `app.account.connection` (unbuilt, ADR-0396).
 - **Vault**: the designated, not-yet-built home for the one encryption that
   survives ADR-0004: an explicitly encrypted store for the values a person
   brings that name no durable local state, such as a provider API key. The key

@@ -16,6 +16,7 @@
 		"windows": [],
 		"security": {
 			"capabilities": [
+				"application-close-production",
 				"home-model-administration-production",
 				"mail-gmail-authorization-production",
 				"home-launch-application-production",

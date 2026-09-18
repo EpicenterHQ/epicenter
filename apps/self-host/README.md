@@ -1,140 +1,152 @@
-# Epicenter Self-Hosted Instance (Reference)
+# Self-hosted Epicenter
 
-A self-hosted Epicenter is one instance: a single partition behind one bearer token you generate and hand out. There are no accounts, no OAuth app to register, no sign-in flow, and no mode to pick. You run the box, you generate a token, and everyone you give that token to reaches the same partition. Not operated by Epicenter: you run the infrastructure, so Epicenter never holds or sees what is stored here.
+This community-supported deployment runs on infrastructure you control. The
+server operator enrolls named people; each person signs in with a passkey. The
+shared credential owner in `@epicenter/server/self-host-auth` stores admission,
+passkeys, sessions, and recovery grants together. Cloud billing remains in
+`apps/api`.
 
-"Solo" and "shared" are not settings. They are just how many people you hand the one token to. A homelab box for yourself and a shared box for your family or lab are the same deployment; the only difference is the size of the group that holds the credential.
+The library-ownership implementation is in progress. Both runtime entries serve
+passkey sign-in and named sessions. The Worker also serves store sync; Bun still
+needs its sync backend. Browser apps and desktop Settings can select this server
+and sign in through its issuer. Shared libraries and optional passwords remain
+unbuilt.
+Follow the [execution plan](../../specs/20260909T004225-library-ownership-execution.md)
+for remaining work and verification.
 
-## Quick start (Bun, the blessed path)
+## Run the Bun issuer locally
 
-The whole box is `bun server.ts`: no database, no Cloudflare account, nothing to provision. Generate a token, supply it as `INSTANCE_TOKEN`, and boot:
+From the repository root:
 
 ```bash
-# 1. Generate a strong token (256 bits, base64url). Persists nothing.
-bun run --cwd apps/self-host gen-token
-#   -> Hq9...43-char-token...kQ
-
-# 2. Boot the instance with that token.
-INSTANCE_TOKEN=Hq9...kQ \
-bun apps/self-host/server.ts
+bun dev:self-host
 ```
 
-Then paste the same token into the client's instance setting (`{ baseURL, token }`), once. Every request from that client arrives as `Authorization: Bearer <token>` and authenticates against `principals/instance`. Hand the token to one person or to your whole group; the command is identical either way.
+The default issuer is `http://localhost:8787`. Auth state lives in
+`apps/self-host/data/auth.sqlite`. `AUTH_DB_PATH` can select another file; relative
+paths are resolved from `apps/self-host` for both the server and operator command.
+Keep the database and its SQLite sidecar files on persistent storage.
 
-Boot fails closed if `INSTANCE_TOKEN` is missing or too weak, and the error names `gen-token`. The box never mints or stores a token: you own the secret, which is exactly what lets the same instance run on Cloudflare too. To rotate, generate a new token, restart with it, and redistribute it; there is no per-person revocation (see [Offboarding](#offboarding-and-rotation)).
-
-`INSTANCE_TOKEN` is the only required variable. The instance needs no external
-database, no auth secret, and no local application data: a client owns its own
-store, and neither entry point constructs a database (ADR-0226, ADR-0227).
-
-If a browser app is hosted on a different origin from the instance, set
-`TRUSTED_BROWSER_ORIGINS` to a comma-separated list of exact origins, for
-example `https://notes.example.com`. Same-origin clients and the Tauri desktop
-client need no additional entry. Paths and wildcard origins are rejected.
-
-### Use TLS
-
-A static bearer over plaintext HTTP is total compromise: anyone who sees one request can capture the token and replay it forever. Terminate TLS in front of the box (Caddy, nginx, a Cloudflare Tunnel) and serve the instance over HTTPS. A homelab on a trusted LAN behind its own boundary is your call, but the moment the box is reachable over the open internet, plain `http://` hands out the keys.
-
-## Running on Cloudflare
-
-The same `@epicenter/server` composition runs as a Worker (`worker/index.ts`). It works because you supply the secret; there is no first-boot minting that would tie the instance to a single Bun process. Set the token, then deploy:
+Enroll a person in that same database:
 
 ```bash
-bun run --cwd apps/self-host gen-token | tr -d '\n' | \
-  bunx wrangler secret put INSTANCE_TOKEN --cwd apps/self-host
+bun apps/self-host/scripts/manage-user.ts admit alice 'Alice'
+```
 
+Deliver the printed, expiring link privately to Alice. Opening it creates a
+passkey and signs her in. The page removes the grant from the address bar before
+the ceremony. This enrollment link grants one credential; it is not an
+application bearer token.
+
+Use the same `API_PUBLIC_ORIGIN`, `PORT`, and `AUTH_DB_PATH` environment when
+running the server and operator command. A non-local issuer requires a stable
+HTTPS origin because passkeys are bound to its host.
+
+```bash
+bun apps/self-host/scripts/manage-user.ts recover alice
+bun apps/self-host/scripts/manage-user.ts remove alice
+```
+
+Recovery immediately invalidates Alice's old credentials and sessions and prints
+a replacement enrollment link for the same user ID. Removal disables access and
+outstanding grants. Neither command changes library content. Recovery cannot
+restore a removed user, and `instance` is reserved to prevent accidental access
+to historical shared-token data.
+
+## Configure the Worker
+
+`worker/index.ts` uses the same credential commits through a SQLite Durable
+Object named `deployment`. `wrangler.jsonc` declares `SELF_HOST_AUTH` and its
+migration alongside the existing store bindings. Preserve existing migration
+history when adapting a customized Worker.
+
+Set `API_PUBLIC_ORIGIN` to the exact HTTPS issuer origin. Set
+`SELF_HOST_CALLBACKS` to a JSON array of exact application callback URLs, for
+example `["https://notes.example.com/auth/callback"]`. The checked-in empty array
+allows passkey enrollment and sign-in but refuses application handoffs.
+`TRUSTED_BROWSER_ORIGINS` separately controls cross-origin API requests and takes
+a comma-separated list of exact browser origins.
+
+The Worker exports a named `SelfHostOperator` entrypoint for admission, recovery,
+and removal. The command reaches it through a remote service binding authenticated
+by Wrangler. Sign in with `bun x wrangler login`, or provide a
+`CLOUDFLARE_API_TOKEN` authorized to create Worker preview sessions in the selected
+account. The deployed Worker must contain this entrypoint before using the command.
+
+From the repository root, substitute your Cloudflare account ID and deployed Worker
+name (including its environment suffix, if any):
+
+```bash
+export CLOUDFLARE_ACCOUNT_ID='<account-id>'
+bun apps/self-host/scripts/manage-worker-user.ts my-self-host admit alice 'Alice'
+bun apps/self-host/scripts/manage-worker-user.ts my-self-host recover alice
+bun apps/self-host/scripts/manage-worker-user.ts my-self-host remove alice
+```
+
+These commands always change the selected remote deployment. They do not deploy
+code or open the Bun SQLite file. Admission and recovery print a private, expiring
+link using the deployment's configured issuer origin. Recovery and removal have
+the same identity and invalidation behavior described above.
+
+Cloudflare's account permissions protect the service binding. The named entrypoint
+has no HTTP handler and the public Worker exposes no administration routes. Treat
+access to create service bindings in this account as operator access.
+`INSTANCE_TOKEN` no longer authorizes either entry.
+
+The implementation uses Wrangler's [remote service bindings](https://developers.cloudflare.com/workers/local-development/bindings-per-env/)
+and [getPlatformProxy API](https://developers.cloudflare.com/workers/wrangler/api/).
+Direct remote Durable Object bindings are unsupported, so the service entrypoint
+forwards commands to the same `SelfHostAuthOwner` that serves sign-in.
+
+## Connect an application
+
+After Alice creates her passkey from the private link, she opens her app,
+chooses **Connect to your server**, and enters the issuer origin. The app opens
+the server's sign-in page and receives its own session through the callback.
+The existing browser sign-in can finish this handoff without another passkey
+prompt. Reauthentication asks for a fresh passkey proof.
+
+For a browser app, allow its exact `/auth/callback` URL in
+`SELF_HOST_CALLBACKS` and its origin in `TRUSTED_BROWSER_ORIGINS`. Desktop uses
+`epicenter://auth/callback`; select the server in Home Settings, restart, and
+choose **Sign in**. The desktop host keeps the credential and makes requests
+for application windows.
+
+An enrollment link does not select an application or start its PKCE transaction.
+Alice returns to the app to start that handoff. Recovery gives her a new passkey
+for the same identity. Her existing local data stays attached to that identity.
+
+## Session and access boundaries
+
+The issuer's `/sign-in` page performs the passkey ceremony. An application sends
+an exact callback, state, and PKCE challenge. A one-use code is exchanged for an
+independent opaque bearer, preserving the time of the original sign-in.
+`reauth=1` requires a fresh passkey ceremony. The browser cookie and application
+bearer have separate lifetimes and revocation operations.
+
+Each protected request resolves current admission. Removing a person refuses
+subsequent checks; it does not erase offline copies or undo already authorized
+work. Existing store sockets retain their fixed 600-second authorization
+deadline. Issued blob tickets retain their 120-second GET or 300-second PUT
+lifetime. These are separate bounds, not an immediate global revocation claim.
+
+`OPENAI_API_KEY` and `GEMINI_API_KEY` enable the shared inference gateway. Admitted
+users consume those configured provider accounts without per-person billing.
+Inference and transcription each have a 120-request-per-minute policy, local to
+the Bun process or Worker isolate. Configure provider spending limits to match
+the group you admit.
+
+## Development evidence
+
+From the repository root:
+
+```bash
+bun test apps/self-host/runtime-profile.test.ts packages/server/src/self-host-auth
 bun run --cwd apps/self-host typecheck
-bun run --cwd apps/self-host deploy
+bun apps/self-host/smoke/application.browser.mjs
+bun apps/self-host/smoke/application.browser.mjs --worker
 ```
 
-`INSTANCE_TOKEN` is the only secret to set: the instance composes no Better Auth and no Postgres, so there is no `BETTER_AUTH_SECRET` and no Hyperdrive binding (ADR-0075). Set `API_PUBLIC_ORIGIN` in `wrangler.jsonc` to your domain. A Worker has no boot phase, so the entropy gate (`assertStrongToken`) runs per request at the edge: a weak or unset `INSTANCE_TOKEN` fails every request closed. Use `gen-token` for the secret.
-
-`worker-configuration.d.ts` is hand-written: it inherits the library's binding
-contract (`ServerBindings`) and declares the deployment-owned config,
-`API_PUBLIC_ORIGIN` and `INSTANCE_TOKEN`. If you add bindings of your own,
-declare them there (or regenerate with `bun run typegen` and re-add the
-`extends` clause).
-
-## What this isn't
-
-This is not Epicenter Cloud. There are no billing routes (billing is hosted-only and lives in `apps/api/worker/billing/`), no dashboard SPA, and no SLA, support contract, or paid hosting from Epicenter. There is also no per-user partitioning: every valid token reaches the one `principals/instance` partition. Multi-tenancy, where everyone signs in and gets their own private partition, is Epicenter Cloud's only. An enterprise that wants on-prem runs one instance (shared), or one instance per person or team.
-
-Community-supported, not Epicenter-operated. Issues filed against this folder are accepted as community contributions.
-
-### Store sync is not mounted here yet
-
-The store transport is `mountStoreSyncApp` in
-`packages/server/src/store-sync/`, and only the hosted Worker mounts it today.
-It resolves one authority per (principal, application id, generation) as a
-Cloudflare Durable Object, and no other runtime implements that backend yet. So an instance
-currently serves session, inference, transcription, and blobs. An application
-pointed at it keeps its data locally without converging with a second device.
-
-## Inference and your house key
-
-If you set `OPENAI_API_KEY` or `GEMINI_API_KEY`, the instance offers an OpenAI-compatible inference gateway at `/v1/chat/completions`. That is YOUR key, the "house key", shared by everyone holding `INSTANCE_TOKEN` and unmetered: there is no per-person billing on an instance (that is Cloud's job). Leave both unset and the gateway returns 503 until configured.
-
-Two things keep that from becoming a runaway bill:
-
-- **Set a hard spend cap on the provider key itself.** This is your real ceiling. In the OpenAI or Google AI dashboard, give the key a monthly hard limit. If `INSTANCE_TOKEN` ever leaks, that cap is what bounds the damage, regardless of anything in this box. Do this before you hand the token out.
-- **The box also rate-limits the gateway** (`rateLimit({ requests: 120, windowSeconds: 60 })` in `server.ts` / `worker/index.ts`) as an in-process burn-rate floor. It is exact on the single-node Bun box and per-isolate on Cloudflare. Tune it to your group's size, or drop the policy to leave it uncapped. It is a backstop, not a substitute for the provider cap above.
-
-## Composition
-
-The whole instance is the same handful of lines on either runtime: build the app
-with `createServerApp`, then mount each surface. No billing, no SPA, no
-`mountCloudAuth`, no `mountCloudDb`. Bun (`server.ts`) reads the token once at
-boot and runs the entropy gate there:
-
-```ts
-const token = requireStrongInstanceToken(env.INSTANCE_TOKEN);   // fail closed if weak
-const resolveBearerPrincipal = createEnvTokenResolver(token);   // one bearer
-const auth = requireBearerPrincipal(resolveBearerPrincipal);    // every surface
-const app = createServerApp({
-  resolveOrigin: () => origin,
-  resolveTrustedOrigins: () => trustedOrigins,
-});
-mountSessionApp(app, { auth });
-mountInferenceApp(app, {
-  auth,
-  policies: [rateLimit({ requests: 120, windowSeconds: 60 })],  // burn-rate floor
-});
-mountTranscriptionApp(app, {
-  auth,
-  policies: [rateLimit({ requests: 120, windowSeconds: 60 })],
-});
-mountBlobsApp(app, { auth });
-```
-
-Cloudflare (`worker/index.ts`) reads the per-request secret at the edge instead,
-running the same entropy gate per request (a Worker has no boot phase):
-
-```ts
-const resolveBearerPrincipal: ResolveBearerPrincipal = (c, bearer) =>
-  createEnvTokenResolver(
-    assertStrongToken((c.env as Cloudflare.Env).INSTANCE_TOKEN),
-  )(c, bearer);
-const auth = requireBearerPrincipal(resolveBearerPrincipal);
-// ...createServerApp({ resolveOrigin, resolveTrustedOrigins }), then the same
-// session + inference + transcription + blobs mounts, minus attach.
-```
-
-`runtime-profile.test.ts` declares that one divergence and holds every other
-surface to parity across both entries.
-
-Deliberately absent: `mountBillingApi`, any OAuth provider, a launch-time mode selector, an admission allowlist, and first-boot token minting. The shape is the contract.
-
-## Offboarding and rotation
-
-A multi-person instance has one honest cost: removing someone means rotating the token and redistributing it to everyone who stays. There is no per-member revocation and no authenticated attribution; whoever holds the token is the instance owner, and attribution in collaborative presence is self-declared. This is fine for the trusted small group an instance targets (a family, a club, a lab, a small team) and gets painful past roughly six to eight people with involuntary churn.
-
-The escape, when that pain is real, is named per-person tokens: a hashed token registry behind the same verifier and the same constant partition, so each person gets their own revocable token and a server-stamped identity, with zero data migration. It is a deliberately unbuilt seam (ADR-0075). If you are hitting the offboarding cliff, that is the signal to build it, or to move to Epicenter Cloud, which is multi-tenant by design.
-
-## See also
-
-- [ADR-0075](../../docs/adr/0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md) for why an instance is one partition behind one bearer
-- [ADR-0076](../../docs/adr/0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md) for why the instance composes no Better Auth and no Postgres
-- [ADR-0095](../../docs/adr/0095-websocket-room-auth-uses-route-owned-subprotocol-bearers.md) for why a WebSocket upgrade carries the bearer as a route-owned subprotocol
-- [ADR-0226](../../docs/adr/0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md) and [ADR-0227](../../docs/adr/0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md) for why a server owns no application data
-- `apps/api` for the hosted personal cloud variant (OAuth, principal partitions, billing)
-- `packages/server` for the shared library both deployables compose
+The production Worker credential owner also has real WebAuthn and HTTP handoff
+coverage in `packages/server/evidence/enrollment`. The runtime profile explicitly
+records Bun's missing sync backend so auth parity cannot imply sync parity.

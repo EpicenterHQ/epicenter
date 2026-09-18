@@ -1,20 +1,14 @@
-import { createHostedBrowserRedirectAuth } from '@epicenter/auth';
-import { fromAuth } from '@epicenter/auth/svelte';
-import { EPICENTER_HONEYCRISP_OAUTH_CLIENT_ID } from '@epicenter/constants/oauth-clients';
+import { createBrowserAuth } from '@epicenter/auth';
+import { APPS } from '@epicenter/constants/apps';
 import { APP_URLS } from '@epicenter/constants/vite';
-import { APP_ID } from '$lib/app-id';
 
-export const authClient = createHostedBrowserRedirectAuth({
-	appId: APP_ID,
-	oauthClientId: EPICENTER_HONEYCRISP_OAUTH_CLIENT_ID,
+export const authStartup = createBrowserAuth({
+	appId: APPS.HONEYCRISP.id,
 	baseURL: APP_URLS.API,
 });
 
-// Boot code takes `authClient`; a component that must track takes `auth`.
-export const auth = fromAuth(authClient);
-
 if (import.meta.hot) {
-	import.meta.hot.dispose(() => authClient[Symbol.dispose]());
+	import.meta.hot.dispose(() => authStartup[Symbol.dispose]());
 
 	// `accept` is what makes the `dispose` run. Vite disposes only the module an
 	// update was ACCEPTED at, so a leaf with a disposer and no accept is never

@@ -1,279 +1,177 @@
-# local-mail
+# Local Mail
 
-Gmail in Epicenter. Local Mail pulls a Gmail account into a disposable local
-cache with full pulls plus incremental `history.list` polling, records triage
-acts as durable local assertions, and delivers them back to Gmail from one
-reconciler per account.
+Local Mail downloads Gmail, records triage changes on this device, and saves
+named SQL queries in your Epicenter library. Select a connected Gmail account
+and press **Run** to inspect its downloaded messages and labels.
 
-It is a first-party Epicenter application and nothing else (ADR-0317). There is
-no CLI, no MCP server, no HTTP API, and no standalone Bun or Tauri runtime. The
-human workflow is the application: connect an account, look at the mailbox,
-triage it, reconcile, and remove it.
+One mounted application document owns one App. The App captures the Epicenter
+account and supplies synchronized data, local SQLite, and private secrets.
+Gmail accounts are separate: their Google subjects select individual cache
+files within the captured Epicenter account's device scope. Switching Epicenter
+accounts does not expose another person's connected mailboxes.
 
-## Four artifacts, and none of them are Epicenter Data
+## Saved queries and downloaded mail
 
-| | What it is | Where it lives | If you lose it |
-| --- | --- | --- | --- |
-| which accounts are connected | a fact about this device | `sqlite.open('local')`, durable | reconnect each account |
-| undelivered triage | a person's own act | `sqlite.open('local')`, durable | real work, unrecoverably |
-| the mail itself | borrowed data | `sqlite.open('mail-<sub>')`, one per account | nothing but quota; re-pull |
-| the credential | a secret | the host's keychain, never synchronized | reconnect that account |
+The storage boundary follows who owns each artifact:
 
-Run ADR-0318's test on each one and it answers no four times: Gmail is the
-authority for the copy, undelivered triage is a command addressed to Gmail, the
-credential is Google's, and which accounts are connected is a fact about this
-machine because the credential that makes a connection real cannot leave it. So
-Local Mail holds no Epicenter Data at all (ADR-0319). A preference would be the
-first artifact to answer yes, and there is not one yet.
+| Artifact | Storage | Synchronizes |
+| --- | --- | --- |
+| Named SQL definitions | `app.account.personal.tables.savedQueries`, fields `name` and `sql` | Yes |
+| Connected Gmail accounts | `app.device.sqlite.open('local')` | No |
+| Pending triage and last delivery report | The same durable `local` file | No |
+| Downloaded Gmail facts | `app.device.sqlite.open('mail-<sub>')` | No |
+| Gmail refresh token | `app.device.secrets`, labeled by Google subject | No |
 
-Everything is reached through one scoped handle (ADR-0316):
+A saved query uses an ordinary row ID and has no content codec. Duplicate names
+and invalid SQL are allowed. **Save** stores text and waits for local
+persistence; it never executes SQL. The editor reports storage failures and
+preserves a draft when the stored row changes elsewhere. Incompatible rows can
+be repaired or deleted using their original IDs.
 
-```ts
-const epicenter = createEpicenter({
-	appId: 'so.epicenter.local-mail',
-	binding,
-});
+**Run** captures the current SQL and selected Google subject. The product
+operation fixes access to the physical `messages` and `labels` tables. SQLite
+rejects writes, additional statements, schema access, and other tables, and
+bounds work, rows, and result bytes. These table names are unrelated to the
+synchronized `savedQueries` collection. Execution needs no Gmail credential.
+
+Results are transient, text-rendered cells. Empty results retain headers;
+duplicate column names retain their positions. Large integers and blobs retain
+their exact values. Switching Gmail accounts cancels the displayed run and
+clears its results. Editing or selecting a saved query never runs it.
+
+For example:
+
+```sql
+SELECT sender, count(*) AS messages
+FROM messages
+GROUP BY sender
+ORDER BY messages DESC
+LIMIT 25;
 ```
 
-**The key is Google's subject, and nothing allocates it.** Every mail file,
-every intent row, and every secret is addressed by `sub`, which Google returns
-identically on every connection, so reconnecting an account lands on its own
-rows by arithmetic rather than by lookup. An earlier design minted a row id for
-each account and keyed the stores by it, which meant removal deleted the only
-name those rows had; deriving the key removes that failure rather than guarding
-against it. The address is display metadata and is refreshed on each connection.
+Queries report downloaded Gmail facts. Triage reads additionally overlay
+pending label changes: a pending archive removes a message from the inbox
+immediately, while SQL still reports its cached labels until synchronization
+updates the cache. Query results offer no message actions.
 
-**The split is by lifetime, not by concern.**
+## Opening and closing
 
-```txt
-<epicenter-data-root>/apps/so.epicenter.local-mail/sqlite/
-├── local.sqlite            durable, kilobytes, migrated, never unlinked
-│     accounts, label_intents, intent_meta
-└── mail-<sub>.sqlite       borrowed, gigabytes, unlinked routinely
-      cache_meta, messages, labels
-```
+`ui/src/lib/data.ts` declares data without opening resources. The primary route
+imports `application.ts` only after mounting, checks `app.ready`, and then
+renders the mail shell. Auth callbacks and Gmail consent callbacks open no
+primary library. Importing or preloading the route does not open one either.
 
-`local` holds the only irreplaceable bytes. A mail file is a copy Gmail still
-has, so clearing one is an unlink rather than a delete of millions of rows
-followed by a `VACUUM`, corruption costs one account's re-pull instead of
-everything, and a statement in a mail file cannot reach another account's mail
-because the file is the scope.
+`application.ts` calls `application.open(account)` and reads saved queries from
+`app.account.personal`. Gmail SQLite and credentials live under `app.device`.
+Identity is required on first opening. A cached
+identity and an existing library can reopen without network access; connection
+health does not disable local triage, Undo, outbox reads, or queries.
 
-The schema version lives in `PRAGMA user_version` and never in a filename. The
-same integer means opposite things: in `local.sqlite` it is a migration cursor,
-and in a mail file it is a demolition trigger, so a build that wants a shape the
-file does not have closes it, unlinks it, and pulls Gmail again.
+The exported `mail` object holds module-private workflow state. Core account
+functions receive that state and scoped capabilities; they do not construct a
+Device or own another application lifetime. Account removal refuses new work,
+drains admitted work, and checks pending triage before deleting anything.
 
-## The write model
+Document departure checks the query draft, stops UI producers, drains mail
+work, and closes the App. A failed save prevents deliberate departure. Switching
+Epicenter accounts or servers requires closure and full document navigation.
+Refreshing credentials for the same owner preserves the App.
 
-There is one model, and this is it (ADR-0198, ADR-0199).
+Gmail caches, account registries, credentials, and pending work use one device
+namespace per app and Epicenter account. Returning to that account restores its
+local data. Disconnecting Gmail remains a separate product action. Earlier
+storage is neither merged nor deleted; reconnect Gmail in the intended account
+namespace. Saved queries remain synchronized account data.
+Durable schema version 1 is preserved;
+unknown durable schemas are refused. Unknown cache schemas can be rebuilt.
 
-**A triage act writes a durable assertion, not a Gmail call.** Acting on a
-message records one row per touched label: a partial map from (message id, label
-id) to want or do-not-want, per account. Ids only, never names, because Gmail's
-label ids are immutable and its names are editable display strings. The map
-holds opinions only about labels a person touched, so it never claims a whole
-desired label set, and it is keyed so re-asserting a pair overwrites it. Archive,
-then un-archive, then archive is one row.
+## Receiving and changing mail
 
-**One reconciler per account is the only thing that writes to Gmail.** It drains
-the account's assertions, retires each one Gmail confirms, then pulls Gmail's
-facts. Running a pass requires the account's claim as a value rather than as a
-promise the caller made: `reconcileAccount` takes what `claimReconcile` mints,
-so delivering and pulling cannot interleave.
+Sync downloads the whole mailbox, including Spam and Trash, then maintains it
+through Gmail history. Each downloaded page becomes readable before later
+pages finish. A full scan runs when no cursor exists or Gmail rejects an expired
+cursor. History label additions and removals preserve unrelated labels.
+Separate attachment bytes are not downloaded.
 
-**Reversal is a new assertion.** Undo asserts the opposite want on the same key.
-Nothing retires an assertion by comparing it to the cache: the cache lags Gmail
-and can be incomplete, so a "the cache already agrees" rule would drop real
-writes on stale evidence. Only provider confirmation retires an assertion.
+Each completed page saves its messages and a download bookmark in the same
+SQLite transaction. If the application stops, the next sync starts at that
+bookmark; an unfinished page is fetched again. A failed continuation request
+with HTTP 400 triggers one fresh scan attempt. Other failures preserve the
+bookmark for retry. Existing version 1 caches upgrade without losing mail.
 
-**Undelivered work is visible and discardable.** Status reports the undelivered
-count and the age of the oldest. `discardAll` abandons every undelivered
-assertion; it cannot un-send one already delivered. There is no attempt counter,
-no per-row error, no retry schedule, no dead-letter tier, and nothing expires.
-Retries are bounded by a human, which is what discard is for.
+The bookmark retains the history position from before the scan, so changes
+during the download can be caught up afterward. Each fresh scan also has its
+own ID: finishing removes cached messages absent from that scan without relying
+on the system clock. This recovery does not require a shutdown callback to run.
 
-**Reads apply the overlay.** A page of the triage list is Gmail's facts with
-this machine's undelivered assertions applied, computed in SQL so filtering,
-ordering, and paging are all post-overlay: an archived message leaves the inbox
-page immediately and the page still comes back full.
+Triage records a durable assertion for one message and one label. It does not
+need the cache or a credential. Undo records the opposite choice against the
+captured account and message with a newer revision. Only provider confirmation
+retires an assertion; agreement with a possibly stale cache is insufficient.
 
-## Shape
+One reconciler per Google subject delivers pending assertions before pulling
+Gmail updates. Concurrent requests share the run and request a follow-up pass.
+The UI requests reconciliation on account opening, after a successful triage
+write, and on Retry. There is no background reconciliation timer.
 
-| Module | What it owns |
-| --- | --- |
-| `storage.ts` | the app id, both schemas, and how each kind of file is opened |
-| `accounts.ts` | the registry, connect, remove, and one account's session |
-| `handle.ts` | the one way both stores read and write their database |
-| `mailbox.ts` | one account's disposable cache, which is one file, and the overlay |
-| `intent-store.ts` | one account's slice of the durable assertions, keyed by `sub` |
-| `assert.ts` | the act path: entirely local, resolves label names to ids |
-| `reconcile.ts` | the one Gmail writer: drain, then pull |
-| `reconcile-claim.ts` | who may run a pass, and what that does not promise |
-| `sync.ts` | full pull and incremental `history.list` folding |
-| `oauth.ts` | the authorization-code and PKCE flow, as a page performs it |
-| `token-manager.ts` | the live access token over the stored refresh token |
-| `gmail-client.ts` | the Gmail transport, with backoff and one-shot refresh |
-| `schema.ts` | the Gmail shapes this application reads |
+The outbox reads pending assertions and the last pass from durable storage.
+Cache access enriches subject lines but cannot hide pending work if it fails.
+Removal refuses while changes are owed. After explicit discard or successful
+delivery, removal deletes the credential, cache, and durable account rows in
+that order so a failed step remains reachable for retry.
 
-## Where the desktop and the browser differ
+## Browser and desktop
 
-One application, built twice (ADR-0310). The difference is two typed failures
-rather than any branch in application code.
+Both builds use App-owned storage. Browser SQLite runs in an OPFS worker;
+desktop SQLite runs in the native Rust owner through the host transport.
+Browser Gmail credentials last only for the document. Desktop credentials use
+the device keychain. Neither enters table synchronization or query results.
 
-- **Secrets.** The desktop leaf reaches the OS credential store through the
-  host; the browser leaf holds a credential for the life of the tab and nothing
-  longer. Not `localStorage`, not IndexedDB, not encrypted in the page.
-- **Background synchronization.** A keychain and a hidden window are what buy
-  it, and a browser tab has neither, so the web build syncs while a person is
-  looking at it.
+Browser consent opens a separate window. The `connected` route relays the
+callback URL to the opening window, which retains the PKCE verifier and
+completes the exchange. The receiver checks origin, source window, callback
+path, and OAuth state. Cancellation or a closed consent window ends the wait.
 
-### Connecting an account, on each build
+Desktop consent opens the system browser and returns through the host's
+existing callback mailbox. The App window redeems the code with its retained
+verifier. The host does not perform the Gmail exchange.
 
-A third difference, and the one with the most machinery behind it: where Google
-sends a person back to.
+Local Mail has no hosted browser origin. Its development browser runs at
+`http://localhost:5177`; the local API permits that exact origin and auth
+callback. Production API configuration does not acquire this development
+permission. A hosted browser deployment requires its own approved Epicenter
+auth callback and Google OAuth configuration.
 
-The web build leaves the page. The tab goes to Google, Google returns it to
-`connected`, and the page that comes back reads the PKCE verifier out of
-`sessionStorage` and redeems the code. That is the whole flow.
+## Development and verification
 
-The desktop build cannot do that, for two reasons that meet in the middle. An
-Epicenter app window admits navigation only to the host's loopback origin, so
-Google's consent screen cannot open inside it. And Google refuses a custom URI
-scheme for a Desktop OAuth client, admitting only a loopback redirect, so there
-is no `epicenter://` address to hand it. The consent screen therefore opens in
-the person's own browser, and Google answers on the host's socket rather than in
-the WebView that started the exchange.
-
-```
-Mail WebView                    Epicenter host          person's browser        Google
-     |                                |                        |                  |
- click Connect                        |                        |                  |
-     |  openUrl(accounts.google.com)  |                        |                  |
-     |------------- Tauri opener ----------------------------->|                  |
-     |                                |                        |--- consent ----->|
-     |  GET /api/mail/pending-callback|                        |                  |
-     |------------------------------->| 204, nothing yet       |                  |
-     |<-------------------------------|                        |                  |
-     |            (poll)              |  GET /apps/mail/connected?code=...         |
-     |                                |<-----------------------|<--- redirect ----|
-     |                                | holds the URL          |                  |
-     |                                |----------------------->| "close this tab" |
-     |  GET /api/mail/pending-callback|                        |                  |
-     |------------------------------->| 200 { callbackUrl }    |                  |
-     |<-------------------------------| and forgets it         |                  |
-     |                                |                        |                  |
- redeem the code with the verifier held here, and put the refresh token
- in `epicenter.secrets`
-```
-
-**The host is a letterbox, not a party to the exchange.** It holds one opaque
-URL for one collection and reads nothing out of it. The verifier never leaves
-the Mail window, so the window is the only thing that can redeem the code, and
-the refresh token goes straight to `epicenter.secrets` from there (ADR-0310).
-
-One grant makes it work, and it is narrow. The Mail window holds
-`opener:allow-open-url` scoped to `https://accounts.google.com/*`, and nothing
-else native: see `apps/epicenter/src-tauri/capabilities/mail-gmail-authorization-*.json`.
-The callback route is deliberately unguarded, because a browser following a
-redirect carries no session cookie, and a forged callback fails the window's
-`state` check anyway.
-
-`src/authorization-return.ts` owns both paths, because the host routes one and
-both builds read the other, and a string spelled twice is how they drift.
-
-**No redirect URI is registered, and none can be.** The Google client is
-Desktop type, and RFC 8252 section 7.3 requires an authorization server to allow
-any port for a loopback redirect, because a native application takes whatever
-port the operating system gives it. Google honours that: the Desktop client
-creation form has no redirect URI field at all, so `39130`, `39131`, whatever
-`EPICENTER_DEV_PORT` names, and the web build's `localhost:5177` all work with
-nothing configured anywhere. `redirectUri()` deriving the address from
-`window.location.origin` is not a convenience, then; it is the only shape that
-matches what Google will accept.
-
-The limit runs the other way. A Desktop client can use loopback and nothing
-else, so if the standalone web build is ever served from a real domain it needs
-its own Web client with that origin registered exactly (ADR-0083).
-
-**The consent screen is published, and that is what makes a connection last.**
-Refresh-token lifetime follows publishing status, not client type: a client left
-in Testing has its refresh tokens expire after seven days, which looks exactly
-like a bug and is why `refreshAccess` distinguishes `invalid_grant` and asks for
-re-consent instead of retrying. Epicenter's client is In production, so a
-connected account stays connected. A contributor building with their own client
-should publish it too, or expect to reconnect weekly. Note that `gmail.modify`
-is a restricted scope, so distributing to anyone beyond the developer needs
-Google's verification review; unverified builds work but show the
-"Google hasn't verified this app" interstitial.
-
-### The registry does not synchronize, and it is not going to
-
-ADR-0310 described an account list that reaches a person's other devices while
-its credentials do not, so a new device would show every account asking to be
-signed in. ADR-0319 withdrew that. The credential cannot synchronize, so a row
-on a device holding no credential lists an account that device cannot read, and
-an account is connected per device instead.
-
-The credential half is real and is the half that matters for safety: a refresh
-token never leaves the device that obtained it. Nothing Local Mail holds leaves
-the machine, which is also what keeps a restricted Gmail scope out of the
-category that a server would put it in.
-
-## Testing
+From the repository root, start Local Mail and its API with:
 
 ```sh
-bun test --cwd apps/local-mail
+bun dev:local-mail
 ```
 
-Everything is hermetic: the tests run against in-memory SQLite through the same
-`AppSqliteDatabase` contract the host and the browser implement, and against a
-fake Gmail client. `test-support/check-gmail-discovery.ts` is the one live
-check, and it runs weekly rather than per pull request.
+This uses the existing Infisical development configuration for Gmail and API
+credentials. `bun dev:local-mail:ui` starts the frontend alone.
 
-## Not built yet
+Run the application checks from the repository root:
 
-- **Remote image loading and Gmail-perfect HTML fidelity.** Formatted bodies
-  render as sanitized inline HTML; remote assets stay stripped.
-- **Enumeration surfaces.** Thread and bulk acts, and asserting `UNREAD` off
-  when a message is opened. The semantics are already fixed: enumerate concrete
-  message ids at the moment a person acts, never at delivery time.
-- **Gmail-backed drafts, send, reply, and compose.** Allowed in principle only
-  for drafts, which round-trip (ADR-0098); shipping send would widen the OAuth
-  grant past `gmail.modify` (ADR-0188).
-- **FTS5.** `LIKE` over `body_text` is enough at current cache size.
-- **An MCP surface.** Explicitly deferred (ADR-0317). It must enter through a
-  designed application service, not through a compatibility path.
+```sh
+bun test apps/local-mail
+bun run --cwd apps/local-mail typecheck
+bun run --cwd apps/local-mail/ui typecheck
+```
 
-## Refused
+The tests use synthetic mail and fake Gmail clients. Production restricted SQL
+has separate Chromium, WebKit, and native transport evidence. These checks do
+not establish a live Gmail connection or desktop keychain reopening.
 
-These are decisions, not gaps. Each has a record, and adding one back is an ADR
-rather than a pull request.
+## Scope
 
-- **A CLI, an HTTP API, and a standalone runtime** (ADR-0317). Each was a second
-  storage and credential owner beside the scoped handle. Arbitrary SQL access
-  and command-line-only recovery do not survive that break; a workflow that
-  remains necessary earns a UI.
-- **Local-only mail state**: snooze, send-later, and a local tag or read flag
-  that never reaches Gmail (ADR-0098). A pending assertion is not an exception:
-  it names a Gmail label id and exists in order to stop existing.
-- **Permanent delete and spam reporting.** `messages.delete` is never wired: a
-  deferred, discardable, silently-retried intent is the wrong shape for an
-  irreversible act (ADR-0198).
-- **Attachment and media bytes on disk, in any form.** One
-  `messages.get(format=full)` is the entire per-message budget (ADR-0196).
-- **Thread-level modify.** `threads.modify` applies to the thread as Gmail sees
-  it at delivery, which would silently include messages that arrived after a
-  person acted (ADR-0199).
-- **`messages.batchModify`.** Its response body is empty, so it proves nothing
-  about which assertions landed (ADR-0199).
-- **A generic queue, event log, or provider-independent operation abstraction**,
-  and any per-assertion attempt counter, error column, retry schedule, or
-  dead-letter tier (ADR-0198, ADR-0199).
-- **A credential brokered by a server** so a browser build could sync in the
-  background. It would mean Epicenter's server holding something that reads a
-  person's mail, which changes what Epicenter claims to be (ADR-0310).
-- **Reading or migrating the old layout.** `credentials.json`, `provider.json`,
-  the versioned `mail.v<n>.db` artifacts, and the per-account directories are
-  not read, not migrated, and not detected. Connecting an account again is the
-  whole of the upgrade path.
+The UI supports mailbox triage and saved SQL inspection. It excludes
+cross-account joins, saved results, automatic SQL execution, a parameter
+editor, actionable query results, and a generic query framework.
+
+There is no CLI, MCP server, standalone storage runtime, background Gmail
+worker, permanent-delete queue, or server-held Gmail credential. Sending,
+replying, thread operations, bulk actions, attachment downloads, and remote
+image loading are outside this workflow.

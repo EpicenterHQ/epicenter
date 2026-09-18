@@ -1,3 +1,5 @@
+export type { InferenceTarget } from '../inference-selections.js';
+export { connectionLabel } from './connection-label.js';
 export {
 	createInferenceConnections,
 	type HostedModel,

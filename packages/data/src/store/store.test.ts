@@ -11,9 +11,9 @@ import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import * as Y from '@y/y';
 import { createMemoryRecord, openMemory } from './memory.js';
 import {
-	createAccountStore,
 	type Data,
 	type DataDocument,
+	openAccountStore,
 	syncEngineOf,
 } from './store.js';
 
@@ -1040,7 +1040,7 @@ describe('a store is truth plus debts (ADR-0238)', () => {
 		// never the store's death. The live document is the truth while open.
 		const raw = new Database(':memory:');
 		const sqlite = createBunSqliteAdapter(raw);
-		const bound = createAccountStore({
+		const bound = await openAccountStore({
 			definition: database,
 			sqlite,
 			// The refused flush is the subject here, not noise worth printing.
@@ -1068,6 +1068,7 @@ describe('a store is truth plus debts (ADR-0238)', () => {
 		]);
 		// The debt is visible: a restart would lose this edit, and the status
 		// says so instead of an exception pretending the data is gone now.
+		await store.persistence.flush();
 		expect(store.persistence.get()).toBe('blocked');
 	});
 });

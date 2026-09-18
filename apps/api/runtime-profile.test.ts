@@ -16,22 +16,28 @@
  * when unconfigured); an unmounted one answers Hono's 404. Every probe carries a
  * bearer so the `/api/*` CSRF gate is skipped, otherwise an unmounted mutating
  * path would 403 before it could 404. Nothing here asserts a status code beyond
- * that: authorization, metering, and payload behavior are each surface's own
- * tests in `packages/server`.
+ * that in the profile checks. Outage checks below additionally verify shell
+ * availability and protected-operation rejection through both entrypoints.
  */
 
 import { expect, mock, test } from 'bun:test';
+import { generateBlobId, REMOTE_BLOB_ROUTES } from '@epicenter/blobs';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
+import { CURRENT_ROUTE, STORE_SYNC_ROUTE } from '@epicenter/sync';
+import { makeSignature } from 'better-auth/crypto';
 
-/**
- * Postgres acquisition runs on every request (`mountCloudDb` is a `use('*')`), so
- * a real driver would turn every probe into a connection error and erase the
- * 404 signal this file reads. Routing is the subject here; the database is not.
- */
+// Exercise the real runtime compositions with a controllable database outage.
+let databaseUnavailable = false;
+let databaseCalls = 0;
 class ProbeClient {
-	async connect() {}
+	async connect() {
+		databaseCalls++;
+		if (databaseUnavailable) throw new Error('Postgres unavailable');
+	}
 	async end() {}
 	async query() {
+		databaseCalls++;
+		if (databaseUnavailable) throw new Error('Postgres unavailable');
 		return { rows: [] };
 	}
 	on() {}
@@ -62,8 +68,8 @@ type Surface = {
 /** The origin every probe and both entries answer on; the path is what matters. */
 const ORIGIN = 'http://localhost:8787';
 
-/** A blob id shaped for the `blob_[a-z0-9]{21}` route pattern. */
-const PROBE_BLOB_ID = `blob_${'a'.repeat(21)}`;
+/** A complete key accepted by the shared blob route parser. */
+const PROBE_BLOB_ID = generateBlobId('wav');
 
 const PROFILE: Surface[] = [
 	{
@@ -97,19 +103,24 @@ const PROFILE: Surface[] = [
 	{
 		surface: 'mountBlobsApp (collection)',
 		method: 'POST',
-		url: API_ROUTES.blobs.collection.url(ORIGIN),
+		url: REMOTE_BLOB_ROUTES.collectionUrl(ORIGIN, 'so.epicenter.notes'),
 		worker: 'served',
 		bun: 'served',
 	},
 	{
 		surface: 'mountBlobsApp (by id)',
 		method: 'GET',
-		url: API_ROUTES.blobs.byId.url(ORIGIN, PROBE_BLOB_ID),
+		url: REMOTE_BLOB_ROUTES.objectUrl(
+			ORIGIN,
+			'so.epicenter.notes',
+			'probe',
+			PROBE_BLOB_ID,
+		),
 		worker: 'served',
 		bun: 'served',
 	},
 	{
-		surface: 'mountCloudAuth',
+		surface: 'mountAuthRoutes',
 		method: 'GET',
 		url: `${ORIGIN}/auth/get-session`,
 		worker: 'served',
@@ -177,9 +188,12 @@ const workerFetcher = once(async () => {
 		API_PUBLIC_ORIGIN: ORIGIN,
 		BETTER_AUTH_SECRET: 'runtime-profile-probe-secret-not-a-real-key',
 		HYPERDRIVE: { connectionString: 'postgres://probe@localhost:5432/probe' },
-		// The dashboard shell path: a miss makes `serveUiShell` answer 503, which
-		// is still a served surface. Only a 404 means the route is not mounted.
-		ASSETS: { fetch: async () => new Response(null, { status: 404 }) },
+		ASSETS: {
+			fetch: async () =>
+				new Response('<html>Cloud UI</html>', {
+					headers: { 'Content-Type': 'text/html' },
+				}),
+		},
 	};
 	const executionCtx = { waitUntil() {}, passThroughOnException() {} };
 	return (request: Request) =>
@@ -253,5 +267,145 @@ test('an unmounted path reads as absent on both runtimes', async () => {
 			}),
 		);
 		expect(response.status).toBe(404);
+	}
+});
+
+test('Worker public HTML shells and both runtimes unrelated 404s survive Postgres outage without database calls', async () => {
+	const worker = await workerFetcher();
+	const bun = await bunFetcher();
+	databaseUnavailable = true;
+	databaseCalls = 0;
+	try {
+		for (const path of [
+			'/sign-in',
+			'/session/callback',
+			'/dashboard',
+			'/dashboard/usage',
+		]) {
+			const response = await worker(new Request(`${ORIGIN}${path}`));
+			expect(response.status).toBe(200);
+			expect(await response.text()).toBe('<html>Cloud UI</html>');
+			if (path === '/sign-in' || path === '/session/callback') {
+				expect(response.headers.get('cache-control')).toBe('no-store');
+				expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+			}
+		}
+		// Bun intentionally delegates browser UI to Vite; its existing diagnostic
+		// must remain available without consulting the shared pool.
+		for (const path of ['/sign-in', '/session/callback']) {
+			const response = await bun(new Request(`${ORIGIN}${path}`));
+			expect(response.status).toBe(503);
+			expect(await response.text()).toContain(
+				'Hosted auth UI is served by the SvelteKit app',
+			);
+		}
+		for (const fetcher of [worker, bun]) {
+			for (const path of [
+				'/missing',
+				'/api/not-a-surface',
+				'/v1/chat/unknown',
+				'/v1/audio/unknown',
+				'/api/billing/unknown',
+			]) {
+				expect((await fetcher(new Request(`${ORIGIN}${path}`))).status).toBe(
+					404,
+				);
+			}
+		}
+		for (const fetcher of [worker, bun]) {
+			for (const [method, path] of [
+				['DELETE', '/api/session'],
+				['GET', '/api/blobs'],
+				['PUT', `/api/blobs/${PROBE_BLOB_ID}`],
+				['GET', '/v1/chat/completions'],
+				['GET', '/v1/audio/transcriptions'],
+				['POST', '/api/billing/plans'],
+				['GET', '/api/account'],
+				['POST', '/api/store/v1/sync'],
+				['DELETE', '/api/data/v1/test.data/generations'],
+				['POST', '/api/data/v1/test.data/generations/1'],
+			]) {
+				const response = await fetcher(
+					new Request(`${ORIGIN}${path}`, {
+						method,
+						headers: { authorization: 'Bearer routing-probe' },
+					}),
+				);
+				expect(response.status).toBe(404);
+			}
+		}
+		expect(databaseCalls).toBe(0);
+	} finally {
+		databaseUnavailable = false;
+	}
+});
+
+test('both runtime compositions fail closed on protected operations during a database outage', async () => {
+	const worker = await workerFetcher();
+	const bun = await bunFetcher();
+	const token = `probe.${await makeSignature('probe', 'runtime-profile-probe-secret-not-a-real-key')}`;
+	databaseUnavailable = true;
+	try {
+		for (const [fetcher, runtime] of [
+			[worker, 'worker'],
+			[bun, 'bun'],
+		] as const) {
+			for (const row of PROFILE.filter(
+				(row) =>
+					row[runtime] === 'served' &&
+					!['health', 'dashboard SPA'].includes(row.surface),
+			)) {
+				const callsBefore = databaseCalls;
+				const response = await fetcher(
+					new Request(row.url, {
+						method: row.method,
+						headers: { authorization: `Bearer ${token}` },
+					}),
+				);
+				expect(response.status).toBeGreaterThanOrEqual(500);
+				expect(databaseCalls).toBe(callsBefore + 1);
+			}
+		}
+		for (const [method, url] of [
+			['GET', `${ORIGIN}${STORE_SYNC_ROUTE.pattern}`],
+			[
+				'POST',
+				CURRENT_ROUTE.url(
+					ORIGIN,
+					'so.epicenter.notes',
+					'personal',
+					'test.data',
+				),
+			],
+		] as const) {
+			const callsBefore = databaseCalls;
+			const response = await worker(
+				new Request(url, {
+					method,
+					headers: { authorization: `Bearer ${token}` },
+				}),
+			);
+			expect(response.status).toBe(500);
+			expect(databaseCalls).toBe(callsBefore + 1);
+		}
+		for (const path of [
+			'generations',
+			'generations/initial',
+			'generations/1',
+		]) {
+			for (const method of ['GET', 'POST']) {
+				const callsBefore = databaseCalls;
+				const response = await worker(
+					new Request(`${ORIGIN}/api/data/v1/test.data/${path}`, {
+						method,
+						headers: { authorization: `Bearer ${token}` },
+					}),
+				);
+				expect(response.status).toBe(404);
+				expect(databaseCalls).toBe(callsBefore);
+			}
+		}
+	} finally {
+		databaseUnavailable = false;
 	}
 });

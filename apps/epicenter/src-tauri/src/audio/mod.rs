@@ -21,3 +21,13 @@ pub use command::encode_recording_for_upload;
 pub use decode::decode_to_pcm16k_mono;
 pub use encode::encode_pcm_to_opus_ogg;
 pub use error::AudioError;
+
+/// Decode a saved blob without depending on whether a recorder created it.
+pub fn read_blob_samples(
+    app: &tauri::AppHandle,
+    id: &str,
+    destination: &crate::blobs::BlobDestination,
+) -> Result<Vec<f32>, AudioError> {
+    let bytes = crate::blobs::read_blob_bytes(app, id, destination)?;
+    decode_to_pcm16k_mono(&bytes)
+}

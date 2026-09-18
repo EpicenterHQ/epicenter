@@ -4,7 +4,6 @@ import {
 	RESERVED_ATTRIBUTE_PREFIX,
 } from '@epicenter/data/definition';
 import * as Y from '@y/y';
-
 /**
  * A database's document: one per database, holding every table's rows and
  * every row's content node (ADR-0295).

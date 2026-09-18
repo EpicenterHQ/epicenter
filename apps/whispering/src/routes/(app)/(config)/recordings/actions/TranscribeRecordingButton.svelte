@@ -6,6 +6,7 @@
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import { createMutation } from '@tanstack/svelte-query';
 	import type { ComponentProps } from 'svelte';
+	import { creditAction } from '$lib/operations/credit-action';
 	import { deliverTranscriptionResult } from '$lib/operations/delivery';
 	import { report } from '$lib/report';
 	import { playSoundIfEnabled } from '$lib/operations/sound';
@@ -94,6 +95,7 @@
 				loading.reject({
 					cause: error,
 					title: 'Failed to transcribe recording',
+					action: creditAction(error, app.account),
 				});
 			},
 			onSuccess: async ({ text, history }) => {

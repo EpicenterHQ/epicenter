@@ -1,265 +1,389 @@
 /**
- * Browser Blob Store Tests
+ * Flat browser blob store tests.
  *
- * Verifies the IndexedDB implementation of the canonical local blob contract.
- *
- * Key behaviors:
- * - Blob bytes and metadata survive reopening the store
- * - Immutable ids refuse replacement without changing the original bytes
- * - Missing reads are typed, deletion is idempotent, and failures stay typed
- * - Metadata is stored separately so stat never fetches blob data
+ * Verifies atomic immutable records, index-only metadata reads, app scoping,
+ * and refusal of unsupported existing schemas.
+ * Blocked upgrades and failed writes must preserve the prior database.
  */
 
-import { expect, test } from 'bun:test';
-import { indexedDB } from 'fake-indexeddb';
+import { expect, spyOn, test } from 'bun:test';
+import 'fake-indexeddb/auto';
+import { IDBFactory, IDBIndex, IDBObjectStore } from 'fake-indexeddb';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import type { BlobId } from './blob-id.js';
 import { generateBlobId } from './blob-id.js';
-import { createBrowserBlobSources, createBrowserBlobStore } from './browser.js';
+import {
+	type BlobLockManager,
+	browserBlobStoreName,
+	createBrowserBlobSources,
+	createBrowserBlobStore,
+	eraseBlobStore,
+} from './browser.js';
 
-let databaseSequence = 0;
+const locks: BlobLockManager = {
+	async request(_name, _options, callback) {
+		return callback({});
+	},
+};
 
 function setup() {
-	const databaseName = `epicenter-browser-blobs-test-${databaseSequence++}`;
+	const scope = {
+		appId: 'so.epicenter.flat.test',
+		indexedDb: new IDBFactory(),
+		locks,
+	};
 	return {
-		databaseName,
-		blobs: createBrowserBlobStore({ databaseName, indexedDb: indexedDB }),
+		scope,
+		name: browserBlobStoreName(scope),
+		blobs: createBrowserBlobStore(scope),
 	};
 }
 
-function openDatabase(databaseName: string): Promise<IDBDatabase> {
-	return new Promise((resolve, reject) => {
-		const request = indexedDB.open(databaseName);
+function open(indexedDb: IDBFactory, name: string, version?: number) {
+	return new Promise<IDBDatabase>((resolve, reject) => {
+		const request = indexedDb.open(name, version);
 		request.onsuccess = () => resolve(request.result);
 		request.onerror = () => reject(request.error);
 	});
 }
 
-function requestResult<TResult>(
-	request: IDBRequest<TResult>,
-): Promise<TResult> {
-	return new Promise((resolve, reject) => {
+function requestResult<TValue>(request: IDBRequest<TValue>) {
+	return new Promise<TValue>((resolve, reject) => {
 		request.onsuccess = () => resolve(request.result);
 		request.onerror = () => reject(request.error);
 	});
 }
 
-test('put persists bytes and metadata across store instances', async () => {
-	const { databaseName, blobs } = setup();
-	const id = generateBlobId();
-	const input = new Blob(['browser audio'], { type: 'audio/webm' });
-
-	expectOk(await blobs.put(id, input));
-	const reopened = createBrowserBlobStore({
-		databaseName,
-		indexedDb: indexedDB,
+async function seedLegacy(indexedDb: IDBFactory, name: string) {
+	const database = await new Promise<IDBDatabase>((resolve, reject) => {
+		const request = indexedDb.open(name, 1);
+		request.onupgradeneeded = () => {
+			request.result.createObjectStore('blob-data', { keyPath: 'id' });
+			request.result.createObjectStore('blob-metadata', { keyPath: 'id' });
+		};
+		request.onsuccess = () => resolve(request.result);
+		request.onerror = () => reject(request.error);
 	});
-	const stored = expectOk(await reopened.get(id));
-	const stat = expectOk(await reopened.stat(id));
-
-	expect(await stored.text()).toBe('browser audio');
-	expect(stored.type).toBe('audio/webm');
-	expect(stat).toEqual({ size: input.size, contentType: 'audio/webm' });
-});
-
-test('put refuses replacement and preserves the original blob', async () => {
-	const { blobs } = setup();
-	const id = generateBlobId();
-	expectOk(await blobs.put(id, new Blob(['original'], { type: 'audio/wav' })));
-
-	const error = expectErr(
-		await blobs.put(id, new Blob(['replacement'], { type: 'audio/webm' })),
+	const transaction = database.transaction(
+		['blob-data', 'blob-metadata'],
+		'readwrite',
 	);
-	expect(error.name).toBe('BlobAlreadyExists');
-	expect(error.id).toBe(id);
+	const done = new Promise<void>((resolve, reject) => {
+		transaction.oncomplete = () => resolve();
+		transaction.onabort = () => reject(transaction.error);
+	});
+	transaction.objectStore('blob-data').add({
+		id: 'blob_abcdefghijklmnopqrstu',
+		bytes: new TextEncoder().encode('legacy audio').buffer,
+	});
+	transaction.objectStore('blob-metadata').add({
+		id: 'blob_abcdefghijklmnopqrstu',
+		size: 12,
+		contentType: 'audio/webm;codecs=opus',
+	});
+	await done;
+	return database;
+}
 
-	const stored = expectOk(await blobs.get(id));
-	expect(await stored.text()).toBe('original');
-	expect(stored.type).toBe('audio/wav');
+// ============================================================================
+// Records and body-free metadata
+// ============================================================================
+
+test('fresh records contain only id, ArrayBuffer bytes, and derived size and survive reopening', async () => {
+	const { scope, name, blobs } = setup();
+	const id = generateBlobId('webm');
+	expectOk(
+		await blobs.put(
+			id,
+			new Blob(['audio'], { type: 'audio/webm;codecs=opus' }),
+		),
+	);
+	const reopened = createBrowserBlobStore(scope);
+	const audio = expectOk(await reopened.get(id));
+	expect(await audio.text()).toBe('audio');
+	expect(audio.type).toBe('video/webm');
+	expect(expectOk(await reopened.stat(id))).toEqual({
+		size: 5,
+		contentType: 'video/webm',
+	});
+
+	const database = await open(scope.indexedDb, name);
+	expect(database.version).toBe(2);
+	expect(Array.from(database.objectStoreNames)).toEqual(['blobs']);
+	const store = database.transaction('blobs').objectStore('blobs');
+	expect(store.keyPath).toBe('id');
+	expect(store.index('by-id-size').keyPath).toEqual(['id', 'size']);
+	const record = await requestResult(store.get(id));
+	expect(Object.keys(record).sort()).toEqual(['bytes', 'id', 'size']);
+	expect(record.bytes).toBeInstanceOf(ArrayBuffer);
+	expect(record.size).toBe(record.bytes.byteLength);
+	database.close();
 });
 
-test('concurrent puts commit exactly one immutable blob', async () => {
+test('concurrent duplicate publication commits one record and never replaces its bytes', async () => {
 	const { blobs } = setup();
-	const id = generateBlobId();
-	const results = await Promise.all([
-		blobs.put(id, new Blob(['first'])),
-		blobs.put(id, new Blob(['second'])),
-	]);
-
+	const id = generateBlobId('wav');
+	const results = await Promise.all(
+		['first', 'second'].map((text) =>
+			blobs.put(id, new Blob([text], { type: 'audio/wav' })),
+		),
+	);
 	expect(results.filter((result) => result.error === null)).toHaveLength(1);
 	expect(
 		results.filter((result) => result.error?.name === 'BlobAlreadyExists'),
 	).toHaveLength(1);
-	const stored = expectOk(await blobs.get(id));
-	expect(['first', 'second']).toContain(await stored.text());
+	const saved = expectOk(await blobs.get(id));
+	expect(['first', 'second']).toContain(await saved.text());
+	expect(expectOk(await blobs.stat(id)).size).toBe(saved.size);
 });
 
-test('get and stat return BlobNotFound for an unknown id', async () => {
+test('list and stat use only index key cursors, including zero-byte records and exclusive pages', async () => {
 	const { blobs } = setup();
-	const id = generateBlobId();
-
-	const getError = expectErr(await blobs.get(id));
-	const statError = expectErr(await blobs.stat(id));
-	expect(getError).toMatchObject({ name: 'BlobNotFound', id });
-	expect(statError).toMatchObject({ name: 'BlobNotFound', id });
-});
-
-test('delete removes data and metadata and remains idempotent', async () => {
-	const { blobs } = setup();
-	const id = generateBlobId();
-	expectOk(await blobs.put(id, new Blob(['temporary'])));
-
-	expectOk(await blobs.delete(id));
-	expectErr(await blobs.get(id));
-	expectErr(await blobs.stat(id));
-	expectOk(await blobs.delete(id));
-});
-
-test('stat metadata records do not contain blob bytes', async () => {
-	const { databaseName, blobs } = setup();
-	const id = generateBlobId();
-	const blob = new Blob(['metadata only'], { type: 'audio/wav' });
-	expectOk(await blobs.put(id, blob));
-
-	const database = await openDatabase(databaseName);
+	const ids = [
+		generateBlobId('wav'),
+		generateBlobId('wav'),
+		generateBlobId('wav'),
+	].sort();
+	for (const [index, id] of ids.entries())
+		expectOk(
+			await blobs.put(id, new Blob(['x'.repeat(index)], { type: 'audio/wav' })),
+		);
+	const forbidden = [
+		spyOn(IDBObjectStore.prototype, 'get'),
+		spyOn(IDBObjectStore.prototype, 'getAll'),
+		spyOn(IDBObjectStore.prototype, 'openCursor'),
+		spyOn(IDBIndex.prototype, 'get'),
+		spyOn(IDBIndex.prototype, 'getAll'),
+		spyOn(IDBIndex.prototype, 'openCursor'),
+	];
+	for (const method of forbidden)
+		method.mockImplementation(() => {
+			throw new Error('Body read forbidden.');
+		});
 	try {
-		const transaction = database.transaction('blob-metadata', 'readonly');
-		const metadata = (await requestResult(
-			transaction.objectStore('blob-metadata').get(id),
-		)) as Record<string, unknown>;
-		expect(metadata).toEqual({
-			id,
-			size: blob.size,
+		expect(expectOk(await blobs.stat(ids[0]!))).toEqual({
+			size: 0,
 			contentType: 'audio/wav',
 		});
-		expect(metadata).not.toHaveProperty('blob');
+		expect(expectOk(await blobs.stat(ids[2]!)).size).toBe(2);
+		const first = expectOk(await blobs.list({ limit: 1 }));
+		expect(first.items.map((item) => item.id)).toEqual(ids.slice(0, 1));
+		expect(first.nextCursor).toBe(ids[0]);
+		const second = expectOk(
+			await blobs.list({ cursor: first.nextCursor, limit: 1 }),
+		);
+		expect(second.items.map((item) => item.id)).toEqual(ids.slice(1, 2));
+		const last = expectOk(
+			await blobs.list({ cursor: second.nextCursor, limit: 1 }),
+		);
+		expect(last.items.map((item) => item.id)).toEqual(ids.slice(2));
+		expect(last.nextCursor).toBeUndefined();
+		expect(expectOk(await blobs.list({ cursor: ids[2] })).items).toEqual([]);
 	} finally {
-		database.close();
+		for (const method of forbidden) method.mockRestore();
 	}
 });
 
-test('browser persistence stores bytes as ArrayBuffer rather than Blob', async () => {
-	const { databaseName, blobs } = setup();
-	const id = generateBlobId();
-	expectOk(await blobs.put(id, new Blob(['webkit-safe'])));
-
-	const database = await openDatabase(databaseName);
-	try {
-		const transaction = database.transaction('blob-data', 'readonly');
-		const stored = (await requestResult(
-			transaction.objectStore('blob-data').get(id),
-		)) as Record<string, unknown>;
-		expect(stored.bytes).toBeInstanceOf(ArrayBuffer);
-		expect(stored).not.toHaveProperty('blob');
-	} finally {
-		database.close();
-	}
-});
-
-test('IndexedDB failures return BlobStoreFailed with the original cause', async () => {
-	const cause = new Error('storage unavailable');
-	const failingIndexedDb = {
-		open() {
-			throw cause;
-		},
-	} as unknown as IDBFactory;
-	const blobs = createBrowserBlobStore({ indexedDb: failingIndexedDb });
-	const id = generateBlobId();
-
-	const error = expectErr(await blobs.get(id));
-	expect(error).toMatchObject({ name: 'BlobStoreFailed', id, cause });
-});
-
-test('browser source acquisitions own independent disposal that revokes exactly once', async () => {
+test('a deleted cursor still resumes exclusively at its next key', async () => {
 	const { blobs } = setup();
-	const id = generateBlobId();
-	expectOk(await blobs.put(id, new Blob(['play me'])));
+	const ids = [
+		generateBlobId('bin'),
+		generateBlobId('bin'),
+		generateBlobId('bin'),
+	].sort();
+	for (const id of ids) expectOk(await blobs.put(id, new Blob()));
+	expectOk(await blobs.delete(ids[1]!));
+	expect(
+		expectOk(await blobs.list({ cursor: ids[1] })).items.map((item) => item.id),
+	).toEqual([ids[2]!]);
+	expect(expectErr(await blobs.stat(ids[1]!)).name).toBe('BlobNotFound');
+	expect(expectErr(await blobs.get(ids[1]!)).name).toBe('BlobNotFound');
+	expectOk(await blobs.delete(ids[1]!));
+});
+
+test('invalid keys and incompatible declared types never publish bytes', async () => {
+	const { blobs } = setup();
+	const id = generateBlobId('wav');
+	expect(
+		expectErr(await blobs.put(id, new Blob(['video'], { type: 'video/webm' })))
+			.name,
+	).toBe('BlobStoreFailed');
+	const invalid = 'blob_abcdefghijklmnopqrstu' as BlobId;
+	expect(expectErr(await blobs.put(invalid, new Blob())).name).toBe(
+		'BlobStoreFailed',
+	);
+	expect(expectErr(await blobs.get(invalid)).name).toBe('BlobStoreFailed');
+	expect(expectErr(await blobs.stat(invalid)).name).toBe('BlobStoreFailed');
+	expect(expectErr(await blobs.delete(invalid)).name).toBe('BlobStoreFailed');
+	expect(expectErr(await blobs.list({ cursor: invalid })).name).toBe(
+		'BlobStoreFailed',
+	);
+	expect(expectOk(await blobs.list()).items).toEqual([]);
+});
+
+test('each app has independent keys while browser sources own disposable URLs', async () => {
+	const { scope, blobs } = setup();
+	const other = createBrowserBlobStore({
+		...scope,
+		appId: 'so.epicenter.other',
+	});
+	const id = generateBlobId('wav');
+	expectOk(await blobs.put(id, new Blob(['saved'], { type: 'audio/wav' })));
+	expect(expectErr(await other.get(id)).name).toBe('BlobNotFound');
 	const revoked: string[] = [];
-	let sequence = 0;
 	const sources = createBrowserBlobSources(blobs, {
-		createObjectUrl: () => `blob:test-${sequence++}`,
+		createObjectUrl: (blob) => `source:${blob.size}:${blob.type}`,
 		revokeObjectUrl: (url) => revoked.push(url),
 	});
-
-	const first = expectOk(await sources.open(id));
-	const second = expectOk(await sources.open(id));
-	expect(first.url).toBe('blob:test-0');
-	expect(second.url).toBe('blob:test-1');
-
-	first[Symbol.dispose]();
-	first[Symbol.dispose]();
-	second[Symbol.dispose]();
-	expect(revoked).toEqual(['blob:test-0', 'blob:test-1']);
+	const source = expectOk(await sources.open(id));
+	expect(source.url).toBe('source:5:audio/wav');
+	source[Symbol.dispose]();
+	source[Symbol.dispose]();
+	expect(revoked).toEqual([source.url]);
+	expect(await expectOk(await blobs.get(id)).text()).toBe('saved');
 });
 
-test('browser sources revoke at the end of a using scope', async () => {
+// ============================================================================
+// Upgrades and failed transactions
+// ============================================================================
+
+test('an unsupported existing schema fails without changing the database', async () => {
+	const { scope, name, blobs } = setup();
+	(await seedLegacy(scope.indexedDb, name)).close();
+	expect(expectErr(await blobs.list()).name).toBe('BlobStoreFailed');
+	const database = await open(scope.indexedDb, name);
+	expect(database.version).toBe(1);
+	expect(Array.from(database.objectStoreNames)).toEqual([
+		'blob-data',
+		'blob-metadata',
+	]);
+	database.close();
+});
+
+test('blocked upgrade fails without a deferred upgrade without changing a blocked existing schema', async () => {
+	const { scope, name, blobs } = setup();
+	const legacy = await seedLegacy(scope.indexedDb, name);
+	const id = generateBlobId('wav');
+	expect(
+		expectErr(await blobs.put(id, new Blob([], { type: 'audio/wav' }))).name,
+	).toBe('BlobStoreFailed');
+	legacy.close();
+	// This open queues behind the abandoned upgrade, which must abort itself.
+	const untouched = await open(scope.indexedDb, name);
+	expect(untouched.version).toBe(1);
+	expect(Array.from(untouched.objectStoreNames)).toEqual([
+		'blob-data',
+		'blob-metadata',
+	]);
+	untouched.close();
+	expect(
+		expectErr(await blobs.put(id, new Blob([], { type: 'audio/wav' }))).name,
+	).toBe('BlobStoreFailed');
+});
+
+test('aborted publication rolls back both bytes and its size index', async () => {
 	const { blobs } = setup();
-	const id = generateBlobId();
-	expectOk(await blobs.put(id, new Blob(['bounded'])));
-	const revoked: string[] = [];
-	const sources = createBrowserBlobSources(blobs, {
-		createObjectUrl: () => 'blob:test-scoped',
-		revokeObjectUrl: (url) => revoked.push(url),
-	});
-
-	{
-		using source = expectOk(await sources.open(id));
-		expect(source.url).toBe('blob:test-scoped');
-		expect(revoked).toEqual([]);
-	}
-	expect(revoked).toEqual(['blob:test-scoped']);
-});
-
-test('browser source acquisition forwards missing local bytes', async () => {
-	const { blobs } = setup();
-	const id = generateBlobId();
-	const sources = createBrowserBlobSources(blobs);
-
-	const error = expectErr(await sources.open(id));
-	expect(error).toMatchObject({ name: 'BlobNotFound', id });
-});
-
-test('browser source creation failures remain typed after storage succeeds', async () => {
-	const { blobs } = setup();
-	const id = generateBlobId();
-	expectOk(await blobs.put(id, new Blob(['stored'])));
-	const cause = new Error('object URLs unavailable');
-	const sources = createBrowserBlobSources(blobs, {
-		createObjectUrl() {
-			throw cause;
-		},
-	});
-
-	const error = expectErr(await sources.open(id));
-	expect(error).toMatchObject({ name: 'BlobSourceFailed', id, cause });
-});
-
-test('blocked database opens reject and close a later connection', async () => {
-	let isClosed = false;
-	const request = {} as IDBOpenDBRequest;
-	const database = {
-		close() {
-			isClosed = true;
-		},
-	} as IDBDatabase;
-	Object.defineProperty(request, 'result', { value: database });
-	const blockedIndexedDb = {
-		open() {
-			queueMicrotask(() => {
-				request.onblocked?.(new Event('blocked') as IDBVersionChangeEvent);
-				request.onsuccess?.(new Event('success'));
-			});
+	expectOk(await blobs.list());
+	const original = IDBObjectStore.prototype.add;
+	const aborted = spyOn(IDBObjectStore.prototype, 'add').mockImplementation(
+		function (this: IDBObjectStore, value, key) {
+			const request = original.call(this, value, key);
+			this.transaction.abort();
 			return request;
 		},
-	} as unknown as IDBFactory;
-	const id = generateBlobId();
-	const blobs = createBrowserBlobStore({ indexedDb: blockedIndexedDb });
-
-	const error = expectErr(await blobs.get(id));
-	expect(error).toMatchObject({ name: 'BlobStoreFailed', id });
-	if (error.name !== 'BlobStoreFailed')
-		throw new Error('expected store failure');
-	expect(error.cause).toEqual(
-		new Error('Blob IndexedDB open is blocked by another connection'),
 	);
-	expect(isClosed).toBeTrue();
+	const id = generateBlobId('wav');
+	try {
+		expect(
+			expectErr(
+				await blobs.put(id, new Blob(['failed'], { type: 'audio/wav' })),
+			).name,
+		).toBe('BlobStoreFailed');
+	} finally {
+		aborted.mockRestore();
+	}
+	expect(expectErr(await blobs.get(id)).name).toBe('BlobNotFound');
+	expect(expectErr(await blobs.stat(id)).name).toBe('BlobNotFound');
+	expect(expectOk(await blobs.list()).items).toEqual([]);
+	expectOk(await blobs.put(id, new Blob(['retry'], { type: 'audio/wav' })));
+});
+
+test('synchronous transaction failure closes its connection and returns a typed failure', async () => {
+	const { blobs } = setup();
+	const failure = spyOn(IDBObjectStore.prototype, 'add').mockImplementation(
+		() => {
+			throw new DOMException('Full', 'QuotaExceededError');
+		},
+	);
+	try {
+		expect(
+			expectErr(await blobs.put(generateBlobId('bin'), new Blob())).name,
+		).toBe('BlobStoreFailed');
+	} finally {
+		failure.mockRestore();
+	}
+	expect(expectOk(await blobs.list()).items).toEqual([]);
+});
+
+test('a held Web Lock refuses access without creating a database', async () => {
+	const { scope } = setup();
+	const held = createBrowserBlobStore({
+		...scope,
+		locks: {
+			async request(_name, _options, callback) {
+				return callback(null);
+			},
+		},
+	});
+	expect(expectErr(await held.list()).name).toBe('BlobStoreFailed');
+	expect(await scope.indexedDb.databases()).toEqual([]);
+});
+
+test('a byte conversion failure leaves the database unopened and remains retryable', async () => {
+	const { scope, blobs } = setup();
+	const id = generateBlobId('bin');
+	const bytes = new Blob(['original']);
+	const failed = spyOn(bytes, 'arrayBuffer').mockRejectedValue(
+		new Error('Buffer unavailable.'),
+	);
+	expect(expectErr(await blobs.put(id, bytes)).name).toBe('BlobStoreFailed');
+	expect(await scope.indexedDb.databases()).toEqual([]);
+	failed.mockRestore();
+	expectOk(await blobs.put(id, bytes));
+	expect(await expectOk(await blobs.get(id)).text()).toBe('original');
+});
+
+test('erase refuses while the flat publisher owns its shared operation lock', async () => {
+	const { scope } = setup();
+	const held = new Set<string>();
+	const cooperativeLocks: BlobLockManager = {
+		async request(name, _options, callback) {
+			if (held.has(name)) return callback(null);
+			held.add(name);
+			try {
+				return await callback({});
+			} finally {
+				held.delete(name);
+			}
+		},
+	};
+	const lockedScope = { ...scope, locks: cooperativeLocks };
+	const blobs = createBrowserBlobStore(lockedScope);
+	const id = generateBlobId('bin');
+	const bytes = new Blob(['saved']);
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<ArrayBuffer>();
+	spyOn(bytes, 'arrayBuffer').mockImplementation(() => {
+		entered.resolve();
+		return release.promise;
+	});
+	const publishing = blobs.put(id, bytes);
+	await entered.promise;
+	expect(expectErr(await eraseBlobStore(lockedScope)).name).toBe(
+		'BlobStoreHeld',
+	);
+	release.resolve(new TextEncoder().encode('saved').buffer);
+	expectOk(await publishing);
+	expectOk(await eraseBlobStore(lockedScope));
+	expect(await scope.indexedDb.databases()).toEqual([]);
 });

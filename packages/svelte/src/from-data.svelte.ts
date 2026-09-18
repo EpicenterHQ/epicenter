@@ -40,11 +40,11 @@
  * purpose, because a reactive wrapper must not pretend a reconnect is local
  * state.
  *
- * One instance per opened store, made by `fromEpicenter` on the way to its
- * `ready` state, so an application never calls this itself and never calls it
- * twice. A module-global instance is correct here and used to be refused by
- * this comment: a page lifetime is one auth generation (ADR-0088), so a module
- * lifetime is one too, and the next generation is the next document.
+ * One instance per opened store, made by the shell that mounts over it, so an
+ * application never calls this itself and never calls it twice. The shell is
+ * the right owner because it mounts exactly once per opened store: a different
+ * principal is a different session, a different shell, and a different call
+ * (ADR-0350).
  *
  * @example
  * ```svelte

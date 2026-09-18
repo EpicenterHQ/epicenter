@@ -1,79 +1,71 @@
 import {
 	defineErrors,
 	extractErrorMessage,
-	type InferError,
 	type InferErrors,
 } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import type { BlobId } from './blob-id.js';
 import type { BlobNotFound, BlobStoreFailed } from './blob-store.js';
 
-/**
- * @fileoverview The optional remote copy contract.
- *
- * A remote copies whole objects between the canonical local store and one
- * remote destination, under the same {@link BlobId}, only when explicitly
- * asked (a user action or a one-shot auto-upload policy). Bytes never pass
- * through the app caller. Browser implementations may compose over a portable
- * `BlobStore`; desktop implementations are host-owned so they can stream
- * directly from the filesystem rather than materializing recordings in the
- * WebView.
- *
- * Every operation is one-shot. There is deliberately no background sync, no
- * eager download, no retry queue, and no persisted upload-failure state: a
- * failed copy is a returned `Err` the caller acts on now or drops.
- */
+/** Direct uploads are bounded before reading local bytes and at the server. */
+export const MAX_REMOTE_BLOB_BYTES = 25 * 1024 * 1024;
 
-export const BlobRemoteError = defineErrors({
-	/**
-	 * The remote holds no object for this id. Expected, not exceptional:
-	 * the object may simply never have been uploaded.
-	 */
-	RemoteBlobNotFound: ({ id }: { id: BlobId }) => ({
-		message: `Remote has no object for blob '${id}'.`,
-		id,
+export const RemoteBlobsError = defineErrors({
+	TooLarge: ({ size }: { size: number }) => ({
+		message: `Blob size ${size} exceeds the ${MAX_REMOTE_BLOB_BYTES}-byte upload limit.`,
+		size,
+		maxBytes: MAX_REMOTE_BLOB_BYTES,
 	}),
-	/** The remote operation itself failed (transport, auth, server). */
-	BlobRemoteFailed: ({ id, cause }: { id: BlobId; cause: unknown }) => ({
-		message: `Remote operation failed for blob '${id}': ${extractErrorMessage(cause)}`,
-		id,
+	InvalidUrl: ({ url }: { url: string }) => ({
+		message: 'The blob URL does not belong to this application account.',
+		url,
+	}),
+	Failed: ({ cause, status }: { cause: unknown; status?: number }) => ({
+		message: `Remote blob operation failed: ${extractErrorMessage(cause)}`,
 		cause,
+		status,
 	}),
 });
-export type BlobRemoteError = InferErrors<typeof BlobRemoteError>;
-export type RemoteBlobNotFound = InferError<
-	typeof BlobRemoteError.RemoteBlobNotFound
->;
-export type BlobRemoteFailed = InferError<
-	typeof BlobRemoteError.BlobRemoteFailed
->;
+export type RemoteBlobsError = InferErrors<typeof RemoteBlobsError>;
+export type RemoteBlobOptions = { signal?: AbortSignal };
 
-/**
- * Explicit same-id copy operations against one remote destination. Relevant
- * local-store errors surface unmapped (typed errors compose bottom-up), so
- * callers can distinguish "this device has no bytes to upload" from "the copy
- * failed". Download is the exception: it consumes an immutable-ID collision
- * because the desired local state already exists.
- */
-export type BlobRemote = {
-	/**
-	 * Copy the object local -> remote. `BlobNotFound` means this device has
-	 * no bytes for the id, so there is nothing to upload.
-	 */
-	upload(
+/** One account's immutable remote objects; URLs never select a new account. */
+export type RemoteBlobs = {
+	add(
+		blob: Blob,
+		options?: RemoteBlobOptions,
+	): Promise<Result<string, RemoteBlobsError>>;
+	addLocal(
 		id: BlobId,
-	): Promise<Result<void, BlobNotFound | BlobStoreFailed | BlobRemoteFailed>>;
-	/**
-	 * Copy the object remote -> local, writing through the canonical store.
-	 * `RemoteBlobNotFound` means the object was never uploaded. An immutable-ID
-	 * collision means the requested local state already exists, so remote
-	 * implementations consume `BlobAlreadyExists` as idempotent success.
-	 */
-	download(
-		id: BlobId,
-	): Promise<
-		Result<void, RemoteBlobNotFound | BlobStoreFailed | BlobRemoteFailed>
-	>;
-	/** Delete the remote object. Idempotent; local bytes are untouched. */
-	purge(id: BlobId): Promise<Result<void, BlobRemoteFailed>>;
+		options?: RemoteBlobOptions,
+	): Promise<Result<string, RemoteBlobsError | BlobNotFound | BlobStoreFailed>>;
+	get(
+		url: string,
+		options?: RemoteBlobOptions,
+	): Promise<Result<Blob, RemoteBlobsError>>;
+	open(
+		url: string,
+		options?: RemoteBlobOptions,
+	): Promise<Result<Disposable & { url: string }, RemoteBlobsError>>;
+	delete(
+		url: string,
+		options?: RemoteBlobOptions,
+	): Promise<Result<void, RemoteBlobsError>>;
+};
+
+/** Owner-pinned authenticated routes. These URLs are locators, not bearer grants. */
+export const REMOTE_BLOB_ROUTES = {
+	collection: '/api/apps/:appId/blobs',
+	object: '/api/apps/:appId/principals/:principalId/blobs/:blobId',
+	collectionUrl(baseURL: string, appId: string) {
+		return `${baseURL.replace(/\/+$/, '')}/api/apps/${encodeURIComponent(appId)}/blobs`;
+	},
+	objectUrl(
+		baseURL: string,
+		appId: string,
+		principalId: string,
+		blobId: BlobId,
+	) {
+		return `${baseURL.replace(/\/+$/, '')}/api/apps/${encodeURIComponent(appId)}/principals/${encodeURIComponent(principalId)}/blobs/${blobId}`;
+	},
 };

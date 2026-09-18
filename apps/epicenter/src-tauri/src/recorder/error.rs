@@ -46,6 +46,10 @@ pub enum RecorderError {
     #[error("{message}")]
     NotRecording { message: String },
 
+    /// Stop consumed this capture, but no finished temporary file exists.
+    #[error("{message}")]
+    CaptureLost { message: String },
+
     /// Any other recording failure (device config, stream build, filesystem,
     /// internal). The frontend does not branch on these.
     #[error("{message}")]
@@ -108,6 +112,7 @@ mod tests {
             RecorderError::NoInputDevice { .. } => "NoInputDevice",
             RecorderError::Busy { .. } => "Busy",
             RecorderError::NotRecording { .. } => "NotRecording",
+            RecorderError::CaptureLost { .. } => "CaptureLost",
             RecorderError::Failed { .. } => "Failed",
         }
     }
@@ -211,5 +216,11 @@ mod tests {
         let json = serde_json::to_value(RecorderError::not_recording("not yours")).unwrap();
         assert_eq!(json["name"], "NotRecording");
         assert_eq!(json["message"], "not yours");
+    }
+}
+
+impl From<crate::blobs::BlobError> for RecorderError {
+    fn from(error: crate::blobs::BlobError) -> Self {
+        Self::failed(error.to_string())
     }
 }

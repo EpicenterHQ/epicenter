@@ -1,6 +1,17 @@
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
+	import { Input } from '@epicenter/ui/input';
+	import { Label } from '@epicenter/ui/label';
+	import {
+		ACCOUNT_CONNECT_ROUTE,
+		ACCOUNT_CANCEL_CONNECTION_ROUTE,
+		ACCOUNT_USE_CLOUD_ROUTE,
+		ACCOUNT_SIGN_IN_ROUTE,
+		ACCOUNT_SIGN_OUT_ROUTE,
+	} from '../routes.ts';
+	import { auth as startup } from './auth.js';
+	import { isDesktopHost } from './runtime.ts';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Item from '@epicenter/ui/item';
 	import { WHISPERING_APPLICATION } from '../applications.ts';
@@ -9,7 +20,7 @@
 	import { localModels } from './local-models.svelte';
 
 	/**
-	 * Host-level administration (ADR-0189). Today that is the one active local
+	 * Host-level administration (ADR-0189) includes the cloud connection and local
 	 * transcription model (ADR-0180), which lives here rather than in the shell
 	 * header: choosing what every application on this device transcribes with is
 	 * a settings act, not a conversation control.
@@ -20,6 +31,38 @@
 	 */
 
 	const launcher = createLaunch();
+	let server = $state(startup.selectedServer ?? '');
+	let connecting = $state(false);
+	let signingIn = $state(false);
+	let connectionError = $state('');
+	let changingServer = $state(false);
+	let operation = 0;
+	async function connect(path: string, body: object = {}) {
+		const current = ++operation;
+		connecting = true;
+		signingIn = path === ACCOUNT_SIGN_IN_ROUTE.pattern;
+		connectionError = '';
+		try {
+			const response = await fetch(path, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(body),
+			});
+			if (current !== operation) return;
+			if (!response.ok) throw new Error(await response.text());
+			if (path === ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern || path === ACCOUNT_SIGN_IN_ROUTE.pattern) {
+				connecting = false;
+				signingIn = false;
+			}
+			// A selected connection stays pending until native replaces this process.
+		} catch (cause) {
+			if (current !== operation) return;
+			connectionError =
+				cause instanceof Error ? cause.message : 'Could not connect.';
+			connecting = false;
+			signingIn = false;
+		}
+	}
 
 	/**
 	 * Whether local transcription can actually run now: a model is chosen and its
@@ -34,6 +77,53 @@
 		localModels.active !== null && localModels.active.installed,
 	);
 </script>
+
+{#if isDesktopHost()}
+	<div class="grid gap-3 border-b p-3">
+		<h2 class="font-medium">Account</h2>
+		{#if startup.auth === null}
+			<p role="alert">Your saved server choice could not be read. Choose a server to continue. Your local data is still on this device.</p>
+		{:else}
+			<p>{startup.selectedServer === null ? 'Epicenter Cloud' : 'Your server'}: {startup.auth.state.status === 'signed-out' ? 'Signed out' : 'Signed in'}</p>
+			{#if startup.selectedServer !== null}<p class="break-all text-sm text-muted-foreground">{startup.selectedServer}</p>{/if}
+		{/if}
+		<p class="text-muted-foreground">Changing accounts closes your applications and restarts Epicenter. Your existing local data stays with its original server.</p>
+		<Button disabled={connecting} onclick={() => void connect(startup.auth?.startSignIn !== undefined ? ACCOUNT_SIGN_IN_ROUTE.pattern : ACCOUNT_USE_CLOUD_ROUTE.pattern)}>
+			{startup.auth?.startSignIn !== undefined ? 'Sign in' : 'Use Epicenter Cloud'}
+		</Button>
+		{#if signingIn}
+			<p role="status">Finish signing in in your browser, then return here.</p>
+			<Button variant="outline" onclick={() => void connect(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern)}>Cancel sign-in</Button>
+		{/if}
+		{#if startup.selectedServer !== null && startup.auth?.startSignIn}
+			<Button variant="outline" disabled={connecting} onclick={() => void connect(ACCOUNT_USE_CLOUD_ROUTE.pattern)}>Use Epicenter Cloud</Button>
+		{/if}
+		{#if startup.auth && startup.auth.state.status !== 'signed-out'}
+			<Button variant="outline" disabled={connecting} onclick={() => void connect(ACCOUNT_SIGN_OUT_ROUTE.pattern)}>Sign out</Button>
+		{/if}
+	</div>
+	<form
+		class="grid gap-3 border-b p-3"
+		onsubmit={(event) => {
+			event.preventDefault();
+			void connect(ACCOUNT_CONNECT_ROUTE.pattern, { server: startup.selectedServer !== null && !changingServer ? startup.selectedServer : server });
+		}}
+	>
+		<h2 class="font-medium">Connect to your server</h2>
+		{#if startup.selectedServer !== null}
+			<Button type="button" variant="ghost" disabled={connecting} onclick={() => changingServer = !changingServer}>{changingServer ? 'Keep current server' : 'Change server'}</Button>
+		{/if}
+		<Label for="instance-server">Server URL</Label>
+		<Input id="instance-server" type="url" required bind:value={server} placeholder="https://your-server.example" readonly={startup.selectedServer !== null && !changingServer} disabled={connecting} />
+		<div class="flex gap-2">
+			<Button type="submit" disabled={connecting}>Connect and restart</Button>
+		</div>
+		{#if connectionError}
+			<p role="alert" class="text-destructive">{connectionError}</p>
+			<Button type="button" variant="ghost" disabled={connecting} onclick={() => void connect(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern)}>Return to saved connection</Button>
+		{/if}
+	</form>
+{/if}
 
 {#if localModels.available}
 	<div class="grid gap-3 p-3">

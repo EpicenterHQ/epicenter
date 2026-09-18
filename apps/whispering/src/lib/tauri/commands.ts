@@ -23,6 +23,7 @@
  * (fs, clipboard, etc.) keep their own imports.
  */
 
+import type { BlobDestination } from '@epicenter/blobs/native';
 import { invoke as rawInvoke } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { events, commands as gen } from './bindings.gen';
@@ -87,11 +88,13 @@ const wrappedGen = Object.fromEntries(
  */
 async function encodeRecordingForUpload(
 	audioBlobId: string,
+	destination: BlobDestination,
 ): Promise<Result<ArrayBuffer, string>> {
 	try {
 		return Ok(
 			await rawInvoke<ArrayBuffer>('encode_recording_for_upload', {
 				audioBlobId,
+				destination,
 			}),
 		);
 	} catch (e) {

@@ -6,11 +6,13 @@ export function createTestDesktopAuth() {
 	return createDesktopAuthAuthority({
 		authCell: null,
 		nativeAuthPort: {
+			async closeApplications() {},
+			async resumeApplications() {},
 			completed: new Promise(() => undefined),
 			async storeAuth() {},
 			async openAuthUrl() {},
 			relaunch() {},
-			onOAuthCallback(listener) {
+			onAuthCallback(listener) {
 				callbackListeners.add(listener);
 				return () => callbackListeners.delete(listener);
 			},

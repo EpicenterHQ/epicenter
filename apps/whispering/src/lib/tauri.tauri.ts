@@ -5,37 +5,27 @@
  * error transformation, or invalidation is exposed in the same shape
  * (no sub-namespace), with each leaf picking one canonical call form.
  *
- * Two files, one import path (`#platform/tauri`, declared in package.json
- * "imports"):
+ * `#platform/tauri` selects this module under `epicenter-host`. The default
+ * browser leaf exports `null`, so shared consumers check capability presence
+ * without probing runtime globals.
  *
- *     this file                              -> Tauri build (`tauri` condition)
- *     `./tauri.browser.ts` (exports `null`)  -> web build (`default`)
+ * Two exports, one for each use case:
  *
- * Both files annotate the export `: Tauri | null` and export the `Tauri`
- * type, so consumers always see the full shape regardless of which one
- * resolves.
- *
- * Two patterns, one for each use case:
- *
+ *     // Shared code, through the seam. `tauri` is annotated `Tauri | null`,
+ *     // so consumers narrow before using the native capability.
  *     import { tauri } from '#platform/tauri';
  *     if (tauri) await tauri.fs.pathsToFiles(paths);
  *     // or
  *     await tauri?.fs.pathsToFiles(paths);
  *
- *     // Inside *.tauri.ts files only (build guarantees Tauri runtime).
- *     // `tauriOnly` is imported directly, not through the `#platform/tauri`
- *     // seam, which resolves to `null` on web and does not export it:
+ *     // Inside *.tauri.ts files, which import `tauriOnly` directly rather
+ *     // than through the seam, since the seam does not export it:
  *     import { tauriOnly } from '$lib/tauri.tauri';
  *     await tauriOnly.fs.pathsToFiles(paths);
  *
- * `tauri` doubles as the platform check: truthy means we're on Tauri
- * and the whole namespace is available. There is no separate
- * `__TAURI_INTERNALS__` check; the value IS the check.
- *
- * Why the `: Tauri | null` annotation on a never-null local: it widens the
- * export type so consumers are forced to narrow.
- *
- * See `specs/20260526T000140-collapse-tauri-only-services-into-namespace.md`.
+ * The `: Tauri | null` annotation on a never-null value is deliberate. It
+ * keeps shared call sites narrowing, which is what lets the dev browser tab
+ * reach them without a `__TAURI_INTERNALS__` probe: the value IS the check.
  */
 
 import { appDataDir, basename, extname, join } from '@tauri-apps/api/path';
@@ -43,7 +33,6 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { openPath as revealPath } from '@tauri-apps/plugin-opener';
-import mime from 'mime';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import {
@@ -56,8 +45,8 @@ import type {
 	DictationCapability,
 	GlobalShortcutRegistration,
 	MicrophonePermission,
-} from '$lib/tauri/commands';
-import { commands, events } from '$lib/tauri/commands';
+} from './tauri/commands.js';
+import { commands, events } from './tauri/commands.js';
 
 const log = createLogger('whispering/tauri');
 
@@ -77,25 +66,16 @@ const FsError = defineErrors({
 	}),
 });
 
-async function readFileWithMimeType(path: string): Promise<{
-	bytes: Uint8Array<ArrayBuffer>;
-	mimeType: string;
-}> {
-	// Cast is safe: Tauri's readFile always returns ArrayBuffer-backed Uint8Array.
-	const bytes = (await readFile(path)) as Uint8Array<ArrayBuffer>;
-	const mimeType = mime.getType(path) ?? 'application/octet-stream';
-	return { bytes, mimeType };
-}
-
 const fs = {
 	pathsToFiles: (paths: string[]) =>
 		tryAsync({
 			try: () =>
 				Promise.all(
 					paths.map(async (path) => {
-						const { bytes, mimeType } = await readFileWithMimeType(path);
+						// The File keeps filename evidence; blob-format owns interpretation.
+						const bytes = (await readFile(path)) as Uint8Array<ArrayBuffer>;
 						const fileName = await basename(path);
-						return new File([bytes], fileName, { type: mimeType });
+						return new File([bytes], fileName);
 					}),
 				),
 			catch: (error) => FsError.ReadFilesFailed({ paths, cause: error }),
@@ -478,7 +458,7 @@ export const tauriOnly = {
 export type Tauri = typeof tauriOnly;
 
 /**
- * The Tauri capability namespace, or `null` on web builds.
- * Doubles as the platform check: truthy means Tauri.
+ * The Tauri capability namespace, widened to `Tauri | null` so shared code has
+ * to narrow before calling it. Doubles as the platform check.
  */
 export const tauri: Tauri | null = tauriOnly;

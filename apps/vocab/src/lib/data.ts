@@ -1,5 +1,6 @@
+import { defineApp } from '@epicenter/app';
+import { APPS } from '@epicenter/constants/apps';
 import { field } from '@epicenter/data/definition';
-import { APP_ID } from './app-id.js';
 /**
  * Vocab's inert workspace declaration: the workspace id it owns, its tables, and its device-local
  * values. Isomorphic: no IndexedDB, WebSockets, Svelte state, or browser APIs.
@@ -12,21 +13,15 @@ import { APP_ID } from './app-id.js';
  * sync; forking a field shape breaks sync compatibility with peers running the
  * canonical workspace.
  *
- * Composition lives in `src/lib/epicenter.svelte.ts`: one `createEpicenter`
- * over this definition and the account, which the one route opens explicitly
- * (ADR-0339, ADR-0344).
+ * `src/lib/application.ts` captures the Account and opens this declaration
+ * only after the primary route mounts.
  */
 
 import type { AgentMessage } from '@epicenter/agent';
 import { conversationsTable } from '@epicenter/chat';
 import type { ServableModel } from '@epicenter/constants/ai-providers';
 import type { DeclaredData } from '@epicenter/data';
-import {
-	defineData,
-	defineTable,
-	plainText,
-	type RowOf,
-} from '@epicenter/data/definition';
+import { defineTable, plainText, type RowOf } from '@epicenter/data/definition';
 
 /**
  * Vocab runs a single model. It is an app constant, not a per-conversation
@@ -57,17 +52,6 @@ Guidelines:
 - For example sentences, write them in the studied language, then explain in English.
 - Adjust difficulty based on context clues from the user's questions.
 - Be conversational and encouraging.`;
-
-/**
- * The model Vocab dictates through. Pinned to OpenAI's `whisper-1`, the one
- * model the hosted speech-to-text gateway serves: it returns the `duration` the
- * per-minute meter reads, which the `gpt-4o-transcribe` models drop. An app
- * constant like {@link VOCAB_MODEL}: transcription is a stateless service, so
- * Vocab names its own model rather than borrow another app's. A user who points
- * a device connection at their own OpenAI key serving `whisper-1` dictates
- * through that instead (the connection registry resolves it first).
- */
-export const VOCAB_STT_MODEL = 'whisper-1';
 
 /**
  * A complete chat message: the unit Vocab persists. Each finished message is
@@ -119,8 +103,8 @@ const entriesTable = defineTable({
  * (ADR-0213). It is read from the DEVICE document in every generation: how this
  * screen renders is a fact about this screen, not portable work (ADR-0233).
  */
-export const vocabDefinition = defineData({
-	id: APP_ID,
+export const vocabDefinition = defineApp({
+	id: APPS.VOCAB.id,
 	title: 'Vocab',
 	kv: {
 		/** Readings render by default. */

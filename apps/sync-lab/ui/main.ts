@@ -10,7 +10,7 @@ import { field, plainText } from '@epicenter/data/definition';
  */
 
 import { defineData, defineTable } from '@epicenter/data/definition';
-import { createAccountStore } from '@epicenter/data/direct';
+import { openAccountStore } from '@epicenter/data/direct';
 import { createSyncConnection } from '@epicenter/data/sync';
 import { createBrowserSqliteAdapter } from '@epicenter/sqlite/browser';
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
@@ -38,7 +38,7 @@ const device =
 	})();
 
 const sqlite3 = await sqlite3InitModule();
-const db = createAccountStore({
+const db = await openAccountStore({
 	definition: labDatabase,
 	sqlite: createBrowserSqliteAdapter(new sqlite3.oo1.DB(':memory:')),
 });
@@ -54,6 +54,9 @@ const store = db;
  * two of the four.
  */
 const connection = createSyncConnection({
+	onRetired() {
+		throw new Error('This sync laboratory does not restore generations');
+	},
 	store,
 	dial: ({ cursor, opened, received, closed }) => {
 		const url = new URL('/sync', location.href);
@@ -110,7 +113,7 @@ function render(): void {
 	status.textContent = [
 		`device ${device}`,
 		`cursor ${state.cursor}`,
-		state.connected ? 'connected' : `dialling (attempt ${state.attempts})`,
+		state.connected ? 'connected' : `dialling (failures ${state.failures})`,
 		state.inFlight ? `in flight (${state.owed} B)` : 'idle',
 		state.lastError === undefined
 			? 'no errors'
