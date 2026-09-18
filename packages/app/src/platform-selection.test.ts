@@ -1,46 +1,95 @@
-/**
- * Which build gets which leaf.
- *
- * The failure this guards is silent: drop the `epicenter-host` leaf from a seam
- * and resolution falls back to `default`, so a host build would run the
- * browser implementation while still building and still starting.
- */
-import { describe, expect, test } from 'bun:test';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+/** Runtime selection stays inert on import and explicit runtimes bypass detection. */
+import { expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 
-const packageRoot = fileURLToPath(new URL('..', import.meta.url));
+const cwd = fileURLToPath(new URL('..', import.meta.url));
 
-const imports = (
-	(await Bun.file(join(packageRoot, 'package.json')).json()) as {
-		imports: Record<string, Record<string, string>>;
-	}
-).imports;
-const seams = Object.entries(imports);
-
-describe('platform seams', () => {
-	test('each platform-dependent capability selects a browser or host leaf', () => {
-		expect(seams.map(([specifier]) => specifier).sort()).toEqual([
-			'#platform/clipboard',
-			'#platform/resources',
+for (const host of [false, true]) {
+	test(`default runtime and clipboard select ${host ? 'host' : 'browser'} without I/O`, async () => {
+		const child = Bun.spawn(
+			[
+				Bun.which('bun')!,
+				'--eval',
+				`
+   globalThis.isTauri = ${host};
+   for (const name of ['window','document','navigator']) Reflect.deleteProperty(globalThis,name);
+   for (const name of ['indexedDB','Worker','WebSocket','EventSource']) {
+    Object.defineProperty(globalThis, name, { configurable: true, get() { throw new Error('Import accessed '+name); } });
+   }
+   globalThis.fetch = () => { throw new Error('Import performed fetch'); };
+   const {defaultRuntime} = await import('./src/platform/default.ts');
+   const {resources} = await import('./src/platform/${host ? 'epicenter-host' : 'browser'}.ts');
+   const {clipboard} = await import('./src/clipboard.ts');
+   const {clipboard: expectedClipboard} = await import('./src/clipboard/${host ? 'epicenter-host' : 'browser'}.ts');
+   if (defaultRuntime() !== resources || clipboard !== expectedClipboard) throw new Error('Wrong platform selected');
+  `,
+			],
+			{ cwd, stdout: 'pipe', stderr: 'pipe' },
+		);
+		const [code, stderr] = await Promise.all([
+			child.exited,
+			new Response(child.stderr).text(),
 		]);
+		expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
 	});
+}
 
-	test('every seam names a host leaf and a default leaf, and nothing else', () => {
-		for (const [specifier, conditions] of seams) {
-			expect({ specifier, conditions: Object.keys(conditions).sort() }).toEqual(
-				{ specifier, conditions: ['default', 'epicenter-host'] },
-			);
-		}
-	});
+test('an explicit memory runtime never reads the platform marker', async () => {
+	const child = Bun.spawn(
+		[
+			Bun.which('bun')!,
+			'--eval',
+			`
+  Object.defineProperty(globalThis, 'isTauri', {get() {throw new Error('Detected platform');}});
+  const {openApp} = await import('./src/open.ts');
+  const {defineApp} = await import('./src/index.ts');
+  const {createMemoryRuntime} = await import('./src/testing.ts');
+  const runtime = createMemoryRuntime();
+  const app = openApp(defineApp({id:'test.explicit-runtime',tables:{},kv:{}}),{runtime});
+  if ((await app.ready).error) throw new Error('Open failed');
+  await app.close(); await runtime.dispose();
+ `,
+		],
+		{ cwd, stdout: 'pipe', stderr: 'pipe' },
+	);
+	const [code, stderr] = await Promise.all([
+		child.exited,
+		new Response(child.stderr).text(),
+	]);
+	expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
+});
 
-	test('every declared leaf is a file that exists', () => {
-		for (const [, conditions] of seams)
-			for (const leaf of Object.values(conditions))
-				expect({ leaf, exists: existsSync(join(packageRoot, leaf)) }).toEqual({
-					leaf,
-					exists: true,
-				});
-	});
+test('default host opening reports failed host storage without browser fallback', async () => {
+	const child = Bun.spawn(
+		[
+			Bun.which('bun')!,
+			'--eval',
+			`
+  globalThis.isTauri = true; // Marker read by the installed Tauri API.
+  globalThis.location = {origin:'http://host.test'};
+  globalThis.window = {location:globalThis.location};
+  let requests=0;
+  globalThis.fetch=async()=>{requests++;throw new Error('Host offline');};
+  globalThis.EventSource=class {constructor(){requests++;throw new Error('Host events offline');}};
+  Object.defineProperty(globalThis,'Worker',{get(){throw new Error('Browser fallback');}});
+  const {resources:host}=await import('./src/platform/epicenter-host.ts');
+  const {createMemoryRuntime}=await import('./src/testing.ts');
+  const runtime=createMemoryRuntime();
+  host.claim=runtime.claim;
+  host.data=runtime.data;
+  const {openApp}=await import('./src/open.ts');
+  const {defineApp}=await import('./src/index.ts');
+  const app=openApp(defineApp({id:'test.host-failure',tables:{},kv:{}}));
+  const ready=await app.ready;
+  if(ready.error?.name!=='StorageFailed'||requests===0) throw new Error('Did not report host failure: '+JSON.stringify(ready));
+  await app.close();await runtime.dispose();
+ `,
+		],
+		{ cwd, stdout: 'pipe', stderr: 'pipe' },
+	);
+	const [code, stderr] = await Promise.all([
+		child.exited,
+		new Response(child.stderr).text(),
+	]);
+	expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
 });

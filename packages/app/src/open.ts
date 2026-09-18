@@ -1,10 +1,10 @@
 import type { Account } from '@epicenter/auth';
-import { resources } from '#platform/resources';
 import { type App, composeApp } from './compose.js';
 import type { DataDefinition } from './data/definition/declaration.js';
+import { defaultRuntime } from './platform/default.js';
 import type { AppRuntime } from './runtime.js';
 
-/** Open one App lifetime with a complete runtime, defaulting to this build's platform. */
+/** Open one App lifetime with a complete runtime, defaulting to the current platform. */
 export function openApp<const TDefinition extends DataDefinition>(
 	definition: TDefinition,
 	options?: { account?: undefined; runtime?: AppRuntime },
@@ -33,7 +33,7 @@ export function openApp<const TDefinition extends DataDefinition>(
 	)
 		throw new TypeError('openApp expects { account?, runtime? } options.');
 	return composeApp(definition, {
-		...(options.runtime ?? resources),
+		...(options.runtime ?? defaultRuntime()),
 		appId: definition.id,
 		account: options.account,
 	});

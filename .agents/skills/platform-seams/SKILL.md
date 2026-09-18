@@ -17,9 +17,10 @@ workspace plane. The seam below is the part that survived.
 **Every build opens its own store.** A host serves bundles and brokers
 credentials and owns no application data (ADR-0226), so there is no build where
 data lives somewhere else, and a `#platform/*` seam for storage is the thing to
-delete rather than to route. Applications call `openApp(definition, account?)`
+delete rather than to route. Applications call `openApp(definition, { account?, runtime? })`
 from `@epicenter/app/open`. The package owns their store backing and selects
-native capabilities through build conditions. `defineApp` from the root is
+native capabilities with `isTauri()` (ADR-0403). An explicit complete runtime
+bypasses this selection. `defineApp` from the root is
 platform-free and carries no runtime or AI override (ADR-0407).
 
 App-level seams select auth and product capabilities. They do not compose an
@@ -93,11 +94,10 @@ They used to be conflated because `epicenter-host` also meant the host owned the
 build's replica. ADR-0226 removed that, so the condition is now about brokered
 credentials and nothing about data.
 
-**Current code and proposed direction.** `@epicenter/app` still selects its
-platform leaves through build conditions. Proposed ADR-0403 would move that
-selection inside the package with `isTauri()`. Until implemented, preserve the
-conditions required by current consumers. The proposal leaves app-level seams
-in place; consult it when changing the package's selection boundary.
+**Package selection and app seams.** `@epicenter/app` selects its default runtime
+and clipboard inside the package with `isTauri()` (ADR-0403). It requires no
+consumer build condition. Keep app-level conditions where they select auth or
+product UI; removing the package map does not remove those app-owned choices.
 
 A build that owns its own storage uses neither host condition, whether a browser
 or a bundle serves it: a WebView is a storage partition and origin pair like any
@@ -127,7 +127,8 @@ of the import graph stays ordinary.
 - Branching on the platform at an app's `#platform/*` call site. Import the
   bare specifier and let the build select the leaf.
 - Detecting the host at runtime in an app seam. The build already answered.
-  Proposed ADR-0403 would make `@epicenter/app` an exception; it is unbuilt.
+  `@epicenter/app` is the explicit exception: ADR-0403 selects its runtime and
+  clipboard with `isTauri()`, under the supported Epicenter-host-only Tauri model.
 - Using `satisfies` on a leaf instead of a `: Contract` annotation.
 - Importing a `.tauri.ts`-only symbol through `#platform/*`. It resolves to the
   browser leaf off Tauri; import it directly from the `.tauri` module inside

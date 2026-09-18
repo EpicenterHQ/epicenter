@@ -74,7 +74,7 @@ inferred schema types. Engine consumers use independent entrypoints:
 
 The root, schema, store, sync, and format entrypoints do not import the App
 opener or browser/native platform implementations. Importing `openApp` loads
-the build-selected implementations; calling it acquires resources.
+the browser and host implementations; calling it acquires resources.
 `import-boundaries.test.ts` checks the platform-free graphs.
 
 `openData` opens a data document over caller-supplied SQLite and leaves the
@@ -140,8 +140,9 @@ fresh App to retry. Different app/account identities can open concurrently.
 Readiness failure makes an App unusable; it does not prove resources were
 released. Cleanup failure retains ownership to prevent unsafe replacement.
 
-ADR-0403 proposes runtime platform selection. That proposal remains unbuilt;
-consumers must still preserve the build condition used by the package.
+The default runtime selects host services when `isTauri()` is true and browser
+services otherwise (ADR-0403). An explicit runtime bypasses detection. App-level
+authentication and UI build conditions remain independent.
 The text clipboard is not part of any runtime: `@epicenter/app/clipboard` is a
 standalone platform module, described under [Clipboard](#clipboard).
 Custom AI configuration uses one account-scoped catalog across applications
@@ -207,7 +208,7 @@ TypeScript selection owner and exact matcher in
 Missing connections, changed accounts, and mismatched models never select a
 replacement destination. See the [AI boundary decision](../../docs/adr/0365-ai-owns-inference-access-and-applications-own-workflow-selection.md).
 
-The default AI binding follows the package's build condition (a runtime check under ADR-0403; unbuilt):
+The default AI binding follows the package's `isTauri()` selection:
 
 | Environment | Connection persistence | Credentials |
 | --- | --- | --- |
@@ -445,8 +446,8 @@ needs `app.ready` or ends at `app.close()`. A boot-failure screen can copy
 diagnostics before any App exists, and a copy button keeps working while a page
 departs. Import it directly; do not thread an App handle to reach it.
 
-The package selects the implementation for the build; ADR-0403 replaces the
-seam with an `isTauri()` check in the public file (unbuilt). The default leaf uses the
+The public module selects its implementation with `isTauri()` (ADR-0403).
+The browser leaf uses the
 page's Clipboard API, which requires document focus and the browser's clipboard
 grant. The `epicenter-host` leaf uses the host's clipboard plugin, which also
 works while the window is unfocused, as a global shortcut needs. Today only the

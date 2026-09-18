@@ -64,7 +64,7 @@ HTTP 409 refusal prevents current Personal initialization over admitted history.
 
 ```text
 packages/app/
-|-- package.json                   public boundaries and build conditions
+|-- package.json                   public entrypoints
 |-- src/
 |   |-- index.ts                   platform-free declaration and schema vocabulary
 |   |-- open.ts                    public openApp; selects a complete runtime
@@ -88,7 +88,7 @@ packages/app/
 |   |   |   `-- memory.ts          Bun SQLite test opener
 |   |   |-- sync/                  transport, attachment, connection, authority
 |   |   `-- artifact/              file grammar, import/export, working copies
-|   |-- platform/                 build-selected browser and host resources
+|   |-- platform/                 browser and host resources, selected at runtime
 |   |-- recording/                browser and host recording lifetimes
 |   |-- clipboard/                independent platform clipboard leaves
 |   |-- browser.ts                internal browser AI binding
@@ -123,14 +123,13 @@ Import                               Runtime requirement
 @epicenter/app/artifact              document/file conversion; no App
 @epicenter/app/artifact/format       file grammar; no store or App
 @epicenter/app/artifact/checkout     working-copy operations; no App
-@epicenter/app/open                  build-selected application capabilities
+@epicenter/app/open                  runtime-selected application capabilities
 ```
 
-The package's `epicenter-host` and default conditions select the default
-complete runtime through `#platform/resources`, including its AI binding.
-Clipboard retains its independent platform seam. An explicit runtime replaces
-the default without altering the inert declaration. ADR-0403's automatic
-platform selector remains a proposal; consumers preserve build conditions.
+`platform/default.ts` selects the default complete runtime with `isTauri()`,
+including its AI binding. Clipboard selects its own leaf with the same platform
+check. An explicit runtime bypasses detection without altering the inert
+declaration. App-level authentication and UI build conditions remain separate.
 
 One App admission covers its document stores and lazy SQL lifetime. A second
 opener fails readiness immediately. Closure releases admission only after

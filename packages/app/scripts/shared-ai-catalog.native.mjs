@@ -394,7 +394,6 @@ try {
 			configFile: false,
 			root: source,
 			base: `/apps/${product}/`,
-			resolve: { conditions: ['epicenter-host', 'browser'] },
 			worker: { format: 'es' },
 			build: { target: 'esnext', outDir: 'dist', minify: false },
 		});

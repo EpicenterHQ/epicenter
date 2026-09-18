@@ -1,7 +1,7 @@
 /**
  * What `defineApp` decides before it acquires anything.
  *
- * Checks inert declarations, build-selected resources, and schema inference.
+ * Checks inert declarations, platform resources, and schema inference.
  * Public opening exercises injected resource failures and lifetime cleanup.
  */
 
@@ -15,11 +15,10 @@ import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { resources } from '#platform/resources';
 import { createAiConnections } from './ai-connections.js';
-
 import { defineApp } from './index.js';
 import { openApp } from './open.js';
+import { resources } from './platform/browser.js';
 import { createMemoryRuntime } from './testing.js';
 
 installTestLocks();

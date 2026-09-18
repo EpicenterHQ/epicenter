@@ -8,14 +8,14 @@ import { fileURLToPath } from 'node:url';
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
 
-for (const condition of [undefined, 'epicenter-host']) {
-	test(`a ${condition ?? 'browser'} declaration works without browser globals`, async () => {
+for (const host of [false, true]) {
+	test(`a ${host ? 'host' : 'browser'} declaration works without browser globals`, async () => {
 		const process = Bun.spawn(
 			[
 				Bun.which('bun')!,
-				...(condition ? [`--conditions=${condition}`] : []),
 				'--eval',
 				`
+                globalThis.isTauri = ${host};
 				for (const name of ['window', 'document', 'navigator', 'indexedDB', 'Worker']) {
 					Reflect.deleteProperty(globalThis, name);
 				}
@@ -89,14 +89,14 @@ for (const entrypoint of [
 	});
 }
 
-for (const condition of [undefined, 'epicenter-host']) {
-	test(`explicit memory runtime opens without ${condition ?? 'browser'} platform globals`, async () => {
+for (const host of [false, true]) {
+	test(`explicit memory runtime opens without ${host ? 'host' : 'browser'} platform globals`, async () => {
 		const child = Bun.spawn(
 			[
 				Bun.which('bun')!,
-				...(condition ? [`--conditions=${condition}`] : []),
 				'--eval',
 				`
+   globalThis.isTauri = ${host};
    for (const name of ['window','document','navigator','indexedDB','Worker']) Reflect.deleteProperty(globalThis,name);
    const {defineApp} = await import('@epicenter/app');
    const {openApp} = await import('@epicenter/app/open');

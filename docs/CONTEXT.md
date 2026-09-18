@@ -299,7 +299,7 @@ shapes, see `docs/adr/`.
   drains work and releases resources. `app.device` always exists;
   `app.account` exists when the caller supplied an Account. `compose.ts` owns
   the private resource lifetime. An optional complete runtime replaces the
-  build-selected implementation; the declaration remains inert. One admission
+  `isTauri()`-selected implementation; the declaration remains inert. One admission
   covers all App stores and lazy SQL. A failed `ready` means unusable, not
   necessarily released: cleanup failure retains admission.
 - **Memory App runtime**: `createMemoryRuntime()` from `@epicenter/app/testing`

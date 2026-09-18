@@ -4,16 +4,6 @@
 	"private": true,
 	"description": "Application declarations, store, sync, and application lifetime.",
 	"type": "module",
-	"imports": {
-		"#platform/resources": {
-			"epicenter-host": "./src/platform/epicenter-host.ts",
-			"default": "./src/platform/browser.ts"
-		},
-		"#platform/clipboard": {
-			"epicenter-host": "./src/clipboard/epicenter-host.ts",
-			"default": "./src/clipboard/browser.ts"
-		}
-	},
 	"exports": {
 		".": "./src/index.ts",
 		"./ai": "./src/ai.ts",
@@ -35,7 +25,7 @@
 		"./testing": "./src/testing.ts"
 	},
 	"scripts": {
-		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.epicenter-host.json && tsc --noEmit -p tsconfig.data.json && tsc --noEmit -p tsconfig.data.dom.json && tsc --noEmit -p evidence/data/browser/durable-store/tsconfig.json && tsc --noEmit -p evidence/data/browser/write-cost/tsconfig.json && tsc --noEmit -p evidence/data/browser/port-cost/tsconfig.json && tsc --noEmit -p evidence/data/library-ownership/tsconfig.json",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.data.json && tsc --noEmit -p tsconfig.data.dom.json && tsc --noEmit -p evidence/data/browser/durable-store/tsconfig.json && tsc --noEmit -p evidence/data/browser/write-cost/tsconfig.json && tsc --noEmit -p evidence/data/browser/port-cost/tsconfig.json && tsc --noEmit -p evidence/data/library-ownership/tsconfig.json",
 		"test": "bun test --isolate",
 		"smoke:recording": "bun scripts/browser-smoke.ts",
 		"bench": "bun src/data/__benchmarks__/root-rotation.bench.ts && bun src/data/__benchmarks__/checkout.bench.ts",
