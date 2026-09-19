@@ -264,9 +264,11 @@ announces its own durable local work to the transport internally, so
 **nothing calls `nudge`**; forgetting to was the same class of silent wedge.
 
 Server side: one Durable Object per (principal, application id),
-addressed by a principal resolved from the bearer (ADR-0225). **Being signed in
-on two devices is the entire sharing model** — nothing to pair, invite or
-approve, and no identifier a client can supply that reaches another partition.
+addressed by a principal resolved from the bearer (ADR-0225). Signing in to the
+same account on two devices synchronizes Personal data. Device data stays
+local, and no identifier a client supplies grants access to another principal's
+data. Server-wide Shared data is deferred in
+[ADR-0416](adr/0416-defer-server-wide-shared-data.md).
 
 ---
 

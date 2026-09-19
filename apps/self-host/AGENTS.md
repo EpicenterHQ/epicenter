@@ -16,9 +16,7 @@ apply the former token-only prohibitions to that work.
   same user. Removing a user disables admission; revoking sessions alone does not.
 - Preserve the historical `instance` identity and its storage bytes until an
   explicit export/import operation is selected. Never assign that data to the
-  first named user or silently reinterpret it as Shared.
-- Shared access preserves the signed-in actor. Library selection does not replace
-  the authenticated user with an `instance` or Shared principal.
+  first named user.
 - Shared server behavior belongs in `packages/server`; keep deployment composition
   here. Do not import the hosted Cloud auth composition to obtain named users.
 - Treat wrangler bindings as operator-customized. Do not commit a working set of

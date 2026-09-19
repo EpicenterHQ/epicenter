@@ -29,7 +29,6 @@ Application data.ts / reusable tables / Worker probes
           |
           +--> device store: account-local or no-account namespace
           +--> personal store: present with Account
-          +--> shared store: present when Account supports Shared
           +--> SQLite / secrets / blobs / recording / AI connections
           |
           +--> resolved App: stores and catalog are ready

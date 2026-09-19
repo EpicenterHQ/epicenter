@@ -42,7 +42,6 @@ function accountFor(): Account {
 		baseURL: 'https://skills.test',
 		authorityId: 'test-authority',
 		principalId: asPrincipalId(crypto.randomUUID()),
-		supportsShared: false,
 		async fetch(_input, init) {
 			return createCurrentDownloadResponse({
 				generation: 1,

@@ -18,7 +18,6 @@ import { expect, test } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { epicenterCloud } from '@epicenter/auth';
 import {
 	PRODUCTION_PORT,
 	type ReadyFrame,
@@ -117,7 +116,11 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 			token: 'compiled_test_token',
 			port: PRODUCTION_PORT + 1,
 			authCell: null,
-			authServer: epicenterCloud('https://api.epicenter.so'),
+			authServer: {
+				baseURL: 'https://api.epicenter.so',
+				authorityId: 'epicenter-api',
+			},
+			accountManagement: true,
 			dataDir,
 			folderDir: join(dataDir, 'checkout'),
 		})}\n`,
@@ -149,7 +152,11 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 				token: 'compiled_test_token',
 				port,
 				authCell: null,
-				authServer: epicenterCloud('https://api.epicenter.so'),
+				authServer: {
+					baseURL: 'https://api.epicenter.so',
+					authorityId: 'epicenter-api',
+				},
+				accountManagement: true,
 				dataDir,
 				folderDir: join(dataDir, 'checkout'),
 			})}\n`,

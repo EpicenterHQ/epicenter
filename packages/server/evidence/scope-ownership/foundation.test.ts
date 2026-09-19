@@ -2,7 +2,7 @@
  * App ownership foundation evidence.
  * Runs current browser startup in separate processes against the live HTTP
  * mount and SQLite authority. Exercises a durable initialization prototype through
- * restart and competing writers, plus test-only named destination authorization.
+ * restart and competing writers.
  */
 
 import { Database } from 'bun:sqlite';
@@ -19,7 +19,6 @@ import { Ok } from 'wellcrafted/result';
 import { OAuthError } from '../../src/auth/oauth-errors.js';
 import { mountStoreSyncApp } from '../../src/store-sync/mount.js';
 import type { Env } from '../../src/types.js';
-import { authorize, deployment } from './contract.js';
 import { openInitialization } from './initial-generation.js';
 
 // The backend substitutes only durable storage. Discovery and routing are live code.
@@ -245,80 +244,4 @@ test('initial selection preserves admitted history, import gaps, and explicit im
 	} finally {
 		state.close();
 	}
-});
-
-test('Alice and Bob share only remote Shared within one server and app', () => {
-	const a = deployment('https://a.example', 'self-host');
-	const b = deployment('https://b.example', 'self-host');
-	const alice = authorize(a, 'alice', 'so.epicenter.notes', 'shared');
-	const bob = authorize(a, 'bob', 'so.epicenter.notes', 'shared');
-	expect(alice.remote).toEqual(bob.remote);
-	expect(alice.actor.principalId).toBe('alice');
-	expect(bob.actor.principalId).toBe('bob');
-	const bindings = [a, b].flatMap((server) =>
-		['alice', 'bob'].flatMap((actor) =>
-			['personal', 'shared'].map((scope) =>
-				authorize(server, actor, 'so.epicenter.notes', scope),
-			),
-		),
-	);
-	for (const resource of [
-		(binding: typeof alice) => binding.replica,
-		(binding: typeof alice) => binding.document('so.epicenter.notes', 1),
-		(binding: typeof alice) => binding.blob('blob-1'),
-		(binding: typeof alice) => JSON.stringify(binding.sqlite('search')),
-		(binding: typeof alice) => binding.recording,
-		(binding: typeof alice) => binding.lock,
-	]) {
-		expect(new Set(bindings.map(resource)).size).toBe(8);
-	}
-	expect(
-		authorize(a, 'alice', 'so.epicenter.notes', 'personal').remote,
-	).not.toEqual(authorize(a, 'bob', 'so.epicenter.notes', 'personal').remote);
-	expect(alice.remote).not.toEqual(
-		authorize(b, 'alice', 'so.epicenter.notes', 'shared').remote,
-	);
-	expect(alice.remote).not.toEqual(
-		authorize(a, 'alice', 'so.epicenter.recorder', 'shared').remote,
-	);
-});
-
-test('authorization rejects anonymous Shared, Cloud Shared, owner forgery, and malformed destinations', () => {
-	const a = deployment('https://a.example', 'self-host');
-	const cloud = deployment('https://api.epicenter.so', 'cloud');
-	for (const bearer of [null, '', 'mallory'])
-		expect(() => authorize(a, bearer, 'so.epicenter.notes', 'shared')).toThrow(
-			'Unauthenticated',
-		);
-	expect(() =>
-		authorize(cloud, 'alice', 'so.epicenter.notes', 'shared'),
-	).toThrow('Shared unavailable');
-	expect(() =>
-		authorize(a, 'alice', 'so.epicenter.notes', 'personal', 'bob'),
-	).toThrow('Personal owner');
-	expect(() => authorize(a, 'alice', '../notes', 'shared')).toThrow(
-		'Invalid app',
-	);
-	expect(() => authorize(a, 'alice', 'so.epicenter.notes', 'unknown')).toThrow(
-		'Invalid scope',
-	);
-	expect(() => deployment('https://a.example', 'cloud')).toThrow(
-		'Reserved Cloud',
-	);
-	const personal = authorize(cloud, 'alice', 'so.epicenter.notes', 'personal');
-	expect(personal.actor.authorityId).toBe('epicenter-api');
-	expect(personal.remote).toEqual({
-		origin: 'https://api.epicenter.so',
-		root: 'principals/alice',
-	});
-	expect(personal.document('so.epicenter.notes', 1)).toBe(
-		'epicenter/so.epicenter.notes/accounts/epicenter-api/alice/data/so.epicenter.notes/1',
-	);
-	expect(personal.sqlite('search')).toEqual([
-		'so.epicenter.notes',
-		'account',
-		'epicenter-api',
-		'alice',
-		'search',
-	]);
 });

@@ -59,6 +59,10 @@ test('mounted Whispering uses device data for every signed-out saved selection',
 					if (id !== route) return;
 					return code
 						.replace(
+							"import { resolve } from '$app/paths';",
+							'const resolve = (path) => path;',
+						)
+						.replace(
 							"from '#platform/auth'",
 							`from ${JSON.stringify(join(directory, 'auth.ts'))}`,
 						)
@@ -126,7 +130,7 @@ test('mounted Whispering uses device data for every signed-out saved selection',
 	let browser;
 	try {
 		browser = await chromium.launch({ headless: true });
-		for (const saved of [null, 'local', 'personal', 'shared']) {
+		for (const saved of [null, 'local', 'personal']) {
 			const page = await browser.newPage();
 			const errors: string[] = [];
 			page.on('pageerror', (error: Error) => errors.push(error.message));

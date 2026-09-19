@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-18
+- **Amended by:** [ADR-0416](0416-defer-server-wide-shared-data.md) removes Shared from supported data scopes; personal addressing and durable identities remain.
 - **Amends:** [ADR-0375](0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md) and [ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) at terminology and public data metadata.
 
 ## Decision

@@ -206,9 +206,8 @@ async function setup({
 		server: {
 			baseURL,
 			authorityId: 'epicenter-api',
-			accountManagement: true,
-			supportsShared: false,
 		},
+		accountManagement: true,
 		credentialUnreadable: false,
 	};
 	const directory = await mkdtemp(join(tmpdir(), 'account-relay-'));

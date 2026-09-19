@@ -22,6 +22,7 @@ import { resolveTargetUrl } from './resolve-target-url.js';
 export type DesktopAuthBootstrap = {
 	state: AuthIdentityState;
 	server: AuthServer;
+	accountManagement: boolean;
 	credentialUnreadable: boolean;
 };
 
@@ -167,7 +168,6 @@ export function createDesktopBrokerAuth({
 			? null
 			: Object.freeze({
 					authorityId: bootstrap.server.authorityId,
-					supportsShared: bootstrap.server.supportsShared,
 					principalId: bootstrap.state.principalId,
 					baseURL,
 					fetch: accountFetch,
@@ -288,7 +288,7 @@ export function createDesktopBrokerAuth({
 				Promise.resolve(AuthError.ProfileUnavailable({ cause: 'Signed out.' }))
 			);
 		},
-		...(bootstrap.server.accountManagement
+		...(bootstrap.accountManagement
 			? { accountManagementUrl: createAccountManagementUrl }
 			: {}),
 		[Symbol.dispose]() {

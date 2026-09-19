@@ -19,8 +19,6 @@ export type AuthFetch = (
  */
 export type Account = AccountIdentity & {
 	readonly baseURL: string;
-	/** Selected deployment offers Shared; independent of the signed-in principal. */
-	readonly supportsShared: boolean;
 	fetch: AuthFetch;
 	openWebSocket: SocketTransport['openWebSocket'];
 	getProfile(): Promise<Result<Principal, AuthError>>;

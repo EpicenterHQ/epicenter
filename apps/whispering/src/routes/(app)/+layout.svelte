@@ -12,9 +12,7 @@
 	const library = (() => {
 		if (!auth.getState().account) return 'local';
 		const saved = localStorage.getItem('whispering.library');
-		if (saved === null) return 'personal';
-		if (saved === 'local' || saved === 'personal' || saved === 'shared') return saved;
-		throw new Error('Your saved library choice could not be read.');
+		return saved === 'local' ? 'local' : 'personal';
 	})();
 	function selectLibrary(next: typeof library, leave?: Leave) {
 		if (next === library) return Promise.resolve();
@@ -29,7 +27,7 @@
 </script>
 
 {#snippet libraryMenu(leave?: Leave)}
-	<LibrarySelection {library} canOpenShared={auth.getState().account?.supportsShared ?? false} select={(next) => selectLibrary(next, leave)} />
+	<LibrarySelection {library} select={(next) => selectLibrary(next, leave)} />
 {/snippet}
 
 {#if connecting}
@@ -47,7 +45,7 @@
 		{/snippet}
 		{#snippet children(app, leave, account)}
 			{#snippet menu()}{@render libraryMenu(leave)}{/snippet}
-			{@const data = library === 'local' ? app.device : library === 'personal' ? app.account?.personal : app.account?.shared}
+			{@const data = library === 'local' ? app.device : app.account?.personal}
 			{#if data}
 				<WhisperingShell libraryMenu={menu} openedApp={app} {data} {account}>
 					{@render routeChildren()}

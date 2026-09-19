@@ -7,7 +7,7 @@ passkeys, sessions, and recovery grants together. Cloud billing remains in
 `apps/api`.
 
 Both runtime entries serve passkey sign-in and named sessions. The Worker
-serves Personal and Shared data synchronization; Bun still needs its sync
+serves Personal data synchronization; Bun still needs its sync
 backend. Applications fix their issuer per build. Rebuild and redeploy the app to
 change its server. Optional passwords
 remain unbuilt.

@@ -167,7 +167,7 @@ function captureAccount(account: DatabaseAccount): DatabaseAccount {
 
 export type AppDataScope = { appId: string } & (
 	| { scope: 'device'; account?: AccountIdentity }
-	| { scope: 'personal' | 'shared'; account: DatabaseAccount }
+	| { scope: 'personal'; account: DatabaseAccount }
 );
 
 /** Acquire storage under the caller's exclusive App admission. */

@@ -199,7 +199,6 @@ test('account recording keeps the opened identity when the supplied account chan
 	const { openFixture, bindings } = setup();
 	let state: Blob | null = null;
 	const account: Account = {
-		supportsShared: false,
 		authorityId: 'original',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://example.test',

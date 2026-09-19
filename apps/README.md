@@ -34,7 +34,7 @@ export const notes = defineApp({
 The mounted application route captures the Account and opens that declaration
 once with `openApp(notes, { account })` from `@epicenter/app/open`. Opening returns
 the live App synchronously; `app.ready` gates use of its stores and capabilities. Select a destination before reading or writing rows:
-`app.device`, `app.account.personal`, or an available `app.account.shared`.
+`app.device` or `app.account.personal`.
 Rows and mutations are synchronous after readiness. Before replacing the
 Account, stop UI producers and await `app.close()`.
 

@@ -3,6 +3,7 @@ import { createBrowserRedirectAuth, selfHostedServer } from '@epicenter/auth';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
 
 const auth = createBrowserRedirectAuth({
+	accountManagement: false,
 	appId: 'self-host-smoke',
 	server: selfHostedServer(import.meta.env.VITE_EPICENTER_SERVER),
 });

@@ -1,6 +1,6 @@
 /**
  * App storage follows the captured account, survives reopening, and never
- * crosses into another owner's namespace. Retirement stops sibling sync.
+ * crosses into another owner's namespace. Retirement closes the App before cleanup.
  */
 import { expect, test } from 'bun:test';
 import { defineTable, field } from '@epicenter/app';
@@ -25,9 +25,8 @@ const definition = defineApp({
 		recordings: defineTable({ audioBlobId: field.string() }),
 	},
 });
-function accountFor(person: string, supportsShared = false): Account {
+function accountFor(person: string): Account {
 	return Object.freeze({
-		supportsShared,
 		authorityId: 'scope-test',
 		principalId: asPrincipalId(person),
 		baseURL: 'https://scopes.test',
@@ -160,16 +159,11 @@ test('device rows, SQLite, secrets and blobs isolate owners and survive returnin
 	}
 });
 
-test.each([
-	['personal', false],
-	['shared', false],
-	['personal', true],
-] as const)('%s retirement stops siblings before cleanup even if transport close fails=%s', async (retiring, throwOnClose) => {
+test('personal retirement closes the App before durable invalidation completes', async () => {
 	const runtime = createMemoryRuntime();
-	const events = { personal: new EventTarget(), shared: new EventTarget() };
+	const events = new EventTarget();
 	const closed: string[] = [];
 	let recorderStopped = false;
-	const failure = new Error('Socket close failed');
 	const invalidated: string[] = [];
 	const disposed: string[] = [];
 	const invalidate = Promise.withResolvers<void>();
@@ -195,13 +189,12 @@ test.each([
 				},
 				transport: {
 					async openWebSocket() {
-						return Object.assign(events[scope], {
+						return Object.assign(events, {
 							readyState: 1,
 							binaryType: '',
 							send() {},
 							close() {
 								closed.push(scope);
-								if (throwOnClose && scope !== retiring) throw failure;
 							},
 						}) as unknown as WebSocket;
 					},
@@ -214,7 +207,7 @@ test.each([
 		id: `test.${crypto.randomUUID()}`,
 	});
 	const app = await openApp(appDefinition, {
-		account: accountFor('alice', true),
+		account: accountFor('alice'),
 		runtime: {
 			...runtime,
 			recording(...args) {
@@ -242,23 +235,21 @@ test.each([
 		},
 	});
 	try {
-		expect(app.account!.shared).not.toBeNull();
 		await Bun.sleep(0);
-		events[retiring].dispatchEvent(
+		events.dispatchEvent(
 			new MessageEvent('message', {
 				data: encodeFrame({ kind: 'retired' }).buffer,
 			}),
 		);
 		expect(app.signal.aborted).toBe(true);
-		expect(new Set(closed)).toEqual(new Set(['personal', 'shared']));
+		expect(new Set(closed)).toEqual(new Set(['personal']));
 		expect(recorderStopped).toBe(true);
-		for (const event of Object.values(events))
-			event.dispatchEvent(
-				new MessageEvent('message', {
-					data: encodeFrame({ kind: 'retired' }).buffer,
-				}),
-			);
-		expect(invalidated).toEqual([retiring]);
+		events.dispatchEvent(
+			new MessageEvent('message', {
+				data: encodeFrame({ kind: 'retired' }).buffer,
+			}),
+		);
+		expect(invalidated).toEqual(['personal']);
 		expect(disposed).toEqual([]);
 		expect(() => app.device.tables.notes.create({ title: 'late' })).toThrow();
 		await new Promise<void>((resolve) => {
@@ -268,10 +259,9 @@ test.each([
 		});
 		invalidate.resolve();
 
-		if (throwOnClose) await expect(app.close()).rejects.toBe(failure);
-		else await app.close();
+		await app.close();
 
-		expect(new Set(disposed)).toEqual(new Set(['personal', 'shared']));
+		expect(new Set(disposed)).toEqual(new Set(['personal']));
 	} finally {
 		invalidate.resolve();
 		await app.close().catch(() => {});

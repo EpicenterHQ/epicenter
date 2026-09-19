@@ -44,7 +44,7 @@ function request(person: string, bytes: Uint8Array) {
 function authority(person: string) {
 	return env.STORE_AUTHORITY.get(
 		env.STORE_AUTHORITY.idFromName(
-			`${dataStoragePrefix(appId, 'personal', asPrincipalId(person))}/data/${dataId}`,
+			`${dataStoragePrefix(appId, asPrincipalId(person))}/data/${dataId}`,
 		),
 	);
 }

@@ -161,7 +161,7 @@ let proxy: PlatformProxy<TestBindings> | undefined;
 let passed = false;
 const pages: Page[] = [];
 const errors: string[] = [];
-const sharedDownloads: Array<
+const personalDownloads: Array<
 	Promise<{
 		generation: string | undefined;
 		position: string | undefined;
@@ -236,26 +236,30 @@ async function openNote(page: Page, text: string) {
 	await page.getByText(text, { exact: true }).first().click();
 	await page.locator('.ProseMirror').waitFor();
 }
-async function enroll(id: string) {
+async function enroll(id: string, source?: Page) {
 	assert(proxy);
 	assert(browser);
-	const grant = await proxy.env.OPERATOR.admit({
-		id,
-		name: id === 'alice' ? 'Alice' : 'Bob',
-	});
+	const grant = source
+		? undefined
+		: await proxy.env.OPERATOR.admit({
+				id,
+				name: id === 'alice' ? 'Alice' : 'Bob',
+			});
 	console.log('Enrolling', id);
 	const context = await browser.newContext();
+	if (source) await context.addCookies(await source.context().cookies(origin));
 	const page = await context.newPage();
 	pages.push(page);
 	page.setDefaultTimeout(30_000);
-	// One App opens Personal and Shared together during bootstrap.
+	// Compare the two fresh Alice devices before either writes application data.
 	page.on('response', (response) => {
 		if (
+			id !== 'alice' ||
 			response.request().method() !== 'POST' ||
-			!response.url().includes('/shared/data/so.epicenter.honeycrisp/current')
+			!response.url().includes('/personal/data/so.epicenter.honeycrisp/current')
 		)
 			return;
-		sharedDownloads.push(
+		personalDownloads.push(
 			(async () => {
 				assert.equal(response.status(), 200);
 				return {
@@ -268,33 +272,36 @@ async function enroll(id: string) {
 	});
 
 	page.on('pageerror', (error) => errors.push(`${id}: ${error.message}`));
-	const cdp = await context.newCDPSession(page);
-	await cdp.send('WebAuthn.enable');
-	await cdp.send('WebAuthn.addVirtualAuthenticator', {
-		options: {
-			protocol: 'ctap2',
-			transport: 'internal',
-			hasResidentKey: true,
-			hasUserVerification: true,
-			isUserVerified: true,
-			automaticPresenceSimulation: true,
-		},
-	});
-	await page.goto(grant.url);
-	await page.click('#continue');
-	await page.waitForFunction(
-		() => document.querySelector('h1')?.textContent === 'You are signed in',
-	);
-	console.log('Enrolled', id, 'connecting Honeycrisp');
+	if (grant) {
+		const cdp = await context.newCDPSession(page);
+		await cdp.send('WebAuthn.enable');
+		await cdp.send('WebAuthn.addVirtualAuthenticator', {
+			options: {
+				protocol: 'ctap2',
+				transport: 'internal',
+				hasResidentKey: true,
+				hasUserVerification: true,
+				isUserVerified: true,
+				automaticPresenceSimulation: true,
+			},
+		});
+		await page.goto(grant.url);
+		await page.click('#continue');
+		await page.waitForFunction(
+			() => document.querySelector('h1')?.textContent === 'You are signed in',
+		);
+	}
+	console.log('Prepared issuer session', id);
+	return page;
+}
+async function connect(page: Page) {
 	await observeOwnership(page);
 	await page.goto(`${appOrigin}/connect`);
 	await assertNoStores(page);
-	await page
-		.getByRole('button', { name: 'Sign in to your server', exact: true })
-		.click();
+	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 	await page.waitForURL(`${appOrigin}/personal`);
 	await page.getByRole('button', { name: 'New note', exact: true }).waitFor();
-	console.log('Opened Honeycrisp', id);
+	console.log('Opened Honeycrisp');
 
 	return page;
 }
@@ -319,7 +326,21 @@ try {
 	}
 	browser = await chromium.launch({ headless: true });
 	const alice = await enroll('alice');
+	const peer = await enroll('alice', alice);
+	await Promise.all([connect(alice), connect(peer)]);
+	const canonical = await Promise.all(personalDownloads);
+	assert.equal(canonical.length, 2);
+	assert(canonical[0]);
+	assert(canonical[0].generation);
+	assert(canonical[0].bytes.length > 0);
+	assert.deepEqual(canonical[0], canonical[1]);
+	console.log(
+		'Concurrent fresh Personal clients selected generation',
+		canonical[0].generation,
+		'with identical snapshot bytes',
+	);
 	const bob = await enroll('bob');
+	await connect(bob);
 	await note(alice, 'Alice private note');
 	assert.equal(
 		await bob.getByText('Alice private note', { exact: true }).count(),
@@ -331,26 +352,30 @@ try {
 		0,
 	);
 
-	const canonical = await Promise.all(sharedDownloads);
-	assert.equal(canonical.length, 2);
-	assert(canonical[0]);
-	assert(canonical[0].generation);
-	assert(canonical[0].bytes.length > 0);
-	assert.deepEqual(canonical[0], canonical[1]);
-	console.log(
-		'Concurrent fresh Shared clients selected generation',
-		canonical[0].generation,
-		'at position',
-		canonical[0].position,
-		'with identical snapshot bytes',
-	);
+	await select(alice, 'Local');
+	await note(alice, 'Preserved device note');
+	await select(alice, 'Personal');
 	await proveRetirement({
 		alice,
-		bob,
+		peer,
 		origin,
 		operator: proxy.env.APP_TEST,
 		openNote,
 	});
+	await bob.getByText('Bob private note', { exact: true }).first().waitFor();
+	assert.equal(
+		await bob
+			.getByRole('button', { name: 'Reload Honeycrisp', exact: true })
+			.count(),
+		0,
+	);
+	await select(alice, 'Local');
+	await alice
+		.getByText('Preserved device note', { exact: true })
+		.first()
+		.waitFor();
+	await select(alice, 'Personal');
+	await note(alice, 'Alice private note');
 	await alice
 		.getByText('Alice private note', { exact: true })
 		.first()
@@ -405,9 +430,7 @@ try {
 	local.setDefaultTimeout(30_000);
 	await observeOwnership(local);
 	await local.goto(`${appOrigin}/connect`);
-	await local
-		.getByRole('button', { name: 'Sign in to your server', exact: true })
-		.waitFor();
+	await local.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
 	await assertNoStores(local);
 	for (const path of ['/local', '/personal']) {
 		await local.evaluate((path) => {

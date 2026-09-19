@@ -73,7 +73,6 @@ export class StoreTestReplica extends DurableObject<Env> {
 	private connection: SyncConnection | undefined;
 	private store: ProbeReplica | undefined;
 	private bearer = '';
-	private scope: 'personal' | 'shared' = 'personal';
 	private lastTransportError: string | undefined;
 
 	constructor(ctx: DurableObjectState, env: Env) {
@@ -90,16 +89,12 @@ export class StoreTestReplica extends DurableObject<Env> {
 	async open(
 		bearer: string,
 		origin: string,
-		{
-			connect = true,
-			scope = 'personal',
-		}: { connect?: boolean; scope?: 'personal' | 'shared' } = {},
+		{ connect = true }: { connect?: boolean } = {},
 	): Promise<void> {
 		if (this.store !== undefined) return;
 		await this.ctx.blockConcurrencyWhile(async () => {
 			if (this.store !== undefined) return;
 			this.bearer = bearer;
-			this.scope = scope;
 			const database = createDurableObjectSqliteAdapter(
 				this.ctx.storage as unknown as DurableObjectSqliteStorage,
 			);
@@ -116,7 +111,7 @@ export class StoreTestReplica extends DurableObject<Env> {
 				CURRENT_ROUTE.url(
 					origin,
 					probeDefinition.id,
-					scope,
+					'personal',
 					probeDefinition.id,
 				),
 				{
@@ -198,7 +193,7 @@ export class StoreTestReplica extends DurableObject<Env> {
 				this.stopSync();
 			},
 			store,
-			address: { ...store, scope: this.scope },
+			address: { ...store, scope: 'personal' },
 			transport: this.transport(),
 			onTransportError: (cause) => {
 				this.lastTransportError = String(cause);

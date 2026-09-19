@@ -20,7 +20,6 @@ function setup(principalId: string) {
 		complete(body: unknown): void;
 	}[] = [];
 	const account: Account = {
-		supportsShared: false,
 		authorityId: 'test-authority',
 		principalId: asPrincipalId(principalId),
 		baseURL: 'https://api.example.test',

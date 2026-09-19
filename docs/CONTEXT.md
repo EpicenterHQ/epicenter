@@ -129,9 +129,9 @@ shapes, see `docs/adr/`.
   durable ledgers behind a persistence controller, and a synchronous surface
   over both. Opening one is the only asynchronous operation an application
   has.
-- **Library**: one application's data in one destination, named Local,
-  Personal, or Shared (ADR-0375). Local is this machine, Personal is one signed-in
-  person's server data, Shared is one self-hosted deployment's common data.
+- **Library**: a UI name for one application's data, Local or Personal. Local
+  stays on this machine; Personal synchronizes through the signed-in account.
+  Server-wide Shared data is deferred (ADR-0416).
 - **App**: what `await openApp(definition, { account?, runtime? })` returns: `device`,
   an optional `account`, plus `signal` and `close`. `device` is always
   present; `account` is present when a person is signed in. The framework supplies

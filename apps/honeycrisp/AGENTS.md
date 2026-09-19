@@ -16,7 +16,7 @@ Pass the actual App or its nested data handle intact. Notes receives
 `app.device` or `app.account.personal` and adapts its tables through `fromData`.
 Use direct props and explicit domain functions, not a second application
 controller or context. There is no saved selection or replacement App on view
-navigation. Shared has no Honeycrisp view.
+navigation.
 
 The browser build fixes its authentication service. The desktop build accepts
 the Account supplied by the host. Drain editors before closing the App and

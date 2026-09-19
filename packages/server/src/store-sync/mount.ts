@@ -1,4 +1,4 @@
-/** Authenticated access to one application's current Personal or Shared scope. */
+/** Authenticated access to one application's current Personal scope. */
 import {
 	CURRENT_ROUTE,
 	DATA_ID,
@@ -34,7 +34,6 @@ export function mountStoreSyncApp<E extends Env = Env>(
 		setup?: MiddlewareHandler<E>;
 		resolveBearerPrincipal: ResolveBearerPrincipal<E>;
 		resolveStore: ResolveStore;
-		shared?: boolean;
 	},
 ): void {
 	const bearer = createMiddleware<E>(async (c, next) => {
@@ -55,12 +54,7 @@ export function mountStoreSyncApp<E extends Env = Env>(
 		dataId: string | undefined,
 	) {
 		if (!dataId || !DATA_ID.test(dataId) || dataId.length > 128) return;
-		const prefix = resolveDataPrefix(
-			appId,
-			scope,
-			c.var.principal.id,
-			opts.shared === true,
-		);
+		const prefix = resolveDataPrefix(appId, scope, c.var.principal.id);
 		if (!prefix) return;
 		// A supplied owner is never an authorization mechanism.
 		if (c.req.query('principalId') || c.req.query('owner')) return;
@@ -76,7 +70,6 @@ export function mountStoreSyncApp<E extends Env = Env>(
 		// The new address cannot discover independently writable historical objects.
 		// Refuse rather than adopting a maximum or opening an empty replacement.
 		if (
-			scope === 'personal' &&
 			(
 				await store
 					.ledger(storeCollectionName(c.var.principal.id, dataId!))

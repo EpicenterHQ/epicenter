@@ -91,6 +91,7 @@ test('development browser callback completes the pending sign-in without a Home 
 	const opened = Promise.withResolvers<string>();
 	let relaunches = 0;
 	using desktopAuth = createDesktopAuthAuthority({
+		accountManagement: true,
 		server: epicenterCloud('https://api.epicenter.so'),
 		authCell: null,
 		callbackUrl,
@@ -1775,7 +1776,7 @@ async function readPortAnnouncement(
 					const ready = JSON.parse(line) as ReadyFrame;
 					expect(ready).toEqual({
 						type: 'ready',
-						protocolVersion: 4,
+						protocolVersion: 6,
 						port: ready.port,
 					});
 					return ready.port;
@@ -1898,7 +1899,7 @@ describe('sidecar end-to-end smoke', () => {
 		try {
 			// The credential and Rust-resolved port travel in the boot frame.
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: 4, token: TOKEN, port, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api', supportsShared: false, accountManagement: true }, dataDir, folderDir })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: 6, token: TOKEN, port, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir, folderDir })}\n`,
 			);
 			await sidecar.stdin.flush();
 			const announcedPort = await readPortAnnouncement(sidecar, 30_000);
@@ -2052,7 +2053,7 @@ describe('sidecar end-to-end smoke', () => {
 		);
 		try {
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: 4, token: TOKEN, port: occupiedPort, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api', supportsShared: false, accountManagement: true }, dataDir: testDataDir(), folderDir: testDataDir() })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: 6, token: TOKEN, port: occupiedPort, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir: testDataDir(), folderDir: testDataDir() })}\n`,
 			);
 			await sidecar.stdin.flush();
 			expect(await exitWithin(sidecar, 30_000)).not.toBe(0);
@@ -2092,7 +2093,7 @@ describe('sidecar end-to-end smoke', () => {
 		);
 		try {
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: 4, token: TOKEN, port, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api', supportsShared: false, accountManagement: true }, dataDir: testDataDir(), folderDir: testDataDir() })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: 6, token: TOKEN, port, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir: testDataDir(), folderDir: testDataDir() })}\n`,
 			);
 			await sidecar.stdin.flush();
 			expect(await readPortAnnouncement(sidecar, 30_000)).toBe(port);

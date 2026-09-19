@@ -19,6 +19,7 @@ export function createHostedBrowserRedirectAuth(
 		createBrowserRedirectAuth({
 			...options,
 			server: epicenterCloud(baseURL),
+			accountManagement: true,
 			fetch(input, init) {
 				const target = new URL(input instanceof Request ? input.url : input);
 				const headers = new Headers(init?.headers);

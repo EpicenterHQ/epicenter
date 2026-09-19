@@ -34,7 +34,6 @@ test('document retirement aborts an upload and releases playback before explicit
 		released.resolve(url);
 	});
 	const account: Account = {
-		supportsShared: false,
 		authorityId: 'blob-retirement',
 		principalId: asPrincipalId('alice'),
 		baseURL,

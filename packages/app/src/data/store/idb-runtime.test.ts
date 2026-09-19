@@ -1,6 +1,6 @@
 /**
  * Runtime-owned IndexedDB factories isolate identical durable addresses.
- * Device, personal, and shared stores retain committed records when reopened
+ * Device and personal stores retain committed records when reopened
  * in the same factory, without changing the ambient browser factory.
  */
 import { expect, test } from 'bun:test';
@@ -15,7 +15,6 @@ import { acquireAppData } from './browser.js';
 test.each([
 	'device',
 	'personal',
-	'shared',
 ] as const)('%s stores isolate simultaneous factories and reopen their own committed records', async (scope) => {
 	const appId = `so.epicenter.factory.${crypto.randomUUID()}`;
 	const definition = expectOk(

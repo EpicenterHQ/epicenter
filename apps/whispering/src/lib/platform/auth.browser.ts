@@ -11,6 +11,7 @@ export const auth = createBrowserRedirectAuth({
 	server: SELF_HOST_ORIGIN
 		? selfHostedServer(SELF_HOST_ORIGIN)
 		: epicenterCloud(APP_URLS.API),
+	accountManagement: !SELF_HOST_ORIGIN,
 });
 
 if (import.meta.hot) {

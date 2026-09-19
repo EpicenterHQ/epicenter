@@ -5,14 +5,13 @@
 	import LibraryIcon from '@lucide/svelte/icons/library';
 	import { Err, tryAsync } from 'wellcrafted/result';
 	import { extractErrorMessage } from 'wellcrafted/error';
-	type Library = 'local' | 'personal' | 'shared';
+	type Library = 'local' | 'personal';
 
-	let { library, canOpenShared, select }: {
+	let { library, select }: {
 		library: Library;
-		canOpenShared: boolean;
 		select: (library: Library) => Promise<void>;
 	} = $props();
-	const labels = { local: 'On this device', personal: 'Personal library', shared: 'Shared library' };
+	const labels = { local: 'On this device', personal: 'Personal library' };
 	let pending = $state(false);
 	let error = $state('');
 	async function choose(next: Library) {
@@ -43,12 +42,10 @@
 	<DropdownMenu.Content align="start">
 		<DropdownMenu.Label>Recording library</DropdownMenu.Label>
 		<DropdownMenu.RadioGroup value={library}>
-			{#each ['local', 'personal', 'shared'] as const as choice}
-				{#if choice !== 'shared' || canOpenShared || library === 'shared'}
-					<DropdownMenu.RadioItem value={choice} disabled={pending} onSelect={() => choose(choice)}>
-						{labels[choice]}
-					</DropdownMenu.RadioItem>
-				{/if}
+			{#each ['local', 'personal'] as const as choice}
+				<DropdownMenu.RadioItem value={choice} disabled={pending} onSelect={() => choose(choice)}>
+					{labels[choice]}
+				</DropdownMenu.RadioItem>
 			{/each}
 		</DropdownMenu.RadioGroup>
 		<DropdownMenu.Separator />

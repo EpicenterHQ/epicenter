@@ -10,9 +10,8 @@ composition to read first.
 
 ## The store authority
 
-Each data scope has one Durable Object authority. Personal addresses include
-application, authenticated actor, and data ID; Shared addresses include
-application and data ID and are enabled only by the self-hosted Worker.
+Each Personal data store has one Durable Object authority. Its address includes
+application, authenticated actor, and data ID. Other data scopes are refused.
 The generation is stored inside that authority, not in its object name.
 
 `mountStoreSyncApp` owns authentication and destination validation:

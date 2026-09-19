@@ -35,10 +35,14 @@ function setup() {
 		cells,
 		location,
 		requests,
-		create(baseURL = 'https://first.test') {
+		create(
+			baseURL = 'https://first.test',
+			features = { accountManagement: false },
+		) {
 			return createBrowserRedirectAuth({
 				appId: 'test',
 				server: selfHostedServer(baseURL),
+				...features,
 				fetch: async (input) => {
 					requests.push(input instanceof Request ? input.url : String(input));
 					return Response.json({ principalId: 'alice' });
@@ -146,11 +150,28 @@ test('generic issuers separate equal principals and expose no Cloud management l
 		selfHostedServer('https://second.test').authorityId,
 	);
 	expect(a.account.authorityId).not.toBe(b.account.authorityId);
-	expect(a.account.supportsShared).toBe(true);
 	expect(first.accountManagementUrl).toBeUndefined();
 	expect(second.accountManagementUrl).toBeUndefined();
 	await expect(
 		a.account.fetch('https://second.test/api/resource'),
 	).rejects.toThrow();
 	expect(environment.requests).toEqual([]);
+});
+
+test('dashboard settings do not change browser identity', () => {
+	using environment = setup();
+	const baseURL = 'https://first.test';
+	environment.cells.set(
+		`test.auth.persisted:${baseURL}`,
+		JSON.stringify({ token: 'saved', principalId: 'alice' }),
+	);
+	for (const accountManagement of [false, true]) {
+		using auth = environment.create(baseURL, { accountManagement });
+		const account = auth.getState().account;
+		expect(account?.authorityId).toBe(selfHostedServer(baseURL).authorityId);
+		expect(typeof auth.accountManagementUrl === 'function').toBe(
+			accountManagement,
+		);
+		expect(environment.requests).toEqual([]);
+	}
 });

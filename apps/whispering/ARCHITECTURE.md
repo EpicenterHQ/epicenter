@@ -20,7 +20,7 @@ Whispering is one SPA in three layers, served by the Epicenter desktop host. Pla
 calls `openApplication()`, which loads `bootstrap.ts` once. Bootstrap captures
 the library choice and raw auth Account. Local uses device storage scoped to
 that captured Account, or the separate no-account namespace when signed out.
-Personal and Shared require the captured Account. Authentication callbacks and overlays open no primary library.
+Personal requires the captured Account. Authentication callbacks and overlays open no primary library.
 `auth.svelte.ts` adds UI tracking after composition.
 
 The layout observes the opening promise before rendering `WhisperingShell`, which creates

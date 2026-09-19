@@ -4,7 +4,7 @@ import { createCurrentDownloadResponse } from '@epicenter/sync/current-download'
 export async function currentLibraryResponse(request: Request) {
 	if (
 		request.method !== 'POST' ||
-		!/^\/api\/apps\/[^/]+\/(personal|shared)\/data\/[^/]+\/current$/.test(
+		!/^\/api\/apps\/[^/]+\/personal\/data\/[^/]+\/current$/.test(
 			new URL(request.url).pathname,
 		)
 	)

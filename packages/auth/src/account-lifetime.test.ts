@@ -88,7 +88,6 @@ const address = STORE_SYNC_ROUTE.address('https://account.test', {
 test('verification and uninterrupted same-person sign-in preserve the Account object', async () => {
 	using context = setup();
 	const account = context.account;
-	expect(account.supportsShared).toBe(false);
 	expect(account.authorityId).toBe('epicenter-api');
 	await account.fetch('/api/example');
 	expect(context.account).toBe(account);
@@ -173,7 +172,10 @@ test('canceling one HTTP caller leaves another caller sharing verification activ
 	expect(verifications).toBe(1);
 });
 
-test('disposal during verification prevents later persistence and a subsequent sign-in launch', async () => {
+test.each([
+	'alice',
+	'bob',
+])('disposal during verification of %s prevents later persistence and a subsequent sign-in launch', async (principalId) => {
 	const verification = Promise.withResolvers<Response>();
 	const entered = Promise.withResolvers<void>();
 	using context = setup({
@@ -188,7 +190,7 @@ test('disposal during verification prevents later persistence and a subsequent s
 	await entered.promise;
 	context.auth[Symbol.dispose]();
 	expect(await pending).toMatchObject({ name: 'AbortError' });
-	verification.resolve(Response.json({ principalId: 'alice' }));
+	verification.resolve(Response.json({ principalId }));
 	await Bun.sleep(0);
 	expect(context.writes).toEqual([]);
 	expect((await context.auth.startSignIn()).error?.name).toBe(

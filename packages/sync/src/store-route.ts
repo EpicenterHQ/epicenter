@@ -47,7 +47,7 @@ export const STORE_SYNC_ROUTE = {
 			generation: number;
 			cursor: number;
 			appId?: string;
-			scope?: 'personal' | 'shared';
+			scope?: 'personal';
 		},
 	): WebSocketAddress {
 		const url = new URL(`${stripTrailing(baseURL)}${STORE_SYNC_ROUTE.pattern}`);

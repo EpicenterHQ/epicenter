@@ -20,24 +20,30 @@ export function createDesktopAuthAuthority({
 	authCell,
 	nativeAuthPort,
 	server,
+	accountManagement,
 	fetch = globalThis.fetch.bind(globalThis),
 	callbackUrl = CALLBACK_URL,
 }: {
 	authCell: string | null;
 	nativeAuthPort: NativeAuthPort;
 	server: AuthServer;
+	accountManagement: boolean;
 	fetch?: AuthFetch;
 	callbackUrl?: string;
 }) {
-	const { baseURL, authorityId, supportsShared } = server;
+	const { baseURL, authorityId } = server;
 	// Retain the stored envelope; it validates credentials, never selects a server.
-	const method = server.accountManagement ? 'cloud' : 'issuer';
 	let initial: string | null = null;
 	let credentialUnreadable = false;
 	try {
 		const cell = authCell === null ? null : JSON.parse(authCell);
 		if (cell !== null && cell.auth !== null) {
-			if (cell.method !== method || cell.origin !== new URL(baseURL).origin)
+			if (
+				cell.origin !== new URL(baseURL).origin ||
+				(cell.method !== undefined &&
+					cell.method !== 'cloud' &&
+					cell.method !== 'issuer')
+			)
 				throw new Error('Saved credentials do not belong to this deployment.');
 			const credential = parsePersistedAuth(JSON.stringify(cell.auth) ?? null);
 			if (credential === null) throw new Error('Invalid saved credential.');
@@ -62,7 +68,6 @@ export function createDesktopAuthAuthority({
 						serialized === null
 							? null
 							: JSON.stringify({
-									method,
 									origin: new URL(baseURL).origin,
 									auth: JSON.parse(serialized),
 								}),
@@ -90,7 +95,6 @@ export function createDesktopAuthAuthority({
 	const stopCallbacks = nativeAuthPort.onAuthCallback(acceptSignInCallback);
 	const auth = createSessionAuth({
 		authorityId,
-		supportsShared,
 		baseURL,
 		fetch,
 		persistedAuthStorage,
@@ -164,6 +168,7 @@ export function createDesktopAuthAuthority({
 	const bootSnapshot: DesktopAuthBootstrap = {
 		state: projectBootIdentity(),
 		server,
+		accountManagement,
 		credentialUnreadable,
 	};
 	let signInFlight: Promise<Result<undefined, AuthError>> | undefined;

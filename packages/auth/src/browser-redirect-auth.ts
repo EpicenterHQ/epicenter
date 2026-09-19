@@ -9,6 +9,8 @@ import { createSessionHandoffClient } from './session-handoff-client.js';
 
 export type CreateBrowserRedirectAuthOptions = {
 	server: AuthServer;
+	/** Expose same-origin dashboard links in account UI. */
+	accountManagement: boolean;
 	fetch?: AuthFetch;
 	appId: string;
 	callbackPath?: string;
@@ -17,11 +19,12 @@ export type CreateBrowserRedirectAuthOptions = {
 /** Browser storage and redirect convention; applications own their Account. */
 export function createBrowserRedirectAuth({
 	server,
+	accountManagement,
 	fetch,
 	appId,
 	callbackPath = '/auth/callback',
 }: CreateBrowserRedirectAuthOptions) {
-	const { baseURL, authorityId, supportsShared } = server;
+	const { baseURL, authorityId } = server;
 	if (
 		!callbackPath.startsWith('/') ||
 		callbackPath.startsWith('//') ||
@@ -38,7 +41,6 @@ export function createBrowserRedirectAuth({
 	});
 	const auth = createSessionAuth({
 		authorityId,
-		supportsShared,
 		baseURL,
 		fetch,
 		persistedAuthStorage: createWebStoragePersistedAuthStorage({
@@ -65,7 +67,7 @@ export function createBrowserRedirectAuth({
 	});
 	return Object.assign(
 		auth,
-		server.accountManagement
+		accountManagement
 			? { accountManagementUrl: createAccountManagementUrl }
 			: {},
 	);

@@ -41,6 +41,7 @@ Reflect.set(
 	},
 );
 export const auth = createBrowserRedirectAuth({
+	accountManagement: false,
 	appId: 'probe',
 	server: selfHostedServer('https://old.example'),
 });

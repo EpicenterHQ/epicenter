@@ -44,7 +44,7 @@ export type AttachStoreSyncOptions = {
 		dataId: string;
 		generation: number;
 		appId?: string;
-		scope?: 'personal' | 'shared';
+		scope?: 'personal';
 	};
 	/**
 	 * How this replica opens its socket. `AuthClient` implements it: it takes

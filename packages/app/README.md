@@ -33,7 +33,6 @@ try {
  app.device.tables;
  app.device.sqlite;
  app.account?.personal.tables;
- app.account?.shared?.tables;
 } finally {
  await app.close();
 }
@@ -42,7 +41,7 @@ try {
 The declaration exposes `id`, `title`, `kv`, and `tables` without opening
 storage or capturing an Account. Schema tools, artifact import/export, and
 `openMemory` accept that same declaration. Its tables describe fields; live
-rows belong to `app.device`, `app.account.personal`, or `app.account.shared`.
+rows belong to `app.device` or `app.account.personal`.
 The one `id` names both the application and its data. `defineApp` is the only
 full declaration constructor. The declaration graph is platform-free. Schema
 tools and engine tests consume it directly. Application tests use the same
@@ -246,9 +245,8 @@ preserves the opening error as its cause and the claim stays held.
 `openApp(application)` performs no authority request or sync dial.
 
 `app.device` always exists. `app.account` is undefined when opened without an account. Otherwise it
-contains credential-free `identity`, `personal`, nullable `shared`, and nullable
-inference `connection`. Shared is available when the Account declares `supportsShared`, including named
-people on a self-hosted server. Each store has its own tables, KV, persistence, and sync status.
+contains credential-free `identity`, `personal`, and nullable inference `connection`.
+Each store has its own tables, KV, persistence, and sync status.
 There is no flat `app.tables`, library discriminator, or alternate opener.
 
 The opener has one schema generic and infers its handle from the implementation.
@@ -424,7 +422,7 @@ See [Saved recordings](#saved-recordings) for ordering.
 
 Opening is cache-first. A device with a local generation can open it offline;
 a device without a cached generation must reach the current authority to atomically
-select or download the canonical generation. Personal and Shared caches include
+select or download the canonical generation. Personal caches include
 the authenticated actor, so account replacement cannot replay another actor’s writes. The app owns persistence, sync, and teardown.
 
 Account opening requires `authorityId`. The package selects the platform SQLite

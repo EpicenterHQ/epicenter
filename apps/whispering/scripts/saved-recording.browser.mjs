@@ -631,9 +631,7 @@ try {
 	await alice.click('#continue');
 	await alice.getByRole('heading', { name: 'You are signed in' }).waitFor();
 	await alice.goto(`${appOrigin}/?connect`);
-	await alice
-		.getByRole('button', { name: 'Sign in to your server', exact: true })
-		.click();
+	await alice.getByRole('button', { name: 'Sign in', exact: true }).click();
 	await alice.waitForURL(`${appOrigin}/`);
 	await opened(alice, 'Personal');
 	await configure(alice);
@@ -647,16 +645,16 @@ try {
 		})
 		.click();
 	await alice
-		.getByRole('menuitemradio', { name: 'Shared library', exact: true })
+		.getByRole('menuitemradio', { name: 'On this device', exact: true })
 		.click();
-	await opened(alice, 'Shared');
+	await opened(alice, 'Local');
 	assert.equal(
 		await alice.evaluate(() => sessionStorage.getItem('closed-library')),
 		'personal',
 	);
 	await configure(alice, true);
-	await capture(alice, 'Shared');
-	assert.equal(report.recordings.shared.actor, 'alice');
+	await capture(alice, 'Local');
+	assert.equal(report.recordings.local.actor, 'alice');
 	report.checks.closedBeforeLibrarySwitch = true;
 	report.inferenceRequests = inferenceRequests;
 	report.blockedExternalRequests = blockedExternalRequests;

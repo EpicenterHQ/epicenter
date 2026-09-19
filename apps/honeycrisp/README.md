@@ -22,8 +22,7 @@ notes page: AppBoot auth + definition -> ready App
 The page passes the actual nested handle directly. Notes uses `fromData` for
 reactive table reads and passes data through props. Explicit functions own
 note operations; there is no second application controller or App context.
-The URL chooses the view, with no saved preference or data copy. Shared has
-no Honeycrisp view.
+The URL chooses the view, with no saved preference or data copy.
 
 Imports, preloading, `/connect`, and `/auth/callback` acquire no App. The browser
 build fixes its authentication service; the desktop build receives its Account

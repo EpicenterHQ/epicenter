@@ -14,7 +14,6 @@ import { describe, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { epicenterCloud, selfHostedServer } from '@epicenter/auth';
 import {
 	createNativePort,
 	createReadyFrame,
@@ -28,6 +27,14 @@ import {
 } from './sidecar-runtime.ts';
 
 const TOKEN = 'valid_base64url-token';
+const CLOUD_SERVER = {
+	baseURL: 'https://api.epicenter.so',
+	authorityId: 'epicenter-api',
+};
+const SELF_HOSTED_SERVER = {
+	baseURL: 'https://self.example',
+	authorityId: 'instance-68747470733a2f2f73656c662e6578616d706c65',
+};
 
 function bootFrame(overrides: Record<string, unknown> = {}): string {
 	return JSON.stringify({
@@ -36,7 +43,8 @@ function bootFrame(overrides: Record<string, unknown> = {}): string {
 		token: TOKEN,
 		port: PRODUCTION_PORT,
 		authCell: null,
-		authServer: epicenterCloud('https://api.epicenter.so'),
+		authServer: CLOUD_SERVER,
+		accountManagement: true,
 		dataDir: join(tmpdir(), 'so.epicenter.dev'),
 		folderDir: join(tmpdir(), 'Epicenter Dev'),
 		...overrides,
@@ -120,10 +128,7 @@ describe('runtime mode', () => {
 
 describe('boot protocol', () => {
 	test('Rust supplies the configured server unchanged for Cloud and self-hosted builds', () => {
-		for (const authServer of [
-			epicenterCloud('https://api.epicenter.so'),
-			selfHostedServer('https://self.example'),
-		]) {
+		for (const authServer of [CLOUD_SERVER, SELF_HOSTED_SERVER]) {
 			expect(
 				parseBootFrame(bootFrame({ authServer }), 'production').authServer,
 			).toEqual(authServer);
@@ -135,9 +140,8 @@ describe('boot protocol', () => {
 			null,
 			[],
 			{},
-			{ ...selfHostedServer('https://self.example'), authorityId: '' },
-			{ ...selfHostedServer('https://self.example'), supportsShared: 'yes' },
-			{ ...selfHostedServer('https://self.example'), extra: true },
+			{ ...SELF_HOSTED_SERVER, authorityId: '' },
+			{ ...SELF_HOSTED_SERVER, extra: true },
 		]) {
 			expect(() =>
 				parseBootFrame(bootFrame({ authServer }), 'production'),
@@ -154,7 +158,7 @@ describe('boot protocol', () => {
 				parseBootFrame(
 					bootFrame({
 						authServer: {
-							...selfHostedServer('https://self.example'),
+							...SELF_HOSTED_SERVER,
 							baseURL,
 						},
 					}),
@@ -168,28 +172,37 @@ describe('boot protocol', () => {
 		const authServer = {
 			baseURL: 'https://self.example',
 			authorityId: 'instance-68747470733a2f2f73656c662e6578616d706c65',
-			supportsShared: true,
-			accountManagement: false,
 		};
 		expect(
 			parseBootFrame(bootFrame({ authServer }), 'production').authServer,
-		).toEqual(selfHostedServer(authServer.baseURL));
+		).toEqual(SELF_HOSTED_SERVER);
 	});
 
-	test('incoherent authority and capability descriptors cannot change the data partition', () => {
-		for (const server of [
-			epicenterCloud('https://api.epicenter.so'),
-			selfHostedServer('https://self.example'),
+	test('account management never rewrites native authority identity', () => {
+		for (const authServer of [
+			CLOUD_SERVER,
+			SELF_HOSTED_SERVER,
+			{
+				baseURL: 'https://other.example',
+				authorityId: 'explicit-native-identity',
+			},
 		]) {
-			for (const authServer of [
-				{ ...server, authorityId: 'different-authority' },
-				{ ...server, supportsShared: !server.supportsShared },
-				{ ...server, accountManagement: !server.accountManagement },
-			]) {
-				expect(() =>
-					parseBootFrame(bootFrame({ authServer }), 'production'),
-				).toThrow('identity and capabilities');
+			for (const accountManagement of [false, true]) {
+				const frame = parseBootFrame(
+					bootFrame({ authServer, accountManagement }),
+					'production',
+				);
+				expect(frame.authServer).toEqual(authServer);
+				expect(frame.accountManagement).toBe(accountManagement);
 			}
+		}
+	});
+
+	test('account management must be an explicit boolean', () => {
+		for (const accountManagement of [undefined, null, 1, 'true']) {
+			expect(() =>
+				parseBootFrame(bootFrame({ accountManagement }), 'production'),
+			).toThrow();
 		}
 	});
 
@@ -206,7 +219,8 @@ describe('boot protocol', () => {
 					protocolVersion: SIDECAR_PROTOCOL_VERSION,
 					token: TOKEN,
 					authCell: null,
-					authServer: epicenterCloud('https://api.epicenter.so'),
+					authServer: CLOUD_SERVER,
+					accountManagement: true,
 				}),
 				'production',
 			),
@@ -274,7 +288,7 @@ describe('boot protocol', () => {
 	test('ready frames contain exactly the versioned readiness contract', () => {
 		expect(createReadyFrame(PRODUCTION_PORT)).toEqual({
 			type: 'ready',
-			protocolVersion: 4,
+			protocolVersion: 6,
 			port: PRODUCTION_PORT,
 		});
 	});

@@ -7,6 +7,7 @@ export function createTestDesktopAuth() {
 	return createDesktopAuthAuthority({
 		server: epicenterCloud('https://api.epicenter.so'),
 		authCell: null,
+		accountManagement: true,
 		nativeAuthPort: {
 			async closeApplications() {},
 			async resumeApplications() {},

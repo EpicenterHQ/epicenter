@@ -63,6 +63,7 @@ async function main(): Promise<void> {
 		const auth = createDesktopAuthAuthority({
 			authCell: boot.authCell,
 			server: boot.authServer,
+			accountManagement: boot.accountManagement,
 			nativeAuthPort: nativePort,
 			callbackUrl:
 				runtimeMode === 'development'

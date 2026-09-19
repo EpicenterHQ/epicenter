@@ -63,7 +63,7 @@
 				<Spinner class="size-4" />
 				Signing in…
 			{:else}
-				{!auth.accountManagementUrl ? 'Sign in to your server' : 'Sign in with Epicenter'}
+				Sign in
 			{/if}
 		</Button>
 		{#if onCancel}<Button variant="ghost" disabled={signingIn} onclick={onCancel}>Back to {appName}</Button>{/if}

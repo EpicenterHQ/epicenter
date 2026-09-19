@@ -1,5 +1,3 @@
-import { SelfHostOperator } from './operator.js';
-import { signInPage, signInScript } from '../sign-in.js';
 /** Self-hosted named-user Worker. The operator owns enrollment and durable admission. */
 import { asPrincipalId } from '@epicenter/principal';
 import {
@@ -18,7 +16,9 @@ import {
 	type StoreAuthorityStub,
 } from '@epicenter/server';
 import { SelfHostAuthOwner } from '@epicenter/server/self-host-auth/worker';
+import { signInPage, signInScript } from '../sign-in.js';
 import { resolveSelfHostTrustedOrigins } from '../trusted-origins.js';
+import { SelfHostOperator } from './operator.js';
 
 const app = createServerApp({
 	resolveOrigin: (env) => (env as Cloudflare.Env).API_PUBLIC_ORIGIN,
@@ -52,7 +52,6 @@ app.all('/auth/*', (c) =>
 );
 mountSessionApp(app, { auth });
 mountStoreSyncApp(app, {
-	shared: true,
 	resolveBearerPrincipal,
 	resolveStore: (env) => {
 		const bindings = env as Cloudflare.Env;
@@ -80,7 +79,7 @@ mountBlobsApp(app, { auth });
 export default app;
 export {
 	GenerationsLedger,
-	StoreAuthority,
 	SelfHostAuthOwner,
 	SelfHostOperator,
+	StoreAuthority,
 };

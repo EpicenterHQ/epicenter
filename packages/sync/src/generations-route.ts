@@ -36,15 +36,10 @@ const stripTrailing = (value: string): string => value.replace(/\/+$/, '');
 export const LOG_POSITION_HEADER = 'epicenter-log-position';
 export const CURRENT_GENERATION_HEADER = 'epicenter-generation';
 
-/** The stable application scope. Account authentication still identifies the actor. */
+/** Personal application data. Account authentication identifies the owner. */
 export const CURRENT_ROUTE = {
 	pattern: '/api/apps/:appId/:scope/data/:dataId/current',
-	url(
-		baseURL: string,
-		appId: string,
-		scope: 'personal' | 'shared',
-		dataId: string,
-	) {
+	url(baseURL: string, appId: string, scope: 'personal', dataId: string) {
 		return `${stripTrailing(baseURL)}/api/apps/${encodeURIComponent(appId)}/${scope}/data/${encodeURIComponent(dataId)}/current`;
 	},
 };

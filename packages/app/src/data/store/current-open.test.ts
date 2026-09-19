@@ -24,14 +24,14 @@ function fixture() {
 	let online = true;
 	let calls = 0;
 	let generation = 1;
-	function options(actor: string, scope: 'personal' | 'shared' = 'shared') {
+	function options(actor: string) {
 		const account = {
 			authorityId: 'server-a',
 			principalId: asPrincipalId(actor),
 		};
 		return {
 			appId,
-			scope,
+			scope: 'personal' as const,
 			account: {
 				...account,
 				baseURL: 'https://server.test',
@@ -94,7 +94,7 @@ test('independent caches install canonical bytes and reopen offline without disc
 	await reopened.dispose?.();
 });
 
-test('Alice pending Shared edits cannot enter Bob Shared or Alice Personal', async () => {
+test('Alice pending Personal edits cannot enter Bob Personal', async () => {
 	const f = fixture();
 	const alice = expectOk(
 		await acquireAppData(f.definition, f.options('alice'), {
@@ -112,16 +112,8 @@ test('Alice pending Shared edits cannot enter Bob Shared or Alice Personal', asy
 			keyRange: IDBKeyRange,
 		}),
 	);
-	const personal = expectOk(
-		await acquireAppData(f.definition, f.options('alice', 'personal'), {
-			factory: indexedDB,
-			keyRange: IDBKeyRange,
-		}),
-	);
 	expect(bob.loaded.outbox).toHaveLength(0);
-	expect(personal.loaded.outbox).toHaveLength(0);
 	await bob.dispose?.();
-	await personal.dispose?.();
 	f.offline();
 	const again = expectOk(
 		await acquireAppData(f.definition, f.options('alice'), {

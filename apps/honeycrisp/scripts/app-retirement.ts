@@ -26,14 +26,14 @@ type JourneyWindow = Window & {
 	journey?: { invalidating?: boolean; releaseInvalidation?: () => void };
 };
 
-const cacheSuffix = '/shared/current';
+const cacheSuffix = '/personal/current';
 
 async function cacheState(page: Page) {
 	return page.evaluate(async (suffix) => {
 		const name = (await indexedDB.databases()).find((entry) =>
 			entry.name?.endsWith(suffix),
 		)?.name;
-		if (!name) throw new Error('Shared cache was never opened');
+		if (!name) throw new Error('Personal cache was never opened');
 		const database = await new Promise<IDBDatabase>((resolve, reject) => {
 			const request = indexedDB.open(name);
 			request.onsuccess = () => resolve(request.result);
@@ -184,7 +184,7 @@ async function freshReplacement(
 	const at = InstantString.fromDate(new Date('2026-09-17T00:00:00.000Z'));
 	const note = replacement.tables.notes.create({
 		folderId: null,
-		title: 'Replacement from Bob',
+		title: 'Replacement from another device',
 		pinned: false,
 		createdAt: at,
 		updatedAt: at,
@@ -193,7 +193,7 @@ async function freshReplacement(
 	expectOk(
 		honeycrispDefinition.tables.notes.content.rewrite(
 			note.content,
-			'Replacement from Bob',
+			'Replacement from another device',
 		),
 	);
 	const bytes = syncEngineOf(replacement).encodeSnapshot();
@@ -218,22 +218,22 @@ async function freshReplacement(
 
 export async function proveRetirement({
 	alice,
-	bob,
+	peer,
 	origin,
 	operator,
 	openNote,
 }: {
 	alice: Page;
-	bob: Page;
+	peer: Page;
 	origin: string;
 	operator: AppTestOperator;
 	openNote(page: Page, text: string): Promise<void>;
 }) {
 	const networks = await Promise.all([
 		monitor(alice, origin),
-		monitor(bob, origin),
+		monitor(peer, origin),
 	]);
-	await Promise.all([settled(alice), settled(bob)]);
+	await Promise.all([settled(alice), settled(peer)]);
 	await openNote(alice, 'Alice private note');
 	const before = await cacheState(alice);
 	assert(before.generation !== null);
@@ -269,7 +269,7 @@ export async function proveRetirement({
 				async () => (await navigator.locks.query()).held ?? [],
 			)
 		).some((lock) => lock.name?.startsWith('epicenter.store:library:')),
-		'The acquired Shared store keeps its claim while invalidation is pending',
+		'The App keeps its claim while Personal invalidation is pending',
 	);
 	assert.equal(
 		await alice
@@ -285,28 +285,37 @@ export async function proveRetirement({
 		.getByRole('button', { name: 'Reload Honeycrisp', exact: true })
 		.click();
 	await alice
-		.getByText('Alice private note', { exact: true })
+		.getByText('Replacement from another device', { exact: true })
 		.first()
 		.waitFor();
 	assert.equal(await documents(alice), aliceDocuments + 1);
 	assert.equal((await settled(alice)).generation, activated.generation);
-	await bob
+	await peer
 		.getByRole('button', { name: 'Reload Honeycrisp', exact: true })
 		.click();
-	await bob.getByText('Bob private note', { exact: true }).first().waitFor();
-	await settled(bob, activated.generation);
+	await peer
+		.getByText('Replacement from another device', { exact: true })
+		.first()
+		.waitFor();
+	await settled(peer, activated.generation);
+	for (const page of [alice, peer])
+		assert.equal(
+			await page.getByText('Alice private note', { exact: true }).count(),
+			0,
+			'Replacement does not replay the retired Personal lineage',
+		);
 	assert(
 		networks.every((network) =>
 			network.sockets.some(
 				(socket) =>
-					socket.scope === 'shared' &&
+					socket.scope === 'personal' &&
 					socket.frames.some((frame) => frame.kind === 'retired'),
 			),
 		),
-		'An acquired Shared store retires the whole App even while Personal is displayed',
+		'Personal retirement closes the whole App on both devices',
 	);
 
-	await openNote(alice, 'Alice private note');
+	await openNote(alice, 'Replacement from another device');
 	await alice.evaluate(() => {
 		(window as JourneyWindow).journey = {};
 	});
@@ -355,17 +364,17 @@ export async function proveRetirement({
 	networks[0]!.failDownload = false;
 	await alice.getByRole('button', { name: /Reload/, exact: true }).click();
 	await alice
-		.getByText('Alice private note', { exact: true })
+		.getByText('Replacement from another device', { exact: true })
 		.first()
 		.waitFor();
 	await settled(alice, activated.generation + 1);
-	await bob
+	await peer
 		.getByRole('button', { name: 'Reload Honeycrisp', exact: true })
 		.click();
-	await settled(bob, activated.generation + 1);
+	await settled(peer, activated.generation + 1);
 	console.log(
-		'PASS: undisplayed Shared retirement unmounts the Personal editor; invalidation retains claims; failed cleanup requires document teardown; reopening preserves Personal notes',
+		'PASS: Personal retirement unmounts both devices; invalidation retains claims; failed cleanup requires document teardown; reopening loads replacement Personal notes',
 	);
 	await alice.unroute(`${origin}/**`);
-	await bob.unroute(`${origin}/**`);
+	await peer.unroute(`${origin}/**`);
 }

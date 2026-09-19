@@ -29,9 +29,9 @@ These entrypoints do not load the App or its platform implementations.
 Applications await `openApp` from `@epicenter/app/open` for a ready App; see the
 [App README](../../README.md). The App captures its account, claims exclusive ownership, and calls
 `acquireAppData` for every applicable data scope.
-Local opening needs no server. Personal and Shared opening use a cached current
-data document when available; otherwise they POST an initialization candidate to the
-current-data route and install the canonical response.
+Local opening needs no server. Personal opening uses a cached current
+data document when available; otherwise it POSTs an initialization candidate to the
+current-data route and installs the canonical response.
 
 The response contains a generation, snapshot, and every update through its
 captured head. Startup applies and validates all of them before atomically
@@ -42,12 +42,11 @@ releasing ownership. A subsequent open downloads the replacement.
 The current account cache uses this IndexedDB name:
 
 ```text
-epicenter/<appId>/accounts/<authorityId>/<principalId>/data/<dataId>/<personal|shared>/current
+epicenter/<appId>/accounts/<authorityId>/<principalId>/data/<dataId>/personal/current
 ```
 
 The generation lives in its header. Both authority and actor scope the local
-copy, including a Shared replica. Another actor's pending edits cannot be
-replayed from this cache. The server owns the corresponding remote destination.
+copy. Another actor's pending edits cannot be replayed from this cache. The server owns the corresponding remote destination.
 
 ### Historical generation caches
 

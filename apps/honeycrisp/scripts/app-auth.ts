@@ -7,6 +7,7 @@ if (!origin)
 	throw new Error('The browser fixture requires its fixed issuer origin.');
 
 export const auth = createBrowserRedirectAuth({
+	accountManagement: false,
 	server: selfHostedServer(origin),
 	appId: 'so.epicenter.honeycrisp',
 });

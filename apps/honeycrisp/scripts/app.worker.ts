@@ -41,7 +41,7 @@ export class AppTestOperator extends WorkerEntrypoint<{
 	private authority() {
 		return this.env.STORE_AUTHORITY.get(
 			this.env.STORE_AUTHORITY.idFromName(
-				'libraries/apps/so.epicenter.honeycrisp/shared/data/so.epicenter.honeycrisp',
+				'libraries/apps/so.epicenter.honeycrisp/personal/alice/data/so.epicenter.honeycrisp',
 			),
 		);
 	}

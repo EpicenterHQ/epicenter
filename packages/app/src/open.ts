@@ -106,11 +106,7 @@ export async function openApp<const TDefinition extends DataDefinition>(
 		const scopes: AppDataScope[] = [
 			{ appId, scope: 'device', account: identity },
 		];
-		if (account) {
-			scopes.push({ appId, scope: 'personal', account });
-			if (account.supportsShared)
-				scopes.push({ appId, scope: 'shared', account });
-		}
+		if (account) scopes.push({ appId, scope: 'personal', account });
 		const documents = scopes.map((options) => {
 			const document = createStoreOverPort({
 				definition: parsed.data,
@@ -211,7 +207,6 @@ export async function openApp<const TDefinition extends DataDefinition>(
 				: Object.freeze({
 						identity,
 						personal: Object.freeze(documents[1]!.value),
-						shared: documents[2] ? Object.freeze(documents[2].value) : null,
 						connection: inference.value.ai.account,
 					});
 		return Object.freeze({

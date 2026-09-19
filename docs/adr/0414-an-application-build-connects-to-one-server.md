@@ -18,15 +18,16 @@ Browser builds take a self-hosted origin from `VITE_EPICENTER_SERVER`. The nativ
 host takes `EPICENTER_SERVER_ORIGIN` at compile time. Debug Cloud builds retain
 the loopback development API override.
 
-An `AuthServer` descriptor supplies the origin, authority identity, Shared
-availability, and Cloud account-management capability. Browser apps construct
+An `AuthServer` descriptor supplies only the origin and authority identity.
+Account-management presentation is configured separately. Browser apps construct
 the auth client directly. Rust passes the desktop descriptor to Bun in its
 private boot message and validates native sign-in URLs against that same origin.
 WebViews receive brokered Account access, never server credentials.
 
 Saved state cannot choose a server. Browser credentials are origin-scoped.
-Desktop restores its saved credential only when method and origin match this
-build. An unreadable or mismatched credential starts signed out, with sign-in
+Desktop restores its saved credential only when its origin matches this build
+and its credential format is supported. An unreadable or mismatched credential
+starts signed out, with sign-in
 available. Startup neither sends that credential elsewhere nor erases local
 data. Explicit sign-in may replace it.
 

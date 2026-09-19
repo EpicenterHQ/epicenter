@@ -69,7 +69,7 @@
 				Reconnect
 			{:else}
 				<Cloud class="size-4" />
-				Sign in with Epicenter
+				Sign in
 			{/if}
 		</Button>
 	{/if}

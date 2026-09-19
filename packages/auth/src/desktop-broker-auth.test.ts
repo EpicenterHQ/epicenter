@@ -29,9 +29,8 @@ const bootstrap = {
 	server: {
 		authorityId: 'test-server',
 		baseURL: 'https://api.epicenter.so',
-		accountManagement: true,
-		supportsShared: false,
 	},
+	accountManagement: true,
 	credentialUnreadable: false,
 } as const;
 
@@ -295,9 +294,8 @@ test('a self-hosted broker exposes its configured destination and supports sign-
 			server: {
 				authorityId: 'test-server',
 				baseURL: 'https://epicenter.example.com',
-				accountManagement: false,
-				supportsShared: true,
 			},
+			accountManagement: false,
 			credentialUnreadable: false,
 		},
 		brokerBaseURL: 'http://127.0.0.1:39130',
@@ -369,9 +367,8 @@ test('a desktop window is not a callback client', () => {
 			server: {
 				authorityId: 'test-server',
 				baseURL: 'https://api.epicenter.test',
-				accountManagement: true,
-				supportsShared: false,
 			},
+			accountManagement: true,
 			credentialUnreadable: false,
 		},
 		brokerBaseURL: 'http://127.0.0.1:4242',

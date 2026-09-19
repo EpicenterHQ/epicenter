@@ -234,7 +234,7 @@ test('the accepted upgrade echoes the main subprotocol and never the bearer', as
 	);
 });
 
-test('Cloud refuses Shared before resolving its authority', async () => {
+test('Shared requests are refused before resolving an authority', async () => {
 	const opening = await dial();
 	const url = new URL(opening.url);
 	url.searchParams.set('scope', 'shared');

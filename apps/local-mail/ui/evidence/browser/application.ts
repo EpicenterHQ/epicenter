@@ -6,7 +6,6 @@ import { currentLibraryResponse } from '../current-library.js';
 
 /** Synthetic account; App, SQLite, persistence, query policy, and panel are production. */
 export const account: Account = {
-	supportsShared: false,
 	authorityId: 'local-mail-evidence',
 	principalId: 'synthetic-person' as Account['principalId'],
 	baseURL: 'https://example.invalid',

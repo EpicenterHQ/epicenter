@@ -1,4 +1,4 @@
-/** Server selection canonicalizes equivalent origins and separates instance data addresses. */
+/** Server configuration canonicalizes equivalent origins and separates instance data addresses. */
 import { expect, test } from 'bun:test';
 import { normalizeInstanceServer } from './instance-server.js';
 
@@ -20,4 +20,10 @@ test('server configuration rejects URLs that are not origins', () => {
 	]) {
 		expect(() => normalizeInstanceServer(value)).toThrow();
 	}
+});
+
+test('the configured origin preserves the existing local-data authority bytes', () => {
+	expect(normalizeInstanceServer('https://self.example').authorityId).toBe(
+		'instance-68747470733a2f2f73656c662e6578616d706c65',
+	);
 });

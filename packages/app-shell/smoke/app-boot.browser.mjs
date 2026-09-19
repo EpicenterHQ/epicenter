@@ -224,7 +224,8 @@ try {
 			const events = await page.evaluate(() => window.bootProbe.events);
 			assert(events.includes('focused-edit-committed'));
 			assert(
-				events.indexOf('focused-edit-committed') < events.indexOf('producer-stop'),
+				events.indexOf('focused-edit-committed') <
+					events.indexOf('producer-stop'),
 			);
 			assert(
 				await page.evaluate(() => window.bootProbe.events.includes('closed')),
@@ -322,16 +323,21 @@ try {
 			page.setDefaultTimeout(10_000);
 			await page.goto(`${origin}?reauth`);
 			await page.getByRole('button', { name: 'Leave session' }).waitFor();
-			assert.equal(await page.evaluate(async () => {
-				const { auth } = await import('/application.ts');
-				await auth.getState().account.fetch('/refuse');
-				return auth.getState().status;
-			}), 'reauth-required');
+			assert.equal(
+				await page.evaluate(async () => {
+					const { auth } = await import('/application.ts');
+					await auth.getState().account.fetch('/refuse');
+					return auth.getState().status;
+				}),
+				'reauth-required',
+			);
 			await page.getByRole('button', { name: /^(Connect|Reconnect)$/ }).click();
 			await page.getByText('Closing your changes…').waitFor();
 			assert.equal(new URL(page.url()).search, '?reauth');
 			await page.evaluate(() => window.bootProbe.releaseProducer());
-			await page.waitForFunction(() => window.bootProbe.events.includes('producer-done'));
+			await page.waitForFunction(() =>
+				window.bootProbe.events.includes('producer-done'),
+			);
 			assert.equal(new URL(page.url()).search, '?reauth');
 			await page.evaluate(() => window.bootProbe.releaseCommit());
 			await page.getByText('Sign in to open your changes.').waitFor();
@@ -342,7 +348,9 @@ try {
 			assert(events.indexOf('closed') > events.indexOf('commit-end'));
 			assert(!events.includes('signed-out'));
 			await page.close();
-			console.log(`AppBoot ${engine.name()}: browser reauthentication awaits producer shutdown and durable close.`);
+			console.log(
+				`AppBoot ${engine.name()}: browser reauthentication awaits producer shutdown and durable close.`,
+			);
 		}
 
 		for (const local of [false, true]) {
@@ -379,9 +387,7 @@ try {
 			await page.getByText('Closing your changes…').waitFor();
 			assert.equal(await page.getByLabel('Server URL').count(), 0);
 			assert.equal(
-				await page
-					.getByRole('button', { name: 'Sign in to your server' })
-					.count(),
+				await page.getByRole('button', { name: 'Sign in' }).count(),
 				0,
 			);
 			await page.evaluate(() => window.bootProbe.releaseProducer());
@@ -437,9 +443,7 @@ try {
 			);
 			await Promise.all([
 				page.waitForURL('https://old.example/sign-in**'),
-				page
-					.getByRole('button', { name: 'Sign in to your server', exact: true })
-					.click(),
+				page.getByRole('button', { name: 'Sign in', exact: true }).click(),
 			]);
 			const destination = new URL(page.url());
 			assert.equal(destination.origin, 'https://old.example');

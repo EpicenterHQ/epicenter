@@ -382,7 +382,7 @@ export function createHomeServer({
 		if (
 			!dataId ||
 			(appId !== undefined && !isAppId(appId)) ||
-			(scope !== undefined && scope !== 'personal' && scope !== 'shared') ||
+			(scope !== undefined && scope !== 'personal') ||
 			(appId === undefined) !== (scope === undefined) ||
 			!Number.isSafeInteger(generation) ||
 			generation < 0 ||

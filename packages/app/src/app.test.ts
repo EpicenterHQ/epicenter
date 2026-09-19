@@ -121,7 +121,6 @@ test.each([
 	let requests = 0;
 	const fetchGeneration = createGenerationFetch();
 	const account: Account = {
-		supportsShared: false,
 		authorityId: 'test-authority',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://example.test',
@@ -610,7 +609,6 @@ test('account acquisition hydrates the existing handles and survives refused syn
 	let fetches = 0;
 	let dials = 0;
 	const account: Account = {
-		supportsShared: false,
 		authorityId: 'test-authority',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://example.test',
@@ -974,7 +972,6 @@ test('one captured Account supplies data and AI; local opening never borrows it'
 	let inferenceRequests = 0;
 	const fetchGeneration = createGenerationFetch();
 	const account: Account = {
-		supportsShared: false,
 		authorityId: 'captured',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://captured.example',
@@ -1269,7 +1266,6 @@ test.each([
 	let sqlClosed = false;
 	const cleanupFailure = new Error('Capture release failed');
 	const account: Account = {
-		supportsShared: false,
 		authorityId: 'failure-test',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://failure.test',
@@ -1422,7 +1418,6 @@ test('App retirement closes its recorder while retaining the App claim after ter
 	let disposed = 0;
 	let recorderCloses = 0;
 	const account: Account = {
-		supportsShared: false,
 		authorityId: 'retirement-test',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://retirement.test',
@@ -1532,7 +1527,6 @@ test('App retirement during attachment refuses readiness without auto-releasing 
 		},
 	} as unknown as WebSocket;
 	const account: Account = {
-		supportsShared: false,
 		authorityId: 'retirement-during-attach',
 		principalId: asPrincipalId('alice'),
 		baseURL: 'https://retirement.test',

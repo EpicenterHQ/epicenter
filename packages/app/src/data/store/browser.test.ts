@@ -46,7 +46,6 @@ function accountFor(person = 'alice'): Account {
 		authorityId: 'test-authority',
 		principalId: asPrincipalId(person),
 		baseURL: 'https://browser.test',
-		supportsShared: false,
 		async fetch(_input, init) {
 			return createCurrentDownloadResponse({
 				generation: 1,

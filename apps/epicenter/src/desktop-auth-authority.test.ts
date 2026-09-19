@@ -17,7 +17,6 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createDesktopAuthAuthority } from './desktop-auth-authority.ts';
 
 const STORED_CELL = JSON.stringify({
-	method: 'cloud',
 	origin: 'https://api.epicenter.so',
 	auth: { token: 'alice-1', principalId: 'alice' },
 });
@@ -25,6 +24,7 @@ const STORED_CELL = JSON.stringify({
 function setup({
 	authCell = STORED_CELL,
 	server = epicenterCloud('https://api.epicenter.so'),
+	accountManagement = true,
 	open,
 	relaunch,
 	fetch: fetchOverride,
@@ -35,6 +35,7 @@ function setup({
 }: {
 	authCell?: string | null;
 	server?: AuthServer;
+	accountManagement?: boolean;
 	closeApplications?: () => Promise<void>;
 	resumeApplications?: () => Promise<void>;
 	callbackUrl?: string;
@@ -53,6 +54,7 @@ function setup({
 	const authority = createDesktopAuthAuthority({
 		authCell,
 		server,
+		accountManagement,
 		callbackUrl,
 		nativeAuthPort: {
 			async closeApplications() {
@@ -340,11 +342,6 @@ test('sign-out waits for revocation completion before native relaunch', async ()
 test('unsafe native cells expose no identity and leave saved bytes untouched until deliberate authentication', async () => {
 	for (const authCell of [
 		'not-json',
-		JSON.stringify({
-			method: 'issuer',
-			origin: 'https://api.epicenter.so',
-			auth: { token: 'alice-1', principalId: 'alice' },
-		}),
 		JSON.stringify({ token: 'alice-1', principalId: 'alice' }),
 		JSON.stringify({
 			method: 'cloud',
@@ -405,7 +402,6 @@ test('sign-in replaces an unreadable credential without restoring or revoking it
 	expectOk(await signingIn);
 	expect(context.writes).toEqual([
 		JSON.stringify({
-			method: 'cloud',
 			origin: 'https://api.epicenter.so',
 			auth: { token: 'alice-2', principalId: 'alice' },
 		}),
@@ -435,7 +431,6 @@ test('a rebuild for another issuer neither restores nor revokes the previous ori
 	expect(context.resources).toEqual([]);
 	expect(context.writes.map((cell) => JSON.parse(cell!))).toEqual([
 		{
-			method: 'issuer',
 			origin: 'https://new.example',
 			auth: { token: 'alice-new', principalId: 'alice' },
 		},
@@ -670,7 +665,6 @@ test.each([
 	expect(context.writes).toEqual([
 		null,
 		JSON.stringify({
-			method: 'cloud',
 			origin: 'https://api.epicenter.so',
 			auth: { token: 'bob-2', principalId: 'bob' },
 		}),
@@ -817,7 +811,6 @@ test('a named issuer restores offline and repairs Alice through its own PKCE han
 	expect(context.authority.account).toBe(account);
 	expect(context.events).toEqual(['stored']);
 	expect(JSON.parse(context.writes.at(-1)!)).toEqual({
-		method: 'issuer',
 		origin: 'https://self.example',
 		auth: { token: 'alice-2', principalId: 'alice' },
 	});
@@ -847,7 +840,6 @@ test('first issuer sign-in persists Alice for a new host without exposing creden
 	expect(context.authority.account).toBeNull();
 	expect(context.authority.getState().status).toBe('signed-out');
 	expect(JSON.parse(context.writes.at(-1)!)).toEqual({
-		method: 'issuer',
 		origin: 'https://self.example',
 		auth: { token: 'alice-1', principalId: 'alice' },
 	});
@@ -875,5 +867,34 @@ test('old signed-out envelopes need no credential recovery or network access', (
 		});
 		expect(context.authority.bootSnapshot.credentialUnreadable).toBe(false);
 		expect(context.writes).toEqual([]);
+	}
+});
+
+test('feature settings do not select or retire a named session', () => {
+	for (const method of [undefined, 'cloud', 'issuer']) {
+		for (const accountManagement of [false, true]) {
+			using context = setup({
+				server: {
+					baseURL: 'https://server.example',
+					authorityId: 'stable-server',
+				},
+				accountManagement,
+				authCell: JSON.stringify({
+					method,
+					origin: 'https://server.example',
+					auth: { token: 'alice-1', principalId: 'alice' },
+				}),
+				fetch: async () => {
+					throw new Error('Offline restoration must not request credentials.');
+				},
+			});
+			expect(String(context.authority.account?.principalId)).toBe('alice');
+			expect(context.authority.account?.authorityId).toBe('stable-server');
+			expect(context.authority.bootSnapshot.accountManagement).toBe(
+				accountManagement,
+			);
+			expect(context.authority.bootSnapshot.credentialUnreadable).toBe(false);
+			expect(context.writes).toEqual([]);
+		}
 	}
 });
