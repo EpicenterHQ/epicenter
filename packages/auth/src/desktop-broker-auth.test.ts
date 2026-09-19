@@ -63,7 +63,7 @@ test('unreadable credentials leave sign-in available without opening an Account'
 	expect(auth.startSignIn).toBeFunction();
 	expectErr(await auth.getProfile());
 	expect(calls).toHaveLength(0);
-	expect((await auth.startSignIn!()).error).toBeNull();
+	expect((await auth.startSignIn()).error).toBeNull();
 	expect(calls).toHaveLength(1);
 });
 
@@ -190,7 +190,7 @@ test('account commands post to the same-origin broker with cookies', async () =>
 	});
 	const auth = startup!;
 
-	expect((await auth.startSignIn!({ reauthenticate: true })).error).toBeNull();
+	expect((await auth.startSignIn({ reauthenticate: true })).error).toBeNull();
 	expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
 		reauthenticate: true,
 	});
@@ -217,7 +217,7 @@ test('a failed broker command returns a typed auth error', async () => {
 	});
 	const auth = startup!;
 
-	const { error } = await auth.startSignIn!();
+	const { error } = await auth.startSignIn();
 	expect(error?.name).toBe('StartSignInFailed');
 });
 

@@ -34,7 +34,6 @@
 	// failure. See `sign-in-screen.svelte` for why: resolving means the launcher
 	// finished its work, not that a navigation happened.
 	async function startSignIn() {
-		if (!auth.startSignIn) return;
 		signInError = null;
 		signingIn = true;
 		const { error } = await auth.startSignIn();
@@ -61,7 +60,7 @@
 	{/if}
 	{#if openConnection}
 		<Button class="w-full" disabled={accountLocked} onclick={openConnection}>Connect</Button>
-	{:else if auth.startSignIn}
+	{:else}
 		<Button class="w-full" disabled={signingIn || accountLocked} onclick={startSignIn}>
 			{#if signingIn}
 				<Spinner class="size-4" />

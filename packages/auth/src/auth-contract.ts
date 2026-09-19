@@ -36,7 +36,7 @@ export type AuthClient = {
 	baseURL: string;
 	accountManagementUrl?: typeof createAccountManagementUrl;
 	onStateChange(fn: (state: AuthState) => void): () => void;
-	startSignIn?(options?: {
+	startSignIn(options?: {
 		reauthenticate?: boolean;
 	}): Promise<Result<undefined, AuthError>>;
 	/** Retire locally and clear persistence. Hosted clients await a revocation
@@ -47,9 +47,8 @@ export type AuthClient = {
 	[Symbol.dispose](): void;
 };
 
-/** Session clients expose sign-in independently of the issuer. */
+/** Session owners can cancel sign-in and settle their credential writes. */
 export type SessionAuthClient = AuthClient & {
-	startSignIn: NonNullable<AuthClient['startSignIn']>;
 	/** Stop the pending sign-in and settle persistence without signing out. */
 	cancelSignIn(): Promise<void>;
 };

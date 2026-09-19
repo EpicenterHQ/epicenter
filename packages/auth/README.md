@@ -45,8 +45,9 @@ sign-in cancellation, and Account retirement. Its constructor requires the
 `authorityId` selected by trusted installation composition. Matching principal
 IDs on two servers must receive different authorities.
 
-`SessionAuthClient` exposes sign-in; `CallbackAuthClient` adds callback
-completion. Neither implies Cloud identity or dashboard support. Cloud browser
+`AuthClient` always exposes sign-in. `SessionAuthClient` adds cancellation
+that waits for credential writes; `CallbackAuthClient` adds callback completion.
+These capabilities do not imply Cloud identity or dashboard support. Cloud browser
 and desktop composition pass the existing `epicenter-api` authority and attach
 `createAccountManagementUrl` themselves. The session owner does not assign
 Cloud policy to another issuer. Self-hosted composition derives its authority

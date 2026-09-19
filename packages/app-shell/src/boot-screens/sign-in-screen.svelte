@@ -38,11 +38,10 @@
 	let signingIn = $state(false);
 	let signInError = $state<string | undefined>(undefined);
 	async function signIn() {
-		const start = auth.startSignIn;
-		if (!start || signingIn) return;
+		if (signingIn) return;
 		signInError = undefined;
 		signingIn = true;
-		const { error } = await start();
+		const { error } = await auth.startSignIn();
 		if (error !== null) {
 			signInError = error.message;
 			signingIn = false;
@@ -59,18 +58,14 @@
 				<p class="text-xs text-destructive">{signInError}</p>
 			{/if}
 		</div>
-		{#if !auth.startSignIn}
-			<p class="text-sm text-muted-foreground">Open Home Settings to sign in to your server.</p>
-		{:else}
-			<Button size="lg" disabled={signingIn} onclick={signIn}>
-				{#if signingIn}
-					<Spinner class="size-4" />
-					Signing in…
-				{:else}
-					{!auth.accountManagementUrl ? 'Sign in to your server' : 'Sign in with Epicenter'}
-				{/if}
-			</Button>
-		{/if}
+		<Button size="lg" disabled={signingIn} onclick={signIn}>
+			{#if signingIn}
+				<Spinner class="size-4" />
+				Signing in…
+			{:else}
+				{!auth.accountManagementUrl ? 'Sign in to your server' : 'Sign in with Epicenter'}
+			{/if}
+		</Button>
 		{#if onCancel}<Button variant="ghost" disabled={signingIn} onclick={onCancel}>Back to {appName}</Button>{/if}
 	</div>
 </div>

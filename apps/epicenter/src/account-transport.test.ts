@@ -596,7 +596,7 @@ test('the broker route validates and forwards forced reauthentication to the ses
 		expect(response.status).toBe(400);
 	}
 	expect(context.signInOptions).toEqual([]);
-	expectOk(await context.windowAuth.startSignIn!({ reauthenticate: true }));
+	expectOk(await context.windowAuth.startSignIn({ reauthenticate: true }));
 	expect(context.signInOptions).toEqual([{ reauthenticate: true }]);
 });
 
