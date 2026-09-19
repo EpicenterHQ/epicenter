@@ -19,15 +19,22 @@ Try a sharper verb, an unexpected comparison, a changed rhythm, or a plainer
 sentence when it better carries the thought. Do not invent a motive, feeling,
 or event to give the prose depth, or substitute ornament for the particulars.
 
-Keep concrete vocabulary and distinctive phrasing when they carry the writer's
-attention. Roughness can carry emotion, humor, tension, uncertainty, or rhythm;
-a fragment or repetition may do work that smoothing would lose. Repair
-transcription errors and obstructive phrasing. Neither roughness nor polish is
-a virtue by itself.
+Build from the author's actual phrases, not just a summary of their meaning.
+Keep the comparisons, ordinary words, asides, and emphatic turns that make the
+speaker recognizable; arrange and connect them before replacing them with
+equally accurate paraphrases. Roughness can carry emotion, humor, tension,
+uncertainty, or rhythm. “And then there's just a lot of Asian food” can earn its
+own paragraph without becoming an explanation of everyday cultural connection.
+Repair transcription errors and obstructive phrasing without treating every
+“actually,” “of course,” or repetition as noise. Neither roughness nor polish
+is a virtue by itself.
 
 Choose the register from the piece's purpose and Braden's reactions. Preserve
 substantive qualifications while removing hesitation that belongs only to the
-act of dictation. A direct argument can present a position for examination
+act of dictation. Preserve the degree of conviction too: changing “I would
+argue” into “I wonder whether” can weaken the thought even when its subject
+stays the same. Do not strengthen real uncertainty into certainty either.
+A direct argument can present a position for examination
 without turning it into his personal belief. Personal writing can remain
 unresolved without narrating every step of the conversation that produced it.
 
