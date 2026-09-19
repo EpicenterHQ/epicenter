@@ -1,7 +1,7 @@
 <script lang="ts" generics="TDefinition extends DataDefinition">
 	import type { DataDefinition } from '@epicenter/app';
 	import { openApp, type App, type AppRuntime } from '@epicenter/app/open';
-	import type { Account, AuthClient } from '@epicenter/auth';
+	import { isCallbackAuthClient, type Account, type AuthClient } from '@epicenter/auth';
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
 	import { onDestroy, onMount, tick, type Snippet } from 'svelte';
@@ -52,8 +52,10 @@
 			await Promise.all([removed, stopping]);
 		},
 	});
+	// Browser sign-in replaces the document, including same-person repair.
+	// Desktop reauthentication closes windows through the native broker.
 	// svelte-ignore state_referenced_locally
-	if (!account) {
+	if (!account || isCallbackAuthClient(props.auth)) {
 		provideConnectionScreen(() => {
 			void lifetime.go(() => window.location.assign(props.connectionHref)).catch(() => {});
 		});

@@ -33,6 +33,8 @@ Reflect.set(
 				tail: [],
 			});
 		}
+		if (new URL(request.url).pathname === '/refuse')
+			return new Response(null, { status: 401 });
 		if (new URL(request.url).pathname === '/auth/sign-out')
 			probe.events.push('signed-out');
 		return Response.json({ principalId: 'alice' });

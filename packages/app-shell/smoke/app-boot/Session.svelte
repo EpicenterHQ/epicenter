@@ -2,7 +2,11 @@
  import { onDestroy } from 'svelte';
  import { registerAppCleanup } from '../../src/boot-screens/app-cleanup.js';
  import type { App } from '@epicenter/app/open';
- import type { definition } from './application.js';
+ import { auth, type definition } from './application.js';
+ import { fromAuth } from '@epicenter/auth/svelte';
+ import SignInPanel from '../../src/account-popover/sign-in-panel.svelte';
+ const reactiveAuth = fromAuth(auth);
+ const reauth = new URL(location.href).searchParams.has('reauth');
  import { probe } from './probe.js';
  let { app }: { app: App<typeof definition> } = $props();
  // svelte-ignore state_referenced_locally
@@ -19,8 +23,10 @@
  import { getConnectionScreen, getSignOut } from '../../src/boot-screens/connection-screen-context.js';
  const connect = getConnectionScreen();
  const signOut = getSignOut();
- const leave = connect ?? (() => { void signOut?.().catch(() => {}); });
+ const leave = auth.getState().account ? (() => { void signOut?.().catch(() => {}); }) : connect;
  registerAppCleanup({ preflight, close });
  if (new URL(location.href).searchParams.has('duplicate')) registerAppCleanup({ close });
 </script>
 <button onclick={leave}>Leave session</button>
+
+{#if reauth}<SignInPanel auth={reactiveAuth} syncNoun="changes" />{/if}

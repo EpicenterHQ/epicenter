@@ -317,6 +317,33 @@ try {
 			);
 		}
 
+		{
+			const page = await browser.newPage();
+			page.setDefaultTimeout(10_000);
+			await page.goto(`${origin}?reauth`);
+			await page.getByRole('button', { name: 'Leave session' }).waitFor();
+			assert.equal(await page.evaluate(async () => {
+				const { auth } = await import('/application.ts');
+				await auth.getState().account.fetch('/refuse');
+				return auth.getState().status;
+			}), 'reauth-required');
+			await page.getByRole('button', { name: /^(Connect|Reconnect)$/ }).click();
+			await page.getByText('Closing your changes…').waitFor();
+			assert.equal(new URL(page.url()).search, '?reauth');
+			await page.evaluate(() => window.bootProbe.releaseProducer());
+			await page.waitForFunction(() => window.bootProbe.events.includes('producer-done'));
+			assert.equal(new URL(page.url()).search, '?reauth');
+			await page.evaluate(() => window.bootProbe.releaseCommit());
+			await page.getByText('Sign in to open your changes.').waitFor();
+			assert.equal(new URL(page.url()).search, '?connect');
+			const events = await page.evaluate(() => window.bootProbe.events);
+			assert(events.indexOf('closed') > events.indexOf('producer-done'));
+			assert(events.indexOf('closed') > events.indexOf('commit-end'));
+			assert(!events.includes('signed-out'));
+			await page.close();
+			console.log(`AppBoot ${engine.name()}: browser reauthentication awaits producer shutdown and durable close.`);
+		}
+
 		for (const local of [false, true]) {
 			const page = await browser.newPage();
 			page.setDefaultTimeout(10_000);
