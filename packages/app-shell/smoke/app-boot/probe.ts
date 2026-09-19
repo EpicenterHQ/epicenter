@@ -17,6 +17,7 @@ export const probe = {
 	refuse: false,
 	holdConfirmation: false,
 	confirmation: confirmation.promise,
+	releaseConfirmation: confirmation.resolve,
 	releaseCommit: commit.resolve,
 	releaseProducer: producer.resolve,
 	releaseOpening: opening.resolve,

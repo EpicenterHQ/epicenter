@@ -243,8 +243,7 @@ for (const reason of ['data', 'account'] as const) {
 				entered.resolve();
 				await veto.promise;
 			},
-			async stopUi(voluntary) {
-				expect(voluntary).toBe(false);
+			async stopUi() {
 				calls.push('drained');
 			},
 		});

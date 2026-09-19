@@ -40,10 +40,12 @@
 			await opening.then(tick, () => {});
 			if (hasEnded()) return;
 			await getCleanup()?.preflight?.();
-		},
-		async stopUi(voluntary) {
-			if (voluntary && document.activeElement instanceof HTMLElement)
+			// A confirmation can settle after forced teardown has already finished.
+			if (hasEnded()) return;
+			if (document.activeElement instanceof HTMLElement)
 				document.activeElement.blur();
+		},
+		async stopUi() {
 			const stopping = getCleanup()?.close();
 			// Observe rejection immediately, even if it settles before tick.
 			const removed = tick();

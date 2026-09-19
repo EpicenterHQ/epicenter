@@ -213,8 +213,19 @@ try {
 				window.bootProbe.refuse = false;
 				window.bootProbe.releaseProducer();
 				window.bootProbe.releaseCommit();
+				const input = document.createElement('input');
+				input.addEventListener('blur', () => {
+					window.bootProbe.events.push('focused-edit-committed');
+				});
+				document.body.append(input);
+				input.focus();
 				await window.observedBoot.lifetime.close();
 			});
+			const events = await page.evaluate(() => window.bootProbe.events);
+			assert(events.includes('focused-edit-committed'));
+			assert(
+				events.indexOf('focused-edit-committed') < events.indexOf('producer-stop'),
+			);
 			assert(
 				await page.evaluate(() => window.bootProbe.events.includes('closed')),
 			);
@@ -271,6 +282,19 @@ try {
 			const events = await page.evaluate(() => window.bootProbe.events);
 			assert(!events.includes('auth-action'));
 			assert(events.indexOf('closed') > events.indexOf('producer-done'));
+			// A late confirmation must not blur an input in the replacement UI.
+			await page.evaluate(async () => {
+				const input = document.createElement('input');
+				input.id = 'replacement-input';
+				document.body.append(input);
+				input.focus();
+				window.bootProbe.releaseConfirmation();
+				await window.bootProbe.confirmation;
+			});
+			assert.equal(
+				await page.evaluate(() => document.activeElement?.id),
+				'replacement-input',
+			);
 			assert.deepEqual(errors, []);
 			await page.close();
 			console.log(

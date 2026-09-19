@@ -11,7 +11,7 @@ export function createPageLifetime({
 	auth: Pick<AuthClient, 'onStateChange'> | undefined;
 	account: Account | undefined;
 	preflight: (hasEnded: () => boolean) => Promise<void>;
-	stopUi: (voluntary: boolean) => Promise<void>;
+	stopUi: () => Promise<void>;
 	opening: Promise<{ signal: AbortSignal; close(): Promise<void> }>;
 }) {
 	let state = $state.raw<{
@@ -46,7 +46,7 @@ export function createPageLifetime({
 			}
 			setState('closing');
 			try {
-				await stopUi(endedBy === undefined);
+				await stopUi();
 				const app = await opening;
 				// No await separates detaching retirement from App's synchronous revocation.
 				stopRetirement?.();
