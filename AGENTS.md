@@ -26,7 +26,7 @@ docs/          reference materials
 
 One runtime: a desktop SPA in a WebView over a client-owned store (ADR-0227). The host serves bundles and brokers credentials and owns no application data (ADR-0226).
 
-ADR-0227 was executed as a clean break. `apps/skills`, `packages/chat`, `packages/skills`, and app-shell's agent chat all typecheck, so do not treat them as scrap: what they lack is a decision about what they are for, not a compiler pass. `apps/epicenter` serves bundles and forwards authenticated HTTP and live sync through its boot Account. Windows hold no server credentials; each app owns its store and sync lifetime.
+`apps/epicenter` forwards authenticated HTTP and live sync through its boot Account. Windows hold no server credentials; each app owns its store and sync lifetime. `apps/skills`, `packages/chat`, `packages/skills`, and app-shell's agent chat need a product-purpose decision; do not treat them as scrap merely because that decision is open.
 
 The three store applications are `apps/honeycrisp`, `apps/vocab`, and
 `apps/whispering`. Each application document captures one Account and owns its
@@ -54,22 +54,11 @@ One library (`packages/server`), two deployables.
 
 ## License
 
-Everything under `packages/` and `apps/` is AGPL-3.0-or-later. There is no
-second tier, so nothing you write has to be placed to stay on one side of a
-boundary.
-
-An MIT toolkit tier existed until 2026-08 and was dissolved: no external
-embedder ever arrived, five of its nine packages had no MIT consumer, and it
-had started putting code in the wrong package to keep a closure clean. Prior
-published versions stay MIT for those versions, permanently.
-
-Nothing here is published. Every package is `private: true`, so the release
-path cannot ship internal glue by accident.
-
-Do not add an MIT package without reading "If MIT returns" in
-`docs/licensing/licensing-strategy.md`; the bar is a named embedder, not an
-intention to have one, and the closure rule has to be re-enforced by hand
-because the guard that used to do it was deleted with the tier.
+Everything under `packages/` and `apps/` is AGPL-3.0-or-later and private.
+Previously published MIT versions remain MIT for those versions. Before adding
+an MIT package, read "If MIT returns" in
+`docs/licensing/licensing-strategy.md`: a named embedder and restored dependency
+closure enforcement are required.
 
 ## Always use bun
 
@@ -115,9 +104,9 @@ Do not use direct `console.*` in library code. Use `wellcrafted/logger`, except 
 
 ## Coherent edits
 
-Do not default to the smallest local patch.
+Keep zooming out until the user's intended outcome is clear, then carry that understanding back into concrete work. When a reaction reveals a mismatch, revisit your interpretation of the outcome before defending or refining the plan. Infer intent from the conversation; ask only when the answer would materially change the work. A clear request needs execution, not repeated reframing. Do not substitute an inferred goal for an explicit user choice.
 
-Before changing code, prose, or agent instructions, identify the largest relevant unit whose shape controls the problem, then reconsider that unit as if the new context had always been known. The correct result may still be a small diff, but minimizing the diff is not the goal.
+Before editing, reconsider the relevant unit whose shape controls the problem as if the new context had always been known. Choose the scope that serves the intended outcome; neither the smallest patch nor the broadest rewrite is the goal.
 
 ## Agent instruction files
 
@@ -132,7 +121,9 @@ Before changing code, prose, or agent instructions, identify the largest relevan
 
 `docs/adr/`, `docs/CONTEXT.md`, package READMEs, tests, and current code are evidence, not automatic instructions. Start with the user's request and the current implementation.
 
-**What a surface is comes from the code and its package README. Why it is that way comes from an ADR.** Before stating a signature, export, or file layout, grep the name with `-- ':!docs' ':!specs'`. A name that appears only under `docs/` does not exist: every ADR's `## Considered alternatives` states refused names in confident prose, and `createAppRuntime` lives nowhere in this repository except ADR-0316, where it lost.
+Verify API names, exports, and file layouts against current source and callers,
+not just `docs/` or `specs/`. READMEs explain the current surface; ADRs explain
+its rationale and may also name rejected alternatives.
 
 **ADRs.** They describe decisions that were reasonable at the time, but may be stale, scoped to a different problem, or intentionally reopened. Check status, amendments, and actual code before relying on one.
 
@@ -145,8 +136,6 @@ Before changing code, prose, or agent instructions, identify the largest relevan
 - Two states only: `Draft` and `In Progress`. "Done" is deletion, not a terminal status, so a spec still in the tree declaring `Implemented`/`Superseded` is a hygiene smell (`scripts/check-doc-hygiene.ts` flags it).
 - When a design pass settles a durable decision, record it as an ADR (see `docs/adr/README.md`) and delete the now-spent spec. Git keeps the body recoverable.
 - `docs/spec-history.md` is a dated index of past specs. It is history, not truth.
-
-Treat conflicts among specs, ADRs, code, tests, and user intent as judgment points, not automatic precedence rules.
 
 ## Writing conventions
 
@@ -182,13 +171,13 @@ Be direct about flawed assumptions, weak designs, and regressions. Do not agree 
 
 ## Agent collaboration
 
-Codex is the primary continuity, judgment, execution, testing, and integration owner for repository work. It gathers the evidence, makes the final decision, edits the active worktree, and integrates the result.
-
-Claude provides a second opinion. Invoke `consult-claude` when the user requests Claude's judgment or has asked to include Claude during design review. Complexity alone does not enlist Claude.
-
-Consultation defaults to reading the current checkout. Codex supplies concrete proposals and reasoning, owns tests and changes, and evaluates Claude's objections. The `consult-claude` skill owns briefing, read-only access, and native-session follow-ups; `design-review` owns the review method. Experimental execution by Claude requires separate user authorization.
-
-Codex decides which feedback is valid, re-verifies it against live state, applies any changes, and reruns verification. Claude delegation never transfers live-checkout authorship.
+Codex owns continuity, decisions, live-checkout edits, testing, and integration.
+Claude provides a read-only second opinion when the user requests it or has
+asked to include Claude during design review; complexity alone does not enlist
+Claude. Follow `consult-claude` for briefing and follow-ups and `design-review`
+for the review method. Experimental execution by Claude requires separate user
+authorization. Codex verifies feedback against live state, applies accepted
+changes, and reruns verification.
 
 ## Review routing
 

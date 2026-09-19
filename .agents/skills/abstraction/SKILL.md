@@ -1,6 +1,6 @@
 ---
 name: abstraction
-description: Shape a complex idea, workflow, or design into the smallest complete surface a person needs for the next judgment.
+description: Shape a complex idea, workflow, or design into the smallest complete surface a person needs for the next judgment. Use when an explanation overwhelms the decision, or an interpretation and consequential question need to be easier to recognize and answer. Do not use for routine execution of a clear request.
 ---
 
 # Abstraction
@@ -43,6 +43,31 @@ the next turn rather than placing it in the first one.
 If an omission could make something look absent, automatic, or settled, name
 that boundary briefly. Do not hide uncertainty just to make the surface clean.
 
+## Make the question easy to find
+
+When checking your interpretation of the intended outcome, give the person a
+short account they can correct. Put the consequential question in its own block
+quote, with bold emphasis on the question, so their eyes can find the decision
+without reading a paragraph of reasoning first. Keep the explanation outside
+the quote.
+
+For example, after a user questions whether finishing Mail is more patchwork:
+
+I think you're using Mail to judge whether the framework work is paying off.
+
+> **Is the outcome you want a useful mail app, or making apps easier to build with Epicenter?**
+
+My current read is the second. I'd use the Mail journey to find and remove
+friction for application developers.
+
+This is a presentation example, not a required binary choice. The user may want
+both, or something else. Offer an interpretation supported by the conversation;
+do not invent a deeper motive. Ask only when the answer changes the work. When
+the outcome is already clear, state the interpretation if useful and proceed.
+Once clarified, connect it to the next concrete action rather than continuing
+to zoom out. Use the host's question tool when required, preserving the same
+short setup and prominent question within that surface.
+
 ## A short pass
 
 1. Find the next judgment the person needs to make.
@@ -73,8 +98,6 @@ Show multiple articulations only when comparing them is the next judgment.
 Otherwise show the strongest current articulation and state the unresolved crux
 in one sentence.
 
-Understanding the model is not approval for an implementation, deletion, merge,
-or other side effect.
 
 ## Watch for
 

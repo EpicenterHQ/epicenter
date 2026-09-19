@@ -139,9 +139,10 @@ articulations
   -> understanding or accepted destination
 ```
 
-Read the user’s reaction as directional evidence about the model and its crux,
-not as a command to obey at face value. Preserve what the user recognized,
-replace what they rejected, intensify what they cared about more strongly than
+Read the user's reaction as evidence about the model and its crux. A tentative
+suggestion may reveal a deeper need; an explicit choice or scope limit remains
+binding. Do not replace it with an inferred intention. Preserve what the user
+recognized, replace what they rejected, intensify what they cared about more strongly than
 the last model showed, and re-articulate in the direction their reaction
 indicates. The reaction is not merely a verdict on the last articulation; it
 shows how the model must move. When local collisions recur, zoom out to the
@@ -188,7 +189,10 @@ refusals, and invented edges are not questions, since they cost nothing to read
 and need a response only when they are wrong. A crux, a claim offered for
 judgment, and a set of options are each one question. Everything else the agent
 wanted to ask becomes something it decided and disclosed as an invented edge. If
-the articulation is sufficient, ask nothing.
+the articulation is sufficient, ask nothing. Use
+[abstraction](../abstraction/SKILL.md#make-the-question-easy-to-find) to keep the
+interpretation short and the consequential question visually separate from the
+articulation. A short clarification need not become a full scenario.
 
 Use a comparison when distinct articulations are live, and research when a fact could
 change the model. Use a diagram, HTML page, or prototype only when the spatial
@@ -210,11 +214,10 @@ When the user is correcting or designing, do not stop at a plausible model,
 partial agreement, silence, fatigue, or approval of a plan. Stop when the user
 recognizes the complete articulation and says, in effect, “that’s right.”
 
-Then stop. Return its shortest honest form and nothing after it. Do not produce
-a remaining question, a next decision, or a small unowned thing to justify one
-more turn. Anything genuinely unresolved was raised while it mattered, not
-harvested at the end. Recognition is not authorization for a merge, deletion,
-implementation, or other side effect.
+Then end the design discussion with its shortest honest form. Do not invent
+another question or decision to prolong it. Recognition alone grants no new
+authorization for implementation or other side effects; continue concrete work
+when the user has already authorized it.
 
 For an accepted destination, hand it to
 [greenfield-clean-breaks](../greenfield-clean-breaks/SKILL.md) for backward
