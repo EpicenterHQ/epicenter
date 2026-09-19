@@ -177,8 +177,11 @@ bun run --cwd apps/epicenter desktop:build
 # Package it for release, with Local Mail's Google client compiled in
 bun run --cwd apps/epicenter desktop:build:remote
 
-# Typecheck Home plus every compiled application's platform conditions
+# Typecheck the host and Home
 bun run --cwd apps/epicenter typecheck
+
+# Typecheck the host, Home, Whispering, and Honeycrisp
+bun run --cwd apps/epicenter typecheck:desktop
 
 # Host, routing, sidecar, and window tests
 bun test apps/epicenter/scripts apps/epicenter/src
@@ -186,6 +189,10 @@ bun test apps/epicenter/scripts apps/epicenter/src
 # Native command and fixture tests
 cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml
 ```
+
+The root `bun typecheck` runs each workspace's checks, including the apps checked
+by `typecheck:desktop`. Use `typecheck:desktop` for standalone verification of
+the host with Whispering and Honeycrisp.
 
 ## Ownership rules
 

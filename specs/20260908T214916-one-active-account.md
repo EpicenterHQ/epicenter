@@ -397,7 +397,7 @@ bun run --cwd packages/app-shell typecheck
 bun run --cwd apps/whispering typecheck
 bun run --cwd apps/honeycrisp typecheck
 bun run --cwd apps/vocab typecheck
-bun run --cwd apps/epicenter typecheck:home
+bun run --cwd apps/epicenter typecheck
 bun run --cwd apps/api/ui typecheck
 ```
 

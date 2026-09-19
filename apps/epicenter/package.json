@@ -24,8 +24,8 @@
 		"dev:desktop": "tauri dev --config src-tauri/tauri.dev.conf.json",
 		"tauri": "tauri",
 		"test": "bun test",
-		"typecheck": "bun run typecheck:home && bun run --cwd ../whispering typecheck && bun run --cwd ../honeycrisp typecheck",
-		"typecheck:home": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json"
+		"typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",
+		"typecheck:desktop": "bun run typecheck && bun run --cwd ../whispering typecheck && bun run --cwd ../honeycrisp typecheck"
 	},
 	"dependencies": {
 		"openai": "^7.12.1",
