@@ -20,7 +20,7 @@
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { resultMutationOptions, resultQueryOptions } from 'wellcrafted/query';
 	import SignInPanel from './sign-in-panel.svelte';
-	import { getConnectionScreen, getSignOut } from '../boot-screens/connection-screen-context.js';
+	import { getSignOut } from '../boot-screens/connection-screen-context.js';
 
 	const accountProfileQueryClient = new QueryClient({
 		defaultOptions: {
@@ -41,8 +41,7 @@
 	 */
 	type AccountPopoverProps = {
 		/**
-		 * The app's auth client. Its connection
-		 * supplies the selected server and live connection status.
+		 * The app's reactive auth client for its configured server.
 		 */
 		auth: ReactiveAuthClient;
 		/** Noun describing what gets synced, e.g. "tabs" or "notes". */
@@ -91,7 +90,6 @@
 	}: AccountPopoverProps = $props();
 
 	let popoverOpen = $state(false);
-	const openConnection = getConnectionScreen();
 	const leaveAndSignOut = getSignOut();
 	let removing = $state(false);
 	const isSignedIn = $derived(auth.state.status === 'signed-in');
@@ -278,9 +276,6 @@
 			<div class="p-4">
 					<SignInPanel {auth} {syncNoun} {disabledReason} />
 			</div>
-		{/if}
-		{#if openConnection && auth.state.status === 'signed-in'}
-			<div class="px-4 pb-4"><Button variant="outline" class="w-full" onclick={openConnection} disabled={accountLocked}>Change connection</Button></div>
 		{/if}
 	</Popover.Content>
 </Popover.Root>

@@ -47,15 +47,11 @@ Browser reload is recovery, not an awaited persistence guarantee. Opening
 failures have one renderer, the await block; native close still refuses an
 opening failure rather than assuming resources were safely released.
 
-AppBoot requires an auth client and an explicit connection destination. A
-boolean declares whether the UI offers server changes; the boot owner does
-not receive the server-selection client. Sign-in screens retain that client
-where its operations are actually used.
-
-Honeycrisp fixes its browser issuer and exports the actual auth client.
-Applications that offer runtime server selection retain BrowserAuth because
-it performs that selection. Desktop windows receive Account capabilities;
-the host retains credentials. No common startup wrapper is required.
+AppBoot requires an auth client and an explicit sign-in destination for local
+startup. Signed-in pages expose sign-out through the same close owner. Every
+browser app exports its actual auth client for one build-configured server.
+Desktop windows receive Account capabilities; the host retains credentials.
+No server-selection client or common startup wrapper is required.
 
 ## Consequences
 

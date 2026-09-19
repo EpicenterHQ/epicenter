@@ -1,8 +1,8 @@
 import { defineApp, field } from '@epicenter/app';
 import { createMemoryRuntime } from '@epicenter/app/testing';
-import { createBrowserAuth } from '@epicenter/auth';
-import { createCurrentDownloadResponse } from '../../../sync/src/current-download.js';
+import { createBrowserRedirectAuth, selfHostedServer } from '@epicenter/auth';
 import { Ok } from 'wellcrafted/result';
+import { createCurrentDownloadResponse } from '../../../sync/src/current-download.js';
 
 import { probe } from './probe.js';
 
@@ -10,11 +10,11 @@ const local =
 	new URL(location.href).searchParams.has('local') ||
 	sessionStorage.getItem('local') === 'true';
 sessionStorage.setItem('local', String(local));
-if (!local && !localStorage.getItem('probe.auth.server')) {
-	localStorage.setItem('probe.auth.server', 'https://old.example');
+if (!local && !sessionStorage.getItem('credential-seeded')) {
+	sessionStorage.setItem('credential-seeded', 'true');
 	localStorage.setItem(
-		'probe.auth.instance:https://old.example',
-		JSON.stringify({ token: 'old', principalId: 'instance' }),
+		'probe.auth.persisted:https://old.example',
+		JSON.stringify({ token: 'old', principalId: 'alice' }),
 	);
 }
 Reflect.set(
@@ -33,14 +33,14 @@ Reflect.set(
 				tail: [],
 			});
 		}
-		if (new URL(request.url).hostname === 'next.example')
-			probe.events.push('candidate-verified');
-		return Response.json({ principalId: 'instance' });
+		if (new URL(request.url).pathname === '/auth/sign-out')
+			probe.events.push('signed-out');
+		return Response.json({ principalId: 'alice' });
 	},
 );
-export const auth = createBrowserAuth({
+export const auth = createBrowserRedirectAuth({
 	appId: 'probe',
-	baseURL: 'https://hosted.example',
+	server: selfHostedServer('https://old.example'),
 });
 export const definition = defineApp({
 	id: 'test.boot-probe',

@@ -33,7 +33,7 @@ The three store applications are `apps/honeycrisp`, `apps/vocab`, and
 App lifetime. Honeycrisp's matched notes page keeps one App across `/local` and
 `/personal`; the routes display `app.device` and `app.account.personal` directly.
 Vocab requires identity; Honeycrisp and Whispering also support local startup.
-Deliberate account/server changes close UI producers and the App before
+Deliberate account changes close UI producers and the App before
 authentication changes and full document navigation. Callbacks and auxiliary
 routes open no primary App. Same-owner refresh preserves the App; unexpected
 retirement closes locally without replacement.

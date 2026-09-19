@@ -45,7 +45,7 @@ describe('platform seams', () => {
 describe('auth belongs to the selected build', () => {
 	test('browser and host select their own Account source', async () => {
 		expect(await leafSource('#platform/auth', 'default')).toContain(
-			'createBrowserAuth',
+			'createBrowserRedirectAuth',
 		);
 		expect(await leafSource('#platform/auth', 'epicenter-host')).toContain(
 			'createDesktopBrokerAuth',

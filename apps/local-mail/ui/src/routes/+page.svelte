@@ -1,17 +1,17 @@
 <script lang="ts">
 	import { AppBoot, SignInScreen } from '@epicenter/app-shell/boot-screens';
-	import { auth, serverSelection } from '#platform/auth';
+	import { auth } from '#platform/auth';
 	import { mailDefinition } from '$lib/data.js';
 	import MailShell from '$lib/components/MailShell.svelte';
 
-	const connecting = !auth?.getState().account || new URLSearchParams(location.search).has('connect');
+	const connecting = !auth.getState().account || new URLSearchParams(location.search).has('connect');
 </script>
 
-{#if !auth || connecting}
-	<SignInScreen {auth} selection={serverSelection} appName="Local Mail" noun="saved queries and mail"
+{#if connecting}
+	<SignInScreen {auth} appName="Local Mail" noun="saved queries and mail"
 		onCancel={new URLSearchParams(location.search).has('connect') ? () => location.replace('/') : undefined} />
 {:else}
-	<AppBoot {auth} definition={mailDefinition} canChangeServer={serverSelection !== undefined}
+	<AppBoot {auth} definition={mailDefinition}
 
 		appName="Local Mail" noun="saved queries and mail" connectionHref={location.pathname + '?connect'}>
 		{#snippet children(app)}

@@ -203,12 +203,13 @@ async function setup({
 	const account = captured.account;
 	const bootstrap = {
 		state: { status: 'signed-in' as const, principalId: account.principalId },
-		baseURL,
-		authorityId: 'epicenter-api',
-		startSignIn: true,
-		accountManagement: true,
-		recovery: false,
-		selectedServer: null,
+		server: {
+			baseURL,
+			authorityId: 'epicenter-api',
+			accountManagement: true,
+			supportsShared: false,
+		},
+		credentialUnreadable: false,
 	};
 	const directory = await mkdtemp(join(tmpdir(), 'account-relay-'));
 	const blobStores = new Map<string, ReturnType<typeof createBunBlobStore>>();
@@ -261,8 +262,6 @@ async function setup({
 			},
 			startSignIn: auth.startSignIn,
 			cancelConnection: async () => Ok(undefined),
-			connectInstance: async () => Ok(undefined),
-			useCloud: async () => Ok(undefined),
 			async signOut() {
 				expectOk(await auth.signOut());
 				return Ok(undefined);

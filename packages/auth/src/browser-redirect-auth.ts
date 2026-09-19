@@ -1,28 +1,27 @@
 /// <reference lib="dom" />
 
+import { createAccountManagementUrl } from './account-management.js';
 import type { AuthFetch } from './auth-contract.js';
+import type { AuthServer } from './auth-server.js';
 import { createSessionAuth } from './create-session-auth.js';
 import { createWebStoragePersistedAuthStorage } from './persisted-auth-storage.js';
 import { createSessionHandoffClient } from './session-handoff-client.js';
 
 export type CreateBrowserRedirectAuthOptions = {
-	authorityId: string;
-	supportsShared?: boolean;
+	server: AuthServer;
 	fetch?: AuthFetch;
 	appId: string;
-	baseURL: string;
 	callbackPath?: string;
 };
 
 /** Browser storage and redirect convention; applications own their Account. */
 export function createBrowserRedirectAuth({
-	authorityId,
-	supportsShared,
+	server,
 	fetch,
 	appId,
-	baseURL,
 	callbackPath = '/auth/callback',
 }: CreateBrowserRedirectAuthOptions) {
+	const { baseURL, authorityId, supportsShared } = server;
 	if (
 		!callbackPath.startsWith('/') ||
 		callbackPath.startsWith('//') ||
@@ -37,7 +36,7 @@ export function createBrowserRedirectAuth({
 		callback: callback.href,
 		storage: window.sessionStorage,
 	});
-	return createSessionAuth({
+	const auth = createSessionAuth({
 		authorityId,
 		supportsShared,
 		baseURL,
@@ -64,4 +63,10 @@ export function createBrowserRedirectAuth({
 			},
 		},
 	});
+	return Object.assign(
+		auth,
+		server.accountManagement
+			? { accountManagementUrl: createAccountManagementUrl }
+			: {},
+	);
 }

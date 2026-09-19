@@ -10,18 +10,20 @@ export type {
 export { isCallbackAuthClient } from './auth-contract.js';
 export * from './auth-errors.js';
 export type { AuthIdentityState } from './auth-identity-state.js';
+export {
+	type AuthServer,
+	epicenterCloud,
+	selfHostedServer,
+} from './auth-server.js';
 export { ApiSessionResponse, Principal } from './auth-types.js';
 export {
-	type BrowserAuth,
-	createBrowserAuth,
-} from './browser-auth.js';
+	type CreateBrowserRedirectAuthOptions,
+	createBrowserRedirectAuth,
+} from './browser-redirect-auth.js';
 export {
 	type CreateSessionAuthOptions,
-	createInstanceAuth,
 	createSessionAuth,
-	type InstanceAuth,
 	type SessionLauncher,
-	verifyInstanceToken,
 } from './create-session-auth.js';
 export {
 	type CreateHostedBrowserRedirectAuthOptions,

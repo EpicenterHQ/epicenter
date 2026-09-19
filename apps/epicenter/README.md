@@ -28,6 +28,19 @@ no application data and constructs no database. What the condition still selects
 is the credential path (`#platform/auth`, `#platform/instance`), because the
 host really does broker a credential its windows cannot obtain.
 
+## Configure the server
+
+A desktop build connects to one server. The default is Epicenter Cloud. Set
+`EPICENTER_SERVER_ORIGIN` when compiling the native host to build for a
+self-hosted HTTP(S) origin. Changing it requires rebuilding the host.
+Rust passes this descriptor to Bun and uses the same origin to validate native
+sign-in URLs. App windows receive the descriptor with their identity snapshot.
+Home Settings lets people sign in and out; it cannot change the server.
+
+Debug Cloud builds retain `EPICENTER_API_URL` for the local development API.
+This override accepts a loopback origin and does not affect release builds.
+A self-hosted build takes precedence over that development override.
+
 ## Run locally
 
 ### Application data

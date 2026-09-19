@@ -1,9 +1,9 @@
 /** Mount the actual route: signed-out startup ignores a saved remote selection. */
 import { expect, test } from 'bun:test';
-import { mkdtemp, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { createRequire } from 'node:module';
 
 const repo = new URL('../', import.meta.url).pathname;
 const requireApp = createRequire(
@@ -42,7 +42,7 @@ test('mounted Whispering uses device data for every signed-out saved selection',
 	await Bun.write(join(directory, 'Menu.svelte'), '<span>Library menu</span>');
 	await Bun.write(
 		join(directory, 'auth.ts'),
-		`export const serverSelection = undefined; export const auth = { getState: () => ({ status: 'signed-out' }), onStateChange: () => () => {}, signOut: async () => ({error:null}) };`,
+		`export const auth = { getState: () => ({ status: 'signed-out' }), onStateChange: () => () => {}, signOut: async () => ({error:null}) };`,
 	);
 	await Bun.write(
 		join(directory, 'data.ts'),

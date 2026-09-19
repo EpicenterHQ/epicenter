@@ -1,12 +1,8 @@
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
-	import { Input } from '@epicenter/ui/input';
-	import { Label } from '@epicenter/ui/label';
 	import {
-		ACCOUNT_CONNECT_ROUTE,
 		ACCOUNT_CANCEL_CONNECTION_ROUTE,
-		ACCOUNT_USE_CLOUD_ROUTE,
 		ACCOUNT_SIGN_IN_ROUTE,
 		ACCOUNT_SIGN_OUT_ROUTE,
 	} from '../routes.ts';
@@ -31,11 +27,9 @@
 	 */
 
 	const launcher = createLaunch();
-	let server = $state(bootstrap.selectedServer ?? '');
 	let connecting = $state(false);
 	let signingIn = $state(false);
 	let connectionError = $state('');
-	let changingServer = $state(false);
 	let operation = 0;
 	async function connect(path: string, body: object = {}) {
 		const current = ++operation;
@@ -54,7 +48,7 @@
 				connecting = false;
 				signingIn = false;
 			}
-			// A selected connection stays pending until native replaces this process.
+			// Sign-out stays pending until native replaces this process.
 		} catch (cause) {
 			if (current !== operation) return;
 			connectionError =
@@ -81,48 +75,24 @@
 {#if isDesktopHost()}
 	<div class="grid gap-3 border-b p-3">
 		<h2 class="font-medium">Account</h2>
-		{#if bootstrap.recovery}
-			<p role="alert">Your saved server choice could not be read. Choose a server to continue. Your local data is still on this device.</p>
+		{#if bootstrap.credentialUnreadable}
+			<p role="alert">Your saved sign-in could not be used. Sign in again. Your local data is still on this device.</p>
 		{:else}
-			<p>{bootstrap.selectedServer === null ? 'Epicenter Cloud' : 'Your server'}: {auth.getState().status === 'signed-out' ? 'Signed out' : 'Signed in'}</p>
-			{#if bootstrap.selectedServer !== null}<p class="break-all text-sm text-muted-foreground">{bootstrap.selectedServer}</p>{/if}
+			<p>{new URL(bootstrap.server.baseURL).host}: {auth.getState().status === 'signed-out' ? 'Signed out' : 'Signed in'}</p>
 		{/if}
 		<p class="text-muted-foreground">Changing accounts closes your applications and restarts Epicenter. Your existing local data stays with its original server.</p>
-		<Button disabled={connecting} onclick={() => void connect(auth.startSignIn !== undefined ? ACCOUNT_SIGN_IN_ROUTE.pattern : ACCOUNT_USE_CLOUD_ROUTE.pattern)}>
-			{auth.startSignIn !== undefined ? 'Sign in' : 'Use Epicenter Cloud'}
+		<Button disabled={connecting} onclick={() => void connect(ACCOUNT_SIGN_IN_ROUTE.pattern)}>
+			Sign in
 		</Button>
 		{#if signingIn}
 			<p role="status">Finish signing in in your browser, then return here.</p>
 			<Button variant="outline" onclick={() => void connect(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern)}>Cancel sign-in</Button>
 		{/if}
-		{#if bootstrap.selectedServer !== null && auth.startSignIn}
-			<Button variant="outline" disabled={connecting} onclick={() => void connect(ACCOUNT_USE_CLOUD_ROUTE.pattern)}>Use Epicenter Cloud</Button>
-		{/if}
 		{#if auth.getState().status !== 'signed-out'}
 			<Button variant="outline" disabled={connecting} onclick={() => void connect(ACCOUNT_SIGN_OUT_ROUTE.pattern)}>Sign out</Button>
 		{/if}
+		{#if connectionError}<p role="alert" class="text-destructive">{connectionError}</p>{/if}
 	</div>
-	<form
-		class="grid gap-3 border-b p-3"
-		onsubmit={(event) => {
-			event.preventDefault();
-			void connect(ACCOUNT_CONNECT_ROUTE.pattern, { server: bootstrap.selectedServer !== null && !changingServer ? bootstrap.selectedServer : server });
-		}}
-	>
-		<h2 class="font-medium">Connect to your server</h2>
-		{#if bootstrap.selectedServer !== null}
-			<Button type="button" variant="ghost" disabled={connecting} onclick={() => changingServer = !changingServer}>{changingServer ? 'Keep current server' : 'Change server'}</Button>
-		{/if}
-		<Label for="instance-server">Server URL</Label>
-		<Input id="instance-server" type="url" required bind:value={server} placeholder="https://your-server.example" readonly={bootstrap.selectedServer !== null && !changingServer} disabled={connecting} />
-		<div class="flex gap-2">
-			<Button type="submit" disabled={connecting}>Connect and restart</Button>
-		</div>
-		{#if connectionError}
-			<p role="alert" class="text-destructive">{connectionError}</p>
-			<Button type="button" variant="ghost" disabled={connecting} onclick={() => void connect(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern)}>Return to saved connection</Button>
-		{/if}
-	</form>
 {/if}
 
 {#if localModels.available}

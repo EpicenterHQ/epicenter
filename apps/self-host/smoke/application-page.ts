@@ -1,41 +1,30 @@
 /** Disposable browser consumer of the same startup and callback API as store apps. */
-import { createBrowserAuth, isCallbackAuthClient } from '@epicenter/auth';
+import { createBrowserRedirectAuth, selfHostedServer } from '@epicenter/auth';
+import { API_ROUTES } from '@epicenter/constants/api-routes';
 
-const startup = createBrowserAuth({
+const auth = createBrowserRedirectAuth({
 	appId: 'self-host-smoke',
-	baseURL: 'https://cloud.invalid',
+	server: selfHostedServer(import.meta.env.VITE_EPICENTER_SERVER),
 });
 const output = document.querySelector('output')!;
-const issuer = document.body.dataset.issuer!;
-const connect = document.querySelector<HTMLButtonElement>('#connect')!;
-connect.onclick = async () => {
-	const result = await startup.connectInstance({ url: issuer });
-	if (result.error) throw result.error;
-};
 const signIn = document.querySelector<HTMLButtonElement>('#sign-in')!;
 signIn.onclick = async () => {
-	const result = await startup.auth?.startSignIn?.({ reauthenticate: true });
+	const result = await auth.startSignIn({ reauthenticate: true });
 	if (result?.error) throw result.error;
 };
 const check = document.querySelector<HTMLButtonElement>('#check')!;
 check.onclick = async () => {
-	const state = startup.auth?.getState();
+	const state = auth.getState();
 	if (!state || state.status === 'signed-out') throw new Error('No Account');
-	const response = await state.account.fetch('/api/session');
+	const response = await state.account.fetch(API_ROUTES.session.pattern);
 	output.textContent = `${response.status}:${state.account.principalId}`;
 };
 if (location.pathname === '/auth/callback') {
-	const auth = startup.auth;
-	if (!auth || !isCallbackAuthClient(auth))
-		throw new Error('Callback unavailable');
 	const result = await auth.completeSignIn();
 	if (result.error) throw result.error;
 	location.replace('/');
-} else if (location.search === '?connect' && startup.selectedServer) {
-	const result = await startup.auth?.startSignIn?.();
-	if (result?.error) throw result.error;
 } else {
-	const state = startup.auth?.getState();
+	const state = auth.getState();
 	output.textContent =
 		state && state.status !== 'signed-out'
 			? state.account.principalId

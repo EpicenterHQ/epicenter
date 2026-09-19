@@ -10,7 +10,7 @@ test('equivalent origins select the same authority before boot', () => {
 		normalizeInstanceServer('https://other.example.com').authorityId,
 	);
 });
-test('server selection rejects URLs that are not origins', () => {
+test('server configuration rejects URLs that are not origins', () => {
 	for (const value of [
 		'https://user:secret@example.com',
 		'https://example.com/api',

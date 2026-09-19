@@ -1,3 +1,8 @@
+import {
+	type AuthServer,
+	epicenterCloud,
+	selfHostedServer,
+} from '@epicenter/auth';
 import type { AccountIdentity } from '@epicenter/principal';
 import type { NativeSqliteRequest } from './device.js';
 /**
@@ -19,7 +24,7 @@ const SHUTDOWN_GRACE_MS = 10_000;
 const MAX_NATIVE_FRAME_BYTES = 8 * 1024 * 1024;
 const MAX_NATIVE_PENDING = 64;
 
-export const SIDECAR_PROTOCOL_VERSION = 3;
+export const SIDECAR_PROTOCOL_VERSION = 4;
 export const PRODUCTION_PORT = 39_130;
 
 export type SidecarRuntimeMode = 'production' | 'development';
@@ -30,6 +35,7 @@ export type BootFrame = {
 	token: string;
 	port: number;
 	authCell: string | null;
+	authServer: AuthServer;
 	dataDir: string;
 	folderDir: string;
 };
@@ -82,6 +88,7 @@ export type NativeAuthPort = Pick<
 
 const BOOT_FRAME_KEYS = [
 	'authCell',
+	'authServer',
 	'dataDir',
 	'folderDir',
 	'port',
@@ -141,7 +148,7 @@ export function parseBootFrame(
 		keys.some((key, index) => key !== BOOT_FRAME_KEYS[index])
 	) {
 		throw new Error(
-			'The boot frame must contain exactly type, protocolVersion, token, port, authCell, dataDir, and folderDir.',
+			'The boot frame must contain exactly type, protocolVersion, token, port, authCell, authServer, dataDir, and folderDir.',
 		);
 	}
 
@@ -172,6 +179,53 @@ export function parseBootFrame(
 	}
 	if (frame.authCell !== null && typeof frame.authCell !== 'string') {
 		throw new Error('The boot auth cell must be a string or null.');
+	}
+
+	const authServer = frame.authServer;
+	if (
+		typeof authServer !== 'object' ||
+		authServer === null ||
+		Array.isArray(authServer)
+	) {
+		throw new Error('The boot authServer must be a server descriptor.');
+	}
+	const descriptor = authServer as Record<string, unknown>;
+	if (
+		Object.keys(descriptor).sort().join(',') !==
+			'accountManagement,authorityId,baseURL,supportsShared' ||
+		typeof descriptor.baseURL !== 'string' ||
+		typeof descriptor.authorityId !== 'string' ||
+		descriptor.authorityId.length === 0 ||
+		typeof descriptor.supportsShared !== 'boolean' ||
+		typeof descriptor.accountManagement !== 'boolean'
+	) {
+		throw new Error(
+			'The boot authServer must contain baseURL, authorityId, supportsShared, and accountManagement.',
+		);
+	}
+	const origin = URL.parse(descriptor.baseURL);
+	if (
+		!origin ||
+		!['http:', 'https:'].includes(origin.protocol) ||
+		origin.origin !== descriptor.baseURL ||
+		origin.username ||
+		origin.password
+	) {
+		throw new Error(
+			'The boot authServer baseURL must be an HTTP or HTTPS origin.',
+		);
+	}
+
+	const expectedServer = descriptor.accountManagement
+		? epicenterCloud(descriptor.baseURL)
+		: selfHostedServer(descriptor.baseURL);
+	if (
+		descriptor.authorityId !== expectedServer.authorityId ||
+		descriptor.supportsShared !== expectedServer.supportsShared
+	) {
+		throw new Error(
+			'The boot authServer identity and capabilities must match its configured server.',
+		);
 	}
 
 	for (const key of ['dataDir', 'folderDir'] as const) {

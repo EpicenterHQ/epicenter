@@ -11,6 +11,10 @@ import { APPS, type AppKey, localUrl } from '#apps';
  */
 const isDev = import.meta.env.MODE !== 'production';
 
+/** Optional self-hosted issuer baked into a frontend build. */
+export const SELF_HOST_ORIGIN: string | undefined = import.meta.env
+	.VITE_EPICENTER_SERVER;
+
 export const APP_URLS = Object.fromEntries(
 	Object.entries(APPS).map(([key, app]) => [
 		key,

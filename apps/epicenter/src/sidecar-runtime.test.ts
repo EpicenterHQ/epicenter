@@ -11,9 +11,10 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EventEmitter } from 'node:events';
+import { epicenterCloud, selfHostedServer } from '@epicenter/auth';
 import {
 	createNativePort,
 	createReadyFrame,
@@ -35,6 +36,7 @@ function bootFrame(overrides: Record<string, unknown> = {}): string {
 		token: TOKEN,
 		port: PRODUCTION_PORT,
 		authCell: null,
+		authServer: epicenterCloud('https://api.epicenter.so'),
 		dataDir: join(tmpdir(), 'so.epicenter.dev'),
 		folderDir: join(tmpdir(), 'Epicenter Dev'),
 		...overrides,
@@ -117,6 +119,80 @@ describe('runtime mode', () => {
 });
 
 describe('boot protocol', () => {
+	test('Rust supplies the configured server unchanged for Cloud and self-hosted builds', () => {
+		for (const authServer of [
+			epicenterCloud('https://api.epicenter.so'),
+			selfHostedServer('https://self.example'),
+		]) {
+			expect(
+				parseBootFrame(bootFrame({ authServer }), 'production').authServer,
+			).toEqual(authServer);
+		}
+	});
+
+	test('invalid server descriptors cannot enter the sidecar', () => {
+		for (const authServer of [
+			null,
+			[],
+			{},
+			{ ...selfHostedServer('https://self.example'), authorityId: '' },
+			{ ...selfHostedServer('https://self.example'), supportsShared: 'yes' },
+			{ ...selfHostedServer('https://self.example'), extra: true },
+		]) {
+			expect(() =>
+				parseBootFrame(bootFrame({ authServer }), 'production'),
+			).toThrow('authServer');
+		}
+		for (const baseURL of [
+			'file:///tmp',
+			'https://user@self.example',
+			'https://self.example/path',
+			'https://self.example?query',
+			'https://self.example#fragment',
+		]) {
+			expect(() =>
+				parseBootFrame(
+					bootFrame({
+						authServer: {
+							...selfHostedServer('https://self.example'),
+							baseURL,
+						},
+					}),
+					'production',
+				),
+			).toThrow('authServer');
+		}
+	});
+
+	test('Rust and TypeScript retain the same self-hosted authority bytes', () => {
+		const authServer = {
+			baseURL: 'https://self.example',
+			authorityId: 'instance-68747470733a2f2f73656c662e6578616d706c65',
+			supportsShared: true,
+			accountManagement: false,
+		};
+		expect(
+			parseBootFrame(bootFrame({ authServer }), 'production').authServer,
+		).toEqual(selfHostedServer(authServer.baseURL));
+	});
+
+	test('incoherent authority and capability descriptors cannot change the data partition', () => {
+		for (const server of [
+			epicenterCloud('https://api.epicenter.so'),
+			selfHostedServer('https://self.example'),
+		]) {
+			for (const authServer of [
+				{ ...server, authorityId: 'different-authority' },
+				{ ...server, supportsShared: !server.supportsShared },
+				{ ...server, accountManagement: !server.accountManagement },
+			]) {
+				expect(() =>
+					parseBootFrame(bootFrame({ authServer }), 'production'),
+				).toThrow('identity and capabilities');
+			}
+		}
+	});
+
 	test('malformed JSON and non-object frames are rejected', () => {
 		expect(() => parseBootFrame('{', 'production')).toThrow('valid JSON');
 		expect(() => parseBootFrame('[]', 'production')).toThrow('JSON object');
@@ -130,6 +206,7 @@ describe('boot protocol', () => {
 					protocolVersion: SIDECAR_PROTOCOL_VERSION,
 					token: TOKEN,
 					authCell: null,
+					authServer: epicenterCloud('https://api.epicenter.so'),
 				}),
 				'production',
 			),
@@ -197,7 +274,7 @@ describe('boot protocol', () => {
 	test('ready frames contain exactly the versioned readiness contract', () => {
 		expect(createReadyFrame(PRODUCTION_PORT)).toEqual({
 			type: 'ready',
-			protocolVersion: 3,
+			protocolVersion: 4,
 			port: PRODUCTION_PORT,
 		});
 	});
@@ -641,7 +718,9 @@ test('local frame limits reject only that request while pipe write failure compl
 	const emptyFrame = JSON.parse(writes[0]!);
 	emptyFrame.serialized = '';
 	emptyFrame.requestId = '3';
-	const exactPayload = 'x'.repeat(8 * 1024 * 1024 - Buffer.byteLength(JSON.stringify(emptyFrame)));
+	const exactPayload = 'x'.repeat(
+		8 * 1024 * 1024 - Buffer.byteLength(JSON.stringify(emptyFrame)),
+	);
 	await expect(native.storeAuth(exactPayload)).rejects.toThrow('frame exceeds');
 	controller.enqueue(
 		JSON.stringify({ type: 'native-result', requestId: '1', status: 'ok' }),

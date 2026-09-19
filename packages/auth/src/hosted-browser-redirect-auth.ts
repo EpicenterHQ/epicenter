@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 
 import { createAccountManagementUrl } from './account-management.js';
+import { epicenterCloud } from './auth-server.js';
 import { createBrowserRedirectAuth } from './browser-redirect-auth.js';
 
 export type CreateHostedBrowserRedirectAuthOptions = {
@@ -17,7 +18,7 @@ export function createHostedBrowserRedirectAuth(
 	return Object.assign(
 		createBrowserRedirectAuth({
 			...options,
-			authorityId: 'epicenter-api',
+			server: epicenterCloud(baseURL),
 			fetch(input, init) {
 				const target = new URL(input instanceof Request ? input.url : input);
 				const headers = new Headers(init?.headers);

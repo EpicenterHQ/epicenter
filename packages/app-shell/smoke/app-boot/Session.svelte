@@ -16,9 +16,11 @@
  }
  probe.events.push('session-mounted');
  onDestroy(() => { probe.events.push('session-destroyed'); });
- import { getConnectionScreen } from '../../src/boot-screens/connection-screen-context.js';
+ import { getConnectionScreen, getSignOut } from '../../src/boot-screens/connection-screen-context.js';
  const connect = getConnectionScreen();
+ const signOut = getSignOut();
+ const leave = connect ?? (() => { void signOut?.().catch(() => {}); });
  registerAppCleanup({ preflight, close });
  if (new URL(location.href).searchParams.has('duplicate')) registerAppCleanup({ close });
 </script>
-<button onclick={connect}>Choose connection</button>
+<button onclick={leave}>Leave session</button>

@@ -1,15 +1,15 @@
 /**
  * A real Svelte AppBoot cannot expose navigation while a UI producer or durable
  * commit is held. Covers account-backed and signed-out local sessions, then
- * verifies the actual browser credential selection reloads only after closure.
+ * verifies sign-out and fixed-server sign-in run only after closure.
  * Destroying unresolved opening must close the eventual App without mounting UI.
  * Run: bun packages/app-shell/smoke/app-boot.browser.mjs
  */
 import assert from 'node:assert/strict';
-import { observeBoot } from './observe-boot.mjs';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { observeBoot } from './observe-boot.mjs';
 
 // Give each engine its own browser and dev-server process. The parent also
 // bounds protocol calls such as browser.close, which can outlive page timeouts.
@@ -94,12 +94,12 @@ try {
 			if (opening === 'held') {
 				await page.getByText('Opening your changes…').waitFor();
 				assert.equal(
-					await page.getByRole('button', { name: 'Choose connection' }).count(),
+					await page.getByRole('button', { name: 'Leave session' }).count(),
 					0,
 				);
 				await page.evaluate(() => window.bootProbe.releaseOpening());
 				await page
-					.getByRole('button', { name: 'Choose connection' })
+					.getByRole('button', { name: 'Leave session' })
 					.waitFor()
 					.catch(async (error) => {
 						console.error(await page.locator('body').innerText(), errors);
@@ -108,7 +108,7 @@ try {
 			} else {
 				await page.getByRole('button', { name: 'Reload' }).waitFor();
 				assert.equal(
-					await page.getByRole('button', { name: 'Choose connection' }).count(),
+					await page.getByRole('button', { name: 'Leave session' }).count(),
 					0,
 				);
 				await Promise.all([
@@ -158,7 +158,7 @@ try {
 			const page = await browser.newPage();
 			page.setDefaultTimeout(10_000);
 			await page.goto(`${origin}?local`);
-			await page.getByRole('button', { name: 'Choose connection' }).waitFor();
+			await page.getByRole('button', { name: 'Leave session' }).waitFor();
 			await page.evaluate(() => {
 				window.bootProbe.refuse = true;
 				return window.destroyBoot();
@@ -201,9 +201,7 @@ try {
 				() => window.closeRefusal === 'Stop recording first.',
 			);
 			assert(
-				await page
-					.getByRole('button', { name: 'Choose connection' })
-					.isVisible(),
+				await page.getByRole('button', { name: 'Leave session' }).isVisible(),
 			);
 			assert.equal(
 				await page.evaluate(() =>
@@ -232,7 +230,7 @@ try {
 			const errors = [];
 			page.on('pageerror', (error) => errors.push(error.message));
 			await page.goto(origin);
-			await page.getByRole('button', { name: 'Choose connection' }).waitFor();
+			await page.getByRole('button', { name: 'Leave session' }).waitFor();
 			await page.evaluate(() => {
 				window.bootProbe.holdConfirmation = true;
 				window.observedBoot.lifetime
@@ -250,7 +248,7 @@ try {
 				if (forced === 'unmount') await window.destroyBoot();
 				else {
 					const { auth } = await import('/application.ts');
-					const result = await auth.auth.signOut();
+					const result = await auth.signOut();
 					if (result.error) throw result.error;
 				}
 			}, forced);
@@ -303,7 +301,7 @@ try {
 			page.on('pageerror', (error) => errors.push(error.message));
 			await page.goto(origin + (local ? '?local' : ''));
 			await page
-				.getByRole('button', { name: 'Choose connection' })
+				.getByRole('button', { name: 'Leave session' })
 				.waitFor()
 				.catch(async (error) => {
 					console.error(await page.locator('body').innerText(), errors);
@@ -312,25 +310,25 @@ try {
 			await page.evaluate(() => {
 				window.bootProbe.refuse = true;
 			});
-			await page.getByRole('button', { name: 'Choose connection' }).click();
+			await page.getByRole('button', { name: 'Leave session' }).click();
 			await page
 				.getByRole('alert')
 				.filter({ hasText: 'Stop recording first.' })
 				.waitFor();
 			assert.equal(
-				await page.getByRole('button', { name: 'Choose connection' }).count(),
+				await page.getByRole('button', { name: 'Leave session' }).count(),
 				1,
 			);
 			assert.equal(await page.getByLabel('Server URL').count(), 0);
 			await page.evaluate(() => {
 				window.bootProbe.refuse = false;
 			});
-			await page.getByRole('button', { name: 'Choose connection' }).click();
+			await page.getByRole('button', { name: 'Leave session' }).click();
 			await page.getByText('Closing your changes…').waitFor();
 			assert.equal(await page.getByLabel('Server URL').count(), 0);
 			assert.equal(
 				await page
-					.getByRole('button', { name: 'Sign in with Epicenter' })
+					.getByRole('button', { name: 'Sign in to your server' })
 					.count(),
 				0,
 			);
@@ -344,7 +342,7 @@ try {
 				false,
 			);
 			await page.evaluate(() => window.bootProbe.releaseCommit());
-			await page.getByText('Choose where to connect.').waitFor();
+			await page.getByText('Sign in to open your changes.').waitFor();
 			const events = await page.evaluate(() => window.bootProbe.events);
 			assert(events.includes('session-destroyed'));
 			assert(
@@ -352,10 +350,18 @@ try {
 			);
 			assert(events.indexOf('closed') > events.indexOf('producer-done'));
 			assert(events.indexOf('closed') > events.indexOf('commit-end'));
-			assert(!events.includes('candidate-verified'));
+			if (!local) {
+				assert(events.indexOf('signed-out') > events.indexOf('closed'));
+			}
+			assert.equal(
+				await page.evaluate(() =>
+					localStorage.getItem('probe.auth.persisted:https://old.example'),
+				),
+				null,
+			);
 			await page.getByRole('button', { name: 'Back to Probe' }).click();
 			await page
-				.getByRole('button', { name: 'Choose connection' })
+				.getByRole('button', { name: 'Leave session' })
 				.waitFor()
 				.catch(async (error) => {
 					console.error(await page.locator('body').innerText(), errors);
@@ -365,51 +371,34 @@ try {
 				window.bootProbe.releaseProducer();
 				window.bootProbe.releaseCommit();
 			});
-			await page.getByRole('button', { name: 'Choose connection' }).click();
-			await page.getByText('Choose where to connect.').waitFor();
-			if (local)
-				await page.getByText('Connect to your server', { exact: true }).click();
-			else
-				await page
-					.getByRole('button', { name: 'Change server', exact: true })
-					.click();
-			await page.getByLabel('Server URL').fill('https://next.example');
-			await page.evaluate(() => {
-				const original = Storage.prototype.setItem;
-				let fail = true;
-				Storage.prototype.setItem = function (key, value) {
-					if (
-						key === 'probe.auth.server' &&
-						JSON.parse(value).origin === 'https://next.example' &&
-						fail
-					) {
-						fail = false;
-						throw new Error('Disposable selection-write failure');
-					}
-					return original.call(this, key, value);
-				};
-			});
-			await page.getByRole('button', { name: 'Connect', exact: true }).click();
-			await page
-				.getByRole('alert')
-				.filter({ hasText: 'Could not connect.' })
-				.waitFor();
-			assert.equal(new URL(page.url()).search, '?connect');
-			await Promise.all([
-				page.waitForNavigation(),
-				page.getByRole('button', { name: 'Connect', exact: true }).click(),
-			]);
-			assert.equal(
-				await page.evaluate(
-					() => JSON.parse(localStorage.getItem('probe.auth.server')).origin,
-				),
-				'https://next.example',
+			await page.getByRole('button', { name: 'Leave session' }).click();
+			await page.getByText('Sign in to open your changes.').waitFor();
+			await page.route('https://old.example/sign-in**', (route) =>
+				route.fulfill({
+					contentType: 'text/html',
+					body: '<p>Configured issuer</p>',
+				}),
 			);
+			await Promise.all([
+				page.waitForURL('https://old.example/sign-in**'),
+				page
+					.getByRole('button', { name: 'Sign in to your server', exact: true })
+					.click(),
+			]);
+			const destination = new URL(page.url());
+			assert.equal(destination.origin, 'https://old.example');
+			assert.equal(
+				destination.searchParams.get('callback'),
+				new URL('/auth/callback', origin).href,
+			);
+			assert.equal(destination.searchParams.get('challenge').length, 43);
+			assert.equal(destination.searchParams.has('token'), false);
+			await page.getByText('Configured issuer', { exact: true }).waitFor();
 			assert.deepEqual(errors, []);
 			await page.close();
 		}
 		console.log(
-			'AppBoot: account and local sessions await producer shutdown and durable close before connection/reload.',
+			'AppBoot: account and local sessions await producer shutdown and durable close before sign-out and fixed-server sign-in.',
 		);
 	} finally {
 		await browser.close();

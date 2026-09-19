@@ -15,7 +15,6 @@
 		auth: AuthClient;
 		definition: TDefinition;
 		runtime?: AppRuntime;
-		canChangeServer?: boolean;
 		connectionHref: string;
 		homeHref?: string;
 		appName: string;
@@ -52,7 +51,7 @@
 		},
 	});
 	// svelte-ignore state_referenced_locally
-	if (!account || props.canChangeServer || !props.auth.startSignIn) {
+	if (!account) {
 		provideConnectionScreen(() => {
 			void lifetime.go(() => window.location.assign(props.connectionHref)).catch(() => {});
 		});

@@ -1,14 +1,20 @@
-import { createBrowserAuth } from '@epicenter/auth';
+import {
+	createBrowserRedirectAuth,
+	epicenterCloud,
+	selfHostedServer,
+} from '@epicenter/auth';
 import { APPS } from '@epicenter/constants/apps';
-import { APP_URLS } from '@epicenter/constants/vite';
+import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
 
-export const serverSelection = createBrowserAuth({
+export const auth = createBrowserRedirectAuth({
 	appId: APPS.WHISPERING.id,
-	baseURL: APP_URLS.API,
+	server: SELF_HOST_ORIGIN
+		? selfHostedServer(SELF_HOST_ORIGIN)
+		: epicenterCloud(APP_URLS.API),
 });
 
 if (import.meta.hot) {
-	import.meta.hot.dispose(() => serverSelection[Symbol.dispose]());
+	import.meta.hot.dispose(() => auth[Symbol.dispose]());
 
 	// `accept` is what makes the `dispose` run. Vite disposes only the module an
 	// update was ACCEPTED at, so a leaf with a disposer and no accept is never
@@ -18,5 +24,3 @@ if (import.meta.hot) {
 	// the update back up exactly as before, with this leaf released first.
 	import.meta.hot.accept(() => import.meta.hot?.invalidate());
 }
-
-export const auth = serverSelection.auth ?? undefined;

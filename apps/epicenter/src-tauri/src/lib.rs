@@ -100,7 +100,7 @@ const APP_WINDOW_PREFIX: &str = "app-";
 const PRODUCTION_PORT: u16 = 39_130;
 #[cfg(any(debug_assertions, test))]
 const DEVELOPMENT_PORT: u16 = 39_131;
-const PROTOCOL_VERSION: u8 = 3;
+const PROTOCOL_VERSION: u8 = 4;
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 const READY_TIMEOUT: Duration = Duration::from_secs(15);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
@@ -180,6 +180,7 @@ struct BootFrame<'a> {
     token: &'a str,
     port: u16,
     auth_cell: Option<&'a str>,
+    auth_server: AuthServer,
     #[serde(flatten)]
     paths: &'a app_data::DesktopPaths,
 }
@@ -699,7 +700,7 @@ fn app_window_label(id: &str) -> String {
 
 fn ensure_app_window(app: &DesktopAppHandle, id: &str, port: u16, token: &str) -> Result<()> {
     if app.state::<ApplicationClose>().blocks_launch() {
-        bail!("Finish or cancel server selection before opening an application.");
+        bail!("Finish or cancel sign-in before opening an application.");
     }
     let label = app_window_label(id);
     if let Some(window) = app.get_webview_window(&label) {
@@ -1383,16 +1384,12 @@ fn handle_native_frame(
             send_native_result(app, generation, &request_id, result)
         }
         BunToRustNativeFrame::OpenAuthUrl { request_id, url } => {
-            #[cfg(debug_assertions)]
-            let development_origin = std::env::var("EPICENTER_API_URL").ok();
-            #[cfg(not(debug_assertions))]
-            let development_origin: Option<String> = None;
-            let result =
-                validate_hosted_auth_url(&url, development_origin.as_deref()).and_then(|()| {
-                    app.opener()
-                        .open_url(url, None::<String>)
-                        .map_err(Into::into)
-                });
+            let result = configured_auth_server().and_then(|server| {
+                validate_auth_url(&url, &server)?;
+                app.opener()
+                    .open_url(url, None::<String>)
+                    .map_err(Into::into)
+            });
             send_native_result(app, generation, &request_id, result)
         }
         BunToRustNativeFrame::PutAppSecret {
@@ -1537,33 +1534,82 @@ fn send_native_frame(
     Ok(())
 }
 
-fn validate_hosted_auth_url(value: &str, development_origin: Option<&str>) -> Result<()> {
-    let url = tauri::Url::parse(value).context("parse the hosted authorization URL")?;
-    let origin = development_origin.unwrap_or(HOSTED_AUTH_ORIGIN);
-    if let Some(development) = development_origin {
-        let parsed = tauri::Url::parse(development)?;
-        if parsed.scheme() != "http"
-            || !matches!(parsed.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
-            || parsed.origin().ascii_serialization() != development
-        {
-            bail!("EPICENTER_API_URL must be an HTTP loopback origin in development");
-        }
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthServer {
+    base_url: String,
+    authority_id: String,
+    supports_shared: bool,
+    account_management: bool,
+}
+
+fn configured_auth_server() -> Result<AuthServer> {
+    #[cfg(debug_assertions)]
+    let development_origin = std::env::var("EPICENTER_API_URL").ok();
+    #[cfg(not(debug_assertions))]
+    let development_origin: Option<String> = None;
+    auth_server(
+        option_env!("EPICENTER_SERVER_ORIGIN"),
+        development_origin.as_deref(),
+    )
+}
+
+fn auth_server(self_hosted: Option<&str>, development: Option<&str>) -> Result<AuthServer> {
+    let origin = self_hosted.or(development).unwrap_or(HOSTED_AUTH_ORIGIN);
+    let url = tauri::Url::parse(origin).context("parse the configured authentication origin")?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        bail!("The configured authentication server must be an HTTP or HTTPS origin");
     }
-    if url.origin().ascii_serialization() != origin
+    if self_hosted.is_none()
+        && development.is_some()
+        && (url.scheme() != "http"
+            || !matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]")))
+    {
+        bail!("EPICENTER_API_URL must be an HTTP loopback origin in development");
+    }
+    let base_url = url.origin().ascii_serialization();
+    let authority_id = if self_hosted.is_some() {
+        let hex: String = base_url
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        format!("instance-{hex}")
+    } else {
+        "epicenter-api".to_owned()
+    };
+    Ok(AuthServer {
+        base_url,
+        authority_id,
+        supports_shared: self_hosted.is_some(),
+        account_management: self_hosted.is_none(),
+    })
+}
+
+fn validate_auth_url(value: &str, server: &AuthServer) -> Result<()> {
+    let url = tauri::Url::parse(value).context("parse the authorization URL")?;
+    if url.origin().ascii_serialization() != server.base_url
         || !url.username().is_empty()
         || url.password().is_some()
         || url.fragment().is_some()
         || url.path() != "/sign-in"
     {
-        bail!("authorization URL must be {origin}/sign-in");
+        bail!("authorization URL must be {}/sign-in", server.base_url);
     }
     Ok(())
 }
 
 /// Ordinary new-tab account links leave the desktop app's work in place.
 /// The host opens only the hosted account destinations in the system browser.
-fn is_hosted_account_url(url: &tauri::Url) -> bool {
-    url.origin().ascii_serialization() == HOSTED_AUTH_ORIGIN
+fn is_hosted_account_url(url: &tauri::Url, server: &AuthServer) -> bool {
+    server.account_management
+        && url.origin().ascii_serialization() == server.base_url
         && url.username().is_empty()
         && url.password().is_none()
         && url.fragment().is_none()
@@ -1574,7 +1620,7 @@ fn is_hosted_account_url(url: &tauri::Url) -> bool {
 }
 
 fn open_account_website(app: &DesktopAppHandle, url: &tauri::Url) -> NewWindowResponse<Wry> {
-    if is_hosted_account_url(url) {
+    if configured_auth_server().is_ok_and(|server| is_hosted_account_url(url, &server)) {
         if let Err(error) = app.opener().open_url(url.as_str(), None::<String>) {
             append_parent_log(app, &format!("could not open the account website: {error}"));
         }
@@ -1696,7 +1742,7 @@ fn ensure_window(
     reveal: bool,
 ) -> Result<()> {
     if built_in.is_launchable() && app.state::<ApplicationClose>().blocks_launch() {
-        bail!("Finish or cancel server selection before opening an application.");
+        bail!("Finish or cancel sign-in before opening an application.");
     }
     if let Some(window) = app.get_webview_window(built_in.id()) {
         if reveal {
@@ -1862,6 +1908,7 @@ fn boot_frame_json(
         token,
         port,
         auth_cell,
+        auth_server: configured_auth_server()?,
         paths,
     })
     .context("serialize the Bun boot frame")
@@ -1983,8 +2030,8 @@ mod tests {
 
     #[test]
     fn development_sign_in_opens_only_the_configured_local_issuer() {
-        let origin = Some("http://localhost:8787");
-        validate_hosted_auth_url("http://localhost:8787/sign-in?state=state", origin).unwrap();
+        let server = auth_server(None, Some("http://localhost:8787")).unwrap();
+        validate_auth_url("http://localhost:8787/sign-in?state=state", &server).unwrap();
         for url in [
             "https://api.epicenter.so/sign-in",
             "http://localhost:8788/sign-in",
@@ -1993,13 +2040,14 @@ mod tests {
             "http://user@localhost:8787/sign-in",
             "http://localhost:8787/sign-in#fragment",
         ] {
-            assert!(validate_hosted_auth_url(url, origin).is_err());
+            assert!(validate_auth_url(url, &server).is_err());
         }
-        assert!(validate_hosted_auth_url("http://localhost:8787/sign-in", None).is_err());
-        assert!(
-            validate_hosted_auth_url("https://evil.test/sign-in", Some("https://evil.test"))
-                .is_err()
-        );
+        assert!(validate_auth_url(
+            "http://localhost:8787/sign-in",
+            &auth_server(None, None).unwrap()
+        )
+        .is_err());
+        assert!(auth_server(None, Some("https://evil.test")).is_err());
     }
 
     #[test]
@@ -2008,9 +2056,50 @@ mod tests {
     }
 
     #[test]
-    fn parses_only_the_expected_v3_ready_frame() {
+    fn fixed_self_hosted_origin_owns_identity_and_browser_allowlist() {
+        let server = auth_server(
+            Some("https://SELF.example:443/"),
+            Some("http://localhost:8787"),
+        )
+        .unwrap();
+        assert_eq!(server.base_url, "https://self.example");
+        assert_eq!(
+            server.authority_id,
+            "instance-68747470733a2f2f73656c662e6578616d706c65"
+        );
+        assert!(server.supports_shared);
+        assert!(!server.account_management);
+        validate_auth_url("https://self.example/sign-in?state=pending", &server).unwrap();
+        for url in [
+            "https://api.epicenter.so/sign-in",
+            "https://self.example.evil.test/sign-in",
+            "https://self.example:444/sign-in",
+            "https://self.example/dashboard",
+            "https://user@self.example/sign-in",
+            "https://self.example/sign-in#fragment",
+        ] {
+            assert!(validate_auth_url(url, &server).is_err());
+        }
+        assert!(!is_hosted_account_url(
+            &"https://self.example/dashboard".parse().unwrap(),
+            &server
+        ));
+        for origin in [
+            "ftp://self.example",
+            "https://self.example/path",
+            "https://user@self.example",
+            "https://self.example?query",
+            "https://self.example#fragment",
+            "",
+        ] {
+            assert!(auth_server(Some(origin), None).is_err());
+        }
+    }
+
+    #[test]
+    fn parses_only_the_expected_v4_ready_frame() {
         read_ready_frame(
-            &mut Cursor::new(b"{\"type\":\"ready\",\"protocolVersion\":3,\"port\":39130}\n"),
+            &mut Cursor::new(b"{\"type\":\"ready\",\"protocolVersion\":4,\"port\":39130}\n"),
             PRODUCTION_PORT,
         )
         .unwrap();
@@ -2018,9 +2107,9 @@ mod tests {
         for invalid in [
             "preamble\n",
             "{\"type\":\"ready\",\"protocolVersion\":1,\"port\":39130}\n",
-            "{\"type\":\"ready\",\"protocolVersion\":3,\"port\":39131}\n",
-            "{\"type\":\"ready\",\"protocolVersion\":3,\"port\":39130,\"extra\":true}\n",
-            "{\"type\":\"ready\",\"protocolVersion\":3,\"port\":39130}",
+            "{\"type\":\"ready\",\"protocolVersion\":4,\"port\":39131}\n",
+            "{\"type\":\"ready\",\"protocolVersion\":4,\"port\":39130,\"extra\":true}\n",
+            "{\"type\":\"ready\",\"protocolVersion\":4,\"port\":39130}",
         ] {
             assert!(read_ready_frame(&mut Cursor::new(invalid), PRODUCTION_PORT).is_err());
         }
@@ -2755,7 +2844,10 @@ mod tests {
             "https://api.epicenter.so/dashboard/usage?expectedPrincipal=alice",
             "https://api.epicenter.so/dashboard/account",
         ] {
-            assert!(is_hosted_account_url(&allowed.parse().unwrap()));
+            assert!(is_hosted_account_url(
+                &allowed.parse().unwrap(),
+                &auth_server(None, None).unwrap()
+            ));
         }
         for denied in [
             "http://api.epicenter.so/dashboard",
@@ -2769,7 +2861,10 @@ mod tests {
             "https://api.epicenter.so/auth/sign-out",
             "file:///dashboard",
         ] {
-            assert!(!is_hosted_account_url(&denied.parse().unwrap()));
+            assert!(!is_hosted_account_url(
+                &denied.parse().unwrap(),
+                &auth_server(None, None).unwrap()
+            ));
         }
     }
 
@@ -2779,7 +2874,7 @@ mod tests {
             "https://api.epicenter.so/sign-in?callback=epicenter%3A%2F%2Fauth%2Fcallback&state=state&challenge=challenge",
             "https://api.epicenter.so/sign-in?reauth=1",
         ] {
-            validate_hosted_auth_url(allowed, None).unwrap();
+            validate_auth_url(allowed, &auth_server(None, None).unwrap()).unwrap();
         }
         for denied in [
             "http://api.epicenter.so/sign-in",
@@ -2791,7 +2886,7 @@ mod tests {
             "https://api.epicenter.so/sign-in#fragment",
             "https://api.epicenter.so:444/sign-in",
         ] {
-            assert!(validate_hosted_auth_url(denied, None).is_err());
+            assert!(validate_auth_url(denied, &auth_server(None, None).unwrap()).is_err());
         }
     }
 
@@ -2854,8 +2949,9 @@ mod tests {
         assert_eq!(
             frame,
             serde_json::json!({
-                "type": "boot", "protocolVersion": 3, "token": "safe_token",
+                "type": "boot", "protocolVersion": 4, "token": "safe_token",
                 "port": PRODUCTION_PORT, "authCell": "opaque",
+                "authServer": configured_auth_server().unwrap(),
                 "dataDir": paths.data_dir, "folderDir": paths.folder_dir,
             })
         );

@@ -8,8 +8,8 @@ passkeys, sessions, and recovery grants together. Cloud billing remains in
 
 Both runtime entries serve passkey sign-in and named sessions. The Worker
 serves Personal and Shared data synchronization; Bun still needs its sync
-backend. Desktop Settings and apps with server selection can choose this
-issuer. Honeycrisp fixes its issuer per build instead. Optional passwords
+backend. Applications fix their issuer per build. Rebuild and redeploy the app to
+change its server. Optional passwords
 remain unbuilt.
 Follow the [execution plan](../../specs/20260909T004225-library-ownership-execution.md)
 for remaining work and verification.
@@ -100,17 +100,19 @@ forwards commands to the same `SelfHostAuthOwner` that serves sign-in.
 
 ## Connect an application
 
-After Alice creates her passkey from the private link, she opens her app,
-chooses **Connect to your server**, and enters the issuer origin. The app opens
-the server's sign-in page and receives its own session through the callback.
-The existing browser sign-in can finish this handoff without another passkey
-prompt. Reauthentication asks for a fresh passkey proof.
+Build the browser application with `VITE_EPICENTER_SERVER` set to the issuer
+origin. Allow its exact `/auth/callback` URL in `SELF_HOST_CALLBACKS` and its
+origin in `TRUSTED_BROWSER_ORIGINS`.
 
-For a browser app, allow its exact `/auth/callback` URL in
-`SELF_HOST_CALLBACKS` and its origin in `TRUSTED_BROWSER_ORIGINS`. Desktop uses
-`epicenter://auth/callback`; select the server in Home Settings, restart, and
-choose **Sign in**. The desktop host keeps the credential and makes requests
-for application windows.
+For desktop, compile the native host with `EPICENTER_SERVER_ORIGIN` set to that
+origin and allow `epicenter://auth/callback`. The host uses the same configured
+origin for credentials, requests, and its native sign-in URL validation.
+
+After Alice creates her passkey from the private link, she opens the configured
+app and chooses **Sign in**. The server completes the handoff and the app
+receives its own session. An existing browser sign-in can finish this handoff
+without another passkey prompt. Reauthentication asks for a fresh passkey proof.
+The desktop host keeps the credential and makes requests for application windows.
 
 An enrollment link does not select an application or start its PKCE transaction.
 Alice returns to the app to start that handoff. Recovery gives her a new passkey

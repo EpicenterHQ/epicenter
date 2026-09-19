@@ -26,12 +26,13 @@ import {
 
 const bootstrap = {
 	state: { status: 'signed-in', principalId: asPrincipalId('alice') },
-	authorityId: 'test-server',
-	baseURL: 'https://api.epicenter.so',
-	startSignIn: true,
-	accountManagement: true,
-	recovery: false,
-	selectedServer: null,
+	server: {
+		authorityId: 'test-server',
+		baseURL: 'https://api.epicenter.so',
+		accountManagement: true,
+		supportsShared: false,
+	},
+	credentialUnreadable: false,
 } as const;
 
 function recordingFetch(
@@ -46,25 +47,24 @@ function recordingFetch(
 	return { calls, fetch };
 }
 
-test('recovery exposes a signed-out client without account access or sign-in', async () => {
+test('unreadable credentials leave sign-in available without opening an Account', async () => {
 	const { calls, fetch } = recordingFetch(() => new Response('unexpected'));
 	using auth = createDesktopBrokerAuth({
 		bootstrap: {
 			...bootstrap,
 			state: { status: 'signed-out' },
-			recovery: true,
-			startSignIn: false,
-			accountManagement: false,
+			credentialUnreadable: true,
 		},
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch,
 	});
 
 	expect(auth.getState()).toEqual({ status: 'signed-out' });
-	expect(auth.startSignIn).toBeUndefined();
-	expect(auth.accountManagementUrl).toBeUndefined();
+	expect(auth.startSignIn).toBeFunction();
 	expectErr(await auth.getProfile());
 	expect(calls).toHaveLength(0);
+	expect((await auth.startSignIn!()).error).toBeNull();
+	expect(calls).toHaveLength(1);
 });
 
 test('window fetch attaches no credential to any request', async () => {
@@ -288,16 +288,17 @@ test('a late HTTP completion cannot republish an account after sign-out', async 
 	expect(auth.getState()).toEqual({ status: 'signed-out' });
 });
 
-test('the instance broker exposes its destination and delegates token entry to Home', () => {
+test('a self-hosted broker exposes its configured destination and supports sign-in', () => {
 	const startup = createDesktopBrokerAuth({
 		bootstrap: {
 			state: { status: 'signed-in', principalId: asPrincipalId('instance') },
-			authorityId: 'test-server',
-			baseURL: 'https://epicenter.example.com',
-			startSignIn: false,
-			accountManagement: false,
-			recovery: false,
-			selectedServer: 'https://epicenter.example.com',
+			server: {
+				authorityId: 'test-server',
+				baseURL: 'https://epicenter.example.com',
+				accountManagement: false,
+				supportsShared: true,
+			},
+			credentialUnreadable: false,
 		},
 		brokerBaseURL: 'http://127.0.0.1:39130',
 		fetch: async () => new Response('ok'),
@@ -305,7 +306,7 @@ test('the instance broker exposes its destination and delegates token entry to H
 	const auth = startup!;
 
 	expect(auth.baseURL).toBe('https://epicenter.example.com');
-	expect(auth.startSignIn).toBeUndefined();
+	expect(auth.startSignIn).toBeFunction();
 });
 
 /**
@@ -365,12 +366,13 @@ test('a desktop window is not a callback client', () => {
 	const startup = createDesktopBrokerAuth({
 		bootstrap: {
 			state: { status: 'signed-out' },
-			authorityId: 'test-server',
-			baseURL: 'https://api.epicenter.test',
-			startSignIn: true,
-			accountManagement: true,
-			recovery: false,
-			selectedServer: null,
+			server: {
+				authorityId: 'test-server',
+				baseURL: 'https://api.epicenter.test',
+				accountManagement: true,
+				supportsShared: false,
+			},
+			credentialUnreadable: false,
 		},
 		brokerBaseURL: 'http://127.0.0.1:4242',
 		fetch: async () => new Response(null, { status: 204 }),

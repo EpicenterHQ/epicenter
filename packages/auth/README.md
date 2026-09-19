@@ -3,9 +3,9 @@
 Auth selects an account; every application session keeps the Account it opened with.
 
 ```ts
-const auth = createHostedBrowserRedirectAuth({
+const auth = createBrowserRedirectAuth({
  appId: 'so.epicenter.example',
- baseURL: 'https://api.epicenter.so',
+ server: epicenterCloud('https://api.epicenter.so'),
 });
 const state = auth.getState();
 if (state.status !== 'signed-out') {
@@ -17,7 +17,7 @@ if (state.status !== 'signed-out') {
 
 `Account` holds a fixed `principalId` and `baseURL`, authenticated `fetch`,
 `openWebSocket`, and `getProfile`. Its immutable `supportsShared` flag comes from
-the selected deployment: self-hosted accounts offer Shared regardless of the
+the configured deployment: self-hosted accounts offer Shared regardless of the
 person’s principal ID; Cloud accounts do not. This flag describes availability;
 the server still authorizes every request. Its object identity lasts through temporary
 disconnection and uninterrupted same-person reauthentication. Browser
@@ -50,7 +50,7 @@ completion. Neither implies Cloud identity or dashboard support. Cloud browser
 and desktop composition pass the existing `epicenter-api` authority and attach
 `createAccountManagementUrl` themselves. The session owner does not assign
 Cloud policy to another issuer. Self-hosted composition derives its authority
-from the selected server origin and exposes passkey sign-in without Cloud
+from the configured server origin and exposes passkey sign-in without Cloud
 management links.
 
 The cached principal permits local boot without a network call. Before the
@@ -67,12 +67,16 @@ There is no refresh-token exchange.
 
 ## Browser and dashboard
 
-`createBrowserAuth` reads the server selected for this document. Its selection
-object exposes `auth`, `connectInstance({ url })`, and `useCloud()`. A new server
-selection retires the current Account and takes effect in a fresh document.
-Application code closes its producers and App before invoking that change.
-Entering the configured Cloud origin as a custom server is refused so one
-server cannot acquire two local authority identities.
+Each build has one configured `AuthServer`. `epicenterCloud(baseURL)` supplies
+Cloud identity and management links; `selfHostedServer(origin)` supplies the
+origin-derived authority and Shared support. Applications construct one
+`createBrowserRedirectAuth({ appId, server })` client directly. No selection
+wrapper or nullable auth client sits between the app and its session.
+
+Browser app builds use `VITE_EPICENTER_SERVER` for a self-hosted origin. Without
+it, they use the configured Cloud URL. Changing the destination requires a new
+build and deployment. Saved credentials are keyed by origin; old server
+preferences cannot redirect a build or send a credential to another server.
 
 `createBrowserRedirectAuth` owns browser storage, callback validation, and
 navigation for both issuers. `createHostedBrowserRedirectAuth` adds Cloud's
@@ -80,7 +84,7 @@ identity, management links, and exact ceremony-cookie policy. The dashboard
 uses that Cloud composition with `/session/callback`; app callbacks default
 to `/auth/callback`.
 
-`startSignIn` opens the selected issuer’s sign-in page. The hosted page explicitly continues
+`startSignIn` opens the configured issuer’s sign-in page. The hosted page explicitly continues
 with its cookie session, or completes a social/passkey sign-in. The callback
 carries only a short-lived code and state. The client redeems it with its PKCE
 verifier for an independent session. Cancelled, superseded, and replayed
@@ -110,9 +114,16 @@ ambient cookies. This preserves browser ceremonies without cookie fallback.
 
 ## Desktop
 
+Rust selects the server once for the desktop build and sends its descriptor in
+the private boot message to Bun. Compile with `EPICENTER_SERVER_ORIGIN` for a
+self-hosted build; the default is Cloud. Rust validates native sign-in URLs
+against this same destination. Home Settings offers sign-in and sign-out,
+without a server address form. An unreadable or foreign-server saved credential
+starts signed out and can be replaced through explicit sign-in.
+
 Desktop WebViews use `createDesktopBrokerAuth`; they receive identity and
 loopback access, never the remote credential. Bun owns the same session runtime
-and completes the selected issuer’s handoff through the native deep link.
+and completes the configured issuer’s handoff through the native deep link.
 
 The host forwards HTTP and live sync through its captured boot Account.
 A first sign-in or different-person replacement is persisted for relaunch.
@@ -158,12 +169,7 @@ authenticator while a different principal owns the ambient browser cookie.
 ## Historical instance identity
 
 Earlier installations saved a static bearer under the `instance` principal.
-The startup readers keep those credentials and local addresses separate from
-named-user sessions. `createInstanceAuth` restores that historical attachment;
-it does not offer sign-in or borrow a named user’s credential. The current
-self-host entries no longer authorize the old static bearer.
-
-Connection screens accept a server URL and start issuer sign-in. There is no
-new static-token connection path. Selecting the issuer from an old installation
-ends the old attachment and opens sign-in in a new document or process. It does
-not assign historical library content to the newly signed-in person.
+Current apps do not restore those credentials or old server preferences. They
+leave historical local data untouched and do not assign it to a named person.
+Self-hosted builds use the existing origin-derived authority bytes, so an
+existing named user's local data keeps its address.

@@ -4,7 +4,6 @@ import { createLogger, type Logger } from 'wellcrafted/logger';
 import { type Result, tryAsync } from 'wellcrafted/result';
 import type {
 	Account,
-	AuthClient,
 	AuthFetch,
 	AuthState,
 	CallbackAuthClient,
@@ -16,7 +15,6 @@ import {
 	OpenWebSocketDenied,
 } from './auth-errors.js';
 import type { PersistedAuth } from './auth-types.js';
-import { normalizeInstanceServer } from './instance-server.js';
 import type { PersistedAuthStorage } from './persisted-auth-storage.js';
 import { getProfileVia, readApiSession } from './read-api-session.js';
 import { resolveTargetUrl } from './resolve-target-url.js';
@@ -143,70 +141,12 @@ export function createSessionAuth(
 	});
 }
 
-/** Connect to one selected instance using its existing operator token.
- * First enrollment verifies /api/session. Disconnect only forgets the local
- * credential; it cannot revoke a shared operator token.
- */
-export function createInstanceAuth(options: AccountAuthOptions) {
-	const { auth, run, install } = createBearerAuth(
-		{
-			...options,
-			...normalizeInstanceServer(options.baseURL),
-			expectedPrincipalId: 'instance',
-			supportsShared: true,
-		},
-		async () => {},
-	);
-	return Object.assign(auth, {
-		signIn(token: string) {
-			return run('start', (signal) => install(token, signal));
-		},
-	}) satisfies AuthClient;
-}
-
-export type InstanceAuth = ReturnType<typeof createInstanceAuth>;
-
-/** Verify an existing instance token without opening an Account or saving it.
- * The selection owner keeps this signal active through persistence and restart.
- * Cancellation settles even when the transport or response body ignores abort.
- */
-export function verifyInstanceToken({
-	baseURL,
-	token,
-	signal,
-	fetch = globalThis.fetch.bind(globalThis),
-}: {
-	baseURL: string;
-	token: string;
-	signal: AbortSignal;
-	fetch?: AuthFetch;
-}) {
-	return tryAsync({
-		try: async () => {
-			signal.throwIfAborted();
-			const result = await whileActive(
-				readApiSession({ baseURL, token, fetch, signal }),
-				signal,
-			);
-			signal.throwIfAborted();
-			if (result.error) throw result.error;
-			if (result.data.principalId !== 'instance')
-				throw new Error(
-					'Instance authentication must resolve the instance principal.',
-				);
-			return { token, principalId: result.data.principalId };
-		},
-		catch: (cause) => AuthError.StartSignInFailed({ cause }),
-	});
-}
-
 function createBearerAuth(
 	{
 		authorityId,
 		baseURL,
 		persistedAuthStorage,
 		cancel,
-		expectedPrincipalId,
 		supportsShared = false,
 		fetch: fetchImpl = globalThis.fetch.bind(globalThis),
 		WebSocket: WebSocketImpl = globalThis.WebSocket,
@@ -214,7 +154,6 @@ function createBearerAuth(
 	}: AccountAuthOptions & {
 		authorityId: string;
 		cancel?: () => void;
-		expectedPrincipalId?: 'instance';
 	},
 	revoke: (token: string) => Promise<void>,
 ) {
@@ -446,10 +385,6 @@ function createBearerAuth(
 				token,
 				principalId: result.data.principalId,
 			};
-			if (expectedPrincipalId && next.principalId !== expectedPrincipalId)
-				throw new Error(
-					'Instance authentication must resolve the instance principal.',
-				);
 			await enqueue(async () => {
 				signal.throwIfAborted();
 				if (attachment && attachment.account.principalId !== next.principalId) {
@@ -523,10 +458,7 @@ function createBearerAuth(
 		return promise;
 	}
 
-	if (
-		persisted &&
-		(!expectedPrincipalId || persisted.principalId === expectedPrincipalId)
-	) {
+	if (persisted) {
 		attachment = createAttachment(persisted, false);
 		publish();
 	}

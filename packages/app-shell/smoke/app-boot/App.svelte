@@ -6,9 +6,9 @@
  const connecting = new URL(location.href).searchParams.has('connect');
 </script>
 {#if connecting}
- <SignInScreen auth={auth.auth ?? undefined} selection={auth} appName="Probe" noun="changes" onCancel={() => location.replace('/')} />
+ <SignInScreen {auth} appName="Probe" noun="changes" onCancel={() => location.replace('/')} />
 {:else}
- <AppBoot auth={auth.auth!} canChangeServer connectionHref="/?connect" {definition} {runtime}
+ <AppBoot {auth} connectionHref="/?connect" homeHref="/?connect" {definition} {runtime}
    appName="Probe" noun="changes">
   {#snippet children(app)}<Session {app} />{/snippet}
  </AppBoot>

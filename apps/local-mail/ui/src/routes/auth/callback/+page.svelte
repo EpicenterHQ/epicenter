@@ -9,7 +9,7 @@
 
 	$effect(() => {
 		void (async () => {
-						if (!auth || !isCallbackAuthClient(auth)) {
+			if (!isCallbackAuthClient(auth)) {
 				// The desktop build signs in through the host, which relaunches the
 				// process, so no browser callback lands here.
 				errorMessage =

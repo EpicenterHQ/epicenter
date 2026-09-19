@@ -19,7 +19,7 @@
 
 	$effect(() => {
 		void (async () => {
-						if (!auth || !isCallbackAuthClient(auth)) {
+			if (!isCallbackAuthClient(auth)) {
 				// The desktop build. Its sign-in goes through the host, which
 				// relaunches the process with the new identity, so no browser
 				// callback ever lands here and this sentence is unreachable in

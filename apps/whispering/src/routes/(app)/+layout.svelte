@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { AppBoot, SignInScreen } from '@epicenter/app-shell/boot-screens';
 	import type { Leave } from '@epicenter/app-shell/boot-screens';
-	import { auth, serverSelection } from '#platform/auth';
+	import { auth } from '#platform/auth';
 	import { whisperingDefinition } from '$lib/data.js';
 	import WhisperingShell from './_components/WhisperingShell.svelte';
 	import LibrarySelection from '$lib/components/LibrarySelection.svelte';
 
 	let { children: routeChildren } = $props();
-	const connecting = !auth || new URLSearchParams(location.search).has('connect');
+	const connecting = new URLSearchParams(location.search).has('connect');
 	const library = (() => {
-		if (!auth?.getState().account) return 'local';
+		if (!auth.getState().account) return 'local';
 		const saved = localStorage.getItem('whispering.library');
 		if (saved === null) return 'personal';
 		if (saved === 'local' || saved === 'personal' || saved === 'shared') return saved;
@@ -19,7 +19,7 @@
 		if (next === library) return Promise.resolve();
 		const navigate = () => {
 			localStorage.setItem('whispering.library', next);
-			location.assign(location.pathname + (!auth?.getState().account && next !== 'local' ? '?connect' : ''));
+			location.assign(location.pathname + (!auth.getState().account && next !== 'local' ? '?connect' : ''));
 		};
 		if (leave) return leave(navigate);
 		navigate();
@@ -28,15 +28,15 @@
 </script>
 
 {#snippet libraryMenu(leave?: Leave)}
-	<LibrarySelection {library} canOpenShared={auth?.getState().account?.supportsShared ?? false} select={(next) => selectLibrary(next, leave)} />
+	<LibrarySelection {library} canOpenShared={auth.getState().account?.supportsShared ?? false} select={(next) => selectLibrary(next, leave)} />
 {/snippet}
 
-{#if !auth || connecting}
+{#if connecting}
 	<div class="p-3">{@render libraryMenu()}</div>
-	<SignInScreen {auth} selection={serverSelection} appName="Whispering" noun="recordings"
+	<SignInScreen {auth} appName="Whispering" noun="recordings"
 		onCancel={() => location.replace(location.pathname)} />
 {:else}
-	<AppBoot {auth} definition={whisperingDefinition} canChangeServer={serverSelection !== undefined}
+	<AppBoot {auth} definition={whisperingDefinition}
 		appName="Whispering" noun="recordings" connectionHref={location.pathname + '?connect'}>
 		{#snippet openingFailure()}
 			<div class="p-3">{@render libraryMenu()}</div>

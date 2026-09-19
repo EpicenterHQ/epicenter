@@ -1,10 +1,16 @@
-import { createHostedBrowserRedirectAuth } from '@epicenter/auth';
+import {
+	createBrowserRedirectAuth,
+	epicenterCloud,
+	selfHostedServer,
+} from '@epicenter/auth';
 import { APPS } from '@epicenter/constants/apps';
-import { APP_URLS } from '@epicenter/constants/vite';
+import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
 
-export const auth = createHostedBrowserRedirectAuth({
+export const auth = createBrowserRedirectAuth({
 	appId: APPS.HONEYCRISP.id,
-	baseURL: APP_URLS.API,
+	server: SELF_HOST_ORIGIN
+		? selfHostedServer(SELF_HOST_ORIGIN)
+		: epicenterCloud(APP_URLS.API),
 });
 
 if (import.meta.hot) {

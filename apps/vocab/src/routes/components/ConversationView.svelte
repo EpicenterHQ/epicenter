@@ -14,12 +14,11 @@
 		buildEntryCandidatePrompt,
 		parseEntryCandidates,
 	} from '$lib/entry-candidates';
-	import { getAuth } from '$lib/auth.svelte.js';
+	import { auth } from '$lib/auth.svelte.js';
 	import { getVocabSurface } from '$lib/surface';
 	import DictationButton from './DictationButton.svelte';
 	import ReadingMarkdown from './ReadingMarkdown.svelte';
 
-	const auth = getAuth();
 	const accountManagementUrl = auth.accountManagementUrl;
 	const { entries } = getVocabSurface();
 	const openConnection = getConnectionScreen();

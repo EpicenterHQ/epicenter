@@ -62,6 +62,7 @@ async function main(): Promise<void> {
 		const nativePort = createNativePort({ parentPipe });
 		const auth = createDesktopAuthAuthority({
 			authCell: boot.authCell,
+			server: boot.authServer,
 			nativeAuthPort: nativePort,
 			callbackUrl:
 				runtimeMode === 'development'

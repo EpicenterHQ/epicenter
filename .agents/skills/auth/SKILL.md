@@ -9,8 +9,7 @@ metadata:
 # Epicenter auth
 
 Better Auth owns hosted sessions and social-provider login. Epicenter clients
-hold signed session bearers behind stable Accounts. Self-hosted instances keep
-their independent static-token resolver.
+hold signed session bearers behind stable Accounts. Self-hosted instances issue named-user sessions after passkey sign-in.
 
 Read `packages/auth/README.md` and `packages/auth/src/auth-contract.ts`
 before changing client API shape. The README owns the explanation; the contract
@@ -36,7 +35,10 @@ credential from a database failure; a transient fault must not retire good ident
 
 ## Client composition
 
-Browser apps and the dashboard use `createHostedBrowserRedirectAuth`.
+Browser apps use `createBrowserRedirectAuth({ appId, server })` with one
+build-configured `AuthServer`; the dashboard uses `createHostedBrowserRedirectAuth`.
+Never restore a server destination from saved preferences. Credentials must
+match the configured origin before publishing identity or making requests.
 The framework-independent `createSessionAuth` composes a launcher and
 persisted storage. It owns credential verification, ordered persistence,
 cancellation, and Account retirement in one runtime.
@@ -45,12 +47,9 @@ Desktop WebViews use `createDesktopBrokerAuth`. Bun holds the remote session
 and captures its boot Account. A failed relaunch must not give old windows the
 replacement Account. The host owns no application store or sync engine.
 
-The Svelte adapter `fromAuth` makes state and connection reads track through
+The Svelte adapter `fromAuth` makes state reads track through
 `createSubscriber`. Keep issuer, storage, and launcher conventions outside it.
 Retain the callback-capable concrete type where a callback route needs it.
-
-`createInstanceCredentialAuthority` is a lower-level static-token authority.
-It is not a hosted-session mode or an application auth client.
 
 ## Account lifetime
 
@@ -198,7 +197,7 @@ Callbacks and sign-in routes acquire no primary App.
 
 Honeycrisp and Whispering support signed-out local startup. Vocab requires an
 Account. Honeycrisp's Local and Personal routes display the nested handles on
-one App. Deliberate account/server changes drain producers and close the App
+one App. Deliberate account changes drain producers and close the App
 before auth mutation and full document navigation. AppBoot owns generic UI
 shutdown; shells provide their actual idempotent drain. Failed cleanup prevents
 mutation/navigation. Only preflight refusal allows retry before teardown.

@@ -59,10 +59,8 @@ import {
 import { PLACEHOLDER_PAGES } from './placeholder-pages.ts';
 import {
 	ACCOUNT_CANCEL_CONNECTION_ROUTE,
-	ACCOUNT_CONNECT_ROUTE,
 	ACCOUNT_SIGN_IN_ROUTE,
 	ACCOUNT_SIGN_OUT_ROUTE,
-	ACCOUNT_USE_CLOUD_ROUTE,
 	APPLICATIONS_ROUTE,
 	BOOTSTRAP_ROUTE,
 	BUILT_IN_ROUTES,
@@ -409,25 +407,6 @@ export function createHomeServer({
 		const result = await desktopAuth.cancelConnection();
 		if (result.error) return c.text('Could not resume applications.', 500);
 		return c.body(null, 204);
-	});
-	app.post(ACCOUNT_CONNECT_ROUTE.pattern, async (c) => {
-		const body: unknown = await c.req.json().catch(() => null);
-		if (
-			typeof body !== 'object' ||
-			body === null ||
-			!('server' in body) ||
-			typeof body.server !== 'string'
-		)
-			return c.text('Enter a server URL.', 400);
-		const result = await desktopAuth.connectInstance(body.server);
-		if (result.error)
-			return c.text('Could not select this server. Check the server URL.', 502);
-		return c.body(null, 202);
-	});
-	app.post(ACCOUNT_USE_CLOUD_ROUTE.pattern, async (c) => {
-		const result = await desktopAuth.useCloud();
-		if (result.error) return c.text('Could not change servers.', 500);
-		return c.body(null, 202);
 	});
 	app.post(ACCOUNT_SIGN_IN_ROUTE.pattern, async (c) => {
 		const body: unknown = await c.req.json().catch(() => null);

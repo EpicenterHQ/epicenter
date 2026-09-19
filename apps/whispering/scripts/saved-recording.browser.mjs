@@ -121,7 +121,11 @@ function start(args, cwd = root) {
 	const child = spawn('bun', args, {
 		cwd,
 		detached: true,
-		env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },
+		env: {
+			...process.env,
+			WRANGLER_SEND_METRICS: 'false',
+			VITE_EPICENTER_SERVER: workerOrigin,
+		},
 		stdio: ['ignore', 'pipe', 'pipe'],
 	});
 	children.push(child);
@@ -627,11 +631,6 @@ try {
 	await alice.click('#continue');
 	await alice.getByRole('heading', { name: 'You are signed in' }).waitFor();
 	await alice.goto(`${appOrigin}/?connect`);
-	await alice.getByText('Connect to your server', { exact: true }).click();
-	await alice
-		.getByPlaceholder('https://your-server.example')
-		.fill(workerOrigin);
-	await alice.getByRole('button', { name: 'Connect', exact: true }).click();
 	await alice
 		.getByRole('button', { name: 'Sign in to your server', exact: true })
 		.click();

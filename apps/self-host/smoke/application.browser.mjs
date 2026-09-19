@@ -19,12 +19,6 @@ const workerMode = process.argv.slice(2).includes('--worker');
 const root = join(import.meta.dir, '../../..');
 const directory = mkdtempSync(join(tmpdir(), 'self-host-application-'));
 const path = join(directory, 'auth.sqlite');
-const bundle = await Bun.build({
-	entrypoints: [join(import.meta.dir, 'application-page.ts')],
-	target: 'browser',
-});
-assert(bundle.success, bundle.logs.map(String).join('\n'));
-const script = await bundle.outputs[0].text();
 const reservation = Bun.serve({
 	hostname: 'localhost',
 	port: 0,
@@ -32,6 +26,13 @@ const reservation = Bun.serve({
 });
 const origin = reservation.url.origin;
 await reservation.stop(true);
+const bundle = await Bun.build({
+	entrypoints: [join(import.meta.dir, 'application-page.ts')],
+	target: 'browser',
+	define: { 'import.meta.env.VITE_EPICENTER_SERVER': JSON.stringify(origin) },
+});
+assert(bundle.success, bundle.logs.map(String).join('\n'));
+const script = await bundle.outputs[0].text();
 const app = Bun.serve({
 	hostname: 'localhost',
 	port: 0,
@@ -41,7 +42,7 @@ const app = Bun.serve({
 				headers: { 'content-type': 'text/javascript' },
 			});
 		return new Response(
-			`<!doctype html><meta charset="utf-8"><body data-issuer="${origin}"><button id="connect">Connect</button><button id="sign-in">Sign in</button><button id="check">Check</button><output></output><script type="module" src="/fixture.js"></script>`,
+			`<!doctype html><meta charset="utf-8"><body><button id="sign-in">Sign in</button><button id="check">Check</button><output></output><script type="module" src="/fixture.js"></script>`,
 			{ headers: { 'content-type': 'text/html' } },
 		);
 	},
@@ -201,7 +202,9 @@ try {
 	);
 	assert(!page.url().includes(grantToken));
 	await page.goto(app.url.origin);
-	await page.click('#connect');
+	await page.click('#sign-in');
+	await page.waitForURL(`${origin}/sign-in?**`);
+	await page.click('#continue');
 	await page.waitForURL(`${app.url.origin}/`);
 	await page.waitForFunction(
 		() => document.querySelector('output')?.textContent === 'alice',

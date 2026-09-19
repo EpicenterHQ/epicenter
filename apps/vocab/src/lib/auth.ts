@@ -1,15 +1,20 @@
-import { createBrowserAuth } from '@epicenter/auth';
+import {
+	createBrowserRedirectAuth,
+	epicenterCloud,
+	selfHostedServer,
+} from '@epicenter/auth';
 import { APPS } from '@epicenter/constants/apps';
-import { APP_URLS } from '@epicenter/constants/vite';
+import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
 
-export const authStartup = createBrowserAuth({
+export const auth = createBrowserRedirectAuth({
 	appId: APPS.VOCAB.id,
-	baseURL: APP_URLS.API,
+	server: SELF_HOST_ORIGIN
+		? selfHostedServer(SELF_HOST_ORIGIN)
+		: epicenterCloud(APP_URLS.API),
 });
 
-
 if (import.meta.hot) {
-	import.meta.hot.dispose(() => authStartup[Symbol.dispose]());
+	import.meta.hot.dispose(() => auth[Symbol.dispose]());
 
 	// `accept` is what makes the `dispose` run. Vite disposes only the module an
 	// update was ACCEPTED at, so a leaf with a disposer and no accept is never

@@ -1,4 +1,4 @@
-/** Select an instance origin before constructing its credential and data lifetimes. */
+/** Validate a configured instance origin before constructing its credential and data lifetimes. */
 export function normalizeInstanceServer(input: string) {
 	const url = new URL(input.trim());
 	if (
@@ -10,7 +10,7 @@ export function normalizeInstanceServer(input: string) {
 		url.hash
 	) {
 		throw new TypeError(
-			'Enter a server origin, without a path, credentials, query, or fragment.',
+			'Expected a server origin, without a path, credentials, query, or fragment.',
 		);
 	}
 	const baseURL = url.origin;

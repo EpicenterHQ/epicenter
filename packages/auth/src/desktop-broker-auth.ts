@@ -1,15 +1,16 @@
 import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { isOpenWebSocketDenial } from '@epicenter/sync/transport';
 import { Ok } from 'wellcrafted/result';
+import { createAccountManagementUrl } from './account-management.js';
 import type {
 	Account,
 	AuthClient,
 	AuthFetch,
 	AuthState,
 } from './auth-contract.js';
-import { createAccountManagementUrl } from './account-management.js';
 import { AuthError, OpenWebSocketDenied } from './auth-errors.js';
 import type { AuthIdentityState } from './auth-identity-state.js';
+import type { AuthServer } from './auth-server.js';
 import { getProfileVia } from './read-api-session.js';
 import { resolveTargetUrl } from './resolve-target-url.js';
 
@@ -20,12 +21,8 @@ import { resolveTargetUrl } from './resolve-target-url.js';
  */
 export type DesktopAuthBootstrap = {
 	state: AuthIdentityState;
-	authorityId: string;
-	baseURL: string;
-	selectedServer: string | null;
-	recovery: boolean;
-	startSignIn: boolean;
-	accountManagement: boolean;
+	server: AuthServer;
+	credentialUnreadable: boolean;
 };
 
 /** Where the Bun authority stamps the boot snapshot into a served document. */
@@ -101,7 +98,7 @@ export function createDesktopBrokerAuth({
 	fetch?: AuthFetch;
 	WebSocket?: typeof WebSocket;
 }): AuthClient {
-	const baseURL = bootstrap.baseURL;
+	const baseURL = bootstrap.server.baseURL;
 	const origin = new URL(baseURL).origin;
 	const broker = createDesktopBroker({ brokerBaseURL, fetch: fetchImpl });
 	const lifetime = new AbortController();
@@ -169,8 +166,8 @@ export function createDesktopBrokerAuth({
 		bootstrap.state.status === 'signed-out'
 			? null
 			: Object.freeze({
-					authorityId: bootstrap.authorityId,
-					supportsShared: bootstrap.selectedServer !== null,
+					authorityId: bootstrap.server.authorityId,
+					supportsShared: bootstrap.server.supportsShared,
 					principalId: bootstrap.state.principalId,
 					baseURL,
 					fetch: accountFetch,
@@ -268,18 +265,14 @@ export function createDesktopBrokerAuth({
 				listeners.delete(fn);
 			};
 		},
-		...(bootstrap.startSignIn
-			? {
-					async startSignIn(options?: { reauthenticate?: boolean }) {
-						try {
-							await broker('/_epicenter/account/sign-in', options ?? {});
-							return Ok(undefined);
-						} catch (cause) {
-							return AuthError.StartSignInFailed({ cause });
-						}
-					},
-				}
-			: {}),
+		async startSignIn(options) {
+			try {
+				await broker('/_epicenter/account/sign-in', options ?? {});
+				return Ok(undefined);
+			} catch (cause) {
+				return AuthError.StartSignInFailed({ cause });
+			}
+		},
 		async signOut() {
 			try {
 				await broker('/_epicenter/account/sign-out', {});
@@ -295,7 +288,7 @@ export function createDesktopBrokerAuth({
 				Promise.resolve(AuthError.ProfileUnavailable({ cause: 'Signed out.' }))
 			);
 		},
-		...(bootstrap.accountManagement
+		...(bootstrap.server.accountManagement
 			? { accountManagementUrl: createAccountManagementUrl }
 			: {}),
 		[Symbol.dispose]() {
