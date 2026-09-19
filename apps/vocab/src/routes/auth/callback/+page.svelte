@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { isCallbackAuthClient } from '@epicenter/auth';
 	import { Loading } from '@epicenter/ui/loading';
 	import { auth } from '$lib/auth';
@@ -24,7 +25,7 @@
 			// above this route navigates for it: the reload gate that used to is
 			// deleted (ADR-0350), and the boot node at `/` reads auth reactively,
 			// which is a thing this document cannot become by staying alive.
-			window.location.replace('/');
+			window.location.replace(resolve('/'));
 		})();
 	});
 </script>

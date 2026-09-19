@@ -15,8 +15,10 @@
 		auth: AuthClient;
 		definition: TDefinition;
 		runtime?: AppRuntime;
-		connectionHref: string;
-		homeHref?: string;
+		/** App-resolved sign-in screen destination, visited after closure. */
+		signInHref: string;
+		/** App-resolved destination after closure and successful sign-out. */
+		signedOutHref: string;
 		appName: string;
 		noun: string;
 		openingFailure?: Snippet;
@@ -57,13 +59,13 @@
 	// svelte-ignore state_referenced_locally
 	if (!account || isCallbackAuthClient(props.auth)) {
 		provideConnectionScreen(() => {
-			void lifetime.go(() => window.location.assign(props.connectionHref)).catch(() => {});
+			void lifetime.go(() => window.location.assign(props.signInHref)).catch(() => {});
 		});
 	}
 	provideSignOut(() => lifetime.go(async () => {
 		const result = await props.auth.signOut();
 		if (result.error) throw result.error;
-		window.location.replace(props.homeHref ?? '/');
+		window.location.replace(props.signedOutHref);
 	}));
 
 	onDestroy(() => {

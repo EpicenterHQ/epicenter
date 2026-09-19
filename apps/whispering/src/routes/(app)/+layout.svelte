@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { AppBoot, SignInScreen } from '@epicenter/app-shell/boot-screens';
 	import type { Leave } from '@epicenter/app-shell/boot-screens';
 	import { auth } from '#platform/auth';
@@ -37,7 +38,10 @@
 		onCancel={() => location.replace(location.pathname)} />
 {:else}
 	<AppBoot {auth} definition={whisperingDefinition}
-		appName="Whispering" noun="recordings" connectionHref={location.pathname + '?connect'}>
+		appName="Whispering" noun="recordings"
+		signInHref={location.pathname + '?connect'}
+		signedOutHref={resolve('/')}
+	>
 		{#snippet openingFailure()}
 			<div class="p-3">{@render libraryMenu()}</div>
 		{/snippet}

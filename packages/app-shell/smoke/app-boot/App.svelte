@@ -8,7 +8,7 @@
 {#if connecting}
  <SignInScreen {auth} appName="Probe" noun="changes" onCancel={() => location.replace('/')} />
 {:else}
- <AppBoot {auth} connectionHref="/?connect" homeHref="/?connect" {definition} {runtime}
+ <AppBoot {auth} signInHref="/apps/probe/sign-in?connect" signedOutHref="/apps/probe/signed-out?connect" {definition} {runtime}
    appName="Probe" noun="changes">
   {#snippet children(app)}<Session {app} />{/snippet}
  </AppBoot>

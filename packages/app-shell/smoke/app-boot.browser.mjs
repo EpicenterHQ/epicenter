@@ -336,6 +336,7 @@ try {
 			await page.evaluate(() => window.bootProbe.releaseCommit());
 			await page.getByText('Sign in to open your changes.').waitFor();
 			assert.equal(new URL(page.url()).search, '?connect');
+			assert.equal(new URL(page.url()).pathname, '/apps/probe/sign-in');
 			const events = await page.evaluate(() => window.bootProbe.events);
 			assert(events.indexOf('closed') > events.indexOf('producer-done'));
 			assert(events.indexOf('closed') > events.indexOf('commit-end'));
@@ -395,6 +396,10 @@ try {
 			await page.evaluate(() => window.bootProbe.releaseCommit());
 			await page.getByText('Sign in to open your changes.').waitFor();
 			const events = await page.evaluate(() => window.bootProbe.events);
+			assert.equal(
+				new URL(page.url()).pathname,
+				local ? '/apps/probe/sign-in' : '/apps/probe/signed-out',
+			);
 			assert(events.includes('session-destroyed'));
 			assert(
 				events.indexOf('producer-done') > events.indexOf('session-destroyed'),

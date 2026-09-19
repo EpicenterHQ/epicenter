@@ -12,8 +12,8 @@
 <AppBoot
 	{auth}
 	definition={honeycrispDefinition}
-	connectionHref={resolve('/connect')}
-	homeHref={resolve('/')}
+	signInHref={resolve('/connect')}
+	signedOutHref={resolve('/')}
 	appName="Honeycrisp"
 	noun="notes"
 >
