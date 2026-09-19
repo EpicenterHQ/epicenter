@@ -4,7 +4,7 @@
  * import. Departure refuses new files before they acquire storage or inference.
  */
 import { expect, mock, test } from 'bun:test';
-import { createDeparture } from '@epicenter/app-shell/departure';
+import { createPageLifetime } from '../../../../../packages/app-shell/src/boot-screens/page-lifetime.test-support.js';
 import { generateBlobId } from '@epicenter/blobs';
 import { Ok } from 'wellcrafted/result';
 import type { WhisperingApp } from '../whispering/app.js';
@@ -125,8 +125,8 @@ test('retirement during import publication drains quietly and releases the libra
 		},
 		recordings: { create },
 	} as unknown as WhisperingApp;
-	const departure = createDeparture({
-		quiesce: async () => {
+	const departure = createPageLifetime({
+		stopUi: async () => {
 			quiescing.resolve();
 			await drainRecordingWork();
 		},
@@ -144,7 +144,7 @@ test('retirement during import publication drains quietly and releases the libra
 	release.resolve();
 	await importing;
 	await departure.close();
-	expect(departure.getState().phase).toBe('retired');
+	expect(departure.state.phase).toBe('retired');
 	expect(close).toHaveBeenCalledTimes(1);
 	expect(create).not.toHaveBeenCalled();
 	expect(processed).toHaveLength(before);

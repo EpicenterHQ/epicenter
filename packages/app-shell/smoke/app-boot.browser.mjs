@@ -192,7 +192,7 @@ try {
 			await page.getByText('Opening your changes…').waitFor();
 			await page.evaluate(() => {
 				window.bootProbe.refuse = true;
-				window.observedBoot.departure.close().catch((error) => {
+				window.observedBoot.lifetime.close().catch((error) => {
 					window.closeRefusal = error.message;
 				});
 				window.bootProbe.releaseOpening();
@@ -215,7 +215,7 @@ try {
 				window.bootProbe.refuse = false;
 				window.bootProbe.releaseProducer();
 				window.bootProbe.releaseCommit();
-				await window.observedBoot.departure.close();
+				await window.observedBoot.lifetime.close();
 			});
 			assert(
 				await page.evaluate(() => window.bootProbe.events.includes('closed')),
@@ -223,6 +223,75 @@ try {
 			await page.close();
 			console.log(
 				`AppBoot ${engine.name()}: close during opening awaits mounted preflight.`,
+			);
+		}
+
+		for (const forced of ['account', 'unmount']) {
+			const page = await browser.newPage();
+			page.setDefaultTimeout(10_000);
+			const errors = [];
+			page.on('pageerror', (error) => errors.push(error.message));
+			await page.goto(origin);
+			await page.getByRole('button', { name: 'Choose connection' }).waitFor();
+			await page.evaluate(() => {
+				window.bootProbe.holdConfirmation = true;
+				window.observedBoot.lifetime
+					.go(() => {
+						window.bootProbe.events.push('auth-action');
+					})
+					.catch(() => {
+						window.bootProbe.events.push('action-refused');
+					});
+			});
+			await page.waitForFunction(() =>
+				window.bootProbe.events.includes('preflight'),
+			);
+			await page.evaluate(async (forced) => {
+				if (forced === 'unmount') await window.destroyBoot();
+				else {
+					const { auth } = await import('/application.ts');
+					const result = await auth.auth.signOut();
+					if (result.error) throw result.error;
+				}
+			}, forced);
+			await page.waitForFunction(() =>
+				window.bootProbe.events.includes('producer-stop'),
+			);
+			assert.equal(
+				await page.evaluate(() => window.bootProbe.events.includes('closed')),
+				false,
+			);
+			await page.evaluate(() => {
+				window.bootProbe.releaseProducer();
+				window.bootProbe.releaseCommit();
+			});
+			await page.waitForFunction(
+				() =>
+					window.bootProbe.events.includes('closed') &&
+					window.bootProbe.events.includes('action-refused'),
+			);
+			const events = await page.evaluate(() => window.bootProbe.events);
+			assert(!events.includes('auth-action'));
+			assert(events.indexOf('closed') > events.indexOf('producer-done'));
+			assert.deepEqual(errors, []);
+			await page.close();
+			console.log(
+				`AppBoot ${engine.name()}: ${forced} interrupts unanswered confirmation and drains registered work.`,
+			);
+		}
+		{
+			const page = await browser.newPage();
+			page.setDefaultTimeout(10_000);
+			const duplicate = new Promise((resolve) =>
+				page.on('pageerror', (error) => {
+					if (error.message.includes('already has a cleanup owner')) resolve();
+				}),
+			);
+			await page.goto(`${origin}?local&duplicate`);
+			await duplicate;
+			await page.close();
+			console.log(
+				`AppBoot ${engine.name()}: duplicate cleanup ownership refuses initialization.`,
 			);
 		}
 

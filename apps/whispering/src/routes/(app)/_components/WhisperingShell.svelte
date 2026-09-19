@@ -8,15 +8,14 @@
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
-	import { onDestroy, type Snippet } from 'svelte';
+	import type { Snippet } from 'svelte';
+	import { registerAppCleanup } from '@epicenter/app-shell/boot-screens';
 	import { MediaQuery } from 'svelte/reactivity';
-	import { createLogger } from 'wellcrafted/logger';
 	import DictationIndicator from '#platform/dictation-indicator';
 	import type { WhisperingAppHandle, WhisperingData } from '$lib/whispering/app';
 	import { setWhisperingContext } from '$lib/whispering/context';
 	import {
 		createWhisperingUiSession,
-		WhisperingUiSessionError,
 	} from '$lib/whispering/ui-session';
 	import AppEffects from './AppEffects.svelte';
 	import BottomNav from './BottomNav.svelte';
@@ -24,7 +23,6 @@
 	import GlobalDialogs from './GlobalDialogs.svelte';
 	import VerticalNav from './VerticalNav.svelte';
 
-	const log = createLogger('whispering/ui-session');
 
 	let {
 		openedApp,
@@ -66,24 +64,17 @@
 
 	setWhisperingContext({ app: session.app, queries: session.queries });
 
-	export async function preflight(): Promise<void> {
+	async function preflight(): Promise<void> {
 		if (session.app.recordingEnabled && recordingActive(session.app))
 			throw new Error('Finish recording and wait for it to save before closing Whispering.');
 	}
 
-	let closing: Promise<void> | undefined;
-	export function close(): Promise<void> {
-		return closing ??= session[Symbol.asyncDispose]().then(() => {
-			selections[Symbol.dispose]();
-			detachApplication();
-		});
+	async function close(): Promise<void> {
+		await session[Symbol.asyncDispose]();
+		selections[Symbol.dispose]();
+		detachApplication();
 	}
-
-	onDestroy(() =>
-		void close().catch((cause: unknown) => {
-			log.warn(WhisperingUiSessionError.TeardownFailed({ cause }));
-		}),
-	);
+	registerAppCleanup({ preflight, close });
 
 	let sidebarOpen = $state(false);
 

@@ -6,8 +6,10 @@ export function observeBoot() {
 		transform(code, id) {
 			if (!id.endsWith('/boot-screens/app-boot.svelte')) return;
 			return code.replace(
-				'const status = fromSubscription',
-				'Reflect.set(globalThis, "observedBoot", { opening, departure, account });\n\tconst status = fromSubscription',
+				'</script>',
+				`Reflect.set(globalThis, "observedBoot", { opening, lifetime, account });
+     $effect(() => { if (lifetime.state.phase === 'closed') sessionStorage.setItem('closed-library', localStorage.getItem('whispering.library') ?? 'personal'); });
+     </script>`,
 			);
 		},
 	};

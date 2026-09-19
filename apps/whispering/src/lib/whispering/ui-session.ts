@@ -1,6 +1,5 @@
 import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
 import type { Account } from '@epicenter/auth';
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { pushToTalk } from '../operations/push-to-talk';
 import {
 	closeRecordingWork,
@@ -80,25 +79,10 @@ export function createWhisperingUiSession({
 					queryRuntime.queryClient.clear();
 					domains[Symbol.dispose]();
 				}
-			})().catch((cause) => {
-				// Keep this owner callable after its component unmounts. A failed
-				// VAD release must be retried, never mistaken for completed cleanup.
-				disposal = undefined;
-				throw cause;
-			});
+			})();
 			return disposal;
 		},
 	};
 }
 
 export type WhisperingUiSession = ReturnType<typeof createWhisperingUiSession>;
-
-export const WhisperingUiSessionError = defineErrors({
-	TeardownFailed: ({ cause }: { cause: unknown }) => ({
-		message: 'Whispering UI session teardown failed',
-		cause,
-	}),
-});
-export type WhisperingUiSessionError = InferErrors<
-	typeof WhisperingUiSessionError
->;

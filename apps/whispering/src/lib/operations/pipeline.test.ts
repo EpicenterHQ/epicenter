@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InstantString } from '@epicenter/app/field';
 import { openMemory } from '@epicenter/app/memory';
-import { createDeparture } from '@epicenter/app-shell/departure';
+import { createPageLifetime } from '../../../../../packages/app-shell/src/boot-screens/page-lifetime.test-support.js';
 import type { AuthState } from '@epicenter/auth';
 import { createAppBlobs } from '@epicenter/blobs/app';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
@@ -261,8 +261,8 @@ test('Account replacement drains raw transcription without starting Polish or de
 	finishPolish = polished;
 	const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
 	let onAccountChange: (next: AuthState) => void = () => {};
-	const departure = createDeparture({
-		quiesce: async () => {
+	const departure = createPageLifetime({
+		stopUi: async () => {
 			recordingEnabled = false;
 			quiescing.resolve();
 			await processing;

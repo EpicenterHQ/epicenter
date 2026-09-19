@@ -1,6 +1,6 @@
 /** Departure orders producer drains and App closure, suppressing actions after retirement or teardown. */
 import { expect, test } from 'bun:test';
-import { createDeparture } from './departure.js';
+import { createPageLifetime } from './page-lifetime.test-support.js';
 
 function app(close: () => Promise<void> = async () => {}) {
 	const controller = new AbortController();
@@ -16,13 +16,13 @@ function app(close: () => Promise<void> = async () => {}) {
 
 test('departure drains producers, closes storage, then changes authentication', async () => {
 	const events: string[] = [];
-	const departure = createDeparture({
+	const departure = createPageLifetime({
 		opening: Promise.resolve(
 			app(async () => {
 				events.push('close');
 			}),
 		),
-		async quiesce() {
+		async stopUi() {
 			events.push('drain');
 		},
 	});
@@ -35,7 +35,7 @@ test('departure drains producers, closes storage, then changes authentication', 
 test('concurrent departures share one cleanup and the first action', async () => {
 	const gate = Promise.withResolvers<void>();
 	const events: string[] = [];
-	const departure = createDeparture({
+	const departure = createPageLifetime({
 		opening: Promise.resolve(
 			app(async () => {
 				events.push('close');
@@ -58,31 +58,31 @@ test('concurrent departures share one cleanup and the first action', async () =>
 test('preflight veto leaves an untouched lifetime usable', async () => {
 	let recording = true;
 	const opened = app();
-	const departure = createDeparture({
+	const departure = createPageLifetime({
 		opening: Promise.resolve(opened),
 		async preflight() {
 			if (recording) throw Error('recording');
 		},
 	});
 	await expect(departure.close()).rejects.toThrow('recording');
-	expect(departure.getState().phase).toBe('open');
+	expect(departure.state.phase).toBe('open');
 	expect(opened.signal.aborted).toBe(false);
 	recording = false;
 	await departure.close();
-	expect(departure.getState().phase).toBe('closed');
+	expect(departure.state.phase).toBe('closed');
 });
 
 for (const fails of ['drain', 'close', 'action']) {
 	test(`${fails} failure is terminal and cannot change authentication or retry cleanup`, async () => {
 		const events: string[] = [];
-		const departure = createDeparture({
+		const departure = createPageLifetime({
 			opening: Promise.resolve(
 				app(async () => {
 					events.push('close');
 					if (fails === 'close') throw Error(fails);
 				}),
 			),
-			async quiesce() {
+			async stopUi() {
 				events.push('drain');
 				if (fails === 'drain') throw Error(fails);
 			},
@@ -100,19 +100,19 @@ for (const fails of ['drain', 'close', 'action']) {
 			}),
 		).rejects.toThrow(fails);
 		expect(events).toEqual(recorded);
-		expect(departure.getState().phase).toBe('failed');
+		expect(departure.state.phase).toBe('failed');
 	});
 }
 
 test('external retirement bypasses preflight and prevents departure actions', async () => {
 	const opened = app();
 	const events: string[] = [];
-	const departure = createDeparture({
+	const departure = createPageLifetime({
 		opening: Promise.resolve(opened),
 		async preflight() {
 			throw Error('must bypass');
 		},
-		async quiesce() {
+		async stopUi() {
 			events.push('drain');
 		},
 	});
@@ -120,7 +120,7 @@ test('external retirement bypasses preflight and prevents departure actions', as
 	opened.controller.abort();
 	await departure.close();
 	expect(events).toEqual(['drain']);
-	expect(departure.getState().phase).toBe('retired');
+	expect(departure.state.phase).toBe('retired');
 	await expect(
 		departure.go(() => {
 			events.push('auth');
@@ -130,7 +130,7 @@ test('external retirement bypasses preflight and prevents departure actions', as
 });
 
 test('deliberate App closure is not mistaken for external retirement', async () => {
-	const departure = createDeparture({ opening: Promise.resolve(app()) });
+	const departure = createPageLifetime({ opening: Promise.resolve(app()) });
 	let navigated = false;
 	await departure.go(() => {
 		navigated = true;
@@ -142,9 +142,9 @@ test('retirement during producer cleanup suppresses the pending authentication c
 	const opened = app();
 	const entered = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
-	const departure = createDeparture({
+	const departure = createPageLifetime({
 		opening: Promise.resolve(opened),
-		async quiesce() {
+		async stopUi() {
 			entered.resolve();
 			await release.promise;
 		},
@@ -162,7 +162,7 @@ test('retirement during producer cleanup suppresses the pending authentication c
 
 test('failed opening rejects closure and prevents authentication changes', async () => {
 	const opening = Promise.withResolvers<ReturnType<typeof app>>();
-	const departure = createDeparture({ opening: opening.promise });
+	const departure = createPageLifetime({ opening: opening.promise });
 	let navigated = false;
 	const pending = departure.go(() => {
 		navigated = true;
@@ -179,7 +179,7 @@ test('abandon during a pending preflight bypasses its later veto and suppresses 
 	const release = Promise.withResolvers<void>();
 	const opened = app();
 	let navigated = false;
-	const departure = createDeparture({
+	const departure = createPageLifetime({
 		opening: Promise.resolve(opened),
 		async preflight() {
 			entered.resolve();
@@ -192,17 +192,17 @@ test('abandon during a pending preflight bypasses its later veto and suppresses 
 	});
 	await entered.promise;
 	const abandoning = departure.abandon();
-	release.resolve();
 	await abandoning;
+	release.resolve();
 	await expect(pending).rejects.toThrow('page closed');
 	expect(opened.signal.aborted).toBe(true);
 	expect(navigated).toBe(false);
-	expect(departure.getState().phase).toBe('failed');
+	expect(departure.state.phase).toBe('failed');
 });
 
 test('abandon during opening closes the eventual App without consulting preflight', async () => {
 	const opening = Promise.withResolvers<ReturnType<typeof app>>();
-	const departure = createDeparture({
+	const departure = createPageLifetime({
 		opening: opening.promise,
 		async preflight() {
 			throw Error('must bypass');
@@ -219,3 +219,49 @@ test('abandon during opening closes the eventual App without consulting prefligh
 		}),
 	).rejects.toThrow('page closed');
 });
+
+for (const reason of ['data', 'account'] as const) {
+	test(`${reason} retirement interrupts a confirmation that never answers`, async () => {
+		const entered = Promise.withResolvers<void>();
+		const veto = Promise.withResolvers<void>();
+		const opened = app();
+		const calls: string[] = [];
+		let changed:
+			| ((state: import('@epicenter/auth').AuthState) => void)
+			| undefined;
+		const account = {} as import('@epicenter/auth').Account;
+		const lifetime = createPageLifetime({
+			account,
+			auth: {
+				onStateChange(listener) {
+					changed = listener;
+					return () => {};
+				},
+			},
+			opening: Promise.resolve(opened),
+			async preflight() {
+				entered.resolve();
+				await veto.promise;
+			},
+			async stopUi(voluntary) {
+				expect(voluntary).toBe(false);
+				calls.push('drained');
+			},
+		});
+		const leaving = lifetime.go(() => {
+			calls.push('auth action');
+		});
+		const refused = leaving.catch((error: Error) => error);
+		await entered.promise;
+		if (reason === 'data') opened.controller.abort();
+		else changed!({ status: 'signed-out' });
+		await lifetime.close();
+		expect((await refused)?.message).toContain(reason);
+		expect(calls).toEqual(['drained']);
+		expect(opened.signal.aborted).toBe(true);
+		// A later rejection must be observed, without reopening or changing auth.
+		veto.reject(Error('late veto'));
+		await Promise.resolve();
+		expect(calls).toEqual(['drained']);
+	});
+}

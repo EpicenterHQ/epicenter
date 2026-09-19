@@ -583,7 +583,7 @@ try {
 			fullPage: true,
 		});
 		const choicesBeforeReload = await savedAiChoices(page);
-		await page.evaluate(async () => globalThis.observedBoot.departure.close());
+		await page.evaluate(async () => globalThis.observedBoot.lifetime.close());
 		await page.reload();
 		await opened(page, scope);
 		assert.deepEqual(await savedAiChoices(page), choicesBeforeReload);
@@ -640,14 +640,7 @@ try {
 	await configure(alice);
 	await capture(alice, 'Personal');
 	assert.equal(report.recordings.personal.actor, 'alice');
-	await alice.evaluate(async () => {
-		const boot = globalThis.observedBoot;
-		const library = localStorage.getItem('whispering.library') ?? 'personal';
-		boot.departure.onChange(() => {
-			if (boot.departure.getState().phase === 'closed')
-				sessionStorage.setItem('closed-library', library);
-		});
-	});
+
 	await alice
 		.getByRole('button', {
 			name: 'Recording library: Personal library',
@@ -670,7 +663,7 @@ try {
 	report.blockedExternalRequests = blockedExternalRequests;
 	report.nativeCommands = fixture.admitted;
 	for (const page of pages)
-		await page.evaluate(async () => globalThis.observedBoot.departure.close());
+		await page.evaluate(async () => globalThis.observedBoot.lifetime.close());
 	assert.equal(
 		pageErrors.length,
 		0,

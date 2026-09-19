@@ -1,3 +1,4 @@
+const confirmation = Promise.withResolvers<void>();
 const commit = Promise.withResolvers<void>();
 const producer = Promise.withResolvers<void>();
 const opening = Promise.withResolvers<void>();
@@ -14,6 +15,8 @@ export const probe = {
 		},
 	),
 	refuse: false,
+	holdConfirmation: false,
+	confirmation: confirmation.promise,
 	releaseCommit: commit.resolve,
 	releaseProducer: producer.resolve,
 	releaseOpening: opening.resolve,

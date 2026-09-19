@@ -10,7 +10,6 @@
 		"app-shell"
 	],
 	"exports": {
-		"./departure": "./src/boot-screens/departure.ts",
 		"./account-popover": "./src/account-popover/index.ts",
 		"./agent-chat": "./src/agent-chat/index.ts",
 		"./boot-screens": "./src/boot-screens/index.ts",

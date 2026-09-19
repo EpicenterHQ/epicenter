@@ -9,7 +9,7 @@
 	import { VOCAB_MODEL, VOCAB_SYSTEM_PROMPT } from '$lib/data';
 	import { fromData } from '@epicenter/svelte';
 	import type { vocabDefinition } from '$lib/data';
-	import { onDestroy } from 'svelte';
+	import { registerAppCleanup } from '@epicenter/app-shell/boot-screens';
 	import { runVocabMutation } from '$lib/mutation';
 	import { buildPracticeOpening } from '$lib/practice';
 	import { reportBackgroundError } from '$lib/report';
@@ -71,21 +71,17 @@
 	/* svelte-ignore state_referenced_locally */
 	const settings = createSettingsState({ data: opened.device });
 
-	let closing: Promise<void> | undefined;
-	export function close(): Promise<void> {
-		closing ??= (async () => {
-			try {
-				await dictation.close();
-			} finally {
-				chat[Symbol.dispose]();
-				entries[Symbol.dispose]();
-				settings[Symbol.dispose]();
-				selections[Symbol.dispose]();
-			}
-		})();
-		return closing;
+	async function close(): Promise<void> {
+		try {
+			await dictation.close();
+		} finally {
+			chat[Symbol.dispose]();
+			entries[Symbol.dispose]();
+			settings[Symbol.dispose]();
+			selections[Symbol.dispose]();
+		}
 	}
-	onDestroy(() => void close().catch(() => {}));
+	registerAppCleanup({ close });
 
 	/**
 	 * Practice opens its own conversation, titled after the chosen entries, and

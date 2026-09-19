@@ -292,7 +292,9 @@ test('retirement cleanup failure after unmount is terminal and retains the activ
 	const { createWhisperingUiSession } = await import(
 		'../whispering/ui-session'
 	);
-	const { createDeparture } = await import('@epicenter/app-shell/departure');
+	const { createPageLifetime } = await import(
+		'../../../../../packages/app-shell/src/boot-screens/page-lifetime.test-support.js'
+	);
 	const notification = new AbortController();
 	const session = createWhisperingUiSession({
 		selections: createInferenceSelections({
@@ -305,18 +307,9 @@ test('retirement cleanup failure after unmount is terminal and retains the activ
 		} as unknown as import('../whispering/app').WhisperingAppHandle,
 		account: undefined,
 	});
-	let shell: { close(): Promise<void> } | undefined = {
-		close: () => session[Symbol.asyncDispose](),
-	};
-	let closeUi: (() => Promise<void>) | undefined;
 	let closed = false;
-	const departure = createDeparture({
-		async quiesce() {
-			closeUi ??= shell?.close;
-			const closing = closeUi?.();
-			shell = undefined;
-			await closing;
-		},
+	const departure = createPageLifetime({
+		stopUi: () => session[Symbol.asyncDispose](),
 		account: undefined,
 		opening: Promise.resolve({
 			signal: notification.signal,
@@ -332,7 +325,6 @@ test('retirement cleanup failure after unmount is terminal and retains the activ
 	try {
 		await Bun.sleep(0);
 		await expect(departure.close()).rejects.toBe(vadFailure);
-		expect(shell).toBeUndefined();
 		expect(closed).toBe(false);
 		expect(vadRecorder.state).toBe('LISTENING');
 		vadFailure = undefined;
@@ -340,7 +332,7 @@ test('retirement cleanup failure after unmount is terminal and retains the activ
 			'Microphone graph still held',
 		);
 		expect(closed).toBe(false);
-		expect(departure.getState().phase).toBe('failed');
+		expect(departure.state.phase).toBe('failed');
 	} finally {
 		vadFailure = undefined;
 		await closeRecordingWork();

@@ -17,21 +17,40 @@ Opening belongs to the component instance: imports, preloads, sign-in, and
 callbacks acquire no App. A module-owned opening would outlive its rendering
 owner and make acquisition an import side effect.
 
-AppBoot constructs one departure owner and owns rendering, native closure,
-sign-out navigation, and generic UI shutdown ordering. Applications with
-asynchronous producers pass their actual mounted component as `ui`. Its
-optional `preflight()` can refuse deliberate departure; its idempotent `close()`
-stops admission and drains admitted work. AppBoot retains this component while
-Svelte removes it, so clearing `bind:this` cannot discard the pending drain.
-It blurs the active element, removes rendered UI, awaits the drain, closes the
-App, and only then permits authentication changes or navigation.
+AppBoot owns rendering, native closure, sign-out navigation, and UI shutdown.
+Its private page lifetime uses Svelte state directly. There is no public
+controller, listener API, or framework subscription adapter for this lifetime.
 
-Unmount and retirement cannot be vetoed. They suppress pending departure
-actions, including when retirement happens during asynchronous cleanup.
-Unmount during opening closes the eventual App. Failed cleanup keeps unsafe
-ownership and requires document teardown. Browser reload is recovery, not an
-awaited persistence guarantee. Opening failures have one owner, the await
-block that renders the opening promise; departure does not duplicate them.
+Each root UI with asynchronous producers calls `registerAppCleanup` once,
+synchronously during initialization, after its producers exist. The narrow
+context carries only cleanup registration, never an App or data handle. The
+optional `preflight()` can refuse deliberate departure; the required `close()`
+stops admission and drains admitted work. A second registration throws. The
+registration has no unregister operation: its plain closures remain available
+until the AppBoot lifetime ends. Pages do not pass component handles back into
+AppBoot, and root UI components do not independently start the same cleanup
+from `onDestroy`. AppBoot calls their drain once.
+
+Deliberate closure consults preflight, blurs focused input, removes rendered UI,
+awaits the producer drain, and closes the App before authentication changes or
+navigation. Honeycrisp's editor teardown flushes synchronously; it needs no
+asynchronous cleanup registration. `tick()` flushes Svelte updates, not
+arbitrary asynchronous teardown. Native close during opening waits for the
+mounted root UI's preflight.
+
+Unmount and retirement interrupt an unanswered preflight and suppress pending
+departure actions. They skip deliberate blur commits. An interrupted opening
+cannot later launch preflight. Unmount during opening closes the eventual App.
+Failed cleanup keeps unsafe ownership and requires document teardown. An
+already-closed page offers recovery instead of an indefinite closing spinner.
+Browser reload is recovery, not an awaited persistence guarantee. Opening
+failures have one renderer, the await block; native close still refuses an
+opening failure rather than assuming resources were safely released.
+
+AppBoot requires an auth client and an explicit connection destination. A
+boolean declares whether the UI offers server changes; the boot owner does
+not receive the server-selection client. Sign-in screens retain that client
+where its operations are actually used.
 
 Honeycrisp fixes its browser issuer and exports the actual auth client.
 Applications that offer runtime server selection retain BrowserAuth because
@@ -52,10 +71,19 @@ those producers drain. A later mount must not reuse a closed workflow.
 
 ## Considered alternatives
 
-- Passing auth, captured account, opening, and departure separately: distributes
+- Passing auth, captured account, opening, and a controller separately: distributes
   one lifetime across several owners and permits inconsistent inputs.
 - A module opening singleton: imports could acquire resources before rendering.
 - Page-level blur and tick registration: every page repeats framework teardown
   mechanics that belong to the component rendering the UI.
 - Automatic replacement after retirement: silently changes the working
   account or data. The stopped page instead requires explicit recovery.
+
+- Component-handle round trip through `bind:this`, page state, and a `ui` prop:
+  required binding-timing knowledge and retention after Svelte cleared the
+  binding. Synchronous registration gives the lifetime its drain directly.
+- A callback passed through an extra snippet argument and page prop: makes a
+  page forward cleanup it does not own. The single lifecycle context keeps App
+  props explicit without adding an object containing App aliases and callbacks.
+- Multiple cleanup registrants or remount replacement: unnecessary for the fixed
+  root UI lifetime. Duplicate registration fails; development remounts can reload.

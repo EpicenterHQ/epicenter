@@ -1,82 +1,76 @@
 <script lang="ts" generics="TDefinition extends DataDefinition">
 	import type { DataDefinition } from '@epicenter/app';
 	import { openApp, type App, type AppRuntime } from '@epicenter/app/open';
-	import type { Account, AuthClient, BrowserAuth } from '@epicenter/auth';
-	import { fromSubscription } from '@epicenter/svelte';
+	import type { Account, AuthClient } from '@epicenter/auth';
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
 	import { onDestroy, onMount, tick, type Snippet } from 'svelte';
-	import { createDeparture, type Departure } from './departure.js';
+	import { createPageLifetime, type Leave } from './page-lifetime.svelte.js';
+	import { provideAppCleanup } from './app-cleanup.js';
 	import { provideConnectionScreen, provideSignOut } from './connection-screen-context.js';
 	import { attachDesktopClose } from './desktop-close.js';
 	import CannotOpenScreen from './cannot-open-screen.svelte';
 
 	let props: {
-		auth?: AuthClient;
+		auth: AuthClient;
 		definition: TDefinition;
 		runtime?: AppRuntime;
-		selection?: BrowserAuth;
-		/** The actual mounted component. close must return one idempotent drain. */
-		ui?: { preflight?(): Promise<void>; close?(): void | Promise<void> };
-		connectionHref?: string;
+		canChangeServer?: boolean;
+		connectionHref: string;
 		homeHref?: string;
 		appName: string;
 		noun: string;
 		openingFailure?: Snippet;
-		children: Snippet<[App<TDefinition>, Departure['go'], Account | undefined]>;
+		children: Snippet<[App<TDefinition>, Leave, Account | undefined]>;
 	} = $props();
-	// Svelte clears bind:this on removal; retain the actual owner until its drain ends.
-	let ui: typeof props.ui;
-	$effect.pre(() => { if (props.ui) ui = props.ui; });
+	const getCleanup = provideAppCleanup();
 	let nativeError = $state('');
 	// svelte-ignore state_referenced_locally
-	const account = props.auth?.getState().account;
+	const account = props.auth.getState().account;
 	// svelte-ignore state_referenced_locally
 	const opening = openApp(props.definition, { account, runtime: props.runtime });
 	// These identities belong to this component instance. Changing accounts ends it.
 	// svelte-ignore state_referenced_locally
-	const departure = createDeparture({
+	const lifetime = createPageLifetime({
 		auth: props.auth,
 		account,
 		opening,
-		async preflight() {
+		async preflight(hasEnded) {
 			// A native close can arrive before readiness. Mount the ready UI first
 			// so its domain veto participates; opening failure is rendered by await.
 			await opening.then(tick, () => {});
-			await ui?.preflight?.();
+			if (hasEnded()) return;
+			await getCleanup()?.preflight?.();
 		},
-		async quiesce() {
-			if (document.activeElement instanceof HTMLElement)
+		async stopUi(voluntary) {
+			if (voluntary && document.activeElement instanceof HTMLElement)
 				document.activeElement.blur();
-			// Capture the promise before Svelte clears bind:this during removal.
-			const stopping = ui?.close?.();
+			const stopping = getCleanup()?.close();
 			// Observe rejection immediately, even if it settles before tick.
 			const removed = tick();
 			await Promise.all([removed, stopping]);
 		},
 	});
-	const status = fromSubscription(departure.onChange, departure.getState);
 	// svelte-ignore state_referenced_locally
-	if (!account || props.selection || !props.auth?.startSignIn) {
+	if (!account || props.canChangeServer || !props.auth.startSignIn) {
 		provideConnectionScreen(() => {
-			void departure.go(() => window.location.assign(props.connectionHref ?? '/?connect')).catch(() => {});
+			void lifetime.go(() => window.location.assign(props.connectionHref)).catch(() => {});
 		});
 	}
-	provideSignOut(() => departure.go(async () => {
-		if (!props.auth) return;
+	provideSignOut(() => lifetime.go(async () => {
 		const result = await props.auth.signOut();
 		if (result.error) throw result.error;
 		window.location.replace(props.homeHref ?? '/');
 	}));
 
 	onDestroy(() => {
-		void departure.abandon().catch(() => {});
+		void lifetime.abandon().catch(() => {});
 	});
 
 	onMount(() => {
 		let stopped = false;
 		let stopNative: (() => void) | undefined;
-		void attachDesktopClose(departure.close).then((stop) => {
+		void attachDesktopClose(lifetime.close).then((stop) => {
 			if (stopped) stop();
 			else stopNative = stop;
 		}).catch((cause) => {
@@ -94,21 +88,25 @@
 {#await opening}
 	<Loading class="h-dvh" label="Opening your {props.noun}…" />
 {:then opened}
-	{#if status.current.phase === 'open'}
-		{@render props.children(opened, departure.go, account)}
+	{#if lifetime.state.phase === 'open'}
+		{@render props.children(opened, lifetime.go, account)}
 	{:else}
 		<div class="flex h-dvh flex-col items-center justify-center gap-4">
-			{#if status.current.phase !== 'failed' && status.current.phase !== 'retired'}
+			{#if lifetime.state.phase === 'closing'}
 				<Loading label="Closing your {props.noun}…" />
 			{:else}
-				<p>This application has stopped. Reload to open it again. Unsaved changes may be lost.</p>
+				{#if lifetime.state.phase === 'closed'}
+					<p>Closed. Reload to open {props.appName} again.</p>
+				{:else}
+					<p>This application has stopped. Reload to open it again. Unsaved changes may be lost.</p>
+				{/if}
 				<Button onclick={() => location.reload()}>Reload {props.appName}</Button>
 			{/if}
 		</div>
 	{/if}
-	{#if status.current.error !== null}
+	{#if lifetime.state.error !== null}
 		<div class="fixed inset-x-0 bottom-0 z-50 border-t bg-background p-4 text-center" role="alert">
-			<p>{status.current.error instanceof Error ? status.current.error.message : `Could not finish closing ${props.appName}.`}</p>
+			<p>{lifetime.state.error instanceof Error ? lifetime.state.error.message : `Could not finish closing ${props.appName}.`}</p>
 		</div>
 	{/if}
 {:catch error}

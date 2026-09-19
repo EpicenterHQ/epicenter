@@ -1,57 +1,60 @@
 import type { Account, AuthClient } from '@epicenter/auth';
 
-/** Quiesce page producers before closing resources; a failed lifetime requires page teardown. */
-export function createDeparture({
+/** AppBoot owns this lifetime; teardown interrupts vetoes but never skips producer drains. */
+export function createPageLifetime({
 	auth,
 	account,
 	preflight,
-	quiesce,
+	stopUi,
 	opening,
 }: {
-	auth?: Pick<AuthClient, 'onStateChange'>;
-	account?: Account;
-	preflight?: () => Promise<void>;
-	quiesce?: () => Promise<void>;
-	opening?: Promise<{ signal: AbortSignal; close(): Promise<void> }>;
+	auth: Pick<AuthClient, 'onStateChange'> | undefined;
+	account: Account | undefined;
+	preflight: (hasEnded: () => boolean) => Promise<void>;
+	stopUi: (voluntary: boolean) => Promise<void>;
+	opening: Promise<{ signal: AbortSignal; close(): Promise<void> }>;
 }) {
-	let state: {
+	let state = $state.raw<{
 		phase: 'open' | 'closing' | 'closed' | 'retired' | 'failed';
 		error: unknown;
-	} = { phase: 'open', error: null };
-	const listeners = new Set<() => void>();
+	}>({ phase: 'open', error: null });
 	let closing: Promise<void> | undefined;
 	let departing: Promise<void> | undefined;
 	let endedBy: 'account' | 'data' | 'unmount' | undefined;
+	const forced = Promise.withResolvers<void>();
 	let closedSuccessfully = false;
 	let stopRetirement: (() => void) | undefined;
 
-	function publish(phase: typeof state.phase, error: unknown = null) {
+	function setState(phase: typeof state.phase, error: unknown = null) {
 		state = { phase, error };
-		for (const listener of listeners) listener();
 	}
 	function finish() {
 		if (closing) return closing;
 		closing = Promise.resolve().then(async () => {
 			try {
-				if (endedBy === undefined) await preflight?.();
+				if (endedBy === undefined)
+					await Promise.race([
+						preflight(() => endedBy !== undefined),
+						forced.promise,
+					]);
 			} catch (error) {
 				if (endedBy === undefined) {
 					closing = undefined;
-					publish('open', error);
+					setState('open', error);
 					throw error;
 				}
 			}
-			publish('closing');
+			setState('closing');
 			try {
-				await quiesce?.();
+				await stopUi(endedBy === undefined);
 				const app = await opening;
 				// No await separates detaching retirement from App's synchronous revocation.
 				stopRetirement?.();
-				await app?.close();
+				await app.close();
 				closedSuccessfully = true;
-				publish(endedBy ? 'retired' : 'closed');
+				setState(endedBy ? 'retired' : 'closed');
 			} catch (error) {
-				publish('failed', error);
+				setState('failed', error);
 				throw error;
 			} finally {
 				if (closedSuccessfully) stopAuth();
@@ -63,15 +66,17 @@ export function createDeparture({
 		auth?.onStateChange((next) => {
 			if (next.account === account || state.phase === 'closed') return;
 			endedBy = 'account';
+			forced.resolve();
 			if (state.phase === 'failed') return;
 			// Auth already retired transport. This only finishes the local page.
 			void finish().catch(() => {});
 		}) ?? (() => {});
-	void opening?.then(
+	void opening.then(
 		({ signal }) => {
 			const retired = () => {
 				if (closedSuccessfully) return;
 				endedBy ??= 'data';
+				forced.resolve();
 				void finish().catch(() => {});
 			};
 			if (signal.aborted) retired();
@@ -83,20 +88,15 @@ export function createDeparture({
 		() => {},
 	);
 	return {
-		getState() {
+		get state() {
 			return state;
-		},
-		onChange(listener: () => void) {
-			listeners.add(listener);
-			return () => {
-				listeners.delete(listener);
-			};
 		},
 		/** Used by native close acknowledgments as well as deliberate departures. */
 		close: finish,
 		/** Teardown cannot be vetoed and must suppress a pending navigation. */
 		abandon() {
 			endedBy ??= 'unmount';
+			forced.resolve();
 			return finish();
 		},
 		/** The first request owns the action; later requests share its result. */
@@ -117,7 +117,7 @@ export function createDeparture({
 				} catch (error) {
 					if (state.phase === 'open' && endedBy === undefined)
 						departing = undefined;
-					else publish('failed', error);
+					else setState('failed', error);
 					throw error;
 				}
 			})();
@@ -126,4 +126,4 @@ export function createDeparture({
 	};
 }
 
-export type Departure = ReturnType<typeof createDeparture>;
+export type Leave = (action: () => Promise<void> | void) => Promise<void>;

@@ -6,17 +6,16 @@
 
 	const auth = authStartup.auth ?? undefined;
 	const connecting = !auth?.getState().account || new URLSearchParams(location.search).has('connect');
-	let shell: VocabShell | undefined = $state();
 </script>
 
 {#if connecting}
 	<SignInScreen {auth} selection={authStartup} appName="Vocab" noun="conversations"
 		onCancel={new URLSearchParams(location.search).has('connect') ? () => location.replace('/') : undefined} />
 {:else}
-	<AppBoot {auth} definition={vocabDefinition} selection={authStartup}
-		ui={shell} appName="Vocab" noun="conversations">
+	<AppBoot {auth} definition={vocabDefinition} canChangeServer
+		 appName="Vocab" noun="conversations" connectionHref={location.pathname + '?connect'}>
 		{#snippet children(app)}
-			<VocabShell data={app} bind:this={shell} />
+			<VocabShell data={app} />
 		{/snippet}
 	</AppBoot>
 {/if}

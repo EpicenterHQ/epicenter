@@ -298,7 +298,7 @@ test('application startup, draft protection and durable reopen', async ({
 		);
 		await page.evaluate(() => {
 			globalThis.routeSmoke.departure = 'pending';
-			void globalThis.routeApplication.departure
+			void globalThis.routeApplication.lifetime
 				.go(() => {
 					globalThis.routeSmoke.departure = 'departed';
 				})
@@ -317,7 +317,7 @@ test('application startup, draft protection and durable reopen', async ({
 		);
 		assert(
 			(await page.evaluate(
-				() => globalThis.routeApplication.departure.getState().phase,
+				() => globalThis.routeApplication.lifetime.state.phase,
 			)) === 'open',
 			'Canceled preflight closed the App',
 		);
@@ -329,11 +329,10 @@ test('application startup, draft protection and durable reopen', async ({
 			.getByRole('status')
 			.filter({ hasText: 'Saved to this device.' })
 			.waitFor();
-		await page.evaluate(() => globalThis.routeApplication.departure.close());
+		await page.evaluate(() => globalThis.routeApplication.lifetime.close());
 		assert(
 			await page.evaluate(
-				() =>
-					globalThis.routeApplication.departure.getState().phase === 'closed',
+				() => globalThis.routeApplication.lifetime.state.phase === 'closed',
 			),
 			'Document cleanup did not release resources',
 		);

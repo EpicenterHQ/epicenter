@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { App } from '@epicenter/app/open';
 	import type { mailDefinition } from '$lib/data.js';
-	import { onDestroy } from 'svelte';
+	import { registerAppCleanup } from '@epicenter/app-shell/boot-screens';
 	import { Button } from '@epicenter/ui/button';
 	import SavedQueries from '$lib/components/SavedQueries.svelte';
 	import * as Dialog from '@epicenter/ui/dialog';
@@ -31,17 +31,13 @@
 	let { app }: { app: App<typeof mailDefinition> } = $props();
 	// svelte-ignore state_referenced_locally
 	const closeMail = attachMail(app);
-	let closing: Promise<void> | undefined;
-	export function close() {
-		return closing ??= (async () => {
-			await queryClient.cancelQueries();
-			queryClient.clear();
-			await closeMail();
-		})();
+	async function close() {
+		await queryClient.cancelQueries();
+		queryClient.clear();
+		await closeMail();
 	}
-	onDestroy(() => { void close().catch(() => {}); });
 	let queryEditor = $state.raw<ReturnType<typeof SavedQueries>>();
-	export async function preflight() {
+	async function preflight() {
 		await queryEditor?.preflight();
 	}
 	let view = $state<'mail' | 'queries'>('mail');
@@ -338,6 +334,7 @@
 		{ keys: ['/'], label: 'Search' },
 		{ keys: ['?'], label: 'This help' },
 	];
+	registerAppCleanup({ preflight, close });
 </script>
 
 <svelte:window onkeydown={onKeydown} />

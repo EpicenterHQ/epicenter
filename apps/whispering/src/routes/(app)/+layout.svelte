@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { AppBoot, SignInScreen } from '@epicenter/app-shell/boot-screens';
-	import type { Departure } from '@epicenter/app-shell/departure';
+	import type { Leave } from '@epicenter/app-shell/boot-screens';
 	import { auth, serverSelection } from '#platform/auth';
 	import { whisperingDefinition } from '$lib/data.js';
 	import WhisperingShell from './_components/WhisperingShell.svelte';
@@ -15,8 +15,7 @@
 		if (saved === 'local' || saved === 'personal' || saved === 'shared') return saved;
 		throw new Error('Your saved library choice could not be read.');
 	})();
-	let shell: WhisperingShell | undefined = $state();
-	function selectLibrary(next: typeof library, leave?: Departure['go']) {
+	function selectLibrary(next: typeof library, leave?: Leave) {
 		if (next === library) return Promise.resolve();
 		const navigate = () => {
 			localStorage.setItem('whispering.library', next);
@@ -28,17 +27,17 @@
 	}
 </script>
 
-{#snippet libraryMenu(leave?: Departure['go'])}
+{#snippet libraryMenu(leave?: Leave)}
 	<LibrarySelection {library} canOpenShared={auth?.getState().account?.supportsShared ?? false} select={(next) => selectLibrary(next, leave)} />
 {/snippet}
 
-{#if connecting}
+{#if !auth || connecting}
 	<div class="p-3">{@render libraryMenu()}</div>
 	<SignInScreen {auth} selection={serverSelection} appName="Whispering" noun="recordings"
 		onCancel={() => location.replace(location.pathname)} />
 {:else}
-	<AppBoot {auth} definition={whisperingDefinition} selection={serverSelection} ui={shell}
-		appName="Whispering" noun="recordings">
+	<AppBoot {auth} definition={whisperingDefinition} canChangeServer={serverSelection !== undefined}
+		appName="Whispering" noun="recordings" connectionHref={location.pathname + '?connect'}>
 		{#snippet openingFailure()}
 			<div class="p-3">{@render libraryMenu()}</div>
 		{/snippet}
@@ -46,7 +45,7 @@
 			{#snippet menu()}{@render libraryMenu(leave)}{/snippet}
 			{@const data = library === 'local' ? app.device : library === 'personal' ? app.account?.personal : app.account?.shared}
 			{#if data}
-				<WhisperingShell libraryMenu={menu} openedApp={app} {data} {account} bind:this={shell}>
+				<WhisperingShell libraryMenu={menu} openedApp={app} {data} {account}>
 					{@render routeChildren()}
 				</WhisperingShell>
 			{:else}
