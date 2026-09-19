@@ -23,6 +23,7 @@ export {
 export {
 	type CreateSessionAuthOptions,
 	createSessionAuth,
+	revokeSession,
 	type SessionLauncher,
 } from './create-session-auth.js';
 export {
@@ -42,3 +43,5 @@ export {
 	parsePersistedAuth,
 } from './persisted-auth-storage.js';
 export { createSessionHandoffClient } from './session-handoff-client.js';
+
+export { readApiSession } from './read-api-session.js';

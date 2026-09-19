@@ -1,7 +1,8 @@
-const confirmation = Promise.withResolvers<void>();
 const commit = Promise.withResolvers<void>();
 const producer = Promise.withResolvers<void>();
 const opening = Promise.withResolvers<void>();
+const signOut = Promise.withResolvers<void>();
+const signIn = Promise.withResolvers<void>();
 
 export const probe = {
 	events: new Proxy(
@@ -14,16 +15,18 @@ export const probe = {
 			},
 		},
 	),
-	refuse: false,
-	holdConfirmation: false,
-	confirmation: confirmation.promise,
-	releaseConfirmation: confirmation.resolve,
 	releaseCommit: commit.resolve,
 	releaseProducer: producer.resolve,
 	releaseOpening: opening.resolve,
+	releaseSignOut: signOut.resolve,
+	releaseSignIn: signIn.resolve,
 	opening: opening.promise,
 	commit: commit.promise,
 	producer: producer.promise,
+	signOut: signOut.promise,
+	signIn: signIn.promise,
 };
-
+window.addEventListener('pageshow', (event) =>
+	probe.events.push(`pageshow:${event.persisted}`),
+);
 Reflect.set(window, 'bootProbe', probe);

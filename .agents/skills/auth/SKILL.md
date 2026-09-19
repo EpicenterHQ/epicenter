@@ -197,12 +197,19 @@ Callbacks and sign-in routes acquire no primary App.
 
 Honeycrisp and Whispering support signed-out local startup. Vocab requires an
 Account. Honeycrisp's Local and Personal routes display the nested handles on
-one App. Deliberate account changes drain producers and close the App
-before auth mutation and full document navigation. AppBoot owns generic UI
-shutdown; shells provide their actual idempotent drain. Failed cleanup prevents
-mutation/navigation. Only preflight refusal allows retry before teardown.
+one App. One warning before explicit account changes authorizes interruption of
+active recordings and unsaved drafts, including work started while sign-in is
+pending. Desktop acceptance disposes the boot auth owner, serializes next-boot
+credentials behind its queued writes, awaits bounded token revocation, and
+restarts. Cancellation before acceptance leaves working windows open. The
+process never installs a successor Account; failed writes or restart keep old
+access fenced, and new pages show restart-required UI.
 
-Same-owner credential refresh/refusal preserves the App. Unexpected retirement
-immediately rejects network access and closes locally without selecting another
-Account or a local fallback. Desktop voluntary retirement waits for the host's
-all-window close barrier. Preserve independent source-library transfer lifetimes.
+Browser departures make the UI inert and replace the document without waiting
+for producer or persistence drains. Deliberate sign-out marks departure before
+calling auth: its retirement notification must not navigate before credential
+clearing and bounded revocation finish. Unexpected retirement navigates to
+`?stopped`; check that marker before calling `openApp`. Recovery opens no App
+until explicitly requested. A cancelled navigation or history restoration must
+not reactivate the old App. Preserve component disposal, acquisition rollback,
+account fences, and independent source-library transfer lifetimes.

@@ -30,7 +30,8 @@ try {
 		config,
 		`import config from ${JSON.stringify(new URL('../vite.config.ts', import.meta.url).pathname)};
 import { observeBoot } from ${JSON.stringify(new URL('../../../../packages/app-shell/smoke/observe-boot.mjs', import.meta.url).pathname)};
-export default { ...config, plugins: [...config.plugins, observeBoot()] };`,
+import { desktopWarning } from ${JSON.stringify(new URL('./desktop-warning.mjs', import.meta.url).pathname)};
+export default { ...config, plugins: [...config.plugins, observeBoot(), desktopWarning()] };`,
 	);
 	const buildApp = Bun.spawn(
 		['bun', 'x', 'vite', 'build', '--config', config],

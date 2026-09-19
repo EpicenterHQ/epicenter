@@ -365,17 +365,19 @@ try {
 	}
 	async function savedAiChoices(page) {
 		return page.evaluate(
-			async ({ apiKey, nativeModel, polishModel }) => {
+			async ({ apiKey, nativeModel, polishModel, principalModule }) => {
 				const { getApp, getSelections } = await import(
 					'/src/lib/application.ts'
 				);
 				const app = getApp();
 				const selections = getSelections();
+				const { deviceOwnerPath } = await import(principalModule);
+				const owner = deviceOwnerPath(app.account?.identity);
 				const records = JSON.parse(
-					localStorage.getItem('whispering.app-ai-connections'),
+					localStorage.getItem(`epicenter/ai/${owner}.app-ai-connections`),
 				);
 				const choices = JSON.parse(
-					localStorage.getItem('whispering.app-ai-selections'),
+					localStorage.getItem(`whispering/${owner}.app-ai-selections`),
 				);
 				if (
 					records?.version !== 1 ||
@@ -411,7 +413,12 @@ try {
 				}
 				return choices.selections;
 			},
-			{ apiKey, nativeModel, polishModel },
+			{
+				apiKey,
+				nativeModel,
+				polishModel,
+				principalModule: `/@fs${join(root, 'packages/principal/src/device-owner.ts')}`,
+			},
 		);
 	}
 	async function configure(page, reuse = false) {
@@ -587,7 +594,11 @@ try {
 			fullPage: true,
 		});
 		const choicesBeforeReload = await savedAiChoices(page);
-		await page.evaluate(async () => globalThis.observedBoot.lifetime.close());
+		await page.evaluate(async () => {
+			const app = await globalThis.observedBoot.opening;
+			await app.device.persistence.flush();
+			if (app.account) await app.account.personal.persistence.flush();
+		});
 		await page.reload();
 		await opened(page, scope);
 		assert.deepEqual(await savedAiChoices(page), choicesBeforeReload);
@@ -638,6 +649,16 @@ try {
 	await capture(alice, 'Personal');
 	assert.equal(report.recordings.personal.actor, 'alice');
 
+	// Interrupt a live synthetic capture at the document boundary. The prior
+	// saved recording must survive, and the new document must capture again.
+	await alice.getByRole('button', { name: /^Start recording/ }).click();
+	await alice
+		.getByRole('button', { name: /^Stop recording/, pressed: true })
+		.waitFor();
+	await Bun.sleep(250);
+	await alice.evaluate(() => {
+		globalThis.librarySwitchDocument = true;
+	});
 	await alice
 		.getByRole('button', {
 			name: 'Recording library: Personal library',
@@ -647,20 +668,53 @@ try {
 	await alice
 		.getByRole('menuitemradio', { name: 'On this device', exact: true })
 		.click();
+	await alice.getByRole('button', { name: 'Continue', exact: true }).click();
 	await opened(alice, 'Local');
 	assert.equal(
-		await alice.evaluate(() => sessionStorage.getItem('closed-library')),
-		'personal',
+		await alice.evaluate(() => globalThis.librarySwitchDocument),
+		undefined,
 	);
+	assert.equal(
+		await alice
+			.getByRole('button', { name: /^Stop recording/, pressed: true })
+			.count(),
+		0,
+	);
+	assert.deepEqual(
+		await alice.evaluate(async () => {
+			const app = await globalThis.observedBoot.opening;
+			const row = app.account.personal.tables.recordings.rows[0];
+			const saved = await app.blobs.local.get(row.audioBlobId);
+			if (saved.error) throw new Error(JSON.stringify(saved.error));
+			const hash = await crypto.subtle.digest(
+				'SHA-256',
+				await saved.data.arrayBuffer(),
+			);
+			return {
+				local: app.device.tables.recordings.rows.length,
+				personal: app.account.personal.tables.recordings.rows.map(
+					(row) => row.id,
+				),
+				sha256: Array.from(new Uint8Array(hash), (byte) =>
+					byte.toString(16).padStart(2, '0'),
+				).join(''),
+			};
+		}),
+		{
+			local: 0,
+			personal: [report.recordings.personal.row.id],
+			sha256: report.recordings.personal.sha256,
+		},
+	);
+	report.checks.activeSyntheticCaptureInterrupted = true;
 	await configure(alice, true);
 	await capture(alice, 'Local');
 	assert.equal(report.recordings.local.actor, 'alice');
-	report.checks.closedBeforeLibrarySwitch = true;
+	report.checks.documentReplacedForLibrarySwitch = true;
 	report.inferenceRequests = inferenceRequests;
 	report.blockedExternalRequests = blockedExternalRequests;
 	report.nativeCommands = fixture.admitted;
-	for (const page of pages)
-		await page.evaluate(async () => globalThis.observedBoot.lifetime.close());
+	for (const page of pages) await page.close();
 	assert.equal(
 		pageErrors.length,
 		0,

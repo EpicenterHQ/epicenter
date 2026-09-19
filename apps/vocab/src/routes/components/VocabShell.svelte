@@ -9,7 +9,7 @@
 	import { VOCAB_MODEL, VOCAB_SYSTEM_PROMPT } from '$lib/data';
 	import { fromData } from '@epicenter/svelte';
 	import type { vocabDefinition } from '$lib/data';
-	import { registerAppCleanup } from '@epicenter/app-shell/boot-screens';
+	import { onDestroy } from 'svelte';
 	import { runVocabMutation } from '$lib/mutation';
 	import { buildPracticeOpening } from '$lib/practice';
 	import { reportBackgroundError } from '$lib/report';
@@ -29,10 +29,8 @@
 	// `data` and never asks which one it is.
 	let {
 		data: opened,
-		removeLocalData,
 	}: {
 		data: App<typeof vocabDefinition>;
-		removeLocalData?: () => Promise<void>;
 	} = $props();
 
 	// svelte-ignore state_referenced_locally
@@ -71,17 +69,13 @@
 	/* svelte-ignore state_referenced_locally */
 	const settings = createSettingsState({ data: opened.device });
 
-	async function close(): Promise<void> {
-		try {
-			await dictation.close();
-		} finally {
-			chat[Symbol.dispose]();
-			entries[Symbol.dispose]();
-			settings[Symbol.dispose]();
-			selections[Symbol.dispose]();
-		}
-	}
-	registerAppCleanup({ close });
+	onDestroy(() => {
+		void dictation.close().catch(reportBackgroundError);
+		chat[Symbol.dispose]();
+		entries[Symbol.dispose]();
+		settings[Symbol.dispose]();
+		selections[Symbol.dispose]();
+	});
 
 	/**
 	 * Practice opens its own conversation, titled after the chosen entries, and
@@ -103,7 +97,6 @@
 
 <Sidebar.Provider>
 	<VocabSidebar
-		{removeLocalData}
 		conversations={chat.conversations}
 		activeConversationId={chat.activeConversationId}
 		onCreate={() =>

@@ -2,6 +2,7 @@
  * Mailbox reads include this device's undelivered triage.
  */
 
+import type { App } from '@epicenter/app/open';
 import {
 	type AccountWorkflow,
 	assertAccountLabel,
@@ -34,7 +35,6 @@ import {
 } from '@epicenter/local-mail/outbox';
 import { openLocalMailStorage } from '@epicenter/local-mail/storage';
 import { gmailAuthorization } from '#platform/gmail-authorization';
-import type { App } from '@epicenter/app/open';
 import type { mailDefinition } from './data.js';
 import { gmailIdentity } from './identity.js';
 
@@ -56,26 +56,21 @@ function base(): string {
 type MailLifetime = {
 	app: App<typeof mailDefinition>;
 	controller: AbortController;
-	pending: Set<Promise<unknown>>;
 	workflow?: Promise<AccountWorkflow>;
 };
 let current: MailLifetime | undefined;
 
-/** The mounted shell owns admission and drains this attachment before its App closes. */
+/** The mounted shell owns admission and aborts its operations when removed. */
 export function attachMail(app: App<typeof mailDefinition>) {
 	if (current) throw new Error('Local Mail already has a mounted application.');
 	const lifetime: MailLifetime = {
 		app,
 		controller: new AbortController(),
-		pending: new Set(),
 	};
 	current = lifetime;
-	let closing: Promise<void> | undefined;
 	return function close() {
 		lifetime.controller.abort();
-		return (closing ??= Promise.allSettled(lifetime.pending).then(() => {
-			if (current === lifetime) current = undefined;
-		}));
+		if (current === lifetime) current = undefined;
 	};
 }
 
@@ -103,18 +98,12 @@ function workflow(): Promise<AccountWorkflow> {
 function operation<TArgs extends unknown[], TResult>(
 	run: (...args: TArgs) => Promise<TResult>,
 ) {
-	return (...args: TArgs): Promise<TResult> => {
+	return async (...args: TArgs): Promise<TResult> => {
 		const lifetime = current;
 		if (!lifetime || lifetime.controller.signal.aborted) {
 			return Promise.reject(new Error('Local Mail is closing.'));
 		}
-		const work = Promise.resolve().then(() => run(...args));
-		lifetime.pending.add(work);
-		void work.then(
-			() => lifetime.pending.delete(work),
-			() => lifetime.pending.delete(work),
-		);
-		return work;
+		return run(...args);
 	};
 }
 
@@ -246,17 +235,15 @@ export const mail = {
 	),
 
 	/** Run explicit SQL against this Gmail account's downloaded messages and labels. */
-	query: operation(async (sub: string, sql: string, signal?: AbortSignal) =>
-		queryAccount(
+	query: operation(async (sub: string, sql: string, signal?: AbortSignal) => {
+		const documentSignal = current!.controller.signal;
+		return queryAccount(
 			await workflow(),
 			sub,
 			sql,
-			AbortSignal.any([
-				current!.controller.signal,
-				...(signal ? [signal] : []),
-			]),
-		),
-	),
+			AbortSignal.any([documentSignal, ...(signal ? [signal] : [])]),
+		);
+	}),
 
 	/**
 	 * Reconcile this account now: deliver what is owed, then pull.

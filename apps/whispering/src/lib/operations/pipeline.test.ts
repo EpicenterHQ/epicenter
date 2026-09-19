@@ -15,8 +15,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InstantString } from '@epicenter/app/field';
 import { openMemory } from '@epicenter/app/memory';
-import { createPageLifetime } from '../../../../../packages/app-shell/src/boot-screens/page-lifetime.test-support.js';
-import type { AuthState } from '@epicenter/auth';
 import { createAppBlobs } from '@epicenter/blobs/app';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
@@ -248,11 +246,10 @@ test('closed UI admission starts no inference or delivery for an existing row', 
 	expect(deliverTranscriptionResult).toHaveBeenCalledTimes(deliveriesBefore);
 });
 
-test('Account replacement drains raw transcription without starting Polish or delivery', async () => {
+test('retirement during raw transcription starts no Polish or delivery', async () => {
 	willPolish = true;
 	const entered = Promise.withResolvers<void>();
 	const released = Promise.withResolvers<void>();
-	const quiescing = Promise.withResolvers<void>();
 	finishTranscription = () => {
 		entered.resolve();
 		return released.promise;
@@ -260,38 +257,16 @@ test('Account replacement drains raw transcription without starting Polish or de
 	const polished = mock(async () => {});
 	finishPolish = polished;
 	const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
-	let onAccountChange: (next: AuthState) => void = () => {};
-	const departure = createPageLifetime({
-		stopUi: async () => {
-			recordingEnabled = false;
-			quiescing.resolve();
-			await processing;
-		},
-		account: app.account,
-		auth: {
-			onStateChange(listener) {
-				onAccountChange = listener;
-				return () => {};
-			},
-		},
-		opening: Promise.resolve({
-			signal: lifetime.signal,
-			async close() {
-				lifetime.abort();
-			},
-		}),
-	});
 	const processing = processRecordingPipeline(app, {
 		transcribe: async () => Ok('captured transcription'),
 		recordingId: recording.id,
 	});
 
 	await entered.promise;
-	onAccountChange({ status: 'signed-out' });
-	await quiescing.promise;
-	expect(lifetime.signal.aborted).toBe(false);
+	lifetime.abort();
+	recordingEnabled = false;
 	released.resolve();
-	await departure.close();
+	await processing;
 	expect(polished).not.toHaveBeenCalled();
 	expect(deliverTranscriptionResult).toHaveBeenCalledTimes(deliveriesBefore);
 	expect(lifetime.signal.aborted).toBe(true);

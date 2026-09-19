@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
@@ -27,5 +28,6 @@
 	</Tooltip.Provider>
 </QueryClientProvider>
 
+<ConfirmationDialog />
 <Toaster offset={16} closeButton />
 <ModeWatcher defaultMode="dark" track={false} />

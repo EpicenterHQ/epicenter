@@ -1,10 +1,9 @@
 /**
  * Import lifetime tests.
- * File imports drain every admitted pipeline, including siblings of a failed
- * import. Departure refuses new files before they acquire storage or inference.
+ * File imports retain saved bytes and capture inference before asynchronous saves.
+ * Retired UI refuses new imports; retirement prevents publishing new rows.
  */
 import { expect, mock, test } from 'bun:test';
-import { createPageLifetime } from '../../../../../packages/app-shell/src/boot-screens/page-lifetime.test-support.js';
 import { generateBlobId } from '@epicenter/blobs';
 import { Ok } from 'wellcrafted/result';
 import type { WhisperingApp } from '../whispering/app.js';
@@ -35,11 +34,8 @@ mock.module('./pipeline.js', () => ({
 	},
 }));
 const { importFiles } = await import('./import.js');
-const { drainRecordingWork } = await import(
-	'../state/recording-active.svelte.js'
-);
 
-test('failed import does not abandon its sibling before departure drains', async () => {
+test('failed import preserves saved sibling bytes and refuses new work after retirement', async () => {
 	let recordingEnabled = true;
 	const original = inference;
 	const publication = Promise.withResolvers<void>();
@@ -85,31 +81,23 @@ test('failed import does not abandon its sibling before departure drains', async
 	inference = original;
 	expect(pipelines).toHaveLength(2);
 	recordingEnabled = false;
-	let drained = false;
-	const closing = drainRecordingWork().then(() => {
-		drained = true;
-	});
-	const closingFailed = closing.catch((error: Error) => error);
 	await expect(importFiles(app, { files: [file] })).rejects.toThrow('closing');
 	expect(pipelines).toHaveLength(2);
 	pipelines[0]!.reject(new Error('inference failed'));
 	expect(await failed).toMatchObject({ message: 'inference failed' });
-	expect(drained).toBe(false);
 	pipelines[1]!.resolve();
-	expect(await closingFailed).toMatchObject({ message: 'inference failed' });
+	await pipelines[1]!.promise;
 });
 
-test('retirement during import publication drains quietly and releases the library', async () => {
+test('retirement during import publication preserves committed bytes without a row', async () => {
 	const controller = new AbortController();
 	const entered = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
-	const quiescing = Promise.withResolvers<void>();
 	const blobId = generateBlobId('wav');
 	const bytes = new Map<string, Blob>();
 	const create = mock(async () => {
 		throw new Error('Retired App must not create rows');
 	});
-	const close = mock(async () => {});
 	const app = {
 		signal: controller.signal,
 		recordingEnabled: true,
@@ -125,14 +113,6 @@ test('retirement during import publication drains quietly and releases the libra
 		},
 		recordings: { create },
 	} as unknown as WhisperingApp;
-	const departure = createPageLifetime({
-		stopUi: async () => {
-			quiescing.resolve();
-			await drainRecordingWork();
-		},
-		account: undefined,
-		opening: Promise.resolve({ signal: controller.signal, close }),
-	});
 
 	const before = processed.length;
 	const importing = importFiles(app, {
@@ -140,12 +120,8 @@ test('retirement during import publication drains quietly and releases the libra
 	});
 	await entered.promise;
 	controller.abort(new Error('retired'));
-	await quiescing.promise;
 	release.resolve();
 	await importing;
-	await departure.close();
-	expect(departure.state.phase).toBe('retired');
-	expect(close).toHaveBeenCalledTimes(1);
 	expect(create).not.toHaveBeenCalled();
 	expect(processed).toHaveLength(before);
 	expect(bytes.size).toBe(1);

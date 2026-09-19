@@ -29,10 +29,6 @@
 	let failure = $state('');
 	let notice = $state('');
 	let destination = $state<{ id: string | null } | null>(null);
-	let departure = $state.raw<{
-		resolve: () => void;
-		reject: (error: Error) => void;
-	} | null>(null);
 	let deleting = $state(false);
 	let running = $state(false);
 	let queryFailure = $state('');
@@ -92,34 +88,13 @@
 		else open(id);
 	}
 
-	/** A deliberate document departure must settle the draft before App closes. */
-	export async function preflight() {
-		if (saving || unsavedWrite || library.persistence.get() !== 'saved') {
-			throw new Error('Save the query changes to this device before leaving.');
-		}
-		if (!dirty) return;
-		if (departure || destination)
-			throw new Error('Finish the draft confirmation before leaving.');
-		await new Promise<void>((resolve, reject) => {
-			departure = { resolve, reject };
-		});
-	}
-
 	function cancelDiscard() {
 		destination = null;
-		departure?.reject(new Error('Kept the unsaved query draft.'));
-		departure = null;
 	}
 
 	function discardDraft() {
 		if (destination) open(destination.id);
-		else {
-			name = baseline.name;
-			sql = baseline.sql;
-		}
 		destination = null;
-		departure?.resolve();
-		departure = null;
 	}
 
 	async function persist() {
@@ -200,7 +175,6 @@
 	onDestroy(() => {
 		alive = false;
 		execution?.abort();
-		departure?.reject(new Error('Query editor closed.'));
 	});
 
 	async function run() {
@@ -426,7 +400,7 @@
 </section>
 
 <Dialog.Root
-	open={destination !== null || departure !== null}
+	open={destination !== null}
 	onOpenChange={(open) => {
 		if (!open) cancelDiscard();
 	}}

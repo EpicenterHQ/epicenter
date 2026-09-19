@@ -103,3 +103,10 @@ incremental = true
 [profile.release]
 panic = "abort"
 strip = true
+
+[features]
+runtime-evidence = ["tauri/test"]
+
+[[example]]
+name = "runtime_lifetime_evidence"
+required-features = ["runtime-evidence"]

@@ -7,8 +7,8 @@ use epicenter_lib::blobs::BlobDestination;
 use epicenter_lib::recorder::commands::*;
 use epicenter_lib::recorder::recorder::Recorder;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Mutex,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc, Mutex,
 };
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 
@@ -41,6 +41,7 @@ fn evidence_done(app: tauri::AppHandle, error: Option<String>, blob_id: Option<S
     }
     let destination = BlobDestination {
         app_id: "com.epicenter.captureevidence".into(),
+        account: None,
     };
     let bytes =
         epicenter_lib::blobs::read_blob_bytes(&app, &blob_id.expect("saved blob id"), &destination)
@@ -57,6 +58,7 @@ fn evidence_done(app: tauri::AppHandle, error: Option<String>, blob_id: Option<S
         .require_session("app-capture-evidence", "new-document")
         .is_err());
     eprintln!("NATIVE_WEBVIEW_PASS mode={} microphone_reopened=true saved_after_close_bytes={} decoded_samples={}", evidence_mode(), bytes.len(), samples.len());
+    app.state::<Arc<AtomicBool>>().store(true, Ordering::SeqCst);
     app.exit(0);
 }
 
@@ -95,7 +97,7 @@ const SCRIPT: &str = r#"
     await invoke('close_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'old-document' });
     await delay(1100);
     const stopped = await invoke('stop_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document', audioBlobId: live.audioBlobId });
-    const retry = await invoke('stop_recording', { sessionId: 'new-document', audioBlobId: live.audioBlobId });
+    const retry = await invoke('stop_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document', audioBlobId: live.audioBlobId });
     if (stopped.blobId !== retry.blobId || stopped.byteLength !== retry.byteLength) throw new Error('stop retry changed saved output');
     await invoke('close_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document' });
     if (mode === 'interrupt') {
@@ -114,6 +116,7 @@ const SCRIPT: &str = r#"
 
 fn main() {
     let root = tempfile::tempdir().unwrap();
+    let passed = Arc::new(AtomicBool::new(false));
     let evidence_root = std::env::var_os("EPICENTER_CAPTURE_EVIDENCE_ROOT")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| root.path().into());
@@ -127,6 +130,7 @@ fn main() {
         })
         .manage(Mutex::new(Recorder::new()))
         .manage(AtomicUsize::new(0))
+        .manage(passed.clone())
         .on_page_load(|webview, payload| {
             if payload.event() == tauri::webview::PageLoadEvent::Started {
                 cancel_recording_owned_by(webview.app_handle(), webview.label());
@@ -163,7 +167,9 @@ fn main() {
         })
         .build(context)
         .unwrap();
-    let code = app.run_return(|_, _| {});
+    app.run_return(|_, _| {});
     drop(root);
-    std::process::exit(code);
+    // Wry forwards the requested code in ExitRequested, but uses ControlFlow::Exit
+    // for run_return. Only completed assertions establish successful evidence.
+    std::process::exit(if passed.load(Ordering::SeqCst) { 0 } else { 1 });
 }

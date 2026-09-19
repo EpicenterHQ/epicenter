@@ -1,4 +1,4 @@
-/** Mail operations drain per mounted App, including aborted consent and durable triage. */
+/** Mail attachment disposal aborts work immediately; account removal keeps its own drain. */
 import { expect, test } from 'bun:test';
 import type { ScopedSqlite } from '@epicenter/device/owner';
 import { Ok } from 'wellcrafted/result';
@@ -124,7 +124,7 @@ test('account removal drains restricted queries and query policy is fixed by Loc
 	}
 });
 
-test('document closure cancels queries and drains admitted work without closing App resources', async () => {
+test('attachment disposal cancels queries without waiting or closing App resources', async () => {
 	const f = await fixture();
 	try {
 		const entered = Promise.withResolvers<AbortSignal>();
@@ -137,18 +137,12 @@ test('document closure cancels queries and drains admitted work without closing 
 		};
 		const reading = f.mail.query('one', 'select 1');
 		const signal = await entered.promise;
-		let closed = false;
-		const closing = f.close();
-		void closing.then(() => {
-			closed = true;
-		});
+		expect(f.close()).toBeUndefined();
 		expect(signal.aborted).toBe(true);
-		expect(closed).toBe(false);
 		await expect(f.mail.accounts()).rejects.toThrow('closing');
 		release.resolve();
 		await reading;
-		await closing;
-		expect(f.close()).toBe(closing);
+		expect(f.close()).toBeUndefined();
 		expect(
 			(await f.storage.local.all('SELECT * FROM accounts')).error,
 		).toBeNull();
@@ -157,7 +151,7 @@ test('document closure cancels queries and drains admitted work without closing 
 	}
 });
 
-test('document closure aborts consent and waits for its owner to settle', async () => {
+test('attachment disposal aborts consent without waiting for a late callback', async () => {
 	const entered = Promise.withResolvers<AbortSignal>();
 	const release = Promise.withResolvers<URL>();
 	const f = await openMailDocument({
@@ -184,22 +178,17 @@ test('document closure aborts consent and waits for its owner to settle', async 
 			redirectUri: 'http://localhost/connected',
 		});
 		const signal = await entered.promise;
-		let closed = false;
-		const closing = f.close().then(() => {
-			closed = true;
-		});
+		expect(f.close()).toBeUndefined();
 		expect(signal.aborted).toBe(true);
-		expect(closed).toBe(false);
 		release.resolve(new URL('http://localhost/connected'));
 		await authorizing;
-		await closing;
-		expect(closed).toBe(true);
+		await expect(f.mail.accounts()).rejects.toThrow('closing');
 	} finally {
 		await f.cleanup();
 	}
 });
 
-test('failed triage rejects and closure waits for a durable assertion before releasing the document', async () => {
+test('failed triage rejects and attachment disposal does not wait for an admitted write', async () => {
 	const f = await fixture();
 	try {
 		await f.mail.accounts();
@@ -227,15 +216,10 @@ test('failed triage rejects and closure waits for a durable assertion before rel
 			want: false,
 		});
 		await entered.promise;
-		let closed = false;
-		const closing = f.close().then(() => {
-			closed = true;
-		});
-		await Promise.resolve();
-		expect(closed).toBe(false);
+		expect(f.close()).toBeUndefined();
+		await expect(f.mail.accounts()).rejects.toThrow('closing');
 		release.resolve();
 		await writing;
-		await closing;
 		expect(
 			(await f.storage.local.all('SELECT want FROM label_intents')).data,
 		).toEqual([{ want: 0 }]);
@@ -267,5 +251,41 @@ test('a new attachment uses new App storage after the preceding attachment close
 		}
 	} finally {
 		await first.cleanup();
+	}
+});
+
+test('a query awaiting storage keeps the disposed attachment signal after another attachment opens', async () => {
+	const f = await fixture();
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	const originalOpen = f.app.sqlite.open;
+	f.app.sqlite.open = async (name) => {
+		if (name === 'local') {
+			entered.resolve();
+			await release.promise;
+		}
+		return originalOpen(name);
+	};
+	const database = await f.storage.mail('one');
+	let aborted: boolean | undefined;
+	database.query = async (_sql, options) => {
+		aborted = options.signal?.aborted;
+		return Ok({ columns: [], rows: [], truncated: false });
+	};
+	try {
+		const reading = f.mail.query('one', 'select 1');
+		await entered.promise;
+		f.close();
+		const disposeReplacement = f.attach(f.app);
+		try {
+			release.resolve();
+			await reading;
+			expect(aborted).toBe(true);
+			expect((await f.mail.accounts())[0]?.sub).toBe('one');
+		} finally {
+			disposeReplacement();
+		}
+	} finally {
+		await f.cleanup();
 	}
 });

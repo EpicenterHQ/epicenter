@@ -1,3 +1,6 @@
+#[cfg(feature = "runtime-evidence")]
+pub mod runtime_evidence;
+
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
@@ -29,11 +32,8 @@ use tauri_specta::Event as _;
 mod command_names;
 
 pub mod app_data;
-#[path = "application-close.rs"]
-mod application_close;
 mod device_owner;
 mod sqlite;
-use application_close::ApplicationClose;
 
 pub mod audio;
 use audio::encode_recording_for_upload;
@@ -100,7 +100,7 @@ const APP_WINDOW_PREFIX: &str = "app-";
 const PRODUCTION_PORT: u16 = 39_130;
 #[cfg(any(debug_assertions, test))]
 const DEVELOPMENT_PORT: u16 = 39_131;
-const PROTOCOL_VERSION: u8 = 6;
+const PROTOCOL_VERSION: u8 = 7;
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 const READY_TIMEOUT: Duration = Duration::from_secs(15);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
@@ -240,14 +240,6 @@ enum BunToRustNativeFrame {
         #[serde(rename = "appId")]
         app_id: String,
         label: String,
-    },
-    CloseApplications {
-        #[serde(rename = "requestId")]
-        request_id: String,
-    },
-    ResumeApplications {
-        #[serde(rename = "requestId")]
-        request_id: String,
     },
     Relaunch {},
 }
@@ -700,9 +692,6 @@ fn app_window_label(id: &str) -> String {
 }
 
 fn ensure_app_window(app: &DesktopAppHandle, id: &str, port: u16, token: &str) -> Result<()> {
-    if app.state::<ApplicationClose>().blocks_launch() {
-        bail!("Finish or cancel sign-in before opening an application.");
-    }
     let label = app_window_label(id);
     if let Some(window) = app.get_webview_window(&label) {
         focus(window);
@@ -713,7 +702,10 @@ fn ensure_app_window(app: &DesktopAppHandle, id: &str, port: u16, token: &str) -
     let url: tauri::Url = format!("{origin}/apps/{id}/").parse()?;
     let initialization_script = initialization_script(&origin, token)?;
     let account_opener = app.clone();
-    let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
+    let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url));
+    #[cfg(feature = "runtime-evidence")]
+    let builder = runtime_evidence::isolate_webview(builder);
+    let window = builder
         .title(format!("Epicenter: {id}"))
         .inner_size(1100.0, 760.0)
         .min_inner_size(680.0, 480.0)
@@ -749,11 +741,8 @@ pub fn run() {
     let port = configured_port();
     let specta_builder = make_specta_builder();
     let specta_handler = tauri_specta::Builder::invoke_handler(&specta_builder);
-    let native_handler = tauri::generate_handler![
-        encode_recording_for_upload,
-        launch_application,
-        application_close::finish_application_close
-    ] as fn(tauri::ipc::Invoke<tauri::Wry>) -> bool;
+    let native_handler = tauri::generate_handler![encode_recording_for_upload, launch_application]
+        as fn(tauri::ipc::Invoke<tauri::Wry>) -> bool;
     let log_plugin = tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Info)
         .level_for("epicenter::transcription", log::LevelFilter::Debug)
@@ -789,7 +778,6 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .manage(HostState::new(port))
-        .manage(ApplicationClose::default())
         .manage(GlobalShortcutRegistry::default())
         .manage(Mutex::new(Recorder::new()))
         .manage(DownloadManager::default());
@@ -801,7 +789,7 @@ pub fn run() {
         .invoke_handler(move |invoke| {
             if matches!(
                 invoke.message.command(),
-                "encode_recording_for_upload" | "launch_application" | "finish_application_close"
+                "encode_recording_for_upload" | "launch_application"
             ) {
                 native_handler(invoke)
             } else {
@@ -1351,6 +1339,21 @@ fn handle_native_frame(
     generation: u64,
     frame: BunToRustNativeFrame,
 ) -> Result<()> {
+    {
+        let state = app.state::<HostState>();
+        if state.shutting_down.load(Ordering::Acquire) {
+            bail!("Native frame arrived after host shutdown began");
+        }
+        let process = state.process.lock().expect("host state lock poisoned");
+        if !process
+            .as_ref()
+            .is_some_and(|process| process.generation == generation)
+        {
+            bail!("Native frame belongs to a retired Bun generation");
+        }
+    }
+    // Dispatch without the process lock: restart delivers Exit, whose cleanup
+    // takes this lock before waiting for the Bun child.
     match frame {
         BunToRustNativeFrame::Sqlite {
             request_id,
@@ -1453,26 +1456,9 @@ fn handle_native_frame(
                 delete_app_secret(&app.config().identifier, &app_id, &label, account.as_ref());
             send_native_result(app, generation, &request_id, result)
         }
-        BunToRustNativeFrame::CloseApplications { request_id } => {
-            let app = app.clone();
-            thread::spawn(move || {
-                let result =
-                    application_close::close_applications(&app, generation, request_id.clone());
-                let _ = send_native_result(&app, generation, &request_id, result);
-            });
-            Ok(())
-        }
-        BunToRustNativeFrame::ResumeApplications { request_id } => {
-            let result = app.state::<ApplicationClose>().resume_closed();
-            send_native_result(app, generation, &request_id, result)
-        }
-        BunToRustNativeFrame::Relaunch {} => {
-            if !app.state::<ApplicationClose>().is_closed() {
-                log::warn!("Refused relaunch before applications finished closing.");
-                return Ok(());
-            }
-            app.restart()
-        }
+        // This handler runs on the sidecar reader thread. Tauri's restart()
+        // delivers RunEvent::Exit here, which terminates the managed Bun child.
+        BunToRustNativeFrame::Relaunch {} => app.restart(),
     }
 }
 
@@ -1747,9 +1733,6 @@ fn ensure_window(
     token: &str,
     reveal: bool,
 ) -> Result<()> {
-    if built_in.is_launchable() && app.state::<ApplicationClose>().blocks_launch() {
-        bail!("Finish or cancel sign-in before opening an application.");
-    }
     if let Some(window) = app.get_webview_window(built_in.id()) {
         if reveal {
             focus(window);
@@ -1793,7 +1776,6 @@ fn focus<R: Runtime>(window: WebviewWindow<R>) {
 }
 
 fn invalidate_windows(app: &DesktopAppHandle) {
-    app.state::<ApplicationClose>().abandon();
     let (sender, receiver) = mpsc::sync_channel(1);
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
@@ -2116,9 +2098,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_only_the_expected_v6_ready_frame() {
+    fn parses_only_the_expected_v7_ready_frame() {
         read_ready_frame(
-            &mut Cursor::new(b"{\"type\":\"ready\",\"protocolVersion\":6,\"port\":39130}\n"),
+            &mut Cursor::new(b"{\"type\":\"ready\",\"protocolVersion\":7,\"port\":39130}\n"),
             PRODUCTION_PORT,
         )
         .unwrap();
@@ -2126,9 +2108,9 @@ mod tests {
         for invalid in [
             "preamble\n",
             "{\"type\":\"ready\",\"protocolVersion\":1,\"port\":39130}\n",
-            "{\"type\":\"ready\",\"protocolVersion\":6,\"port\":39131}\n",
-            "{\"type\":\"ready\",\"protocolVersion\":6,\"port\":39130,\"extra\":true}\n",
-            "{\"type\":\"ready\",\"protocolVersion\":6,\"port\":39130}",
+            "{\"type\":\"ready\",\"protocolVersion\":7,\"port\":39131}\n",
+            "{\"type\":\"ready\",\"protocolVersion\":7,\"port\":39130,\"extra\":true}\n",
+            "{\"type\":\"ready\",\"protocolVersion\":7,\"port\":39130}",
         ] {
             assert!(read_ready_frame(&mut Cursor::new(invalid), PRODUCTION_PORT).is_err());
         }
@@ -2448,11 +2430,7 @@ mod tests {
     /// (raw bytes) or are host-owned rather than part of the app contract.
     #[test]
     fn generated_bindings_cover_every_declared_command() {
-        const HANDWRITTEN: &[&str] = &[
-            "encode_recording_for_upload",
-            "launch_application",
-            "finish_application_close",
-        ];
+        const HANDWRITTEN: &[&str] = &["encode_recording_for_upload", "launch_application"];
         for bindings in [
             include_str!("../../../whispering/src/lib/tauri/bindings.gen.ts"),
             include_str!("../../src/ui/bindings.gen.ts"),
@@ -2970,7 +2948,7 @@ mod tests {
         assert_eq!(
             frame,
             serde_json::json!({
-                "type": "boot", "protocolVersion": 6, "token": "safe_token",
+                "type": "boot", "protocolVersion": 7, "token": "safe_token",
                 "port": PRODUCTION_PORT, "authCell": "opaque",
                 "authServer": configured_auth_server().unwrap().server,
                 "accountManagement": configured_auth_server().unwrap().account_management,

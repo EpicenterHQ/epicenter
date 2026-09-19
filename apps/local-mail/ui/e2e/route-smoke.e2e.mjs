@@ -7,6 +7,37 @@ test.use({
 	persistentOrigin: origins.routes,
 	viewport: { width: 1280, height: 900 },
 });
+test('desktop sign-in shows one root-mounted warning before starting auth', async ({
+	page,
+}) => {
+	page.setDefaultTimeout(15_000);
+	await page.goto(`${origins.routes}/?desktop-warning`);
+	const signIn = page.getByRole('button', { name: 'Sign in', exact: true });
+	const warning = page.getByRole('alertdialog');
+	await signIn.click();
+	await warning.getByText('Change account?', { exact: true }).waitFor();
+	assert.equal(await warning.count(), 1);
+	assert.equal(
+		await page.evaluate(() => globalThis.desktopSignInRequests ?? 0),
+		0,
+	);
+	await warning.getByRole('button', { name: 'Cancel', exact: true }).click();
+	await warning.waitFor({ state: 'hidden' });
+	assert.equal(
+		await page.evaluate(() => globalThis.desktopSignInRequests ?? 0),
+		0,
+	);
+	await signIn.click();
+	await warning.getByText('Change account?', { exact: true }).waitFor();
+	await warning.getByRole('button', { name: 'Continue', exact: true }).click();
+	await warning.waitFor({ state: 'hidden' });
+	await page.getByRole('button', { name: /Signing in…/ }).waitFor();
+	assert.equal(await page.evaluate(() => globalThis.desktopSignInRequests), 1);
+	assert.equal(
+		await page.getByRole('button', { name: /Signing in…/ }).isDisabled(),
+		true,
+	);
+});
 test('application startup, draft protection and durable reopen', async ({
 	context,
 	page,
@@ -88,7 +119,11 @@ test('application startup, draft protection and durable reopen', async ({
 	);
 	page.on('pageerror', (error) => errors.push(error.message));
 	// Do not silently accept a beforeunload prompt during persistence checks.
-	page.on('dialog', (dialog) => dialog.dismiss());
+	let unloadPrompts = 0;
+	page.on('dialog', (dialog) => {
+		unloadPrompts++;
+		void dialog.dismiss();
+	});
 	const noResources = async (label) => {
 		const activity = await page.evaluate(() => globalThis.routeSmoke);
 		assert(
@@ -212,10 +247,20 @@ test('application startup, draft protection and durable reopen', async ({
 				),
 			api,
 		);
-		await page.goto(origin);
+		await page.goto(`${origin}/?stopped&connect`);
 		await page
-			.getByRole('button', { name: 'Sign in with Epicenter', exact: true })
+			.getByRole('button', { name: 'Reopen Local Mail', exact: true })
 			.waitFor();
+		await noResources('Signed-out recovery route');
+		assert(
+			await page.evaluate(() => globalThis.observedBoot?.opening === undefined),
+			'Recovery created an App opener',
+		);
+		observe(
+			'Recovery takes priority over signed-out and connect gates and opens no App',
+		);
+		await page.goto(origin);
+		await page.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
 		await noResources('Signed-out primary route');
 		observe('Signed-out primary route shows sign-in without acquiring storage');
 
@@ -272,10 +317,7 @@ test('application startup, draft protection and durable reopen', async ({
 		);
 	});
 	await test.step('drafts survive navigation and durable reopen', async () => {
-		await page.evaluate(() => {
-			globalThis.routeApplication = globalThis.observedBoot;
-		});
-		await sql.fill('dirty SQL kept after canceled departure');
+		await sql.fill('dirty SQL kept while switching tabs');
 		await page.getByRole('button', { name: 'Mailbox', exact: true }).click();
 		const mailboxState = await inspectTabs(
 			'Returned to mailbox with dirty query',
@@ -289,54 +331,40 @@ test('application startup, draft protection and durable reopen', async ({
 			.click();
 		await name.waitFor();
 		assert(
-			(await sql.inputValue()) === 'dirty SQL kept after canceled departure',
+			(await sql.inputValue()) === 'dirty SQL kept while switching tabs',
 			'Tab switching discarded the query draft',
 		);
 		await inspectTabs('Returned to saved queries with preserved draft');
 		observe(
 			'Mailbox hides the query panel; returning to Saved queries preserves the dirty draft',
 		);
-		await page.evaluate(() => {
-			globalThis.routeSmoke.departure = 'pending';
-			void globalThis.routeApplication.lifetime
-				.go(() => {
-					globalThis.routeSmoke.departure = 'departed';
-				})
-				.catch(() => {
-					globalThis.routeSmoke.departure = 'refused';
-				});
-		});
-		await page.getByText('Discard this draft?', { exact: true }).waitFor();
-		await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-		await page.waitForFunction(
-			() => globalThis.routeSmoke.departure === 'refused',
-		);
-		assert(
-			(await sql.inputValue()) === 'dirty SQL kept after canceled departure',
-			'Canceled departure lost the draft',
-		);
-		assert(
-			(await page.evaluate(
-				() => globalThis.routeApplication.lifetime.state.phase,
-			)) === 'open',
-			'Canceled preflight closed the App',
-		);
-		observe(
-			'Real route → MailShell → editor preflight refuses departure and retains the dirty draft',
-		);
 		await page.getByRole('button', { name: 'Save', exact: true }).click();
 		await page
 			.getByRole('status')
 			.filter({ hasText: 'Saved to this device.' })
 			.waitFor();
-		await page.evaluate(() => globalThis.routeApplication.lifetime.close());
+		await sql.fill('an entire explicit-save draft discarded by retirement');
+		const promptsBeforeRetirement = unloadPrompts;
+		await page.evaluate(async () => {
+			const app = await globalThis.observedBoot.opening;
+			void app.close().catch(() => {});
+		});
+		await page.waitForURL((url) => url.searchParams.has('stopped'));
+		await page
+			.getByRole('button', { name: 'Reopen Local Mail', exact: true })
+			.waitFor();
 		assert(
-			await page.evaluate(
-				() => globalThis.routeApplication.lifetime.state.phase === 'closed',
-			),
-			'Document cleanup did not release resources',
+			unloadPrompts === promptsBeforeRetirement,
+			'Retirement left a draft veto active',
 		);
-		await page.reload();
+		await noResources('Recovery after retirement');
+		assert(
+			await page.evaluate(() => globalThis.observedBoot?.opening === undefined),
+			'Retirement recovery opened another App',
+		);
+		await page
+			.getByRole('button', { name: 'Reopen Local Mail', exact: true })
+			.click();
 		await page
 			.getByRole('button', { name: 'Saved queries', exact: true })
 			.waitFor();
@@ -347,11 +375,11 @@ test('application startup, draft protection and durable reopen', async ({
 			.getByRole('button', { name: 'Actual route saved query', exact: true })
 			.click();
 		assert(
-			(await sql.inputValue()) === 'dirty SQL kept after canceled departure',
+			(await sql.inputValue()) === 'dirty SQL kept while switching tabs',
 			'Actual route failed durable reopen',
 		);
 		observe(
-			'Document closure releases resources and a new primary document reopens the persisted query',
+			'Retirement discards the dirty editor without a veto; recovery opens no App until explicit reopen, which retains the committed query',
 		);
 	});
 	await test.step('connection navigation preserves query drafts', async () => {

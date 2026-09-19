@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { getConnectionScreen } from '@epicenter/app-shell/boot-screens';
+	import { auth } from '#platform/auth';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
@@ -11,11 +13,17 @@
 		library: Library;
 		select: (library: Library) => Promise<void>;
 	} = $props();
+	const openConnection = getConnectionScreen();
 	const labels = { local: 'On this device', personal: 'Personal library' };
 	let pending = $state(false);
 	let error = $state('');
 	async function choose(next: Library) {
 		if (pending || next === library) return;
+		if (next === 'personal' && !auth.getState().account && openConnection) {
+			localStorage.setItem('whispering.library', next);
+			openConnection();
+			return;
+		}
 		pending = true;
 		error = '';
 		const result = await tryAsync({

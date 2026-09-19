@@ -124,13 +124,6 @@ try {
 				await peer.close();
 				return { repair: repair.id, remove: remove.id };
 			},
-			startPreflight() {
-				Object.assign(globalThis, { preflightOutcome: 'pending' });
-				void panel.preflight().then(
-					() => Object.assign(globalThis, { preflightOutcome: 'departed' }),
-					() => Object.assign(globalThis, { preflightOutcome: 'cancelled' }),
-				);
-			},
 			blockPersistence() {
 				const transaction = IDBDatabase.prototype.transaction;
 				IDBDatabase.prototype.transaction = function (

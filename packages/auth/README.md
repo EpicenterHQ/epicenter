@@ -90,9 +90,9 @@ completions cannot install a credential; orphaned results are revoked where poss
 A passive handoff inherits the source session's authentication age.
 
 `SessionAuthClient.cancelSignIn()` aborts the pending attempt and waits for
-credential persistence to settle. It preserves an unchanged Account. Desktop
-composition then releases its application-close barrier; if replacement already
-retired the original Account, that composition starts a fresh process instead.
+credential persistence to settle. It preserves an unchanged Account. The desktop
+authority owns its own next-boot attempt; cancelling before acceptance leaves
+working windows open.
 
 Only callback-capable clients expose `completeSignIn`. Success means the
 credential was verified, persisted, and published. The callback route then uses
@@ -123,13 +123,22 @@ Desktop WebViews use `createDesktopBrokerAuth`; they receive identity and
 loopback access, never the remote credential. Bun owns the same session runtime
 and completes the configured issuer’s handoff through the native deep link.
 
-The host forwards HTTP and live sync through its captured boot Account.
-A first sign-in or different-person replacement is persisted for relaunch.
-Same-person repair keeps that Account and resumes application launching. The
-native close barrier has already closed app windows; resuming permits new
-windows and does not restore those that closed. A failed relaunch cannot make an old
-window use a replacement Account. Apps own their local stores and sync engines;
-the host relays bytes and owns no application replica or reconnect loop.
+The host forwards HTTP and live sync through its captured boot Account. Every
+successful explicit sign-in, including same-person reauthentication, prepares
+credentials for the next process and restarts. The authority disposes its boot
+auth owner before writing the successor behind any queued old-owner writes.
+It never publishes the successor in the running process. Sign-out clears the
+credential cell and restarts after bounded revocation.
+
+One warning authorizes interruption of all active recordings and unsaved drafts,
+including work started while sign-in is pending. Cancellation before acceptance
+leaves working windows open. Once accepted, a failed credential write or restart
+leaves the old Account fenced. A failed write may have changed storage; no
+rollback or resumed session is promised. New pages in a retired process show
+restart-required UI instead of receiving its stale bootstrap identity.
+
+Apps own their local stores and sync engines; the host relays bytes and owns no
+application replica or reconnect loop.
 
 ## Lifetime and policy
 
@@ -137,11 +146,14 @@ the host relays bytes and owns no application replica or reconnect loop.
 that same Account. Store apps capture the Account from the plain client in
 the mounted AppBoot instance and keep one App per working page. Svelte adapts
 auth with `fromAuth` only for UI tracking through its reactive `.state` getter.
-The raw client exposes the explicit snapshot method `getState()`. Deliberate
-departure closes the App before
-mutating identity and navigating; unexpected retirement never opens a successor
-in the same document. Desktop children await the host close barrier before
-voluntary retirement.
+The raw client exposes the explicit snapshot method `getState()`. Ordinary
+persistence runs during use. Browser departures remove working UI and replace
+the document without awaiting application drains. Deliberate sign-out waits for
+its auth work before navigating, despite the synchronous retirement notification.
+Unexpected retirement makes the UI inert and navigates to `?stopped`. That marker
+is checked before opening an App; reopening requires an explicit action. Failed
+navigation and browser history restoration cannot revive the old working UI.
+Resource disposal and acquisition rollback remain independent of navigation.
 
 The hosted server checks live session rows on HTTP requests and socket admission.
 Sessions last 30 days and renew after one day of use. Renewal does not reset

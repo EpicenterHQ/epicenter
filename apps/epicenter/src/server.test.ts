@@ -96,8 +96,6 @@ test('development browser callback completes the pending sign-in without a Home 
 		authCell: null,
 		callbackUrl,
 		nativeAuthPort: {
-			async closeApplications() {},
-			async resumeApplications() {},
 			async storeAuth() {},
 			async openAuthUrl(url) {
 				opened.resolve(url);
@@ -157,6 +155,96 @@ test('development browser callback completes the pending sign-in without a Home 
 			})
 		).status,
 	).toBe(404);
+});
+
+test.each([
+	'restart',
+	'storage',
+	'boot-verification',
+] as const)('failed %s serves restart-required documents without stale boot identity', async (failure) => {
+	await using host = await createHomeHost({
+		model: 'test',
+		engine: async function* () {},
+	});
+	using desktopAuth = createDesktopAuthAuthority({
+		server: epicenterCloud('https://api.epicenter.so'),
+		accountManagement: true,
+		authCell: JSON.stringify({
+			origin: 'https://api.epicenter.so',
+			auth: { token: 'alice-token', principalId: 'alice' },
+		}),
+		nativeAuthPort: {
+			completed: new Promise(() => {}),
+			async storeAuth() {
+				if (failure === 'storage')
+					throw new Error('keychain write acknowledgement failed');
+			},
+			async openAuthUrl() {},
+			onAuthCallback() {
+				return () => false;
+			},
+			relaunch() {
+				throw new Error('native restart failed');
+			},
+		},
+		fetch: async () =>
+			failure === 'boot-verification'
+				? Response.json({ principalId: 'other' })
+				: new Response(null),
+	});
+	const origin = 'http://127.0.0.1:49152';
+	const { app } = createHomeServer({
+		host,
+		origin,
+		launchToken: 'launch',
+		folderRoot: testDataDir(),
+		staticAssets: await createAppsDistFixture(PAGE),
+		blobs: createTestBlobs(),
+		desktopAuth,
+	});
+	const bootstrap = await app.request(origin + '/_epicenter/bootstrap', {
+		method: 'POST',
+		headers: {
+			host: new URL(origin).host,
+			origin,
+			authorization: 'Bearer launch',
+		},
+	});
+	const cookie = bootstrap.headers.get('set-cookie')!.split(';')[0]!;
+	if (failure === 'boot-verification') {
+		await expect(
+			desktopAuth.account!.fetch('/api/example'),
+		).rejects.toBeDefined();
+		expect(desktopAuth.restartRequired).toBe(true);
+	} else {
+		const signout = await app.request(ACCOUNT_SIGN_OUT_ROUTE.url(origin), {
+			method: 'POST',
+			headers: { host: new URL(origin).host, origin, cookie },
+		});
+		expect(signout.status).toBe(500);
+		expect(signout.headers.get('x-epicenter-auth-state')).toBe('signed-out');
+	}
+
+	for (const route of [
+		HOME_ROUTE.url(origin),
+		HONEYCRISP_ROUTE.url(origin),
+		WHISPERING_ROUTE.url(origin),
+		MAIL_ROUTE.url(origin),
+	]) {
+		for (const credential of [cookie, '']) {
+			const response = await app.request(route, {
+				headers: { host: new URL(origin).host, cookie: credential },
+			});
+			const html = await response.text();
+			expect(html).toContain('Restart Epicenter to continue');
+			expect(html).not.toContain('epicenter-auth-bootstrap');
+			expect(html).not.toContain('<script');
+			expect(response.headers.get('cache-control')).toBe('no-store');
+		}
+	}
+	await expect(
+		desktopAuth.account!.fetch('/api/example'),
+	).rejects.toBeDefined();
 });
 
 const TOKEN = 'per-launch-secret';
@@ -1776,7 +1864,7 @@ async function readPortAnnouncement(
 					const ready = JSON.parse(line) as ReadyFrame;
 					expect(ready).toEqual({
 						type: 'ready',
-						protocolVersion: 6,
+						protocolVersion: 7,
 						port: ready.port,
 					});
 					return ready.port;
@@ -1899,7 +1987,7 @@ describe('sidecar end-to-end smoke', () => {
 		try {
 			// The credential and Rust-resolved port travel in the boot frame.
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: 6, token: TOKEN, port, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir, folderDir })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: 7, token: TOKEN, port, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir, folderDir })}\n`,
 			);
 			await sidecar.stdin.flush();
 			const announcedPort = await readPortAnnouncement(sidecar, 30_000);
@@ -2053,7 +2141,7 @@ describe('sidecar end-to-end smoke', () => {
 		);
 		try {
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: 6, token: TOKEN, port: occupiedPort, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir: testDataDir(), folderDir: testDataDir() })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: 7, token: TOKEN, port: occupiedPort, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir: testDataDir(), folderDir: testDataDir() })}\n`,
 			);
 			await sidecar.stdin.flush();
 			expect(await exitWithin(sidecar, 30_000)).not.toBe(0);
@@ -2093,7 +2181,7 @@ describe('sidecar end-to-end smoke', () => {
 		);
 		try {
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: 6, token: TOKEN, port, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir: testDataDir(), folderDir: testDataDir() })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: 7, token: TOKEN, port, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir: testDataDir(), folderDir: testDataDir() })}\n`,
 			);
 			await sidecar.stdin.flush();
 			expect(await readPortAnnouncement(sidecar, 30_000)).toBe(port);

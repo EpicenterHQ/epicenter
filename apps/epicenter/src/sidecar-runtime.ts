@@ -20,7 +20,7 @@ const SHUTDOWN_GRACE_MS = 10_000;
 const MAX_NATIVE_FRAME_BYTES = 8 * 1024 * 1024;
 const MAX_NATIVE_PENDING = 64;
 
-export const SIDECAR_PROTOCOL_VERSION = 6;
+export const SIDECAR_PROTOCOL_VERSION = 7;
 export const PRODUCTION_PORT = 39_130;
 
 export type SidecarRuntimeMode = 'production' | 'development';
@@ -74,13 +74,7 @@ export type NativePort = ReturnType<typeof createNativePort>;
  */
 export type NativeAuthPort = Pick<
 	NativePort,
-	| 'completed'
-	| 'storeAuth'
-	| 'openAuthUrl'
-	| 'relaunch'
-	| 'onAuthCallback'
-	| 'closeApplications'
-	| 'resumeApplications'
+	'completed' | 'storeAuth' | 'openAuthUrl' | 'relaunch' | 'onAuthCallback'
 >;
 
 const BOOT_FRAME_KEYS = [
@@ -372,8 +366,6 @@ export function createNativePort(
 	function request(
 		frame:
 			| { type: 'sqlite'; request: NativeSqliteRequest }
-			| { type: 'close-applications' }
-			| { type: 'resume-applications' }
 			| { type: 'store-auth'; serialized: string | null }
 			| { type: 'open-auth-url'; url: string }
 			| {
@@ -518,12 +510,6 @@ export function createNativePort(
 			account?: AccountIdentity,
 		) {
 			await request({ type: 'delete-app-secret', appId, label, account });
-		},
-		async closeApplications() {
-			await request({ type: 'close-applications' });
-		},
-		async resumeApplications() {
-			await request({ type: 'resume-applications' });
 		},
 		relaunch() {
 			send({ type: 'relaunch' });

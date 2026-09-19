@@ -1,6 +1,11 @@
 import { defineApp, field } from '@epicenter/app';
 import { createMemoryRuntime } from '@epicenter/app/testing';
-import { createBrowserRedirectAuth, selfHostedServer } from '@epicenter/auth';
+import {
+	AuthError,
+	type AuthClient,
+	createBrowserRedirectAuth,
+	selfHostedServer,
+} from '@epicenter/auth';
 import { Ok } from 'wellcrafted/result';
 import { createCurrentDownloadResponse } from '../../../sync/src/current-download.js';
 
@@ -35,16 +40,53 @@ Reflect.set(
 		}
 		if (new URL(request.url).pathname === '/refuse')
 			return new Response(null, { status: 401 });
-		if (new URL(request.url).pathname === '/auth/sign-out')
+		if (new URL(request.url).pathname === '/auth/sign-out') {
+			probe.events.push('sign-out-started');
+			if (new URL(location.href).searchParams.has('hold-signout'))
+				await probe.signOut;
 			probe.events.push('signed-out');
+		}
 		return Response.json({ principalId: 'alice' });
 	},
 );
-export const auth = createBrowserRedirectAuth({
+const browserAuth = createBrowserRedirectAuth({
 	accountManagement: false,
 	appId: 'probe',
 	server: selfHostedServer('https://old.example'),
 });
+// The desktop branch models only the host-owned pending action. Account
+// retirement and held sign-out work still use the real session auth underneath.
+export const auth: AuthClient = new URL(location.href).searchParams.has(
+	'desktop',
+)
+	? {
+			baseURL: browserAuth.baseURL,
+			getState: browserAuth.getState,
+			onStateChange: browserAuth.onStateChange,
+			getProfile: browserAuth.getProfile,
+			[Symbol.dispose]: browserAuth[Symbol.dispose],
+			async startSignIn() {
+				probe.events.push('sign-in-started');
+				await probe.signIn;
+				probe.events.push('sign-in-finished');
+				return AuthError.StartSignInFailed({
+					cause: new Error('Pending sign-in cancelled by sign-out.'),
+				});
+			},
+			async signOut() {
+				probe.releaseSignIn();
+				const result = await browserAuth.signOut();
+				if (new URL(location.href).searchParams.has('fail-signout')) {
+					return AuthError.SignOutFailed({
+						cause: new Error(
+							'Native credential write failed after retirement.',
+						),
+					});
+				}
+				return result;
+			},
+		}
+	: browserAuth;
 export const definition = defineApp({
 	id: 'test.boot-probe',
 	kv: { text: field.string() },
@@ -54,6 +96,7 @@ const memory = createMemoryRuntime();
 export const runtime = {
 	...memory,
 	async claim(...args: Parameters<typeof memory.claim>) {
+		probe.events.push('claim');
 		const result = await memory.claim(...args);
 		if (result.error) return result;
 		return Ok({

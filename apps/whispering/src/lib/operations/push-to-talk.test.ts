@@ -1,4 +1,4 @@
-/** Verifies push-to-talk resolves only its owned recording and drains pending startup. */
+/** Verifies push-to-talk releases its timer and forgets disposed sessions without saving recordings. */
 import { expect, mock, test } from 'bun:test';
 import { type BlobId, generateBlobId } from '@epicenter/blobs';
 import type { WhisperingApp } from '$lib/whispering/app';
@@ -25,7 +25,7 @@ const recording = {
 const { pushToTalk } = await import('./push-to-talk');
 const app = { recording } as unknown as WhisperingApp;
 
-test('dispose stops an active push-to-talk recording before app teardown', async () => {
+test('dispose disarms a hold without saving its recording', async () => {
 	const recordingId = generateBlobId('wav');
 	start.mockImplementationOnce(async () => recordingId);
 
@@ -33,7 +33,7 @@ test('dispose stops an active push-to-talk recording before app teardown', async
 	recorderState = 'RECORDING';
 	await pushToTalk.dispose(app);
 
-	expect(stop).toHaveBeenLastCalledWith(recordingId);
+	expect(stop).not.toHaveBeenCalled();
 	recorderState = 'STOPPED';
 });
 
@@ -52,7 +52,7 @@ test('dispose cannot retire another app session', async () => {
 	recorderState = 'STOPPED';
 });
 
-test('dispose invalidates and drains a recording start already in flight', async () => {
+test('dispose invalidates an in-flight start without waiting or saving', async () => {
 	const recordingId = generateBlobId('wav');
 	let resolveStart!: (id: BlobId) => void;
 	start.mockImplementationOnce(
@@ -68,6 +68,6 @@ test('dispose invalidates and drains a recording start already in flight', async
 	resolveStart(recordingId);
 	await Promise.all([starting, disposal]);
 
-	expect(stop).toHaveBeenLastCalledWith(recordingId);
+	expect(stop).not.toHaveBeenCalled();
 	recorderIsStarting = false;
 });

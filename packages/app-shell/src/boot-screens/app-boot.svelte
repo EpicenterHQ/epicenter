@@ -5,116 +5,160 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
 	import { onDestroy, onMount, tick, type Snippet } from 'svelte';
-	import { createPageLifetime, type Leave } from './page-lifetime.svelte.js';
-	import { provideAppCleanup } from './app-cleanup.js';
+	import { confirmAccountChange } from './confirm-account-change.js';
 	import { provideConnectionScreen, provideSignOut } from './connection-screen-context.js';
-	import { attachDesktopClose } from './desktop-close.js';
 	import CannotOpenScreen from './cannot-open-screen.svelte';
 
 	let props: {
 		auth: AuthClient;
 		definition: TDefinition;
 		runtime?: AppRuntime;
-		/** App-resolved sign-in screen destination, visited after closure. */
 		signInHref: string;
-		/** App-resolved destination after closure and successful sign-out. */
 		signedOutHref: string;
 		appName: string;
 		noun: string;
 		openingFailure?: Snippet;
-		children: Snippet<[App<TDefinition>, Leave, Account | undefined]>;
+		children: Snippet<[App<TDefinition>, Account | undefined]>;
 	} = $props();
-	const getCleanup = provideAppCleanup();
-	let nativeError = $state('');
+
+	const stopped = new URL(location.href).searchParams.has('stopped');
+	// This document captures its identity once. Recovery must not acquire an App.
 	// svelte-ignore state_referenced_locally
 	const account = props.auth.getState().account;
 	// svelte-ignore state_referenced_locally
-	const opening = openApp(props.definition, { account, runtime: props.runtime });
-	// These identities belong to this component instance. Changing accounts ends it.
-	// svelte-ignore state_referenced_locally
-	const lifetime = createPageLifetime({
-		auth: props.auth,
-		account,
-		opening,
-		async preflight(hasEnded) {
-			// A native close can arrive before readiness. Mount the ready UI first
-			// so its domain veto participates; opening failure is rendered by await.
-			await opening.then(tick, () => {});
-			if (hasEnded()) return;
-			await getCleanup()?.preflight?.();
-			// A confirmation can settle after forced teardown has already finished.
-			if (hasEnded()) return;
-			if (document.activeElement instanceof HTMLElement)
-				document.activeElement.blur();
-		},
-		async stopUi() {
-			const stopping = getCleanup()?.close();
-			// Observe rejection immediately, even if it settles before tick.
-			const removed = tick();
-			await Promise.all([removed, stopping]);
-		},
-	});
-	// Browser sign-in replaces the document, including same-person repair.
-	// Desktop reauthentication closes windows through the native broker.
-	// svelte-ignore state_referenced_locally
-	if (!account || isCallbackAuthClient(props.auth)) {
-		provideConnectionScreen(() => {
-			void lifetime.go(() => window.location.assign(props.signInHref)).catch(() => {});
-		});
+	const opening = stopped ? undefined : openApp(props.definition, { account, runtime: props.runtime });
+	let phase = $state<'open' | 'stopped'>(stopped ? 'stopped' : 'open');
+	let error = $state('');
+	let surface = $state<HTMLDivElement>();
+	let changing = $state(false);
+	let signingIn = false;
+	let destroyed = false;
+	let disposed = false;
+	let stopRetirement: (() => void) | undefined;
+
+	function disposeApp() {
+		if (disposed) return;
+		disposed = true;
+		stopRetirement?.();
+		// Disposal also releases an acquisition that finishes after unmount.
+		// It never delays document replacement.
+		void opening?.then((app) => app.close()).catch(() => {});
 	}
-	provideSignOut(() => lifetime.go(async () => {
-		const result = await props.auth.signOut();
-		if (result.error) throw result.error;
-		window.location.replace(props.signedOutHref);
-	}));
+
+	function stop() {
+		if (surface) surface.inert = true;
+		phase = 'stopped';
+		disposeApp();
+	}
+
+	async function recover() {
+		stop();
+		// Remove working UI and its normal tab-close warnings before navigation.
+		await tick();
+		if (destroyed) return;
+		const url = new URL(location.href);
+		url.searchParams.delete('connect');
+		url.searchParams.set('stopped', '');
+		location.replace(url);
+	}
+
+	// Deliberate sign-out owns navigation until its asynchronous auth work ends.
+	// svelte-ignore state_referenced_locally
+	const stopAuth = props.auth.onStateChange((next) => {
+		if (next.account !== account && phase === 'open') void recover();
+	});
+	void opening?.then((app) => {
+		if (disposed) return;
+		const retired = () => { if (phase === 'open') void recover(); };
+		if (app.signal.aborted) retired();
+		else {
+			app.signal.addEventListener('abort', retired, { once: true });
+			stopRetirement = () => app.signal.removeEventListener('abort', retired);
+		}
+	}, () => {});
+
+	provideConnectionScreen(() => {
+		if (changing || signingIn || phase !== 'open') return;
+		signingIn = true;
+		changing = true;
+		void (async () => {
+			try {
+				const confirmed = await confirmAccountChange(props.auth);
+				// The host can cancel a pending sign-in through explicit sign-out.
+				changing = false;
+				if (!confirmed || destroyed || phase !== 'open') return;
+				if (isCallbackAuthClient(props.auth)) {
+					stop();
+					await tick();
+					if (destroyed) return;
+					// Back must reach recovery even when the browser reloads this entry.
+					const previous = new URL(location.href);
+					previous.searchParams.set('stopped', '');
+					history.replaceState(history.state, '', previous);
+					location.assign(props.signInHref);
+				} else {
+					// OAuth cancellation keeps this working document alive.
+					const result = await props.auth.startSignIn();
+					if (result.error) throw result.error;
+				}
+			} catch (cause) {
+				if (!destroyed && phase === 'open')
+					error = cause instanceof Error ? cause.message : 'Could not sign in.';
+			} finally {
+				signingIn = false;
+			}
+		})();
+	});
+	provideSignOut(async () => {
+		if (changing || phase !== 'open') return;
+		changing = true;
+		try {
+			if (!(await confirmAccountChange(props.auth)) || destroyed || phase !== 'open') return;
+			stop();
+			await tick();
+			if (destroyed) return;
+			const result = await props.auth.signOut();
+			if (result.error) throw result.error;
+			if (destroyed) return;
+			if (isCallbackAuthClient(props.auth)) location.replace(props.signedOutHref);
+		} finally {
+			changing = false;
+		}
+	});
 
 	onDestroy(() => {
-		void lifetime.abandon().catch(() => {});
+		destroyed = true;
+		stopAuth();
+		disposeApp();
 	});
-
 	onMount(() => {
-		let stopped = false;
-		let stopNative: (() => void) | undefined;
-		void attachDesktopClose(lifetime.close).then((stop) => {
-			if (stopped) stop();
-			else stopNative = stop;
-		}).catch((cause) => {
-			nativeError = cause instanceof Error ? cause.message : 'Could not listen for application closure.';
-		});
-		return () => {
-			stopped = true;
-			stopNative?.();
+		const restored = (event: PageTransitionEvent) => {
+			if (event.persisted) void recover();
 		};
+		window.addEventListener('pageshow', restored);
+		return () => window.removeEventListener('pageshow', restored);
 	});
 </script>
 
-{#if nativeError}<p role="alert">{nativeError}</p>{/if}
-
-{#await opening}
-	<Loading class="h-dvh" label="Opening your {props.noun}…" />
-{:then opened}
-	{#if lifetime.state.phase === 'open'}
-		{@render props.children(opened, lifetime.go, account)}
-	{:else}
-		<div class="flex h-dvh flex-col items-center justify-center gap-4">
-			{#if lifetime.state.phase === 'closing'}
-				<Loading label="Closing your {props.noun}…" />
-			{:else}
-				{#if lifetime.state.phase === 'closed'}
-					<p>Closed. Reload to open {props.appName} again.</p>
-				{:else}
-					<p>This application has stopped. Reload to open it again. Unsaved changes may be lost.</p>
-				{/if}
-				<Button onclick={() => location.reload()}>Reload {props.appName}</Button>
-			{/if}
-		</div>
-	{/if}
-	{#if lifetime.state.error !== null}
-		<div class="fixed inset-x-0 bottom-0 z-50 border-t bg-background p-4 text-center" role="alert">
-			<p>{lifetime.state.error instanceof Error ? lifetime.state.error.message : `Could not finish closing ${props.appName}.`}</p>
-		</div>
-	{/if}
-{:catch error}
-	{@render props.openingFailure?.()}
-	<CannotOpenScreen appName={props.appName} noun={props.noun} {error} />
-{/await}
+{#if phase === 'open' && opening}
+	<div class="contents" bind:this={surface}>
+		{#await opening}
+			<Loading class="h-dvh" label="Opening your {props.noun}…" />
+		{:then opened}
+			{@render props.children(opened, account)}
+		{:catch cause}
+			{@render props.openingFailure?.()}
+			<CannotOpenScreen appName={props.appName} noun={props.noun} error={cause} />
+		{/await}
+	</div>
+{:else}
+	<div class="flex h-dvh flex-col items-center justify-center gap-4">
+		<p>This application has stopped. Unsaved work may have been discarded.</p>
+		<Button disabled={changing} onclick={() => {
+			const url = new URL(location.href);
+			url.searchParams.delete('stopped');
+			location.replace(url);
+		}}>Reopen {props.appName}</Button>
+	</div>
+{/if}
+{#if error}<p role="alert">{error}</p>{/if}

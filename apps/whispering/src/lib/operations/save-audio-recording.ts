@@ -20,7 +20,7 @@ export async function saveAudioRecording(
 	const recordedAtZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 	const saved = await app.blobs.local.add(audio);
 	if (saved.error !== null) return saved;
-	// Retirement retains committed bytes without failing the producer drain.
+	// Retirement retains committed bytes without publishing a row through the old App.
 	if (app.signal.aborted) return Ok(null);
 	return app.recordings.create({
 		audioBlobId: saved.data,

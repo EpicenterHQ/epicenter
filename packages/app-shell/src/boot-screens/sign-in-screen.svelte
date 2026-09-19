@@ -1,16 +1,17 @@
 <script lang="ts">
-	import type { AuthClient } from '@epicenter/auth';
+	import { isCallbackAuthClient, type AuthClient } from '@epicenter/auth';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
+	import { confirmAccountChange } from './confirm-account-change.js';
 
 	/**
-	 * Sign-in shown after the boot owner has closed its app session.
+	 * Sign-in document without an open App.
 	 */
 	type SignInScreenProps = {
 		/**
 		 * The client for this build’s configured server.
 		 *
-		 * The boot owner has already closed the app, and successful sign-in
+		 * This document owns no App, and successful sign-in
 		 * replaces this document or process.
 		 */
 		auth: AuthClient;
@@ -23,24 +24,18 @@
 
 	let { auth, appName, noun, onCancel }: SignInScreenProps = $props();
 
-	/**
-	 * Pending until the page or the process is replaced, which is why there is no
-	 * `finally` below.
-	 *
-	 * Resolving means the launcher finished its work, not that a navigation
-	 * happened (`auth-contract.ts`). The desktop broker answers 202 as soon as
-	 * the host has started sign-in out of process, in loopback milliseconds, and
-	 * then nothing on this page moves again until the process is replaced; the
-	 * hosted client assigns `location.href` and returns without blocking.
-	 * Clearing the flag on success re-enables the button in the gap and invites
-	 * the second click this state exists to prevent.
-	 */
+	// A successful request starts document navigation or native restart. Keep
+	// the button disabled until that replacement actually happens.
 	let signingIn = $state(false);
 	let signInError = $state<string | undefined>(undefined);
 	async function signIn() {
 		if (signingIn) return;
 		signInError = undefined;
 		signingIn = true;
+		if (!isCallbackAuthClient(auth) && !(await confirmAccountChange(auth))) {
+			signingIn = false;
+			return;
+		}
 		const { error } = await auth.startSignIn();
 		if (error !== null) {
 			signInError = error.message;

@@ -82,32 +82,8 @@ export function createSessionAuth(
 		fetch: fetchImpl = globalThis.fetch.bind(globalThis),
 		log = createLogger('auth/session'),
 	} = options;
-	function revoke(token: string): Promise<void> {
-		return Promise.resolve()
-			.then(async () => {
-				const signal = AbortSignal.timeout(5_000);
-				const response = await whileActive(
-					fetchImpl(new URL('/auth/sign-out', baseURL), {
-						signal,
-						method: 'POST',
-						credentials: 'omit',
-						redirect: 'error',
-						headers: {
-							authorization: `Bearer ${token}`,
-							'content-type': 'application/json',
-						},
-						body: '{}',
-					}),
-					signal,
-				);
-				if (response.body) await whileActive(response.body.cancel(), signal);
-				if (!response.ok)
-					throw new Error(`Session revocation failed (${response.status}).`);
-			})
-			.catch((cause: unknown) =>
-				log.error(SessionDiagnostic.Failed({ cause })),
-			);
-	}
+	const revoke = (token: string) =>
+		revokeSession({ baseURL, token, fetch: fetchImpl, log });
 
 	const { auth, run, install, cancelSignIn } = createBearerAuth(
 		{
@@ -558,4 +534,40 @@ function whileActive<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 			.then(resolve, reject)
 			.finally(() => signal.removeEventListener('abort', abort));
 	});
+}
+
+/** Await a best-effort token revocation, bounded to five seconds. */
+export function revokeSession({
+	baseURL,
+	token,
+	fetch: fetchImpl = globalThis.fetch.bind(globalThis),
+	log = createLogger('auth/session'),
+}: {
+	baseURL: string;
+	token: string;
+	fetch?: AuthFetch;
+	log?: Logger;
+}): Promise<void> {
+	return Promise.resolve()
+		.then(async () => {
+			const signal = AbortSignal.timeout(5_000);
+			const response = await whileActive(
+				fetchImpl(new URL('/auth/sign-out', baseURL), {
+					signal,
+					method: 'POST',
+					credentials: 'omit',
+					redirect: 'error',
+					headers: {
+						authorization: `Bearer ${token}`,
+						'content-type': 'application/json',
+					},
+					body: '{}',
+				}),
+				signal,
+			);
+			if (response.body) await whileActive(response.body.cancel(), signal);
+			if (!response.ok)
+				throw new Error(`Session revocation failed (${response.status}).`);
+		})
+		.catch((cause: unknown) => log.error(SessionDiagnostic.Failed({ cause })));
 }

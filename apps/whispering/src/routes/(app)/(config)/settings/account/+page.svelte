@@ -1,8 +1,6 @@
 <script lang="ts">
-	import { getWhisperingApp } from '$lib/whispering/context';
 	import { AuthError } from '@epicenter/auth';
 	import { tryAsync } from 'wellcrafted/result';
-	const app = getWhisperingApp();
 	import { getConnectionScreen, getSignOut } from '@epicenter/app-shell/boot-screens';
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
@@ -13,27 +11,22 @@
 	import { resultMutationOptions } from 'wellcrafted/query';
 	import { auth } from '$lib/auth.svelte.js';
 	import { tauri } from '#platform/tauri';
-	import { recordingActive } from '$lib/state/recording-active.svelte';
 
 	// Identity (email) is shown by the footer AccountPopover, which owns the
 	// /api/session query. This page is for the sign in / sign out actions, so it
 	// reads auth.state directly and does not re-fetch the profile.
 	const isSignedIn = $derived(auth.state.status === 'signed-in');
 
-	// Sign in/out reloads the page (Option A) and a reload kills an in-flight
-	// browser recording, so block account changes while a capture is active.
-	const accountLocked = $derived(recordingActive(app));
-
 	const openConnection = getConnectionScreen();
-	const leaveAndSignOut = getSignOut();
+	const signOutApplication = getSignOut();
 
 	const signOut = createMutation(() =>
 		resultMutationOptions({
 			mutationKey: ['account', 'signOut'],
 			mutationFn: () => tryAsync({
 				try: async () => {
-					if (!leaveAndSignOut) throw new Error('Application departure is unavailable.');
-					await leaveAndSignOut();
+					if (!signOutApplication) throw new Error('Application sign-out is unavailable.');
+					await signOutApplication();
 				},
 				catch: (cause) => AuthError.SignOutFailed({ cause }),
 			}),
@@ -53,11 +46,6 @@
 	<Field.Separator />
 
 	<Field.Group>
-		{#if accountLocked}
-			<Field.Description class="text-muted-foreground">
-				Stop recording to change your account.
-			</Field.Description>
-		{/if}
 		{#if isSignedIn}
 			<Field.Field orientation="horizontal">
 				<Field.Content>
@@ -69,7 +57,7 @@
 				<Button
 					variant="outline"
 					onclick={() => signOut.mutate()}
-					disabled={signOut.isPending || accountLocked}
+					disabled={signOut.isPending}
 				>
 					{#if signOut.isPending}
 						<Spinner class="size-4" />
@@ -84,7 +72,6 @@
 				<Button
 					class="w-full sm:w-auto sm:self-start"
 					onclick={openConnection}
-					disabled={accountLocked}
 				>
 					{#if auth.state.status === 'reauth-required'}
 						Reconnect

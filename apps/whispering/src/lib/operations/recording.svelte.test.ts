@@ -69,8 +69,6 @@ const markFailed = mock();
 mock.module('$lib/state/dictation-lifecycle.svelte', () => ({
 	dictationLifecycle: { reset: mock(() => () => true), markFailed },
 }));
-const activity = await import('../state/recording-active.svelte');
-mock.module('$lib/state/recording-active.svelte', () => activity);
 const { createWhisperingRecording, startVadRecording } = await import(
 	'./recording.svelte.js'
 );
@@ -409,7 +407,6 @@ test('uncertain native Start retains original inference and timestamp through a 
 		expect(await f.recorder.start()).toBeNull();
 		expect(f.recorder.isUncertain).toBe(true);
 		setSystemTime(new Date('2026-09-16T02:00:00.000Z'));
-		expect(activity.recordingActive(f.app)).toBe(true);
 		inference = async () => Ok('changed');
 		expect(await f.recorder.start()).toBe('blob_aaaaaaaaaaaaaaaaaaaaa.wav');
 		await f.recorder.stop();
@@ -437,7 +434,6 @@ test('Cancel resolves an uncertain desktop Start without saving a row', async ()
 		expect(await f.recorder.cancel()).toBe(true);
 		expect(f.cancellations).toBe(1);
 		expect(f.recorder.isUncertain).toBe(false);
-		expect(activity.recordingActive(f.app)).toBe(false);
 		expect(f.create).not.toHaveBeenCalled();
 	} finally {
 		await f.owner.close();
@@ -587,7 +583,7 @@ test('voice-activated publication failure reports the current attempt without cr
 	expect(pipeline).toHaveBeenCalledTimes(before);
 });
 
-test('retirement during voice-activated publication drains without row or failure feedback', async () => {
+test('retirement during voice-activated publication retains bytes without row or failure feedback', async () => {
 	const f = setup();
 	const entered = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
@@ -603,10 +599,8 @@ test('retirement during voice-activated publication drains without row or failur
 	const saving = speechEnd(new Blob(['speech']));
 	await entered.promise;
 	f.controller.abort(new Error('retired'));
-	const draining = activity.drainRecordingWork();
 	release.resolve();
 	await saving;
-	await draining;
 	expect(f.create).not.toHaveBeenCalled();
 	expect(pipeline).toHaveBeenCalledTimes(pipelinesBefore);
 	expect(markFailed).toHaveBeenCalledTimes(failuresBefore);

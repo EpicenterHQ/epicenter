@@ -15,8 +15,7 @@ test('saved queries, offline storage and failure recovery', async ({
 		errors.push(error.message);
 		console.error('page error:', error);
 	});
-	// This panel journey deliberately reloads after saving. App departure refusal
-	// is exercised explicitly through preflight; keep the original reload policy.
+	// Reload after saving; query switches exercise their own discard warning.
 	page.on('dialog', (dialog) => dialog.accept());
 	await page.goto(origins.queries);
 	await page.waitForFunction(
@@ -147,23 +146,26 @@ test('saved queries, offline storage and failure recovery', async ({
 			'Explicit remote reload did not select stored SQL',
 		);
 		await sql.fill('SELECT subject FROM messages');
-		await page.evaluate('globalThis.evidence.startPreflight()');
+		await page
+			.getByRole('button', { name: 'My downloaded mail', exact: true })
+			.click();
 		await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 		assert(
-			(await page.evaluate('globalThis.preflightOutcome')) === 'cancelled',
-			'Departure did not cancel',
-		);
-		assert(
 			(await sql.inputValue()) === 'SELECT subject FROM messages',
-			'Cancelled departure discarded draft',
+			'Cancelled query switch discarded draft',
 		);
-		await page.evaluate('globalThis.evidence.startPreflight()');
+		await page
+			.getByRole('button', { name: 'My downloaded mail', exact: true })
+			.click();
 		await page
 			.getByRole('button', { name: 'Discard draft', exact: true })
 			.click();
-		await page.waitForFunction('globalThis.preflightOutcome === "departed"');
+		assert(
+			(await sql.inputValue()) === 'SELECT id FROM labels',
+			'Discard did not reopen the stored query',
+		);
 		observations.push(
-			'Explicit reload/discard and document preflight cancel/discard preserve the expected text and departure decision',
+			'Saved-query switching keeps the draft on cancel and restores stored text on discard',
 		);
 		await page.evaluate('globalThis.evidence.remoteEdit(true)');
 		await page
@@ -242,8 +244,6 @@ test('saved queries, offline storage and failure recovery', async ({
 		await page
 			.getByText('Could not save query changes', { exact: true })
 			.waitFor();
-		await page.evaluate('globalThis.evidence.startPreflight()');
-		await page.waitForFunction('globalThis.preflightOutcome === "cancelled"');
 		assert(
 			(await sql.inputValue()) === 'SELECT subject FROM messages',
 			'Persistence failure lost draft',
@@ -254,7 +254,7 @@ test('saved queries, offline storage and failure recovery', async ({
 			.click();
 		await page.getByRole('status').filter({ hasText: 'Saved' }).waitFor();
 		observations.push(
-			'Actual IndexedDB quota failure displays unsaved status, blocks departure, and retries retained writes after storage recovers',
+			'Actual IndexedDB quota failure displays unsaved status and retries retained writes after storage recovers',
 		);
 		await page.getByRole('button', { name: 'New query', exact: true }).click();
 		await name.fill('Delete during storage failure');
@@ -281,8 +281,6 @@ test('saved queries, offline storage and failure recovery', async ({
 				.count()) === 0,
 			'Local deletion was reported as a remote conflict',
 		);
-		await page.evaluate('globalThis.evidence.startPreflight()');
-		await page.waitForFunction('globalThis.preflightOutcome === "cancelled"');
 		await page.evaluate('globalThis.restorePersistence()');
 		await page
 			.getByRole('button', { name: 'Retry saving', exact: true })
@@ -312,7 +310,7 @@ test('saved queries, offline storage and failure recovery', async ({
 			.getByRole('button', { name: 'Retry persistence', exact: true })
 			.click();
 		observations.push(
-			'Deletion during a quota failure clears selection, blocks departure until retry, and remains deleted after reopen',
+			'Deletion during a quota failure clears selection, reports failed persistence until retry, and remains deleted after reopen',
 		);
 	});
 	await test.step('cancel account-bound runs and reopen without transient results', async () => {

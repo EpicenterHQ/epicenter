@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { getVocabSurface } from "$lib/surface";
 	import { AccountPopover } from '@epicenter/app-shell/account-popover';
 	import type { ConversationHandle } from '@epicenter/app-shell/agent-chat';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
@@ -17,7 +16,6 @@
 		onCreate,
 		onSwitch,
 		onPractice,
-		removeLocalData,
 	}: {
 		conversations: ConversationHandle[];
 		activeConversationId: ConversationId | null;
@@ -25,9 +23,7 @@
 		onSwitch: (conversationId: ConversationId) => void;
 		onPractice: (entryTexts: string[]) => void;
 		/** Erase this account's copy and reopen, which only the session can do. */
-		removeLocalData?: () => Promise<void>;
 	} = $props();
-	const { dictation } = getVocabSurface();
 </script>
 
 <Sidebar.Root collapsible="icon">
@@ -41,10 +37,6 @@
 				<AccountPopover
 					{auth}
 					syncNoun="conversations"
-					disabledReason={dictation.status !== 'idle'
-						? 'Finish dictating to change your account'
-						: undefined}
-					onRemoveLocalData={removeLocalData}
 				/>
 			</div>
 		</div>

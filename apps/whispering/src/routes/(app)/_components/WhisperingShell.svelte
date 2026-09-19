@@ -1,15 +1,13 @@
 <script lang="ts">
 	import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference-selections';
 	import { attachApplication } from '$lib/application.js';
-	import { recordingActive } from '$lib/state/recording-active.svelte';
 	import type { Account } from "@epicenter/auth";
 	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
 	import { fromData } from '@epicenter/svelte';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
-	import type { Snippet } from 'svelte';
-	import { registerAppCleanup } from '@epicenter/app-shell/boot-screens';
+	import { onDestroy, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import DictationIndicator from '#platform/dictation-indicator';
 	import type { WhisperingAppHandle, WhisperingData } from '$lib/whispering/app';
@@ -28,7 +26,6 @@
 		openedApp,
 		data,
 		account,
-		removeLocalData,
 		libraryMenu,
 		children,
 	}: {
@@ -36,12 +33,6 @@
 		openedApp: WhisperingAppHandle;
 		data: WhisperingData;
 		account: Account | undefined;
-		/**
-		 * Sign out and remove this account's local data, owned by the session
-		 * component above because only it can sequence the close. Absent where
-		 * the platform cannot remove one account's audio and leave another's.
-		 */
-		removeLocalData?: () => Promise<void>;
 		children: Snippet;
 		libraryMenu: Snippet;
 	} = $props();
@@ -64,17 +55,11 @@
 
 	setWhisperingContext({ app: session.app, queries: session.queries });
 
-	async function preflight(): Promise<void> {
-		if (session.app.recordingEnabled && recordingActive(session.app))
-			throw new Error('Finish recording and wait for it to save before closing Whispering.');
-	}
-
-	async function close(): Promise<void> {
-		await session[Symbol.asyncDispose]();
+	onDestroy(() => {
+		session[Symbol.dispose]();
 		selections[Symbol.dispose]();
 		detachApplication();
-	}
-	registerAppCleanup({ preflight, close });
+	});
 
 	let sidebarOpen = $state(false);
 
@@ -101,7 +86,7 @@
 				</div>
 			{:else}
 				<Sidebar.Provider bind:open={sidebarOpen}>
-					<VerticalNav {removeLocalData} {libraryMenu} />
+					<VerticalNav {libraryMenu} />
 					<Sidebar.Inset>
 						<ContentShell>{@render children()}</ContentShell>
 					</Sidebar.Inset>

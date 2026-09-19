@@ -1,3 +1,5 @@
+import { revokeSession } from './create-session-auth.js';
+
 const ATTEMPT_MAX_AGE_MS = 10 * 60_000;
 
 function absoluteUrl(value: string) {
@@ -163,20 +165,11 @@ export function createSessionHandoffClient({
 			}
 			if (!ownsCompletion) {
 				// Do not abort redemption: its response may carry an orphan to revoke.
-				void Promise.resolve()
-					.then(() =>
-						fetchImpl(new URL('/auth/sign-out', server), {
-							method: 'POST',
-							credentials: 'omit',
-							redirect: 'error',
-							headers: {
-								'content-type': 'application/json',
-								authorization: `Bearer ${result.token}`,
-							},
-							body: '{}',
-						}),
-					)
-					.catch(() => undefined);
+				void revokeSession({
+					baseURL: server.origin,
+					token: result.token,
+					fetch: fetchImpl,
+				});
 				throw new Error('Sign-in was cancelled or superseded.');
 			}
 			return result.token;

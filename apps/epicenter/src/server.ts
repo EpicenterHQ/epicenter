@@ -119,6 +119,7 @@ const MAX_BROWSER_SESSIONS = 32;
  */
 const MAIL_CALLBACK_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Local Mail</title></head><body><p>Google has answered. You can close this tab and return to Device.</p></body></html>`;
 const SESSION_SHELL = `<!doctype html><html><head><meta charset="utf-8"><title>Device</title><script>window.__EPICENTER_SESSION_READY__.then(() => window.location.reload())</script></head><body></body></html>`;
+const RESTART_REQUIRED_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Restart Epicenter</title></head><body><h1>Restart Epicenter to continue</h1><p>This session has ended. Quit and reopen Epicenter. If the account change failed, your saved sign-in may not have changed.</p></body></html>`;
 
 export function createHomeServer({
 	folderRoot,
@@ -249,9 +250,13 @@ export function createHomeServer({
 	// browser session without an Origin header, which same-origin reads omit.
 	// Mutations and sync upgrades additionally require the exact Origin.
 	app.use('/_epicenter/account/*', async (c, next) => {
-		if (c.req.method === 'GET' || c.req.method === 'HEAD')
-			return requireBrowserSession(c, next);
-		return requirePrivateBroker(c, next);
+		const response =
+			c.req.method === 'GET' || c.req.method === 'HEAD'
+				? await requireBrowserSession(c, next)
+				: await requirePrivateBroker(c, next);
+		if (desktopAuth.restartRequired)
+			c.header('x-epicenter-auth-state', 'signed-out');
+		return response;
 	});
 
 	app.use('/_epicenter/ai/*', async (c, next) => {
@@ -405,7 +410,11 @@ export function createHomeServer({
 
 	app.post(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern, async (c) => {
 		const result = await desktopAuth.cancelConnection();
-		if (result.error) return c.text('Could not resume applications.', 500);
+		if (result.error)
+			return c.text(
+				'Could not cancel sign-in. Restart Epicenter to continue.',
+				500,
+			);
 		return c.body(null, 204);
 	});
 	app.post(ACCOUNT_SIGN_IN_ROUTE.pattern, async (c) => {
@@ -435,6 +444,7 @@ export function createHomeServer({
 	for (const builtInRoute of [BUILT_IN_ROUTES.home, BUILT_IN_ROUTES.books]) {
 		app.get(builtInRoute.pattern, (c) => {
 			c.header('cache-control', 'no-store');
+			if (desktopAuth.restartRequired) return c.html(RESTART_REQUIRED_PAGE);
 			if (!hasBrowserSession(c)) return c.html(SESSION_SHELL);
 			return c.html(hostPages[builtInRoute.id]);
 		});
@@ -474,12 +484,15 @@ export function createHomeServer({
 			const pathname = new URL(c.req.url).pathname;
 			if (pathname === prefix || pathname === `${prefix}index.html`) {
 				c.header('cache-control', 'no-store');
+				if (desktopAuth.restartRequired) return c.html(RESTART_REQUIRED_PAGE);
 				if (!hasBrowserSession(c)) return c.html(SESSION_SHELL);
 				return servePage(c);
 			}
 			const asset = await application.resolve(pathname);
 			if (!asset) return c.text('Not Found', 404);
 			c.header('cache-control', 'no-store');
+			if (asset.isDocument && desktopAuth.restartRequired)
+				return c.html(RESTART_REQUIRED_PAGE);
 			if (!hasBrowserSession(c)) {
 				return asset.isDocument
 					? c.html(SESSION_SHELL)

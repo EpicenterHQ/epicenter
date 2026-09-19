@@ -1,4 +1,4 @@
-/** Acceptance-only access to the mounted owner; production builds have no hook. */
+/** Acceptance-only access to the mounted App opener and captured Account. */
 export function observeBoot() {
 	return {
 		name: 'observe-mounted-app-boot',
@@ -7,9 +7,7 @@ export function observeBoot() {
 			if (!id.endsWith('/boot-screens/app-boot.svelte')) return;
 			return code.replace(
 				'</script>',
-				`Reflect.set(globalThis, "observedBoot", { opening, lifetime, account });
-     $effect(() => { if (lifetime.state.phase === 'closed') sessionStorage.setItem('closed-library', localStorage.getItem('whispering.library') ?? 'personal'); });
-     </script>`,
+				'Reflect.set(globalThis, "observedBoot", { opening, account });\n</script>',
 			);
 		},
 	};

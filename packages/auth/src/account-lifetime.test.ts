@@ -12,6 +12,7 @@ function setup(options: { fetch?: AuthFetch } = {}) {
 	let token = 'alice-1';
 	const writes: (PersistedAuth | null)[] = [];
 	const resources: string[] = [];
+	const revoked: string[] = [];
 	const sockets: FakeSocket[] = [];
 	let launches = 0;
 	class FakeSocket extends EventTarget {
@@ -47,7 +48,10 @@ function setup(options: { fetch?: AuthFetch } = {}) {
 		fetch: async (input, init) => {
 			const path = new URL(input instanceof Request ? input.url : String(input))
 				.pathname;
-			if (path === '/auth/sign-out') return new Response(null);
+			if (path === '/auth/sign-out') {
+				revoked.push(new Headers(init?.headers).get('authorization') ?? 'none');
+				return new Response(null);
+			}
 			if (options.fetch) return options.fetch(input, init);
 			if (path === '/api/session')
 				return Response.json({ principalId: person });
@@ -59,6 +63,7 @@ function setup(options: { fetch?: AuthFetch } = {}) {
 		auth,
 		writes,
 		resources,
+		revoked,
 		sockets,
 		get launches() {
 			return launches;
@@ -172,12 +177,36 @@ test('canceling one HTTP caller leaves another caller sharing verification activ
 	expect(verifications).toBe(1);
 });
 
+test('verification of a different principal clears persistence and retires the live Account', async () => {
+	using context = setup({
+		fetch: async () => Response.json({ principalId: 'bob' }),
+	});
+	const account = context.account;
+	await expect(account.fetch('/api/example')).rejects.toMatchObject({
+		name: 'AbortError',
+	});
+	expect(context.auth.getState()).toEqual({ status: 'signed-out' });
+	expect(context.writes).toEqual([null]);
+});
+
+test('disposal fences a restored Account without storage writes or token revocation', async () => {
+	using context = setup();
+	const account = context.account;
+	context.auth[Symbol.dispose]();
+	await expect(account.fetch('/api/example')).rejects.toMatchObject({
+		name: 'AbortError',
+	});
+	expect(context.writes).toEqual([]);
+	expect(context.revoked).toEqual([]);
+});
+
 test.each([
 	'alice',
 	'bob',
 ])('disposal during verification of %s prevents later persistence and a subsequent sign-in launch', async (principalId) => {
 	const verification = Promise.withResolvers<Response>();
 	const entered = Promise.withResolvers<void>();
+	const bodyRead = Promise.withResolvers<void>();
 	using context = setup({
 		fetch: async () => {
 			entered.resolve();
@@ -190,9 +219,17 @@ test.each([
 	await entered.promise;
 	context.auth[Symbol.dispose]();
 	expect(await pending).toMatchObject({ name: 'AbortError' });
-	verification.resolve(Response.json({ principalId }));
+	const response = Response.json({ principalId });
+	response.json = async () => {
+		bodyRead.resolve();
+		return { principalId };
+	};
+	verification.resolve(response);
+	await bodyRead.promise;
+	// The body is a resolved value now; drain its queued continuations.
 	await Bun.sleep(0);
 	expect(context.writes).toEqual([]);
+	expect(context.revoked).toEqual([]);
 	expect((await context.auth.startSignIn()).error?.name).toBe(
 		'StartSignInFailed',
 	);

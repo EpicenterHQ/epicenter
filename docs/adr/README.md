@@ -670,3 +670,4 @@ When you add an ADR, add its row here.
 | [0411](0411-honeycrisp-displays-data-from-one-app.md) | Honeycrisp displays data from one App | Accepted (amends 0369 for Honeycrisp route and bootstrap ownership) |
 | [0412](0412-app-data-addresses-name-scopes-not-libraries.md) | App data addresses name scopes, not libraries | Accepted (amends 0375 and 0392) |
 | [0413](0413-app-boot-owns-the-working-page-lifetime.md) | AppBoot owns the working page lifetime | Accepted (amends 0411) |
+| [0415](0415-runtime-replacement-ends-application-sessions.md) | Runtime replacement ends application sessions | Proposed (amends 0413 and 0155) |

@@ -1,8 +1,10 @@
 import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
+import { RecorderError } from '@epicenter/app/recorder';
+import { createLogger } from 'wellcrafted/logger';
 import type { Account } from '@epicenter/auth';
 import { pushToTalk } from '../operations/push-to-talk';
 import {
-	closeRecordingWork,
+	disposeVadRecording,
 	createWhisperingRecording,
 } from '../operations/recording.svelte.js';
 import { createWhisperingQueries } from '../queries';
@@ -36,7 +38,8 @@ export function createWhisperingUiSession({
 	// context. Disposal is off `WhisperingApp` entirely now, and `domains` is the
 	// only thing holding it; writing the members out is what keeps a new one
 	// from arriving here unwrapped.
-	let disposal: Promise<void> | undefined;
+	const log = createLogger('whispering/ui-session');
+	// One flag fences new work and records UI disposal, including late callbacks.
 	let recordingEnabled = true;
 	const app: WhisperingApp = {
 		signal: openedApp.signal,
@@ -65,22 +68,16 @@ export function createWhisperingUiSession({
 		app,
 		queries,
 		queryClient: queryRuntime.queryClient,
-		[Symbol.asyncDispose]() {
+		[Symbol.dispose]() {
+			if (!recordingEnabled) return;
 			recordingEnabled = false;
-			disposal ??= (async () => {
-				try {
-					try {
-						await pushToTalk.dispose(app);
-					} finally {
-						await closeRecordingWork();
-					}
-				} finally {
-					recordingSession[Symbol.dispose]();
-					queryRuntime.queryClient.clear();
-					domains[Symbol.dispose]();
-				}
-			})();
-			return disposal;
+			pushToTalk.dispose(app);
+			recordingSession[Symbol.dispose]();
+			void disposeVadRecording().catch((cause) =>
+				log.warn(RecorderError.RecorderFailed({ cause })),
+			);
+			queryRuntime.queryClient.clear();
+			domains[Symbol.dispose]();
 		},
 	};
 }

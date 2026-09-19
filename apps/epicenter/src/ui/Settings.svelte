@@ -1,6 +1,7 @@
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
+	import { ConfirmationDialog, confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import {
 		ACCOUNT_CANCEL_CONNECTION_ROUTE,
 		ACCOUNT_SIGN_IN_ROUTE,
@@ -32,6 +33,24 @@
 	let connectionError = $state('');
 	let operation = 0;
 	async function connect(path: string, body: object = {}) {
+		if (path !== ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern) {
+			if (connecting) return;
+			connecting = true;
+			const confirmed = await new Promise<boolean>((resolve) => {
+				confirmationDialog.open({
+					// Keep copy aligned with app-shell/boot-screens/confirm-account-change.ts.
+					title: 'Change account?',
+					description: 'Epicenter will restart when this account change completes. Active recordings and unsaved work, including work started while sign-in is pending, will be discarded.',
+					confirm: { text: 'Continue', variant: 'destructive' },
+					onConfirm: () => resolve(true),
+					onCancel: () => resolve(false),
+				});
+			});
+			if (!confirmed) {
+				connecting = false;
+				return;
+			}
+		}
 		const current = ++operation;
 		connecting = true;
 		signingIn = path === ACCOUNT_SIGN_IN_ROUTE.pattern;
@@ -139,3 +158,5 @@
 		</Empty.Header>
 	</Empty.Root>
 {/if}
+
+<ConfirmationDialog />

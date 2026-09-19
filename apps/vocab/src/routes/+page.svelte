@@ -5,7 +5,8 @@
 	import { vocabDefinition } from '$lib/data.js';
 	import VocabShell from './components/VocabShell.svelte';
 
-	const connecting = !auth.getState().account || new URLSearchParams(location.search).has('connect');
+	const params = new URLSearchParams(location.search);
+	const connecting = !params.has('stopped') && (!auth.getState().account || params.has('connect'));
 </script>
 
 {#if connecting}

@@ -5,7 +5,8 @@
 	import { mailDefinition } from '$lib/data.js';
 	import MailShell from '$lib/components/MailShell.svelte';
 
-	const connecting = !auth.getState().account || new URLSearchParams(location.search).has('connect');
+	const params = new URLSearchParams(location.search);
+	const connecting = !params.has('stopped') && (!auth.getState().account || params.has('connect'));
 </script>
 
 {#if connecting}

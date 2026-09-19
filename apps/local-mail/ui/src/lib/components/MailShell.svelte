@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { App } from '@epicenter/app/open';
 	import type { mailDefinition } from '$lib/data.js';
-	import { registerAppCleanup } from '@epicenter/app-shell/boot-screens';
+	import { onDestroy } from 'svelte';
 	import { Button } from '@epicenter/ui/button';
 	import SavedQueries from '$lib/components/SavedQueries.svelte';
 	import * as Dialog from '@epicenter/ui/dialog';
@@ -31,15 +31,10 @@
 	let { app }: { app: App<typeof mailDefinition> } = $props();
 	// svelte-ignore state_referenced_locally
 	const closeMail = attachMail(app);
-	async function close() {
-		await queryClient.cancelQueries();
+	onDestroy(() => {
+		closeMail();
 		queryClient.clear();
-		await closeMail();
-	}
-	let queryEditor = $state.raw<ReturnType<typeof SavedQueries>>();
-	async function preflight() {
-		await queryEditor?.preflight();
-	}
+	});
 	let view = $state<'mail' | 'queries'>('mail');
 	// Default to the inbox: this is a triage surface, and the inbox is the queue.
 	let selectedLabel = $state<string | null>('INBOX');
@@ -334,7 +329,6 @@
 		{ keys: ['/'], label: 'Search' },
 		{ keys: ['?'], label: 'This help' },
 	];
-	registerAppCleanup({ preflight, close });
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -379,7 +373,7 @@
 		>
 	</div>
 	<div hidden={view !== 'queries'} class="min-h-0 flex-1 overflow-auto">
-		<SavedQueries bind:this={queryEditor} data={app.account!.personal} account={selectedAccount} />
+		<SavedQueries data={app.account!.personal} account={selectedAccount} />
 	</div>
 	<div
 		hidden={view !== 'mail'}

@@ -36,7 +36,7 @@ actually verifies what the preceding steps persisted.
 
 | Journey | Coverage |
 | --- | --- |
-| Routes | Actual built SvelteKit callbacks and preload open no primary library; signed-out boot; ready-gated App and SQLite worker opening; draft protection; tab and connection navigation; saved-query reopening. |
+| Routes | Actual built SvelteKit callbacks and preload open no primary library; signed-out boot; ready-gated App and SQLite worker opening; draft protection during ordinary query switches; tab and connection navigation; forced retirement without a draft veto; recovery that opens no App; explicit saved-query reopening. |
 | Saved queries | Production panel, App, OPFS and restricted SQL; two account caches; offline reopen; write rejection; exact result values; peer conflicts and incompatible rows; IndexedDB quota failure and retry; cancelled account-bound runs. |
 | Gmail callbacks | Production PKCE builder and connected route; popup source, origin and path rejection; successful return; cancellation and closed windows; standalone callbacks; automation's popup-permission limitations. |
 

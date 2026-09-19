@@ -4,11 +4,10 @@ import { transcribeAndPersist } from '$lib/operations/transcribe';
 import type { WhisperingQueryRuntime } from '$lib/queries/client';
 import type { Recording } from '$lib/state/recordings.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
-import { trackRecordingWork } from '../state/recording-active.svelte.js';
 
 function retry(app: WhisperingApp, recording: Recording) {
 	if (!app.recordingEnabled) throw new Error('Whispering is closing.');
-	return trackRecordingWork(() => transcribeAndPersist(app, recording.id));
+	return transcribeAndPersist(app, recording.id);
 }
 
 export const transcriptionKeys = defineKeys({

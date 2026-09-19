@@ -1,158 +1,363 @@
 /**
- * Does a browser store actually survive a reload?
- *
- * Run: `bun run evidence/browser/durable-store.ts`
- *
- * `src/store/browser.ts` is a claim about a runtime: that a page can hold the
- * synchronous store over a live `Y.Doc` while IndexedDB holds the update chain
- * that has to survive, and that reopening replays the one from the other.
- * Typecheck cannot judge any of that. This runs it in a real Chromium, in a
- * real page, across a real reload.
- *
- * METHOD, and the controls are the point:
- *
- *   - **The reload is real.** `page.reload()`, so the page's memory, its
- *     `Y.Doc` and everything derived from it are gone. Anything that comes back
- *     came out of IndexedDB.
- *   - **CONTROL: a different name must see nothing.** If a second store opened
- *     under another name found the first one's notes, this would be measuring a
- *     page that never reloaded, or a read of the wrong record.
- *   - **CONTROL: node text, not just values.** A row's node is a nested subtree
- *     inside the one document, so a run that restored a row's values and lost
- *     its node would otherwise read as a pass.
+ * Run: bun packages/app/evidence/data/browser/durable-store.ts [--webkit]
+ * Real openApp, IndexedDB, document replacement, and immediate window reopening.
+ * A test-only delay before commit proves pending edits can disappear while
+ * committed rows remain readable. No unload handler or App.close gates departure.
+ * Each operation and the entire run are bounded; failures print the last browser
+ * events and claim result. Run at most three times when investigating a stall.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import assert from 'node:assert/strict';
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromium, webkit } from 'playwright';
-
-/**
- * Which engine to prove it in. `--webkit` is not a nicety: the desktop ships a
- * WKWebView, so a result from Chromium alone says the code works somewhere
- * other than where it runs.
- */
-const ENGINE = process.argv.includes('--webkit') ? webkit : chromium;
-
+import { chromium, type Page, webkit } from 'playwright';
 import { build } from 'vite';
 
-const root = new URL('./durable-store/', import.meta.url).pathname;
-const outDir = new URL('./durable-store-dist/', import.meta.url).pathname;
-
-console.log('\nbuilding the probe page\n');
-await build({
-	root,
-	logLevel: 'warn',
-	build: { target: 'esnext', outDir, emptyOutDir: true },
-});
-
-const server = Bun.serve({
-	port: 0,
-	async fetch(request) {
-		const { pathname } = new URL(request.url);
-		const file = Bun.file(
-			`${outDir}${pathname === '/' ? 'index.html' : pathname.slice(1)}`,
-		);
-		if (!(await file.exists()))
-			return new Response('not found', { status: 404 });
-		// No cross-origin isolation headers. Nothing needs them now that the
-		// durable copy is IndexedDB rather than an OPFS file, and serving them
-		// would make this page more capable than a real deployment's.
-		return new Response(file);
-	},
-});
-const origin = `http://localhost:${server.port}`;
-
-type Reading = {
-	notes: { title: string; text: string }[];
-	durability: { healthy: boolean };
-	pressure?: { items: number; liveRows: number; itemsPerLiveRow: number };
-};
-
-// A PERSISTENT context, not an ephemeral one. WebKit refuses a sync access
-// handle in a throwaway profile with `UnknownError`, which reads as a code
-// failure and is a harness artifact: the origin private file system needs
-// somewhere to actually be.
-const profile = mkdtempSync(join(tmpdir(), 'epicenter-durable-'));
-const browser = await ENGINE.launchPersistentContext(profile, {});
-console.log(`engine: ${ENGINE.name()}\n`);
-let failures = 0;
-function check(label: string, held: boolean, detail: unknown = ''): void {
-	if (!held) failures += 1;
-	console.log(`  ${held ? 'held  ' : 'FAILED'}  ${label.padEnd(52)} ${detail}`);
+const engine = process.argv.includes('--webkit') ? webkit : chromium;
+// The parent owns temporary files and the deadline, even if a browser protocol
+// call hangs. Playwright browsers can create their own process groups, so walk
+// descendants before killing the runner instead of relying on its group alone.
+if (!process.env.DURABLE_STORE_PROBE_DIRECTORY) {
+	const temporary = await mkdtemp(join(tmpdir(), 'epicenter-replacement-'));
+	try {
+		await new Promise<void>((resolve, reject) => {
+			const child = spawn(
+				process.execPath,
+				[import.meta.filename, ...process.argv.slice(2)],
+				{
+					env: { ...process.env, DURABLE_STORE_PROBE_DIRECTORY: temporary },
+					stdio: 'inherit',
+					detached: process.platform !== 'win32',
+				},
+			);
+			let timedOut = false;
+			const timer = setTimeout(() => {
+				timedOut = true;
+				console.error(
+					`${engine.name()}: 120 second deadline; stopping probe and browser descendants`,
+				);
+				if (!child.pid) return;
+				try {
+					if (process.platform === 'win32') {
+						execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+							timeout: 5_000,
+						});
+						return;
+					}
+					const processes = execFileSync('ps', ['-axo', 'pid=,ppid='], {
+						encoding: 'utf8',
+						timeout: 5_000,
+					})
+						.trim()
+						.split('\n')
+						.map((line) => line.trim().split(/\s+/).map(Number));
+					const descendants = [child.pid];
+					for (let index = 0; index < descendants.length; index++) {
+						for (const [pid, parent] of processes) {
+							if (pid && parent === descendants[index]) descendants.push(pid);
+						}
+					}
+					for (const pid of descendants.reverse()) {
+						try {
+							process.kill(pid, 'SIGKILL');
+						} catch (error) {
+							if ((error as NodeJS.ErrnoException).code !== 'ESRCH')
+								console.error(error);
+						}
+					}
+				} catch (error) {
+					console.error('Could not stop every probe descendant:', error);
+				} finally {
+					// A failed process listing or taskkill must still terminate the
+					// runner and let its exit handler release the parent's cleanup.
+					child.kill('SIGKILL');
+				}
+			}, 120_000);
+			child.once('error', (error) => {
+				clearTimeout(timer);
+				reject(error);
+			});
+			child.once('exit', (code, signal) => {
+				clearTimeout(timer);
+				console.log(
+					`${engine.name()}: probe process exited (${signal ?? code})`,
+				);
+				if (code === 0 && !timedOut) resolve();
+				else
+					reject(
+						new Error(
+							`Probe ${timedOut ? 'timed out' : `exited with ${signal ?? code}`}`,
+						),
+					);
+			});
+		});
+	} finally {
+		await rm(temporary, { recursive: true, force: true });
+	}
+	process.exit(0);
 }
-
+const temporary = process.env.DURABLE_STORE_PROBE_DIRECTORY;
+const outDir = join(temporary, 'web');
+const events: string[] = [];
+let step = 'build';
+function record(event: string) {
+	events.push(`${new Date().toISOString()} ${event}`);
+	if (events.length > 60) events.shift();
+}
+const watchdog = setTimeout(() => {
+	console.error(`${engine.name()}: timed out at ${step}`, events);
+	// Keep ownership intact until the parent stops the complete process tree.
+}, 115_000);
+let browser:
+	| Awaited<ReturnType<typeof engine.launchPersistentContext>>
+	| undefined;
+let server: ReturnType<typeof Bun.serve> | undefined;
+async function bounded<T>(label: string, work: Promise<T>): Promise<T> {
+	step = label;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			work,
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(
+					() => reject(new Error(`Timed out: ${label}`)),
+					10_000,
+				);
+			}),
+		]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
 try {
-	const page = await browser.newPage();
-	page.on('pageerror', (error) =>
-		console.log(`  page error: ${error.message}`),
+	let injected = false;
+	await build({
+		configFile: false,
+		root: new URL('./durable-store/', import.meta.url).pathname,
+		logLevel: 'error',
+		plugins: [
+			{
+				name: 'evidence-pending-commit',
+				transform(source, id) {
+					if (!id.endsWith('/data/store/persistence.ts')) return;
+					const target = 'await port.commit(batch);';
+					assert.ok(
+						source.includes(target),
+						'persistence injection point exists',
+					);
+					injected = true;
+					return source.replace(
+						target,
+						`
+					const delay = Number(new URL(location.href).searchParams.get('commitDelay') ?? 0);
+					if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+					${target}`,
+					);
+				},
+			},
+		],
+		build: { target: 'esnext', outDir, emptyOutDir: true },
+	});
+	assert.ok(
+		injected,
+		'pending-write control must instrument actual persistence',
 	);
-	await page.goto(origin);
-	await page.waitForFunction('typeof globalThis.open === "function"');
-
-	console.log('1. write two notes with text, then reload the page');
-	const opened = await page.evaluate('globalThis.open("vault")');
-	check(
-		'the store opened',
-		(opened as { ok?: boolean }).ok === true,
-		JSON.stringify(opened),
+	server = Bun.serve({
+		port: 0,
+		async fetch(request) {
+			const path = new URL(request.url).pathname;
+			const file = Bun.file(join(outDir, path === '/' ? 'index.html' : path));
+			return (await file.exists())
+				? new Response(file)
+				: new Response('missing', { status: 404 });
+		},
+	});
+	const origin = `http://localhost:${server.port}`;
+	browser = await bounded(
+		'launch',
+		engine.launchPersistentContext(join(temporary, 'profile'), {
+			timeout: 8_000,
+		}),
 	);
-
-	await page.evaluate('globalThis.write("Groceries", "milk and eggs")');
-	await page.evaluate('globalThis.write("Ideas", "a note about notes")');
-	const before = (await page.evaluate('globalThis.read()')) as Reading;
-	check('two notes before the reload', before.notes.length === 2);
-
-	await page.reload();
-	await page.waitForFunction('typeof globalThis.open === "function"');
-	await page.evaluate('globalThis.open("vault")');
-	const after = (await page.evaluate('globalThis.read()')) as Reading;
-
-	check(
-		'both notes survived the reload',
-		after.notes.length === 2,
-		after.notes.map((note) => note.title).join(', '),
+	browser.on('close', () => record('browser context closed'));
+	async function newPage() {
+		const page = await browser!.newPage();
+		page.setDefaultTimeout(10_000);
+		page.on('console', (message) =>
+			record(`console ${message.type()}: ${message.text()}`),
+		);
+		page.on('pageerror', (error) => record(`pageerror ${error.message}`));
+		page.on('crash', () => record('page crashed'));
+		page.on('close', () => record('page closed'));
+		page.on('framenavigated', (frame) => record(`navigation ${frame.url()}`));
+		return page;
+	}
+	async function open(page: Page, href = origin, name = 'vault') {
+		await bounded('navigate', page.goto(href));
+		await claim(page, name);
+	}
+	async function claim(page: Page, name = 'vault') {
+		await page.waitForFunction(
+			'document.querySelector("#out")?.textContent?.includes("ready")',
+		);
+		const result = await bounded(
+			'openApp claim',
+			page.evaluate((name) => {
+				return (
+					globalThis as unknown as { open(name: string): Promise<unknown> }
+				).open(name);
+			}, name),
+		);
+		record(`claim ${JSON.stringify(result)}`);
+		assert.deepEqual(result, { ok: true });
+	}
+	async function read(page: Page) {
+		return (await bounded('read', page.evaluate('globalThis.read()'))) as {
+			notes: { title: string; text: string }[];
+			durability: { healthy: boolean };
+		};
+	}
+	let page = await newPage();
+	await open(page);
+	assert.deepEqual(
+		await bounded(
+			'seed',
+			page.evaluate('globalThis.write("committed", "saved text")'),
+		).then((result) => (result as { durable: boolean }).durable),
+		true,
 	);
-	check(
-		'their text survived too',
-		after.notes.every(
-			(note) =>
-				note.text.includes('milk and eggs') ||
-				note.text.includes('a note about notes'),
+	for (let iteration = 0; iteration < 50; iteration++) {
+		await bounded(
+			'ordinary edit',
+			page.evaluate(
+				`globalThis.write("edit-${iteration}", "ordinary text", false)`,
+			),
+		);
+		await open(page);
+		const reading = await read(page);
+		assert.ok(reading.durability.healthy);
+		assert.ok(
+			reading.notes.some(
+				(note) =>
+					note.title === 'committed' && note.text.includes('saved text'),
+			),
+		);
+	}
+	console.log(
+		`${engine.name()}: 50 reloads after ordinary writes retained committed data`,
+	);
+	let sameTaskSurvivors = 0;
+	for (let iteration = 0; iteration < 20; iteration++) {
+		await bounded(
+			'same-task write and reload',
+			Promise.all([
+				page.waitForNavigation(),
+				page.evaluate((iteration) => {
+					const probe = globalThis as unknown as {
+						write(
+							title: string,
+							text: string,
+							flush: boolean,
+						): Promise<unknown>;
+					};
+					void probe.write(`same-task-${iteration}`, 'ordinary text', false);
+					location.reload();
+				}, iteration),
+			]),
+		);
+		// Claim this replacement document directly; navigating again would
+		// hide whether immediate admission after the interrupted write worked.
+		await claim(page);
+		const reading = await read(page);
+		assert.ok(reading.durability.healthy);
+		assert.ok(
+			reading.notes.some(
+				(note) =>
+					note.title === 'committed' && note.text.includes('saved text'),
+			),
+		);
+		if (reading.notes.some((note) => note.title === `same-task-${iteration}`))
+			sameTaskSurvivors++;
+	}
+	console.log(
+		`${engine.name()}: 20 same-task write/reload cycles retained committed data; ${sameTaskSurvivors}/20 pending edits survived (informational)`,
+	);
+	for (let iteration = 0; iteration < 20; iteration++) {
+		await bounded(
+			'edit before window close',
+			page.evaluate(
+				`globalThis.write("window-${iteration}", "ordinary text", false)`,
+			),
+		);
+		await page.close();
+		page = await newPage();
+		await open(page);
+		assert.ok(
+			(await read(page)).notes.some((note) => note.title === 'committed'),
+		);
+	}
+	console.log(
+		`${engine.name()}: 20 immediate window reopen cycles retained committed data`,
+	);
+	for (let iteration = 0; iteration < 3; iteration++) {
+		await open(page, `${origin}?commitDelay=2000`);
+		const pending = (await bounded(
+			'delayed edit',
+			page.evaluate(
+				`globalThis.write("pending-${iteration}", "lost text", false)`,
+			),
+		)) as { durable: boolean };
+		assert.equal(pending.durable, false);
+		await open(page);
+		const reading = await read(page);
+		assert.ok(reading.notes.some((note) => note.title === 'committed'));
+		assert.ok(
+			!reading.notes.some((note) => note.title === `pending-${iteration}`),
+		);
+	}
+	console.log(
+		`${engine.name()}: 3 delayed pending-write losses reopened with committed data intact`,
+	);
+	await open(page, `${origin}?commitDelay=200`);
+	assert.equal(
+		(
+			(await bounded(
+				'delayed commit completion',
+				page.evaluate('globalThis.write("delayed-committed", "retained")'),
+			)) as { durable: boolean }
+		).durable,
+		true,
+	);
+	await open(page);
+	assert.ok(
+		(await read(page)).notes.some((note) => note.title === 'delayed-committed'),
+	);
+	await open(page, origin, 'somewhere-else');
+	assert.deepEqual((await read(page)).notes, []);
+	await open(page);
+	const original = await read(page);
+	assert.ok(
+		original.notes.some(
+			(note) => note.title === 'committed' && note.text.includes('saved text'),
 		),
 	);
-	check('the durable log reports healthy', after.durability.healthy === true);
-	check(
-		'pressure is readable',
-		(after.pressure?.liveRows ?? -1) === 2,
-		`${after.pressure?.items} items / ${after.pressure?.liveRows} rows`,
+	assert.ok(original.notes.some((note) => note.title === 'delayed-committed'));
+	console.log(
+		`${engine.name()}: completed delayed commit survived; independent namespace remained empty; original vault survived`,
 	);
-
-	console.log('\n2. CONTROL: a different dataId is a different file');
-	await page.reload();
-	await page.waitForFunction('typeof globalThis.open === "function"');
-	await page.evaluate('globalThis.open("somewhere-else")');
-	const elsewhere = (await page.evaluate('globalThis.read()')) as Reading;
-	check(
-		'a store under another dataId sees nothing',
-		elsewhere.notes.length === 0,
-		`${elsewhere.notes.length} notes`,
-	);
-
-	console.log('\n3. and the original is still there afterwards');
-	await page.reload();
-	await page.waitForFunction('typeof globalThis.open === "function"');
-	await page.evaluate('globalThis.open("vault")');
-	const again = (await page.evaluate('globalThis.read()')) as Reading;
-	check('the vault still holds both notes', again.notes.length === 2);
+} catch (error) {
+	console.error(`${engine.name()}: failed at ${step}\n${events.join('\n')}`);
+	throw error;
 } finally {
-	await browser.close();
-	rmSync(profile, { recursive: true, force: true });
-	await server.stop(true);
+	try {
+		await bounded('browser close', browser?.close() ?? Promise.resolve());
+	} catch (error) {
+		console.error(`${engine.name()}: browser cleanup failed`, error, events);
+		// Preserve the runner's descendant relationship for the parent's kill.
+		await new Promise(() => {});
+	} finally {
+		await server?.stop(true);
+		clearTimeout(watchdog);
+	}
 }
-
-console.log(
-	failures === 0
-		? '\nA browser page holds the synchronous store, and its durable state survives a reload.\n'
-		: `\n${failures} check(s) FAILED.\n`,
-);
-process.exit(failures === 0 ? 0 : 1);

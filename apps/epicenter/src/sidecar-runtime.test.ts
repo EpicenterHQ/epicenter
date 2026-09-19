@@ -288,7 +288,7 @@ describe('boot protocol', () => {
 	test('ready frames contain exactly the versioned readiness contract', () => {
 		expect(createReadyFrame(PRODUCTION_PORT)).toEqual({
 			type: 'ready',
-			protocolVersion: 6,
+			protocolVersion: 7,
 			port: PRODUCTION_PORT,
 		});
 	});
@@ -375,24 +375,8 @@ describe('native auth port', () => {
 			}),
 		);
 		await stored;
-		for (const [type, operation] of [
-			['close-applications', () => native.closeApplications()],
-			['resume-applications', () => native.resumeApplications()],
-		] as const) {
-			const pending = operation();
-			expect(JSON.parse(writes.at(-1) ?? '')).toEqual({
-				type,
-				requestId: 'request-1',
-			});
-			controller.enqueue(
-				JSON.stringify({
-					type: 'native-result',
-					requestId: 'request-1',
-					status: 'ok',
-				}),
-			);
-			await pending;
-		}
+		native.relaunch();
+		expect(JSON.parse(writes.at(-1) ?? '')).toEqual({ type: 'relaunch' });
 
 		controller.enqueue(
 			JSON.stringify({

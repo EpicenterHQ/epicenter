@@ -391,8 +391,8 @@ does not start a SQLite worker or native socket. The App already holds
 admission for this owner, so documents and SQL need no subordinate Web Locks.
 The host SQLite owner still excludes independent windows at its own boundary.
 
-Browser close drains admitted work, closes every connection, then pauses that
-owner's pool before the App releases admission. Other owners can keep using SQLite in
+Closing the browser SQLite handle drains admitted work, closes every connection,
+then pauses that owner's pool before the App releases admission. Other owners can keep using SQLite in
 the same page or another window. Returning to a closed owner reactivates its
 pool without deleting files. A failed physical close or pool release is terminal
 and retains ownership; repeating close returns the same failure. Failed pool

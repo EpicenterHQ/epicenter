@@ -1,7 +1,6 @@
 /**
- * Transcription retry admission and draining.
- * Manual and bulk retries keep the UI session alive until persistence settles.
- * Once departure stops admission, neither mutation starts another request.
+ * Transcription retry admission.
+ * Retired UI starts neither manual nor bulk retries; admitted calls retain their results.
  */
 import { expect, mock, test } from 'bun:test';
 import { QueryClient } from '@tanstack/svelte-query';
@@ -31,11 +30,8 @@ mock.module('$lib/operations/transcribe', () => ({
 	},
 }));
 const { createTranscriptionQueries } = await import('./transcription');
-const { drainRecordingWork, recordingActive } = await import(
-	'../state/recording-active.svelte'
-);
 
-test('departure drains manual and bulk retry persistence and refuses new work', async () => {
+test('retirement refuses manual and bulk retries without changing admitted results', async () => {
 	let recordingEnabled = true;
 	const app = {
 		get recordingEnabled() {
@@ -53,12 +49,7 @@ test('departure drains manual and bulk retry persistence and refuses new work', 
 	const bulk = queries.transcribeRecordings([row, row]);
 	await allAdmitted.promise;
 	expect(admitted).toHaveLength(3);
-	expect(recordingActive(app)).toBe(true);
 	recordingEnabled = false;
-	let drained = false;
-	const closing = drainRecordingWork().then(() => {
-		drained = true;
-	});
 	expect(expectErr(await queries.transcribeRecording(row)).message).toContain(
 		'closing',
 	);
@@ -68,12 +59,8 @@ test('departure drains manual and bulk retry persistence and refuses new work', 
 	expect(admitted).toHaveLength(3);
 	admitted[0]!.resolve(Ok(undefined));
 	expectOk(await manual);
-	expect(drained).toBe(false);
 	admitted[1]!.resolve(Ok(undefined));
 	admitted[2]!.resolve(Ok(undefined));
 	expectOk(await bulk);
-	await closing;
-	expect(drained).toBe(true);
-	expect(recordingActive(app)).toBe(false);
 	queryClient.clear();
 });

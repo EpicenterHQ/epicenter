@@ -245,6 +245,7 @@ async function setup({
 		staticAssets: { homePage: '<html><head></head></html>', applications: [] },
 		blobs,
 		desktopAuth: {
+			restartRequired: false,
 			baseURL,
 			callbackUrl: 'epicenter://auth/callback',
 			acceptSignInCallback: () => false,

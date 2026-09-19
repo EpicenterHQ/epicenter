@@ -66,14 +66,14 @@ Object.assign(globalThis, {
 		return { ok: true };
 	},
 
-	/** Create a note AND write text into its content node, then wait for durability. */
-	async write(title: string, text: string) {
+	/** Write a row and its text; the runner can interrupt before persistence. */
+	async write(title: string, text: string, flush = true) {
 		const db = bound();
 		const made = db.tables.notes.create({ title });
 		const content = db.tables.notes.get(made.id)?.content;
 		if (content === undefined) return { error: 'the row has no content' };
 		content.applyDelta(content.change.insert(text) as never);
-		await db.persistence.flush();
+		if (flush) await db.persistence.flush();
 		return {
 			id: made.id,
 			durable: db.persistence.get() === 'saved',

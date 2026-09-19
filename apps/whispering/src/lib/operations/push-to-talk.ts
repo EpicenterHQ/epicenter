@@ -53,7 +53,7 @@ function createPushToTalk() {
 	let generation = 0;
 	let session: Session | null = null;
 	let capTimer: ReturnType<typeof setTimeout> | undefined;
-	let pendingStart: Promise<void> | undefined;
+	let starting: number | undefined;
 
 	function clearSession() {
 		session = null;
@@ -69,7 +69,7 @@ function createPushToTalk() {
 	function sessionIsStale(): boolean {
 		return (
 			session !== null &&
-			pendingStart === undefined &&
+			starting === undefined &&
 			session.app.recording.state !== 'RECORDING' &&
 			!session.app.recording.isStarting
 		);
@@ -100,8 +100,7 @@ function createPushToTalk() {
 
 		const id = ++generation;
 		session = { id, app, recordingId: null, stopRequested: false };
-		const completion = Promise.withResolvers<void>();
-		pendingStart = completion.promise;
+		starting = id;
 
 		try {
 			// Null means this press started nothing it owns: startup failed, or a
@@ -115,17 +114,14 @@ function createPushToTalk() {
 				throw cause;
 			}
 
-			if (session?.id !== id) {
-				if (recordingId) await app.recording.stop(recordingId);
-				return;
-			}
+			// The recording owner releases capture after component disposal.
+			if (session?.id !== id) return;
 			if (!recordingId) {
 				clearSession();
 				return;
 			}
 			session.recordingId = recordingId;
-			// A release or app teardown arrived during startup: honor it now
-			// that the recording exists, before the old app can be disposed.
+			// A release arrived during startup: honor it now that capture exists.
 			if (session.stopRequested) {
 				await end(app, id);
 				return;
@@ -136,8 +132,7 @@ function createPushToTalk() {
 				);
 			}, MAX_HOLD_MS);
 		} finally {
-			completion.resolve();
-			if (pendingStart === completion.promise) pendingStart = undefined;
+			if (starting === id) starting = undefined;
 		}
 	}
 
@@ -157,14 +152,8 @@ function createPushToTalk() {
 		clearSession(); // not recording and not starting: ended by other means
 	}
 
-	async function dispose(app: WhisperingApp): Promise<void> {
-		if (!session || session.app !== app) return;
-		if (pendingStart) {
-			session.stopRequested = true;
-			await pendingStart;
-			return;
-		}
-		await end(app, session.id);
+	function dispose(app: WhisperingApp): void {
+		if (session?.app === app) clearSession();
 	}
 
 	return { start, stop, dispose };

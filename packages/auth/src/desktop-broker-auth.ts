@@ -101,7 +101,14 @@ export function createDesktopBrokerAuth({
 }): AuthClient {
 	const baseURL = bootstrap.server.baseURL;
 	const origin = new URL(baseURL).origin;
-	const broker = createDesktopBroker({ brokerBaseURL, fetch: fetchImpl });
+	const broker = createDesktopBroker({
+		brokerBaseURL,
+		fetch: async (input, init) => {
+			const response = await fetchImpl(input, init);
+			observe(response.headers.get('x-epicenter-auth-state'));
+			return response;
+		},
+	});
 	const lifetime = new AbortController();
 	const listeners = new Set<(state: AuthState) => void>();
 	let state: AuthState = { status: 'signed-out' };

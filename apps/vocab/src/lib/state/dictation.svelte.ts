@@ -19,10 +19,7 @@
  * connection selection never changes where microphone audio is sent.
  */
 
-import {
-
-	TranscribeError,
-} from '@epicenter/client';
+import { TranscribeError } from '@epicenter/client';
 import {
 	createVadRecorder,
 	type DeviceStreamError,
@@ -59,11 +56,14 @@ export function createDictation(client: OpenAI | null) {
 	// failures travel in the Result handed to onTranscript.
 	let deliveries: Promise<void> = Promise.resolve();
 	let starting:
-		| Promise<Result<void, VadRecorderError | DeviceStreamError | TranscribeError>>
+		| Promise<
+				Result<void, VadRecorderError | DeviceStreamError | TranscribeError>
+		  >
 		| undefined;
 	let stopping: Promise<Result<void, VadRecorderError>> | undefined;
 	let closing: Promise<void> | undefined;
 	let closed = false;
+	const transcription = new AbortController();
 	let callbackGeneration = 0;
 
 	function stop(): Promise<Result<void, VadRecorderError>> {
@@ -111,9 +111,14 @@ export function createDictation(client: OpenAI | null) {
 			onTranscript,
 		}: {
 			onTranscript: (result: Result<string, TranscribeError>) => void;
-		}): Promise<Result<void, VadRecorderError | DeviceStreamError | TranscribeError>> {
+		}): Promise<
+			Result<void, VadRecorderError | DeviceStreamError | TranscribeError>
+		> {
 			if (closed || stopping || status !== 'idle') return Ok(undefined);
-            if (!client) return TranscribeError.TransportFailed({ cause: new Error('This Account does not supply transcription.') });
+			if (!client)
+				return TranscribeError.TransportFailed({
+					cause: new Error('This Account does not supply transcription.'),
+				});
 			if (starting) return starting;
 			const generation = ++callbackGeneration;
 			starting = (async () => {
@@ -139,18 +144,25 @@ export function createDictation(client: OpenAI | null) {
 						inFlightCount += 1;
 						deliveries = deliveries
 							.then(async () => {
-								onTranscript(
-									// No language hint: a learner may dictate their question in the
-									// language they are studying, so Whisper auto-detects (ADR-0105).
-									await tryAsync({
-                                        try: async () => {
-                                            const result = await client.audio.transcriptions.create({ file: new File([blob], 'dictation.webm', { type: blob.type }), model: HOSTED_TRANSCRIPTION_MODEL });
-                                            if (typeof result.text !== 'string') throw new Error('Transcription returned no text.');
-                                            return result.text;
-                                        },
-                                        catch: cause => TranscribeError.TransportFailed({ cause }),
-                                    }),
-								);
+								if (closed) return;
+								const result = await tryAsync({
+									try: async () => {
+										const result = await client.audio.transcriptions.create(
+											{
+												file: new File([blob], 'dictation.webm', {
+													type: blob.type,
+												}),
+												model: HOSTED_TRANSCRIPTION_MODEL,
+											},
+											{ signal: transcription.signal },
+										);
+										if (typeof result.text !== 'string')
+											throw new Error('Transcription returned no text.');
+										return result.text;
+									},
+									catch: (cause) => TranscribeError.TransportFailed({ cause }),
+								});
+								if (!closed) onTranscript(result);
 							})
 							// transcribe is Result-typed and never rejects; this only keeps a
 							// throwing onTranscript from wedging every later phrase's delivery.
@@ -178,13 +190,14 @@ export function createDictation(client: OpenAI | null) {
 		 */
 		stop,
 
-		/** End this UI lifetime, including startup and every captured phrase. */
+		/** Release the microphone and suppress transcript delivery after disposal. */
 		close(): Promise<void> {
 			closed = true;
+			callbackGeneration++;
+			transcription.abort();
 			closing ??= (async () => {
 				const { error } = await stop();
 				if (error) throw error;
-				await deliveries;
 			})();
 			return closing;
 		},

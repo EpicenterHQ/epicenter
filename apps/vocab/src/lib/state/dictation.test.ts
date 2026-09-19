@@ -1,7 +1,7 @@
 /**
  * Dictation lifetime tests over the actual SDK transcription client.
- * Close joins microphone startup, accepts its final flush, drains the response,
- * and rejects late callbacks or an unsuccessful recorder teardown.
+ * Disposal releases the microphone after pending startup, drops queued and late
+ * transcripts, and reports recorder release failures. Ordinary stop keeps its final phrase.
  */
 import { expect, mock, test } from 'bun:test';
 import OpenAI from 'openai';
@@ -31,7 +31,7 @@ const client = new OpenAI({
 		String(input) === 'data:,' ? Promise.resolve(new Response()) : respond(),
 });
 
-test('close joins microphone startup, stops it, then drains captured phrases', async () => {
+test('close releases pending microphone startup without transcribing its final flush', async () => {
 	const started = Promise.withResolvers<void>();
 	const transcribed = Promise.withResolvers<void>();
 	const events: string[] = [];
@@ -64,21 +64,15 @@ test('close joins microphone startup, stops it, then drains captured phrases', a
 	expectOk(await starting);
 	expectOk(await duplicate);
 	await Bun.sleep(0);
-	expect(events).toEqual(['start', 'stop', 'transcribe']);
+	expect(events).toEqual(['start', 'stop', 'closed']);
 	transcribed.resolve();
 	await closing;
-	expect(events).toEqual([
-		'start',
-		'stop',
-		'transcribe',
-		'delivered',
-		'closed',
-	]);
+	expect(events).toEqual(['start', 'stop', 'closed']);
 	await dictation.start(options);
 	expect(events.filter((event) => event === 'start')).toHaveLength(1);
 });
 
-test('a failed recorder stop refuses close instead of declaring it drained', async () => {
+test('a failed recorder release reports its error', async () => {
 	const failure = { name: 'StopFailed', message: 'microphone teardown failed' };
 	start = async () => Ok(undefined);
 	stop = async () => ({ data: null, error: failure });
@@ -88,7 +82,7 @@ test('a failed recorder stop refuses close instead of declaring it drained', asy
 	expect(dictation.status).toBe('listening');
 });
 
-test('close accepts the stop flush but rejects a late model callback after stop', async () => {
+test('ordinary stop delivers its final phrase and rejects later model callbacks', async () => {
 	const delivered: string[] = [];
 	let speechEnd: ((blob: Blob) => void) | undefined;
 	start = async (options) => {
@@ -106,10 +100,41 @@ test('close accepts the stop flush but rejects a late model callback after stop'
 			onTranscript: (result) => delivered.push(expectOk(result)),
 		}),
 	);
-	await dictation.close();
+	expectOk(await dictation.stop());
+	await Bun.sleep(0);
 	expect(delivered).toEqual(['captured']);
 	speechEnd?.(new Blob(['late frame']));
 	await Bun.sleep(0);
 	expect(delivered).toEqual(['captured']);
 	expect(dictation.isTranscribing).toBe(false);
+});
+
+test('close does not wait for in-flight transcription and suppresses its result', async () => {
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	let speechEnd: ((blob: Blob) => void) | undefined;
+	start = async (options) => {
+		speechEnd = options.onSpeechEnd;
+		return Ok(undefined);
+	};
+	stop = async () => Ok(undefined);
+	respond = async () => {
+		entered.resolve();
+		await release.promise;
+		return Response.json({ text: 'late' });
+	};
+	const delivered: string[] = [];
+	const dictation = createDictation(client);
+	expectOk(
+		await dictation.start({
+			onTranscript: (result) => delivered.push(expectOk(result)),
+		}),
+	);
+	speechEnd?.(new Blob(['captured']));
+	await entered.promise;
+	await dictation.close();
+	expect(dictation.status).toBe('idle');
+	release.resolve();
+	await Bun.sleep(0);
+	expect(delivered).toEqual([]);
 });

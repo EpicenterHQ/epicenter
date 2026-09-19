@@ -6,7 +6,6 @@ import {
 	MAX_IMPORT_FILES,
 } from '../constants/import-formats.js';
 import { report } from '../report/index.js';
-import { trackRecordingWork } from '../state/recording-active.svelte.js';
 import type { WhisperingApp } from '../whispering/app.js';
 import { logAnalyticsEvent } from './analytics.js';
 import { processRecordingPipeline } from './pipeline.js';
@@ -107,23 +106,21 @@ export async function importFiles(
 	if (valid.length === 0) return;
 
 	await Promise.all(
-		valid.map((file) =>
-			trackRecordingWork(async () => {
-				void logAnalyticsEvent(app, {
-					type: 'file_import_completed',
-					blob_size: file.size,
-				});
+		valid.map(async (file) => {
+			void logAnalyticsEvent(app, {
+				type: 'file_import_completed',
+				blob_size: file.size,
+			});
 
-				const transcribe = captureTranscription(app);
-				const { data: recording, error } = await saveAudioRecording(app, file);
-				if (error !== null) throw error;
-				if (recording === null) return;
-				await processRecordingPipeline(app, {
-					recordingId: recording.id,
-					transcribe,
-					deliverySource: 'import',
-				});
-			}),
-		),
+			const transcribe = captureTranscription(app);
+			const { data: recording, error } = await saveAudioRecording(app, file);
+			if (error !== null) throw error;
+			if (recording === null) return;
+			await processRecordingPipeline(app, {
+				recordingId: recording.id,
+				transcribe,
+				deliverySource: 'import',
+			});
+		}),
 	);
 }

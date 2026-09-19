@@ -16,24 +16,23 @@ Whispering is one SPA in three layers, served by the Epicenter desktop host. Pla
 
 ## Application composition
 
-`src/lib/application.ts` acquires nothing on import. The mounted `(app)` layout
-calls `openApplication()`, which loads `bootstrap.ts` once. Bootstrap captures
-the library choice and raw auth Account. Local uses device storage scoped to
-that captured Account, or the separate no-account namespace when signed out.
-Personal requires the captured Account. Authentication callbacks and overlays open no primary library.
-`auth.svelte.ts` adds UI tracking after composition.
+The mounted `(app)` layout passes the inert definition and plain auth client to
+`AppBoot`. One document captures one Account and opens one App. Local displays
+its device store; Personal displays its account store. Callbacks, sign-in, and
+stopped recovery documents open no App. `auth.svelte.ts` adapts identity for UI.
 
-The layout observes the opening promise before rendering `WhisperingShell`, which creates
-its UI session, query client, and recording workflow. Application routes share
-the same App. Library changes close this page and use full document navigation.
+`WhisperingShell` creates its UI session, query client, and recording workflow
+from the ready App. Application routes share that App. A library change warns,
+removes the working UI, marks the old history entry as stopped, and replaces the
+document. If navigation stalls, the old UI stays inert.
 
-Voluntary departure checks recording recovery and refuses while capture or
-saving needs attention. Terminal retirement stops new recording admission,
-awaits admitted recording work, releases VAD, and disposes the UI before storage
-closes. Imports and retries join the same complete-work drain. Admitted audio
-still saves after UI admission closes, but no further inference or delivery
-starts. Account transport retirement remains immediate. Reload alone is not an awaited
-recording shutdown; native capture still requires explicit recovery.
+One warning before an account change authorizes discarding active recordings
+and unsaved work. Departure does not drain imports, saves, or transcription.
+UI disposal stops admission, cancels owned capture, releases subscriptions and
+VAD, and fences late completions. Acquisition that finishes after disposal still
+releases its microphone. Ordinary stop saves and transcribes normally. Account
+transport retirement remains immediate; native document loss releases capture.
+Previously committed data survives replacement, but pending saves may not.
 
 Saved transcription reads bytes through the same App that recorded them. Its
 operation captures the selected SDK client, model, and hints before that read.
@@ -53,9 +52,9 @@ Whispering declares no runtime or AI override. Its own `#platform/*` seams
 continue to select app capabilities such as auth and native commands.
 The saved-recording contract lives at `@epicenter/app/recorder`.
 The UI session composes `createWhisperingRecording(app, openedApp.device.recording)`
-once and exposes `app.recording`. The workflow captures one framework recording service. Buttons and the overlay read the workflow state; UI disposal releases
-the capture subscription. The opened
-App owns capture admission, draining, cancellation, and storage closure. Device configuration
+once and exposes `app.recording`. The workflow captures one framework recording service. Buttons and the overlay read the workflow state; UI disposal cancels owned capture and releases its subscriptions. The opened
+App owns capture admission, cancellation, and storage resources. Its explicit
+close operation remains available for independent resource disposal. Device configuration
 selects browser device IDs or native device names through its matching seam.
 
 This mechanism is scoped to `#platform/*` only; every other bare import resolves normally. `tsconfig.json` typechecks the default resolution and `tsconfig.epicenter-host.json` repeats the check with the condition the Epicenter build activates. Each impl is annotated with the shared contract (`export const x: Contract = ...`, not `satisfies`, so the concrete type stays hidden and the variants stay in lockstep).

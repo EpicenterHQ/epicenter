@@ -1,7 +1,6 @@
-/** Verifies capture work blocks closure and failed saving preserves source audio. */
+/** Verifies capture disposal, late acquisition rollback, and preservation of saved audio. */
 import { expect, mock, test } from 'bun:test';
 import type { Recording, RecordingService } from '@epicenter/app/recorder';
-import { createInferenceSelections } from '@epicenter/app-shell/inference-selections';
 import { generateBlobId } from '@epicenter/blobs';
 import { Ok } from 'wellcrafted/result';
 import type { WhisperingApp } from '$lib/whispering/app';
@@ -13,7 +12,7 @@ Reflect.set(
 );
 const finalized = Promise.withResolvers<void>();
 const saved = Promise.withResolvers<void>();
-const initialized = Promise.withResolvers<void>();
+let initialized = Promise.withResolvers<void>();
 const events: string[] = [];
 let pipelineFailure: Error | undefined;
 let vadFailure: Error | undefined;
@@ -50,6 +49,7 @@ const vadRecorder = {
 		speechEnd = options.onSpeechEnd;
 		events.push('initialize');
 		await initialized.promise;
+		vadRecorder.state = 'LISTENING';
 		return Ok({ outcome: 'success' });
 	},
 };
@@ -86,15 +86,12 @@ mock.module('$lib/state/device-config.svelte', () => ({
 mock.module('$lib/state/dictation-lifecycle.svelte', () => ({
 	dictationLifecycle: { reset: mock(() => () => true), markFailed: mock() },
 }));
-const activity = await import('../state/recording-active.svelte');
-const { recordingActive } = activity;
-mock.module('$lib/state/recording-active.svelte', () => activity);
 const {
 	createWhisperingRecording,
 	startVadRecording,
 	cancelRecording,
 	stopVadRecording,
-	closeRecordingWork,
+	disposeVadRecording,
 } = await import('./recording.svelte.js');
 
 function recordingApp<T extends object>(
@@ -124,7 +121,7 @@ function recordingApp<T extends object>(
 	return app;
 }
 
-test('closing admission during native finalization still saves the admitted recording', async () => {
+test('ordinary native finalization publishes its saved recording', async () => {
 	const app = recordingApp({
 		account: undefined,
 		recordingEnabled: true,
@@ -132,43 +129,38 @@ test('closing admission during native finalization still saves the admitted reco
 	});
 	await app.recording.start();
 	const stopping = app.recording.stop();
-	expect(recordingActive(app as unknown as WhisperingApp)).toBe(true);
 	await Bun.sleep(0);
 	expect(events).toEqual(['finalize']);
 	app.recordingEnabled = false;
 	expect(app.signal.aborted).toBe(false);
-	const closing = closeRecordingWork().then(() => {
-		events.push('producers closed');
-	});
-	expect(recordingActive(app as unknown as WhisperingApp)).toBe(true);
 	finalized.resolve();
 	await Bun.sleep(0);
 	expect(events).toEqual(['finalize', 'save']);
 	saved.resolve();
 	await stopping;
-	await closing;
-	expect(events.at(-1)).toBe('producers closed');
-	expect(recordingActive(app as unknown as WhisperingApp)).toBe(false);
+	expect(events.at(-1)).toBe('save');
 });
 
-test('terminal producer closure releases an armed VAD engine after admission stops', async () => {
+test('disposal releases an armed VAD engine without waiting for save work', async () => {
 	vadRecorder.state = 'LISTENING';
-	await closeRecordingWork();
+	await disposeVadRecording();
 	expect(vadRecorder.state).toBe('IDLE');
 	expect(events.at(-1)).toBe('vad released');
 });
 
-test('VAD initialization owns close eligibility while recorder state remains idle', async () => {
+test('VAD acquired after disposal is immediately released', async () => {
 	const app = recordingApp({
 		recordingEnabled: true,
 		settings: { set: mock() },
 	});
+	initialized = Promise.withResolvers<void>();
 	const starting = startVadRecording(app);
 	expect(vadRecorder.state).toBe('IDLE');
-	expect(recordingActive(app as unknown as WhisperingApp)).toBe(true);
+	app.recordingEnabled = false;
 	initialized.resolve();
 	await starting;
-	expect(recordingActive(app as unknown as WhisperingApp)).toBe(false);
+	expect(vadRecorder.state).toBe('IDLE');
+	expect(events.at(-1)).toBe('vad released');
 });
 
 test('queued capture actions cannot restart a disposed UI session', async () => {
@@ -192,7 +184,6 @@ test('a late VAD frame cannot save through its retired App', async () => {
 	const before = events.length;
 	await speechEnd?.(new Blob(['late frame']));
 	expect(events).toHaveLength(before);
-	expect(recordingActive(app as unknown as WhisperingApp)).toBe(false);
 });
 
 test('a pipeline failure after saving does not delete published audio', async () => {
@@ -208,7 +199,6 @@ test('a pipeline failure after saving does not delete published audio', async ()
 		await app.recording.start();
 		await expect(app.recording.stop()).rejects.toBe(pipelineFailure);
 		expect(removeLocal).not.toHaveBeenCalled();
-		expect(recordingActive(app as unknown as WhisperingApp)).toBe(false);
 	} finally {
 		pipelineFailure = undefined;
 	}
@@ -269,72 +259,61 @@ test('push-to-talk release during startup saves through the composed workflow', 
 	await starting;
 	expect(app.recording.state).toBe('IDLE');
 	expect(removeLocal).not.toHaveBeenCalled();
-	expect(recordingActive(app)).toBe(false);
 });
 
-test('retirement cleanup failure after unmount is terminal and retains the active VAD', async () => {
-	mock.module('../whispering/app', () => ({
-		createWhisperingDomains: () => ({ settings: {}, [Symbol.dispose]() {} }),
-	}));
-	mock.module('../state/inference-connections.svelte.js', () => ({
-		createWhisperingConnections: () => ({}),
-	}));
-	mock.module('../state/recordings.svelte', () => ({
-		createRecordings: () => ({}),
-	}));
-	mock.module('../state/settings.svelte', () => ({
-		createSettingsView: () => ({}),
-	}));
-	mock.module('../queries', () => ({ createWhisperingQueries: () => ({}) }));
-	mock.module('../queries/client', () => ({
-		createWhisperingQueryRuntime: () => ({ queryClient: { clear() {} } }),
-	}));
-	const { createWhisperingUiSession } = await import(
-		'../whispering/ui-session'
-	);
-	const { createPageLifetime } = await import(
-		'../../../../../packages/app-shell/src/boot-screens/page-lifetime.test-support.js'
-	);
-	const notification = new AbortController();
-	const session = createWhisperingUiSession({
-		selections: createInferenceSelections({
-			storageKey: 'recording-close',
-			storage: { getItem: () => null, setItem() {} },
-		}),
-		data: {} as import('../whispering/app').WhisperingData,
-		openedApp: {
-			device: { recording: { current: async () => Ok(null) } },
-		} as unknown as import('../whispering/app').WhisperingAppHandle,
-		account: undefined,
+test('disposal cancels active capture without finalizing a recording', async () => {
+	const cancel = mock(async () => Ok(undefined));
+	const stop = mock(async () => {
+		throw new Error('Must not save on disposal');
 	});
-	let closed = false;
-	const departure = createPageLifetime({
-		stopUi: () => session[Symbol.asyncDispose](),
-		account: undefined,
-		opening: Promise.resolve({
-			signal: notification.signal,
-			async close() {
-				closed = true;
-			},
-		}),
-	});
+	const app = {
+		signal: new AbortController().signal,
+		recordingEnabled: true,
+		settings: { set: mock() },
+		recordings: {},
+	} as unknown as WhisperingApp;
+	const session = createWhisperingRecording(app, {
+		start: async () => Ok({ ...capture, cancel, stop } as unknown as Recording),
+		current: async () => Ok(null),
+		enumerateDevices: async () => Ok([]),
+	} as RecordingService);
+	await session.recording.start();
+	session[Symbol.dispose]();
+	await Bun.sleep(0);
+	expect(cancel).toHaveBeenCalledTimes(1);
+	expect(stop).not.toHaveBeenCalled();
+});
 
-	vadRecorder.state = 'LISTENING';
+test('capture acquired after disposal is cancelled without publishing a row', async () => {
+	const acquired = Promise.withResolvers<ReturnType<typeof Ok<Recording>>>();
+	const cancel = mock(async () => Ok(undefined));
+	const create = mock();
+	const app = {
+		signal: new AbortController().signal,
+		recordingEnabled: true,
+		settings: { set: mock() },
+		recordings: { create },
+	} as unknown as WhisperingApp;
+	const session = createWhisperingRecording(app, {
+		start: () => acquired.promise,
+		current: async () => Ok(null),
+		enumerateDevices: async () => Ok([]),
+	} as RecordingService);
+	const starting = session.recording.start();
+	session[Symbol.dispose]();
+	acquired.resolve(Ok({ ...capture, cancel } as unknown as Recording));
+	expect(await starting).toBeNull();
+	expect(cancel).toHaveBeenCalledTimes(1);
+	expect(create).not.toHaveBeenCalled();
+});
+
+test('VAD disposal reports release failure', async () => {
 	vadFailure = new Error('Microphone graph still held');
-	notification.abort();
+	vadRecorder.state = 'LISTENING';
 	try {
-		await Bun.sleep(0);
-		await expect(departure.close()).rejects.toBe(vadFailure);
-		expect(closed).toBe(false);
-		expect(vadRecorder.state).toBe('LISTENING');
-		vadFailure = undefined;
-		await expect(departure.close()).rejects.toThrow(
-			'Microphone graph still held',
-		);
-		expect(closed).toBe(false);
-		expect(departure.state.phase).toBe('failed');
+		await expect(disposeVadRecording()).rejects.toBe(vadFailure);
 	} finally {
 		vadFailure = undefined;
-		await closeRecordingWork();
+		await disposeVadRecording();
 	}
 });

@@ -57,12 +57,11 @@ updates the cache. Query results offer no message actions.
 ## Opening and closing
 
 `ui/src/lib/data.ts` declares data without opening resources. The primary route
-imports `application.ts` only after mounting, awaits the `openApp` promise, and then
-renders the mail shell. Auth callbacks and Gmail consent callbacks open no
+mounts `AppBoot`, awaits its `openApp` promise, and renders the mail shell. Auth callbacks and Gmail consent callbacks open no
 primary library. Importing or preloading the route does not open one either.
 
-`application.ts` calls `openApp(mailDefinition, { account })` and reads saved queries from
-`app.account.personal`. Gmail SQLite and credentials live under `app.device`.
+Each application document opens one App with its captured Account. Saved queries
+live in `app.account.personal`. Gmail SQLite and credentials live under `app.device`.
 Identity is required on first opening. A cached
 identity and an existing library can reopen without network access; connection
 health does not disable local triage, Undo, outbox reads, or queries.
@@ -72,10 +71,15 @@ functions receive that state and scoped capabilities; they do not construct a
 Device or own another application lifetime. Account removal refuses new work,
 drains admitted work, and checks pending triage before deleting anything.
 
-Document departure checks the query draft, stops UI producers, drains mail
-work, and closes the App. A failed save prevents deliberate departure. Switching
-Epicenter accounts or servers requires closure and full document navigation.
-Refreshing credentials for the same owner preserves the App.
+Explicit Epicenter account changes warn once, then replace the browser document
+or restart the desktop host. They can discard an entire unsaved query draft.
+Ordinary query switches and tab closure retain their draft warnings. Removing
+the mail shell aborts its operations without waiting for pending work.
+
+Unexpected retirement removes the working UI and replaces the document with
+`?stopped`. Recovery opens no App until the person chooses to reopen it. Committed
+data remains available. Same-owner credential refresh preserves the App; explicit
+desktop reauthentication restarts the host.
 
 Gmail caches, account registries, credentials, and pending work use one device
 namespace per app and Epicenter account. Returning to that account restores its
