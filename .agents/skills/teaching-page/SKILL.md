@@ -150,7 +150,7 @@ it is worse than letting it close.
 
 ## What breaks it
 
-Cards, tiles and panels. A second accent. Colour-coded categories. Legends.
+Boxed cards, tiles and panels. A second accent. Colour-coded categories. Legends.
 Badges, testimonials, calls to action, and anything else borrowed from a landing
 page whose job is to look settled. Evenly spaced flow steps. Four tinted
 quadrants. Invented precision in a figure when the honest claim is only the
@@ -158,9 +158,10 @@ order — say so in the caption and use qualitative marks.
 
 ## Before you finish
 
-Write to an ignored scratch path, self-contained, inline CSS and SVG, no CDN and
-no build step. Open it, then screenshot it and look, because these failures are
-visual and do not appear in the source.
+Write to an ignored scratch path, with inline SVG, no CDN, and no build step.
+Inline CSS for a standalone page; use the shared `page.css` for a page family
+as described above. Open it, then screenshot it and look, because these failures
+are visual and do not appear in the source.
 
 Three checks: nothing is in a box; the accent appears in exactly one role; a
 reader could stop after any section without losing the thread.
