@@ -19,6 +19,8 @@ vocabDefinition
 
 **Auth**: Google OAuth through the shared Epicenter auth path. Sign-in is required to reach the app: there is no unowned store to boot into (ADR-0336), and a signed-out person meets the sign-in screen. `AccountPopover` is the account surface.
 
+The shell constructs the shared inference catalog. Chat owns each conversation’s local connection selection and compares its model with the synced conversation model. The picker receives the selected target and a callback; it owns no selection persistence.
+
 **Providers**: `@epicenter/constants/ai-providers` owns the shared servable model registry. `vocab.ts` owns Vocab's Gemini model.
 
 ## File map
@@ -31,7 +33,6 @@ src/
     auth.svelte.ts        # UI auth tracking
     state/
       dictation.svelte.ts              # dictation state and interruption handling
-      inference-connections.svelte.ts  # hosted/custom inference connection registry
       recorder.svelte.ts               # speech recorder wiring
     readings/
       registry.ts        # resolveRomanizer(): loads + composes the per-script providers

@@ -1,3 +1,4 @@
+import { readRecordingAudio } from '../whispering/recordings.js';
 import {
 	type BlobNotFound,
 	type BlobStoreFailed,
@@ -8,7 +9,7 @@ import { defineKeys } from 'wellcrafted/query';
 import { Err, type Result } from 'wellcrafted/result';
 import { type DownloadError, DownloadServiceLive } from '#platform/download';
 import type { WhisperingQueryRuntime } from '$lib/queries/client';
-import type { Recording } from '$lib/state/recordings.svelte';
+import type { Recording } from '../data.js';
 import type { WhisperingApp } from '$lib/whispering/app';
 
 export const downloadKeys = defineKeys({
@@ -31,7 +32,7 @@ export function createDownloadQueries(
 				>
 			> => {
 				const { data: audioBlob, error: getAudioBlobError } =
-					await app.recordings.readAudio(recording.id);
+					await readRecordingAudio(app, recording.id);
 
 				if (getAudioBlobError) return Err(getAudioBlobError);
 

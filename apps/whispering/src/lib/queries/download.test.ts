@@ -9,8 +9,8 @@ import { createQueryFactories } from 'wellcrafted/query';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { DownloadServiceLive } from '#platform/download';
-import type { Recording } from '../state/recordings.svelte.js';
 import type { WhisperingApp } from '../whispering/app.js';
+import type { Recording } from '../data.js';
 import { createDownloadQueries } from './download.js';
 
 for (const { blob, extension } of [
@@ -32,7 +32,10 @@ for (const { blob, extension } of [
 		const client = new QueryClient();
 		try {
 			const app = {
-				recordings: { readAudio: async () => Ok(blob) },
+				library: {
+					tables: { recordings: { get: () => ({ audioBlobId: 'audio.wav' }) } },
+				},
+				blobs: { local: { get: async () => Ok(blob) } },
 			} as unknown as WhisperingApp;
 			const query = createDownloadQueries(app, createQueryFactories(client));
 			expectOk(

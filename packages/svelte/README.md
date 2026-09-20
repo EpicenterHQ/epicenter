@@ -24,7 +24,7 @@ This package is part of the Epicenter monorepo and is used internally. To use it
 
 Adapts one opened `@epicenter/app/store` handle into Svelte reactivity, mirroring
 the declaration: `tables.<name>`, `kv`, and `persistence`, with the same verbs
-and the same types. Reads are reactive; writes pass through unchanged. Repeated
+and the same types. Other handle members pass through unchanged. Reads are reactive; writes pass through unchanged. Repeated
 calls with the same raw store return the same wrapper without reseeding tables
 or adding subscriptions, so route components can remount over one open store.
 
@@ -43,6 +43,18 @@ const app = fromData(data);
 const active = $derived(app.tables.notes.rows.filter((n) => !n.deletedAt));
 const note = app.tables.notes.get(id);   // wakes only when THAT row moves
 app.persistence.get() === 'blocked';     // this device stopped saving
+```
+
+### `fromKv`
+
+Adapts KV reads without building table projections. Use it when a view needs
+device settings while displaying another library. Repeated calls reuse the same
+wrapper, including calls through `fromData`. Writes pass through unchanged.
+
+```ts
+const preferences = fromKv(openedApp.device.kv);
+preferences.get('showReadings');
+preferences.update({ showReadings: true });
 ```
 
 ### `fromSubscription`

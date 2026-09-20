@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getSetting } from '$lib/operations/settings.js';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
@@ -39,8 +40,8 @@
 	<Field.Separator />
 	<Field.Group>
 		<SettingSelect
-			store={app.settings}
-			key="recordingTrigger"
+			value={getSetting(app.device.kv, 'recordingTrigger')}
+			onSelect={(recordingTrigger) => app.device.kv.update({ recordingTrigger })}
 			label="Recording Trigger"
 			items={RECORDING_TRIGGER_OPTIONS}
 			description="Choose how recording starts: {RECORDING_TRIGGER_OPTIONS.map(
@@ -55,7 +56,7 @@
 		/>
 
 
-		{#if app.settings.get('recordingTrigger') === 'manual'}
+		{#if getSetting(app.device.kv, 'recordingTrigger') === 'manual'}
 			<ManualSelectRecordingDevice
 				bind:selected={() => {
 					const selected = manualRecorderConfig.deviceId;
@@ -63,7 +64,7 @@
 					},
 					(selected) => (manualRecorderConfig.deviceId = selected)}
 			/>
-		{:else if app.settings.get('recordingTrigger') === 'vad'}
+		{:else if getSetting(app.device.kv, 'recordingTrigger') === 'vad'}
 			{#if os.isLinux}
 				<Alert.Root variant="destructive">
 					<InfoIcon class="size-4" />
@@ -118,10 +119,10 @@
 			/>
 		{/if}
 
-		{#if app.settings.get('recordingTrigger') === 'manual' && !tauri}
+		{#if getSetting(app.device.kv, 'recordingTrigger') === 'manual' && !tauri}
 			<SettingSelect
-				store={deviceConfig}
-				key="recording.navigator.bitrateKbps"
+				value={deviceConfig.get('recording.navigator.bitrateKbps')}
+				onSelect={(value) => deviceConfig.set('recording.navigator.bitrateKbps', value)}
 				label="Bitrate"
 				items={BITRATE_OPTIONS}
 				description="The bitrate of the recording. Higher values mean better quality but larger file sizes."

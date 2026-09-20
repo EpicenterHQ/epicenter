@@ -2,8 +2,9 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 const root = join(import.meta.dir, '../../..');
 const appRequire = createRequire(join(root, 'packages/app/package.json'));
 const whisperingRequire = createRequire(
@@ -24,10 +25,10 @@ await writeFile(
 	join(directory, 'Picker.svelte'),
 	`<script>
 import InferencePicker from '../src/inference-picker/inference-picker.svelte';
-import { createInferenceConnections } from '../src/inference-picker/connections.svelte';
+import { createInferenceCatalog } from '../src/inference-picker/catalog.svelte';
 import { createAppAi } from '../../app/src/ai';
 import { createBrowserAppAi } from '../../app/src/browser';
-import { createBrowserInferenceSelections } from '../src/inference-selections';
+
 const records = createBrowserAppAi().connections('picker-acceptance');
 const hidden = (records) => records.map(({apiKey, ...record}) => ({ ...record, hasApiKey: Boolean(apiKey), accessVersion: apiKey ? 'credential' : 'anonymous' }));
 let blocked, release;
@@ -51,15 +52,12 @@ const owner = createAppAi({
  }
 });
 const app = { ai: owner.value.ai, account: null };
-const selections = createBrowserInferenceSelections('picker-acceptance');
-const connections = createInferenceConnections({
- connections: { runtime: app.ai.runtime, custom: app.ai.connections },
- accountConnection: app.ai.account, selections, hostedModels: []
-});
+
+let catalog = $state.raw(createInferenceCatalog({ ai: app.ai, hostedModels: [] }));
 let shown = $state(true);
-let model = $state('');
+let value = $state(null);
 window.acceptance = {
- selected: () => selections.get('chat'),
+ selected: () => value,
  records: () => app.ai.connections.getAll().map(({client,...record}) => record),
  add: (input) => app.ai.connections.add(input),
  update: (id, patch) => app.ai.connections.update(id, patch),
@@ -67,11 +65,12 @@ window.acceptance = {
  block() { blocked = new Promise(resolve => release = resolve); },
  release() { blocked = undefined; release?.(); },
  fail(value) { fail = value; },
+ replaceCatalog() { catalog = createInferenceCatalog({ ai: app.ai, hostedModels: [] }); },
  hide() { shown = false; },
  show() { shown = true; },
 };
 </script>
-{#if shown}<InferencePicker scope="chat" {model} {connections} onSelectModel={(value) => model = value} />{/if}
+{#if shown}<InferencePicker {value} {catalog} onSelect={(target) => value = target} />{/if}
 `,
 );
 await writeFile(
@@ -84,6 +83,8 @@ const server = await createServer({
 	configFile: false,
 	root: join(root, 'packages/app-shell'),
 	cacheDir: join(evidence, 'vite-cache'),
+	// The fixture is generated outside an HTML entry; scan it before serving dependencies.
+	optimizeDeps: { entries: [join(directory, 'main.js')] },
 	server: {
 		host: 'localhost',
 		port: 0,
@@ -102,13 +103,19 @@ const server = await createServer({
 						res.end(html);
 						return;
 					}
-					const failure = /^\/errors\/(401|403|429|malformed)\/v1\/models$/.exec(req.url);
+					const failure =
+						/^\/errors\/(401|403|429|malformed)\/v1\/models$/.exec(req.url);
 					if (failure) {
 						res.setHeader('content-type', 'application/json');
-						res.statusCode = failure[1] === 'malformed' ? 200 : Number(failure[1]);
-						res.end(JSON.stringify(failure[1] === 'malformed'
-							? { data: [{ id: 123 }] }
-							: { error: { message: 'Fixture rejection' } }));
+						res.statusCode =
+							failure[1] === 'malformed' ? 200 : Number(failure[1]);
+						res.end(
+							JSON.stringify(
+								failure[1] === 'malformed'
+									? { data: [{ id: 123 }] }
+									: { error: { message: 'Fixture rejection' } },
+							),
+						);
 						return;
 					}
 					if (req.url === '/models/v1/models') {
@@ -231,21 +238,58 @@ try {
 		'after-failure',
 	);
 	await page.evaluate(() => window.acceptance.show());
+	await page.locator('button[role="combobox"]').click();
+	await page
+		.getByText('Edit Changed in another window or enter a model', {
+			exact: true,
+		})
+		.click();
+	await page
+		.getByLabel('Model ID', { exact: true })
+		.fill('retired-catalog-model');
+	await page.evaluate(() => window.acceptance.block());
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await page.getByRole('button', { name: 'Saving...', exact: true }).waitFor();
+	await page.evaluate(() => window.acceptance.replaceCatalog());
+	await page.evaluate(() => window.acceptance.release());
+	await page.waitForFunction(
+		(id) =>
+			window.acceptance
+				.records()
+				.find((entry) => entry.id === id)
+				.models.includes('retired-catalog-model'),
+		id,
+	);
+	await page.getByRole('button', { name: 'Save', exact: true }).waitFor();
+	assert.equal(
+		await page.evaluate(() => window.acceptance.selected().model),
+		'after-failure',
+	);
+	await page.keyboard.press('Escape');
 	for (const [failure, message] of [
 		['401', 'The endpoint rejected this API key.'],
 		['403', 'The endpoint rejected this API key.'],
 		['429', 'The endpoint returned 429.'],
 		['malformed', "This endpoint didn't return an OpenAI model list."],
 	]) {
-		await page.evaluate(failure => window.acceptance.add({
-			name: `Failure ${failure}`,
-			baseUrl: `${location.origin}/errors/${failure}/v1`,
-			models: [],
-		}), failure);
+		await page.evaluate(
+			(failure) =>
+				window.acceptance.add({
+					name: `Failure ${failure}`,
+					baseUrl: `${location.origin}/errors/${failure}/v1`,
+					models: [],
+				}),
+			failure,
+		);
 		await page.locator('button[role="combobox"]').click();
-		await page.getByText(`Edit Failure ${failure} or enter a model`, { exact: true }).click();
+		await page
+			.getByText(`Edit Failure ${failure} or enter a model`, { exact: true })
+			.click();
 		await page.getByText(message, { exact: false }).waitFor();
-		assert.equal(await page.evaluate(() => window.acceptance.selected().model), 'after-failure');
+		assert.equal(
+			await page.evaluate(() => window.acceptance.selected().model),
+			'after-failure',
+		);
 		await page.keyboard.press('Escape');
 	}
 	assert.deepEqual(errors, []);
@@ -261,6 +305,7 @@ try {
 					'explicit key removal',
 					'cross-window observation',
 					'destroyed picker suppresses selection',
+					'replaced catalog suppresses stale selection',
 					'SDK 401/403 identify rejected keys, 429 preserves status, malformed suggestions preserve selection',
 				],
 			},

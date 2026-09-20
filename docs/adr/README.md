@@ -619,7 +619,7 @@ When you add an ADR, add its row here.
 
 | [0366](0366-recording-is-an-app-scoped-portable-capability.md) | Recording is an app-scoped portable capability | Proposed (Stop publishes to the app-local blob store; row creation and remote hosting are explicit later operations) |
 | [0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) | An application page owns one library and changing it ends the page | Accepted (unbuilt) |
-| [0373](0373-product-operations-read-the-page-owned-app-when-invoked.md) | Product operations read the page-owned App when invoked | Proposed |
+| [0373](0373-product-operations-receive-the-page-owned-app-explicitly.md) | Product operations receive the page-owned App explicitly | Proposed |
 | [0375](0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md) | Library ownership is local, personal, or shared within one deployment | Proposed (library scope does not assign blob ownership) |
 
 | [0359](0359-the-document-factory-owns-readiness-and-closure.md) | The document factory owns readiness and closure | Proposed |

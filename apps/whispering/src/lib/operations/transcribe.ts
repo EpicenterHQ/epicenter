@@ -1,4 +1,4 @@
-import { matchInferenceTarget } from '@epicenter/app-shell/inference-selections';
+import { readRecordingAudio } from '../whispering/recordings.js';
 import { blobInputContentType, selectBlobFormat } from '@epicenter/blobs';
 import { APIError } from 'openai';
 import {
@@ -7,11 +7,11 @@ import {
 	extractErrorMessage,
 } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
-import { getApp, getSelections } from '../application.js';
 import { isSupportedLanguage } from '../constants/languages.js';
 import type { RecordingId } from '../data.js';
 import type { WhisperingApp } from '../whispering/app.js';
-import { settings } from './settings.js';
+import { getInferenceTarget } from '../whispering/inference.js';
+import { getSetting } from './settings.js';
 import {
 	recordTranscriptionOutcome,
 	type TranscriptionSuccess,
@@ -46,52 +46,32 @@ const TranscriptionOperationError = defineErrors({
 });
 
 /** Capture the exact saved SDK target. Discovery never chooses its destination. */
-export function resolveTranscriptionState() {
-	const app = getApp();
-	const model = settings.get('transcriptionModel');
-	const selected = getSelections().get('transcription');
-	const client =
-		selected?.model === model
-			? matchInferenceTarget(
-					{
-						runtime: app.device.connections.runtime,
-						connections: app.device.connections.custom,
-						account: app.account?.connection ?? null,
-					},
-					selected,
-				)
-			: null;
-	const account = client !== null && client === app.account?.connection?.client;
-	return {
-		client,
-		model,
-		account,
-		canRun: client !== null && model.trim().length > 0,
-	};
+export function resolveTranscriptionTarget(app: WhisperingApp) {
+	return app.catalog.resolve(
+		getInferenceTarget(app.device.kv, 'transcription'),
+	);
 }
 
 /** Capture the inference target before recording or import. No selection means audio only. */
-export function captureTranscription(owner: WhisperingApp) {
+export function captureTranscription(app: WhisperingApp) {
 	let usesAccount = false;
 	const prepared = trySync({
 		try: () => {
-			const app = getApp();
-			if (app.signal !== owner.signal)
-				return TranscriptionOperationError.Closed();
 			app.signal.throwIfAborted();
-			const language = settings.get('transcriptionLanguage');
+			const language = getSetting(app.device.kv, 'transcriptionLanguage');
 			const spokenLanguage = isSupportedLanguage(language) ? language : 'auto';
 			const prompt = [
-				settings.get('transcriptionPrompt').trim(),
-				(settings.get('dictionary') ?? []).join(', '),
+				getSetting(app.device.kv, 'transcriptionPrompt').trim(),
+				(getSetting(app.device.kv, 'dictionary') ?? []).join(', '),
 			]
 				.filter(Boolean)
 				.join(' ');
-			if (!getSelections().get('transcription')) return Ok(null);
-			const { client, model, account, canRun } = resolveTranscriptionState();
-			if (!client || !canRun)
-				return TranscriptionOperationError.SelectionRequired();
-			usesAccount = account;
+			const selection = getInferenceTarget(app.device.kv, 'transcription');
+			if (!selection) return Ok(null);
+			const target = app.catalog.resolve(selection);
+			if (!target) return TranscriptionOperationError.SelectionRequired();
+			const { client, model, source } = target;
+			usesAccount = source === 'account';
 			const transcribe = async (audio: Blob) => {
 				const response = await client.audio.transcriptions.create(
 					{
@@ -129,14 +109,23 @@ export function captureTranscription(owner: WhisperingApp) {
 	): Promise<Result<string, TranscriptionError>> => {
 		const result = await tryAsync({
 			try: async () => {
-				if (owner.signal.aborted || !owner.recordings.get(recordingId))
+				if (
+					app.signal.aborted ||
+					!app.library.tables.recordings.get(recordingId)
+				)
 					return TranscriptionOperationError.Closed();
-				const audio = await owner.recordings.readAudio(recordingId);
-				if (owner.signal.aborted || !owner.recordings.get(recordingId))
+				const audio = await readRecordingAudio(app, recordingId);
+				if (
+					app.signal.aborted ||
+					!app.library.tables.recordings.get(recordingId)
+				)
 					return TranscriptionOperationError.Closed();
 				if (audio.error) return Err(audio.error);
 				const transcription = await selected(audio.data);
-				if (owner.signal.aborted || !owner.recordings.get(recordingId))
+				if (
+					app.signal.aborted ||
+					!app.library.tables.recordings.get(recordingId)
+				)
 					return TranscriptionOperationError.Closed();
 				return transcription;
 			},

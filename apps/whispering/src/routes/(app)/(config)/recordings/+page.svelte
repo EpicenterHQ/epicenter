@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { sortedRecordings } from '$lib/whispering/recordings';
 	import { createPersistedState } from '@epicenter/svelte';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button, buttonVariants } from '@epicenter/ui/button';
@@ -49,7 +50,7 @@
 	import { creditAction } from '$lib/operations/credit-action';
 	import { tauri } from '#platform/tauri';
 	import { deleteRecordingsWithConfirmation } from '$lib/operations/delete-recordings';
-	import type { Recording } from '$lib/state/recordings.svelte';
+	import type { Recording } from '../../../../lib/data.js';
 	import type { RecordingId } from '$lib/data';
 	import { createCopyFn } from '$lib/utils/createCopyFn';
 	import RecordingTranscriptCell from './RecordingTranscriptCell.svelte';
@@ -245,10 +246,12 @@
 	});
 	let globalFilter = $state('');
 
+	const recordings = $derived(sortedRecordings(app.library));
+
 	const table = createSvelteTable({
 		getRowId: (originalRow) => originalRow.id,
 		get data() {
-			return app.recordings.sorted;
+			return recordings;
 		},
 		columns,
 		getCoreRowModel: getCoreRowModel(),
@@ -462,7 +465,7 @@
 							<EllipsisIcon class="size-4" />
 						{:else if selectedRecordingRows.some(
 							(recording) =>
-								app.recordings.get(recording.original.id)
+								app.library.tables.recordings.get(recording.original.id)
 									?.transcriptionStatus === 'completed',
 						)}
 							<RetryTranscriptionIcon class="size-4" />

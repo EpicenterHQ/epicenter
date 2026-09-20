@@ -42,7 +42,7 @@ export async function processRecordingPipeline(
 ) {
 	const lifetime = app.signal;
 	lifetime.throwIfAborted();
-	const recording = app.recordings.get(recordingId);
+	const recording = app.library.tables.recordings.get(recordingId);
 	if (!recording || !app.recordingEnabled) return;
 
 	// A live dictation (not a file import) drives the dictation pill. The
@@ -108,14 +108,14 @@ export async function processRecordingPipeline(
 	// import has no pill to cancel from and keeps its own progress toast. The pill
 	// shows the HUD only when an AI pass actually runs (not in speed mode); begin/end
 	// bracket the call so the controller is dropped on success, failure, or abort.
-	const willPolish = polishWillRun(transcribedText);
+	const willPolish = polishWillRun(app, transcribedText);
 	const showPolishHud = willPolish && isDictation && ownsFeedback();
 	let signal: AbortSignal | undefined;
 	if (showPolishHud) {
 		dictationLifecycle.markPolishing();
 		signal = polishHud.begin(ownsFeedback);
 	}
-	const { data: polishedText, error: polishError } = await runPolish({
+	const { data: polishedText, error: polishError } = await runPolish(app, {
 		input: transcribedText,
 		signal,
 	});
@@ -138,7 +138,7 @@ export async function processRecordingPipeline(
 	// already left `polishedTranscript` null, so speed mode (no AI call) and a
 	// polish failure (the fallback delivers the raw words) need no second write.
 	if (willPolish && !polishError) {
-		const polishedHistory = await saveRecordingHistory(app, recording.id, {
+		const polishedHistory = saveRecordingHistory(app, recording.id, {
 			polishedTranscript: polishedText,
 		});
 		if (polishedHistory.error !== null) history = polishedHistory;

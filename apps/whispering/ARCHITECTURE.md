@@ -22,7 +22,10 @@ its device store; Personal displays its account store. Callbacks, sign-in, and
 stopped recovery documents open no App. `auth.svelte.ts` adapts identity for UI.
 
 `WhisperingShell` creates its UI session, query client, and recording workflow
-from the ready App. Application routes share that App. A library change warns,
+from the ready App. `fromData` adapts the selected library and `fromKv` adapts
+device settings without projecting the other library. Components read these
+handles through context; operations receive the App explicitly. Settings writes
+use `app.device.kv.update`, and row access uses `app.library.tables`. Application routes share that App. A library change warns,
 removes the working UI, marks the old history entry as stopped, and replaces the
 document. If navigation stalls, the old UI stays inert.
 
@@ -69,18 +72,19 @@ The codebase distinguishes two kinds of "which implementation" decisions and use
 
 ## Query Layer - Adding Reactivity and State Management
 
-The query layer (`$lib/queries`) is where TanStack Query reactivity gets injected on top of the ready app and pure services. One `WhisperingUiSession` owns one `QueryClient` and one `WhisperingQueries` namespace; there is no module-global client. Components reach both through context:
+The query layer (`$lib/queries`) is where TanStack Query reactivity gets injected on top of the ready app and pure services. The session created by `createWhisperingUiSession` owns one `QueryClient` and one `WhisperingQueries` namespace; there is no module-global client. Components reach both through context:
 
 ```svelte
 <script>
   import { createQuery } from '@tanstack/svelte-query';
+  import { sortedRecordings } from '$lib/whispering/recordings';
   import { getWhisperingApp, getWhisperingQueries } from '$lib/whispering/context';
 
   const app = getWhisperingApp();
   const queries = getWhisperingQueries();
 
   // Domain data: workspace state (reactive, no queries needed)
-  const latestRecording = $derived(app.recordings.sorted[0]);
+  const latestRecording = $derived(sortedRecordings(app.library)[0]);
 
   // Audio availability: still needs TanStack Query (blobs are too large for
   // workspace rows)
@@ -90,7 +94,7 @@ The query layer (`$lib/queries`) is where TanStack Query reactivity gets injecte
 </script>
 ```
 
-**Workspace State** - The UI-free app owns domain data (recordings, recipes, settings). Thin `$lib/state/*.svelte.ts` adapters add `createSubscriber` tracking, so components react to the same namespaces that Bun scripts use.
+**Workspace State** - Components read recordings and recipes through `fromData(app.library)` and settings through `fromKv(app.device.kv)`. These shared adapters preserve the table and KV APIs; product operations receive the page-owned app explicitly.
 
 The query layer's role has narrowed to things that don't fit in workspace rows:
 

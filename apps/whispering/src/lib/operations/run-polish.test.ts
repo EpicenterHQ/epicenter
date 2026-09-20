@@ -2,26 +2,15 @@
  * Polish reads the ready document at invocation, preserves raw text on cancellation
  * and failure, and sends no request for disabled or missing selections.
  */
-import { expect, mock, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { createAppAi } from '@epicenter/app/ai';
 import { createAiConnections } from '@epicenter/app/ai-connections';
-import {
-	createInferenceSelections,
-	type InferenceSelections,
-} from '@epicenter/app-shell/inference-selections';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { createInferenceCatalog } from '../../../../../packages/app-shell/src/inference-picker/catalog.svelte.js';
+import type { WhisperingApp } from '../whispering/app.js';
+import { runPolish } from './run-polish.js';
 
-let currentApp: unknown;
-let currentSelections: InferenceSelections;
-let reads = 0;
-mock.module('../application.js', () => ({
-	getSelections: () => currentSelections,
-	getApp() {
-		reads++;
-		return currentApp;
-	},
-}));
-const { runPolish } = await import('./run-polish.js');
+Reflect.set(globalThis, '$state', { raw: <T>(value: T) => value });
 
 async function setup() {
 	const values = new Map<string, unknown>([
@@ -30,6 +19,13 @@ async function setup() {
 		['polishInstructions', 'Fix punctuation.'],
 		['dictionary', ['Epicenter']],
 	]);
+	const kv = {
+		get: (key: string) => values.get(key),
+		update: (changes: Record<string, unknown>) => {
+			for (const [key, value] of Object.entries(changes))
+				values.set(key, value);
+		},
+	};
 	const savedConnections = new Map<string, string>();
 	const records = createAiConnections({
 		storageKey: 'polish',
@@ -40,11 +36,6 @@ async function setup() {
 			},
 		},
 	});
-	const selections = createInferenceSelections({
-		storageKey: 'selection-test',
-		storage: { getItem: () => null, setItem() {} },
-	});
-	currentSelections = selections;
 	const controller = new AbortController();
 	const requests: unknown[] = [];
 	let fail = false;
@@ -82,22 +73,22 @@ async function setup() {
 		baseUrl: 'https://chosen.example/v1',
 		models: ['chosen'],
 	});
-	selections.set('completion', { connectionId: id, model: 'chosen' });
-	currentApp = {
-		account: null,
-		device: {
-			connections: {
-				runtime: owner.value.ai.runtime,
-				custom: owner.value.ai.connections,
-			},
-			kv: { get: (key: string) => values.get(key) },
-		},
-	};
+	kv.update({ completionConnection: id, completionModel: 'chosen' });
+	const app = {
+		signal: controller.signal,
+		device: { kv },
+		catalog: createInferenceCatalog({
+			ai: owner.value.ai,
+			hostedModels: [],
+		}),
+	} as unknown as WhisperingApp;
+
 	return {
+		app,
 		values,
+		kv,
 		requests,
 		ai: owner.value.ai,
-		selections,
 		id,
 		started: started.promise,
 		delay() {
@@ -107,23 +98,18 @@ async function setup() {
 			fail = true;
 		},
 		async close() {
-			selections[Symbol.dispose]();
 			controller.abort();
 			await owner.close();
 		},
 	};
 }
 
-test('importing Polish reads no App or device configuration', () => {
-	expect(reads).toBe(0);
-});
-
 test('Polish reads current settings and sends the selected model and dictionary', async () => {
 	const fixture = await setup();
 	try {
-		expect(expectOk(await runPolish({ input: 'hello epicenter' }))).toBe(
-			'Hello, Epicenter.',
-		);
+		expect(
+			expectOk(await runPolish(fixture.app, { input: 'hello epicenter' })),
+		).toBe('Hello, Epicenter.');
 		expect(fixture.requests[0]).toMatchObject({
 			model: 'chosen',
 			messages: [
@@ -141,11 +127,15 @@ test('disabled, empty, and missing selections return raw input without inference
 	const fixture = await setup();
 	try {
 		fixture.values.set('polishEnabled', false);
-		expect(expectOk(await runPolish({ input: 'raw' }))).toBe('raw');
+		expect(expectOk(await runPolish(fixture.app, { input: 'raw' }))).toBe(
+			'raw',
+		);
 		fixture.values.set('polishEnabled', true);
-		expect(expectOk(await runPolish({ input: '  ' }))).toBe('  ');
+		expect(expectOk(await runPolish(fixture.app, { input: '  ' }))).toBe('  ');
 		await fixture.ai.connections!.remove(fixture.id);
-		expect(expectOk(await runPolish({ input: 'raw' }))).toBe('raw');
+		expect(expectOk(await runPolish(fixture.app, { input: 'raw' }))).toBe(
+			'raw',
+		);
 		expect(fixture.requests).toHaveLength(0);
 	} finally {
 		await fixture.close();
@@ -158,10 +148,17 @@ test('cancellation returns raw text and request failure carries a raw fallback',
 		const controller = new AbortController();
 		controller.abort();
 		expect(
-			expectOk(await runPolish({ input: 'raw', signal: controller.signal })),
+			expectOk(
+				await runPolish(fixture.app, {
+					input: 'raw',
+					signal: controller.signal,
+				}),
+			),
 		).toBe('raw');
 		fixture.fail();
-		expect(expectErr(await runPolish({ input: 'raw' })).fallback).toBe('raw');
+		expect(
+			expectErr(await runPolish(fixture.app, { input: 'raw' })).fallback,
+		).toBe('raw');
 	} finally {
 		await fixture.close();
 	}
@@ -170,7 +167,9 @@ test('cancellation returns raw text and request failure carries a raw fallback',
 test('retained operations refuse a closed App', async () => {
 	const fixture = await setup();
 	await fixture.close();
-	await expect(runPolish({ input: 'raw' })).rejects.toThrow('disposed');
+	await expect(runPolish(fixture.app, { input: 'raw' })).rejects.toBe(
+		fixture.app.signal.reason,
+	);
 	expect(fixture.requests).toHaveLength(0);
 });
 
@@ -179,7 +178,10 @@ test('ship raw cancels an in-flight Polish request', async () => {
 	try {
 		fixture.delay();
 		const controller = new AbortController();
-		const pending = runPolish({ input: 'raw', signal: controller.signal });
+		const pending = runPolish(fixture.app, {
+			input: 'raw',
+			signal: controller.signal,
+		});
 		await fixture.started;
 		controller.abort();
 		expect(expectOk(await pending)).toBe('raw');
@@ -187,4 +189,14 @@ test('ship raw cancels an in-flight Polish request', async () => {
 	} finally {
 		await fixture.close();
 	}
+});
+
+test('App retirement cancels an in-flight Polish request and preserves its raw fallback', async () => {
+	const fixture = await setup();
+	fixture.delay();
+	const pending = runPolish(fixture.app, { input: 'raw' });
+	await fixture.started;
+	await fixture.close();
+	expect(expectErr(await pending).fallback).toBe('raw');
+	expect(fixture.requests).toHaveLength(1);
 });

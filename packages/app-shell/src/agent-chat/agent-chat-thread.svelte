@@ -3,7 +3,7 @@
 	import type { Snippet } from 'svelte';
 	import {
 		CrossDeviceModelGap,
-		type InferenceConnections,
+		type InferenceCatalog,
 		InferencePicker,
 	} from '../inference-picker/index.js';
 	import type { ConversationHandle } from './agent-chat.svelte.js';
@@ -14,7 +14,7 @@
 
 	let {
 		conversation,
-		connections,
+		catalog,
 		onSignIn,
 		onUpgrade,
 		message,
@@ -26,8 +26,8 @@
 	}: {
 		/** The active conversation this thread renders end to end. */
 		conversation: ConversationHandle;
-		/** The device connection registry (ADR-0059), for the model picker and gap. */
-		connections: InferenceConnections;
+		/** The available inference sources for the model picker. */
+		catalog: InferenceCatalog;
 		/** Open the app's sign-in flow (the turn failed with HTTP 401). Omit to hide
 		 * the Sign In button in the error banner. */
 		onSignIn?: () => void;
@@ -78,23 +78,25 @@
 	<ChatErrorBanner {conversation} {onSignIn} {onUpgrade} />
 
 	<CrossDeviceModelGap
-		scope={conversation.id}
 		model={conversation.model}
-		{connections}
-		onUseDefault={() => conversation.useDefaultModel()}
+		canServe={conversation.canServe}
+		onUseDefault={catalog.accountId
+			? () => conversation.useDefaultModel()
+			: undefined}
 	/>
 
 	<!-- The shared model-first picker (ADR-0059): the conversation's model bound to
 	     this device's connection registry. Locked mid-turn so a transcript never
 	     spans backends. -->
 	<div class="flex items-center gap-2 bg-background px-2 pt-1.5">
-		<InferencePicker
-			scope={conversation.id}
-			model={conversation.model}
-			onSelectModel={(model) => (conversation.model = model)}
-			{connections}
-			disabled={conversation.isLoading}
-		/>
+		{#key conversation.id}
+			<InferencePicker
+				value={conversation.target}
+				onSelect={(target) => conversation.selectTarget(target)}
+				{catalog}
+				disabled={conversation.isLoading}
+			/>
+		{/key}
 	</div>
 
 	<ChatInput

@@ -140,14 +140,14 @@
 		const controller = new AbortController();
 		entryCandidateAbortController = controller;
 		entryCandidateRequest = { messageId, status: 'loading', candidates: [] };
-		const connection = active ? inferenceConnections.resolve(active.id, model) : null;
+		const connection = catalog.resolve(active?.target ?? null);
 		if (!connection) {
 			entryCandidateRequest = { messageId, status: 'error', candidates: [], detail: 'Choose a connection in the model menu before suggesting entries.' };
 			return;
 		}
         const { data, error } = await tryAsync({
             try: async () => {
-                const result = await connection.chat.completions.create({ model, messages: [{ role: 'system', content: buildEntryCandidatePrompt() }, { role: 'user', content: passage }], stream: false }, { signal: controller.signal });
+                const result = await connection.client.chat.completions.create({ model, messages: [{ role: 'system', content: buildEntryCandidatePrompt() }, { role: 'user', content: passage }], stream: false }, { signal: controller.signal });
                 const text = result.choices?.[0]?.message?.content;
                 if (typeof text !== 'string') throw new Error('The response contained no text.');
                 return text;
@@ -194,7 +194,7 @@
 		const draft = active.inputValue.trim();
 		active.inputValue = draft ? `${draft} ${text}` : text;
 	}
-	const { inferenceConnections } = getVocabSurface();
+	const { catalog } = getVocabSurface();
 </script>
 
 <svelte:document onselectionchange={handleSelectionChange} />
@@ -214,7 +214,7 @@
 {#if active}
 	<AgentChatThread
 		conversation={active}
-		connections={inferenceConnections}
+		{catalog}
 		placeholder="Ask about a word, phrase, or sentence you're learning..."
 		onSignIn={openConnection}
 		onUpgrade={accountManagementUrl ? () => {

@@ -17,3 +17,4 @@ export {
 	createPersistedState,
 	PersistedError,
 } from './persisted-state.svelte.js';
+export { fromKv } from './from-kv.svelte.js';

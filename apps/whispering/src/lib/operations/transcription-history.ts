@@ -1,3 +1,4 @@
+import { updateRecording } from '../whispering/recordings.js';
 import { InstantString } from '@epicenter/app/field';
 import {
 	type AnyTaggedError,
@@ -9,7 +10,7 @@ import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Err, isErr, Ok, type Result, trySync } from 'wellcrafted/result';
 import type { RecordingId } from '$lib/data';
 import type { WhisperingApp } from '$lib/whispering/app';
-import type { Recording } from '$lib/whispering/recording';
+import type { Recording } from '../data.js';
 
 const defaultLog = createLogger('whispering/transcription-history');
 
@@ -36,19 +37,14 @@ export type TranscriptionSuccess = {
 /**
  * Attempt one transcription-related recording patch without letting a refused
  * write escape the operation's Result contract.
- *
- * Still conservative about what a failure means, and still asynchronous. The
- * write itself is synchronous now, but every caller is inside an async
- * transcription pipeline and the outcome is reported the same way either
- * direction, so the shape stays.
  */
 export function saveRecordingHistory(
 	app: WhisperingApp,
 	recordingId: RecordingId,
-	changes: Partial<Omit<Recording, 'id' | 'audioBlobId' | 'uploadedAt'>>,
+	changes: Partial<Omit<Recording, 'id' | 'audioBlobId'>>,
 ): Result<void, RecordingHistoryError> {
 	const { error } = trySync({
-		try: () => app.recordings.patch(recordingId, changes),
+		try: () => updateRecording(app.library, recordingId, changes),
 		catch: (cause) =>
 			RecordingHistoryError.SaveUnconfirmed({ recordingId, cause }),
 	});

@@ -1,158 +1,75 @@
 # State
 
-Reactive state that stays in sync with the app. Unlike the query layer, which uses stale-while-revalidate caching, state modules maintain live state that updates immediately and persists across the app lifecycle.
+This folder owns live capture state, device preferences, and UI projections that
+need more than a table read. Declared application data is read through the
+existing store API. Do not add a listener set or a copied array to make a table
+reactive.
 
-Two shapes live here. Workspace-backed state (`settings`, `recordings`, `recipes`) is owned and hydrated by the UI-free app; these modules are thin Svelte reactivity adapters over that ready product API. Device/hardware state (`device-config`, recorders, lifecycle) remains module singletons.
+`WhisperingShell` mounts only after the framework App opens. Its UI session adapts
+the selected library with `fromData` and device settings with `fromKv`. Adapting
+KV alone avoids projecting the local recording library when the person is
+viewing Personal. The context gives components those ready handles; operations
+receive their dependencies explicitly.
 
-## When to Use State vs Query Layer
+## Settings and rows
 
-| Aspect | `$lib/state/` | `$lib/queries/` |
-|--------|----------------|---------------|
-| **Pattern** | App-owned domain state plus Svelte adapters | Stale-while-revalidate (TanStack Query) |
-| **State Location** | Ready `WhisperingApp` | TanStack Query cache |
-| **Updates** | Immediate, live | Cached with background refresh |
-| **Use Case** | Hardware state, user preferences, live status, workspace table data | Data fetching, mutations, external API calls |
-| **Lifecycle** | App lifetime | Managed by TanStack Query |
+Device settings belong to the captured account's local namespace. They do not
+sync. `getSetting` applies a release-local default when a key is absent or cannot
+be read; writes go directly to KV.
 
-## Current State Modules
+```ts
+const app = getWhisperingApp();
+const trigger = $derived(getSetting(app.device.kv, 'recordingTrigger'));
+app.device.kv.update({ recordingTrigger: 'vad' });
 
-### `settings.svelte.ts`
-
-Synced workspace settings backed by the canonical workspace KV section (ADR-0130). Settings roam across devices through row sync. The app core hydrates every key before the app resolves; `createSettingsView` wraps it with `createSubscriber` so reads are reactive. Product defaults remain release-local app policy.
-
-```typescript
-import { getWhisperingApp } from '$lib/whispering/context';
-
-const app = getWhisperingApp(); // component initialisation
-
-// Read settings reactively (re-renders on change)
-const trigger = app.settings.get('settings.recording.trigger');
-
-// Update settings (writes to the document and syncs to other devices)
-app.settings.set('settings.recording.trigger', 'vad');
+const recording = $derived(app.library.tables.recordings.get(recordingId));
+const history = $derived(sortedRecordings(app.library));
 ```
 
-### `recordings.svelte.ts`
+`fromData` owns the live row projection. Recordings and recipes have no second
+cache or subscription lifetime. The functions in `whispering/recordings.ts` and
+`whispering/recipes.ts` handle product behavior: recording defaults, audio
+loading, history ordering, and copying a built-in recipe into an editable row.
 
-The recordings domain observes committed rows. This module adapts its row
-subscriptions to Svelte. Audio bytes live independently in app-local storage;
-remote uploads are explicit.
+## Inference choices
+
+The device KV stores `transcriptionConnection` with `transcriptionModel` and
+`completionConnection` with `completionModel`. Each picker callback writes its
+pair in one update. Both workflows start unselected. `getInferenceTarget` reads
+the pair, and the shared catalog resolves that exact destination to an SDK
+client. Missing connections never fall back to another provider.
+
+The UI session imports matching legacy browser selections once. Explicit null
+marks an unselected or reset workflow, so resetting settings cannot restore an
+old choice. The importer immediately disposes the legacy reader; KV is the only
+ongoing source of truth.
+
+## Audio lifetime
 
 Recording producers save bytes before creating a row. Manual Stop returns the
-saved key; imports and voice-activated capture use `saveAudioRecording`.
-`recordings.create` initializes the title, transcripts, and transcription status.
-The processing pipeline accepts only the resulting recording ID, so retrying
-transcription cannot publish another blob or create another row.
+saved key; imports and voice-activated capture use `saveAudioRecording`. Failed
+row creation retains those bytes. Deleting a row also retains local and uploaded
+audio.
 
-```typescript
-import { InstantString } from '@epicenter/app/field';
-import { unwrap } from 'wellcrafted/result';
-import { getWhisperingApp } from '$lib/whispering/context';
+Playback uses `openRecordingAudio` and releases its disposable source when the
+player closes. Transcription and downloads use `readRecordingAudio`. Both prefer
+local bytes and use an explicitly uploaded URL only when local bytes are missing
+and the app has remote access. `recordingAudioAvailability` checks metadata
+without loading the audio.
 
-const app = getWhisperingApp(); // component initialization
-const audioBlobId = unwrap(await app.blobs.local.add(blob));
-const recording = unwrap(await app.recordings.create({
-	audioBlobId,
-	recordedAt: InstantString.now(),
-	recordedAtZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-	duration: null,
-}));
-app.recordings.patch(recording.id, { title: 'Meeting' });
-await app.recordings.delete(recording.id); // retains local and uploaded bytes
-```
+The processing pipeline receives a recording ID, so retrying transcription does
+not publish another blob or create another row. Markdown ZIP export reads table
+rows and includes audio references rather than audio payloads.
 
-Playback uses `recordings.openAudio(id)` and releases its disposable source when
-the player closes. Transcription and downloads use `recordings.readAudio(id)`.
-Both prefer local bytes and use an explicitly uploaded URL only when local bytes
-are missing. `local` availability says the device has bytes; `audioUrl` separately
-records an uploaded copy.
+## Capture and device state
 
-`recordings.zip` exports Markdown with audio references, not audio payloads.
-Saved-byte and archive recovery do not imply recovery of unfinished microphone
-capture after restarting the app.
+Device configuration, microphone selection, voice activity detection, and the
+dictation lifecycle have their own event sources. They remain live state because
+a table subscription cannot describe a microphone starting or capture failing.
+The UI session owns the recording workflow and stops admitting new work when it
+is disposed.
 
-### `recipes.svelte.ts`
-
-The on-demand Recipe library backed by canonical records. Each recipe is a single self-contained row (`name`, `instructions`, optional `icon`); built-in recipes are merged ahead of the user's saved rows.
-
-```typescript
-import { getWhisperingApp } from '$lib/whispering/context';
-
-const { recipes } = getWhisperingApp(); // component initialisation
-
-const list = recipes.pickable; // built-ins followed by saved recipes
-await recipes.set({ id, name, instructions, icon: null });
-```
-
-### `device-config.svelte.ts`
-
-Recording hardware preferences and global shortcuts backed by per-key localStorage. Uses a SvelteMap for per-key reactivity with cross-tab sync via storage events. Provider credentials belong to the account-wide connection catalog. Retired provider settings remain untouched and unread.
-
-```typescript
-import { deviceConfig } from '$lib/state/device-config.svelte';
-
-// Read config reactively
-const deviceId = deviceConfig.get('recording.navigator.deviceId');
-
-// Update config (writes to localStorage per-key)
-deviceConfig.set('recording.navigator.deviceId', deviceId);
-
-// Get definition default (for "Default: X" placeholders)
-const defaultShortcut = deviceConfig.getDefault('shortcuts.global.toggleManualRecording');
-```
-
-### `vad-recorder.svelte.ts`
-
-Voice Activity Detection (VAD) recorder singleton. Manages the VAD hardware state and provides reactive access to detection status.
-
-```typescript
-import { vadRecorder } from '$lib/state/vad-recorder.svelte';
-
-// Reactive state access (triggers $effect when changed)
-$effect(() => {
-  console.log('VAD state:', vadRecorder.state); // 'IDLE' | 'LISTENING' | 'SPEECH_DETECTED'
-});
-
-// Start/stop VAD
-await vadRecorder.startActiveListening({
-  onSpeechStart: () => console.log('Speaking...'),
-  onSpeechEnd: (blob) => processAudio(blob),
-});
-await vadRecorder.stopActiveListening();
-```
-
-## Why VAD Lives Here
-
-The VAD recorder doesn't fit the query layer pattern because:
-
-1. **Live state**: VAD state (`IDLE` → `LISTENING` → `SPEECH_DETECTED`) must update immediately as hardware events occur
-2. **Singleton nature**: Only one VAD instance can exist at a time
-3. **Resource management**: Requires explicit cleanup (`stopActiveListening`) rather than cache invalidation
-4. **Hardware lifecycle**: Tied to microphone access, not data fetching
-
-## Adding New State Modules
-
-Create a new state module when you need:
-
-1. **Live reactive state** that must update immediately (not stale-while-revalidate)
-2. **Singleton behavior** where only one instance should exist
-3. **App-lifetime persistence** (not request-scoped)
-4. **Hardware or system state** that can't be "refreshed" like data
-
-Use the query layer (`$lib/queries/`) instead when you need:
-- Data fetching with caching
-- Mutations with optimistic updates
-- Background refresh and stale-while-revalidate
-- TanStack Query devtools integration
-
-If a state module still exposes a TanStack query for one live concern, keep the key map beside the state owner:
-
-```typescript
-export const recorderKeys = defineKeys({
-	devices: ['recorder', 'devices'],
-});
-```
-
-Use the same module shape as `$lib/queries/`: exported `*Keys` for shared cache identity, local `defineErrors` namespaces for state-owned failures, named input object types for structured public methods, and `ReturnType<typeof createThing>` when exporting the exact shape returned by a factory.
-
-See `$lib/queries/README.md` for the query layer documentation.
+Use the query layer for asynchronous capabilities such as downloading audio or
+running transcription. Use a `$derived` read over the adapted store for settings,
+recording rows, and recipe lists. A new state owner needs an event source or a
+lifetime that the existing store does not already own.

@@ -1,43 +1,46 @@
-import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
 import { RecorderError } from '@epicenter/app/recorder';
-import { createLogger } from 'wellcrafted/logger';
+import { createInferenceCatalog } from '@epicenter/app-shell/inference-picker';
+import { toHostedCatalog } from '@epicenter/constants/ai-providers';
 import type { Account } from '@epicenter/auth';
+import { fromData, fromKv } from '@epicenter/svelte';
+import { createLogger } from 'wellcrafted/logger';
 import { pushToTalk } from '../operations/push-to-talk';
 import {
-	disposeVadRecording,
 	createWhisperingRecording,
+	disposeVadRecording,
 } from '../operations/recording.svelte.js';
 import { createWhisperingQueries } from '../queries';
 import { createWhisperingQueryRuntime } from '../queries/client';
-import { createWhisperingConnections } from '../state/inference-connections.svelte.js';
-import { createRecordings } from '../state/recordings.svelte';
-import { createSettingsView } from '../state/settings.svelte';
+import { importLegacyInferenceSelections } from './inference.js';
 import {
-	createWhisperingDomains,
 	type WhisperingApp,
 	type WhisperingAppHandle,
 	type WhisperingData,
 } from './app';
 
-/** Build UI domains, queries, and the recording workflow over one ready App. */
+/** Adapt the selected library and device settings, then own recording and query lifetimes. */
 export function createWhisperingUiSession({
 	openedApp,
 	data,
 	account,
-	selections,
 }: {
 	openedApp: WhisperingAppHandle;
 	data: WhisperingData;
-	selections: InferenceSelections;
 	account: Account | undefined;
 }) {
-	const domains = createWhisperingDomains({ openedApp, data });
-	const inference = createWhisperingConnections(openedApp, selections);
-	// Named members rather than a spread of `domains`, which used to carry
-	// `[Symbol.dispose]` into the object handed to every component through
-	// context. Disposal is off `WhisperingApp` entirely now, and `domains` is the
-	// only thing holding it; writing the members out is what keeps a new one
-	// from arriving here unwrapped.
+	importLegacyInferenceSelections(
+		openedApp.device.kv,
+		openedApp.account?.identity,
+	);
+	const library = fromData(data);
+	const catalog = createInferenceCatalog({
+		ai: {
+			runtime: openedApp.device.connections.runtime,
+			connections: openedApp.device.connections.custom,
+			account: openedApp.account?.connection ?? null,
+		},
+		hostedModels: toHostedCatalog(['gpt-5.4-mini', 'gpt-5.5']),
+	});
 	const log = createLogger('whispering/ui-session');
 	// One flag fences new work and records UI disposal, including late callbacks.
 	let recordingEnabled = true;
@@ -47,15 +50,13 @@ export function createWhisperingUiSession({
 			return recordingEnabled;
 		},
 		account,
-		settings: createSettingsView(domains.settings),
-		inferenceConnections: inference,
-		recordings: createRecordings(domains),
-		recipes: domains.recipes,
+		device: { kv: fromKv(openedApp.device.kv) },
+		library,
+		catalog,
 		blobs: openedApp.blobs,
 		get recording() {
 			return recordingSession.recording;
 		},
-		syncStatus: domains.syncStatus,
 	};
 	const recordingSession = createWhisperingRecording(
 		app,
@@ -77,9 +78,6 @@ export function createWhisperingUiSession({
 				log.warn(RecorderError.RecorderFailed({ cause })),
 			);
 			queryRuntime.queryClient.clear();
-			domains[Symbol.dispose]();
 		},
 	};
 }
-
-export type WhisperingUiSession = ReturnType<typeof createWhisperingUiSession>;

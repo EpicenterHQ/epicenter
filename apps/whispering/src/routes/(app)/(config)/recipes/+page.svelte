@@ -1,4 +1,6 @@
 <script lang="ts">
+import { pickableRecipes, saveRecipe } from '../../../../lib/whispering/recipes.js';
+
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Card } from '@epicenter/ui/card';
@@ -13,7 +15,6 @@
 	import TrashIcon from '@lucide/svelte/icons/trash';
 	import { report } from '$lib/report';
 	import { isBuiltinRecipeId } from '$lib/state/builtin-recipes';
-	import { generateDefaultRecipe } from '$lib/state/recipes.svelte';
 	import type { Recipe } from '$lib/data';
 	import { getWhisperingApp } from '$lib/whispering/context';
 
@@ -23,10 +24,11 @@
 	let isEditing = $state(false);
 	// The recipe being created or edited. A page-owned copy so edits never touch
 	// the live row until Save.
-	let working = $state<Recipe>(generateDefaultRecipe());
+	const emptyRecipe: Recipe = { id: '', name: '', instructions: '', icon: null };
+	let working = $state<Recipe>({ ...emptyRecipe });
 
 	function openNew() {
-		working = generateDefaultRecipe();
+		working = { ...emptyRecipe };
 		isEditing = false;
 		editorOpen = true;
 	}
@@ -37,7 +39,7 @@
 		editorOpen = true;
 	}
 
-	async function save() {
+	function save() {
 		const name = working.name.trim();
 		const instructions = working.instructions.trim();
 		if (!name) {
@@ -48,7 +50,7 @@
 			report.info({ title: 'Add an instruction', description: 'One line telling the AI what to do with the text.' });
 			return;
 		}
-		await app.recipes.set({ ...$state.snapshot(working), name, instructions });
+		saveRecipe(app.library, { ...$state.snapshot(working), name, instructions });
 		editorOpen = false;
 		report.success({ title: isEditing ? 'Recipe updated' : 'Recipe created' });
 	}
@@ -59,7 +61,7 @@
 			description: 'This removes the recipe everywhere. It cannot be undone.',
 			confirm: { text: 'Delete', variant: 'destructive' },
 			onConfirm: async () => {
-				await app.recipes.delete(recipe.id);
+				app.library.tables.recipes.delete(recipe.id);
 				report.success({ title: 'Recipe deleted' });
 			},
 		});
@@ -92,7 +94,7 @@
 		</div>
 
 		<ul class="flex flex-col divide-y">
-			{#each app.recipes.pickable as recipe (recipe.id)}
+			{#each pickableRecipes(app.library) as recipe (recipe.id)}
 				{@const builtin = isBuiltinRecipeId(recipe.id)}
 				<li class="flex items-start justify-between gap-4 py-3">
 					<div class="min-w-0 flex-1">

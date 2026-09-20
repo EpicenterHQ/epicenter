@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { fromSubscription } from '@epicenter/svelte';
+import { sortedRecordings } from '../../lib/whispering/recordings.js';
+
+	import { getInferenceTarget } from '$lib/whispering/inference.js';
 	import { FileDropZone } from '@epicenter/ui/file-drop-zone';
 	import { Link } from '@epicenter/ui/link';
 	import * as SectionHeader from '@epicenter/ui/section-header';
@@ -47,12 +49,8 @@
 
 	const app = getWhisperingApp();
 
-	const latestRecording = $derived(app.recordings.sorted[0]);
-	const transcriptionSelection = fromSubscription(
-		app.inferenceConnections.selections.onChange,
-		() => app.inferenceConnections.selections.get('transcription'),
-	);
-	const audioOnly = $derived(transcriptionSelection.current === null);
+	const latestRecording = $derived(sortedRecordings(app.library)[0]);
+	const audioOnly = $derived(getInferenceTarget(app.device.kv, 'transcription') === null);
 	const transcriptionReadiness = $derived(getTranscriptionReadiness(app));
 	const hasActiveShortcut = $derived.by(() => {
 		const surface = captureSurface.current(app);
@@ -260,7 +258,6 @@
 	{#if latestRecording}
 		<RecordingResult
 			recordingId={latestRecording.id}
-			audio={latestRecording.audioBlobId}
 			transcript={latestRecording.polishedTranscript ?? latestRecording.transcript}
 			rows={1}
 			onDelete={() => {

@@ -15,7 +15,8 @@ const { svelte } = await import(
 const html = `<!doctype html><title>Account AI isolation</title><script type="module">
 import { createAppAi } from '/@fs${root}/packages/app/src/ai.ts';
 import { createBrowserAppAi } from '/@fs${root}/packages/app/src/browser.ts';
-import { createBrowserInferenceSelections, matchInferenceTarget } from '/@fs${root}/packages/app-shell/src/inference-selections.ts';
+import { createBrowserInferenceSelections } from '/@fs${root}/packages/app-shell/src/inference-selections.ts';
+import { resolveInferenceTarget } from '/@fs${root}/packages/app-shell/src/inference-target.ts';
 let owner, selections, lifetime;
 const requests = [];
 window.acceptance = {
@@ -44,9 +45,9 @@ window.acceptance = {
  select(target) { selections.set('transcription', target); },
  async run() {
   const target = selections.get('transcription');
-  const client = matchInferenceTarget(owner.value.ai, target);
-  if (!client) return null;
-  await client.audio.transcriptions.create({ file: new File(['audio'], 'audio.wav'), model: target.model });
+  const resolved = resolveInferenceTarget(owner.value.ai, target);
+  if (!resolved) return null;
+  await resolved.client.audio.transcriptions.create({ file: new File(['audio'], 'audio.wav'), model: resolved.model });
   return requests.at(-1).key;
  },
  async close() {
@@ -72,6 +73,14 @@ const server = await createServer({
 	configFile: false,
 	root: join(root, 'apps/whispering'),
 	logLevel: 'error',
+	optimizeDeps: {
+		entries: [
+			join(root, 'packages/app/src/ai.ts'),
+			join(root, 'packages/app/src/browser.ts'),
+			join(root, 'packages/app-shell/src/inference-selections.ts'),
+			join(root, 'apps/whispering/src/lib/state/device-config.svelte.ts'),
+		],
+	},
 	resolve: {
 		alias: {
 			'$lib/report': '/@test/report',

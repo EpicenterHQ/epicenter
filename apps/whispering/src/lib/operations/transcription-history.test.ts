@@ -14,23 +14,23 @@ import { createLogger, memorySink } from 'wellcrafted/logger';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { RecordingId } from '$lib/data';
-import type { Recording } from '$lib/whispering/recording';
+import type { Recording } from '../data.js';
 
 const recordingId = 'recording-1' as RecordingId;
 const recording = { id: recordingId } as Recording;
-// `patch` is synchronous and throws on a refusal, so a rejection is modelled
-// by throwing rather than by returning an Err.
-const patch = mock((): Recording => recording);
+const patch = mock(() => Ok(undefined));
 
 const { recordTranscriptionOutcome, saveRecordingHistory } = await import(
 	'./transcription-history.js'
 );
 type WhisperingApp = import('$lib/whispering/app').WhisperingApp;
 
-const app = { recordings: { patch } } as unknown as WhisperingApp;
+const app = {
+	library: { tables: { recordings: { update: patch, get: () => recording } } },
+} as unknown as WhisperingApp;
 
 test('a committed write confirms the history save', () => {
-	patch.mockImplementationOnce(() => recording);
+	patch.mockImplementationOnce(() => Ok(undefined));
 	expectOk(
 		saveRecordingHistory(app, recordingId, { transcript: 'saved transcript' }),
 	);
@@ -56,7 +56,7 @@ test('a refused write becomes RecordingHistoryError', () => {
 });
 
 test('successful transcription carries its history Result', () => {
-	patch.mockImplementationOnce(() => recording);
+	patch.mockImplementationOnce(() => Ok(undefined));
 
 	const success = expectOk(
 		recordTranscriptionOutcome(app, recordingId, Ok('usable text')),

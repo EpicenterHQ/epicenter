@@ -1,14 +1,13 @@
-import type { AppAi } from '@epicenter/app/ai';
 import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 
-export type InferenceTarget = { connectionId: string; model: string };
+import type { InferenceTarget } from './inference-target.js';
 
 function invalid(): never {
 	throw new Error('Invalid persisted inference selections.');
 }
 
 /** Validate application-owned choices while retaining unavailable references. */
-export function validateInferenceSelections(
+function validateInferenceSelections(
 	value: unknown,
 ): Record<string, InferenceTarget> {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) invalid();
@@ -30,7 +29,7 @@ export function validateInferenceSelections(
 	);
 }
 
-export function parseInferenceSelections(raw: string) {
+function parseInferenceSelections(raw: string) {
 	let value: unknown;
 	try {
 		value = JSON.parse(raw);
@@ -141,28 +140,4 @@ export function createBrowserInferenceSelections(
 			return () => window.removeEventListener('storage', changed);
 		},
 	});
-}
-
-/** The account source's stable id, from the identity the AI capability carries. */
-export function accountInferenceId(ai: Pick<AppAi, 'account'>) {
-	return ai.account
-		? `account:${JSON.stringify([ai.account.identity.authorityId, ai.account.identity.principalId])}`
-		: null;
-}
-
-export function runtimeInferenceId(ai: Pick<AppAi, 'runtime'>) {
-	return ai.runtime ? `runtime:${ai.runtime.client.baseURL}` : null;
-}
-
-/** Match one explicit source; unavailable identities never fall through to another source. */
-export function matchInferenceTarget(
-	ai: AppAi,
-	target: InferenceTarget | null,
-) {
-	if (!target) return null;
-	if (target.connectionId === accountInferenceId(ai))
-		return ai.account?.client ?? null;
-	if (target.connectionId === runtimeInferenceId(ai))
-		return ai.runtime?.client ?? null;
-	return ai.connections?.get(target.connectionId)?.client ?? null;
 }

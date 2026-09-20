@@ -3,7 +3,8 @@ import yaml from 'js-yaml';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type DownloadError, DownloadServiceLive } from '#platform/download';
 import type { WhisperingApp } from '$lib/whispering/app';
-import type { Recording } from './recording';
+import type { Recording } from '../data.js';
+import { sortedRecordings } from './recordings.js';
 
 function recordingToMarkdown(recording: Recording): string {
 	// Whispering stores the transcript in a row value; its content node is unused.
@@ -16,9 +17,7 @@ function recordingToMarkdown(recording: Recording): string {
 export async function exportRecordingsMarkdown(
 	app: WhisperingApp,
 ): Promise<Result<{ written: number }, DownloadError>> {
-	// No refresh: the projection is re-read on every commit that touches the
-	// table, so `sorted` is already current.
-	const rows = app.recordings.sorted;
+	const rows = sortedRecordings(app.library);
 	if (rows.length === 0) return Ok({ written: 0 });
 
 	const files: Record<string, Uint8Array> = {};

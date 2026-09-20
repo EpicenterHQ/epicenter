@@ -1,6 +1,6 @@
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { report } from '$lib/report';
-import type { Recording } from '$lib/state/recordings.svelte';
+import type { Recording } from '../data.js';
 import type { WhisperingApp } from '$lib/whispering/app';
 
 type RecordingDeletionTarget = Pick<Recording, 'id'>;
@@ -25,11 +25,7 @@ export function deleteRecordingsWithConfirmation(
 			variant: 'destructive',
 		},
 		onConfirm: async () => {
-			const { error } = await app.recordings.delete(arr.map(({ id }) => id));
-			if (error !== null) {
-				report.error({ title: `Failed to delete ${noun}`, cause: error });
-				return;
-			}
+			for (const { id } of arr) app.library.tables.recordings.delete(id);
 			report.success({
 				title: `Deleted ${noun}!`,
 				description: `Your ${noun} ${isSingle ? 'has' : 'have'} been deleted.`,

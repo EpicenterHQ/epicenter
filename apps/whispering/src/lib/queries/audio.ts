@@ -1,7 +1,8 @@
+import { recordingAudioAvailability } from '../whispering/recordings.js';
 import type { Accessor } from '@tanstack/svelte-query';
 import { defineKeys } from 'wellcrafted/query';
 import type { WhisperingQueryRuntime } from '$lib/queries/client';
-import type { Recording } from '$lib/state/recordings.svelte';
+import type { Recording } from '../data.js';
 import type { WhisperingApp } from '$lib/whispering/app';
 
 export const audioKeys = defineKeys({
@@ -27,7 +28,7 @@ export function createAudioQueries(
 					current.audioBlobId,
 					current.audioUrl,
 				),
-				queryFn: () => app.recordings.audioAvailability(recording().id),
+				queryFn: () => recordingAudioAvailability(app, recording().id),
 			});
 		},
 	};

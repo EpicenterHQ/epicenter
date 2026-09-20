@@ -1,7 +1,7 @@
 /**
  * AppBoot owns acquisition beneath the working route. Callback routes and their
- * ancestors never import the bootstrap or acquire an App. The shell registers the ready App for imperative product operations. WhisperingShell
- * only consumes the opened App.
+ * ancestors never import the bootstrap or acquire an App. WhisperingShell passes the opened App
+ * to its UI session and operations.
  */
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -61,6 +61,5 @@ describe('the callback opens nothing', () => {
 		expect(source).not.toMatch(/openApplication\s*\(|<AppBoot\b/);
 		expect(source).not.toMatch(/\bopenApp\s*\(/);
 		expect(source).toContain('= $props()');
-		expect(source).toContain('fromData(data)');
 	});
 });

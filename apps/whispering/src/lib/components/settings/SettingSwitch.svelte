@@ -1,7 +1,8 @@
 <script lang="ts">
+	import { getSetting } from '$lib/operations/settings.js';
 	import * as Field from '@epicenter/ui/field';
 	import { Switch } from '@epicenter/ui/switch';
-	import type { BooleanSettingKey } from '$lib/state/settings.svelte';
+	import type { BooleanSettingKey } from '$lib/operations/settings.js';
 	import { getWhisperingApp } from '$lib/whispering/context';
 
 	const app = getWhisperingApp();
@@ -35,9 +36,9 @@
 	<Switch
 		{id}
 		bind:checked={
-			() => app.settings.get(key),
+			() => getSetting(app.device.kv, key),
 			(checked) => {
-				app.settings.set(key, checked);
+				app.device.kv.update({ [key]: checked });
 				onCheckedChange?.(checked);
 			}
 		}

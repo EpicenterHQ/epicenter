@@ -1,6 +1,7 @@
+import { updateRecording } from '../whispering/recordings.js';
 import { defineErrors } from 'wellcrafted/error';
 import { Err, tryAsync, trySync } from 'wellcrafted/result';
-import type { Recording } from '$lib/state/recordings.svelte';
+import type { Recording } from '../data.js';
 import type { WhisperingApp } from '$lib/whispering/app';
 
 const RecordingUploadError = defineErrors({
@@ -32,7 +33,7 @@ export async function uploadRecording(
 	return trySync({
 		try: () => {
 			app.signal.throwIfAborted();
-			app.recordings.patch(recording.id, { audioUrl: url });
+			updateRecording(app.library, recording.id, { audioUrl: url });
 			return url;
 		},
 		catch: (cause) => RecordingUploadError.Failed({ cause }),

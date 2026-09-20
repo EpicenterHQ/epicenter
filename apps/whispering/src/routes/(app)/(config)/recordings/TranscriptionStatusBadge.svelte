@@ -12,7 +12,7 @@
 	// here (the row's action button shows that liveness).
 	let { recordingId }: { recordingId: RecordingId } = $props();
 
-	const recording = $derived(app.recordings.get(recordingId));
+	const recording = $derived(app.library.tables.recordings.get(recordingId));
 </script>
 
 {#if recording?.transcriptionStatus === 'failed'}

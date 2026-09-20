@@ -53,11 +53,15 @@ test('failed import preserves saved sibling bytes and refuses new work after ret
 				},
 			},
 		},
-		recordings: {
-			create: async (value: Record<string, unknown>) => {
-				const row = { ...value, id: crypto.randomUUID() };
-				rows.push(row);
-				return Ok(row);
+		library: {
+			tables: {
+				recordings: {
+					create: (value: Record<string, unknown>) => {
+						const row = { ...value, id: crypto.randomUUID() };
+						rows.push(row);
+						return row;
+					},
+				},
 			},
 		},
 		get recordingEnabled() {
@@ -111,7 +115,7 @@ test('retirement during import publication preserves committed bytes without a r
 				},
 			},
 		},
-		recordings: { create },
+		library: { tables: { recordings: { create } } },
 	} as unknown as WhisperingApp;
 
 	const before = processed.length;

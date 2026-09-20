@@ -2,9 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-08
-- **Revised:** 2026-09-10
+- **Revised:** 2026-09-20
 - **Amends:** [ADR-0059](0059-an-inference-connection-is-a-capability-orthogonal-device-endpoint.md) and [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) at model resolution: explicit device-local selections replace discovery-based, custom-first routing.
-- **Unbuilt:** The selection as a declared `app.device.kv` field. `packages/app-shell/src/inference-selections.ts` still owns `localStorage` persistence, and Whispering still keeps a synced `transcriptionModel` setting.
 
 ## Context
 
@@ -23,9 +22,9 @@ above the core connection API.
 **The application owns an explicit device-local connection and model pair for
 each workflow that needs a remembered choice.**
 
-The current value shape is `{ connectionId, model }`. Whispering uses
-`completion` and `transcription` scopes. Vocab chat uses the conversation ID.
-The application chooses these scopes and any initial default. The App's
+The current value shape is `{ connectionId, model }`. Whispering stores its completion and transcription choices in device KV. Vocab
+chat keys its local selection store by conversation ID. Each application chooses
+its persistence shape and any initial default. The App's
 connection surface provides connections and catalog management; it stores no
 workflow selection.
 
@@ -35,12 +34,15 @@ with each product in both environments: changing Vocab's model must not change
 Whispering's choice. Catalog sharing does not introduce a global workflow
 default or require applications to use the same connection.
 
-The pair is a declared field in the application's `app.device.kv`, the device
-store described in [ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md).
-It is per application per machine, it survives sign-out, and it never syncs. No
-owner outside `@epicenter/app` persists it. UI and product operations read the
-same field so they agree on the destination. Svelte observes `app.device.kv`
-without becoming the owner of routing policy.
+Whispering declares nullable connection keys beside its model keys in device
+KV. Picker callbacks write both fields in one update. Reads use the same reactive
+KV API as other settings. The captured account owns that device namespace.
+
+Chat retains a device-local target per conversation in the browser selection
+store. Its conversation model is synced data, so the chat owner rejects a local
+target whose model differs from the current conversation model. A new device
+must choose a connection explicitly. The shared picker takes `catalog`, `value`,
+and `onSelect`; it knows neither storage format nor workflow scope.
 
 **A saved reference identifies a concrete destination.**
 
@@ -59,13 +61,12 @@ that runtime.
 
 **Resolution requires the exact saved destination and the model saved with it.**
 
-The saved pair is the whole input. No synchronized model preference is compared
-against it, because a model id means something only against the connection that
-serves it and connections are device-local. A missing selection, absent
-capability, or removed connection produces no connection. `connectionFor(app,
-selection)` is where that match happens (ADR-0396). The UI asks for an explicit
-choice. Discovery
-never supplies a fallback destination.
+The saved pair is the resolver's whole input. `resolveInferenceTarget` in
+`packages/app-shell/src/inference-target.ts` returns `{ client, model, source }`
+or null for a missing destination or blank model. The catalog observes connection
+changes and delegates to that resolver. Chat applies its synced-model comparison
+before resolution; Whispering reads its pair directly. Discovery supplies no
+fallback destination.
 
 Changing Accounts cannot reinterpret A's saved selection as B. Removing a
 custom connection leaves its reference unavailable; recreating the same URL
@@ -107,11 +108,12 @@ Connection access remains useful without a workflow store. Applications that
 already hold a connection can call it directly. Applications with remembered
 choices share one matching function and keep their product defaults explicit.
 
-The old combined `${settingsKey}.app-ai` envelope is imported into separately
-owned live stores under one initialization lock. Conversion preserves IDs, keys,
-choices, and unresolved references. A failed conversion preserves successful
-destination writes and the source for retry. No live owner rewrites the old
-envelope. ADR-0365 records the storage boundary.
+Whispering imports matching choices from its previous browser selection store
+before starting recording and queries. Undefined connection keys admit the
+import; explicit null records initialization or reset. The import retains
+unavailable IDs, refuses mismatched models, and leaves legacy bytes untouched
+so a pending KV persistence write cannot destroy the source. It installs no
+ongoing legacy observer.
 
 ## Considered alternatives
 
@@ -124,9 +126,12 @@ envelope. ADR-0365 records the storage boundary.
 
 ## Implementation
 
-`packages/app-shell/src/inference-selections.ts` owns selection persistence and
-exact matching today. Persistence moves to `app.device.kv` and matching moves to
-`connectionFor`; the picker keeps the label derivation.
-`migrate-ai-settings.ts` converts saved settings before the page exposes either
-owner. Storage, bootstrap failure, and real-browser tests verify conversion,
-retirement, reload, and refusal to redirect a missing choice.
+`packages/app-shell/src/inference-target.ts` owns exact resolution.
+`inference-picker/catalog.svelte.ts` observes connections and discovers models.
+Whispering reads and writes declared device KV fields; agent-chat owns local
+conversation targets and their comparison with synced model metadata.
+
+Tests cover identity isolation, removed connections, blank models, captured
+operations, retirement, migration, reset, and reopening. The browser picker
+harness covers pending and failed saves, cross-window changes, and late
+selection suppression after closing or replacing the catalog.

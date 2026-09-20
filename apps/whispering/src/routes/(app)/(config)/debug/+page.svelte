@@ -14,11 +14,11 @@
 		function snapshot() {
 			return {
 				tables: [
-					{ label: 'Recordings', count: app.recordings.count },
-					{ label: 'Recipes', count: app.recipes.count },
+					{ label: 'Recordings', count: app.library.tables.recordings.rows.length },
+					{ label: 'Recipes', count: app.library.tables.recipes.rows.length },
 				],
 				nonconforming:
-					app.recordings.nonconforming.length + app.recipes.nonconforming.length,
+					app.library.tables.recordings.nonconforming.length + app.library.tables.recipes.nonconforming.length,
 			};
 		}
 

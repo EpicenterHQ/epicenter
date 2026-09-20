@@ -1,6 +1,5 @@
 <script lang="ts">
-	/** Models grouped by their exact connection. A pick saves both before updating
-	 * the synced model; identical model ids never imply identical destinations. */
+	/** Models grouped by exact connection; the owner persists each complete choice. */
 	import {
 		CONNECTION_PRESETS,
 		type ListModelsError,
@@ -22,29 +21,25 @@
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { createMutation, QueryClient } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-		import type { InferenceConnections } from './connections.svelte.js';
+	import type { InferenceTarget } from '../inference-target.js';
+	import type { InferenceCatalog } from './catalog.svelte.js';
 
 	type Props = {
-		/** Device-local selection scope, normally the conversation id. */
-		scope: string;
-		/** The conversation's current model id (synced, ADR-0055). */
-		model: string;
-		/** Commit a model pick. Writes the synced conversation model column. */
-		onSelectModel: (model: string) => void;
-		/** The device's inference connection registry (hosted catalog + custom set). */
-		connections: InferenceConnections;
+		value: InferenceTarget | null;
+		onSelect: (target: InferenceTarget) => void;
+		catalog: InferenceCatalog;
 		/** Disable while a turn generates, so a transcript never spans backends. */
 		disabled?: boolean;
 		/** Suggestions appropriate to this workflow's account operation. */
-		accountModels?: InferenceConnections['hostedModels'];
+		accountModels?: InferenceCatalog['hostedModels'];
 		/** Native file inference is useful to audio workflows only. */
 		includeRuntime?: boolean;
 		placeholder?: string;
 	};
 
-	let { scope, model, onSelectModel, connections, disabled = false, accountModels, includeRuntime = false, placeholder = 'Select model' }: Props = $props();
-	const ai = $derived(connections.ai);
-	const models = $derived(accountModels ?? connections.hostedModels);
+	let { value, onSelect, catalog, disabled = false, accountModels, includeRuntime = false, placeholder = 'Select model' }: Props = $props();
+	const ai = $derived(catalog.ai);
+	const models = $derived(accountModels ?? catalog.hostedModels);
 
 	let open = $state(false);
 	let formVersion = 0;
@@ -59,7 +54,7 @@
  let editingId = $state<string | null>(null);
 	let formApiKey = $state('');
 	let removeApiKey = $state(false);
-	const savedConnection = $derived(editingId ? connections.custom.find(entry => entry.id === editingId) : undefined);
+	const savedConnection = $derived(editingId ? catalog.custom.find(entry => entry.id === editingId) : undefined);
 	let formModel = $state('');
 	let showKey = $state(false);
 
@@ -74,7 +69,7 @@
 	const queryClient = new QueryClient();
 	onDestroy(() => { alive = false; queryClient.clear(); });
 	const refreshConnection = createMutation(() => ({
-		mutationFn: (id: string) => connections.refresh(id),
+		mutationFn: (id: string) => catalog.refresh(id),
 	}), () => queryClient);
 	const removeConnection = createMutation(() => ({
 		mutationFn: (id: string) => ai.connections!.remove(id),
@@ -123,15 +118,16 @@
 	}
 
 
-	const selected = $derived(connections.target(scope, model));
+	const selected = $derived(value);
+	const model = $derived(value?.model ?? '');
 	const triggerLabel = $derived(
 		!selected
 			? placeholder
-			: selected.connectionId === connections.runtimeId
+			: selected.connectionId === catalog.runtimeId
 				? `${model} · This device`
-			: selected.connectionId === connections.accountId
-				? `${models.find((entry) => entry.id === model)?.label ?? model} · ${connections.accountLabel}`
-				: `${model} · ${connections.custom.find(entry => entry.id === selected.connectionId)?.name ?? "Unavailable connection"}`,
+			: selected.connectionId === catalog.accountId
+				? `${models.find((entry) => entry.id === model)?.label ?? model} · ${catalog.accountLabel}`
+				: `${model} · ${catalog.custom.find(entry => entry.id === selected.connectionId)?.name ?? "Unavailable connection"}`,
 	);
 
 	function isSelected(connectionId: string, id: string) {
@@ -139,8 +135,7 @@
 	}
 
 	function selectModel(connectionId: string, id: string) {
-		connections.selections.set(scope, { connectionId, model: id });
-		onSelectModel(id);
+		onSelect({ connectionId, model: id });
 		open = false;
 	}
 
@@ -161,7 +156,7 @@
 	// Persist access before saving the workflow choice. A failed save keeps the form open.
 	const saveConnection = createMutation(() => ({
 		mutationFn: async (chosenModel: string) => {
-			const attempt = { ai, scope, formVersion };
+			const attempt = { catalog, formVersion };
 			const baseUrl = formBaseUrl.trim();
 			const trimmedModel = chosenModel.trim();
 			if (!baseUrl || !trimmedModel) throw new Error('Enter an endpoint and model.');
@@ -176,13 +171,13 @@
 			};
 			const id = editingId;
 			if (id) {
-				await ai.connections!.update(id, input);
+				await attempt.catalog.ai.connections!.update(id, input);
 				return { ...attempt, id, model: trimmedModel };
 			}
-			return { ...attempt, id: await ai.connections!.add(input), model: trimmedModel };
+			return { ...attempt, id: await attempt.catalog.ai.connections!.add(input), model: trimmedModel };
 		},
 		onSuccess: (saved) => {
-			if (!alive || !open || saved.ai !== ai || saved.scope !== scope || saved.formVersion !== formVersion) return;
+			if (!alive || !open || saved.catalog !== catalog || saved.formVersion !== formVersion) return;
 			editingId = saved.id;
 			selectModel(saved.id, saved.model);
 		},
@@ -196,13 +191,14 @@
 		}
 	});
 	$effect(() => {
-		if (open && includeRuntime) void connections.refreshRuntime();
+		if (open && includeRuntime) void catalog.refreshRuntime();
 	});
 
 	// Auto-discover on a debounced change of the connect form's endpoint or key.
 	// Best effort: a failure degrades to the free-text model floor, never a toast.
 	$effect(() => {
 		if (view !== 'connect') return;
+		const discoveryCatalog = catalog;
 		const url = formBaseUrl.trim();
 		const key = formApiKey.trim();
 		const retainSavedKey = savedConnection?.hasApiKey && !key && !removeApiKey;
@@ -224,7 +220,7 @@
 		discovering = true;
 		discoveryError = null;
 		const handle = setTimeout(async () => {
-			const { data, error } = await connections.discover(url, key || undefined, savedId);
+			const { data, error } = await discoveryCatalog.discover(url, key || undefined, savedId);
 			if (cancelled) return;
 			discovering = false;
 			if (error) {
@@ -265,31 +261,31 @@
 				<Command.Input placeholder="Search models..." />
 				<Command.List class="max-h-80">
 					<Command.Empty>No models found.</Command.Empty>
-					{#if includeRuntime && connections.runtimeId}
+					{#if includeRuntime && catalog.runtimeId}
 						<Command.Group heading="This device">
-							{#each connections.runtimeModels as id (id)}
-								<Command.Item value="native {id}" onSelect={() => selectModel(connections.runtimeId!, id)}>
-									<Check class="size-4 {isSelected(connections.runtimeId!, id) ? 'opacity-100' : 'opacity-0'}" />
+							{#each catalog.runtimeModels as id (id)}
+								<Command.Item value="native {id}" onSelect={() => selectModel(catalog.runtimeId!, id)}>
+									<Check class="size-4 {isSelected(catalog.runtimeId!, id) ? 'opacity-100' : 'opacity-0'}" />
 									<span class="break-all">{id}</span>
 								</Command.Item>
 							{/each}
 							<div class="flex gap-1 p-2">
 								<Input bind:value={formModel} aria-label="Native model ID" placeholder="Enter an installed model ID" />
-								<Button size="sm" disabled={!formModel.trim()} onclick={() => selectModel(connections.runtimeId!, formModel.trim())}>Use</Button>
+								<Button size="sm" disabled={!formModel.trim()} onclick={() => selectModel(catalog.runtimeId!, formModel.trim())}>Use</Button>
 							</div>
 						</Command.Group>
 					{/if}
 
-					{#if ai.account && connections.accountId}
-						<Command.Group heading={`Connected account · ${connections.accountLabel}`}>
+					{#if ai.account && catalog.accountId}
+						<Command.Group heading={`Connected account · ${catalog.accountLabel}`}>
 							{#each models as hostedModel (hostedModel.id)}
 								<Command.Item
 									value={`hosted ${hostedModel.id}`}
 									keywords={[hostedModel.id, hostedModel.label]}
-									onSelect={() => selectModel(connections.accountId!, hostedModel.id)}
+									onSelect={() => selectModel(catalog.accountId!, hostedModel.id)}
 								>
 									<Check
-										class="size-4 shrink-0 {isSelected(connections.accountId!, hostedModel.id)
+										class="size-4 shrink-0 {isSelected(catalog.accountId!, hostedModel.id)
 											? 'opacity-100'
 											: 'opacity-0'}"
 									/>
@@ -299,12 +295,12 @@
 							{/each}
        <div class="flex gap-1 p-2">
         <Input bind:value={formModel} aria-label="Account model ID" placeholder="Enter a model ID" />
-        <Button size="sm" disabled={!formModel.trim()} onclick={() => selectModel(connections.accountId!, formModel.trim())}>Use</Button>
+        <Button size="sm" disabled={!formModel.trim()} onclick={() => selectModel(catalog.accountId!, formModel.trim())}>Use</Button>
        </div>
 						</Command.Group>
 					{/if}
 
-					{#each connections.custom as connection (connection.id)}
+					{#each catalog.custom as connection (connection.id)}
 						{@const ids = connection.models ?? []}
 						{@const label = connection.name}
 						<Command.Group heading={label}>

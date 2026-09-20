@@ -14,7 +14,8 @@
 	import { buildPracticeOpening } from '$lib/practice';
 	import { reportBackgroundError } from '$lib/report';
 	import { createEntriesState } from '$lib/state/entries.svelte';
-	import { createVocabConnections } from '$lib/state/inference-connections.svelte';
+	import { createInferenceCatalog } from '@epicenter/app-shell/inference-picker';
+	import { toHostedCatalog } from '@epicenter/constants/ai-providers';
 	import { createSettingsState } from '$lib/state/settings.svelte';
 	import { setVocabSurface } from '$lib/surface';
 	import ConversationView from './ConversationView.svelte';
@@ -46,10 +47,17 @@
 	/* svelte-ignore state_referenced_locally */
 	const entries = createEntriesState({ data });
 	/* svelte-ignore state_referenced_locally */
-	const inferenceConnections = createVocabConnections(opened, selections);
+	const catalog = createInferenceCatalog({
+		ai: {
+			runtime: opened.device.connections.runtime,
+			connections: opened.device.connections.custom,
+			account: opened.account?.connection ?? null,
+		},
+		hostedModels: toHostedCatalog([VOCAB_MODEL]),
+	});
 	/* svelte-ignore state_referenced_locally */
 	const dictation = createDictation(opened.account?.connection?.client ?? null);
-	setVocabSurface({ entries, inferenceConnections, dictation });
+	setVocabSurface({ entries, catalog, dictation });
 
 	// The shared chat registry (ADR-0047/0059) with Vocab's variation injected:
 	// capability-free (no tools, no approval), one general multilingual system
@@ -59,7 +67,8 @@
 	const chat = createAgentChatState({
 		table: data.tables.conversations,
 		reportBackgroundError,
-		connections: inferenceConnections,
+		catalog,
+		selections,
 		agent: {
 			buildSystemPrompts: () => [VOCAB_SYSTEM_PROMPT],
 			defaultModel: VOCAB_MODEL,

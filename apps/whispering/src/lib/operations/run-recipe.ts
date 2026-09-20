@@ -7,7 +7,8 @@ import { isErr, Ok, type Result } from 'wellcrafted/result';
 import type { Recipe } from '$lib/data';
 import { buildSystemPrompt } from '$lib/operations/build-system-prompt';
 import { completeWithGlobalDefault } from '$lib/operations/completion';
-import { settings } from './settings.js';
+import type { WhisperingApp } from '../whispering/app.js';
+import { getSetting } from './settings.js';
 
 export const RunRecipeError = defineErrors({
 	InvalidInput: ({ message }: { message: string }) => ({ message }),
@@ -31,13 +32,16 @@ export type RunRecipeError = InferErrors<typeof RunRecipeError>;
  * Pure execution: no workspace writes, no persistence, no toasts. The picker is
  * the caller; it owns delivery and any history bookkeeping.
  */
-export async function runRecipe({
-	input,
-	recipe,
-}: {
-	input: string;
-	recipe: Recipe;
-}): Promise<Result<string, RunRecipeError>> {
+export async function runRecipe(
+	app: WhisperingApp,
+	{
+		input,
+		recipe,
+	}: {
+		input: string;
+		recipe: Recipe;
+	},
+): Promise<Result<string, RunRecipeError>> {
 	if (!input.trim()) {
 		return RunRecipeError.InvalidInput({
 			message: 'Empty input. Please enter some text to run a recipe on.',
@@ -49,10 +53,10 @@ export async function runRecipe({
 		});
 	}
 
-	const result = await completeWithGlobalDefault({
+	const result = await completeWithGlobalDefault(app, {
 		systemPrompt: buildSystemPrompt(
 			recipe.instructions,
-			settings.get('dictionary'),
+			getSetting(app.device.kv, 'dictionary'),
 		),
 		userPrompt: input,
 	});

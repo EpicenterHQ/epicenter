@@ -1,3 +1,4 @@
+import { getSetting, APPLICATION_DEFAULTS } from '../operations/settings.js';
 import { type Command, commands } from '$lib/commands';
 import { DEFAULT_SHORTCUT_KEYS, type WhisperingSettingValues } from '$lib/data';
 import {
@@ -77,8 +78,8 @@ const SHORTCUT_KEYS = {
 >;
 
 export function createFocusedShortcuts({
-	settings,
-}: Pick<WhisperingApp, 'settings'>): Shortcuts {
+	device,
+}: Pick<WhisperingApp, 'device'>): Shortcuts {
 	// The workspace validates the stored arrays structurally as `string[]`, while
 	// `KeyBinding` narrows them to `Modifier[]` and `Key[]`, so composing a
 	// binding crosses that boundary with one documented cast, like the global
@@ -96,8 +97,10 @@ export function createFocusedShortcuts({
 
 	const readBinding = (id: Command['id']): KeyBinding | null =>
 		compose(
-			settings.get(SHORTCUT_KEYS[id].modifiers) as readonly string[] | null,
-			settings.get(SHORTCUT_KEYS[id].keys) as readonly string[] | null,
+			getSetting(device.kv, SHORTCUT_KEYS[id].modifiers) as
+				| readonly string[]
+				| null,
+			getSetting(device.kv, SHORTCUT_KEYS[id].keys) as readonly string[] | null,
 		);
 
 	/**
@@ -108,12 +111,12 @@ export function createFocusedShortcuts({
 	 */
 	const readDefaultBinding = (id: Command['id']): KeyBinding | null =>
 		compose(
-			settings.getDefault(SHORTCUT_KEYS[id].modifiers) as
+			APPLICATION_DEFAULTS[SHORTCUT_KEYS[id].modifiers] as
 				| readonly string[]
 				| null,
 			id in DEFAULT_SHORTCUT_KEYS
 				? DEFAULT_SHORTCUT_KEYS[id as keyof typeof DEFAULT_SHORTCUT_KEYS]
-				: (settings.getDefault(SHORTCUT_KEYS[id].keys) as
+				: (APPLICATION_DEFAULTS[SHORTCUT_KEYS[id].keys] as
 						| readonly string[]
 						| null),
 		);
@@ -122,8 +125,10 @@ export function createFocusedShortcuts({
 		read: readBinding,
 		getDefault: readDefaultBinding,
 		write: (id, binding) => {
-			settings.set(SHORTCUT_KEYS[id].modifiers, binding?.modifiers ?? null);
-			settings.set(SHORTCUT_KEYS[id].keys, binding?.keys ?? null);
+			device.kv.update({
+				[SHORTCUT_KEYS[id].modifiers]: binding?.modifiers ?? null,
+				[SHORTCUT_KEYS[id].keys]: binding?.keys ?? null,
+			});
 		},
 		// The keydown matcher fires every command whose set matches, so two commands
 		// sharing a set would both trigger. Refuse an exact duplicate at write time.

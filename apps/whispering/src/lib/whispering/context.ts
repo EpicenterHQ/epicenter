@@ -3,8 +3,7 @@ import type { WhisperingQueries } from '$lib/queries';
 import type { WhisperingApp } from './app';
 
 /**
- * The ready app as descendants of the fulfilled boot branch see it:
- * the UI-free product namespaces wrapped with Svelte dependency tracking.
+ * The selected reactive library, device settings, and live recording workflow.
  * Operation modules receive this explicitly; components read it from context.
  */
 export type WhisperingContext = {

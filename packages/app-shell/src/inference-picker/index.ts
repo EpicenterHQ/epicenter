@@ -1,9 +1,12 @@
-export type { InferenceTarget } from '../inference-selections.js';
-export { connectionLabel } from './connection-label.js';
+export type {
+	InferenceTarget,
+	ResolvedInferenceTarget,
+} from '../inference-target.js';
 export {
-	createInferenceConnections,
+	createInferenceCatalog,
 	type HostedModel,
-	type InferenceConnections,
-} from './connections.svelte.js';
+	type InferenceCatalog,
+} from './catalog.svelte.js';
+export { connectionLabel } from './connection-label.js';
 export { default as CrossDeviceModelGap } from './cross-device-model-gap.svelte';
 export { default as InferencePicker } from './inference-picker.svelte';

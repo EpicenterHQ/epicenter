@@ -32,7 +32,10 @@ let probeEngine: ((data: () => OpenAiTurnContext) => Promise<void>) | undefined;
 	{ by: <TValue>(compute: () => TValue) => compute() },
 );
 
-mock.module('svelte/reactivity', () => ({ SvelteMap: Map }));
+mock.module('svelte/reactivity', () => ({
+	SvelteMap: Map,
+	createSubscriber: () => () => undefined,
+}));
 
 // The engine is the one collaborator that would reach the network. An empty
 // stream ends the turn immediately and, because an assistant message with no
@@ -156,20 +159,22 @@ function createFakeChat() {
 		reportBackgroundError: (cause) => {
 			throw cause;
 		},
-		connections: {
-			selections: {
-				set: (scope: string, target: { connectionId: string; model: string }) =>
-					targets.set(scope, target),
+		selections: {
+			get: (scope: string) => targets.get(scope) ?? null,
+			set: (scope: string, target: { connectionId: string; model: string }) => {
+				targets.set(scope, target);
 			},
-			target: (scope: string, model: string) =>
-				targets.get(scope)?.model === model ? targets.get(scope) : null,
-			resolve: (scope: string, model: string) =>
-				targets.get(scope)?.model === model
-					? (clients.get(targets.get(scope)!.connectionId) ?? null)
-					: null,
-			canServe: (scope: string, model: string) =>
-				targets.get(scope)?.model === model &&
-				clients.has(targets.get(scope)!.connectionId),
+			onChange: () => () => undefined,
+			[Symbol.dispose]() {},
+		},
+		catalog: {
+			accountId: 'first-id',
+			resolve: (target: { connectionId: string; model: string } | null) => {
+				const client = target && clients.get(target.connectionId);
+				return client && target
+					? { client, model: target.model, source: 'custom' }
+					: null;
+			},
 		} as never,
 		agent: {
 			buildSystemPrompts: () => ['system'],
@@ -368,4 +373,50 @@ test('a run retains its captured destination across engine steps', async () => {
 		probeEngine = undefined;
 		fake.chat[Symbol.dispose]();
 	}
+});
+
+test('a saved destination for a different synced model cannot send or carry forward', () => {
+	const { chat, targets, document } = createFakeChat();
+	const active = chat.active!;
+	targets.set(active.id, { connectionId: 'first-id', model: 'other-model' });
+	expect(active.target).toBeNull();
+	expect(active.canServe).toBe(false);
+	active.sendMessage('must stay a draft');
+	expect(document(active.id).texts()).toEqual([]);
+	const created = chat.createConversation();
+	expect(targets.has(created)).toBe(false);
+	chat[Symbol.dispose]();
+});
+
+test('choosing a destination writes its local identity and synced model', () => {
+	const { chat, targets, updates } = createFakeChat();
+	const active = chat.active!;
+	active.selectTarget({ connectionId: 'second-id', model: 'chosen-model' });
+	expect(targets.get(active.id)).toEqual({
+		connectionId: 'second-id',
+		model: 'chosen-model',
+	});
+	expect(updates.at(-1)).toEqual({
+		id: active.id,
+		patch: { model: 'chosen-model', updatedAt: expect.any(String) },
+	});
+	chat[Symbol.dispose]();
+});
+
+test('using the default explicitly replaces an unavailable destination', () => {
+	const { chat, targets, updates } = createFakeChat();
+	const active = chat.active!;
+	targets.set(active.id, { connectionId: 'removed-id', model: DEFAULT_MODEL });
+	expect(active.canServe).toBe(false);
+	active.useDefaultModel();
+	expect(targets.get(active.id)).toEqual({
+		connectionId: 'first-id',
+		model: DEFAULT_MODEL,
+	});
+	expect(updates.at(-1)).toEqual({
+		id: active.id,
+		patch: { model: DEFAULT_MODEL, updatedAt: expect.any(String) },
+	});
+	expect(active.canServe).toBe(true);
+	chat[Symbol.dispose]();
 });

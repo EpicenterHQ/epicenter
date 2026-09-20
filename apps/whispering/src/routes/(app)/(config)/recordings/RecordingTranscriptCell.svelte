@@ -20,7 +20,7 @@
 	let { recordingId }: { recordingId: RecordingId } = $props();
 
 	let showOriginal = $state(false);
-	const recording = $derived(app.recordings.get(recordingId));
+	const recording = $derived(app.library.tables.recordings.get(recordingId));
 	const hasDeliveredTranscript = $derived(!!recording?.polishedTranscript);
 	const transcript = $derived(
 		showOriginal

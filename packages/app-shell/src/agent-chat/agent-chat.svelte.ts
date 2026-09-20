@@ -67,8 +67,10 @@ import {
 } from '@epicenter/client';
 import { bindAgentConversation } from '@epicenter/svelte';
 import type * as Y from '@y/y';
-import { SvelteMap } from 'svelte/reactivity';
-import type { InferenceConnections } from '../inference-picker/connections.svelte.js';
+import { createSubscriber, SvelteMap } from 'svelte/reactivity';
+import type { InferenceCatalog } from '../inference-picker/catalog.svelte.js';
+import type { InferenceSelections } from '../inference-selections.js';
+import type { InferenceTarget } from '../inference-target.js';
 
 /**
  * Where the selected conversation lives, and how to change it. Injected so an
@@ -114,7 +116,7 @@ export type ConversationHandle = NonNullable<AgentChatState['active']>;
 /**
  * What the agent can do: the persona and capabilities an app gives its chat
  * loop. Grouped because every field varies with the app, not the device or the
- * route. The Data handles, connections, and active-conversation source the loop
+ * route. The Data handles, inference catalog, and active-conversation source the loop
  * also needs are passed separately; they have different owners.
  */
 export type AgentKit = {
@@ -131,7 +133,8 @@ export type AgentKit = {
 export function createAgentChatState({
 	table,
 	reportBackgroundError,
-	connections,
+	catalog,
+	selections,
 	activeConversation,
 	agent: {
 		buildSystemPrompts,
@@ -153,13 +156,18 @@ export function createAgentChatState({
 	table: ConversationsTable;
 	/** Report failures from subscription-driven refreshes and metadata writes. */
 	reportBackgroundError(cause: unknown): void;
-	/** The device connection registry (ADR-0059); resolves a model to a transport. */
-	connections: InferenceConnections;
+	/** The available inference sources for this document. */
+	catalog: InferenceCatalog;
+	/** Device-local destinations keyed by conversation id. */
+	selections: InferenceSelections;
 	/** The active-conversation source; defaults to internal `$state`. */
 	activeConversation?: ActiveConversation;
 	/** What the agent can do: the app's persona and capabilities. */
 	agent: AgentKit;
 }) {
+	const observeSelections = createSubscriber((update) =>
+		selections.onChange(update),
+	);
 	/**
 	 * The conversation rows, re-read whole on every commit that touches them.
 	 *
@@ -238,6 +246,17 @@ export function createAgentChatState({
 		 * teardown microtask); it is not an "unset model" default. */
 		const currentModel = $derived(metadata?.model ?? defaultModel);
 
+		function selectedTarget() {
+			observeSelections();
+			const target = selections.get(conversationId);
+			return target?.model === currentModel ? target : null;
+		}
+
+		function selectTarget(target: InferenceTarget) {
+			selections.set(conversationId, target);
+			patchConversation(conversationId, { model: target.model });
+		}
+
 		// The tool call the loop is waiting on a decision for, or null. A mutation
 		// pauses the loop here (the present human is the gate, ADR-0047); a query,
 		// or a tool the app's policy auto-approved, never lands here.
@@ -257,11 +276,11 @@ export function createAgentChatState({
 
 		function captureTarget(): boolean {
 			if (convo.isGenerating) return false;
-			const transport = connections.resolve(conversationId, currentModel);
+			const transport = catalog.resolve(selectedTarget());
 			if (!transport) return false;
 			runTarget = {
-				client: transport,
-				model: currentModel,
+				client: transport.client,
+				model: transport.model,
 				systemPrompts: buildSystemPrompts(),
 			};
 			return true;
@@ -345,20 +364,24 @@ export function createAgentChatState({
 			get model() {
 				return currentModel;
 			},
-			set model(value: string) {
-				patchConversation(conversationId, { model: value });
+			/** A local destination applies only while its model matches the synced row. */
+			get target() {
+				return selectedTarget();
 			},
+			get canServe() {
+				return catalog.resolve(selectedTarget()) !== null;
+			},
+			selectTarget,
 
 			/** Reset to the app's default model (the model-gap's "Use default"). The
 			 * default is the factory's `defaultModel`, owned here so a thread needn't be
 			 * told it a second time alongside the registry that already holds it. */
 			useDefaultModel() {
-				if (!connections.ai.account || !connections.accountId) return;
-				connections.selections.set(conversationId, {
-					connectionId: connections.accountId!,
+				if (!catalog.accountId) return;
+				selectTarget({
+					connectionId: catalog.accountId,
 					model: defaultModel,
 				});
-				patchConversation(conversationId, { model: defaultModel });
 			},
 
 			// ── Chat state (from the loop) ──
@@ -427,7 +450,7 @@ export function createAgentChatState({
 			 * chat surface used to recompute against the app's connection singleton. */
 			get canSend() {
 				return (
-					connections.canServe(conversationId, currentModel) &&
+					catalog.resolve(selectedTarget()) !== null &&
 					!convo.isGenerating &&
 					inputValue.trim().length > 0
 				);
@@ -580,10 +603,8 @@ export function createAgentChatState({
 		});
 
 		const id = asConversationId(row.id);
-		const target = current
-			? connections.target(current.id, current.model)
-			: null;
-		if (target) connections.selections.set(id, target);
+		const target = current?.target;
+		if (target) selections.set(id, target);
 		ensureHandle(id);
 		selection.select(id);
 

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { openRecordingAudio } from '../whispering/recordings.js';
+
 	import type { BlobSource } from '@epicenter/blobs';
 	import { createLogger } from 'wellcrafted/logger';
 	import { extractErrorMessage } from 'wellcrafted/error';
@@ -6,19 +8,19 @@
 
 	let {
 		id,
-		audio,
 		enabled = true,
 		class: className,
 		viewTransitionName,
 	}: {
 		id: string;
-		audio: string | null;
 		enabled?: boolean;
 		class?: string;
 		viewTransitionName?: string;
 	} = $props();
 
 	const app = getWhisperingApp();
+	const audioBlobId = $derived(app.library.tables.recordings.get(id)?.audioBlobId);
+	const audioUrl = $derived(app.library.tables.recordings.get(id)?.audioUrl ?? null);
 	const log = createLogger('whispering/audio-player');
 	let handle = $state.raw<BlobSource | null>(null);
 	let failure = $state<string | null>(null);
@@ -26,19 +28,15 @@
 	// The source outlives any lexical scope (`using` cannot span a component
 	// lifetime), so effect teardown owns the manual [Symbol.dispose]() call.
 	$effect(() => {
-		const requestedId = id;
-		// Local byte arrival changes playback availability without editing the row.
-		void audio;
 		failure = null;
-		if (!enabled) {
+		if (!enabled || !audioBlobId) {
 			handle = null;
 			return;
 		}
 
 		let cancelled = false;
 		let owned: BlobSource | null = null;
-		void app.recordings
-			.openAudio(requestedId)
+		void openRecordingAudio(app.blobs, { audioBlobId, audioUrl })
 			.then(({ data, error }) => {
 				if (error && !cancelled) failure = 'Audio is unavailable on this device.';
 				if (data === null) return;

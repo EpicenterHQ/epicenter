@@ -7,7 +7,7 @@ import { QueryClient } from '@tanstack/svelte-query';
 import { createQueryFactories } from 'wellcrafted/query';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { Recording } from '$lib/state/recordings.svelte';
+import type { Recording } from '../data.js';
 import type { WhisperingApp } from '$lib/whispering/app';
 
 Reflect.set(globalThis, '$state', <T>(value: T) => value);

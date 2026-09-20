@@ -1,3 +1,4 @@
+import type { BlobId } from '@epicenter/blobs';
 import {
 	defineApp,
 	defineTable,
@@ -44,7 +45,7 @@ export type RecipeId = string;
 
 const recordingsTable = defineTable({
 	/** Immutable bytes saved independently in this application's local store. */
-	audioBlobId: field.string({ pattern: `^${BLOB_ID_ROUTE_REGEX}$` }),
+	audioBlobId: field.string<BlobId>({ pattern: `^${BLOB_ID_ROUTE_REGEX}$` }),
 	/** A separately uploaded copy, changed only by an explicit upload. */
 	audioUrl: field.nullable(field.string()),
 	title: field.string(),
@@ -120,6 +121,7 @@ const settingsKv = {
 	recordingTrigger: field.select(['vad', 'manual']),
 	recordingPausePlayback: field.boolean(),
 
+	transcriptionConnection: field.nullable(field.string()),
 	transcriptionModel: field.string(),
 	/**
 	 * A plain string, not a union of the 58 supported languages.
@@ -132,6 +134,7 @@ const settingsKv = {
 	transcriptionLanguage: field.string(),
 	transcriptionPrompt: field.string(),
 
+	completionConnection: field.nullable(field.string()),
 	completionModel: field.string(),
 
 	dictionary: field.nullable(field.tags()),

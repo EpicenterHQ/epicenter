@@ -1,4 +1,6 @@
 <script lang="ts">
+import { pickableRecipes } from '../whispering/recipes.js';
+
 	import { Badge } from '@epicenter/ui/badge';
 	import * as Command from '@epicenter/ui/command';
 	import * as Modal from '@epicenter/ui/modal';
@@ -28,7 +30,7 @@
 			title: `Running ${recipe.name}...`,
 			description: 'Reshaping your text with AI.',
 		});
-		const { data, error } = await runRecipe({ input, recipe });
+		const { data, error } = await runRecipe(app, { input, recipe });
 		if (error) {
 			loading.reject({
 				title: `Couldn't run ${recipe.name}`,
@@ -61,7 +63,7 @@
 			<Command.List>
 				<Command.Empty>No recipes found.</Command.Empty>
 				<Command.Group>
-					{#each app.recipes.pickable as recipe (recipe.id)}
+					{#each pickableRecipes(app.library) as recipe (recipe.id)}
 						<Command.Item value={recipe.name} onSelect={() => run(recipe)}>
 							{#if recipe.icon}
 								<span aria-hidden="true">{recipe.icon}</span>

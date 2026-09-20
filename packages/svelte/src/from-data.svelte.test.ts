@@ -58,6 +58,7 @@ mock.module('svelte/reactivity', () => ({
 }));
 
 import { fromData } from './from-data.svelte.js';
+import { fromKv } from './from-kv.svelte.js';
 
 /**
  * An in-memory stand-in for one store table handle: the same closure-object
@@ -296,7 +297,7 @@ test('write verbs pass through to the underlying handle', () => {
 	expect(notes.handle.get(created.id)).toBeUndefined();
 });
 
-test('point reads pass through and answer from current data', () => {
+test('point reads answer from the current projection', () => {
 	const { reactive } = setup();
 	const table = reactive.tables.notes;
 	expect(table.get('n1')?.title).toBe('first');
@@ -426,4 +427,15 @@ test('a reused projection contains edits made between route visits', () => {
 	expect(revisited.tables.notes.rows.map((note) => note.title)).toEqual([
 		'new while away',
 	]);
+});
+
+test('adapting KV alone shares its wrapper with the full store adapter', () => {
+	const store = setup();
+	expect(fromKv(store.data.kv)).toBe(store.reactive.kv);
+	const kv = createFakeKv({ theme: 'dark' });
+	const adapted = fromKv(kv.handle);
+	expect(fromKv(kv.handle)).toBe(adapted);
+	expect(adapted.get('theme')).toBe('dark');
+	adapted.update({ theme: 'light' });
+	expect(kv.handle.get('theme')).toBe('light');
 });

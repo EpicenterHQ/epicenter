@@ -9,6 +9,7 @@ import {
 } from '$lib/operations/sink';
 import type { Notice } from '$lib/report';
 import type { WhisperingApp } from '$lib/whispering/app';
+import { getSetting } from './settings.js';
 
 // The reach types live in their own `delivery-reach` module next to their ADR
 // docstrings; re-exported here so callers keep one delivery import.
@@ -53,7 +54,7 @@ const OUTPUT_KEYS = {
  */
 export function outputWritesToCursor(app: WhisperingApp): boolean {
 	return OUTPUT_SCOPES.some((scope) =>
-		app.settings.get(OUTPUT_KEYS[scope].cursor),
+		getSetting(app.device.kv, OUTPUT_KEYS[scope].cursor),
 	);
 }
 
@@ -131,13 +132,13 @@ function resolveSettingsSink(
 	settingsScope: OutputScope,
 ): Sink {
 	const keys = OUTPUT_KEYS[settingsScope];
-	const cursorRequested = app.settings.get(keys.cursor);
-	const clipboardRequested = app.settings.get(keys.clipboard);
+	const cursorRequested = getSetting(app.device.kv, keys.cursor);
+	const clipboardRequested = getSetting(app.device.kv, keys.clipboard);
 
 	return cursorRequested
 		? createCursorSink({
 				keepOnClipboard: clipboardRequested,
-				pressEnter: app.settings.get(keys.enter),
+				pressEnter: getSetting(app.device.kv, keys.enter),
 			})
 		: clipboardRequested
 			? clipboardSink

@@ -8,7 +8,7 @@ import { type AiTransport, type AppAi, createAppAi } from '@epicenter/app/ai';
 import { createAiConnections } from '@epicenter/app/ai-connections';
 import { expectOk } from 'wellcrafted/testing';
 import { createInferenceSelections } from '../inference-selections.js';
-import { createInferenceConnections } from './connections.svelte.js';
+import { createInferenceCatalog } from './catalog.svelte.js';
 
 Reflect.set(globalThis, '$state', { raw: <T>(value: T) => value });
 
@@ -49,25 +49,23 @@ function setup(
 		},
 		runtime,
 	});
-	const connections = createInferenceConnections({
-		connections: {
-			runtime: owner.value.ai.runtime,
-			custom: owner.value.ai.connections,
-		},
-		accountConnection: owner.value.ai.account,
-		selections: createInferenceSelections({
-			storageKey: 'test',
-			storage: {
-				getItem: (key) => values.get(key) ?? null,
-				setItem: (key, value) => {
-					values.set(key, value);
-				},
-			},
-		}),
+	const catalog = createInferenceCatalog({
+		ai: owner.value.ai,
 		hostedModels: [{ id: 'shared-model', label: 'Hosted', credits: 1 }],
 	});
+	const selections = createInferenceSelections({
+		storageKey: 'test',
+		storage: {
+			getItem: (key) => values.get(key) ?? null,
+			setItem: (key, value) => {
+				values.set(key, value);
+			},
+		},
+	});
+
 	return {
-		connections,
+		catalog,
+		selections,
 		hosted,
 		values,
 		close: () => {
@@ -78,75 +76,78 @@ function setup(
 }
 
 test('the same model selects either custom connection or hosted independently', async () => {
-	const { connections, hosted } = setup();
+	const { catalog, selections, hosted } = setup();
 	const first = 'http://localhost:11434/v1';
 	const second = 'http://localhost:1234/v1';
-	const firstId = await connections.ai.connections!.add({
+	const firstId = await catalog.ai.connections!.add({
 		baseUrl: first,
 		models: ['shared-model'],
 	});
-	const secondId = await connections.ai.connections!.add({
+	const secondId = await catalog.ai.connections!.add({
 		baseUrl: second,
 		models: ['shared-model'],
 	});
-	connections.selections.set('first', {
+	selections.set('first', {
 		connectionId: firstId,
 		model: 'shared-model',
 	});
-	connections.selections.set('second', {
+	selections.set('second', {
 		connectionId: secondId,
 		model: 'shared-model',
 	});
-	connections.selections.set('paid', {
-		connectionId: connections.accountId!,
+	selections.set('paid', {
+		connectionId: catalog.accountId!,
 		model: 'shared-model',
 	});
-	expect(connections.resolve('first', 'shared-model')?.baseURL).toBe(first);
-	expect(connections.resolve('second', 'shared-model')?.baseURL).toBe(second);
-	expect(connections.resolve('paid', 'shared-model')?.baseURL).toBe(
+	expect(catalog.resolve(selections.get('first'))).toMatchObject({
+		model: 'shared-model',
+		source: 'custom',
+	});
+	expect(catalog.resolve(selections.get('paid'))?.source).toBe('account');
+	expect(catalog.resolve(selections.get('first'))?.client.baseURL).toBe(first);
+	expect(catalog.resolve(selections.get('second'))?.client.baseURL).toBe(
+		second,
+	);
+	expect(catalog.resolve(selections.get('paid'))?.client.baseURL).toBe(
 		hosted.baseURL,
 	);
-	await connections.ai.connections!.add({
+	await catalog.ai.connections!.add({
 		baseUrl: first,
 		models: ['shared-model'],
 	});
-	expect(connections.resolve('second', 'shared-model')?.baseURL).toBe(second);
+	expect(catalog.resolve(selections.get('second'))?.client.baseURL).toBe(
+		second,
+	);
 });
 
-test('missing selections and remotely changed models have no transport', () => {
-	const { connections } = setup();
-	expect(connections.resolve('new-device', 'shared-model')).toBeNull();
-	connections.selections.set('conversation', {
-		connectionId: connections.accountId!,
-		model: 'shared-model',
-	});
-	expect(connections.target('conversation', 'other-model')).toBeNull();
-	expect(connections.resolve('conversation', 'other-model')).toBeNull();
-	expect(connections.canServe('conversation', 'other-model')).toBe(false);
+test('missing selections and empty models have no transport', () => {
+	const { catalog, selections } = setup();
+	expect(catalog.resolve(selections.get('new-device'))).toBeNull();
+	expect(
+		catalog.resolve({ connectionId: catalog.accountId!, model: '   ' }),
+	).toBeNull();
 });
 
 test('removing then readding a connection does not resurrect its selections', async () => {
-	const { connections } = setup();
+	const { catalog, selections } = setup();
 	const baseUrl = 'http://localhost:11434/v1';
-	const id = await connections.ai.connections!.add({
+	const id = await catalog.ai.connections!.add({
 		baseUrl,
 		models: ['shared-model'],
 	});
-	connections.selections.set('conversation', {
+	selections.set('conversation', {
 		connectionId: id,
 		model: 'shared-model',
 	});
-	await connections.ai.connections!.remove(id);
-	expect(connections.target('conversation', 'shared-model')?.connectionId).toBe(
-		id,
-	);
-	expect(connections.resolve('conversation', 'shared-model')).toBeNull();
-	const replacement = await connections.ai.connections!.add({
+	await catalog.ai.connections!.remove(id);
+	expect(selections.get('conversation')?.connectionId).toBe(id);
+	expect(catalog.resolve(selections.get('conversation'))).toBeNull();
+	const replacement = await catalog.ai.connections!.add({
 		baseUrl,
 		models: ['shared-model'],
 	});
 	expect(replacement).not.toBe(id);
-	expect(connections.resolve('conversation', 'shared-model')).toBeNull();
+	expect(catalog.resolve(selections.get('conversation'))).toBeNull();
 });
 
 test('manual models resolve even when discovery returns an empty list', async () => {
@@ -155,21 +156,21 @@ test('manual models resolve even when discovery returns an empty list', async ()
 		fetch: () => Response.json({ data: [] }),
 	});
 	try {
-		const { connections } = setup();
+		const { catalog, selections } = setup();
 		const baseUrl = `${server.url}v1`;
-		const id = await connections.ai.connections!.add({
+		const id = await catalog.ai.connections!.add({
 			baseUrl,
 			models: ['manual-model'],
 		});
-		connections.selections.set('conversation', {
+		selections.set('conversation', {
 			connectionId: id,
 			model: 'manual-model',
 		});
-		await connections.refresh(id);
-		expect(connections.custom[0]?.models).toContain('manual-model');
-		expect(connections.resolve('conversation', 'manual-model')?.baseURL).toBe(
-			baseUrl,
-		);
+		await catalog.refresh(id);
+		expect(catalog.custom[0]?.models).toContain('manual-model');
+		expect(
+			catalog.resolve(selections.get('conversation'))?.client.baseURL,
+		).toBe(baseUrl);
 	} finally {
 		server.stop(true);
 	}
@@ -185,22 +186,22 @@ test('custom requests carry only the custom key instead of using the hosted tran
 		},
 	});
 	try {
-		const { connections, hosted } = setup();
+		const { catalog, selections, hosted } = setup();
 		hosted.fetch = () => {
 			throw new Error('Hosted transport must not run');
 		};
 		const baseUrl = `${server.url}v1`;
-		const id = await connections.ai.connections!.add({
+		const id = await catalog.ai.connections!.add({
 			baseUrl,
 			apiKey: 'custom-key',
 		});
-		connections.selections.set('conversation', {
+		selections.set('conversation', {
 			connectionId: id,
 			model: 'manual-model',
 		});
-		const transport = connections.resolve('conversation', 'manual-model');
+		const transport = catalog.resolve(selections.get('conversation'));
 		if (!transport) throw new Error('Expected selected custom connection');
-		await transport.models.list();
+		await transport.client.models.list();
 		expect(received.authorization).toBe('Bearer custom-key');
 	} finally {
 		server.stop(true);
@@ -208,32 +209,32 @@ test('custom requests carry only the custom key instead of using the hosted tran
 });
 
 test('adding a manual model to a saved connection retains earlier model choices', async () => {
-	const { connections } = setup();
+	const { catalog } = setup();
 	const baseUrl = 'http://localhost:1234/v1';
-	const id = await connections.ai.connections!.add({
+	const id = await catalog.ai.connections!.add({
 		baseUrl,
 		apiKey: 'key',
 		models: ['first'],
 	});
-	await connections.ai.connections!.update(id, {
-		models: [...connections.custom[0]!.models, 'second'],
+	await catalog.ai.connections!.update(id, {
+		models: [...catalog.custom[0]!.models, 'second'],
 	});
-	expect(connections.custom[0]?.models).toEqual(['first', 'second']);
+	expect(catalog.custom[0]?.models).toEqual(['first', 'second']);
 });
 
 test('a saved account A selection cannot resolve through account B', async () => {
 	const first = setup();
-	first.connections.selections.set('chat', {
-		connectionId: first.connections.accountId!,
+	first.selections.set('chat', {
+		connectionId: first.catalog.accountId!,
 		model: 'shared-model',
 	});
 	await first.close();
 	const second = setup(first.values, 'B');
-	expect(second.connections.target('chat', 'shared-model')?.connectionId).toBe(
-		first.connections.accountId!,
+	expect(second.selections.get('chat')?.connectionId).toBe(
+		first.catalog.accountId!,
 	);
-	expect(second.connections.resolve('chat', 'shared-model')).toBeNull();
-	expect(second.connections.accountId).not.toBe(first.connections.accountId!);
+	expect(second.catalog.resolve(second.selections.get('chat'))).toBeNull();
+	expect(second.catalog.accountId).not.toBe(first.catalog.accountId!);
 	await second.close();
 });
 
@@ -248,21 +249,23 @@ test('same URL entries retain independent ids and credentials', async () => {
 	});
 	const fixture = setup();
 	try {
-		const first = await fixture.connections.ai.connections!.add({
+		const first = await fixture.catalog.ai.connections!.add({
 			baseUrl: String(server.url),
 			apiKey: 'first',
 		});
-		const second = await fixture.connections.ai.connections!.add({
+		const second = await fixture.catalog.ai.connections!.add({
 			baseUrl: String(server.url),
 			apiKey: 'second',
 		});
 		expect(first).not.toBe(second);
 		for (const id of [first, second]) {
-			fixture.connections.selections.set('chat', {
+			fixture.selections.set('chat', {
 				connectionId: id,
 				model: 'manual',
 			});
-			await fixture.connections.resolve('chat', 'manual')!.models.list();
+			await fixture.catalog
+				.resolve(fixture.selections.get('chat'))!
+				.client.models.list();
 		}
 		expect(received).toEqual(['Bearer first', 'Bearer second']);
 	} finally {
@@ -282,19 +285,22 @@ test('native inventory suggests models without selecting or redirecting them', a
 	};
 	const fixture = setup(undefined, 'A', runtime);
 	expect(requests).toBe(0);
-	await fixture.connections.refreshRuntime();
-	expect(fixture.connections.runtimeModels).toEqual(['installed-model']);
-	expect(fixture.connections.resolve('audio', 'installed-model')).toBeNull();
-	fixture.connections.selections.set('audio', {
-		connectionId: fixture.connections.runtimeId!,
+	await fixture.catalog.refreshRuntime();
+	expect(fixture.catalog.runtimeModels).toEqual(['installed-model']);
+	expect(fixture.catalog.resolve(fixture.selections.get('audio'))).toBeNull();
+	fixture.selections.set('audio', {
+		connectionId: fixture.catalog.runtimeId!,
 		model: 'manual-model',
 	});
-	expect(fixture.connections.resolve('audio', 'manual-model')?.baseURL).toBe(
-		runtime.baseURL,
+	expect(fixture.catalog.resolve(fixture.selections.get('audio'))?.source).toBe(
+		'runtime',
 	);
+	expect(
+		fixture.catalog.resolve(fixture.selections.get('audio'))?.client.baseURL,
+	).toBe(runtime.baseURL);
 	await fixture.close();
 	const absent = setup(fixture.values);
-	expect(absent.connections.resolve('audio', 'manual-model')).toBeNull();
+	expect(absent.catalog.resolve(absent.selections.get('audio'))).toBeNull();
 	await absent.close();
 });
 
@@ -310,11 +316,11 @@ test('discovery through a saved connection uses that connection credential', asy
 	});
 	const fixture = setup();
 	try {
-		const id = await fixture.connections.ai.connections!.add({
+		const id = await fixture.catalog.ai.connections!.add({
 			baseUrl: String(server.url),
 			apiKey: 'saved-key',
 		});
-		const result = await fixture.connections.discover(
+		const result = await fixture.catalog.discover(
 			String(server.url),
 			undefined,
 			id,
@@ -334,17 +340,17 @@ test('failed refresh persistence rejects and leaves the saved models unchanged',
 	});
 	const fixture = setup();
 	try {
-		const id = await fixture.connections.ai.connections!.add({
+		const id = await fixture.catalog.ai.connections!.add({
 			baseUrl: String(server.url),
 			models: ['manual-model'],
 		});
 		fixture.values.set = () => {
 			throw new Error('Storage is full.');
 		};
-		await expect(fixture.connections.refresh(id)).rejects.toThrow(
+		await expect(fixture.catalog.refresh(id)).rejects.toThrow(
 			'Storage is full.',
 		);
-		expect(fixture.connections.ai.connections!.get(id)?.models).toEqual([
+		expect(fixture.catalog.ai.connections!.get(id)?.models).toEqual([
 			'manual-model',
 		]);
 	} finally {

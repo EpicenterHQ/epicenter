@@ -1,4 +1,6 @@
 <script lang="ts">
+import { updateRecording } from '../../../../lib/whispering/recordings.js';
+
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { InstantString } from '@epicenter/app/field';
 	import { Button } from '@epicenter/ui/button';
@@ -17,7 +19,7 @@
 	import AudioBlobPlayer from '$lib/components/AudioBlobPlayer.svelte';
 	import { deleteRecordingsWithConfirmation } from '$lib/operations/delete-recordings';
 	import { report } from '$lib/report';
-	import type { Recording } from '$lib/state/recordings.svelte';
+	import type { Recording } from '../../../../lib/data.js';
 	import { createCopyFn } from '$lib/utils/createCopyFn';
 	import UploadRecordingButton from './actions/UploadRecordingButton.svelte';
 	import DownloadRecordingButton from './actions/DownloadRecordingButton.svelte';
@@ -119,7 +121,7 @@
 		}
 
 		try {
-			app.recordings.patch(recording.id, {
+			updateRecording(app.library, recording.id, {
 				title: snapshot.title,
 				recordedAt: snapshot.recordedAt,
 				recordedAtZone: snapshot.recordedAtZone,
@@ -174,7 +176,6 @@
 			{#if audioAvailabilityQuery.data === 'local' || audioAvailabilityQuery.data === 'remote'}
 				<AudioBlobPlayer
 					id={recording.id}
-					audio={recording.audioUrl ?? recording.audioBlobId}
 					enabled={isDialogOpen}
 					class="h-9 w-full"
 				/>

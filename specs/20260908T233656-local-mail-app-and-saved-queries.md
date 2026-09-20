@@ -102,7 +102,7 @@ explains deferred operation access versus eager module evaluation.
 
 Related in-flight work must be coordinated, not overwritten:
 
-- [ADR-0373](../docs/adr/0373-product-operations-read-the-page-owned-app-when-invoked.md)
+- [ADR-0373](../docs/adr/0373-product-operations-receive-the-page-owned-app-explicitly.md)
   already proposes call-time product access. Reuse its import-safe bootstrap
   pattern; do not create another ADR for the same decision.
 - [ADR-0375](../docs/adr/0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md)

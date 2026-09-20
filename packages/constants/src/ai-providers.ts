@@ -94,7 +94,7 @@ export const MODELS_BY_ID = Object.fromEntries(
 
 /**
  * Decorate the model ids an app sells with their hosted label and credits. Every
- * chat app feeds the result to `createInferenceConnections` as its hosted
+ * chat app feeds the result to `createInferenceCatalog` as its hosted
  * catalog, so the `{ id, label, credits }` mapping lives here once instead of
  * being rewritten per app. The shape matches `@epicenter/app-shell` `HostedModel`.
  */

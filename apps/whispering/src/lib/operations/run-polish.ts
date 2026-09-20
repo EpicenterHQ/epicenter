@@ -4,12 +4,13 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { isErr, Ok, type Result } from 'wellcrafted/result';
+import type { WhisperingApp } from '../whispering/app.js';
 import { buildPolishSystemPrompt } from './build-system-prompt.js';
 import {
 	completeWithGlobalDefault,
-	resolveCompletionState,
+	resolveCompletionTarget,
 } from './completion.js';
-import { settings } from './settings.js';
+import { getSetting } from './settings.js';
 
 export const RunPolishError = defineErrors({
 	/**
@@ -34,10 +35,10 @@ export type RunPolishError = InferErrors<typeof RunPolishError>;
  * an AI call is really about to happen (no flicker in speed mode or an
  * unconfigured install); `runPolish` reads it too.
  */
-export function polishWillRun(input: string): boolean {
+export function polishWillRun(app: WhisperingApp, input: string): boolean {
 	return (
-		settings.get('polishEnabled') &&
-		resolveCompletionState().canRun &&
+		getSetting(app.device.kv, 'polishEnabled') &&
+		resolveCompletionTarget(app) !== null &&
 		input.trim().length > 0
 	);
 }
@@ -58,19 +59,22 @@ export function polishWillRun(input: string): boolean {
  * text. On a genuine AI failure the raw input rides along in the error so
  * delivery can still proceed.
  */
-export async function runPolish({
-	input,
-	signal,
-}: {
-	input: string;
-	signal?: AbortSignal;
-}): Promise<Result<string, RunPolishError>> {
-	if (!polishWillRun(input)) return Ok(input);
+export async function runPolish(
+	app: WhisperingApp,
+	{
+		input,
+		signal,
+	}: {
+		input: string;
+		signal?: AbortSignal;
+	},
+): Promise<Result<string, RunPolishError>> {
+	if (!polishWillRun(app, input)) return Ok(input);
 
-	const result = await completeWithGlobalDefault({
+	const result = await completeWithGlobalDefault(app, {
 		systemPrompt: buildPolishSystemPrompt(
-			settings.get('polishInstructions'),
-			settings.get('dictionary'),
+			getSetting(app.device.kv, 'polishInstructions'),
+			getSetting(app.device.kv, 'dictionary'),
 		),
 		userPrompt: input,
 		signal,

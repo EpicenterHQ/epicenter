@@ -1,9 +1,6 @@
 <script lang="ts">
-	import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference-selections';
-	import { attachApplication } from '$lib/application.js';
 	import type { Account } from "@epicenter/auth";
 	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
-	import { fromData } from '@epicenter/svelte';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
@@ -37,19 +34,11 @@
 		libraryMenu: Snippet;
 	} = $props();
 
-	// svelte-ignore state_referenced_locally
-	const selections = createBrowserInferenceSelections('whispering', openedApp.account?.identity);
-	// svelte-ignore state_referenced_locally
-	const detachApplication = attachApplication(openedApp, selections);
-
 	// One mount creates one UI session over the captured framework App.
-	/* svelte-ignore state_referenced_locally */
-	const view = fromData(data);
 	/* svelte-ignore state_referenced_locally */
 	const session = createWhisperingUiSession({
 		openedApp,
 		data,
-		selections,
 		account,
 	});
 
@@ -57,8 +46,6 @@
 
 	onDestroy(() => {
 		session[Symbol.dispose]();
-		selections[Symbol.dispose]();
-		detachApplication();
 	});
 
 	let sidebarOpen = $state(false);
@@ -67,7 +54,7 @@
 	const isNarrow = new MediaQuery('(max-width: 767px)');
 </script>
 
-<PersistenceNotice persistence={view.persistence} />
+<PersistenceNotice persistence={session.app.library.persistence} />
 
 	<QueryClientProvider client={session.queryClient}>
 		<!-- Uses UI package defaults (300ms delay, 150ms skip) -->

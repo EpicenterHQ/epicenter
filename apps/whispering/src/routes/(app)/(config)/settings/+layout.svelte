@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { APPLICATION_DEFAULTS } from '$lib/operations/settings.js';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as SectionHeader from '@epicenter/ui/section-header';
@@ -36,7 +37,7 @@
 						'This will reset all settings to their default values. This action cannot be undone.',
 					confirm: { text: 'Reset Settings', variant: 'destructive' },
 					onConfirm: () => {
-						app.settings.reset();
+						app.device.kv.update(APPLICATION_DEFAULTS);
 						deviceConfig.reset();
 						report.success({
 							title: 'Settings reset',

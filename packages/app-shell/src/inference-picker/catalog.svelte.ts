@@ -5,37 +5,25 @@ import { createSubscriber } from 'svelte/reactivity';
 import { Ok, type Result, tryAsync, unwrap } from 'wellcrafted/result';
 import {
 	accountInferenceId,
-	type InferenceSelections,
-	matchInferenceTarget,
+	type InferenceTarget,
+	resolveInferenceTarget,
 	runtimeInferenceId,
-} from '../inference-selections.js';
+} from '../inference-target.js';
 
 export type HostedModel = { id: string; label: string; credits: number };
 
-/** Observe one App's AI capability and resolve exact saved workflow destinations. */
-export function createInferenceConnections({
-	connections,
-	accountConnection,
-	selections,
+/** Observe available inference connections and discover their suggested models. */
+export function createInferenceCatalog({
+	ai,
 	hostedModels,
 }: {
-	connections: { runtime: AppAi['runtime']; custom: AppAi['connections'] };
-	accountConnection: AppAi['account'];
-	selections: InferenceSelections;
+	ai: AppAi;
 	hostedModels: HostedModel[];
 }) {
-	const ai: AppAi = {
-		runtime: connections.runtime,
-		connections: connections.custom,
-		account: accountConnection,
-	};
 	if (!ai.connections)
 		throw new Error('This App has no custom AI connection binding.');
 	const observeConnections = createSubscriber((update) =>
 		ai.connections!.subscribe(() => update()),
-	);
-	const observeSelections = createSubscriber((update) =>
-		selections.onChange(update),
 	);
 	const accountId = accountInferenceId(ai);
 	const accountLabel = ai.account
@@ -43,18 +31,8 @@ export function createInferenceConnections({
 		: '';
 	const runtimeId = runtimeInferenceId(ai);
 	let runtimeModels = $state.raw<string[]>([]);
-	function target(scope: string, model: string) {
-		observeSelections();
-		const selected = selections.get(scope);
-		return selected?.model === model ? selected : null;
-	}
-	function resolve(scope: string, model: string) {
-		observeConnections();
-		return matchInferenceTarget(ai, target(scope, model));
-	}
 	return {
 		ai,
-		selections,
 		accountId,
 		accountLabel,
 		runtimeId,
@@ -91,16 +69,13 @@ export function createInferenceConnections({
 				models: [...new Set([...record.models, ...models])],
 			});
 		},
-		target,
-		resolve,
-		canServe(scope: string, model: string) {
-			return resolve(scope, model) !== null;
+		resolve(target: InferenceTarget | null) {
+			observeConnections();
+			return resolveInferenceTarget(ai, target);
 		},
 	};
 }
-export type InferenceConnections = ReturnType<
-	typeof createInferenceConnections
->;
+export type InferenceCatalog = ReturnType<typeof createInferenceCatalog>;
 
 /** Keep SDK request failures distinct from unusable model suggestions. */
 async function discoverModels(

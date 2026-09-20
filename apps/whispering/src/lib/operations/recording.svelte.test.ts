@@ -115,9 +115,9 @@ function setup(service?: RecordingService) {
 	};
 	const start = mock<RecordingService['start']>(async () => Ok(recording));
 	const current = mock<RecordingService['current']>(async () => Ok(null));
-	const create = mock<WhisperingApp['recordings']['create']>(async () =>
-		Ok({ id: 'saved-row' } as never),
-	);
+	const create = mock<
+		WhisperingApp['library']['tables']['recordings']['create']
+	>(() => ({ id: 'saved-row' }) as never);
 	const remove = mock();
 	const add = mock<WhisperingApp['blobs']['local']['add']>(async () =>
 		Ok(blobId),
@@ -127,8 +127,16 @@ function setup(service?: RecordingService) {
 		signal: controller.signal,
 		blobs: { local: { add } },
 		recordingEnabled: true,
-		recordings: { create, delete: remove, get: () => ({ id: 'saved-row' }) },
-		settings: { set: mock() },
+		library: {
+			tables: {
+				recordings: {
+					create,
+					delete: remove,
+					get: () => ({ id: 'saved-row' }),
+				},
+			},
+		},
+		device: { kv: { update: mock() } },
 	} as unknown as WhisperingApp;
 	const session = createWhisperingRecording(
 		app,
@@ -220,34 +228,26 @@ test('late acquisition after disposal releases its session and creates no row', 
 	expect(f.create).not.toHaveBeenCalled();
 });
 
-test('Saved waits for persistence and another capture cannot bypass the save bound', async () => {
+test('native finalization must finish before Saved or another capture', async () => {
 	const f = setup();
-	const saved =
-		Promise.withResolvers<
-			Awaited<ReturnType<typeof f.app.recordings.create>>
-		>();
-	f.create.mockImplementationOnce(() => saved.promise);
+	const saved = Promise.withResolvers<Awaited<ReturnType<typeof f.stop>>>();
+	f.stop.mockImplementationOnce(() => saved.promise);
 	await f.recorder.start();
 	const pending = f.recorder.stop();
 	await Bun.sleep(0);
-	expect(f.recorder.saveStatus).toBe('saving');
+	expect(f.recorder.saveStatus).not.toBe('saved');
+	expect(f.create).not.toHaveBeenCalled();
 	expect(await f.recorder.start()).toBeNull();
-	saved.resolve(Ok({ id: 'saved-row' } as never));
+	saved.resolve(Ok({ blobId: f.blobId, durationMs: 1250, byteLength: 10 }));
 	await pending;
 	expect(f.recorder.saveStatus).toBe('saved');
 });
 
 test('unconfirmed save never remints, deletes a row, or starts inference', async () => {
 	const f = setup();
-	const { RecordingCreationError } = await import(
-		'../whispering/recordings.js'
-	);
-	f.create.mockImplementationOnce(async () =>
-		RecordingCreationError.RowCreateFailed({
-			audioBlobId: f.blobId,
-			cause: 'disk full',
-		}),
-	);
+	f.create.mockImplementationOnce(() => {
+		throw new Error('disk full');
+	});
 	await f.recorder.start();
 	const count = pipeline.mock.calls.length;
 	await f.recorder.stop();
@@ -535,15 +535,9 @@ test('voice-activated capture saves once and retains inference selected before p
 
 test('failed voice-activated row creation reports failure without entering inference', async () => {
 	const f = setup();
-	const { RecordingCreationError } = await import(
-		'../whispering/recordings.js'
-	);
-	f.create.mockImplementationOnce(async () =>
-		RecordingCreationError.RowCreateFailed({
-			audioBlobId: f.blobId,
-			cause: 'row failure',
-		}),
-	);
+	f.create.mockImplementationOnce(() => {
+		throw new Error('row failure');
+	});
 	await startVadRecording(f.app);
 	const before = pipeline.mock.calls.length;
 	if (!speechEnd) throw new Error('VAD callback was not installed');

@@ -1,4 +1,4 @@
-/** Verifies capture disposal, late acquisition rollback, and preservation of saved audio. */
+/** Verifies capture disposal, late acquisition rollback, and recording publication. */
 import { expect, mock, test } from 'bun:test';
 import type { Recording, RecordingService } from '@epicenter/app/recorder';
 import { generateBlobId } from '@epicenter/blobs';
@@ -11,7 +11,6 @@ Reflect.set(
 	Object.assign(<T>(value: T) => value, { raw: <T>(value: T) => value }),
 );
 const finalized = Promise.withResolvers<void>();
-const saved = Promise.withResolvers<void>();
 let initialized = Promise.withResolvers<void>();
 const events: string[] = [];
 let pipelineFailure: Error | undefined;
@@ -104,14 +103,16 @@ function recordingApp<T extends object>(
 ) {
 	const app = {
 		signal: new AbortController().signal,
-		settings: { set: mock() },
-		recordings: {
-			get: () => ({ id: 'original-row' }),
-			patch: mock(),
-			create: async () => {
-				events.push('save');
-				await saved.promise;
-				return Ok({ id: 'original-row' });
+		device: { kv: { update: mock() } },
+		library: {
+			tables: {
+				recordings: {
+					get: () => ({ id: 'original-row' }),
+					create: () => {
+						events.push('save');
+						return { id: 'original-row' };
+					},
+				},
 			},
 		},
 		...options,
@@ -125,7 +126,6 @@ test('ordinary native finalization publishes its saved recording', async () => {
 	const app = recordingApp({
 		account: undefined,
 		recordingEnabled: true,
-		blobs: { removeLocal: async () => Ok(undefined) },
 	});
 	await app.recording.start();
 	const stopping = app.recording.stop();
@@ -136,7 +136,6 @@ test('ordinary native finalization publishes its saved recording', async () => {
 	finalized.resolve();
 	await Bun.sleep(0);
 	expect(events).toEqual(['finalize', 'save']);
-	saved.resolve();
 	await stopping;
 	expect(events.at(-1)).toBe('save');
 });
@@ -151,7 +150,7 @@ test('disposal releases an armed VAD engine without waiting for save work', asyn
 test('VAD acquired after disposal is immediately released', async () => {
 	const app = recordingApp({
 		recordingEnabled: true,
-		settings: { set: mock() },
+		device: { kv: { update: mock() } },
 	});
 	initialized = Promise.withResolvers<void>();
 	const starting = startVadRecording(app);
@@ -177,7 +176,7 @@ test('queued capture actions cannot restart a disposed UI session', async () => 
 test('a late VAD frame cannot save through its retired App', async () => {
 	const app = recordingApp({
 		recordingEnabled: true,
-		settings: { set: mock() },
+		device: { kv: { update: mock() } },
 	});
 	await startVadRecording(app as unknown as WhisperingApp);
 	app.recordingEnabled = false;
@@ -186,47 +185,42 @@ test('a late VAD frame cannot save through its retired App', async () => {
 	expect(events).toHaveLength(before);
 });
 
-test('a pipeline failure after saving does not delete published audio', async () => {
+test('a pipeline failure follows recording publication', async () => {
 	finalized.resolve();
-	saved.resolve();
-	const removeLocal = mock(async () => Ok(undefined));
+	const before = events.length;
 	const app = recordingApp({
 		recordingEnabled: true,
-		blobs: { removeLocal },
 	});
 	pipelineFailure = new Error('Post-save pipeline failed');
 	try {
 		await app.recording.start();
 		await expect(app.recording.stop()).rejects.toBe(pipelineFailure);
-		expect(removeLocal).not.toHaveBeenCalled();
+		expect(events.slice(before)).toEqual(['finalize', 'save']);
 	} finally {
 		pipelineFailure = undefined;
 	}
 });
 
-test('completed saving leaves attachment cleanup to its owner', async () => {
+test('completed saving publishes the recording', async () => {
 	finalized.resolve();
-	saved.resolve();
-	const removeLocal = mock(async () => Ok(undefined));
+	const before = events.length;
 	const app = recordingApp({
 		recordingEnabled: true,
-		blobs: { removeLocal },
 	});
 	await app.recording.start();
 	await app.recording.stop();
-	expect(removeLocal).not.toHaveBeenCalled();
+	expect(events.slice(before)).toEqual(['finalize', 'save']);
 });
 
 test('a stale push-to-talk ID cannot stop the current recording', async () => {
-	const removeLocal = mock(async () => Ok(undefined));
-	const app = recordingApp({ recordingEnabled: true, blobs: { removeLocal } });
+	const app = recordingApp({ recordingEnabled: true });
 	await app.recording.start();
 	const before = events.length;
 	await app.recording.stop(generateBlobId('wav'));
 	expect(events).toHaveLength(before);
 	expect(app.recording.state).toBe('RECORDING');
 	await app.recording.stop(capture.id);
-	expect(removeLocal).not.toHaveBeenCalled();
+	expect(events.at(-1)).toBe('save');
 });
 
 test('push-to-talk release during startup saves through the composed workflow', async () => {
@@ -237,12 +231,10 @@ test('push-to-talk release during startup saves through the composed workflow', 
 		current: async () => Ok(null),
 		start: () => acquired.promise,
 	} as RecordingService;
-	const removeLocal = mock(async () => Ok(undefined));
 	const app = recordingApp(
 		{
 			recordingEnabled: true,
-			settings: { set: mock() },
-			blobs: { removeLocal },
+			device: { kv: { update: mock() } },
 		},
 		service,
 	);
@@ -258,7 +250,7 @@ test('push-to-talk release during startup saves through the composed workflow', 
 	);
 	await starting;
 	expect(app.recording.state).toBe('IDLE');
-	expect(removeLocal).not.toHaveBeenCalled();
+	expect(events.at(-1)).toBe('save');
 });
 
 test('disposal cancels active capture without finalizing a recording', async () => {
@@ -269,8 +261,8 @@ test('disposal cancels active capture without finalizing a recording', async () 
 	const app = {
 		signal: new AbortController().signal,
 		recordingEnabled: true,
-		settings: { set: mock() },
-		recordings: {},
+		device: { kv: { update: mock() } },
+		library: { tables: { recordings: {} } },
 	} as unknown as WhisperingApp;
 	const session = createWhisperingRecording(app, {
 		start: async () => Ok({ ...capture, cancel, stop } as unknown as Recording),
@@ -291,8 +283,8 @@ test('capture acquired after disposal is cancelled without publishing a row', as
 	const app = {
 		signal: new AbortController().signal,
 		recordingEnabled: true,
-		settings: { set: mock() },
-		recordings: { create },
+		device: { kv: { update: mock() } },
+		library: { tables: { recordings: { create } } },
 	} as unknown as WhisperingApp;
 	const session = createWhisperingRecording(app, {
 		start: () => acquired.promise,

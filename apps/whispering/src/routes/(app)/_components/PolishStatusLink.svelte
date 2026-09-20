@@ -3,9 +3,12 @@
 	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import { resolve } from '$app/paths';
-	import { polishStatus } from '$lib/state/polish.svelte';
+	import { polishStatus } from '$lib/state/polish.js';
 
-	const status = $derived(polishStatus());
+	import { getWhisperingApp } from '$lib/whispering/context';
+
+	const app = getWhisperingApp();
+	const status = $derived(polishStatus(app));
 	const triggerClass =
 		'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm no-underline hover:bg-accent hover:no-underline';
 </script>

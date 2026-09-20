@@ -13,6 +13,7 @@
 		"./account-popover": "./src/account-popover/index.ts",
 		"./agent-chat": "./src/agent-chat/index.ts",
 		"./boot-screens": "./src/boot-screens/index.ts",
+		"./inference-target": "./src/inference-target.ts",
 		"./inference-selections": "./src/inference-selections.ts",
 		"./inference-picker": "./src/inference-picker/index.ts",
 		"./persistence-notice": "./src/persistence-notice/index.ts"

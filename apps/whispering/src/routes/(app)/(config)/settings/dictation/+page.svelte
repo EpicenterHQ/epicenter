@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getSetting, APPLICATION_DEFAULTS } from '$lib/operations/settings.js';
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
 	import { Input } from '@epicenter/ui/input';
@@ -9,20 +10,20 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import { AdvancedDisclosure, SettingSwitch } from '$lib/components/settings';
 	import { resolve } from '$app/paths';
-	import { polishDestination, polishStatus } from '$lib/state/polish.svelte';
+	import { polishDestination, polishStatus } from '$lib/state/polish.js';
 	import { getWhisperingApp } from '$lib/whispering/context';
 
 	const app = getWhisperingApp();
 
 	// Null when the person has added no terms: the definition cannot default an array,
 	// so "never touched" and "emptied" are the same empty list here.
-	const dictionary = $derived(app.settings.get('dictionary') ?? []);
+	const dictionary = $derived(getSetting(app.device.kv, 'dictionary') ?? []);
 	// Intent (`polishEnabled`) and capability (a usable provider) are separate
 	// facts; the toggle below sets intent, this surfaces when intent is on but
 	// the provider is missing so the control never silently reads "on" while the
 	// pipeline ships raw.
-	const polish = $derived(polishStatus());
-	const destination = $derived(polishDestination());
+	const polish = $derived(polishStatus(app));
+	const destination = $derived(polishDestination(app));
 
 	let newTerm = $state('');
 
@@ -32,14 +33,11 @@
 		// Injection-only and order-free, so dedupe and ignore blanks; a repeated
 		// term would only bloat the prompt block.
 		if (!term || dictionary.includes(term)) return;
-		app.settings.set('dictionary', [...dictionary, term]);
+		app.device.kv.update({ dictionary: [...dictionary, term] });
 	}
 
 	function removeTerm(term: string) {
-		app.settings.set(
-			'dictionary',
-			dictionary.filter((t) => t !== term),
-		);
+		app.device.kv.update({ dictionary: dictionary.filter((t) => t !== term) });
 	}
 </script>
 
@@ -64,7 +62,7 @@
 					label="Polish transcripts with AI"
 					description="Turn off for speed mode: the raw transcript ships instantly, with no AI call."
 				/>
-				{#if app.settings.get('polishEnabled')}
+				{#if getSetting(app.device.kv, 'polishEnabled')}
 					<p class="text-muted-foreground text-sm">{destination}</p>
 				{/if}
 
@@ -82,7 +80,7 @@
 					</div>
 				{/if}
 
-				{#if app.settings.get('polishEnabled')}
+				{#if getSetting(app.device.kv, 'polishEnabled')}
 					<AdvancedDisclosure>
 						<Field.Field>
 							<Field.Label for="polish-instructions">
@@ -90,12 +88,12 @@
 							</Field.Label>
 							<Textarea
 								id="polish-instructions"
-								placeholder={app.settings.getDefault('polishInstructions')}
-								value={app.settings.get('polishInstructions')}
+								placeholder={APPLICATION_DEFAULTS['polishInstructions']}
+								value={getSetting(app.device.kv, 'polishInstructions')}
 								onblur={(e) => {
 									const next = e.currentTarget.value;
-									if (next !== app.settings.get('polishInstructions'))
-										app.settings.set('polishInstructions', next);
+									if (next !== getSetting(app.device.kv, 'polishInstructions'))
+										app.device.kv.update({ polishInstructions: next });
 								}}
 							/>
 							<Field.Description>

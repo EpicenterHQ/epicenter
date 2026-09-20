@@ -2,7 +2,7 @@ import { defineKeys } from 'wellcrafted/query';
 import { Ok, partitionResults } from 'wellcrafted/result';
 import { transcribeAndPersist } from '$lib/operations/transcribe';
 import type { WhisperingQueryRuntime } from '$lib/queries/client';
-import type { Recording } from '$lib/state/recordings.svelte';
+import type { Recording } from '../data.js';
 import type { WhisperingApp } from '$lib/whispering/app';
 
 function retry(app: WhisperingApp, recording: Recording) {

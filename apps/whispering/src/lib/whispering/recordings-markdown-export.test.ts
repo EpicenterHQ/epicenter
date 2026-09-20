@@ -15,27 +15,24 @@ import { expectOk } from 'wellcrafted/testing';
 import { DownloadServiceLive } from '#platform/download';
 import { whisperingDefinition } from '../data.js';
 import type { WhisperingApp } from './app.js';
-import { asRecording } from './recording.js';
 import { exportRecordingsMarkdown } from './recordings-markdown-export.js';
 
 test('ZIP export retains row descriptions and full audio keys under recordings.zip', async () => {
 	await using store = await openMemory(whisperingDefinition);
 	const audioBlobId = generateBlobId('webm');
-	const row = asRecording(
-		store.tables.recordings.create({
-			audioBlobId,
-			audioUrl: null,
-			title: 'Planning: next release',
-			recordedAt: InstantString.fromDate(new Date('2026-09-17T11:33:09Z')),
-			recordedAtZone: 'Asia/Singapore',
-			transcript: 'First line.\nSecond line with **emphasis**.',
-			polishedTranscript: null,
-			duration: 4,
-			transcriptionStatus: 'complete',
-			transcriptionCompletedAt: null,
-			transcriptionError: null,
-		}),
-	);
+	const row = store.tables.recordings.create({
+		audioBlobId,
+		audioUrl: null,
+		title: 'Planning: next release',
+		recordedAt: InstantString.fromDate(new Date('2026-09-17T11:33:09Z')),
+		recordedAtZone: 'Asia/Singapore',
+		transcript: 'First line.\nSecond line with **emphasis**.',
+		polishedTranscript: null,
+		duration: 4,
+		transcriptionStatus: 'complete',
+		transcriptionCompletedAt: null,
+		transcriptionError: null,
+	});
 	const downloaded: Array<{ name: string; blob: Blob }> = [];
 	const download = spyOn(
 		DownloadServiceLive,
@@ -46,12 +43,7 @@ test('ZIP export retains row descriptions and full audio keys under recordings.z
 	});
 	try {
 		const app = {
-			recordings: {
-				sorted: [row],
-				readAudio() {
-					throw new Error('Markdown export must not load audio.');
-				},
-			},
+			library: store,
 		} as unknown as WhisperingApp;
 		expect(expectOk(await exportRecordingsMarkdown(app))).toEqual({
 			written: 1,
@@ -91,7 +83,7 @@ test('an empty recording collection produces no download', async () => {
 		expect(
 			expectOk(
 				await exportRecordingsMarkdown({
-					recordings: { sorted: [] },
+					library: { tables: { recordings: { rows: [] } } },
 				} as unknown as WhisperingApp),
 			),
 		).toEqual({ written: 0 });

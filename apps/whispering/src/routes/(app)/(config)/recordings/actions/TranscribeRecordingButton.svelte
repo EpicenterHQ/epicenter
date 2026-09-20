@@ -10,7 +10,7 @@
 	import { deliverTranscriptionResult } from '$lib/operations/delivery';
 	import { report } from '$lib/report';
 	import { playSoundIfEnabled } from '$lib/operations/sound';
-	import type { Recording } from '$lib/state/recordings.svelte';
+	import type { Recording } from '../../../../../lib/data.js';
 	import {
 		getWhisperingApp,
 		getWhisperingQueries,

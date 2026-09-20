@@ -1,12 +1,3 @@
-<!--
-	The result of a finished recording: a copyable, expandable transcript preview
-	and a player for the captured audio. The home recorder and the first-run "try
-	it" step both render this, so the two cannot drift.
-
-	The audio renders whenever the clip exists, independent of the transcript, so a
-	silent or not-yet-transcribed recording still plays back. This component owns
-	its playback URL acquisition and disposes it on teardown.
--->
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { Link } from '@epicenter/ui/link';
@@ -19,13 +10,11 @@
 
 	let {
 		recordingId,
-		audio,
 		transcript,
 		rows = 1,
 		onDelete,
 	}: {
 		recordingId: RecordingId;
-		audio: string | null;
 		transcript: string;
 		/** Visible rows of the transcript preview before it scrolls/expands. */
 		rows?: number;
@@ -54,7 +43,6 @@
 		<div class="flex w-full items-center gap-2">
 			<AudioBlobPlayer
 				id={recordingId}
-				{audio}
 				class="h-8 min-w-0 flex-1"
 				viewTransitionName={viewTransition.recording(recordingId).audio}
 			/>

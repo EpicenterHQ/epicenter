@@ -31,7 +31,7 @@ module imports acquire nothing, and the page retains readiness and close ownersh
 
 ## Outcome and evidence
 
-Implement the direction in [ADR-0373](../docs/adr/0373-product-operations-read-the-page-owned-app-when-invoked.md).
+Implement the direction in [ADR-0373](../docs/adr/0373-product-operations-receive-the-page-owned-app-explicitly.md).
 Remove redundant product-object argument threading and context composition without
 adding a second application handle, readiness promise, or library selector just
 to group methods. Keep factories that own actual sessions, resources, or independent

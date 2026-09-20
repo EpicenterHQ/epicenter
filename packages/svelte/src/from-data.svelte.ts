@@ -1,3 +1,4 @@
+import { fromKv, type AdaptableKv } from './from-kv.svelte.js';
 /**
  * A Svelte 5 reactivity adapter over one opened data handle's declared shape.
  *
@@ -91,13 +92,6 @@ type AdaptableTable = {
 	watch(type: never, listener: () => void): () => void;
 };
 
-/** The slice of `KvHandle` the adapter touches: its reads, and one feed. */
-type AdaptableKv = {
-	get(key: never): unknown;
-	readonly nonconforming: unknown[];
-	subscribe(listener: () => void): () => void;
-};
-
 /**
  * The persistence status feed: a read and the signal that invalidates it.
  *
@@ -186,7 +180,7 @@ export function fromData<TData extends AdaptableData>(
 					),
 				),
 			},
-			kv: { enumerable: true, value: reactiveKv(data.kv) },
+			kv: { enumerable: true, value: fromKv(data.kv) },
 			persistence: {
 				enumerable: true,
 				value: reactivePersistence(data.persistence),
@@ -325,36 +319,4 @@ function reactiveTable<TTable extends AdaptableTable>(table: TTable): TTable {
 			},
 		),
 	) as TTable;
-}
-
-function reactiveKv<TKv extends AdaptableKv>(kv: TKv): TKv {
-	// Read through, unlike a table, and the rule is the same one: hold what is
-	// expensive to rebuild. Ten keys and ten validations is not, so there is
-	// nothing here to hold, nothing to keep current, and no `keys()` verb the
-	// handle would have to grow so this could seed itself.
-	const subscribe = createSubscriber((update) => kv.subscribe(update));
-	// Descriptors for the same reason a table needs them: `nonconforming` is a
-	// getter, and a spread would invoke it.
-	return Object.freeze(
-		Object.defineProperties(
-			{},
-			{
-				...Object.getOwnPropertyDescriptors(kv),
-				get: {
-					enumerable: true,
-					value: (key: never) => {
-						subscribe();
-						return kv.get(key);
-					},
-				},
-				nonconforming: {
-					enumerable: true,
-					get() {
-						subscribe();
-						return kv.nonconforming;
-					},
-				},
-			},
-		),
-	) as TKv;
 }

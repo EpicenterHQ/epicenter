@@ -2,6 +2,7 @@ import { defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { tauri } from '#platform/tauri';
 import type { WhisperingApp } from '$lib/whispering/app';
+import { getSetting } from './settings.js';
 
 const log = createLogger('whispering/recording-media');
 
@@ -35,7 +36,7 @@ const RecordingMediaError = defineErrors({
 let chain: Promise<string[]> = Promise.resolve([]);
 
 function shouldPausePlayback(app: WhisperingApp): boolean {
-	return Boolean(tauri && app.settings.get('recordingPausePlayback'));
+	return Boolean(tauri && getSetting(app.device.kv, 'recordingPausePlayback'));
 }
 
 async function pausePlayingSessions(): Promise<string[]> {

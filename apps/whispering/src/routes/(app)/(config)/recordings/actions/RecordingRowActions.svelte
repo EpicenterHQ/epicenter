@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Recording } from '$lib/state/recordings.svelte';
+	import type { Recording } from '../../../../../lib/data.js';
 	import TranscribeRecordingButton from './TranscribeRecordingButton.svelte';
 
 	/**

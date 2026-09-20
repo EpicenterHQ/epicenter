@@ -21,7 +21,7 @@ import { createBunBlobStore } from '@epicenter/blobs/bun';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { whisperingDefinition } from '../data.js';
-import { createWhisperingRecordings } from '../whispering/recordings.js';
+import { createRecording } from '../whispering/recordings.js';
 
 let transcriptionError: { name: string; message: string } | null = null;
 let willPolish = false;
@@ -31,9 +31,6 @@ let finishTranscription: (() => Promise<void>) | undefined;
 let recordingEnabled = true;
 const persistedTranscriptions: string[] = [];
 const polishSignals: (AbortSignal | undefined)[] = [];
-mock.module('$lib/application', () => ({
-	getApp: () => ({ signal: lifetime.signal }),
-}));
 const deliverTranscriptionResult = mock(async () => ({
 	outcome: { reach: 'output' } as const,
 	notice: { title: 'done' },
@@ -43,7 +40,7 @@ const reportError = mock();
 const rejectLoading = mock();
 let historyError: { name: string; message: string } | null = null;
 let polishedHistoryError: { name: string; message: string } | null = null;
-const saveRecordingHistory = mock(async () =>
+const saveRecordingHistory = mock(() =>
 	polishedHistoryError === null ? Ok(undefined) : Err(polishedHistoryError),
 );
 
@@ -52,13 +49,16 @@ mock.module('$lib/operations/delivery', () => ({
 }));
 mock.module('$lib/operations/run-polish', () => ({
 	polishWillRun: () => willPolish,
-	runPolish: async ({
-		input,
-		signal,
-	}: {
-		input: string;
-		signal?: AbortSignal;
-	}) => {
+	runPolish: async (
+		_app: WhisperingApp,
+		{
+			input,
+			signal,
+		}: {
+			input: string;
+			signal?: AbortSignal;
+		},
+	) => {
 		polishSignals.push(signal);
 		await finishPolish?.();
 		return Ok(willPolish ? 'polished transcript' : input);
@@ -124,15 +124,11 @@ const access = createAppBlobs({
 	local,
 	sources: createBrowserBlobSources(local),
 });
-const domain = createWhisperingRecordings({
-	tables: data.tables,
-	blobs: { remote: null, local: access.value },
-});
 const blobId = expectOk(
 	await access.value.add(new Blob(['saved audio'], { type: 'audio/wav' })),
 );
 const recording = expectOk(
-	await domain.recordings.create({
+	createRecording(data, {
 		audioBlobId: blobId,
 		recordedAt: InstantString.now(),
 		recordedAtZone: 'UTC',
@@ -148,12 +144,11 @@ const app = {
 		return recordingEnabled;
 	},
 	account: { baseURL: 'https://api.example.test', principalId: 'alice' },
-	settings: { get: () => false },
-	recordings: domain.recordings,
+	device: { kv: { get: () => false } },
+	library: data,
 } as unknown as WhisperingApp;
 
 afterAll(async () => {
-	domain[Symbol.dispose]();
 	await access.close();
 	await data[Symbol.asyncDispose]();
 	await rm(directory, { recursive: true, force: true });
@@ -315,7 +310,7 @@ test('failed transcription and retry keep exactly the same row and bytes', async
 		});
 		expect(write).not.toHaveBeenCalled();
 		expect(create).not.toHaveBeenCalled();
-		expect(domain.recordings.sorted.map((row) => row.id)).toEqual([
+		expect(data.tables.recordings.rows.map((row) => row.id)).toEqual([
 			recording.id,
 		]);
 		expect(
@@ -457,7 +452,9 @@ test('admitted audio finishes saving after UI admission closes without starting 
 		const row = expectOk(created);
 		if (row === null)
 			throw new Error('Closing admission must still create the row');
-		expect(app.recordings.get(row.id)?.audioBlobId).toBe(row.audioBlobId);
+		expect(app.library.tables.recordings.get(row.id)?.audioBlobId).toBe(
+			row.audioBlobId,
+		);
 		expect(await expectOk(await access.value.get(row.audioBlobId)).text()).toBe(
 			'admitted',
 		);
@@ -470,7 +467,7 @@ test('admitted audio finishes saving after UI admission closes without starting 
 		release.resolve();
 		write.mockRestore();
 		if (created?.data) {
-			expectOk(await app.recordings.delete(created.data.id));
+			app.library.tables.recordings.delete(created.data.id);
 			expectOk(await access.value.delete(created.data.audioBlobId));
 		}
 	}
@@ -482,7 +479,7 @@ test('audio-only capture retains playable bytes without transcription, polish, d
 	const polishes = polishSignals.length;
 	const failures = markFailed.mock.calls.length;
 	const transcribing = markTranscribing.mock.calls.length;
-	const row = domain.recordings.get(recording.id);
+	const row = data.tables.recordings.get(recording.id);
 	await processRecordingPipeline(app, {
 		recordingId: recording.id,
 		transcribe: null,
@@ -492,9 +489,9 @@ test('audio-only capture retains playable bytes without transcription, polish, d
 	expect(polishSignals).toHaveLength(polishes);
 	expect(markFailed.mock.calls).toHaveLength(failures);
 	expect(markTranscribing.mock.calls).toHaveLength(transcribing);
-	expect(domain.recordings.get(recording.id)).toEqual(row);
+	expect(data.tables.recordings.get(recording.id)).toEqual(row);
 	expect(
-		await expectOk(await domain.recordings.readAudio(recording.id)).text(),
+		await expectOk(await access.value.get(recording.audioBlobId)).text(),
 	).toBe('saved audio');
 	expect(reportInfo).toHaveBeenLastCalledWith({
 		title: 'Audio saved',

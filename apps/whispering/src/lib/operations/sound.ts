@@ -3,6 +3,7 @@ import type { WhisperingSoundNames } from '$lib/constants/sounds';
 import { services } from '$lib/services';
 import type { SoundError } from '$lib/services/sound';
 import type { WhisperingApp } from '$lib/whispering/app';
+import { getSetting } from './settings.js';
 
 const soundSettingKeyMap = {
 	'manual-start': 'soundManualStart',
@@ -19,7 +20,7 @@ export async function playSoundIfEnabled(
 	app: WhisperingApp,
 	soundName: WhisperingSoundNames,
 ): Promise<Result<void, SoundError>> {
-	if (!app.settings.get(soundSettingKeyMap[soundName])) {
+	if (!getSetting(app.device.kv, soundSettingKeyMap[soundName])) {
 		return Ok(undefined);
 	}
 	return services.sound.playSound(soundName);

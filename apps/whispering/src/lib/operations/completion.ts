@@ -1,58 +1,38 @@
-import { matchInferenceTarget } from '@epicenter/app-shell/inference-selections';
 import { CompleteError } from '@epicenter/client';
 import { APIError } from 'openai';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import { getApp, getSelections } from '../application.js';
-import { settings } from './settings.js';
+import type { WhisperingApp } from '../whispering/app.js';
+import { getInferenceTarget } from '../whispering/inference.js';
 
 /** Resolve exactly the saved connection and model from the ready document App. */
-export function resolveCompletionState() {
-	const app = getApp();
-	const model = settings.get('completionModel');
-	const selected = getSelections().get('completion');
-	const transport =
-		selected?.model === model
-			? matchInferenceTarget(
-					{
-						runtime: app.device.connections.runtime,
-						connections: app.device.connections.custom,
-						account: app.account?.connection ?? null,
-					},
-					selected,
-				)
-			: null;
-	return {
-		model,
-		transport,
-		canRun: transport !== null && model.trim().length > 0,
-	};
+export function resolveCompletionTarget(app: WhisperingApp) {
+	return app.catalog.resolve(getInferenceTarget(app.device.kv, 'completion'));
 }
 
 /** Capture the model and transport together before starting the single HTTP request. */
-export async function completeWithGlobalDefault({
-	systemPrompt,
-	userPrompt,
-	signal,
-}: {
-	systemPrompt: string;
-	userPrompt: string;
-	signal?: AbortSignal;
-}): Promise<Result<string, CompleteError>> {
-	const { transport, model, canRun } = resolveCompletionState();
-	if (!transport || !canRun) {
-		return Promise.resolve(
-			CompleteError.TransportFailed({
-				cause: new Error(
-					'Choose a text connection and model in Privacy & Processing settings.',
-				),
-			}),
-		);
-	}
+export async function completeWithGlobalDefault(
+	app: WhisperingApp,
+	{
+		systemPrompt,
+		userPrompt,
+		signal,
+	}: {
+		systemPrompt: string;
+		userPrompt: string;
+		signal?: AbortSignal;
+	},
+): Promise<Result<string, CompleteError>> {
 	const result = await tryAsync({
-		try: async () =>
-			await transport.chat.completions.create(
+		try: async () => {
+			app.signal.throwIfAborted();
+			const target = resolveCompletionTarget(app);
+			if (!target)
+				throw new Error(
+					'Choose a text connection and model in Privacy & Processing settings.',
+				);
+			return await target.client.chat.completions.create(
 				{
-					model,
+					model: target.model,
 					messages: [
 						{ role: 'system', content: systemPrompt },
 						{ role: 'user', content: userPrompt },
@@ -60,7 +40,8 @@ export async function completeWithGlobalDefault({
 					stream: false,
 				},
 				{ signal },
-			),
+			);
+		},
 		catch: (cause) =>
 			cause instanceof APIError && cause.status !== undefined
 				? CompleteError.RequestFailed({

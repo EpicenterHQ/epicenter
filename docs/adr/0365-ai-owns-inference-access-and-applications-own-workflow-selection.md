@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-08
-- **Revised:** 2026-09-10
-- **Unbuilt:** `app.device.connections` and `app.account.connection` as the two access members; the signed-out invitation design; `connectionFor`, `connection.transcribe`, and selections as declared `app.device.kv` fields. Shared desktop custom connections are implemented, and selections are persisted today by `createInferenceSelections` in `packages/app-shell/src/inference-selections.ts`. Real native capture acceptance remains separate.
+- **Revised:** 2026-09-20
+- **Unbuilt:** The signed-out invitation design and `connection.transcribe`. The App exposes device and account connections; Whispering stores workflow choices in device KV. Chat retains its browser selection store and reconciles local targets with synced conversation models. Real native capture acceptance remains separate.
 
 ## Context
 
@@ -178,15 +178,13 @@ for an unsaved candidate and never persists its credentials.
 The App exposes no scope-indexed selections, default workflow model, `select`,
 or `target`. A lookup in `app.device.connections.get(id)` addresses one entry in
 the machine's catalog; it does not choose a workflow or a scope.
-`connectionFor(app, selection)` is the exception the platform does own: a free
+`resolveInferenceTarget(ai, selection)` in `@epicenter/app-shell/inference-target` is a free
 function that takes the explicit `{ connectionId, model }` the caller supplies
-and stores nothing. [ADR-0396](0396-a-connection-transcribes-and-owns-the-four-rules.md)
-records that surface.
+and stores nothing.
 
-Applications remember explicit connection-and-model pairs. Each pair is a
-declared field in that application's `app.device.kv`, the machine's store, so it
-survives sign-out and never syncs. No owner outside `@epicenter/app` persists
-it. The application owns the field names, the initial default, and which
+Applications remember explicit connection-and-model pairs. Whispering declares
+the fields in its captured account's device KV; chat keeps local targets separately
+from synced conversation models. The application owns the field names, the initial default, and which
 workflow reads which field. Svelte observes `app.device.kv`; product operations
 read the same field without importing reactive UI state.
 
@@ -263,21 +261,22 @@ Whispering and Vocab retain their workflow choices without requiring those
 concepts in core App types.
 
 Browser connections persist at
-`epicenter/ai/<owner>.app-ai-connections`; selections persist separately at
-`<settingsKey>/<owner>.app-ai-selections`. Desktop metadata lives at
+`epicenter/ai/<owner>.app-ai-connections`. Chat selections persist separately at
+`<settingsKey>/<owner>.app-ai-selections`; Whispering uses device KV. Desktop metadata lives at
 `ai/<owner>/connections.json`. ADR-0404 defines the captured account's owner
 namespace, including `no-account`.
 
-Opening does not read or import old provider settings, product-scoped catalogs,
-selections, or the profile-wide desktop catalog. Old bytes remain untouched;
+Catalog opening does not import old provider settings, product-scoped catalogs,
+or the profile-wide desktop catalog. Whispering imports only its current owner's
+legacy workflow selections into empty KV fields. Old bytes remain untouched;
 they are recovery data, not usable configuration. People add connections and
 select models explicitly in the intended account. The desktop import command is
 removed. Existing version-1 catalog files retain inert import markers without
 using them to admit records or credentials.
 
 The Svelte adapter still earns observation and presentation. It loses custom
-connection CRUD forwarding and independent routing logic. `connectionFor` in
-`@epicenter/app` matches a selection across both scopes without flattening the
+connection CRUD forwarding and independent routing logic. `resolveInferenceTarget` in
+`@epicenter/app-shell/inference-target` matches a selection across both scopes without flattening the
 account gateway or the native runtime into the custom catalog.
 
 ## Considered alternatives
@@ -285,7 +284,7 @@ account gateway or the native runtime into the custom catalog.
 - Share catalogs through account sync: not needed for sharing apps on one desktop; would add cross-device credential and conflict policy.
 - Use `read()` plus a change-only `onChange()`: makes each reactive caller assemble its initial snapshot and updates. `getAll()` and immediate `subscribe()` state that contract directly.
 - Keep `configuration` beside `configured()`: separates editing from use with names that require explaining their grammatical difference.
-- Put `resolve('completion', model)` on the App: combines application settings lookup, model consistency policy, and connection lookup in one capability API. `connectionFor(app, selection)` is the narrower shape that survived, because it reads no setting and knows no workflow scope.
+- Put `resolve('completion', model)` on the App: combines application settings lookup, model consistency policy, and connection lookup in one capability API. `resolveInferenceTarget(ai, selection)` is the narrower current shape, because it reads no setting and knows no workflow scope.
 - Remove optional custom credentials: excludes endpoints requiring bearer authentication for little reduction in the connection contract.
 - Make every connection an editable custom record: misrepresents account authentication and native runtime ownership.
 - Require `ai.client(id)` across every scope: the implemented custom lookup did not need it. A unified access view was reconsidered and then decided by ADR-0392, which sorts access by owner into `device` and `account`; neither owns a workflow scope or chooses a fallback destination.
@@ -308,8 +307,9 @@ to sync the containing directory after rename; if directory sync is unavailable,
 retired key references are retained so a reverted directory entry can still
 find its credential.
 
-Whispering and Vocab retain selections through
-`packages/app-shell/src/inference-selections.ts`. The picker uses the full
+Vocab retains conversation selections through
+`packages/app-shell/src/inference-selections.ts`; Whispering uses device KV.
+The picker accepts an explicit target and callback and uses the full
 `app.device.connections` API, waits for saves before selection, and supports replacing
 or removing a hidden desktop key. The old combined configuration owner and
 public aliases remain removed.

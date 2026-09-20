@@ -3,7 +3,7 @@
  import { onDestroy } from 'svelte';
  import { uploadRecording } from '$lib/operations/upload-recording';
  import { report } from '$lib/report';
- import type { Recording } from '$lib/state/recordings.svelte';
+ import type { Recording } from '../../../../../lib/data.js';
  import { getWhisperingApp } from '$lib/whispering/context';
  let { recording }: { recording: Recording } = $props();
  const app = getWhisperingApp();
@@ -21,7 +21,7 @@
  }
 </script>
 
-{#if 'remote' in app.blobs}
+{#if app.blobs.remote}
  {#if pending}
   <Button variant="outline" size="sm" onclick={() => pending?.abort()}>Cancel upload</Button>
  {:else if recording.audioUrl}

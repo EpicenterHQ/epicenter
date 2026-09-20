@@ -3,8 +3,8 @@ import { expect, mock, test } from 'bun:test';
 import { generateBlobId, RemoteBlobsError } from '@epicenter/blobs';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { Recording } from '$lib/state/recordings.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
+import type { Recording } from '../data.js';
 import { uploadRecording } from './upload-recording';
 
 function setup() {
@@ -14,12 +14,14 @@ function setup() {
 	} as Recording;
 	const addLocal = mock(async () => Ok('https://cloud.example/saved'));
 	const get = mock();
-	const patch = mock();
+	const patch = mock(() => Ok(undefined));
 	const lifetime = new AbortController();
 	const app = {
 		signal: lifetime.signal,
 		blobs: { local: { get }, remote: { addLocal } },
-		recordings: { patch },
+		library: {
+			tables: { recordings: { update: patch, get: () => recording } },
+		},
 	} as unknown as WhisperingApp;
 	return { recording, app, addLocal, get, patch, lifetime };
 }

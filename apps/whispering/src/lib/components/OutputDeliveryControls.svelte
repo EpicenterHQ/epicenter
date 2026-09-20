@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getSetting } from '$lib/operations/settings.js';
 	import { Button } from '@epicenter/ui/button';
 	import LockIcon from '@lucide/svelte/icons/lock';
 	import {
@@ -8,7 +9,7 @@
 	import { openSystemSettings } from '$lib/components/MacosAccessibilityGuideDialog.svelte';
 	import { SettingSwitch } from '$lib/components/settings';
 	import { dictationCapability } from '$lib/state/dictation-capability.svelte';
-	import type { BooleanSettingKey } from '$lib/state/settings.svelte';
+	import type { BooleanSettingKey } from '$lib/operations/settings.js';
 	import { tauri } from '#platform/tauri';
 	import { getWhisperingApp } from '$lib/whispering/context';
 
@@ -83,7 +84,7 @@
 	</div>
 {/if}
 
-{#if tauri && app.settings.get(delivery.cursor)}
+{#if tauri && getSetting(app.device.kv, delivery.cursor)}
 	<div class:opacity-50={dictationCapability.needsAccessibility}>
 		<SettingSwitch
 			key={delivery.enter}
