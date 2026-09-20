@@ -42,10 +42,12 @@ unresolved without narrating every step of the conversation that produced it.
 
 ## Hear The Whole Passage
 
-Read at speaking speed. Listen for awkward phrasing, misplaced emphasis,
-monotonous rhythm, and connective language that delays the point. A reaction
-such as “too solemn” may require rehearing the whole passage, not swapping an
-adjective. Let the correction improve your understanding of the expression.
+Write for the ear throughout drafting and revision. Read connected passages
+at speaking speed, hearing how sentences build on one another, where pauses
+place emphasis, and whether the rhythm carries the thought. Judge a sentence
+with what surrounds it; a slower sentence may be earning the next turn.
+When a reaction reveals a mismatch, rehear the passage under that correction
+and revise at the scope it illuminates.
 
 When contrasting expressions would help, use the destination's exploration
 workflow. This skill judges how language sounds;
