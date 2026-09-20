@@ -18,6 +18,8 @@ every paragraph. A turn earns its place by revealing a connection in the materia
 Try a sharper verb, an unexpected comparison, a changed rhythm, or a plainer
 sentence when it better carries the thought. Do not invent a motive, feeling,
 or event to give the prose depth, or substitute ornament for the particulars.
+Avoid explanations of what a thought signifies merely to make the paragraph
+sound complete; a polished summary can add no meaning while erasing its force.
 
 Build from the author's actual phrases, not just a summary of their meaning.
 Keep the comparisons, ordinary words, asides, and emphatic turns that make the
@@ -45,11 +47,9 @@ monotonous rhythm, and connective language that delays the point. A reaction
 such as “too solemn” may require rehearing the whole passage, not swapping an
 adjective. Let the correction improve your understanding of the expression.
 
-Explore better wording actively. When a worthwhile possibility needs the
-writer's judgment, show the passage that makes it tangible; use articulation
-when contrasting expressions would help. Keep a changed interpretation visible
-as a proposal, and respect the request's scope when applying edits. Preserve
-wording selected for exact use unless the writer asks to reopen it.
+When contrasting expressions would help, use the destination's exploration
+workflow. This skill judges how language sounds;
+the request and destination workflow determine which changes may be applied.
 
 ## Respect The Form
 
