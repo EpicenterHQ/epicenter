@@ -146,19 +146,22 @@ A skill run follows that skill's body; it never renders candidate interactions
 unless the body asks for them. A typo-only edit or a clearly settled instruction
 skips this pass; act directly.
 
-1. **Diverge.** Show two or three short candidate interactions that differ on
-   the axis in doubt: turn count, where the agent stops, or what it hands back.
-   When the shape is hard to see in dialogue, render the artifact instead, such
-   as a feed, table, or diagram. For a behavioral revision of a skill with an
-   already recognized interaction, render only the changed one.
-2. **Converge.** Revise one rendering at a time from the human's natural
-   reactions. The human's reaction is design evidence, not a vote that ends the
-   pass. Stop when the human recognizes it: “yes, that one,” or no further
-   corrections. “Fine” is not recognition.
-3. **Extract.** Work backward from the recognized interaction into the trigger,
-   turns, reaction points, stopping condition, output, guardrails, and non-goals.
-   The recognized interaction is the first evaluation case: its prompt and
-   turns become the prompt and assertions in `Evaluate A Skill`.
+Use concrete candidate interactions when the intended behavior is hard to
+judge in prose. Revise them from the user's reactions until the useful
+behavior is recognizable. Existing conversation evidence may already settle
+that question; do not repeat the exercise merely to follow a process.
+
+Extract the judgment that made an interaction work, not its incidental topic,
+wording, layout, or turn count. An approved example is evidence for a principle,
+not permission to make every future interaction resemble it. Keep examples in
+evaluations or references when they test or explain something the principle
+cannot carry alone.
+
+Before encoding the lesson, vary the subject, the user's certainty, and the
+kind of artifact they need. The instruction should still help, including when
+the right response is immediate action or no question. If preserving a template
+requires exceptions for those cases, reconsider the template instead of adding
+more guardrails.
 
 When the goal itself is unsettled, run `dialectic` first; this pass assumes the
 goal is settled and only the interaction's shape is open.
@@ -228,10 +231,9 @@ move, then the consequence that makes it wrong. A closing `Anti-Patterns` or
 copies drift to different calibrations, and the agent obeys whichever it read
 last.
 
-Match form to the work. Judgment must be prose, because a bullet strips the
-reason and leaves the verdict. Commands, paths, schemas, and file trees must be
-blocks, because prose hides them. Bulleted judgment is the tell that a skill has
-stopped explaining and started listing.
+Match form to the work. Keep the reason connected to the instruction and make
+commands, paths, and structures easy to inspect. Judge the format by whether it
+preserves those relationships, not by whether it uses prose, lists, or blocks.
 
 Say what done means as a property, and name its false positive. "Both of you can
 reason forward from it" is checkable. "The review is complete" is not.
@@ -283,7 +285,9 @@ Escalate to [references/evaluation.md](references/evaluation.md) when the user a
 
 Use this loop:
 
-1. Start with 2 or 3 realistic prompts.
+1. Include the motivating interaction and materially different requests that
+   test whether its lesson transfers. Judge the resulting decisions, not
+   resemblance to the approved example.
 2. Compare against no skill for new skills, or the previous version for updates.
 3. Use a clean context where possible.
 4. Record failures, wasted steps, and missed project conventions.

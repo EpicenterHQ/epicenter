@@ -2,55 +2,12 @@
 
 Local-first personal data platform. Monorepo with Yjs CRDTs and Svelte UI.
 
-## Structure
+For orientation, read the relevant app or package README and verify it against
+current code. `apps/README.md` describes application composition; package
+READMEs describe their contracts. Load only the context needed for the task.
 
-```
-apps/
-  honeycrisp   notes. the one app on the store today, and the
-               reference for how an app is built
-  whispering   transcription SPA
-  epicenter    Tauri host for trusted app windows
-  api          hosted personal Cloud Worker (worker/ + ui/)
-  self-host    self-hosted single-partition instance reference
-               (Bun or Cloudflare)
-packages/
-  server       shared Hono library both deployables consume;
-               deployments differ by principal resolver
-  app          application declarations, lifetime, store, persistence, and sync
-  ui           shadcn-svelte components
-specs/         planning docs
-docs/          reference materials
-```
-
-## Runtime
-
-One runtime: a desktop SPA in a WebView over a client-owned store (ADR-0227). The host serves bundles and brokers credentials and owns no application data (ADR-0226).
-
-`apps/epicenter` forwards authenticated HTTP and live sync through its boot Account. Windows hold no server credentials; each app owns its store and sync lifetime. `apps/skills`, `packages/chat`, `packages/skills`, and app-shell's agent chat need a product-purpose decision; do not treat them as scrap merely because that decision is open.
-
-The three store applications are `apps/honeycrisp`, `apps/vocab`, and
-`apps/whispering`. Each application document captures one Account and owns its
-App lifetime. Honeycrisp's matched notes page keeps one App across `/local` and
-`/personal`; the routes display `app.device` and `app.account.personal` directly.
-Vocab requires identity; Honeycrisp and Whispering also support local startup.
-Desktop account changes prepare next-boot credentials and restart the process.
-Browser departures replace the document without application drains. Callbacks
-and recovery routes open no primary App. Same-owner refresh preserves the App;
-unexpected retirement makes the UI inert and requires explicit reopening.
-
-Migration reference: `docs/the-store-and-what-it-replaced.md`.
-
-## Deployment seam
-
-One library (`packages/server`), two deployables.
-
-| Deployable | What it is |
-| --- | --- |
-| `apps/api` | hosted personal cloud |
-| `apps/self-host` | self-hosted single-partition instance reference; community-supported, not Epicenter-operated |
-
-- Multi-tenancy (many principals, OAuth, billing) is Cloud-only. An instance resolves every valid bearer to the literal `instance` principal (ADR-0075, amended by ADR-0092).
-- Billing (catalog, routes, Autumn) lives in `apps/api/worker/billing/` and is hosted-only. Never extract it back to a shared package.
+Billing is hosted-only and stays in `apps/api/worker/billing/`; do not extract
+it into a shared package or the self-hosted deployment.
 
 ## License
 
@@ -104,13 +61,17 @@ Do not use direct `console.*` in library code. Use `wellcrafted/logger`, except 
 
 ## Coherent edits
 
-Keep zooming out until the user's intended outcome is clear, then carry that understanding back into concrete work. When a reaction reveals a mismatch, revisit your interpretation of the outcome before defending or refining the plan. Infer intent from the conversation; ask only when the answer would materially change the work. A clear request needs execution, not repeated reframing. Do not substitute an inferred goal for an explicit user choice.
-
-Before editing, reconsider the relevant unit whose shape controls the problem as if the new context had always been known. Choose the scope that serves the intended outcome; neither the smallest patch nor the broadest rewrite is the goal.
+Work toward the user's intended outcome. When their reaction reveals a
+mismatch, reconsider that outcome and the unit of work it calls for, then
+return to concrete action. Explicit choices govern; infer or clarify what
+remains unresolved. Choose changes for coherence, not diff size.
 
 ## Agent instruction files
 
-`AGENTS.md` is the canonical shared instructions file.
+`AGENTS.md` is the canonical shared instructions file. Keep it to constraints
+that apply across tasks and routing to specialized guidance. Current
+architecture, API examples, migration status, and decision history belong in
+READMEs and decision records, where they can be checked with the implementation.
 
 - `CLAUDE.md` files are compatibility shims for Claude Code. They should only import a sibling `AGENTS.md` with `@AGENTS.md`, plus rare Claude-specific notes.
 - Add a nested `AGENTS.md` only for a local constraint that must apply to every edit beneath it. Never use one as an index or README substitute; subsystem orientation belongs in that subsystem's README.
@@ -125,11 +86,9 @@ Verify API names, exports, and file layouts against current source and callers,
 not just `docs/` or `specs/`. READMEs explain the current surface; ADRs explain
 its rationale and may also name rejected alternatives.
 
-**ADRs.** They describe decisions that were reasonable at the time, but may be stale, scoped to a different problem, or intentionally reopened. Check status, amendments, and actual code before relying on one.
-
-- If the requested design conflicts with an ADR, do not stop automatically. Explain the conflict, then either follow the current evidence or amend/delete the ADR when the new decision is durable.
-- Ask the user when the choice materially depends on product or architectural judgment that cannot be recovered from the repository, rather than silently inheriting an old decision.
-- Do not cite an ADR merely because it exists. State whether it is a hard constraint, useful context, or a decision being reconsidered.
+ADRs record decisions in context. Check their status and the implementation;
+explain conflicts with the requested outcome rather than silently inheriting an
+old decision. Amend the record when a new decision settles.
 
 **Specs.** In-flight design scaffolding, not current truth. This holds for every `specs/` directory, top-level and per-app or per-package.
 
@@ -146,7 +105,7 @@ Audience decides vocabulary: what a person reads uses the word they already have
 | UI copy, errors shown to them, deep links, README front doors | types, functions, library error messages |
 
 - Do not soften `authority`, `replica`, `projection`, or `principal` in code to sound friendlier, and do not let one of them reach a person.
-- A library states a failure precisely; the app decides what a person is told about it. Worked example: `packages/app-shell/src/boot-screens/open-failure.ts`, which takes each app's nouns rather than choosing them. Vocabulary decision: ADR-0244.
+- A library states a failure precisely; the app decides what a person is told about it.
 - Keep user-facing text direct and concrete.
 
 **Punctuation.** Avoid en dash characters (`U+2013`). Prefer colon, comma, semicolon, or sentence break over em dash characters (`U+2014`), especially in UI strings, docs, comments, JSDoc, and commit messages.

@@ -12,10 +12,9 @@ walking further down its decision tree.
 
 Ask one consequential question at a time, with a recommended answer and the
 reason it matters. Wait for the user's answer before following a dependent
-branch. Use [abstraction](../abstraction/SKILL.md#make-the-question-easy-to-find)
-to keep the setup short and the question easy to find. Probe assumptions with
-concrete scenarios; do not ask the user to resolve facts the code can establish
-or revisit an explicit choice without new evidence.
+branch. Probe assumptions with concrete scenarios and keep the decision easy
+to identify. Investigate facts yourself; spend the interview on judgments the
+user needs to make.
 
 Stop when the decisions needed to judge or execute the plan are resolved, even
 if other aspects could be discussed. Apply

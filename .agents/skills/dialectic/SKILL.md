@@ -66,12 +66,9 @@ lines and the request and the path, with the actor in the consequence rather
 than the setup, as [example-turn.html](references/example-turn.html) does.
 Choosing the material is not the decision; the actor is.
 
-Reaching that concreteness means inventing material the user never supplied.
-Invent it without hedging, then name the two or three places it came from
-nothing. Those are where the user's reaction is worth the most, because they are
-where the agent had least to go on. Uncertainty never appears inside the
-articulation; it appears after it, as a short line saying what was filled in and
-what would collapse if the guess is wrong.
+Concrete proposals may need assumptions the user has not supplied. Make those
+assumptions visible where they affect the judgment, so a useful imagined
+scenario cannot be mistaken for a fact or an accepted requirement.
 
 The agent should make its strongest account, not wait for certainty. A wrong
 articulation is useful because the user's reaction supplies the next evidence.
@@ -104,12 +101,9 @@ comparison, not a menu that gives the synthesis work back to the user. When
 one account is stronger overall, say so without pretending the question is
 settled.
 
-Vary them by where the person is standing and what they are trying to find out,
-never by which mechanism fires. Options that differ by a capability never left
-the implementation: the user reads them and has no reaction, because neither one
-is about them. Enumerating what the system could do is the easy move and it
-produces the weak pair. Ask instead where someone would be, and what they would
-be after, at the moment this matters.
+Compare accounts through the consequences that matter to the actor. Different
+mechanisms earn comparison when they change what someone can do, understand,
+or rely on; a catalogue of capabilities alone does not expose that judgment.
 
 Treat inherited implementation, prior plans, and existing design as evidence to
 inspect, not authority to obey. Push through the user's initial framing by
@@ -176,23 +170,15 @@ local approval alone.
 
 ## Make the collision checkable
 
-State the whole articulation first, then render enough of the situation for the
-user to enter it and react to what is actually being claimed. Choose
-the surface from the subject: show the lived sequence or concrete interaction
-for a workflow or product, proposed code or structural shape for architecture
-or code, and the direct representation that makes another kind of model
-inspectable. Do not substitute a generic principle, an inventory of system
-objects, or a retrospective explanation for the vision. After the articulation,
-add only what the next reaction needs, and end with one question at most: one
-thing the user has to form an opinion about before they can answer. Consequences,
-refusals, and invented edges are not questions, since they cost nothing to read
-and need a response only when they are wrong. A crux, a claim offered for
-judgment, and a set of options are each one question. Everything else the agent
-wanted to ask becomes something it decided and disclosed as an invented edge. If
-the articulation is sufficient, ask nothing. Use
-[abstraction](../abstraction/SKILL.md#make-the-question-easy-to-find) to keep the
-interpretation short and the consequential question visually separate from the
-articulation. A short clarification need not become a full scenario.
+Render enough of the situation for the user to inspect what is being claimed.
+For a workflow this may be a lived sequence; for code, an interface and its
+callers. Keep the consequential relationships visible. Use
+[abstraction](../abstraction/SKILL.md) when presentation obscures the judgment.
+
+Ask for the reaction that would change the model most. Resolve questions from
+evidence when possible, and disclose assumptions rather than making the user
+design every detail. A turn is complete when the user can react to the live
+uncertainty; its format and length follow from that purpose.
 
 Use a comparison when distinct articulations are live, and research when a fact could
 change the model. Use a diagram, HTML page, or prototype only when the spatial

@@ -56,11 +56,10 @@ both satisfy the three rules. Make the choice once and hold it.
 
 ## One stylesheet
 
-A single page inlines its CSS and stays portable. **The moment there is a second
-page in the same folder, extract the shared styles to `page.css` and link both.**
-Copies drift, and a family of pages that drifted is how a house style dies: the
-tokens diverge one page at a time and nobody sees it until the fifth page looks
-wrong. A linked file makes the drift a diff.
+A standalone page inlines its CSS and stays portable. Pages maintained and
+distributed together as a family share `page.css` so their visual language
+stays consistent. Sharing a folder alone does not make unrelated artifacts a
+family; choose the stylesheet boundary from how the pages will be used.
 
 The tokens, copied verbatim rather than re-derived as near-neighbours:
 
