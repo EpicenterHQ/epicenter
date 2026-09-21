@@ -4,7 +4,6 @@
 
 <script lang="ts">
 	import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
-	import { onMount } from 'svelte';
 	import { scale } from 'svelte/transition';
 	import { Button } from '../button/index.js';
 	import { UseAutoScroll } from '../hooks/use-auto-scroll.svelte.js';
@@ -19,14 +18,7 @@
 		...rest
 	}: ChatListProps = $props();
 
-	// Prevents movement on page load
-	let canScrollSmooth = $state(false);
-
 	const autoScroll = new UseAutoScroll();
-
-	onMount(() => {
-		canScrollSmooth = true;
-	});
 </script>
 
 <div class="relative h-full">
@@ -36,9 +28,6 @@
 		class={cn(
 			'no-scrollbar flex h-full w-full flex-col gap-4 overflow-y-auto p-4',
 			className,
-			{
-				'scroll-smooth': canScrollSmooth,
-			},
 		)}
 		bind:this={autoScroll.ref}
 	>
