@@ -265,6 +265,21 @@ sub-menu buttons emit `data-active` only when active. Keep these.
 Components are (mostly) byte-identical to upstream shadcn-svelte Vega markup, so
 updates are a careful copy plus a translation step.
 
+### Upstream comparison baseline
+
+On 2026-09-22, Dialog and Select were compared with shadcn-svelte commit
+[`6b5914a`](https://github.com/huntabyte/shadcn-svelte/tree/6b5914aac9c142a1eff3604995b3cb94eda2f933).
+Only two changes were adopted: Dialog's close control composes the shared ghost
+icon Button, and Select's popup uses Bits UI's available height and transform
+origin. Other component markup and the preset CSS were not refreshed; their
+original upstream revision is unrecorded.
+
+For future refreshes, record the source commit and the components updated here.
+Review markup and preset CSS together: upstream can move structural utilities
+between them. In particular, that revision's Drawer moves positioning and size
+constraints from the preset into its markup, so replacing only the preset would
+remove constraints from our current Drawer.
+
 ### Updating or adding a component
 
 1. Copy the component's `cn-*` Vega markup from upstream shadcn-svelte (or
