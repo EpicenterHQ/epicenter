@@ -133,8 +133,15 @@ silently dropping required behavior or data guarantees.
 
 ## Return a decision
 
-Lead with the strongest grounded opportunity, or explain why the current
-boundaries earn their place. Include:
+Lead with the strongest grounded simplification and the invariant that makes
+it possible. Make the bargain legible: name the machinery or planned work that
+disappears, then explain the costs, new complexity, and user obligations. Give
+a recommendation calibrated to the evidence. When the opportunity remains
+conditional, name the unresolved fact that decides whether it wins and how
+that fact changes the deletion prize. If the current boundaries earn their
+place, explain why the smaller alternative loses.
+
+Support that judgment with:
 
 - Current and proposed shape, with both file trees when organization changes.
 - Concrete file or caller evidence, the stronger invariant and its owner,
@@ -155,7 +162,12 @@ without evidence.
 The coordinating agent reconciles both reviews into one recommendation,
 preserving consequential disagreement. Verify findings against current artifacts
 and accept, reject, or defer them with reasons; agreement is not a correctness
-test. Explain accepted findings before editing.
+test. Present the strongest opportunity, deletion prize, costs, and judgment
+together so the user can assess the bargain. Keep reviewer inventories and
+deliberation in the supporting evidence; the user should not have to reconstruct
+the recommendation from two reports. An unresolved condition belongs beside
+the recommendation, without making a promising direction sound settled.
+Explain accepted findings before editing.
 Implement and verify repairs within existing authorization; bring changes to
 the accepted outcome or unresolved product judgment to the user.
 
