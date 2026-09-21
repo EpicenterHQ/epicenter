@@ -267,12 +267,16 @@ updates are a careful copy plus a translation step.
 
 ### Upstream comparison baseline
 
-On 2026-09-22, Dialog and Select were compared with shadcn-svelte commit
+On 2026-09-22, Dialog, Sheet, and Select were compared with shadcn-svelte commit
 [`6b5914a`](https://github.com/huntabyte/shadcn-svelte/tree/6b5914aac9c142a1eff3604995b3cb94eda2f933).
-Only two changes were adopted: Dialog's close control composes the shared ghost
-icon Button, and Select's popup uses Bits UI's available height and transform
-origin. Other component markup and the preset CSS were not refreshed; their
+Dialog and Sheet close controls compose the shared ghost icon Button, and
+Select's popup uses Bits UI's available height and transform origin.
+Other component markup and the preset CSS were not refreshed; their
 original upstream revision is unrecorded.
+
+DropdownMenu also caps its height at Bits UI's available height. Callers that
+set a tighter maximum must combine both limits with `min()`, as Local Mail's
+label menu does, because caller classes replace the default maximum.
 
 For future refreshes, record the source commit and the components updated here.
 Review markup and preset CSS together: upstream can move structural utilities

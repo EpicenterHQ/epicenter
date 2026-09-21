@@ -50,6 +50,7 @@
 			out:scale={{ duration: 100, start: 0.85 }}
 		>
 			<Button
+				aria-label="Scroll to latest message"
 				onclick={() => autoScroll.scrollToBottom()}
 				variant="outline"
 				size="icon"
