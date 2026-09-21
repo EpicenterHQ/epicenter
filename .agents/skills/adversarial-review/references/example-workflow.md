@@ -1,8 +1,8 @@
 # Example adversarial review workflow
 
-This hypothetical interaction captures the response style accepted by the user.
-It is not evidence about Epicenter's account switching or persistence, and the
-verification results below are imagined. Real reviews must establish those facts
+These hypothetical examples capture the response style accepted by the user.
+They are not evidence about Epicenter's implementation, and the verification
+results below are imagined. Real reviews must establish those facts
 from the implementation. The example illustrates judgment and presentation;
 it does not require every review to find a reload, deletion, or agreement.
 
@@ -39,8 +39,8 @@ subscription may be unnecessary, but preserving someone's work is essential.
 The coordinating agent checks the findings against the code and presents one
 recommendation. The user does not have to reconstruct it from the two reports.
 
-> The strongest simplification is to reload the page when the account changes.
-> One page lifetime belongs to one account.
+> The strongest simplification is to replace the current account-switching
+> machinery with a page reload. One page lifetime belongs to one account.
 >
 > The deletion prize is the account-switching machinery: subscription rebinding,
 > cache replacement, and intermediate switching states.
@@ -79,3 +79,24 @@ accepted outcome; this exchange is not a mandatory approval sequence.
 No third reviewer is needed here. One would be brought in only if the coordinator
 identified a consequential unresolved question, such as an assumption both
 reviews accepted without establishing it.
+
+## When the current design wins
+
+In this separate hypothetical case, the system already uses deletion markers to
+prevent offline devices from restoring deleted records. Both reviewers examine
+alternatives and recommend retaining that mechanism. The coordinator verifies
+their findings and gives the user the result:
+
+> Both reviewers recommend leaving the current design in place, including its
+> deletion markers.
+>
+> The deletion prize would be removing marker retention and cleanup, but getting
+> it requires either rejecting old replicas or making you reset devices.
+>
+> That's a poor bargain for a system where an offline device should reconnect
+> normally. I'd keep the current design.
+
+The opening makes retention explicit. The rejected alternatives appear only to
+explain the cost of the deletion prize, so the user can judge why the current
+design wins. Attribute agreement to both reviewers only when they actually agree;
+the coordinator still checks the evidence rather than treating agreement as proof.

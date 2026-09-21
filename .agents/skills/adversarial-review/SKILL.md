@@ -161,21 +161,27 @@ silently dropping required behavior or data guarantees.
 
 ## Return a decision
 
-Lead with the strongest grounded simplification and the invariant that makes
-it possible. Explicitly name the deletion prize: the machinery or planned work
-that disappears. Then explain the cost as a concrete consequence, such as losing
-unsaved work, and what complexity a mitigation would retain or introduce. Keep
+Make the opening explicit about whether the recommendation changes the current
+design or leaves it in place. For a change, lead with the strongest grounded
+simplification and the invariant that makes it possible. For retention, name
+the existing behavior or mechanism worth keeping. Explicitly name the deletion
+prize: the machinery or planned work that would disappear. Then explain the cost
+as a concrete consequence, such as losing unsaved work, and what complexity a
+mitigation would retain or introduce. Keep
 precise design terms; make their consequences immediately understandable. Let
 each sentence explain why the next matters, rather than making the user decode
 an abstract category before understanding the loss. Give a recommendation
 calibrated to the evidence. When the opportunity remains
 conditional, name the unresolved fact that decides whether it wins and how
-that fact changes the deletion prize. If the current boundaries earn their
-place, explain why the smaller alternative loses.
+that fact changes the deletion prize. When recommending retention, briefly show
+the deletion prize considered and why its cost makes the current design worth
+keeping. Include rejected alternatives only when they help the user judge that
+bargain; do not make the user read the search history.
 
 Read [the example workflow](references/example-workflow.md) when calibrating
 how independent findings become a recommendation the user can judge. It shows
-the intended phrasing and progression, not a required transcript or outcome.
+both a proposed simplification and a decision to retain the current design,
+with the intended phrasing and progression rather than a required transcript.
 
 Support that judgment with:
 
