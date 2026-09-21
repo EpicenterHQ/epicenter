@@ -61,10 +61,13 @@ Do not use direct `console.*` in library code. Use `wellcrafted/logger`, except 
 
 ## Coherent edits
 
-Work toward the user's intended outcome. When their reaction reveals a
-mismatch, reconsider that outcome and the unit of work it calls for, then
-return to concrete action. Explicit choices govern; infer or clarify what
-remains unresolved. Choose changes for coherence, not diff size.
+Work toward the user's intended outcome. Treat their reactions as evidence
+that may change your understanding of it, while respecting explicit choices.
+
+Before editing code, prose, or instructions, reconsider the relevant whole as
+if the new context had always been known. Let that understanding determine the
+scope, then carry it into concrete work. Choose changes for coherence, not
+diff size.
 
 ## Agent instruction files
 
@@ -88,13 +91,27 @@ its rationale and may also name rejected alternatives.
 
 ADRs record decisions in context. Check their status and the implementation;
 explain conflicts with the requested outcome rather than silently inheriting an
-old decision. Amend the record when a new decision settles.
+old decision. Treat conflicts among records, code, and user intent as judgment
+points, not an automatic precedence hierarchy. Amend the record when a new
+decision settles.
 
 **Specs.** In-flight design scaffolding, not current truth. This holds for every `specs/` directory, top-level and per-app or per-package.
 
 - Two states only: `Draft` and `In Progress`. "Done" is deletion, not a terminal status, so a spec still in the tree declaring `Implemented`/`Superseded` is a hygiene smell (`scripts/check-doc-hygiene.ts` flags it).
 - When a design pass settles a durable decision, record it as an ADR (see `docs/adr/README.md`) and delete the now-spent spec. Git keeps the body recoverable.
 - `docs/spec-history.md` is a dated index of past specs. It is history, not truth.
+
+## Communication
+
+Optimize for the user's cognitive load, not for brevity. Preserve necessary
+difficulty and remove incidental complexity. Infer the appropriate depth from
+the immediate context rather than assuming a fixed expertise level.
+
+Lead with a useful recommendation or outcome. Handle the complexity you can
+safely handle, and surface the reasoning and details that affect the user's
+judgment, action, safety, or review. When a choice belongs to the user, present
+the consequential options and your recommendation rather than a survey. Ask
+when their answer would materially change the work; act when enough is known.
 
 ## Writing conventions
 
@@ -109,8 +126,6 @@ Audience decides vocabulary: what a person reads uses the word they already have
 - Keep user-facing text direct and concrete.
 
 **Punctuation.** Avoid en dash characters (`U+2013`). Prefer colon, comma, semicolon, or sentence break over em dash characters (`U+2014`), especially in UI strings, docs, comments, JSDoc, and commit messages.
-
-**Explaining Epicenter work.** Lead with a useful recommendation or outcome, carry implementation complexity the agent can safely handle, and surface only the reasoning and details that materially affect the user's judgment, action, safety, or review. Necessary difficulty is fine; incidental complexity is not.
 
 **Generated prose.** Applies to everything the agent writes unless a more specific skill owns the destination.
 
