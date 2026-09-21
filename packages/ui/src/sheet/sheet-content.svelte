@@ -6,6 +6,7 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import { Dialog as SheetPrimitive } from 'bits-ui';
 	import type { ComponentProps, Snippet } from 'svelte';
+	import { Button } from '../button/index.js';
 	import { cn, type WithoutChildrenOrChild } from '../utils.js';
 	import SheetOverlay from './sheet-overlay.svelte';
 	import SheetPortal from './sheet-portal.svelte';
@@ -37,15 +38,13 @@
 		{...restProps}
 	>
 		{@render children?.()}
-		<SheetPrimitive.Close
-			data-slot="sheet-close"
-			class={cn(
-				'cn-sheet-close',
-				'ring-offset-background focus-visible:ring-ring rounded-xs focus-visible:outline-hidden opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none',
-			)}
-		>
-			<XIcon class="size-4" />
-			<span class="sr-only">Close</span>
+		<SheetPrimitive.Close data-slot="sheet-close">
+			{#snippet child({ props })}
+				<Button variant="ghost" class="cn-sheet-close" size="icon-sm" {...props}>
+					<XIcon />
+					<span class="sr-only">Close</span>
+				</Button>
+			{/snippet}
 		</SheetPrimitive.Close>
 	</SheetPrimitive.Content>
 </SheetPortal>
