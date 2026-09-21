@@ -10,8 +10,8 @@ not make them carry its history, machinery, or every possible consequence.
 
 Use this after thinking, research, or design when the answer risks becoming
 larger than the judgment it is meant to support. It pairs with `dialectic`:
-dialectic works out the model and its crux; abstraction chooses how that model
-should meet the person.
+dialectic helps work through the unsettled idea; abstraction helps present
+what the person needs to understand or judge.
 
 ## The test
 
@@ -60,7 +60,7 @@ that boundary briefly. Do not hide uncertainty just to make the surface clean.
 Dialectic asks:
 
 ```txt
-What is the right model, and what crux separates the live alternatives?
+What thought, explanation, or question would help us work through this idea?
 ```
 
 Abstraction asks:
@@ -69,9 +69,9 @@ Abstraction asks:
 What does this person need to see in order to react to that model now?
 ```
 
-Show multiple articulations only when comparing them is the next judgment.
-Otherwise show the strongest current articulation and state the unresolved crux
-in one sentence.
+Let dialectic guide the conversation. Use abstraction to make the current
+thought easier to judge, keeping uncertainty visible where it matters.
+Do not impose a separate response format.
 
 Understanding the model is not approval for an implementation, deletion, merge,
 or other side effect.

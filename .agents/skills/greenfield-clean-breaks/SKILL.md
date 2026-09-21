@@ -7,15 +7,14 @@ description: Reconsider a system from a clean-slate target and identify legacy o
 
 Use this skill as an operating mode, not a cleanup checklist. Start with the uncompromised greenfield vision, then work backward to the deletion waves, owner changes, and verification needed to make that vision real. The current software is evidence, not a constraint. Previously resolved decisions can be reopened when they make the final system harder to explain, own, test, or delete.
 
-When the destination remains genuinely exploratory or disputed, run
-[dialectic](../dialectic/SKILL.md) until the conversation converges. Dialectic
-may end with a shared explanatory model or an explicitly accepted destination;
-this skill accepts only the destination handoff. Do not add a dialectic round
-to a settled request. Adopt the accepted greenfield vision as the fixed point
-and work backward. Implementation difficulty does not reopen it; an external
-constraint or desired outcome that materially changes it returns to Dialectic.
-This skill owns the backward transition and execution after the destination is
-clear.
+When the desired direction is still unsettled, use
+[dialectic](../dialectic/SKILL.md) to work it through. Understanding how the
+current system works does not itself settle a decision to redesign it. Once
+the user has settled the desired behavior, start there; no formal destination
+artifact or additional interview is required. This skill owns planning backward
+from that direction and carrying out authorized changes. Implementation
+difficulty does not reopen the direction. If a new fact changes what is
+possible or what the user wants, bring that question back to the conversation.
 
 Two pillars:
 
@@ -102,8 +101,9 @@ Do not let context gathering become permission seeking. The goal is to find wher
 
 Do not begin by patching the current shape. First describe the system you would build if the old API, files, tests, names, and migration paths did not exist. That vision is the anchor; implementation planning works backward from it.
 
-If Dialectic supplied a destination artifact, adopt it rather than repeating
-destination discovery. Clarification must not change the accepted model.
+If the conversation already settled the direction, adopt it rather than
+repeating discovery. Clarify implementation details within that direction;
+surface a material change instead of quietly replacing the user's decision.
 
 Begin with its accepted destination sentence. If none was supplied, write the
 ideal sentence first:

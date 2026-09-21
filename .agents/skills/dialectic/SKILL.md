@@ -1,198 +1,68 @@
 ---
 name: dialectic
-description: "Make an unsettled model intelligible through the deliberate collision of ambitious articulations. Use when the user asks for a dialectic, wants a full articulation of a model, or wants to understand, correct, or redesign an unsettled product, architecture, codebase, decision, or way of working."
+description: Help the user work through an unsettled idea and find words for what they mean through conversation. Use when the user asks for a dialectic, wants to think through an uncertain model or decision, or needs help articulating a thought they cannot quite express. Do not use for routine execution of a settled request, a standalone explanation of settled material, or a code review.
 ---
 
 # Dialectic
 
-A dialectic is the deliberate collision of ambitious articulations: visions of
-what should exist and how it should work, often uncompromising greenfield
-clean-break visions that can be built backward from. Their differences,
-consequences, and refusals expose the cruxes that the next articulation must
-resolve. The human and agent trade these visions, and each reaction shows what
-is right, wrong, missing, or newly possible. Through repeated re-articulation,
-the model becomes intelligible or produces a vision the user can recognize and
-say, in effect, “that’s right.”
+Talk with the user to help them understand something or find words for what
+they mean. Offer a thought, explanation, example, or proposed direction they
+can respond to. Let their response change where the conversation goes.
 
-Every turn must leave the live articulation or articulations visible. Make the
-main surface the articulation itself: an uncompromising greenfield vision of
-what should exist and how it should work. A block quote is often the right
-surface, but it may contain prose, an ASCII diagram, code, or another direct
-rendering when that makes the vision whole. It may be as expansive as the
-vision requires, but it must contain no history of how it was reached, evidence
-collection, summary of the user's material, or explanation of the answer. Do
-not announce it with self-referential labels such as “my current model” or
-narrate the path that produced it. When multiple accounts are live, keep them
-distinct rather than flattening them into a summary. The user should be able
-to accept, reject, or correct the account itself.
+Use language you could comfortably say aloud. Follow the part they respond to
+without repeating everything you have already established. Sometimes a
+sentence is enough; sometimes the thought needs more room. Restate the whole
+when its connections have changed or seeing it together would help the user
+judge it.
 
-When the thing being developed is composed of multiple parts, the live object
-may be the relationship among them rather than any one part. Keep the parts
-distinct, and make each part's role, boundary, dependencies, and order visible.
-Do not assume that the whole must become one artifact merely because its parts
-were discovered together.
+Make your best attempt rather than asking the user to explain everything
+first. A tentative phrasing can help them recognize what they mean, including
+by showing them what feels wrong. Preserve words that carry their meaning;
+polish is useful only when it makes that meaning easier to hear.
 
-## What an articulation is
+Check facts you can establish yourself, including relevant code and docs,
+before asking the user to supply them. Keep what you found distinct from what
+you infer or propose. Existing designs and past decisions are evidence to
+consider; explicit user constraints still bind the conversation.
 
-An articulation is an uncompromising vision of what should exist and how it
-should work: the cleanest model with inherited constraints suspended. It is the
-account we could build backward from. Keep the model whole. State it plainly
-and efficiently, and allow it to be deliberately oversimplified. It is complete
-in meaning but does not need to be fully justified before it is offered.
-Ambition comes from the scope and consequences of the claim, not from its
-length. It is not a preference label, an implementation option, or a softened
-summary that hides the disagreement.
+Ask when the answer would change your understanding. Give the user a focused
+question they can answer without having to solve the whole problem first.
+If they ask to be interviewed, follow their answers one question at a time;
+follow up where something matters instead of exhausting every possible branch.
+A useful explanation can also be the whole turn. It need not end in a question.
 
-> **Describe the people, decisions, handoffs, and lived sequence in human terms,
-> rather than making the implementation’s abstractions the center of the
-> vision.**
+Recommend when there is a choice worth making, with enough reason for the user
+to judge it. When they are trying to find words for a thought, help express it
+before turning it into advice. Show competing accounts when their difference
+would help; do not turn every reply into a menu.
 
-The vision must be enterable, not merely defensible. Render what it would be
-like to inhabit the proposed whole: what the person is trying to do, what they
-encounter, what they can now decide or accomplish, and what the system carries
-for them. Human-centric describes the viewpoint from which the model is made
-intelligible, not a checklist of nouns to include.
+Stay willing to disagree. Explain the concrete reason, and reconsider when
+their reply shows you missed something. A correction may change one word or
+the premise of the conversation. Respond at that scope rather than defending
+your previous wording or announcing a formal crux.
 
-The agent should make its strongest account, not wait for certainty. A wrong
-articulation is useful because the user's reaction supplies the next evidence.
-Use history, explanation, and evidence to expose the account's pressure
-points, not to finish defending it before the collision begins.
+Use a concrete situation, code, or a diagram when it makes the idea easier to
+judge. Let the subject choose the form. A conversation does not need a named
+crux, a complete vision, or a prescribed sequence of moves on every turn.
 
-The user’s articulation may arrive as a goal, question, example, analogy,
-refusal, or sentence that is not quite right yet. The agent’s articulation may
-describe the model currently in use or propose what should exist. Keep
-observation, inference, proposal, and user-owned preference distinct so the
-collision does not confuse what exists with what either side wants.
+Stop after your turn and give the user room to answer. Do not write their
+replies for them unless they asked for a sample conversation. Read
+[the example conversations](references/conversations.md) when calibrating
+phrasing, turn length, or how to respond to a correction. They show the intended
+feel, not lines to reuse or a fixed length to enforce.
 
-## Destinations
+Let the conversation settle when the user can reason with the idea or
+recognizes what they meant. “That's right” can express recognition without
+endorsing every word. Do not require that phrase, a polished final formulation,
+or another round of questions to prove the conversation worked.
 
-The collision can serve understanding or correction. In a learning dialectic,
-the user wants the agent’s current model made intelligible and does not need to
-endorse or restate it. In a greenfield dialectic, the user and agent compare
-ambitious visions of what should exist and how it should work until an accepted
-account emerges.
+Recognition alone does not authorize edits or other side effects. Preserve
+authorization already given: once the user has asked for implementation,
+carry it through without another approval ritual. Do not create or update
+CONTEXT.md, ADRs, or other records just because an exploration reached agreement.
+Record decisions when the task calls for it.
 
-When the interaction itself needs calibration, read the relevant behavioral
-reference: [learning-dialectic.md](references/learning-dialectic.md) shows a
-model becoming intelligible through a human reaction, and
-[greenfield-dialectic.md](references/greenfield-dialectic.md) shows a whole
-vision being built through successive re-articulations. These are reference
-interactions, not templates or scripts.
-
-## Make the next move
-
-Before the first turn, identify the live uncertainty that makes the next
-judgment difficult. Expose the strongest account the agent can currently make,
-including what it implies, what it refuses, and what would prove it inadequate.
-Do not replace that account with a history of how the evidence was collected.
-
-Offer multiple articulations when their collision is necessary to expose the
-crux or when the agent cannot responsibly choose among materially different
-accounts. Make each one strong enough to collide with. They are objects of
-comparison, not a menu that gives the synthesis work back to the user. When
-one account is stronger overall, say so without pretending the question is
-settled.
-
-Treat inherited implementation, prior plans, and existing design as evidence to
-inspect, not authority to obey. Push through the user's initial framing by
-articulating what it implies, what it leaves unresolved, and what stronger
-account it may point toward. External facts and explicit user constraints
-remain real inputs; surface a conflict with them instead of quietly
-compromising.
-
-Each turn should advance the highest-order unresolved crux. Choose the reaction
-that would most change the model, then put up the strongest account that could
-make that reaction possible. One turn may contain several related
-articulations, but it should make the collision that matters most inspectable.
-
-A turn advances when it sharpens an articulation, replaces one, changes its
-boundary or consequences, or resolves the crux. If it only adds explanation
-without changing what is being judged, it has not moved the dialectic.
-
-The conversation moves like this:
-
-```txt
-articulations
-  -> collision of premises and consequences
-  -> user reaction as directional evidence
-  -> crux and required movement identified
-  -> targeted question, consequence, or refusal
-  -> sharper re-articulation
-  -> understanding or accepted destination
-```
-
-Read the user’s reaction as directional evidence about the model and its crux,
-not as a command to obey at face value. Preserve what the user recognized,
-replace what they rejected, intensify what they cared about more strongly than
-the last model showed, and re-articulate in the direction their reaction
-indicates. The reaction is not merely a verdict on the last articulation; it
-shows how the model must move. When local collisions recur, zoom out to the
-shared premise and re-articulate it. An unexpected tangent may show that the
-frame itself is no longer necessary.
-
-When the user returns a sentence, answer its accuracy first and name the word
-or premise carrying the divergence. When they give an example, use it to update
-the model. When the user cannot explain a reaction, articulate the mismatch or
-crux it may be pointing toward and let them react to that. Plain agreement is
-useful only when it moves the model forward.
-
-The user's reaction may be meandering, repetitive, partial, or uncertain. Do
-not mirror that shape. Extract the directional evidence, identify the crux, and
-respond with the tightest account that preserves the ambition of the next
-articulation. Tightness means removing conversational processing, not shrinking
-the vision.
-
-Read reactions as evidence about the model's boundaries and granularity as well
-as its wording. “That belongs elsewhere” may identify a component boundary.
-“That is too strong” may change the model's intensity. “That is the right
-sentence” or “that is the right piece” may identify the governing unit.
-Preserve those signals in the next articulation instead of treating them as
-local approval alone.
-
-## Make the collision checkable
-
-State the whole articulation first, then render enough of the proposed future
-for the user to enter it and react to what is actually being proposed. Choose
-the surface from the subject: show the lived sequence or concrete interaction
-for a workflow or product, proposed code or structural shape for architecture
-or code, and the direct representation that makes another kind of model
-inspectable. Do not substitute a generic principle, an inventory of system
-objects, or a retrospective explanation for the vision. After the articulation,
-add only the minimum consequence, refusal, comparison, or crux needed to make
-the next reaction possible; if the articulation is sufficient, stop there.
-
-Use only enough structure to expose the consequences, refusals, and crux. Use a
-comparison when distinct articulations are live, and research when a fact could
-change the model. Use a diagram, HTML page, or prototype only when the spatial
-or behavioral relationship is materially easier to judge that way. If HTML is
-the right surface, read [references/example-turn.html](references/example-turn.html)
-before writing it and keep it self-contained with inline CSS and JavaScript.
-Whatever surface is used should make clear which articulations are live, which
-crux separates them, what follows from each, and what the next re-articulation
-must resolve.
-
-When the object has parts or stages, make its composition checkable: show what
-belongs together, what remains separate, what depends on what, and what order a
-person encounters it in.
-
-## End according to the destination
-
-In a learning dialectic, stop when the user understands the agent’s model well
-enough to reason about it. Do not manufacture an accepted articulation or ask
-the user to restate one merely to prove comprehension.
-
-In a corrective or design dialectic, do not stop at a plausible model, partial
-agreement, silence, fatigue, or approval of a plan. Stop when the user
-recognizes the complete greenfield articulation and says, in effect, “that’s
-right.” Return its shortest honest form. Recognition is not authorization for
-a merge, deletion, implementation, or other side effect.
-
-For an accepted greenfield destination, hand it to
-[greenfield-clean-breaks](../greenfield-clean-breaks/SKILL.md) for backward
-planning. For implementation, carry out the accepted destination without
-turning implementation details into new product decisions. If implementation
-reveals a fact that changes the destination, return to the dialectic.
-
-A dialectic is not a standalone lesson. When the material is settled and the
-user wants a self-contained explanation rather than to inspect the agent’s
-model, hand it to [teaching-page](../teaching-page/SKILL.md).
+A settled redesign can continue with
+[greenfield-clean-breaks](../greenfield-clean-breaks/SKILL.md) to plan the change.
+For an independent challenge, use `adversarial-review` when available. These
+are separate tasks; neither is a required stage of this conversation.
