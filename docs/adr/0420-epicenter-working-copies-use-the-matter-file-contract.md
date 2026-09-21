@@ -64,6 +64,12 @@ editing local schema or editing-policy metadata cannot grant additional writes.
 Modified generated contracts must be reported and refused rather than adopted
 as store migrations. Standalone Matter schemas remain user-authored.
 
+The app developer owns its definition. Pull obtains the portable schema from
+the definition used by the running owner; a server catalog is not required.
+A catalog may publish that definition without becoming a second schema authority.
+Changing an app definition requires an explicit release and data-upgrade policy;
+editing a checkout does not change the definition understood by an existing app.
+
 Removing a generated contract or checkout metadata does not turn a submission
 into an unrestricted import. A checkout with a missing destination or baseline
 cannot Push. Application schema changes must not silently reinterpret prepared
@@ -75,12 +81,34 @@ row ID. Renaming a file does not rename the record. Matter's reserved names,
 including query columns such as `body`, require explicit collision handling;
 schema export must not overwrite a user field or silently change its identity.
 
-The mapping preserves null, missing values, field types, and supported
-constraints. Do not translate null into omission or silently downgrade typed
-fields to raw values to claim compatibility. Resolve the shared vocabulary and
-unsupported-field diagnostics before enabling the integration. Root KV needs
-one explicit schema representation; this record does not invent a second table
-schema registry or claim the existing Matter parser already handles KV.
+**Declared nullable fields have one empty value and two file spellings.**
+
+A complete typed record represents an empty nullable field as `null`. Canonical
+Markdown omits that key. Reading a declared nullable field accepts an absent key,
+explicit YAML null, or a bare `key:` as the same empty value. Missing or null
+non-nullable fields fail validation. Empty strings, zero, and false remain
+values subject to their field constraints. `undefined` is not a persisted field
+value. Top-level field null always means empty, including for JSON fields;
+nested JSON nulls remain ordinary data.
+
+Push normalizes the files and baseline under the same checkout contract before
+comparison. Removing a populated nullable key submits a clear. Leaving an empty
+key absent submits nothing, even if the live store has since acquired a value.
+Replacing explicit null with omission changes formatting only. In an internal
+update patch, an omitted property still means no edit and explicit null clears.
+
+Strict parsing precedes normalization so malformed syntax cannot become a
+clearing instruction. Schema drift must not turn fields absent from an older
+checkout into edits. This boundary completes sparse file records; it does not
+silently repair incomplete persisted rows or reinterpret unknown fields.
+
+The shared field model has one emptiness policy rather than independent
+optional and nullable choices. Its serialized schema encoding remains to be
+implemented. Preserve field types and supported constraints; unsupported fields
+must be diagnosed rather than silently downgraded to claim compatibility.
+Root KV needs one explicit schema representation and absence policy; this
+record does not infer key deletion from the nullable row-field rule or invent a
+second table schema registry.
 
 **Matter tooling respects checkout editing restrictions.**
 
@@ -143,8 +171,11 @@ and ongoing document-lineage work are not migrated by this record.
 
 ## Verification
 
-Prove schema round-trips preserve nullable and missing values; opening a table
-folder retains its schema; standalone Matter body edits remain supported;
+Prove nullable omission and explicit null normalize identically; removing a
+populated nullable field clears it; unchanged absence submits no edit; omitted
+patch properties remain untouched; missing required fields fail; schema drift
+and malformed files cannot produce clears; opening a table folder retains its
+schema; standalone Matter body edits remain supported;
 checkout body and generated-contract edits refuse before any Push mutations;
 index rebuilds leave files and baselines unchanged; and the same permitted file
 edits produce the same Push changes regardless of which editor created them.
