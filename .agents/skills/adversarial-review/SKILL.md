@@ -27,20 +27,38 @@ at any cost is the job.
 If you are already the delegated reviewer, perform the review yourself and
 launch no child agents. The following setup belongs to the coordinating agent.
 
-The coordinating agent appoints two read-only reviewers by default: a fresh
-Codex subagent using the runtime's available GPT-6 model with
-`fork_turns: "none"` and `reasoning_effort: "high"`, and Claude through
-[consult-claude](../consult-claude/SKILL.md), which owns the Fable model default
-and access boundary. This repository authorizes both for adversarial review;
-an explicit user restriction overrides that default. Ordinary final checks
+The coordinating agent appoints two fresh read-only Codex subagents using the
+runtime's available GPT-6 model, each with `fork_turns: "none"` and
+`reasoning_effort: "high"`. Explicit user choices override this default.
+Use [consult-claude](../consult-claude/SKILL.md) when the user requests a Claude
+review; Claude access is not required for this workflow. Ordinary final checks
 remain local under post-implementation-review.
 
-Give both reviewers the same evidence and whole design question. Run them in
-parallel when possible, and withhold each reviewer's findings from the other
-until both initial verdicts arrive. Claude's participation does not depend on
-Codex first finding an unresolved question: another model may find the question
-Codex missed. If either reviewer is unavailable, report the missing perspective
-and continue with the available review; a local pass is not independent.
+Give both reviewers the same evidence and whole design, with different starting
+questions. Run them in parallel when possible, and withhold each reviewer's
+findings from the other until both initial verdicts arrive. If either reviewer
+is unavailable, report that limitation and continue with the available review.
+If neither is available, perform the pass locally and state that it was not
+independent.
+
+Reviewer one starts with:
+
+> Where is the strongest simplification? What stronger invariant, different owner,
+> or smaller promise would let us delete a family of code or planned work? Name
+> the deletion prize and its cost.
+
+Reviewer two starts with:
+
+> What would the simpler design have to preserve to be worth adopting? Trace
+> concrete callers and lifecycle sequences to find the guarantees the current
+> complexity provides. Which guarantees matter to the user, and which are
+> inherited assumptions? Show where simplification would break a necessary
+> guarantee or move the burden onto someone else.
+
+These are starting questions, not assigned conclusions or separate file lanes.
+Reviewer two examines possible simplifications independently, without waiting
+for reviewer one's proposal. Both can discover a better design or conclude that
+the current boundaries earn their place.
 
 Give each reviewer raw artifacts, concrete proposals, engineering reasoning, and
 open questions. Distinguish facts, hypotheses, preferences, and accepted
@@ -63,13 +81,23 @@ For a proposal without implementation, supply the proposal and any existing
 system it would replace. Distinguish observed behavior from design assumptions;
 name what a prototype or caller would need to establish.
 
-Hold the reviewed surface stable until both reviewers return. Use that interval
-for verification preparation or an independent question outside the surface.
+Hold the reviewed surface stable until the available reviewers return. Use that
+interval for verification preparation or an independent question outside the surface.
 Do not begin work whose shape depends on the verdict.
 
 Neither reviewer edits the live checkout.
-Reviewers beyond this pair need distinct unresolved questions; dividing this review
-into file lanes would hide the relationships it is meant to examine.
+Reviewers beyond this pair need distinct unresolved questions. When both reviews
+appear to accept the same consequential assumption, a third reviewer can examine
+that frame after reading their findings:
+
+> Are we simplifying the right thing? What assumption about the problem, system
+> boundary, or desired outcome are both reviews taking for granted? Trace that
+> assumption back to actual users and callers. Show whether changing it would
+> make the proposed simplification unnecessary or reveal a larger deletion prize.
+
+Name the suspected shared assumption before commissioning this review. Agreement
+alone does not require another reviewer, and reviewer one already has permission
+to find the larger simplification.
 
 ## Reconstruct before judging
 
@@ -134,12 +162,20 @@ silently dropping required behavior or data guarantees.
 ## Return a decision
 
 Lead with the strongest grounded simplification and the invariant that makes
-it possible. Make the bargain legible: name the machinery or planned work that
-disappears, then explain the costs, new complexity, and user obligations. Give
-a recommendation calibrated to the evidence. When the opportunity remains
+it possible. Explicitly name the deletion prize: the machinery or planned work
+that disappears. Then explain the cost as a concrete consequence, such as losing
+unsaved work, and what complexity a mitigation would retain or introduce. Keep
+precise design terms; make their consequences immediately understandable. Let
+each sentence explain why the next matters, rather than making the user decode
+an abstract category before understanding the loss. Give a recommendation
+calibrated to the evidence. When the opportunity remains
 conditional, name the unresolved fact that decides whether it wins and how
 that fact changes the deletion prize. If the current boundaries earn their
 place, explain why the smaller alternative loses.
+
+Read [the example workflow](references/example-workflow.md) when calibrating
+how independent findings become a recommendation the user can judge. It shows
+the intended phrasing and progression, not a required transcript or outcome.
 
 Support that judgment with:
 
