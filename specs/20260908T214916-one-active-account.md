@@ -25,7 +25,7 @@ analogous document-owned selection and full-navigation boundary.
 
 Read target, safety matrix and waves first. The occurrence map is a launch point,
 not a file whitelist. Use `spec-execution` for checkpoints and independent
-`design-review` after substantive ownership/API changes. Reconsider remaining
+`adversarial-review` after substantive ownership/API changes. Reconsider remaining
 waves when a stronger invariant eliminates work.
 
 ## Baseline and ownership

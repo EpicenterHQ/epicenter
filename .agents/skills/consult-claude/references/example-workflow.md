@@ -11,7 +11,7 @@ fixture. A real brief includes excerpts and paths from the actual checkout.
 
 ## Codex to Claude
 
-You are the reviewer. Apply the repository's design-review skill yourself.
+You are the reviewer. Apply the repository's adversarial-review skill yourself.
 Read additional files as needed; ask me for tests or benchmarks. I own execution.
 
 We want tests to use the production App lifecycle with memory storage. Closing
@@ -167,7 +167,7 @@ above illustrates the target; it is not a measured result or an answer key.
 | Reviewer requests a benchmark | Codex receives a specific discriminating check; Claude does not execute it or create a laboratory. |
 | Advice-only request | Codex returns the proposed check without silently authorizing implementation. |
 | Follow-up with new evidence | Same native session recalls the question, revises its judgment, and retains read-only access. |
-| Ordinary design review without Claude authorization | Uses design-review without enlisting Claude. |
+| Ordinary design review without Claude authorization | Uses adversarial-review without enlisting Claude. |
 
 For runtime acceptance, separately verify current uncommitted reads, context on
 resume, denied outside reads, absent write/shell/agent/MCP tools, and unchanged

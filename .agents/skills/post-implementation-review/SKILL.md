@@ -1,6 +1,6 @@
 ---
 name: post-implementation-review
-description: Review cumulative implementation for structural collapse, invariant ownership, and correctness. Use for reviewing work after implementation, doing a second pass, or performing a final sweep. Independent structural verdicts belong to design-review.
+description: Review cumulative implementation for structural collapse, invariant ownership, and correctness. Use for reviewing work after implementation, doing a second pass, or performing a final sweep. Independent structural verdicts belong to adversarial-review.
 metadata:
   author: epicenter
   version: '1.0'
@@ -69,7 +69,7 @@ yjs                      CRDT documents, shared types, transactions, conflict be
 
 ## Independent review
 
-[design-review](../design-review/SKILL.md) owns the independent reviewer setup,
+[adversarial-review](../adversarial-review/SKILL.md) owns the independent reviewer setup,
 evidence packet, structural verdict, and adjudication. Use it when an independent
 review is requested or an execution workflow calls for one. Ordinary final
 reviews do not launch another agent automatically.

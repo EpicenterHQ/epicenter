@@ -130,7 +130,7 @@ establish which change caused it.
 
 ### 3. Review and steer
 
-Run [design-review](../design-review/SKILL.md) on the cumulative implementation
+Run [adversarial-review](../adversarial-review/SKILL.md) on the cumulative implementation
 and remaining plan. It owns reviewer setup, evidence, structural judgment, and
 adjudication.
 
@@ -206,7 +206,7 @@ Implementation agents get bounded lanes. Each needs:
   requires the user
 
 This narrow context applies to implementation agents. The independent reviewer
-needs the cumulative view described in [design-review](../design-review/SKILL.md).
+needs the cumulative view described in [adversarial-review](../adversarial-review/SKILL.md).
 
 ## Recover without losing the outcome
 

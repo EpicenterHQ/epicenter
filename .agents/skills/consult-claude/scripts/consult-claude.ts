@@ -33,7 +33,7 @@ async function main() {
 		}),
 		'--model', values.model,
 		'--append-system-prompt',
-		'You are Codex\'s read-only consultant. Return findings or specific evidence requests in this conversation. Codex owns edits, tests, benchmarks, and integration. If asked to apply design-review, you are already the delegated reviewer: perform it yourself and launch no child agents.',
+		'You are Codex\'s read-only consultant. Return findings or specific evidence requests in this conversation. Codex owns edits, tests, benchmarks, and integration. If asked to apply adversarial-review, you are already the delegated reviewer: perform it yourself and launch no child agents.',
 		...(values.resume ? ['--resume', values.resume] : []),
 	];
 	if (values['dry-run']) {

@@ -148,7 +148,7 @@ Be direct about flawed assumptions, weak designs, and regressions. Do not agree 
 Codex owns continuity, decisions, live-checkout edits, testing, and integration.
 Claude provides a read-only second opinion when the user requests it or has
 asked to include Claude during design review; complexity alone does not enlist
-Claude. Follow `consult-claude` for briefing and follow-ups and `design-review`
+Claude. Follow `consult-claude` for briefing and follow-ups and `adversarial-review`
 for the review method. Experimental execution by Claude requires separate user
 authorization. Codex verifies feedback against live state, applies accepted
 changes, and reruns verification.

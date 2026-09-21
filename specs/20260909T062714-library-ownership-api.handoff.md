@@ -9,7 +9,7 @@ historical, not a reason to reopen that decision.
 Continue in `/Users/braden/conductor/workspaces/epicenter/yamoussoukro`.
 Produce a concrete API design and an execution plan for the library ownership
 model recorded in [ADR-0375](../docs/adr/0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md).
-Use `design-review` for an independent structural checkpoint. This is a design
+Use `adversarial-review` for an independent structural checkpoint. This is a design
 pass before production implementation, not permission to resume the previous
 URL/token migration or to rewrite the data engine immediately.
 

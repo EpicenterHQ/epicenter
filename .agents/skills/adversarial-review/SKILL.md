@@ -1,21 +1,26 @@
 ---
-name: design-review
-description: Independently reassess an affected design and recommend the next structural decision. Use when asking for a design review, an independent architecture review, or an adversarial checkpoint on a plan or cumulative implementation. Routine final code inspection belongs to post-implementation-review.
+name: adversarial-review
+description: Independently challenge a design and its underlying model to find deletion prizes and stronger invariants. Use when asking for an adversarial review, an independent architecture review, or an adversarial checkpoint on a plan or cumulative implementation. Do not use for routine final code inspection, which belongs to post-implementation-review.
 ---
 
-# Design review
+# Adversarial review
 
-Independently reconstruct the affected design, then ask: given what we know now,
-what stronger invariant or different ownership boundary would make this simpler,
-and what should we do next?
+Independently reconstruct the affected system, then hunt for the decision that
+would make a whole family of code or planned work unnecessary. Ask what stronger
+invariant, different owner, or smaller promise would let the system collapse.
+Passing tests and individually defensible abstractions do not settle whether
+the model deserves to survive.
 
-The accepted outcome anchors the review. Existing helpers, file splits, API
-shapes, and remaining tasks are hypotheses to test. Look for deletion prizes
-and collapses that local implementation work can miss.
+Hold the user's desired outcome steady while challenging the implementation,
+remaining plan, and inherited requirements. Reconstruct from actual callers so
+the implementer's explanation does not become the reviewer's frame. Even when
+no bugs are apparent, construct a concrete smaller alternative to stress-test
+the current design. Zoom out when local cleanup leaves the machinery intact.
 
 Success is a better-supported next decision. Count complexity introduced as
-well as removed. A larger rewrite, more findings, or disagreement with the
-implementer is not evidence of a better review. Keeping the design is valid.
+well as removed, including work transferred to the user. Keeping the design is
+valid after testing the alternative; neither forced disagreement nor deletion
+at any cost is the job.
 
 ## Establish independence
 
@@ -90,6 +95,19 @@ branches, or planned work that becomes unnecessary. Explain the replacement
 guarantee. Fewer files alone proves little if callers inherit the same work or
 lose a useful boundary. Preserve tests for behavior that must survive.
 
+A compact implementation can still implement a bloated model. Challenge the
+promise that requires the machinery, including previously accepted architecture
+and product assumptions. Bring consequential tradeoffs to the human even when
+they go beyond the current implementation plan; the reviewer proposes them
+without treating them as authorized changes.
+
+Distinguish a guarantee the software enforces from an obligation the user must
+fulfill. For a proposed obligation, name the steps, what happens if they are
+missed, and which guarantee the product can no longer claim. Moving work to a
+person may be an excellent bargain, but that work remains part of the cost.
+When exploring lifecycle resets or user-owned operations that eliminate
+coordination, read [references/deletion-prizes.md](references/deletion-prizes.md).
+
 Use focused skills for deeper decisions, without copying their procedures:
 
 - [radical-options](../radical-options/SKILL.md) when local fixes preserve a bad
@@ -104,8 +122,9 @@ Recommend a [collapse-pass](../collapse-pass/SKILL.md) when the evidence calls
 for sustained removal of unearned indirection. The reviewer identifies the
 opportunity; it does not begin that skill's editing or commit loop.
 
-Product changes remain proposals for user judgment. A deletion prize does not
-authorize dropping required behavior, data guarantees, or explicit constraints.
+Product changes remain proposals for user judgment. Explicit user constraints
+bound execution; surface a conflicting opportunity as a tradeoff rather than
+silently dropping required behavior or data guarantees.
 
 ## Return a decision
 
@@ -115,7 +134,8 @@ boundaries earn their place. Include:
 - Current and proposed shape, with both file trees when organization changes.
 - Concrete file or caller evidence, the stronger invariant and its owner,
   and behavior that must survive.
-- The deletion prize, complexity introduced, and any user loss.
+- The concrete smaller alternative, deletion prize, complexity introduced,
+  and any user loss or obligation. Explain why the alternative wins or loses.
 - Which remaining tasks should change or disappear, if a plan exists.
 - Verification that would distinguish improvement from displaced complexity,
   including assumptions that remain unproven.

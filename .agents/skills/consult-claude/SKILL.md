@@ -20,7 +20,7 @@ proposals, assumptions, and preferences. Give enough concrete evidence to judge
 the decision immediately; Claude can read further to verify your account.
 
 For design questions, appoint Claude as the reviewer and have it apply
-[design-review](../design-review/SKILL.md) itself, without launching another
+[adversarial-review](../adversarial-review/SKILL.md) itself, without launching another
 reviewer. Explicitly ask for the strongest greenfield direction: starting from
 the desired outcome and actual callers, what would it build if the current
 abstraction did not exist? Treat your reasoning as evidence, not constraints.
