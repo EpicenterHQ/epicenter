@@ -74,11 +74,8 @@ evidence packet, structural verdict, and adjudication. Use it when an independen
 review is requested or an execution workflow calls for one. Ordinary final
 reviews do not launch another agent automatically.
 
-When called by an adversarial reviewer, apply the inspection passes below in
-read-only mode within its review scope; do not launch another agent. That skill
-owns the report format: cite evidence for the decision instead of requiring the
-file inventory or output template below. Full inspection remains required for
-cumulative implementation checkpoints.
+When called by a design reviewer, apply the inspection passes below in read-only
+mode and return findings to that reviewer; do not launch another agent.
 
 ## Review Order
 
