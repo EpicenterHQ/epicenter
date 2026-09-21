@@ -73,15 +73,18 @@ and invariants. Include earlier implementation waves and relevant unchanged
 consumers. Expand only far enough to establish the owner and consequences;
 this is not a repository-wide audit.
 
-List every file read as an ASCII tree before analysis. Mentally inline helpers,
-wrappers, components, props, compartments, and file boundaries into their call
-sites. Read the resulting behavior as if encountering it for the first time.
+Cite the concrete callers and files that support the finding. Mentally inline
+helpers, wrappers, components, props, compartments, and file boundaries into
+their call sites. Read the resulting behavior as if encountering it for the
+first time.
 
-For implemented code, apply
+For cumulative implementation checkpoints, apply
 [post-implementation-review](../post-implementation-review/SKILL.md)'s inspection
-passes in review-only mode: first read, mental inlining, ownership, smells,
-invariants, API shape, naming, and file organization. This supplies the code
-inspection; it does not initiate another independent review.
+passes in review-only mode. For a bounded design question, inspect the callers,
+ownership, invariants, and behavior needed to decide it. A final implementation
+checkpoint must include the full inspection before serving as the final review.
+This supplies code inspection without initiating another independent review;
+this skill owns the decision report.
 
 ## Find the deletion prize
 
@@ -108,7 +111,9 @@ person may be an excellent bargain, but that work remains part of the cost.
 When exploring lifecycle resets or user-owned operations that eliminate
 coordination, read [references/deletion-prizes.md](references/deletion-prizes.md).
 
-Use focused skills for deeper decisions, without copying their procedures:
+Draw on focused skills for design reasoning. Return unsettled product choices
+and evidence requests to the coordinator; do not start their interviews,
+convergence workflows, implementation loops, or additional agents:
 
 - [radical-options](../radical-options/SKILL.md) when local fixes preserve a bad
   abstraction and the better design may sit one level above it.
