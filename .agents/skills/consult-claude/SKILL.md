@@ -1,6 +1,6 @@
 ---
 name: consult-claude
-description: Get Claude Code's second opinion on a proposal or implementation. Use when the user asks to consult Claude, requests Claude's design judgment or research, or has asked to include Claude during design review. Do not enlist Claude merely because a task is complex.
+description: Get Claude Code's second opinion on a proposal or implementation. Use when the user asks to consult Claude, requests Claude's design judgment or research, has asked to include Claude during design review, or adversarial-review appoints Claude. Do not enlist Claude merely because a task is complex.
 ---
 
 # Consult Claude
@@ -19,10 +19,13 @@ when it clarifies ownership, lifecycle, or data flow. Distinguish observed facts
 proposals, assumptions, and preferences. Give enough concrete evidence to judge
 the decision immediately; Claude can read further to verify your account.
 
-For design questions, appoint Claude as the reviewer and have it apply
+For design questions, have Claude apply
 [adversarial-review](../adversarial-review/SKILL.md) itself, without launching another
-reviewer. Explicitly ask for the strongest greenfield direction: starting from
-the desired outcome and actual callers, what would it build if the current
+reviewer. That skill's coordinator owns the default Codex-and-Claude pair;
+this consultation supplies the Claude review. A standalone request for Claude's
+opinion does not itself launch a Codex reviewer. Explicitly ask for the strongest
+greenfield direction: starting from the desired outcome and actual callers,
+what would it build if the current
 abstraction did not exist? Treat your reasoning as evidence, not constraints.
 Ask for concrete signatures and callsites, what disappears, new complexity, and
 requirements being questioned. Keeping the design is valid when it earns its

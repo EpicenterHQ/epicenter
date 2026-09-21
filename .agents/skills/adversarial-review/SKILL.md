@@ -27,15 +27,22 @@ at any cost is the job.
 If you are already the delegated reviewer, perform the review yourself and
 launch no child agents. The following setup belongs to the coordinating agent.
 
-The coordinating agent appoints one read-only reviewer that did not implement
-the work. When the user has chosen Claude, use the consultation path below.
-Otherwise start a subagent using the runtime's available GPT-6 model with
-`fork_turns: "none"` and `reasoning_effort: "high"`.
-If subagent tools are unavailable, perform the pass locally and state that it
-was not independent. Do not invoke Claude without user authorization, including
-an existing request to include Claude during design reviews.
+The coordinating agent appoints two read-only reviewers by default: a fresh
+Codex subagent using the runtime's available GPT-6 model with
+`fork_turns: "none"` and `reasoning_effort: "high"`, and Claude through
+[consult-claude](../consult-claude/SKILL.md), which owns the Fable model default
+and access boundary. This repository authorizes both for adversarial review;
+an explicit user restriction overrides that default. Ordinary final checks
+remain local under post-implementation-review.
 
-Give the reviewer raw artifacts, concrete proposals, engineering reasoning, and
+Give both reviewers the same evidence and whole design question. Run them in
+parallel when possible, and withhold each reviewer's findings from the other
+until both initial verdicts arrive. Claude's participation does not depend on
+Codex first finding an unresolved question: another model may find the question
+Codex missed. If either reviewer is unavailable, report the missing perspective
+and continue with the available review; a local pass is not independent.
+
+Give each reviewer raw artifacts, concrete proposals, engineering reasoning, and
 open questions. Distinguish facts, hypotheses, preferences, and accepted
 constraints; the implementer's reasoning is contestable evidence, not the answer:
 
@@ -48,22 +55,20 @@ constraints; the implementer's reasoning is contestable evidence, not the answer
 
 Include actual and proposed code, representative callsites, and an ASCII diagram
 when it clarifies the design. Ask what the reviewer would build from the desired
-outcome and actual callers if the current abstraction did not exist. For an
-authorized Claude consultation, the coordinator uses
-[consult-claude](../consult-claude/SKILL.md) for the conversation and access
-boundary; Claude applies this review method as the appointed reviewer. Codex
-owns any requested experiments.
+outcome and actual callers if the current abstraction did not exist. Both
+reviewers apply this review method themselves without launching more reviewers.
+Codex owns any requested experiments.
 
 For a proposal without implementation, supply the proposal and any existing
 system it would replace. Distinguish observed behavior from design assumptions;
 name what a prototype or caller would need to establish.
 
-Hold the reviewed surface stable until the reviewer returns. Use that interval
+Hold the reviewed surface stable until both reviewers return. Use that interval
 for verification preparation or an independent question outside the surface.
 Do not begin work whose shape depends on the verdict.
 
-The reviewer does not edit the live checkout.
-Additional reviewers need distinct unresolved questions; dividing this review
+Neither reviewer edits the live checkout.
+Reviewers beyond this pair need distinct unresolved questions; dividing this review
 into file lanes would hide the relationships it is meant to examine.
 
 ## Reconstruct before judging
@@ -147,8 +152,10 @@ without evidence.
 
 ## Adjudicate and continue
 
-The coordinating agent verifies findings against current artifacts and accepts,
-rejects, or defers them with reasons. Explain accepted findings before editing.
+The coordinating agent reconciles both reviews into one recommendation,
+preserving consequential disagreement. Verify findings against current artifacts
+and accept, reject, or defer them with reasons; agreement is not a correctness
+test. Explain accepted findings before editing.
 Implement and verify repairs within existing authorization; bring changes to
 the accepted outcome or unresolved product judgment to the user.
 

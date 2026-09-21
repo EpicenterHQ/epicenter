@@ -167,7 +167,10 @@ above illustrates the target; it is not a measured result or an answer key.
 | Reviewer requests a benchmark | Codex receives a specific discriminating check; Claude does not execute it or create a laboratory. |
 | Advice-only request | Codex returns the proposed check without silently authorizing implementation. |
 | Follow-up with new evidence | Same native session recalls the question, revises its judgment, and retains read-only access. |
-| Ordinary design review without Claude authorization | Uses adversarial-review without enlisting Claude. |
+| Adversarial review without a reviewer restriction | Coordinator launches fresh Codex and Claude reviews from the same evidence, withholding their findings from each other until both initial verdicts arrive. |
+| Ordinary final code check | Uses post-implementation-review locally; does not launch the reviewer pair. |
+| Standalone request for Claude's opinion | Consults Claude without automatically launching a Codex reviewer. |
+| Explicit Codex-only adversarial review | Honors the restriction and does not enlist Claude. |
 
 For runtime acceptance, separately verify current uncommitted reads, context on
 resume, denied outside reads, absent write/shell/agent/MCP tools, and unchanged
