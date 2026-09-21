@@ -37,6 +37,7 @@
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/device": "workspace:*",
+		"@epicenter/matter-core": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"nanoid": "catalog:",
 		"openai": "^7.12.1",

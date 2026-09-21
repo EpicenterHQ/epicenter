@@ -14,13 +14,12 @@
  * outside the declared field grammar (a value an older release wrote) is
  * emitted as a JSON-quoted key, which YAML also accepts.
  *
- * Reading is the same subset, plus one concession to the person the artifact
- * exists for: a value this emitter would have quoted and a hand editor did
- * not is read as the string it looks like. That can only ever produce a
- * string, so a hand edit cannot change a value's type by accident; what it
- * cannot rescue is a hand-typed `007`, which reads as the number YAML has
- * always read it as.
+ * Reading uses Matter's YAML reader. Artifact framing and the JSON-value
+ * boundary remain here; malformed YAML never falls back to guessed strings.
  */
+import { parseMarkdown } from '@epicenter/matter-core/parse';
+import { isJsonObject } from '../definition/json.js';
+
 import type { JsonObject, JsonValue } from '../definition/index.js';
 
 /** A key YAML takes unquoted without reinterpretation: the field grammar. */
@@ -69,82 +68,18 @@ export function rowFile(fields: JsonObject, body: string | undefined): string {
 export type ParsedRowFile = { fields: JsonObject; body: string };
 
 /**
- * Read one row file back into its fields and its body.
- *
- * Strict about the frame and forgiving about the values. A file must open with
- * `---` and close the block with `---`, because the frame is what makes a body
- * containing `---` unambiguous; `undefined` says this text is not a row file at
- * all, which is the caller's cue to refuse rather than to guess.
+ * Read an artifact through Matter's YAML interpretation. An artifact requires
+ * frontmatter and JSON-compatible values. Remove only the artifact emitter's
+ * blank separator and terminal newline; content codecs retain their contract.
  */
 export function parseRowFile(text: string): ParsedRowFile | undefined {
-	const lines = text.split('\n');
-	if (lines[0]?.trimEnd() !== '---') return undefined;
-	const close = lines.findIndex(
-		(line, index) => index > 0 && line.trimEnd() === '---',
-	);
-	if (close === -1) return undefined;
-
-	const fields: JsonObject = {};
-	for (const line of lines.slice(1, close)) {
-		if (line.trim() === '') continue;
-		const entry = parseEntry(line);
-		if (entry !== undefined) fields[entry.key] = entry.value;
-	}
-
-	// One blank separator line is the emitter's, not the body's. Everything
-	// after it is the body, minus the single trailing newline a file ends with.
-	const rest = lines.slice(close + 1);
-	if (rest[0] === '') rest.shift();
-	if (rest.at(-1) === '') rest.pop();
-	return { fields, body: rest.join('\n') };
-}
-
-function parseEntry(
-	line: string,
-): { key: string; value: JsonValue } | undefined {
-	const { key, rest } = splitKey(line);
-	if (key === undefined) return undefined;
-	return { key, value: parseValue(rest.trim()) };
-}
-
-/** The key up to its colon, quoted or bare, and whatever follows it. */
-function splitKey(line: string): { key?: string; rest: string } {
-	if (!line.startsWith('"')) {
-		const colon = line.indexOf(':');
-		if (colon === -1) return { rest: line };
-		return { key: line.slice(0, colon).trim(), rest: line.slice(colon + 1) };
-	}
-	// A JSON-quoted key may hold a colon, so the closing quote is found by
-	// scanning past escapes rather than by searching for the delimiter.
-	let index = 1;
-	while (index < line.length) {
-		if (line[index] === '\\') index += 2;
-		else if (line[index] === '"') break;
-		else index += 1;
-	}
-	if (index >= line.length) return { rest: line };
-	const quoted = line.slice(0, index + 1);
-	const after = line.slice(index + 1);
-	if (!after.startsWith(':')) return { rest: line };
-	try {
-		return { key: JSON.parse(quoted) as string, rest: after.slice(1) };
-	} catch {
-		return { rest: line };
-	}
-}
-
-/**
- * One emitted value, read back exactly, or the bare text a person typed.
- *
- * Everything this module writes is JSON, so `JSON.parse` is the exact inverse.
- * What it refuses is a hand edit, and the fallback is the raw text as a
- * string: the one reading that cannot silently retype a value.
- */
-function parseValue(raw: string): JsonValue {
-	if (raw === '') return '';
-	try {
-		return JSON.parse(raw) as JsonValue;
-	} catch {
-		return raw;
-	}
+	const { data, error } = parseMarkdown(text);
+	if (error || data.body === text || !isJsonObject(data.frontmatter))
+		return undefined;
+	let body = data.body;
+	if (body.startsWith('\r\n')) body = body.slice(2);
+	else if (body.startsWith('\n')) body = body.slice(1);
+	if (body.endsWith('\r\n')) body = body.slice(0, -2);
+	else if (body.endsWith('\n')) body = body.slice(0, -1);
+	return { fields: data.frontmatter, body };
 }

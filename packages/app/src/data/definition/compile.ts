@@ -265,6 +265,7 @@ function compileTable(
 		compiled.set(fieldName, {
 			name: fieldName,
 			kind: base.kind,
+			valueSchema: base.schema,
 			schema: wire,
 			check:
 				nullableDescriptor === null

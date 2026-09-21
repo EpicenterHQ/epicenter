@@ -215,6 +215,8 @@ export const field = Object.freeze({
 export type DataField = {
 	readonly name: string;
 	readonly kind: Field['kind'];
+	/** Serialized value schema without the store-owned nullable wrapper. */
+	readonly valueSchema: unknown;
 	readonly schema: unknown;
 	readonly check: (value: unknown) => boolean;
 	readonly nullable: boolean;

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
-import { frontmatter, rowFile } from './frontmatter.js';
+import { editField } from '@epicenter/matter-core/serialize';
+import { frontmatter, rowFile, parseRowFile } from './frontmatter.js';
 
 describe('frontmatter (ADR-0268)', () => {
 	test('strings that YAML would reinterpret bare stay quoted strings', () => {
@@ -56,4 +57,59 @@ describe('frontmatter (ADR-0268)', () => {
 			'---\na: 1\n---\n\nbody text\n',
 		);
 	});
+});
+
+test('a Matter title edit preserves every other artifact value and its body', () => {
+	const fields = {
+		title: 'Before',
+		transcript: 'First line\nSecond line: detail\n',
+		code: '007',
+		flag: 'true',
+		empty: 'null',
+		at: '2026-09-21T10:00:00Z',
+		nullable: null,
+		metadata: { nested: ['a', 2, false] },
+	};
+	const original = rowFile(fields, 'Body stays here.');
+	const edited = editField(original, 'title', 'After');
+	expect(parseRowFile(edited)).toEqual({
+		fields: { ...fields, title: 'After' },
+		body: 'Body stays here.',
+	});
+	expect(parseRowFile(editField(original, 'title', 'Before'))).toEqual(
+		parseRowFile(original),
+	);
+});
+
+test('malformed and non-JSON frontmatter never becomes a partial artifact', () => {
+	for (const yaml of [
+		'title: [broken',
+		'title: a\ntitle: b',
+		'value: .nan',
+		'value: .inf',
+		'value: &self [*self]',
+		'value: !unsupported x',
+	]) {
+		expect(parseRowFile(`---\n${yaml}\n---\n`)).toBeUndefined();
+	}
+	expect(parseRowFile('---\ntitle: x')).toBeUndefined();
+	expect(parseRowFile('body only')).toBeUndefined();
+});
+
+test('general YAML values and artifact framing share one interpretation', () => {
+	expect(
+		parseRowFile("---\r\ntitle: 'A: title'\r\nempty:\r\n---\r\n\r\nBody\r\n"),
+	).toEqual({ fields: { title: 'A: title', empty: null }, body: 'Body' });
+	expect(parseRowFile('---\n---\n')).toEqual({ fields: {}, body: '' });
+});
+
+test('Unicode separators in field values cannot terminate frontmatter', () => {
+	const title = 'a\u2028---\u2029b';
+	expect(parseRowFile(rowFile({ title }, 'body'))).toEqual({
+		fields: { title },
+		body: 'body',
+	});
+	expect(parseRowFile('---\nnotes: |\n  foo\u2028---\u2028bar\n---\n')).toEqual(
+		{ fields: { notes: 'foo\u2028---\u2028bar\n' }, body: '' },
+	);
 });

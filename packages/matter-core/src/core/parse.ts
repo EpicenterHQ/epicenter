@@ -13,7 +13,7 @@
  * prose layer is opaque text.
  *
  * The `yaml` package parses with the YAML 1.2 core schema, which does NOT do
- * the YAML 1.1 "Norway problem" coercions (`NO` -> false, `1.10` -> 1.1). That
+ * the YAML 1.1 "Norway problem" coercions (`NO` -> false). That
  * is the deliberate guard against the one real looseness risk in this design.
  *
  * Files we cannot parse safely return an `Err`, split by failure mode (conflict
@@ -28,7 +28,7 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
-import { parse as parseYaml } from 'yaml';
+import { parseDocument } from 'yaml';
 
 /** Why a markdown file could not be parsed into a row. */
 export const MatterParseError = defineErrors({
@@ -56,15 +56,20 @@ export type ParsedFile = {
  * optional so an empty block (`---\n---`) matches; tolerates CRLF and an
  * optional trailing newline.
  */
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n?---\r?\n?/;
+const FRONTMATTER = /^---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/;
 
 /** A git conflict marker at the start of any line. */
-const CONFLICT_MARKER = /^(<<<<<<<|=======|>>>>>>>)/m;
+const CONFLICT_MARKER = /(?:^|\n)(<<<<<<<|=======|>>>>>>>)/;
 
 export function parseMarkdown(
 	raw: string,
 ): Result<ParsedFile, MatterParseError> {
-	const match = raw.match(FRONTMATTER);
+	const startsWithFence = /^---[ \t]*(?:\r?\n|$)/.test(raw);
+	const match = startsWithFence ? raw.match(FRONTMATTER) : null;
+	if (startsWithFence && !match)
+		return MatterParseError.InvalidYaml({
+			cause: 'Unclosed frontmatter block',
+		});
 	// No frontmatter is fine: an empty mapping, the whole file is body.
 	if (!match) return Ok({ frontmatter: {}, body: raw });
 
@@ -75,7 +80,12 @@ export function parseMarkdown(
 	if (CONFLICT_MARKER.test(yaml)) return MatterParseError.ConflictMarkers();
 
 	const { data: parsed, error } = trySync({
-		try: () => parseYaml(yaml) ?? {},
+		try: () => {
+			const document = parseDocument(yaml);
+			const problem = document.errors[0] ?? document.warnings[0];
+			if (problem) throw problem;
+			return document.contents === null ? {} : document.toJS();
+		},
 		catch: (cause) => MatterParseError.InvalidYaml({ cause }),
 	});
 	if (error) return Err(error);

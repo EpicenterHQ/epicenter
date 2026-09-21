@@ -599,6 +599,7 @@
         "@epicenter/client": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/device": "workspace:*",
+        "@epicenter/matter-core": "workspace:*",
         "@epicenter/principal": "workspace:*",
         "@epicenter/recorder": "workspace:*",
         "@epicenter/sqlite": "workspace:*",
