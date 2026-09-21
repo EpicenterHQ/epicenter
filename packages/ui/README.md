@@ -254,6 +254,7 @@ on a re-vendor:
 | `showOnHover` actions overlay | `item/item-actions.svelte` | structural (absolute overlay + gradient) | yes |
 | `tooltip` prop (wraps in `Tooltip`) | `button/button.svelte`, `link/link.svelte` | Epicenter feature; upstream Button and Link have none | yes |
 | Standard loading shell | `loading/loading.svelte` | Epicenter wrapper around `Empty.Root` + `Spinner` for generic pending panes | yes |
+| Portal and available-height limit | `context-menu/context-menu-sub-content.svelte` | lets long folder menus scroll without being clipped by their parent; Bits submenus expose `--bits-menu-content-*` variables | yes |
 | Orientation sizing `data-[orientation=horizontal]:h-px …` | `separator/separator.svelte` | byte-identical to upstream; the size is gated on a Tailwind variant, which only attaches to real utilities. Routing it through `cn-separator-horizontal` (a plain class, not an `@utility`) makes the variant emit nothing, so the divider collapses (a fat bar inside `field-separator`, 0px standalone). Do **not** cn-ify it. | yes |
 
 Correctness wiring (making Vega work, not Epicenter style): `switch` and
@@ -372,6 +373,13 @@ directly, or when UI source imports itself through private aliases or
 `@epicenter/ui/...`.
 
 ## Troubleshooting
+
+### Browser regression checks
+
+From the repo root, run `bun scripts/ui-scroll.browser.mjs` with Playwright's
+Chromium installed. The script checks chat listener and observer cleanup,
+streaming updates, preservation of the reading position, and long folder
+submenus. It prints the temporary directory containing screenshots and results.
 
 ### Import Resolution Issues
 
