@@ -124,10 +124,21 @@ developer decision. Arbitrary folders do not automatically become supported
 application data.
 
 The first integration should prove one existing recording's permitted metadata
-can travel through Pull, a Matter or script edit, and Push with durable recovery.
+can travel through Pull, a Matter or script edit, and Push with durable success
+and explicit reconciliation after interruption.
 That exercise does not require native persistence migration, shared membership,
 headless provisioning, or SQL. The subordinate records own those detailed
 contracts; this record supplies their composition boundary.
+
+## Implementation order
+
+First share file interpretation and prove that a Matter title edit preserves
+untouched multiline values and the body. Then implement the bounded schema
+mapping, nullable normalization, and the owner's permitted-field contract.
+Next replace live-store conflict planning with baseline field differences and
+prove durable success and refusal after interrupted operations. Finally connect
+the existing owner to the first app and CLI workflow. No step requires a new server authority, native
+migration, live SQL, or shared membership.
 
 ## Considered alternatives
 
@@ -144,8 +155,8 @@ contracts; this record supplies their composition boundary.
 
 Demonstrate one recording edited through Matter and through a script producing
 the same permitted Push changes. Untouched fields must remain untouched, dirty
-Pull must preserve prepared edits, and interrupted Push must recover without
-repeating intent. Generated-schema and body edits must refuse before mutations.
+Pull must preserve prepared edits, and interrupted Push must block blind retries
+and preserve files for explicit reconciliation. Generated-schema and body edits must refuse before mutations.
 A standalone Matter folder must remain usable without an Epicenter owner.
 Check headless admission, initial population, schema upgrades, and attachment
 transfer separately before claiming those workflows exist.

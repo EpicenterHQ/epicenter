@@ -10,8 +10,8 @@
 
 Generations supported choosing a historical database and replacing a live
 document while other devices retained its old state. The current product opens
-one document at a stable address. Recovery applies readable files through
-ordinary working-copy edits. The production API has no activation or restore
+one document at a stable address. Ordinary field edits use working copies. Whole-document restoration is a
+separate replacement operation outside synchronization’s guarantees. The production API has no activation or restore
 caller; replacement exists in tests and evidence fixtures.
 
 Keeping replacement requires an activation transaction, retry receipts,
@@ -106,7 +106,11 @@ creation, and deletion are not implied by the narrowed agent workflow.
 
 ## Outside the contract
 
-No supported operation replaces a document's lineage. Whoever replaces it out
+Push never replaces a document from backup. No reset or restore workflow is
+implemented by this decision. A logical replacement reconstructs complete
+contents from an archive into an empty document; it does not compare against
+a checkout baseline. Validate and preserve the required backup contents before
+discarding current state. Whoever replaces the document out
 of band must discard every old replica's live document, durable updates,
 outbox, and cursor before that replica reconnects. An offline device can be
 cleared later, before its next connection. Working copies must discard their

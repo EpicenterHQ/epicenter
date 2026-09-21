@@ -4,7 +4,7 @@
 - **Date:** 2026-09-21
 - **Amends:** [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) at three-way comparison against the current store and remote-conflict previews. The readable working copy and field-level writes remain.
 - **Relates:** [ADR-0417](0417-a-data-address-holds-one-document.md) removes generation identity independently. [ADR-0341](0341-the-folder-moves-only-when-a-person-says-so-in-both-directions.md) defines baseline advancement; [ADR-0343](0343-a-preview-is-an-output-and-the-side-that-showed-it-applies-it.md) separates change inspection from application.
-- **Unbuilt:** Permitted-field Push planning, complete preflight including body-edit refusal, durable baseline advancement and retry recovery, and running-owner CLI wiring. Current checkout is not this narrowed contract.
+- **Unbuilt:** Permitted-field Push planning, complete preflight including body-edit refusal, durable baseline advancement and interrupted-operation refusal, and running-owner CLI wiring. Current checkout is not this narrowed contract.
 
 ## Context
 
@@ -29,7 +29,10 @@ Bodies remain readable, but any body difference from the materialized baseline
 refuses the complete submission before writes. Push does not silently skip the
 body, decode it into a collaborative node, or offer a content-edit mode.
 Creation and deletion remain a separate scope decision; until specified, added
-or removed row files and edits targeting deleted rows refuse without resurrection.
+or removed row files refuse. The receiving owner refuses edits to rows it
+observes as absent, checking presence and applying the edits in one synchronous
+span. It cannot promise knowledge of deletions it has not received; concurrent
+deletions follow ordinary CRDT behavior without a resurrection path.
 
 The baseline records the values and content fingerprints corresponding to the
 files handed over or successfully submitted. It is neither the latest remote
@@ -37,7 +40,8 @@ state nor a saved Yjs fork. The replica continues to hold its ordinary durable
 updates, cursor, and outbox independently of that file baseline.
 
 Push does not compare current store values to decide which file changes to
-submit. Reading the store to locate a row or recover a retry remains legitimate. Such reads do not introduce a remote-conflict plan.
+submit. Reading the store to check whether a target row exists remains
+legitimate. Such reads do not introduce a remote-conflict plan.
 No unchanged file field may overwrite a change made elsewhere.
 
 **One synchronization system resolves concurrent edits.**
@@ -54,20 +58,69 @@ For example, changing a title in Markdown does not submit its untouched status.
 A phone's status edit survives. If both devices change the title, ordinary CRDT
 resolution applies. There is no separate Markdown conflict resolver.
 
+**Pull is an explicit refresh, not a prerequisite for Push.**
+
+Pull materializes the running owner's observed state into a clean working
+folder. Synchronization delivers updates to that owner; it is a separate
+operation. Neither a Pull nor a synchronization round establishes that every
+offline device has submitted its work. Push requires no new Pull or remote
+freshness barrier. A changed field is an assignment based on the author's
+snapshot and can supersede an observed edit to the same field.
+
+Requiring Pull before Push would conflict with dirty-Pull refusal or require
+another merge procedure. Use Pull before editing when fresh context matters.
+A stale snapshot does not express "increment the current count" or "change
+only rows that still match this SQL selection." Those intentions require
+renewed judgment or a separately specified conditional-operation contract.
+
 **A successful Push advances only the submitted baseline.**
 
 The edits must be durable locally before the baseline claims success. Remote
 acknowledgement may follow later through the outbox. Changes received remotely
 must not enter the baseline unless the corresponding files are materialized.
-A second Push with unchanged files must submit no new edits.
+A second Push with unchanged files must submit no new edits. Push writes only
+submission metadata in the folder; it does not re-render or rewrite Markdown,
+KV, or generated schemas. Edits made after capture remain pending against the
+captured submitted baseline. Explicit Pull owns file refresh.
 
-The implementation must recover interrupted field edits and baseline writes
-without repeating their intent. A public request ID is unnecessary, but internal
-durable submission recovery remains required. A flush followed by a
-manifest write is an ordering requirement, not an atomic transaction across
-storage and files. Yjs transactions do not roll back on exceptions. Prove crash
-recovery before claiming exactly-once application; do not add a distributed
-reset or replacement protocol to solve this local problem.
+**An uncertain submission requires explicit reconciliation.**
+
+Before submitting mutations, durably mark the working-copy operation unfinished.
+After the edits are durable, atomically advance the baseline to the captured
+submitted values and finish the operation. An interruption leaves normal Pull
+and Push blocked. Do not automatically replay the inferred edits or infer success
+from current store values. Pull needs the same interruption protection before
+materialization: a partially written folder must never become Push intent.
+
+Preserve the uncertain folder. Establish that the old operation has settled or
+its owner has completed shutdown before taking a fresh Pull into another folder.
+A timeout is not cancellation. A person or agent compares the preserved edits
+with the fresh state and deliberately reapplies only those still wanted.
+Clearing an unfinished marker and retrying is not a recovery procedure.
+
+This contract requires no owner-held checkout registry, submission receipts,
+predecessor fingerprints, or atomic coupling of checkout metadata with the Yjs
+update log. It does require durable folder metadata and operation exclusion.
+Prove the ordering and interruption behavior before claiming crash safety;
+file rename alone does not establish power-loss durability. Yjs transactions
+do not roll back on exceptions, so all expected refusals precede mutation.
+
+**Push edits an existing document; it does not replace one from backup.**
+
+Whole-document replacement remains an out-of-band, operator-owned operation
+under ADR-0417. A logical restore reconstructs complete contents in an empty
+document and needs no checkout comparison baseline. It still needs initial
+CRDT state. No restore endpoint, automatic device clearing, or replacement mode
+is added to Push. Body restoration, row creation/deletion, and complete
+attachment recovery are outside this field-edit workflow.
+
+After document replacement, establish fresh working copies. Old folders and
+filesystem backups are recovery material to inspect and reconcile, not a
+supported restore-through-Push path. Without independently retained history,
+Push cannot reliably detect every restored old folder or replacement at the
+same address. Following this rule is the operator's responsibility. Clearing a
+local cache while preserving the same remote document does not by itself
+invalidate a folder-held baseline.
 
 ## Scope and implementation boundaries
 
@@ -80,7 +133,7 @@ Pull, live-store queries, and Push require an identified running store owner wit
 access to the explicit destination. If unavailable, refuse rather than start a
 second persistence owner. Editing existing files can happen offline. Dirty Pull
 refuses rather than silently replace prepared edits. Successful Push means local
-durability and recoverable baseline advancement, not remote acknowledgement.
+durability and completed baseline advancement, not remote acknowledgement.
 
 Keep destination and owner checks, complete materialization, readable-file
 validation, and exclusion between working-copy operations. File changes during
@@ -91,8 +144,8 @@ CLI and desktop use the same file-to-edit semantics. The running application
 owns the replica and validates the complete submission before applying changes.
 Routing and owner admission must prevent duplicate persistence owners. Existing
 access checks apply; a working-copy path or SQL result is not authorization.
-Preflight is not rollback: store persistence and baseline advancement need
-crash recovery. No cross-store atomic batch or agent self-confirmation policy
+Preflight is not rollback: interrupted store persistence and baseline advancement
+require the explicit reconciliation procedure above. No cross-store atomic batch or agent self-confirmation policy
 is introduced.
 
 The current engine is in `packages/app/src/data/artifact/checkout.ts`; its
@@ -133,7 +186,9 @@ including unpushed field edits, through its last completed build or refresh.
 An index produced by Pull alone is a snapshot of that Pull until refreshed.
 These indexes must not be presented as interchangeable current views.
 
-A working-copy index is optional, disposable, and excluded from Push. Rebuilding
+A working-copy index is optional, disposable, and excluded from Push. Its
+checkout-local path is `.epicenter/query.sqlite`; ADR-0422 defines Git exclusion
+and preservation of local submission metadata. Rebuilding
 it does not modify Markdown, KV, or the Push baseline. Missing or invalid files
 must be reported rather than silently disappearing from the indexed view.
 Returned paths identify candidates, not permission to write them or a promise

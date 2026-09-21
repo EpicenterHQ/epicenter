@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-21
+- **Implemented boundary:** Shared YAML parsing for Matter and Epicenter artifacts, with strict malformed-input refusal and artifact JSON-value validation. This does not implement the permitted-field Push policy.
 - **Unbuilt:** Faithful store-to-Matter schema mapping, generated per-table contracts on Pull, checkout-aware editing restrictions in Matter, root KV schema representation, and shared working-copy indexing integration.
 
 ## Context
@@ -35,14 +36,51 @@ working-copy/
     matter.json
     <folder-id>.md
   kv.json
-  <Epicenter destination and baseline metadata>
-  <optional disposable query index>
+  .gitignore
+  AGENTS.md
+  .epicenter/
+    manifest.json
+    query.sqlite                 # optional, disposable
 ```
 
-Angle-bracket entries describe roles, not newly specified filenames. Opening a
+The directory name is the table name; each `<row-id>.md` file is one row.
+[ADR-0422](0422-git-versions-working-copy-content-not-submission-state.md) defines
+which files travel through Git and which state stays local. This is the target
+layout; indexing placement and filesystem integration remain unbuilt. Opening a
 table folder is sufficient to interpret its fields. Cross-table references can
 still require the containing workspace. Copying a table folder alone does not
 transfer Epicenter destination identity or make it independently pushable.
+
+**One YAML reader interprets frontmatter; field values define changes.**
+
+An empty field map retains a fenced mapping when serialized, including when
+Matter clears the last field. Empty or comment-only YAML represents an empty
+map. An explicit top-level YAML null is a scalar and refuses; it must not become
+an instruction to clear every field.
+
+Epicenter artifacts and Matter use the parser exported by
+`@epicenter/matter-core/parse`. It depends on YAML parsing, not vault ownership,
+filesystem access, or SQL. Epicenter retains its JSON-compatible value boundary
+and artifact body framing. It does not keep a second line-by-line reader,
+skip malformed lines, or guess values after a parse failure.
+
+Frontmatter quoting, whitespace, key order, and comments are not preserved.
+The body remains opaque text. A formatting-only rewrite must produce no field
+edits. Pull and Push must interpret materialized values through the same reader
+and normalization rules. Artifact separator newlines are framing, not a second
+Markdown syntax.
+
+Support the declared shared field vocabulary and its constraints. Do not build
+an arbitrary schema converter or silently downgrade an unsupported field to
+claim a faithful checkout. App and Matter currently have separate field-model
+implementations; sharing them requires checking semantic differences first.
+Generated schemas remain descriptive and never grant mutation permission.
+
+Parsing and structural checks precede comparison. Validate permissions and
+field constraints on changed values before applying a submission. An unchanged
+stored value that does not conform to a newer definition must not silently
+become a repair or block an unrelated permitted edit. Unsupported schema shapes
+must be distinguished from nonconforming values under a supported schema.
 
 **The shared format does not imply shared authority.**
 
@@ -148,8 +186,8 @@ remain Epicenter responsibilities. Matter does not become a synchronization
 service, and filesystem writes do not become live store mutations.
 
 Implement the schema mapping and checkout restrictions, then wire Pull and
-field-only Push through the running owner with durable recovery. Reuse indexing
-when a caller needs it. Native persistence migration, space membership, and
+field-only Push through the running owner with durable success and explicit
+reconciliation after interruption. Reuse indexing when a caller needs it. Native persistence migration, space membership, and
 TypeScript code generation do not block the file workflow.
 
 The composition is a target, not a statement that schema compatibility, body

@@ -24,6 +24,13 @@ Worker probes. Disposing the data document leaves that connection open.
 `MemoryRecord` survives document disposal so a test can reopen the same bytes.
 These entrypoints do not load the App or its platform implementations.
 
+The descriptions below reflect the current implementation. The unbuilt
+[ADR-0417 direction](../../../../docs/adr/0417-a-data-address-holds-one-document.md)
+removes generations and retirement.
+[ADR-0418](../../../../docs/adr/0418-push-translates-file-differences-into-ordinary-edits.md)
+replaces checkout's three-way planning with field-level file-versus-baseline
+edits. Pull/Push application and CLI wiring remain unbuilt.
+
 ## Current-data startup
 
 Applications await `openApp` from `@epicenter/app/open` for a ready App; see the

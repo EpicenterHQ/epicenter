@@ -18,17 +18,18 @@ edits durably recorded in the local replica. Remote delivery uses the outbox.
 
 Push must not absorb unseen file changes or newly received remote values into
 the baseline. A baseline is evidence of materialization or submission, not a
-cache of the latest store state. Untouched files remain untouched by Push.
+cache of the latest store state. Push updates baseline metadata only; authored files remain untouched.
 
-File writes and replica persistence are separate failure boundaries. A failed
-baseline write must leave enough local evidence to recover without duplicating
-new rows or replaying an old edit over a later remote edit. Filename assignment
-alone is not proof of crash-safe recovery. Validate the selected mechanism with
-interruption tests before publishing success guarantees.
+File writes and replica persistence are separate failure boundaries. ADR-0418
+requires durable unfinished-operation evidence before mutation, then completed
+baseline advancement only after durable success. An uncertain outcome blocks
+normal Pull/Push and requires explicit reconciliation after the old operation
+has settled. There is no automatic replay or owner-held submission receipt.
+Validate interruption handling before publishing success guarantees.
 
 This replaces the earlier draft's partial-application and automatic
-resurrection prescriptions. Dirty Pull and missing-row policies are not settled
-by the baseline invariant.
+resurrection prescriptions. ADR-0418 owns dirty-Pull refusal and the receiving
+owner's missing-row checks.
 
 ## Consequences
 
