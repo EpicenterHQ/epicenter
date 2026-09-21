@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-29
+- **Amended by:** [ADR-0417](0417-a-data-address-holds-one-document.md) removes current-data generation identity while retaining cache-first opening, complete bootstrap, and historical-data refusal.
 - **Amended by:** [ADR-0407](0407-app-owns-the-declaration-and-data-engine.md) at the client opener: current App acquisition replaces exact numbered-cache opening. Existing historical bytes and the server refusal of fresh current Personal initialization over admitted history remain. The implementation account below records the earlier protocol, not a current client API.
 - **Amends:** [ADR-0285](0285-a-generation-is-a-url-parameter-and-a-device-stores-no-selection.md) at the opener's cache and bootstrap behavior; the URL remains the generation selector.
 - **Supersedes:** [ADR-0278](0278-a-replica-syncs-the-application-document-and-fetches-row-documents-on-demand.md) entirely.

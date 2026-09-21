@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-28
+- **Amended by:** [ADR-0417](0417-a-data-address-holds-one-document.md) withdraws generation selection and independently writable histories from current data; historical bytes remain untouched.
 - **Amends:** [ADR-0276](0276-an-authority-holds-a-numbered-succession-of-generations-and-nothing-is-ever-overwritten.md) at what a generation does to a device. The numbering, the retention rule, and "nothing is ever deleted except by a person" are unchanged. Withdrawn: `current` as a stored value, `PUT /current`, `setCurrent` as a verb, `supersededBy` as a client signal, and "a replica on an old generation is told, and discards and refills."
 - **Amends:** [ADR-0280](0280-a-browser-stores-durable-record-is-a-chain-of-updates-in-indexeddb-folded-on-idle.md) at the database's identity. One IndexedDB database per store becomes one per generation, which is what `record.ts` already implements and what makes discarding one a `deleteDatabase` rather than a scan.
 - **Amends:** [ADR-0272](0272-restore-replaces-a-workspace-from-an-artifact-under-a-new-document-identity.md) at the loss it announced. A restore discards nothing, so the paragraph describing what a person is told they are giving up describes a cost that no longer exists.

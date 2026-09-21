@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-12
 - **Amends:** [ADR-0272](0272-restore-replaces-a-workspace-from-an-artifact-under-a-new-document-identity.md) at the product recovery workflow: bringing old content back uses ordinary Push, not a restore endpoint or replacement document. [ADR-0281](0281-a-generation-is-a-whole-database-and-a-device-chooses-which-one-it-holds.md) at recovery through writable historical generations: no generation picker is required.
-- **Relates:** [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) (the working copy), [ADR-0338](0338-the-folder-wins-and-a-push-is-one-approval.md) (Push semantics), [ADR-0343](0343-a-preview-is-an-output-and-the-side-that-showed-it-applies-it.md) (preview and recheck), [ADR-0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) (folder contents).
+- **Relates:** [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) (the working copy), [ADR-0338](0338-the-folder-wins-and-a-push-is-one-approval.md) (historical Push semantics), [ADR-0343](0343-a-preview-is-an-output-and-the-side-that-showed-it-applies-it.md) (file-change inspection), [ADR-0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) (folder contents).
 - **Implementation:** `createWorkingCopy` already exposes Pull and Push with previews, new-row admission, permanent row deletion, and reports for unreadable files. A dedicated backup-restoration UI is not required.
 
 ## Context
@@ -14,27 +14,26 @@ work from retired generations.
 
 The selected use case is narrower: someone has old readable files and wants to
 bring some content back. Schema changes and serialization loss are acceptable
-when the files can be inspected and repaired. The existing working-copy preview
-provides the application path.
+when the files can be inspected and repaired. The working-copy library supplies the editing mechanism; application and CLI
+wiring remain unbuilt.
 
 ## Decision
 
 **Recover old content by editing a current working copy, then use ordinary Push.**
 
 1. Preserve the old folder separately. Pull the intended destination library
-   into its working copy, handling any existing folder edits through the
-   normal preview.
+   into its working copy, preserving any unsubmitted folder edits before materialization.
 2. Copy selected old document contents into that working copy. Keep the current
    `.epicenter/manifest.json`; do not replace it with the old copy's manifest.
    Leave unrelated current files in place.
-3. Inspect the Push preview. Repair unreadable files and retry, or approve the
-   readable changes while the remaining files stay available for repair.
+3. Inspect the file changes against that baseline, repair unreadable files,
+   and submit ordinary Push edits under [ADR-0418](0418-push-translates-file-differences-into-ordinary-edits.md).
 
-An existing row's file carries an ordinary edit. A recovered file with no live
-row is admitted as a new row with a newly minted ID; the old filename does not
-resurrect a deleted identity. Recovery does not guarantee identity preservation,
-automatic remapping of references between recovered rows, deduplication, or
-exactly-once repetition. People or applications repair links where needed.
+An existing row's file carries an ordinary edit. Recovering a deleted row must
+use an explicit creation path; the missing-row policy remains to be settled.
+Recovery does not promise identity preservation or automatic remapping of links.
+Local Push retries must not duplicate creations; separately importing the same
+old source again is not automatic deduplication.
 
 The baseline makes recovered content a deliberate change relative to the
 current library. Copying an old manifest would instead change the comparison
@@ -64,15 +63,17 @@ Push or that importing old text reconstructs exact editor state.
 
 ## Consequences
 
-Recovering content uses the existing preview and confirmation. It creates
+Recovering content uses file-versus-baseline changes. It creates
 ordinary synchronized edits and does not retire other replicas or discard their
 pending work. No backup browser, restore wizard, safety-copy transaction, or
 new restore route is required.
 
-The unused recovery journals and backup orchestration are removed. Activation
-and durable retry receipts remain for the existing retirement mechanism.
-Generation admission, cache invalidation, and retirement fences remain intact
-(ADR-0379).
+The unused recovery journals and backup orchestration are removed. The remaining
+activation and retirement machinery has no production recovery caller and is
+specified for removal in [ADR-0417](0417-a-data-address-holds-one-document.md).
+Ordinary Push needs neither a generation nor a replacement receipt. After
+coordinated whole-document replacement, discard the old working-copy manifest
+and establish a fresh Pull baseline before using this recovery workflow.
 
 ## Considered alternatives
 

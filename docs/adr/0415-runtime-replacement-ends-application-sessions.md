@@ -54,12 +54,23 @@ Existing bounded server revocation remains separate from local credential
 clearing. Exiting with an unobserved revocation request is not a replacement for
 that behavior. A successful local transition does not certify server revocation.
 
-**One application document opens one App, and departure replaces the document.**
+**One application document owns one session, and departure replaces the document.**
 
 `AppBoot` captures the account and opens the App at mount. Sign-in/callback and
 recovery documents open no primary App. Ordinary navigation that retains the
 App, such as Honeycrisp Local/Personal navigation, remains inside the document.
 Exits from its lifetime use full navigation rather than an awaited UI drain.
+
+The explicit-store target permits several independently opened stores inside
+that session. Independent store closure does not promise that handles survive
+a document replacement or desktop restart. Local data retains its device-owned
+address across account changes; a new session opens new handles.
+
+Agent Pull, live-store SQL queries, and Push route to an identified running store
+owner. The CLI does not acquire a second persistent replica. If that owner is
+unavailable, the operation refuses; preparing edits in an existing working copy
+requires no running owner. Restart does not wait for Push, so interrupted Push
+recovery belongs to the working-copy engine.
 
 Unexpected retirement fences access immediately and replaces the document with
 an inert recovery destination. That destination opens nothing until the person

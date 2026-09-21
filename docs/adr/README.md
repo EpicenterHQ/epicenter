@@ -633,7 +633,7 @@ When you add an ADR, add its row here.
 | [0376](0376-application-authors-declare-data-and-the-opened-app-owns-resources.md) | Application authors declare data and the opened App owns resources | Proposed (App owns capability access and resource shutdown, not row-owned blob lifetimes) |
 | [0377](0377-a-table-may-omit-its-content-codec-while-every-row-owns-a-node.md) | A table may omit its content codec while every row owns a node | Proposed |
 
-| [0379](0379-reconstruction-is-an-explicit-destructive-library-operation.md) | Storage maintenance does not require a restore product | Proposed |
+| [0379](0379-reconstruction-is-an-explicit-destructive-library-operation.md) | Storage maintenance preserves document lineage | Proposed |
 
 | [0378](0378-local-mail-saves-sql-definitions-and-queries-cached-gmail-facts.md) | Local Mail saves SQL definitions and queries cached Gmail facts | Proposed |
 | [0382](0382-session-composition-selects-issuer-identity-and-management-capabilities.md) | Session composition selects issuer identity and management capabilities | Proposed |
@@ -642,7 +642,7 @@ When you add an ADR, add its row here.
 | [0371](0371-core-observations-and-queries-use-explicit-methods.md) | Core observations and queries use explicit methods | Proposed |
 | [0374](0374-the-host-selects-one-account-and-replacement-restarts-its-applications.md) | The host selects one account and replacement restarts its applications | Proposed |
 | [0384](0384-self-hosted-credential-commits-own-admission-and-recovery.md) | Self-hosted credential commits own admission and recovery | Proposed |
-| [0385](0385-initial-generation-selection-is-a-server-commit.md) | Initial generation selection is a server commit | Proposed |
+| [0385](0385-initial-generation-selection-is-a-server-commit.md) | Initial data creation is a server commit | Proposed |
 | [0387](0387-the-clipboard-is-a-platform-module-beside-the-app-not-a-capability-on-it.md) | The clipboard is a platform module beside the App, not a capability on it | Accepted |
 | [0388](0388-the-app-owns-what-a-library-scopes-and-the-package-s-modules-supply-what-the-device-supplies.md) | The App owns what a library scopes, and the package's modules supply what the device supplies | Accepted (capability spelling amended by 0392) |
 | [0389](0389-the-open-call-decides-the-app-s-type-and-a-local-app-has-no-account-members.md) | The open call decides the App's type, and a local App has no account members | Accepted (opener shape superseded by 0392) |
@@ -671,3 +671,6 @@ When you add an ADR, add its row here.
 | [0412](0412-app-data-addresses-name-scopes-not-libraries.md) | App data addresses name scopes, not libraries | Accepted (amends 0375 and 0392) |
 | [0413](0413-app-boot-owns-the-working-page-lifetime.md) | AppBoot owns the working page lifetime | Accepted (amends 0411) |
 | [0415](0415-runtime-replacement-ends-application-sessions.md) | Runtime replacement ends application sessions | Proposed (amends 0413 and 0155) |
+| [0417](0417-a-data-address-holds-one-document.md) | A data address holds one document | Proposed (generation-free current data; replacement outside sync guarantees) |
+
+| [0418](0418-push-translates-file-differences-into-ordinary-edits.md) | Push translates file differences into ordinary edits | Proposed |

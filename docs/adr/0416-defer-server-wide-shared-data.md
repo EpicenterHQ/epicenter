@@ -12,9 +12,9 @@ never displayed it even though opening an App could create and synchronize it.
 
 ## Decision
 
-An App opens device data and, when signed in, the captured Account's personal
-data. There is no Shared store, selector, auth flag, deployment option, or server
-admission switch. Both hosted and self-hosted servers accept only personal data
+This removal leaves device data and the captured Account's personal data.
+There is no legacy server-wide Shared store, selector, auth flag, deployment
+option, or server admission switch. Both hosted and self-hosted servers accept only personal data
 scope requests. Existing personal routes and storage identities remain unchanged.
 
 Configuration stays in source and each build chooses one server. Auth server
@@ -26,16 +26,14 @@ preference falls back to Personal when signed in, without moving recordings.
 
 ## Deferred direction
 
-If people need it, we can implement one server-wide Shared store per app at a
-`/shared` scope beside `/personal`. Every admitted person on that server would
-access the same app store. This is not team or organization sharing on a
-multi-user Cloud service.
+The future target is an explicitly opened store owned by a named space, not
+one store shared by everyone admitted to a server. A space has members and can
+own stores from several applications. Its durable address uses `shared/<id>`.
 
-A future implementation would make apps explicitly request Shared and let the
-server grant or refuse it. Operators, including Epicenter, would activate it
-deliberately in source. Admission, offline edits, and refusal handling must be
-defined when there is a real use case. No dormant feature flag or implementation
-is retained now.
+Membership, admission, revocation, offline edits, and refusal handling require
+a separate design before this feature ships. Removing the old implementation
+does not prebuild the new one or migrate historical Shared data into a space.
+Local and Personal work does not depend on implementing spaces.
 
 ## Consequences
 

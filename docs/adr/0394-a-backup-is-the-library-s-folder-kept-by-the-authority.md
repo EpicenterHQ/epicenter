@@ -47,17 +47,14 @@ multi-library export API.
 
 **Pull and Push use the manifest as their comparison baseline.**
 
-The manifest records the library identity, `pulledAt`, row field values,
-body hashes, and setting values. Comparisons use the baseline, folder contents,
-and current store. They establish where values changed, not whether a person
-intended those changes.
+The manifest records destination identity, materialization time, row field
+values, body hashes, and setting values. [ADR-0418](0418-push-translates-file-differences-into-ordinary-edits.md)
+defines comparison against the last Pull or successful Push baseline. No
+current-store conflict comparison belongs to the target workflow.
 
-Pull writes app data to the folder after preview and approval for overwritten
-edits. Push previews folder changes, applies approved edits, and advances the
-baseline only for what landed. Before applying, the existing recheck compares
-the folder fingerprint and recomputed preview with what was approved. This is
-not a transaction across the row store and filesystem. A ZIP operation does not
-refresh or alter this baseline.
+Baseline advancement follows durable local edits, not remote acknowledgement.
+A ZIP operation neither refreshes nor alters that baseline. The library and
+folder host exist; application and CLI integration remain unbuilt.
 
 **A saved folder is a copy of the files as they stand, including unpushed edits.**
 
@@ -80,8 +77,7 @@ BlobId or URL. Generic local blob enumeration remains useful independently.
 
 The structural archive and its byte-installation code are removed under
 [ADR-0379](0379-reconstruction-is-an-explicit-destructive-library-operation.md).
-The retirement fixture authors fresh replacement state without a second export
-format. The Markdown reader and checkout remain separate APIs.
+The Markdown reader and checkout remain separate APIs.
 
 ## Considered alternatives
 

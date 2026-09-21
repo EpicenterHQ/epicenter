@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-01
+- **Amended by:** [ADR-0417](0417-a-data-address-holds-one-document.md) removes generation from current data identity without renaming persisted addresses or merging owner partitions.
 - **Supersedes:** [ADR-0261](0261-a-local-account-replica-is-addressed-by-its-application-server-url-and-verified-principal.md). Addressing a replica by its server URL and verified principal is withdrawn entirely; the facts it put in the address move to a declaration and a stamp.
 - **Amends:** [ADR-0304](0304-application-persistence-is-runtime-selected-and-scoped-by-its-owning-app.md) at its desktop path, which gains a format-version segment; and [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) at the `data/<data-id>/` spelling, which gains the same version segment.
 - **Relates:** [ADR-0292](0292-a-database-opens-an-exact-generation-cache-first-and-bootstraps-account-misses.md) (the generation is the address, unchanged), [ADR-0293](0293-a-generation-is-created-by-importing-a-folder-and-the-ledger-row-is-its-existence.md) (who mints the number), [ADR-0318](0318-epicenter-data-is-what-epicenter-is-the-authority-for-and-a-foreign-write-is-a-command.md) (the authority test), [ADR-0321](0321-app-owned-storage-is-named-sqlite-files-an-application-opens-and-deletes-and-nothing-else.md) (the other storage kind)

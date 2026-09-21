@@ -1,72 +1,75 @@
-# 0385. Initial generation selection is a server commit
+# 0385. Initial data creation is a server commit
 
 - **Status:** Proposed
 - **Date:** 2026-09-09
-- **Implementation:** The current-authority transaction and Worker adapter exist. The library-ownership execution spec tracks integration and runtime verification.
+- **Unbuilt:** Expressing canonical initialization through snapshot existence without a generation row.
+- **Relates:** [ADR-0407](0407-app-owns-the-declaration-and-data-engine.md) preserves historical-data refusal; [ADR-0417](0417-a-data-address-holds-one-document.md) removes generation identity and remote replacement.
 
 ## Context
 
-Two devices can both observe an empty library, create separate seeds, and cache
-different histories. A browser lock coordinates tabs within one profile, not
-independent devices.
+A browser lock coordinates local owners, not independent devices. Two devices
+can both see an empty cache and submit initialization candidates. The authority
+must return one canonical state, even when a caller retries after losing the
+response. The existing current-authority transaction provides this guarantee;
+the generation number is not what makes the transaction atomic.
 
-The first proposal reserved an initial number in a separate generation ledger,
-seeded another authority, then admitted it. That protocol overlapped the single
-current authority in [ADR-0379](0379-reconstruction-is-an-explicit-destructive-library-operation.md).
-The user selected one current generation per stable library and reopening through
-normal bootstrap after a full document reload.
+Today's ordinary opener submits an empty Yjs seed. Keeping explicit
+initialization establishes a complete baseline and confirms durable server
+storage before publishing a usable personal cache.
 
 ## Decision
 
-**The stable library authority atomically ensures one current generation.**
-It owns the generation number, baseline, update log, and generation-bound socket
-admission in one serialization domain. Initialization creates the complete first
-baseline and its current number in one transaction. A retry or concurrent caller
-receives the existing canonical state. No separate initial-generation owner or
-publication ledger participates in startup.
+The stable data authority initializes one snapshot and log atomically. If the
+log is empty, initialization installs the submitted baseline. Later and
+concurrent callers receive the existing canonical capture. A snapshot proves
+initialization; no generation number, allocation ledger, or publication marker
+is needed.
 
-The response binds snapshot bytes to their generation and snapshot position.
-The socket supplies any later log entries. A client installs the returned bytes,
-never its submitted seed; the losing initializer must not retain a different
-state under the winning number. Nonempty input and a streamed 16 MiB ingress
-limit are checked before the transaction.
+The capture contains a snapshot, every following update through its captured
+head, and that head. The socket supplies subsequent entries. A client applies
+and validates the capture, then atomically installs the complete baseline with
+its position. It installs the returned bytes, never an independently retained
+candidate. Nonempty input and the existing streamed 16 MiB ingress limit are
+checked before the authority transaction.
 
-An established replica opens from its local cache before network access. An
-absent usable cache calls ensure-current directly. A failed request does not
-prove that a remote library is empty, authorize a new history, or select Local.
-The cache atomically installs its generation header and baseline. Generation
-admission precedes sending pending edits.
+A production socket accepts writes only after initialization. A nonempty log
+without a usable snapshot is a failure, not permission to replace it with an
+empty seed. Generic raw-log use by sync-lab does not require a second authority
+implementation or change production bootstrap ordering.
 
-The library address distinguishes the application and Personal versus Shared.
-Personal ownership comes from the authenticated actor; Shared uses the same
-remote address for admitted actors on that deployment. Local replicas additionally
-retain the actor so account replacement cannot submit another person's queue.
+An established replica opens its local cache without network access. A missing
+cache calls initialization directly. A failed request does not prove that the
+remote document is empty, authorize a different history, or select device data
+instead. A complete nonempty update chain establishes local cache readiness.
 
-This is a fresh-library integration, not a migration. Historical numbered
-libraries remain untouched. The Personal startup route refuses an existing
-admitted historical ledger rather than selecting its largest number or silently
-opening an empty replacement. Historical `instance` data is not assigned to a
-named user. Rollout and explicit migration remain separate decisions.
+The data address names the application, personal scope, and data domain. The
+server derives the owner from the authenticated actor. Local replicas also
+retain the authority and actor, so an account change cannot submit another
+person's queue.
+
+Historical numbered data remains untouched. Personal initialization refuses
+admitted historical data rather than choosing its largest number or hiding it
+behind a fresh document. Historical `instance` data is not assigned to a named
+person. Rollout and historical-data disposition remain separate decisions.
 
 ## Consequences
 
-Initialization and write admission share one transaction owner. Existing
-activation and retirement code remain subject to ADR-0379's caller audit.
-Document-only materialization and recovery through ordinary Push
-(ADR-0394 and ADR-0395) do not require a restore endpoint.
+Initialization keeps one transaction owner and one readiness fact. It no longer
+requires generation-bound sockets, retirement, or replacement receipts. An
+operator restoring a backup to empty storage must install the intended baseline
+before admitting ordinary clients with empty initialization candidates.
 
-The old ledger remains only as historical storage and a migration-refusal check;
-it is not a second production initialization protocol. Library selection
-returns through ordinary page bootstrap. Existing retirement uses its invalidate
-departure path; recovering old Markdown through Push does not retire the App.
+The historical ledger remains solely for the refusal from ADR-0407. It is not
+another initialization protocol. Canonical bootstrap, offline cache opening,
+and pending-edit preservation remain required after generation removal.
 
 ## Considered alternatives
 
 - Client-side locks: cannot coordinate independent browser profiles or devices.
-- List history and select its largest number: silently chooses a migration policy.
-- Reserve, seed, and admit across a ledger and another authority: duplicates
-  current-generation ownership and requires distributed publication.
-- Cache the submitted seed under the returned number: losing clients retain
-  bytes the authority did not select.
-- Keep every imported generation writable: reintroduces history selection;
-  the selected recovery workflow uses current working-copy edits.
+- Select the largest historical number: silently chooses a migration policy.
+- Reserve, seed, and admit through separate owners: distributes one creation
+  transaction across a protocol that current startup does not need.
+- Keep the submitted candidate instead of the returned capture: a losing
+  initializer can publish bytes the authority did not select.
+- Remove initialization because current seeds are empty: changes bootstrap and
+  cache completeness to avoid a small existing transaction.
