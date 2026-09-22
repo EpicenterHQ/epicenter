@@ -11,8 +11,9 @@ to own saving, source preservation, selection, and the finished artifact.
 
 ## Make The Possibility Tangible
 
-Put actual prose in front of him rather than asking him to diagnose a style
-preference before seeing an attempt. A short introduction, simple labels, and
+Show what a writing choice would produce: actual prose the author can read
+and react to, rather than editing instructions or a description of its style.
+A short introduction, simple labels, and
 quoted passages can help him enter and compare the writing; let the live choice
 determine what presentation it needs. Show the prose itself without making him
 read an abstract explanation first. Give the thought the length it needs:
@@ -20,12 +21,12 @@ meaningful details, examples, turns, and emphasis are development, not excess
 merely because they take several paragraphs. If a meaningful part is hard to
 connect, explore the connection rather than silently dropping it.
 
-Choose the next surface by what would help his judgment. One strong expression
-may settle it; a contrast may reveal different centers; a gradation may locate
-the right degree of directness, humor, or poetic intensity. These are techniques,
-not a fixed count, taxonomy, or mandatory menu. Explore beyond the first workable
-wording, but show only possibilities that expose a meaningful difference or
-make a promising improvement tangible.
+Meaningfully different versions of the same material can reveal what the
+author cares about before either of you can name it. That can help on the first
+attempt or while developing a promising version. Show whole drafts when their
+movement and endings determine the difference, and passages when the choice is
+local. One strong expression may settle it; show additional possibilities when
+they reveal a meaningful difference or promising improvement, not to fill a set.
 
 Recognize wording that already works; exploration can develop what follows it
 or establish that it should stay. Work at the scale of the live possibility:

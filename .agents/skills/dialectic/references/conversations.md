@@ -1,104 +1,94 @@
 # Example conversations
 
-These are illustrations, not measured skill runs or records of the user's
-preferences. They show three common settings for making something worth
-reacting to. Writing starts with an attempt that a correction reshapes. API
-design develops a recommendation and then reaches a fork. Skill design compares
-experiences before deriving instructions. Their value is in the judgment and
-response to the human, not their number of turns or alternatives.
+These illustrations show possibilities through their results: prose to read,
+code to use, and conversations a skill could produce. They are not measured
+runs or records of the user's preferences. The reactions help discover what
+matters; they need not select one of the original options. The examples teach
+judgment, not a fixed sequence, number of versions, or response format.
 
-Ordinary conversation stays in plain prose. Here the whole exchange is quoted
-because it is a sample; drafts and exchanges presented inside it sit one quote
-level deeper. Labels stay outside the inner artifact. Code stays in fences.
-Short openings and simple labels help the reader enter the work without an
-abstract explanation of each direction. These choices serve readability, not
-a mandatory format.
+## Writing: experience different readings of one transcript
 
-## Writing: a correction reveals the opening
+These drafts draw on the preserved voice transcript of The Death of Deep Work.
+They are a collaboration exercise, not revisions to that finished page. The
+human's later reply below is hypothetical, not a recorded preference.
 
-This example adapts the writing exchange the user supplied. Its wording and
-continuation illustrate the behavior; they are not a verbatim transcript.
+> **Human:** Coding agents have made me more productive, but I miss sitting
+> down for hours to build a feature. Now it's like being on call. I still read
+> a lot and steer the agents, but the thinking feels different. Help me write
+> about that.
+>
+> **Agent:** There's both the constant availability and the change in what
+> the thinking feels like. Here are two ways to keep both while letting a
+> different one lead.
+>
+> **1. Always on call**
+>
+>> Coding agents have made it easier to produce code and harder to leave work alone.
+>>
+>> I used to sit down and spend hours building a feature. Now I give an agent
+>> something to do, wait, read what it produces, and respond. While one is
+>> working, I can start another. There is almost always something ready for
+>> my attention.
+>>
+>> It starts to feel like being on call. I don't have to be actively coding
+>> all day, but it helps to keep being available.
+>>
+>> The productivity is real. More code gets written. I still do plenty of
+>> thinking, and I arguably read more than I did before. There's judgment in
+>> knowing what to ask for, what to keep, and when an agent has gone in the
+>> wrong direction.
+>>
+>> But I miss sitting with a problem. I miss having a stretch of time that
+>> belongs to one thing, instead of a day spent responding whenever something
+>> needs me.
+>>
+>> Coding takes less of my effort now. Somehow, it keeps asking for my attention.
+>
+> **2. I miss figuring it out**
+>
+>> I'm writing more code than ever, and I miss coding.
+>>
+>> The productivity is real. I use coding agents because they're useful.
+>> But there was something satisfying about spending hours inside a problem.
+>> I liked trying an approach, finding out why it didn't work, and gradually
+>> understanding what would.
+>>
+>> Now much of that happens before I see the result. I read the code, decide
+>> whether it makes sense, and steer the next attempt. I still think a lot.
+>> I probably read more than before. But evaluating a solution feels different
+>> from finding one.
+>>
+>> The rhythm has changed too. Instead of settling into a feature for an
+>> afternoon, I keep checking whether an agent is ready for me. I'm doing more
+>> reviewing and directing, often in smaller pieces throughout the day.
+>>
+>> I don't want to pretend the old way was always better. Plenty of those
+>> hours were frustrating. But some of them were the reason I liked the work.
+>
+> **Agent:** I'd build from 2. It gives more room to the work you enjoyed doing.
+> The observation about constant availability in 1 could strengthen its middle.
+>
+> **Human:** The line about evaluating a solution is close. But sometimes
+> reviewing the agent's work is really interesting too. It's more that I
+> can't stay with a thought.
+>
+> **Agent:** Then I'd change the middle. Reviewing isn't necessarily the loss;
+> being pulled away keeps you from following the interesting part:
+>
+>> I still find things worth thinking about. Sometimes reading an agent's
+>> solution sends me somewhere I wouldn't have gone on my own. But before
+>> I've followed that thought very far, another agent needs a response.
+>>
+>> I miss having time to stay with the interesting part, whether I found it
+>> myself or an agent put it in front of me.
 
-> **Human:** Humans rewrite a lot. We talk naturally, and people are intuitively
-> familiar with conversation. But writing good dialogue is difficult. Help me
-> find the piece in that.
->
-> **Agent:** I'd stay close to the way you're discovering this while speaking.
-> The contrast between recognizing dialogue and inventing it gives the piece
-> somewhere to go. Here's an opening:
->
->> Humans rewrite a lot. We feel when something sounds off, say it again, and
->> choose a different word. We may not be able to explain exactly what changed,
->> but we hear the difference.
->>
->> That makes ordinary people experienced judges of language. We spend our
->> lives hearing conversations, misunderstanding each other, and trying again.
->>
->> Writing dialogue asks us to produce deliberately what we recognize almost
->> without thinking. The audience already knows what conversation feels like.
->> The writer has to invent it.
->
-> **Human:** I meant write, not rewrite. And the opening should get to the
-> surprising part faster: ordinary people are experienced judges of language.
->
-> **Agent:** I'd lead with that. The correction moves the piece toward what
-> people already recognize, rather than how they revise.
->
-> **1. You already know more than you can explain**
->
->> You don't have to be a writer to be an experienced judge of writing.
->>
->> Ordinary people spend their lives around language. We write messages, read
->> emails, hear conversations, tell stories, misunderstand one another, and
->> notice when something sounds right or wrong. We may not be able to explain
->> the judgment, but we often recognize it instantly.
->>
->> Most people are probably better at recognizing good dialogue than producing
->> it. That is what makes writing dialogue so difficult: the writer has to
->> deliberately invent something the audience already knows intuitively.
->
-> **2. Give ordinary people more credit**
->
->> Most people are better writers than they think, and better critics than
->> they realize.
->>
->> They may not be able to write convincing dialogue on demand. But they can
->> usually tell when dialogue feels forced, when a character is speaking
->> unnaturally, or when a sentence sounds like something nobody would say.
->>
->> A lifetime around language gives us expectations we rarely put into words.
->> Writing makes us work out how to meet them.
->
-> **Agent:** I prefer the first. It gets to the difference between recognizing
-> and producing good writing without claiming they're the same ability. The
-> second has more swagger, but its opening promises a case we haven't made.
->
-> **Human:** Actually, the difficulty of writing dialogue isn't what interests
-> me most. It's how much ordinary people know without realizing they know it.
->
-> **Agent:** Then dialogue can be an example rather than the destination.
-> I'd let the piece land on that unnoticed knowledge:
->
->> You don't have to be a writer to be an experienced judge of writing.
->>
->> You hear when a line of dialogue sounds forced. You notice when a message
->> from a friend doesn't sound like them. You may struggle to explain what's
->> wrong, but the judgment arrived before the explanation.
->>
->> A lifetime around language has taught you things nobody had to put into
->> rules. You know more about how people speak than you could sit down and list.
-
-The agent makes the next attempt and judges it. The human need not request a
-comparison or choose a winner. The reaction changes the premise shared by both
-openings, and the agent follows it into another attempt instead of asking the
-human to select from the original pair. Neither draft needs a closing question.
-A different reaction could lead to one revised sentence or a useful question.
 
 ## API design: make the caller's choices visible
 
 This hypothetical example draws on Epicenter's independent-resource API design.
-The snippets illustrate acquisition and ownership, not a runnable application
-or a claim about current package exports. Unrelated setup is omitted.
+The caller code makes acquisition and cleanup visible so the human can judge
+using the design. These are sketches, not a runnable application or a claim
+about current package exports. Unrelated setup is omitted.
 
 > **Human:** Opening an entire app just to read an audio file feels wrong.
 >
@@ -176,9 +166,10 @@ preserving. The fork appears when a real alternative becomes relevant.
 
 ## Agent skills: experience the behavior before encoding it
 
-The outer conversation concerns a skill. The inner samples show using it, not
-editing its instructions. Facts about the fictional services are assumptions
-of this illustration, not claims about a repository.
+The human is designing a skill, but reacts to the conversations it could
+produce rather than alternative SKILL.md files. Only then does the agent derive
+the guidance. Facts about the fictional services are assumptions of this
+illustration, not claims about a repository.
 
 > **Human:** The architecture-review skill gives me a huge analysis. It doesn't
 > feel like we're thinking together.
@@ -237,18 +228,3 @@ of this illustration, not claims about a repository.
 > **Agent:** I'll replace the push toward exhaustive analysis with that
 > judgment: offer a grounded provisional view and investigate what could change
 > it. The example's exact wording doesn't need to become a required opening.
-
-## Check whether the judgment transfers
-
-A useful attempt can be a sentence, a draft, code, a question, or an explanation.
-These examples do not require artifacts or alternatives in every turn. Check
-that the agent contributes judgment instead of making the human carry every
-concern, and follows the actual response rather than completing a staged script.
-Check that an attempt leaves the reaction open instead of asking the human to
-choose between the agent's explanations. A question still earns its place when
-missing information would make the attempt misleading or unhelpful.
-
-A factual uncertainty may need inspection before another attempt. A request to
-implement a settled change should proceed without restarting the discussion.
-Recognition during exploration should not silently become authorization to edit.
-These are review cases, not evidence that live routing or behavior was measured.
