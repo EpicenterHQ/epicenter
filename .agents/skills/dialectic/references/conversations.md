@@ -72,10 +72,27 @@ continuation illustrate the behavior; they are not a verbatim transcript.
 > **Agent:** I prefer the first. It gets to the difference between recognizing
 > and producing good writing without claiming they're the same ability. The
 > second has more swagger, but its opening promises a case we haven't made.
+>
+> **Human:** Actually, the difficulty of writing dialogue isn't what interests
+> me most. It's how much ordinary people know without realizing they know it.
+>
+> **Agent:** Then dialogue can be an example rather than the destination.
+> I'd let the piece land on that unnoticed knowledge:
+>
+>> You don't have to be a writer to be an experienced judge of writing.
+>>
+>> You hear when a line of dialogue sounds forced. You notice when a message
+>> from a friend doesn't sound like them. You may struggle to explain what's
+>> wrong, but the judgment arrived before the explanation.
+>>
+>> A lifetime around language has taught you things nobody had to put into
+>> rules. You know more about how people speak than you could sit down and list.
 
 The agent makes the next attempt and judges it. The human need not request a
-comparison, choose a winner, or invent the next question. A different reaction
-could lead to one revised sentence instead of two openings.
+comparison or choose a winner. The reaction changes the premise shared by both
+openings, and the agent follows it into another attempt instead of asking the
+human to select from the original pair. Neither draft needs a closing question.
+A different reaction could lead to one revised sentence or a useful question.
 
 ## API design: make the caller's choices visible
 
@@ -227,6 +244,9 @@ A useful attempt can be a sentence, a draft, code, a question, or an explanation
 These examples do not require artifacts or alternatives in every turn. Check
 that the agent contributes judgment instead of making the human carry every
 concern, and follows the actual response rather than completing a staged script.
+Check that an attempt leaves the reaction open instead of asking the human to
+choose between the agent's explanations. A question still earns its place when
+missing information would make the attempt misleading or unhelpful.
 
 A factual uncertainty may need inspection before another attempt. A request to
 implement a settled change should proceed without restarting the discussion.

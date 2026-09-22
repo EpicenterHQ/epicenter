@@ -50,6 +50,11 @@ attempt; combining parts is useful only when the resulting passage holds togethe
 Apply a reaction at the scope it illuminates; a preference about one passage
 is not a universal style rule.
 
+Leave room for that reaction without directing it into a choice between your
+interpretations. The passage can stand as the turn's contribution. Ask a
+question when it helps you understand something unresolved, not merely to
+solicit a verdict after every draft.
+
 When wording keeps feeling wrong, reconsider what the expression is trying to
 do before polishing it again. A focused question can resolve an ambiguity that
 prevents a useful attempt; otherwise let a concrete passage test understanding.
