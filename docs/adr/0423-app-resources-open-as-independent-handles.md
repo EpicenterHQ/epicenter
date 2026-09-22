@@ -78,6 +78,16 @@ A supplied binding is complete for that resource and never fills missing parts
 from ambient production services. This replaces the all-capability runtime
 requirement without changing declaration purity or platform selection policy.
 
+**Constructor names express acquisition choices; protocol and result variants remain data.**
+
+Do not require callers to select Local or Personal through a tagged owner option
+when `openLocal` and `openPersonal` already name that choice. Internal store
+acquisition may retain its owner union, including at a narrow test binding.
+Catalog command messages, recording outcomes, typed failures, and saved
+inference destination identities still need variants; more constructor names
+cannot replace those facts. Split a function when its arguments select different
+operations or owners, not merely because its result can have several cases.
+
 **A returned handle is usable, and its close owns terminal cleanup.**
 
 Asynchronous openers resolve after required acquisition and hydration. They
