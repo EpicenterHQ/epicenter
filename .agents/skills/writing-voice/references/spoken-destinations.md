@@ -11,16 +11,31 @@ image, or code example. Put indispensable context into the spoken prose when
 the destination will not communicate it otherwise. A visual can still help
 the reader; it need not be removed or described exhaustively.
 
-Let the opening invite attention in the author's register and make a promise
-the piece keeps. Breath, clause length, and sentence load are clues to friction,
-not limits to enforce mechanically. Follow the argument, scene, or question
-through to its ending without imposing a reveal, moral, or summary.
+## The opening
 
-For a short spoken surface, consider how soon the listener has something
-concrete to hold, whether explanations repeat the same work, and whether the
-length serves the thought. Flag a duration concern in relation to its intended
-outlet; do not impose a universal word count, a two-second sentence, or clickbait.
-Timing and delivery can reveal a wording problem, but should not conceal one.
+Hear the first spoken sentence without the title or subtitle. It should offer
+the piece's question, tension, surprise, or perception in language the author
+could say to another person, rather than announce a topic or paste in a headline.
+Check whether it earns the next sentence and makes a promise the piece keeps.
+If the promise overreaches, reconsider the opening or the piece's boundary.
+Breath, clause length, and sentence load are clues to friction, not limits to
+enforce mechanically. Follow the piece through to its ending without imposing
+a reveal, moral, or summary.
+
+## Short-form check
+
+For a short spoken surface, give the listener a reason to stay from the start
+without relying on a title card. Treat paragraphs as attention-sized beats;
+neither miniature essays nor chopped-up lines automatically produce pacing.
+Put a concrete example soon enough to give an abstract claim something to rest
+on. Check whether a second mechanism develops the same thought or competes with
+it; do not force another argument into the short merely because it is related.
+
+Notice when repeated explanation, length, or sentence load makes the performance
+feel padded. Report a duration concern in relation to its intended outlet,
+without imposing a universal word count or a two-second sentence. Do not add
+clickbait, an unearned moral, or a platform-specific hook. Timing and delivery
+can reveal a wording problem, but should not conceal one.
 
 ## The Purpose Changes The Judgment
 
