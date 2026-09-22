@@ -1,6 +1,6 @@
 ---
 name: writing-voice
-description: Shape prose so it sounds like Braden, with conversational precision, rhythm, humor, and earned poetic turns. Use for substantial drafting or revision and explicit voice or tone work in prose, UI copy, documentation, or messages. Do not use to reopen wording selected for exact use.
+description: Shape prose so it sounds like Braden, with conversational precision, rhythm, humor, and earned poetic turns. Use for substantial drafting or revision, an ear pass, and explicit voice or tone work in prose, UI copy, documentation, or messages. Do not use to reopen wording selected for exact use.
 ---
 
 # Writing Voice
@@ -42,16 +42,28 @@ unresolved without narrating every step of the conversation that produced it.
 
 ## Hear The Whole Passage
 
-Write for the ear throughout drafting and revision. Read connected passages
-at speaking speed, hearing how sentences build on one another, where pauses
-place emphasis, and whether the rhythm carries the thought. Judge a sentence
-with what surrounds it; a slower sentence may be earning the next turn.
-When a reaction reveals a mismatch, rehear the passage under that correction
-and revise at the scope it illuminates.
+Writing for the ear is part of developing the piece. Listen for how the words
+carry the thought, giving that attention more weight when the work will be
+spoken aloud. An “ear pass” names this editorial focus, not a separate workflow.
+The active writing workflow, such as page-writing or journal-writing, continues
+to own the conversation and edits.
 
-When contrasting expressions would help, use the destination's exploration
-workflow. This skill judges how language sounds;
-the request and destination workflow determine which changes may be applied.
+Read connected passages at speaking speed. Hear where clauses delay the point,
+abstractions pile up, emphasis lands awkwardly, or the prose explains something
+twice. Judge each sentence with what surrounds it. A pause, repetition, or
+slower sentence may carry humor, uncertainty, or the experience being described.
+Hear what the writing is doing, then judge it by what this piece needs;
+shortening is useful only when it improves that expression.
+
+When a reaction reveals a mismatch, rehear the passage under that correction
+and revise at the scope it illuminates. Use the destination's exploration
+workflow when contrasting expressions would help; an authorized direct edit
+needs no options menu. Reread the changed passage in context to hear whether
+its movement and the author's posture still belong together.
+
+For work intended to be heard, read [spoken destinations](references/spoken-destinations.md)
+for the extra judgments a listener's experience requires. Ordinary editing
+does not impose a narration or social-video standard on every piece.
 
 ## Respect The Form
 
