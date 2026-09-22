@@ -3,6 +3,12 @@
 **Date**: 2026-09-22
 **Status**: Draft
 
+For the recording ownership collapse, use the newer
+[store-relative handoff](20260923T012158-store-relative-recordings.handoff.md).
+It replaces this document's upload-reference repair and recording-destination
+instructions. This older handoff covers separate broader integration work and
+does not expand the newer assignment.
+
 This is a separate, later product integration assignment, following the API-only
 implementation. Read [the blob verification report](../docs/reports/20260922-store-owned-blobs-implementation.md)
 for the implemented contract; it explicitly defers Whispering migration.

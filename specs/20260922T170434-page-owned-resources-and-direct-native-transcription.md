@@ -4,6 +4,13 @@
 **Status**: In Progress
 **Owner**: Braden
 
+Recording ownership, Personal saving, upload recovery, and removal of public
+store identity now follow the accepted
+[store-relative execution plan](20260923T012158-store-relative-recordings.md).
+It replaces older selected-library capture or source-row remote-reference repairs
+below. The broader context/catalog work and transcript schema redesign remain
+separate unfinished work; do not inherit them into that narrower assignment.
+
 Scope note: this product integration is separate from the completed API-only
 [blob implementation](../docs/reports/20260922-store-owned-blobs-implementation.md).
 That assignment does not authorize Whispering migration. Its store-owned blob

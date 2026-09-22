@@ -3,6 +3,11 @@
 **Date**: 2026-09-22
 **Status**: Draft
 
+Recording ownership and Personal saving now follow the accepted
+[store-relative execution plan](20260923T012158-store-relative-recordings.md).
+This older plan retains the separate proposed transcript/attempt redesign; do
+not treat that redesign as a prerequisite for the ownership collapse.
+
 ## Agreed user workflow
 
 1. Open Whispering and see saved recordings and their transcripts.
@@ -55,7 +60,8 @@ Audio bytes remain outside the Yjs document.
 ## Ideal callsites
 
 These are target design sketches, not a runnable implementation or a claim that
-all operations already exist. Store-owned blobs remain unbuilt. The application
+all operations already exist. Store-owned blobs are implemented; these product
+operations remain unbuilt. The application
 operations `saveRecording` and `transcribeRecording`, and their illustrated
 contracts, are proposed Whispering code, not new toolkit exports. `definition`
 is Whispering's schema after the nullable-transcript change.
