@@ -21,8 +21,8 @@ Read [references/composition-audit.md](references/composition-audit.md) when str
 
 Use other skills for their owned domains:
 
-- `dialectic`: settle what a skill is for before this skill settles what using it
-  should feel like.
+- `dialectic`: discover what a skill should help someone accomplish through
+  concrete possible uses; this skill encodes and validates the resulting guidance.
 - `writing-voice`: user-facing prose, UI text, errors, docs, and tone.
 - `page-writing` and `journal-writing`: authored Vault prose. Loading one inside
   a skill run is execution, not skill design; this skill's discovery pass does
@@ -129,7 +129,7 @@ ln -s ../../.agents/skills/<skill-name> .claude/skills/<skill-name>
 
 Relative, never absolute: an absolute link pins every checkout to one working
 copy. Skip the link only for a skill written for a Codex session, which is why
-`consult-claude` and `codex-task-backlog-hygiene` have none.
+`consult-claude` and `conversation-hygiene` have none.
 Delete the link in the same change that deletes the skill.
 
 Ground the skill in real source material: completed tasks, diffs, review
@@ -141,30 +141,43 @@ files, ask before drafting rather than inventing them.
 
 ## Design The Skill From The Interaction
 
-This pass happens while a `SKILL.md` is being written or behaviorally revised.
-A skill run follows that skill's body; it never renders candidate interactions
-unless the body asks for them. A typo-only edit or a clearly settled instruction
-skips this pass; act directly.
+When designing or substantially revising a skill whose purpose or behavior is
+open, use [dialectic](../dialectic/SKILL.md) with the user. Zoom out to what the
+skill should help someone accomplish, then develop different directions it
+could take. Show those directions through several concrete sample outputs or
+simulated human-agent conversations. Samples help discover the purpose itself;
+the user need not settle it or articulate abstract preferences first.
 
-Use concrete candidate interactions when the intended behavior is hard to
-judge in prose. Revise them from the user's reactions until the useful
-behavior is recognizable. Existing conversation evidence may already settle
-that question; do not repeat the exercise merely to follow a process.
+Make the directions differ in what the agent does, what the user carries, or
+what someone can accomplish. Alternate phrasings of the same response cannot
+test those choices. Use the same request when that makes the differences
+easier to judge, and show the artifact the skill would actually produce.
+Label imagined exchanges as samples; invented user replies are not evidence
+of the user's preference.
+
+Let actual reactions change the skill's purpose, scope, or behavior as well as
+the samples. The user can choose, reject, or combine parts; the agent carries
+the synthesis rather than requiring them to pick a winner. Recommend a
+direction when the evidence supports it without treating it as accepted.
+Work backward from the direction the user recognizes to the instructions that
+would produce it. Use existing accepted interactions instead of repeating the
+exercise. Mechanical edits and clearly settled changes can proceed directly.
 
 Extract the judgment that made an interaction work, not its incidental topic,
-wording, layout, or turn count. An approved example is evidence for a principle,
-not permission to make every future interaction resemble it. Keep examples in
-evaluations or references when they test or explain something the principle
-cannot carry alone.
+wording, layout, or turn count. Remove or revise existing instructions that
+push against the preferred behavior before adding compensating rules. An
+approved example is evidence for a principle, not permission to make every
+future interaction resemble it. Keep examples in evaluations or references
+when they test or explain something the principle cannot carry alone.
 
-Before encoding the lesson, vary the subject, the user's certainty, and the
-kind of artifact they need. The instruction should still help, including when
-the right response is immediate action or no question. If preserving a template
-requires exceptions for those cases, reconsider the template instead of adding
-more guardrails.
+Try the resulting instructions on materially different requests to check
+whether the lesson transfers. Vary the subject, the user's certainty, or the
+artifact they need, including cases where immediate action or no question is
+right. If preserving a template requires exceptions for those cases,
+reconsider the template instead of adding more guardrails.
 
-When the goal itself is unsettled, run `dialectic` first; this pass assumes the
-goal is settled and only the interaction's shape is open.
+This is a skill-design method. Using the resulting skill does not require
+showing candidate interactions unless its own workflow calls for them.
 
 ## Write The Description First
 

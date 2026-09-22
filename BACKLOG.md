@@ -1,5 +1,170 @@
 # Backlog
 
+## Conventions
+
+Record wanted outcomes briefly and keep related items together when useful.
+Use an outcome heading with a desired result; add grounding or a revisit
+condition only when it helps someone resume the work. A backlog item can be a
+change, investigation, or decision. Recording an idea does not schedule or
+authorize implementation.
+
+Keep entries while work is underway or paused. Remove an entry on completion,
+preserving any unfinished scope. Remove its execution-order row too, if it has
+one. Record lasting decisions and completion evidence in the owning tests,
+README, or decision record.
+
+## Execution order after the transcript review
+
+This is the entry point for the surviving transcript work. Detailed evidence
+stays in the [review](docs/transcript-reviews.md#eight-export-review-2026-09-20)
+and existing plans. The older backlog below remains conditional work, not an
+instruction to execute every item in file order.
+
+| Order | Session-sized outcome | Finish or boundary |
+| --- | --- | --- |
+| 1 | [Prevent Mail refresh from overwriting a reconnect](#prevent-mail-refresh-from-overwriting-a-reconnect) | Regression for a paused refresh crossing reconnect; new credentials and access remain authoritative. |
+| 2 | [Finish bounded, cancellable Mail sync](#finish-bounded-cancellable-local-mail-synchronization) | Shared pacing/cooldown, delivery between pages, cancellable requests/waits, durable resume. Preserve the existing storage edits. |
+| 3 | [Complete Mail acceptance and remaining edge cases](#complete-mail-acceptance-and-triage-edge-cases) | Review the large-message limit separately; prove desktop restart, offline triage, and delivery with designated test data. |
+| 4 | [Let signed-in Local open without Personal](#let-signed-in-local-open-without-bootstrapping-personal) | Browser reproduction and a coherent readiness contract that preserves account identity. |
+| Independent | [Repair Vocab candidate extraction](#preserve-verbatim-vocab-candidates) | Legitimate punctuation survives; candidates are validated against their source. |
+| Independent | [Finish the bounded test/API cleanup](#finish-the-bounded-test-and-api-cleanup) | Retire obsolete contracts together with their tests; preserve actual lifecycle and data-isolation evidence. Coordinate any StoreBacking changes with step 4. |
+| Hardware-dependent | [Finish native capture acceptance](#finish-native-capture-interruption-acceptance) | Actual microphone interruption, release, and reacquisition. |
+| Product judgment | [Zhongwen](#define-zhongwens-saved-word-review-loop-and-repository-placement) and [deferred capability choices](#resolve-deferred-capability-purpose-only-when-needed) | Settle the intended product before implementing or deleting capabilities. |
+
+Use one session per outcome. Recheck current source and dirty work before
+starting: a prior session may already have completed it.
+
+## Complete Mail acceptance and triage edge cases
+
+- Desired result: Desktop sign-in and Gmail consent lead to readable local mail;
+  a complete restart retains credentials and cache; offline triage reaches
+  Gmail after reconnecting. Undo preserves the state preceding a real action.
+- Grounding: The [Mail evidence notes](apps/local-mail/evidence/README.md)
+  separate synthetic checks from the remaining live journey. The later
+  [product-review extraction](docs/transcript-reviews.md#extracted-from-codex-session-01a0ba84)
+  flags Undo after trashing an already-trashed message: verify the current path,
+  then prevent a no-op from offering a destructive inverse. This later finding
+  was not reproduced by the eight-export review.
+- Revisit when: After the sync changes. Handle the
+  [individual-message limit](#resolve-local-mails-oversized-individual-message-limit)
+  as its own supported-behavior decision. Select a test message and permitted
+  label change before any live write-back; synthetic evidence alone does not
+  complete acceptance.
+
+## Finish the bounded test and API cleanup
+
+- Desired result: Remove obsolete production contracts and misleading tests
+  while preserving real data isolation, retirement, rollback, and disposal.
+- Grounding: The [current corrections](docs/transcript-reviews.md#testapi-audit-what-remains-actionable)
+  supersede the dated audit's bootstrap and auth-restoration advice. Candidates
+  include static-token tooling, the returned SQL drain phase, initialization
+  and passkey prototypes, artificial Account-replacement cases, and source
+  spelling checks. Recording disposal assertions need repair. Replicated
+  StoreBacking must require invalidation before its legacy case can go.
+- Revisit when: A focused cleanup session can recheck callers and preserve the
+  stronger replacement evidence. Whispering's explicit-owner work is already
+  implemented; do not repeat it. The Worker `pg-protocol` alias needs a verified
+  removal condition, not deletion merely because it is a workaround.
+
+## Preserve verbatim Vocab candidates
+
+- Desired result: Suggested saved spans preserve legitimate punctuation and
+  match the source passage before the person chooses to save them.
+- Grounding: The current parser reproduced `Yes: absolutely` becoming `Yes`,
+  `wait - what` becoming `wait`, and `say:` disappearing. Its tests currently
+  reward guessing that punctuation introduces a gloss. See the
+  [review](docs/transcript-reviews.md#testapi-audit-what-remains-actionable).
+- Revisit when: Next Vocab correctness pass. Change parsing, its source-aware
+  caller, and regression coverage together; existing saved entries need no
+  inferred migration. This is separate from designing Zhongwen's review loop.
+
+## Finish native capture interruption acceptance
+
+- Desired result: Physical recording interrupted by account-change restart
+  releases the microphone and staging resources; a reopened app can record
+  again while previously saved audio survives.
+- Grounding: The [runtime lifetime plan](specs/20260919T090341-runtime-lifetime-collapse.md)
+  retains this gate. Previous attempts failed before acquisition because macOS
+  exposed no input device. Synthetic capture and restart evidence are recorded
+  there but do not prove physical capture interruption.
+- Revisit when: A working input device is available. Finish the maintained
+  probe and acceptance evidence, then retire the spent spec.
+
+## Resolve deferred capability purpose only when needed
+
+- Desired result: Give an explicit product owner to any capability we choose
+  to develop or retire: the unconsumed working-copy engine, Skills/chat surfaces,
+  and future team collections.
+- Grounding: The [review](docs/transcript-reviews.md#product-choices-and-acceptance-to-preserve)
+  preserves these open choices. Tests/benchmarks alone do not establish a
+  working-copy product, but they also do not authorize its deletion. Removing
+  server-wide Shared did not implement team membership or invitations.
+- Revisit when: A concrete user workflow needs one of these capabilities.
+  These are deferred decisions, not prerequisites for Mail or Local readiness.
+
+## Finish bounded, cancellable Local Mail synchronization
+
+- Desired result: Each Gmail account paces requests and shares cooldowns;
+  reconciliation gives pending changes a delivery opportunity between download
+  pages. Cancellation reaches network requests and retry waits. Reopening
+  retains pending changes and download progress.
+- Grounding: The [2026-09-20 transcript review](docs/transcript-reviews.md#mail-preserve-the-product-finish-execution)
+  verifies that full pulls still monopolize a pass and requests retry
+  independently. The user retained formatted mail, local reads, and durable
+  write-back. Bounded concurrency remains a measurement choice.
+- Revisit when: Next Local Mail implementation pass. Verify coordinated
+  throttling, archive delivery during download, cancellation, and reopen, then
+  finish the designated live Gmail journey.
+
+## Prevent Mail refresh from overwriting a reconnect
+
+- Desired result: A refresh begun before reconnect cannot replace the newly
+  connected credential or continue using stale cached access afterward.
+- Grounding: A synthetic probe on 2026-09-20 paused the production token
+  manager's refresh, wrote a reconnect credential, then released the response.
+  The older rotated credential overwrote the reconnect. `withAccount` tracks
+  work for removal but does not serialize these credential writes. See the
+  [source-grounded review](docs/transcript-reviews.md#mail-preserve-the-product-finish-execution).
+- Revisit when: Next Mail credential or synchronization change. Cover the
+  reconnect/refresh interleaving and removal while work is admitted.
+
+## Resolve Local Mail's oversized individual-message limit
+
+- Desired result: A large individual message has an explicit supported storage
+  path or a deliberate product limit without silently weakening SQLite batch
+  atomicity or advancing a checkpoint past unsaved mail.
+- Grounding: The uncommitted page-chunking repair handles large pages but
+  rejects any one serialized statement above 4 MiB. See
+  [mailbox.ts](apps/local-mail/src/mailbox.ts) and the
+  [review](docs/transcript-reviews.md#mail-preserve-the-product-finish-execution).
+- Revisit when: Completing large-mailbox acceptance or encountering a refused
+  individual message. Page chunking alone does not finish this work.
+
+## Let signed-in Local open without bootstrapping Personal
+
+- Desired result: Local use keeps its captured account identity and account
+  capabilities while an uncached, offline Personal store is unavailable.
+- Grounding: On 2026-09-20 the real `openApp` with a memory runtime acquired
+  Device successfully, failed Personal, and rejected the whole App. Signed-out
+  opening succeeded. [The opener](packages/app/src/open.ts) waits for both.
+- Revisit when: Next App readiness change. First reproduce the signed-in Local
+  browser journey; do not work around it by dropping the Account and selecting
+  someone else's storage namespace.
+
+## Define Zhongwen's saved-word review loop and repository placement
+
+- Desired result: A broader Chinese study app where someone saves words,
+  returns to them through review, and retains progress.
+- Grounding: The later product conversation explicitly requested saved words
+  and review. The earlier “Zhongwen should be personal GitHub” correction remains
+  unresolved. Vocab implements saved entries and generated practice, but that
+  does not establish a review-history/scheduling product. The
+  [transcript review](docs/transcript-reviews.md#product-choices-and-acceptance-to-preserve)
+  preserves both directions.
+- Revisit when: Chinese study work becomes the next product milestone. Settle
+  repository ownership and the first retrieval interaction before choosing a
+  scheduler, changing the schema, or adding Vocab to desktop builds.
+
 ## Establish hosted erasure before external onboarding
 
 - Desired result: Attribute every hosted allocation to its account and locally
