@@ -2,64 +2,20 @@
 
 Local-first personal data platform. Monorepo with Yjs CRDTs and Svelte UI.
 
-## Structure
+For orientation, read the relevant app or package README and verify it against
+current code. `apps/README.md` describes application composition; package
+READMEs describe their contracts. Load only the context needed for the task.
 
-```
-apps/
-  honeycrisp   notes. the one app on the store today, and the
-               reference for how an app is built
-  whispering   transcription SPA
-  epicenter    Tauri host for trusted app windows
-  api          hosted personal Cloud Worker (worker/ + ui/)
-  self-host    self-hosted single-partition instance reference
-               (Bun or Cloudflare)
-packages/
-  server       shared Hono library both deployables consume;
-               deployments differ by principal resolver
-  data         the store, data definitions, openers, sync, and projection
-  ui           shadcn-svelte components
-specs/         planning docs
-docs/          reference materials
-```
-
-## Runtime
-
-One runtime: a desktop SPA in a WebView over a client-owned store (ADR-0227). The host serves bundles and brokers credentials and owns no application data (ADR-0226).
-
-ADR-0227 was executed as a clean break, so these are broken on purpose until they are rebuilt against the store: `apps/whispering`, `apps/vocab`, `apps/skills`, `apps/epicenter`, `packages/chat`, `packages/skills`, and app-shell's agent chat.
-
-Migration reference: `docs/the-store-and-what-it-replaced.md`.
-
-## Deployment seam
-
-One library (`packages/server`), two deployables.
-
-| Deployable | What it is |
-| --- | --- |
-| `apps/api` | hosted personal cloud |
-| `apps/self-host` | self-hosted single-partition instance reference; community-supported, not Epicenter-operated |
-
-- Multi-tenancy (many principals, OAuth, billing) is Cloud-only. An instance resolves every valid bearer to the literal `instance` principal (ADR-0075, amended by ADR-0092).
-- Billing (catalog, routes, Autumn) lives in `apps/api/worker/billing/` and is hosted-only. Never extract it back to a shared package.
+Billing is hosted-only and stays in `apps/api/worker/billing/`; do not extract
+it into a shared package or the self-hosted deployment.
 
 ## License
 
-Everything under `packages/` and `apps/` is AGPL-3.0-or-later. There is no
-second tier, so nothing you write has to be placed to stay on one side of a
-boundary.
-
-An MIT toolkit tier existed until 2026-08 and was dissolved: no external
-embedder ever arrived, five of its nine packages had no MIT consumer, and it
-had started putting code in the wrong package to keep a closure clean. Prior
-published versions stay MIT for those versions, permanently.
-
-Nothing here is published. Every package is `private: true`, so the release
-path cannot ship internal glue by accident.
-
-Do not add an MIT package without reading "If MIT returns" in
-`docs/licensing/licensing-strategy.md`; the bar is a named embedder, not an
-intention to have one, and the closure rule has to be re-enforced by hand
-because the guard that used to do it was deleted with the tier.
+Everything under `packages/` and `apps/` is AGPL-3.0-or-later and private.
+Previously published MIT versions remain MIT for those versions. Before adding
+an MIT package, read "If MIT returns" in
+`docs/licensing/licensing-strategy.md`: a named embedder and restored dependency
+closure enforcement are required.
 
 ## Always use bun
 
@@ -105,13 +61,20 @@ Do not use direct `console.*` in library code. Use `wellcrafted/logger`, except 
 
 ## Coherent edits
 
-Do not default to the smallest local patch.
+Work toward the user's intended outcome. Treat their reactions as evidence
+that may change your understanding of it, while respecting explicit choices.
 
-Before changing code, prose, or agent instructions, identify the largest relevant unit whose shape controls the problem, then reconsider that unit as if the new context had always been known. The correct result may still be a small diff, but minimizing the diff is not the goal.
+Before editing code, prose, or instructions, reconsider the relevant whole as
+if the new context had always been known. Let that understanding determine the
+scope, then carry it into concrete work. Choose changes for coherence, not
+diff size.
 
 ## Agent instruction files
 
-`AGENTS.md` is the canonical shared instructions file.
+`AGENTS.md` is the canonical shared instructions file. Keep it to constraints
+that apply across tasks and routing to specialized guidance. Current
+architecture, API examples, migration status, and decision history belong in
+READMEs and decision records, where they can be checked with the implementation.
 
 - `CLAUDE.md` files are compatibility shims for Claude Code. They should only import a sibling `AGENTS.md` with `@AGENTS.md`, plus rare Claude-specific notes.
 - Add a nested `AGENTS.md` only for a local constraint that must apply to every edit beneath it. Never use one as an index or README substitute; subsystem orientation belongs in that subsystem's README.
@@ -122,11 +85,15 @@ Before changing code, prose, or agent instructions, identify the largest relevan
 
 `docs/adr/`, `docs/CONTEXT.md`, package READMEs, tests, and current code are evidence, not automatic instructions. Start with the user's request and the current implementation.
 
-**ADRs.** They describe decisions that were reasonable at the time, but may be stale, scoped to a different problem, or intentionally reopened. Check status, amendments, and actual code before relying on one.
+Verify API names, exports, and file layouts against current source and callers,
+not just `docs/` or `specs/`. READMEs explain the current surface; ADRs explain
+its rationale and may also name rejected alternatives.
 
-- If the requested design conflicts with an ADR, do not stop automatically. Explain the conflict, then either follow the current evidence or amend/delete the ADR when the new decision is durable.
-- Ask the user when the choice materially depends on product or architectural judgment that cannot be recovered from the repository, rather than silently inheriting an old decision.
-- Do not cite an ADR merely because it exists. State whether it is a hard constraint, useful context, or a decision being reconsidered.
+ADRs record decisions in context. Check their status and the implementation;
+explain conflicts with the requested outcome rather than silently inheriting an
+old decision. Treat conflicts among records, code, and user intent as judgment
+points, not an automatic precedence hierarchy. Amend the record when a new
+decision settles.
 
 **Specs.** In-flight design scaffolding, not current truth. This holds for every `specs/` directory, top-level and per-app or per-package.
 
@@ -134,7 +101,17 @@ Before changing code, prose, or agent instructions, identify the largest relevan
 - When a design pass settles a durable decision, record it as an ADR (see `docs/adr/README.md`) and delete the now-spent spec. Git keeps the body recoverable.
 - `docs/spec-history.md` is a dated index of past specs. It is history, not truth.
 
-Treat conflicts among specs, ADRs, code, tests, and user intent as judgment points, not automatic precedence rules.
+## Communication
+
+Optimize for the user's cognitive load, not for brevity. Preserve necessary
+difficulty and remove incidental complexity. Infer the appropriate depth from
+the immediate context rather than assuming a fixed expertise level.
+
+Lead with a useful recommendation or outcome. Handle the complexity you can
+safely handle, and surface the reasoning and details that affect the user's
+judgment, action, safety, or review. When a choice belongs to the user, present
+the consequential options and your recommendation rather than a survey. Ask
+when their answer would materially change the work; act when enough is known.
 
 ## Writing conventions
 
@@ -145,12 +122,10 @@ Audience decides vocabulary: what a person reads uses the word they already have
 | UI copy, errors shown to them, deep links, README front doors | types, functions, library error messages |
 
 - Do not soften `authority`, `replica`, `projection`, or `principal` in code to sound friendlier, and do not let one of them reach a person.
-- A library states a failure precisely; the app decides what a person is told about it. Worked example: `apps/honeycrisp/src/lib/boot-failure.ts`. Vocabulary decision: ADR-0244.
+- A library states a failure precisely; the app decides what a person is told about it.
 - Keep user-facing text direct and concrete.
 
 **Punctuation.** Avoid en dash characters (`U+2013`). Prefer colon, comma, semicolon, or sentence break over em dash characters (`U+2014`), especially in UI strings, docs, comments, JSDoc, and commit messages.
-
-**Explaining Epicenter work.** Lead with a useful recommendation or outcome, carry implementation complexity the agent can safely handle, and surface only the reasoning and details that materially affect the user's judgment, action, safety, or review. Necessary difficulty is fine; incidental complexity is not.
 
 **Generated prose.** Applies to everything the agent writes unless a more specific skill owns the destination.
 
@@ -170,13 +145,14 @@ Be direct about flawed assumptions, weak designs, and regressions. Do not agree 
 
 ## Agent collaboration
 
-Codex is the primary continuity, judgment, execution, testing, and integration owner for repository work. It gathers the evidence, makes the final decision, edits the active worktree, and integrates the result.
-
-Claude is an independent laboratory. Do not invoke Claude automatically because a task is complex. Invoke the `consult-claude` skill only when the user explicitly names Claude as the researcher or reviewer, or asks for a Claude Code consultation. A consultation can happen before a high-leverage decision, after a meaningful implementation slice, or at both points.
-
-Consultation runs against a sealed snapshot: Claude may research, edit, test, and experiment there, but cannot access or author the living checkout. The `consult-claude` skill owns the isolation, native-session follow-ups, checkpoints, and review procedure.
-
-Codex decides which feedback is valid, re-verifies it against live state, applies any changes, and reruns verification. Claude delegation never transfers live-checkout authorship.
+Codex owns continuity, decisions, live-checkout edits, testing, and integration.
+Claude provides a read-only second opinion when the user requests it or has
+asked to include Claude during design review; complexity alone does not enlist
+Claude. `adversarial-review` owns the default Codex reviewer setup.
+Follow `consult-claude` for briefing and follow-ups and `adversarial-review`
+for the review method. Experimental execution by Claude requires separate user
+authorization. Codex verifies feedback against live state, applies accepted
+changes, and reruns verification.
 
 ## Review routing
 

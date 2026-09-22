@@ -1,58 +1,91 @@
 ---
 name: consult-claude
-description: Run Claude Code as an independent reviewer or research laboratory while you keep ownership of the live repository. Use when the user asks to consult Claude, requests a Claude review, or asks Claude to investigate or research independently.
+description: Get Claude Code's second opinion on a proposal or implementation. Use when the user asks to consult Claude, requests Claude's design judgment or research, or has asked to include Claude during design review. Do not enlist Claude merely because a task is complex.
 ---
 
 # Consult Claude
 
-The consulted Claude owns a sealed laboratory. You own the living checkout,
-integration, and final decision. A consultation is not a packet-only print
-call: Claude gets an editable snapshot of the current repository and may
-research, rewrite code, run tests, commit experiments, and change its mind
-there. The living checkout is not part of Claude's tool boundary.
+Codex briefs Claude on the problem, proposed design, and reasoning. Claude reads
+the current checkout and returns its judgment, alternatives, and objections.
+Codex owns implementation and verification; when Claude needs a test, benchmark,
+or experiment, it requests that evidence from Codex.
 
-Give Claude one outcome, the settled values it must preserve, and source
-territory worth starting from. Do not give it your working theory, a menu of
-answers, or a prescribed method. Tell it what would make the research complete.
-The runner supplies the snapshot ID, laboratory boundary, checkpoint path, and
-permission profile.
+## Make the design legible
 
-Start the native Claude background session from the repository root and keep
-the command attached when the user wants the answer before this task continues:
+Supply the desired outcome, genuine constraints, actual and proposed API code,
+representative callsites, relevant implementation excerpts with source paths,
+and your engineering reasoning and unresolved questions. Use an ASCII diagram
+when it clarifies ownership, lifecycle, or data flow. Distinguish observed facts,
+proposals, assumptions, and preferences. Give enough concrete evidence to judge
+the decision immediately; Claude can read further to verify your account.
 
-```bash
-bun .agents/skills/consult-claude/scripts/consult-claude.ts start --wait
-```
+For design questions, have Claude apply
+[adversarial-review](../adversarial-review/SKILL.md) itself, without launching another
+reviewer. That skill's coordinator owns reviewer selection; this consultation
+supplies a Claude review when requested by the user. A standalone request for
+Claude's opinion does not itself launch a Codex reviewer. Explicitly ask for the strongest
+greenfield direction: starting from the desired outcome and actual callers,
+what would it build if the current abstraction did not exist? Treat your reasoning
+as evidence, not constraints.
+Ask for concrete signatures and callsites, what disappears, new complexity, and
+requirements being questioned. Keeping the design is valid when it earns its
+place. A narrow question does not require a full architectural report.
 
-Type the compact research brief, then send EOF. `start` prints a run ID, native
-Agent View ID, native session ID, and checkpoint path. It creates an independent
-replica, removes its Git remote, and keeps Bash network egress offline. Claude
-may search the web, but direct fetching or any external action is a deliberate
-escalation, not part of the default run. It does not recreate Claude's session
-manager: inspect, attach, steer, or stop the live worker with `claude agents`.
+## Send a brief
 
-Read the latest result without waking the worker:
-
-```bash
-bun .agents/skills/consult-claude/scripts/consult-claude.ts status <run-id>
-```
-
-When Claude writes `state: needs-decision` or `state: complete`, you may
-continue the same laboratory conversation. The runner archives the prior
-checkpoint and waits for a fresh one when requested:
+Requires Bun, Git, and authenticated Claude Code 2.1.257 or later with access to
+the selected model. Run from this repository; supply the brief directly on stdin:
 
 ```bash
-bun .agents/skills/consult-claude/scripts/consult-claude.ts follow-up <run-id> --wait
+bun .agents/skills/consult-claude/scripts/consult-claude.ts <<'BRIEF'
+[Concrete question, code blocks, source paths, diagram, reasoning, uncertainties.]
+BRIEF
 ```
 
-Type the follow-up, then send EOF. Do not use this to interrupt a working
-laboratory; reply through `claude agents` when immediate steering is needed.
-Every checkpoint is tied to one snapshot. Treat a claim that cannot be
-re-verified against the living checkout as a question, not a fact. When live
-work has materially moved on, start a new laboratory snapshot; never silently
-refresh a worker's replica beneath it.
+The launcher runs one native print-mode turn in the current checkout with only
+Read, Glob, and Grep. Restricted mode, blocked MCP tools, disabled hooks, and
+outside-read restrictions enforce the boundary. It creates no replica, brief
+file, or checkpoint. Claude Code owns session storage. Keep the reviewed files
+stable during each turn; identify changed files when supplying fresh evidence.
 
-Use each checkpoint to decide whether to edit, ask Claude a sharper question,
-or stop. Consultation does not transfer authorship: Claude-generated patches
-are evidence, not changes to apply. Return Claude's recommendation,
-material objections, and any remaining disagreement to the user.
+Read the native JSON result, including `result`, `session_id`, `is_error`, and
+any permission denials. A process starting or exiting successfully is not proof
+of a successful consultation. Preserve the session ID for follow-ups.
+
+```bash
+bun .agents/skills/consult-claude/scripts/consult-claude.ts --resume <session_id> <<'EVIDENCE'
+[Requested evidence, commands and relevant raw output, changed source, next question.]
+EVIDENCE
+```
+
+Resume only a completed consultation from this launcher, in the same checkout.
+The launcher reapplies the access boundary on every turn. If the shell tool
+yields a running process, keep monitoring it and provide progress updates.
+There is no interactive attach step.
+
+`--model` selects a model; the default remains `claude-fable-5-1`.
+`--dry-run` previews launch arguments without invoking Claude. Consult the native
+result or transcript before attributing findings to a model: access restrictions
+and fallback can change the model used.
+
+## Adjudicate and continue
+
+Evaluate objections yourself. When Claude requests evidence, run useful checks
+within the user's existing authorization and return the commands, relevant raw
+results, and source state. An advice-only request does not authorize edits.
+Ask before materially expanding the task; prior authorization still applies.
+
+Codex normally runs experiments. If the user explicitly delegates experimental
+execution to Claude, arrange an appropriately isolated workspace for that task
+separately. This launcher never grants write or execution tools, and elapsed
+time alone does not justify a new workspace or broader delegation.
+
+Return the recommendation, supporting evidence, and remaining disagreement.
+Stop when the bounded decision has enough evidence; consensus is not required.
+
+Read [the example and evaluation cases](references/example-workflow.md) when
+evaluating this workflow or revising the skills. For launcher changes, verify
+`claude --version`, `claude --help`, the official
+[CLI reference](https://code.claude.com/docs/en/cli-reference), and
+[programmatic usage](https://code.claude.com/docs/en/headless). Native Claude
+sessions own conversation history; the launcher owns only access and transport.
