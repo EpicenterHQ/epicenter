@@ -21,9 +21,33 @@ It translates those differences into ordinary CRDT edits.**
 
 The comparison is field by field within each row, not whole-row replacement.
 An unchanged field produces no write. A changed permitted field produces a
-field update. Settings use the same per-key comparison. Writable fields follow
+field update. Settings use the same per-key comparison. Removing a key present in the
+baseline deletes that key; explicit JSON null remains a stored value. A key
+absent from both baseline and file produces no write, even if another replica
+has added it. A missing or malformed `kv.json` refuses the submission rather
+than clearing every setting. Writable fields follow
 the application mutation contract; serialization alone does not permit editing
 row identity, ownership, blob references, internal paths, or computed values.
+
+**Schemas describe readable data; they do not gate field writes.**
+
+Push accepts changed JSON-compatible values for fields the owner permits,
+including values and field names outside the current descriptive schema.
+Schema membership does not grant or deny write permission. The owner supplies
+that permission independently. Malformed input, protected fields, destination
+mismatches, and unsupported structural edits still refuse before mutation.
+
+Removing a row frontmatter field writes null, retaining the existing row
+empty-value convention. Removing a KV property deletes the property. These
+operations do not depend on whether a schema marks the field nullable or
+required. A required value that is cleared becomes a conformance problem,
+not a rejected write. Nested JSON remains one field value.
+
+Typed application reads continue checking conformance. Nonconforming values
+remain stored and inspectable; a setting may fall back and a row may be absent
+from an application's typed view until repaired. Successful Push promises
+recorded edits, not usable application data. Explicit validation reports
+conformance separately and never repairs, rewrites, or submits data.
 
 Bodies remain readable, but any body difference from the materialized baseline
 refuses the complete submission before writes. Push does not silently skip the
@@ -33,6 +57,12 @@ or removed row files refuse. The receiving owner refuses edits to rows it
 observes as absent, checking presence and applying the edits in one synchronous
 span. It cannot promise knowledge of deletions it has not received; concurrent
 deletions follow ordinary CRDT behavior without a resurrection path.
+
+Existence means raw stored row identity, not visibility through a typed lens;
+nonconforming rows must remain repairable. KV deletion uses an ordinary store
+operation distinct from assigning null. The current KV handle only exposes
+updates; adding true deletion with persistence and replication evidence is
+required before the working-copy deletion contract can ship.
 
 The baseline records the values and content fingerprints corresponding to the
 files handed over or successfully submitted. It is neither the latest remote
@@ -80,7 +110,7 @@ acknowledgement may follow later through the outbox. Changes received remotely
 must not enter the baseline unless the corresponding files are materialized.
 A second Push with unchanged files must submit no new edits. Push writes only
 submission metadata in the folder; it does not re-render or rewrite Markdown,
-KV, or generated schemas. Edits made after capture remain pending against the
+KV, or the authored config. Edits made after capture remain pending against the
 captured submitted baseline. Explicit Pull owns file refresh.
 
 **An uncertain submission requires explicit reconciliation.**
@@ -154,18 +184,22 @@ currently invokes Pull or Push. Connecting that transport to the running owner
 remains implementation work. Native SQLite persistence and headless replica
 opening are not prerequisites.
 
-## Matter file contract
+## Working-copy interpretation
 
-Pull emits one generated `matter.json` inside each table folder. The root
-contains `kv.json` and Epicenter destination/baseline metadata, not a duplicate
-table-schema registry. Matter supplies the shared typed-file interpretation;
-Epicenter owns Push validation and recovery. Standalone Matter files remain
-authoritative, while checkout edits remain pending until Push.
+An authored root `epicenter.config.ts` supplies the local validation lens under
+[ADR-0420](0420-epicenter-working-copies-use-the-matter-file-contract.md).
+There are no generated schema files or schema-fingerprint checks. Config edits
+produce no store writes, grant no permissions, and cannot retarget a checkout.
+Pull and Push do not execute or overwrite this config. The materialization
+manifest establishes the managed paths and baseline; the receiving owner
+establishes permissions. Removing a table from the config cannot hide its
+prepared edits or protected body from Push preflight. Missing or broken config
+blocks validation, not an otherwise valid baseline-driven Push.
 
-Generated contracts do not grant write access. Their modification refuses Push
-rather than migrating the store. Schema mapping, including nullable values and
-root KV, must be implemented faithfully before compatibility is claimed. The
-full boundary is recorded in [the Matter working-copy decision](0420-epicenter-working-copies-use-the-matter-file-contract.md).
+Matter supplies shared YAML parsing. Its standalone schema discovery and
+editing capabilities do not yet implement the Epicenter checkout contract.
+Value-conformance diagnostics never block Push; parsing, body protection,
+row identity and existence, destination checks, and permissions still apply.
 
 ## Read-only SQL beside a working copy
 

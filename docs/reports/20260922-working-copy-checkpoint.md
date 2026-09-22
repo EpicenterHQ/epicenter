@@ -1,5 +1,28 @@
 # Working-copy parser and schema checkpoint
 
+## Direction update, 2026-09-22
+
+The user settled on executable `epicenter.config.ts` as the local read lens.
+[ADR-0420](../adr/0420-epicenter-working-copies-use-the-matter-file-contract.md)
+records the decision. Validation may require dependencies and execute project
+code. There is no default generated JSON schema, JSON import path, regeneration,
+or config discovery in Desktop. Pull and Push use the manifest and receiving
+owner independently of config execution.
+
+The schema-conversion and write-conformance statements in the original checkpoint
+below are historical. The next implementation must remove the abandoned
+`compileDataSchema` / `exportDataSchema` draft and the new handwritten
+`definition/schema.ts` validator. `scripts/epicenter.ts` still reads JSON and is
+not the selected implementation. Only five existing compiler tests were rerun
+after that experiment; neither config loading nor final CLI behavior is verified.
+
+Current field-diff helpers admit permitted JSON values without schema gating.
+Row omission and null compare equally. KV omission deletes a baseline key;
+explicit null stores null. A declared nullable KV key must still be present for
+conformance. These helpers are not integrated into the legacy Push engine.
+
+## Original checkpoint
+
 The parser and field-diff primitives are implemented. The legacy checkout still
 uses its earlier mutation policy; the new helpers are not connected to Push.
 This checkpoint does not establish that the app or CLI workflow is ready.
@@ -51,6 +74,9 @@ operation; it requires discarding old replicas and starting fresh checkouts.
 
 ## Remaining work
 
+Historical sequence, superseded by the config-first execution waves in the
+[final vision review report](20260922-working-copy-vision-review.md).
+
 1. Replace the legacy checkout planner with complete preflight and permitted
    field patches. Remove body replacement, row creation/deletion, resurrection,
    and live-store conflict planning. Push advances captured baseline metadata
@@ -84,7 +110,7 @@ agent-thread limit was reached. No runtime behavior was changed by this review.
 
 ## Git layout decision
 
-ADR-0422 defines the Git boundary: version row Markdown, table contracts, KV,
+ADR-0422 defines the Git boundary: version row Markdown, the authored config, KV,
 and working-copy instructions; keep the manifest, interruption state, and optional
 `query.sqlite` under the ignored `.epicenter/` directory. The index is disposable;
 the manifest is not. Clones without local metadata remain readable but refuse

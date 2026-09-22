@@ -158,10 +158,12 @@ The application may expose a raw SQL console through the read-only query
 interface. Agents may query the same interface, but need not: files suffice for
 reading and selection. Live SQL is optional and never an agent write path.
 
-Working copies use Matter table folders with generated per-table `matter.json`
-contracts. Matter owns file interpretation and derived indexing; the running
-Epicenter owner owns destination checks and permitted-field Push. This does not
-make standalone Matter folders synchronized stores.
+Working copies use Markdown table folders, root `kv.json`, and an authored
+`epicenter.config.ts` read lens under ADR-0420. Matter supplies shared YAML
+parsing; its checkout UI and indexing integration remain unbuilt. The running
+Epicenter owner owns destination checks and permitted-field Push. Config changes
+do not change that destination or grant writes. Standalone Matter retains its
+own format and does not become a synchronized store.
 
 An optional read-only index beside a working copy supports SQL selection of
 Markdown paths. It indexes the working files through a stated refresh point;

@@ -22,12 +22,11 @@ submission state under `.epicenter/`.**
 working-copy/
   .gitignore
   AGENTS.md
+  epicenter.config.ts
   kv.json
   recordings/
-    matter.json
     <recording-id>.md
   folders/
-    matter.json
     <folder-id>.md
   .epicenter/
     manifest.json
@@ -37,7 +36,7 @@ working-copy/
 A table is a directory named after the declared table. Each Markdown file is
 one row, named by its stable row ID. Frontmatter contains field values; the
 body contains rendered context under ADR-0420's editing restrictions.
-`matter.json` describes that table's fields. `kv.json` contains root settings.
+`epicenter.config.ts` supplies the validation lens. `kv.json` contains root settings.
 `AGENTS.md` describes the working-copy rules. These files may be versioned.
 
 The manifest contains destination identity, the comparison baseline, and
@@ -46,7 +45,10 @@ The optional SQLite index and its journal or WAL companions live beside it.
 The index may be deleted and rebuilt; deleting the whole `.epicenter/`
 directory loses submission state and must not be presented as cache cleanup.
 This placement concerns Epicenter working copies, not standalone Matter's
-current mirror location. No credentials belong in the generated file contract.
+current mirror location. Do not scaffold credentials into versioned files.
+Config imports and any authored dependency manifests may travel through Git;
+dependencies must be available before validation can execute the config.
+Reading the files and submitting a baseline-driven Push do not require it.
 
 The working-copy root's versioned `.gitignore` contains this anchored rule:
 
@@ -65,7 +67,7 @@ broad `*.json` or `*.sqlite` rules that hide unrelated repository content.
 Git HEAD, the staging area, and branch names do not define that baseline.
 Committing before Push leaves the prepared field changes pending. A historical
 file checkout produces differences against the current local baseline; it can
-propose reversals, subject to the same field permissions and body, schema, and
+propose reversals, subject to the same field permissions and body and
 row-set restrictions. A Git branch does not select a different Epicenter store.
 Each working folder, including each Git worktree, needs independent local
 submission state. Never share an unfinished marker or baseline across worktrees.
@@ -89,14 +91,22 @@ outside the feature set under ADR-0417.
 
 **A path's shape does not establish ownership.**
 
-Pull owns only the checkout's declared table files and explicitly managed root
-files. Use the destination definition and the last materialization manifest to
-establish those paths; a two-segment Markdown suffix is insufficient. Preserve
+Pull owns only materialized table files and explicitly managed root files.
+The last materialization manifest establishes existing ownership; the receiving
+owner identifies candidate paths for a new materialization. The mutable config
+cannot add or remove managed paths. A two-segment Markdown suffix is insufficient. Preserve
 `.git` and unrelated repository paths such as `docs/README.md` or draft
 folders outside the managed tables. Refuse collisions with existing unowned paths. Within a managed
 table, an added Markdown file is an unsupported row creation and causes refusal;
 it is not disposable content to sweep away. Definition changes must not silently
 claim or discard an existing directory.
+
+Operation exclusion uses one canonical folder identity so path aliases cannot
+bypass it. Reject or safely handle symlinked managed paths; lexical containment
+alone does not establish that writes stay in the folder. A preflight comparison
+followed by rename leaves an editor race. Materialization needs a demonstrated
+preservation mechanism at replacement, or must refuse the operation. An
+unfinished marker cannot recover bytes that were overwritten.
 
 ## Consequences
 
@@ -123,7 +133,9 @@ without independent history, automatic rollback detection is not promised.
 Exercise commit-before-Push, metadata-only successful Push, historical file
 restoration, independent worktrees, and blocked interruptions across branch
 switches. Missing-baseline clones must remain intact. Preserve unrelated paths
-and existing ignore rules. Reject unsupported body/schema/row-set differences.
+and existing ignore rules. Reject unsupported body and row-set differences.
+Config-only changes must produce no writes or path-ownership changes, and Pull
+must preserve the authored config.
 Verify that rebuilding or deleting the query index preserves the baseline and
 unfinished state, and that concurrent filesystem changes cannot silently enter
 the submitted baseline.

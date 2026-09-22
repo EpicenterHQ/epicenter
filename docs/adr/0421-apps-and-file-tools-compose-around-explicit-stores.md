@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-21
-- **Unbuilt:** Independent store composition, owner-routed working copies, faithful Matter schema mapping, and headless project provisioning. Host admission, initial record creation, schema upgrades, and complete attachment transfer remain unresolved.
+- **Unbuilt:** Independent store composition, owner-routed working copies, executable config validation, checkout-aware Matter integration, and headless project provisioning. Host admission, initial record creation, and complete attachment transfer remain unresolved.
 
 ## Context
 
@@ -14,17 +14,18 @@ inventing its own storage and schema interpretation.
 The current `packages/app/src/open.ts` couples stores to one App lifetime.
 Matter's `createVault` discovers table folders through `matter.json` and follows
 file changes. These provide parts of the target, but do not yet implement a
-shared app-to-working-copy workflow. A portable schema also does not transport
+shared app-to-working-copy workflow. A definition also does not transport
 the originating app's behavior.
 
 ## Decision
 
-**Apps and file tools compose around explicit stores and one portable file contract.**
+**Apps and file tools compose around explicit stores and ordinary working files.**
 
 A definition declares a store's stable ID, tables, and KV. A host is the process
 or browser context that runs its local replica and owns persistence. An app
-composes store handles and product behavior. Matter interprets portable table
-folders. The CLI routes working-copy operations to the identified host.
+composes store handles and product behavior. Matter currently interprets its own
+table-folder contracts. The CLI validates through an authored TypeScript config
+and routes Pull/Push to the identified host.
 
 ```text
 Developer's definition
@@ -46,7 +47,7 @@ The composition has the following boundaries:
 | Store host | Local persistence ownership, store operations, and synchronization when configured |
 | Specialized app | Product behavior and explicit choice of store handles |
 | Matter | File interpretation, generic field editing, and display |
-| CLI | Destination discovery and owner-routed Pull/Push |
+| CLI | Explicit config execution for validation; owner-routed Pull/Push |
 | SQL projection | Derived reads with a stated source and freshness |
 
 [ADR-0419](0419-stores-open-for-explicit-owners-and-compose-live-projections.md)
@@ -62,11 +63,11 @@ through Push. Scripts that edit files do not acquire a second persistence owner.
 Baseline and recovery state are not disposable query caches.
 
 [ADR-0420](0420-epicenter-working-copies-use-the-matter-file-contract.md) describes
-the shared file contract and generated per-table schemas. Standalone Matter
+the shared parser and root `epicenter.config.ts` read lens. Standalone Matter
 files are authoritative. Epicenter checkout files are prepared changes until
-Push. Opening a checkout in Matter does not enable body or protected-field
-writes. File watching keeps the display current; it does not promise conflict-free
-simultaneous filesystem edits.
+Push. Matter checkout integration remains unbuilt and must not enable body or
+protected-field writes. File watching does not promise conflict-free simultaneous
+filesystem edits or automatically execute a checkout's config.
 
 Both live-store SQL and working-file SQL are optional derived read surfaces in
 the target architecture. Neither supplies a second write path. Matter currently
@@ -87,18 +88,21 @@ contract: the current proposed Push workflow refuses added or removed rows and
 body edits. A headless project must not bypass those restrictions through an
 implicit import or a second agent mutation API.
 
-Project configuration identifies an explicit destination. The definition ID
-alone is insufficient; ownership and remote server identity also matter.
-Authentication supplies access, not permission to retarget a checkout after an
-account switch. Whether configuration is JSON or executable TypeScript, its
-filename, and its loading rules remain open. Browsing portable data must not
-require executing project code.
+The materialization manifest identifies the fixed destination and baseline.
+The definition ID alone is insufficient; ownership and remote server identity
+also matter. Authentication supplies access, not permission to retarget a
+checkout after an account switch. The root `epicenter.config.ts` supplies only
+the validation lens, not destination selection. It is ordinary executable code;
+validation requires its dependencies and reports import failures normally.
+Plain file browsing requires neither config execution nor a running owner.
 
-The developer owns an app's definition; a headless project author takes that
-role for their project. Generated checkout schemas describe the receiving
-contract and cannot migrate it. Schema adoption and upgrades, including older
-clients, require an explicit policy. A catalog may publish definitions without
-being required for local creation or becoming a second schema authority.
+The developer owns the lens shipped by an app; the folder author owns the lens
+used by their tooling. They may change either without migrating stored data or
+forcing other consumers to adopt it. Conformance is local to that interpretation.
+Config changes cannot grant mutation permission. There is no generated schema,
+automatic regeneration, schema-adoption protocol, or Desktop config scanner.
+Definition package distribution remains separate work; the existing private
+workspace packages are not a public package catalog.
 
 **Portable access and transfer into another app are separate capabilities.**
 
@@ -119,8 +123,8 @@ schema designer nor a runtime app loader, mandatory type generation, universal
 import mapper, or server catalog.
 
 The cost is explicit boundaries: file edits require Push to reach a store;
-specialized imports support declared mappings; schema upgrades require a
-developer decision. Arbitrary folders do not automatically become supported
+specialized imports support declared mappings; validation executes authored
+code with installed dependencies. Arbitrary folders do not automatically become supported
 application data.
 
 The first integration should prove one existing recording's permitted metadata
@@ -132,13 +136,14 @@ contracts; this record supplies their composition boundary.
 
 ## Implementation order
 
-First share file interpretation and prove that a Matter title edit preserves
-untouched multiline values and the body. Then implement the bounded schema
-mapping, nullable normalization, and the owner's permitted-field contract.
-Next replace live-store conflict planning with baseline field differences and
-prove durable success and refusal after interrupted operations. Finally connect
-the existing owner to the first app and CLI workflow. No step requires a new server authority, native
-migration, live SQL, or shared membership.
+First finish config-driven validation using the existing compiler and shared
+parser, removing the abandoned portable-schema draft. Then establish the owner's
+permitted-field contract and replace live-store conflict planning with baseline
+field differences. Prove durable success and refusal after interrupted operations
+before connecting the existing owner to the first app and CLI workflow. The first
+end-to-end edit can use an ordinary script. Matter UI integration and indexing
+follow independently. No step requires a new server authority, native migration,
+live SQL, or shared membership.
 
 ## Considered alternatives
 
@@ -153,10 +158,12 @@ migration, live SQL, or shared membership.
 
 ## Verification
 
-Demonstrate one recording edited through Matter and through a script producing
-the same permitted Push changes. Untouched fields must remain untouched, dirty
+Demonstrate one recording edited through a script producing only its permitted
+Push changes. Matter must produce the same edits when its integration lands.
+Untouched fields must remain untouched, dirty
 Pull must preserve prepared edits, and interrupted Push must block blind retries
-and preserve files for explicit reconciliation. Generated-schema and body edits must refuse before mutations.
+and preserve files for explicit reconciliation. Body edits must refuse before
+mutations. Config changes must produce no writes, permission changes, or retargeting.
 A standalone Matter folder must remain usable without an Epicenter owner.
-Check headless admission, initial population, schema upgrades, and attachment
+Check headless admission, initial population, and attachment
 transfer separately before claiming those workflows exist.
