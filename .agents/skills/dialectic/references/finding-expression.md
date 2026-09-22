@@ -12,9 +12,10 @@ to own saving, source preservation, selection, and the finished artifact.
 ## Make The Possibility Tangible
 
 Put actual prose in front of him rather than asking him to diagnose a style
-preference before seeing an attempt. Prefer blockquotes for the passages shown
-in chat, with labels and commentary outside, so the writing can be read on its
-own and the user can select one version or parts of several. Give the thought the length it needs:
+preference before seeing an attempt. A short introduction, simple labels, and
+quoted passages can help him enter and compare the writing; let the live choice
+determine what presentation it needs. Show the prose itself without making him
+read an abstract explanation first. Give the thought the length it needs:
 meaningful details, examples, turns, and emphasis are development, not excess
 merely because they take several paragraphs. If a meaningful part is hard to
 connect, explore the connection rather than silently dropping it.
