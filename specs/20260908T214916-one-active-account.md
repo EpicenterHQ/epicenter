@@ -24,9 +24,10 @@ state. Server selection cannot be deleted wholesale. Browser apps retain the
 analogous document-owned selection and full-navigation boundary.
 
 Read target, safety matrix and waves first. The occurrence map is a launch point,
-not a file whitelist. Use `spec-execution` for checkpoints and independent
-`adversarial-review` after substantive ownership/API changes. Reconsider remaining
-waves when a stronger invariant eliminates work.
+not a file whitelist. Use independent `adversarial-review` at the execution
+checkpoints below and after substantive ownership/API changes. Resolve findings
+before dependent implementation, record the decisions here, and reconsider
+remaining waves when a stronger invariant eliminates work.
 
 ## Baseline and ownership
 

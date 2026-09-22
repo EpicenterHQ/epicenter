@@ -3,8 +3,8 @@
 Implement [the one-active-account spec](20260908T214916-one-active-account.md)
 in `/Users/braden/conductor/workspaces/epicenter/yamoussoukro`. Deliver a verified
 implementation and a concise report of what collapsed, how stock-client Cloud
-and self-host sign-in work, and what was actually tested. Use `spec-execution`
-and independent `adversarial-review` checkpoints. Do the work rather than stopping
+and self-host sign-in work, and what was actually tested. Use independent
+`adversarial-review` at the spec's execution checkpoints. Do the work rather than stopping
 at another plan.
 
 The user explicitly chose Cloud by default, one custom-server URL/token option,

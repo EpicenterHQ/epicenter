@@ -217,10 +217,10 @@ After repairs, apply [post-implementation-review](../post-implementation-review/
 local post-edit checks to every repaired file before closing the review.
 
 When executing a plan, rewrite remaining work around the resulting design and
-delete obsolete tasks. [spec-execution](../spec-execution/SKILL.md) owns wave
-cadence and checkpoint records.
+delete obsolete tasks. Record consequential findings and decisions in the active
+plan or working notes. The assignment sets any intermediate review checkpoints.
 
 Request a focused follow-up when repairs materially change reviewed ownership
-or expose an unresolved risk. Stop when grounded findings are resolved and the
-next step has a defensible shape. Do not repeat reviews to obtain a collapse or
-unanimous approval.
+or expose an unresolved risk. Close the review when grounded findings are
+resolved and the next step has a defensible shape, then resume any remaining
+assigned work. Do not repeat reviews to obtain a collapse or unanimous approval.

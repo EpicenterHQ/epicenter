@@ -53,6 +53,24 @@ Two things are easy to leave out and expensive to lose: the evolution that
 explains the current direction (what the user reacted to, what was tried and
 dropped), and what the user will recognize as right beyond a passing test run.
 
+For implementation handoffs, direct the recipient to implement and verify the
+accepted outcome through completion, with independent
+[adversarial-review](../adversarial-review/SKILL.md) checkpoints suited to the
+work. Preserve agreed checkpoints and choose useful ones from the task context;
+where the evidence is still missing, have the recipient choose and revise their
+placement as implementation develops. Place reviews where findings can change
+dependent work before it is built. Review the cumulative implementation and
+remaining plan, resolve findings, update the plan where those findings change
+it, and continue within the accepted scope. A checkpoint ends the review, not
+the assignment. Preserve explicit user limits and narrower research or
+review-only deliverables.
+
+Carry forward unresolved findings and the task-start baseline so cumulative
+reviews can distinguish task changes from existing work. If implementation has
+not begun, have the recipient capture that baseline before editing. If an
+ongoing task lacks a baseline, state the gap rather than treating the handoff
+state as evidence of what predates the task.
+
 Name real hazards: dirty user work, destructive git, deploys, migrations,
 security, licensing boundaries, dead paths to avoid, explicit non-goals. Leave
 out hazards that are merely conceivable.

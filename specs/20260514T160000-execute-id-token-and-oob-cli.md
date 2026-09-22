@@ -100,7 +100,7 @@ Read these once and keep them in working memory through every wave.
 - Commits are conventional: `feat(scope):`, `fix(scope):`, `refactor(scope):`, `test(scope):`, `docs(scope):`, `spec(scope):`. One logical change per commit.
 - Use the `error-handling` skill: `wellcrafted` `tryAsync`/`trySync` at I/O boundaries, Result types at module boundaries.
 - Use the `define-errors` skill for any new error variants: `IdTokenInvalid`, `OobLauncherError` variants, `MachineAuthStorageError` variants.
-- After each wave, invoke the `post-implementation-review` skill with the touched files. Do not skip.
+- After each wave, invoke `adversarial-review` on the cumulative implementation and remaining plan before dependent work begins. Record consequential decisions and update remaining tasks from accepted findings. Keep the wave-specific `post-implementation-review` checks and human gates below; the independent review includes the code inspection.
 
 ### What NOT to bundle
 - Do not rename `createOAuthAppAuth`. Tempting but pure churn.
@@ -125,7 +125,7 @@ If any of these are still open when you start, stop and ask. Do not guess.
 
 **Goal**: ship `customIdTokenClaims` and the `/auth/cli-callback` page. Both additive. `/workspace-identity` keeps working. No client changes.
 
-**Skills to load**: `spec-execution`, `greenfield-clean-breaks`, `encryption`, `elysia` is not relevant (the api uses Hono + Better Auth), `error-handling`, `monorepo`.
+**Skills to load**: `greenfield-clean-breaks`, `encryption`, `elysia` is not relevant (the api uses Hono + Better Auth), `error-handling`, `monorepo`.
 
 ### Files to touch
 
@@ -215,7 +215,7 @@ After Wave 1: run `post-implementation-review` skill on the touched files. Surfa
 
 This is the schema-change wave. It touches every persisted shape and must land atomically (one PR or one commit chain merged together) to avoid leaving a half-migrated state.
 
-**Skills to load**: `spec-execution`, `refactoring`, `arktype`, `typescript`, `define-errors`, `error-handling`, `testing`, `monorepo`, `encryption`, `documentation`.
+**Skills to load**: `refactoring`, `arktype`, `typescript`, `define-errors`, `error-handling`, `testing`, `monorepo`, `encryption`, `documentation`.
 
 ### Files to touch (id_token side)
 
@@ -335,7 +335,7 @@ This wave can be split into per-surface PRs because each app/package is independ
 5. `machine-auth.ts` rewrite
 6. `packages/cli/src/commands/auth.ts`
 
-**Skills to load**: `spec-execution`, `svelte` (for browser apps), `tauri` (for Tauri apps), `refactoring`, `define-errors`, `error-handling`, `testing`, `monorepo`.
+**Skills to load**: `svelte` (for browser apps), `tauri` (for Tauri apps), `refactoring`, `define-errors`, `error-handling`, `testing`, `monorepo`.
 
 ### Files to touch (per-surface)
 
