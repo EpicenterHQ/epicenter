@@ -141,27 +141,12 @@ files, ask before drafting rather than inventing them.
 
 ## Design The Skill From The Interaction
 
-When designing or substantially revising a skill whose purpose or behavior is
-open, use [dialectic](../dialectic/SKILL.md) with the user. Zoom out to what the
-skill should help someone accomplish, then develop different directions it
-could take. Show those directions through several concrete sample outputs or
-simulated human-agent conversations. Samples help discover the purpose itself;
-the user need not settle it or articulate abstract preferences first.
-
-Make the directions differ in what the agent does, what the user carries, or
-what someone can accomplish. Alternate phrasings of the same response cannot
-test those choices. Use the same request when that makes the differences
-easier to judge, and show the artifact the skill would actually produce.
-Label imagined exchanges as samples; invented user replies are not evidence
-of the user's preference.
-
-Let actual reactions change the skill's purpose, scope, or behavior as well as
-the samples. The user can choose, reject, or combine parts; the agent carries
-the synthesis rather than requiring them to pick a winner. Recommend a
-direction when the evidence supports it without treating it as accepted.
-Work backward from the direction the user recognizes to the instructions that
-would produce it. Use existing accepted interactions instead of repeating the
-exercise. Mechanical edits and clearly settled changes can proceed directly.
+Use [dialectic](../dialectic/SKILL.md) when the skill's purpose or behavior is
+unsettled. It owns the conversation, including concrete versions that help the
+user discover a direction. Work backward from what the user recognizes to the
+instructions that would produce it. Discussion and drafting can inform each
+other; they are not required stages. Use accepted interactions as evidence,
+and carry out settled edits without restarting discovery.
 
 Extract the judgment that made an interaction work, not its incidental topic,
 wording, layout, or turn count. Remove or revise existing instructions that
@@ -175,9 +160,6 @@ whether the lesson transfers. Vary the subject, the user's certainty, or the
 artifact they need, including cases where immediate action or no question is
 right. If preserving a template requires exceptions for those cases,
 reconsider the template instead of adding more guardrails.
-
-This is a skill-design method. Using the resulting skill does not require
-showing candidate interactions unless its own workflow calls for them.
 
 ## Write The Description First
 

@@ -2,7 +2,8 @@
 
 These examples preserve the conversational direction selected with the user.
 They are illustrations, not transcripts of skill test runs or scripts to follow.
-In a real conversation, write only the agent's next turn and wait for the user.
+In the live conversation, leave the next reply to the user. Clearly labeled
+sample exchanges can help them experience a possible direction.
 
 ## Finding words for a discomfort
 
@@ -102,3 +103,15 @@ and “Help me put into words why this workflow feels wrong” should select thi
 skill. “Implement the approved ownership change” and “Explain what this
 function does” should not select it merely because understanding is involved.
 These are review cases, not a claim that live routing has been measured.
+
+When exploring a skill, compare possible human-agent exchanges far enough to
+show how each direction develops and what it produces. When exploring writing,
+compare complete drafts if the distinction depends on how the argument unfolds
+or ends. These are useful possibilities, not required formats. Check that the
+versions reveal substantive differences and that the next response follows the
+user's actual reaction, including a preference for parts of each.
+
+“Help me figure out what this skill should do” and “I can't tell which direction
+this essay should take” should select dialectic. “Update the skill with the
+wording we selected” should proceed directly. A simple uncertainty should still
+get a useful conversational response without an obligatory pair of artifacts.

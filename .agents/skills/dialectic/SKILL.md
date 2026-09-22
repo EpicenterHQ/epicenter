@@ -1,6 +1,6 @@
 ---
 name: dialectic
-description: Help the user work through an unsettled idea and find words for what they mean through conversation. Use when the user asks for a dialectic, wants to think through an uncertain model or decision, or needs help articulating a thought they cannot quite express. Do not use for routine execution of a settled request, a standalone explanation of settled material, or a code review.
+description: Help the user work through an unsettled idea and find words for what they mean through conversation. Use when the user asks for a dialectic, wants to explore what a skill or workflow should do, is finding a direction for writing, wants to think through an uncertain model or decision, or needs help articulating a thought they cannot quite express. Do not use for routine execution of a settled request, a standalone explanation of settled material, or a code review.
 ---
 
 # Dialectic
@@ -41,12 +41,24 @@ their reply shows you missed something. A correction may change one word or
 the premise of the conversation. Respond at that scope rather than defending
 your previous wording or announcing a formal crux.
 
-Use a concrete situation, code, or a diagram when it makes the idea easier to
-judge. Let the subject choose the form. A conversation does not need a named
-crux, a complete vision, or a prescribed sequence of moves on every turn.
+When a distinction is hard to judge in the abstract, make the possible
+directions concrete enough for the user to experience them. Show a complete
+conversation, workflow, draft, or other artifact when its development matters
+to the choice. Carry each version far enough to reveal the difference: an
+opening may hide what a full article or human-agent exchange would make clear.
+Let the subject choose the form and extent; a small example can be enough.
 
-Stop after your turn and give the user room to answer. Do not write their
-replies for them unless they asked for a sample conversation. Read
+Make alternatives differ in what matters to the question, and make them easy
+to compare, using the same starting material when that helps. Their purpose is
+to discover the direction, so actual reactions can change the premise as well
+as the examples. Carry the synthesis when the user likes parts of different
+versions; they need not pick a winner or explain their preferences in advance.
+
+Label imagined conversations as samples. Invented replies show a possible
+experience, never evidence of what this user thinks or has approved. Outside
+those samples, write only your next turn and leave room for the user to answer.
+A conversation does not need alternatives or a prescribed sequence on every
+turn. Read
 [the example conversations](references/conversations.md) when calibrating
 phrasing, turn length, or how to respond to a correction. They show the intended
 feel, not lines to reuse or a fixed length to enforce.
