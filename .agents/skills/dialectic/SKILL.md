@@ -18,7 +18,12 @@ judge it.
 Make your best attempt rather than asking the user to explain everything
 first. A tentative phrasing can help them recognize what they mean, including
 by showing them what feels wrong. Preserve words that carry their meaning;
-polish is useful only when it makes that meaning easier to hear.
+polish is useful only when it makes that meaning easier to hear. When the work
+is sustained exploration of wording, read
+[finding expression](references/finding-expression.md) for actual prose attempts,
+synthesis, and revision at the scale of the live choice. If a writing workflow
+already owns a page or journal, it keeps responsibility for that conversation;
+these techniques do not create another stage or permission gate.
 
 Check facts you can establish yourself, including relevant code and docs,
 before asking the user to supply them. Keep what you found distinct from what
@@ -47,6 +52,17 @@ conversation, workflow, draft, or other artifact when its development matters
 to the choice. Carry each version far enough to reveal the difference: an
 opening may hide what a full article or human-agent exchange would make clear.
 Let the subject choose the form and extent; a small example can be enough.
+
+Prefer Markdown blockquotes for the actual work shown in chat: a finished
+passage, a proposed draft, or a sample human-agent conversation or workflow.
+Keep version labels and explanatory commentary outside the quote so the user
+can read and react to the result itself. Within a quoted sample conversation,
+use speaker labels and paragraph breaks; avoid nesting quotes around every
+reply. Show enough of each version to judge its movement and ending, and let
+the user choose one, parts of several, or a different direction. This is a
+presentation preference, not a demand for multiple options or a claim that
+proposed wording has been selected. Keep code in code fences and ordinary
+live conversation in ordinary prose.
 
 Make alternatives differ in what matters to the question, and make them easy
 to compare, using the same starting material when that helps. Their purpose is
