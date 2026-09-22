@@ -4,7 +4,7 @@
 - **Date:** 2026-09-18
 - **Amends:** [ADR-0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) for Honeycrisp's page composition and view navigation.
 
-- **Amended by:** [ADR-0413](0413-app-boot-owns-the-working-page-lifetime.md) for shared boot ownership.
+- **Amended by:** [ADR-0413](0413-app-boot-owns-the-working-page-lifetime.md) for shared boot ownership. [ADR-0423](0423-app-resources-open-as-independent-handles.md) replaces nested App data acquisition with explicit store handles without changing Honeycrisp route behavior.
 
 ## Decision
 

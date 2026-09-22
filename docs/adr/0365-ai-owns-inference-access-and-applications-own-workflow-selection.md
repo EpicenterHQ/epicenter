@@ -2,355 +2,176 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-08
-- **Revised:** 2026-09-20
-- **Unbuilt:** The signed-out invitation design and `connection.transcribe`. The App exposes device and account connections; Whispering stores workflow choices in device KV. Chat retains its browser selection store and reconciles local targets with synced conversation models. Real native capture acceptance remains separate.
+- **Amends:** [ADR-0398](0398-every-transcription-destination-speaks-the-openai-wire.md) at client ownership: independent inference handles replace the App lifetime; SDK operations and wire compatibility remain.
+- **Unbuilt:** Independent inference constructors, separate catalog openers, consumer migration, and the signed-out invitation UI; `createAppAi` still depends on App cancellation.
 
 ## Context
 
-The App supplies actual OpenAI SDK clients and binds their requests to its
-readiness and retirement. Custom connection records and workflow selections
-previously shared one configuration owner and persisted envelope.
+`packages/app/src/ai.ts` combines runtime inference, the captured account's
+Epicenter gateway, and a saved custom-connection catalog. App supplies its abort
+signal and operation fence. Calling this factory's close alone does not retire
+its SDK clients. The browser and desktop catalog bindings ignore the app ID and
+partition saved endpoints by account, including a separate no-account catalog.
 
-Whispering's UI adapter combined connection editing, model discovery, and
-workflow routing. Completion and transcription operations repeated its matching.
-Vocab used the adapter for conversations while choosing account inference
-separately for dictation.
-
-These uses identify the boundary: a connection supplies access to inference;
-an application decides which connection and model a particular job uses.
-The App does not need to know what `completion`, `transcription`, or a
-conversation ID means.
+A caller opening one endpoint should not need an App, a saved record, or an
+`owner: { kind: ... }` option. A saved endpoint and an open inference client also
+have different lifetimes: closing a client must not remove its configuration.
 
 ## Decision
 
-### Settled user experience
+**Each inference source has a constructor with its own required inputs.**
 
-The user confirmed this experience on 2026-09-10:
-
-> In a browser, I can sign in to use Epicenter inference, or add my own
-> endpoint. Inside Desktop, I get those same choices plus native inference,
-> and custom endpoints I configure there are available to the other desktop
-> apps. Each app remembers its own model choices.
-
-An SPA remains an independent product that can be hosted in a browser and
-integrated into Epicenter Desktop. The available inference access comes from
-its environment. Custom connections stay local to that environment:
-
-- Desktop shares one custom catalog across an account's apps in the local
-  profile. Changing accounts selects another catalog (ADR-0404).
-- Browser apps on one origin share an account-scoped custom catalog.
-  Different origins do not share storage.
-- Applications retain their own explicit connection-and-model choices. A
-  shared catalog does not create shared workflow defaults.
-
-The Epicenter section can remain visible without authenticated access and offer
-sign-in. That invitation is presentation, not a usable connection. Once the App
-has account access, the person can choose its models. Custom and supplied native
-inference do not inherently require Epicenter sign-in; an app can separately
-require identity for its library or product workflow.
-
-Native inference appears when its binding supplies it. Connecting a custom
-OpenAI-compatible endpoint requires its URL and optional bearer key; it does
-not require Epicenter to install or manage the server. A failed or removed
-destination never silently changes the selected server.
-
-This experience does not require synchronizing custom catalogs through an
-account server or uploading custom keys there. Closing an app preserves saved
-connections. Switching libraries preserves environment configuration while
-the application follows its own selection and lifetime rules.
-
-### Catalog ownership and observation
-
-`app.device.connections` exposes the environment's custom catalog beside the
-host-supplied native runtime. Desktop stores
-metadata in `ai/<owner>/connections.json` under its profile data directory. One host
-owner serializes writes, persists by atomic replacement, and broadcasts committed
-snapshots to its apps over SSE. Browser bindings use `localStorage` under the
-account's storage key, with Web Locks for writes and notifications for other
-owners. Neither catalog belongs to a library or synchronizes across devices.
-
-The public mutation names are `add`, `update`, `remove`, and `reorder`. Their
-promises resolve after persistence and local snapshot publication. `get(id)`
-returns one current entry or `null`; `getAll()` returns the ordered local snapshot.
-`subscribe(listener)` immediately supplies that snapshot and then each update,
-returning an unsubscribe function. Apps await `app.ready` before using this API;
-desktop readiness includes opening its subscribed catalog view.
-
-Desktop credentials remain in the OS keychain. Snapshots expose `hasApiKey`
-without exposing the key. The host brokers custom requests against the captured
-connection ID and access version. URL or credential changes retire previous
-access; rename, model-list changes, and ordering preserve it. Metadata changes
-retain keychain references without retrieving their values. Explicit replacement
-or removal can repair a missing keychain entry while preserving the saved ID.
-
-### The access view is decided; the signed-out invitation is not
-
-ADR-0392 settles how access is sorted: by owner, into two scopes. The machine
-owns the native runtime and the custom endpoints in `app.device.connections`;
-the signed-in person owns one server gateway at `app.account.connection`. The
-picker composes its list from those two members and needs no third view.
-
-The signed-out invitation still needs a design. A person with no account has no
-`app.account`, so the Epicenter group in the picker is an invitation rather than
-a connection, and what that group says and offers is undecided. This catalog
-change does not alter the authentication or opening lifecycle.
-
-### Inference access and the current API
-
-**The App supplies connections bound to destinations and credentials. The caller
-chooses a connection, supplies a model, and makes a request.**
-
-Access sits under the scope that owns it (ADR-0392):
-
-| Member | Source and owner |
-| --- | --- |
-| `app.device.connections` | The machine's catalog: the host-supplied native runtime plus the custom endpoints a person added, with management and client access |
-| `app.account?.connection` | One gateway for the signed-in person's server, using the App's captured Account transport, absent when no account opened the App |
-
-The account gateway keeps its own authentication and is not a record in any
-catalog. The native runtime appears in the machine's catalog but is
-host-supplied, not an editable entry. A runtime connection can use a native
-bridge; a custom connection can reach an HTTP server on this machine. The scope
-names say who owns a connection, not where computation physically occurs.
-
-The implemented custom API combines management and requests in one entry:
+These are target APIs, not implemented exports:
 
 ```ts
-const id = await app.device.connections.add({
-  name: 'My server',
-  baseUrl: 'https://inference.example/v1',
-  apiKey: providerKey, // Optional; omit for endpoints without bearer auth.
-  models: ['chosen-model'],
-});
+import {
+  openEpicenterInference,
+  openRuntimeInference,
+  openEndpointInference,
+} from '@epicenter/app/ai';
 
-const connection = app.device.connections.get(id);
-if (!connection) return showMissingConnection();
-
-await connection.client.chat.completions.create({
-  model: 'chosen-model',
-  messages,
+const epicenter = await openEpicenterInference({ account });
+const runtime = await openRuntimeInference();
+const endpoint = await openEndpointInference({
+  baseURL: 'https://inference.example/v1',
+  apiKey: providerKey,
 });
 ```
 
-Call sites write `app.device.connections` directly rather than aliasing the
-member to a short variable. The full path keeps ownership visible. A workflow
-can retain a selected connection to fix its destination for that run.
+| Constructor | Destination and authority |
+| --- | --- |
+| `openEpicenterInference({ account })` | The captured Account's Epicenter gateway, including self-hosted deployments |
+| `openRuntimeInference()` | The inference capability supplied by this environment |
+| `openEndpointInference({ baseURL, apiKey? })` | The supplied OpenAI-compatible endpoint and optional bearer credential |
 
-**The current custom API has one namespace for management and use.**
+A successful opening returns `{ client, signal, close }` with the actual SDK
+client. Each source also exposes its captured destination identity for exact
+workflow selection without exposing credentials. `openRuntimeInference` returns `null` when the environment supplies no
+runtime capability. Failure to initialize an available runtime reports failure;
+network or model errors do not become absence. No constructor selects a fallback
+destination. Model discovery and a successful inference request are not opening
+requirements, and client presence does not promise every SDK endpoint.
 
-`add({ name?, baseUrl, apiKey?, models? })` persists a connection and returns its
-immutable generated ID after persistence. It does not perform inference or select
-a workflow. Desktop management requests cross the host bridge.
-`get(id)` returns the current custom entry or `null`; `getAll()` returns the
-current ordered snapshot. Entries include their saved connection fields and
-their actual SDK client. `update`, `remove`, and `reorder` edit saved custom
-connections. `subscribe` supplies the initial snapshot and subsequent updates.
-`preview({ baseUrl, apiKey? })` supplies an App-bound client for an unsaved form
-candidate without creating a record.
+Epicenter access requires an Account and captures its identity and transport
+before asynchronous acquisition. Same-owner credential refresh may continue
+through that transport; account replacement never retargets it. Direct endpoint
+access requires no Epicenter login. An absent or blank endpoint key sends no
+bearer credential. It never borrows Account credentials. Runtime authentication
+belongs to the supplied capability. Opening any of these handles saves nothing.
 
-Snapshots contain detached configuration values. SDK clients retain identity
-until their endpoint or credentials change. Reading or constructing a client
-performs no network discovery. Model lists are suggestions for the picker;
-an explicit model does not need to appear in discovery results.
+These functions need no application ID, data definition, mode flag, tagged owner
+union, or optional-account aggregate. Separate implementations are allowed.
+Extract a private helper only after the constructors demonstrate the same
+mechanic; do not unify their ownership or inputs to obtain shared code.
 
-IDs survive rename, reorder, credential rotation, and reload. Two entries may
-use the same URL with different credentials. Removing and recreating an entry
-produces a new ID. Editing an endpoint or key retires its previous client rather
-than retargeting a client already retained by a workflow.
+**Every inference handle owns its request lifetime.**
 
-**Optional custom bearer credentials are part of the connection contract.**
+Close is terminal and idempotent. It immediately fences retained clients,
+cancels interruptible requests, and waits for response bodies and
+noninterruptible native work to settle. It does not stop an external server or
+unload a shared native engine. Opening owns rollback. Closing one client does
+not retire unrelated clients. The public handle owns its abort controller;
+exporting `createAppAi` unchanged does not satisfy this contract.
 
-An absent or blank key sends no bearer credential. A custom connection never
-borrows the current Account's credentials. Account requests obtain credentials
-through the captured Account transport; runtime authentication belongs to its
-binding. Connection settings remain local to their environment and never enter
-synchronized library data. Browser entries may contain their explicit key;
-desktop entries contain only its presence flag. Applications pass the client to
-inference work and never serialize or log client-bearing entries.
+The client stays bound to its destination and credentials. Redirects or SDK
+request options cannot redirect captured credentials to a different destination.
+Applications use SDK operations and protocol types. This decision adds no
+completion, dictation, or transcription wrapper; the separate proposal for
+`connection.transcribe` is not a prerequisite for these constructors.
 
-Omitting `apiKey` from an update retains its existing value. An explicit blank
-key removes it. Desktop explicit key assignment creates a new access version,
-even if the supplied string matches the old key. Preview only discovers models
-for an unsaved candidate and never persists its credentials.
+**Saved connection catalogs open separately from inference destinations.**
 
-**Applications own workflow selection, its persistence, and its validation.**
+```ts
+import {
+  openLocalConnectionCatalog,
+  openAccountConnectionCatalog,
+} from '@epicenter/app/ai-connections';
 
-The App exposes no scope-indexed selections, default workflow model, `select`,
-or `target`. A lookup in `app.device.connections.get(id)` addresses one entry in
-the machine's catalog; it does not choose a workflow or a scope.
-`resolveInferenceTarget(ai, selection)` in `@epicenter/app-shell/inference-target` is a free
-function that takes the explicit `{ connectionId, model }` the caller supplies
-and stores nothing.
+const localCatalog = await openLocalConnectionCatalog();
+const accountCatalog = await openAccountConnectionCatalog({ account });
+```
 
-Applications remember explicit connection-and-model pairs. Whispering declares
-the fields in its captured account's device KV; chat keeps local targets separately
-from synced conversation models. The application owns the field names, the initial default, and which
-workflow reads which field. Svelte observes `app.device.kv`; product operations
-read the same field without importing reactive UI state.
+Both catalogs persist on this device. Local uses the no-account partition.
+Account requires a captured Account and uses its authority/principal partition.
+Neither takes an app ID or synchronizes through Personal data. Desktop apps
+share their account's catalog within the host profile; browser apps share it
+within the origin/profile. Sign-in does not adopt Local entries, and account
+replacement does not merge keys or retarget an existing catalog.
 
-Saved account references identify the concrete authority and principal. Native
-runtime references identify the supplied destination. Custom references use the
-immutable connection ID. A missing reference must not match another scope, a new
-account, or a connection advertising the same model. A workflow captures its
-connection and model together before sending data.
+Catalogs retain `add`, `update`, `remove`, `reorder`, `get`, `getAll`, and
+`subscribe`. Mutation resolves after persistence and snapshot publication.
+Subscription supplies an immediate snapshot and later changes. Opening resolves
+after hydration and subscription setup. Close ends observation and retires
+catalog-owned clients while preserving saved configuration.
 
-**The opened App owns inference access for its lifetime.**
+Catalog entries retain stable IDs and client access. A URL or credential change
+retires previous access instead of retargeting a client held by an operation.
+Rename, model-list edits, and ordering preserve access. A missing `get(id)`
+returns `null`; removing and recreating an entry creates a new ID. Catalog close
+and access retirement cancel and drain the requests they own.
 
-`defineApplication` is inert composition. `open(account)` returns an App
-synchronously; the caller awaits `app.ready` and stops product work before
-`app.close()` (ADR-0392).
+Desktop snapshots expose key presence, not key material. The host uses the
+saved connection ID and access version to broker requests with keychain
+credentials. A desktop entry cannot be reconstructed by passing its public
+snapshot to `openEndpointInference`. Browser records can hold their explicitly
+supplied key. Neither catalog uploads custom credentials to Epicenter inference.
+Omitting a key from an update retains it; an explicit blank key removes it.
 
-The account supplied at opening determines both the account libraries and
-account inference. `open(null)` has no `app.account`, so no account inference,
-even if authentication elsewhere is signed in. An App opened with an account
-uses that captured actor for inference. There is no independent
-inference-account selector. Same-owner credential refresh preserves access
-through the captured transport; account replacement closes the App and opens
-another.
+Unsaved endpoint preview uses `openEndpointInference` and closes that handle
+when the form is discarded. The target catalog has no `preview` method. Preview
+saves nothing and has no access to an existing hidden key unless it uses that
+saved entry's brokered client.
 
-The storage and native inference bindings are selected independently at
-application declaration. Selecting native storage or running inside Tauri does
-not itself supply native inference. An absent native runtime means no capability
-was supplied, not that a request failed or a model needs downloading.
+**Applications choose a concrete connection and model for each workflow.**
 
-Retained clients reject premature or retired use. Closing cancels or drains
-admitted requests, including streamed response bodies and noninterruptible
-native work. It does not stop external servers or unload a shared native engine.
-Resource cleanup remains owned by App, not by individual consumers.
+The picker composes available inference handles and catalog entries. A signed-out
+Epicenter invitation is UI, not an unusable connection. Custom endpoint access
+remains available without Epicenter sign-in. Runtime absence is a platform fact,
+not a reason to silently select the hosted gateway.
 
-**The SDK owns inference operations and protocol types.**
-
-Applications call `client.chat.completions.create` and `client.models.list`
-where supported. Epicenter adds no second set of completion verbs, and no
-Epicenter type restates a request or response body the SDK already declares.
-The one Epicenter verb is `connection.transcribe`, which exists because four
-rules around a transcription call are platform rules rather than product choices
-(ADR-0396). Application workflows translate SDK exceptions into their existing
-Results everywhere else.
-
-A native adapter can translate supported SDK requests into Tauri commands
-through custom fetch without opening an HTTP socket. The current adapter
-implements model listing and file transcription. Client presence does not
-promise all SDK endpoints, full protocol parity, successful model loading, or
-reachability. Native use requires evidence for real audio, explicit model
-selection, result mapping, authorization, and cancellation or drain.
-
-**There is no dictation capability on the App.**
-
-Microphone-to-text is `app.device.recording` (ADR-0366) followed by
-`connection.transcribe` (ADR-0396), and an application composes the two calls
-itself. Each call already carries what a shared member would have carried:
-capture is bound to the App's lifetime and the machine's input selection, and
-the connection is bound to the App's signal and the caller's explicit
-`{ connectionId, model }`. A dictation member would capture nothing that
-`open()` fixed beyond what those two already capture, so under ADR-0388 it
-does not join the App. Vocab's dictation is one `transcribe` on
-`app.account?.connection` over its own VAD-segmented capture; Whispering's
-saved recording is one `start()` and one `stop()`.
-
-A shared helper over the two calls is promoted, into `@epicenter/app-shell`,
-only when a second application needs more than the two calls, for example
-streaming partial transcripts during capture. It is not promoted on intention.
+Selections retain destination identity: Epicenter authority and principal,
+runtime destination, or catalog owner and immutable entry ID, plus the chosen
+model. A saved selection must not match another account or an endpoint merely
+because it advertises the same model. Capture the selected client and model
+before sending data. Applications own defaults, validation, and persistence of
+those choices; inference constructors neither read product settings nor choose
+models. Catalog entries and clients must not enter synchronized rows or logs.
 
 ## Consequences
 
-The API groups connection editing and client lookup. The environment chooses
-the catalog owner, and the App owns its subscribed view and SDK request lifetime.
-Applications use the SDK for requests.
-Whispering and Vocab retain their workflow choices without requiring those
-concepts in core App types.
+A product can make one inference request without opening storage or a catalog.
+The public owner union and `app.device.connections`/`app.account.connection`
+access paths disappear. Distinct constructors make authentication requirements
+visible while preserving runtime absence and ordinary request failures.
 
-Browser connections persist at
-`epicenter/ai/<owner>.app-ai-connections`. Chat selections persist separately at
-`<settingsKey>/<owner>.app-ai-selections`; Whispering uses device KV. Desktop metadata lives at
-`ai/<owner>/connections.json`. ADR-0404 defines the captured account's owner
-namespace, including `no-account`.
+Catalog ownership remains explicit because saved keys need isolation even when
+their storage is local. The local/account constructor pair costs two names and
+avoids a tagged public option. Direct clients add a close obligation; form and
+workflow owners must release them. Catalog clients remain owned by their catalog
+rather than requiring another opener for every saved entry.
 
-Catalog opening does not import old provider settings, product-scoped catalogs,
-or the profile-wide desktop catalog. Whispering imports only its current owner's
-legacy workflow selections into empty KV fields. Old bytes remain untouched;
-they are recovery data, not usable configuration. People add connections and
-select models explicitly in the intended account. The desktop import command is
-removed. Existing version-1 catalog files retain inert import markers without
-using them to admit records or credentials.
-
-The Svelte adapter still earns observation and presentation. It loses custom
-connection CRUD forwarding and independent routing logic. `resolveInferenceTarget` in
-`@epicenter/app-shell/inference-target` matches a selection across both scopes without flattening the
-account gateway or the native runtime into the custom catalog.
+Existing catalog paths and keychain identities stay unchanged. This decision
+neither migrates credentials nor adopts legacy catalogs. Whispering and other
+products need caller migration; these examples do not describe shipped APIs.
 
 ## Considered alternatives
 
-- Share catalogs through account sync: not needed for sharing apps on one desktop; would add cross-device credential and conflict policy.
-- Use `read()` plus a change-only `onChange()`: makes each reactive caller assemble its initial snapshot and updates. `getAll()` and immediate `subscribe()` state that contract directly.
-- Keep `configuration` beside `configured()`: separates editing from use with names that require explaining their grammatical difference.
-- Put `resolve('completion', model)` on the App: combines application settings lookup, model consistency policy, and connection lookup in one capability API. `resolveInferenceTarget(ai, selection)` is the narrower current shape, because it reads no setting and knows no workflow scope.
-- Remove optional custom credentials: excludes endpoints requiring bearer authentication for little reduction in the connection contract.
-- Make every connection an editable custom record: misrepresents account authentication and native runtime ownership.
-- Require `ai.client(id)` across every scope: the implemented custom lookup did not need it. A unified access view was reconsidered and then decided by ADR-0392, which sorts access by owner into `device` and `account`; neither owns a workflow scope or chooses a fallback destination.
-- Select a server by discovered model name: can silently redirect data or billing when inventories or ordering change.
-- Add a separate inference Account: creates a second identity selector and replacement lifetime.
-- A dictation capability on the App with `start({ onUpdate, onError })`, `finish()`, and `cancel()`: proposed 2026-09-08 and withdrawn 2026-09-12. It captured nothing beyond what recording and the connection already capture, and one application needed it. Under ADR-0388 that is a composition, not a member.
-- Put dictation on the unopened Application: leaves its Account, readiness, and cleanup outside the opened App's lifetime; it does not solve native sharing across SPAs.
-- Make the custom connection collection own dictation: couples connection CRUD to microphone and transcript lifecycles.
-- Require every native engine to expose an HTTP server: native custom fetch can implement the supported protocol over the existing bridge.
+- `openConnections({ owner: { kind, ... } })`: requires callers to classify an
+  owner before opening a resource with already known requirements.
+- One nullable runtime/account/custom bundle: preserves App's optional branches
+  and starts unrelated catalogs for direct endpoint calls.
+- Require every endpoint to be saved: turns previews and one-off requests into
+  persistent settings changes.
+- Rebuild saved clients from public metadata: requires exposing desktop keys or
+  loses the broker's credential-version fence.
+- Duplicate a wrapper verb for every SDK operation: creates a second protocol
+  surface without adding destination or lifetime guarantees.
 
-## Implementation
+## Verification
 
-`packages/app/src/ai-connections.ts` owns browser records.
-`packages/app/src/ai-connections.epicenter-host.ts` owns the desktop subscribed
-view; the package selects its default AI binding at runtime from the presence of the host (ADR-0403).
-`apps/epicenter/src/ai-catalog.ts` owns profile metadata, keychain references,
-and custom request forwarding. Its routes use the host's existing browser
-session and mutation Origin checks. Metadata writes sync the file and attempt
-to sync the containing directory after rename; if directory sync is unavailable,
-retired key references are retained so a reverted directory entry can still
-find its credential.
-
-Vocab retains conversation selections through
-`packages/app-shell/src/inference-selections.ts`; Whispering uses device KV.
-The picker accepts an explicit target and callback and uses the full
-`app.device.connections` API, waits for saves before selection, and supports replacing
-or removing a hidden desktop key. The old combined configuration owner and
-public aliases remain removed.
-
-`bun packages/app/scripts/ai-connections.browser.mjs` verifies browser account isolation
-and exact SDK routing. `bun packages/app/scripts/shared-ai-catalog.browser.mjs`
-verifies two test SPA documents through real host routes, session and Origin
-checks, SSE updates, explicit setup/reload, independent selections, credential isolation,
-access retirement, and catalog reopen. It uses a process-memory secret owner;
-Rust keychain access and host process restart are outside that harness. `bun packages/app-shell/scripts/inference-picker.browser.mjs`
-verifies pending and failed saves, hidden key retention/removal, cross-window
-updates, and suppression of late selection after the picker closes.
-
-`bun packages/app/scripts/shared-ai-catalog.native.mjs` closes the native
-catalog acceptance gap with two installed test applications in real macOS
-WebViews. It uses the existing Rust secret bridge and OS keychain, restarts
-both host processes, preserves product selections and unadopted legacy bytes,
-and verifies SSE reconnect and upstream cancellation at each closure boundary.
-The [native procedure and evidence](../../packages/app/scripts/shared-ai-catalog-native/README.md)
-state the fixture's isolation and limits.
-
-The updated default native fixture passed on 2026-09-18 after account isolation.
-That run exercised model discovery, not the optional Whispering audio mode.
-
-The optional `--whispering` run also exercises the built desktop product's
-transcription picker, audio import, and saved transcript after a new document
-opens. Its authenticated fixture endpoint runs the real cached Whisper Tiny
-engine through Tauri MockRuntime. The product's catalog, keychain, and WebView
-paths remain native. Multipart forwarding preserves the encoded body and
-boundary: passing a Request as RequestInit creates a stream upload that WebKit
-rejects before it reaches the broker.
-
-Cancellation preserves the distinction between an existing response error and
-a failed cleanup operation. An errored stream repeats its stored error from
-`cancel()` and `reader.closed`; an underlying cancellation failure leaves
-`reader.closed` fulfilled. App closure only reports the latter as a cleanup
-failure. At the host, an incoming request that already disconnected needs its
-local response closed, while access retirement for a connected caller still
-errors the response. Both paths cancel the upstream body.
-
-Real native file-transcription acceptance continues in the
-[runtime integration handoff](../../specs/20260909T171130-ai-runtime-integration.handoff.md);
-concurrent native capture continues in the
-[concurrent native capture spec](../../specs/20260912T122859-concurrent-native-capture.md).
+Check independent client closure through response-body completion, account
+retirement, endpoint credential isolation, runtime absence without fallback, and
+explicit model selection. Verify account-separated catalog reopen, signed-out
+custom access, desktop broker requests without exported keys, access retirement
+on URL/key changes, and preview leaving persistence untouched. Physical native
+capture and provider compatibility remain separate acceptance evidence.

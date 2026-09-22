@@ -56,9 +56,10 @@ that behavior. A successful local transition does not certify server revocation.
 
 **One application document owns one session, and departure replaces the document.**
 
-`AppBoot` captures the account and opens the App at mount. Sign-in/callback and
-recovery documents open no primary App. Ordinary navigation that retains the
-App, such as Honeycrisp Local/Personal navigation, remains inside the document.
+The mounted product captures its required account and opens its chosen resource
+handles. Sign-in/callback and recovery documents open no primary product
+resources. Ordinary navigation that retains those handles, such as Honeycrisp
+Local/Personal navigation, remains inside the document.
 Exits from its lifetime use full navigation rather than an awaited UI drain.
 
 The explicit-store target permits several independently opened stores inside
@@ -76,21 +77,21 @@ Unexpected retirement fences access immediately and replaces the document with
 an inert recovery destination. That destination opens nothing until the person
 chooses to reopen. A navigation request is not proof of document destruction:
 the old UI becomes inert while replacement is pending, and failures must not
-re-enable the retired App. Browser history restoration cannot resurrect a
+re-enable the retired product. Browser history restoration cannot resurrect a
 retired session.
 
 **Resources outside a document are released by their owning host.**
 
 Native recorder cleanup follows document/window loss. SQLite socket loss closes
 the host's connection resources. Process shutdown ends remaining process-owned
-resources. `App.close()`, acquisition rollback, storage transactions, account
+resources. Resource `close()`, acquisition rollback, storage transactions, account
 fences, and component-local disposals remain where they have callers independent
 of departure. Application-level drain promises do not gate navigation or restart.
 
 ## Consequences
 
 The native close/resume protocol and page departure controller are removed.
-`AppBoot` retains opening, rendering, and minimal replacement/failure handling.
+Product boot retains opening, rendering, and minimal replacement/failure handling.
 Applications no longer register asynchronous departure cleanup with it.
 
 Already committed data remains recoverable. Pending writes, explicit-save

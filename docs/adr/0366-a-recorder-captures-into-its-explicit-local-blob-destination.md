@@ -1,22 +1,36 @@
-# 0366. Recording is an app-scoped portable capability
+# 0366. A recorder captures into its explicit local blob destination
 
 - **Status:** Proposed
 - **Date:** 2026-09-08
-- **Relates:** [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) (independent row references), [ADR-0401](0401-a-record-names-its-destination-at-creation.md) (original destination), [ADR-0380](0380-the-caller-owns-when-to-close-and-the-app-owns-resource-shutdown.md) (resource shutdown).
+- **Relates:** [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) (independent row references), [ADR-0401](0401-a-record-names-its-destination-at-creation.md) (original destination), [ADR-0380](0380-resource-handles-own-terminal-shutdown.md) (resource shutdown).
+- **Unbuilt:** `createRecorder({ blobs })`, native destination provenance, and recorder retirement when its LocalBlobs destination closes.
 - **Unverified:** Physical microphone, whole-host interruption, installed WebView playback, Windows publication, and concurrent-device acceptance.
 
 ## Decision
 
-The App recorder saves completed recordings into the canonical app-local blob
-store. The App binds capture and local reads to the same app scope; the storage
-adapter owns path and database naming. Start captures that scope and a live
-recording identity before microphone acquisition. Successful Stop returns
+**The recorder owns capture and borrows one LocalBlobs destination.**
+
+Recorder close leaves blobs usable. Blob close immediately retires dependent
+recorders, stops unresolved capture, and waits for already-admitted Stop and
+publication to settle. New capture and Stop calls refuse after retirement. An
+admitted Stop can finish through its private writer; success still means fully
+published bytes. Neither closer succeeds while owned cleanup is unsettled.
+This dependency needs no public lease or generic resource graph.
+
+
+The target `createRecorder({ blobs })` constructor from
+`@epicenter/app/recorder` takes a usable LocalBlobs handle. Construction is inert;
+`start()` acquires input. The handle fixes the actual storage namespace and
+platform used for publication; the caller supplies no second ID or Account.
+Browser and native recording must publish into that exact destination. Start
+captures that scope and a live recording identity before microphone acquisition. Successful Stop returns
 `{ blobId, durationMs, byteLength }` only
-after publication. That BlobId is immediately readable through
-`app.blobs.local`. Duration is audio duration; byte length describes the saved
-payload. No public FinishedFile, native-capture token, publish, or discard-file
+after publication. The BlobId names committed bytes in the captured destination.
+They are readable through a usable handle for that destination; successful Stop
+does not restore a closing handle. Duration is audio duration; byte length
+describes the saved payload. No public FinishedFile, native-capture token, publish, or discard-file
 handoff exists. The returned BlobId includes the actual file extension and is
-the complete key consumed by `app.blobs.local.open(blobId)`.
+the complete key consumed by `blobs.open(blobId)`.
 
 A live capture identity is not proof that a saved object exists. Native capture
 can select `.wav` before recording; browser capture must establish its actual
@@ -59,7 +73,7 @@ not be disguised as complete audio or successful persistence.
 ### One native owner, independent sessions
 
 The native host reserves each resolved input for one capture across windows.
-Two Apps, or two sessions in one App, can use distinct inputs. Storage libraries
+Two products, or two sessions in one product, can use distinct inputs. Storage libraries
 do not partition hardware ownership. No recovery-driven one-unresolved-capture
 limit is part of this contract.
 
@@ -81,7 +95,7 @@ must dispose its own stream. The shared registry lock covers transitions only;
 device opening, worker waits, disk I/O, inference, and teardown run outside it.
 Release the input only once physical teardown is established. A failed release
 must not block unrelated inputs. Bounded pending saves may continue after the
-microphone is free under their original App owners.
+microphone is free under their original recorder owners.
 
 This is admission within one host. OS clients and drivers can refuse capture.
 Same-device fanout, synchronized tracks, and separate channels of one audio
@@ -96,13 +110,15 @@ establish that boundary; best-effort JS unload alone cannot. A live lookup may
 help identify abandoned sessions for cleanup, but it must not resurrect durable
 capture recovery or let a refused opener cancel another owner's session.
 
-Window destruction tears down all its sessions. App close settles only the
-sessions it owns; other Apps continue. Browser capture belongs to its document
+Window destruction tears down all its sessions. Recorder close settles only
+the sessions it owns; other recorders continue. Browser capture belongs to its document
 and has no shared native admission guarantee. The tray reflects active capture.
 
-Before deliberate departure, applications finish/save wanted output or cancel.
+Wanted output must finish publication before departure to survive. Accepted
+document replacement or process restart may interrupt unfinished capture and
+does not await recording cleanup.
 Close drains admitted recorder publication before releasing its private writer.
-That writer remains usable even after public App blob access is revoked.
+That writer remains usable even after public blob access is revoked.
 Unfinished capture may be discarded; committed files survive closure and
 retirement. Cleanup owns staging only, including after an ambiguous commit.
 

@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-21
-- **Unbuilt:** Independent store composition, owner-routed working copies, executable config validation, checkout-aware Matter integration, and headless project provisioning. Host admission, initial record creation, and complete attachment transfer remain unresolved.
+- **Unbuilt:** Product composition of independent capabilities, owner-routed working copies, executable config validation, checkout-aware Matter integration, and headless project provisioning. Host admission, initial record creation, and complete attachment transfer remain unresolved.
 
 ## Context
 
@@ -11,7 +11,9 @@ folders a generic table interface. A person should be able to work with the same
 supported data through an app, Matter, an editor, or a script without each tool
 inventing its own storage and schema interpretation.
 
-The current `packages/app/src/open.ts` couples stores to one App lifetime.
+`openLocal` and `openPersonal` already own separate lifetimes.
+`packages/app/src/open.ts` still composes Local and capabilities into one App;
+independent capability constructors remain unbuilt.
 Matter's `createVault` discovers table folders through `matter.json` and follows
 file changes. These provide parts of the target, but do not yet implement a
 shared app-to-working-copy workflow. A definition also does not transport
@@ -54,7 +56,10 @@ The composition has the following boundaries:
 describes independent stores for explicit local, personal, and shared owners.
 An app opens only the stores it needs. A definition can be reused across owners
 without making those stores the same data. No mandatory runtime aggregate is
-needed merely to collect their handles.
+needed merely to collect their handles. Products also choose independent blob,
+SQL, secret, recording, and inference resources under
+[ADR-0423](0423-app-resources-open-as-independent-handles.md). A schema does not
+open those capabilities or imply attachment ownership.
 
 [ADR-0418](0418-push-translates-file-differences-into-ordinary-edits.md) describes
 Push as permitted field differences against a durable checkout baseline.

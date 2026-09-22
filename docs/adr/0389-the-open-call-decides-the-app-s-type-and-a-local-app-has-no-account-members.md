@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-12
-- **Superseded by:** [ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) at the opener shape: one `open(account)` returns one App with a `device` scope and an optional `account` scope, so there is no `library` member, no `App` union, and no separate local and account types. That a store with no authority answers `sync.status()` with `undefined` stands as the behavior of `app.device`.
+- **Amended by:** [ADR-0423](0423-app-resources-open-as-independent-handles.md) replaces aggregate App return types with independently acquired resource handles; account-free store behavior remains.
 - **Amends:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md): the shared data API stands; the account-only members `account`, `retirement`, and account inference exist only on an account session's type.
 
 ## Context

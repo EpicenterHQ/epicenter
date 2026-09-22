@@ -61,7 +61,7 @@ app.account?.personal  // present when signed in
 `device` holds the captured owner's application data on this machine.
 `account.personal` is that person's data on their server. Opening initiates no
 sign-in and accepts no other person's id as the owner to open.
-[ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md)
+[ADR-0392](0392-product-boundaries-provide-required-resource-handles.md)
 owns the shape of those two scopes and what each carries.
 
 An Account is one uninterrupted attachment to one signed-in person on one

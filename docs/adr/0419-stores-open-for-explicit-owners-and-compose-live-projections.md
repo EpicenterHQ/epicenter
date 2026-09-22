@@ -48,7 +48,8 @@ same data; minting another handle never implicitly creates a new dataset.
 Each local replica has one running persistence owner. Duplicate windows or
 handles must not create competing owners. Agent commands route to that owner;
 scripts do not open a second replica or the authoritative database directly.
-The admission and routing mechanism remains to be designed.
+The standalone Local and Personal openers refuse duplicate acquisition. Agent
+routing to an existing owner remains to be designed.
 
 Local belongs to this device and does not change on sign-in or account switch.
 Personal belongs to the specified account. Shared belongs to the specified
@@ -77,6 +78,8 @@ Opening Personal or Shared is optional. Closing one store does not close its
 siblings. Account changes never retarget an existing handle. No mandatory
 `createRuntime` object is introduced merely to carry an ID or collect closers.
 Platform services may share engines and transports without sharing data owners.
+Independent acquisition does not remove explicit dependencies: a source store
+closes its projections, and a LocalBlobs destination retires its recorders.
 
 Agent access follows the field-only working-copy Push contract. Pull, live-store
 queries, and Push require the running owner; existing files remain editable
@@ -109,16 +112,13 @@ The target desktop layout is beneath Epicenter's OS application-data root:
     so.epicenter.whispering.recordings/
       local/
         state.sqlite
-        blobs/<audio-id>
         derived/query.sqlite             optional
       accounts/<server>/<account>/
         personal/
           state.sqlite
-          blobs/
           derived/query.sqlite           optional
         shared/<shared-owner>/
           state.sqlite
-          blobs/
           derived/query.sqlite           optional
 ```
 
@@ -135,8 +135,9 @@ epicenter/stores/<definition-id>/accounts/<server>/<account>/personal
 epicenter/stores/<definition-id>/accounts/<server>/<account>/shared/<shared-owner>
 ```
 
-These are flat names, not directories. Browser blob storage follows the same
-ownership address. Browser persistence need not reproduce native filesystem
+These are flat names, not directories. Blob namespaces open independently
+through LocalBlobs and RemoteBlobs handles. Opening a store opens no blob
+storage; choosing the same ID does not bind their lifetimes. Browser persistence need not reproduce native filesystem
 formats. Browser SQL can run in memory; persisted projections need a suitable
 browser backing such as OPFS, not a claim that IndexedDB is a SQLite file.
 
@@ -144,7 +145,7 @@ browser backing such as OPFS, not a claim that IndexedDB is a SQLite file.
 
 `state.sqlite` holds durable Yjs updates, including pending synchronization work.
 It is not automatically a relational representation of application tables.
-Audio bytes live in `blobs/`. Neither becomes disposable merely because the
+Audio bytes belong to the explicit blob destination. Neither becomes disposable merely because the
 store synchronizes: the only copy of an offline recording may still be local.
 
 `projectSqlite(store)` builds and maintains a read-only relational projection.
@@ -180,7 +181,10 @@ Deleting source state or audio may. SQL writes do not flow back into Yjs.
 
 **Copying between stores creates independent destination data.**
 
-Copy includes making referenced audio available to the destination. Move is a
+A product that promises a complete recording copy must explicitly make its
+referenced audio available to the destination. Copying transcript-only rows
+does not upload or share private audio. The store engine copies no payloads
+implicitly. Move is a
 successful copy followed by source deletion, not an atomic transaction across
 documents. Initial storage does not require global blob deduplication or
 cross-owner reference counting.

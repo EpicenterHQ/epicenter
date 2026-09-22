@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
-- **Relates:** [ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) (the hub that makes several destinations reachable at once), [ADR-0375](0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md) (what Local, Personal, and Shared own), [ADR-0399](0399-moving-data-into-an-account-is-a-row-copy.md) (optional application-owned copying)
+- **Relates:** [ADR-0392](0392-product-boundaries-provide-required-resource-handles.md) (the hub that makes several destinations reachable at once), [ADR-0375](0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md) (what Local, Personal, and Shared own), [ADR-0399](0399-moving-data-into-an-account-is-a-row-copy.md) (optional application-owned copying)
 - **Unbuilt:** Writes under the two-scope App. Current apps select one library before opening; this record requires no destination-control component.
 
 ## Context

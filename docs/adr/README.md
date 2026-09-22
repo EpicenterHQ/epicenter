@@ -617,20 +617,20 @@ When you add an ADR, add its row here.
 
 | [0361](0361-hosted-and-instance-credentials-share-one-account-lifetime.md) | Hosted and instance credentials share one Account lifetime | Proposed |
 
-| [0366](0366-recording-is-an-app-scoped-portable-capability.md) | Recording is an app-scoped portable capability | Proposed (Stop publishes to the app-local blob store; row creation and remote hosting are explicit later operations) |
+| [0366](0366-a-recorder-captures-into-its-explicit-local-blob-destination.md) | A recorder captures into its explicit local blob destination | Proposed |
 | [0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) | An application page owns one library and changing it ends the page | Accepted (unbuilt) |
-| [0373](0373-product-operations-receive-the-page-owned-app-explicitly.md) | Product operations receive the page-owned App explicitly | Proposed |
+| [0373](0373-product-operations-receive-their-resource-handles-explicitly.md) | Product operations receive their resource handles explicitly | Proposed |
 | [0375](0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md) | Library ownership is local, personal, or shared within one deployment | Proposed (library scope does not assign blob ownership) |
 
 | [0359](0359-the-document-factory-owns-readiness-and-closure.md) | The document factory owns readiness and closure | Proposed |
 
-| [0372](0372-an-account-app-exposes-explicit-blob-hosting.md) | An account App exposes explicit blob hosting | Proposed (remote hosting is explicit and independent from row references) |
+| [0372](0372-local-and-remote-blobs-open-independently.md) | Local and remote blobs open independently | Proposed |
 
-| [0380](0380-the-caller-owns-when-to-close-and-the-app-owns-resource-shutdown.md) | The caller owns when to close and the App owns resource shutdown | Proposed |
+| [0380](0380-resource-handles-own-terminal-shutdown.md) | Resource handles own terminal shutdown | Proposed |
 
 | [0381](0381-user-authored-sql-runs-through-a-bounded-read-only-operation.md) | User-authored SQL runs through a bounded read-only operation | Proposed |
 
-| [0376](0376-application-authors-declare-data-and-the-opened-app-owns-resources.md) | Application authors declare data and the opened App owns resources | Proposed (App owns capability access and resource shutdown, not row-owned blob lifetimes) |
+| [0376](0376-data-declarations-remain-independent-of-resource-composition.md) | Data declarations remain independent of resource composition | Proposed |
 | [0377](0377-a-table-may-omit-its-content-codec-while-every-row-owns-a-node.md) | A table may omit its content codec while every row owns a node | Proposed |
 
 | [0379](0379-reconstruction-is-an-explicit-destructive-library-operation.md) | Storage maintenance preserves document lineage | Proposed |
@@ -648,7 +648,7 @@ When you add an ADR, add its row here.
 | [0389](0389-the-open-call-decides-the-app-s-type-and-a-local-app-has-no-account-members.md) | The open call decides the App's type, and a local App has no account members | Accepted (opener shape superseded by 0392) |
 | [0390](0390-the-app-is-the-unit-of-ownership-and-a-capability-is-the-unit-of-sharing.md) | The App is the unit of ownership, and a capability is the unit of sharing | Accepted (shared surface spelling amended by 0392) |
 | [0391](0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md) | The build selects every implementation, and an application declares only its id and data | Accepted |
-| [0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) | An App has a device scope and an account scope, and each store sits under its owner | Proposed (supersedes 0389 at the opener shape; amends 0369, 0355, 0388, 0365) |
+| [0392](0392-product-boundaries-provide-required-resource-handles.md) | Product boundaries provide required resource handles | Proposed |
 | [0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) | Rows refer to blobs without owning their lifetime | Proposed |
 | [0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) | Materialization contains documents and blob references | Proposed (amends 0337 at recovery; structural archive and unused server backup removed) |
 | [0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) | Recovering old content uses the current working copy | Proposed (ordinary Push through the current baseline; no generation replacement) |
@@ -665,7 +665,7 @@ When you add an ADR, add its row here.
 | [0406](0406-one-application-schema-is-used-by-every-store.md) | One application schema is used by every store | Accepted |
 | [0407](0407-app-owns-the-declaration-and-data-engine.md) | App owns the declaration and data engine | Accepted (amends 0405 at opening and package ownership; retires historical client generation helpers from 0292/0293) |
 | [0408](0408-one-app-opener-uses-a-complete-runtime.md) | One App opener uses a complete runtime | Accepted (amends 0407 at opening and 0391 at explicit runtime injection) |
-| [0409](0409-one-app-admission-covers-its-storage.md) | One App admission covers its storage | Proposed (bounded amendment to 0408) |
+| [0409](0409-resource-admission-protects-its-storage-owner.md) | Resource admission protects its storage owner | Proposed |
 
 | [0411](0411-honeycrisp-displays-data-from-one-app.md) | Honeycrisp displays data from one App | Accepted (amends 0369 for Honeycrisp route and bootstrap ownership) |
 | [0412](0412-app-data-addresses-name-scopes-not-libraries.md) | App data addresses name scopes, not libraries | Accepted (amends 0375 and 0392) |
@@ -674,3 +674,5 @@ When you add an ADR, add its row here.
 | [0417](0417-a-data-address-holds-one-document.md) | A data address holds one document | Proposed (generation-free current data; replacement outside sync guarantees) |
 
 | [0418](0418-push-translates-file-differences-into-ordinary-edits.md) | Push translates file differences into ordinary edits | Proposed |
+
+| [0423](0423-app-resources-open-as-independent-handles.md) | App resources open as independent handles | Proposed |

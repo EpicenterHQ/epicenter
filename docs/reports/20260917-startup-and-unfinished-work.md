@@ -334,7 +334,7 @@ No staged changes. Status captured before editing:
  M docs/adr/0246-an-app-is-named-by-its-full-reverse-domain-id-everywhere-including-the-ones-epicenter-ships.md
  M docs/adr/0304-application-persistence-is-runtime-selected-and-scoped-by-its-owning-app.md
  M docs/adr/0365-ai-owns-inference-access-and-applications-own-workflow-selection.md
- M docs/adr/0376-application-authors-declare-data-and-the-opened-app-owns-resources.md
+ M docs/adr/0376-data-declarations-remain-independent-of-resource-composition.md
  M docs/adr/0387-the-clipboard-is-a-platform-module-beside-the-app-not-a-capability-on-it.md
  M docs/adr/0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md
  M docs/adr/README.md

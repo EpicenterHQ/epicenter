@@ -223,7 +223,7 @@ Edited files since checkpoint 2 (52):
 - apps/whispering/src/routes/(app)/_components/WhisperingShell.svelte
 - docs/adr/0363-an-inference-selection-identifies-the-connection-and-model.md
 - docs/adr/0365-ai-owns-inference-access-and-applications-own-workflow-selection.md
-- docs/adr/0373-product-operations-receive-the-page-owned-app-explicitly.md
+- docs/adr/0373-product-operations-receive-their-resource-handles-explicitly.md
 - docs/adr/README.md
 - packages/app-shell/package.json
 - packages/app-shell/scripts/inference-picker.browser.mjs
@@ -389,7 +389,7 @@ updates. Findings were shown before editing; the repaired sources were reread.
 |   |   |-- 0363-an-inference-selection-identifies-the-connection-and-model.md
 |   |   |-- 0365-ai-owns-inference-access-and-applications-own-workflow-selection.md
 |   |   |-- 0373-product-operations-read-the-page-owned-app-when-invoked.md
-|   |   |-- 0373-product-operations-receive-the-page-owned-app-explicitly.md
+|   |   |-- 0373-product-operations-receive-their-resource-handles-explicitly.md
 |   |   `-- README.md
 |   `-- reports
 |       `-- 20260920-whispering-simplification.md

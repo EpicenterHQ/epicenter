@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-12
-- **Amended by:** [ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) and [ADR-0396](0396-a-connection-transcribes-and-owns-the-four-rules.md) at the spelling of the shared surface: there is no `app.ai`, `app.ai.account`, or `matchInferenceTarget`; shared code takes `app.device.connections` and `app.account?.connection`, and `connectionFor(app, selection)` is the lookup. The rule that the App owns and a capability is what shared code receives stands.
+- **Amended by:** [ADR-0392](0392-product-boundaries-provide-required-resource-handles.md) and [ADR-0396](0396-a-connection-transcribes-and-owns-the-four-rules.md) at the spelling of the shared surface: there is no `app.ai`, `app.ai.account`, or `matchInferenceTarget`; shared code takes `app.device.connections` and `app.account?.connection`, and `connectionFor(app, selection)` is the lookup. The rule that the App owns and a capability is what shared code receives stands. [ADR-0423](0423-app-resources-open-as-independent-handles.md) moves lifetime ownership into each resource handle and coordination into the product; consumers still borrow explicit capabilities.
 
 ## Context
 

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-19
+- **Amended by:** [ADR-0423](0423-app-resources-open-as-independent-handles.md) replaces mandatory AppBoot auth/definition acquisition with product-owned resource composition; boot UI may render its opening promise.
 - **Amends:** [ADR-0411](0411-honeycrisp-displays-data-from-one-app.md) at boot and departure composition.
 
 ## Decision

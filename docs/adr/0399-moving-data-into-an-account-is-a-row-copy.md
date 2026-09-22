@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0143](0143-account-open-never-consumes-device-data.md) at the required adoption flow: sign-in preserves the previous owner's storage without prompting to add, delete, or keep it. ADR-0404 defines which workspace becomes visible.
 - **Amended by:** [ADR-0404](0404-the-opened-account-owns-application-local-storage.md) at local ownership: Alice, Bob, and no account have separate local namespaces. Signing out restores the no-account workspace.
 - **Amends:** [ADR-0351](0351-local-data-removal-is-an-explicit-sign-out-choice.md) at the words the account menu uses: the two exits read "Sign out" and "Sign out and remove account data from this device", because "Local" now names a library rather than this machine. Person-facing copy says "this device" or "this browser" for machine scope and "Local" only for the library (ADR-0375). The decision that removal is an explicit sign-out choice, and the ordering that carries it, stand.
-- **Relates:** [ADR-0392](0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md) (the hub that keeps both libraries open), [ADR-0401](0401-a-record-names-its-destination-at-creation.md) (how a new record avoids needing this)
+- **Relates:** [ADR-0392](0392-product-boundaries-provide-required-resource-handles.md) (the hub that keeps both libraries open), [ADR-0401](0401-a-record-names-its-destination-at-creation.md) (how a new record avoids needing this)
 - **Scope:** The App already exposes device and account stores together. Optional copy workflows remain proposals; no cross-library copy feature is required by this record.
 
 ## Context

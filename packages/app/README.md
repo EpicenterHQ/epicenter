@@ -47,6 +47,11 @@ full declaration constructor. The declaration graph is platform-free. Schema
 tools and engine tests consume it directly. Application tests use the same
 `openApp` lifecycle as production, with a complete memory runtime.
 
+The next resource boundary is recorded in
+[ADR-0423](../../docs/adr/0423-app-resources-open-as-independent-handles.md).
+Independent blob, SQL, secret, recorder, and inference constructors are targets,
+not exports available in this checkout.
+
 ## Package boundaries
 
 `@epicenter/app` owns the declaration, application lifetime, and data engine.
