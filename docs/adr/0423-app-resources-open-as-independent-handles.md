@@ -63,6 +63,10 @@ Blob transfer and recorder dependencies are specified in
 
 Store definitions contain their ID and schema. The ID selects both the document
 and blob namespace; the opener fixes their ownership. Every store has `blobs`.
+The public store shape keeps account identity private under
+[ADR-0429](0429-store-handles-keep-account-identity-private.md); removing that
+projection remains unbuilt. Whispering's recording ownership follows
+[ADR-0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md).
 A future `openShared` follows the same shape with shared-owner authorization;
 it remains unbuilt. SQLite and secrets still take their own `{ id }` and do not
 become store children. An ID selects storage; it grants no authorization.
@@ -195,7 +199,7 @@ precede product migration but must report broken consumers and must not claim
 application integration or merge readiness. Retain internal adapters that
 publication and transport need. Do not introduce an optional blob mode or a
 second public ownership path.
-Identity-preserving copies and remote presentation still need their own evidence
+Fresh-destination copies and remote presentation still need their own evidence
 under ADR-0372, ADR-0426, and ADR-0427. Product composition helpers must not
 reintroduce the removed SDK App owner. Shared stores, native document persistence,
 and new storage layouts remain separate work.

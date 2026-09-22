@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0143](0143-account-open-never-consumes-device-data.md) at required sign-in adoption; signing in moves no data.
 - **Amends:** [ADR-0351](0351-local-data-removal-is-an-explicit-sign-out-choice.md) at removal scope: account-data removal excludes device-owned Local rows and blobs.
 - **Relates:** [ADR-0392](0392-product-boundaries-provide-required-resource-handles.md), [ADR-0401](0401-a-record-names-its-destination-at-creation.md), and [ADR-0419](0419-stores-open-for-explicit-owners-and-compose-live-projections.md).
-- **Unbuilt:** Product-specific copy workflows and reference mapping. This record requires no Whispering migration or transfer UI.
+- **Unbuilt:** Product-specific copy workflows and reference mapping. Whispering's accepted copy workflow is specified in [ADR-0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md).
 
 ## Context
 
@@ -31,11 +31,12 @@ that spreading a source row produces valid destination data. New row creation
 mints its own row identity. This record promises no generic row-copy engine,
 exactly-once batch transfer, or automatic merge.
 
-**Blob copying preserves blob identity independently of row identity.**
+**Blob copying creates a fresh destination identity independently of row identity.**
 
 When the destination needs audio, the workflow explicitly uses
 `destination.blobs.copyFrom(source.blobs, blobId)` for a supported pair under
-ADR-0372. It preserves the BlobId and exact bytes. Copying a row reference alone
+ADR-0372. It preserves exact bytes and returns a fresh destination BlobId under
+ADR-0426. Copying a row reference alone
 does not create a destination placement or grant access. A text-only copy needs
 no byte transfer. If a reference points outside its store's own blob namespace,
 it retains enough credential-free location information under ADR-0426.
@@ -58,9 +59,9 @@ device-owned Local data as if that data belonged to the departing account.
 Historical account-partitioned bytes remain untouched without a separate
 migration decision.
 
-Same-ID blob retries can be idempotent after verified equality while a product's
-row-copy workflow still needs its own retry policy. Neither contract substitutes
-for the other. Products own missing-file handling, reference mapping, and partial
+Separate blob-copy calls can create duplicates. A product's row-copy workflow
+needs its own retry policy after confirmed byte publication. Products own
+missing-file handling, reference mapping, and partial
 success presentation; the storage API owns immutable publication and transfer.
 
 ## Considered alternatives
@@ -70,5 +71,5 @@ success presentation; the storage API owns immutable publication and transfer.
 - Require every Personal row to retain a Local audio reference: imposes a
   device-specific schema on text-only or deliberately hosted material.
 - A generic `copyRow` with byte delivery: hides schema mapping and transfer policy.
-- Preserve row IDs because blob IDs survive copying: confuses two identities
+- Preserve row IDs when copying between stores: confuses two identities
   governed by different creation and conflict rules.

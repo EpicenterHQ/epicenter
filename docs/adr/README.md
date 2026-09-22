@@ -681,3 +681,5 @@ When you add an ADR, add its row here.
 | [0425](0425-a-transcript-is-separate-from-its-latest-attempt.md) | A transcript is separate from its latest attempt | Proposed |
 | [0426](0426-copies-create-independent-blobs-at-their-destination.md) | Copies create independent blobs at their destination | Accepted |
 | [0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) | Opening a blob acquires presentation without retaining a copy | Accepted (scoped presentation transport; product worker registration remains deferred) |
+| [0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md) | Whispering recordings reference audio in their containing store | Accepted (amends 0426 at Whispering recording ownership; implementation unbuilt) |
+| [0429](0429-store-handles-keep-account-identity-private.md) | Store handles keep account identity private | Accepted (public Personal identity removal unbuilt) |

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-22
+- **Amended by:** [ADR-0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md) at the Whispering `remoteAudio` example below: recordings resolve audio within their containing store, and saving to Personal creates an independent recording. The generic rule for scope on references crossing stores remains valid.
 - **Amends:** [ADR-0089](0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md) at content-addressed keys, mandatory presigned transfer, and its fixed size doctrine; [ADR-0090](0090-the-blob-layer-stays-plaintext-confidentiality-belongs-to-the-encrypting-consumer.md) at its content-hash addressing assumption only; [ADR-0091](0091-blobs-trade-a-file-for-a-durable-content-addressed-url-documents-are-the-only-manifest.md) at URL-as-identity; [ADR-0092](0092-identity-is-the-partition.md) at blob route/key grammar; [ADR-0201](0201-epicenter-owns-one-app-data-root-and-an-app-partitions-its-one-directory-by-a-stable-authority-identifier.md) and [ADR-0404](0404-the-opened-account-owns-application-local-storage.md) at local blob addressing only.
 
 ## Context
