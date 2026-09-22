@@ -54,6 +54,20 @@ const fixture = Bun.serve({
 	idleTimeout: 0,
 	async fetch(request) {
 		const path = new URL(request.url).pathname;
+        if (path.startsWith('/unsaved/v1/')) {
+            assert.equal(request.headers.get('authorization'),'Bearer callback-key');
+            assert.equal(request.headers.get('cf-aig-authorization'),'Bearer gateway-key');
+            assert.equal(request.headers.get('cookie'),null);
+            if(path.endsWith('/audio/transcriptions')) {
+                const form=await request.formData();
+                assert.equal(await form.get('file').text(),'exact webview bytes');
+                return Response.json({text:'multipart accepted'});
+            }
+            assert.equal(path,'/unsaved/v1/chat/completions');
+            assert.equal((await request.json()).messages[0].content,'hello');
+            return Response.json({choices:[{message:{role:'assistant',content:'completion accepted'}}]});
+        }
+
 		if (path.startsWith('/product/v1/')) {
 			assert(
 				nativeInference,
@@ -385,6 +399,17 @@ try {
 },`,
 	);
 	await Bun.write(join(desktop, 'src/main.ts'), main);
+ const catalogPath = join(desktop, 'src/ai-catalog.ts');
+ await Bun.write(catalogPath, (await Bun.file(catalogPath).text()).replace("} catch {\n\t\t\t\t\tthrow new Error('Could not save AI connection credentials.');", "} catch (cause) {\n\t\t\t\t\tthrow new Error('Could not save AI connection credentials.', {cause});"));
+
+ // Diagnostic belongs only to the disposable host and synthetic credentials.
+ const catalogRoutesPath = join(desktop, 'src/ai-catalog-routes.ts');
+ const catalogRoutes = await Bun.file(catalogRoutesPath).text();
+ await Bun.write(catalogRoutesPath, catalogRoutes.replace(
+  "routes.onError((_error, context) =>",
+  "routes.onError((_error, context) => (console.error('Catalog acceptance route failure', _error),"
+ ).replace("context.json({ error: 'AI catalog request failed.' }, 400),", "context.json({ error: 'AI catalog request failed.' }, 400)),"));
+
 	for (const product of [a, b]) {
 		const source = join(evidence, product);
 		await mkdir(source);
@@ -426,6 +451,21 @@ try {
 		'catalog_acceptance',
 	]);
 	const first = await start();
+    if (process.argv.includes('--endpoint-only')) {
+        assert.deepEqual(await evaluate(a,`return acceptance.unsaved(${JSON.stringify(fixture.url.origin+'/unsaved/v1')});`),{text:'completion accepted',transcript:'multipart accepted'});
+        checks.push('real WebView callback headers, chat completion, exact multipart bytes, no ambient cookies');
+        fixtureHeld=true;
+        assert.equal(await evaluate(a,`return acceptance.holdEndpoint(${JSON.stringify(endpoint)});`),'response-owned');
+        assert.equal(await evaluate(a,'return acceptance.closeEndpoint();'),'closed');
+        await until('unsaved endpoint upstream cancellation',()=>fixtureAborts===1);
+        checks.push('endpoint close cancels an owned response body across the native broker');
+        await evaluate(a,'return acceptance.close();');
+        await evaluate(b,'return acceptance.close();');
+        await stop();
+        await Bun.write(join(evidence,'result.json'),JSON.stringify({passed:true,checks,fixtureAborts,first},null,2));
+        console.log(`Native endpoint acceptance passed: ${evidence}/result.json`);
+    } else {
+
 	assert.deepEqual(await records(a), []);
 	assert.deepEqual(await records(b), []);
 	const legacy = await evaluate(
@@ -712,6 +752,7 @@ try {
 		),
 	);
 	console.log(`Native catalog acceptance passed: ${evidence}/result.json`);
+}
 } catch (error) {
 	if (verifyProduct && nativeProcess?.exitCode === null) {
 		await evaluate(

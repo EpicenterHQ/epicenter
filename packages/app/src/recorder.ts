@@ -1,5 +1,6 @@
+import type { LocalBlobs } from './blobs.js';
+import { blobDestination } from './blob-destination.js';
 import type { BlobId, BlobStore } from '@epicenter/blobs';
-import type { AccountIdentity } from '@epicenter/principal';
 import type {
 	Device,
 	DeviceAcquisitionOutcome,
@@ -60,7 +61,7 @@ export type RecordingEndedReason =
 	| 'streamFailed'
 	| 'storageFailed';
 
-/** One App-owned capture that saves independently of application rows. */
+/** One recorder-owned capture that saves independently of application rows. */
 export type Recording = {
 	readonly id: string;
 	readonly device: DeviceAcquisitionOutcome;
@@ -89,13 +90,12 @@ export type RecordingOwner = {
 };
 
 export type RecordingOptions = {
-	account?: AccountIdentity;
-	/** Private immutable writer into the owning App's local blob store. */
+	/** Private immutable writer into the supplied local blob destination. */
 	write: BlobStore['put'];
 	assertUsable?(): void;
 };
 
-/** Runtime composition is inert; acquisition happens only on start. */
+/** Platform binding is inert; capture acquisition happens only on start. */
 export type RecordingFactory = (
 	appId: string,
 	options: RecordingOptions,
@@ -114,3 +114,35 @@ export type NativeRecording = {
 		  };
 	endedReason: RecordingEndedReason | null;
 };
+
+/** Capture borrows the supplied destination; only closing blobs retires both. */
+export function createRecorder({ blobs }: { blobs: LocalBlobs }) {
+	const destination = blobDestination(blobs);
+	const lifetime = new AbortController();
+	const owner = destination.recording(destination.id, {
+		assertUsable: () => {
+			lifetime.signal.throwIfAborted();
+			destination.assertOpen();
+		},
+		write: (id, blob) => destination.store.put(id, blob),
+	});
+	let closing: Promise<void> | undefined;
+	const recorder = Object.freeze({
+		...owner.value,
+		signal: lifetime.signal,
+		close(): Promise<void> {
+			if (closing) return closing;
+			const completion = Promise.withResolvers<void>();
+			closing = completion.promise;
+			lifetime.abort();
+			owner.close().then(() => {
+				destination.recorders.delete(recorder);
+				completion.resolve();
+			}, completion.reject);
+			return closing;
+		},
+	});
+	destination.recorders.add(recorder);
+	return recorder;
+}
+export type Recorder = ReturnType<typeof createRecorder>;

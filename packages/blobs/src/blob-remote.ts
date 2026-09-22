@@ -5,7 +5,7 @@ import {
 } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import type { BlobId } from './blob-id.js';
-import type { BlobNotFound, BlobStoreFailed } from './blob-store.js';
+import type { BlobNotFound, BlobStoreFailed, BlobStore } from './blob-store.js';
 
 /** Direct uploads are bounded before reading local bytes and at the server. */
 export const MAX_REMOTE_BLOB_BYTES = 25 * 1024 * 1024;
@@ -35,7 +35,8 @@ export type RemoteBlobs = {
 		blob: Blob,
 		options?: RemoteBlobOptions,
 	): Promise<Result<string, RemoteBlobsError>>;
-	addLocal(
+	addFrom(
+		source: { local: Pick<BlobStore, 'get' | 'stat'>; nativeAppId?: string },
 		id: BlobId,
 		options?: RemoteBlobOptions,
 	): Promise<Result<string, RemoteBlobsError | BlobNotFound | BlobStoreFailed>>;

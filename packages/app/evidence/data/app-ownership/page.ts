@@ -1,8 +1,7 @@
 /** Real browser App lifetime, with one opt-in document cleanup failure. */
-import { unwrap as ok } from 'wellcrafted/result';
 import { defineApp, defineTable, field } from '../../../src/index.js';
-import { openApp } from '../../../src/open.js';
-import { resources } from '../../../src/platform/browser.js';
+import { openLocal } from '../../../src/open.js';
+import { indexedDbStoreRuntime as resources } from '../../../src/platform/documents.js';
 
 const definition = defineApp({
 	id:
@@ -41,12 +40,12 @@ const runtime = {
 		};
 	},
 };
-let app: Awaited<ReturnType<typeof openApp<typeof definition>>> | undefined;
+let app: Awaited<ReturnType<typeof openLocal<typeof definition>>> | undefined;
 
 Object.assign(globalThis, {
 	async openEvidence() {
 		try {
-			app = await openApp(definition, { runtime });
+			app = await openLocal(definition, { runtime });
 			return 'ready';
 		} catch (error) {
 			openingErrors = (
@@ -66,14 +65,14 @@ Object.assign(globalThis, {
 		}
 	},
 	async writeEvidence() {
-		const row = app!.device.tables.notes.create({ title: 'retained' });
-		await app!.device.persistence.flush();
+		const row = app!.tables.notes.create({ title: 'retained' });
+		await app!.persistence.flush();
 		return row.id;
 	},
 	readEvidence() {
-		return app!.device.tables.notes
+		return app!.tables.notes
 			.ids()
-			.map((id) => app!.device.tables.notes.get(id)?.title);
+			.map((id) => app!.tables.notes.get(id)?.title);
 	},
 	setOpeningFailure(value: boolean) {
 		failOpening = value;
@@ -97,75 +96,42 @@ Object.assign(globalThis, {
 		const nativeGlobals = nativeNames.map((name) =>
 			Reflect.get(globalThis, name),
 		);
-		const { createMemoryRuntime } = await import('../../../src/testing.js');
+		const { createMemoryStoreRuntime } = await import(
+			'../../../src/testing.js'
+		);
 		const isolatedDefinition = defineApp({
 			id: 'so.epicenter.memory-coexistence',
 			tables: { notes: defineTable({ title: field.string() }) },
 			kv: {},
 		});
-		const firstRuntime = createMemoryRuntime();
-		const secondRuntime = createMemoryRuntime();
-		const native = await openApp(isolatedDefinition);
-		let first = await openApp(isolatedDefinition, { runtime: firstRuntime });
-		let second = await openApp(isolatedDefinition, { runtime: secondRuntime });
+		const firstRuntime = createMemoryStoreRuntime();
+		const secondRuntime = createMemoryStoreRuntime();
+		const native = await openLocal(isolatedDefinition);
+		let first = await openLocal(isolatedDefinition, { runtime: firstRuntime });
+		let second = await openLocal(isolatedDefinition, {
+			runtime: secondRuntime,
+		});
 		function check(held: boolean, message: string) {
 			if (!held) throw new Error(message);
 		}
 		function titles(opened: typeof native) {
-			return opened.device.tables.notes
+			return opened.tables.notes
 				.ids()
-				.map((id) => opened.device.tables.notes.get(id)?.title);
+				.map((id) => opened.tables.notes.get(id)?.title);
 		}
-		const idsByTitle = new Map<string, import('@epicenter/blobs').BlobId[]>();
 		try {
 			for (const [opened, title] of [
 				[native, 'native'],
 				[first, 'memory-a'],
 				[second, 'memory-b'],
 			] as const) {
-				opened.device.tables.notes.create({ title });
-				await opened.device.persistence.flush();
-				const ids = [
-					ok(
-						await opened.blobs.local.add(
-							new Blob([title], { type: 'text/plain' }),
-						),
-					),
-					ok(
-						await opened.blobs.local.add(
-							new Blob([title], { type: 'text/plain' }),
-						),
-					),
-				].sort();
-				idsByTitle.set(title, ids);
-				const stat = ok(await opened.blobs.local.stat(ids[0]!));
-				check(
-					stat.size === title.length &&
-						stat.contentType === 'text/plain;charset=utf-8',
-					'Blob stat crossed runtime storage',
-				);
-				const one = ok(await opened.blobs.local.list({ limit: 1 }));
-				check(
-					one.items.length === 1 &&
-						one.items[0]!.id === ids[0] &&
-						one.nextCursor !== undefined,
-					'First blob page is wrong',
-				);
-				const two = ok(
-					await opened.blobs.local.list({ limit: 1, cursor: one.nextCursor }),
-				);
-				check(
-					two.items.length === 1 && two.items[0]!.id === ids[1],
-					'Blob cursor uses wrong IndexedDB key range',
-				);
-				const database = ok(await opened.device.sqlite.open('notes'));
-				ok(await database.run('CREATE TABLE entries (title TEXT)'));
-				ok(await database.run('INSERT INTO entries VALUES (?)', [title]));
+				opened.tables.notes.create({ title });
+				await opened.persistence.flush();
 			}
 			await first.close();
 			await second.close();
-			first = await openApp(isolatedDefinition, { runtime: firstRuntime });
-			second = await openApp(isolatedDefinition, { runtime: secondRuntime });
+			first = await openLocal(isolatedDefinition, { runtime: firstRuntime });
+			second = await openLocal(isolatedDefinition, { runtime: secondRuntime });
 			for (const [opened, title] of [
 				[native, 'native'],
 				[first, 'memory-a'],
@@ -175,22 +141,6 @@ Object.assign(globalThis, {
 					JSON.stringify(titles(opened)) === JSON.stringify([title]),
 					'Document reopen crossed runtime storage',
 				);
-				check(
-					(await ok(
-						await opened.blobs.local.get(idsByTitle.get(title)![0]!),
-					).text()) === title,
-					'Blob reopen crossed runtime storage',
-				);
-				const database = ok(await opened.device.sqlite.open('notes'));
-				const result = ok(
-					await database.query('SELECT title FROM entries', {
-						tables: ['entries'],
-					}),
-				);
-				check(
-					JSON.stringify(result.rows) === JSON.stringify([[title]]),
-					'SQL reopen crossed runtime storage',
-				);
 			}
 			check(
 				nativeNames.every(
@@ -199,7 +149,7 @@ Object.assign(globalThis, {
 				),
 				'Memory runtime changed native IndexedDB globals',
 			);
-			return 'native and two memory runtimes preserve globals and isolate documents, blobs, pagination, and SQL';
+			return 'native and two memory runtimes preserve globals and isolate documents';
 		} finally {
 			await Promise.all([native.close(), first.close(), second.close()]);
 			await firstRuntime.dispose();

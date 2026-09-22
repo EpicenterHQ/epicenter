@@ -1,31 +1,18 @@
 /**
  * App retirement reaches blob network and playback resources.
- * A real store retirement frame aborts an admitted upload and revokes an opened
- * playback URL while the captured Account itself remains available.
+ * Closing App aborts an admitted upload and revokes playback while the
+ * captured Account itself remains available.
  */
 import { expect, spyOn, test } from 'bun:test';
 import type { Account } from '@epicenter/auth';
 import { generateBlobId, REMOTE_BLOB_ROUTES } from '@epicenter/blobs';
 import { asPrincipalId } from '@epicenter/principal';
-import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { encodeFrame } from './data/sync/frames.js';
-import { defineApp } from './index.js';
-import { openApp } from './open.js';
-import { createMemoryRuntime } from './testing.js';
+import { openRemoteBlobs } from './blobs.js';
 
-test('document retirement aborts an upload and releases playback before explicit App close', async () => {
-	const runtime = createMemoryRuntime();
-	await using _runtime = { [Symbol.asyncDispose]: () => runtime.dispose() };
+test('App close aborts an upload and releases playback without retiring the Account', async () => {
 	const appId = `test.${crypto.randomUUID()}`;
 	const baseURL = 'https://blob-retirement.test';
-	const events = new EventTarget();
-	const socket = Object.assign(events, {
-		readyState: 1,
-		binaryType: '',
-		send() {},
-		close() {},
-	}) as unknown as WebSocket;
 	const started = Promise.withResolvers<AbortSignal>();
 	const released = Promise.withResolvers<string>();
 	const originalRevoke = URL.revokeObjectURL.bind(URL);
@@ -39,17 +26,6 @@ test('document retirement aborts an upload and releases playback before explicit
 		baseURL,
 		async fetch(input, init) {
 			const request = new Request(input, init);
-			if (new URL(request.url).pathname.endsWith('/current')) {
-				return createCurrentDownloadResponse({
-					generation: 1,
-					head: 1,
-					snapshot: {
-						position: 1,
-						bytes: new Uint8Array(await request.arrayBuffer()),
-					},
-					tail: [],
-				});
-			}
 			if (request.method === 'GET')
 				return new Response('audio', {
 					headers: { 'content-type': 'audio/wav' },
@@ -64,17 +40,13 @@ test('document retirement aborts an upload and releases playback before explicit
 			});
 		},
 		async openWebSocket() {
-			return socket;
+			throw new Error('App must not open store synchronization.');
 		},
 		async getProfile() {
 			throw new Error('Unused');
 		},
 	};
-	const appDefinition = defineApp({ tables: {}, kv: {}, id: appId });
-	const app = await openApp(appDefinition, {
-		account,
-		runtime,
-	});
+	const app = await openRemoteBlobs({ id: appId, account });
 	try {
 		await Bun.sleep(0);
 		const url = REMOTE_BLOB_ROUTES.objectUrl(
@@ -83,24 +55,21 @@ test('document retirement aborts an upload and releases playback before explicit
 			account.principalId,
 			generateBlobId('wav'),
 		);
-		const source = expectOk(await app.blobs.remote!.open(url));
+		const source = expectOk(await app.open(url));
 		expect(await (await fetch(source.url)).text()).toBe('audio');
-		const upload = app.blobs.remote!.add(new Blob(['pending']));
+		const upload = app.add(new Blob(['pending']));
 		const signal = await started.promise;
 		expect(signal.aborted).toBe(false);
-		events.dispatchEvent(
-			new MessageEvent('message', {
-				data: encodeFrame({ kind: 'retired' }).buffer,
-			}),
-		);
+		const closing = app.close();
 		expect(app.signal.aborted).toBe(true);
 		expect(signal.aborted).toBe(true);
 		expect(expectErr(await upload).name).toBe('Failed');
 		expect(await released.promise).toBe(source.url);
 		expect(revoke).toHaveBeenCalledTimes(1);
+		await closing;
 		// App retirement did not retire the Account itself.
 		expect(await (await account.fetch(url)).text()).toBe('audio');
-		expect(() => app.blobs.remote!.get(url)).toThrow();
+		expect(() => app.get(url)).toThrow();
 		await new Promise<void>((resolve) => {
 			if (app.signal.aborted) resolve();
 			else

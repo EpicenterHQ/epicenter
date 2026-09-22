@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import OpenAI from 'openai';
-import { createAppAi } from '../src/ai.js';
+import { createInference } from '../src/inference.js';
 import { createNativeAiFixture } from './native-ai-fixture.js';
 
 const audioPath = process.env.EPICENTER_NATIVE_AUDIO;
@@ -19,17 +19,8 @@ const model = 'handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf';
 const fixture = await createNativeAiFixture({ audioPath });
 const { transport, admitted, completed } = fixture;
 const lifetime = new AbortController();
-const owner = createAppAi({
-	lifetime: {
-		signal: lifetime.signal,
-		assertUsable: () => lifetime.signal.throwIfAborted(),
-	},
-	account: null,
-	runtime: transport,
-	connections: null,
-});
-assert(owner.value.ai.runtime, 'App owns the supplied native runtime');
-const client = owner.value.ai.runtime.client;
+const owner = createInference(transport);
+const client = owner.client;
 
 try {
 	const models = await client.models.list();

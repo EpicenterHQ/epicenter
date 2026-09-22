@@ -1,6 +1,6 @@
 /**
  * Run: bun packages/app/evidence/data/browser/durable-store.ts [--webkit]
- * Real openApp, IndexedDB, document replacement, and immediate window reopening.
+ * Real openLocal, IndexedDB, document replacement, and immediate window reopening.
  * A test-only delay before commit proves pending edits can disappear while
  * committed rows remain readable. No unload handler or App.close gates departure.
  * Each operation and the entire run are bounded; failures print the last browser
@@ -202,7 +202,7 @@ try {
 			'document.querySelector("#out")?.textContent?.includes("ready")',
 		);
 		const result = await bounded(
-			'openApp claim',
+			'openLocal claim',
 			page.evaluate((name) => {
 				return (
 					globalThis as unknown as { open(name: string): Promise<unknown> }

@@ -1,7 +1,7 @@
 /** Desktop snapshot ordering and opening/closing across an asynchronous host boundary. */
 import { expect, test } from 'bun:test';
-import type { AiTransport } from './ai.js';
-import { createAppAi } from './ai.js';
+import type { AiTransport } from './inference.js';
+import { openConnectionCatalog } from './connection-catalog.js';
 import { createDesktopAiConnections } from './ai-connections.epicenter-host.js';
 
 function fixture(
@@ -22,21 +22,16 @@ function fixture(
 		fetch,
 		openEvents: () => events,
 	});
-	const lifetime = new AbortController();
-	const owner = createAppAi({
-		connections,
-		runtime: null,
-		account: null,
-		lifetime: {
-			signal: lifetime.signal,
-			assertUsable() {
-				lifetime.signal.throwIfAborted();
-			},
-		},
+	const opening = openConnectionCatalog(connections);
+	let catalog: Awaited<typeof opening>;
+	const ready = opening.then((value) => {
+		catalog = value;
 	});
 	return {
-		app: owner.value,
-		ready: owner.ready,
+		get catalog() {
+			return catalog;
+		},
+		ready,
 		publish(revision: number, name = 'Connection') {
 			events.onmessage?.call(
 				events as EventSource,
@@ -64,19 +59,22 @@ function fixture(
 			return closed;
 		},
 		async close() {
-			lifetime.abort();
-			await owner.close();
+			await connections.close();
+			await opening.then(
+				(owner) => owner.close(),
+				() => {},
+			);
 		},
 	};
 }
 
 test('readiness waits for the initial host snapshot and subscribe supplies it immediately', async () => {
 	const value = fixture();
-	expect(() => value.app.ai.connections!.getAll()).toThrow('not ready');
+	expect(value.catalog).toBeUndefined();
 	value.publish(0);
 	await value.ready;
 	const names: string[] = [];
-	const stop = value.app.ai.connections!.subscribe((records) =>
+	const stop = value.catalog.subscribe((records) =>
 		names.push(records[0]!.name),
 	);
 	value.publish(1, 'Renamed');
@@ -92,7 +90,7 @@ test('an older mutation response cannot overwrite a newer stream snapshot', asyn
 	const value = fixture(async () => response.promise);
 	value.publish(0);
 	await value.ready;
-	const changing = value.app.ai.connections!.update('one', { name: 'First' });
+	const changing = value.catalog.update('one', { name: 'First' });
 	value.publish(2, 'Second');
 	response.resolve(
 		Response.json({
@@ -113,7 +111,7 @@ test('an older mutation response cannot overwrite a newer stream snapshot', asyn
 		}),
 	);
 	await changing;
-	expect(value.app.ai.connections!.get('one')!.name).toBe('Second');
+	expect(value.catalog.get('one')!.name).toBe('Second');
 	await value.close();
 });
 
@@ -160,8 +158,8 @@ test('desktop transcription preserves multipart bytes and hints while the broker
 	value.publish(0);
 	await value.ready;
 	try {
-		const result = await value.app.ai
-			.connections!.get('one')!
+		const result = await value.catalog
+			.get('one')!
 			.client.audio.transcriptions.create(
 				{
 					model: 'manual',

@@ -11,7 +11,7 @@ import {
 } from './index.js';
 
 /** Own public blob operations and playback; raw bytes remain available to dependent producers. */
-export function createAppBlobs({
+export function createLocalBlobAccess({
 	local,
 	sources,
 	assertUsable,
@@ -111,7 +111,7 @@ export function createAppBlobs({
 }
 
 /** App-owned network admission and display resources over a captured account. */
-export function createAppRemoteBlobs({
+export function createRemoteBlobAccess({
 	remote,
 	assertUsable,
 }: {
@@ -149,13 +149,18 @@ export function createAppRemoteBlobs({
 		return pending;
 	}
 	return Object.freeze({
+		signal: lifetime.signal,
 		value: Object.freeze({
 			add(blob: Blob, options?: { signal?: AbortSignal }) {
 				return run(options?.signal, (signal) => remote.add(blob, { signal }));
 			},
-			addLocal(id: BlobId, options?: { signal?: AbortSignal }) {
+			addFrom(
+				source: Parameters<RemoteBlobs['addFrom']>[0],
+				id: BlobId,
+				options?: { signal?: AbortSignal },
+			) {
 				return run(options?.signal, (signal) =>
-					remote.addLocal(id, { signal }),
+					remote.addFrom(source, id, { signal }),
 				);
 			},
 			get(url: string, options?: { signal?: AbortSignal }) {

@@ -276,16 +276,16 @@ try {
 		),
 	)) as Answer;
 	check(
-		'the competing App is refused before opening its pool',
-		!contested.ok && contested.errorName === 'AlreadyOpen',
+		'the competing SQL namespace is refused by its physical owner',
+		!contested.ok && contested.errorName === 'StorageFailed',
 		contested.error ?? '',
 	);
 	const competingWorkers = await second.evaluate(() =>
 		(globalThis as unknown as { workerCount(): number }).workerCount(),
 	);
 	check(
-		'refused tab never started a SQLite worker',
-		competingWorkers === 0,
+		'refused tab uses only its namespace worker',
+		competingWorkers === 1,
 		competingWorkers,
 	);
 	const firstStillWorks = await call(
@@ -453,7 +453,7 @@ try {
 	);
 	check(
 		'a competing window for the same account is refused',
-		!duplicateAccount.ok && duplicateAccount.errorName === 'AlreadyOpen',
+		!duplicateAccount.ok && duplicateAccount.errorName === 'StorageFailed',
 		duplicateAccount.error ?? '',
 	);
 	await callOn(alice, 'closeStorage');

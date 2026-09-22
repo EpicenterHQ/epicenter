@@ -1,146 +1,82 @@
-# Application architecture
+# Resource ownership
 
-`defineApp` declares and validates one schema. `openApp` acquires the resources
-that schema needs for one page lifetime. Both belong to `@epicenter/app`, but
-schema consumers can load the declaration without loading platform code.
-
-## Consumers and opening boundaries
+`defineApp` is an inert data declaration. Each resource constructor establishes
+its own destination and lifetime. A product opens the resources its workflows
+need, handles partial startup failure, and closes late results after unmount.
 
 ```text
-Application data.ts / reusable tables / Worker probes
-                     |
-                     v
-       @epicenter/app: defineApp, defineTable, field
-                     |
-                     v
-              { id, title?, kv, tables }
-                     |
-          +----------+---------------------+-------------------+
-          |                                |                   |
-          v                                v                   v
- /open: openApp(definition, options?) /data: openData(...) /memory: openMemory(...)
-          |                         caller-owned SQLite   Bun test storage
-          |                                |                   |
-          v                                +---------+---------+
- complete runtime (default or injected)              |
-          |                                          v
-          v                                one data document engine
- one App lifetime                          tables / KV / persistence / sync
-          |
-          +--> device store: account-local or no-account namespace
-          +--> personal store: present with Account
-          +--> SQLite / secrets / blobs / recording / AI connections
-          |
-          +--> resolved App: stores and catalog are ready
-          +--> app.close(): stop, drain, close, release ownership
-
-App account stores <-- sync protocol --> @epicenter/app/sync authority
-          |                                      |
-          v                                      v
- IndexedDB current-data cache          server-owned opaque bytes
-
-The same declaration --> /artifact and /artifact/checkout
-Desktop folder I/O   --> /artifact/format (no App or store)
+Data declaration ──> openLocal ─────> local document admission and persistence
+                 └─> openPersonal ─> captured account, cache, sync, admission
+Application ID ────> openSqlite ────> named databases and physical SQL lifetime
+                 ├─> openSecrets ──> credential namespace
+                 └─> openLocalBlobs ─> bytes, display sources, admitted producers
+                          ↑
+                  createRecorder({ blobs })
+Account + ID ──────> openRemoteBlobs ─> captured transport and transfers
+Account ───────────> openEpicenterInference
+Installed runtime ─> openRuntimeInference
+URL + auth callback > openEndpointInference
+                        each owns one client, requests, and response bodies
+Account or local ──> connection catalog ─> saved records and their cached clients
 ```
 
-`openData(definition, sqlite)` owns the document, not the supplied connection.
-Disposing it drains persistence and leaves SQLite open. `openMemory` owns a new
-Bun memory connection unless its caller supplies a reusable `MemoryRecord`.
-Neither opener constructs application capabilities or captures an Account.
-Application tests supply `createMemoryRuntime()` from `@epicenter/app/testing`
-to `openApp`. It passes its IndexedDB factory and key-range constructor directly
-to shared native request handling, with no global mutation or constructor checks.
-These tests use production readiness and closure with storage that survives
-until runtime disposal. Real browser integration tests
-use the default platform runtime.
+Closing a dependency ends the operations that need it. Closing a recorder leaves
+its destination alive; closing that destination retires the recorder. A transfer
+borrows both blob handles and is cancelled by either. These relationships live
+at their concrete boundaries, without a generic dependency container.
 
-Skills uses `openApp` in its account-taking lifecycle adapter. Its route still
-refuses startup pending a product and authentication decision. The historical
-numbered-cache helpers are removed; old bytes remain untouched. The server's
-HTTP 409 refusal prevents current Personal initialization over admitted history.
+## Documents
 
-## Source ownership
+`open-store.ts` captures Local or Personal identity and owns one document claim.
+`store-runtime.ts` describes document admission and backing acquisition only.
+`platform/documents.ts` provides the default implementation. The data engine
+owns tables, KV, persistence, and synchronization; see [its README](src/data/README.md).
 
-```text
-packages/app/
-|-- package.json                   public entrypoints
-|-- src/
-|   |-- index.ts                   platform-free declaration and schema vocabulary
-|   |-- open.ts                    App lifetime, AppRuntime contract, derived App type
-|   |-- runtime.ts                 internal AI, blob, and secret binding types
-|   |-- testing.ts                 isolated memory storage and admission
-|   |-- data/
-|   |   |-- open.ts                public openData and syncEngineOf
-|   |   |-- definition/            schema validation, branding, compilation
-|   |   |-- field/                 field schemas and value validation
-|   |   |-- store/
-|   |   |   |-- index.ts           public store type facade
-|   |   |   |-- store.ts           document construction and typed data surface
-|   |   |   |-- handles.ts         row, table, and KV operations
-|   |   |   |-- document.ts        Yjs document operations
-|   |   |   |-- persistence.ts     durable queue and flushing
-|   |   |   |-- persist.ts         browser persistent-storage request
-|   |   |   |-- browser.ts         App-owned current-data acquisition
-|   |   |   |-- current-cache.ts   IndexedDB current-data records
-|   |   |   |-- idb-updates.ts     IndexedDB durable update log
-|   |   |   `-- memory.ts          Bun SQLite test opener
-|   |   |-- sync/                  transport, attachment, connection, authority
-|   |   `-- artifact/              file grammar, import/export, working copies
-|   |-- platform/                 browser and host resources, selected at runtime
-|   |-- recording/                browser and host recording lifetimes
-|   |-- clipboard/                independent platform clipboard leaves
-|   |-- browser.ts                internal browser AI binding
-|   |-- ai.ts                     live AI capabilities and closure
-|   |-- ai-connections.ts          custom connection persistence
-|   |-- ai-connections.epicenter-host.ts
-|   |-- native-ai.ts               host inference transport
-|   |-- recorder.ts               recording capability contract
-|   |-- blobs.ts                  standalone blob capability openers
-|   `-- clipboard.ts              standalone clipboard selector
-|-- evidence/data/                persistence, browser, and Worker probes
-`-- scripts/                      browser and native capability evidence
-```
+A second writer is refused rather than queued. Successful cleanup releases its
+claim. Failed or uncertain cleanup retains exclusion until page or process
+teardown. Personal generation replacement retires that Personal handle; the
+product decides how its UI leaves the old session. Local remains independent.
 
-`openApp` accepts `{ account?, runtime? }`. `AppRuntime` supplies admission,
-document storage, SQLite, secrets, blobs, recording, and AI together.
-`open.ts` owns the one lifecycle used by all implementations. There is no
-second App constructor for tests and no partial runtime fallback.
+`openData` owns a document over caller-supplied SQLite and leaves that connection
+open on disposal. `openMemory` owns Bun test storage. `createMemoryStoreRuntime`
+provides isolated document storage with the same admission and persistence paths,
+without changing browser globals or pretending capture and network calls succeed.
 
-## Import and runtime boundaries
+## Capabilities
 
-```text
-Import                               Runtime requirement
-@epicenter/app                       platform-free schema declarations
-@epicenter/app/definition            platform-free schema tools
-@epicenter/app/field                 platform-free field validation
-@epicenter/app/store                 type-only data handle facade
-@epicenter/app/data                  caller-supplied SQLite
-@epicenter/app/memory                bun:sqlite data-engine test storage
-@epicenter/app/testing               isolated IndexedDB and SQLite WASM App runtime
-@epicenter/app/sync                  transport and authority; no App
-@epicenter/app/artifact              document/file conversion; no App
-@epicenter/app/artifact/format       file grammar; no store or App
-@epicenter/app/artifact/checkout     working-copy operations; no App
-@epicenter/app/open                  runtime-selected application capabilities
-```
+The blob owner holds public access and private publication separately. Its private
+destination registry proves that a recorder or upload received a real LocalBlobs
+handle. An admitted Stop can publish after public access is fenced. Native source
+provenance includes the source application ID; the host validates that ID and
+streams the exact source file.
 
-`platform/default.ts` selects the default complete runtime with `isTauri()`,
-including its AI binding. Clipboard selects its own leaf with the same platform
-check. An explicit runtime bypasses detection without altering the inert
-declaration. App-level authentication and UI build conditions remain separate.
+SQLite admission belongs to the physical namespace owner. The opener acquires it
+eagerly and exposes dynamic database names. Native close sends cancellation before
+waiting for queued work. Secret handles own their pending operations while their
+backend retains credential values after close.
 
-One App admission covers its document stores and lazy SQL lifetime. A second
-opener rejects with AlreadyOpen. The page owns the opening promise; no partial
-handle is published. Closure caches its outcome permanently and releases
-admission only after resource cleanup succeeds. Failed opening or closure requires
-page teardown before another attempt. A thrown acquisition retains admission when
-release is unproven; a returned backing transfers directly to the store owner. The account-wide AI catalog spans multiple app IDs and retains
-its own serialization. The host SQL owner still protects independent windows.
-Memory SQL holds a runtime-owned `memdb` anchor and closes each App connection
-physically; committed bytes survive, unfinished transactions and temporary
-tables do not.
+`inference.ts` owns the destination check, authentication callback admission,
+request cancellation, and response-body drain. Public source constructors live in
+`ai.ts`; the native endpoint transport uses the host relay. Saved catalogs own
+only their persisted records and cached clients. Native catalog keys stay in the
+broker, guarded by access versions. Unsaved endpoint handles own their own cleanup.
 
-The package uses `@epicenter/device`, `@epicenter/blobs`, `@epicenter/recorder`,
-and `@epicenter/client` for capabilities, and `@epicenter/sqlite`, `@y/y`, `idb`,
-and `@epicenter/sync` for data and transport. These packages own mechanisms;
-`@epicenter/app` owns their application lifetime.
+## Consumers
+
+Whispering, Local Mail, Honeycrisp, and Vocab compose named resources at product
+startup. Their composition functions unwind partial acquisition. The shared boot
+component invokes the product opening function with a cancellation signal, observes retirement, and releases a result
+that arrives after unmount. It does not choose storage or inference resources.
+Svelte's `fromData` adapts each store without owning its lifetime.
+
+Operations that span multiple resources retain product cancellation checks.
+Successful upload alone does not authorize a later row mutation after departure.
+Document replacement and process restart can interrupt unsaved work; closing a
+resource does not turn navigation into a durability guarantee.
+
+## Import boundary
+
+The package root and schema, store, sync, and artifact-format graphs are
+platform-free. Resource subpaths load their specific implementations. Clipboard
+selects its platform leaf directly because it owns no session resource.
+`import-boundaries.test.ts` verifies these graphs and isolated document runtimes.

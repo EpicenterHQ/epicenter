@@ -3,7 +3,7 @@ import { expectTypeOf } from 'bun:test';
 import { defineTable, field, type KvOf, type RowOf } from '@epicenter/app';
 import type { Account } from '@epicenter/auth';
 import { defineApp } from './index.js';
-import { type AppRuntime, openApp } from './open.js';
+import { type StoreRuntime, openLocal, openPersonal } from './open.js';
 
 const notes = defineApp({
 	id: 'test.notes',
@@ -23,66 +23,23 @@ expectTypeOf(untitled.id).toEqualTypeOf<'test.untitled'>();
 expectTypeOf(untitled.title).toEqualTypeOf<string | undefined>();
 
 // Checked without opening any runtime resources.
-async function openings(
-	account: Account,
-	maybe: Account | undefined,
-	runtime: AppRuntime,
-	options: { account?: Account; runtime?: AppRuntime },
-) {
-	const local = await openApp(notes);
-	const explicitLocal = await openApp(notes, { account: undefined });
-	const runtimeOnly = await openApp(notes, { runtime });
-	const emptyOptions = await openApp(notes, {});
-	const signedIn = await openApp(notes, { account });
-	const signedInRuntime = await openApp(notes, { account, runtime });
-	const optional = await openApp(notes, { account: maybe, runtime });
-	const optionalOptions = await openApp(notes, options);
-
-	for (const opened of [
-		explicitLocal,
-		runtimeOnly,
-		emptyOptions,
-		signedInRuntime,
-		optional,
-		optionalOptions,
-	]) {
-		expectTypeOf(opened.account).toEqualTypeOf<typeof local.account>();
-	}
-	expectTypeOf(signedIn.account).toEqualTypeOf<typeof local.account>();
-	if (signedIn.account)
-		signedIn.account.personal.tables.notes.create({ title: 'Typed' });
-	local.device.kv.update({ language: 'en' });
-	// @ts-expect-error A returned App is already ready.
+async function openings(account: Account, runtime: StoreRuntime) {
+	const local = await openLocal(notes, { runtime });
+	const personal = await openPersonal(notes, { account, runtime });
+	personal.tables.notes.create({ title: 'Personal' });
+	local.kv.update({ language: 'en' });
+	// @ts-expect-error Personal requires an account.
+	openPersonal(notes);
+	// @ts-expect-error Local is account-independent.
+	openLocal(notes, { account });
+	// @ts-expect-error No aggregate capabilities.
+	local.device;
+	// @ts-expect-error The opener already establishes readiness.
 	local.ready;
-	// @ts-expect-error Closure failure is terminal.
-	local.canRetryClose;
-	// @ts-expect-error Accounts belong inside the options object.
-	openApp(notes, account);
-	// @ts-expect-error A runtime must supply all resources, with no ambient fallback.
-	openApp(notes, { runtime: { sqlite: runtime.sqlite } });
-	// @ts-expect-error Account presence is not a type argument.
-	openApp<typeof notes, Account>(notes);
-	// @ts-expect-error Account access requires narrowing, even after supplying an Account.
-	signedIn.account.personal;
-	// @ts-expect-error The declaration has no tasks table.
-	local.device.tables.tasks;
-	// @ts-expect-error The title field requires a string.
-	local.device.tables.notes.create({ title: 12 });
-	// @ts-expect-error The live App requires an explicit destination.
-	signedIn.tables;
-	// @ts-expect-error The live App requires an explicit destination.
-	local.kv;
-	// @ts-expect-error The declaration has schemas, not row operations.
-	notes.tables.notes.create({ title: 'No live rows' });
-	// @ts-expect-error Implementation options are not schema properties.
-	notes.runtime;
-	// @ts-expect-error There is only one declared identity.
-	notes.appId;
-	// @ts-expect-error No nested schema wrapper remains.
-	notes.definition;
-	// @ts-expect-error Field values retain their type.
-	local.device.kv.update({ language: 42 });
+	// @ts-expect-error Typed fields retain validation.
+	local.tables.notes.create({ title: 12 });
 }
+
 void openings;
 
 function invalidDeclarations() {
@@ -93,7 +50,7 @@ function invalidDeclarations() {
 	// @ts-expect-error AI wiring is not part of a schema.
 	defineApp({ id: 'test.ai', tables: {}, kv: {}, ai: {} });
 	// @ts-expect-error An empty runtime cannot replace the complete implementation.
-	openApp(notes, { runtime: {} });
+	openLocal(notes, { runtime: {} });
 	defineApp({
 		id: 'test.invalid',
 		tables: {},

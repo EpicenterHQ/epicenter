@@ -118,7 +118,7 @@ try {
 				const {
 					createBrowserBlobStore,
 					createBrowserBlobSources,
-					createAppBlobs,
+					createLocalBlobAccess,
 				} = await import(moduleUrl);
 				const store = createBrowserBlobStore({
 					...scope,
@@ -127,7 +127,7 @@ try {
 				const stat = await store.stat(id);
 				if (stat.error || stat.data.size !== size)
 					throw new Error('Recording did not persist through document reload.');
-				const appBlobs = createAppBlobs({
+				const appBlobs = createLocalBlobAccess({
 					local: store,
 					sources: createBrowserBlobSources(store),
 				});

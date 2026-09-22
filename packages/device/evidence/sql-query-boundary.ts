@@ -1,3 +1,4 @@
+import { openSqlite } from '../../app/src/sqlite.js';
 /**
  * Characterize the existing trusted SQL operation before adding saved queries.
  * Run from the repository root: bun packages/device/evidence/sql-query-boundary.ts
@@ -11,9 +12,8 @@ import { join } from 'node:path';
 import { chromium, webkit } from 'playwright';
 import { build } from 'vite';
 import { createBunDevice } from '../../../apps/epicenter/src/test-sqlite.js';
-import { claimApp } from '../src/app-claim.js';
 import { createDesktopSqliteOwner } from '../src/desktop.js';
-import { createAppSqlite, createDeviceDispatcher } from '../src/owner.js';
+import { createDeviceDispatcher } from '../src/owner.js';
 import { installTestLocks } from '../src/test-locks.js';
 
 const temporary = await mkdtemp(join(tmpdir(), 'local-mail-sql-boundary-'));
@@ -88,16 +88,14 @@ try {
 			},
 		},
 	});
-	const admission = await claimApp(appId);
-	if (admission.error) throw admission.error;
-	const device = createAppSqlite(
-		createDesktopSqliteOwner({
+	const device = await openSqlite({
+		owner: createDesktopSqliteOwner({
 			baseURL: `http://localhost:${native.port}`,
 		}),
-		appId,
-	);
+		id: appId,
+	});
 	try {
-		const opened = await device.value.open('mail-synthetic');
+		const opened = await device.open('mail-synthetic');
 		if (opened.error) throw opened.error;
 		await characterize('desktop WebSocket / Bun file', async (verb, sql) => {
 			const answer = await opened.data[verb](sql);
@@ -108,7 +106,6 @@ try {
 	} finally {
 		try {
 			await device.close();
-			admission.data.release();
 		} finally {
 			try {
 				await dispatch.close();

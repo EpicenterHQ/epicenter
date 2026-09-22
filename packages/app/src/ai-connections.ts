@@ -1,6 +1,11 @@
+export {
+	openLocalConnectionCatalog,
+	openAccountConnectionCatalog,
+	type ConnectionCatalog,
+} from './connection-catalog.js';
 import { nanoid } from 'nanoid';
 import { createLogger } from 'wellcrafted/logger';
-import type { AiTransport } from './ai.js';
+import type { AiTransport } from './inference.js';
 
 const log = createLogger('ai-connections');
 
@@ -27,6 +32,7 @@ export type AiConnectionSnapshot = AiConnectionRecord & {
 
 /** Platform owner behind the public App connection collection. */
 export type AiConnections = {
+	signal: AbortSignal;
 	ready?: Promise<void>;
 	getAll(): readonly AiConnectionSnapshot[];
 	subscribe(
@@ -36,8 +42,7 @@ export type AiConnections = {
 	update(id: string, patch: Partial<CustomConnectionInput>): Promise<void>;
 	remove(id: string): Promise<void>;
 	reorder(ids: readonly string[]): Promise<void>;
-	transport?(record: AiConnectionSnapshot): AiTransport;
-	previewTransport?(input: { baseUrl: string; apiKey?: string }): AiTransport;
+	transport(record: AiConnectionSnapshot): AiTransport;
 	close(): void | Promise<void>;
 };
 
@@ -115,15 +120,20 @@ export function createAiConnections({
 	subscribeStorage,
 	locks,
 	publishStorage,
+	fetch = globalThis.fetch.bind(globalThis),
 }: {
 	storage: Pick<Storage, 'getItem' | 'setItem'>;
 	storageKey: string;
 	subscribeStorage?: (listener: () => void) => () => void;
 	locks?: Pick<LockManager, 'request'>;
 	publishStorage?: () => void;
+	fetch?: AiTransport['fetch'];
 }) {
 	const key = `${storageKey}.app-ai-connections`;
+	const lifetime = new AbortController();
 	let closed = false;
+	let closing: Promise<void> | undefined;
+	const pending = new Set<Promise<unknown>>();
 	const listeners = new Set<(records: readonly AiConnectionRecord[]) => void>();
 	let state = load();
 
@@ -155,19 +165,28 @@ export function createAiConnections({
 		notify();
 		publishStorage?.();
 	}
-	async function mutate<T>(operation: () => T): Promise<T> {
+	function mutate<T>(operation: () => T): Promise<T> {
+		assertOpen();
 		const run = async () => {
 			assertOpen();
 			state = load();
 			return operation();
 		};
-		return await (locks
-			? locks.request(
-					`${storageKey}.app-ai-connections-write`,
-					{ mode: 'exclusive' },
-					run,
-				)
-			: run());
+		const result = Promise.resolve(
+			locks
+				? locks.request(
+						`${storageKey}.app-ai-connections-write`,
+						{ mode: 'exclusive' },
+						run,
+					)
+				: run(),
+		);
+		pending.add(result);
+		void result.then(
+			() => pending.delete(result),
+			() => pending.delete(result),
+		);
+		return result;
 	}
 	const unsubscribe = subscribeStorage?.(() => {
 		if (closed) return;
@@ -181,6 +200,10 @@ export function createAiConnections({
 		notify();
 	});
 	return {
+		signal: lifetime.signal,
+		transport(record: AiConnectionSnapshot): AiTransport {
+			return { baseURL: record.baseUrl, fetch };
+		},
 		/** Detached saved fields, including explicit credentials; never sync or log them. */
 		getAll(): readonly AiConnectionRecord[] {
 			assertOpen();
@@ -255,10 +278,13 @@ export function createAiConnections({
 			};
 		},
 		close() {
-			if (closed) return;
+			if (closing) return closing;
 			closed = true;
+			closing = Promise.allSettled(pending).then(() => {});
+			lifetime.abort();
 			listeners.clear();
 			unsubscribe?.();
+			return closing;
 		},
 	};
 }

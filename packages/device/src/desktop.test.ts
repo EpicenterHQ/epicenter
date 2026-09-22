@@ -1,3 +1,4 @@
+import { openSqlite } from '../../app/src/sqlite.js';
 /**
  * Native SQL socket lifetimes.
  * Verifies physical cleanup after disconnect, response correlation, permanent
@@ -10,7 +11,6 @@ import { createDesktopSecrets, createDesktopSqliteOwner } from './desktop.js';
 import { secretLabel } from './index.js';
 import {
 	createDeviceDispatcher,
-	createAppSqlite,
 	createSqliteOwner,
 	type AppSqliteRequest,
 	type DeviceSqliteOwner,
@@ -109,10 +109,13 @@ test('SQL uses one lifetime socket and secrets survive its acknowledged close', 
 			return Response.json({ kind: request.kind, value: 'refresh' });
 		}) as typeof fetch,
 	};
-	const storage = createAppSqlite(createDesktopSqliteOwner(options), appId);
+	const storage = await openSqlite({
+		owner: createDesktopSqliteOwner(options),
+		id: appId,
+	});
 	const secrets = createDesktopSecrets(appId, options);
-	expect(transport.sockets).toHaveLength(0);
-	const database = expectOk(await storage.value.open('mail'));
+	expect(transport.sockets).toHaveLength(1);
+	const database = expectOk(await storage.open('mail'));
 	expectOk(await database.run('SELECT 1'));
 	await storage.close();
 	expectErr(await database.run('SELECT 1'));

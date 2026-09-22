@@ -14,10 +14,10 @@ import {
 } from '@epicenter/blobs';
 import { Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createAppBlobs } from './app.js';
+import { createLocalBlobAccess } from './owner.js';
 
 type BlobPrimitives = Omit<
-	Parameters<typeof createAppBlobs>[0],
+	Parameters<typeof createLocalBlobAccess>[0],
 	'assertUsable'
 >;
 
@@ -25,7 +25,7 @@ function setup() {
 	const acquisition = Promise.withResolvers<Result<void, never>>();
 	let initialized = false;
 	let closed = false;
-	let owner: ReturnType<typeof createAppBlobs>;
+	let owner: ReturnType<typeof createLocalBlobAccess>;
 	let closing: Promise<void> | undefined;
 	const events: string[] = [];
 	const calls: string[] = [];
@@ -48,7 +48,7 @@ function setup() {
 		},
 	};
 	function createBlobs(options: BlobPrimitives) {
-		owner = createAppBlobs({
+		owner = createLocalBlobAccess({
 			...options,
 			assertUsable() {
 				if (closed) throw new Error('closed');

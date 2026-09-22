@@ -1,10 +1,11 @@
-import { defineApp } from '@epicenter/app';
-import { openApp } from '@epicenter/app/open';
+import { openEndpointInference } from '@epicenter/app/ai';
+import { openLocalConnectionCatalog } from '@epicenter/app/ai-connections';
+import { openSqlite } from '@epicenter/app/sqlite';
 import { unwrap } from 'wellcrafted/result';
 import { createBrowserInferenceSelections } from '../../../app-shell/src/inference-selections.js';
 
 // Installed acceptance applications, not product builds. The build selects the
-// default epicenter-host AI binding and opens a complete Local App.
+// native catalog and an independent SQL namespace.
 const product = location.pathname.split('/')[2]!;
 const violations: {
 	directive: string;
@@ -41,36 +42,62 @@ if (!localStorage.getItem(`${product}.seeded`)) {
 	);
 	localStorage.setItem(`${product}.seeded`, 'yes');
 }
-const app = await openApp(defineApp({ tables: {}, kv: {}, id: product }));
+const catalog = await openLocalConnectionCatalog();
+const sqlite = await openSqlite({ id: product });
 const selections = createBrowserInferenceSelections(product);
-let retained: ReturnType<
-	NonNullable<typeof app.device.connections.custom>['get']
->;
+let retained: ReturnType<(typeof catalog)['get']>;
 let pending: Promise<string> | undefined;
+let endpoint: Awaited<ReturnType<typeof openEndpointInference>> | undefined;
 Object.assign(window, {
 	acceptance: {
 		documentId: crypto.randomUUID(),
-		records: () =>
-			app.device.connections
-				.custom!.getAll()
-				.map(({ client: _, ...record }) => record),
-		add: (
-			input: Parameters<
-				NonNullable<typeof app.device.connections.custom>['add']
-			>[0],
-		) => app.device.connections.custom!.add(input),
-		update: (
-			id: string,
-			patch: Parameters<
-				NonNullable<typeof app.device.connections.custom>['update']
-			>[1],
-		) => app.device.connections.custom!.update(id, patch),
-		remove: (id: string) => app.device.connections.custom!.remove(id),
+		async unsaved(baseURL: string) {
+			const client = await openEndpointInference({
+				baseURL,
+				getAuthHeaders: () => ({
+					Authorization: 'Bearer callback-key',
+					'cf-aig-authorization': 'Bearer gateway-key',
+				}),
+			});
+			try {
+				const completion = await client.client.chat.completions.create({
+					model: 'manual',
+					messages: [{ role: 'user', content: 'hello' }],
+				});
+				const transcript = await client.client.audio.transcriptions.create({
+					model: 'manual',
+					file: new File(['exact webview bytes'], 'audio.wav', {
+						type: 'audio/wav',
+					}),
+				});
+				return {
+					text: completion.choices[0]!.message.content,
+					transcript: transcript.text,
+				};
+			} finally {
+				await client.close();
+			}
+		},
+		async holdEndpoint(baseURL: string) {
+			endpoint = await openEndpointInference({ baseURL });
+			await endpoint.client.models.list().asResponse();
+			return 'response-owned';
+		},
+		async closeEndpoint() {
+			await endpoint!.close();
+			return 'closed';
+		},
+
+		records: () => catalog.getAll().map(({ client: _, ...record }) => record),
+		add: (input: Parameters<(typeof catalog)['add']>[0]) => catalog.add(input),
+		update: (id: string, patch: Parameters<(typeof catalog)['update']>[1]) =>
+			catalog.update(id, patch),
+		remove: (id: string) => catalog.remove(id),
 		select: (id: string) =>
 			selections.set('chat', { connectionId: id, model: 'manual' }),
 		selected: () => selections.get('chat'),
 		retain(id: string) {
-			retained = app.device.connections.custom!.get(id);
+			retained = catalog.get(id);
 		},
 		async retained() {
 			try {
@@ -81,13 +108,11 @@ Object.assign(window, {
 			}
 		},
 		async run(id: string) {
-			return (
-				await app.device.connections.custom!.get(id)!.client.models.list()
-			).data;
+			return (await catalog.get(id)!.client.models.list()).data;
 		},
 		start(id: string) {
-			pending = app.device.connections
-				.custom!.get(id)!
+			pending = catalog
+				.get(id)!
 				.client.models.list()
 				.then(
 					() => 'sent',
@@ -96,11 +121,11 @@ Object.assign(window, {
 		},
 		async close() {
 			selections[Symbol.dispose]();
-			await app.close();
+			await Promise.all([catalog.close(), sqlite.close()]);
 			return pending ? await pending : 'closed';
 		},
 		async leaveSqlOpen() {
-			const database = unwrap(await app.device.sqlite.open('teardown-proof'));
+			const database = unwrap(await sqlite.open('teardown-proof'));
 			unwrap(
 				await database.run('CREATE TABLE IF NOT EXISTS persisted (value TEXT)'),
 			);
@@ -115,7 +140,7 @@ Object.assign(window, {
 			return 'held';
 		},
 		async verifySqlTeardown() {
-			const database = unwrap(await app.device.sqlite.open('teardown-proof'));
+			const database = unwrap(await sqlite.open('teardown-proof'));
 			const rows = unwrap(await database.all('SELECT value FROM persisted'));
 			const temporary = unwrap(
 				await database.all(

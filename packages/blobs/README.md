@@ -2,14 +2,14 @@
 
 An app stores immutable bytes under a complete, extension-bearing key. That key
 is the desktop filename, browser database key, and reference held by a row.
-Applications use `app.blobs.local` for device bytes and `app.blobs.remote` for
+Applications use `openLocalBlobs({ id })` for device bytes and `openRemoteBlobs({ id, account })` for
 explicit hosting. Recording titles, transcripts, and other descriptive
 information belong in rows. Deleting a row does not delete its bytes.
 
 ## Storage and identity
 
-The App's captured account selects both local and remote ownership. Local
-storage remains on this device; it does not synchronize because it has an owner.
+LocalBlobs uses the fixed no-account namespace. RemoteBlobs captures its account
+and destination ID independently. Local bytes do not synchronize.
 
 | Platform | Location |
 | --- | --- |
@@ -17,12 +17,10 @@ storage remains on this device; it does not synchronize because it has an owner.
 | Desktop | One ordinary file at `<dataRoot>/apps/<appId>/device/<owner>/blobs/<blobId>` |
 | Remote | `principals/<principalId>/apps/<appId>/blobs/<blobId>` in the server's object store |
 
-`<owner>` is `no-account` or `accounts/<encoded-authority>/<encoded-principal>`,
-with identity components encoded as UTF-8 hex. Account changes select another
-local namespace without moving or erasing existing bytes. Library changes
-within one App keep the same bytes. Native capture and Bun HTTP reads share
-the captured app/account directory. Desktop WebViews use that HTTP store instead
-of maintaining another copy in IndexedDB.
+`<owner>` is `no-account` for LocalBlobs. Account changes leave these bytes in
+place. Historical account-local directories remain untouched. Native capture and
+Bun HTTP reads use the source handle's directory. Desktop WebViews read that
+HTTP store instead of maintaining another copy in IndexedDB.
 
 `BlobId` is `blob_`, 21 random lowercase alphanumeric characters, one dot, and a
 lowercase alphanumeric extension of 1 to 10 characters. Mint a complete key with
@@ -82,14 +80,14 @@ Startup does not sweep historical files or another publisher's work.
 
 `open(key)` returns a disposable presentation URL. Browser sources revoke object
 URLs on release; host sources point to the local HTTP store. Persist the key,
-not a presentation URL. App closure releases acquired display resources and
+not a presentation URL. Blob handle closure releases acquired display resources and
 drains admitted operations without deleting committed bytes.
 
 Bun's `openFile(key)` lends a descriptor-backed `{ file, stat, close }` for
 streaming. Its caller must close the handle after consumption, cancellation,
 or failure. The desktop host owns that cleanup for GET, ranges, and uploads;
 HEAD only reads metadata. Browser operations rely on IndexedDB transactions for
-atomic publication. The App owns admission and drains operations before releasing
+atomic publication. The blob handle owns admission and drains operations before releasing
 its storage ownership; the blob store does not acquire per-operation Web Locks.
 
 ## Format and filenames
@@ -124,11 +122,11 @@ those names without choosing another audio extension. ZIP exports remain ZIPs.
 ## Recording and hosting
 
 Successful recording Stop publishes completed audio and returns
-`{ blobId, durationMs, byteLength }`. `app.blobs.local.open(blobId)` resolves that
+`{ blobId, durationMs, byteLength }`. `localBlobs.open(blobId)` resolves that
 saved key on either platform. Native capture produces WAV; browser capture uses
 its actual recorder output format. The saved key remains fixed through retries.
 Row creation happens afterward, so a failed row write can leave enumerable
-saved bytes. Cancel and App closure cannot retract a committed blob.
+saved bytes. Cancel and Blob handle closure cannot retract a committed blob.
 
 `RemoteBlobs` supports `add(Blob)`, `addLocal(key)`, `get(url)`, `open(url)`, and
 `delete(url)`. Each explicit upload creates an independent remote key with a

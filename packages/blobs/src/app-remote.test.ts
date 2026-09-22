@@ -1,13 +1,13 @@
 import { expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createAppRemoteBlobs } from './app.js';
+import { createRemoteBlobAccess } from './owner.js';
 import type { BlobSource, RemoteBlobs } from './index.js';
 
 function remote(): RemoteBlobs {
 	return {
 		add: async () => Ok('https://cloud.example/object'),
-		addLocal: async () => Ok('https://cloud.example/object'),
+		addFrom: async () => Ok('https://cloud.example/object'),
 		get: async () => Ok(new Blob(['audio'])),
 		open: async () => Ok({ url: 'blob:display', [Symbol.dispose]() {} }),
 		delete: async () => Ok(undefined),
@@ -19,7 +19,7 @@ test('close aborts an admitted request, drains its late source and rejects new w
 	const reply = Promise.withResolvers<ReturnType<typeof Ok<BlobSource>>>();
 	let disposed = 0;
 	let signal: AbortSignal | undefined;
-	const owner = createAppRemoteBlobs({
+	const owner = createRemoteBlobAccess({
 		remote: {
 			...remote(),
 			open: async (_, options) => {
@@ -62,8 +62,8 @@ test('one owner closes only its own display sources and retained release is idem
 				},
 			}),
 	};
-	const first = createAppRemoteBlobs({ remote: service });
-	const second = createAppRemoteBlobs({ remote: service });
+	const first = createRemoteBlobAccess({ remote: service });
+	const second = createRemoteBlobAccess({ remote: service });
 	const a = expectOk(await first.value.open('https://cloud.example/object'));
 	const b = expectOk(await second.value.open('https://cloud.example/object'));
 	await first.close();

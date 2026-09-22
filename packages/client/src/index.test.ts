@@ -57,7 +57,8 @@ function setup({
 		},
 	};
 	return {
-		remote: createRemoteBlobClient({ appId, account, local, host }),
+		remote: createRemoteBlobClient({ appId, account }),
+		source: { local, nativeAppId: host ? appId : undefined },
 		calls,
 		get reads() {
 			return reads;
@@ -78,7 +79,9 @@ test('oversized saved files are rejected before reading or issuing requests', as
 	for (const host of [false, true]) {
 		const context = setup({ host, size: MAX_REMOTE_BLOB_BYTES + 1 });
 		expect(
-			expectErr(await context.remote.addLocal(generateBlobId('bin'))).name,
+			expectErr(
+				await context.remote.addFrom(context.source, generateBlobId('bin')),
+			).name,
 		).toBe('TooLarge');
 		expect(context.reads).toBe(0);
 		expect(context.calls).toHaveLength(0);
@@ -88,7 +91,7 @@ test('oversized saved files are rejected before reading or issuing requests', as
 test('host addLocal sends only a source ID through the captured Account', async () => {
 	const context = setup({ host: true });
 	const id = generateBlobId('bin');
-	expect(expectOk(await context.remote.addLocal(id))).toBe(url);
+	expect(expectOk(await context.remote.addFrom(context.source, id))).toBe(url);
 	expect(context.reads).toBe(0);
 	expect(context.calls[0]!.headers.get('x-epicenter-local-blob-id')).toBe(id);
 	expect(context.calls[0]!.body).toBeNull();
@@ -96,9 +99,11 @@ test('host addLocal sends only a source ID through the captured Account', async 
 
 test('browser addLocal reads the saved Blob and uploads without changing its local ID', async () => {
 	const context = setup();
-	expect(expectOk(await context.remote.addLocal(generateBlobId('bin')))).toBe(
-		url,
-	);
+	expect(
+		expectOk(
+			await context.remote.addFrom(context.source, generateBlobId('bin')),
+		),
+	).toBe(url);
 	expect(context.reads).toBe(1);
 	expect(await context.calls[0]!.text()).toBe('bytes');
 });
@@ -165,9 +170,13 @@ test('cancellation reaches the actual Account request and is returned as an erro
 			);
 		},
 	});
-	const pending = context.remote.addLocal(generateBlobId('bin'), {
-		signal: controller.signal,
-	});
+	const pending = context.remote.addFrom(
+		context.source,
+		generateBlobId('bin'),
+		{
+			signal: controller.signal,
+		},
+	);
 	await started.promise;
 	controller.abort();
 	expect(expectErr(await pending).name).toBe('Failed');

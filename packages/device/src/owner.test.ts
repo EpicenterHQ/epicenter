@@ -1,3 +1,4 @@
+import { openSqlite } from '../../app/src/sqlite.js';
 /**
  * Physical SQLite lifetime tests.
  * Verifies exclusive acquisition, admitted-operation drain, failed cleanup,
@@ -8,7 +9,6 @@ import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { DeviceError } from './index.js';
 import {
-	createAppSqlite,
 	createDeviceDispatcher,
 	createSqliteOwner,
 	createTransportSqliteOwner,
@@ -49,19 +49,18 @@ function setup() {
 	return { owner, backend, calls };
 }
 
-test('SQL acquires on first use and holds its identity until close', async () => {
+test('SQL acquires its namespace and holds identity until close', async () => {
 	const { owner, calls } = setup();
-	const storage = createAppSqlite(owner, appId);
+	const storage = await openSqlite({ owner, id: appId });
 	expect(calls).toEqual([]);
-	const unused = await owner.acquire(appId);
-	await unused.close();
-	expectOk(await storage.value.open('search'));
+	await expect(owner.acquire(appId)).rejects.toThrow('already acquired');
+	expectOk(await storage.open('search'));
 	await expect(owner.acquire(appId)).rejects.toThrow('already acquired');
 	expect(calls).toEqual([['open', appId, 'search']]);
 	await storage.close();
 	const replacement = await owner.acquire(appId);
 	await replacement.close();
-	expectErr(await storage.value.open('search'));
+	expect(() => storage.open('search')).toThrow();
 });
 
 test('physical pool release follows connection close and retains exclusion until completion', async () => {
@@ -96,8 +95,8 @@ test('failed physical pool release is terminal and retains backend ownership', a
 		releases++;
 		throw new Error('Pool release failed');
 	};
-	const storage = createAppSqlite(owner, 'so.epicenter.failed-pool');
-	expectOk(await storage.value.open('search'));
+	const storage = await openSqlite({ owner, id: 'so.epicenter.failed-pool' });
+	expectOk(await storage.open('search'));
 	const closing = storage.close();
 	await expect(closing).rejects.toThrow('Pool release failed');
 	expect(storage.close()).toBe(closing);
@@ -105,11 +104,9 @@ test('failed physical pool release is terminal and retains backend ownership', a
 	await expect(owner.acquire('so.epicenter.failed-pool')).rejects.toThrow(
 		'already acquired',
 	);
-	const competitor = createAppSqlite(owner, 'so.epicenter.failed-pool');
-	expect(expectErr(await competitor.value.open('search')).name).toBe(
-		'StorageFailed',
-	);
-	await competitor.close();
+	await expect(
+		openSqlite({ owner, id: 'so.epicenter.failed-pool' }),
+	).rejects.toThrow('already acquired');
 });
 
 test('a failed connection close does not release its pool', async () => {
@@ -262,14 +259,13 @@ test.each([
 	'search.sqlite',
 ])('invalid name %s does not acquire storage', async (name) => {
 	const { owner, calls } = setup();
-	const storage = createAppSqlite(owner, appId);
-	expect(expectErr(await storage.value.open(name)).name).toBe(
-		'InvalidDatabaseName',
-	);
-	expect(expectErr(await storage.value.delete(name)).name).toBe(
+	const storage = await openSqlite({ owner, id: appId });
+	expect(expectErr(await storage.open(name)).name).toBe('InvalidDatabaseName');
+	expect(expectErr(await storage.delete(name)).name).toBe(
 		'InvalidDatabaseName',
 	);
 	expect(calls).toEqual([]);
+	await storage.close();
 	await (await owner.acquire(appId)).close();
 });
 
@@ -499,150 +495,44 @@ test('a query aborted while queued never reaches the engine', async () => {
 	await lifetime.close();
 });
 
-test('every public SQL verb checks the borrowed gate synchronously', async () => {
-	const { owner, calls } = setup();
-	let ready = false;
-	const storage = createAppSqlite(owner, appId, {
-		assertUsable() {
-			if (!ready) throw new Error('App is not ready.');
-		},
-	});
-	const { open, delete: remove } = storage.value;
-	expect(() => open('search')).toThrow('not ready');
-	expect(() => remove('search')).toThrow('not ready');
-	expect(calls).toEqual([]);
-	ready = true;
-	const database = expectOk(await open('search'));
-	expect(expectOk(await open('search'))).toBe(database);
-	const { run, all, batch, query } = database;
-	ready = false;
-	for (const invoke of [
-		() => run('SELECT 1'),
-		() => all('SELECT 1'),
-		() => batch([]),
-		() => query('SELECT 1', { tables: [] }),
-	])
-		expect(invoke).toThrow('not ready');
-	expect(calls).toEqual([['open', appId, 'search']]);
-	await storage.close();
-});
-
-test('app close drains an admitted open and refuses late publication after the app retires', async () => {
-	const { owner, backend, calls } = setup();
-	const opening = Promise.withResolvers<void>();
-	const started = Promise.withResolvers<void>();
-	const original = backend.open;
-	backend.open = async (...args) => {
-		started.resolve();
-		await opening.promise;
-		return original(...args);
-	};
-	let retired = false;
-	const storage = createAppSqlite(owner, appId, {
-		assertUsable() {
-			if (retired) throw new Error('App is closed.');
-		},
-	});
-	const pending = storage.value.open('search');
-	await started.promise;
-	retired = true;
-	const closing = storage.close();
-	expect(closing).toBe(storage.close());
-	await expect(owner.acquire(appId)).rejects.toThrow('already acquired');
-	opening.resolve();
-	await expect(pending).rejects.toThrow('App is closed');
-	await closing;
-	expect(calls).toEqual([
-		['open', appId, 'search'],
-		['close', appId, 'search'],
-	]);
-	await (await owner.acquire(appId)).close();
-});
-
-test('app SQL close waits for a reentrant accepted write before releasing its lifetime', async () => {
-	const { owner, backend, calls } = setup();
-	const writing = Promise.withResolvers<void>();
-	const started = Promise.withResolvers<void>();
-	const original = backend.open;
-	let closing: Promise<void> | undefined;
-	backend.open = async (...args) => ({
-		...(await original(...args)),
-		async run() {
-			closing = storage.close();
-			started.resolve();
-			await writing.promise;
-			calls.push(['written']);
-			return Ok({ changes: 7 });
-		},
-	});
-	const storage = createAppSqlite(owner, appId);
-	const database = expectOk(await storage.value.open('search'));
-	const result = database.run('INSERT INTO messages VALUES (1)');
-	await started.promise;
-	expect(closing).toBe(storage.close());
-	expectErr(await database.run('SELECT 1'));
-	expect(calls).toEqual([['open', appId, 'search']]);
-	writing.resolve();
-	expect(expectOk(await result)).toEqual({ changes: 7 });
-	await closing;
-	expect(calls.slice(-2)).toEqual([['written'], ['close', appId, 'search']]);
-});
-
-test('app SQL forwards owner statement failures as the original Result', async () => {
+test('transport close sends release immediately and drains a pending operation even when release fails', async () => {
 	const { owner, backend } = setup();
-	const failure = DeviceError.StorageFailed({
-		cause: new Error('disk is full'),
-	});
-	const original = backend.open;
-	backend.open = async (...args) => ({
-		...(await original(...args)),
-		async run() {
-			return failure;
-		},
-	});
-	const storage = createAppSqlite(owner, appId);
-	const database = expectOk(await storage.value.open('search'));
-	expect(await database.run('INSERT INTO messages VALUES (1)')).toBe(failure);
-	await storage.close();
-});
-
-test('SQL drain settles accepted work while retaining connections and backend ownership', async () => {
-	const { owner, backend, calls } = setup();
-	const writing = Promise.withResolvers<void>();
 	const started = Promise.withResolvers<void>();
+	const finish = Promise.withResolvers<void>();
 	const original = backend.open;
 	backend.open = async (...args) => ({
 		...(await original(...args)),
-		async run() {
+		async all() {
 			started.resolve();
-			await writing.promise;
-			calls.push(['written']);
-			return Ok({ changes: 1 });
+			await finish.promise;
+			return Ok([]);
 		},
 	});
-	const storage = createAppSqlite(owner, appId);
-	const database = expectOk(await storage.value.open('search'));
-	const result = database.run('INSERT INTO messages VALUES (1)');
-	await started.promise;
-	let drained = false;
-	const draining = storage.drain();
-	void draining.then(() => {
-		drained = true;
+	const dispatcher = createDeviceDispatcher(owner);
+	let releaseSent = false;
+	const remote = createTransportSqliteOwner(async (message) => {
+		if (message.kind === 'sqlite-close') {
+			releaseSent = true;
+			return DeviceError.StorageFailed({ cause: new Error('release failed') });
+		}
+		return Ok(await dispatcher.request(message));
 	});
-	await Promise.resolve();
-	expect(drained).toBe(false);
-	writing.resolve();
-	expectOk(await result);
-	await draining;
-	expect(calls).toEqual([['open', appId, 'search'], ['written']]);
-	const replacement = createAppSqlite(owner, appId);
-	expect(expectErr(await replacement.value.open('search')).name).toBe(
-		'StorageFailed',
-	);
-	await replacement.close();
-	expect(Object.keys(storage.value).sort()).toEqual(['delete', 'open']);
-	await storage.close();
-	const released = createAppSqlite(owner, appId);
-	expectOk(await released.value.open('search'));
-	await released.close();
+	const lifetime = await remote.acquire(appId);
+	const database = await lifetime.open('search');
+	const operation = database.all('SELECT 1');
+	await started.promise;
+	let settled = false;
+	const closing = lifetime.close();
+	const failure = closing.catch((cause) => {
+		settled = true;
+		return cause;
+	});
+	expect(lifetime.close()).toBe(closing);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(releaseSent).toBe(true);
+	expect(settled).toBe(false);
+	finish.resolve();
+	await operation;
+	expect((await failure).name).toBe('StorageFailed');
+	await dispatcher.close();
 });

@@ -6,9 +6,9 @@
  */
 
 import { asPrincipalId } from '@epicenter/principal';
-import { claimApp } from '../../../src/app-claim.js';
 import { createBrowserSqliteOwner } from '../../../src/browser.js';
-import { createAppSqlite, type SqliteLifetime } from '../../../src/owner.js';
+import type { SqliteLifetime } from '../../../src/owner.js';
+import { openSqlite } from '../../../../app/src/sqlite.js';
 
 let workersStarted = 0;
 const BrowserWorker = globalThis.Worker;
@@ -30,28 +30,13 @@ const account =
 				principalId: asPrincipalId(person),
 			};
 const owner = createBrowserSqliteOwner();
-// This standalone SQL fixture owns the same admission boundary as an App.
-function openStorage(appId: string) {
-	const sqlite = createAppSqlite(owner, appId, { account });
-	let admission: ReturnType<typeof claimApp> | undefined;
-	const acquire = () => (admission ??= claimApp(appId, account));
-	return {
-		value: {
-			async open(name: string) {
-				const claim = await acquire();
-				return claim.error ? claim : sqlite.value.open(name);
-			},
-			async delete(name: string) {
-				const claim = await acquire();
-				return claim.error ? claim : sqlite.value.delete(name);
-			},
-		},
-		async close() {
-			await sqlite.close();
-			if (admission) (await admission).data?.release();
-		},
-	};
+function openStorage(id: string) {
+	return openSqlite({
+		id,
+		owner: { acquire: (id) => owner.acquire(id, account) },
+	});
 }
+
 let storage = openStorage(APP_ID);
 const otherStorage = openStorage('so.epicenter.other-evidence');
 let rawStorage: SqliteLifetime | undefined;
@@ -67,6 +52,10 @@ async function attempt(run: () => Promise<Answer>): Promise<Answer> {
 		return {
 			ok: false,
 			error: cause instanceof Error ? cause.message : String(cause),
+			errorName:
+				typeof cause === 'object' && cause !== null && 'name' in cause
+					? String(cause.name)
+					: undefined,
 		};
 	}
 }
@@ -76,6 +65,7 @@ Object.assign(globalThis, {
 	// retry, rather than stopping at the cooperative claim layer.
 	async rawOpen(): Promise<Answer> {
 		return attempt(async () => {
+			await (await storage).close();
 			rawStorage = await owner.acquire(APP_ID, account);
 			const database = await rawStorage.open('local');
 			const result = await database.all('SELECT 1');
@@ -93,7 +83,7 @@ Object.assign(globalThis, {
 	},
 	async closeStorage(): Promise<Answer> {
 		return attempt(async () => {
-			await storage.close();
+			await (await storage).close();
 			return { ok: true };
 		});
 	},
@@ -105,30 +95,31 @@ Object.assign(globalThis, {
 	},
 	async closeAndReopen(): Promise<Answer> {
 		return attempt(async () => {
-			const retained = await storage.value.open('local');
+			const retained = await (await storage).open('local');
 			if (retained.error) return { ok: false, error: retained.error.message };
-			await storage.close();
+			await (await storage).close();
 			const stale = await retained.data.all('SELECT 1');
 			if (!stale.error)
 				return { ok: false, error: 'Closed connection accepted a statement.' };
 			storage = openStorage(APP_ID);
-			const reopened = await storage.value.open('local');
+			const reopened = await (await storage).open('local');
 			return reopened.error
 				? { ok: false, error: reopened.error.message }
 				: { ok: true };
 		});
 	},
 	async duplicateOwner(): Promise<Answer> {
-		const duplicate = openStorage(APP_ID);
-		const result = await duplicate.value.open('local');
-		await duplicate.close();
-		return result.error
-			? { ok: true }
-			: { ok: false, error: 'Duplicate lifetime opened.' };
+		try {
+			const duplicate = await openStorage(APP_ID);
+			await duplicate.close();
+			return { ok: false, error: 'Duplicate lifetime opened.' };
+		} catch {
+			return { ok: true };
+		}
 	},
 	async otherApp(sql: string): Promise<Answer> {
 		return attempt(async () => {
-			const opened = await otherStorage.value.open('local');
+			const opened = await (await otherStorage).open('local');
 			if (opened.error !== null)
 				return {
 					ok: false,
@@ -147,7 +138,7 @@ Object.assign(globalThis, {
 		parameters: unknown[] = [],
 	): Promise<Answer> {
 		return attempt(async () => {
-			const opened = await storage.value.open(name);
+			const opened = await (await storage).open(name);
 			if (opened.error !== null)
 				return {
 					ok: false,
@@ -166,7 +157,7 @@ Object.assign(globalThis, {
 		parameters: unknown[] = [],
 	): Promise<Answer> {
 		return attempt(async () => {
-			const opened = await storage.value.open(name);
+			const opened = await (await storage).open(name);
 			if (opened.error !== null)
 				return {
 					ok: false,
@@ -184,7 +175,7 @@ Object.assign(globalThis, {
 		statements: { sql: string; parameters?: unknown[] }[],
 	): Promise<Answer> {
 		return attempt(async () => {
-			const opened = await storage.value.open(name);
+			const opened = await (await storage).open(name);
 			if (opened.error !== null)
 				return {
 					ok: false,
@@ -199,9 +190,9 @@ Object.assign(globalThis, {
 	},
 	async remove(name: string): Promise<Answer> {
 		return attempt(async () => {
-			const retained = await storage.value.open(name);
+			const retained = await (await storage).open(name);
 			if (retained.error) return { ok: false, error: retained.error.message };
-			const gone = await storage.value.delete(name);
+			const gone = await (await storage).delete(name);
 			if (!gone.error && !(await retained.data.all('SELECT 1')).error)
 				return { ok: false, error: 'Deleted handle accepted a statement.' };
 			return gone.error === null

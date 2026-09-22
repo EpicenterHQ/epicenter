@@ -10,11 +10,13 @@ const server = await createServer({
 		entries: [
 			'packages/app/src/index.ts',
 			'packages/app/src/open.ts',
+			'packages/app/src/blobs.ts',
+			'packages/app/src/recorder.ts',
 			'packages/device/src/browser-sqlite.worker.ts',
 		],
 	},
 	root: new URL('../../../', import.meta.url).pathname,
-	server: { host: '127.0.0.1', port: 0 },
+	server: { host: '127.0.0.1', port: 0, hmr: false, watch: null },
 });
 await server.listen();
 const browser = await chromium.launch({
@@ -53,7 +55,7 @@ try {
 		const appModule = '/packages/app/src/index.ts';
 		const dataModule = '/packages/app/src/data/definition/index.ts';
 		const openModule = '/packages/app/src/open.ts';
-		const { openApp }: typeof import('../src/open.js') = await import(
+		const { openLocal }: typeof import('../src/open.js') = await import(
 			openModule
 		);
 		const { defineApp }: typeof import('../src/index.js') = await import(
@@ -66,14 +68,21 @@ try {
 			kv: {},
 			id: 'so.epicenter.recording-smoke',
 		});
-		const app = await bounded('open app', openApp(application));
+		const app = await bounded('open local', openLocal(application));
+		const { openLocalBlobs }: typeof import('../src/blobs.js') = await import(
+			'/packages/app/src/blobs.ts'
+		);
+		const { createRecorder }: typeof import('../src/recorder.js') =
+			await import('/packages/app/src/recorder.ts');
+		const blobs = await openLocalBlobs({ id: application.id });
+		const recorder = createRecorder({ blobs });
 		await (
 			globalThis as unknown as { disconnectForAcceptance(): Promise<void> }
 		).disconnectForAcceptance();
-		const table = app.device.tables.recordings;
-		const started = await bounded('start', app.device.recording.start({}));
+		const table = app.tables.recordings;
+		const started = await bounded('start', recorder.start({}));
 		if (started.error) throw new Error(JSON.stringify(started.error));
-		const rejected = await app.device.recording.start({});
+		const rejected = await recorder.start({});
 		if (rejected.error?.name !== 'AlreadyRecording')
 			throw new Error('Competing capture admitted');
 		let meterTicks = 0;
@@ -87,12 +96,9 @@ try {
 		if (table.ids().length !== 0)
 			throw new Error('Capture created a row before save');
 		const row = table.create({ audioBlobId: stopped.data.blobId });
-		const bytes = await bounded(
-			'read',
-			app.blobs.local.get(stopped.data.blobId),
-		);
+		const bytes = await bounded('read', blobs.get(stopped.data.blobId));
 		if (bytes.error) throw new Error(JSON.stringify(bytes.error));
-		const playback = await app.blobs.local.open(stopped.data.blobId);
+		const playback = await blobs.open(stopped.data.blobId);
 		if (playback.error) throw new Error(JSON.stringify(playback.error));
 		const audio = new Audio(playback.data.url);
 		await bounded('offline play', audio.play());
@@ -114,16 +120,19 @@ try {
 		) {
 			throw new Error('Recording could not be decoded or metered');
 		}
-		const next = await bounded('restart', app.device.recording.start({}));
+		const next = await bounded('restart', recorder.start({}));
 		if (next.error) throw new Error(JSON.stringify(next.error));
 		const cancelled = await bounded('cancel', next.data.cancel());
 		if (cancelled.error) throw new Error(JSON.stringify(cancelled.error));
 		if (table.ids().length !== 1) throw new Error('Cancel created a row');
-		await bounded('close app', app.close());
-		const reopened = await bounded('reopen app', openApp(application));
+		await bounded('close resources', Promise.all([app.close(), blobs.close()]));
+		const reopened = await bounded(
+			'reopen blobs',
+			openLocalBlobs({ id: application.id }),
+		);
 		const persisted = await bounded(
 			'persisted read',
-			reopened.blobs.local.get(stopped.data.blobId),
+			reopened.get(stopped.data.blobId),
 		);
 		if (persisted.error) throw new Error(JSON.stringify(persisted.error));
 		const digest = (blob: Blob) =>

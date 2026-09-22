@@ -1,7 +1,6 @@
 /** Account-bound direct blob operations and inference clients. */
 import type { Account } from '@epicenter/auth';
 import {
-	type BlobStore,
 	blobInputContentType,
 	MAX_REMOTE_BLOB_BYTES,
 	parseBlobId,
@@ -39,14 +38,9 @@ export {
 export function createRemoteBlobClient({
 	appId,
 	account,
-	local,
-	host = false,
 }: {
 	appId: string;
 	account: Account;
-	local: Pick<BlobStore, 'get' | 'stat'>;
-	/** The desktop Account broker replaces the control request with native bytes. */
-	host?: boolean;
 }): RemoteBlobs {
 	if (!isAppId(appId)) throw new TypeError('Invalid blob application ID.');
 	const { baseURL, principalId, fetch: accountFetch } = account;
@@ -106,21 +100,29 @@ export function createRemoteBlobClient({
 				}),
 			);
 		},
-		async addLocal(id, options) {
+		async addFrom({ local, nativeAppId }, id, options) {
+			if (nativeAppId !== undefined && !isAppId(nativeAppId))
+				throw new TypeError('Invalid native source namespace.');
+			options?.signal?.throwIfAborted();
 			const stat = await local.stat(id);
 			if (stat.error) return Err(stat.error);
 			if (stat.data.size > MAX_REMOTE_BLOB_BYTES)
 				return RemoteBlobsError.TooLarge({ size: stat.data.size });
-			if (host)
+			options?.signal?.throwIfAborted();
+			if (nativeAppId)
 				return uploaded(
 					await request(collection, {
 						method: 'POST',
-						headers: { 'x-epicenter-local-blob-id': id },
+						headers: {
+							'x-epicenter-local-blob-id': id,
+							'x-epicenter-local-blob-app': nativeAppId,
+						},
 						signal: options?.signal,
 					}),
 				);
 			const blob = await local.get(id);
 			if (blob.error) return Err(blob.error);
+			options?.signal?.throwIfAborted();
 			return remote.add(blob.data, options);
 		},
 		async get(url, options) {

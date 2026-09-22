@@ -1,13 +1,11 @@
 import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 import { createLogger } from 'wellcrafted/logger';
-import { type AiTransport, accountInference } from './ai.js';
+import type { AiTransport } from './inference.js';
 import type {
 	AiConnectionSnapshot,
 	AiConnections,
 	CustomConnectionInput,
 } from './ai-connections.js';
-import type { AppAiBinding } from './runtime.js';
-import { createNativeInferenceTransport } from './native-ai.js';
 
 const log = createLogger('desktop-ai-connections');
 
@@ -146,6 +144,7 @@ export function createDesktopAiConnections({
 		events?.close();
 	});
 	return {
+		signal: controller.signal,
 		ready,
 		getAll() {
 			assertOpen();
@@ -214,28 +213,6 @@ export function createDesktopAiConnections({
 				},
 			};
 		},
-		previewTransport(input) {
-			const base = input.baseUrl.replace(/\/+$/, '');
-			return {
-				baseURL: base,
-				fetch(requestInput, init) {
-					assertOpen();
-					const request = new Request(requestInput, init);
-					if (request.url !== `${base}/models` || request.method !== 'GET')
-						throw new Error(
-							'Connection preview supports model discovery only.',
-						);
-					return fetch(`${endpoint}preview`, {
-						method: 'POST',
-						credentials: 'include',
-						redirect: 'error',
-						headers: { 'content-type': 'application/json' },
-						body: JSON.stringify(input),
-						signal: AbortSignal.any([controller.signal, request.signal]),
-					});
-				},
-			};
-		},
 		async close() {
 			controller.abort(new Error('App AI connections are closed.'));
 			events?.close();
@@ -243,15 +220,5 @@ export function createDesktopAiConnections({
 			initial.reject(controller.signal.reason);
 			await Promise.allSettled([ready, ...pending]);
 		},
-	};
-}
-
-/** Same collection API; its persistence and credentials belong to the desktop host, and native file inference is the runtime transport. */
-export function createEpicenterHostAppAi(): AppAiBinding {
-	return {
-		account: accountInference,
-		configuredFetch: globalThis.fetch.bind(globalThis),
-		runtime: createNativeInferenceTransport(),
-		connections: (_appId, account) => createDesktopAiConnections({ account }),
 	};
 }

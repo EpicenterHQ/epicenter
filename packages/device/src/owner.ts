@@ -1,7 +1,7 @@
 import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 /** SQLite lifetime ownership shared by the native host and browser worker. */
 import type { SqliteRow, SqliteValue } from '@epicenter/sqlite';
-import { Ok, type Result, tryAsync } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import { type AppSqliteDatabase, appIdOrThrow, DeviceError } from './index.js';
 import {
 	type DeviceRequest,
@@ -165,127 +165,6 @@ export type ScopedSqlite = {
 	open(name: string): Promise<Result<AppSqliteDatabase, DeviceError>>;
 	delete(name: string): Promise<Result<void, DeviceError>>;
 };
-
-/** Acquire SQL lazily beneath the caller-owned App admission boundary. */
-export function createAppSqlite(
-	owner: DeviceSqliteOwner,
-	appId: string,
-	{
-		assertUsable,
-		account,
-	}: { assertUsable?: () => void; account?: AccountIdentity } = {},
-) {
-	appIdOrThrow(appId);
-	let pending: Promise<Result<SqliteLifetime, DeviceError>> | undefined;
-	let closed = false;
-	let closing: Promise<void> | undefined;
-	let operations = 0;
-	let drained: (() => void) | undefined;
-	let draining: Promise<void> | undefined;
-	const handles = new WeakMap<AppSqliteDatabase, AppSqliteDatabase>();
-
-	function acquire() {
-		return (pending ??= tryAsync({
-			try: () => owner.acquire(appId, account),
-			catch: (cause) => DeviceError.StorageFailed({ cause }),
-		}));
-	}
-	function closedResult() {
-		return DeviceError.StorageFailed({
-			cause: new Error('SQLite lifetime is closed.'),
-		});
-	}
-	async function admitted<T>(operation: () => Promise<T>): Promise<T> {
-		// Reserve before invoking platform code: it may reenter close().
-		operations++;
-		try {
-			return await operation();
-		} finally {
-			if (--operations === 0) {
-				drained?.();
-				drained = undefined;
-				draining = undefined;
-			}
-		}
-	}
-	function statement<T>(operation: () => Promise<Result<T, DeviceError>>) {
-		assertUsable?.();
-		if (closed) return Promise.resolve(closedResult());
-		return admitted(operation);
-	}
-	function databaseHandle(database: AppSqliteDatabase): AppSqliteDatabase {
-		const existing = handles.get(database);
-		if (existing) return existing;
-		const handle: AppSqliteDatabase = {
-			run: (sql, parameters) => statement(() => database.run(sql, parameters)),
-			all: <TRow extends SqliteRow>(
-				sql: string,
-				parameters?: readonly SqliteValue[],
-			) => statement(() => database.all<TRow>(sql, parameters)),
-			batch: (statements) => statement(() => database.batch(statements)),
-			query: (sql, options) => statement(() => database.query(sql, options)),
-		};
-		handles.set(database, handle);
-		return handle;
-	}
-	function drain(): Promise<void> {
-		if (!operations) return Promise.resolve();
-		return (draining ??= new Promise<void>((resolve) => {
-			drained = resolve;
-		}));
-	}
-	return {
-		drain,
-		value: {
-			open(name: string): Promise<Result<AppSqliteDatabase, DeviceError>> {
-				assertUsable?.();
-				if (!isDatabaseName(name))
-					return Promise.resolve(
-						DeviceError.InvalidDatabaseName({ databaseName: name }),
-					);
-				if (closed) return Promise.resolve(closedResult());
-				return admitted(async () => {
-					const result = await acquire();
-					if (result.error) return result;
-					const opened = await tryAsync({
-						try: () => result.data.open(name),
-						catch: (cause) => DeviceError.StorageFailed({ cause }),
-					});
-					if (opened.error) return opened;
-					assertUsable?.();
-					return Ok(databaseHandle(opened.data));
-				});
-			},
-			delete(name: string): Promise<Result<void, DeviceError>> {
-				assertUsable?.();
-				if (!isDatabaseName(name))
-					return Promise.resolve(
-						DeviceError.InvalidDatabaseName({ databaseName: name }),
-					);
-				if (closed) return Promise.resolve(closedResult());
-				return admitted(async () => {
-					const result = await acquire();
-					if (result.error) return result;
-					return tryAsync({
-						try: () => result.data.delete(name),
-						catch: (cause) => DeviceError.StorageFailed({ cause }),
-					});
-				});
-			},
-		},
-		close(): Promise<void> {
-			if (closing) return closing;
-			closed = true;
-			return (closing = (async () => {
-				await drain();
-				if (!pending) return;
-				const result = await pending;
-				if (result.error) return;
-				await result.data.close();
-			})());
-		},
-	};
-}
 
 /** Each runtime keeps its own nonreusable lifetime and connection registry. */
 export function createDeviceDispatcher(owner: DeviceSqliteOwner) {
@@ -470,9 +349,43 @@ export function createTransportSqliteOwner(
 				'sqlite-acquire',
 			);
 			const session = { appId, account, lifetimeId };
+			let closed = false;
+			let closing: Promise<void> | undefined;
+			const pending = new Set<Promise<unknown>>();
+			const dispatch = request;
+			function admitted(message: AppSqliteRequest) {
+				if (closed)
+					return Promise.resolve(
+						DeviceError.StorageFailed({
+							cause: new Error('SQLite lifetime is closed.'),
+						}),
+					);
+				const completion =
+					Promise.withResolvers<Result<DeviceResponse, DeviceError>>();
+				pending.add(completion.promise);
+				void completion.promise.then(
+					() => pending.delete(completion.promise),
+					() => pending.delete(completion.promise),
+				);
+				try {
+					completion.resolve(dispatch(message));
+				} catch (cause) {
+					completion.reject(cause);
+				}
+				return completion.promise;
+			}
+			async function sendOwned<TKind extends DeviceResponse['kind']>(
+				message: AppSqliteRequest,
+				kind: TKind,
+			) {
+				const result = await unwrap(admitted(message), kind, (value) => value);
+				if (result.error) throw result.error;
+				return result.data;
+			}
+
 			return {
 				async open(name) {
-					const { connectionId } = await send(
+					const { connectionId } = await sendOwned(
 						{ kind: 'sqlite-open', ...session, name },
 						'sqlite-open',
 					);
@@ -483,7 +396,7 @@ export function createTransportSqliteOwner(
 									cause: new Error('Query cancelled.'),
 								});
 							const queryId = crypto.randomUUID();
-							const response = request({
+							const response = admitted({
 								kind: 'sqlite-query',
 								...session,
 								connectionId,
@@ -492,7 +405,7 @@ export function createTransportSqliteOwner(
 								tables: options.tables,
 							});
 							const cancel = () => {
-								void request({
+								void admitted({
 									kind: 'sqlite-cancel',
 									...session,
 									connectionId,
@@ -513,7 +426,7 @@ export function createTransportSqliteOwner(
 						},
 						run: (sql, parameters) =>
 							unwrap(
-								request({
+								admitted({
 									kind: 'sqlite-run',
 									...session,
 									connectionId,
@@ -527,7 +440,7 @@ export function createTransportSqliteOwner(
 							parameters?: readonly SqliteValue[],
 						) =>
 							unwrap(
-								request({
+								admitted({
 									kind: 'sqlite-all',
 									...session,
 									connectionId,
@@ -538,7 +451,7 @@ export function createTransportSqliteOwner(
 							),
 						batch: (statements) =>
 							unwrap(
-								request({
+								admitted({
 									kind: 'sqlite-batch',
 									...session,
 									connectionId,
@@ -550,13 +463,27 @@ export function createTransportSqliteOwner(
 					};
 				},
 				async delete(name) {
-					await send(
+					await sendOwned(
 						{ kind: 'sqlite-delete', ...session, name },
 						'sqlite-delete',
 					);
 				},
-				async close() {
-					await send({ kind: 'sqlite-close', ...session }, 'sqlite-close');
+				close() {
+					if (closing) return closing;
+					const completion = Promise.withResolvers<void>();
+					closing = completion.promise;
+					closed = true;
+					// Bypass admission so the host cancels active queries before draining.
+					const release = send(
+						{ kind: 'sqlite-close', ...session },
+						'sqlite-close',
+					);
+					void (async () => {
+						const results = await Promise.allSettled([...pending, release]);
+						const released = results.at(-1)!;
+						if (released.status === 'rejected') throw released.reason;
+					})().then(completion.resolve, completion.reject);
+					return closing;
 				},
 			};
 		},

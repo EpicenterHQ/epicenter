@@ -10,7 +10,7 @@
 		"./bun": "./src/bun.ts",
 		"./webview": "./src/webview.ts",
 		"./native": "./src/native.ts",
-		"./app": "./src/app.ts"
+		"./owner": "./src/owner.ts"
 	},
 	"license": "AGPL-3.0-or-later",
 	"scripts": {

@@ -1,525 +1,210 @@
 # @epicenter/app
 
-An opened App owns this application's device state and its signed-in account
-stores for one page lifetime. Whoever opens it stops product work and awaits
-`app.close()` before replacing the account. Screens borrow a store or capability;
-the page coordinates departure.
+Open the resource your operation needs. Each handle captures its destination,
+becomes usable when acquisition completes, and owns terminal cleanup. Products
+choose which handles to acquire together and unwind earlier acquisitions if a
+later one fails.
 
-The captured account scopes local storage as well as synchronized stores.
-`openApp(definition)` and `openApp(definition, { account: undefined })` select a separate
-`no-account` namespace.
-Signing in never adopts that namespace; returning to an account restores its
-own device data. Device storage stays local even when it belongs to an account.
-In apps that support signed-out use, sign-out returns to the no-account
-workspace, including recordings and audio created there before sign-in. That
-workspace is shared by everyone using the app signed out in the same profile.
-Account presence is a runtime fact. Narrow `app.account` before using its
-stores, even when the opening call supplied an Account. This checks the captured
-identity, not network reachability or authorization for a particular request.
+`defineApp` declares data. Importing the package root acquires nothing and loads
+no browser or native implementation. A schema is required only for data stores.
 
 ```ts
 import { defineApp, defineTable, field } from '@epicenter/app';
-import { openApp } from '@epicenter/app/open';
+import { openLocal, openPersonal } from '@epicenter/app/open';
 
-const application = defineApp({
- id: 'so.epicenter.notes',
- title: 'Notes',
- kv: { language: field.string() },
- tables: { notes: defineTable({ title: field.string() }) },
+const definition = defineApp({
+  id: 'so.epicenter.notes',
+  kv: { language: field.string() },
+  tables: { notes: defineTable({ title: field.string() }) },
 });
-const app = await openApp(application, { account });
-try {
- // Every returned App is ready. Account remains optional in the type.
- app.device.tables;
- app.device.sqlite;
- app.account?.personal.tables;
-} finally {
- await app.close();
-}
+const local = await openLocal(definition);
+// Acquire separately when an authenticated workflow needs synchronized data.
+const personal = await openPersonal(definition, { account });
 ```
 
-The declaration exposes `id`, `title`, `kv`, and `tables` without opening
-storage or capturing an Account. Schema tools, artifact import/export, and
-`openMemory` accept that same declaration. Its tables describe fields; live
-rows belong to `app.device` or `app.account.personal`.
-The one `id` names both the application and its data. `defineApp` is the only
-full declaration constructor. The declaration graph is platform-free. Schema
-tools and engine tests consume it directly. Application tests use the same
-`openApp` lifecycle as production, with a complete memory runtime.
+Local retains the same address across account changes. Personal captures the
+account's authority, principal, and transport before asynchronous acquisition.
+It never retargets. Closing either store leaves the other usable. Both expose
+`tables`, `kv`, `persistence`, `signal`, and `close()`; their ID is `definition.id`.
+Personal opens from its cached generation offline, or asks the authority to
+select a generation when no cache exists. No Shared opener is exported.
 
-The next resource boundary is recorded in
-[ADR-0423](../../docs/adr/0423-app-resources-open-as-independent-handles.md).
-Independent blob, SQL, secret, recorder, and inference constructors are targets,
-not exports available in this checkout.
+## Resource constructors
 
-## Package boundaries
-
-`@epicenter/app` owns the declaration, application lifetime, and data engine.
-The root supplies `defineApp`, `defineTable`, `field`, content codecs, and
-inferred schema types. Engine consumers use independent entrypoints:
-
-| Import | Consumer and purpose |
-| --- | --- |
-| `@epicenter/app/open` | `openApp(definition, { account?, runtime? })` and App capability types |
-| `@epicenter/app/definition` | Reusable table declarations, schema inspection, compilation |
-| `@epicenter/app/store` | Store handle and error types |
-| `@epicenter/app/sync` | Client transport and server authority |
-| `@epicenter/app/artifact` | Render and read application files |
-| `@epicenter/app/artifact/format` | Host-side file framing without loading the store |
-| `@epicenter/app/artifact/checkout` | Working-copy pull and push |
-| `@epicenter/app/testing` | `createMemoryRuntime()` for complete App tests in isolated test processes |
-| `@epicenter/app/memory` | Bun-backed in-memory stores for data-engine tests |
-| `@epicenter/app/data` | `openData(definition, sqlite)` and `syncEngineOf`; caller owns SQLite |
-| `@epicenter/app/field` | Field descriptors and date/string validation |
-
-The root, schema, store, sync, and format entrypoints do not import the App
-opener or browser/native platform implementations. Importing `openApp` loads
-the browser and host implementations; calling it acquires resources.
-`import-boundaries.test.ts` checks the platform-free graphs.
-
-`openData` opens a data document over caller-supplied SQLite and leaves the
-SQLite connection open when the document is disposed. `openMemory` is Bun test
-support: it owns a fresh in-memory connection unless given a reusable
-`MemoryRecord`. Neither function constructs an App or captures an Account.
-
-`src/data/` holds the engine. Its [README](src/data/README.md) describes row,
-persistence, and synchronization behavior. The [architecture map](ARCHITECTURE.md)
-shows the package's consumers, module boundaries, and lifetime.
-
-## Runtime selection
-
-`openApp(definition, { account, runtime })` captures identity and uses one
-complete runtime. Omit `runtime` to select browser or native services with
-`isTauri()`. An explicit runtime supplies admission,
-document storage, SQLite, blobs, secrets, recording, and AI connections. It
-replaces the default completely; missing capabilities never fall back to
-ambient browser or native resources.
-
-The App owns readiness, sync, retirement, and cleanup. Its runtime owns the
-storage behind those lifetimes. Browser recording publishes into IndexedDB.
-Host recording publishes into the same app directory served by the host's blob
-API. Account transport stays on the captured Account; a memory runtime does
-not replace a server with simulated success.
-
-```ts
-import { openApp } from '@epicenter/app/open';
-import { createMemoryRuntime } from '@epicenter/app/testing';
-
-const runtime = createMemoryRuntime();
-const app = await openApp(application, { runtime });
-app.device.tables.notes.create({ title: 'Retained across App lifetimes' });
-await app.close();
-
-const reopened = await openApp(application, { runtime });
-// The same runtime retains the committed rows, blobs, secrets, and SQL data.
-await reopened.close();
-await runtime.dispose();
-```
-
-`createMemoryRuntime` owns an isolated IndexedDB factory, its matching key-range
-constructor, and in-memory SQL storage. It changes no globals and can coexist
-with native browser storage. Browser integration tests also exercise the default
-platform runtime. Closing an App releases its connections while retaining committed
-records for another App lifetime. SQLite WASM `memdb` anchor connections belong
-to the runtime. Each App gets separate connections, so close rolls back its
-unfinished transactions and discards temporary tables without losing committed
-data. Disposing the runtime closes the anchors and releases its storage
-and refuses while an App still holds ownership. Failed cleanup is terminal;
-page or process teardown releases the failed lifetime. Memory tests exercise production
-persistence and query implementations; capture and network operations do not
-pretend to succeed.
-
-A second opening for the same app/account in one runtime rejects with
-`AlreadyOpen`. Browser tabs coordinate through one Web Lock. There is no waiting
-queue or takeover. A successful close permits another opening. Failed opening or
-cleanup requires page teardown; cleanup failure retains ownership to prevent an
-unsafe replacement. Reload does not prove unsaved changes survived.
-
-The default runtime selects host services when `isTauri()` is true and browser
-services otherwise (ADR-0403). An explicit runtime bypasses detection. App-level
-authentication and UI build conditions remain independent.
-The text clipboard is not part of any runtime: `@epicenter/app/clipboard` is a
-standalone platform module, described under [Clipboard](#clipboard).
-Custom AI configuration uses one account-scoped catalog across applications
-in the same profile/origin. Application declarations do not choose its storage key.
-
-The scope API implements the opener portion of ADR-0392. ADR-0396's unified
-connection protocol remains a separate proposal.
-The current declaration supplies the same data definition to each store;
-ADR-0406 rejects separate device declarations. The remaining preferences
-migration is unbuilt.
-
-`app.account?.connection` and `app.device.connections.runtime` are fixed nullable SDK client capabilities.
-`app.device.connections.custom` owns device-local custom endpoints, optional bearer keys,
-and their clients. A binding without a custom store exposes `connections: null`.
-
-```ts
-if (app.device.connections.custom) {
- const id = await app.device.connections.custom.add({
-  name: 'My server',
-  baseUrl: 'https://inference.example/v1',
-  apiKey: providerKey,
-  models: ['chosen-model'],
- });
- await app.device.connections.custom.get(id)!.client.chat.completions.create({
-  model: 'chosen-model',
-  messages,
- });
-}
-```
-
-Write the full `app.device.connections.custom` path at call sites so the capability's owner
-stays visible. Do not alias the namespace to a local `connections` variable.
-
-`getAll()` and `get(id)` return detached saved fields plus the cached SDK client.
-`subscribe(listener)` immediately supplies the current ordered snapshot and then
-supplies each committed update; it returns an unsubscribe function. Reads use the
-local snapshot available when `openApp` resolves. They do not request model discovery.
-
-```ts
-const stop = app.device.connections.custom!.subscribe((entries) => {
- renderConnections(entries);
-});
-await app.device.connections.custom!.update(id, { name: 'Renamed server' });
-stop();
-```
-
-`add`, `update`, `remove`, and `reorder` return promises. Await them before
-selecting a new connection or showing success. Rename, reorder, and model-list
-edits preserve clients; endpoint and credential changes retire them. Desktop
-explicit key assignment always retires the old client, including assigning the
-same value. Omit `apiKey` from an update to retain it; supply `''` to remove it.
-
-Browser entries may contain the explicit key. Desktop entries expose
-`hasApiKey` and omit the key; the host applies it to requests. Never sync, log,
-or serialize a client-bearing entry. `preview({ baseUrl, apiKey? })` creates an
-unsaved client for `models.list()` discovery. All clients and collection methods
-obey App readiness and retirement. App close drains their requests. A client
-does not promise reachability or support for every SDK endpoint.
-
-Applications own workflow selections. Whispering and Vocab use the plain
-TypeScript selection owner and exact matcher in
-`@epicenter/app-shell/inference-selections`; Svelte only observes those choices.
-Missing connections, changed accounts, and mismatched models never select a
-replacement destination. See the [AI boundary decision](../../docs/adr/0365-ai-owns-inference-access-and-applications-own-workflow-selection.md).
-
-The default AI binding follows the package's `isTauri()` selection:
-
-| Environment | Connection persistence | Credentials |
+| Subpath | Constructors | Required destination |
 | --- | --- | --- |
-| Standalone browser | `epicenter/ai/<owner>.app-ai-connections` in origin-local `localStorage` | Optional key in that local record |
-| `epicenter-host` | `ai/<owner>/connections.json` under the host's profile data directory, shared across that account's apps | Account-scoped OS keychain, reached through the host broker |
+| `/open` | `openLocal`, `openPersonal` | Definition; Personal also requires `account` |
+| `/blobs` | `openLocalBlobs`, `openRemoteBlobs` | `{ id }`; remote also requires `account` |
+| `/sqlite` | `openSqlite` | `{ id }` |
+| `/secrets` | `openSecrets` | `{ id }` |
+| `/recorder` | `createRecorder` | `{ blobs: localBlobs }` |
+| `/ai` | `openEpicenterInference`, `openRuntimeInference`, `openEndpointInference` | Account, installed runtime, or endpoint URL |
+| `/ai-connections` | `openLocalConnectionCatalog`, `openAccountConnectionCatalog` | No account, or `{ account }` |
 
-`<owner>` is `no-account` or `accounts/<encoded-authority>/<encoded-principal>`.
-Identity components use UTF-8 hex to preserve case on native filesystems.
-Desktop sharing stays on one profile and does not sync between devices. The host
-serializes mutations and sends committed snapshots over SSE to open app windows.
-Browser mutations use a Web Lock, reread current storage before writing, and
-notify other owners in the same document or origin. This catalog spans app IDs,
-so its mutation lock remains separate from App admission. Memory catalog
-mutations run synchronously within one process and publish changes to sibling
-Apps in that runtime. Workflow selections remain
-product- and owner-local under `${settingsKey}/${owner}.app-ai-selections` in both environments.
-Switching libraries retains this configuration while opening new App clients.
-A complete runtime supplies its own `ai` binding. The native default runtime already
-supplies native file inference as `app.device.connections.runtime`, so no application composes
-it; the browser default has no runtime transport.
+Each owner exposes an abort signal and an idempotent asynchronous `close()`.
+Close fences new operations immediately, then settles admitted work. Repeated
+calls return the same completion, including a cleanup failure. Storage owners
+retain exclusion when cleanup cannot prove competing writers would be safe.
+Closing preserves committed data and credentials. It does not sign out, navigate,
+or prove every edit reached durable storage or a server.
 
-Whispering and Vocab open workflow selections with the same captured account as
-the App. No-account, different principals, and different authorities have separate
-choices. Returning to an owner restores that owner's selections and catalog.
+Default constructors select browser or host implementations with `isTauri()`.
+`StoreRuntime` supplies only document storage and admission to store openers.
+`createMemoryStoreRuntime()` from `/testing` provides isolated IndexedDB-backed
+store tests without changing globals. It retains committed data across handle
+close and refuses disposal while a store still owns it. It supplies no simulated
+recording, network, SQL, or credential capabilities.
 
-Old product-scoped and profile-wide catalogs, selections, and provider settings
-remain untouched and unread. Opening does not migrate them, including when old
-values are malformed. Connect providers explicitly in the intended account.
-Whispering uses only the selected App client; its former Deepgram, ElevenLabs,
-and Mistral adapters are removed. Custom endpoints must accept the workflow's
-OpenAI SDK requests. There is no bespoke-protocol fallback or provider registry.
-
-The [native catalog acceptance](scripts/shared-ai-catalog-native/README.md)
-exercises two installed test apps through real macOS WebViews and the Rust
-keychain bridge. It verifies cross-app updates, process restart, independent
-selections, SSE reconnect, and cancellation on App, window, and host closure.
-Its optional Whispering mode also verifies the desktop picker, imported audio,
-real transcription, and the saved result after document reload.
-
-`defineApp` is inert. `await openApp(application, { account })` returns a ready
-App after document and inference-catalog hydration. Failed opening rejects
-without publishing a partial handle. If rollback also fails, an `AggregateError`
-preserves the opening error as its cause and the claim stays held.
-`openApp(application)` performs no authority request or sync dial.
-
-`app.device` always exists. `app.account` is undefined when opened without an account. Otherwise it
-contains credential-free `identity`, `personal`, and nullable inference `connection`.
-Each store has its own tables, KV, persistence, and sync status.
-There is no flat `app.tables`, library discriminator, or alternate opener.
-
-The opener has one schema generic and infers its handle from the implementation.
-`App<T>` names that handle; `AppRuntime` is the contract for runtime implementations.
-Account presence is a runtime fact: narrow `app.account` before using its stores,
-even when the opening call supplied an Account. There is no account type argument,
-separate composition opener, or `AppStore` alias. Code that needs only tables and
-KV uses `DeclaredData<T>` from `@epicenter/app/store`; broader capability types
-can be derived from the application's own handle.
+## Blobs and recording
 
 ```ts
-const app = await openApp(definition, { account });
-if (app.account) {
-  const personal = app.account.personal;
-  // Use personal.tables and personal.kv here.
-}
+import { openLocalBlobs, openRemoteBlobs } from '@epicenter/app/blobs';
+import { createRecorder } from '@epicenter/app/recorder';
+
+const blobs = await openLocalBlobs({ id: definition.id });
+const recorder = createRecorder({ blobs });
+const started = await recorder.start({});
+if (started.error) throw started.error;
+const saved = await started.data.stop();
+if (saved.error) throw saved.error;
+// The product stores saved.data.blobId in its own recording schema.
+await recorder.close();
+// Closing capture leaves its destination usable.
+const audio = await blobs.get(saved.data.blobId);
 ```
 
-Opening waits for acquired resources to settle before reporting a rollback outcome.
-An unfinished acquisition can therefore keep the opening promise pending; page
-teardown ends that attempt.
+Stop publishes bytes into the supplied LocalBlobs destination on both platforms.
+It returns a blob ID, duration, and byte length without creating a row. Cancel
+removes unfinished capture; it cannot retract published bytes. Closing LocalBlobs
+retires its recorders and waits for admitted Stop publication through a private
+writer even though public blob access is fenced. Finish wanted capture before
+closing. Reload or process restart may discard unfinished capture.
 
-The page owns the opening promise. `AppBoot` accepts `opening={opening}` and
-renders its children snippet with the resolved value. Rejection renders a
-terminal failure screen with page reload. Imperative jobs await that same promise.
-Shared components borrow the store or capability they use: `DeclaredData<T>` for
-tables and KV, `app.device.connections`, or `app.account?.connection`.
-
-The App constructs each resource once and exposes its actual operation object.
-The resource owner keeps cleanup controls. Consumers receive SQL, secret, blob,
-and recording operations without a separate close obligation. Retained methods
-reject closed or retired use; ordinary storage and transfer failures remain
-Results. The declaration is validated before storage acquisition. Auth constructs
-the immutable Account handle.
-
-## Blobs
-
-An immutable blob has one complete, extension-bearing key. The same key names
-its desktop file, browser record, and row reference. Successful Stop publishes
-that key before the application creates a recording row. The
-[blob package](../blobs/README.md) owns storage and format interpretation.
-
-Every App exposes `app.blobs.local`. `app.blobs.remote` is null without an
-account and exposes remote hosting when signed in. Keep these full paths at
-call sites. Bytes have independent lifetimes from rows and from each other.
-There are no attachment fields, transfer queues, or automatic downloads.
+Local bytes use the fixed `no-account` owner under the application ID. Browser
+storage is `epicenter/<id>/device/no-account/blobs`; native files are under
+`<dataRoot>/apps/<id>/device/no-account/blobs`. Account changes do not move bytes.
+Historical account-local bytes remain untouched, with no adoption or fallback.
 
 ```ts
-const added = await app.blobs.local.add(file);
-if (added.error) return showError(added.error);
-app.device.tables.recordings.create({ audioBlobId: added.data, audioUrl: null });
-
-// Later, after an explicit Upload action while signed in:
-if (!app.blobs.remote) return;
-const uploaded = await app.blobs.remote.addLocal(added.data);
-if (uploaded.error) return showError(uploaded.error);
-// Save uploaded.data, the durable remote URL, in the row.
+const remote = await openRemoteBlobs({ id: definition.id, account });
+const uploaded = await remote.addFrom(blobs, saved.data.blobId, { signal });
 ```
 
-Local access supports `add`, `get`, `open`, `stat`, `list`, and `delete`.
-`list({ cursor?, limit? })` returns metadata and an optional `nextCursor`;
-it enumerates committed IDs without loading their bodies. Its cursor is an
-exclusive BlobId in lexical order, with a default page size of 100 and a maximum
-of 1,000. Concurrent writes do not make enumeration a snapshot.
+`addFrom` receives the actual source handle. Native upload carries its validated
+source namespace to the host and streams that file; it does not infer the source
+from the remote destination. Size checks precede byte reads. Closing either
+participant cancels and settles the transfer without closing the other handle.
+An interrupted upload may leave a committed remote object. A workflow that then
+updates a row must check its own cancellation before writing.
 
-Remote access supports `add(Blob)`, `addLocal(blobId)`, `get(url)`, `open(url)`,
-and `delete(url)`. Each upload creates a new remote object, initially limited
-to 25 MiB. A native `addLocal` sends a descriptor through the captured account
-broker; the host reads and uploads its file without putting the audio in the
-WebView. It does not create a synchronization obligation.
+`get` returns bytes. `open` returns a disposable display URL; release it when
+playback ends. Remote URLs returned by upload are account-scoped locators.
+Sharing a row does not grant access to its audio. Row deletion does not delete
+local or remote bytes.
 
-`get` returns bytes. `open` returns `{ url, [Symbol.dispose]() }` for display;
-release that source when its image, video, or audio player is done. Store the
-URL returned by remote `add`, never a temporary display URL. The remote locator
-includes server, app, authenticated owner, and object ID. Reads require that
-account; sharing a row does not grant another account access to its audio.
+## SQLite and secrets
 
-Browser bytes live in `epicenter/<appId>/device/<owner>/blobs` within the browser origin/profile.
-Desktop bytes are ordinary files at `<dataRoot>/apps/<appId>/device/<owner>/blobs/<blobId>`.
-Browser records contain `{ id, bytes, size }`; an index supports listing and
-size checks without reading the audio. All libraries in one captured App share
-this local namespace. Changing accounts selects another namespace; signing out
-does not erase the previous account's bytes. Remote storage is scoped
-by account and app. The user confirmed zero users and no existing data for the
-complete-key cutover. No migration, reset, or fallback reader runs.
+`openSqlite({ id })` acquires a namespace eagerly. `open(name)` and `delete(name)`
+address dynamically named databases under that application's fixed local owner.
+Deleting a database retires its old connections. Closing drains the namespace
+and releases its physical connections; failed cleanup retains exclusion.
+Browser storage uses an owner-specific OPFS pool. Native storage uses the host
+SQLite lifetime socket. The previous origin-wide OPFS pool remains untouched.
 
-Deleting a row leaves its local bytes and uploaded objects intact. An application
-may explicitly delete a known local key or remote object when its product
-workflow chooses to; storage never infers row ownership or performs automatic
-cleanup.
+`openSecrets({ id })` addresses credentials by application ID and label.
+Browser credentials remain in document memory; native credentials use the OS
+keychain. Closing a handle preserves values. Credentials never enter Personal
+rows. Saved inference keys use their separate catalog namespace.
 
-Applications access blobs through their opened App. Its ownership, readiness,
-and closure cover blob requests and display resources.
-
-Concurrent `close()` calls return one terminal completion promise, including
-when cleanup fails. Close revokes public operations immediately, cancels owned AI
-requests, settles admitted recording and storage work, and releases playback
-sources. Each document stops sync and attempts its final local persistence flush.
-Independent resources drain concurrently; one cleanup failure does not skip SQL
-cleanup. Admission is released only when all resource cleanup succeeds and no
-acquisition has left release unproven.
-
-Close discards unresolved capture and temporary native output. Published data
-files survive. Finish and save wanted audio while
-the App is still usable. Close never signs out,
-navigates, deletes credentials, or erases data. It preserves the store's
-existing persistence failure reporting; completed cleanup does not prove every
-edit reached durable storage or the server.
-
-The App cancels remote blob requests on closure and drains admitted work before
-releasing ownership. An interrupted upload may have committed a remote orphan.
-Raw Yjs content is borrowed: stop editor bindings before
-closing its owner. App workflows spanning multiple awaited calls must also handle
-closure between those calls.
-
-App retains the immutable Account supplied by auth. Same-owner credential
-refresh preserves that handle. Sign-out or replacement ends its transport;
-departure quiesces UI and closes App without erasing data.
-
-Data retirement means the server replaced a data generation. The affected
-store fences and invalidates its cache. App closes its sibling resources and
-revokes retained operations through `app.signal`. Departure stops UI producers
-and observes the same terminal close. Failed invalidation retains ownership until
-page teardown. There is no close retry or separate replacement notification.
-
-Departure observes retirement through page cleanup, then invokes `app.close()`
-directly. A successful close permits an authentication change and full navigation.
-A preflight refusal leaves the page usable. Failure after teardown begins is
-terminal. Recovery requires a fresh document; opening never retries in place.
-
-App admission validates and serializes only the account's addressing fields.
-Browser acquisition receives one account and data scope and derives both the local
-cache address and sync routes from them. It cannot pair one account's cache
-with another account's transport.
-
-`app.device.sqlite.open(name)` and `delete(name)` address a file by app ID,
-captured account, and database name. Desktop files live at
-`<dataRoot>/apps/<appId>/device/<owner>/sqlite/<name>.sqlite`; browser files use
-the serialized `[appId, owner, name]` tuple in a separate OPFS pool for each
-app/owner. The first SQL open or delete acquires the SQL lifetime; App readiness
-does not start a SQLite worker or native socket. The App already holds
-admission for this owner, so documents and SQL need no subordinate Web Locks.
-The host SQLite owner still excludes independent windows at its own boundary.
-
-Closing the browser SQLite handle drains admitted work, closes every connection,
-then pauses that owner's pool before the App releases admission. Other owners can keep using SQLite in
-the same page or another window. Returning to a closed owner reactivates its
-pool without deleting files. A failed physical close or pool release is terminal
-and retains ownership; repeating close returns the same failure. Failed pool
-activation can retry on the next SQL operation. Failed lifetime acquisition
-requires closing the rejected handle and constructing a fresh one.
-
-Pool capacity includes a journal slot per named database, including transactions
-held across calls. It is not an exclusive claim or an unlimited budget for
-SQL-created attached databases and temporary files. The installed SQLite build
-defaults to memory-backed temporary storage. Prefer `batch()` for transactions
-that should complete in one operation.
-
-The per-owner pool layout is a clean break. Files in the old origin-wide
-`.epicenter` pool remain untouched and are not opened or adopted automatically.
-Row stores, blobs, and recordings keep their existing locations.
-
-`app.device.secrets.put(label, value)`, `get(label)`, and `delete(label)` address
-credentials by app ID, captured account, and label. Browser secrets remain in document memory;
-desktop secrets live in the keychain. Closing App preserves values. Secrets
-never enter synchronized rows. SQLite, secrets, device tables, blobs, and native
-recording use the same captured owner. Earlier storage is neither merged nor
-deleted; reconnect providers in the intended account namespace.
-
-`app.device.recording.start({})` acquires disposable capture. Successful Stop saves
-locally and returns a blob ID, duration, and byte length; it creates no row.
-See [Saved recordings](#saved-recordings) for ordering.
-
-Opening is cache-first. A device with a local generation can open it offline;
-a device without a cached generation must reach the current authority to atomically
-select or download the canonical generation. Personal caches include
-the authenticated actor, so account replacement cannot replay another actor’s writes. The app owns persistence, sync, and teardown.
-
-Account opening requires `authorityId`. The package selects the platform SQLite
-owner by default; exceptional runtimes can compose one explicitly. SQL-only
-consumers can use the device package without opening a document.
-The remaining target contract
-and future whole-App data removal are recorded in
-[ADR-0355](../../docs/adr/0355-local-and-account-sessions-share-the-application-data-api.md).
-
-Focused tests cover deferred acquisition, retained operations, and resource
-release. The saved-recording smoke captures synthetic microphone input
-in Chromium, plays it offline, and verifies identical bytes after App
-close/reopen. This does not establish browser-process capture recovery,
-physical microphone behavior, or physical device acceptance.
-
-## Clipboard
+## Inference
 
 ```ts
-import { clipboard } from '@epicenter/app/clipboard';
+import {
+  openEpicenterInference,
+  openRuntimeInference,
+  openEndpointInference,
+} from '@epicenter/app/ai';
 
-const read = await clipboard.readText(); // Result<string | null, ClipboardError>
-const wrote = await clipboard.writeText(text); // Result<void, ClipboardError>
-```
-
-`clipboard` is a platform module, not an App capability. A clipboard captures no
-application or account, and it owns no resource, so nothing on it
-needs an opened App or ends at `app.close()`. A boot-failure screen can copy
-diagnostics before any App exists, and a copy button keeps working while a page
-departs. Import it directly; do not thread an App handle to reach it.
-
-The public module selects its implementation with `isTauri()` (ADR-0403).
-The browser leaf uses the
-page's Clipboard API, which requires document focus and the browser's clipboard
-grant. The `epicenter-host` leaf uses the host's clipboard plugin, which also
-works while the window is unfocused, as a global shortcut needs. Today only the
-`app-*` and `whispering` windows hold the plugin's read-text and write-text
-permissions; ADR-0402 grants every native verb to every window (unbuilt).
-
-Text only. `readText()` returns `null` for an empty clipboard. Platform failures
-return `ClipboardRead` or `ClipboardWrite` errors with the platform cause.
-Pasting into another application's cursor, preserving rich pasteboard contents,
-and synthetic keystrokes are not clipboard operations: they need accessibility
-grants and foreground focus, and they belong to the product that delivers text,
-as Whispering's text service does.
-
-## Saved recordings
-
-Stop is the save boundary:
-
-```ts
-const started = await app.device.recording.start({});
-if (started.error) return showError(started.error);
-const recording = started.data;
-const stopped = await recording.stop();
-if (stopped.error) return showError(stopped.error);
-app.device.tables.recordings.create({
- audioBlobId: stopped.data.blobId,
- audioUrl: null,
+const hosted = await openEpicenterInference({ account });
+const runtime = await openRuntimeInference(); // null when absent
+const endpoint = await openEndpointInference({
+  baseURL: 'https://inference.example/v1',
+  getAuthHeaders: async ({ signal }) => ({
+    Authorization: `Bearer ${await credentials.getToken({ signal })}`,
+  }),
 });
-const source = await app.blobs.local.open(stopped.data.blobId);
-// Release source.data with Symbol.dispose when playback ends.
+await endpoint.client.models.list();
+await endpoint.close();
 ```
 
-`@epicenter/app/recorder` owns capture sessions with an immutable ID and device
-information. The live capture ID and saved blob key have separate roles.
-Stop publishes into the same app-local store used by
-`app.blobs.local`. Native WAV capture writes progressively; browser capture
-publishes its completed Blob under a key selected from its actual output format.
-The returned key includes its extension and remains fixed through save retries.
-No finished-file token crosses the public API.
-A failed row creation leaves saved audio discoverable through local `list()`.
+Each handle owns one OpenAI-compatible client. An available runtime's failure
+remains an error; no constructor chooses a fallback. Protocol compatibility does
+not imply support for every SDK operation.
 
-Cancel removes unfinished capture. It cannot retract a committed blob.
-`onEnded` reports unexpected termination, including to a late subscriber;
-the application decides whether to stop or cancel. `current()` inspects this
-document's held session, without recovering capture from another document.
-Reload and host restart may discard unfinished capture.
+Endpoint authentication has one option: `getAuthHeaders({ signal })`. Omit it
+for an unauthenticated endpoint; return constant headers for a static key.
+Callbacks are not persisted. The API supports HTTP authentication headers, not
+request signing, mTLS, or provider-specific protocol transformations.
 
-App close cancels unfinished capture and drains an already-admitted Stop using
-its private storage writer. Public blob access is already revoked at that point.
-Applications finish wanted capture before deliberate closure. The recorder
-owns neither upload nor inference policy.
+The client validates and fixes the destination before resolving credentials,
+registers pending work before calling the callback, and combines handle and
+request cancellation. Captured authentication overrides SDK request headers.
+It suppresses SDK environment credentials, omits ambient cookies, refuses
+redirects, and rechecks cancellation after authentication. Close waits for
+credential resolution and response-body cancellation. Authentication failure
+never dispatches an unauthenticated request. Native unsaved requests use a
+protected host relay for SDK operations, including multipart transcription.
 
-Text-only dictation should own temporary capture and release it with its session;
-it need not publish saved recordings. There is no dictation capability on the
-App: an application composes capture with its selected connection's
-`client.audio.transcriptions.create` SDK operation. The browser stream/VAD
-primitives remain independent of this saved-artifact API.
+## Saved connections
 
-Run `bun run test` for lifecycle checks and `bun run smoke:recording` for Chromium
-capture, storage, decoding, metering, and cancellation with a synthetic microphone.
-The test command isolates each file's module mocks. For combined App and app-shell
-checks from the repository root, use `bun test --isolate packages/app`.
+Both catalogs persist locally and are shared across application IDs. The account
+catalog partitions records by captured authority and principal; it does not sync
+through Personal. The local catalog uses the `no-account` partition.
+
+```ts
+import { openAccountConnectionCatalog } from '@epicenter/app/ai-connections';
+const connections = await openAccountConnectionCatalog({ account });
+const id = await connections.add({
+  name: 'My endpoint', baseUrl: 'https://inference.example/v1', apiKey: key,
+});
+const saved = connections.get(id)!;
+await saved.client.models.list();
+await connections.close();
+```
+
+Await mutations before showing success. Reads return saved fields and cached
+clients without model discovery. Rename, reorder, and model-list changes retain
+clients; destination or credential changes retire them. Omit `apiKey` when
+updating to retain it; supply an empty string to remove it. Native explicit key
+assignment changes the access version even when the value is unchanged.
+
+Browser records may contain the explicit bearer key. Native snapshots expose
+`hasApiKey` and an access version while the broker retains the key. Stale versions
+cannot authorize requests. Do not sync or log client-bearing records.
+
+Discover models through the selected client's `models.list()`. An unsaved preview
+opens its own endpoint handle and closes it when finished or dismissed.
+Applications own workflow selection; missing connections and changed accounts do
+not select another destination.
+
+## Data engine and adapters
+
+`/definition`, `/field`, `/store`, `/sync`, and artifact entrypoints remain
+platform-free. `/data` opens a document over caller-owned SQLite; disposal leaves
+that connection open. `/memory` owns Bun test storage. See the
+[data engine README](src/data/README.md) and [architecture map](ARCHITECTURE.md).
+
+Svelte consumers call `fromData(store)` for each selected store. Products own
+startup rollback and handles that finish opening after unmount. Shared AppBoot
+accepts a product opening function and closes a late result. Startup cancellation retires earlier acquisitions immediately. Document
+replacement keeps its interruption policy; it is not a save barrier.
+
+Clipboard is stateless: import `clipboard` from `/clipboard` directly. It needs
+no resource handle and has no artificial close operation.
+
+Run `bun run --cwd packages/app test` and `typecheck` from the repository root.
+`smoke:recording` exercises synthetic Chromium capture and playback;
+`smoke:admission` exercises real browser document ownership. Synthetic capture
+does not establish physical microphone behavior or restart recovery.
 
 License: AGPL-3.0-or-later.

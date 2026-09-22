@@ -17,30 +17,31 @@ const entry = join(evidence, 'entry.ts');
 await writeFile(
 	entry,
 	`
-import { createAppAi } from ${JSON.stringify(join(root, 'packages/app/src/ai.ts'))};
+import { openConnectionCatalog } from ${JSON.stringify(join(root, 'packages/app/src/connection-catalog.ts'))};
+import { openEndpointInference } from ${JSON.stringify(join(root, 'packages/app/src/ai.ts'))};
 import { createDesktopAiConnections } from ${JSON.stringify(join(root, 'packages/app/src/ai-connections.epicenter-host.ts'))};
 import { createBrowserInferenceSelections } from ${JSON.stringify(join(root, 'packages/app-shell/src/inference-selections.ts'))};
 const product = location.pathname.includes('vocab') ? 'vocab' : 'whispering';
 const lifetime = new AbortController();
-const owner = createAppAi({lifetime:{signal:lifetime.signal,assertUsable(){lifetime.signal.throwIfAborted()}},account:null,runtime:null,connections:createDesktopAiConnections({})});
-const app = owner.value;
+globalThis.isTauri = true;
+const owner = await openConnectionCatalog(createDesktopAiConnections({}));
 const selections = createBrowserInferenceSelections(product);
 let retained;
 window.acceptance = {
- ready: owner.ready,
- records() { return app.ai.connections.getAll().map(({client,...record})=>record); },
- add(input) { return app.ai.connections.add(input); },
- update(id,patch) { return app.ai.connections.update(id,patch); },
- remove(id) { return app.ai.connections.remove(id); },
+ ready: Promise.resolve(),
+ records() { return owner.getAll().map(({client,...record})=>record); },
+ add(input) { return owner.add(input); },
+ update(id,patch) { return owner.update(id,patch); },
+ remove(id) { return owner.remove(id); },
  select(target) { selections.set('chat',target); },
  selected() { return selections.get('chat'); },
- retain(id) { retained=app.ai.connections.get(id).client; },
- async run(id) { return (await app.ai.connections.get(id).client.models.list()).data; },
+ retain(id) { retained=owner.get(id).client; },
+ async run(id) { return (await owner.get(id).client.models.list()).data; },
  async runRetained() { try { await retained.models.list(); return 'sent'; } catch { return 'retired'; } },
- async preview(baseUrl,apiKey) { return (await app.ai.connections.preview({baseUrl,apiKey}).models.list()).data; },
+ async preview(baseUrl,apiKey) { const endpoint = await openEndpointInference({baseURL:baseUrl,getAuthHeaders:()=>({Authorization:'Bearer '+apiKey})}); try {return (await endpoint.client.models.list()).data;} finally {await endpoint.close();} },
  async close() { selections[Symbol.dispose](); lifetime.abort(); await owner.close(); },
 };
-await owner.ready;
+await Promise.resolve();
 document.body.textContent=product+' catalog ready';
 `,
 );
@@ -53,6 +54,7 @@ assert.equal(build.success, true, String(build.logs));
 const code = await build.outputs[0].text();
 const page = `<!doctype html><title>Shared AI catalog</title><body><script type="module">${code.replaceAll('</script', '<\\/script')}</script></body>`;
 const requests = [];
+const previewServer = Bun.serve({hostname:'127.0.0.1',port:0,fetch(request){requests.push({url:request.url,key:request.headers.get('authorization'),cookie:request.headers.get('cookie')});return Response.json({data:[{id:'preview'}]});}});
 const secrets = createProcessMemoryAppSecrets();
 const catalog = await createAiCatalog({
 	dataRoot: evidence,
@@ -286,9 +288,7 @@ try {
 	);
 	await whispering.evaluate((id) => window.acceptance.run(id), id);
 	assert.equal(requests.at(-1).key, 'Bearer rotated-key');
-	await vocab.evaluate(() =>
-		window.acceptance.preview('https://preview.example/v1', 'preview-key'),
-	);
+	await vocab.evaluate(baseURL => window.acceptance.preview(baseURL, 'preview-key'),previewServer.url.origin+'/v1');
 	assert.equal(requests.at(-1).key, 'Bearer preview-key');
 	await vocab.evaluate((id) => window.acceptance.remove(id), removable);
 	await whispering.waitForFunction(
@@ -392,6 +392,7 @@ try {
 	await browser?.close();
 	await catalog.close();
 	await server.stop(true);
+ await previewServer.stop(true);
 	auth[Symbol.dispose]();
 	await host[Symbol.asyncDispose]();
 }

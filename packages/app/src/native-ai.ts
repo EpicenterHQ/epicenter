@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { AiTransport } from './ai.js';
+import type { AiTransport } from './inference.js';
 
 const baseURL = 'https://transcribe-cpp.epicenter.invalid/v1';
 

@@ -89,7 +89,9 @@ test('field compiler failures identify the table and field', () => {
 			id: 'test.invalid-pattern',
 			kv: {},
 			tables: {
-				notes: { title: field.json({ type: 'string', pattern: '[' }) },
+				notes: defineTable({
+					title: field.json({ type: 'string', pattern: '[' }),
+				}),
 			},
 		}),
 	);

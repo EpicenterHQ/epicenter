@@ -13,7 +13,7 @@ import {
 	REMOTE_BLOB_ROUTES,
 	selectBlobFormat,
 } from '@epicenter/blobs';
-import { createAppBlobs } from '@epicenter/blobs/app';
+import { createLocalBlobAccess } from '@epicenter/blobs/owner';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
 import { expectOk } from 'wellcrafted/testing';
@@ -31,7 +31,7 @@ test.each([
 ])('direct and local-first %s (%s) upload identical bytes as %s', async (name, type, expectedType) => {
 	const directory = await mkdtemp(join(tmpdir(), 'blob-upload-format-'));
 	const local = createBunBlobStore({ directory });
-	const owner = createAppBlobs({
+	const owner = createLocalBlobAccess({
 		local,
 		sources: createBrowserBlobSources(local),
 	});
@@ -53,12 +53,12 @@ test.each([
 			});
 		},
 	} as Account;
-	const remote = createRemoteBlobClient({ appId, account, local });
+	const remote = createRemoteBlobClient({ appId, account });
 	try {
 		const file = new File(['identical bytes'], name, { type });
 		const directUrl = expectOk(await remote.add(file));
 		const id = expectOk(await owner.value.add(file));
-		const savedUrl = expectOk(await remote.addLocal(id));
+		const savedUrl = expectOk(await remote.addFrom({ local }, id));
 		expect(directUrl).not.toBe(savedUrl);
 		expect(directUrl).not.toContain(id);
 		expect(savedUrl).not.toContain(id);

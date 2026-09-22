@@ -17,6 +17,7 @@ import {
 	type BlobListPage,
 	BlobStoreError,
 	type BlobStoreFailed,
+	type BlobAlreadyExists,
 } from './blob-store.js';
 
 const DATABASE_VERSION = 2;
@@ -210,7 +211,7 @@ export function createBrowserBlobStore(
 			);
 		},
 		put(id, blob) {
-			return operate(id, () =>
+			return operate<void, BlobAlreadyExists | BlobStoreFailed>(id, () =>
 				tryAsync({
 					try: async () => {
 						assertBlobFormat(id, blob);

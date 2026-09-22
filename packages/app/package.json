@@ -2,7 +2,7 @@
 	"name": "@epicenter/app",
 	"version": "0.0.1",
 	"private": true,
-	"description": "Application declarations, store, sync, and application lifetime.",
+	"description": "Data declarations and independently owned storage, capture, and inference resources.",
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
@@ -22,7 +22,10 @@
 		"./store": "./src/data/store/index.ts",
 		"./open": "./src/open.ts",
 		"./data": "./src/data/open.ts",
-		"./testing": "./src/testing.ts"
+		"./testing": "./src/testing.ts",
+		"./blobs": "./src/blobs.ts",
+		"./sqlite": "./src/sqlite.ts",
+		"./secrets": "./src/secrets.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.data.json && tsc --noEmit -p tsconfig.data.dom.json && tsc --noEmit -p evidence/data/browser/durable-store/tsconfig.json && tsc --noEmit -p evidence/data/browser/write-cost/tsconfig.json && tsc --noEmit -p evidence/data/browser/port-cost/tsconfig.json && tsc --noEmit -p evidence/data/app-ownership/tsconfig.json",

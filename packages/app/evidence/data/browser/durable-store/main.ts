@@ -6,7 +6,7 @@
  */
 import { defineApp, defineTable, field, plainText } from '@epicenter/app';
 
-import { type App, openApp } from '@epicenter/app/open';
+import { type LocalStore, openLocal } from '@epicenter/app/open';
 
 /**
  * Two namespaces, because a dataId is what makes two stores two stores.
@@ -38,7 +38,7 @@ const workspaces = {
 	}),
 } as const;
 
-type ProbeApplication = App<(typeof workspaces)['vault']>['device'];
+type ProbeApplication = LocalStore<(typeof workspaces)['vault']>;
 
 let db: ProbeApplication | undefined;
 
@@ -58,7 +58,7 @@ Object.assign(globalThis, {
 		if (workspace === undefined) return { error: `no workspace named ${name}` };
 		try {
 			// Reload ends the page. The probe reads the ready App-owned local store.
-			db = (await openApp(workspace)).device;
+			db = await openLocal(workspace);
 		} catch (error) {
 			return { error: error instanceof Error ? error.message : String(error) };
 		}

@@ -31,15 +31,15 @@ let timeout: ReturnType<typeof setTimeout> | undefined;
 
 const pageSource = `
 import { invoke, isTauri } from '${root}packages/app/node_modules/@tauri-apps/api/core.js';
-import { createAppAi } from '${root}packages/app/src/ai.ts';
+import { createInference } from '${root}packages/app/src/inference.ts';
 import { createNativeInferenceTransport } from '${root}packages/app/src/native-ai.ts';
 const violations = [];
 document.addEventListener('securitypolicyviolation', event => violations.push(event.violatedDirective));
 const lifetime = new AbortController();
-const owner = createAppAi({ lifetime: { signal: lifetime.signal, assertUsable: () => lifetime.signal.throwIfAborted() }, runtime: createNativeInferenceTransport(), account: null, connections: null });
+const owner = createInference(createNativeInferenceTransport());
 try {
  if (!isTauri()) throw new Error('Real Tauri IPC is absent');
- const client = owner.value.ai.runtime.client;
+ const client = owner.client;
  const model = 'handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf';
  const models = await client.models.list();
  if (!models.data.some(entry => entry.id === model)) throw new Error('Whisper Tiny is not cached');

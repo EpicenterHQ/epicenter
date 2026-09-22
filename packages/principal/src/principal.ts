@@ -6,7 +6,7 @@ import type { Brand } from 'wellcrafted/brand';
  *
  * This identity leaf exists because `@epicenter/app/store` and
  * `@epicenter/auth` both need it and neither depends on the other: the store
- * opens a local database with no auth at all (`openApp(definition)`), and the auth client
+ * opens a local database with no auth at all (`openLocal(definition)`), and the auth client
  * runs with no store (the hosted dashboard). A leaf is what two siblings share.
  *
  * On hosted Cloud, this is the principal Better Auth resolved for the request.

@@ -1,25 +1,25 @@
 /**
- * Saved recording belongs to the opened app, including readiness and closure.
- * Checks fixed local/account destinations, deferred acquisition/publication,
+ * Saved recording belongs to its supplied blob destination.
+ * Checks deferred acquisition and publication,
  * native recovery, and release before close resolves.
  */
 import { expect, test } from 'bun:test';
-import { defineTable, field, plainText } from '@epicenter/app';
 import {
 	RecorderError,
+	createRecorder,
 	type Recording,
 	type RecordingFactory,
-} from '@epicenter/app/recorder';
-import type { Account } from '@epicenter/auth';
+} from './recorder.js';
 import { generateBlobId } from '@epicenter/blobs';
-import { asPrincipalId } from '@epicenter/principal';
+import {
+	createBrowserBlobSources,
+	createBrowserBlobStore,
+} from '@epicenter/blobs/browser';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { asDeviceIdentifier } from '@epicenter/recorder';
-import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { defineApp } from './index.js';
-import { openApp } from './open.js';
-import { createMemoryRuntime } from './testing.js';
+import { openLocalBlobs } from './blobs.js';
 
 function setup({
 	startGate = Promise.resolve(),
@@ -30,13 +30,12 @@ function setup({
 	recoveryFails = false,
 	cancelFails = false,
 } = {}) {
-	const runtime = createMemoryRuntime();
 	const appId = 'test.' + crypto.randomUUID();
 	const bindings: { appId: string }[] = [];
 	let starts = 0;
 	let cancels = 0;
 	let stops = 0;
-	let releases = 0;
+
 	let recorderCloses = 0;
 	const savingEntered = Promise.withResolvers<void>();
 	const recording: RecordingFactory = (appId, options) => {
@@ -127,47 +126,22 @@ function setup({
 			},
 		};
 	};
-	const fixtureDefinition = defineApp({
-		kv: {},
-		tables: {
-			recordings: defineTable({
-				audio: field.string(),
-				content: plainText(),
-			}),
-		},
-		id: appId,
-	});
-	const openFixture = (account?: Account) =>
-		openApp(fixtureDefinition, {
-			account,
-			runtime: {
-				...runtime,
-				sqlite: {
-					acquire: async () => ({
-						open: async () => {
-							throw new Error('Unused');
-						},
-						delete: async () => {},
-
-						close: async () => {
-							releases++;
-						},
-					}),
-				},
-				blobs(input) {
-					const blobs = runtime.blobs(input);
-					const put = blobs.local.put;
-					blobs.local.put = async (...args) => {
-						savingEntered.resolve();
-						await saveGate;
-						return put(...args);
-					};
-					return blobs;
-				},
-				recording,
-				ai: { runtime: null, account: null },
-			},
+	const idb = { factory: new IDBFactory(), keyRange: IDBKeyRange };
+	const openFixture = async () => {
+		const local = createBrowserBlobStore({ appId, idb });
+		const put = local.put;
+		local.put = async (...args) => {
+			savingEntered.resolve();
+			await saveGate;
+			return put(...args);
+		};
+		const blobs = await openLocalBlobs({
+			id: appId,
+			binding: { local, sources: createBrowserBlobSources(local), recording },
 		});
+		const recorder = createRecorder({ blobs });
+		return { blobs, recorder, signal: blobs.signal, close: blobs.close };
+	};
 	return {
 		openFixture,
 		appId,
@@ -175,7 +149,6 @@ function setup({
 		starts: () => starts,
 		cancels: () => cancels,
 		stops: () => stops,
-		releases: () => releases,
 		recorderCloses: () => recorderCloses,
 		savingEntered: savingEntered.promise,
 	};
@@ -188,46 +161,11 @@ test('resolved opening binds recording once and permits microphone acquisition',
 	expect(bindings).toEqual([{ appId }]);
 	expect(starts()).toBe(0);
 
-	const session = expectOk(await app.device.recording.start({}));
-	expect(expectOk(await app.device.recording.current())).toBe(session);
+	const session = expectOk(await app.recorder.start({}));
+	expect(expectOk(await app.recorder.current())).toBe(session);
 	expectOk(await session.cancel());
 	await app.close();
-	expect(() => app.device.recording.start({})).toThrow();
-});
-
-test('account recording keeps the opened identity when the supplied account changes', async () => {
-	const { openFixture, bindings } = setup();
-	let state: Blob | null = null;
-	const account: Account = {
-		authorityId: 'original',
-		principalId: asPrincipalId('alice'),
-		baseURL: 'https://example.test',
-		async fetch(_input, init) {
-			state ??= await new Response(init?.body).blob();
-			return createCurrentDownloadResponse({
-				generation: 1,
-				head: 1,
-				snapshot: {
-					position: 1,
-					bytes: new Uint8Array(await state.arrayBuffer()),
-				},
-				tail: [],
-			});
-		},
-		openWebSocket: async () => {
-			throw new Error('Unused');
-		},
-		getProfile: async () => {
-			throw new Error('Unused');
-		},
-	};
-	const app = await openFixture(account);
-	Reflect.set(account, 'authorityId', 'replacement');
-
-	const session = expectOk(await app.device.recording.start({}));
-	expect(expectOk(await app.device.recording.current())).toBe(session);
-	expect(bindings[0]?.appId).toBe(app.appId);
-	await app.close();
+	expect(() => app.recorder.start({})).toThrow();
 });
 
 test('close waits for an admitted start and cancels its late capture', async () => {
@@ -239,12 +177,12 @@ test('close waits for an admitted start and cancels its late capture', async () 
 	});
 	const app = await openFixture();
 
-	const pending = app.device.recording.start({});
+	const pending = app.recorder.start({});
 	let closed = false;
 	const closing = app.close().then(() => {
 		closed = true;
 	});
-	expect(() => app.device.recording.current()).toThrow();
+	expect(() => app.recorder.current()).toThrow();
 	acquisition.resolve();
 	const session = expectOk(await pending);
 	await Promise.resolve();
@@ -262,7 +200,7 @@ test('close drains admitted publication without cancelling it', async () => {
 	});
 	const app = await openFixture();
 
-	const session = expectOk(await app.device.recording.start({}));
+	const session = expectOk(await app.recorder.start({}));
 	const pending = session.stop();
 	let closed = false;
 	const closing = app.close().then(() => {
@@ -277,27 +215,26 @@ test('close drains admitted publication without cancelling it', async () => {
 	expect(cancels()).toBe(0);
 });
 
-test('Stop publishes through private storage after App close revokes public access', async () => {
+test('Stop publishes through private storage after blob close revokes public access', async () => {
 	const gate = Promise.withResolvers<void>();
 	const context = setup({ saveGate: gate.promise });
 	const app = await context.openFixture();
 
-	const recording = expectOk(await app.device.recording.start({}));
+	const recording = expectOk(await app.recorder.start({}));
 	const saving = recording.stop();
 	await context.savingEntered;
 	const closing = app.close();
-	expect(() => app.blobs.local.list()).toThrow();
+	expect(() => app.blobs.list()).toThrow();
 	gate.resolve();
 	const saved = expectOk(await saving);
 	await closing;
 	const reopened = await context.openFixture();
 
+	expect(await expectOk(await reopened.blobs.get(saved.blobId)).text()).toBe(
+		'audio',
+	);
 	expect(
-		await expectOk(await reopened.blobs.local.get(saved.blobId)).text(),
-	).toBe('audio');
-	expect(reopened.device.tables.recordings.rows).toHaveLength(0);
-	expect(
-		expectOk(await reopened.blobs.local.list()).items.map((item) => item.id),
+		expectOk(await reopened.blobs.list()).items.map((item) => item.id),
 	).toContain(saved.blobId);
 	await reopened.close();
 });
@@ -306,21 +243,8 @@ test('close releases a session owned by its recorder even without a prior curren
 	const { openFixture, cancels } = setup();
 	const app = await openFixture();
 
-	expectOk(await app.device.recording.start({}));
+	expectOk(await app.recorder.start({}));
 	await app.close();
-	expect(cancels()).toBe(1);
-});
-
-test('a refused duplicate open cannot cancel the owning app capture', async () => {
-	const { openFixture, cancels } = setup();
-	const owner = await openFixture();
-
-	expectOk(await owner.device.recording.start({}));
-	const duplicate = openFixture();
-	await expect(duplicate).rejects.toMatchObject({ name: 'AlreadyOpen' });
-
-	expect(cancels()).toBe(0);
-	await owner.close();
 	expect(cancels()).toBe(1);
 });
 
@@ -328,21 +252,7 @@ test('close cancels a held capture without depending on a recovery read', async 
 	const { openFixture, cancels } = setup({ recoveryFailsAfterStart: true });
 	const app = await openFixture();
 
-	expectOk(await app.device.recording.start({}));
+	expectOk(await app.recorder.start({}));
 	await app.close();
 	expect(cancels()).toBe(1);
-});
-
-test('failed capture cancellation retains admission while independent SQL still closes', async () => {
-	const { openFixture, releases } = setup({ cancelFails: true });
-	const app = await openFixture();
-	expectOk(await app.device.sqlite.delete('unused'));
-	expectOk(await app.device.recording.start({}));
-	const terminal = app.close();
-	await expect(terminal).rejects.toMatchObject({ name: 'RecorderFailed' });
-	expect(app.close()).toBe(terminal);
-	expect(releases()).toBe(1);
-	await expect(openFixture()).rejects.toMatchObject({ name: 'AlreadyOpen' });
-	const other = await setup().openFixture();
-	await other.close();
 });

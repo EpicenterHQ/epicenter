@@ -1,46 +1,28 @@
-/** App AI access tests: captured credentials, streamed-body retirement, and honest request drain. */
+/** Inference access tests: captured credentials, streamed-body retirement, and honest request drain. */
 import { expect, test } from 'bun:test';
-import { asPrincipalId } from '@epicenter/principal';
 import OpenAI from 'openai';
-import { type AiTransport, createAppAi } from './ai.js';
+import { openConnectionCatalog } from './connection-catalog.js';
+import { type AiTransport, createInference } from './inference.js';
 
 function setup(fetch: AiTransport['fetch']) {
-	const lifetime = new AbortController();
-	const owned = createAppAi({
-		lifetime: {
-			signal: lifetime.signal,
-			assertUsable: () => lifetime.signal.throwIfAborted(),
-		},
-		account: {
-			baseURL: 'https://account.example/v1',
-			fetch,
-			identity: { authorityId: 'account', principalId: asPrincipalId('me') },
-		},
-		runtime: null,
-		connections: null,
+	const inference = createInference({
+		baseURL: 'https://account.example/v1',
+		fetch,
 	});
-	return {
-		ai: owned.value.ai,
-		close() {
-			lifetime.abort();
-			return owned.close();
-		},
-	};
+	return { inference, close: inference.close };
 }
 
 test('reads construct actual SDK clients without requests or ambient credentials', async () => {
 	let requests = 0;
 	let authorization: string | null = null;
-	const { ai, close } = setup(async (_input, init) => {
+	const { inference, close } = setup(async (_input, init) => {
 		requests++;
 		authorization = new Headers(init?.headers).get('authorization');
 		return Response.json({ data: [{ id: 'chosen' }] });
 	});
-	expect(ai.account?.client).toBeInstanceOf(OpenAI);
-	expect(ai.runtime).toBeNull();
-	expect(ai.connections).toBeNull();
+	expect(inference.client).toBeInstanceOf(OpenAI);
 	expect(requests).toBe(0);
-	const retained = ai.account!.client;
+	const retained = inference.client;
 	expect((await retained.models.list()).data[0]?.id).toBe('chosen');
 	expect(authorization).toBeNull();
 	await close();
@@ -51,7 +33,7 @@ test('reads construct actual SDK clients without requests or ambient credentials
 test('close rejects stream reads and waits for underlying cancellation', async () => {
 	const cancelled = Promise.withResolvers<void>();
 	const drain = Promise.withResolvers<void>();
-	const { ai, close } = setup(
+	const { inference, close } = setup(
 		async () =>
 			new Response(
 				new ReadableStream({
@@ -70,7 +52,7 @@ test('close rejects stream reads and waits for underlying cancellation', async (
 				{ headers: { 'content-type': 'text/event-stream' } },
 			),
 	);
-	const stream = await ai.account!.client.chat.completions.create({
+	const stream = await inference.client.chat.completions.create({
 		model: 'chosen',
 		messages: [],
 		stream: true,
@@ -96,11 +78,11 @@ test('close rejects stream reads and waits for underlying cancellation', async (
 test('close drains a transport that ignores abort before returning its headers', async () => {
 	const started = Promise.withResolvers<void>();
 	const response = Promise.withResolvers<Response>();
-	const { ai, close } = setup(async () => {
+	const { inference, close } = setup(async () => {
 		started.resolve();
 		return response.promise;
 	});
-	const request = (async () => await ai.account!.client.models.list())();
+	const request = (async () => await inference.client.models.list())();
 	const failed = request.then(
 		() => {
 			throw new Error('Request unexpectedly succeeded');
@@ -132,25 +114,23 @@ test('configured clients preserve names and IDs but retire on credential or dest
 			},
 		},
 	});
-	const lifetime = new AbortController();
 	const requests: { url: string; authorization: string | null }[] = [];
-	const owned = createAppAi({
-		lifetime: {
-			signal: lifetime.signal,
-			assertUsable: () => lifetime.signal.throwIfAborted(),
-		},
-		runtime: null,
-		account: null,
-		connections,
-		configuredFetch: async (input, init) => {
-			requests.push({
-				url: String(input),
-				authorization: new Headers(init?.headers).get('authorization'),
-			});
-			return Response.json({ data: [] });
+	const owned = await openConnectionCatalog({
+		...connections,
+		transport(record) {
+			return {
+				baseURL: record.baseUrl,
+				async fetch(input, init) {
+					requests.push({
+						url: String(input),
+						authorization: new Headers(init?.headers).get('authorization'),
+					});
+					return Response.json({ data: [] });
+				},
+			};
 		},
 	});
-	const connectionsApi = owned.value.ai.connections!;
+	const connectionsApi = owned;
 	const first = await connections.add({
 		name: 'One',
 		baseUrl: 'https://same.example/v1',
@@ -187,7 +167,6 @@ test('configured clients preserve names and IDs but retire on credential or dest
 	await expect(
 		(async () => await replacement.models.list())(),
 	).rejects.toThrow();
-	lifetime.abort();
 	await owned.close();
 });
 
@@ -234,14 +213,14 @@ test('same-owner refresh preserves an account client and sign-out retires its st
 	if (state.status === 'signed-out') throw new Error('Expected Account');
 	const account = state.account;
 	expect(account.principalId).toBe(asPrincipalId('alice'));
-	const { ai, close } = setup(account.fetch);
-	await ai.account!.client.models.list();
+	const { inference, close } = setup(account.fetch);
+	await inference.client.models.list();
 	token = 'refreshed';
 	expectOk(await auth.startSignIn());
 	expect(auth.getState().account).toBe(account);
-	await ai.account!.client.models.list();
+	await inference.client.models.list();
 	expect(authorizations).toEqual(['Bearer first', 'Bearer refreshed']);
-	const stream = await ai.account!.client.chat.completions.create({
+	const stream = await inference.client.chat.completions.create({
 		model: 'chosen',
 		messages: [],
 		stream: true,
@@ -253,7 +232,7 @@ test('same-owner refresh preserves an account client and sign-out retires its st
 	expectOk(await auth.signOut());
 	expect((await iterator.next().catch(() => ({ done: true }))).done).toBe(true);
 	await expect(
-		(async () => await ai.account!.client.models.list())(),
+		(async () => await inference.client.models.list())(),
 	).rejects.toThrow();
 	await close();
 	auth[Symbol.dispose]();
@@ -262,7 +241,7 @@ test('same-owner refresh preserves an account client and sign-out retires its st
 test('App retirement never turns partial tool arguments into an executable call', async () => {
 	const { createOpenAiAgentEngine } = await import('@epicenter/client');
 	const received = Promise.withResolvers<void>();
-	const { ai, close } = setup(
+	const { inference, close } = setup(
 		async () =>
 			new Response(
 				new ReadableStream({
@@ -282,7 +261,7 @@ test('App retirement never turns partial tool arguments into an executable call'
 	);
 	const engine = createOpenAiAgentEngine({
 		data: () => ({
-			client: ai.account!.client,
+			client: inference.client,
 			model: 'chosen',
 			systemPrompts: [],
 		}),
@@ -308,11 +287,11 @@ test('App retirement never turns partial tool arguments into an executable call'
 test('close reports cancellation failure even when headers arrive after retirement', async () => {
 	const started = Promise.withResolvers<void>();
 	const response = Promise.withResolvers<Response>();
-	const { ai, close } = setup(async () => {
+	const { inference, close } = setup(async () => {
 		started.resolve();
 		return response.promise;
 	});
-	const request = (async () => await ai.account!.client.models.list())().catch(
+	const request = (async () => await inference.client.models.list())().catch(
 		() => undefined,
 	);
 	await started.promise;
@@ -336,7 +315,7 @@ test('close reports cancellation failure even when headers arrive after retireme
 
 test('close accepts the stored stream error when fetch aborts before reader cancellation', async () => {
 	let cancelCalls = 0;
-	const { ai, close } = setup(
+	const { inference, close } = setup(
 		async (_input, init) =>
 			new Response(
 				new ReadableStream({
@@ -353,14 +332,14 @@ test('close accepts the stored stream error when fetch aborts before reader canc
 				}),
 			),
 	);
-	const response = await ai.account!.client.models.list().asResponse();
+	const response = await inference.client.models.list().asResponse();
 	await expect(close()).resolves.toBeUndefined();
 	await expect(response.text()).rejects.toThrow();
 	expect(cancelCalls).toBe(0);
 });
 
 test('close preserves an underlying cancellation failure even when it is named AbortError', async () => {
-	const { ai, close } = setup(
+	const { inference, close } = setup(
 		async () =>
 			new Response(
 				new ReadableStream({
@@ -370,18 +349,18 @@ test('close preserves an underlying cancellation failure even when it is named A
 				}),
 			),
 	);
-	await ai.account!.client.models.list().asResponse();
-	await expect(close()).rejects.toThrow('AI transport cleanup failed.');
+	await inference.client.models.list().asResponse();
+	await expect(close()).rejects.toThrow('Inference cleanup failed.');
 });
 
 test('close accepts an already-errored body returned after retirement', async () => {
 	const started = Promise.withResolvers<void>();
 	const response = Promise.withResolvers<Response>();
-	const { ai, close } = setup(async () => {
+	const { inference, close } = setup(async () => {
 		started.resolve();
 		return response.promise;
 	});
-	const request = ai.account!.client.models.list().then(
+	const request = inference.client.models.list().then(
 		() => 'sent',
 		() => 'rejected',
 	);
@@ -400,74 +379,29 @@ test('close accepts an already-errored body returned after retirement', async ()
 	expect(await request).toBe('rejected');
 });
 
-test('every extracted connection operation obeys App admission, including preview clients', async () => {
+test('extracted catalog operations and retained clients refuse after catalog closure', async () => {
 	const { createAiConnections } = await import('./ai-connections.js');
-	const values = new Map<string, string>();
-	let ready = false;
-	const controller = new AbortController();
-	const requests: (string | null)[] = [];
-	const owner = createAppAi({
-		lifetime: {
-			signal: controller.signal,
-			assertUsable() {
-				controller.signal.throwIfAborted();
-				if (!ready) throw new Error('not ready');
-			},
-		},
-		runtime: null,
-		account: null,
-		connections: createAiConnections({
+	const owner = await openConnectionCatalog(
+		createAiConnections({
 			storageKey: 'test',
-			storage: {
-				getItem: (key) => values.get(key) ?? null,
-				setItem(key, value) {
-					values.set(key, value);
-				},
-			},
+			storage: { getItem: () => null, setItem() {} },
+			fetch: async () => Response.json({ data: [] }),
 		}),
-		configuredFetch: async (_input, init) => {
-			requests.push(new Headers(init?.headers).get('authorization'));
-			return Response.json({ data: [] });
-		},
-	});
-	const { getAll, get, add, update, remove, reorder, subscribe, preview } =
-		owner.value.ai.connections!;
-	const actions = [
+	);
+	const { getAll, get, add, update, remove, reorder, subscribe } = owner;
+	const id = await add({ baseUrl: 'https://custom/v1' });
+	const client = get(id)!.client;
+	await client.models.list();
+	await owner.close();
+	for (const action of [
 		() => getAll(),
-		() => get('missing'),
+		() => get(id),
 		() => add({ baseUrl: 'https://custom/v1' }),
-		() => update('missing', {}),
-		() => remove('missing'),
+		() => update(id, {}),
+		() => remove(id),
 		() => reorder([]),
 		() => subscribe(() => {}),
-		() => preview({ baseUrl: 'https://preview/v1' }),
-	];
-	for (const action of actions) expect(action).toThrow('not ready');
-	ready = true;
-	const first = await add({
-		baseUrl: 'https://custom/v1',
-		models: ['manual'],
-		apiKey: '',
-	});
-	const second = await add({ baseUrl: 'https://custom/v1' });
-	const firstClient = get(first)!.client;
-	expect(getAll()[0]!.client).toBe(firstClient);
-	expect(getAll()[0]!.models).toEqual(['manual']);
-	await update(first, { models: ['other'] });
-	expect(get(first)!.client).toBe(firstClient);
-	const candidate = preview({ baseUrl: 'https://preview/v1', apiKey: '  ' });
-	expect(getAll()).toHaveLength(2);
-	expect(requests).toEqual([]);
-	await firstClient.models.list();
-	await get(second)!.client.models.list();
-	await candidate.models.list();
-	expect(requests).toEqual([null, null, null]);
-	controller.abort(new Error('closed'));
-	for (const action of actions) expect(action).toThrow('closed');
-	await owner.close();
-	await expect((async () => await candidate.models.list())()).rejects.toThrow();
-	await expect(
-		(async () => await firstClient.models.list())(),
-	).rejects.toThrow();
-	expect(requests).toHaveLength(3);
+	])
+		expect(action).toThrow();
+	await expect((async () => await client.models.list())()).rejects.toThrow();
 });

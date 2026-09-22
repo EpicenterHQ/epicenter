@@ -4,7 +4,7 @@
  *
  * This opens no App resources and claims no application data. Separate
  * records let tests model independent replicas of the same declaration.
- * Applications open through `openApp` from `@epicenter/app/open`.
+ * Applications open through `openLocal` from `@epicenter/app/open`.
  */
 import { Database } from 'bun:sqlite';
 import type { DataDefinition } from '@epicenter/app/definition';

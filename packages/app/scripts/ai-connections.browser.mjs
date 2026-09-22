@@ -13,8 +13,8 @@ const { svelte } = await import(
 	requireWhispering.resolve('@sveltejs/vite-plugin-svelte')
 );
 const html = `<!doctype html><title>Account AI isolation</title><script type="module">
-import { createAppAi } from '/@fs${root}/packages/app/src/ai.ts';
-import { createBrowserAppAi } from '/@fs${root}/packages/app/src/browser.ts';
+import { openConnectionCatalog } from '/@fs${root}/packages/app/src/connection-catalog.ts';
+import { createBrowserConnections } from '/@fs${root}/packages/app/src/browser.ts';
 import { createBrowserInferenceSelections } from '/@fs${root}/packages/app-shell/src/inference-selections.ts';
 import { resolveInferenceTarget } from '/@fs${root}/packages/app-shell/src/inference-target.ts';
 let owner, selections, lifetime;
@@ -22,36 +22,32 @@ const requests = [];
 window.acceptance = {
  async open(product, identity) {
   lifetime = new AbortController();
-  const binding = createBrowserAppAi(async (input, init) => {
+  const configuredFetch = async (input, init) => {
    const request = new Request(input, init);
    requests.push({ url: request.url, key: request.headers.get('authorization') });
    return Response.json({ text: 'accepted' });
-  });
-  owner = createAppAi({
-   lifetime: { signal: lifetime.signal, assertUsable: () => lifetime.signal.throwIfAborted() },
-   account: null, runtime: null, configuredFetch: binding.configuredFetch,
-   connections: binding.connections(product, identity ?? undefined),
-  });
+  };
+  owner = await openConnectionCatalog({ ...createBrowserConnections(identity ?? undefined), transport(record) {return {baseURL:record.baseUrl, fetch:configuredFetch};} });
   selections = createBrowserInferenceSelections(product, identity ?? undefined);
-  await owner.ready;
+
   return this.snapshot();
  },
- snapshot() { return { records: owner.value.ai.connections.getAll().map(({client, ...record}) => record), target: selections.get('transcription') }; },
+ snapshot() { return { records: owner.getAll().map(({client, ...record}) => record), target: selections.get('transcription') }; },
  async add(key) {
-  const id = await owner.value.ai.connections.add({ baseUrl: location.origin + '/provider/v1', apiKey: key, models: ['manual'] });
+  const id = await owner.add({ baseUrl: location.origin + '/provider/v1', apiKey: key, models: ['manual'] });
   selections.set('transcription', { connectionId: id, model: 'manual' });
   return id;
  },
  select(target) { selections.set('transcription', target); },
  async run() {
   const target = selections.get('transcription');
-  const resolved = resolveInferenceTarget(owner.value.ai, target);
+  const resolved = resolveInferenceTarget({account:null,runtime:null,connections:owner}, target);
   if (!resolved) return null;
   await resolved.client.audio.transcriptions.create({ file: new File(['audio'], 'audio.wav'), model: resolved.model });
   return requests.at(-1).key;
  },
  async close() {
-  const records = owner.value.ai.connections;
+  const records = owner;
   const retained = records.getAll()[0]?.client;
   const choices = selections;
   choices[Symbol.dispose]();
