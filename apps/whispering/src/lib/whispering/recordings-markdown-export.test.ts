@@ -22,7 +22,7 @@ test('ZIP export retains row descriptions and full audio keys under recordings.z
 	const audioBlobId = generateBlobId('webm');
 	const row = store.tables.recordings.create({
 		audioBlobId,
-		audioUrl: null,
+		remoteAudio: null,
 		title: 'Planning: next release',
 		recordedAt: InstantString.fromDate(new Date('2026-09-17T11:33:09Z')),
 		recordedAtZone: 'Asia/Singapore',

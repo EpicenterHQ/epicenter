@@ -14,58 +14,72 @@ export type HostedModel = { id: string; label: string; credits: number };
 
 /** Observe available inference connections and discover their suggested models. */
 export function createInferenceCatalog({
-	ai,
+	ai: sources,
+    signal,
 	hostedModels,
 }: {
-	ai: InferenceSources;
+	ai: InferenceSources | Promise<InferenceSources>;
+    signal?: AbortSignal;
 	hostedModels: HostedModel[];
 }) {
-	if (!ai.connections)
-		throw new Error('This App has no custom AI connection binding.');
-	const observeConnections = createSubscriber((update) =>
-		ai.connections!.subscribe(() => update()),
-	);
-	const accountId = accountInferenceId(ai);
-	const accountLabel = ai.account
-		? new URL(ai.account.client.baseURL).host
-		: '';
-	const runtimeId = runtimeInferenceId(ai);
+    function observe(ai: InferenceSources) {
+        return { ai, changed: createSubscriber((update) => ai.connections?.subscribe(() => update())) };
+    }
+    let current = $state.raw(observe(sources instanceof Promise ? { account: null, runtime: null, connections: null } : sources));
+    let loading = $state.raw(sources instanceof Promise);
+    const ready = sources instanceof Promise ? sources.then((ai) => {
+        current = observe(ai);
+        loading = false;
+    }, (cause) => {
+        current = observe({ account: null, runtime: null, connections: null, errors: [String(cause)] });
+        loading = false;
+    }) : Promise.resolve();
 	let runtimeModels = $state.raw<string[]>([]);
+    let runtimeError = $state.raw<string | null>(null);
 	return {
-		ai,
-		accountId,
-		accountLabel,
-		runtimeId,
-		get runtimeModels() {
+        ready,
+        get ai() { return current.ai; },
+        get loading() { return loading; },
+        get errors() { return current.ai.errors ?? []; },
+        get accountId() { return accountInferenceId(current.ai); },
+        get accountLabel() { return current.ai.account ? new URL(current.ai.account.client.baseURL).host : ''; },
+        get runtimeId() { return runtimeInferenceId(current.ai); },
+		get runtimeError() { return runtimeError; },
+        get runtimeModels() {
 			return runtimeModels;
 		},
 		async refreshRuntime() {
+			const ai = current.ai;
 			if (!ai.runtime) return;
-			const result = await discoverModels(() => ai.runtime!.client);
-			if (!result.error) runtimeModels = result.data;
+			const result = await ai.runtime.listModels({ signal });
+            if (signal?.aborted) return result;
+            runtimeError = result.error?.message ?? null;
+            if (!result.error) runtimeModels = result.data.map((model) => model.id);
+            return result;
 		},
 		hostedModels,
 		get custom() {
-			observeConnections();
-			return ai.connections!.getAll();
+			current.changed();
+			return current.ai.connections?.getAll() ?? [];
 		},
 		discover(client: OpenAI) {
-			return discoverModels(() => client);
+			return discoverModels(() => client, signal);
 		},
 		async refresh(id: string) {
-			const connection = ai.connections!.get(id);
+			const ai = current.ai;
+            const connection = ai.connections?.get(id);
 			if (!connection) return;
-			const result = await discoverModels(() => connection.client);
+			const result = await discoverModels(() => connection.client, signal);
 			const models = unwrap(result);
 			const record = ai.connections!.get(id);
-			if (!record || record.client !== connection.client) return;
+			if (signal?.aborted || !record || record.client !== connection.client) return;
 			await ai.connections!.update(id, {
 				models: [...new Set([...record.models, ...models])],
 			});
 		},
 		resolve(target: InferenceTarget | null) {
-			observeConnections();
-			return resolveInferenceTarget(ai, target);
+			current.changed();
+			return resolveInferenceTarget(current.ai, target);
 		},
 	};
 }
@@ -74,9 +88,10 @@ export type InferenceCatalog = ReturnType<typeof createInferenceCatalog>;
 /** Keep SDK request failures distinct from unusable model suggestions. */
 async function discoverModels(
 	client: () => OpenAI,
+    signal?: AbortSignal,
 ): Promise<Result<string[], ListModelsError>> {
 	const result = await tryAsync({
-		try: async () => client().models.list(),
+		try: async () => client().models.list({ signal }),
 		catch: (cause) =>
 			cause instanceof OpenAI.APIError && cause.status !== undefined
 				? ListModelsError.RequestFailed({ status: cause.status })

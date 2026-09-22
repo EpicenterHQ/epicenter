@@ -1,4 +1,3 @@
-import type { BlobId } from '@epicenter/blobs';
 import {
 	defineApp,
 	defineTable,
@@ -8,8 +7,10 @@ import {
 	type RowOf,
 } from '@epicenter/app';
 import type { DeclaredData } from '@epicenter/app/store';
+import type { BlobId } from '@epicenter/blobs';
 import { BLOB_ID_ROUTE_REGEX } from '@epicenter/blobs';
 import { APPS } from '@epicenter/constants/apps';
+import { Type } from 'typebox';
 
 /**
  * Whispering's inert application declaration.
@@ -47,7 +48,16 @@ const recordingsTable = defineTable({
 	/** Immutable bytes saved independently in this application's local store. */
 	audioBlobId: field.string<BlobId>({ pattern: `^${BLOB_ID_ROUTE_REGEX}$` }),
 	/** A separately uploaded copy, changed only by an explicit upload. */
-	audioUrl: field.nullable(field.string()),
+	remoteAudio: field.nullable(
+		field.json(
+			Type.Object({
+				blobId: field.string<BlobId>({ pattern: `^${BLOB_ID_ROUTE_REGEX}$` }),
+				authorityId: Type.String(),
+				principalId: Type.String(),
+				namespace: Type.String(),
+			}),
+		),
+	),
 	title: field.string(),
 	recordedAt: field.instant(),
 	recordedAtZone: field.string(),

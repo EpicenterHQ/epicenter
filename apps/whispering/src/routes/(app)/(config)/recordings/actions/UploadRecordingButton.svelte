@@ -1,6 +1,7 @@
 <script lang="ts">
  import { Button } from '@epicenter/ui/button';
  import { onDestroy } from 'svelte';
+ import { ownsRemoteAudio } from '$lib/whispering/recordings.js';
  import { uploadRecording } from '$lib/operations/upload-recording';
  import { report } from '$lib/report';
  import type { Recording } from '../../../../../lib/data.js';
@@ -24,7 +25,7 @@
 {#if app.remoteBlobs}
  {#if pending}
   <Button variant="outline" size="sm" onclick={() => pending?.abort()}>Cancel upload</Button>
- {:else if recording.audioUrl}
+ {:else if recording.remoteAudio && ownsRemoteAudio(app, recording.remoteAudio)}
   <span class="text-sm text-muted-foreground">Audio uploaded</span>
  {:else}
   <Button variant="outline" size="sm" onclick={upload}>Upload audio</Button>

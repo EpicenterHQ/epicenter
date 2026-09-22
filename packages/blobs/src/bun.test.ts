@@ -442,3 +442,59 @@ test('a same-store writer waits for failed staging before publishing its own com
 		'second complete body',
 	);
 });
+
+test('response publication refuses occupied final keys even for identical bytes', async () => {
+	const { store } = await setup();
+	const id = generateBlobId('bin');
+	expectOk(await store.putResponse(id, new Response('snapshot')));
+	expectErr(await store.putResponse(id, new Response('snapshot')));
+	expect(
+		expectErr(await store.putResponse(id, new Response('different'))).name,
+	).toBe('BlobAlreadyExists');
+	expect(await expectOk(await store.get(id)).text()).toBe('snapshot');
+});
+
+test('copy owns and cancels its response when destination setup fails', async () => {
+	const { directory } = await setup();
+	await writeFile(join(directory, 'occupied'), 'file');
+	const store = createBunBlobStore({
+		directory: join(directory, 'occupied', 'child'),
+	});
+	let cancelled = false;
+	const response = new Response(
+		new ReadableStream({
+			cancel() {
+				cancelled = true;
+			},
+		}),
+	);
+	expectErr(await store.putResponse(generateBlobId('bin'), response));
+	expect(cancelled).toBe(true);
+});
+
+test('copy cancels its source after a disk write fails', async () => {
+	const { directory, store } = await setup();
+	const probe = await open(join(directory, 'probe'), 'w');
+	const prototype = Object.getPrototypeOf(probe);
+	await probe.close();
+	const write = spyOn(prototype, 'write').mockRejectedValueOnce(
+		new Error('disk failed'),
+	);
+	let cancelled = false;
+	try {
+		const response = new Response(
+			new ReadableStream({
+				pull(controller) {
+					controller.enqueue(new Uint8Array([1]));
+				},
+				cancel() {
+					cancelled = true;
+				},
+			}),
+		);
+		expectErr(await store.putResponse(generateBlobId('bin'), response));
+		expect(cancelled).toBe(true);
+	} finally {
+		write.mockRestore();
+	}
+});

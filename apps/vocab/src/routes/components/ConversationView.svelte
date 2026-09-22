@@ -9,7 +9,7 @@
  import { tryAsync } from 'wellcrafted/result';
 	import { Button } from '@epicenter/ui/button';
 	import CheckIcon from '@lucide/svelte/icons/check';
-	import { untrack } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import {
 		buildEntryCandidatePrompt,
 		parseEntryCandidates,
@@ -117,6 +117,7 @@
 	/** Aborts the in-flight entry candidate request when the user cancels or starts
 	 * another one. */
 	let entryCandidateAbortController: AbortController | null = null;
+    onDestroy(() => entryCandidateAbortController?.abort());
 
 	/** Ask the model for the notable spans in one settled message and open the
 	 * tray with them. It is a one-shot completion (`complete`), so it writes no
@@ -141,7 +142,7 @@
 		entryCandidateAbortController = controller;
 		entryCandidateRequest = { messageId, status: 'loading', candidates: [] };
 		const connection = catalog.resolve(active?.target ?? null);
-		if (!connection) {
+		if (!connection || connection.source === 'runtime') {
 			entryCandidateRequest = { messageId, status: 'error', candidates: [], detail: 'Choose a connection in the model menu before suggesting entries.' };
 			return;
 		}
@@ -157,7 +158,7 @@
 		// A dismiss, a cancel, or a request for another message may have superseded
 		// this one while it was in flight; drop the stale result rather than
 		// overwrite. (A cancel nulls the request, so an aborted request lands here.)
-		if (entryCandidateRequest?.messageId !== messageId) return;
+		if (controller.signal.aborted || entryCandidateRequest?.messageId !== messageId) return;
 		if (error) {
 			entryCandidateRequest = {
 				messageId,

@@ -5,9 +5,14 @@ import {
 } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import type { BlobId } from './blob-id.js';
-import type { BlobNotFound, BlobStoreFailed, BlobStore } from './blob-store.js';
+import type {
+	BlobAlreadyExists,
+	BlobNotFound,
+	BlobStore,
+	BlobStoreFailed,
+} from './blob-store.js';
 
-/** Direct uploads are bounded before reading local bytes and at the server. */
+/** Remote publication is bounded at the client and server; browser copies first acquire one snapshot. */
 export const MAX_REMOTE_BLOB_BYTES = 25 * 1024 * 1024;
 
 export const RemoteBlobsError = defineErrors({
@@ -16,9 +21,20 @@ export const RemoteBlobsError = defineErrors({
 		size,
 		maxBytes: MAX_REMOTE_BLOB_BYTES,
 	}),
-	InvalidUrl: ({ url }: { url: string }) => ({
-		message: 'The blob URL does not belong to this application account.',
-		url,
+	PublicationUnconfirmed: ({
+		destination,
+		cause,
+	}: {
+		destination: {
+			namespace: string;
+			authorityId: string;
+			principalId: string;
+		};
+		cause: unknown;
+	}) => ({
+		message: 'Remote blob creation could not be confirmed.',
+		destination,
+		cause,
 	}),
 	Failed: ({ cause, status }: { cause: unknown; status?: number }) => ({
 		message: `Remote blob operation failed: ${extractErrorMessage(cause)}`,
@@ -31,36 +47,44 @@ export type RemoteBlobOptions = { signal?: AbortSignal };
 
 /** One account's immutable remote objects; URLs never select a new account. */
 export type RemoteBlobs = {
+	copyToLocal(
+		id: BlobId,
+		appId: string,
+		destinationId: BlobId,
+		options?: RemoteBlobOptions,
+	): Promise<Result<BlobId, RemoteBlobsError | BlobAlreadyExists>>;
 	add(
 		blob: Blob,
 		options?: RemoteBlobOptions,
-	): Promise<Result<string, RemoteBlobsError>>;
-	addFrom(
-		source: { local: Pick<BlobStore, 'get' | 'stat'>; nativeAppId?: string },
+	): Promise<Result<BlobId, RemoteBlobsError>>;
+	copyFromLocal(
+		source: { local: Pick<BlobStore, 'get'>; nativeAppId?: string },
 		id: BlobId,
 		options?: RemoteBlobOptions,
-	): Promise<Result<string, RemoteBlobsError | BlobNotFound | BlobStoreFailed>>;
+	): Promise<Result<BlobId, RemoteBlobsError | BlobNotFound | BlobStoreFailed>>;
 	get(
-		url: string,
+		id: BlobId,
 		options?: RemoteBlobOptions,
 	): Promise<Result<Blob, RemoteBlobsError>>;
 	open(
-		url: string,
+		id: BlobId,
 		options?: RemoteBlobOptions,
-	): Promise<Result<Disposable & { url: string }, RemoteBlobsError>>;
+	): Promise<
+		Result<Disposable & AsyncDisposable & { url: string }, RemoteBlobsError>
+	>;
 	delete(
-		url: string,
+		id: BlobId,
 		options?: RemoteBlobOptions,
 	): Promise<Result<void, RemoteBlobsError>>;
 };
 
 /** Owner-pinned authenticated routes. These URLs are locators, not bearer grants. */
 export const REMOTE_BLOB_ROUTES = {
-	collection: '/api/apps/:appId/blobs',
-	object: '/api/apps/:appId/principals/:principalId/blobs/:blobId',
-	collectionUrl(baseURL: string, appId: string) {
-		return `${baseURL.replace(/\/+$/, '')}/api/apps/${encodeURIComponent(appId)}/blobs`;
+	collection: '/api/apps/:appId/principals/:principalId/blobs',
+	collectionUrl(baseURL: string, appId: string, principalId: string) {
+		return `${baseURL.replace(/\/+$/, '')}/api/apps/${encodeURIComponent(appId)}/principals/${encodeURIComponent(principalId)}/blobs`;
 	},
+	object: '/api/apps/:appId/principals/:principalId/blobs/:blobId',
 	objectUrl(
 		baseURL: string,
 		appId: string,

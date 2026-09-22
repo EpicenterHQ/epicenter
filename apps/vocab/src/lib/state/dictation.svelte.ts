@@ -37,7 +37,7 @@ import { base } from '$app/paths';
  */
 export type DictationStatus = 'idle' | 'listening' | 'speaking';
 
-export function createDictation(client: OpenAI | null) {
+export function createDictation(getClient: () => OpenAI | null | Promise<OpenAI | null>) {
 	// The VAD model and wasm are fetched at runtime, so their URL has to carry
 	// whatever prefix this build was served under. `base` is empty on Vocab's
 	// own deploy and `/apps/<dataId>` inside Epicenter (ADR-0210), which is
@@ -115,6 +115,8 @@ export function createDictation(client: OpenAI | null) {
 			Result<void, VadRecorderError | DeviceStreamError | TranscribeError>
 		> {
 			if (closed || stopping || status !== 'idle') return Ok(undefined);
+			const client = await getClient();
+            if (closed) return Ok(undefined);
 			if (!client)
 				return TranscribeError.TransportFailed({
 					cause: new Error('This Account does not supply transcription.'),

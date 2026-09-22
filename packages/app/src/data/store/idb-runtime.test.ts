@@ -10,10 +10,10 @@ import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { expectOk } from 'wellcrafted/testing';
-import { acquireAppData } from './browser.js';
+import { acquireStoreData } from './browser.js';
 
 test.each([
-	'device',
+	'local',
 	'personal',
 ] as const)('%s stores isolate simultaneous factories and reopen their own committed records', async (scope) => {
 	const appId = `so.epicenter.factory.${crypto.randomUUID()}`;
@@ -45,9 +45,9 @@ test.each([
 	};
 	const open = async (indexedDB: IDBFactory) =>
 		expectOk(
-			await acquireAppData(
+			await acquireStoreData(
 				definition,
-				{ appId, scope, account },
+				scope === 'local' ? { kind: 'local' } : { kind: 'personal', account },
 				{ factory: indexedDB, keyRange: IDBKeyRange },
 			),
 		);

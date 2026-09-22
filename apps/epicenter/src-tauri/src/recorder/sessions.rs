@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
 pub(super) struct Sessions {
+    generations: HashMap<String, u32>,
     documents: HashMap<String, (String, crate::blobs::BlobDestination)>,
     retired: HashSet<String>,
     files: HashMap<String, Finished>,
@@ -31,6 +32,25 @@ pub struct StoppedRecording {
 }
 
 impl Recorder {
+    /// Captured by JavaScript before registration; replacement changes it even
+    /// when the old document never registered a capture session.
+    pub fn document_generation(&self, owner: &str) -> u32 {
+        self.sessions.generations.get(owner).copied().unwrap_or(0)
+    }
+
+    pub fn replace_document(&mut self, owner: &str) {
+        let next = self.document_generation(owner).checked_add(1).expect("document generation exhausted");
+        self.sessions.generations.insert(owner.into(), next);
+        self.close_document(owner);
+    }
+
+    pub fn register_document_session(&mut self, owner: &str, generation: u32, session: &str, app_id: &str, account: Option<crate::device_owner::AccountIdentity>) -> Result<()> {
+        if generation != self.document_generation(owner) {
+            return Err(RecorderError::not_recording("capture document has retired"));
+        }
+        self.register_session(owner, session, app_id, account)
+    }
+
     pub(super) fn discard_all_finished(&mut self) {
         for (_, file) in self.sessions.files.drain() {
             file.recording.staged.discard();

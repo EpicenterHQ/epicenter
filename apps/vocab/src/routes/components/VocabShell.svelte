@@ -34,7 +34,7 @@
 	} = $props();
 
 	// svelte-ignore state_referenced_locally
-	const selections = createBrowserInferenceSelections('vocab', opened.epicenterInference.identity);
+	const selections = createBrowserInferenceSelections('vocab', opened.account);
 
 	// `fromData` runs here rather than above, because this mounts exactly once
 	// per opened store and the adaptation is per store.
@@ -47,15 +47,12 @@
 	const entries = createEntriesState({ data });
 	/* svelte-ignore state_referenced_locally */
 	const catalog = createInferenceCatalog({
-		ai: {
-			runtime: opened.runtimeInference,
-			connections: opened.connections,
-			account: opened.epicenterInference ?? null,
-		},
+		ai: opened.inference,
+        signal: opened.signal,
 		hostedModels: toHostedCatalog([VOCAB_MODEL]),
 	});
 	/* svelte-ignore state_referenced_locally */
-	const dictation = createDictation(opened.epicenterInference?.client ?? null);
+	const dictation = createDictation(async () => { await catalog.ready; return catalog.ai.account?.client ?? null; });
 	setVocabSurface({ entries, catalog, dictation });
 
 	// The shared chat registry (ADR-0047/0059) with Vocab's variation injected:

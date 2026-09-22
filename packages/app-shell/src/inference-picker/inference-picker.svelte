@@ -338,12 +338,15 @@
 		{/snippet}
 	</Popover.Trigger>
 	<Popover.Content class="w-80 p-0" align="end">
+                    {#if catalog.loading}<p role="status">Loading transcription connections…</p>{/if}
+                    {#each catalog.errors as error}<p role="alert">{error} Reload to try opening connections again.</p>{/each}
 		{#if view === 'list'}
 			<Command.Root>
 				<Command.Input placeholder="Search models..." />
 				<Command.List class="max-h-80">
 					<Command.Empty>No models found.</Command.Empty>
-					{#if includeRuntime && catalog.runtimeId}
+					{#if includeRuntime && catalog.runtimeError}<p role="alert">{catalog.runtimeError}</p>{/if}
+                    {#if includeRuntime && catalog.runtimeId}
 						<Command.Group heading="This device">
 							{#each catalog.runtimeModels as id (id)}
 								<Command.Item value="native {id}" onSelect={() => selectModel(catalog.runtimeId!, id)}>
@@ -452,10 +455,11 @@
 					<Command.Separator />
 					<Command.Item
 						value="connect a provider"
+                        disabled={!ai.connections}
 						onSelect={() => (view = 'connect')}
 					>
 						<Plus class="size-4" />
-						<span>Connect a provider...</span>
+						<span>{ai.connections ? "Connect a provider..." : "Saved connections unavailable"}</span>
 					</Command.Item>
 				</Command.List>
 			</Command.Root>

@@ -6,7 +6,8 @@ import { getInferenceTarget } from '../whispering/inference.js';
 
 /** Resolve exactly the saved connection and model from the ready document App. */
 export function resolveCompletionTarget(app: WhisperingApp) {
-	return app.catalog.resolve(getInferenceTarget(app.local.kv, 'completion'));
+	const target = app.catalog.resolve(getInferenceTarget(app.local.kv, 'completion'));
+    return target?.source === 'runtime' ? null : target;
 }
 
 /** Capture the model and transport together before starting the single HTTP request. */
@@ -39,7 +40,7 @@ export async function completeWithGlobalDefault(
 					],
 					stream: false,
 				},
-				{ signal },
+				{ signal: signal ? AbortSignal.any([app.signal, signal]) : app.signal },
 			);
 		},
 		catch: (cause) =>

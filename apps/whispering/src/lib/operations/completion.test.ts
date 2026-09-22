@@ -1,3 +1,4 @@
+import { createRuntimeTranscriber } from '../../../../../packages/app/src/runtime-transcriber.js';
 /**
  * Completion uses the selected App AI client and model without substitution.
  * Missing, removed, and blank selections never send text to another client.
@@ -11,7 +12,6 @@ import {
 import { openConnectionCatalog } from '../../../../../packages/app/src/connection-catalog.js';
 import type { AccountIdentity } from '@epicenter/principal';
 import { createAiConnections } from '@epicenter/app/ai-connections';
-import { createNativeTransport } from '@epicenter/app/native-ai';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createInferenceCatalog } from '../../../../../packages/app-shell/src/inference-picker/catalog.svelte.js';
 import { completionDestination } from '../state/polish.js';
@@ -26,7 +26,7 @@ Reflect.set(globalThis, '$state', { raw: <T>(value: T) => value });
 async function setup(
 	values = new Map<string, string>(),
 	principalId = 'A',
-	runtime: AiTransport | null = null,
+	runtime: ReturnType<typeof createRuntimeTranscriber> | null = null,
 	settings = new Map<string, unknown>([['completionModel', 'same-model']]),
 ) {
 	const kv = {
@@ -87,7 +87,7 @@ async function setup(
 	});
 	const ai = {
 		account: account,
-		runtime: runtime ? createInference(runtime) : null,
+		runtime,
 		connections: owner,
 	};
 	const connections = createInferenceCatalog({
@@ -262,7 +262,7 @@ test('same URL configured IDs send completion with their own credentials', async
 
 test('native text completion refuses the unsupported operation without falling back to account', async () => {
 	const invoke = mock(async () => []);
-	const fixture = await setup(new Map(), 'A', createNativeTransport(invoke));
+	const fixture = await setup(new Map(), 'A', createRuntimeTranscriber(invoke));
 	fixture.kv.update({
 		completionConnection: fixture.connections.runtimeId!,
 		completionModel: 'same-model',

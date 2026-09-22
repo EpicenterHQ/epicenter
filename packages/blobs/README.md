@@ -1,24 +1,19 @@
 # @epicenter/blobs
 
-The identity-preserving blob API is an implementation target in
-[ADR-0372](../../docs/adr/0372-local-and-remote-blobs-open-independently.md),
-[ADR-0426](../../docs/adr/0426-blob-identities-survive-copies-between-scoped-locations.md),
-and [ADR-0427](../../docs/adr/0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md).
-The methods described below reflect current code; `copyFrom` is not implemented
-by this documentation change. The target also moves blob acquisition and cleanup
-under `local.blobs` and `personal.blobs`; standalone blob constructors below
-describe current code. Future `shared.blobs` remains deferred with Shared.
-
-An app stores immutable bytes under a complete, extension-bearing key. That key
-is the desktop filename, browser database key, and reference held by a row.
-Applications use `openLocalBlobs({ id })` for device bytes and `openRemoteBlobs({ id, account })` for
-explicit hosting. Recording titles, transcripts, and other descriptive
-information belong in rows. Deleting a row does not delete its bytes.
+Stores own blob access through `local.blobs` and `personal.blobs` in
+`@epicenter/app`. This package owns immutable byte adapters, IDs, formats, and
+presentation contracts. Rows hold descriptive metadata and BlobIds; deleting a
+row does not delete bytes. Whispering borrows blob access from these stores.
 
 ## Storage and identity
 
-LocalBlobs uses the fixed no-account namespace. RemoteBlobs captures its account
-and destination ID independently. Local bytes do not synchronize.
+Local uses the fixed no-account namespace. Personal captures its authority,
+principal, and definition ID. Local bytes do not synchronize.
+
+`add(Blob)` and `destination.copyFrom(source, id)` return fresh destination IDs.
+Copying preserves exact bytes. Repeated calls may create duplicate objects.
+Both source and destination track the transfer. Local accepts Local or Personal;
+Personal accepts Local. Shared and Personal-to-Personal copies are deferred.
 
 | Platform | Location |
 | --- | --- |
@@ -45,8 +40,8 @@ browser schema fails without converting or erasing it.
 ## Local operations
 
 The raw `BlobStore` exposes `put`, `get`, `stat`, `list`, and `delete`.
-Application access replaces raw `put` with `add(Blob)`, which selects the format
-and mints the key, and adds `open(key)` for playback. Known declared media types
+Store-owned access replaces raw `put` with `add(Blob)`, which selects the format
+and mints the key, and adds immutable `copyFrom` and `open` for presentation. Known declared media types
 must agree with the key's format; saving does not convert bytes.
 
 `put` refuses an occupied final key. Missing reads return `BlobNotFound`,
@@ -89,14 +84,14 @@ Startup does not sweep historical files or another publisher's work.
 
 `open(key)` returns a disposable presentation URL. Browser sources revoke object
 URLs on release; host sources point to the local HTTP store. Persist the key,
-not a presentation URL. Blob handle closure releases acquired display resources and
+not a presentation URL. Store closure releases acquired display resources and
 drains admitted operations without deleting committed bytes.
 
 Bun's `openFile(key)` lends a descriptor-backed `{ file, stat, close }` for
 streaming. Its caller must close the handle after consumption, cancellation,
 or failure. The desktop host owns that cleanup for GET, ranges, and uploads;
 HEAD only reads metadata. Browser operations rely on IndexedDB transactions for
-atomic publication. The blob handle owns admission and drains operations before releasing
+atomic publication. The owning store fences admission and drains operations before releasing
 its storage ownership; the blob store does not acquire per-operation Web Locks.
 
 ## Format and filenames
@@ -135,26 +130,30 @@ Successful recording Stop publishes completed audio and returns
 saved key on either platform. Native capture produces WAV; browser capture uses
 its actual recorder output format. The saved key remains fixed through retries.
 Row creation happens afterward, so a failed row write can leave enumerable
-saved bytes. Cancel and Blob handle closure cannot retract a committed blob.
+saved bytes. Cancel and Store closure cannot retract a committed blob.
 
-`RemoteBlobs` supports `add(Blob)`, `addLocal(key)`, `get(url)`, `open(url)`, and
-`delete(url)`. Each explicit upload creates an independent remote key with a
-25 MiB limit. There is no synchronization queue or requirement to save locally
-before uploading. Desktop `addLocal` sends a control request through its captured
-Account; the host checks size and streams bytes without routing audio through
-the WebView.
+Personal exposes `add`, `copyFrom`, `get`, `open`, and `delete`, addressed by
+BlobId. Collection POST uses the authenticated principal and allocates a fresh
+server ID. Conditional S3 creation prevents replacement; an occupied key fails. Remote publication
+remains bounded to 25 MiB. No synchronization queue or hash registry is added.
 
-Uploads return an owner-pinned locator:
+Native uploads carry source namespace and ID through the captured Account.
+Native downloads use a private publication command; only its terminal 201
+acknowledgment with the destination ID establishes placement. Neither routes payloads through the WebView.
+A lost native acknowledgment retains both store claims because client cancellation
+does not prove host cleanup. Uncertain local publication carries the destination ID. A lost remote creation
+response can leave that ID unknown; repeating the call may create another object. Close preserves committed bytes.
 
-```text
-https://<server>/api/apps/<appId>/principals/<principalId>/blobs/<blobId>
-```
+Personal presentation acquires a pinned HEAD version and then streams GET/Range
+requests through the same captured Account. The page owns a five-minute disposable
+source; a stateless service worker routes requests back to that page. No bearer
+or persisted bytes enter the worker. Every acquisition is independent, and
+another page cannot redeem its URL. See the [app setup instructions](../app/README.md#blobs-and-recording).
 
-The URL identifies a private object; it grants no access. Reads and deletes use
-the captured Account and refuse foreign owners, apps, origins, and redirects.
-Account retirement disables that transport. Sharing a row does not share its
-owner's private audio. Failed or interrupted uploads preserve their local source
-and can leave an unreferenced remote object.
+The server forwards HEAD, single ranges, and version preconditions, preserving
+206/416 and metadata. Reads retain attachment, sandbox, and `nosniff` protections.
+Account retirement ends future authorization without deleting the Personal cache.
+No claim is made that already delivered or decoded bytes can be revoked.
 
 ## Verification
 
@@ -170,6 +169,7 @@ bun packages/blobs/scripts/browser-smoke.ts
 
 Synthetic browser recording, playback, reload, and metadata measurements cover
 WebKit and Chromium. Rust/Bun fixtures exercise independent publication and
-reading. These checks do not establish physical microphone behavior, installed
-WebView playback, or real object-provider acceptance. Native Windows publication
+reading. The private-media harness additionally exercises actual WKWebView through the
+desktop broker. These checks do not establish physical microphone behavior or
+real object-provider acceptance. Native Windows publication
 is implemented; its execution and abrupt-power-loss durability remain unverified.

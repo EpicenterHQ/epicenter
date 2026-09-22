@@ -4,22 +4,25 @@
  * native recovery, and release before close resolves.
  */
 import { expect, test } from 'bun:test';
-import {
-	RecorderError,
-	createRecorder,
-	type Recording,
-	type RecordingFactory,
-} from './recorder.js';
 import { generateBlobId } from '@epicenter/blobs';
 import {
 	createBrowserBlobSources,
 	createBrowserBlobStore,
 } from '@epicenter/blobs/browser';
-import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { asDeviceIdentifier } from '@epicenter/recorder';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { openLocalBlobs } from './blobs.js';
+import { acquireLocalBlobs } from './blob-owner.js';
+import { defineApp } from './index.js';
+import { openLocal } from './open-store.js';
+import {
+	createRecorder,
+	RecorderError,
+	type Recording,
+	type RecordingFactory,
+} from './recorder.js';
+import { createMemoryStoreRuntime } from './testing.js';
 
 function setup({
 	startGate = Promise.resolve(),
@@ -29,6 +32,7 @@ function setup({
 	recoveryFailsAfterStart = false,
 	recoveryFails = false,
 	cancelFails = false,
+	closeThrows = false,
 } = {}) {
 	const appId = 'test.' + crypto.randomUUID();
 	const bindings: { appId: string }[] = [];
@@ -109,6 +113,8 @@ function setup({
 					}),
 			},
 			close() {
+				if (closeThrows)
+					throw new Error('Synchronous recorder cleanup failure');
 				recorderCloses++;
 				closed = true;
 				closing ??= (async () => {
@@ -127,6 +133,8 @@ function setup({
 		};
 	};
 	const idb = { factory: new IDBFactory(), keyRange: IDBKeyRange };
+	const runtime = createMemoryStoreRuntime();
+	const definition = defineApp({ id: appId, tables: {}, kv: {} });
 	const openFixture = async () => {
 		const local = createBrowserBlobStore({ appId, idb });
 		const put = local.put;
@@ -135,12 +143,28 @@ function setup({
 			await saveGate;
 			return put(...args);
 		};
-		const blobs = await openLocalBlobs({
-			id: appId,
-			binding: { local, sources: createBrowserBlobSources(local), recording },
+		const store = await openLocal(definition, {
+			runtime: {
+				...runtime,
+				localBlobs: (id, assertUsable) =>
+					acquireLocalBlobs({
+						assertUsable,
+						id,
+						binding: {
+							local,
+							sources: createBrowserBlobSources(local),
+							recording,
+						},
+					}),
+			},
 		});
-		const recorder = createRecorder({ blobs });
-		return { blobs, recorder, signal: blobs.signal, close: blobs.close };
+		const recorder = createRecorder({ localBlobs: store.blobs });
+		return {
+			blobs: store.blobs,
+			recorder,
+			signal: store.signal,
+			close: store.close,
+		};
 	};
 	return {
 		openFixture,
@@ -255,4 +279,16 @@ test('close cancels a held capture without depending on a recovery read', async 
 	expectOk(await app.recorder.start({}));
 	await app.close();
 	expect(cancels()).toBe(1);
+});
+
+test('synchronous recorder cleanup failure rejects the terminal promise and store shutdown', async () => {
+	const context = setup({ closeThrows: true });
+	const store = await context.openFixture();
+	const closing = store.recorder.close();
+	expect(store.recorder.close()).toBe(closing);
+	await expect(closing).rejects.toThrow('Synchronous recorder cleanup failure');
+	await expect(store.close()).rejects.toThrow('Local blob cleanup failed');
+	await expect(context.openFixture()).rejects.toMatchObject({
+		name: 'AlreadyOpen',
+	});
 });

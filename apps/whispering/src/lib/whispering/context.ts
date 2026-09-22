@@ -3,7 +3,7 @@ import type { WhisperingQueries } from '$lib/queries';
 import type { WhisperingApp } from './app';
 
 /**
- * The selected reactive library, device settings, and live recording workflow.
+ * Both reactive App stores, the recording workflow, and document-owned queries.
  * Operation modules receive this explicitly; components read it from context.
  */
 export type WhisperingContext = {

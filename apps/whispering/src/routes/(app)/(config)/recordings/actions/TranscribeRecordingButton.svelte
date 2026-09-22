@@ -48,8 +48,7 @@
 	// `pending` is the recording domain's initialization value for a recording nobody has
 	// transcribed yet, which is this button's "unprocessed".
 	const transcriptionState = $derived.by(() => {
-		if (transcribeRecording.isPending)
-			return { status: 'transcribing' } as const;
+		if (transcribeRecording.isPending) return { status: 'transcribing' } as const;
 		if (recording.transcriptionStatus === 'pending')
 			return { status: 'unprocessed' } as const;
 		return { status: recording.transcriptionStatus } as const;
@@ -95,7 +94,7 @@
 				loading.reject({
 					cause: error,
 					title: 'Failed to transcribe recording',
-					action: creditAction(error, app.account),
+					action: creditAction(error, app.authAccount),
 				});
 			},
 			onSuccess: async ({ text, history }) => {

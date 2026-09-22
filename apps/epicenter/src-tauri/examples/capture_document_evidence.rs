@@ -39,6 +39,14 @@ fn evidence_done(app: tauri::AppHandle, error: Option<String>, blob_id: Option<S
         app.exit(1);
         return;
     }
+    if evidence_mode() == "ownership" {
+        let recorder = app.state::<Mutex<Recorder>>();
+        assert!(recorder.lock().unwrap().require_session("app-capture-evidence", "new-document").is_err());
+        eprintln!("NATIVE_WEBVIEW_PASS reload=true stale_first_registration_refused=true successor_survives_old_close=true");
+        app.state::<Arc<AtomicBool>>().store(true, Ordering::SeqCst);
+        app.exit(0);
+        return;
+    }
     let destination = BlobDestination {
         app_id: "com.epicenter.captureevidence".into(),
         account: None,
@@ -69,40 +77,63 @@ const SCRIPT: &str = r#"
   try {
     const phase = await invoke('evidence_boot');
     const mode = await invoke('evidence_mode');
+    const generation = await invoke('recording_document_generation');
+    if (mode === 'ownership') {
+      if (phase === 0) {
+        sessionStorage.setItem('generation', String(generation));
+        location.reload();
+        return;
+      }
+      let refused = false;
+      try { await invoke('register_recording_session', { generation: Number(sessionStorage.getItem('generation')), appId: 'com.epicenter.captureevidence', sessionId: 'never-registered-old' }); }
+      catch (error) { refused = error.name === 'NotRecording'; }
+      if (!refused) throw new Error('late registration survived reload');
+      await invoke('register_recording_session', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'new-document' });
+      await invoke('close_recording_session', { sessionId: 'never-registered-old' });
+      await invoke('current_recording', { sessionId: 'new-document' });
+      await invoke('close_recording_session', { sessionId: 'new-document' });
+      await invoke('evidence_done', { error: null, blobId: null });
+      return;
+    }
     if (mode === 'recover') {
-      await invoke('register_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document' });
-      const live = await invoke('start_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document', requestId: 'restart-start', deviceIdentifier: null });
+      await invoke('register_recording_session', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'new-document' });
+      const live = await invoke('start_recording', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'new-document', requestId: 'restart-start', deviceIdentifier: null });
       await delay(1100);
-      const stopped = await invoke('stop_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document', audioBlobId: live.audioBlobId });
+      const stopped = await invoke('stop_recording', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'new-document', audioBlobId: live.audioBlobId });
       if (stopped.byteLength <= 44) throw new Error('restarted physical input delivered no samples');
-      await invoke('close_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document' });
+      await invoke('close_recording_session', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'new-document' });
       await invoke('evidence_done', { error: null, blobId: stopped.blobId });
       return;
     }
     if (phase === 0) {
-      await invoke('register_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'old-document' });
-      const live = await invoke('start_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'old-document', requestId: 'old-start', deviceIdentifier: null });
+      await invoke('register_recording_session', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'old-document' });
+      const live = await invoke('start_recording', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'old-document', requestId: 'old-start', deviceIdentifier: null });
+      sessionStorage.setItem('oldGeneration', String(generation));
       sessionStorage.setItem('oldCaptureId', live.audioBlobId);
       await delay(300);
       location.reload();
       return;
     }
     if (phase !== 1) throw new Error('unexpected document reload count');
-    await invoke('register_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document' });
+    let staleRefused = false;
+    try { await invoke('register_recording_session', { generation: Number(sessionStorage.getItem('oldGeneration')), appId: 'com.epicenter.captureevidence', sessionId: 'never-registered-old-session' }); }
+    catch (error) { staleRefused = error.name === 'NotRecording'; }
+    if (!staleRefused) throw new Error('late first registration was not fenced');
+    await invoke('register_recording_session', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'new-document' });
     let refused = false;
-    try { await invoke('stop_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'old-document', audioBlobId: sessionStorage.getItem('oldCaptureId') }); }
+    try { await invoke('stop_recording', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'old-document', audioBlobId: sessionStorage.getItem('oldCaptureId') }); }
     catch (error) { refused = error.name === 'NotRecording'; }
     if (!refused) throw new Error('old document stop was not fenced');
-    const live = await invoke('start_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document', requestId: 'new-start', deviceIdentifier: null });
-    await invoke('close_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'old-document' });
+    const live = await invoke('start_recording', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'new-document', requestId: 'new-start', deviceIdentifier: null });
+    await invoke('close_recording_session', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'old-document' });
     await delay(1100);
-    const stopped = await invoke('stop_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document', audioBlobId: live.audioBlobId });
-    const retry = await invoke('stop_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document', audioBlobId: live.audioBlobId });
+    const stopped = await invoke('stop_recording', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'new-document', audioBlobId: live.audioBlobId });
+    const retry = await invoke('stop_recording', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'new-document', audioBlobId: live.audioBlobId });
     if (stopped.blobId !== retry.blobId || stopped.byteLength !== retry.byteLength) throw new Error('stop retry changed saved output');
-    await invoke('close_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'new-document' });
+    await invoke('close_recording_session', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'new-document' });
     if (mode === 'interrupt') {
-      await invoke('register_recording_session', { appId: 'com.epicenter.captureevidence', sessionId: 'interrupted-document' });
-      await invoke('start_recording', { appId: 'com.epicenter.captureevidence', sessionId: 'interrupted-document', requestId: 'interrupted-start', deviceIdentifier: null });
+      await invoke('register_recording_session', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'interrupted-document' });
+      await invoke('start_recording', { generation, appId: 'com.epicenter.captureevidence', sessionId: 'interrupted-document', requestId: 'interrupted-start', deviceIdentifier: null });
       await delay(300);
       await invoke('evidence_ready');
       return;
@@ -141,8 +172,10 @@ fn main() {
             evidence_mode,
             evidence_ready,
             evidence_done,
+            recording_document_generation,
             register_recording_session,
             close_recording_session,
+            current_recording,
             start_recording,
             stop_recording,
             cancel_recording,

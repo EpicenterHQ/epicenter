@@ -51,7 +51,7 @@ export function polishDestination(app: WhisperingApp): string {
 export function completionDestination(
 	target: ResolvedInferenceTarget | null,
 ): string | undefined {
-	if (!target) return undefined;
+	if (!target || target.source === 'runtime') return undefined;
 	return target.source === 'account'
 		? new URL(target.client.baseURL).host
 		: connectionLabel(target.client.baseURL);

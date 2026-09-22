@@ -46,6 +46,7 @@ export const commands = {
 		typedError<null, RecorderError>(
 			__TAURI_INVOKE('cancel_recording', { audioBlobId, sessionId }),
 		),
+    recordingDocumentGeneration: () => typedError<number, RecorderError>(__TAURI_INVOKE('recording_document_generation')),
 	registerRecordingSession: (
 		appId: string,
 		account: {
@@ -53,12 +54,14 @@ export const commands = {
 			principalId: string;
 		} | null,
 		sessionId: string,
+        generation: number,
 	) =>
 		typedError<null, RecorderError>(
 			__TAURI_INVOKE('register_recording_session', {
 				appId,
 				account,
 				sessionId,
+                generation,
 			}),
 		),
 	/**  Read only this document's live capture. No file or journal is recovered. */

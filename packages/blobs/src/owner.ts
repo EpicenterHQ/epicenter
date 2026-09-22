@@ -1,5 +1,6 @@
-import { Ok } from 'wellcrafted/result';
+import { Err, Ok } from 'wellcrafted/result';
 import { blobInputContentType, selectBlobFormat } from './blob-format.js';
+import { BlobStoreError } from './blob-store.js';
 import {
 	type BlobId,
 	type BlobSource,
@@ -49,16 +50,26 @@ export function createLocalBlobAccess({
 	}
 	return Object.freeze({
 		value: Object.freeze({
-			add(blob: Blob) {
+			add(blob: Blob, options?: { signal?: AbortSignal }) {
 				return run(async () => {
+					options?.signal?.throwIfAborted();
 					const id = generateBlobId(selectBlobFormat(blob).extension);
 					const contentType = blobInputContentType(blob);
 					const input =
 						blob.type === contentType
 							? blob
 							: blob.slice(0, blob.size, contentType);
-					const result = await local.put(id, input);
-					return result.error === null ? Ok(id) : result;
+					try {
+						const result = await local.put(id, input);
+						return result.error === null
+							? Ok(id)
+							: Err({ ...result.error, id });
+					} catch (cause) {
+						return Err({
+							...BlobStoreError.BlobStoreFailed({ id, cause }).error,
+							id,
+						});
+					}
 				});
 			},
 			get: (id: BlobId) => run(() => local.get(id)),
@@ -120,12 +131,22 @@ export function createRemoteBlobAccess({
 }) {
 	const lifetime = new AbortController();
 	const operations = new Set<Promise<unknown>>();
-	const playback = new Set<BlobSource>();
+	const playback = new Set<BlobSource & AsyncDisposable>();
+	const releases = new Set<Promise<void>>();
 	const cleanupFailures: unknown[] = [];
 	let closing: Promise<void> | undefined;
-	function release(source: BlobSource) {
+	function release(source: BlobSource & AsyncDisposable) {
 		try {
 			source[Symbol.dispose]();
+			const pending = Promise.resolve(source[Symbol.asyncDispose]());
+			releases.add(pending);
+			void pending.then(
+				() => releases.delete(pending),
+				(cause) => {
+					cleanupFailures.push(cause);
+					releases.delete(pending);
+				},
+			);
 		} catch (cause) {
 			cleanupFailures.push(cause);
 			throw cause;
@@ -151,24 +172,34 @@ export function createRemoteBlobAccess({
 	return Object.freeze({
 		signal: lifetime.signal,
 		value: Object.freeze({
-			add(blob: Blob, options?: { signal?: AbortSignal }) {
-				return run(options?.signal, (signal) => remote.add(blob, { signal }));
+			copyToLocal(
+				id: BlobId,
+				appId: string,
+				destinationId: BlobId,
+				options?: { signal?: AbortSignal },
+			) {
+				return run(options?.signal, (signal) =>
+					remote.copyToLocal(id, appId, destinationId, { signal }),
+				);
 			},
-			addFrom(
-				source: Parameters<RemoteBlobs['addFrom']>[0],
+			copyFromLocal(
+				source: Parameters<RemoteBlobs['copyFromLocal']>[0],
 				id: BlobId,
 				options?: { signal?: AbortSignal },
 			) {
 				return run(options?.signal, (signal) =>
-					remote.addFrom(source, id, { signal }),
+					remote.copyFromLocal(source, id, { signal }),
 				);
 			},
-			get(url: string, options?: { signal?: AbortSignal }) {
-				return run(options?.signal, (signal) => remote.get(url, { signal }));
+			add(blob: Blob, options?: { signal?: AbortSignal }) {
+				return run(options?.signal, (signal) => remote.add(blob, { signal }));
 			},
-			open(url: string, options?: { signal?: AbortSignal }) {
+			get(id: BlobId, options?: { signal?: AbortSignal }) {
+				return run(options?.signal, (signal) => remote.get(id, { signal }));
+			},
+			open(id: BlobId, options?: { signal?: AbortSignal }) {
 				return run(options?.signal, async (signal) => {
-					const result = await remote.open(url, { signal });
+					const result = await remote.open(id, { signal });
 					if (result.error) return result;
 					const source = result.data;
 					if (signal.aborted) {
@@ -182,12 +213,16 @@ export function createRemoteBlobAccess({
 							[Symbol.dispose]() {
 								if (playback.delete(source)) release(source);
 							},
+							async [Symbol.asyncDispose]() {
+								if (playback.delete(source)) release(source);
+								await source[Symbol.asyncDispose]();
+							},
 						}),
 					);
 				});
 			},
-			delete(url: string, options?: { signal?: AbortSignal }) {
-				return run(options?.signal, (signal) => remote.delete(url, { signal }));
+			delete(id: BlobId, options?: { signal?: AbortSignal }) {
+				return run(options?.signal, (signal) => remote.delete(id, { signal }));
 			},
 		} satisfies RemoteBlobs),
 		close(): Promise<void> {
@@ -200,6 +235,7 @@ export function createRemoteBlobAccess({
 				const held = [...playback];
 				playback.clear();
 				await Promise.allSettled(held.map(async (source) => release(source)));
+				await Promise.allSettled(releases);
 				if (cleanupFailures.length)
 					throw new AggregateError(
 						cleanupFailures,

@@ -27,7 +27,7 @@
  *     that as an expected, non-fatal outcome.
  */
 
-import { REMOTE_BLOB_ROUTES } from '@epicenter/blobs';
+import { parseBlobId, REMOTE_BLOB_ROUTES } from '@epicenter/blobs';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { API_BUN_DEV_PORT } from '@epicenter/constants/apps';
 
@@ -103,7 +103,11 @@ async function main() {
 		`epicenter blob smoke ${new Date().toISOString()} ${randHex(4)}\n`,
 	);
 	const upload = await fetch(
-		REMOTE_BLOB_ROUTES.collectionUrl(BASE_URL, 'so.epicenter.smoke'),
+		REMOTE_BLOB_ROUTES.collectionUrl(
+			BASE_URL,
+			'so.epicenter.smoke',
+			resolvedPrincipalId,
+		),
 		{
 			method: 'POST',
 			headers: { ...authHeaders, 'content-type': 'text/plain' },
@@ -119,12 +123,21 @@ async function main() {
 	} else if (!upload.ok) {
 		record('FAIL', 'blob upload', `${upload.status} ${await upload.text()}`);
 	} else {
-		const { url } = (await upload.json()) as { url: string };
-		const expectedPrefix = `${BASE_URL.replace(/\/+$/, '')}/api/apps/so.epicenter.smoke/principals/${encodeURIComponent(resolvedPrincipalId)}/blobs/`;
-		if (!url.startsWith(expectedPrefix)) {
-			record('FAIL', 'blob upload', 'Server returned an invalid owner URL');
+		const body: unknown = await upload.json();
+		const id =
+			body && typeof body === 'object' && 'id' in body
+				? parseBlobId(body.id)
+				: null;
+		if (upload.status !== 201 || !id) {
+			record('FAIL', 'blob upload', 'Missing creation receipt');
 			return summarize();
 		}
+		const url = REMOTE_BLOB_ROUTES.objectUrl(
+			BASE_URL,
+			'so.epicenter.smoke',
+			resolvedPrincipalId,
+			id,
+		);
 		record('PASS', 'blob upload', String(upload.status));
 		try {
 			const read = await fetch(url, {

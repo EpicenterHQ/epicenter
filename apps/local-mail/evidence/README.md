@@ -78,6 +78,23 @@ no path filter because shared packages and build configuration affect these
 journeys. Hosted Linux execution must still pass in CI; local WebKit runs use
 the local operating system's build.
 
+## Native storage verification
+
+From the repository root, with the desktop Rust toolchain installed:
+
+```sh
+bun apps/local-mail/evidence/native-storage.ts
+```
+
+This downloads a synthetic 100-message page through the production desktop
+WebSocket client, native framing, and Rust SQLite worker. It checks bounded
+request sizes, persisted mail and bookmarks after reopening, and separate Gmail
+mailboxes and Epicenter accounts. All data lives in a temporary directory that
+the script removes. It does not open the desktop UI or use live credentials.
+
+`src/mailbox.storage.test.ts` separately interrupts large page and history writes
+at their cursor commit, then verifies that replay preserves every message.
+
 ## Remaining end-to-end evidence
 
 These tests do not establish real Epicenter sign-in, live Gmail download,

@@ -9,7 +9,7 @@ import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import * as Y from '@y/y';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { acquireAppData } from './browser.js';
+import { acquireStoreData } from './browser.js';
 import { createDatabaseDocument } from './document.js';
 
 function fixture() {
@@ -30,8 +30,7 @@ function fixture() {
 			principalId: asPrincipalId(actor),
 		};
 		return {
-			appId,
-			scope: 'personal' as const,
+			kind: 'personal' as const,
 			account: {
 				...account,
 				baseURL: 'https://server.test',
@@ -71,7 +70,7 @@ test('independent caches install canonical bytes and reopen offline without disc
 	const [alice, bob] = await Promise.all(
 		['alice', 'bob'].map(async (actor) =>
 			expectOk(
-				await acquireAppData(f.definition, f.options(actor), {
+				await acquireStoreData(f.definition, f.options(actor), {
 					factory: indexedDB,
 					keyRange: IDBKeyRange,
 				}),
@@ -84,7 +83,7 @@ test('independent caches install canonical bytes and reopen offline without disc
 	await bob!.dispose?.();
 	f.offline();
 	const reopened = expectOk(
-		await acquireAppData(f.definition, f.options('alice'), {
+		await acquireStoreData(f.definition, f.options('alice'), {
 			factory: indexedDB,
 			keyRange: IDBKeyRange,
 		}),
@@ -97,7 +96,7 @@ test('independent caches install canonical bytes and reopen offline without disc
 test('Alice pending Personal edits cannot enter Bob Personal', async () => {
 	const f = fixture();
 	const alice = expectOk(
-		await acquireAppData(f.definition, f.options('alice'), {
+		await acquireStoreData(f.definition, f.options('alice'), {
 			factory: indexedDB,
 			keyRange: IDBKeyRange,
 		}),
@@ -107,7 +106,7 @@ test('Alice pending Personal edits cannot enter Bob Personal', async () => {
 	]);
 	await alice.dispose?.();
 	const bob = expectOk(
-		await acquireAppData(f.definition, f.options('bob'), {
+		await acquireStoreData(f.definition, f.options('bob'), {
 			factory: indexedDB,
 			keyRange: IDBKeyRange,
 		}),
@@ -116,7 +115,7 @@ test('Alice pending Personal edits cannot enter Bob Personal', async () => {
 	await bob.dispose?.();
 	f.offline();
 	const again = expectOk(
-		await acquireAppData(f.definition, f.options('alice'), {
+		await acquireStoreData(f.definition, f.options('alice'), {
 			factory: indexedDB,
 			keyRange: IDBKeyRange,
 		}),
@@ -128,7 +127,7 @@ test('Alice pending Personal edits cannot enter Bob Personal', async () => {
 test('retirement fences the backing and makes next startup download its replacement', async () => {
 	const f = fixture();
 	const old = expectOk(
-		await acquireAppData(f.definition, f.options('alice'), {
+		await acquireStoreData(f.definition, f.options('alice'), {
 			factory: indexedDB,
 			keyRange: IDBKeyRange,
 		}),
@@ -143,14 +142,14 @@ test('retirement fences the backing and makes next startup download its replacem
 	await old.dispose?.();
 	f.offline();
 	expectErr(
-		await acquireAppData(f.definition, f.options('alice'), {
+		await acquireStoreData(f.definition, f.options('alice'), {
 			factory: indexedDB,
 			keyRange: IDBKeyRange,
 		}),
 	);
 	f.next();
 	const fresh = expectOk(
-		await acquireAppData(f.definition, f.options('alice'), {
+		await acquireStoreData(f.definition, f.options('alice'), {
 			factory: indexedDB,
 			keyRange: IDBKeyRange,
 		}),
@@ -166,13 +165,13 @@ test('malformed download does not publish a usable cache', async () => {
 	options.account.fetch = async () =>
 		new Response(f.bytes, { headers: { 'epicenter-generation': '1' } });
 	expectErr(
-		await acquireAppData(f.definition, options, {
+		await acquireStoreData(f.definition, options, {
 			factory: indexedDB,
 			keyRange: IDBKeyRange,
 		}),
 	);
 	const retry = expectOk(
-		await acquireAppData(f.definition, f.options('alice'), {
+		await acquireStoreData(f.definition, f.options('alice'), {
 			factory: indexedDB,
 			keyRange: IDBKeyRange,
 		}),
@@ -202,7 +201,7 @@ test('startup installs the complete captured tail before local use and offline r
 			tail,
 		});
 	const opened = expectOk(
-		await acquireAppData(f.definition, options, {
+		await acquireStoreData(f.definition, options, {
 			factory: indexedDB,
 			keyRange: IDBKeyRange,
 		}),
@@ -217,7 +216,7 @@ test('startup installs the complete captured tail before local use and offline r
 	await opened.dispose?.();
 	f.offline();
 	const reopened = expectOk(
-		await acquireAppData(f.definition, f.options('alice'), {
+		await acquireStoreData(f.definition, f.options('alice'), {
 			factory: indexedDB,
 			keyRange: IDBKeyRange,
 		}),
@@ -240,13 +239,13 @@ test('a truncated tail leaves no cache and a later complete download can retry',
 		return new Response(body.slice(0, -1), { headers: response.headers });
 	};
 	expectErr(
-		await acquireAppData(f.definition, options, {
+		await acquireStoreData(f.definition, options, {
 			factory: indexedDB,
 			keyRange: IDBKeyRange,
 		}),
 	);
 	const retry = expectOk(
-		await acquireAppData(f.definition, f.options('alice'), {
+		await acquireStoreData(f.definition, f.options('alice'), {
 			factory: indexedDB,
 			keyRange: IDBKeyRange,
 		}),
@@ -278,7 +277,7 @@ for (const pending of ['structs', 'deletes'] as const) {
 				tail: [{ seq: 2, bytes: delta }],
 			});
 		const error = expectErr(
-			await acquireAppData(f.definition, options, {
+			await acquireStoreData(f.definition, options, {
 				factory: indexedDB,
 				keyRange: IDBKeyRange,
 			}),
@@ -288,7 +287,7 @@ for (const pending of ['structs', 'deletes'] as const) {
 			cause: new Error('Current data download has unresolved Yjs dependencies'),
 		});
 		const retry = expectOk(
-			await acquireAppData(f.definition, f.options('alice'), {
+			await acquireStoreData(f.definition, f.options('alice'), {
 				factory: indexedDB,
 				keyRange: IDBKeyRange,
 			}),

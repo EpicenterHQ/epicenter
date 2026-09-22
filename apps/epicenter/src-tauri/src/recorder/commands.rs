@@ -72,14 +72,21 @@ pub async fn enumerate_recording_devices(
 
 #[tauri::command]
 #[specta::specta]
+pub fn recording_document_generation(recorder: State<'_, Mutex<Recorder>>, window: WebviewWindow) -> Result<u32> {
+    Ok(lock(&recorder)?.document_generation(window.label()))
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn register_recording_session(
     app_id: String,
     account: Option<crate::device_owner::AccountIdentity>,
     session_id: String,
+    generation: u32,
     recorder: State<'_, Mutex<Recorder>>,
     window: WebviewWindow,
 ) -> Result<()> {
-    lock(&recorder)?.register_session(window.label(), &session_id, &app_id, account)
+    lock(&recorder)?.register_document_session(window.label(), generation, &session_id, &app_id, account)
 }
 
 /// Read only this document's live capture. No file or journal is recovered.
@@ -260,7 +267,7 @@ pub fn cancel_recording_owned_by(app: &AppHandle, owner_label: &str) {
         let Ok(mut recorder) = recorder.lock() else {
             return;
         };
-        recorder.close_document(owner_label);
+        recorder.replace_document(owner_label);
     }
     refresh_recording_indicator(app);
 }

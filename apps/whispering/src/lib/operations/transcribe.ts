@@ -71,12 +71,19 @@ export function captureTranscription(app: WhisperingApp) {
 				.join(' ');
 			const selection = getInferenceTarget(app.local.kv, 'transcription');
 			if (!selection) return Ok(null);
-			const target = app.catalog.resolve(selection);
-			if (!target) return TranscriptionOperationError.SelectionRequired();
-			const { client, model, source } = target;
-			usesAccount = source === 'account';
-			const transcribe = async (audio: Blob) => {
-				const response = await client.audio.transcriptions.create(
+            const capturedTarget = app.catalog.loading ? undefined : app.catalog.resolve(selection);
+            const transcribe = async (audio: Blob) => {
+                await app.catalog.ready;
+                app.signal.throwIfAborted();
+                const target = capturedTarget === undefined ? app.catalog.resolve(selection) : capturedTarget;
+                if (!target) return TranscriptionOperationError.SelectionRequired();
+                const { model, source } = target;
+                usesAccount = source === 'account';
+				if (target.source === 'runtime') {
+                    const result = await target.transcriber.transcribe({ audio, model, language: spokenLanguage === 'auto' ? undefined : spokenLanguage, prompt: prompt || undefined }, { signal: app.signal });
+                    return result.error ? result : Ok(result.data.text);
+                }
+                const response = await target.client.audio.transcriptions.create(
 					{
 						// Bun 1.3.14 retains a single source File's cached name.
 						file: new File(

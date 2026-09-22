@@ -1,5 +1,3 @@
-import type { LocalBlobs } from './blobs.js';
-import { blobDestination } from './blob-destination.js';
 import type { BlobId, BlobStore } from '@epicenter/blobs';
 import type {
 	Device,
@@ -12,6 +10,8 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
+import { blobDestination } from './blob-destination.js';
+import type { LocalBlobs } from './blobs.js';
 
 export const RecorderError = defineErrors({
 	MicrophonePermissionDenied: ({ cause }: { cause?: unknown } = {}) => ({
@@ -115,9 +115,12 @@ export type NativeRecording = {
 	endedReason: RecordingEndedReason | null;
 };
 
-/** Capture borrows the supplied destination; only closing blobs retires both. */
-export function createRecorder({ blobs }: { blobs: LocalBlobs }) {
-	const destination = blobDestination(blobs);
+/**
+ * Record into an explicit local destination. Stop commits local bytes; upload
+ * is a separate operation. Closing capture leaves localBlobs usable.
+ */
+export function createRecorder({ localBlobs }: { localBlobs: LocalBlobs }) {
+	const destination = blobDestination(localBlobs);
 	const lifetime = new AbortController();
 	const owner = destination.recording(destination.id, {
 		assertUsable: () => {
@@ -135,7 +138,7 @@ export function createRecorder({ blobs }: { blobs: LocalBlobs }) {
 			const completion = Promise.withResolvers<void>();
 			closing = completion.promise;
 			lifetime.abort();
-			owner.close().then(() => {
+			(async () => owner.close())().then(() => {
 				destination.recorders.delete(recorder);
 				completion.resolve();
 			}, completion.reject);

@@ -5,8 +5,8 @@
 	import { openHoneycrispResources } from '$lib/resources.js';
 	const open = new URL(location.href).searchParams.has('stopped')
 		? undefined
-		: (signal: AbortSignal) =>
-				openHoneycrispResources(auth.getState().account, signal);
+		: (signal: AbortSignal, account: import('@epicenter/auth').Account | undefined) =>
+				openHoneycrispResources(account, signal);
 	import { page } from '$app/state';
 	import SignInButton from '../components/SignInButton.svelte';
 	import Notes from '../components/Notes.svelte';

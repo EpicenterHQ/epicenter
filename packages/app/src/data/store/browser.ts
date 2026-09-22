@@ -1,22 +1,18 @@
 /**
- * Current data and device storage for an App.
+ * Local and Personal storage for explicit owners.
  * The page owns its live Yjs document; IndexedDB keeps its durable update log.
  * Opening never discovers, migrates, or deletes historical numbered caches.
  */
 import type { ParsedDataDefinition } from '@epicenter/app/definition';
 import { isAppId } from '@epicenter/constants/app-id';
-import {
-	type AccountIdentity,
-	deviceOwnerPath,
-	type PrincipalId,
-} from '@epicenter/principal';
+import { deviceOwnerPath, type PrincipalId } from '@epicenter/principal';
 import { readCurrentDownload } from '@epicenter/sync/current-download';
 import { CURRENT_ROUTE } from '@epicenter/sync/generations-route';
 import * as Y from '@y/y';
 import { Ok, type Result, tryAsync } from 'wellcrafted/result';
+import type { StoreOwner } from '../../store-runtime.js';
 import { openCurrentCache } from './current-cache.js';
 import { createDatabaseDocument } from './document.js';
-import type { DatabaseAccount } from './handles.js';
 import {
 	createIdbUpdates,
 	type IdbRealm,
@@ -41,7 +37,7 @@ export type BrowserBacking = {
 	 * what both promise is that a generation is created whole.
 	 *
 	 * It does NOT check that the address is empty, and that is deliberate: the
-	 * local opener checks `loaded.updates.length` under the App's claim.
+	 * local opener checks `loaded.updates.length` under the store's claim.
 	 */
 	create(record: { bytes: Uint8Array; position: number }): Promise<void>;
 	close(): void;
@@ -57,7 +53,7 @@ export type BrowserBacking = {
  * against its own expectations is how the two came to disagree about the fold,
  * the identity stamp, and what a duplicate key does.
  *
- * Returns a port and loaded state. App construction owns the document.
+ * Returns a port and loaded state. The store opener owns the document.
  */
 export async function openIdbBacking(
 	address: string,
@@ -83,7 +79,7 @@ export async function openIdbBacking(
 		catch: (cause) => StoreError.StorageFailed({ cause }),
 	});
 	// A returned failure proves the acquired connection was released. A cleanup
-	// exception must escape so the caller keeps its App reservation.
+	// exception must escape so the caller keeps its store reservation.
 	if (result.error) durable.close();
 	return result;
 }
@@ -124,13 +120,12 @@ async function acquireLocalData(
 	definition: ParsedDataDefinition,
 	appId: string,
 	idb: IdbRealm,
-	account?: AccountIdentity,
 ): Promise<Result<StoreBacking, StoreError>> {
 	if (!isAppId(appId))
 		return StoreError.Unaddressable({
 			reason: `'${appId}' is not an application id`,
 		});
-	const address = `epicenter/${appId}/device/${deviceOwnerPath(account)}/data/${definition.id}/1`;
+	const address = `epicenter/${appId}/device/${deviceOwnerPath()}/data/${definition.id}/1`;
 	const opened = await openIdbBacking(address, idb);
 	if (opened.error) return opened;
 	let backing = opened.data;
@@ -142,7 +137,7 @@ async function acquireLocalData(
 			try: () => backing.create({ bytes, position: 0 }),
 			catch: (cause) => StoreError.StorageFailed({ cause }),
 		});
-		// A cleanup failure escapes: App must retain its ownership claim.
+		// A cleanup failure escapes: the opener must retain its ownership claim.
 		backing.close();
 		if (written.error) return written;
 		// Hydrate exactly what the next boot would read.
@@ -154,40 +149,24 @@ async function acquireLocalData(
 	return Ok({ durable: held.port, loaded: held.loaded, dispose: held.close });
 }
 
-/** Capture ownership and transport together before asynchronous discovery. */
-function captureAccount(account: DatabaseAccount): DatabaseAccount {
-	return Object.freeze({
-		authorityId: account.authorityId,
-		principalId: account.principalId,
-		baseURL: account.baseURL,
-		fetch: account.fetch,
-		openWebSocket: account.openWebSocket,
-	});
-}
-
-export type AppDataScope = { appId: string } & (
-	| { scope: 'device'; account?: AccountIdentity }
-	| { scope: 'personal'; account: DatabaseAccount }
-);
-
-/** Acquire storage under the caller's exclusive App admission. */
-export async function acquireAppData(
+/** Acquire storage under the caller's exclusive store admission. */
+export async function acquireStoreData(
 	definition: ParsedDataDefinition,
-	options: AppDataScope,
+	owner: StoreOwner,
 	idb: IdbRealm,
 ): Promise<Result<StoreBacking, StoreError>> {
-	if (options.scope === 'device')
-		return acquireLocalData(definition, options.appId, idb, options.account);
-	const account = captureAccount(options.account);
+	if (owner.kind === 'local')
+		return acquireLocalData(definition, definition.id, idb);
+	const account = owner.account;
 	const prefix = accountCachePrefix(
-		options.appId,
+		definition.id,
 		account.principalId,
 		definition.id,
 		account.authorityId,
 	);
 	if (prefix.error) return prefix;
 	// A stable name per actor and selected scope; generations live in its header.
-	const address = `${prefix.data}${options.scope}/current`;
+	const address = `${prefix.data}personal/current`;
 	const opened = await openCurrentCache(address, idb);
 	if (opened.error) return opened;
 	const cache = opened.data;
@@ -200,8 +179,8 @@ export async function acquireAppData(
 			const response = await account.fetch(
 				CURRENT_ROUTE.url(
 					account.baseURL,
-					options.appId,
-					options.scope,
+					definition.id,
+					'personal',
 					definition.id,
 				),
 				{
@@ -248,8 +227,8 @@ export async function acquireAppData(
 			replication: {
 				address: {
 					baseURL: account.baseURL,
-					appId: options.appId,
-					scope: options.scope,
+					appId: definition.id,
+					scope: 'personal',
 					dataId: definition.id,
 					generation: loaded.generation,
 				},

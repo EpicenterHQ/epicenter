@@ -19,7 +19,9 @@ const config = {
 	BLOBS_S3_ACCESS_KEY_ID: 'test',
 	BLOBS_S3_SECRET_ACCESS_KEY: 'test',
 };
-const collection = 'https://api.test/api/apps/so.epicenter.notes/blobs';
+const collection =
+	'https://api.test/api/apps/so.epicenter.notes/principals/alice/blobs';
+const object = `${collection}/${generateBlobId('bin')}`;
 function setup(actor = 'alice') {
 	const app = new Hono<Env>();
 	mountBlobsApp(app, {
@@ -32,36 +34,23 @@ function setup(actor = 'alice') {
 	return app;
 }
 
-test('upload publishes actual bytes under a fresh ID and returns an owner-pinned URL', async () => {
+test('creation allocates an immutable ID under the authenticated owner', async () => {
 	const writes: Request[] = [];
-	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+	globalThis.fetch = (async (input, init) => {
 		writes.push(new Request(input, init));
 		return new Response();
-	}) as unknown as typeof fetch;
-	const app = setup();
-	const first = await app.request(
+	}) as typeof fetch;
+	const response = await setup().request(
 		collection,
-		{ method: 'POST', body: 'audio', headers: { 'content-type': 'audio/wav' } },
+		{ method: 'POST', body: 'bytes' },
 		config,
 	);
-	const second = await app.request(
-		collection,
-		{ method: 'POST', body: 'audio' },
-		config,
-	);
-	expect(first.status).toBe(201);
-	const { url } = (await first.json()) as { url: string };
-	expect(url).toMatch(
-		/^https:\/\/api.test\/api\/apps\/so.epicenter.notes\/principals\/alice\/blobs\/blob_[a-z0-9]{21}\.wav$/,
-	);
-	expect(((await second.json()) as { url: string }).url).not.toBe(url);
-	expect(await writes[0]!.text()).toBe('audio');
+	expect(response.status).toBe(201);
+	const { id } = await response.json<{ id: string }>();
+	expect(writes[0]!.url).toEndWith('/' + id);
 	expect(writes[0]!.headers.get('if-none-match')).toBe('*');
 	expect(writes[0]!.headers.get('authorization')).toContain('AWS4-HMAC-SHA256');
-	expect(writes[0]!.url).toContain(
-		'/principals/alice/apps/so.epicenter.notes/blobs/',
-	);
-	expect(new URL(writes[0]!.url).search).toBe('');
+	expect(await writes[0]!.text()).toBe('bytes');
 });
 
 test('declared and actual oversize uploads never reach object storage', async () => {
@@ -101,7 +90,7 @@ test.each([
 	['audio/webm;codecs=opus', 'webm'],
 	['audio/mp4', 'm4a'],
 	['application/x-private-archive', 'bin'],
-])('upload mints %s as .%s while retaining provider Content-Type', async (contentType, extension) => {
+])('creation retains %s and allocates a .%s identity', async (contentType, extension) => {
 	const writes: Request[] = [];
 	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 		writes.push(new Request(input, init));
@@ -116,8 +105,7 @@ test.each([
 		config,
 	);
 	expect(response.status).toBe(201);
-	const result = (await response.json()) as { url: string };
-	expect(result.url).toEndWith(`.${extension}`);
+	expect(writes[0]!.url).toEndWith(`.${extension}`);
 	expect(writes[0]!.headers.get('content-type')).toBe(contentType);
 	expect(await writes[0]!.text()).toBe('original');
 });
@@ -128,7 +116,7 @@ test('extensionless URLs are refused before accessing object storage', async () 
 		reads++;
 		return new Response();
 	}) as unknown as typeof fetch;
-	const url = `${collection.replace('/blobs', '/principals/alice/blobs')}/blob_${'a'.repeat(21)}`;
+	const url = object.replace(/blob_[^/]+$/, `blob_${'a'.repeat(21)}`);
 	for (const method of ['GET', 'DELETE'])
 		expect((await setup().request(url, { method }, config)).status).toBe(404);
 	expect(reads).toBe(0);
@@ -178,15 +166,7 @@ test('missing objects, invalid addresses and native control headers fail closed'
 	globalThis.fetch = (async () =>
 		new Response(null, { status: 404 })) as unknown as typeof fetch;
 	const app = setup();
-	expect(
-		(
-			await app.request(
-				`${collection.replace('/blobs', '/principals/alice/blobs')}/${generateBlobId('bin')}`,
-				{},
-				config,
-			)
-		).status,
-	).toBe(404);
+	expect((await app.request(collection, {}, config)).status).toBe(404);
 	expect(
 		(
 			await app.request(
@@ -208,7 +188,15 @@ test('missing objects, invalid addresses and native control headers fail closed'
 			)
 		).status,
 	).toBe(400);
-	expect((await app.request(collection, {}, config)).status).toBe(404);
+	expect(
+		(
+			await app.request(
+				'https://api.test/api/apps/so.epicenter.notes/blobs',
+				{ method: 'POST' },
+				config,
+			)
+		).status,
+	).toBe(404);
 	expect(
 		(
 			await app.request(
@@ -218,4 +206,107 @@ test('missing objects, invalid addresses and native control headers fail closed'
 			)
 		).status,
 	).toBe(404);
+});
+
+test('an allocation collision fails without reading or overwriting the occupied object', async () => {
+	const requests: Request[] = [];
+	globalThis.fetch = (async (input, init) => {
+		requests.push(new Request(input, init));
+		return new Response(null, { status: 412 });
+	}) as typeof fetch;
+	expect(
+		(await setup().request(collection, { method: 'POST', body: 'x' }, config))
+			.status,
+	).toBe(503);
+	expect(requests).toHaveLength(1);
+	expect(requests[0]!.headers.get('if-none-match')).toBe('*');
+});
+
+test('an authenticated caller cannot publish at an existing or chosen ID', async () => {
+	let writes = 0;
+	globalThis.fetch = Object.assign(
+		async () => {
+			writes++;
+			return new Response();
+		},
+		{ preconnect: originalFetch.preconnect },
+	);
+	for (const method of ['PUT', 'POST'])
+		expect(
+			(await setup().request(object, { method, body: 'replace' }, config))
+				.status,
+		).toBe(404);
+	expect(writes).toBe(0);
+	expect(
+		(
+			await setup('bob').request(
+				collection,
+				{ method: 'POST', body: 'x' },
+				config,
+			)
+		).status,
+	).toBe(403);
+});
+
+test('HEAD and single ranges preserve upstream lengths, version preconditions and partial status', async () => {
+	const requests: Request[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const request = new Request(input, init);
+		requests.push(request);
+		const headers = {
+			etag: '"v1"',
+			'content-type': 'audio/wav',
+			'accept-ranges': 'bytes',
+		};
+		if (request.method === 'HEAD')
+			return new Response(null, {
+				headers: { ...headers, 'content-length': '100' },
+			});
+		if (request.headers.get('if-match') === '"old"')
+			return new Response(null, { status: 412 });
+		if (request.headers.get('range') === 'bytes=100-')
+			return new Response(null, {
+				status: 416,
+				headers: { ...headers, 'content-range': 'bytes */100' },
+			});
+		return new Response('abcd', {
+			status: 206,
+			headers: {
+				...headers,
+				'content-length': '4',
+				'content-range': 'bytes 4-7/100',
+			},
+		});
+	}) as typeof fetch;
+	const app = setup();
+	const head = await app.request(object, { method: 'HEAD' }, config);
+	expect(head.status).toBe(200);
+	expect(requests.at(-1)!.method).toBe('HEAD');
+	expect(head.headers.get('content-length')).toBe('100');
+	expect(await head.text()).toBe('');
+	const partial = await app.request(
+		object,
+		{ headers: { range: 'bytes=4-7', 'if-match': '"v1"' } },
+		config,
+	);
+	expect(partial.status).toBe(206);
+	expect(partial.headers.get('content-range')).toBe('bytes 4-7/100');
+	expect(partial.headers.get('etag')).toBe('"v1"');
+	expect(requests.at(-1)!.headers.get('if-match')).toBe('"v1"');
+	expect(await partial.text()).toBe('abcd');
+	const missing = await app.request(
+		object,
+		{ headers: { range: 'bytes=100-' } },
+		config,
+	);
+	expect(missing.status).toBe(416);
+	expect(missing.headers.get('content-range')).toBe('bytes */100');
+	expect(
+		(await app.request(object, { headers: { 'if-match': '"old"' } }, config))
+			.status,
+	).toBe(412);
+	expect(
+		(await app.request(object, { headers: { range: 'bytes=0-1,4-5' } }, config))
+			.status,
+	).toBe(400);
 });

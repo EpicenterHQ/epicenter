@@ -4,36 +4,46 @@ import { generateBlobId, RemoteBlobsError } from '@epicenter/blobs';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { WhisperingApp } from '$lib/whispering/app';
-import type { Recording } from '../data.js';
-import { uploadRecording } from './upload-recording';
+import { type Recording, whisperingDefinition } from '../data.js';
+
+const remoteId = generateBlobId('wav');
+const reference = {
+	blobId: remoteId,
+	authorityId: 'server',
+	principalId: 'alice',
+	namespace: whisperingDefinition.id,
+};
+
+import { uploadRecording } from './upload-recording.js';
 
 function setup() {
 	const recording = {
 		id: 'recording',
 		audioBlobId: generateBlobId('wav'),
 	} as Recording;
-	const addFrom = mock(async () => Ok('https://cloud.example/saved'));
+	const upload = mock(async () => Ok(remoteId));
 	const get = mock();
 	const patch = mock(() => Ok(undefined));
 	const lifetime = new AbortController();
 	const app = {
 		signal: lifetime.signal,
 		localBlobs: { get },
-		remoteBlobs: { addFrom },
+		remoteBlobs: { copyFrom: upload },
+		personal: { identity: { authorityId: 'server', principalId: 'alice' } },
 		library: {
 			tables: { recordings: { update: patch, get: () => recording } },
 		},
 	} as unknown as WhisperingApp;
-	return { recording, app, addFrom, get, patch, lifetime };
+	return { recording, app, upload, get, patch, lifetime };
 }
 
-test('upload sends a local ID and retains the returned remote URL', async () => {
+test('upload sends a local ID and retains the returned scoped remote reference', async () => {
 	const f = setup();
 	const cancellation = new AbortController();
 	expect(
 		expectOk(await uploadRecording(f.app, f.recording, cancellation.signal)),
-	).toBe('https://cloud.example/saved');
-	expect(f.addFrom).toHaveBeenCalledWith(
+	).toEqual(reference);
+	expect(f.upload).toHaveBeenCalledWith(
 		f.app.localBlobs,
 		f.recording.audioBlobId,
 		{
@@ -42,14 +52,14 @@ test('upload sends a local ID and retains the returned remote URL', async () => 
 	);
 	expect(f.get).not.toHaveBeenCalled();
 	expect(f.patch).toHaveBeenCalledWith(f.recording.id, {
-		audioUrl: 'https://cloud.example/saved',
+		remoteAudio: reference,
 	});
 });
 
 test('a refused upload preserves the row reference', async () => {
 	const f = setup();
 	const remote = {
-		addFrom: async () => RemoteBlobsError.TooLarge({ size: 100_000_000 }),
+		copyFrom: async () => RemoteBlobsError.TooLarge({ size: 100_000_000 }),
 	};
 	Object.assign(f.app, { remoteBlobs: remote });
 	expect(
@@ -62,12 +72,31 @@ test('a refused upload preserves the row reference', async () => {
 
 test('Account retirement suppresses a late row write without deleting the remote result', async () => {
 	const f = setup();
-	f.addFrom.mockImplementation(async () => {
+	f.upload.mockImplementation(async () => {
 		f.lifetime.abort();
-		return Ok('https://cloud.example/saved');
+		return Ok(remoteId);
 	});
-	expectErr(
+	const error = expectErr(
 		await uploadRecording(f.app, f.recording, new AbortController().signal),
 	);
+	expect(error).toMatchObject({
+		name: 'ReferenceNotSaved',
+		reference,
+	});
 	expect(f.patch).not.toHaveBeenCalled();
+});
+
+test('a failed row update returns the uploaded reference for recovery', async () => {
+	const f = setup();
+	f.patch.mockImplementation(() => {
+		throw new Error('Storage unavailable');
+	});
+	const error = expectErr(
+		await uploadRecording(f.app, f.recording, new AbortController().signal),
+	);
+	expect(error).toMatchObject({
+		name: 'ReferenceNotSaved',
+		reference,
+	});
+	expect(f.upload).toHaveBeenCalledTimes(1);
 });

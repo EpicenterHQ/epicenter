@@ -434,7 +434,7 @@
 											({ error }) => error.name === 'InsufficientCredits',
 										);
 										const addCredits = creditFailure
-											? creditAction(creditFailure.error, app.account)
+											? creditAction(creditFailure.error, app.authAccount)
 											: undefined;
 										const failureSummary = [
 											...new Set(errs.map(({ error }) => error.message)),

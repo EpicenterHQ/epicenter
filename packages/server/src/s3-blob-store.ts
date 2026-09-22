@@ -99,28 +99,20 @@ export function createS3BlobStore(config: S3BlobStoreConfig) {
 				signal,
 			});
 			await response.body?.cancel();
-			if (!response.ok) throw new Error(`S3 PUT failed: ${response.status}`);
+			if (response.ok) return 'created' as const;
+			if (response.status === 409) return 'uncertain' as const;
+			if (response.status !== 412)
+				throw new Error(`S3 PUT failed: ${response.status}`);
+			return 'conflict' as const;
 		},
 		/** Read through the server; no signed URL leaves the storage boundary. */
-		get(key: string, signal?: AbortSignal) {
-			return client.fetch(objectUrl(key).toString(), { signal });
+		get(
+			key: string,
+			signal?: AbortSignal,
+			options?: { method: 'GET' | 'HEAD'; headers: Headers },
+		) {
+			return client.fetch(objectUrl(key).toString(), { ...options, signal });
 		},
-		/**
-		 * HeadObject existence check: does this key already exist? Used as the
-		 * existence gate before a read. Size and upload time are the
-		 * `list` path's job, so this answers only the boolean the callers need.
-		 */
-		async exists(key: string): Promise<boolean> {
-			const res = await client.fetch(objectUrl(key).toString(), {
-				method: 'HEAD',
-			});
-			if (res.status === 404) return false;
-			if (!res.ok) {
-				throw new Error(`S3 HEAD ${key} failed: ${res.status}`);
-			}
-			return true;
-		},
-
 		/**
 		 * ListObjectsV2 under `prefix`, following `IsTruncated` +
 		 * `NextContinuationToken` to completion (max 1000/page). Returns every

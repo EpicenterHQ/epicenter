@@ -172,7 +172,7 @@ type _CancelRecording = Expect<
 type _RegisterRecordingSession = Expect<
 	Equal<
 		Parameters<typeof commands.registerRecordingSession>,
-		[string, import('./bindings.gen').AccountIdentity | null, string]
+		[string, import('./bindings.gen').AccountIdentity | null, string, number]
 	>
 >;
 type _ResolveRecordingStart = Expect<

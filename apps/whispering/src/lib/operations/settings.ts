@@ -1,7 +1,18 @@
 import type { WhisperingSettingValues } from '../data.js';
-import type { WhisperingAppHandle } from '../whispering/app.js';
 
-export const APPLICATION_DEFAULTS: WhisperingSettingValues = {
+export const PERSONAL_DEFAULTS: Pick<
+	WhisperingSettingValues,
+	'dictionary' | 'polishInstructions' | 'transcriptionPrompt'
+> = {
+	dictionary: null,
+	polishInstructions: 'Fix grammar and punctuation. Keep my wording.',
+	transcriptionPrompt: '',
+};
+
+export const DEVICE_DEFAULTS: Omit<
+	WhisperingSettingValues,
+	keyof typeof PERSONAL_DEFAULTS
+> = {
 	soundManualStart: true,
 	soundManualStop: true,
 	soundManualCancel: true,
@@ -21,12 +32,9 @@ export const APPLICATION_DEFAULTS: WhisperingSettingValues = {
 	transcriptionConnection: null,
 	transcriptionModel: '',
 	transcriptionLanguage: 'auto',
-	transcriptionPrompt: '',
 	completionConnection: null,
 	completionModel: '',
-	dictionary: null,
 	polishEnabled: true,
-	polishInstructions: 'Fix grammar and punctuation. Keep my wording.',
 	analyticsEnabled: true,
 	shortcutPushToTalkModifiers: null,
 	shortcutPushToTalkKeys: null,
@@ -49,11 +57,3 @@ export type BooleanSettingKey = {
 		? K
 		: never;
 }[keyof WhisperingSettingValues];
-
-/** Read a device setting, applying the product default without writing it. */
-export function getSetting<TKey extends keyof WhisperingSettingValues>(
-	kv: WhisperingAppHandle['device']['kv'],
-	key: TKey,
-): WhisperingSettingValues[TKey] {
-	return kv.get(key) ?? APPLICATION_DEFAULTS[key];
-}

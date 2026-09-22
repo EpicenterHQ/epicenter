@@ -12,7 +12,7 @@ import {
 } from '@epicenter/app/recorder';
 import { BlobStoreError, generateBlobId } from '@epicenter/blobs';
 import { asDeviceIdentifier } from '@epicenter/recorder';
-import { Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { WhisperingApp } from '$lib/whispering/app';
 
 Reflect.set(
@@ -556,9 +556,14 @@ test('failed voice-activated row creation reports failure without entering infer
 
 test('voice-activated publication failure reports the current attempt without creating a row', async () => {
 	const f = setup();
-	const failure = BlobStoreError.BlobStoreFailed({
+	const failure = Err({
+		...BlobStoreError.BlobStoreFailed({ id: f.blobId, cause: 'disk full' })
+			.error,
 		id: f.blobId,
-		cause: 'disk full',
+		destination: {
+			kind: 'local' as const,
+			namespace: 'so.epicenter.whispering',
+		},
 	});
 	f.add.mockImplementationOnce(async () => failure);
 	await startVadRecording(f.app);

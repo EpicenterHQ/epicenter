@@ -1,21 +1,17 @@
 /**
- * File format evidence survives both direct and local-first explicit uploads.
+ * File format evidence survives local publication and explicit upload.
  * Real local publication is compared with captured account requests; private URL
- * ownership and independently minted remote IDs remain unchanged.
+ * ownership and copy identity are preserved.
  */
 import { expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Account } from '@epicenter/auth';
-import {
-	generateBlobId,
-	REMOTE_BLOB_ROUTES,
-	selectBlobFormat,
-} from '@epicenter/blobs';
-import { createLocalBlobAccess } from '@epicenter/blobs/owner';
+import { generateBlobId } from '@epicenter/blobs';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
+import { createLocalBlobAccess } from '@epicenter/blobs/owner';
 import { expectOk } from 'wellcrafted/testing';
 import { createRemoteBlobClient } from './index.js';
 
@@ -24,11 +20,11 @@ test.each([
 	['take.M4A', 'application/octet-stream', 'audio/mp4'],
 	['take.WEBM', 'binary/octet-stream', 'video/webm'],
 	['take.OPUS', '', 'audio/ogg'],
-	['misleading.mp3', 'audio/x-wav', 'audio/x-wav'],
-	['misleading.mp3', 'audio/webm;codecs=opus', 'audio/webm;codecs=opus'],
-	['misleading.wav', 'application/x-unknown', 'application/x-unknown'],
+	['misleading.mp3', 'audio/x-wav', 'audio/wav'],
+	['misleading.mp3', 'audio/webm;codecs=opus', 'video/webm'],
+	['misleading.wav', 'application/x-unknown', 'application/octet-stream'],
 	['unknown.data', '', 'application/octet-stream'],
-])('direct and local-first %s (%s) upload identical bytes as %s', async (name, type, expectedType) => {
+])('saved %s (%s) uploads its bytes as %s', async (name, type, expectedType) => {
 	const directory = await mkdtemp(join(tmpdir(), 'blob-upload-format-'));
 	const local = createBunBlobStore({ directory });
 	const owner = createLocalBlobAccess({
@@ -43,30 +39,18 @@ test.each([
 		principalId: 'alice',
 		fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
 			requests.push(new Request(input, init));
-			return Response.json({
-				url: REMOTE_BLOB_ROUTES.objectUrl(
-					baseURL,
-					appId,
-					'alice',
-					generateBlobId('bin'),
-				),
-			});
+			return Response.json({ id: generateBlobId('bin') }, { status: 201 });
 		},
 	} as Account;
 	const remote = createRemoteBlobClient({ appId, account });
 	try {
 		const file = new File(['identical bytes'], name, { type });
-		const directUrl = expectOk(await remote.add(file));
 		const id = expectOk(await owner.value.add(file));
-		const savedUrl = expectOk(await remote.addFrom({ local }, id));
-		expect(directUrl).not.toBe(savedUrl);
-		expect(directUrl).not.toContain(id);
-		expect(savedUrl).not.toContain(id);
-		expect(requests).toHaveLength(2);
-		for (const [index, request] of requests.entries()) {
-			expect(request.headers.get('content-type')).toBe(
-				index === 0 ? expectedType : selectBlobFormat(file).contentType,
-			);
+		expectOk(await remote.copyFromLocal({ local }, id));
+		expect(requests[0]!.url).toEndWith('/principals/alice/blobs');
+		expect(requests).toHaveLength(1);
+		for (const request of requests) {
+			expect(request.headers.get('content-type')).toBe(expectedType);
 			expect(request.redirect).toBe('error');
 			expect(await request.text()).toBe('identical bytes');
 		}

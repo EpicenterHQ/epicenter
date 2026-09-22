@@ -10,6 +10,20 @@ import type { BlobId } from './blob-id.js';
 /** Canonical app-local immutable bytes, independent of accounts and libraries. */
 
 export const BlobStoreError = defineErrors({
+	PublicationUnconfirmed: ({
+		id,
+		namespace,
+		cause,
+	}: {
+		id: BlobId;
+		namespace: string;
+		cause: unknown;
+	}) => ({
+		message: `Publication of '${id}' could not be confirmed.`,
+		id,
+		destination: { kind: 'local' as const, namespace },
+		cause,
+	}),
 	/** The id already names immutable local bytes and cannot be overwritten. */
 	BlobAlreadyExists: ({ id }: { id: BlobId }) => ({
 		message: `Blob '${id}' already exists.`,

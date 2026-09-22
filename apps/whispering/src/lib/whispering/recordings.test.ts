@@ -11,24 +11,26 @@ import { join } from 'node:path';
 import { openData } from '@epicenter/app/data';
 import { InstantString } from '@epicenter/app/field';
 import { BlobStoreError, generateBlobId } from '@epicenter/blobs';
-import { openLocalBlobs } from '@epicenter/app/blobs';
-import { createBrowserRecording } from '../../../../../packages/app/src/recording/browser.js';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { acquireLocalBlobs } from '../../../../../packages/app/src/blob-owner.js';
+import { createBrowserRecording } from '../../../../../packages/app/src/recording/browser.js';
 import { whisperingDefinition } from '../data';
 import { saveAudioRecording } from '../operations/save-audio-recording.js';
 import type { NewRecording } from './recordings.js';
 import {
 	createRecording,
-	updateRecording,
-	readRecordingAudio,
 	openRecordingAudio,
+	ownsRemoteAudio,
+	readRecordingAudio,
 	recordingAudioAvailability,
 	sortedRecordings,
+	updateRecording,
 } from './recordings.js';
 
+const remoteId = generateBlobId('wav');
 function recording(overrides: Partial<NewRecording> = {}): NewRecording {
 	return {
 		audioBlobId: generateBlobId('wav'),
@@ -48,18 +50,22 @@ async function setup(directory?: string) {
 		whisperingDefinition,
 		createBunSqliteAdapter(sqlite),
 	);
-	const access = await openLocalBlobs({
-		id: whisperingDefinition.id,
-		binding: {
-			local,
-			sources: createBrowserBlobSources(local),
-			recording: createBrowserRecording,
-		},
-	});
+	const access = expectOk(
+		await acquireLocalBlobs({
+			assertUsable() {},
+			id: whisperingDefinition.id,
+			binding: {
+				local,
+				sources: createBrowserBlobSources(local),
+				recording: createBrowserRecording,
+			},
+		}),
+	);
 	const app = {
 		library: data,
 		remoteBlobs: null,
-		localBlobs: access,
+		localBlobs: access.value,
+		personal: undefined,
 	};
 	return {
 		root,
@@ -204,11 +210,7 @@ test('saved audio reopens from disk for local playback and export', async () => 
 		await f.close();
 		f = await setup(directory);
 		const playback = expectOk(
-			await openRecordingAudio(
-				f.app.localBlobs,
-				f.app.remoteBlobs,
-				f.data.tables.recordings.get(row.id)!,
-			),
+			await openRecordingAudio(f.app, f.data.tables.recordings.get(row.id)!),
 		);
 		try {
 			const played = await (await fetch(playback.url)).arrayBuffer();
@@ -227,18 +229,24 @@ test('saved audio reopens from disk for local playback and export', async () => 
 	}
 });
 
-test('playback opens an explicit remote URL only when local audio is missing', async () => {
+test('playback opens the scoped remote ID only when local audio is missing', async () => {
 	const f = await setup();
 	try {
 		const row = expectOk(createRecording(f.data, recording()));
 		updateRecording(f.data, row.id, {
-			audioUrl: 'https://cloud.example/saved',
+			remoteAudio: {
+				blobId: remoteId,
+				authorityId: 'server',
+				principalId: 'alice',
+				namespace: whisperingDefinition.id,
+			},
 		});
 		expect(expectOk(await recordingAudioAvailability(f.app, row.id))).toBe(
 			'unavailable',
 		);
 		const opened: string[] = [];
 		Object.assign(f.app, {
+			personal: { identity: { authorityId: 'server', principalId: 'alice' } },
 			remoteBlobs: {
 				async get(url: string) {
 					opened.push(url);
@@ -251,31 +259,56 @@ test('playback opens an explicit remote URL only when local audio is missing', a
 			},
 		});
 		updateRecording(f.data, row.id, {
-			audioUrl: 'https://cloud.example/saved',
+			remoteAudio: {
+				blobId: remoteId,
+				authorityId: 'server',
+				principalId: 'alice',
+				namespace: whisperingDefinition.id,
+			},
 		});
+		const reference = f.data.tables.recordings.get(row.id)!.remoteAudio!;
+		for (const mismatch of [
+			{ authorityId: 'another-server' },
+			{ principalId: 'another-person' },
+			{ namespace: 'another.app' },
+		]) {
+			const foreign = { ...reference, ...mismatch };
+			updateRecording(f.data, row.id, { remoteAudio: foreign });
+			expect(ownsRemoteAudio(f.app, foreign)).toBe(false);
+			expect(expectOk(await recordingAudioAvailability(f.app, row.id))).toBe(
+				'unavailable',
+			);
+			expect(
+				expectErr<{ name: string }>(
+					await openRecordingAudio(
+						f.app,
+						f.data.tables.recordings.get(row.id)!,
+					),
+				).name,
+			).toBe('BlobNotFound');
+			expect(
+				expectErr<{ name: string }>(await readRecordingAudio(f.app, row.id))
+					.name,
+			).toBe('BlobNotFound');
+		}
+		expect(opened).toHaveLength(0);
+		updateRecording(f.data, row.id, { remoteAudio: reference });
+		expect(ownsRemoteAudio(f.app, reference)).toBe(true);
 		expect(expectOk(await recordingAudioAvailability(f.app, row.id))).toBe(
 			'remote',
 		);
 		const source = expectOk(
-			await openRecordingAudio(
-				f.app.localBlobs,
-				f.app.remoteBlobs,
-				f.data.tables.recordings.get(row.id)!,
-			),
+			await openRecordingAudio(f.app, f.data.tables.recordings.get(row.id)!),
 		);
-		expect(source.url).toBe('https://cloud.example/saved');
+		expect(source.url).toBe(remoteId);
 		source[Symbol.dispose]();
-		expect(opened).toEqual(['https://cloud.example/saved']);
+		expect(opened).toEqual([remoteId]);
 		expect(await expectOk(await readRecordingAudio(f.app, row.id)).text()).toBe(
 			'remote',
 		);
 		expectOk(await f.local.put(row.audioBlobId, new Blob(['local'])));
 		const localSource = expectOk(
-			await openRecordingAudio(
-				f.app.localBlobs,
-				f.app.remoteBlobs,
-				f.data.tables.recordings.get(row.id)!,
-			),
+			await openRecordingAudio(f.app, f.data.tables.recordings.get(row.id)!),
 		);
 		expect(localSource.url.startsWith('blob:')).toBe(true);
 		localSource[Symbol.dispose]();
@@ -311,7 +344,7 @@ for (const audio of [
 				title: '',
 				transcript: '',
 				polishedTranscript: null,
-				audioUrl: null,
+				remoteAudio: null,
 				transcriptionStatus: 'pending',
 				duration: null,
 			});

@@ -202,8 +202,8 @@ function foldHistoryRecords(
 /**
  * Incremental refresh: paginate `history.list` from `cursorBefore`, fold every
  * record into a final per-message action, fetch full content for anything
- * that needs it, then apply the whole batch and advance the cursor in one
- * batch (`mailbox.applyHistoryBatch`). A `messages.get` 404 for a message
+ * that needs it, then apply bounded chunks before advancing the cursor
+ * (`mailbox.applyHistoryBatch`). A `messages.get` 404 for a message
  * flagged `upsert` (added, then permanently deleted before we fetched it) is
  * folded into a delete rather than failing the pass. Any other failure aborts
  * without advancing the cursor, so the next pass re-pulls the same window.

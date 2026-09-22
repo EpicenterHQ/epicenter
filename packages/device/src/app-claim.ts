@@ -29,15 +29,19 @@ type LockManager = {
 	): Promise<unknown>;
 };
 
-/** One App owns every store and SQL connection in this device namespace. */
+/** Reserve the established App namespace for callers that still own it as a unit. */
 export function claimApp(appId: string, account?: AccountIdentity) {
 	// Keep the established exclusion key; changing it permits overlapping owners.
-	return claim(
-		`library:${JSON.stringify([appId, 'device', deviceOwnerPath(account)])}`,
-	);
+	return claim(appClaimAddress(appId, account));
 }
 
-async function claim(
+/** Established exclusion identity for local and personal store destinations. */
+export function appClaimAddress(appId: string, account?: AccountIdentity) {
+	return `library:${JSON.stringify([appId, 'device', deviceOwnerPath(account)])}`;
+}
+
+/** Reserve an explicit resource address without waiting or takeover. */
+export async function claim(
 	address: string,
 ): Promise<Result<{ release(): void }, AppClaimError>> {
 	const locks = (globalThis as { navigator?: { locks?: LockManager } })

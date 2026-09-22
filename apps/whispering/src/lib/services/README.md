@@ -132,7 +132,7 @@ export const services = {
 ```
 
 Recording reads choose local audio first, then an explicitly stored remote
-`audioUrl` through the account when local bytes are unavailable. This domain read
+`remoteAudio` reference through its matching account when local bytes are unavailable. This domain read
 is not automatic background byte synchronization. Publication, playback, and
 export are explicit product operations; the services layer does not infer row
 ownership or transfer unrelated bytes.

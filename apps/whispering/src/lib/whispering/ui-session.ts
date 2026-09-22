@@ -30,15 +30,12 @@ export function createWhisperingUiSession({
 }) {
 	importLegacyInferenceSelections(
 		openedApp.local.kv,
-		openedApp.epicenterInference?.identity,
+		account,
 	);
 	const library = fromData(data);
 	const catalog = createInferenceCatalog({
-		ai: {
-			runtime: openedApp.runtimeInference,
-			connections: openedApp.connections,
-			account: openedApp.epicenterInference ?? null,
-		},
+		ai: openedApp.inference,
+        signal: openedApp.signal,
 		hostedModels: toHostedCatalog(['gpt-5.4-mini', 'gpt-5.5']),
 	});
 	const log = createLogger('whispering/ui-session');
@@ -49,7 +46,7 @@ export function createWhisperingUiSession({
 		local: fromData(openedApp.local),
 		personal: openedApp.personal ? fromData(openedApp.personal) : undefined,
 		get recordingEnabled() {
-			return recordingEnabled;
+			return recordingEnabled && !openedApp.signal.aborted;
 		},
 		authAccount: account,
 		library,

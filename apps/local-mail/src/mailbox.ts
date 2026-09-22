@@ -145,6 +145,32 @@ export type Mailbox = ReturnType<typeof openMailbox>;
 export function openMailbox(mail: AppSqliteDatabase) {
 	const { all, run, batch } = sqliteHandle(mail);
 
+	/** The final statement advances the cursor only after every chunk commits. */
+	async function writeChunks(statements: readonly Statement[]): Promise<void> {
+		// Leave room for the envelope beneath native framing's 8 MiB limit.
+		const limit = 4 * 1024 * 1024;
+		const encoder = new TextEncoder();
+		const sizes = statements.map(
+			(statement) => encoder.encode(JSON.stringify(statement)).byteLength + 1,
+		);
+		// Refuse before writing any part of a page that cannot fit one message.
+		if (sizes.some((size) => size > limit))
+			throw new Error(
+				'One downloaded message is too large to save on this device.',
+			);
+		let start = 0;
+		let bytes = 2;
+		for (const [index, size] of sizes.entries()) {
+			if (bytes + size > limit && index > start) {
+				await batch(statements.slice(start, index));
+				start = index;
+				bytes = 2;
+			}
+			bytes += size;
+		}
+		await batch(statements.slice(start));
+	}
+
 	function upsertMessageStatement(
 		message: GmailMessage,
 		syncedAt: string,
@@ -484,12 +510,12 @@ export function openMailbox(mail: AppSqliteDatabase) {
 				: null;
 		},
 
-		/** Commit the page and its continuation together; neither can get ahead. */
+		/** Save bounded chunks before advancing the page continuation. */
 		async ingestFullPullPage(
 			messages: readonly GmailMessage[],
 			checkpoint: FullPullCheckpoint,
 		): Promise<void> {
-			await batch([
+			await writeChunks([
 				...messages.map((message) =>
 					upsertMessageStatement(
 						message,
@@ -565,9 +591,8 @@ export function openMailbox(mail: AppSqliteDatabase) {
 		},
 
 		/**
-		 * Apply one `history.list` batch and advance the cursor together, so a
-		 * crash rolls back to the prior `historyId` and the next pass re-pulls the
-		 * window, which is idempotent either way.
+		 * Apply history in bounded chunks, then advance its cursor. Interruption
+		 * leaves the previous cursor, so the next pass replays the same window.
 		 *
 		 * The label patches are read first, outside the batch, because a patch
 		 * needs the row it is patching and the handle has no transaction callback
@@ -596,7 +621,7 @@ export function openMailbox(mail: AppSqliteDatabase) {
 				if (fold !== undefined) folds.push(fold);
 			}
 
-			await batch([
+			await writeChunks([
 				...messagesToUpsert.map((message) =>
 					upsertMessageStatement(message, syncedAt, null),
 				),

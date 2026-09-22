@@ -42,7 +42,7 @@ pub mod blobs;
 pub mod recorder;
 use recorder::commands::{
     cancel_recording, cancel_recording_owned_by, close_recording_session, current_recording,
-    enumerate_recording_devices, register_recording_session, resolve_recording_start,
+    enumerate_recording_devices, recording_document_generation, register_recording_session, resolve_recording_start,
     start_recording, stop_recording,
 };
 use recorder::recorder::Recorder;
@@ -409,6 +409,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             start_recording,
             stop_recording,
             cancel_recording,
+            recording_document_generation,
             register_recording_session,
             current_recording,
             resolve_recording_start,
@@ -2548,7 +2549,8 @@ mod tests {
         "cancel_recording",
         "current_recording",
         "resolve_recording_start",
-        "register_recording_session",
+        "recording_document_generation",
+    "register_recording_session",
         "close_recording_session",
         "transcribe_recording",
         "transcribe_audio_bytes",

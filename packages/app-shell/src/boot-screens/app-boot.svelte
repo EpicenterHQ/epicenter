@@ -1,4 +1,4 @@
-<script lang="ts" generics="THandle extends { signal: AbortSignal; close(): Promise<void> }">
+<script lang="ts" generics="THandle">
 	import {
 		isCallbackAuthClient,
 		type Account,
@@ -16,7 +16,7 @@
 
 	let props: {
 		auth?: AuthClient;
-		open: ((signal: AbortSignal) => Promise<THandle>) | undefined;
+		open: ((signal: AbortSignal, account: Account | undefined) => Promise<THandle>) | undefined;
 		signInHref: string;
 		signedOutHref: string;
 		appName: string;
@@ -25,7 +25,8 @@
 		children: Snippet<[THandle, Account | undefined]>;
 	} = $props();
 
-	const stopped = new URL(location.href).searchParams.has('stopped');
+	const signingOut = new URL(location.href).searchParams.has('signout');
+    const stopped = signingOut || new URL(location.href).searchParams.has('stopped');
 	// This document captures its identity once. Recovery must not acquire an App.
 	// svelte-ignore state_referenced_locally
 	const account = props.auth?.getState().account;
@@ -33,7 +34,7 @@
 	const acquire = stopped ? undefined : props.open;
 	const startup = new AbortController();
 	const opening = acquire
-		? Promise.resolve().then(() => acquire(startup.signal))
+		? Promise.resolve().then(() => acquire(startup.signal, account))
 		: undefined;
 	let phase = $state<'open' | 'stopped'>(stopped ? 'stopped' : 'open');
 	let error = $state('');
@@ -42,22 +43,16 @@
 	let signingIn = false;
 	let destroyed = false;
 	let disposed = false;
-	let stopRetirement: (() => void) | undefined;
-
-	function disposeApp() {
-		if (disposed) return;
-		disposed = true;
-		startup.abort();
-		stopRetirement?.();
-		// Disposal also releases an acquisition that finishes after unmount.
-		// It never delays document replacement.
-		void opening?.then((app) => app.close()).catch(() => {});
-	}
+    function retireWork() {
+        if (disposed) return;
+        disposed = true;
+        startup.abort();
+    }
 
 	function stop() {
 		if (surface) surface.inert = true;
 		phase = 'stopped';
-		disposeApp();
+		retireWork();
 	}
 
 	async function recover() {
@@ -76,20 +71,6 @@
 	const stopAuth = props.auth?.onStateChange((next) => {
 		if (next.account !== account && phase === 'open') void recover();
 	});
-	void opening?.then(
-		(app) => {
-			if (disposed) return;
-			const retired = () => {
-				if (phase === 'open') void recover();
-			};
-			if (app.signal.aborted) retired();
-			else {
-				app.signal.addEventListener('abort', retired, { once: true });
-				stopRetirement = () => app.signal.removeEventListener('abort', retired);
-			}
-		},
-		() => {},
-	);
 
 	provideConnectionScreen(() => {
 		if (!props.auth || changing || signingIn || phase !== 'open') return;
@@ -136,11 +117,17 @@
 			stop();
 			await tick();
 			if (destroyed) return;
+            if (isCallbackAuthClient(props.auth!)) {
+                const destination = new URL(location.href);
+                destination.searchParams.delete('connect');
+                destination.searchParams.set('signout', '');
+                destination.searchParams.set('stopped', '');
+                location.replace(destination);
+                return;
+            }
 			const result = await props.auth!.signOut();
 			if (result.error) throw result.error;
-			if (destroyed) return;
-			if (isCallbackAuthClient(props.auth!))
-				location.replace(props.signedOutHref);
+
 		} finally {
 			changing = false;
 		}
@@ -149,14 +136,30 @@
 	onDestroy(() => {
 		destroyed = true;
 		stopAuth?.();
-		disposeApp();
+		retireWork();
 	});
-	onMount(() => {
+    onMount(() => {
+        // This destination opens no roots. Credential clearing and bounded
+        // revocation can settle even when the former working UI is gone.
+        if (signingOut && props.auth && isCallbackAuthClient(props.auth)) {
+            changing = true;
+            void props.auth.signOut().then((result) => {
+                if (result.error) throw result.error;
+                if (!destroyed) location.replace(props.signedOutHref);
+            }).catch((cause) => {
+                error = cause instanceof Error ? cause.message : 'Could not sign out. Reload to retry.';
+            }).finally(() => { changing = false; });
+        }
+
 		const restored = (event: PageTransitionEvent) => {
 			if (event.persisted) void recover();
 		};
 		window.addEventListener('pageshow', restored);
-		return () => window.removeEventListener('pageshow', restored);
+        window.addEventListener('pagehide', stop);
+        return () => {
+            window.removeEventListener('pageshow', restored);
+            window.removeEventListener('pagehide', stop);
+        };
 	});
 </script>
 
@@ -177,6 +180,7 @@
 		<Button disabled={changing} onclick={() => {
 			const url = new URL(location.href);
 			url.searchParams.delete('stopped');
+            url.searchParams.delete('signout');
 			location.replace(url);
 		}}>Reopen {props.appName}</Button>
 	</div>

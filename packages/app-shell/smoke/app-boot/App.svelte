@@ -13,7 +13,7 @@
 	const open =
 		connecting || new URL(location.href).searchParams.has('stopped')
 			? undefined
-			: () => openLocal(definition, { runtime });
+			: async (signal: AbortSignal) => ({ store: await openLocal(definition, { runtime }), signal });
 </script>
 <Tooltip.Provider>
 {#if connecting}
@@ -21,7 +21,7 @@
 {:else}
  <AppBoot {auth} signInHref="/apps/probe/sign-in?connect" signedOutHref="/apps/probe/signed-out?connect" {open}
    appName="Probe" noun="changes">
-  {#snippet children(app)}<Session {app} />{/snippet}
+  {#snippet children(app)}<Session app={app.store} />{/snippet}
  </AppBoot>
 {/if}
 

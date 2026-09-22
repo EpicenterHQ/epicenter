@@ -17,6 +17,7 @@ pub const COMMANDS: &[&str] = &[
     "start_recording",
     "stop_recording",
     "cancel_recording",
+    "recording_document_generation",
     "register_recording_session",
     "current_recording",
     "resolve_recording_start",

@@ -1,14 +1,16 @@
-import { claimApp } from '@epicenter/device/app-claim';
-import { acquireAppData } from '../data/store/browser.js';
+import { claim } from '@epicenter/device/app-claim';
+import { acquireLocalBlobs } from '../blob-owner.js';
+import { acquireStoreData } from '../data/store/browser.js';
 import { requestPersistentStorage } from '../data/store/persist.js';
-import type { AppRuntime } from '../open.js';
+import type { StoreRuntime } from '../store-runtime.js';
 
 /** Browser and host windows keep documents in their own realm's IndexedDB. */
-export const nativeDocuments: Pick<AppRuntime, 'claim' | 'data'> = {
-	claim: claimApp,
-	data(definition, scope) {
+export const indexedDbStoreRuntime: StoreRuntime = {
+	claim,
+	localBlobs: (id, assertUsable) => acquireLocalBlobs({ id, assertUsable }),
+	data(definition, owner) {
 		void requestPersistentStorage();
-		return acquireAppData(definition, scope, {
+		return acquireStoreData(definition, owner, {
 			factory: globalThis.indexedDB,
 			keyRange: globalThis.IDBKeyRange,
 		});

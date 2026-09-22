@@ -277,7 +277,7 @@ export function createAgentChatState({
 		function captureTarget(): boolean {
 			if (convo.isGenerating) return false;
 			const transport = catalog.resolve(selectedTarget());
-			if (!transport) return false;
+			if (!transport || transport.source === 'runtime') return false;
 			runTarget = {
 				client: transport.client,
 				model: transport.model,

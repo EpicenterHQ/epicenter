@@ -14,10 +14,10 @@ import {
 } from './blob-source.js';
 import type { BlobStore } from './blob-store.js';
 import {
+	type BlobAlreadyExists,
 	type BlobListPage,
 	BlobStoreError,
 	type BlobStoreFailed,
-	type BlobAlreadyExists,
 } from './blob-store.js';
 
 const DATABASE_VERSION = 2;
@@ -151,10 +151,10 @@ export function createBrowserBlobStore(
 	const { idb } = scope;
 	const database = browserBlobStoreName(scope);
 
-	async function operate<TValue, TError>(
+	async function operate<T extends Result<unknown, unknown>>(
 		id: BlobId | undefined,
-		run: () => Promise<Result<TValue, TError | BlobStoreFailed>>,
-	): Promise<Result<TValue, TError | BlobStoreFailed>> {
+		run: () => Promise<T>,
+	): Promise<T | Err<BlobStoreFailed>> {
 		if (id !== undefined && !parseBlobId(id))
 			return BlobStoreError.BlobStoreFailed({
 				id,
@@ -211,34 +211,36 @@ export function createBrowserBlobStore(
 			);
 		},
 		put(id, blob) {
-			return operate<void, BlobAlreadyExists | BlobStoreFailed>(id, () =>
-				tryAsync({
-					try: async () => {
-						assertBlobFormat(id, blob);
-						const bytes = await blob.arrayBuffer();
-						await transact(
-							idb.factory,
-							database,
-							'readwrite',
-							async (store) => {
-								await requestResult(
-									store.add({
-										id,
-										bytes,
-										size: bytes.byteLength,
-									} satisfies StoredBlob),
-								);
-							},
-						);
-					},
-					catch: (cause) =>
-						typeof cause === 'object' &&
-						cause !== null &&
-						'name' in cause &&
-						cause.name === 'ConstraintError'
-							? BlobStoreError.BlobAlreadyExists({ id })
-							: BlobStoreError.BlobStoreFailed({ id, cause }),
-				}),
+			return operate<Result<void, BlobAlreadyExists | BlobStoreFailed>>(
+				id,
+				() =>
+					tryAsync({
+						try: async () => {
+							assertBlobFormat(id, blob);
+							const bytes = await blob.arrayBuffer();
+							await transact(
+								idb.factory,
+								database,
+								'readwrite',
+								async (store) => {
+									await requestResult(
+										store.add({
+											id,
+											bytes,
+											size: bytes.byteLength,
+										} satisfies StoredBlob),
+									);
+								},
+							);
+						},
+						catch: (cause) =>
+							typeof cause === 'object' &&
+							cause !== null &&
+							'name' in cause &&
+							cause.name === 'ConstraintError'
+								? BlobStoreError.BlobAlreadyExists({ id })
+								: BlobStoreError.BlobStoreFailed({ id, cause }),
+					}),
 			);
 		},
 		get(id) {

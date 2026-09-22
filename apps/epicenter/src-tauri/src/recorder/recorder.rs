@@ -1727,6 +1727,18 @@ mod tests {
     }
 
     #[test]
+    fn replacement_refuses_first_registration_from_departed_document() {
+        let mut recorder = Recorder::new();
+        let old_generation = recorder.document_generation("window");
+        recorder.replace_document("window");
+        assert!(recorder.register_document_session("window", old_generation, "late-first-session", "so.epicenter.test", None).is_err());
+        let generation = recorder.document_generation("window");
+        recorder.register_document_session("window", generation, "new-session", "so.epicenter.test", None).unwrap();
+        recorder.close_session("window", "late-first-session");
+        assert!(recorder.require_session("window", "new-session").is_ok());
+    }
+
+    #[test]
     fn document_departure_preserves_saved_output_and_fences_stale_commands() {
         let root = staging_root();
         let mut recorder = Recorder::new();

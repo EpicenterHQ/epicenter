@@ -78,7 +78,7 @@ export async function processRecordingPipeline(
 	if (lifetime.aborted || !app.recordingEnabled) return;
 
 	if (transcribeError) {
-		const action = creditAction(transcribeError, app.account);
+		const action = creditAction(transcribeError, app.authAccount);
 		if (isDictation) {
 			if (!ownsFeedback()) return;
 			dictationLifecycle.markFailed({

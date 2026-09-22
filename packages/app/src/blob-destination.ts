@@ -4,12 +4,14 @@ import type { RecordingFactory } from './recorder.js';
 /** Provenance and admitted publication are private to genuine LocalBlobs handles. */
 export type BlobDestination = {
 	id: string;
+	signal: AbortSignal;
 	native: boolean;
 	store: BlobStore;
 	recording: RecordingFactory;
 	assertOpen(): void;
 	recorders: Set<{ close(): Promise<void> }>;
 	transfers: Set<Promise<unknown>>;
+	cleanupFailures: unknown[];
 };
 export const blobDestinations = new WeakMap<object, BlobDestination>();
 export function blobDestination(handle: object) {

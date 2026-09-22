@@ -1,3 +1,4 @@
+import blobWorker from '@epicenter/client/blob-worker' with { type: 'text' };
 import type { AiCatalog } from './ai-catalog.ts';
 import { createAiCatalogRoutes } from './ai-catalog-routes.ts';
 /**
@@ -339,12 +340,59 @@ export function createHomeServer({
 		)
 			return c.text('Invalid account path', 400);
 		const headers = relayHeaders(c.req.raw.headers);
+		const copyDestination = c.req.header('x-epicenter-copy-destination-app');
+		headers.delete('x-epicenter-copy-destination-app');
+		const copyDestinationId = c.req.header('x-epicenter-copy-destination-id');
+		headers.delete('x-epicenter-copy-destination-id');
+		if (copyDestinationId !== undefined && copyDestination === undefined)
+			return c.text('Invalid native destination', 400);
 		const localId = c.req.header('x-epicenter-local-blob-id');
 		const sourceAppId = c.req.header('x-epicenter-local-blob-app');
 		headers.delete('x-epicenter-local-blob-app');
 		if (sourceAppId !== undefined && localId === undefined)
 			return c.text('Invalid native source', 400);
 		headers.delete('x-epicenter-local-blob-id');
+		if (copyDestination !== undefined) {
+			const match =
+				/^\/api\/apps\/([^/]+)\/principals\/([^/]+)\/blobs\/([^/]+)$/.exec(
+					target.pathname,
+				);
+			if (
+				localId !== undefined ||
+				c.req.method !== 'POST' ||
+				!isAppId(copyDestination) ||
+				!copyDestinationId ||
+				!parseBlobId(copyDestinationId) ||
+				!match ||
+				match[2] !== encodeURIComponent(account.principalId) ||
+				!parseBlobId(match[3]) ||
+				target.search ||
+				c.req.raw.body ||
+				account !== bootAccount
+			)
+				return c.text('Invalid native copy', 400);
+			headers.delete('range');
+			headers.delete('if-range');
+			const response = await account.fetch(target, {
+				headers,
+				signal: c.req.raw.signal,
+			});
+			if (response.status !== 200) {
+				await response.body?.cancel();
+				return c.text('Source unavailable', 502);
+			}
+			const result = await blobs(
+				copyDestination,
+				deviceOwnerPath(),
+			).putResponse(parseBlobId(copyDestinationId!)!, response);
+			if (result.error)
+				return c.text(
+					'Copy publication failed',
+					result.error.name === 'BlobAlreadyExists' ? 409 : 500,
+				);
+			return c.json({ id: copyDestinationId }, 201);
+		}
+
 		let body: BodyInit | undefined =
 			c.req.method === 'GET' || c.req.method === 'HEAD'
 				? undefined
@@ -355,11 +403,14 @@ export function createHomeServer({
 			// The control request contains no bytes for WebKit to materialize.
 			if (!bootAccount || account !== bootAccount)
 				return c.text('Account retired', 401);
-			const match = /^\/api\/apps\/([^/]+)\/blobs$/.exec(target.pathname);
+			const match = /^\/api\/apps\/([^/]+)\/principals\/([^/]+)\/blobs$/.exec(
+				target.pathname,
+			);
 			const appId = match?.[1];
 			const id = parseBlobId(localId);
 			if (
 				c.req.method !== 'POST' ||
+				match?.[2] !== encodeURIComponent(account.principalId) ||
 				target.search !== '' ||
 				!appId ||
 				!isAppId(appId) ||
@@ -370,20 +421,16 @@ export function createHomeServer({
 			)
 				return c.text('Invalid native blob upload', 400);
 			const store = blobs(sourceAppId, deviceOwnerPath());
-			const stat = await store.stat(id);
-			if (stat.error)
-				return c.text(
-					'Local blob unavailable',
-					stat.error.name === 'BlobNotFound' ? 404 : 500,
-				);
-			if (stat.data.size > MAX_REMOTE_BLOB_BYTES)
-				return c.text('Blob is too large', 413);
 			const opened = await store.openFile(id);
 			if (opened.error)
 				return c.text(
 					'Local blob unavailable',
 					opened.error.name === 'BlobNotFound' ? 404 : 500,
 				);
+			if (opened.data.stat.size > MAX_REMOTE_BLOB_BYTES) {
+				await opened.data.close();
+				return c.text('Blob is too large', 413);
+			}
 			upload = ownedFileBody(
 				opened.data.file,
 				opened.data.close,
@@ -404,6 +451,10 @@ export function createHomeServer({
 				}),
 			);
 			const outgoing = relayHeaders(response.headers);
+			// HEAD carries metadata only, so no decompression can change its length.
+			const length = response.headers.get('content-length');
+			if (c.req.method === 'HEAD' && length !== null)
+				outgoing.set('content-length', length);
 			outgoing.delete('set-cookie');
 			outgoing.delete('content-encoding');
 			outgoing.delete('location');
@@ -490,6 +541,14 @@ export function createHomeServer({
 		const result = await desktopAuth.signOut();
 		if (result.error) return c.text('Sign-out failed', 500);
 		return c.body(null, 202);
+	});
+
+	app.get('/epicenter-blob-worker.js', (c) => {
+		c.header('content-type', 'text/javascript');
+		c.header('cache-control', 'no-cache');
+		c.header('service-worker-allowed', '/');
+		// Bun embeds a string for `type: 'text'`; TypeScript sees the JS module.
+		return c.body(blobWorker as unknown as string);
 	});
 
 	// Home and the release-bundled placeholders: one document each, no asset
@@ -813,6 +872,54 @@ export function createHomeServer({
 		return result.error ? c.text('Blob list failed', 400) : c.json(result.data);
 	});
 	blobApi.put('/:blobId', async (c) => {
+		const sourceAppId = c.req.header('x-epicenter-copy-source-app');
+		const sourceId = c.req.header('x-epicenter-copy-source-id');
+		if (sourceId !== undefined && sourceAppId === undefined)
+			return c.text('Invalid native source', 400);
+		if (sourceAppId !== undefined) {
+			if (
+				!isAppId(sourceAppId) ||
+				!sourceId ||
+				!parseBlobId(sourceId) ||
+				c.var.owner !== deviceOwnerPath() ||
+				c.req.raw.body
+			)
+				return c.text('Invalid native copy', 400);
+			const source = await blobs(sourceAppId, deviceOwnerPath()).openFile(
+				parseBlobId(sourceId!)!,
+			);
+			if (source.error)
+				return c.text(
+					'Source unavailable',
+					source.error.name === 'BlobNotFound' ? 404 : 500,
+				);
+			const body = ownedFileBody(
+				source.data.file,
+				source.data.close,
+				source.data.stat.size,
+			);
+			try {
+				const response = new Response(
+					body.stream.pipeThrough(new TransformStream(), {
+						signal: c.req.raw.signal,
+					}),
+					{ headers: { 'content-type': source.data.stat.contentType } },
+				);
+				const result = await blobs(c.var.appId, c.var.owner).putResponse(
+					c.var.id,
+					response,
+				);
+				return result.error
+					? c.text(
+							'Copy publication failed',
+							result.error.name === 'BlobAlreadyExists' ? 409 : 500,
+						)
+					: c.body(null, 204);
+			} finally {
+				await body.close();
+			}
+		}
+
 		const result = await blobs(c.var.appId, c.var.owner).putRequest(
 			c.var.id,
 			c.req.raw,

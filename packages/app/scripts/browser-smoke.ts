@@ -9,7 +9,7 @@ const server = await createServer({
 	optimizeDeps: {
 		entries: [
 			'packages/app/src/index.ts',
-			'packages/app/src/open.ts',
+			'packages/app/src/open-store.ts',
 			'packages/app/src/blobs.ts',
 			'packages/app/src/recorder.ts',
 			'packages/device/src/browser-sqlite.worker.ts',
@@ -54,8 +54,8 @@ try {
 		}
 		const appModule = '/packages/app/src/index.ts';
 		const dataModule = '/packages/app/src/data/definition/index.ts';
-		const openModule = '/packages/app/src/open.ts';
-		const { openLocal }: typeof import('../src/open.js') = await import(
+		const openModule = '/packages/app/src/open-store.ts';
+		const { openLocal }: typeof import('../src/open-store.js') = await import(
 			openModule
 		);
 		const { defineApp }: typeof import('../src/index.js') = await import(
@@ -69,13 +69,10 @@ try {
 			id: 'so.epicenter.recording-smoke',
 		});
 		const app = await bounded('open local', openLocal(application));
-		const { openLocalBlobs }: typeof import('../src/blobs.js') = await import(
-			'/packages/app/src/blobs.ts'
-		);
 		const { createRecorder }: typeof import('../src/recorder.js') =
 			await import('/packages/app/src/recorder.ts');
-		const blobs = await openLocalBlobs({ id: application.id });
-		const recorder = createRecorder({ blobs });
+		const blobs = app.blobs;
+		const recorder = createRecorder({ localBlobs: blobs });
 		await (
 			globalThis as unknown as { disconnectForAcceptance(): Promise<void> }
 		).disconnectForAcceptance();
@@ -125,14 +122,11 @@ try {
 		const cancelled = await bounded('cancel', next.data.cancel());
 		if (cancelled.error) throw new Error(JSON.stringify(cancelled.error));
 		if (table.ids().length !== 1) throw new Error('Cancel created a row');
-		await bounded('close resources', Promise.all([app.close(), blobs.close()]));
-		const reopened = await bounded(
-			'reopen blobs',
-			openLocalBlobs({ id: application.id }),
-		);
+		await bounded('close store', app.close());
+		const reopened = await bounded('reopen blobs', openLocal(application));
 		const persisted = await bounded(
 			'persisted read',
-			reopened.get(stopped.data.blobId),
+			reopened.blobs.get(stopped.data.blobId),
 		);
 		if (persisted.error) throw new Error(JSON.stringify(persisted.error));
 		const digest = (blob: Blob) =>

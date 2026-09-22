@@ -20,7 +20,7 @@
 
 	const app = getWhisperingApp();
 	const audioBlobId = $derived(app.library.tables.recordings.get(id)?.audioBlobId);
-	const audioUrl = $derived(app.library.tables.recordings.get(id)?.audioUrl ?? null);
+	const remoteAudio = $derived(app.library.tables.recordings.get(id)?.remoteAudio ?? null);
 	const log = createLogger('whispering/audio-player');
 	let handle = $state.raw<BlobSource | null>(null);
 	let failure = $state<string | null>(null);
@@ -36,7 +36,7 @@
 
 		let cancelled = false;
 		let owned: BlobSource | null = null;
-		void openRecordingAudio(app.localBlobs, app.remoteBlobs, { audioBlobId, audioUrl })
+		void openRecordingAudio(app, { audioBlobId, remoteAudio })
 			.then(({ data, error }) => {
 				if (error && !cancelled) failure = 'Audio is unavailable on this device.';
 				if (data === null) return;

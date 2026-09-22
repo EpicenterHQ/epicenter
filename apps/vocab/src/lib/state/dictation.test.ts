@@ -52,7 +52,7 @@ test('close releases pending microphone startup without transcribing its final f
 		await transcribed.promise;
 		return Response.json({ text: 'last phrase' });
 	};
-	const dictation = createDictation(client);
+	const dictation = createDictation(() => client);
 	const options = { onTranscript: () => events.push('delivered') };
 	const starting = dictation.start(options);
 	const duplicate = dictation.start(options);
@@ -76,7 +76,7 @@ test('a failed recorder release reports its error', async () => {
 	const failure = { name: 'StopFailed', message: 'microphone teardown failed' };
 	start = async () => Ok(undefined);
 	stop = async () => ({ data: null, error: failure });
-	const dictation = createDictation(client);
+	const dictation = createDictation(() => client);
 	expectOk(await dictation.start({ onTranscript() {} }));
 	await expect(dictation.close()).rejects.toEqual(failure);
 	expect(dictation.status).toBe('listening');
@@ -94,7 +94,7 @@ test('ordinary stop delivers its final phrase and rejects later model callbacks'
 		return Ok(undefined);
 	};
 	respond = async () => Response.json({ text: 'captured' });
-	const dictation = createDictation(client);
+	const dictation = createDictation(() => client);
 	expectOk(
 		await dictation.start({
 			onTranscript: (result) => delivered.push(expectOk(result)),
@@ -124,7 +124,7 @@ test('close does not wait for in-flight transcription and suppresses its result'
 		return Response.json({ text: 'late' });
 	};
 	const delivered: string[] = [];
-	const dictation = createDictation(client);
+	const dictation = createDictation(() => client);
 	expectOk(
 		await dictation.start({
 			onTranscript: (result) => delivered.push(expectOk(result)),

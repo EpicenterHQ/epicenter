@@ -25,8 +25,8 @@
 	const open =
 		connecting || params.has('stopped')
 			? undefined
-			: (signal: AbortSignal) =>
-					openWhisperingResources(auth.getState().account, signal);
+			: (signal: AbortSignal, account: import('@epicenter/auth').Account | undefined) =>
+					openWhisperingResources(account, signal);
 	async function selectLibrary(next: typeof library) {
 		if (next === library) return;
 		if (!connecting) {

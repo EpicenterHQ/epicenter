@@ -44,7 +44,7 @@ function call<T>(command: string, args?: Record<string, unknown>) {
 /** The App owns capture; Stop commits bytes to its app-local store. */
 export function createDesktopRecording(
 	appId: string,
-	{ assertUsable, account }: RecordingOptions,
+	{ assertUsable }: RecordingOptions,
 ): RecordingOwner {
 	if (!isAppId(appId)) throw new Error(`Invalid recording app ID '${appId}'.`);
 	const sessionId = crypto.randomUUID();
@@ -343,10 +343,13 @@ export function createDesktopRecording(
 					starting = true;
 					try {
 						if (!registered) {
-							registrationAttempted = true;
-							const result = await call<void>('register_recording_session', {
+							const generation = await call<number>('recording_document_generation');
+                            if (generation.error) return generation;
+                            if (closed) return RecorderError.NoActiveRecording();
+                            registrationAttempted = true;
+                            const result = await call<void>('register_recording_session', {
 								appId,
-								account,
+								generation: generation.data,
 								sessionId,
 							});
 							if (result.error) return result;

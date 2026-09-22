@@ -175,9 +175,9 @@ try {
 		await accept(next);
 		await stopped(next).waitFor();
 		await next.waitForFunction(() =>
-			window.bootProbe.events.includes('sign-out-started'),
+			window.bootProbe?.events.includes('sign-out-started'),
 		);
-		assert.equal(new URL(next.url()).search, '?hold-signout');
+		assert(new URL(next.url()).searchParams.has('signout'));
 		assert.equal(await working(next).count(), 0);
 		assert.equal(await claims(next), 1);
 		assert(!(await events(next)).includes('signed-out'));
@@ -209,7 +209,7 @@ try {
 		await stopped(next).waitFor();
 		await next.waitForFunction(
 			() =>
-				window.bootProbe.events.includes('sign-out-started') &&
+				window.bootProbe?.events.includes('sign-out-started') &&
 				window.bootProbe.events.includes('sign-in-finished'),
 		);
 		assert(await stopped(next).isDisabled());
@@ -233,7 +233,7 @@ try {
 		await next.getByRole('button', { name: 'Continue', exact: true }).click();
 		await stopped(next).waitFor();
 		await next.waitForFunction(() =>
-			window.bootProbe.events.includes('sign-out-started'),
+			window.bootProbe?.events.includes('sign-out-started'),
 		);
 		assert.equal(
 			await next.getByRole('button', { name: 'Account', exact: true }).count(),
@@ -256,14 +256,14 @@ try {
 		await working(next).waitFor();
 		await accept(next);
 		await next.waitForFunction(() =>
-			window.bootProbe.events.includes('sign-out-started'),
+			window.bootProbe?.events.includes('sign-out-started'),
 		);
 		await next.evaluate(() => window.destroyBoot());
 		await next.evaluate(() => window.bootProbe.releaseSignOut());
 		await next.waitForFunction(() =>
-			window.bootProbe.events.includes('sign-out-action-finished'),
+			window.bootProbe.events.includes('signed-out'),
 		);
-		assert.equal(new URL(next.url()).search, '?hold-signout');
+		assert(new URL(next.url()).searchParams.has('signout'));
 		assert.equal(await next.locator('#app').innerHTML(), '');
 		assert.equal(await claims(next), 1);
 		await done(next, scenario);
@@ -377,16 +377,15 @@ try {
 		await done(next, scenario);
 	}
 	scenario =
-		'unmount while opening releases eventual acquisition without mounting UI';
+		'unmount while opening retains page roots without mounting UI';
 	{
 		const next = await page('?local&opening=held');
 		await next.getByText('Opening your changes…').waitFor();
 		await next.evaluate(() => window.destroyBoot());
 		assert.equal(await next.locator('#app').innerHTML(), '');
 		await next.evaluate(() => window.bootProbe.releaseOpening());
-		await next.waitForFunction(() =>
-			window.bootProbe.events.includes('closed'),
-		);
+		await next.evaluate(() => window.observedBoot.opening);
+        assert(!(await events(next)).includes('closed'));
 		assert(!(await events(next)).includes('session-mounted'));
 		await done(next, scenario);
 	}

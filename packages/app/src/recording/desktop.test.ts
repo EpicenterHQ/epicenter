@@ -57,7 +57,9 @@ function setup(options: Partial<RecordingOptions> = {}) {
 			case 'request_microphone_permission':
 			case 'get_microphone_permission':
 				return 'granted';
-			case 'register_recording_session':
+			case 'recording_document_generation':
+                return 1;
+            case 'register_recording_session':
 				return;
 			case 'start_recording':
 				active = true;
@@ -103,6 +105,11 @@ test('construction and construction-only close acquire no native session', async
 test('Stop returns the admitted WAV key and refuses an unrelated saved receipt', async () => {
 	const { owner, live } = setup();
 	const recording = expectOk(await owner.value.start({}));
+	expect(
+		invoke.mock.calls.find(
+			([command]) => command === 'register_recording_session',
+		)?.[1],
+	).not.toHaveProperty('account');
 	const original = perform;
 	perform = async (command, args) =>
 		command === 'stop_recording'
@@ -165,11 +172,12 @@ test('lost registration reply still closes the exact pending document', async ()
 	expect(expectErr(await owner.value.start({})).name).toBe('RecorderFailed');
 	await owner.close();
 	expect(invoke.mock.calls.map(([name]) => name)).toEqual([
+        'recording_document_generation',
 		'register_recording_session',
 		'close_recording_session',
 	]);
-	expect(invoke.mock.calls[1]?.[1]?.sessionId).toEqual(
-		invoke.mock.calls[0]?.[1]?.sessionId,
+	expect(invoke.mock.calls[2]?.[1]?.sessionId).toEqual(
+		invoke.mock.calls[1]?.[1]?.sessionId,
 	);
 });
 

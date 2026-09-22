@@ -121,37 +121,42 @@ export function mountBlobsApp<E extends Env = Env>(
 		const blobId = generateBlobId(
 			selectBlobFormat({ type: contentType }).extension,
 		);
-		await c.var.blobStore.put(
+		const outcome = await c.var.blobStore.put(
 			c.var.blobPrefix + blobId,
 			new Blob(chunks, {
 				type: contentType,
 			}),
 			c.req.raw.signal,
 		);
-		return c.json(
-			{
-				url: REMOTE_BLOB_ROUTES.objectUrl(
-					c.var.authBaseURL,
-					c.req.param('appId')!,
-					c.var.principal.id,
-					blobId,
-				),
-			},
-			201,
-		);
+		if (outcome === 'conflict')
+			return c.text('Could not allocate blob storage', 503);
+		if (outcome === 'uncertain')
+			return c.text('Publication could not be confirmed', 503);
+		return c.json({ id: blobId }, 201);
 	});
-	app.get(REMOTE_BLOB_ROUTES.object, auth, admit, async (c) => {
+	app.on(['GET', 'HEAD'], REMOTE_BLOB_ROUTES.object, auth, admit, async (c) => {
 		const id = parseBlobId(c.req.param('blobId'));
 		if (!id) return c.notFound();
+		if (c.req.header('x-epicenter-copy-destination-app') !== undefined)
+			return c.text('Native copy requires the desktop broker', 400);
+		const forwarded = new Headers();
+		for (const name of ['range', 'if-match', 'if-range']) {
+			const value = c.req.header(name);
+			if (value !== undefined) forwarded.set(name, value);
+		}
+		const range = forwarded.get('range');
+		if (range !== null && !/^bytes=(?:\d+-\d*|-\d+)$/.test(range))
+			return c.text('A single byte range is required', 400);
 		const response = await c.var.blobStore.get(
 			c.var.blobPrefix + id,
 			c.req.raw.signal,
+			{ method: c.req.method === 'HEAD' ? 'HEAD' : 'GET', headers: forwarded },
 		);
 		if (response.status === 404) {
 			await response.body?.cancel();
 			return c.notFound();
 		}
-		if (!response.ok) {
+		if (![200, 206, 412, 416].includes(response.status)) {
 			await response.body?.cancel();
 			return c.text('Blob storage read failed', 502);
 		}
@@ -163,9 +168,21 @@ export function mountBlobsApp<E extends Env = Env>(
 			'content-disposition': 'attachment',
 			'content-security-policy': "sandbox; default-src 'none'",
 		});
-		const size = response.headers.get('content-length');
-		if (size !== null) headers.set('content-length', size);
-		return new Response(response.body, { headers });
+		for (const name of [
+			'content-length',
+			'content-range',
+			'accept-ranges',
+			'etag',
+		]) {
+			const value = response.headers.get(name);
+			if (value !== null) headers.set(name, value);
+		}
+		if (c.req.method === 'HEAD' || !response.ok) {
+			await response.body?.cancel();
+			if (!response.ok) headers.delete('content-length');
+			return new Response(null, { status: response.status, headers });
+		}
+		return new Response(response.body, { status: response.status, headers });
 	});
 	app.delete(REMOTE_BLOB_ROUTES.object, auth, admit, async (c) => {
 		const id = parseBlobId(c.req.param('blobId'));

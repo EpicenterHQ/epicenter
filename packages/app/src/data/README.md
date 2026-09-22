@@ -67,9 +67,9 @@ detect every JSON Schema keyword the underlying compiler might ignore.
 
 ## Current-data startup
 
-Applications await `openApp` from `@epicenter/app/open` for a ready App; see the
-[App README](../../README.md). The App captures its account, claims exclusive ownership, and calls
-`acquireAppData` for every applicable data scope.
+Applications await `openLocal` or `openPersonal` from `@epicenter/app/open`; see
+the [App README](../../README.md). Each opener claims its owner address and calls
+`acquireStoreData`. App composes Local with capabilities and never opens Personal.
 Local opening needs no server. Personal opening uses a cached current
 data document when available; otherwise it POSTs an initialization candidate to the
 current-data route and installs the canonical response.

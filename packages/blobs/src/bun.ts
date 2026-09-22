@@ -107,7 +107,11 @@ export function createBunBlobStore({ directory }: { directory: string }) {
 								}
 							}
 						} finally {
-							reader.releaseLock();
+							try {
+								await reader.cancel();
+							} finally {
+								reader.releaseLock();
+							}
 						}
 					}
 					const { dev, ino } = await handle.stat();
@@ -258,8 +262,13 @@ export function createBunBlobStore({ directory }: { directory: string }) {
 		putRequest(id: BlobId, request: Request) {
 			return putData(id, request);
 		},
-		putResponse(id: BlobId, response: Response) {
-			return putData(id, response);
+		/** Publish a response under a fresh key and release its body. */
+		async putResponse(id: BlobId, response: Response) {
+			try {
+				return await putData(id, response);
+			} finally {
+				await response.body?.cancel();
+			}
 		},
 		/** Borrow a descriptor-backed BunFile. The caller must close it. */
 		openFile,
