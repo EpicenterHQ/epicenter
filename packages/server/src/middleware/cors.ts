@@ -29,6 +29,12 @@ export const corsMiddleware = createMiddleware<Env>(async (c, next) => {
 			'Range',
 		],
 		allowMethods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-		exposeHeaders: ['ETag', 'Content-Range', 'Accept-Ranges'],
+		exposeHeaders: [
+			'ETag',
+			'Content-Range',
+			'Accept-Ranges',
+			'Epicenter-Generation',
+			'Epicenter-Log-Position',
+		],
 	})(c, next);
 });
