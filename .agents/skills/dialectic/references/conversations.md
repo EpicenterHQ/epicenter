@@ -248,46 +248,50 @@ revising a recommendation can still leave the user carrying the unresolved
 work. Experiencing the conversation makes that omission available for judgment.
 
 
-## Website design: react to the rendered page
+## Blog writing: compare the rendered openings
 
-This sample draws on the blog typography exploration in conversation
-`01a0c8f6-d3a2-77f3-b9bc-9a4409167ede`. The follow-up reaction is hypothetical.
-The italicized actions below stand in for screenshots in this written example;
-in live work, actually capture and show the images.
-Make lightweight local edits or browser previews of the actual site and capture
-them with Playwright or another available tool. Keep content and viewport
-comparable so the user can judge the design itself.
+This illustrative exchange draws on the blog-opening comparison discussed in
+conversation `01a0c8c6-13fa-7903-9877-946764e5e8d3`. The proposed follow-up
+reaction is hypothetical. The italicized actions stand in for screenshots;
+in live work, render and show the actual images.
 
-> **Human:** My blog feels strange compared with Substack. Can we think about
-> a better direction for the layout and typography?
+> **Human:** We've revised the opening several times and I can't tell whether
+> it's getting better. Can I see the versions side by side?
 >
-> **Agent:** I'd start by tightening the opening so the article is easier to
-> get into. I'll show that on your actual blog, with and without changing the
-> headline font, so we can see what helps.
+> **Agent:** The latest opening states the rule, shows the code, then explains
+> what happened. The earlier opening gives readers a map of the call chain
+> first. I'll show both alongside the original on your blog so you can compare
+> how the openings actually read.
 >
-> *The agent runs the site locally and makes lightweight previews of the same
-> article: the current design, a tighter opening with the existing serif title,
-> and that same opening with a sans-serif title. It captures each at the same
-> mobile viewport, checks the images, and shows the labeled screenshots together.
-> It also supplies desktop captures at a comparable size to inspect.*
+> *The agent reconstructs the original, ASCII-first, and code-first openings
+> from available source history and the conversation. It renders local previews
+> in the actual site, keeping the viewport and unrelated styling the same.
+> Each capture includes the opening and its transition into the next section.
+> The agent checks the captures and shows the three labeled versions together.*
 >
-> **Agent:** B keeps the serif title and brings the article closer to the top.
-> C keeps B's spacing and changes the title to sans serif. Seeing them, I'd
-> start with B: the opening feels easier to enter, and the serif still suits
-> the writing.
+> **Agent:** The code-first version gets to a concrete example sooner. The
+> ASCII-first version shows the whole chain before asking readers to follow
+> the code. I'd start with code-first for someone skimming, but its longer
+> code block pushes the explanation farther down the page.
 >
-> **Human:** B feels closer. But I like the title's size in the original.
-> Maybe the empty space was the problem more than the font.
+> **Human:** Code-first is clearer, but now I see why the quote underneath
+> feels repetitive. Keep the opening sentence and code. Try a shorter quote.
 >
-> *The agent restores the original title size in B's preview, captures the
-> revised page, and shows it beside B at the same viewport.*
+> *The agent revises only the quote in the code-first preview and renders it
+> again. It shows that result beside the previous code-first version, with
+> enough surrounding content to judge the transition. The selected opening
+> sentence and code remain unchanged.*
 >
-> **Agent:** Here's B with the original title size. The larger heading has
-> room again, while the tighter spacing still brings the body into view.
+> **Agent:** Here's the shorter quote in place. It explains the change from
+> returning a result to acting on it, without repeating the opening rule.
 
-The screenshots give the human something to discover a preference through.
-Descriptions such as "less ceremony" can propose an intention, but the actual
-page lets them judge whether it works. Use enough of the page to experience
-the layout; a CSS diff or isolated font swatch cannot show how the opening reads.
-Reactions can change the diagnosis and combine parts of different attempts.
-Local previews are part of this exploration; publishing remains a separate action.
+The articulation describes how the opening should teach the idea. The concrete
+expression is the rendered opening, including prose, code, quotation, and their
+spacing on the site. Plain text could show the wording but would leave the
+reader's path through those elements to the user's imagination. A sentence-only
+choice may need only prose in chat; this comparison needs the page.
+
+Use the actual renderer or a local preview, and inspect the result before
+showing it. Keep comparison conditions consistent without forcing versions to
+have equal heights: changes in flow are part of the result. Previewing a
+proposal does not require publishing it or replacing the authored source.

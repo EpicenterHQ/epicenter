@@ -37,6 +37,13 @@ Recommend a direction when you have grounds for one, explaining consequential
 choices. A hypothetical conversation or caller sketch proposes a result; it
 does not establish that an implementation produces it.
 
+Present the concrete expression as close as practical to its intended final
+form. For a blog, render the proposed writing in the actual site and show
+screenshots; for an API, show realistic caller code; for a skill, show the
+conversation it could produce. Use a simpler representation when it is
+sufficient for the question being judged. Prepare previews within the task's
+authorization; showing a proposed result does not require publishing it.
+
 Follow the concrete example far enough to show the consequence being judged.
 If resource lifetimes matter, show sharing and cleanup. If a skill's response
 to uncertainty matters, show that later turn. If a passage's movement or ending
@@ -45,9 +52,11 @@ question, not an entire application or a rewrite of settled work. Economical
 commentary does not require a short expression.
 
 Compare alternatives when their difference could resolve an open question or
-reveal a preference. One strong attempt may suffice. Choose the scope and
-number for what they let the user discover, and preserve choices already
-settled.
+reveal a preference. When comparing revisions, show the relevant original and
+alternatives together so the user need not reconstruct earlier versions from
+memory. Keep unrelated conditions comparable while allowing the proposed
+change to show its consequences. One strong attempt may suffice; choose the
+scope and number for what they let the user discover, preserving settled choices.
 
 ## Learn from the response
 
