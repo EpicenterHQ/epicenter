@@ -4,8 +4,8 @@
  * Domain commands preserve note defaults, selection changes, and folder reparenting.
  */
 import { expect, mock, test } from 'bun:test';
-import { openApp } from '@epicenter/app/open';
-import { createMemoryRuntime } from '@epicenter/app/testing';
+import { openLocal } from '@epicenter/app/open';
+import { createMemoryStoreRuntime } from '@epicenter/app/testing';
 import type { ReactiveData } from '@epicenter/svelte';
 import {
 	deleteHoneycrispFolder,
@@ -97,27 +97,27 @@ test.each([
 });
 
 test('note creation uses the displayed folder and deletion clears selection', async () => {
-	const app = await openApp(honeycrispDefinition, {
-		runtime: createMemoryRuntime(),
+	const app = await openLocal(honeycrispDefinition, {
+		runtime: createMemoryStoreRuntime(),
 	});
 	try {
-		const folder = app.device.tables.folders.create({
+		const folder = app.tables.folders.create({
 			name: 'Work',
 			icon: null,
 		});
 		navigation.folderId = folder.id;
-		createNote(app.device);
-		const note = app.device.tables.notes.rows[0];
+		createNote(app);
+		const note = app.tables.notes.rows[0];
 		if (!note) throw new Error('Expected created note');
 		expect(note.folderId).toBe(folder.id);
 		expect(note.title).toBe('');
 		expect(note.deletedAt).toBeNull();
 		expect(navigation.selectNote).toHaveBeenLastCalledWith(note.id);
-		deleteNote(app.device, note.id);
-		expect(app.device.tables.notes.get(note.id)?.deletedAt).not.toBeNull();
+		deleteNote(app, note.id);
+		expect(app.tables.notes.get(note.id)?.deletedAt).not.toBeNull();
 		expect(navigation.noteRemoved).toHaveBeenLastCalledWith(note.id);
-		permanentlyDeleteNote(app.device, note.id);
-		expect(app.device.tables.notes.get(note.id)).toBeUndefined();
+		permanentlyDeleteNote(app, note.id);
+		expect(app.tables.notes.get(note.id)).toBeUndefined();
 	} finally {
 		navigation.folderId = null;
 		await app.close();
@@ -125,22 +125,22 @@ test('note creation uses the displayed folder and deletion clears selection', as
 });
 
 test('deleting a folder preserves its notes and removes their folder assignment', async () => {
-	const app = await openApp(honeycrispDefinition, {
-		runtime: createMemoryRuntime(),
+	const app = await openLocal(honeycrispDefinition, {
+		runtime: createMemoryStoreRuntime(),
 	});
 	try {
-		const folder = app.device.tables.folders.create({
+		const folder = app.tables.folders.create({
 			name: 'Work',
 			icon: null,
 		});
 		navigation.folderId = folder.id;
-		createNote(app.device);
-		const note = app.device.tables.notes.rows[0];
+		createNote(app);
+		const note = app.tables.notes.rows[0];
 		if (!note) throw new Error('Expected created note');
-		deleteHoneycrispFolder(app.device, folder.id);
-		expect(app.device.tables.folders.get(folder.id)).toBeUndefined();
-		expect(app.device.tables.notes.get(note.id)?.folderId).toBeNull();
-		expect(app.device.tables.notes.get(note.id)?.deletedAt).toBeNull();
+		deleteHoneycrispFolder(app, folder.id);
+		expect(app.tables.folders.get(folder.id)).toBeUndefined();
+		expect(app.tables.notes.get(note.id)?.folderId).toBeNull();
+		expect(app.tables.notes.get(note.id)?.deletedAt).toBeNull();
 	} finally {
 		navigation.folderId = null;
 		await app.close();

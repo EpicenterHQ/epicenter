@@ -43,14 +43,12 @@ test('failed import preserves saved sibling bytes and refuses new work after ret
 	const rows: Array<Record<string, unknown> & { id: string }> = [];
 	const app = {
 		signal: new AbortController().signal,
-		blobs: {
-			local: {
-				add: async () => {
-					const id = generateBlobId('wav');
-					savedKeys.push(id);
-					await publication.promise;
-					return Ok(id);
-				},
+		localBlobs: {
+			add: async () => {
+				const id = generateBlobId('wav');
+				savedKeys.push(id);
+				await publication.promise;
+				return Ok(id);
 			},
 		},
 		library: {
@@ -105,14 +103,12 @@ test('retirement during import publication preserves committed bytes without a r
 	const app = {
 		signal: controller.signal,
 		recordingEnabled: true,
-		blobs: {
-			local: {
-				add: async (audio: Blob) => {
-					entered.resolve();
-					await release.promise;
-					bytes.set(blobId, audio);
-					return Ok(blobId);
-				},
+		localBlobs: {
+			add: async (audio: Blob) => {
+				entered.resolve();
+				await release.promise;
+				bytes.set(blobId, audio);
+				return Ok(blobId);
 			},
 		},
 		library: { tables: { recordings: { create } } },

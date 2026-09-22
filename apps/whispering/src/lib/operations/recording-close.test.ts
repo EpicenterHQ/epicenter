@@ -103,7 +103,7 @@ function recordingApp<T extends object>(
 ) {
 	const app = {
 		signal: new AbortController().signal,
-		device: { kv: { update: mock() } },
+		local: { kv: { update: mock() } },
 		library: {
 			tables: {
 				recordings: {
@@ -116,7 +116,7 @@ function recordingApp<T extends object>(
 			},
 		},
 		...options,
-	} as T & WhisperingApp;
+	} as unknown as T & WhisperingApp;
 	const session = createWhisperingRecording(app, service);
 	Object.defineProperty(app, 'recording', { value: session.recording });
 	return app;
@@ -150,7 +150,7 @@ test('disposal releases an armed VAD engine without waiting for save work', asyn
 test('VAD acquired after disposal is immediately released', async () => {
 	const app = recordingApp({
 		recordingEnabled: true,
-		device: { kv: { update: mock() } },
+		local: { kv: { update: mock() } },
 	});
 	initialized = Promise.withResolvers<void>();
 	const starting = startVadRecording(app);
@@ -176,7 +176,7 @@ test('queued capture actions cannot restart a disposed UI session', async () => 
 test('a late VAD frame cannot save through its retired App', async () => {
 	const app = recordingApp({
 		recordingEnabled: true,
-		device: { kv: { update: mock() } },
+		local: { kv: { update: mock() } },
 	});
 	await startVadRecording(app as unknown as WhisperingApp);
 	app.recordingEnabled = false;
@@ -234,7 +234,7 @@ test('push-to-talk release during startup saves through the composed workflow', 
 	const app = recordingApp(
 		{
 			recordingEnabled: true,
-			device: { kv: { update: mock() } },
+			local: { kv: { update: mock() } },
 		},
 		service,
 	);
@@ -261,7 +261,7 @@ test('disposal cancels active capture without finalizing a recording', async () 
 	const app = {
 		signal: new AbortController().signal,
 		recordingEnabled: true,
-		device: { kv: { update: mock() } },
+		local: { kv: { update: mock() } },
 		library: { tables: { recordings: {} } },
 	} as unknown as WhisperingApp;
 	const session = createWhisperingRecording(app, {
@@ -283,7 +283,7 @@ test('capture acquired after disposal is cancelled without publishing a row', as
 	const app = {
 		signal: new AbortController().signal,
 		recordingEnabled: true,
-		device: { kv: { update: mock() } },
+		local: { kv: { update: mock() } },
 		library: { tables: { recordings: { create } } },
 	} as unknown as WhisperingApp;
 	const session = createWhisperingRecording(app, {

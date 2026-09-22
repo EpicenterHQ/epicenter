@@ -1,6 +1,5 @@
 <script lang="ts">
-	import type { App } from '@epicenter/app/open';
-	import type { mailDefinition } from '$lib/data.js';
+	import type { openMailResources } from '$lib/resources.js';
 	import { onDestroy } from 'svelte';
 	import { Button } from '@epicenter/ui/button';
 	import SavedQueries from '$lib/components/SavedQueries.svelte';
@@ -28,7 +27,7 @@
 	import RemoveAccountDialog from '$lib/components/RemoveAccountDialog.svelte';
 	import { attachMail, mail } from '$lib/mail';
 
-	let { app }: { app: App<typeof mailDefinition> } = $props();
+	let { app }: { app: Awaited<ReturnType<typeof openMailResources>> } = $props();
 	// svelte-ignore state_referenced_locally
 	const closeMail = attachMail(app);
 	onDestroy(() => {
@@ -373,7 +372,7 @@
 		>
 	</div>
 	<div hidden={view !== 'queries'} class="min-h-0 flex-1 overflow-auto">
-		<SavedQueries data={app.account!.personal} account={selectedAccount} />
+		<SavedQueries data={app.personal} account={selectedAccount} />
 	</div>
 	<div
 		hidden={view !== 'mail'}

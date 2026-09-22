@@ -12,18 +12,19 @@ function setup() {
 		id: 'recording',
 		audioBlobId: generateBlobId('wav'),
 	} as Recording;
-	const addLocal = mock(async () => Ok('https://cloud.example/saved'));
+	const addFrom = mock(async () => Ok('https://cloud.example/saved'));
 	const get = mock();
 	const patch = mock(() => Ok(undefined));
 	const lifetime = new AbortController();
 	const app = {
 		signal: lifetime.signal,
-		blobs: { local: { get }, remote: { addLocal } },
+		localBlobs: { get },
+		remoteBlobs: { addFrom },
 		library: {
 			tables: { recordings: { update: patch, get: () => recording } },
 		},
 	} as unknown as WhisperingApp;
-	return { recording, app, addLocal, get, patch, lifetime };
+	return { recording, app, addFrom, get, patch, lifetime };
 }
 
 test('upload sends a local ID and retains the returned remote URL', async () => {
@@ -32,9 +33,13 @@ test('upload sends a local ID and retains the returned remote URL', async () => 
 	expect(
 		expectOk(await uploadRecording(f.app, f.recording, cancellation.signal)),
 	).toBe('https://cloud.example/saved');
-	expect(f.addLocal).toHaveBeenCalledWith(f.recording.audioBlobId, {
-		signal: cancellation.signal,
-	});
+	expect(f.addFrom).toHaveBeenCalledWith(
+		f.app.localBlobs,
+		f.recording.audioBlobId,
+		{
+			signal: cancellation.signal,
+		},
+	);
 	expect(f.get).not.toHaveBeenCalled();
 	expect(f.patch).toHaveBeenCalledWith(f.recording.id, {
 		audioUrl: 'https://cloud.example/saved',
@@ -44,9 +49,9 @@ test('upload sends a local ID and retains the returned remote URL', async () => 
 test('a refused upload preserves the row reference', async () => {
 	const f = setup();
 	const remote = {
-		addLocal: async () => RemoteBlobsError.TooLarge({ size: 100_000_000 }),
+		addFrom: async () => RemoteBlobsError.TooLarge({ size: 100_000_000 }),
 	};
-	Object.assign(f.app.blobs, { remote });
+	Object.assign(f.app, { remoteBlobs: remote });
 	expect(
 		expectErr(
 			await uploadRecording(f.app, f.recording, new AbortController().signal),
@@ -57,7 +62,7 @@ test('a refused upload preserves the row reference', async () => {
 
 test('Account retirement suppresses a late row write without deleting the remote result', async () => {
 	const f = setup();
-	f.addLocal.mockImplementation(async () => {
+	f.addFrom.mockImplementation(async () => {
 		f.lifetime.abort();
 		return Ok('https://cloud.example/saved');
 	});

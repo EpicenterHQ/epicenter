@@ -1,5 +1,9 @@
 <script lang="ts">
-import { pickableRecipes, saveRecipe } from '../../../../lib/whispering/recipes.js';
+	import { getConnectionScreen } from '@epicenter/app-shell/boot-screens';
+	import {
+		pickableRecipes,
+		saveRecipe,
+	} from '../../../../lib/whispering/recipes.js';
 
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -19,6 +23,7 @@ import { pickableRecipes, saveRecipe } from '../../../../lib/whispering/recipes.
 	import { getWhisperingApp } from '$lib/whispering/context';
 
 	const app = getWhisperingApp();
+	const openConnection = getConnectionScreen();
 
 	let editorOpen = $state(false);
 	let isEditing = $state(false);
@@ -40,17 +45,29 @@ import { pickableRecipes, saveRecipe } from '../../../../lib/whispering/recipes.
 	}
 
 	function save() {
+		if (!app.personal) return;
 		const name = working.name.trim();
 		const instructions = working.instructions.trim();
 		if (!name) {
-			report.info({ title: 'Name your recipe', description: 'Give it a short name like "Email" or "Standup".' });
+			report.info({
+				title: 'Name your recipe',
+				description: 'Give it a short name like "Email" or "Standup".',
+			});
 			return;
 		}
 		if (!instructions) {
-			report.info({ title: 'Add an instruction', description: 'One line telling the AI what to do with the text.' });
+			report.info({
+				title: 'Add an instruction',
+				description: 'One line telling the AI what to do with the text.',
+			});
 			return;
 		}
-		saveRecipe(app.library, { ...$state.snapshot(working), name, instructions });
+		if (!app.personal) return;
+		saveRecipe(app.personal, {
+			...$state.snapshot(working),
+			name,
+			instructions,
+		});
 		editorOpen = false;
 		report.success({ title: isEditing ? 'Recipe updated' : 'Recipe created' });
 	}
@@ -61,7 +78,7 @@ import { pickableRecipes, saveRecipe } from '../../../../lib/whispering/recipes.
 			description: 'This removes the recipe everywhere. It cannot be undone.',
 			confirm: { text: 'Delete', variant: 'destructive' },
 			onConfirm: async () => {
-				app.library.tables.recipes.delete(recipe.id);
+				app.personal?.tables.recipes.delete(recipe.id);
 				report.success({ title: 'Recipe deleted' });
 			},
 		});
@@ -87,14 +104,18 @@ import { pickableRecipes, saveRecipe } from '../../../../lib/whispering/recipes.
 
 	<Card class="flex flex-col gap-4 p-6">
 		<div class="flex items-center justify-between gap-2">
-			<h2 class="text-lg font-semibold">Your library</h2>
+			<h2 class="text-lg font-semibold">Recipes</h2>
+			{#if app.personal}
 			<Button variant="outline" onclick={openNew}>
 				<PlusIcon class="size-4" /> New recipe
 			</Button>
+			{:else}
+			<Button variant="outline" onclick={openConnection}>Sign in to create recipes</Button>
+			{/if}
 		</div>
 
 		<ul class="flex flex-col divide-y">
-			{#each pickableRecipes(app.library) as recipe (recipe.id)}
+			{#each pickableRecipes(app.personal) as recipe (recipe.id)}
 				{@const builtin = isBuiltinRecipeId(recipe.id)}
 				<li class="flex items-start justify-between gap-4 py-3">
 					<div class="min-w-0 flex-1">

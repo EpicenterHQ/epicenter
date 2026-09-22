@@ -2,7 +2,11 @@
 	import { AppBoot } from '@epicenter/app-shell/boot-screens';
 	import { auth } from '#platform/auth';
 	import { resolve } from '$app/paths';
-	import { honeycrispDefinition } from '$lib/data.js';
+	import { openHoneycrispResources } from '$lib/resources.js';
+	const open = new URL(location.href).searchParams.has('stopped')
+		? undefined
+		: (signal: AbortSignal) =>
+				openHoneycrispResources(auth.getState().account, signal);
 	import { page } from '$app/state';
 	import SignInButton from '../components/SignInButton.svelte';
 	import Notes from '../components/Notes.svelte';
@@ -11,7 +15,7 @@
 
 <AppBoot
 	{auth}
-	definition={honeycrispDefinition}
+	{open}
 	signInHref={resolve('/connect')}
 	signedOutHref={resolve('/')}
 	appName="Honeycrisp"
@@ -19,9 +23,9 @@
 >
 	{#snippet children(app)}
 		{#if page.params.collection === 'local'}
-			<Notes data={app.device} />
-		{:else if app.account}
-			<Notes data={app.account.personal} />
+			<Notes data={app.local} />
+		{:else if app.personal}
+			<Notes data={app.personal} />
 		{:else}
 			<div class="flex h-dvh flex-col items-center justify-center gap-4">
 				<NotesLinks />

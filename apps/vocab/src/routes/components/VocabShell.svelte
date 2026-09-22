@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference-selections';
-	import type { App } from '@epicenter/app/open';
+	import type { openVocabResources } from '$lib/resources.js';
 	import { createDictation } from "$lib/state/dictation.svelte";
 	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
 	import { createAgentChatState } from '@epicenter/app-shell/agent-chat';
@@ -8,7 +8,6 @@
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { VOCAB_MODEL, VOCAB_SYSTEM_PROMPT } from '$lib/data';
 	import { fromData } from '@epicenter/svelte';
-	import type { vocabDefinition } from '$lib/data';
 	import { onDestroy } from 'svelte';
 	import { runVocabMutation } from '$lib/mutation';
 	import { buildPracticeOpening } from '$lib/practice';
@@ -31,16 +30,16 @@
 	let {
 		data: opened,
 	}: {
-		data: App<typeof vocabDefinition>;
+		data: Awaited<ReturnType<typeof openVocabResources>>;
 	} = $props();
 
 	// svelte-ignore state_referenced_locally
-	const selections = createBrowserInferenceSelections('vocab', opened.account?.identity);
+	const selections = createBrowserInferenceSelections('vocab', opened.epicenterInference.identity);
 
 	// `fromData` runs here rather than above, because this mounts exactly once
 	// per opened store and the adaptation is per store.
 	/* svelte-ignore state_referenced_locally */
-	const data = fromData(opened.account!.personal);
+	const data = fromData(opened.personal);
 
 	// Read once, not `$derived`: the route mounts this exactly once per opened
 	// store, so `data` never changes while this component lives.
@@ -49,14 +48,14 @@
 	/* svelte-ignore state_referenced_locally */
 	const catalog = createInferenceCatalog({
 		ai: {
-			runtime: opened.device.connections.runtime,
-			connections: opened.device.connections.custom,
-			account: opened.account?.connection ?? null,
+			runtime: opened.runtimeInference,
+			connections: opened.connections,
+			account: opened.epicenterInference ?? null,
 		},
 		hostedModels: toHostedCatalog([VOCAB_MODEL]),
 	});
 	/* svelte-ignore state_referenced_locally */
-	const dictation = createDictation(opened.account?.connection?.client ?? null);
+	const dictation = createDictation(opened.epicenterInference?.client ?? null);
 	setVocabSurface({ entries, catalog, dictation });
 
 	// The shared chat registry (ADR-0047/0059) with Vocab's variation injected:
@@ -76,7 +75,7 @@
 	});
 
 	/* svelte-ignore state_referenced_locally */
-	const settings = createSettingsState({ data: opened.device });
+	const settings = createSettingsState({ data: opened.local });
 
 	onDestroy(() => {
 		void dictation.close().catch(reportBackgroundError);

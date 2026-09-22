@@ -45,7 +45,7 @@ describe('the callback opens nothing', () => {
 	test('the page delegates acquisition to its mounted AppBoot', async () => {
 		const bootNode = join(routes, '+page.svelte');
 		const source = await Bun.file(bootNode).text();
-		expect(source).toContain('definition={vocabDefinition}');
+		expect(source).toContain('openVocabResources(account, signal)');
 		expect(source).toContain('<VocabShell ');
 		expect(source).not.toMatch(/openApplication|createDeparture|attachUi/);
 		expect(source).not.toContain('showing');
@@ -62,6 +62,6 @@ describe('the callback opens nothing', () => {
 		expect(source).not.toMatch(/openApplication\s*\(|<AppBoot\b/);
 		expect(source).not.toMatch(/\bopenApp\s*\(/);
 		expect(source).toContain('= $props()');
-		expect(source).toContain('fromData(opened.account!.personal)');
+		expect(source).toContain('fromData(opened.personal)');
 	});
 });

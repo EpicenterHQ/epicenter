@@ -7,7 +7,7 @@
 </script>
 
 <InferencePicker
-	value={getInferenceTarget(app.device.kv, 'transcription')}
+	value={getInferenceTarget(app.local.kv, 'transcription')}
 	catalog={app.catalog}
 	accountModels={[{
 		id: HOSTED_TRANSCRIPTION_MODEL,
@@ -15,5 +15,5 @@
 		credits: 0,
 	}]}
 	includeRuntime
-	onSelect={({ connectionId, model }) => app.device.kv.update({ transcriptionConnection: connectionId, transcriptionModel: model })}
+	onSelect={({ connectionId, model }) => app.local.kv.update({ transcriptionConnection: connectionId, transcriptionModel: model })}
 />

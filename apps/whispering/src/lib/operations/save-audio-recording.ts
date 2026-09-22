@@ -21,7 +21,7 @@ export async function saveAudioRecording(
 	app.signal.throwIfAborted();
 	const recordedAt = InstantString.now();
 	const recordedAtZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-	const saved = await app.blobs.local.add(audio);
+	const saved = await app.localBlobs.add(audio);
 	if (saved.error !== null) return saved;
 	// Retirement retains committed bytes without publishing a row through the old App.
 	if (app.signal.aborted) return Ok(null);

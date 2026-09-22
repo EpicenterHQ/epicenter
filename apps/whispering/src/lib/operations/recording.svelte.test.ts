@@ -119,13 +119,11 @@ function setup(service?: RecordingService) {
 		WhisperingApp['library']['tables']['recordings']['create']
 	>(() => ({ id: 'saved-row' }) as never);
 	const remove = mock();
-	const add = mock<WhisperingApp['blobs']['local']['add']>(async () =>
-		Ok(blobId),
-	);
+	const add = mock<WhisperingApp['localBlobs']['add']>(async () => Ok(blobId));
 	const controller = new AbortController();
 	const app = {
 		signal: controller.signal,
-		blobs: { local: { add } },
+		localBlobs: { add },
 		recordingEnabled: true,
 		library: {
 			tables: {
@@ -136,7 +134,7 @@ function setup(service?: RecordingService) {
 				},
 			},
 		},
-		device: { kv: { update: mock() } },
+		local: { kv: { update: mock() } },
 	} as unknown as WhisperingApp;
 	const session = createWhisperingRecording(
 		app,

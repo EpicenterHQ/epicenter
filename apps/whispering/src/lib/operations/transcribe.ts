@@ -1,4 +1,3 @@
-import { readRecordingAudio } from '../whispering/recordings.js';
 import { blobInputContentType, selectBlobFormat } from '@epicenter/blobs';
 import { APIError } from 'openai';
 import {
@@ -11,7 +10,8 @@ import { isSupportedLanguage } from '../constants/languages.js';
 import type { RecordingId } from '../data.js';
 import type { WhisperingApp } from '../whispering/app.js';
 import { getInferenceTarget } from '../whispering/inference.js';
-import { getSetting } from './settings.js';
+import { readRecordingAudio } from '../whispering/recordings.js';
+import { DEVICE_DEFAULTS, PERSONAL_DEFAULTS } from './settings.js';
 import {
 	recordTranscriptionOutcome,
 	type TranscriptionSuccess,
@@ -47,9 +47,7 @@ const TranscriptionOperationError = defineErrors({
 
 /** Capture the exact saved SDK target. Discovery never chooses its destination. */
 export function resolveTranscriptionTarget(app: WhisperingApp) {
-	return app.catalog.resolve(
-		getInferenceTarget(app.device.kv, 'transcription'),
-	);
+	return app.catalog.resolve(getInferenceTarget(app.local.kv, 'transcription'));
 }
 
 /** Capture the inference target before recording or import. No selection means audio only. */
@@ -58,15 +56,20 @@ export function captureTranscription(app: WhisperingApp) {
 	const prepared = trySync({
 		try: () => {
 			app.signal.throwIfAborted();
-			const language = getSetting(app.device.kv, 'transcriptionLanguage');
+			const language =
+				app.local.kv.get('transcriptionLanguage') ??
+				DEVICE_DEFAULTS.transcriptionLanguage;
 			const spokenLanguage = isSupportedLanguage(language) ? language : 'auto';
 			const prompt = [
-				getSetting(app.device.kv, 'transcriptionPrompt').trim(),
-				(getSetting(app.device.kv, 'dictionary') ?? []).join(', '),
+				(
+					app.personal?.kv.get('transcriptionPrompt') ??
+					PERSONAL_DEFAULTS.transcriptionPrompt
+				).trim(),
+				(app.personal?.kv.get('dictionary') ?? []).join(', '),
 			]
 				.filter(Boolean)
 				.join(' ');
-			const selection = getInferenceTarget(app.device.kv, 'transcription');
+			const selection = getInferenceTarget(app.local.kv, 'transcription');
 			if (!selection) return Ok(null);
 			const target = app.catalog.resolve(selection);
 			if (!target) return TranscriptionOperationError.SelectionRequired();

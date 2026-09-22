@@ -5,26 +5,34 @@ need more than a table read. Declared application data is read through the
 existing store API. Do not add a listener set or a copied array to make a table
 reactive.
 
-`WhisperingShell` mounts only after the framework App opens. Its UI session adapts
-the selected library with `fromData` and device settings with `fromKv`. Adapting
-KV alone avoids projecting the local recording library when the person is
-viewing Personal. The context gives components those ready handles; operations
-receive their dependencies explicitly.
+`WhisperingShell` mounts after the product resources open. Its UI session uses
+`fromData` to adapt both stores. The context gives components those ready handles;
+operations receive their dependencies explicitly.
 
 ## Settings and rows
 
-Device settings belong to the captured account's local namespace. They do not
-sync. `getSetting` applies a release-local default when a key is absent or cannot
-be read; writes go directly to KV.
+Device settings use the account-independent Local store and do not sync.
+Dictionary, custom instructions, and custom recipes belong to the personal
+store. Call sites name the store and apply `DEVICE_DEFAULTS` or
+`PERSONAL_DEFAULTS` when a key is absent or unreadable. Signed-out account reads
+use built-in defaults, never device values. Editing account content requires
+sign-in. The general reset button resets device settings only.
 
 ```ts
 const app = getWhisperingApp();
-const trigger = $derived(getSetting(app.device.kv, 'recordingTrigger'));
-app.device.kv.update({ recordingTrigger: 'vad' });
+const trigger = $derived(app.local.kv.get('recordingTrigger') ?? DEVICE_DEFAULTS.recordingTrigger);
+app.local.kv.update({ recordingTrigger: 'vad' });
+const dictionary = $derived(app.personal?.kv.get('dictionary') ?? []);
 
 const recording = $derived(app.library.tables.recordings.get(recordingId));
 const history = $derived(sortedRecordings(app.library));
 ```
+
+The selected `library` remains only for recording history while its permanent
+owner is being decided. It does not route settings or recipes. Previous
+device-authored content remains downloadable from the shell; it is not copied
+into an account automatically. Dictionary is one KV array: concurrent edits
+replace that field rather than merging individual terms.
 
 `fromData` owns the live row projection. Recordings and recipes have no second
 cache or subscription lifetime. The functions in `whispering/recordings.ts` and

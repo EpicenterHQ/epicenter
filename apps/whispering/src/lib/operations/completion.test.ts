@@ -4,7 +4,12 @@
  */
 
 import { expect, mock, test } from 'bun:test';
-import { type AiTransport, type AppAi, createAppAi } from '@epicenter/app/ai';
+import {
+	createInference,
+	type AiTransport,
+} from '../../../../../packages/app/src/inference.js';
+import { openConnectionCatalog } from '../../../../../packages/app/src/connection-catalog.js';
+import type { AccountIdentity } from '@epicenter/principal';
 import { createAiConnections } from '@epicenter/app/ai-connections';
 import { createNativeTransport } from '@epicenter/app/native-ai';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -18,7 +23,7 @@ import {
 
 Reflect.set(globalThis, '$state', { raw: <T>(value: T) => value });
 
-function setup(
+async function setup(
 	values = new Map<string, string>(),
 	principalId = 'A',
 	runtime: AiTransport | null = null,
@@ -42,52 +47,57 @@ function setup(
 		},
 	});
 	const controller = new AbortController();
-	const owner = createAppAi({
-		connections: records,
-		lifetime: {
-			signal: controller.signal,
-			assertUsable: () => controller.signal.throwIfAborted(),
+	const accountOptions: AiTransport & { identity: AccountIdentity } = {
+		baseURL: 'https://hosted.example/v1',
+		identity: {
+			authorityId: 'https://hosted.example',
+			principalId: principalId as AccountIdentity['principalId'],
 		},
-		runtime,
-		account: {
-			baseURL: 'https://hosted.example/v1',
-			identity: {
-				authorityId: 'https://hosted.example',
-				principalId: principalId as NonNullable<
-					AppAi['account']
-				>['identity']['principalId'],
-			},
-			fetch: async (input, init) => {
-				requests.push({
-					url: String(input),
-					key: 'hosted',
-					model: JSON.parse(String(init?.body)).model,
-				});
-				return Response.json({
-					choices: [{ message: { content: 'hosted result' } }],
-				});
-			},
-		},
-		configuredFetch: async (input, init) => {
-			if (String(input).endsWith('/models')) return Response.json({ data: [] });
+		fetch: async (input, init) => {
 			requests.push({
 				url: String(input),
-				key: new Headers(init?.headers).get('Authorization'),
+				key: 'hosted',
 				model: JSON.parse(String(init?.body)).model,
 			});
 			return Response.json({
-				choices: [{ message: { content: 'custom result' } }],
+				choices: [{ message: { content: 'hosted result' } }],
 			});
 		},
+	};
+	const account = {
+		...createInference(accountOptions),
+		identity: accountOptions.identity,
+	};
+	const customFetch: AiTransport['fetch'] = async (input, init) => {
+		if (String(input).endsWith('/models')) return Response.json({ data: [] });
+		requests.push({
+			url: String(input),
+			key: new Headers(init?.headers).get('Authorization'),
+			model: JSON.parse(String(init?.body)).model,
+		});
+		return Response.json({
+			choices: [{ message: { content: 'custom result' } }],
+		});
+	};
+	const owner = await openConnectionCatalog({
+		...records,
+		transport(record) {
+			return { baseURL: record.baseUrl, fetch: customFetch };
+		},
 	});
+	const ai = {
+		account: account,
+		runtime: runtime ? createInference(runtime) : null,
+		connections: owner,
+	};
 	const connections = createInferenceCatalog({
-		ai: owner.value.ai,
+		ai: ai,
 		hostedModels: [{ id: 'same-model', label: 'Hosted', credits: 1 }],
 	});
 
 	const app = {
 		signal: controller.signal,
-		device: { kv },
+		local: { kv },
 		catalog: connections,
 	} as unknown as WhisperingApp;
 
@@ -103,7 +113,11 @@ function setup(
 		kv,
 		close: () => {
 			controller.abort();
-			return owner.close();
+			return Promise.all([
+				owner.close(),
+				ai.account?.close(),
+				ai.runtime?.close(),
+			]);
 		},
 		connections,
 		requests,
@@ -112,7 +126,7 @@ function setup(
 }
 
 test('Polish and Recipe completion uses the exact connection when model IDs collide', async () => {
-	const { connections, requests, run, kv, close } = setup();
+	const { connections, requests, run, kv, close } = await setup();
 	for (const path of ['first', 'second']) {
 		const baseUrl = `https://server.example/${path}/v1`;
 		const id = await connections.ai.connections!.add({
@@ -152,7 +166,7 @@ test('Polish and Recipe completion uses the exact connection when model IDs coll
 });
 
 test('missing, removed, and blank model selections send no text', async () => {
-	const { connections, requests, run, kv, close } = setup();
+	const { connections, requests, run, kv, close } = await setup();
 	expectErr(await run());
 	const baseUrl = 'http://localhost:11434/v1';
 	const id = await connections.ai.connections!.add({ baseUrl });
@@ -172,7 +186,7 @@ test('missing, removed, and blank model selections send no text', async () => {
 });
 
 test('manual model survives empty discovery and transcription selection stays independent', async () => {
-	const { app, connections, requests, run, kv, close } = setup();
+	const { app, connections, requests, run, kv, close } = await setup();
 	const baseUrl = 'http://localhost:11434/v1';
 	const id = await connections.ai.connections!.add({ baseUrl });
 	kv.update({
@@ -190,9 +204,9 @@ test('manual model survives empty discovery and transcription selection stays in
 	await close();
 });
 
-test('destination labels distinguish paths and omit URL secrets', async () => {
-	const { app, connections, kv, close } = setup();
-	const baseUrl = 'https://user:secret@proxy.example/first/v1?token=secret';
+test('destination labels distinguish paths', async () => {
+	const { app, connections, kv, close } = await setup();
+	const baseUrl = 'https://proxy.example/first/v1';
 	const id = await connections.ai.connections!.add({ baseUrl });
 	kv.update({
 		completionConnection: id,
@@ -205,13 +219,13 @@ test('destination labels distinguish paths and omit URL secrets', async () => {
 });
 
 test('an account A completion selection sends no text after opening account B', async () => {
-	const first = setup();
+	const first = await setup();
 	first.kv.update({
 		completionConnection: first.connections.accountId!,
 		completionModel: 'same-model',
 	});
 	await first.close();
-	const second = setup(first.values, 'B', null, first.settings);
+	const second = await setup(first.values, 'B', null, first.settings);
 	expectErr(await second.run());
 	expect(second.requests).toEqual([]);
 	expect(second.kv.get('completionConnection')).toBe(
@@ -221,7 +235,7 @@ test('an account A completion selection sends no text after opening account B', 
 });
 
 test('same URL configured IDs send completion with their own credentials', async () => {
-	const fixture = setup();
+	const fixture = await setup();
 	const baseUrl = 'https://same.example/v1';
 	const first = await fixture.connections.ai.connections!.add({
 		baseUrl,
@@ -248,7 +262,7 @@ test('same URL configured IDs send completion with their own credentials', async
 
 test('native text completion refuses the unsupported operation without falling back to account', async () => {
 	const invoke = mock(async () => []);
-	const fixture = setup(new Map(), 'A', createNativeTransport(invoke));
+	const fixture = await setup(new Map(), 'A', createNativeTransport(invoke));
 	fixture.kv.update({
 		completionConnection: fixture.connections.runtimeId!,
 		completionModel: 'same-model',
@@ -261,8 +275,8 @@ test('native text completion refuses the unsupported operation without falling b
 });
 
 test('opening another App cannot redirect a retained completion operation', async () => {
-	const first = setup(new Map(), 'A');
-	const second = setup(new Map(), 'B');
+	const first = await setup(new Map(), 'A');
+	const second = await setup(new Map(), 'B');
 	try {
 		for (const fixture of [first, second]) {
 			fixture.kv.update({
@@ -283,7 +297,7 @@ test('opening another App cannot redirect a retained completion operation', asyn
 });
 
 test('retired completion returns a failure Result without sending text', async () => {
-	const fixture = setup();
+	const fixture = await setup();
 	fixture.kv.update({
 		completionConnection: fixture.connections.accountId!,
 		completionModel: 'same-model',

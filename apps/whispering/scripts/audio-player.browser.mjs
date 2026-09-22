@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
+
 const root = join(import.meta.dir, '../../..');
 const req = createRequire(join(root, 'packages/app/package.json'));
 const appReq = createRequire(join(root, 'apps/whispering/package.json'));
@@ -15,6 +16,7 @@ await writeFile(
 import { tick } from 'svelte';
 import AudioBlobPlayer from '../src/lib/components/AudioBlobPlayer.svelte';
 import { setWhisperingContext } from '../src/lib/whispering/context';
+import { fromData } from '/@fs${root}/packages/svelte/src/from-data.svelte.ts';
 import { fromData } from '/@fs${root}/packages/svelte/src/from-data.svelte.ts';
 let enabled = $state(true);
 let row = { id: 'recording', audioBlobId: 'first', audioUrl: null, title: '', transcript: '' };
@@ -36,6 +38,22 @@ const library = fromData({
 });
 const opened = [];
 const disposed = [];
+function store(initial) {
+	let value = initial;
+	const subscribers = new Set();
+	return {
+		tables: {},
+		kv: {
+			get() { return value; },
+			update(fields) { value = fields.value; for (const subscriber of subscribers) subscriber(); },
+			subscribe(subscriber) { subscribers.add(subscriber); return () => subscribers.delete(subscriber); },
+			nonconforming: [],
+		},
+		persistence: { get() { return 'saved'; }, subscribe() { return () => {}; } },
+	};
+}
+const raw = { device: store('device'), account: { personal: store('personal') } };
+const app = {...raw, local:fromData(raw.device), localBlobs:raw.blobs.local, remoteBlobs:raw.blobs.remote};
 let release;
 setWhisperingContext({
 	app: {
@@ -59,6 +77,11 @@ setWhisperingContext({
 	},
 });
 window.acceptance = {
+	async editStores() {
+		app.local.kv.update({ value: 'device edited' });
+		raw.account.personal.kv.update({ value: 'personal synced' });
+		await tick();
+	},
 	snapshot: () => ({ opened: [...opened], disposed: [...disposed] }),
 	async enable(value) {
 		enabled = value;
@@ -81,6 +104,8 @@ window.acceptance = {
 	},
 };
 </script>
+<p id="device-setting">{app.local.kv.get('value')}</p>
+<p id="personal-setting">{app.account.personal.kv.get('value')}</p>
 <AudioBlobPlayer id="recording" {enabled} />`,
 );
 await writeFile(
@@ -124,6 +149,20 @@ try {
 		await page.waitForFunction(
 			() => window.acceptance?.snapshot().opened.length === 1,
 		);
+		assert.equal(await page.locator('#device-setting').textContent(), 'device');
+		assert.equal(
+			await page.locator('#personal-setting').textContent(),
+			'personal',
+		);
+		await page.evaluate(() => window.acceptance.editStores());
+		assert.equal(
+			await page.locator('#device-setting').textContent(),
+			'device edited',
+		);
+		assert.equal(
+			await page.locator('#personal-setting').textContent(),
+			'personal synced',
+		);
 		assert.deepEqual(
 			await page.evaluate(() =>
 				window.acceptance.patch({ transcript: 'edited', title: 'renamed' }),
@@ -164,7 +203,10 @@ try {
 			'a source acquired after teardown must be released',
 		);
 		assert.deepEqual(errors, []);
-		console.log(engine.name() + ': playback identity and disposal passed');
+		console.log(
+			engine.name() +
+				': both reactive stores, playback identity and disposal passed',
+		);
 		await browser.close();
 		browser = undefined;
 	}

@@ -10,7 +10,7 @@ import {
 	completeWithGlobalDefault,
 	resolveCompletionTarget,
 } from './completion.js';
-import { getSetting } from './settings.js';
+import { DEVICE_DEFAULTS, PERSONAL_DEFAULTS } from './settings.js';
 
 export const RunPolishError = defineErrors({
 	/**
@@ -37,7 +37,7 @@ export type RunPolishError = InferErrors<typeof RunPolishError>;
  */
 export function polishWillRun(app: WhisperingApp, input: string): boolean {
 	return (
-		getSetting(app.device.kv, 'polishEnabled') &&
+		(app.local.kv.get('polishEnabled') ?? DEVICE_DEFAULTS.polishEnabled) &&
 		resolveCompletionTarget(app) !== null &&
 		input.trim().length > 0
 	);
@@ -69,12 +69,14 @@ export async function runPolish(
 		signal?: AbortSignal;
 	},
 ): Promise<Result<string, RunPolishError>> {
+	app.signal.throwIfAborted();
 	if (!polishWillRun(app, input)) return Ok(input);
 
 	const result = await completeWithGlobalDefault(app, {
 		systemPrompt: buildPolishSystemPrompt(
-			getSetting(app.device.kv, 'polishInstructions'),
-			getSetting(app.device.kv, 'dictionary'),
+			app.personal?.kv.get('polishInstructions') ??
+				PERSONAL_DEFAULTS.polishInstructions,
+			app.personal?.kv.get('dictionary') ?? PERSONAL_DEFAULTS.dictionary,
 		),
 		userPrompt: input,
 		signal,

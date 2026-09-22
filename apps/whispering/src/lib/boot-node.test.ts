@@ -46,7 +46,9 @@ describe('the callback opens nothing', () => {
 	test('the page delegates acquisition to its mounted AppBoot', async () => {
 		const bootNode = join(routes, '(app)/+layout.svelte');
 		const source = await Bun.file(bootNode).text();
-		expect(source).toContain('definition={whisperingDefinition}');
+		expect(source).toContain(
+			'openWhisperingResources(auth.getState().account, signal)',
+		);
 		expect(source).toContain('<WhisperingShell ');
 		expect(source).not.toMatch(/openApplication|createDeparture|attachUi/);
 		expect(source).not.toContain('showing');

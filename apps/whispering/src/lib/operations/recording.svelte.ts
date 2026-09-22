@@ -1,4 +1,3 @@
-import { createRecording } from '../whispering/recordings.js';
 import { InstantString } from '@epicenter/app/field';
 import type { Recording, RecordingService } from '@epicenter/app/recorder';
 import {
@@ -29,8 +28,9 @@ import { deviceConfig } from '$lib/state/device-config.svelte';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
 import { vadRecorder } from '$lib/state/vad-recorder.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
+import { createRecording } from '../whispering/recordings.js';
 import { saveAudioRecording } from './save-audio-recording.js';
-import { getSetting } from './settings.js';
+import { DEVICE_DEFAULTS } from './settings.js';
 
 const log = createLogger('whispering/recording');
 
@@ -270,7 +270,7 @@ export function createWhisperingRecording(
 		if (!app.recordingEnabled) return null;
 		if (pendingStart !== null || currentCapture || finishing || cancelling)
 			return null;
-		app.device.kv.update({ recordingTrigger: 'manual' });
+		app.local.kv.update({ recordingTrigger: 'manual' });
 		// A new dictation is starting: clear any lingering failed/delivered state so
 		// the pill follows this attempt, not the last one.
 		const feedback = dictationLifecycle.reset();
@@ -533,7 +533,7 @@ function cancelPendingVadResume() {
 
 export async function startVadRecording(app: WhisperingApp) {
 	if (!app.recordingEnabled) return;
-	app.device.kv.update({ recordingTrigger: 'vad' });
+	app.local.kv.update({ recordingTrigger: 'vad' });
 	// A new dictation session is starting: clear any lingering terminal state.
 	let feedback = dictationLifecycle.reset();
 	let transcribe = captureTranscription(app);
@@ -665,8 +665,11 @@ export async function selectCaptureSurface(
 		captureSurface.showImport();
 	} else {
 		captureSurface.dismissImport();
-		if (getSetting(app.device.kv, 'recordingTrigger') !== surface) {
-			app.device.kv.update({ recordingTrigger: surface });
+		if (
+			(app.local.kv.get('recordingTrigger') ??
+				DEVICE_DEFAULTS.recordingTrigger) !== surface
+		) {
+			app.local.kv.update({ recordingTrigger: surface });
 		}
 	}
 

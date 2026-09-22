@@ -50,7 +50,7 @@ import { sortedRecordings } from '../../lib/whispering/recordings.js';
 	const app = getWhisperingApp();
 
 	const latestRecording = $derived(sortedRecordings(app.library)[0]);
-	const audioOnly = $derived(getInferenceTarget(app.device.kv, 'transcription') === null);
+	const audioOnly = $derived(getInferenceTarget(app.local.kv, 'transcription') === null);
 	const transcriptionReadiness = $derived(getTranscriptionReadiness(app));
 	const hasActiveShortcut = $derived.by(() => {
 		const surface = captureSurface.current(app);

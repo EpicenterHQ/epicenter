@@ -1,8 +1,8 @@
 import { RecorderError } from '@epicenter/app/recorder';
 import { createInferenceCatalog } from '@epicenter/app-shell/inference-picker';
-import { toHostedCatalog } from '@epicenter/constants/ai-providers';
 import type { Account } from '@epicenter/auth';
-import { fromData, fromKv } from '@epicenter/svelte';
+import { toHostedCatalog } from '@epicenter/constants/ai-providers';
+import { fromData } from '@epicenter/svelte';
 import { createLogger } from 'wellcrafted/logger';
 import { pushToTalk } from '../operations/push-to-talk';
 import {
@@ -11,14 +11,14 @@ import {
 } from '../operations/recording.svelte.js';
 import { createWhisperingQueries } from '../queries';
 import { createWhisperingQueryRuntime } from '../queries/client';
-import { importLegacyInferenceSelections } from './inference.js';
 import {
 	type WhisperingApp,
 	type WhisperingAppHandle,
 	type WhisperingData,
 } from './app';
+import { importLegacyInferenceSelections } from './inference.js';
 
-/** Adapt the selected library and device settings, then own recording and query lifetimes. */
+/** Adapt both App stores and own the recording and query lifetimes. */
 export function createWhisperingUiSession({
 	openedApp,
 	data,
@@ -29,15 +29,15 @@ export function createWhisperingUiSession({
 	account: Account | undefined;
 }) {
 	importLegacyInferenceSelections(
-		openedApp.device.kv,
-		openedApp.account?.identity,
+		openedApp.local.kv,
+		openedApp.epicenterInference?.identity,
 	);
 	const library = fromData(data);
 	const catalog = createInferenceCatalog({
 		ai: {
-			runtime: openedApp.device.connections.runtime,
-			connections: openedApp.device.connections.custom,
-			account: openedApp.account?.connection ?? null,
+			runtime: openedApp.runtimeInference,
+			connections: openedApp.connections,
+			account: openedApp.epicenterInference ?? null,
 		},
 		hostedModels: toHostedCatalog(['gpt-5.4-mini', 'gpt-5.5']),
 	});
@@ -45,23 +45,20 @@ export function createWhisperingUiSession({
 	// One flag fences new work and records UI disposal, including late callbacks.
 	let recordingEnabled = true;
 	const app: WhisperingApp = {
-		signal: openedApp.signal,
+		...openedApp,
+		local: fromData(openedApp.local),
+		personal: openedApp.personal ? fromData(openedApp.personal) : undefined,
 		get recordingEnabled() {
 			return recordingEnabled;
 		},
-		account,
-		device: { kv: fromKv(openedApp.device.kv) },
+		authAccount: account,
 		library,
 		catalog,
-		blobs: openedApp.blobs,
 		get recording() {
 			return recordingSession.recording;
 		},
 	};
-	const recordingSession = createWhisperingRecording(
-		app,
-		openedApp.device.recording,
-	);
+	const recordingSession = createWhisperingRecording(app, openedApp.recorder);
 	const queryRuntime = createWhisperingQueryRuntime();
 	const queries = createWhisperingQueries(app, queryRuntime);
 

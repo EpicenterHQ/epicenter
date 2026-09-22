@@ -9,7 +9,7 @@ import {
 } from '$lib/operations/sink';
 import type { Notice } from '$lib/report';
 import type { WhisperingApp } from '$lib/whispering/app';
-import { getSetting } from './settings.js';
+import { DEVICE_DEFAULTS } from './settings.js';
 
 // The reach types live in their own `delivery-reach` module next to their ADR
 // docstrings; re-exported here so callers keep one delivery import.
@@ -53,8 +53,10 @@ const OUTPUT_KEYS = {
  * track. Call inside a reactive scope to stay live as the toggles change.
  */
 export function outputWritesToCursor(app: WhisperingApp): boolean {
-	return OUTPUT_SCOPES.some((scope) =>
-		getSetting(app.device.kv, OUTPUT_KEYS[scope].cursor),
+	return OUTPUT_SCOPES.some(
+		(scope) =>
+			app.local.kv.get(OUTPUT_KEYS[scope].cursor) ??
+			DEVICE_DEFAULTS[OUTPUT_KEYS[scope].cursor],
 	);
 }
 
@@ -132,13 +134,15 @@ function resolveSettingsSink(
 	settingsScope: OutputScope,
 ): Sink {
 	const keys = OUTPUT_KEYS[settingsScope];
-	const cursorRequested = getSetting(app.device.kv, keys.cursor);
-	const clipboardRequested = getSetting(app.device.kv, keys.clipboard);
+	const cursorRequested =
+		app.local.kv.get(keys.cursor) ?? DEVICE_DEFAULTS[keys.cursor];
+	const clipboardRequested =
+		app.local.kv.get(keys.clipboard) ?? DEVICE_DEFAULTS[keys.clipboard];
 
 	return cursorRequested
 		? createCursorSink({
 				keepOnClipboard: clipboardRequested,
-				pressEnter: getSetting(app.device.kv, keys.enter),
+				pressEnter: app.local.kv.get(keys.enter) ?? DEVICE_DEFAULTS[keys.enter],
 			})
 		: clipboardRequested
 			? clipboardSink

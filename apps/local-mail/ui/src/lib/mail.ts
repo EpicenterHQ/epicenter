@@ -2,7 +2,7 @@
  * Mailbox reads include this device's undelivered triage.
  */
 
-import type { App } from '@epicenter/app/open';
+import type { openMailResources } from './resources.js';
 import {
 	type AccountWorkflow,
 	assertAccountLabel,
@@ -35,7 +35,6 @@ import {
 } from '@epicenter/local-mail/outbox';
 import { openLocalMailStorage } from '@epicenter/local-mail/storage';
 import { gmailAuthorization } from '#platform/gmail-authorization';
-import type { mailDefinition } from './data.js';
 import { gmailIdentity } from './identity.js';
 
 /** Where Google sends a person back to, on this application's own route. */
@@ -54,14 +53,14 @@ function base(): string {
 }
 
 type MailLifetime = {
-	app: App<typeof mailDefinition>;
+	app: Awaited<ReturnType<typeof openMailResources>>;
 	controller: AbortController;
 	workflow?: Promise<AccountWorkflow>;
 };
 let current: MailLifetime | undefined;
 
 /** The mounted shell owns admission and aborts its operations when removed. */
-export function attachMail(app: App<typeof mailDefinition>) {
+export function attachMail(app: Awaited<ReturnType<typeof openMailResources>>) {
 	if (current) throw new Error('Local Mail already has a mounted application.');
 	const lifetime: MailLifetime = {
 		app,
@@ -79,8 +78,8 @@ function workflow(): Promise<AccountWorkflow> {
 	const lifetime = current;
 	if (lifetime.workflow) return lifetime.workflow;
 	const attempt = (async () => ({
-		storage: await openLocalMailStorage(lifetime.app.device),
-		secrets: lifetime.app.device.secrets,
+		storage: await openLocalMailStorage(lifetime.app),
+		secrets: lifetime.app.secrets,
 		get identity() {
 			return gmailIdentity();
 		},

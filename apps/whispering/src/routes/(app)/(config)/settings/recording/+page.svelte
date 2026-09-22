@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getSetting } from '$lib/operations/settings.js';
+	import { DEVICE_DEFAULTS } from '$lib/operations/settings.js';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
@@ -8,7 +8,10 @@
 	import { createMutation } from '@tanstack/svelte-query';
 	import { resultMutationOptions } from 'wellcrafted/query';
 	import { SettingSelect, SettingSwitch } from '$lib/components/settings';
-	import { BITRATE_OPTIONS, RECORDING_TRIGGER_OPTIONS } from '$lib/constants/audio';
+	import {
+		BITRATE_OPTIONS,
+		RECORDING_TRIGGER_OPTIONS,
+	} from '$lib/constants/audio';
 	import { report } from '$lib/report';
 	import { asDeviceIdentifier } from '@epicenter/recorder';
 	import { deviceConfig } from '$lib/state/device-config.svelte';
@@ -40,8 +43,8 @@
 	<Field.Separator />
 	<Field.Group>
 		<SettingSelect
-			value={getSetting(app.device.kv, 'recordingTrigger')}
-			onSelect={(recordingTrigger) => app.device.kv.update({ recordingTrigger })}
+			value={(app.local.kv.get('recordingTrigger') ?? DEVICE_DEFAULTS.recordingTrigger)}
+			onSelect={(recordingTrigger) => app.local.kv.update({ recordingTrigger })}
 			label="Recording Trigger"
 			items={RECORDING_TRIGGER_OPTIONS}
 			description="Choose how recording starts: {RECORDING_TRIGGER_OPTIONS.map(
@@ -50,13 +53,14 @@
 		/>
 
 		<SettingSwitch
-			key="recordingPausePlayback"
+			checked={app.local.kv.get('recordingPausePlayback') ?? DEVICE_DEFAULTS.recordingPausePlayback}
+			onCheckedChange={checked => app.local.kv.update({ recordingPausePlayback: checked })}
 			label="Pause playback while recording"
 			description="Whispering pauses media playing on your computer (music, video, browser tabs) while your voice is being captured, then tries to resume it after. In voice activated mode it pauses only while you actually speak, so music keeps playing between phrases. Works with most apps in your system media controls. A few can't be paused, and on macOS the resume can occasionally wake a different app that was already paused."
 		/>
 
 
-		{#if getSetting(app.device.kv, 'recordingTrigger') === 'manual'}
+		{#if (app.local.kv.get('recordingTrigger') ?? DEVICE_DEFAULTS.recordingTrigger) === 'manual'}
 			<ManualSelectRecordingDevice
 				bind:selected={() => {
 					const selected = manualRecorderConfig.deviceId;
@@ -64,7 +68,7 @@
 					},
 					(selected) => (manualRecorderConfig.deviceId = selected)}
 			/>
-		{:else if getSetting(app.device.kv, 'recordingTrigger') === 'vad'}
+		{:else if (app.local.kv.get('recordingTrigger') ?? DEVICE_DEFAULTS.recordingTrigger) === 'vad'}
 			{#if os.isLinux}
 				<Alert.Root variant="destructive">
 					<InfoIcon class="size-4" />
@@ -119,7 +123,7 @@
 			/>
 		{/if}
 
-		{#if getSetting(app.device.kv, 'recordingTrigger') === 'manual' && !tauri}
+		{#if (app.local.kv.get('recordingTrigger') ?? DEVICE_DEFAULTS.recordingTrigger) === 'manual' && !tauri}
 			<SettingSelect
 				value={deviceConfig.get('recording.navigator.bitrateKbps')}
 				onSelect={(value) => deviceConfig.set('recording.navigator.bitrateKbps', value)}

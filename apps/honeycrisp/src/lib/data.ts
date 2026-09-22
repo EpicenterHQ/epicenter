@@ -6,12 +6,12 @@ import {
 	plainText,
 	type RowOf,
 } from '@epicenter/app';
-import type { App } from '@epicenter/app/open';
+import type { LocalStore } from '@epicenter/app/open';
 import { APPS } from '@epicenter/constants/apps';
 /**
  * Honeycrisp's inert application declaration.
  *
- * The root schema is inspectable without opening storage. Only `openApp()`
+ * The root schema is inspectable without opening storage. Only `openLocal()`
  * acquires the live App and its resources.
  *
  * The `folders` and `notes` property names are the durable table names. They
@@ -142,9 +142,7 @@ export const honeycrispDefinition = defineApp({
  * The store handle consumed by the notes UI. Local and Personal share this
  * schema and capability shape; their owning App closes them together.
  */
-export type HoneycrispData = NonNullable<
-	App<typeof honeycrispDefinition>['account']
->['personal'];
+export type HoneycrispData = LocalStore<typeof honeycrispDefinition>;
 
 export type Folder = RowOf<typeof honeycrispDefinition.tables.folders>;
 export type Note = RowOf<typeof honeycrispDefinition.tables.notes>;

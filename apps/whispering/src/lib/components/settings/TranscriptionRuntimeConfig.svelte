@@ -1,15 +1,24 @@
 <script lang="ts">
-	import { getSetting } from '$lib/operations/settings.js';
+	import { getConnectionScreen } from '@epicenter/app-shell/boot-screens';
+	import { Button } from '@epicenter/ui/button';
+	import {
+		DEVICE_DEFAULTS,
+		PERSONAL_DEFAULTS,
+	} from '$lib/operations/settings.js';
 	import * as Field from '@epicenter/ui/field';
 	import * as Select from '@epicenter/ui/select';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { SUPPORTED_LANGUAGES_OPTIONS, type SupportedLanguage } from '../../constants/languages.js';
+	import {
+		SUPPORTED_LANGUAGES_OPTIONS,
+		type SupportedLanguage,
+	} from '../../constants/languages.js';
 	import { getTranscriptionReadiness } from '../../settings/transcription-validation.js';
 	import { getWhisperingApp } from '../../whispering/context.js';
 	import TranscriptionModelPicker from '../TranscriptionModelPicker.svelte';
 	import AdvancedDisclosure from './AdvancedDisclosure.svelte';
 
 	const whispering = getWhisperingApp();
+	const openConnection = getConnectionScreen();
 	const readiness = $derived(getTranscriptionReadiness(whispering));
 </script>
 
@@ -28,8 +37,8 @@
 		<Field.Group>
 			<Field.Field>
 				<Field.Label for="spoken-language">Spoken language</Field.Label>
-				<Select.Root type="single" bind:value={() => getSetting(whispering.device.kv, 'transcriptionLanguage'), value => whispering.device.kv.update({ transcriptionLanguage: value as SupportedLanguage })}>
-					<Select.Trigger id="spoken-language">{SUPPORTED_LANGUAGES_OPTIONS.find(option => option.value === getSetting(whispering.device.kv, 'transcriptionLanguage'))?.label ?? 'Auto'}</Select.Trigger>
+				<Select.Root type="single" bind:value={() => (whispering.local.kv.get('transcriptionLanguage') ?? DEVICE_DEFAULTS.transcriptionLanguage), value => whispering.local.kv.update({ transcriptionLanguage: value as SupportedLanguage })}>
+					<Select.Trigger id="spoken-language">{SUPPORTED_LANGUAGES_OPTIONS.find(option => option.value === (whispering.local.kv.get('transcriptionLanguage') ?? DEVICE_DEFAULTS.transcriptionLanguage))?.label ?? 'Auto'}</Select.Trigger>
 					<Select.Content>
 						{#each SUPPORTED_LANGUAGES_OPTIONS as option}<Select.Item value={option.value} label={option.label} />{/each}
 					</Select.Content>
@@ -38,7 +47,14 @@
 			</Field.Field>
 			<Field.Field>
 				<Field.Label for="transcription-prompt">Transcription prompt</Field.Label>
-				<Textarea id="transcription-prompt" value={getSetting(whispering.device.kv, 'transcriptionPrompt')} onblur={event => whispering.device.kv.update({ transcriptionPrompt: event.currentTarget.value })} />
+				<Textarea id="transcription-prompt" disabled={!whispering.personal} value={whispering.personal?.kv.get('transcriptionPrompt') ?? PERSONAL_DEFAULTS.transcriptionPrompt} onblur={event => {
+					const transcriptionPrompt = event.currentTarget.value;
+					if (transcriptionPrompt !== (whispering.personal?.kv.get('transcriptionPrompt') ?? PERSONAL_DEFAULTS.transcriptionPrompt))
+						whispering.personal?.kv.update({ transcriptionPrompt });
+				}} />
+				{#if !whispering.personal}
+					<Button variant="outline" onclick={openConnection}>Sign in to save a prompt</Button>
+				{/if}
 				<Field.Description>Names and context can help models that support prompts. Dictionary terms are included. Use Recipes for rewriting or translation.</Field.Description>
 			</Field.Field>
 		</Field.Group>

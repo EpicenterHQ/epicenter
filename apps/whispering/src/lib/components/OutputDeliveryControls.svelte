@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getSetting } from '$lib/operations/settings.js';
+	import { DEVICE_DEFAULTS } from '$lib/operations/settings.js';
 	import { Button } from '@epicenter/ui/button';
 	import LockIcon from '@lucide/svelte/icons/lock';
 	import {
@@ -58,11 +58,13 @@
 </script>
 
 <SettingSwitch
-	key={delivery.clipboard}
+	checked={app.local.kv.get(delivery.clipboard) ?? DEVICE_DEFAULTS[delivery.clipboard]}
+	onCheckedChange={checked => app.local.kv.update({ [delivery.clipboard]: checked })}
 	label={`Copy ${delivery.noun} to clipboard`}
 />
 
-<SettingSwitch key={delivery.cursor} label={`Paste ${delivery.noun} at cursor`} />
+<SettingSwitch checked={app.local.kv.get(delivery.cursor) ?? DEVICE_DEFAULTS[delivery.cursor]}
+ onCheckedChange={checked => app.local.kv.update({ [delivery.cursor]: checked })} label={`Paste ${delivery.noun} at cursor`} />
 
 {#if tauri && dictationCapability.needsAccessibility}
 	<!-- The toggle stays on and interactive (it records intent), but the paste
@@ -84,10 +86,11 @@
 	</div>
 {/if}
 
-{#if tauri && getSetting(app.device.kv, delivery.cursor)}
+{#if tauri && (app.local.kv.get(delivery.cursor) ?? DEVICE_DEFAULTS[delivery.cursor])}
 	<div class:opacity-50={dictationCapability.needsAccessibility}>
 		<SettingSwitch
-			key={delivery.enter}
+			checked={app.local.kv.get(delivery.enter) ?? DEVICE_DEFAULTS[delivery.enter]}
+			onCheckedChange={checked => app.local.kv.update({ [delivery.enter]: checked })}
 			label={`Press Enter after pasting ${delivery.noun}`}
 		/>
 	</div>

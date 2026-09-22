@@ -16,9 +16,9 @@
 	<Field.Field>
 		<Field.Label>Text connection and model</Field.Label>
 		<InferencePicker
-			value={getInferenceTarget(whispering.device.kv, 'completion')}
+			value={getInferenceTarget(whispering.local.kv, 'completion')}
 			catalog={whispering.catalog}
-			onSelect={({ connectionId, model }) => whispering.device.kv.update({ completionConnection: connectionId, completionModel: model })}
+			onSelect={({ connectionId, model }) => whispering.local.kv.update({ completionConnection: connectionId, completionModel: model })}
 		/>
 		<Field.Description>
 			Polish and Recipes use this selection. Connect a provider from the picker,

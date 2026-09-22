@@ -1,6 +1,6 @@
 import type { CaptureSurface } from '$lib/constants/audio';
 import type { WhisperingApp } from '$lib/whispering/app';
-import { getSetting } from '../operations/settings.js';
+import { DEVICE_DEFAULTS } from '../operations/settings.js';
 
 /**
  * Which capture surface the home page and the config header are currently
@@ -29,7 +29,8 @@ export const captureSurface = {
 	current(app: WhisperingApp): CaptureSurface {
 		return isImportSurfaceShowing
 			? 'import'
-			: getSetting(app.device.kv, 'recordingTrigger');
+			: (app.local.kv.get('recordingTrigger') ??
+					DEVICE_DEFAULTS.recordingTrigger);
 	},
 
 	/** Open the file-import overlay over the current trigger. */

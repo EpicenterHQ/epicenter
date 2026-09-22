@@ -14,11 +14,18 @@
 		function snapshot() {
 			return {
 				tables: [
-					{ label: 'Recordings', count: app.library.tables.recordings.rows.length },
-					{ label: 'Recipes', count: app.library.tables.recipes.rows.length },
+					{
+						label: 'Recordings',
+						count: app.library.tables.recordings.rows.length,
+					},
+					{
+						label: 'Recipes',
+						count: app.personal?.tables.recipes.rows.length ?? 0,
+					},
 				],
 				nonconforming:
-					app.library.tables.recordings.nonconforming.length + app.library.tables.recipes.nonconforming.length,
+					app.library.tables.recordings.nonconforming.length +
+					(app.personal?.tables.recipes.nonconforming.length ?? 0),
 			};
 		}
 
@@ -37,7 +44,6 @@
 	// ── Instance ──────────────────────────────────────────────────────────────
 
 	const metrics = createMetrics();
-
 </script>
 
 {#if import.meta.env.DEV}

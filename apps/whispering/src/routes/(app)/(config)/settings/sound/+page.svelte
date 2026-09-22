@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { getWhisperingApp } from '$lib/whispering/context';
+	const app = getWhisperingApp();
+	import { DEVICE_DEFAULTS } from '$lib/operations/settings.js';
 	import * as Field from '@epicenter/ui/field';
 	import { SettingSwitch } from '$lib/components/settings';
 </script>
@@ -19,15 +22,18 @@
 			</Field.Description>
 			<Field.Group>
 				<SettingSwitch
-					key="soundManualStart"
+					checked={app.local.kv.get('soundManualStart') ?? DEVICE_DEFAULTS.soundManualStart}
+					onCheckedChange={checked => app.local.kv.update({ soundManualStart: checked })}
 					label="Play sound when starting manual recording"
 				/>
 				<SettingSwitch
-					key="soundManualStop"
+					checked={app.local.kv.get('soundManualStop') ?? DEVICE_DEFAULTS.soundManualStop}
+					onCheckedChange={checked => app.local.kv.update({ soundManualStop: checked })}
 					label="Play sound when stopping manual recording"
 				/>
 				<SettingSwitch
-					key="soundManualCancel"
+					checked={app.local.kv.get('soundManualCancel') ?? DEVICE_DEFAULTS.soundManualCancel}
+					onCheckedChange={checked => app.local.kv.update({ soundManualCancel: checked })}
 					label="Play sound when canceling manual recording"
 				/>
 			</Field.Group>
@@ -42,15 +48,18 @@
 			</Field.Description>
 			<Field.Group>
 				<SettingSwitch
-					key="soundVadStart"
+					checked={app.local.kv.get('soundVadStart') ?? DEVICE_DEFAULTS.soundVadStart}
+					onCheckedChange={checked => app.local.kv.update({ soundVadStart: checked })}
 					label="Play sound when starting VAD recording session"
 				/>
 				<SettingSwitch
-					key="soundVadCapture"
+					checked={app.local.kv.get('soundVadCapture') ?? DEVICE_DEFAULTS.soundVadCapture}
+					onCheckedChange={checked => app.local.kv.update({ soundVadCapture: checked })}
 					label="Play sound on VAD capture"
 				/>
 				<SettingSwitch
-					key="soundVadStop"
+					checked={app.local.kv.get('soundVadStop') ?? DEVICE_DEFAULTS.soundVadStop}
+					onCheckedChange={checked => app.local.kv.update({ soundVadStop: checked })}
 					label="Play sound when stopping VAD recording session"
 				/>
 			</Field.Group>
@@ -65,11 +74,13 @@
 			</Field.Description>
 			<Field.Group>
 				<SettingSwitch
-					key="soundTranscriptionComplete"
+					checked={app.local.kv.get('soundTranscriptionComplete') ?? DEVICE_DEFAULTS.soundTranscriptionComplete}
+					onCheckedChange={checked => app.local.kv.update({ soundTranscriptionComplete: checked })}
 					label="Play sound after transcription"
 				/>
 				<SettingSwitch
-					key="soundRecipeComplete"
+					checked={app.local.kv.get('soundRecipeComplete') ?? DEVICE_DEFAULTS.soundRecipeComplete}
+					onCheckedChange={checked => app.local.kv.update({ soundRecipeComplete: checked })}
 					label="Play sound after a recipe runs"
 				/>
 			</Field.Group>

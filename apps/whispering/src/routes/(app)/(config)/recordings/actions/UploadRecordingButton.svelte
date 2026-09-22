@@ -21,7 +21,7 @@
  }
 </script>
 
-{#if app.blobs.remote}
+{#if app.remoteBlobs}
  {#if pending}
   <Button variant="outline" size="sm" onclick={() => pending?.abort()}>Cancel upload</Button>
  {:else if recording.audioUrl}

@@ -1,5 +1,5 @@
 import { defineApp, defineTable, field } from '@epicenter/app';
-import type { App } from '@epicenter/app/open';
+import type { PersonalStore } from '@epicenter/app/open';
 
 export const mailDefinition = defineApp({
 	id: 'so.epicenter.local-mail',
@@ -10,6 +10,4 @@ export const mailDefinition = defineApp({
 	},
 });
 
-export type MailData = NonNullable<
-	App<typeof mailDefinition>['account']
->['personal'];
+export type MailData = PersonalStore<typeof mailDefinition>;

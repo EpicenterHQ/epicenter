@@ -8,7 +8,7 @@ import type { Recipe } from '$lib/data';
 import { buildSystemPrompt } from '$lib/operations/build-system-prompt';
 import { completeWithGlobalDefault } from '$lib/operations/completion';
 import type { WhisperingApp } from '../whispering/app.js';
-import { getSetting } from './settings.js';
+import { PERSONAL_DEFAULTS } from './settings.js';
 
 export const RunRecipeError = defineErrors({
 	InvalidInput: ({ message }: { message: string }) => ({ message }),
@@ -56,7 +56,7 @@ export async function runRecipe(
 	const result = await completeWithGlobalDefault(app, {
 		systemPrompt: buildSystemPrompt(
 			recipe.instructions,
-			getSetting(app.device.kv, 'dictionary'),
+			app.personal?.kv.get('dictionary') ?? PERSONAL_DEFAULTS.dictionary,
 		),
 		userPrompt: input,
 	});

@@ -35,7 +35,7 @@ for (const { blob, extension } of [
 				library: {
 					tables: { recordings: { get: () => ({ audioBlobId: 'audio.wav' }) } },
 				},
-				blobs: { local: { get: async () => Ok(blob) } },
+				localBlobs: { get: async () => Ok(blob) },
 			} as unknown as WhisperingApp;
 			const query = createDownloadQueries(app, createQueryFactories(client));
 			expectOk(

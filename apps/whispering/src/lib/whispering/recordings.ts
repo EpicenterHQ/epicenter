@@ -25,7 +25,8 @@ export const RecordingCreationError = defineErrors({
 export type RecordingCreationError = InferErrors<typeof RecordingCreationError>;
 export type RecordingStorage = {
 	library: Pick<WhisperingData, 'tables'>;
-	blobs: WhisperingAppHandle['blobs'];
+	localBlobs: WhisperingAppHandle['localBlobs'];
+	remoteBlobs: WhisperingAppHandle['remoteBlobs'];
 };
 
 /** Row publication never removes the audio bytes that were saved first. */
@@ -69,27 +70,24 @@ export function updateRecording(
 
 /** Playback uses local bytes first, then an explicitly uploaded copy. */
 export async function openRecordingAudio(
-	blobs: WhisperingAppHandle['blobs'],
+	localBlobs: WhisperingAppHandle['localBlobs'],
+	remoteBlobs: WhisperingAppHandle['remoteBlobs'],
 	{ audioBlobId, audioUrl }: Pick<Recording, 'audioBlobId' | 'audioUrl'>,
 ) {
-	const local = await blobs.local.open(audioBlobId);
-	if (local.error?.name !== 'BlobNotFound' || !audioUrl || !blobs.remote)
+	const local = await localBlobs.open(audioBlobId);
+	if (local.error?.name !== 'BlobNotFound' || !audioUrl || !remoteBlobs)
 		return local;
-	return blobs.remote.open(audioUrl);
+	return remoteBlobs.open(audioUrl);
 }
 
 /** Requests and downloads use the same explicit uploaded-copy rule as playback. */
 export async function readRecordingAudio(app: RecordingStorage, id: string) {
 	const row = app.library.tables.recordings.get(id);
 	if (!row) throw new Error(`Recording '${id}' no longer exists.`);
-	const local = await app.blobs.local.get(row.audioBlobId);
-	if (
-		local.error?.name !== 'BlobNotFound' ||
-		!row.audioUrl ||
-		!app.blobs.remote
-	)
+	const local = await app.localBlobs.get(row.audioBlobId);
+	if (local.error?.name !== 'BlobNotFound' || !row.audioUrl || !app.remoteBlobs)
 		return local;
-	return app.blobs.remote.get(row.audioUrl);
+	return app.remoteBlobs.get(row.audioUrl);
 }
 
 export async function recordingAudioAvailability(
@@ -98,11 +96,11 @@ export async function recordingAudioAvailability(
 ) {
 	const row = app.library.tables.recordings.get(id);
 	if (!row?.audioBlobId) return Ok('unavailable' as const);
-	const result = await app.blobs.local.stat(row.audioBlobId);
+	const result = await app.localBlobs.stat(row.audioBlobId);
 	if (result.error === null) return Ok('local' as const);
 	if (result.error.name === 'BlobNotFound')
 		return Ok(
-			row.audioUrl && app.blobs.remote
+			row.audioUrl && app.remoteBlobs
 				? ('remote' as const)
 				: ('unavailable' as const),
 		);

@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InstantString } from '@epicenter/app/field';
 import { openMemory } from '@epicenter/app/memory';
-import { createAppBlobs } from '@epicenter/blobs/app';
+import { createLocalBlobAccess } from '@epicenter/blobs/owner';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
 import { Err, Ok } from 'wellcrafted/result';
@@ -120,7 +120,7 @@ type WhisperingApp = import('$lib/whispering/app').WhisperingApp;
 const directory = await mkdtemp(join(tmpdir(), 'whispering-pipeline-'));
 const data = await openMemory(whisperingDefinition);
 const local = createBunBlobStore({ directory });
-const access = createAppBlobs({
+const access = createLocalBlobAccess({
 	local,
 	sources: createBrowserBlobSources(local),
 });
@@ -136,15 +136,16 @@ const recording = expectOk(
 	}),
 );
 const app = {
-	blobs: { remote: null, local: access.value },
+	remoteBlobs: null,
+	localBlobs: access.value,
 	get signal() {
 		return lifetime.signal;
 	},
 	get recordingEnabled() {
 		return recordingEnabled;
 	},
-	account: { baseURL: 'https://api.example.test', principalId: 'alice' },
-	device: { kv: { get: () => false } },
+	authAccount: { baseURL: 'https://api.example.test', principalId: 'alice' },
+	local: { kv: { get: () => false } },
 	library: data,
 } as unknown as WhisperingApp;
 

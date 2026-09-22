@@ -14,7 +14,7 @@ import { APPS } from '@epicenter/constants/apps';
 /**
  * Whispering's inert application declaration.
  *
- * The root schema is inspectable without opening storage. Only `openApp()`
+ * The root schema is inspectable without opening storage. Only `openLocal()`
  * acquires the live App and its resources.
  *
  * Three things about this file are decisions rather than transcription of the

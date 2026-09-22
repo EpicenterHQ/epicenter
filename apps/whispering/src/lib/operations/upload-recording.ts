@@ -13,17 +13,19 @@ const RecordingUploadError = defineErrors({
 
 /** Upload one saved object and retain the returned URL on its recording row. */
 export async function uploadRecording(
-	app: WhisperingApp,
+	app: Pick<WhisperingApp, 'localBlobs' | 'remoteBlobs' | 'library' | 'signal'>,
 	recording: Recording,
 	signal: AbortSignal,
 ) {
 	const attempt = await tryAsync({
 		try: async () => {
-			if (!app.blobs.remote)
+			if (!app.remoteBlobs)
 				return RecordingUploadError.Failed({
 					cause: 'Sign in before uploading audio.',
 				});
-			return app.blobs.remote.addLocal(recording.audioBlobId, { signal });
+			return app.remoteBlobs.addFrom(app.localBlobs, recording.audioBlobId, {
+				signal,
+			});
 		},
 		catch: (cause) => RecordingUploadError.Failed({ cause }),
 	});
@@ -32,6 +34,7 @@ export async function uploadRecording(
 	const url = attempt.data.data;
 	return trySync({
 		try: () => {
+			signal.throwIfAborted();
 			app.signal.throwIfAborted();
 			updateRecording(app.library, recording.id, { audioUrl: url });
 			return url;

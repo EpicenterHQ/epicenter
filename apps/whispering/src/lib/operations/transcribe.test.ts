@@ -5,7 +5,12 @@
  */
 
 import { expect, mock, test } from 'bun:test';
-import { type AppAi, createAppAi } from '@epicenter/app/ai';
+import {
+	createInference,
+	type AiTransport,
+} from '../../../../../packages/app/src/inference.js';
+import { openConnectionCatalog } from '../../../../../packages/app/src/connection-catalog.js';
+import type { AccountIdentity } from '@epicenter/principal';
 import { createAiConnections } from '@epicenter/app/ai-connections';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -38,36 +43,37 @@ async function setup({
 		},
 	});
 	const controller = new AbortController();
-	const owner = createAppAi({
-		connections: records,
-		lifetime: {
-			signal: controller.signal,
-			assertUsable: () => controller.signal.throwIfAborted(),
+	const accountOptions: AiTransport & { identity: AccountIdentity } = {
+		baseURL: 'https://account.example/v1',
+		identity: {
+			authorityId: 'https://account.example',
+			principalId: 'me' as AccountIdentity['principalId'],
 		},
-		runtime: null,
-		account: {
-			baseURL: 'https://account.example/v1',
-			identity: {
-				authorityId: 'https://account.example',
-				principalId: 'me' as NonNullable<
-					AppAi['account']
-				>['identity']['principalId'],
-			},
-			fetch: async (input, init) => {
-				requests.push(new Request(input, init));
-				return response();
-			},
-		},
-		configuredFetch: async (input, init) => {
+		fetch: async (input, init) => {
 			requests.push(new Request(input, init));
 			return response();
 		},
+	};
+	const account = {
+		...createInference(accountOptions),
+		identity: accountOptions.identity,
+	};
+	const customFetch: AiTransport['fetch'] = async (input, init) => {
+		requests.push(new Request(input, init));
+		return response();
+	};
+	const owner = await openConnectionCatalog({
+		...records,
+		transport(record) {
+			return { baseURL: record.baseUrl, fetch: customFetch };
+		},
 	});
+	const ai = { account: account, runtime: null, connections: owner };
 	const values = new Map<string, unknown>([
 		['transcriptionModel', 'saved-model'],
 		['transcriptionLanguage', 'en'],
-		['transcriptionPrompt', '  Spell carefully  '],
-		['dictionary', ['Epicenter', 'Yjs']],
+		['transcriptionPrompt', 'Wrong device prompt'],
+		['dictionary', ['Wrong device dictionary']],
 	]);
 	const kv = {
 		get: (key: string) => values.get(key),
@@ -80,11 +86,16 @@ async function setup({
 		type: 'audio/ogg;codecs=opus',
 	});
 	let load = async () => Ok(audio);
+	const personalValues = new Map<string, unknown>([
+		['transcriptionPrompt', '  Spell carefully  '],
+		['dictionary', ['Epicenter', 'Yjs']],
+	]);
 	const app = {
 		signal: controller.signal,
-		device: { kv },
+		local: { kv },
+		personal: { kv: { get: (key: string) => personalValues.get(key) } },
 		catalog: createInferenceCatalog({
-			ai: owner.value.ai,
+			ai: ai,
 			hostedModels: [],
 		}),
 		library: {
@@ -94,10 +105,11 @@ async function setup({
 				},
 			},
 		},
-		blobs: { local: { get: () => load() } },
+		localBlobs: { get: () => load() },
+		remoteBlobs: null,
 	} as unknown as WhisperingApp;
 
-	const id = await owner.value.ai.connections!.add({
+	const id = await ai.connections!.add({
 		name: 'Chosen',
 		baseUrl: 'https://chosen.example/custom/v1',
 		apiKey: 'chosen-key',
@@ -147,6 +159,18 @@ test('exact configured client sends multipart bytes, model, credential, and dict
 	const file = form.get('file') as File;
 	expect(file.name).toBe('audio.ogg');
 	expect([...new Uint8Array(await file.arrayBuffer())]).toEqual([1, 2, 3]);
+	await fixture.close();
+});
+
+test('signed-out transcription never falls back to device-authored prompts or dictionary', async () => {
+	const fixture = await setup();
+	const app = { ...fixture.app, personal: undefined };
+	expect(expectOk(await transcribeAudio('recording-id', app))).toBe(
+		'spoken words',
+	);
+	const form = await fixture.requests[0]!.formData();
+	expect(form.get('prompt')).toBeNull();
+	expect(form.get('language')).toBe('en');
 	await fixture.close();
 });
 
@@ -274,12 +298,10 @@ test('row deletion during local read prevents sending audio to inference', async
 				},
 			},
 		},
-		blobs: {
-			local: {
-				get: async () => {
-					exists = false;
-					return Ok(fixture.audio);
-				},
+		localBlobs: {
+			get: async () => {
+				exists = false;
+				return Ok(fixture.audio);
 			},
 		},
 	} as unknown as WhisperingApp;
@@ -378,7 +400,7 @@ test('no selection captures audio-only intent; later setup applies only to delib
 	const readAudio = mock(async () => Ok(fixture.audio));
 	const domain = {
 		...fixture.app,
-		blobs: { local: { get: readAudio } },
+		localBlobs: { get: readAudio },
 	} as unknown as WhisperingApp;
 	const captured = captureTranscription(domain);
 	expect(captured).toBeNull();

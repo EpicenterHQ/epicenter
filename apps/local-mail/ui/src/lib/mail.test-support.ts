@@ -1,8 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { App } from '@epicenter/app/open';
-import type { mailDefinition } from './data.js';
+import type { openMailResources } from './resources.js';
 import type { ScopedSqlite } from '@epicenter/device/owner';
 import type { AccountWorkflow } from '@epicenter/local-mail/accounts';
 import type { GmailAuthorization } from './platform/types.js';
@@ -25,7 +24,7 @@ export async function openMailDocument({
 	const key = `mail-test-${crypto.randomUUID()}`;
 	const directory = await mkdtemp(join(tmpdir(), 'mail-document-'));
 	const globals = globalThis as unknown as Record<string, unknown>;
-	globals[key] = { app: { device: app }, authorization };
+	globals[key] = { app, authorization };
 	if (!compiled) {
 		const built = await Bun.build({
 			entrypoints: [new URL('./mail.ts', import.meta.url).pathname],
@@ -65,12 +64,16 @@ export async function openMailDocument({
 	const { attachMail, mail } = (await import(
 		path
 	)) as typeof import('./mail.js');
-	const close = attachMail({ device: app } as App<typeof mailDefinition>);
+	const close = attachMail(
+		app as unknown as Awaited<ReturnType<typeof openMailResources>>,
+	);
 	return {
 		mail,
 		close,
 		attach: (device: typeof app) =>
-			attachMail({ device } as App<typeof mailDefinition>),
+			attachMail(
+				device as unknown as Awaited<ReturnType<typeof openMailResources>>,
+			),
 		async cleanup() {
 			await close();
 			delete globals[key];

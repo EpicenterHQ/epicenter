@@ -1,5 +1,9 @@
 <script lang="ts">
-	import { getSetting, APPLICATION_DEFAULTS } from '$lib/operations/settings.js';
+	import { getConnectionScreen } from '@epicenter/app-shell/boot-screens';
+	import {
+		DEVICE_DEFAULTS,
+		PERSONAL_DEFAULTS,
+	} from '$lib/operations/settings.js';
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
 	import { Input } from '@epicenter/ui/input';
@@ -14,10 +18,11 @@
 	import { getWhisperingApp } from '$lib/whispering/context';
 
 	const app = getWhisperingApp();
+	const openConnection = getConnectionScreen();
 
 	// Null when the person has added no terms: the definition cannot default an array,
 	// so "never touched" and "emptied" are the same empty list here.
-	const dictionary = $derived(getSetting(app.device.kv, 'dictionary') ?? []);
+	const dictionary = $derived(app.personal?.kv.get('dictionary') ?? []);
 	// Intent (`polishEnabled`) and capability (a usable provider) are separate
 	// facts; the toggle below sets intent, this surfaces when intent is on but
 	// the provider is missing so the control never silently reads "on" while the
@@ -33,11 +38,13 @@
 		// Injection-only and order-free, so dedupe and ignore blanks; a repeated
 		// term would only bloat the prompt block.
 		if (!term || dictionary.includes(term)) return;
-		app.device.kv.update({ dictionary: [...dictionary, term] });
+		app.personal?.kv.update({ dictionary: [...dictionary, term] });
 	}
 
 	function removeTerm(term: string) {
-		app.device.kv.update({ dictionary: dictionary.filter((t) => t !== term) });
+		app.personal?.kv.update({
+			dictionary: dictionary.filter((t) => t !== term),
+		});
 	}
 </script>
 
@@ -48,6 +55,10 @@
 	<Field.Description>
 		Control how Whispering polishes and spells your transcripts.
 	</Field.Description>
+	{#if !app.personal}
+		<p class="text-muted-foreground text-sm">Sign in to save your dictionary and custom instructions. Built-in Polish works without an account.</p>
+		<Button variant="outline" onclick={openConnection}>Sign in</Button>
+	{/if}
 	<Field.Separator />
 	<Field.Group>
 		<Field.Set>
@@ -58,11 +69,12 @@
 			</Field.Description>
 			<Field.Group>
 				<SettingSwitch
-					key="polishEnabled"
+					checked={app.local.kv.get('polishEnabled') ?? DEVICE_DEFAULTS.polishEnabled}
+					onCheckedChange={checked => app.local.kv.update({ polishEnabled: checked })}
 					label="Polish transcripts with AI"
 					description="Turn off for speed mode: the raw transcript ships instantly, with no AI call."
 				/>
-				{#if getSetting(app.device.kv, 'polishEnabled')}
+				{#if (app.local.kv.get('polishEnabled') ?? DEVICE_DEFAULTS.polishEnabled)}
 					<p class="text-muted-foreground text-sm">{destination}</p>
 				{/if}
 
@@ -80,7 +92,7 @@
 					</div>
 				{/if}
 
-				{#if getSetting(app.device.kv, 'polishEnabled')}
+				{#if (app.local.kv.get('polishEnabled') ?? DEVICE_DEFAULTS.polishEnabled)}
 					<AdvancedDisclosure>
 						<Field.Field>
 							<Field.Label for="polish-instructions">
@@ -88,12 +100,13 @@
 							</Field.Label>
 							<Textarea
 								id="polish-instructions"
-								placeholder={APPLICATION_DEFAULTS['polishInstructions']}
-								value={getSetting(app.device.kv, 'polishInstructions')}
+								disabled={!app.personal}
+								placeholder={PERSONAL_DEFAULTS.polishInstructions}
+								value={(app.personal?.kv.get('polishInstructions') ?? PERSONAL_DEFAULTS.polishInstructions)}
 								onblur={(e) => {
 									const next = e.currentTarget.value;
-									if (next !== getSetting(app.device.kv, 'polishInstructions'))
-										app.device.kv.update({ polishInstructions: next });
+									if (next !== (app.personal?.kv.get('polishInstructions') ?? PERSONAL_DEFAULTS.polishInstructions))
+										app.personal?.kv.update({ polishInstructions: next });
 								}}
 							/>
 							<Field.Description>
@@ -124,8 +137,8 @@
 						addTerm();
 					}}
 				>
-					<Input placeholder="e.g. Kubernetes" bind:value={newTerm} />
-					<Button type="submit" variant="outline">
+					<Input placeholder="e.g. Kubernetes" bind:value={newTerm} disabled={!app.personal} />
+					<Button type="submit" variant="outline" disabled={!app.personal}>
 						<PlusIcon class="size-4" /> Add
 					</Button>
 				</form>

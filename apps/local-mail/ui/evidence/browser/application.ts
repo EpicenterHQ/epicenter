@@ -1,5 +1,7 @@
 import { defineApp } from '@epicenter/app';
-import { openApp } from '@epicenter/app/open';
+import { openPersonal } from '@epicenter/app/open';
+import { openSqlite } from '@epicenter/app/sqlite';
+import { openSecrets } from '@epicenter/app/secrets';
 import type { Account } from '@epicenter/auth';
 import { mailDefinition } from '../../src/lib/data.js';
 import { currentLibraryResponse } from '../current-library.js';
@@ -21,10 +23,35 @@ export const account: Account = {
 		throw new Error('Fixture has no profile');
 	},
 };
-export const opening = openApp(
-	defineApp({
-		...mailDefinition,
-		id: 'so.epicenter.local-mail-evidence',
-	}),
-	{ account },
-);
+export const definition = defineApp({
+	...mailDefinition,
+	id: 'so.epicenter.local-mail-evidence',
+});
+export const opening = (async () => {
+	const personal = await openPersonal(definition, { account });
+	try {
+		const sqlite = await openSqlite({ id: definition.id });
+		try {
+			const secrets = await openSecrets({ id: definition.id });
+			return {
+				personal,
+				sqlite,
+				secrets,
+				signal: personal.signal,
+				async close() {
+					await Promise.all([
+						personal.close(),
+						sqlite.close(),
+						secrets.close(),
+					]);
+				},
+			};
+		} catch (cause) {
+			await sqlite.close();
+			throw cause;
+		}
+	} catch (cause) {
+		await personal.close();
+		throw cause;
+	}
+})();

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { APPLICATION_DEFAULTS } from '$lib/operations/settings.js';
+	import { DEVICE_DEFAULTS } from '$lib/operations/settings.js';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as SectionHeader from '@epicenter/ui/section-header';
@@ -32,16 +32,16 @@
 			size="sm"
 			onclick={() => {
 				confirmationDialog.open({
-					title: 'Reset All Settings',
+					title: 'Reset device settings',
 					description:
-						'This will reset all settings to their default values. This action cannot be undone.',
+						'This resets settings on this device, including shortcuts, sounds, and processing choices.',
 					confirm: { text: 'Reset Settings', variant: 'destructive' },
 					onConfirm: () => {
-						app.device.kv.update(APPLICATION_DEFAULTS);
+						app.local.kv.update(DEVICE_DEFAULTS);
 						deviceConfig.reset();
 						report.success({
 							title: 'Settings reset',
-							description: 'All settings have been reset to defaults.',
+							description: 'Device settings have been reset to defaults.',
 						});
 					},
 				});

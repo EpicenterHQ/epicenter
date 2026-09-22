@@ -3,7 +3,12 @@
  * and failure, and sends no request for disabled or missing selections.
  */
 import { expect, test } from 'bun:test';
-import { createAppAi } from '@epicenter/app/ai';
+import {
+	createInference,
+	type AiTransport,
+} from '../../../../../packages/app/src/inference.js';
+import { openConnectionCatalog } from '../../../../../packages/app/src/connection-catalog.js';
+import type { AccountIdentity } from '@epicenter/principal';
 import { createAiConnections } from '@epicenter/app/ai-connections';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createInferenceCatalog } from '../../../../../packages/app-shell/src/inference-picker/catalog.svelte.js';
@@ -16,8 +21,8 @@ async function setup() {
 	const values = new Map<string, unknown>([
 		['completionModel', 'chosen'],
 		['polishEnabled', true],
-		['polishInstructions', 'Fix punctuation.'],
-		['dictionary', ['Epicenter']],
+		['polishInstructions', 'Wrong device instructions.'],
+		['dictionary', ['Wrong device dictionary']],
 	]);
 	const kv = {
 		get: (key: string) => values.get(key),
@@ -41,44 +46,47 @@ async function setup() {
 	let fail = false;
 	let delayed = false;
 	const started = Promise.withResolvers<void>();
-	const owner = createAppAi({
-		connections: records,
-		account: null,
-		runtime: null,
-		lifetime: {
-			signal: controller.signal,
-			assertUsable: () => controller.signal.throwIfAborted(),
-		},
-		configuredFetch: async (_input, init) => {
-			requests.push(JSON.parse(String(init?.body)));
-			if (fail) throw new Error('unavailable');
-			if (delayed) {
-				started.resolve();
-				await new Promise<void>((_resolve, reject) => {
-					const signal = init?.signal;
-					if (signal?.aborted) reject(signal.reason);
-					else
-						signal?.addEventListener('abort', () => reject(signal.reason), {
-							once: true,
-						});
-				});
-			}
-			return Response.json({
-				choices: [{ message: { content: 'Hello, Epicenter.' } }],
+	const customFetch: AiTransport['fetch'] = async (_input, init) => {
+		requests.push(JSON.parse(String(init?.body)));
+		if (fail) throw new Error('unavailable');
+		if (delayed) {
+			started.resolve();
+			await new Promise<void>((_resolve, reject) => {
+				const signal = init?.signal;
+				if (signal?.aborted) reject(signal.reason);
+				else
+					signal?.addEventListener('abort', () => reject(signal.reason), {
+						once: true,
+					});
 			});
+		}
+		return Response.json({
+			choices: [{ message: { content: 'Hello, Epicenter.' } }],
+		});
+	};
+	const owner = await openConnectionCatalog({
+		...records,
+		transport(record) {
+			return { baseURL: record.baseUrl, fetch: customFetch };
 		},
 	});
-	const id = await owner.value.ai.connections!.add({
+	const ai = { account: null, runtime: null, connections: owner };
+	const id = await ai.connections!.add({
 		name: 'Chosen',
 		baseUrl: 'https://chosen.example/v1',
 		models: ['chosen'],
 	});
 	kv.update({ completionConnection: id, completionModel: 'chosen' });
+	const personalValues = new Map<string, unknown>([
+		['polishInstructions', 'Fix punctuation.'],
+		['dictionary', ['Epicenter']],
+	]);
 	const app = {
 		signal: controller.signal,
-		device: { kv },
+		local: { kv },
+		personal: { kv: { get: (key: string) => personalValues.get(key) } },
 		catalog: createInferenceCatalog({
-			ai: owner.value.ai,
+			ai: ai,
 			hostedModels: [],
 		}),
 	} as unknown as WhisperingApp;
@@ -88,7 +96,7 @@ async function setup() {
 		values,
 		kv,
 		requests,
-		ai: owner.value.ai,
+		ai: ai,
 		id,
 		started: started.promise,
 		delay() {

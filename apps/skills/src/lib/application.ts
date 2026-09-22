@@ -3,7 +3,7 @@
  * decision about authentication; callers that hold an Account use the same
  * current-library opening path as the store applications.
  */
-import { openApp } from '@epicenter/app/open';
+import { openPersonal } from '@epicenter/app/open';
 import type { Account } from '@epicenter/auth';
 import { skillsDefinition } from '@epicenter/skills';
 import { createSkillsState } from './state/skills-state.svelte.js';
@@ -17,10 +17,10 @@ export async function openSkillsRuntime({
 	signal?: AbortSignal;
 }) {
 	signal?.throwIfAborted();
-	const app = await openApp(skillsDefinition, { account });
+	const app = await openPersonal(skillsDefinition, { account });
 	try {
 		signal?.throwIfAborted();
-		const data = app.account!.personal;
+		const data = app;
 		const state = createSkillsState({ data });
 		let stateClosed = false;
 		return Object.freeze({

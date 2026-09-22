@@ -1,7 +1,7 @@
-import type { ResolvedInferenceTarget } from '@epicenter/app-shell/inference-target';
 import { connectionLabel } from '@epicenter/app-shell/inference-picker';
+import type { ResolvedInferenceTarget } from '@epicenter/app-shell/inference-target';
 import { resolveCompletionTarget } from '../operations/completion.js';
-import { getSetting } from '../operations/settings.js';
+import { DEVICE_DEFAULTS } from '../operations/settings.js';
 import { resolveTranscriptionTarget } from '../operations/transcribe.js';
 import type { WhisperingApp } from '../whispering/app.js';
 
@@ -21,7 +21,8 @@ export type PolishStatus = 'off' | 'on' | 'needs-connection';
 
 export function polishStatus(app: WhisperingApp): PolishStatus {
 	const state = resolveCompletionTarget(app);
-	if (!getSetting(app.device.kv, 'polishEnabled')) return 'off';
+	if (!(app.local.kv.get('polishEnabled') ?? DEVICE_DEFAULTS.polishEnabled))
+		return 'off';
 	return state ? 'on' : 'needs-connection';
 }
 

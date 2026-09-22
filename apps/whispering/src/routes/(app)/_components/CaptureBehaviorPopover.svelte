@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { DEVICE_DEFAULTS } from '$lib/operations/settings.js';
 	import { Button } from '@epicenter/ui/button';
 	import * as Popover from '@epicenter/ui/popover';
 	import SlidersHorizontalIcon from '@lucide/svelte/icons/sliders-horizontal';
@@ -39,7 +40,8 @@
 	<Popover.Content class="w-80">
 		<div class="flex flex-col gap-3">
 			<SettingSwitch
-				key="recordingPausePlayback"
+				checked={app.local.kv.get('recordingPausePlayback') ?? DEVICE_DEFAULTS.recordingPausePlayback}
+				onCheckedChange={checked => app.local.kv.update({ recordingPausePlayback: checked })}
 				label="Pause playback while recording"
 				description={pausePlaybackDescription}
 			/>

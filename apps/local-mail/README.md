@@ -4,11 +4,11 @@ Local Mail downloads Gmail, records triage changes on this device, and saves
 named SQL queries in your Epicenter library. Select a connected Gmail account
 and press **Run** to inspect its downloaded messages and labels.
 
-One mounted application document owns one App. The App captures the Epicenter
-account and supplies synchronized data, local SQLite, and private secrets.
+One mounted application document composes Personal, SQLite, and secrets.
+Personal captures the Epicenter account; SQLite and secrets use the application ID.
 Gmail accounts are separate: their Google subjects select individual cache
-files within the captured Epicenter account's device scope. Switching Epicenter
-accounts does not expose another person's connected mailboxes.
+files within this application's fixed device-local namespace. Switching Epicenter
+accounts leaves connected Gmail mailboxes and downloaded bytes on this device.
 
 ## Saved queries and downloaded mail
 
@@ -16,11 +16,11 @@ The storage boundary follows who owns each artifact:
 
 | Artifact | Storage | Synchronizes |
 | --- | --- | --- |
-| Named SQL definitions | `app.account.personal.tables.savedQueries`, fields `name` and `sql` | Yes |
-| Connected Gmail accounts | `app.device.sqlite.open('local')` | No |
+| Named SQL definitions | `app.personal.tables.savedQueries`, fields `name` and `sql` | Yes |
+| Connected Gmail accounts | `app.sqlite.open('local')` | No |
 | Pending triage and last delivery report | The same durable `local` file | No |
-| Downloaded Gmail facts | `app.device.sqlite.open('mail-<sub>')` | No |
-| Gmail refresh token | `app.device.secrets`, labeled by Google subject | No |
+| Downloaded Gmail facts | `app.sqlite.open('mail-<sub>')` | No |
+| Gmail refresh token | `app.secrets`, labeled by Google subject | No |
 
 A saved query uses an ordinary row ID and has no content codec. Duplicate names
 and invalid SQL are allowed. **Save** stores text and waits for local
@@ -57,11 +57,11 @@ updates the cache. Query results offer no message actions.
 ## Opening and closing
 
 `ui/src/lib/data.ts` declares data without opening resources. The primary route
-mounts `AppBoot`, awaits its `openApp` promise, and renders the mail shell. Auth callbacks and Gmail consent callbacks open no
+mounts `AppBoot`, which calls the product resource opener with a startup cancellation signal and renders the mail shell. Auth callbacks and Gmail consent callbacks open no
 primary library. Importing or preloading the route does not open one either.
 
-Each application document opens one App with its captured Account. Saved queries
-live in `app.account.personal`. Gmail SQLite and credentials live under `app.device`.
+Each application document opens Personal with its captured Account and acquires SQLite and secrets independently. Saved queries
+live in `app.personal`. Gmail SQLite and credentials use `app.sqlite` and `app.secrets` in the fixed Local namespace.
 Identity is required on first opening. A cached
 identity and an existing library can reopen without network access; connection
 health does not disable local triage, Undo, outbox reads, or queries.
@@ -77,15 +77,15 @@ Ordinary query switches and tab closure retain their draft warnings. Removing
 the mail shell aborts its operations without waiting for pending work.
 
 Unexpected retirement removes the working UI and replaces the document with
-`?stopped`. Recovery opens no App until the person chooses to reopen it. Committed
-data remains available. Same-owner credential refresh preserves the App; explicit
+`?stopped`. Recovery opens no resources until the person chooses to reopen it. Committed
+data remains available. Same-owner credential refresh preserves the open resources; explicit
 desktop reauthentication restarts the host.
 
-Gmail caches, account registries, credentials, and pending work use one device
-namespace per app and Epicenter account. Returning to that account restores its
-local data. Disconnecting Gmail remains a separate product action. Earlier
-storage is neither merged nor deleted; reconnect Gmail in the intended account
-namespace. Saved queries remain synchronized account data.
+Gmail caches, account registries, credentials, and pending work use one fixed
+device namespace per application ID. Epicenter account changes retain that local
+data. Disconnecting Gmail remains a separate product action. Historical
+account-partitioned storage is neither merged nor deleted. Saved queries remain
+synchronized Personal data.
 Durable schema version 1 is preserved;
 unknown durable schemas are refused. Unknown cache schemas can be rebuilt.
 
@@ -97,9 +97,12 @@ pages finish. A full scan runs when no cursor exists or Gmail rejects an expired
 cursor. History label additions and removals preserve unrelated labels.
 Separate attachment bytes are not downloaded.
 
-Each completed page saves its messages and a download bookmark in the same
-SQLite transaction. If the application stops, the next sync starts at that
-bookmark; an unfinished page is fetched again. A failed continuation request
+Downloads save messages in bounded SQLite transactions, then advance the
+download bookmark after the whole page succeeds. If the application stops,
+committed messages remain readable and the unfinished page is fetched again.
+History catchup uses the same rule before advancing its cursor. A single
+message whose serialized write exceeds 4 MiB stops the download with an error;
+it is never silently skipped. A failed continuation request
 with HTTP 400 triggers one fresh scan attempt. Other failures preserve the
 bookmark for retry. Existing version 1 caches upgrade without losing mail.
 

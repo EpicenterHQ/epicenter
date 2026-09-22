@@ -1,4 +1,3 @@
-import { getSetting, APPLICATION_DEFAULTS } from '../operations/settings.js';
 import { type Command, commands } from '$lib/commands';
 import { DEFAULT_SHORTCUT_KEYS, type WhisperingSettingValues } from '$lib/data';
 import {
@@ -11,13 +10,14 @@ import {
 	type KeyBinding,
 } from '$lib/utils/key-binding';
 import type { WhisperingApp } from '$lib/whispering/app';
+import { DEVICE_DEFAULTS } from '../operations/settings.js';
 import { createShortcuts } from './shared';
 import type { Shortcuts } from './types';
 
 /**
  * The focused (in-app) shortcut backend: shortcuts that fire while the Whispering
  * window is focused, driven by the browser keydown matcher and stored in this
- * device's settings as two arrays per command, `shortcut<Command>Modifiers` and
+ * local's settings as two arrays per command, `shortcut<Command>Modifiers` and
  * `shortcut<Command>Keys`.
  *
  * Two columns rather than one structured value, because a workspace has no
@@ -78,8 +78,8 @@ const SHORTCUT_KEYS = {
 >;
 
 export function createFocusedShortcuts({
-	device,
-}: Pick<WhisperingApp, 'device'>): Shortcuts {
+	local,
+}: Pick<WhisperingApp, 'local'>): Shortcuts {
 	// The workspace validates the stored arrays structurally as `string[]`, while
 	// `KeyBinding` narrows them to `Modifier[]` and `Key[]`, so composing a
 	// binding crosses that boundary with one documented cast, like the global
@@ -97,10 +97,10 @@ export function createFocusedShortcuts({
 
 	const readBinding = (id: Command['id']): KeyBinding | null =>
 		compose(
-			getSetting(device.kv, SHORTCUT_KEYS[id].modifiers) as
-				| readonly string[]
-				| null,
-			getSetting(device.kv, SHORTCUT_KEYS[id].keys) as readonly string[] | null,
+			local.kv.get(SHORTCUT_KEYS[id].modifiers) ??
+				DEVICE_DEFAULTS[SHORTCUT_KEYS[id].modifiers],
+			local.kv.get(SHORTCUT_KEYS[id].keys) ??
+				DEVICE_DEFAULTS[SHORTCUT_KEYS[id].keys],
 		);
 
 	/**
@@ -111,21 +111,17 @@ export function createFocusedShortcuts({
 	 */
 	const readDefaultBinding = (id: Command['id']): KeyBinding | null =>
 		compose(
-			APPLICATION_DEFAULTS[SHORTCUT_KEYS[id].modifiers] as
-				| readonly string[]
-				| null,
+			DEVICE_DEFAULTS[SHORTCUT_KEYS[id].modifiers],
 			id in DEFAULT_SHORTCUT_KEYS
 				? DEFAULT_SHORTCUT_KEYS[id as keyof typeof DEFAULT_SHORTCUT_KEYS]
-				: (APPLICATION_DEFAULTS[SHORTCUT_KEYS[id].keys] as
-						| readonly string[]
-						| null),
+				: DEVICE_DEFAULTS[SHORTCUT_KEYS[id].keys],
 		);
 
 	return createShortcuts({
 		read: readBinding,
 		getDefault: readDefaultBinding,
 		write: (id, binding) => {
-			device.kv.update({
+			local.kv.update({
 				[SHORTCUT_KEYS[id].modifiers]: binding?.modifiers ?? null,
 				[SHORTCUT_KEYS[id].keys]: binding?.keys ?? null,
 			});

@@ -36,7 +36,7 @@
 
 		let cancelled = false;
 		let owned: BlobSource | null = null;
-		void openRecordingAudio(app.blobs, { audioBlobId, audioUrl })
+		void openRecordingAudio(app.localBlobs, app.remoteBlobs, { audioBlobId, audioUrl })
 			.then(({ data, error }) => {
 				if (error && !cancelled) failure = 'Audio is unavailable on this device.';
 				if (data === null) return;

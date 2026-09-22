@@ -11,7 +11,8 @@ import { join } from 'node:path';
 import { openData } from '@epicenter/app/data';
 import { InstantString } from '@epicenter/app/field';
 import { BlobStoreError, generateBlobId } from '@epicenter/blobs';
-import { createAppBlobs } from '@epicenter/blobs/app';
+import { openLocalBlobs } from '@epicenter/app/blobs';
+import { createBrowserRecording } from '../../../../../packages/app/src/recording/browser.js';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
@@ -47,13 +48,18 @@ async function setup(directory?: string) {
 		whisperingDefinition,
 		createBunSqliteAdapter(sqlite),
 	);
-	const access = createAppBlobs({
-		local,
-		sources: createBrowserBlobSources(local),
+	const access = await openLocalBlobs({
+		id: whisperingDefinition.id,
+		binding: {
+			local,
+			sources: createBrowserBlobSources(local),
+			recording: createBrowserRecording,
+		},
 	});
 	const app = {
 		library: data,
-		blobs: { remote: null, local: access.value },
+		remoteBlobs: null,
+		localBlobs: access,
 	};
 	return {
 		root,
@@ -117,7 +123,7 @@ test('row creation and deletion never publish or delete bytes', async () => {
 	const f = await setup();
 	try {
 		const blobId = expectOk(
-			await f.app.blobs.local.add(new Blob(['saved audio'])),
+			await f.app.localBlobs.add(new Blob(['saved audio'])),
 		);
 		const write = spyOn(f.local, 'put');
 		const remove = spyOn(f.local, 'delete');
@@ -128,7 +134,7 @@ test('row creation and deletion never publish or delete bytes', async () => {
 		expect(write).not.toHaveBeenCalled();
 		f.data.tables.recordings.delete(row.id);
 		expect(remove).not.toHaveBeenCalled();
-		expect(await expectOk(await f.app.blobs.local.get(blobId)).text()).toBe(
+		expect(await expectOk(await f.app.localBlobs.get(blobId)).text()).toBe(
 			'saved audio',
 		);
 	} finally {
@@ -139,7 +145,7 @@ test('row creation and deletion never publish or delete bytes', async () => {
 test('failed row creation reports the saved blob reference and leaves its bytes available', async () => {
 	const f = await setup();
 	try {
-		const blobId = expectOk(await f.app.blobs.local.add(new Blob(['saved'])));
+		const blobId = expectOk(await f.app.localBlobs.add(new Blob(['saved'])));
 		const create = spyOn(f.data.tables.recordings, 'create').mockImplementation(
 			() => {
 				throw new Error('row failure');
@@ -151,7 +157,7 @@ test('failed row creation reports the saved blob reference and leaves its bytes 
 		).toBe(blobId);
 		create.mockRestore();
 		expect(f.data.tables.recordings.rows.length).toBe(0);
-		expect(await expectOk(await f.app.blobs.local.get(blobId)).text()).toBe(
+		expect(await expectOk(await f.app.localBlobs.get(blobId)).text()).toBe(
 			'saved',
 		);
 	} finally {
@@ -190,7 +196,7 @@ test('saved audio reopens from disk for local playback and export', async () => 
 	try {
 		const bytes = new Uint8Array(17_280_044).fill(47);
 		const blobId = expectOk(
-			await f.app.blobs.local.add(new Blob([bytes], { type: 'audio/wav' })),
+			await f.app.localBlobs.add(new Blob([bytes], { type: 'audio/wav' })),
 		);
 		const row = expectOk(
 			createRecording(f.data, recording({ audioBlobId: blobId })),
@@ -199,7 +205,8 @@ test('saved audio reopens from disk for local playback and export', async () => 
 		f = await setup(directory);
 		const playback = expectOk(
 			await openRecordingAudio(
-				f.app.blobs,
+				f.app.localBlobs,
+				f.app.remoteBlobs,
 				f.data.tables.recordings.get(row.id)!,
 			),
 		);
@@ -231,8 +238,8 @@ test('playback opens an explicit remote URL only when local audio is missing', a
 			'unavailable',
 		);
 		const opened: string[] = [];
-		Object.assign(f.app.blobs, {
-			remote: {
+		Object.assign(f.app, {
+			remoteBlobs: {
 				async get(url: string) {
 					opened.push(url);
 					return { data: new Blob(['remote']), error: null };
@@ -251,7 +258,8 @@ test('playback opens an explicit remote URL only when local audio is missing', a
 		);
 		const source = expectOk(
 			await openRecordingAudio(
-				f.app.blobs,
+				f.app.localBlobs,
+				f.app.remoteBlobs,
 				f.data.tables.recordings.get(row.id)!,
 			),
 		);
@@ -264,7 +272,8 @@ test('playback opens an explicit remote URL only when local audio is missing', a
 		expectOk(await f.local.put(row.audioBlobId, new Blob(['local'])));
 		const localSource = expectOk(
 			await openRecordingAudio(
-				f.app.blobs,
+				f.app.localBlobs,
+				f.app.remoteBlobs,
 				f.data.tables.recordings.get(row.id)!,
 			),
 		);
@@ -296,7 +305,7 @@ for (const audio of [
 			expect(row.audioBlobId).toEndWith('.wav');
 			expect(write).toHaveBeenCalledTimes(1);
 			expect(
-				await expectOk(await f.app.blobs.local.get(row.audioBlobId)).text(),
+				await expectOk(await f.app.localBlobs.get(row.audioBlobId)).text(),
 			).toBe(await audio.text());
 			expect(row).toMatchObject({
 				title: '',
@@ -332,10 +341,10 @@ test('failed imported row creation retains the one published blob and its key', 
 		if (failure.name !== 'RowCreateFailed')
 			throw new Error('Expected saved-byte receipt');
 		expect(
-			await expectOk(await f.app.blobs.local.get(failure.audioBlobId)).text(),
+			await expectOk(await f.app.localBlobs.get(failure.audioBlobId)).text(),
 		).toBe('retained');
 		expect(
-			expectOk(await f.app.blobs.local.list()).items.map((item) => item.id),
+			expectOk(await f.app.localBlobs.list()).items.map((item) => item.id),
 		).toEqual([failure.audioBlobId]);
 		expect(f.data.tables.recordings.rows.length).toBe(0);
 	} finally {
@@ -362,7 +371,7 @@ test('retirement during publication retains bytes without writing a row', async 
 			expectOk(await saveAudioRecording(app, new Blob(['retained']))),
 		).toBeNull();
 		expect(f.data.tables.recordings.rows.length).toBe(0);
-		expect(expectOk(await f.app.blobs.local.list()).items).toHaveLength(1);
+		expect(expectOk(await f.app.localBlobs.list()).items).toHaveLength(1);
 	} finally {
 		write.mockRestore();
 		await f.dispose();
@@ -383,7 +392,7 @@ test('publication failure creates no recording row', async () => {
 			expectErr(await saveAudioRecording(app, new Blob(['audio']))).name,
 		).toBe('BlobStoreFailed');
 		expect(f.data.tables.recordings.rows.length).toBe(0);
-		expect(expectOk(await f.app.blobs.local.list()).items).toEqual([]);
+		expect(expectOk(await f.app.localBlobs.list()).items).toEqual([]);
 	} finally {
 		write.mockRestore();
 		await f.dispose();

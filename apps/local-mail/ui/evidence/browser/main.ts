@@ -1,4 +1,4 @@
-import { openApp } from '@epicenter/app/open';
+import { openPersonal } from '@epicenter/app/open';
 import './style.css';
 import { defineApp, defineTable, field } from '@epicenter/app';
 import { syncEngineOf } from '@epicenter/app/data';
@@ -15,7 +15,7 @@ import Panel from './Panel.svelte';
 try {
 	const app = await opening;
 	const closeMail = attachMail(app);
-	const storage = await openLocalMailStorage(app.device);
+	const storage = await openLocalMailStorage(app);
 	if (localStorage.getItem('evidence-seeded') !== 'true') {
 		for (const sub of ['one', 'two']) {
 			expectOk(
@@ -54,8 +54,11 @@ try {
 				await app.close();
 			},
 			async remoteEdit(remove = false) {
-				const peer = await openApp(
-					defineApp({ ...mailDefinition, id: app.appId }),
+				const peer = await openPersonal(
+					defineApp({
+						...mailDefinition,
+						id: 'so.epicenter.local-mail-evidence',
+					}),
 					{
 						account: {
 							...account,
@@ -66,28 +69,24 @@ try {
 					},
 				);
 				expectOk(
-					syncEngineOf(peer.account!.personal).applyRemote(
-						app.account!.personal.encodeStateSince(),
-					),
+					syncEngineOf(peer).applyRemote(app.personal.encodeStateSince()),
 				);
-				const row = peer.account!.personal.tables.savedQueries.rows[0]!;
-				if (remove) peer.account!.personal.tables.savedQueries.delete(row.id);
+				const row = peer.tables.savedQueries.rows[0]!;
+				if (remove) peer.tables.savedQueries.delete(row.id);
 				else
 					expectOk(
-						peer.account!.personal.tables.savedQueries.update(row.id, {
+						peer.tables.savedQueries.update(row.id, {
 							sql: 'SELECT id FROM labels',
 						}),
 					);
 				expectOk(
-					syncEngineOf(app.account!.personal).applyRemote(
-						peer.account!.personal.encodeStateSince(),
-					),
+					syncEngineOf(app.personal).applyRemote(peer.encodeStateSince()),
 				);
-				await app.account!.personal.persistence.flush();
+				await app.personal.persistence.flush();
 				await peer.close();
 			},
 			async malformed() {
-				const peer = await openApp(
+				const peer = await openPersonal(
 					defineApp({
 						kv: {},
 						tables: {
@@ -96,7 +95,7 @@ try {
 								sql: field.boolean(),
 							}),
 						},
-						id: app.appId,
+						id: 'so.epicenter.local-mail-evidence',
 					}),
 					{
 						account: {
@@ -107,20 +106,18 @@ try {
 						},
 					},
 				);
-				const repair = peer.account!.personal.tables.savedQueries.create({
+				const repair = peer.tables.savedQueries.create({
 					name: 'Repair fixture',
 					sql: false,
 				});
-				const remove = peer.account!.personal.tables.savedQueries.create({
+				const remove = peer.tables.savedQueries.create({
 					name: 'Delete fixture',
 					sql: true,
 				});
 				expectOk(
-					syncEngineOf(app.account!.personal).applyRemote(
-						peer.account!.personal.encodeStateSince(),
-					),
+					syncEngineOf(app.personal).applyRemote(peer.encodeStateSince()),
 				);
-				await app.account!.personal.persistence.flush();
+				await app.personal.persistence.flush();
 				await peer.close();
 				return { repair: repair.id, remove: remove.id };
 			},

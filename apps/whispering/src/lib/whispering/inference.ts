@@ -5,7 +5,7 @@ import type { WhisperingSettingValues } from '../data.js';
 import type { WhisperingAppHandle } from './app.js';
 
 type Workflow = 'transcription' | 'completion';
-type DeviceKv = WhisperingAppHandle['device']['kv'];
+type DeviceKv = WhisperingAppHandle['local']['kv'];
 
 /** Read the connection and model the device chose for this workflow. */
 export function getInferenceTarget(

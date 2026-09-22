@@ -37,7 +37,7 @@ test('mounted Whispering uses device data for every signed-out saved selection',
 	);
 	await Bun.write(
 		join(directory, 'Shell.svelte'),
-		`<script>let { openedApp, data, account } = $props();</script><p id="selection">{JSON.stringify({ device: data === openedApp.device, account: account === undefined })}</p>`,
+		`<script>let { openedApp, data, account } = $props();</script><p id="selection">{JSON.stringify({ device: data === openedApp.local, account: account === undefined })}</p>`,
 	);
 	await Bun.write(join(directory, 'Menu.svelte'), '<span>Library menu</span>');
 	await Bun.write(
@@ -80,9 +80,12 @@ test('mounted Whispering uses device data for every signed-out saved selection',
 						)
 						.replace(
 							'<script lang="ts">',
-							`<script lang="ts">import { createMemoryRuntime } from ${JSON.stringify(join(repo, 'packages/app/src/testing.ts'))}; const runtime = createMemoryRuntime();`,
+							`<script lang="ts">import { createMemoryStoreRuntime } from ${JSON.stringify(join(repo, 'packages/app/src/testing.ts'))}; const runtime = createMemoryStoreRuntime();`,
 						)
-						.replace('<AppBoot ', '<AppBoot {runtime} ');
+						.replace(
+							"import { openWhisperingResources } from '$lib/whispering/resources.js';",
+							`import { openLocal } from ${JSON.stringify(join(repo, 'packages/app/src/open.ts'))}; import { whisperingDefinition } from ${JSON.stringify(join(directory, 'data.ts'))}; const openWhisperingResources = async () => ({local:await openLocal(whisperingDefinition,{runtime}), close:async()=>{}, signal:new AbortController().signal});`,
+						);
 				},
 			},
 			svelte({ configFile: false }),
