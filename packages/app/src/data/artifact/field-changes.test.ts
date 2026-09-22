@@ -1,26 +1,9 @@
+/** Field diffs preserve raw values, enforce permissions, and distinguish KV deletion from null. */
 import { expect, test } from 'bun:test';
-import { defineApp, defineTable, field } from '@epicenter/app';
-import { recognize, compile } from '@epicenter/matter-core/field';
 import { editField } from '@epicenter/matter-core/serialize';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { compileData, jsonValue } from '../definition/index.js';
-import { fieldChanges, matterContract } from './field-changes.js';
+import { fieldChanges, kvChanges } from './field-changes.js';
 import { parseRowFile, rowFile } from './frontmatter.js';
-
-const definition = defineApp({
-	id: 'so.epicenter.file-test',
-	kv: {},
-	tables: {
-		notes: defineTable({
-			title: field.string(),
-			folder: field.nullable(field.string()),
-			count: field.number(),
-			payload: field.json(jsonValue),
-			transcript: field.string(),
-		}),
-	},
-});
-const table = expectOk(compileData(definition)).tables.get('notes')!;
 
 test('clearing the final field in Matter preserves the artifact body', () => {
 	for (const body of ['', 'Body']) {
@@ -29,31 +12,22 @@ test('clearing the final field in Matter preserves the artifact body', () => {
 		)!;
 		expect(parsed).toEqual({ fields: {}, body });
 		expect(
-			expectOk(fieldChanges(table, ['folder'], { folder: 'x' }, parsed.fields)),
+			expectOk(fieldChanges(['folder'], { folder: 'x' }, parsed.fields)),
 		).toEqual({ folder: null });
 	}
 });
 
 test('prototype names are read and written as own field values', () => {
-	const source = expectOk(
-		compileData(
-			defineApp({
-				id: 'so.epicenter.prototype-fields',
-				kv: {},
-				tables: {
-					rows: defineTable({ constructor: field.nullable(field.string()) }),
-				},
-			}),
-		),
-	).tables.get('rows')!;
 	const patch = expectOk(
-		fieldChanges(source, ['constructor'], { constructor: 'x' }, {}),
+		fieldChanges(['constructor'], { constructor: 'x' }, {}),
 	);
 	expect(Object.hasOwn(patch, 'constructor')).toBe(true);
 	expect(patch.constructor).toBeNull();
 	expect(
-		expectErr(fieldChanges(source, [], {}, JSON.parse('{"__proto__": {}}'))),
-	).toMatchObject({ fields: [{ field: '__proto__', reason: 'undeclared' }] });
+		expectErr(fieldChanges([], {}, JSON.parse('{"__proto__": {}}'))),
+	).toMatchObject({
+		fields: [{ field: '__proto__', reason: 'not-permitted' }],
+	});
 });
 
 test('only the edited Matter field is submitted, independent of current store values', () => {
@@ -67,12 +41,12 @@ test('only the edited Matter field is submitted, independent of current store va
 	const file = parseRowFile(
 		editField(rowFile(base, 'body'), 'title', 'After'),
 	)!;
-	expect(expectOk(fieldChanges(table, ['title'], base, file.fields))).toEqual({
+	expect(expectOk(fieldChanges(['title'], base, file.fields))).toEqual({
 		title: 'After',
 	});
 	expect(
 		expectOk(
-			fieldChanges(table, ['title'], base, {
+			fieldChanges(['title'], base, {
 				...base,
 				payload: { b: 2, a: 1 },
 			}),
@@ -81,22 +55,17 @@ test('only the edited Matter field is submitted, independent of current store va
 });
 
 test('nullable spellings are equal and removing a populated nullable field clears it', () => {
-	expect(
-		expectOk(fieldChanges(table, ['folder'], { folder: null }, {})),
-	).toEqual({});
-	expect(
-		expectOk(fieldChanges(table, ['folder'], {}, { folder: null })),
-	).toEqual({});
-	expect(
-		expectOk(fieldChanges(table, ['folder'], { folder: 'x' }, {})),
-	).toEqual({ folder: null });
+	expect(expectOk(fieldChanges(['folder'], { folder: null }, {}))).toEqual({});
+	expect(expectOk(fieldChanges(['folder'], {}, { folder: null }))).toEqual({});
+	expect(expectOk(fieldChanges(['folder'], { folder: 'x' }, {}))).toEqual({
+		folder: null,
+	});
 });
 
-test('preflight refuses forbidden edits and required null, even for a JSON field', () => {
+test('preflight refuses forbidden edits independently of value conformance', () => {
 	expect(
 		expectErr(
 			fieldChanges(
-				table,
 				['title', 'payload'],
 				{ title: 'x', payload: {} },
 				{ payload: null, unknown: 1, count: 4 },
@@ -104,16 +73,13 @@ test('preflight refuses forbidden edits and required null, even for a JSON field
 		),
 	).toMatchObject({
 		fields: [
-			{ field: 'title', reason: 'invalid-value' },
-			{ field: 'payload', reason: 'invalid-value' },
-			{ field: 'unknown', reason: 'undeclared' },
+			{ field: 'unknown', reason: 'not-permitted' },
 			{ field: 'count', reason: 'not-permitted' },
 		],
 	});
 	expect(
 		expectOk(
 			fieldChanges(
-				table,
 				['title'],
 				{ title: 'x', count: 'old invalid value' },
 				{ title: 'y', count: 'old invalid value' },
@@ -122,93 +88,39 @@ test('preflight refuses forbidden edits and required null, even for a JSON field
 	).toEqual({ title: 'y' });
 });
 
-test('Matter recognizes the emitted inner schema and agrees on nonempty values', () => {
-	const contract = expectOk(matterContract(table));
-	expect(contract.optional).toEqual(['folder']);
-	for (const source of table.fields.values()) {
-		const mapped = recognize(contract.fields[source.name]);
-		expect(mapped?.kind).toBe(source.kind);
-		const check = compile(mapped!.schema);
-		for (const value of ['hello', 3, false, [], {}, ['x']])
-			expect(check(value)).toBe(source.check(value));
-	}
-});
-
-test('all declared field kinds map without silently losing constraints', () => {
-	const all = defineApp({
-		id: 'so.epicenter.all-fields',
-		kv: {},
-		tables: {
-			rows: defineTable({
-				select: field.select(['x', 'y']),
-				url: field.url(),
-				datetime: field.datetime(),
-				instant: field.instant(),
-				date: field.date(),
-				integer: field.integer({ minimum: 2 }),
-				number: field.number({ maximum: 10 }),
-				boolean: field.boolean(),
-				string: field.string({ maxLength: 5 }),
-				bytes: field.string({ maxBytes: 4 }),
-				reference: field.reference('rows'),
-				multi: field.multiSelect(['x', 'y']),
-				tags: field.tags(),
-				json: field.json(jsonValue),
-			}),
-		},
+test('permitted edits accept nonconforming and undeclared values', () => {
+	expect(
+		expectOk(
+			fieldChanges(
+				['title', 'extra'],
+				{ title: 'x' },
+				{ title: 42, extra: true },
+			),
+		),
+	).toEqual({ title: 42, extra: true });
+	expect(expectOk(fieldChanges(['title'], { title: 'x' }, {}))).toEqual({
+		title: null,
 	});
-	const source = expectOk(compileData(all)).tables.get('rows')!;
-	const contract = expectOk(matterContract(source));
-	for (const descriptor of source.fields.values()) {
-		const mapped = recognize(contract.fields[descriptor.name]);
-		expect(mapped?.kind).toBe(descriptor.kind);
-		for (const value of [
-			'',
-			'éé',
-			'ééé',
-			'x',
-			'too-long-value',
-			'https://example.com',
-			'2026-09-22',
-			'2026-09-22T00:00:00Z',
-			1,
-			3,
-			20,
-			true,
-			[],
-			['x'],
-			{},
-			null,
-		]) {
-			expect(compile(mapped!.schema)(value)).toBe(descriptor.check(value));
-		}
-	}
 });
 
-test('reserved Matter query columns refuse schema export', () => {
-	const source = expectOk(
-		compileData(
-			defineApp({
-				id: 'so.epicenter.collision',
-				kv: {},
-				tables: { notes: defineTable({ body: field.string() }) },
-			}),
+test('KV distinguishes deletion, stored null, and unchanged absence', () => {
+	expect(
+		expectOk(
+			kvChanges(
+				['removed', 'empty', 'new'],
+				{ removed: null, empty: 'before', untouched: 1 },
+				{ empty: null, new: { any: 'value' }, untouched: 1 },
+			),
 		),
-	).tables.get('notes')!;
-	expect(expectErr(matterContract(source)).name).toBe('UnsupportedField');
-});
-
-test('field names that collide in SQLite refuse schema export', () => {
-	const source = expectOk(
-		compileData(
-			defineApp({
-				id: 'so.epicenter.case-collision',
-				kv: {},
-				tables: {
-					notes: defineTable({ title: field.string(), Title: field.string() }),
-				},
-			}),
-		),
-	).tables.get('notes')!;
-	expect(expectErr(matterContract(source)).name).toBe('UnsupportedField');
+	).toEqual({
+		set: { empty: null, new: { any: 'value' } },
+		delete: ['removed'],
+	});
+	expect(expectOk(kvChanges(['remoteOnly'], {}, {}))).toEqual({
+		set: {},
+		delete: [],
+	});
+	expect(expectErr(kvChanges([], { protected: 1 }, {})).fields).toEqual([
+		{ field: 'protected', reason: 'not-permitted' },
+	]);
 });
