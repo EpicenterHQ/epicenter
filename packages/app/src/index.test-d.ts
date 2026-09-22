@@ -3,7 +3,7 @@ import { expectTypeOf } from 'bun:test';
 import { defineTable, field, type KvOf, type RowOf } from '@epicenter/app';
 import type { Account } from '@epicenter/auth';
 import { defineApp } from './index.js';
-import { type StoreRuntime, openLocal, openPersonal } from './open.js';
+import { openLocal, openPersonal, type StoreRuntime } from './open-store.js';
 
 const notes = defineApp({
 	id: 'test.notes',

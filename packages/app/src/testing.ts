@@ -1,6 +1,11 @@
+import {
+	createBrowserBlobSources,
+	createBrowserBlobStore,
+} from '@epicenter/blobs/browser';
 import { AppClaimError } from '@epicenter/device/app-claim';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { Ok } from 'wellcrafted/result';
+import { acquireLocalBlobs } from './blob-owner.js';
 import { acquireStoreData } from './data/store/browser.js';
 import type { StoreRuntime } from './store-runtime.js';
 
@@ -29,6 +34,20 @@ export function createMemoryStoreRuntime() {
 					if (released) return;
 					released = true;
 					held.delete(address);
+				},
+			});
+		},
+		localBlobs(id, assertUsable) {
+			const local = createBrowserBlobStore({ appId: id, idb });
+			return acquireLocalBlobs({
+				id,
+				assertUsable,
+				binding: {
+					local,
+					sources: createBrowserBlobSources(local),
+					recording() {
+						throw new Error('Memory runtime has no microphone binding.');
+					},
 				},
 			});
 		},

@@ -13,7 +13,7 @@ import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { encodeFrame } from './data/sync/frames.js';
 import { defineApp } from './index.js';
-import { openLocal, openPersonal } from './open.js';
+import { openLocal, openPersonal } from './open-store.js';
 import { createMemoryStoreRuntime } from './testing.js';
 
 const definition = defineApp({

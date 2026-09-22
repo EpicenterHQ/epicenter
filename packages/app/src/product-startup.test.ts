@@ -1,64 +1,66 @@
-/** Product startup unwinds each successful acquisition when a later opener fails. */
+/** Product startup keeps successful roots until replacement. Required failure is
+ * terminal to the caller; optional inference cannot block recording readiness. */
 import { expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-for (const [path, exported] of [
+for (const [path, exported, required] of [
 	[
 		'apps/whispering/src/lib/whispering/resources.ts',
 		'openWhisperingResources',
+		3,
 	],
-	['apps/local-mail/ui/src/lib/resources.ts', 'openMailResources'],
-	['apps/honeycrisp/src/lib/resources.ts', 'openHoneycrispResources'],
-	['apps/vocab/src/lib/resources.ts', 'openVocabResources'],
+	['apps/local-mail/ui/src/lib/resources.ts', 'openMailResources', 3],
+	['apps/honeycrisp/src/lib/resources.ts', 'openHoneycrispResources', 2],
+	['apps/vocab/src/lib/resources.ts', 'openVocabResources', 2],
 ] as const)
-	test(`${exported} rolls back every partial startup and retains terminal close`, async () => {
+	test(`${exported} retains roots after required failure and fences departure independently`, async () => {
 		const directory = await mkdtemp(join(tmpdir(), 'product-startup-'));
 		const key = `startup_${crypto.randomUUID()}`;
 		const globals = globalThis as unknown as Record<string, unknown>;
 		const acquired: Array<{ signal: AbortSignal; close(): Promise<void> }> = [];
 		let count = 0;
-		let failAt = Infinity;
-		let cleanupFails = false;
-		let holdAt = Infinity;
-		let nullAt = Infinity;
-		let entered = Promise.withResolvers<void>();
-		let released = Promise.withResolvers<void>();
+		let failAt = 1;
+		let optionalPending = false;
+		const optional = Promise.withResolvers<null>();
 		const failure = new Error('Acquisition failed');
-		const cleanupFailure = new Error('Cleanup failed');
-		globals[key] = () => {
+		globals[key] = (name: string) => {
+			if (
+				name.includes('Inference') ||
+				name.includes('Transcriber') ||
+				name.includes('Catalog')
+			)
+				return optionalPending ? optional.promise : Promise.reject(failure);
 			if (count++ === failAt) throw failure;
-			if (count - 1 === nullAt) {
-				entered.resolve();
-				return released.promise.then(() => null);
-			}
-			const controller = new AbortController();
-			let closing: Promise<void> | undefined;
+			const lifetime = new AbortController();
 			const handle = {
-				signal: controller.signal,
-				close() {
-					if (closing) return closing;
-					controller.abort();
-					return (closing = cleanupFails
-						? Promise.reject(cleanupFailure)
-						: Promise.resolve());
+				signal: lifetime.signal,
+				close: async () => {
+					lifetime.abort();
 				},
 			};
 			acquired.push(handle);
-			if (count - 1 === holdAt) {
-				entered.resolve();
-				return released.promise.then(() => handle);
-			}
 			return handle;
 		};
 		try {
+			const names = [
+				'openLocal',
+				'openPersonal',
+				'createRecorder',
+				'openSqlite',
+				'openSecrets',
+				'openEpicenterInference',
+				'openRuntimeTranscriber',
+				'openLocalConnectionCatalog',
+				'openAccountConnectionCatalog',
+			];
 			const built = await Bun.build({
 				entrypoints: [new URL(`../../../${path}`, import.meta.url).pathname],
 				target: 'bun',
 				plugins: [
 					{
-						name: 'resource-acquisition-failures',
+						name: 'startup-resources',
 						setup(build) {
 							build.onResolve({ filter: /^@epicenter\/app\// }, (args) => ({
 								path: args.path,
@@ -66,7 +68,12 @@ for (const [path, exported] of [
 							}));
 							build.onLoad({ filter: /.*/, namespace: 'resources' }, () => ({
 								loader: 'js',
-								contents: `const open=globalThis[${JSON.stringify(key)}]; export {open as openLocal, open as openPersonal, open as openLocalBlobs, open as openRemoteBlobs, open as createRecorder, open as openSqlite, open as openSecrets, open as openEpicenterInference, open as openRuntimeInference, open as openLocalConnectionCatalog, open as openAccountConnectionCatalog};`,
+								contents: names
+									.map(
+										(name) =>
+											`export ${name === 'createRecorder' ? '' : 'async '}function ${name}(){return globalThis[${JSON.stringify(key)}](${JSON.stringify(name)})}`,
+									)
+									.join('\n'),
 							}));
 							build.onResolve({ filter: /data\.js$/ }, () => ({
 								path: 'data',
@@ -74,7 +81,8 @@ for (const [path, exported] of [
 							}));
 							build.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({
 								loader: 'js',
-								contents: `const definition={id:'test.startup'}; export {definition as whisperingDefinition,definition as honeycrispDefinition,definition as mailDefinition,definition as vocabDefinition};`,
+								contents:
+									"const definition={id:'test.startup'}; export {definition as whisperingDefinition,definition as honeycrispDefinition,definition as mailDefinition,definition as vocabDefinition};",
 							}));
 						},
 					},
@@ -85,64 +93,43 @@ for (const [path, exported] of [
 			await Bun.write(bundle, built.outputs[0]!);
 			const open = (await import(bundle))[exported] as (
 				account: object,
-				signal?: AbortSignal,
-			) => Promise<{ signal: AbortSignal; close(): Promise<void> }>;
-			const successful = await open({});
-			const length = acquired.length;
-			const closing = successful.close();
-			expect(successful.close()).toBe(closing);
-			expect(successful.signal.aborted).toBe(true);
-			await closing;
-			expect(acquired.every((handle) => handle.signal.aborted)).toBe(true);
-			for (failAt = 0; failAt < length; failAt++) {
-				acquired.length = 0;
-				count = 0;
-				await expect(open({})).rejects.toBe(failure);
-				expect(acquired).toHaveLength(failAt);
-				expect(acquired.every((handle) => handle.signal.aborted)).toBe(true);
-			}
-			acquired.length = 0;
+				signal: AbortSignal,
+			) => Promise<{
+				signal: AbortSignal;
+				inference?: Promise<{ errors: string[] }>;
+			}>;
+			await expect(open({}, new AbortController().signal)).rejects.toBe(
+				failure,
+			);
+			expect(acquired).toHaveLength(1);
+			expect(acquired[0]!.signal.aborted).toBe(false);
 			count = 0;
 			failAt = Infinity;
-			holdAt = 1;
-			const controller = new AbortController();
-			const pending = open({}, controller.signal);
-			const outcome = pending.catch((cause) => cause);
-			await entered.promise;
-			controller.abort(new Error('Unmounted'));
-			expect(acquired[0]!.signal.aborted).toBe(true);
-			expect(acquired[1]!.signal.aborted).toBe(false);
-			released.resolve();
-			expect(await outcome).toBe(controller.signal.reason);
-			expect(acquired[1]!.signal.aborted).toBe(true);
-			expect(count).toBe(2);
-			holdAt = Infinity;
-			if (
-				exported === 'openWhisperingResources' ||
-				exported === 'openVocabResources'
-			) {
-				count = 0;
-				acquired.length = 0;
-				failAt = Infinity;
-				nullAt = exported === 'openWhisperingResources' ? 6 : 3;
-				entered = Promise.withResolvers<void>();
-				released = Promise.withResolvers<void>();
-				const cancellation = new AbortController();
-				const result = open({}, cancellation.signal).catch((cause) => cause);
-				await entered.promise;
-				cancellation.abort(new Error('Unmounted during absent runtime'));
-				released.resolve();
-				expect(await result).toBe(cancellation.signal.reason);
-				expect(count).toBe(nullAt + 1);
-				expect(acquired.every((handle) => handle.signal.aborted)).toBe(true);
-				nullAt = Infinity;
-			}
+			acquired.length = 0;
+			optionalPending = true;
+			const departure = new AbortController();
+			const roots = await open({}, departure.signal);
+			expect(acquired).toHaveLength(required);
+			expect('close' in roots).toBe(false);
+			expect(roots.signal).toBe(departure.signal);
+			departure.abort();
+			expect(roots.signal.aborted).toBe(true);
+			// The data root remains owned by the browser/WebView.
+			expect(acquired[0]!.signal.aborted).toBe(false);
+			if (exported === 'openWhisperingResources')
+				expect(acquired[2]!.signal.aborted).toBe(true);
+			if (exported === 'openMailResources')
+				expect(acquired.slice(1).every((handle) => handle.signal.aborted)).toBe(
+					true,
+				);
+			optional.resolve(null);
+			await roots.inference;
 			count = 0;
-			failAt = 1;
-			cleanupFails = true;
-			const error = await open({}).catch((cause) => cause);
-			expect(error).toBeInstanceOf(AggregateError);
-			expect(error.cause).toBe(failure);
+			acquired.length = 0;
+			optionalPending = false;
+			const failedOptional = await open({}, new AbortController().signal);
+			if (failedOptional.inference)
+				expect((await failedOptional.inference).errors).toHaveLength(3);
 		} finally {
 			delete globals[key];
 			await rm(directory, { recursive: true, force: true });

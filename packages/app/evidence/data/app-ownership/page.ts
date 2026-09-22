@@ -1,6 +1,6 @@
 /** Real browser App lifetime, with one opt-in document cleanup failure. */
 import { defineApp, defineTable, field } from '../../../src/index.js';
-import { openLocal } from '../../../src/open.js';
+import { openLocal } from '../../../src/open-store.js';
 import { indexedDbStoreRuntime as resources } from '../../../src/platform/documents.js';
 
 const definition = defineApp({

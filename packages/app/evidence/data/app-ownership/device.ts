@@ -4,10 +4,9 @@ import 'fake-indexeddb/auto';
 import { asPrincipalId } from '@epicenter/principal';
 import { expectOk } from 'wellcrafted/testing';
 import { compileData } from '../../../src/data/definition/index.js';
-import { acquireAppData } from '../../../src/data/store/browser.js';
+import { acquireStoreData } from '../../../src/data/store/browser.js';
 
 const baseURL = process.argv[2]!;
-const appId = 'so.epicenter.notes';
 const definition = expectOk(
 	compileData(
 		defineApp({
@@ -33,10 +32,10 @@ const account = {
 		throw new Error('No live sync in this startup fixture');
 	},
 };
-const options = { appId, scope: 'personal' as const, account };
+const options = { kind: 'personal' as const, account };
 
 const first = expectOk(
-	await acquireAppData(definition, options, {
+	await acquireStoreData(definition, options, {
 		factory: indexedDB,
 		keyRange: IDBKeyRange,
 	}),
@@ -46,7 +45,7 @@ const baseline = Array.from(first.loaded.updates[0]!);
 await first.dispose?.();
 offline = true;
 const reopened = expectOk(
-	await acquireAppData(definition, options, {
+	await acquireStoreData(definition, options, {
 		factory: indexedDB,
 		keyRange: IDBKeyRange,
 	}),

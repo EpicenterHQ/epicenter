@@ -1,6 +1,8 @@
 /** Real App writes through IndexedDB in an admitted native application window. */
 import { defineApp, defineTable, field } from '@epicenter/app';
 import { openLocal } from '@epicenter/app/open';
+import { openSqlite } from '@epicenter/app/sqlite';
+import { unwrap } from 'wellcrafted/result';
 import { invoke } from '@tauri-apps/api/core';
 
 try {
@@ -31,7 +33,14 @@ try {
 		if (app.persistence.get() !== 'saved')
 			throw new Error('marker was not committed');
 	}
-	// Intentionally no App.close: the document and process are interrupted.
+    const sqlite = await openSqlite({ id: 'so.epicenter.runtimeevidence' });
+    const database = unwrap(await sqlite.open('lifetime'));
+    unwrap(await database.run('CREATE TABLE IF NOT EXISTS markers (value INTEGER PRIMARY KEY)'));
+    const sqlValues = unwrap(await database.all<{value: number}>('SELECT value FROM markers ORDER BY value'));
+    if (sqlValues.length !== expected || sqlValues.some((row, index) => row.value !== index))
+        throw new Error('Native SQL did not preserve committed markers across document replacement');
+    if (document === 0 && cycle < 20) unwrap(await database.run('INSERT INTO markers(value) VALUES (?)', [cycle]));
+    // Intentionally no sqlite.close or App.close: the document and process are interrupted.
 	await invoke('evidence_result', { error: null });
 } catch (error) {
 	await invoke('evidence_result', { error: String(error) });
