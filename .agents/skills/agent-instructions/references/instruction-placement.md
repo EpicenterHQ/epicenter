@@ -4,16 +4,11 @@ Use this reference when deciding where repository guidance belongs. The goal is
 not to capture every lesson. The goal is to keep future agents pointed at the
 smallest durable instruction that changes behavior.
 
-## Product Sentence
+## Ownership
 
-Write this sentence first:
-
-```txt
-AGENTS.md routes always-on repo constraints; skills own triggerable workflows; references hold conditional detail; CLAUDE.md shims import AGENTS.md.
-```
-
-If the proposed instruction does not fit that sentence, change the placement
-before changing the prose.
+`AGENTS.md` carries cross-task constraints and routing. Skills own specialized
+judgment and workflows. READMEs and ADRs describe the system and its decisions.
+Choose the destination by what the material does for a future agent.
 
 ## Placement Rules
 
@@ -23,8 +18,15 @@ SKILL.md       repeatable workflow selected by a concrete user intent
 references/   long examples or conditional detail loaded only when needed
 scripts/      deterministic fragile work better done by code
 CLAUDE.md      compatibility shim, usually only @AGENTS.md
+README / ADR  current architecture, contracts, and decision rationale
 delete         one-off advice, taste notes, or rules already owned elsewhere
 ```
+
+A statement about what the system currently does is evidence to consult for a
+relevant task, not an instruction every task should inherit. Keep architecture
+snapshots, API examples, and migration status with their subsystem docs. Keep
+an always-on rule only when it governs work across tasks or routes the agent
+to the evidence it needs.
 
 Do not create a new skill when an existing skill already owns the same user
 intent. Update the existing skill, narrow its description, or move detail into a
@@ -63,23 +65,8 @@ Default to deletion when the answer is "this was useful once." Update an
 existing skill when the answer is "same trigger, sharper behavior." Add a skill
 only for a separate trigger, repeatable workflow, and lower total routing cost.
 
-## Output Shape
+## Review the placement
 
-Before editing, report:
-
-```txt
-Instruction sentence:
-  ...
-
-Current surface:
-  AGENTS.md / existing skill / reference / absent
-
-Drift:
-  duplicated rule / wrong owner / too much detail / missing trigger / one-off note
-
-Decision:
-  keep global / update skill / add skill / move to reference / delete
-
-Why this reduces complexity:
-  ...
-```
+Explain the behavior the instruction should change, why its owner is the right
+one, and what redundant guidance it replaces. Use enough evidence for the user
+to judge the change; the explanation does not need a fixed set of fields.

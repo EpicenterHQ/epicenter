@@ -21,8 +21,8 @@ Read [references/composition-audit.md](references/composition-audit.md) when str
 
 Use other skills for their owned domains:
 
-- `dialectic`: settle what a skill is for before this skill settles what using it
-  should feel like.
+- `dialectic`: discover what a skill should help someone accomplish through
+  concrete possible uses; this skill encodes and validates the resulting guidance.
 - `writing-voice`: user-facing prose, UI text, errors, docs, and tone.
 - `page-writing` and `journal-writing`: authored Vault prose. Loading one inside
   a skill run is execution, not skill design; this skill's discovery pass does
@@ -141,27 +141,43 @@ files, ask before drafting rather than inventing them.
 
 ## Design The Skill From The Interaction
 
-This pass happens while a `SKILL.md` is being written or behaviorally revised.
-A skill run follows that skill's body; it never renders candidate interactions
-unless the body asks for them. A typo-only edit or a clearly settled instruction
-skips this pass; act directly.
+When designing or substantially revising a skill whose purpose or behavior is
+open, use [dialectic](../dialectic/SKILL.md) with the user. Zoom out to what the
+skill should help someone accomplish, then develop different directions it
+could take. Show those directions through several concrete sample outputs or
+simulated human-agent conversations. Samples help discover the purpose itself;
+the user need not settle it or articulate abstract preferences first.
 
-1. **Diverge.** Show two or three short candidate interactions that differ on
-   the axis in doubt: turn count, where the agent stops, or what it hands back.
-   When the shape is hard to see in dialogue, render the artifact instead, such
-   as a feed, table, or diagram. For a behavioral revision of a skill with an
-   already recognized interaction, render only the changed one.
-2. **Converge.** Revise one rendering at a time from the human's natural
-   reactions. The human's reaction is design evidence, not a vote that ends the
-   pass. Stop when the human recognizes it: “yes, that one,” or no further
-   corrections. “Fine” is not recognition.
-3. **Extract.** Work backward from the recognized interaction into the trigger,
-   turns, reaction points, stopping condition, output, guardrails, and non-goals.
-   The recognized interaction is the first evaluation case: its prompt and
-   turns become the prompt and assertions in `Evaluate A Skill`.
+Make the directions differ in what the agent does, what the user carries, or
+what someone can accomplish. Alternate phrasings of the same response cannot
+test those choices. Use the same request when that makes the differences
+easier to judge, and show the artifact the skill would actually produce.
+Label imagined exchanges as samples; invented user replies are not evidence
+of the user's preference.
 
-When the goal itself is unsettled, run `dialectic` first; this pass assumes the
-goal is settled and only the interaction's shape is open.
+Let actual reactions change the skill's purpose, scope, or behavior as well as
+the samples. The user can choose, reject, or combine parts; the agent carries
+the synthesis rather than requiring them to pick a winner. Recommend a
+direction when the evidence supports it without treating it as accepted.
+Work backward from the direction the user recognizes to the instructions that
+would produce it. Use existing accepted interactions instead of repeating the
+exercise. Mechanical edits and clearly settled changes can proceed directly.
+
+Extract the judgment that made an interaction work, not its incidental topic,
+wording, layout, or turn count. Remove or revise existing instructions that
+push against the preferred behavior before adding compensating rules. An
+approved example is evidence for a principle, not permission to make every
+future interaction resemble it. Keep examples in evaluations or references
+when they test or explain something the principle cannot carry alone.
+
+Try the resulting instructions on materially different requests to check
+whether the lesson transfers. Vary the subject, the user's certainty, or the
+artifact they need, including cases where immediate action or no question is
+right. If preserving a template requires exceptions for those cases,
+reconsider the template instead of adding more guardrails.
+
+This is a skill-design method. Using the resulting skill does not require
+showing candidate interactions unless its own workflow calls for them.
 
 ## Write The Description First
 
@@ -182,7 +198,7 @@ Use `Use when...` phrasing. Describe user intent, not implementation mechanics. 
 Good:
 
 ```yaml
-description: Workspace API patterns for defineTable, defineKv, migrations, observation, and attach primitives. Use when defining schemas, reading or writing table data, observing changes, writing migrations, or composing workspace attachments.
+description: Epicenter data API patterns for defineApp, defineTable, table reads and writes, observation, artifacts, and sync attachment. Use when defining schemas, reading or writing data, observing changes, exporting artifacts, or composing sync.
 ```
 
 Weak:
@@ -228,10 +244,9 @@ move, then the consequence that makes it wrong. A closing `Anti-Patterns` or
 copies drift to different calibrations, and the agent obeys whichever it read
 last.
 
-Match form to the work. Judgment must be prose, because a bullet strips the
-reason and leaves the verdict. Commands, paths, schemas, and file trees must be
-blocks, because prose hides them. Bulleted judgment is the tell that a skill has
-stopped explaining and started listing.
+Match form to the work. Keep the reason connected to the instruction and make
+commands, paths, and structures easy to inspect. Judge the format by whether it
+preserves those relationships, not by whether it uses prose, lists, or blocks.
 
 Say what done means as a property, and name its false positive. "Both of you can
 reason forward from it" is checkable. "The review is complete" is not.
@@ -283,7 +298,9 @@ Escalate to [references/evaluation.md](references/evaluation.md) when the user a
 
 Use this loop:
 
-1. Start with 2 or 3 realistic prompts.
+1. Include the motivating interaction and materially different requests that
+   test whether its lesson transfers. Judge the resulting decisions, not
+   resemblance to the approved example.
 2. Compare against no skill for new skills, or the previous version for updates.
 3. Use a clean context where possible.
 4. Record failures, wasted steps, and missed project conventions.
