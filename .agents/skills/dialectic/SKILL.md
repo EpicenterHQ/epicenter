@@ -10,6 +10,28 @@ something worth reacting to, explain the choices that matter, and recommend a
 direction when you have grounds for one. This is a conversation, not a sequence
 of stages the user must manage.
 
+## What a dialectic is trying to produce
+
+A dialectic usually works toward two related things:
+
+1. A shared articulation of the model: what the idea means, what the system
+   should do, or what principle explains the direction.
+2. A concrete expression of what that model would produce: what the user would
+   read, hear, write, call, see, or experience if the model were right.
+
+Sometimes these are the same thing. In an article, the articulation and the
+expression may both be the finished prose. In an API, the articulation may be
+the ownership and lifecycle model while the expression is the caller code. In
+an agent skill, the articulation may be the behavior it should embody while the
+expression is a conversation that demonstrates that behavior.
+
+The user may be learning a model the agent currently understands better, or the
+user and agent may be discovering the model together. In either case, move
+between explanation and expression until the model and its consequences both
+feel right. These are related outcomes, not required stages or separate
+deliverables: either may come first, one may be enough, and a reaction to one
+may change the other.
+
 Use simple language you could comfortably say aloud. Connect thoughts so the
 user can follow without spending attention on filler or announcements about
 your process. Preserve uncertainty when it matters; tentative language can
