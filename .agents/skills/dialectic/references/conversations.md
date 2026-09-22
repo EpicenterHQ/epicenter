@@ -8,92 +8,69 @@ it. They are not measured runs or records of the user's preferences. Reactions
 may change either or both. The examples teach judgment, not a fixed sequence,
 number of versions, or response format.
 
-## Writing: experience different readings of one transcript
+## Writing: a correction can leave several directions open
 
-These drafts draw on the preserved voice transcript of The Death of Deep Work.
-They are a collaboration exercise, not revisions to that finished page. The
-human's later reply below is hypothetical, not a recorded preference.
+This sample develops the unread-books alternatives discussed with Braden.
+The exchange is an illustration, not a record of work on a saved page. Its
+closing selection and synthesis are hypothetical.
 
-> **Human:** Coding agents have made me more productive, but I miss sitting
-> down for hours to build a feature. Now it's like being on call. I still read
-> a lot and steer the agents, but the thinking feels different. Help me write
-> about that.
+> **Human:** I like having books around even when I haven't read them.
+> Sometimes I see one and remember why I bought it. I don't need every book
+> to become homework.
 >
-> **Agent:** There's both the constant availability and the change in what
-> the thinking feels like. Here are two ways to keep both while letting a
-> different one lead.
+> **Agent:** The thought seems to be that an unread book can bring back your
+> curiosity without becoming an obligation. One way to say it:
 >
-> **1. Always on call**
->
-> This version argues that greater productivity has come with a demand for
-> constant availability. The loss is having time that belongs to one thing.
->
->> Coding agents have made it easier to produce code and harder to leave work alone.
+>> Sometimes I see a book on my shelf and remember what interested me. Before
+>> I've even opened it, it's given me something: that little return of curiosity.
 >>
->> I used to sit down and spend hours building a feature. Now I give an agent
->> something to do, wait, read what it produces, and respond. While one is
->> working, I can start another. There is almost always something ready for
->> my attention.
->>
->> It starts to feel like being on call. I don't have to be actively coding
->> all day, but it helps to keep being available.
->>
->> The productivity is real. More code gets written. I still do plenty of
->> thinking, and I arguably read more than I did before. There's judgment in
->> knowing what to ask for, what to keep, and when an agent has gone in the
->> wrong direction.
->>
->> But I miss sitting with a problem. I miss having a stretch of time that
->> belongs to one thing, instead of a day spent responding whenever something
->> needs me.
->>
->> Coding takes less of my effort now. Somehow, it keeps asking for my attention.
+>> I don't need every book to become homework.
 >
-> **2. I miss figuring it out**
+> **Human:** The return of curiosity is right. But “it's given me something”
+> makes it sound like I'm justifying owning the book.
 >
-> This version locates the loss in the work itself: evaluating a solution
-> feels different from discovering one through your own attempts.
+> **Agent:** Keep the return of curiosity and leave out the defense of owning
+> the book. There are a few different thoughts we could develop from there.
 >
->> I'm writing more code than ever, and I miss coding.
+> **A — Seeing an unread book reminds me what made me curious about it**
+>
+>> Sometimes I see a book on my shelf and remember why I bought it. Oh right,
+>> I wanted to know about that.
 >>
->> The productivity is real. I use coding agents because they're useful.
->> But there was something satisfying about spending hours inside a problem.
->> I liked trying an approach, finding out why it didn't work, and gradually
->> understanding what would.
->>
->> Now much of that happens before I see the result. I read the code, decide
->> whether it makes sense, and steer the next attempt. I still think a lot.
->> I probably read more than before. But evaluating a solution feels different
->> from finding one.
->>
->> The rhythm has changed too. Instead of settling into a feature for an
->> afternoon, I keep checking whether an agent is ready for me. I'm doing more
->> reviewing and directing, often in smaller pieces throughout the day.
->>
->> I don't want to pretend the old way was always better. Plenty of those
->> hours were frustrating. But some of them were the reason I liked the work.
+>> I don't need every book to become homework.
 >
-> **Agent:** I'd build from 2. It gives more room to the work you enjoyed doing.
-> The observation about constant availability in 1 could strengthen its middle.
+> **B — I enjoy having books around, even when noticing them doesn't lead to reading them**
 >
-> **Human:** The line about evaluating a solution is close. But sometimes
-> reviewing the agent's work is really interesting too. It's more that I
-> can't stay with a thought.
->
-> **Agent:** Then I'd change the middle. Reviewing isn't necessarily the loss;
-> being pulled away keeps you from following the interesting part:
->
->> I still find things worth thinking about. Sometimes reading an agent's
->> solution sends me somewhere I wouldn't have gone on my own. But before
->> I've followed that thought very far, another agent needs a response.
+>> I like having books around even when I haven't read them. Every so often,
+>> one catches my eye and I remember what interested me.
 >>
->> I miss having time to stay with the interesting part, whether I found it
->> myself or an agent put it in front of me.
+>> Sometimes that's as far as it goes.
+>
+> **C — I can remain interested in a book without making plans to read it**
+>
+>> There are books on my shelf I still haven't read. I look at one and think,
+>> I'm still curious about that.
+>>
+>> I don't necessarily take it down.
+>
+> **Agent:** I'd start with A because it keeps your original moment of
+> remembering most directly. C leaves more room for the interest to stay open.
+>
+> **Human:** A's voice, but C's ending. Show me that together.
+>
+> **Agent:** Keep the remembered thought, then let it end without taking action:
+>
+>> Sometimes I see a book on my shelf and remember why I bought it. Oh right,
+>> I wanted to know about that.
+>>
+>> I don't necessarily take it down.
 
-The articulation concerns what the piece is trying to say; the concrete
-expression is the prose itself. Here the reaction changes the interpretation,
-so the next attempt revises both. If the author agreed with the interpretation
-but disliked a phrase, that could call for a local change in expression.
+The correction settles something about the model without selecting one
+expression. Each heading articulates a distinct direction in terms the user
+can understand on its own; the passage beneath it shows how that direction
+could read. The later reaction calls for a synthesis rather than another menu.
+The same method can compare complete drafts when their development and endings
+matter; short passages suffice for this local choice.
 
 
 ## API design: make the caller's choices visible

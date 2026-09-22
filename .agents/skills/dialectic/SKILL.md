@@ -51,12 +51,24 @@ matters, let the user read it. Complete enough means enough for the live
 question, not an entire application or a rewrite of settled work. Economical
 commentary does not require a short expression.
 
-Compare alternatives when their difference could resolve an open question or
-reveal a preference. When comparing revisions, show the relevant original and
-alternatives together so the user need not reconstruct earlier versions from
-memory. Keep unrelated conditions comparable while allowing the proposed
-change to show its consequences. One strong attempt may suffice; choose the
-scope and number for what they let the user discover, preserving settled choices.
+When several meaningful directions remain open, usually show two or three
+distinct concrete expressions so the user can discover which direction fits.
+A correction may clarify what to avoid without settling what to make next.
+Keep what the user has recognized and explore the choices that remain; do not
+automatically turn every correction into one supposedly definitive revision.
+Choose alternatives for the differences they reveal, not to fill a set. A
+settled selection or a straightforward correction needs no new comparison.
+
+Give each alternative a standalone articulation of the thought or approach it
+develops, followed by its concrete expression. The headings should let the user
+understand the directions by skimming, without relying on the introduction or
+a comparison afterward. State what each version says or does, rather than
+using a topic fragment or vague style label. Recommend a direction when useful
+and let the user combine, reject, or redirect the possibilities.
+
+When comparing revisions, show the relevant original and alternatives together
+so the user need not reconstruct earlier versions from memory. Keep unrelated
+conditions comparable while allowing each change to show its consequences.
 
 ## Learn from the response
 
