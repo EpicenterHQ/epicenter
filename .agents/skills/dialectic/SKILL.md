@@ -5,87 +5,86 @@ description: Work out an unsettled idea together through concrete attempts to ar
 
 # Dialectic
 
-The dialectic is shared active recognition: we work out an unsettled idea together through concrete attempts to articulate and express it, letting what those attempts reveal guide how we carry it forward.
+Develop a shared model through articulation and concrete expression. Use this
+method within the ongoing task; its purpose, artifacts, and authorization
+remain in place as our understanding develops. Standalone exploration needs
+no destination artifact.
 
-Articulation states our current understanding. Expression gives us something
-we can encounter and judge: a passage to read, an API to use, or a conversation
-a skill could produce. Experiencing it as a whole can reveal what the
-articulation leaves out, gets wrong, or has not yet discovered.
+**Articulation of the model** states our current understanding of the idea,
+intent, or arrangement: what we mean, how its parts relate, and what we want
+it to make possible.
 
-Enter wherever the work is: a vague intuition, an existing draft, a model
-someone is learning, or a result that has revealed a new question. Recognition
-can develop an idea neither participant had fully formed before the exchange.
+**Concrete expression** shows what that model could produce: caller code using
+an API, a conversation following a skill, or the actual prose of a piece of
+writing.
 
-## Give the idea something concrete to become
+Usually present them together so the user can judge both the model and the
+choices made in expressing it. Keep the articulation clear enough to correct
+and the expression complete enough to judge. Use reactions to either to revise
+our understanding and the next attempt, working toward “that’s right” to both.
 
-Make a useful attempt in the form the user would encounter it, with enough
-of the result to judge without imagining missing pieces. Explain the choices
-that matter and recommend a direction when you have grounds for one. Consider
-the coherent shape as if the new understanding had been known from the
-beginning. Existing work supplies evidence; explicit user constraints bind
-the attempt.
+## Make the model and its consequences judgeable
 
-Check facts you can establish yourself, including relevant code and docs, and
-anticipate consequential tradeoffs. Distinguish evidence from inference and
-proposals. Ask first when missing information would make an attempt misleading
-or unhelpful; otherwise give the user something to react to without requiring
-them to diagnose everything first.
+Offer your best current understanding and a useful attempt without requiring
+the user to diagnose everything first. They may arrive with an idea, an
+existing expression, or a result that raises a new question. These are two
+things to develop together, not mandatory stages or response headings. Keep
+an already clear articulation brief; a settled edit needs no new explanation.
 
-Comparison can reveal a preference even when a promising direction already
-exists. Use it when another possibility would help the user discover or judge
-something, respecting choices they have already settled. Choose the number and
-extent that make the difference tangible: development and endings may matter,
-but a local choice may need only a passage. One strong attempt or a brief
-explanation may suffice. The user should not have to assemble fragments to
-experience the result.
+Check facts you can establish yourself and distinguish evidence from proposals.
+Ask when missing information would make the attempt misleading or unhelpful.
+Recommend a direction when you have grounds for one, explaining consequential
+choices. A hypothetical conversation or caller sketch proposes a result; it
+does not establish that an implementation produces it.
 
-## Let the encounter change the understanding
+Follow the concrete example far enough to show the consequence being judged.
+If resource lifetimes matter, show sharing and cleanup. If a skill's response
+to uncertainty matters, show that later turn. If a passage's movement or ending
+matters, let the user read it. Complete enough means enough for the live
+question, not an entire application or a rewrite of settled work. Economical
+commentary does not require a short expression.
 
-Judge attempts together against the user's intent, evidence, constraints,
-and what their consequences reveal. Agreement between an explanation and an
-example can leave both missing the concern. Leave the user's reaction open:
-they may correct the premise, respond to one detail, or change what matters
-in judging the whole. Stay willing to disagree and explain why. Carry what
-you learn into a coherent next attempt, including when the reaction combines
-parts of earlier attempts or rejects their shared framing.
+Compare alternatives when their difference could resolve an open question or
+reveal a preference. One strong attempt may suffice. Choose the scope and
+number for what they let the user discover, and preserve choices already
+settled.
 
-Use simple language you could comfortably say aloud. Connect thoughts so the
-user can follow without spending attention on filler or announcements about
-your process. Preserve uncertainty when it matters; tentative language can
-express a real judgment. Follow what the user responds to, and restate the
-whole only when its connections have changed or seeing it together helps.
+## Learn from the response
 
-Ask to understand something unresolved, without prescribing the user's next
-move or sorting their reaction into your explanations. A useful attempt needs
-no closing question. When a question helps, keep it focused; a requested
-interview can proceed one question at a time.
+Treat the user's response as evidence about what you understood and what the
+attempt reveals. They may recognize the model but dislike a choice in its
+expression, or the expression may expose something the model missed. Locate
+that difference through the conversation rather than asking the user to
+classify their reaction. Revise at the scope it illuminates; a reaction to one
+passage does not establish a universal preference.
 
-## Carry the understanding forward
+Carry what you learn into the next coherent attempt. If the user recognizes
+parts of different versions, do the synthesis rather than making them assemble
+fragments. If their response changes the premise, reconsider the relevant
+whole as if that understanding had been known from the beginning. Discovery
+may produce an idea neither participant had fully formed beforehand.
 
-Let the discussion settle when the user can reason with the idea, recognizes
-what they mean, or sees a direction worth pursuing. A polished formulation or
-complete vision need not precede a useful next move.
+Leave the user's reaction open, including rejection of your framing. Judge
+against their intent, evidence, constraints, and consequences; stay willing
+to disagree and explain why. Ask a focused question when it helps resolve
+something, not to solicit approval after every attempt. In a sample exchange,
+label invented replies as samples; in the live conversation, leave the user's
+next reply to them.
 
-When execution is requested, work backward from the recognized direction and
-carry it into concrete work. The result can reveal something that changes the
-understanding; follow that discovery within the ongoing conversation. Keep
-moving where the direction holds, and bring consequential changes in the
-destination back to the user. Execution and discovery can inform each other
-without a separate mode switch.
-
-Existing authorization governs changes to saved work and other side effects;
-recognition alone supplies none. Record decisions when the task calls for it.
+“That’s right” names recognition of the model and its concrete expression,
+not a required phrase. Let recognition settle the question it addresses and
+continue authorized work from there. A later discovery may reopen that
+question. Recognition alone supplies no authorization for side effects.
 
 ## References
 
-Read [the example conversations](references/conversations.md) when shaping an
-exploration of writing, an API, a skill, or a website, or calibrating how to
-present work for a reaction. They illustrate judgment rather than a response template.
-Label invented exchanges as samples, never evidence of the user's preferences,
-and leave the user's next reply to them in live conversation.
+Read [the example conversations](references/conversations.md) when developing
+writing, an API, a skill, or a website, or calibrating how to show an attempt.
+They demonstrate the relationship between articulation and concrete expression
+without prescribing a format, number of versions, or sequence.
 
-For sustained exploration of wording, read
-[finding expression](references/finding-expression.md). Preserve words that
-carry the user's meaning; polish should help them recognize it. If a page or
-journal workflow already owns the work, it keeps responsibility for that
-conversation and its artifacts. These techniques introduce no extra stage.
+For substantial prose work, use [writing-voice](../writing-voice/SKILL.md) for
+language, rhythm, and fidelity to the author's words and particulars. Trying
+new wording can help the author discover what they mean; it does not permit
+inventing personal events, motives, or beliefs. Page and journal workflows
+retain their authorship and artifact requirements.

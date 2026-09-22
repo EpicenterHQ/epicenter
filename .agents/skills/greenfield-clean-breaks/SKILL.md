@@ -8,7 +8,8 @@ description: Reconsider a system from a clean-slate target and identify legacy o
 Use this skill as an operating mode, not a cleanup checklist. Start with the uncompromised greenfield vision, then work backward to the deletion waves, owner changes, and verification needed to make that vision real. The current software is evidence, not a constraint. Previously resolved decisions can be reopened when they make the final system harder to explain, own, test, or delete.
 
 When the desired direction is still unsettled, use
-[dialectic](../dialectic/SKILL.md) to work it through. Understanding how the
+[dialectic](../dialectic/SKILL.md) to develop the proposed model alongside
+concrete examples of its use. Understanding how the
 current system works does not itself settle a decision to redesign it. Once
 the user has settled the desired behavior, start there; no formal destination
 artifact or additional interview is required. This skill owns planning backward
@@ -286,8 +287,9 @@ Drift:
   external constraint or desired outcome.
 ```
 
-Do not normalize consequential drift as implementation detail. Return to
-Dialectic when drift materially changes the destination; otherwise record the
+Do not normalize consequential drift as implementation detail. Use dialectic
+to reconsider the model and its expression when drift materially changes the
+destination; otherwise record the
 comparison and finish.
 
 ## Related Moves

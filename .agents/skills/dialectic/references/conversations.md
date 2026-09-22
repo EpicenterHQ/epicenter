@@ -1,10 +1,12 @@
 # Example conversations
 
-These illustrations show possibilities through their results: prose to read,
-code to use, conversations a skill could produce, and rendered website designs.
-They are not measured runs or records of the user's preferences. The reactions help discover what
-matters; they need not select one of the original options. The examples teach
-judgment, not a fixed sequence, number of versions, or response format.
+These illustrations pair an articulation of the model with a concrete
+expression: prose to read, caller code, a conversation a skill could produce,
+or a rendered website. The articulation explains the proposed meaning or
+arrangement; the expression lets the user judge the choices made in realizing
+it. They are not measured runs or records of the user's preferences. Reactions
+may change either or both. The examples teach judgment, not a fixed sequence,
+number of versions, or response format.
 
 ## Writing: experience different readings of one transcript
 
@@ -22,6 +24,9 @@ human's later reply below is hypothetical, not a recorded preference.
 > different one lead.
 >
 > **1. Always on call**
+>
+> This version argues that greater productivity has come with a demand for
+> constant availability. The loss is having time that belongs to one thing.
 >
 >> Coding agents have made it easier to produce code and harder to leave work alone.
 >>
@@ -45,6 +50,9 @@ human's later reply below is hypothetical, not a recorded preference.
 >> Coding takes less of my effort now. Somehow, it keeps asking for my attention.
 >
 > **2. I miss figuring it out**
+>
+> This version locates the loss in the work itself: evaluating a solution
+> feels different from discovering one through your own attempts.
 >
 >> I'm writing more code than ever, and I miss coding.
 >>
@@ -81,6 +89,11 @@ human's later reply below is hypothetical, not a recorded preference.
 >>
 >> I miss having time to stay with the interesting part, whether I found it
 >> myself or an agent put it in front of me.
+
+The articulation concerns what the piece is trying to say; the concrete
+expression is the prose itself. Here the reaction changes the interpretation,
+so the next attempt revises both. If the author agreed with the interpretation
+but disliked a phrase, that could call for a local change in expression.
 
 
 ## API design: make the caller's choices visible
@@ -129,6 +142,9 @@ about current package exports. Unrelated setup is omitted.
 > ```
 >
 > **2. Pass the storage to the recorder**
+>
+> Storage is an independent resource. The recorder uses it without owning its
+> lifetime, so recording can stop while storage stays available for preview.
 >
 > ```ts
 > import { openLocalBlobs } from '@epicenter/app/blobs';
