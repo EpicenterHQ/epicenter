@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { useQueryClient } from '@tanstack/svelte-query';
 	import { dictationCapability } from '$lib/state/dictation-capability.svelte';
 	import { getWhisperingApp } from '$lib/whispering/context';
 	import { exposeDebugCommands } from '../_app-effects/expose-debug-commands';
@@ -15,8 +14,6 @@
 	// helper registers its own lifecycle with Svelte; any required teardown is
 	// scoped to this component through $effect cleanup or onMount unmount.
 	const app = getWhisperingApp();
-	const queryClient = useQueryClient();
-	void queryClient.invalidateQueries({ queryKey: ['audio', 'availability'] });
 	exposeDebugCommands(app);
 	logAppStarted(app);
 	listenForLocalShortcuts(app);

@@ -1,7 +1,7 @@
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { report } from '$lib/report';
+import type { RecordingStore } from '$lib/whispering/app';
 import type { Recording } from '../data.js';
-import type { WhisperingApp } from '$lib/whispering/app';
 
 type RecordingDeletionTarget = Pick<Recording, 'id'>;
 
@@ -9,7 +9,7 @@ type RecordingDeletionTarget = Pick<Recording, 'id'>;
  * Delete library rows without claiming that retained audio bytes are reclaimed.
  */
 export function deleteRecordingsWithConfirmation(
-	app: WhisperingApp,
+	store: RecordingStore,
 	toDelete: RecordingDeletionTarget | RecordingDeletionTarget[],
 	{ onSuccess }: { onSuccess?: () => void } = {},
 ) {
@@ -25,7 +25,7 @@ export function deleteRecordingsWithConfirmation(
 			variant: 'destructive',
 		},
 		onConfirm: async () => {
-			for (const { id } of arr) app.library.tables.recordings.delete(id);
+			for (const { id } of arr) store.tables.recordings.delete(id);
 			report.success({
 				title: `Deleted ${noun}!`,
 				description: `Your ${noun} ${isSingle ? 'has' : 'have'} been deleted.`,

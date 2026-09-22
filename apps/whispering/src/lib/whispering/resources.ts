@@ -6,12 +6,16 @@ import {
 	openAccountConnectionCatalog,
 	openLocalConnectionCatalog,
 } from '@epicenter/app/ai-connections';
-import { openLocal, openPersonal } from '@epicenter/app/open';
+import { openPersonal } from '@epicenter/app/open';
 import { createRecorder } from '@epicenter/app/recorder';
 import type { Account } from '@epicenter/auth';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { whisperingDefinition } from '../data.js';
+import { local, openLocalStore } from './local.js';
+import { createPendingSaves } from './pending-saves.js';
+import type { PersonalStore } from './personal.js';
+import { preparePlaybackWorker } from './playback-worker.js';
 
 const log = createLogger('whispering/resources');
 
@@ -21,11 +25,15 @@ export async function openWhisperingResources(
 	signal: AbortSignal,
 ) {
 	signal.throwIfAborted();
-	const local = await openLocal(whisperingDefinition);
+	await openLocalStore();
 	signal.throwIfAborted();
-	const personal = account
-		? await openPersonal(whisperingDefinition, { account })
-		: undefined;
+	const personalReady: Promise<PersonalStore | undefined> = account
+		? openPersonal(whisperingDefinition, { account }).then((store) => {
+				signal.throwIfAborted();
+				return store;
+			})
+		: Promise.resolve(undefined);
+	void personalReady.catch(() => {});
 	signal.throwIfAborted();
 	const recorder = createRecorder({ localBlobs: local.blobs });
 	// Navigation can fail or stall. Stop uncertain and pending capture immediately.
@@ -36,6 +44,8 @@ export async function openWhisperingResources(
 		},
 		{ once: true },
 	);
+	const playbackReady = preparePlaybackWorker();
+	void playbackReady.catch(() => {});
 	const inference = Promise.allSettled([
 		account ? openEpicenterInference({ account }) : Promise.resolve(null),
 		openRuntimeTranscriber(),
@@ -51,10 +61,9 @@ export async function openWhisperingResources(
 		),
 	}));
 	return {
-		local,
-		personal,
-		localBlobs: local.blobs,
-		remoteBlobs: personal?.blobs ?? null,
+		personalReady,
+		playbackReady,
+		pendingSaves: createPendingSaves(signal),
 		recorder,
 		inference,
 		signal,

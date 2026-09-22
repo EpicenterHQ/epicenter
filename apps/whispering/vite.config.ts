@@ -22,11 +22,21 @@ export default defineConfig(
 				// `stripBase` drops the source's directory segments so each file
 				// lands directly at /vad/<name> (the plugin otherwise mirrors the
 				// full absolute source path under dest).
-				targets: vadAssetSources.map((src) => ({
-					src,
-					dest: VAD_ASSET_DEST,
-					rename: { stripBase: true },
-				})),
+				targets: [
+					{
+						src: new URL(
+							'../../packages/client/src/blob-worker.js',
+							import.meta.url,
+						).pathname,
+						dest: '.',
+						rename: { stripBase: true, name: 'epicenter-blob-worker.js' },
+					},
+					...vadAssetSources.map((src) => ({
+						src,
+						dest: VAD_ASSET_DEST,
+						rename: { stripBase: true as const },
+					})),
+				],
 			}),
 		],
 		// onnxruntime-web (pulled in by @ricky0123/vad-web) ships a WASM glue

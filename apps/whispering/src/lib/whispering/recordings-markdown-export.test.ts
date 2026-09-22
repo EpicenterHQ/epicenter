@@ -14,7 +14,6 @@ import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { DownloadServiceLive } from '#platform/download';
 import { whisperingDefinition } from '../data.js';
-import type { WhisperingApp } from './app.js';
 import { exportRecordingsMarkdown } from './recordings-markdown-export.js';
 
 test('ZIP export retains row descriptions and full audio keys under recordings.zip', async () => {
@@ -22,7 +21,6 @@ test('ZIP export retains row descriptions and full audio keys under recordings.z
 	const audioBlobId = generateBlobId('webm');
 	const row = store.tables.recordings.create({
 		audioBlobId,
-		remoteAudio: null,
 		title: 'Planning: next release',
 		recordedAt: InstantString.fromDate(new Date('2026-09-17T11:33:09Z')),
 		recordedAtZone: 'Asia/Singapore',
@@ -42,10 +40,7 @@ test('ZIP export retains row descriptions and full audio keys under recordings.z
 		return Ok(undefined);
 	});
 	try {
-		const app = {
-			library: store,
-		} as unknown as WhisperingApp;
-		expect(expectOk(await exportRecordingsMarkdown(app))).toEqual({
+		expect(expectOk(await exportRecordingsMarkdown(store))).toEqual({
 			written: 1,
 		});
 		expect(downloaded).toHaveLength(1);
@@ -83,8 +78,8 @@ test('an empty recording collection produces no download', async () => {
 		expect(
 			expectOk(
 				await exportRecordingsMarkdown({
-					library: { tables: { recordings: { rows: [] } } },
-				} as unknown as WhisperingApp),
+					tables: { recordings: { rows: [] } },
+				} as unknown as import('./app.js').WhisperingData),
 			),
 		).toEqual({ written: 0 });
 		expect(download).not.toHaveBeenCalled();

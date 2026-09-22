@@ -5,9 +5,9 @@ need more than a table read. Declared application data is read through the
 existing store API. Do not add a listener set or a copied array to make a table
 reactive.
 
-`WhisperingShell` mounts after the product resources open. Its UI session uses
-`fromData` to adapt both stores. The context gives components those ready handles;
-operations receive their dependencies explicitly.
+`WhisperingShell` mounts after Local opens. The module export `local` is reactive.
+Personal opens independently; its ready provider adapts the store with `fromData`
+and establishes context before consumers mount. Operations receive captured handles.
 
 ## Settings and rows
 
@@ -19,20 +19,21 @@ use built-in defaults, never device values. Editing account content requires
 sign-in. The general reset button resets device settings only.
 
 ```ts
-const app = getWhisperingApp();
-const trigger = $derived(app.local.kv.get('recordingTrigger') ?? DEVICE_DEFAULTS.recordingTrigger);
-app.local.kv.update({ recordingTrigger: 'vad' });
-const dictionary = $derived(app.personal?.kv.get('dictionary') ?? []);
+import { local } from '$lib/whispering/local';
+import { getPersonal } from '$lib/whispering/personal';
 
-const recording = $derived(app.library.tables.recordings.get(recordingId));
-const history = $derived(sortedRecordings(app.library));
+const trigger = $derived(local.kv.get('recordingTrigger') ?? DEVICE_DEFAULTS.recordingTrigger);
+local.kv.update({ recordingTrigger: 'vad' });
+// During component initialization beneath PersonalProvider:
+const personal = getPersonal();
+const dictionary = $derived(personal.kv.get('dictionary') ?? []);
+const history = $derived(sortedRecordings(personal));
 ```
 
-The selected `library` remains only for recording history while its permanent
-owner is being decided. It does not route settings or recipes. Previous
-device-authored content remains downloadable from the shell; it is not copied
-into an account automatically. Dictionary is one KV array: concurrent edits
-replace that field rather than merging individual terms.
+Local and Personal history have explicit routes. Shared views receive their store.
+Dictionary is one KV array: concurrent edits replace that field rather than merging
+individual terms. Capture retains the current account's prompt/dictionary acquisition;
+a pending or failed Personal open cannot silently substitute defaults for that account.
 
 `fromData` owns the live row projection. Recordings and recipes have no second
 cache or subscription lifetime. The functions in `whispering/recordings.ts` and
@@ -54,16 +55,19 @@ ongoing source of truth.
 
 ## Audio lifetime
 
-Recording producers save bytes before creating a row. Manual Stop returns the
-saved key; imports and voice-activated capture use `saveAudioRecording`. Failed
-row creation retains those bytes. Deleting a row also retains local and uploaded
-audio.
+Recording producers save Local bytes before creating a Local row. Save to Personal
+copies bytes and publishes an independent Personal row with fresh IDs. Deleting a
+row retains its audio; it does not erase bytes.
 
-Playback uses `openRecordingAudio` and releases its disposable source when the
-player closes. Transcription and downloads use `readRecordingAudio`. Both prefer
-local bytes and use an explicitly uploaded URL only when local bytes are missing
-and the app has remote access. `recordingAudioAvailability` checks metadata
-without loading the audio.
+Playback opens the row's audio through its containing store and disposes the source
+when the player closes. Transcription and downloads read from that same store.
+Personal playback waits for the root worker to control the document. Expired sources
+can be reopened in the player.
+
+Document-owned recovery keeps known BlobIds, mapped values, accepted row IDs and
+inferred text across route changes. Finish saving retries persistence without another
+upload, row creation or inference request. Success requires flush and saved status;
+server delivery is separate. Reload ends this recovery promise.
 
 The processing pipeline receives a recording ID, so retrying transcription does
 not publish another blob or create another row. Markdown ZIP export reads table

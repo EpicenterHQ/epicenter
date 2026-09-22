@@ -2,12 +2,17 @@ import { defineKeys } from 'wellcrafted/query';
 import { Ok, partitionResults } from 'wellcrafted/result';
 import { transcribeAndPersist } from '$lib/operations/transcribe';
 import type { WhisperingQueryRuntime } from '$lib/queries/client';
-import type { Recording } from '../data.js';
 import type { WhisperingApp } from '$lib/whispering/app';
+import type { Recording } from '../data.js';
+import type { RecordingStore } from '../whispering/app.js';
 
-function retry(app: WhisperingApp, recording: Recording) {
+function retry(
+	app: WhisperingApp,
+	store: RecordingStore,
+	recording: Recording,
+) {
 	if (!app.recordingEnabled) throw new Error('Whispering is closing.');
-	return transcribeAndPersist(app, recording.id);
+	return transcribeAndPersist(app, store, recording.id);
 }
 
 export const transcriptionKeys = defineKeys({
@@ -16,29 +21,20 @@ export const transcriptionKeys = defineKeys({
 
 export function createTranscriptionQueries(
 	app: WhisperingApp,
-	{
-		defineMutation,
-		queryClient,
-	}: Pick<WhisperingQueryRuntime, 'defineMutation' | 'queryClient'>,
+	store: RecordingStore,
+	{ defineMutation }: Pick<WhisperingQueryRuntime, 'defineMutation'>,
 ) {
 	return {
-		isCurrentlyTranscribing() {
-			return (
-				queryClient.isMutating({
-					mutationKey: transcriptionKeys.isTranscribing,
-				}) > 0
-			);
-		},
 		transcribeRecording: defineMutation({
 			mutationKey: transcriptionKeys.isTranscribing,
-			mutationFn: (recording: Recording) => retry(app, recording),
+			mutationFn: (recording: Recording) => retry(app, store, recording),
 		}),
 
 		transcribeRecordings: defineMutation({
 			mutationKey: transcriptionKeys.isTranscribing,
 			mutationFn: async (recordings: Recording[]) => {
 				const results = await Promise.all(
-					recordings.map((recording) => retry(app, recording)),
+					recordings.map((recording) => retry(app, store, recording)),
 				);
 				return Ok(partitionResults(results));
 			},

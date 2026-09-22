@@ -1,5 +1,5 @@
 <script lang="ts">
-import { updateRecording } from '../../../../lib/whispering/recordings.js';
+	import { updateRecording } from '../../../../lib/whispering/recordings.js';
 
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { InstantString } from '@epicenter/app/field';
@@ -21,7 +21,6 @@ import { updateRecording } from '../../../../lib/whispering/recordings.js';
 	import { report } from '$lib/report';
 	import type { Recording } from '../../../../lib/data.js';
 	import { createCopyFn } from '$lib/utils/createCopyFn';
-	import UploadRecordingButton from './actions/UploadRecordingButton.svelte';
 	import DownloadRecordingButton from './actions/DownloadRecordingButton.svelte';
 	import TranscribeRecordingButton from './actions/TranscribeRecordingButton.svelte';
 	import {
@@ -43,9 +42,11 @@ import { updateRecording } from '../../../../lib/whispering/recordings.js';
 	 */
 	let {
 		recording,
+		store,
 		trigger,
 	}: {
 		recording: Recording;
+		store: import('$lib/whispering/app.js').RecordingStore;
 		/** Renders the modal opener; spread the given props onto a single element. */
 		trigger: Snippet<[Record<string, unknown>]>;
 	} = $props();
@@ -75,16 +76,6 @@ import { updateRecording } from '../../../../lib/whispering/recordings.js';
 		recording;
 		return false;
 	});
-
-	/**
-	 * Audio playback URL via TanStack Query, fetched lazily once the modal
-	 * opens. Gating on `isDialogOpen` keeps closed rows from eagerly acquiring
-	 * local blob URLs.
-	 */
-	const audioAvailabilityQuery = createQuery(() => ({
-		...queries.audio.availability(() => recording).options,
-		enabled: isDialogOpen,
-	}));
 
 	const deliveredTranscript = $derived(
 		workingCopy.polishedTranscript ?? workingCopy.transcript,
@@ -121,7 +112,7 @@ import { updateRecording } from '../../../../lib/whispering/recordings.js';
 		}
 
 		try {
-			updateRecording(app.library, recording.id, {
+			updateRecording(store, recording.id, {
 				title: snapshot.title,
 				recordedAt: snapshot.recordedAt,
 				recordedAtZone: snapshot.recordedAtZone,
@@ -145,7 +136,6 @@ import { updateRecording } from '../../../../lib/whispering/recordings.js';
 		});
 		isDialogOpen = false;
 	}
-
 </script>
 
 <Modal.Root bind:open={isDialogOpen}>
@@ -173,27 +163,12 @@ import { updateRecording } from '../../../../lib/whispering/recordings.js';
 		</Modal.Header>
 
 		<div class="space-y-4 p-4">
-			{#if audioAvailabilityQuery.data === 'local' || audioAvailabilityQuery.data === 'remote'}
-				<AudioBlobPlayer
-					id={recording.id}
-					enabled={isDialogOpen}
-					class="h-9 w-full"
-				/>
-			{:else if audioAvailabilityQuery.data === 'unavailable'}
-				<p class="text-muted-foreground text-sm">
-					Audio is unavailable.
-				</p>
-			{:else if audioAvailabilityQuery.isError}
-				<p class="text-destructive text-sm">
-					Could not check audio on this device.
-				</p>
-			{:else if audioAvailabilityQuery.isPending}
-				<Spinner class="size-3.5" aria-label="Checking audio on this device" />
-			{/if}
-
-			{#if audioAvailabilityQuery.data === 'local'}
-				<UploadRecordingButton {recording} />
-			{/if}
+			<AudioBlobPlayer
+				{store}
+				id={recording.id}
+				enabled={isDialogOpen}
+				class="h-9 w-full"
+			/>
 
 			{#if workingCopy.polishedTranscript}
 				<div class="space-y-2">
@@ -216,7 +191,9 @@ import { updateRecording } from '../../../../lib/whispering/recordings.js';
 
 			<div class="space-y-2">
 				<Label for="transcript">
-					{workingCopy.polishedTranscript ? 'Original transcript' : 'Transcript'}
+					{workingCopy.polishedTranscript
+						? 'Original transcript'
+						: 'Transcript'}
 				</Label>
 				<Textarea
 					id="transcript"
@@ -281,7 +258,8 @@ import { updateRecording } from '../../../../lib/whispering/recordings.js';
 					<Label class="text-right">Recorded Timezone</Label>
 					<div class="col-span-3">
 						<TimezoneCombobox
-							bind:value={() => workingCopy.recordedAtZone,
+							bind:value={
+								() => workingCopy.recordedAtZone,
 								(recordedAtZone) => {
 									workingCopy = {
 										...workingCopy,
@@ -289,7 +267,8 @@ import { updateRecording } from '../../../../lib/whispering/recordings.js';
 											recordedAtZone as Recording['recordedAtZone'],
 									};
 									isWorkingCopyDirty = true;
-								}}
+								}
+							}
 						/>
 					</div>
 				</div>
@@ -300,7 +279,7 @@ import { updateRecording } from '../../../../lib/whispering/recordings.js';
 			<Button
 				variant="destructive"
 				onclick={() =>
-					deleteRecordingsWithConfirmation(app, $state.snapshot(recording), {
+					deleteRecordingsWithConfirmation(store, $state.snapshot(recording), {
 						onSuccess: () => {
 							isDialogOpen = false;
 						},

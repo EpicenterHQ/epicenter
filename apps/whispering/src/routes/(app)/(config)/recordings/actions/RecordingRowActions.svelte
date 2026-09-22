@@ -12,9 +12,14 @@
 	 * the row lean stops it from re-offering what its neighboring columns and the
 	 * modal already do.
 	 */
-	let { recording }: { recording: Recording } = $props();
+	let {
+		recording,
+		actions,
+	}: { recording: Recording; actions?: import('svelte').Snippet<[Recording]> } =
+		$props();
 </script>
 
 <div class="flex items-center gap-1">
 	<TranscribeRecordingButton {recording} />
+	{@render actions?.(recording)}
 </div>

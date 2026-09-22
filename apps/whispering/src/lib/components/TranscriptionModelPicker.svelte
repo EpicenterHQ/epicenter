@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { local } from '$lib/whispering/local.js';
 	import { getInferenceTarget } from '$lib/whispering/inference.js';
 	import { InferencePicker } from '@epicenter/app-shell/inference-picker';
 	import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
@@ -7,13 +8,19 @@
 </script>
 
 <InferencePicker
-	value={getInferenceTarget(app.local.kv, 'transcription')}
+	value={getInferenceTarget(local.kv, 'transcription')}
 	catalog={app.catalog}
-	accountModels={[{
-		id: HOSTED_TRANSCRIPTION_MODEL,
-		label: HOSTED_TRANSCRIPTION_MODEL,
-		credits: 0,
-	}]}
+	accountModels={[
+		{
+			id: HOSTED_TRANSCRIPTION_MODEL,
+			label: HOSTED_TRANSCRIPTION_MODEL,
+			credits: 0,
+		},
+	]}
 	includeRuntime
-	onSelect={({ connectionId, model }) => app.local.kv.update({ transcriptionConnection: connectionId, transcriptionModel: model })}
+	onSelect={({ connectionId, model }) =>
+		local.kv.update({
+			transcriptionConnection: connectionId,
+			transcriptionModel: model,
+		})}
 />

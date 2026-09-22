@@ -17,28 +17,32 @@ Whispering is one SPA in three layers, served by the Epicenter desktop host. Pla
 ## Application composition
 
 The mounted `(app)` layout passes the inert definition and plain auth client to
-`AppBoot`. One document captures one Account and opens one App. Local displays
-its device store; Personal displays its account store. Callbacks, sign-in, and
-stopped recovery documents open no App. `auth.svelte.ts` adapts identity for UI.
+`AppBoot`. Admitted boot initializes the reactive module export `local` once per
+document before mounting consumers. Imports, SSR, callbacks and stopped recovery
+documents do not acquire stores. Personal opens independently for the captured
+account; Local capture and import do not wait for it.
 
-`WhisperingShell` creates its UI session, query client, and recording workflow
-from the ready App. `fromData` adapts the selected library and `fromKv` adapts
-device settings without projecting the other library. Components read these
-handles through context; operations receive the App explicitly. Settings writes
-use `app.device.kv.update`, and row access uses `app.library.tables`. Application routes share that App. A library change warns,
-removes the working UI, marks the old history entry as stopped, and replaces the
-document. If navigation stalls, the old UI stays inert.
+`WhisperingShell` creates the UI session, shell query client and recording workflow.
+Local callers import `local`. A ready Personal boundary mounts `PersonalProvider`,
+which synchronously calls `setPersonal` before rendering descendants. Descendants
+capture `getPersonal()` during initialization and pass that handle into operations.
+Shared recording views receive a concrete store and own their query client.
 
-One warning before an account change authorizes discarding active recordings
-and unsaved work. Departure does not drain imports, saves, or transcription.
-UI disposal stops admission, cancels owned capture, releases subscriptions and
-VAD, and fences late completions. Acquisition that finishes after disposal still
-releases its microphone. Ordinary stop saves and transcribes normally. Account
-transport retirement remains immediate; native document loss releases capture.
-Previously committed data survives replacement, but pending saves may not.
+Capture and import save Local bytes and a Local recording. Save to Personal copies
+bytes and creates a fresh Personal row from values captured before the transfer.
+The two rows have no lasting relationship. Each row's containing store owns its
+audio reads and transcript writes. Account-dependent transcription waits for its
+captured Personal prompt and dictionary; Local saving proceeds independently.
 
-Saved transcription reads bytes through the same App that recorded them. Its
-operation captures the selected SDK client, model, and hints before that read.
+Deliberate account departure fences publication before navigation. Sign-out reloads;
+it does not confirm persistence. UI disposal stops admission, cancels owned capture
+and releases subscriptions and VAD. Ordinary stop saves the final utterance.
+Document-owned recovery retains known BlobIds, row IDs and inferred text, with a
+visible Finish saving action across route changes. Successful publication requires
+flush, saved persistence status and a matching row. Server delivery is separate.
+Reload ends this recovery promise.
+
+Saved transcription captures its SDK client, model and hints before reading audio.
 Connection discovery only suggests models; it never selects a destination.
 Custom endpoints must accept the workflow's OpenAI SDK request. Direct Deepgram
 and ElevenLabs protocols are unsupported; Mistral has no separate adapter.
@@ -49,16 +53,14 @@ The service layer contains all business logic as **pure functions** with zero UI
 
 The key innovation is **build-time platform resolution** via Node-standard `#platform/*` subpath imports. Each platform-bound service lives in a folder with both implementations as sibling files plus a shared contract; the app's `package.json` `imports` map points each seam at the matching file per build condition:
 
-`await openApp(whisperingDefinition, { account })` from `@epicenter/app/open` acquires
-storage, recording, and inference through App's `isTauri()`-selected resources.
-Whispering declares no runtime or AI override. Its own `#platform/*` seams
-continue to select app capabilities such as auth and native commands.
+`openWhisperingResources` composes the existing `openLocal` and `openPersonal`
+constructors, `createRecorder({ localBlobs: local.blobs })`, and runtime inference. Whispering's
+`#platform/*` seams select app capabilities such as auth and native commands.
 The saved-recording contract lives at `@epicenter/app/recorder`.
-The UI session composes `createWhisperingRecording(app, openedApp.device.recording)`
-once and exposes `app.recording`. The workflow captures one framework recording service. Buttons and the overlay read the workflow state; UI disposal cancels owned capture and releases its subscriptions. The opened
-App owns capture admission, cancellation, and storage resources. Its explicit
-close operation remains available for independent resource disposal. Device configuration
-selects browser device IDs or native device names through its matching seam.
+The UI session creates one recording workflow from the opened recorder and exposes
+`app.recording`. Buttons and the overlay read that workflow's state. Resource close
+and document departure release capture. Device configuration selects browser device
+IDs or native device names through its matching seam.
 
 This mechanism is scoped to `#platform/*` only; every other bare import resolves normally. `tsconfig.json` typechecks the default resolution and `tsconfig.epicenter-host.json` repeats the check with the condition the Epicenter build activates. Each impl is annotated with the shared contract (`export const x: Contract = ...`, not `satisfies`, so the concrete type stays hidden and the variants stay in lockstep).
 
@@ -72,37 +74,29 @@ The codebase distinguishes two kinds of "which implementation" decisions and use
 
 ## Query Layer - Adding Reactivity and State Management
 
-The query layer (`$lib/queries`) is where TanStack Query reactivity gets injected on top of the ready app and pure services. The session created by `createWhisperingUiSession` owns one `QueryClient` and one `WhisperingQueries` namespace; there is no module-global client. Components reach both through context:
+The query layer (`$lib/queries`) adds mutation state around asynchronous
+capabilities. Each recording view owns a query client and queries bound to its
+concrete store. Components capture the view's query context at initialization.
+The shell has its own query client for capture UI.
+
+Domain state stays in the reactive stores:
 
 ```svelte
 <script>
-  import { createQuery } from '@tanstack/svelte-query';
+  import { local } from '$lib/whispering/local';
   import { sortedRecordings } from '$lib/whispering/recordings';
-  import { getWhisperingApp, getWhisperingQueries } from '$lib/whispering/context';
 
-  const app = getWhisperingApp();
-  const queries = getWhisperingQueries();
-
-  // Domain data: workspace state (reactive, no queries needed)
-  const latestRecording = $derived(sortedRecordings(app.library)[0]);
-
-  // Audio availability: still needs TanStack Query (blobs are too large for
-  // workspace rows)
-  const availability = createQuery(
-    () => queries.audio.availability(() => latestRecording).options,
-  );
+  const latestRecording = $derived(sortedRecordings(local)[0]);
 </script>
 ```
 
-**Workspace State** - Components read recordings and recipes through `fromData(app.library)` and settings through `fromKv(app.device.kv)`. These shared adapters preserve the table and KV APIs; product operations receive the page-owned app explicitly.
-
-The query layer's role has narrowed to things that don't fit in workspace rows:
-
-- **External APIs**: Transcription mutations (`queries.transcription.*`) around the transcription operations
-- **Microphone enumeration**: Async device list with loading states (`app.recording.enumerateDevices`). Recorder state itself lives in `$lib/operations/recording.svelte.ts` and `$lib/state/vad-recorder.svelte.ts` as `$state`, not queries.
-- **Audio blob access**: Too large for workspace rows, still served via the blob store (`queries.audio.availability`, `queries.download.downloadRecording`)
-
-This design keeps services pure and platform-agnostic while giving the UI immediate reactivity for domain data and cached access for external resources.
+`fromData` preserves table and KV APIs. Personal settings and recipes are read
+beneath the ready provider. Operations receive concrete stores explicitly.
+Transcription and download mutations use the view's store. Microphone enumeration
+has async loading state; capture state remains in the recording workflow and VAD
+wrapper. `AudioBlobPlayer` owns source acquisition, loading, failure, reopening and
+disposal. It opens audio through the row's containing store without a second
+availability query.
 
 **→ Learn more:** [Queries README](./src/lib/queries/README.md) | [State README](./src/lib/state/README.md)
 
@@ -140,7 +134,7 @@ Whispering uses [WellCrafted](https://github.com/wellcrafted-dev/wellcrafted), a
 ## Architecture Patterns
 
 - **Service Layer**: Platform-agnostic business logic with Result types
-- **Query Layer**: Reactive data management with caching, scoped to one UI session (`queries.audio.*`, `queries.transcription.*`, `queries.download.*`)
+- **Query Layer**: Reactive data management with caching, scoped to its owning view (`queries.transcription.*`, `queries.download.*`)
 - **Dependency Injection**: Clean separation of concerns
 
 ## Key Architectural Decisions

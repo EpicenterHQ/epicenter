@@ -9,8 +9,8 @@ import {
 	isEmptyBinding,
 	type KeyBinding,
 } from '$lib/utils/key-binding';
-import type { WhisperingApp } from '$lib/whispering/app';
 import { DEVICE_DEFAULTS } from '../operations/settings.js';
+import { local } from '../whispering/local.js';
 import { createShortcuts } from './shared';
 import type { Shortcuts } from './types';
 
@@ -77,9 +77,7 @@ const SHORTCUT_KEYS = {
 	}
 >;
 
-export function createFocusedShortcuts({
-	local,
-}: Pick<WhisperingApp, 'local'>): Shortcuts {
+export function createFocusedShortcuts(): Shortcuts {
 	// The workspace validates the stored arrays structurally as `string[]`, while
 	// `KeyBinding` narrows them to `Modifier[]` and `Key[]`, so composing a
 	// binding crosses that boundary with one documented cast, like the global

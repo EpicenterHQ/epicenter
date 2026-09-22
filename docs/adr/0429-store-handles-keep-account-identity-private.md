@@ -3,13 +3,12 @@
 - **Status:** Accepted
 - **Date:** 2026-09-23
 - **Relates:** [ADR-0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md).
-- **Unbuilt:** Removal of public Personal store identity after migrating its callers to store-relative recording access.
 
 ## Context
 
-`openPersonal` captures an Account's identity and transport, then returns its
+`openPersonal` previously captured an Account's identity and transport, then returned its
 store with an additional `identity: { authorityId, principalId }` property.
-Whispering uses that projection to build and validate `remoteAudio` references.
+Whispering used that projection to build and validate `remoteAudio` references.
 ADR-0428 removes those references from ordinary recording rows.
 
 Auth constructs frozen Account objects. The public Account carries durable
@@ -72,3 +71,11 @@ authority to rewrite persisted data or merge Local and Personal datasets.
   recording promises merely to make types identical.
 - Remove owner identifiers from storage: loses account isolation; private scope
   is required even when public consumers do not inspect it.
+
+## Implementation evidence
+
+`openPersonal` retains its private frozen Account snapshot and returns the store
+without an identity projection. Runtime tests mutate the acquisition input while
+admission is pending, then reopen Alice and Bob separately to verify that the
+write still belongs to Alice. Type tests reject public identity/account fields.
+Local and Personal blob capabilities and open constructors remain distinct.

@@ -8,7 +8,7 @@ import type { DeviceAcquisitionOutcome } from '@epicenter/recorder';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { defineKeys, resultQueryOptions } from 'wellcrafted/query';
-import { Err, Ok } from 'wellcrafted/result';
+import { Err, Ok, trySync } from 'wellcrafted/result';
 import { manualRecorderConfig } from '#platform/manual-recorder-config';
 import { reportRecordingMicLevel } from '#platform/recording-mic-level';
 import { goto } from '$app/navigation';
@@ -28,7 +28,9 @@ import { deviceConfig } from '$lib/state/device-config.svelte';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
 import { vadRecorder } from '$lib/state/vad-recorder.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
-import { createRecording } from '../whispering/recordings.js';
+import { local } from '../whispering/local.js';
+import { newRecordingValues } from '../whispering/recordings.js';
+import { recordingPublication } from './publish-recording.js';
 import { saveAudioRecording } from './save-audio-recording.js';
 import { DEVICE_DEFAULTS } from './settings.js';
 
@@ -124,6 +126,7 @@ export function createWhisperingRecording(
 				recordedAt: ReturnType<typeof InstantString.now>;
 				recordedAtZone: string;
 				transcribe: ReturnType<typeof captureTranscription>;
+				receipt: ReturnType<WhisperingApp['pendingSaves']['reserve']>;
 		  }
 		| undefined;
 	let finishing = $state(false);
@@ -176,12 +179,19 @@ export function createWhisperingRecording(
 		pendingStart = completion.promise;
 		try {
 			const params = manualRecorderConfig.resolveStartParams();
-			if (!uncertainStart || !captured)
+			if (!uncertainStart || !captured) {
+				const admission = trySync({
+					try: () => app.pendingSaves.reserve('Local recording'),
+					catch: (cause) => RecorderError.RecorderFailed({ cause }),
+				});
+				if (admission.error) return admission;
 				captured = {
+					receipt: admission.data,
 					recordedAt: InstantString.now(),
 					recordedAtZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-					transcribe: captureTranscription(app),
+					transcribe: captureTranscription(app, local),
 				};
+			}
 			saveStatus = 'idle';
 			if (disposed || !app.recordingEnabled)
 				return RecorderError.NoActiveRecording();
@@ -190,7 +200,10 @@ export function createWhisperingRecording(
 			});
 			if (startError) {
 				uncertainStart = startError.name === 'StartUnconfirmed';
-				if (!uncertainStart) captured = undefined;
+				if (!uncertainStart) {
+					captured?.receipt.discard();
+					captured = undefined;
+				}
 				return Err(startError);
 			}
 			uncertainStart = false;
@@ -219,12 +232,14 @@ export function createWhisperingRecording(
 		const isCurrentAttempt = currentFeedback;
 		finishing = true;
 		try {
+			const receipt = metadata.receipt;
 			const result = await recording.stop();
 			if (result.error) {
 				if (
 					result.error.name === 'CaptureLost' ||
 					result.error.name === 'NoActiveRecording'
 				) {
+					receipt.discard();
 					release();
 					captured = undefined;
 					saveStatus = 'failed';
@@ -235,17 +250,18 @@ export function createWhisperingRecording(
 			captured = undefined;
 			saveStatus = 'saving';
 			try {
-				// Admission can close while native stop finishes; its save is already admitted.
-				if (disposed || app.signal.aborted) {
-					saveStatus = 'unconfirmed';
-					return RecorderError.NoActiveRecording();
-				}
-				const saved = createRecording(app.library, {
-					audioBlobId: result.data.blobId,
-					recordedAt: metadata.recordedAt,
-					recordedAtZone: metadata.recordedAtZone,
-					duration: result.data.durationMs,
-				});
+				const saved = await receipt.run(
+					recordingPublication(
+						local,
+						newRecordingValues({
+							audioBlobId: result.data.blobId,
+							recordedAt: metadata.recordedAt,
+							recordedAtZone: metadata.recordedAtZone,
+							duration: result.data.durationMs,
+						}),
+						app.signal,
+					),
+				);
 				if (saved.error) {
 					saveStatus = 'unconfirmed';
 					return saved;
@@ -270,7 +286,7 @@ export function createWhisperingRecording(
 		if (!app.recordingEnabled) return null;
 		if (pendingStart !== null || currentCapture || finishing || cancelling)
 			return null;
-		app.local.kv.update({ recordingTrigger: 'manual' });
+		local.kv.update({ recordingTrigger: 'manual' });
 		// A new dictation is starting: clear any lingering failed/delivered state so
 		// the pill follows this attempt, not the last one.
 		const feedback = dictationLifecycle.reset();
@@ -281,7 +297,7 @@ export function createWhisperingRecording(
 		// Manual owns playback for the whole recording; drop any leftover VAD
 		// per-utterance resume so it cannot fire mid-recording.
 		cancelPendingVadResume();
-		recordingMedia.pause(app);
+		recordingMedia.pause();
 
 		const { data: recording, error } = await startCapture(feedback);
 
@@ -313,7 +329,7 @@ export function createWhisperingRecording(
 		});
 
 		log.info('Recording started');
-		void playSoundIfEnabled(app, 'manual-start');
+		void playSoundIfEnabled('manual-start');
 		return disposed ? null : recording.id;
 	}
 
@@ -347,10 +363,10 @@ export function createWhisperingRecording(
 		// The pill carries "stopped -> transcribing"; the transcript landing is the
 		// receipt. No per-step toast.
 		log.info('Recording stopped');
-		void playSoundIfEnabled(app, 'manual-stop');
+		void playSoundIfEnabled('manual-stop');
 		void recordingMedia.resume();
 
-		void logAnalyticsEvent(app, {
+		void logAnalyticsEvent({
 			type: 'manual_recording_completed',
 			blob_size: byteLength,
 			duration: durationMs,
@@ -385,6 +401,7 @@ export function createWhisperingRecording(
 				if (recording) hold(recording);
 				else {
 					uncertainStart = false;
+					captured?.receipt.discard();
 					captured = undefined;
 					return true;
 				}
@@ -397,9 +414,10 @@ export function createWhisperingRecording(
 			}
 			release();
 			uncertainStart = false;
+			captured?.receipt.discard();
 			captured = undefined;
 			void recordingMedia.resume();
-			void playSoundIfEnabled(app, 'manual-cancel');
+			void playSoundIfEnabled('manual-cancel');
 			log.info('Recording cancelled');
 			return true;
 		} finally {
@@ -468,8 +486,12 @@ export type WhisperingRecording = ReturnType<
 	typeof createWhisperingRecording
 >['recording'];
 
+let releaseVadReservation: (() => void) | undefined;
+let setVadStopping: ((stopping: boolean) => void) | undefined;
+
 /** Release the separate VAD microphone without waiting for transcription or saves. */
 export async function disposeVadRecording() {
+	releaseVadReservation?.();
 	try {
 		const result = await vadRecorder.stopActiveListening();
 		if (result.error) throw result.error;
@@ -503,7 +525,7 @@ const VAD_RESUME_DELAY_MS = 1500;
 function pausePlaybackForSpeech(app: WhisperingApp) {
 	clearTimeout(vadResumeTimer);
 	vadResumeTimer = undefined;
-	recordingMedia.pause(app);
+	recordingMedia.pause();
 }
 
 function scheduleResumeAfterSpeech() {
@@ -532,11 +554,37 @@ function cancelPendingVadResume() {
 }
 
 export async function startVadRecording(app: WhisperingApp) {
-	if (!app.recordingEnabled) return;
-	app.local.kv.update({ recordingTrigger: 'vad' });
+	if (!app.recordingEnabled || isVadRecordingActive()) return;
+	let receipt: ReturnType<WhisperingApp['pendingSaves']['reserve']> | undefined;
+	let stopping = false;
+	function admit() {
+		const result = trySync({
+			try: () => app.pendingSaves.reserve('Local recording'),
+			catch: (cause) => RecorderError.RecorderFailed({ cause }),
+		});
+		if (result.error) {
+			report.error({
+				title: 'Finish pending saves before recording',
+				cause: result.error,
+			});
+			return false;
+		}
+		receipt = result.data;
+		return true;
+	}
+	if (!admit()) return;
+	setVadStopping = (value) => {
+		stopping = value;
+		if (!stopping && !receipt && !admit()) void disposeVadRecording();
+	};
+	releaseVadReservation = () => {
+		receipt?.discard();
+		receipt = undefined;
+	};
+	local.kv.update({ recordingTrigger: 'vad' });
 	// A new dictation session is starting: clear any lingering terminal state.
 	let feedback = dictationLifecycle.reset();
-	let transcribe = captureTranscription(app);
+	let transcribe = captureTranscription(app, local);
 	// A capture just started, so leave the import overlay if it was open (see
 	// recording.start).
 	captureSurface.dismissImport();
@@ -548,36 +596,43 @@ export async function startVadRecording(app: WhisperingApp) {
 			if (app.recordingEnabled) reportRecordingMicLevel(level);
 		},
 		onSpeechStart: () => {
-			if (!app.recordingEnabled) return;
+			if (!app.recordingEnabled || !receipt) return;
 			feedback = dictationLifecycle.reset();
-			transcribe = captureTranscription(app);
+			transcribe = captureTranscription(app, local);
 			// Speaking window opened: pause whatever is playing. The pill's meter
 			// tint shows speech was detected, so there is no toast.
 			pausePlaybackForSpeech(app);
 		},
 		onSpeechEnd: async (blob) => {
-			if (!app.recordingEnabled) return;
+			if (!app.recordingEnabled || !receipt) return;
+			const capturedReceipt = receipt;
+			receipt = undefined;
+			if (!stopping && !admit()) void disposeVadRecording();
 			const isCurrentAttempt = feedback;
 			const capturedTranscription = transcribe;
 			// Speaking window closed: resume after a short debounce so a quick
 			// next utterance does not flutter the music.
 			scheduleResumeAfterSpeech();
 			log.info('Voice activated speech captured');
-			void playSoundIfEnabled(app, 'vad-capture');
+			void playSoundIfEnabled('vad-capture');
 
-			void logAnalyticsEvent(app, {
+			void logAnalyticsEvent({
 				type: 'vad_recording_completed',
 				blob_size: blob.size,
 			});
 
-			const { data: recording, error } = await saveAudioRecording(app, blob);
+			const { data: recording, error } = await saveAudioRecording(
+				app,
+				blob,
+				capturedReceipt,
+			);
 			if (error !== null) {
 				if (isCurrentAttempt() && app.recordingEnabled && !app.signal.aborted)
 					dictationLifecycle.markFailed({
 						tier: 'silent-loss',
 						error,
 					});
-				throw error;
+				return;
 			}
 			if (recording === null) return;
 			await processRecordingPipeline(app, {
@@ -595,6 +650,7 @@ export async function startVadRecording(app: WhisperingApp) {
 	});
 
 	if (error) {
+		releaseVadReservation?.();
 		resumePlaybackForVadEnd();
 		if (!app.recordingEnabled) return;
 		// Listening never armed, so nothing was captured: a silent loss.
@@ -613,18 +669,22 @@ export async function startVadRecording(app: WhisperingApp) {
 		deviceConfig.set('recording.navigator.deviceId', deviceId),
 	);
 
-	void playSoundIfEnabled(app, 'vad-start');
+	void playSoundIfEnabled('vad-start');
 }
 
 export async function stopVadRecording(app: WhisperingApp) {
 	if (!app.recordingEnabled) return;
 	if (!isVadRecordingActive()) return;
 	log.info('Stopping voice activated capture');
+	const release = releaseVadReservation;
+	const setStopping = setVadStopping;
+	setStopping?.(true);
 	const { data, error } = await vadRecorder.stopActiveListening();
 	// Disarming ends the session: restore playback now, do not wait on the
 	// per-utterance debounce.
 	resumePlaybackForVadEnd();
 	if (error) {
+		setStopping?.(false);
 		// Stop is an operation with no capture/outcome phase, so the pill cannot
 		// carry it: a failed disarm keeps a toast (ADR-0039's operation-condition
 		// carve-out). The session may still be live, so the user must know it did
@@ -636,8 +696,9 @@ export async function stopVadRecording(app: WhisperingApp) {
 		});
 		return;
 	}
+	release?.();
 	if (data.status === 'idle') return;
-	void playSoundIfEnabled(app, 'vad-stop');
+	void playSoundIfEnabled('vad-stop');
 }
 
 export function toggleVadRecording(app: WhisperingApp) {
@@ -666,10 +727,10 @@ export async function selectCaptureSurface(
 	} else {
 		captureSurface.dismissImport();
 		if (
-			(app.local.kv.get('recordingTrigger') ??
-				DEVICE_DEFAULTS.recordingTrigger) !== surface
+			(local.kv.get('recordingTrigger') ?? DEVICE_DEFAULTS.recordingTrigger) !==
+			surface
 		) {
-			app.local.kv.update({ recordingTrigger: surface });
+			local.kv.update({ recordingTrigger: surface });
 		}
 	}
 

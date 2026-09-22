@@ -14,7 +14,7 @@ There is one shipped build. Epicenter serves it under `/apps/whispering`, and ev
 apps/whispering/src
   |
   |-- bun dev:whispering ------> vite dev on http://localhost:1420
-  |                              browser leaves for auth, binding, blobs
+  |                              browser leaves for auth, capture, and delivery
   |
   `-- bun run build:epicenter -> apps/epicenter/dist/whispering
                                  |
@@ -22,13 +22,15 @@ apps/whispering/src
                                       native commands and windows
 ```
 
-`bun dev:whispering` runs the SPA in a browser tab. That is a development surface, not a product target: the tab has no native recorder, no system-global shortcuts, and no host app-data files, so the parts that need them do not work there. Use it for UI work, and run `bun dev:epicenter` for anything that touches a native capability.
+`bun dev:whispering` runs the SPA in a browser tab. Browser capture uses
+MediaRecorder and browser storage. Native recording, on-device inference, system
+global shortcuts, and cursor delivery require Epicenter. Use `bun dev:epicenter`
+to exercise those host capabilities.
 
-Selection happens at build time through the `#platform/*` imports in `package.json`:
-
-- Most seams are a plain path alias at a single leaf, because the shipped build is the only one that resolves them.
-- Three seams have two leaves, conditional on `epicenter-host`: `auth`, `binding`, and `blobs`. The `default` leaf of each is what the dev browser tab gets. Base path is not a seam: `svelte.config.js` sets `paths.base` for the Epicenter build and routes call `resolve` from `$app/paths` (ADR-0347).
-- Shared code can use the nullable `tauri` capability namespace as a guard, but it does not choose implementations at runtime.
+Selection happens at build time through `#platform/*` conditions in
+`package.json`. Browser leaves implement supported behavior or explicit absence;
+`epicenter-host` leaves use host capabilities. `svelte.config.js` supplies the host
+base path, and routes use `resolve` from `$app/paths`.
 
 Epicenter's asset build sets `EPICENTER_HOST=1`, which activates the `epicenter-host` module condition and the `/apps/whispering` asset base. No other build signal selects Whispering's host leaves.
 
@@ -62,7 +64,10 @@ bun run --cwd apps/epicenter build
 bun run --cwd apps/whispering typecheck
 
 # App tests
-bun test apps/whispering/tests
+bun test --isolate apps/whispering/src/lib/operations apps/whispering/src/lib/whispering apps/whispering/src/lib/queries
+
+# Isolated actual UI, synthetic microphone/inference and local S3 fixture
+bun apps/whispering/scripts/store-relative.browser.mjs
 ```
 
 Run the two asset builds sequentially in one checkout. SvelteKit owns a shared `.svelte-kit` directory, so concurrent default and Epicenter builds can race over generated configuration.
@@ -85,13 +90,27 @@ bun run --cwd apps/epicenter desktop:build
 | Recording storage | Epicenter app-data files |
 | Floating recording overlay | Native auxiliary window |
 
-Nothing in that list works in the `bun dev:whispering` tab. The seams behind them resolve to `.tauri.ts` leaves in every build, so the tab is for UI work only.
-
 ## Data boundary
 
 Whispering transcribes through an explicitly selected connection and model. Deepgram, ElevenLabs, and Mistral’s separate provider adapters are not supported. Existing provider keys remain stored but are not read or imported; configure a supported connection in the intended account.
 
-Whispering stores settings and recording metadata locally first. Audio leaves the device only when the selected transcription provider requires an upload. Transcription can go to a direct provider connection, the hosted Epicenter gateway, or a self-hosted endpoint.
+Capture and import always save bytes and a recording in Local. The reactive
+`local` module is initialized once by admitted boot. Personal opens independently
+for the captured Account; its provider supplies a non-null context only when ready.
+The Personal view never changes where capture saves.
+
+Save to Personal copies Local bytes and declared recording values into an
+independent Personal recording with fresh blob and row IDs. Later edits and deletions
+do not propagate. Every recording reads audio through its containing store. Row
+deletion keeps audio bytes; it is not an erasure operation.
+
+Success requires local durable row persistence. Personal metadata may still await
+sync. Partial saves and transcript writes retain page-lifetime Finish saving actions
+across route changes without another upload, row creation, or inference request.
+Reload ends those recovery actions. Signing out fences old attempts before navigation.
+
+Audio leaves the device for an explicit Personal copy or when the selected
+transcription provider requires an upload. Transcription can go to a direct provider connection, the hosted Epicenter gateway, or a self-hosted endpoint.
 
 See the repository [trust model](../../docs/trust-model.md) for hosted sync and account boundaries.
 
@@ -100,3 +119,11 @@ See the repository [trust model](../../docs/trust-model.md) for hosted sync and 
 `wrangler.jsonc` published the static SPA to `whispering.epicenter.so`. ADR-0227 refused that runtime: a browser tab is not a target, so the config and its deploy step are gone. Whatever Cloudflare last published keeps serving until somebody deletes the Worker, because removing the config stops republishing rather than taking anything down.
 
 ADR-0227 says what would reopen this, which is trying-before-installing turning out to matter more than the capability seams cost.
+
+## Recording verification
+
+[Store-relative recording evidence](docs/store-relative-recordings-verification.md)
+records the isolated product flow, review findings, and limits. The browser harness
+uses installed Chrome, temporary profiles, local worker state, and an S3 fixture.
+It does not access production or erase existing user data. Synthetic capture does
+not establish physical microphone behavior or packaged native acceptance.

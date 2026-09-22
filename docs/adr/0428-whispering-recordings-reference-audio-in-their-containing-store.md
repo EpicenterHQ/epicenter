@@ -3,7 +3,6 @@
 - **Status:** Accepted
 - **Date:** 2026-09-23
 - **Amends:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at its Whispering `remoteAudio` example only: saving to Personal creates an independent destination recording, rather than attaching a remote fallback to the source row. Fresh destination BlobIds and independent blob retention remain unchanged.
-- **Unbuilt:** Local-only capture and import row publication, explicit Personal recording copies, store-relative playback and transcription, partial-save recovery, and removal of cross-store recording references.
 
 ## Context
 
@@ -45,14 +44,24 @@ asynchronous work, copies audio with
 using the returned fresh BlobId. Field mapping belongs to Whispering. The
 destination row receives a fresh row ID. The Local row and bytes remain unchanged.
 
-The operation materializes detached content values before its first await and
-constructs fresh destination content, including the recording's `content` field.
-Retaining or spreading a row containing a live content node is not a snapshot.
-The operation copies a snapshot of completed content. It does not transfer a
-live transcription attempt. A later source transcript or title update does not
-change the destination. Independently requested saves may create duplicate rows
-and blobs. No association table, automatic reconciliation, or linked editing is
-introduced to maintain a relationship between the copies.
+The operation destructures `id` and `content` away from the Local row before
+its first await and copies the remaining declared scalar values inline.
+Whispering's transcript lives in scalar fields; its content node is unused and
+is intentionally omitted. Creation supplies a fresh empty content node. Generic
+`row.content`, its reserved storage key, and the plain-text codec remain intact.
+This does not promise deep cloning for arbitrary JSON containers in other schemas.
+
+A copy does not transfer a live transcription attempt. Later source transcript
+or title edits do not change the destination. Deliberate repeat saves may create
+duplicate rows and blobs. There is no association table, reconciliation, or linked
+editing between copies.
+
+Local is a reactive module export initialized once by admitted browser/WebView
+boot. Imports are inert; SSR and stopped/sign-out boot do not acquire it. Personal
+opens for the captured Account independently. A ready provider synchronously calls
+`setPersonal` before rendering descendants that capture `getPersonal()` during
+initialization. Async operations receive that handle. No selected-library state
+or stored selection decides where capture saves.
 
 Playback and computation receive the containing store. They resolve
 `store.blobs.open(row.audioBlobId)` and `store.blobs.get(row.audioBlobId)`.
@@ -75,14 +84,17 @@ Retain the minted row ID before awaiting persistence and retry existing
 persistence debt rather than creating another row. This acknowledgement does
 not prove that Personal metadata reached the server or another device.
 
-Recovery remains bound to the captured destination. An in-memory retry may hold
-the destination handle; recovery carried across page lifetimes needs explicit
-credential-free destination identity and validation. Ordinary recording rows do
-not gain those fields. No durable background job or exactly-once transfer is
-required. Whispering checks its captured departure signal before row publication
-or retry and after awaited persistence before presenting success. Auth retirement
-alone does not make a retained cached document unwritable. Departure does not
-delete already saved bytes or establish rollback.
+Recovery remains bound to the captured destination for this document's lifetime.
+A bounded registry reserves capacity before capture or inference produces output.
+Finish saving remains visible across component changes and retains values, known
+BlobId, and known row ID. Reload ends this recovery promise. No durable background
+job, cross-page receipt, or exactly-once transfer is introduced.
+
+Whispering checks the captured product departure signal before publication and
+after persistence. Sign-out fences immediately, even if navigation stalls; an old
+attempt never acquires a successor Account. Departure does not erase bytes or
+establish rollback. Transcript persistence retains inferred text for retry without
+another inference call and refuses to overwrite newer text or recreate a missing row.
 
 The recording schema and readers lose `remoteAudio`. A Local row no longer has
 remote playback fallback or a persistent uploaded-copy badge. A Personal row no
@@ -107,14 +119,16 @@ and drains admitted transfer work without closing its sibling. Blob deletion,
 row deletion, and account replacement remain separate operations. Private
 ownership checks and authentication remain necessary.
 
-Existing rows may have Personal metadata pointing at Local bytes, or Local
-metadata with a remote fallback. Changing a schema does not reinterpret those
-addresses safely. Inventory and classify affected data before choosing an
-explicit conversion or reset policy. This decision authorizes neither deletion
-of existing data nor migration against a user's stores. Isolated fixtures can
-exercise the replacement without that authorization. Inventory and an approved
-disposition must precede enabling replacement readers over affected stores,
-even when rollout would not rewrite any rows.
+The executing user explicitly authorized an absolute clean break on 2026-09-23.
+No migration, compatibility resolver, old-client support, pending-offline-write
+compatibility, or version gate is part of this implementation. Older Personal rows
+may still contain Local addresses; older Local rows may have `remoteAudio` fields.
+Replacement readers never interpret those fields as fallback addresses. This
+accepts broken legacy addresses, including later writes from old clients. It does
+not authorize deleting actual stored data, deployment, or remote push.
+
+See [implementation evidence](../../apps/whispering/docs/store-relative-recordings-verification.md)
+for commands, reviewer adjudication, product checks, and remaining verification limits.
 
 ## Considered alternatives
 

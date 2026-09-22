@@ -1,5 +1,6 @@
 <script lang="ts">
-import { sortedRecordings } from '../../lib/whispering/recordings.js';
+	import { local } from '$lib/whispering/local.js';
+	import { sortedRecordings } from '../../lib/whispering/recordings.js';
 
 	import { getInferenceTarget } from '$lib/whispering/inference.js';
 	import { FileDropZone } from '@epicenter/ui/file-drop-zone';
@@ -31,9 +32,7 @@ import { sortedRecordings } from '../../lib/whispering/recordings.js';
 	import { selectCaptureSurface } from '$lib/operations/recording.svelte.js';
 	import { deleteRecordingsWithConfirmation } from '$lib/operations/delete-recordings';
 	import { report } from '$lib/report';
-	import {
-		getTranscriptionReadiness,
-	} from '$lib/settings/transcription-validation';
+	import { getTranscriptionReadiness } from '$lib/settings/transcription-validation';
 	import { captureSurface } from '$lib/state/capture-surface.svelte';
 	import { getRecordingShortcutLabel } from '$lib/utils/recording-shortcut';
 	import { viewTransition } from '$lib/utils/viewTransitions';
@@ -49,11 +48,13 @@ import { sortedRecordings } from '../../lib/whispering/recordings.js';
 
 	const app = getWhisperingApp();
 
-	const latestRecording = $derived(sortedRecordings(app.library)[0]);
-	const audioOnly = $derived(getInferenceTarget(app.local.kv, 'transcription') === null);
+	const latestRecording = $derived(sortedRecordings(local)[0]);
+	const audioOnly = $derived(
+		getInferenceTarget(local.kv, 'transcription') === null,
+	);
 	const transcriptionReadiness = $derived(getTranscriptionReadiness(app));
 	const hasActiveShortcut = $derived.by(() => {
-		const surface = captureSurface.current(app);
+		const surface = captureSurface.current();
 		if (surface === 'import') return false;
 		return !!getRecordingShortcutLabel(app, surface);
 	});
@@ -95,39 +96,37 @@ import { sortedRecordings } from '../../lib/whispering/recordings.js';
 						)) as (typeof IMPORTABLE_VIDEO_EXTENSIONS)[number],
 					);
 
-				unlistenDragDrop = await desktop.fs.onDragDrop(
-					async (paths) => {
-						const pathResults = await Promise.all(
-							paths.map(async (path) => ({
-								path,
-								isValid: (await isAudio(path)) || (await isVideo(path)),
-							})),
-						);
-						const validPaths = pathResults
-							.filter(({ isValid }) => isValid)
-							.map(({ path }) => path);
+				unlistenDragDrop = await desktop.fs.onDragDrop(async (paths) => {
+					const pathResults = await Promise.all(
+						paths.map(async (path) => ({
+							path,
+							isValid: (await isAudio(path)) || (await isVideo(path)),
+						})),
+					);
+					const validPaths = pathResults
+						.filter(({ isValid }) => isValid)
+						.map(({ path }) => path);
 
-						if (validPaths.length === 0) {
-							report.info({
-								title: 'No valid files',
-								description: 'Please drop audio or video files',
-							});
-							return;
-						}
+					if (validPaths.length === 0) {
+						report.info({
+							title: 'No valid files',
+							description: 'Please drop audio or video files',
+						});
+						return;
+					}
 
-						const { data: files, error } =
-							await desktop.fs.pathsToFiles(validPaths);
+					const { data: files, error } =
+						await desktop.fs.pathsToFiles(validPaths);
 
-						if (error) {
-							report.error({ cause: error, title: 'Failed to read files' });
-							return;
-						}
+					if (error) {
+						report.error({ cause: error, title: 'Failed to read files' });
+						return;
+					}
 
-						if (files.length > 0) {
-							await importFiles(app, { files });
-						}
-					},
-				);
+					if (files.length > 0) {
+						await importFiles(app, { files });
+					}
+				});
 			},
 			catch: (error) =>
 				PageError.DragDropListenerFailed({
@@ -142,7 +141,7 @@ import { sortedRecordings } from '../../lib/whispering/recordings.js';
 	});
 </script>
 
-<svelte:head> <title>Whispering</title> </svelte:head>
+<svelte:head><title>Whispering</title></svelte:head>
 
 <div
 	class="mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-start gap-5 px-4 pt-8 pb-24 sm:justify-center sm:py-12"
@@ -150,7 +149,9 @@ import { sortedRecordings } from '../../lib/whispering/recordings.js';
 	<SectionHeader.Root class="flex flex-col items-center gap-2 text-center">
 		<div class="flex items-center gap-2.5">
 			<img src={studioMicrophone} alt="" class="size-8" />
-			<SectionHeader.Title level={1} class="text-3xl">Whispering</SectionHeader.Title>
+			<SectionHeader.Title level={1} class="text-3xl"
+				>Whispering</SectionHeader.Title
+			>
 		</div>
 		<SectionHeader.Description class="text-base">
 			Record now. Turn it into text when you’re ready.
@@ -161,11 +162,13 @@ import { sortedRecordings } from '../../lib/whispering/recordings.js';
 
 	<ToggleGroup.Root
 		type="single"
-		bind:value={() => captureSurface.current(app),
+		bind:value={
+			() => captureSurface.current(),
 			(surface) => {
 				if (!surface) return;
 				void selectCaptureSurface(app, surface as CaptureSurface);
-			}}
+			}
+		}
 		class="w-full"
 	>
 		{#each CAPTURE_SURFACE_OPTIONS as option}
@@ -180,7 +183,7 @@ import { sortedRecordings } from '../../lib/whispering/recordings.js';
 		{/each}
 	</ToggleGroup.Root>
 
-	{#if captureSurface.current(app) === 'manual'}
+	{#if captureSurface.current() === 'manual'}
 		<div class="flex w-full flex-col items-center gap-3">
 			<ManualRecordingAction>
 				{#snippet footer()}
@@ -198,7 +201,7 @@ import { sortedRecordings } from '../../lib/whispering/recordings.js';
 				{/snippet}
 			</ManualRecordingAction>
 		</div>
-	{:else if captureSurface.current(app) === 'vad'}
+	{:else if captureSurface.current() === 'vad'}
 		<div class="flex w-full flex-col items-center gap-3">
 			<VadRecordingAction>
 				{#snippet footer()}
@@ -216,7 +219,7 @@ import { sortedRecordings } from '../../lib/whispering/recordings.js';
 				{/snippet}
 			</VadRecordingAction>
 		</div>
-	{:else if captureSurface.current(app) === 'import'}
+	{:else if captureSurface.current() === 'import'}
 		<div class="flex w-full flex-col items-center gap-4">
 			<FileDropZone
 				accept={IMPORT_ACCEPT}
@@ -250,7 +253,9 @@ import { sortedRecordings } from '../../lib/whispering/recordings.js';
 
 	{#if !transcriptionReadiness.isReady}
 		<p class="text-center text-sm text-muted-foreground">
-			{audioOnly ? 'Audio will be saved without transcription.' : transcriptionReadiness.primaryIssue}
+			{audioOnly
+				? 'Audio will be saved without transcription.'
+				: transcriptionReadiness.primaryIssue}
 			<Link href={resolve('/settings/processing')}>Set up transcription</Link>
 		</p>
 	{/if}
@@ -258,15 +263,16 @@ import { sortedRecordings } from '../../lib/whispering/recordings.js';
 	{#if latestRecording}
 		<RecordingResult
 			recordingId={latestRecording.id}
-			transcript={latestRecording.polishedTranscript ?? latestRecording.transcript}
+			transcript={latestRecording.polishedTranscript ??
+				latestRecording.transcript}
 			rows={1}
 			onDelete={() => {
-				deleteRecordingsWithConfirmation(app, latestRecording);
+				deleteRecordingsWithConfirmation(local, latestRecording);
 			}}
 		/>
 	{/if}
 
-	{#if captureSurface.current(app) !== 'import'}
+	{#if captureSurface.current() !== 'import'}
 		<p class="text-muted-foreground text-center text-sm">
 			{#if hasActiveShortcut}
 				Your shortcut works

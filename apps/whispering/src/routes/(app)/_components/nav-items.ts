@@ -30,10 +30,16 @@ export const NAV_ITEMS = [
 		isActive: (pathname) => pathname === base || pathname === resolve('/'),
 	},
 	{
-		label: 'Recordings',
+		label: 'Local recordings',
 		href: resolve('/recordings'),
 		icon: ListIcon,
 		isActive: matchesRoute(resolve('/recordings')),
+	},
+	{
+		label: 'Personal',
+		href: resolve('/personal'),
+		icon: ListIcon,
+		isActive: matchesRoute(resolve('/personal')),
 	},
 	{
 		label: 'Recipes',

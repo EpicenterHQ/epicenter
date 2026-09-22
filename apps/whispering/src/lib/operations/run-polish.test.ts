@@ -2,15 +2,13 @@
  * Polish reads the ready document at invocation, preserves raw text on cancellation
  * and failure, and sends no request for disabled or missing selections.
  */
-import { expect, test } from 'bun:test';
-import {
-	createInference,
-	type AiTransport,
-} from '../../../../../packages/app/src/inference.js';
-import { openConnectionCatalog } from '../../../../../packages/app/src/connection-catalog.js';
-import type { AccountIdentity } from '@epicenter/principal';
+import { expect, mock, test } from 'bun:test';
 import { createAiConnections } from '@epicenter/app/ai-connections';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { openConnectionCatalog } from '../../../../../packages/app/src/connection-catalog.js';
+import {
+	type AiTransport,
+} from '../../../../../packages/app/src/inference.js';
 import { createInferenceCatalog } from '../../../../../packages/app-shell/src/inference-picker/catalog.svelte.js';
 import type { WhisperingApp } from '../whispering/app.js';
 import { runPolish } from './run-polish.js';
@@ -90,6 +88,10 @@ async function setup() {
 			hostedModels: [],
 		}),
 	} as unknown as WhisperingApp;
+	mock.module('../whispering/local.js', () => ({
+		local: Reflect.get(app, 'local'),
+	}));
+	app.personalReady = Promise.resolve(Reflect.get(app, 'personal'));
 
 	return {
 		app,

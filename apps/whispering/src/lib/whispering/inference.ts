@@ -2,10 +2,9 @@ import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference
 import type { InferenceTarget } from '@epicenter/app-shell/inference-target';
 import type { AccountIdentity } from '@epicenter/principal';
 import type { WhisperingSettingValues } from '../data.js';
-import type { WhisperingAppHandle } from './app.js';
 
 type Workflow = 'transcription' | 'completion';
-type DeviceKv = WhisperingAppHandle['local']['kv'];
+type DeviceKv = import('./local.js').LocalStore['kv'];
 
 /** Read the connection and model the device chose for this workflow. */
 export function getInferenceTarget(

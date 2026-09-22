@@ -10,9 +10,15 @@
 	// surface the failed pill, the OS notification, and Retry all point at. Only
 	// terminal outcomes are stored, so an in-flight transcription has no badge
 	// here (the row's action button shows that liveness).
-	let { recordingId }: { recordingId: RecordingId } = $props();
+	let {
+		recordingId,
+		store,
+	}: {
+		recordingId: RecordingId;
+		store: import('$lib/whispering/app.js').RecordingStore;
+	} = $props();
 
-	const recording = $derived(app.library.tables.recordings.get(recordingId));
+	const recording = $derived(store.tables.recordings.get(recordingId));
 </script>
 
 {#if recording?.transcriptionStatus === 'failed'}

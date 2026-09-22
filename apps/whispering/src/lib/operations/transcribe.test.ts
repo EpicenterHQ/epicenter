@@ -5,17 +5,18 @@
  */
 
 import { expect, mock, test } from 'bun:test';
-import {
-	createInference,
-	type AiTransport,
-} from '../../../../../packages/app/src/inference.js';
-import { openConnectionCatalog } from '../../../../../packages/app/src/connection-catalog.js';
-import type { AccountIdentity } from '@epicenter/principal';
 import { createAiConnections } from '@epicenter/app/ai-connections';
+import type { AccountIdentity } from '@epicenter/principal';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { openConnectionCatalog } from '../../../../../packages/app/src/connection-catalog.js';
+import {
+	type AiTransport,
+	createInference,
+} from '../../../../../packages/app/src/inference.js';
 import { createInferenceCatalog } from '../../../../../packages/app-shell/src/inference-picker/catalog.svelte.js';
-import type { WhisperingApp } from '../whispering/app.js';
+import type { WhisperingApp as ProductApp } from '../whispering/app.js';
+import { createPendingSaves } from '../whispering/pending-saves.js';
 import {
 	captureTranscription,
 	transcribeAndPersist,
@@ -92,13 +93,15 @@ async function setup({
 	]);
 	const app = {
 		signal: controller.signal,
+		pendingSaves: createPendingSaves(controller.signal),
 		local: { kv },
 		personal: { kv: { get: (key: string) => personalValues.get(key) } },
 		catalog: createInferenceCatalog({
 			ai: ai,
 			hostedModels: [],
 		}),
-		library: {
+		store: {
+			blobs: { get: () => load() },
 			tables: {
 				recordings: {
 					get: () => ({ id: 'recording-id', audioBlobId: 'audio.wav' }),
@@ -109,6 +112,8 @@ async function setup({
 		remoteBlobs: null,
 	} as unknown as WhisperingApp;
 
+	mock.module('../whispering/local.js', () => ({ local: app.local }));
+	app.personalReady = Promise.resolve(app.personal);
 	const id = await ai.connections!.add({
 		name: 'Chosen',
 		baseUrl: 'https://chosen.example/custom/v1',
@@ -131,7 +136,7 @@ async function setup({
 		setLoad(next: typeof load) {
 			load = next;
 		},
-		run: () => transcribeAudio('recording-id', app),
+		run: () => transcribeAudio('recording-id', app, app.store),
 		close: async () => {
 			controller.abort();
 			await owner.close();
@@ -164,8 +169,8 @@ test('exact configured client sends multipart bytes, model, credential, and dict
 
 test('signed-out transcription never falls back to device-authored prompts or dictionary', async () => {
 	const fixture = await setup();
-	const app = { ...fixture.app, personal: undefined };
-	expect(expectOk(await transcribeAudio('recording-id', app))).toBe(
+	const app = { ...fixture.app, personalReady: Promise.resolve(undefined) };
+	expect(expectOk(await transcribeAudio('recording-id', app, app.store))).toBe(
 		'spoken words',
 	);
 	const form = await fixture.requests[0]!.formData();
@@ -272,7 +277,7 @@ test('malformed output fails and a retained operation sends nothing after closur
 
 test('capture retains the original inference target before recording exists', async () => {
 	const fixture = await setup();
-	const transcribe = captureTranscription(fixture.app);
+	const transcribe = captureTranscription(fixture.app, fixture.app.store);
 	fixture.kv.update({
 		transcriptionConnection: fixture.id,
 		transcriptionModel: 'changed-model',
@@ -288,7 +293,14 @@ test('row deletion during local read prevents sending audio to inference', async
 	let exists = true;
 	const domain = {
 		...fixture.app,
-		library: {
+		store: {
+			...fixture.app.store,
+			blobs: {
+				get: async () => {
+					exists = false;
+					return Ok(fixture.audio);
+				},
+			},
 			tables: {
 				recordings: {
 					get: () =>
@@ -298,15 +310,10 @@ test('row deletion during local read prevents sending audio to inference', async
 				},
 			},
 		},
-		localBlobs: {
-			get: async () => {
-				exists = false;
-				return Ok(fixture.audio);
-			},
-		},
 	} as unknown as WhisperingApp;
 	expect(
-		expectErr(await captureTranscription(domain)!('recording-id')).name,
+		expectErr(await captureTranscription(domain, domain.store)!('recording-id'))
+			.name,
 	).toBe('Closed');
 	expect(fixture.requests).toHaveLength(0);
 	await fixture.close();
@@ -324,7 +331,8 @@ test('SDK completion after retirement cannot publish transcript or history', asy
 	const patch = mock();
 	const domain = {
 		...fixture.app,
-		library: {
+		store: {
+			...fixture.app.store,
 			tables: {
 				recordings: {
 					get: () => ({ id: 'recording-id', audioBlobId: 'audio.wav' }),
@@ -333,7 +341,7 @@ test('SDK completion after retirement cannot publish transcript or history', asy
 			},
 		},
 	} as unknown as WhisperingApp;
-	const pending = transcribeAndPersist(domain, 'recording-id');
+	const pending = transcribeAndPersist(domain, domain.store, 'recording-id');
 	await started.promise;
 	const closing = fixture.close();
 	finished.resolve(Response.json({ text: 'late words' }));
@@ -400,21 +408,73 @@ test('no selection captures audio-only intent; later setup applies only to delib
 	const readAudio = mock(async () => Ok(fixture.audio));
 	const domain = {
 		...fixture.app,
-		localBlobs: { get: readAudio },
+		store: { ...fixture.app.store, blobs: { get: readAudio } },
 	} as unknown as WhisperingApp;
-	const captured = captureTranscription(domain);
+	const captured = captureTranscription(domain, domain.store);
 	expect(captured).toBeNull();
-	expect(expectErr(await transcribeAudio('recording-id', domain)).name).toBe(
-		'SelectionRequired',
-	);
+	expect(
+		expectErr(await transcribeAudio('recording-id', domain, domain.store)).name,
+	).toBe('SelectionRequired');
 	expect(readAudio).not.toHaveBeenCalled();
 	fixture.kv.update({
 		transcriptionConnection: fixture.id,
 		transcriptionModel: 'saved-model',
 	});
 	expect(captured).toBeNull();
-	expectOk(await transcribeAudio('recording-id', domain));
+	expectOk(await transcribeAudio('recording-id', domain, domain.store));
 	expect(readAudio).toHaveBeenCalledTimes(1);
 	expect(fixture.requests).toHaveLength(1);
 	await fixture.close();
 });
+
+test('delayed Personal inputs hold inference while preserving the captured account prompt', async () => {
+	const f = await setup();
+	const ready =
+		Promise.withResolvers<
+			ProductApp['personalReady'] extends Promise<infer T> ? T : never
+		>();
+	const capturedPersonal = f.app.personal;
+	const app = {
+		...f.app,
+		authAccount: {} as WhisperingApp['authAccount'],
+		personal: undefined,
+		personalReady: ready.promise,
+	};
+	const transcribe = captureTranscription(app, app.store)!;
+	const pending = transcribe('recording-id');
+	await Promise.resolve();
+	expect(f.requests).toHaveLength(0);
+	ready.resolve(capturedPersonal);
+	expectOk(await pending);
+	const form = await f.requests[0]!.formData();
+	expect(form.get('prompt')).toBe('Spell carefully Epicenter, Yjs');
+	await f.close();
+});
+
+test('failed Personal acquisition never sends inference with silent prompt defaults', async () => {
+	const f = await setup();
+	const app = {
+		...f.app,
+		authAccount: {} as WhisperingApp['authAccount'],
+		personal: undefined,
+		personalReady: Promise.reject(new Error('Personal unavailable')),
+	};
+	expectErr(await captureTranscription(app, app.store)!('recording-id'));
+	expect(f.requests).toHaveLength(0);
+	await f.close();
+});
+
+test('full recovery capacity refuses inference before sending audio', async () => {
+	const f = await setup();
+	for (let i = 0; i < 32; i++) f.app.pendingSaves.reserve('unfinished');
+	expectErr(await transcribeAndPersist(f.app, f.app.store, 'recording-id'));
+	expect(f.requests).toHaveLength(0);
+	await f.close();
+});
+
+type WhisperingApp = ProductApp & {
+	store: import('../whispering/app.js').RecordingStore;
+	local: import('../whispering/local.js').LocalStore;
+	localBlobs: import('../whispering/local.js').LocalStore['blobs'];
+	personal: import('../whispering/personal.js').PersonalStore;
+};

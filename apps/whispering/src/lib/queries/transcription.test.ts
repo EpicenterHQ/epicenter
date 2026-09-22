@@ -7,8 +7,8 @@ import { QueryClient } from '@tanstack/svelte-query';
 import { createQueryFactories } from 'wellcrafted/query';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { Recording } from '../data.js';
 import type { WhisperingApp } from '$lib/whispering/app';
+import type { Recording } from '../data.js';
 
 Reflect.set(globalThis, '$state', <T>(value: T) => value);
 mock.module('$lib/state/vad-recorder.svelte', () => ({
@@ -40,10 +40,13 @@ test('retirement refuses manual and bulk retries without changing admitted resul
 		recording: { state: 'IDLE', isStarting: false },
 	} as unknown as WhisperingApp;
 	const queryClient = new QueryClient();
-	const queries = createTranscriptionQueries(app, {
-		queryClient,
-		...createQueryFactories(queryClient),
-	});
+	const queries = createTranscriptionQueries(
+		app,
+		{} as import('../whispering/app.js').RecordingStore,
+		{
+			...createQueryFactories(queryClient),
+		},
+	);
 	const row = { id: 'recording', audioBlobId: 'audio' } as Recording;
 	const manual = queries.transcribeRecording(row);
 	const bulk = queries.transcribeRecordings([row, row]);

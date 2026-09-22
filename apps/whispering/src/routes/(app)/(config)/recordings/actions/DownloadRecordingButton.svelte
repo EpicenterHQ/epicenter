@@ -50,7 +50,13 @@
 	}
 </script>
 
-<Button tooltip="Download recording" onclick={download} {variant} {size}>
+<Button
+	tooltip="Download recording"
+	aria-label="Download recording"
+	onclick={download}
+	{variant}
+	{size}
+>
 	{#if downloadRecording.isPending}
 		<Spinner />
 	{:else}

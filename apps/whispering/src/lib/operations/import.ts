@@ -7,6 +7,7 @@ import {
 } from '../constants/import-formats.js';
 import { report } from '../report/index.js';
 import type { WhisperingApp } from '../whispering/app.js';
+import { local } from '../whispering/local.js';
 import { logAnalyticsEvent } from './analytics.js';
 import { processRecordingPipeline } from './pipeline.js';
 import { saveAudioRecording } from './save-audio-recording.js';
@@ -107,12 +108,12 @@ export async function importFiles(
 
 	await Promise.all(
 		valid.map(async (file) => {
-			void logAnalyticsEvent(app, {
+			void logAnalyticsEvent({
 				type: 'file_import_completed',
 				blob_size: file.size,
 			});
 
-			const transcribe = captureTranscription(app);
+			const transcribe = captureTranscription(app, local);
 			const { data: recording, error } = await saveAudioRecording(app, file);
 			if (error !== null) throw error;
 			if (recording === null) return;

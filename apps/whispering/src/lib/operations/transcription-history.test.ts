@@ -9,44 +9,60 @@
  * - A refused write becomes a RecordingHistoryError rather than escaping
  * - A failed outcome writes the three flat transcription columns
  */
+
 import { expect, mock, test } from 'bun:test';
 import { createLogger, memorySink } from 'wellcrafted/logger';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { RecordingId } from '$lib/data';
 import type { Recording } from '../data.js';
+import { createPendingSaves } from '../whispering/pending-saves.js';
 
 const recordingId = 'recording-1' as RecordingId;
 const recording = { id: recordingId } as Recording;
-const patch = mock(() => Ok(undefined));
+const write = (_id: string, changes: Partial<Recording>) => {
+	Object.assign(recording, changes);
+	return Ok(undefined);
+};
+const patch = mock(write);
 
 const { recordTranscriptionOutcome, saveRecordingHistory } = await import(
 	'./transcription-history.js'
 );
-type WhisperingApp = import('$lib/whispering/app').WhisperingApp;
+type ProductApp = import('$lib/whispering/app').WhisperingApp;
 
+const signal = new AbortController().signal;
 const app = {
-	library: { tables: { recordings: { update: patch, get: () => recording } } },
+	signal,
+	pendingSaves: createPendingSaves(signal),
+	store: {
+		persistence: { flush: async () => {}, get: () => 'saved' },
+		tables: { recordings: { update: patch, get: () => recording } },
+	},
 } as unknown as WhisperingApp;
 
-test('a committed write confirms the history save', () => {
-	patch.mockImplementationOnce(() => Ok(undefined));
+test('a committed write confirms the history save', async () => {
+	patch.mockImplementationOnce(write);
 	expectOk(
-		saveRecordingHistory(app, recordingId, { transcript: 'saved transcript' }),
+		await saveRecordingHistory(app, app.store, recordingId, {
+			transcript: 'saved transcript',
+		}),
 	);
 	expect(patch).toHaveBeenLastCalledWith(recordingId, {
 		transcript: 'saved transcript',
 	});
 });
 
-test('a refused write becomes RecordingHistoryError', () => {
+test('a refused write becomes RecordingHistoryError', async () => {
 	const cause = new Error('the store refused the write');
 	patch.mockImplementationOnce(() => {
 		throw cause;
 	});
 
 	const error = expectErr(
-		saveRecordingHistory(app, recordingId, { transcript: 'delivered text' }),
+		await saveRecordingHistory(app, app.store, recordingId, {
+			transcript: 'delivered text',
+		}),
 	);
 	expect(error).toMatchObject({
 		name: 'SaveUnconfirmed',
@@ -55,11 +71,16 @@ test('a refused write becomes RecordingHistoryError', () => {
 	});
 });
 
-test('successful transcription carries its history Result', () => {
-	patch.mockImplementationOnce(() => Ok(undefined));
+test('successful transcription carries its history Result', async () => {
+	patch.mockImplementationOnce(write);
 
 	const success = expectOk(
-		recordTranscriptionOutcome(app, recordingId, Ok('usable text')),
+		await recordTranscriptionOutcome(
+			app,
+			app.store,
+			recordingId,
+			Ok('usable text'),
+		),
 	);
 	expect(success.text).toBe('usable text');
 	expectOk(success.history);
@@ -74,7 +95,7 @@ test('successful transcription carries its history Result', () => {
 	});
 });
 
-test('provider error remains primary when its failed marker cannot be saved', () => {
+test('provider error remains primary when its failed marker cannot be saved', async () => {
 	const providerError = {
 		name: 'ProviderFailed',
 		message: 'The provider could not transcribe the recording.',
@@ -85,10 +106,12 @@ test('provider error remains primary when its failed marker cannot be saved', ()
 	const { sink, events } = memorySink();
 
 	const error = expectErr(
-		recordTranscriptionOutcome(
+		await recordTranscriptionOutcome(
 			app,
+			app.store,
 			recordingId,
 			Err(providerError),
+			undefined,
 			createLogger('test/transcription-history', sink),
 		),
 	);
@@ -104,3 +127,95 @@ test('provider error remains primary when its failed marker cannot be saved', ()
 		source: 'test/transcription-history',
 	});
 });
+
+test('retrying an older refused transcript never overwrites newer raw or polished text', async () => {
+	const signal = new AbortController().signal;
+	let row = {
+		id: recordingId,
+		transcript: 'original',
+		polishedTranscript: null,
+	} as Recording;
+	let reject = true;
+	const owner = {
+		signal,
+		pendingSaves: createPendingSaves(signal),
+		store: {
+			persistence: { flush: async () => {}, get: () => 'saved' },
+			tables: {
+				recordings: {
+					get: () => row,
+					update: (_id: string, changes: Partial<Recording>) => {
+						if (reject) throw new Error('refused');
+						row = { ...row, ...changes };
+						return Ok(undefined);
+					},
+				},
+			},
+		},
+	} as unknown as WhisperingApp;
+	expectErr(
+		await saveRecordingHistory(owner, owner.store, recordingId, {
+			transcript: 'old attempt',
+			polishedTranscript: null,
+		}),
+	);
+	reject = false;
+	row = {
+		...row,
+		transcript: 'new attempt',
+		polishedTranscript: 'new polished',
+	};
+	await owner.pendingSaves.entries[0]!.retry();
+	expect(row.transcript).toBe('new attempt');
+	expect(row.polishedTranscript).toBe('new polished');
+	expect(owner.pendingSaves.entries).toHaveLength(1);
+});
+
+type WhisperingApp = ProductApp & {
+	store: import('../whispering/app.js').RecordingStore;
+	local: import('../whispering/local.js').LocalStore;
+	localBlobs: import('../whispering/local.js').LocalStore['blobs'];
+	personal: import('../whispering/personal.js').PersonalStore;
+};
+
+for (const alteration of ['delete', 'edit'] as const) {
+	test(`accepted transcript remains recoverable when row changes before retry: ${alteration}`, async () => {
+		const signal = new AbortController().signal;
+		let row: Recording | undefined = {
+			id: recordingId,
+			transcript: 'original',
+		} as Recording;
+		let status = 'blocked';
+		const owner = {
+			signal,
+			pendingSaves: createPendingSaves(signal),
+		} as ProductApp;
+		const store = {
+			persistence: { flush: async () => {}, get: () => status },
+			tables: {
+				recordings: {
+					get: () => row,
+					update: (_id: string, changes: Partial<Recording>) => {
+						row = { ...row!, ...changes };
+						return Ok(undefined);
+					},
+				},
+			},
+		} as unknown as WhisperingApp['store'];
+		expectErr(
+			await saveRecordingHistory(owner, store, recordingId, {
+				transcript: 'retained output',
+			}),
+		);
+		row =
+			alteration === 'delete'
+				? undefined
+				: { ...row!, transcript: 'newer output' };
+		status = 'saved';
+		await owner.pendingSaves.entries[0]!.retry();
+		expect(owner.pendingSaves.entries).toHaveLength(1);
+		expect(row?.transcript).toBe(
+			alteration === 'delete' ? undefined : 'newer output',
+		);
+	});
+}

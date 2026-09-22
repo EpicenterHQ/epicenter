@@ -3,8 +3,9 @@ import {
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
-import { isErr, Ok, type Result } from 'wellcrafted/result';
+import { isErr, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import type { WhisperingApp } from '../whispering/app.js';
+import { local } from '../whispering/local.js';
 import { buildPolishSystemPrompt } from './build-system-prompt.js';
 import {
 	completeWithGlobalDefault,
@@ -37,7 +38,7 @@ export type RunPolishError = InferErrors<typeof RunPolishError>;
  */
 export function polishWillRun(app: WhisperingApp, input: string): boolean {
 	return (
-		(app.local.kv.get('polishEnabled') ?? DEVICE_DEFAULTS.polishEnabled) &&
+		(local.kv.get('polishEnabled') ?? DEVICE_DEFAULTS.polishEnabled) &&
 		resolveCompletionTarget(app) !== null &&
 		input.trim().length > 0
 	);
@@ -72,11 +73,22 @@ export async function runPolish(
 	app.signal.throwIfAborted();
 	if (!polishWillRun(app, input)) return Ok(input);
 
+	const ready = await tryAsync({
+		try: () => app.personalReady,
+		catch: (cause) =>
+			RunPolishError.PolishFailed({
+				message: extractErrorMessage(cause),
+				fallback: input,
+			}),
+	});
+	if (ready.error) return ready;
+	app.signal.throwIfAborted();
+	const personal = ready.data;
 	const result = await completeWithGlobalDefault(app, {
 		systemPrompt: buildPolishSystemPrompt(
-			app.personal?.kv.get('polishInstructions') ??
+			personal?.kv.get('polishInstructions') ??
 				PERSONAL_DEFAULTS.polishInstructions,
-			app.personal?.kv.get('dictionary') ?? PERSONAL_DEFAULTS.dictionary,
+			personal?.kv.get('dictionary') ?? PERSONAL_DEFAULTS.dictionary,
 		),
 		userPrompt: input,
 		signal,

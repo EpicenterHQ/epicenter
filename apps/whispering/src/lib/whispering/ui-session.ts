@@ -2,40 +2,29 @@ import { RecorderError } from '@epicenter/app/recorder';
 import { createInferenceCatalog } from '@epicenter/app-shell/inference-picker';
 import type { Account } from '@epicenter/auth';
 import { toHostedCatalog } from '@epicenter/constants/ai-providers';
-import { fromData } from '@epicenter/svelte';
 import { createLogger } from 'wellcrafted/logger';
 import { pushToTalk } from '../operations/push-to-talk';
 import {
 	createWhisperingRecording,
 	disposeVadRecording,
 } from '../operations/recording.svelte.js';
-import { createWhisperingQueries } from '../queries';
 import { createWhisperingQueryRuntime } from '../queries/client';
-import {
-	type WhisperingApp,
-	type WhisperingAppHandle,
-	type WhisperingData,
-} from './app';
+import { type WhisperingApp, type WhisperingAppHandle } from './app';
 import { importLegacyInferenceSelections } from './inference.js';
+import { local } from './local.js';
 
-/** Adapt both App stores and own the recording and query lifetimes. */
+/** Own recording admission and shell queries for this document. */
 export function createWhisperingUiSession({
 	openedApp,
-	data,
 	account,
 }: {
 	openedApp: WhisperingAppHandle;
-	data: WhisperingData;
 	account: Account | undefined;
 }) {
-	importLegacyInferenceSelections(
-		openedApp.local.kv,
-		account,
-	);
-	const library = fromData(data);
+	importLegacyInferenceSelections(local.kv, account);
 	const catalog = createInferenceCatalog({
 		ai: openedApp.inference,
-        signal: openedApp.signal,
+		signal: openedApp.signal,
 		hostedModels: toHostedCatalog(['gpt-5.4-mini', 'gpt-5.5']),
 	});
 	const log = createLogger('whispering/ui-session');
@@ -43,13 +32,10 @@ export function createWhisperingUiSession({
 	let recordingEnabled = true;
 	const app: WhisperingApp = {
 		...openedApp,
-		local: fromData(openedApp.local),
-		personal: openedApp.personal ? fromData(openedApp.personal) : undefined,
 		get recordingEnabled() {
 			return recordingEnabled && !openedApp.signal.aborted;
 		},
 		authAccount: account,
-		library,
 		catalog,
 		get recording() {
 			return recordingSession.recording;
@@ -57,11 +43,9 @@ export function createWhisperingUiSession({
 	};
 	const recordingSession = createWhisperingRecording(app, openedApp.recorder);
 	const queryRuntime = createWhisperingQueryRuntime();
-	const queries = createWhisperingQueries(app, queryRuntime);
 
 	return {
 		app,
-		queries,
 		queryClient: queryRuntime.queryClient,
 		[Symbol.dispose]() {
 			if (!recordingEnabled) return;

@@ -47,10 +47,6 @@ export async function openPersonal<const TDefinition extends DataDefinition>(
 		getProfile: account.getProfile,
 		openWebSocket: account.openWebSocket,
 	});
-	const identity = Object.freeze({
-		authorityId: captured.authorityId,
-		principalId: captured.principalId,
-	});
 	const store = await openStore(
 		definition,
 		{ kind: 'personal', account: captured },
@@ -58,7 +54,7 @@ export async function openPersonal<const TDefinition extends DataDefinition>(
 		async (assertUsable) =>
 			Ok(await acquireRemoteBlobs({ id, account: captured, assertUsable })),
 	);
-	return Object.freeze(Object.assign(store, { identity }));
+	return Object.freeze(store);
 }
 
 const log = createLogger('app/store');

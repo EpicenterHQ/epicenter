@@ -78,10 +78,7 @@ test('Personal acquisition hydrates the existing handles and survives refused sy
 	};
 	const app = await create(account);
 	const notes = app.tables.notes;
-	expect(app.identity).toEqual({
-		authorityId: 'test-authority',
-		principalId: account.principalId,
-	});
+	expect('identity' in app).toBe(false);
 
 	expect(app.tables.notes).toBe(notes);
 	expect(notes.rows[0]?.title).toBe('from the account');

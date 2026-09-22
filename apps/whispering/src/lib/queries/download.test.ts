@@ -9,8 +9,8 @@ import { createQueryFactories } from 'wellcrafted/query';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { DownloadServiceLive } from '#platform/download';
-import type { WhisperingApp } from '../whispering/app.js';
 import type { Recording } from '../data.js';
+import type { WhisperingApp } from '../whispering/app.js';
 import { createDownloadQueries } from './download.js';
 
 for (const { blob, extension } of [
@@ -32,12 +32,18 @@ for (const { blob, extension } of [
 		const client = new QueryClient();
 		try {
 			const app = {
-				library: {
+				store: {
 					tables: { recordings: { get: () => ({ audioBlobId: 'audio.wav' }) } },
 				},
 				localBlobs: { get: async () => Ok(blob) },
 			} as unknown as WhisperingApp;
-			const query = createDownloadQueries(app, createQueryFactories(client));
+			const query = createDownloadQueries(
+				{
+					...Reflect.get(app, 'store'),
+					blobs: Reflect.get(app, 'localBlobs'),
+				},
+				createQueryFactories(client),
+			);
 			expectOk(
 				await query.downloadRecording({ id: 'saved-recording' } as Recording),
 			);

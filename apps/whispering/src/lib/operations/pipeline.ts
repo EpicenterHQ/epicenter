@@ -1,3 +1,4 @@
+import { trySync } from 'wellcrafted/result';
 import {
 	deliverTranscriptionResult,
 	type TranscriptionSource,
@@ -13,6 +14,7 @@ import { report } from '$lib/report';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
 import { polishHud } from '$lib/state/polish-hud.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
+import { local } from '../whispering/local.js';
 import { creditAction } from './credit-action.js';
 
 /**
@@ -42,7 +44,7 @@ export async function processRecordingPipeline(
 ) {
 	const lifetime = app.signal;
 	lifetime.throwIfAborted();
-	const recording = app.library.tables.recordings.get(recordingId);
+	const recording = local.tables.recordings.get(recordingId);
 	if (!recording || !app.recordingEnabled) return;
 
 	// A live dictation (not a file import) drives the dictation pill. The
@@ -55,7 +57,7 @@ export async function processRecordingPipeline(
 	if (transcribe === null) {
 		if (ownsFeedback()) {
 			report.info({
-				title: 'Audio saved',
+				title: 'Audio saved to Local',
 				description:
 					'Choose a transcription model when you’re ready to turn it into text.',
 			});
@@ -74,7 +76,7 @@ export async function processRecordingPipeline(
 			});
 
 	const { data: transcription, error: transcribeError } =
-		await transcribeAndPersist(app, recording.id, transcribe);
+		await transcribeAndPersist(app, local, recording.id, transcribe);
 	if (lifetime.aborted || !app.recordingEnabled) return;
 
 	if (transcribeError) {
@@ -108,18 +110,34 @@ export async function processRecordingPipeline(
 	// import has no pill to cancel from and keeps its own progress toast. The pill
 	// shows the HUD only when an AI pass actually runs (not in speed mode); begin/end
 	// bracket the call so the controller is dropped on success, failure, or abort.
-	const willPolish = polishWillRun(app, transcribedText);
+	let willPolish = polishWillRun(app, transcribedText);
+	const polishReceipt = willPolish
+		? trySync({
+				try: () => app.pendingSaves.reserve('Polished transcript'),
+				catch: () => ({
+					data: null,
+					error: {
+						name: 'Capacity',
+						message: 'Finish pending saves before polishing.',
+					},
+				}),
+			})
+		: null;
+	if (polishReceipt?.error) willPolish = false;
 	const showPolishHud = willPolish && isDictation && ownsFeedback();
 	let signal: AbortSignal | undefined;
 	if (showPolishHud) {
 		dictationLifecycle.markPolishing();
 		signal = polishHud.begin(ownsFeedback);
 	}
-	const { data: polishedText, error: polishError } = await runPolish(app, {
-		input: transcribedText,
-		signal,
-	});
+	const { data: polishedText, error: polishError } = willPolish
+		? await runPolish(app, {
+				input: transcribedText,
+				signal,
+			})
+		: { data: transcribedText, error: null };
 	if (signal) polishHud.end(signal);
+	if (polishError || lifetime.aborted) polishReceipt?.data?.discard();
 	if (lifetime.aborted || !app.recordingEnabled) return;
 	// Polish is best-effort: a failed AI pass carries the raw transcript in
 	// `fallback`, so a transcript is never lost to a polish error. Surface the
@@ -138,16 +156,22 @@ export async function processRecordingPipeline(
 	// already left `polishedTranscript` null, so speed mode (no AI call) and a
 	// polish failure (the fallback delivers the raw words) need no second write.
 	if (willPolish && !polishError) {
-		const polishedHistory = saveRecordingHistory(app, recording.id, {
-			polishedTranscript: polishedText,
-		});
+		const polishedHistory = await saveRecordingHistory(
+			app,
+			local,
+			recording.id,
+			{
+				polishedTranscript: polishedText,
+			},
+			polishReceipt?.data ?? undefined,
+		);
 		if (polishedHistory.error !== null) history = polishedHistory;
 	}
 	if (lifetime.aborted || !app.recordingEnabled) return;
 
 	// The transcript is "ready" once it is polished and about to be delivered, so
 	// the completion sound and the resolved loading notice both fire here.
-	if (ownsFeedback()) void playSoundIfEnabled(app, 'transcriptionComplete');
+	if (ownsFeedback()) void playSoundIfEnabled('transcriptionComplete');
 	const { outcome: transcriptDelivery, notice: transcribeNotice } =
 		await deliverTranscriptionResult(app, {
 			text: deliveredText,

@@ -9,6 +9,7 @@ import {
 } from '$lib/operations/sink';
 import type { Notice } from '$lib/report';
 import type { WhisperingApp } from '$lib/whispering/app';
+import { local } from '../whispering/local.js';
 import { DEVICE_DEFAULTS } from './settings.js';
 
 // The reach types live in their own `delivery-reach` module next to their ADR
@@ -52,10 +53,10 @@ const OUTPUT_KEYS = {
  * Accessibility grant, which is the one fact the tap supervisor holds the tap to
  * track. Call inside a reactive scope to stay live as the toggles change.
  */
-export function outputWritesToCursor(app: WhisperingApp): boolean {
+export function outputWritesToCursor(): boolean {
 	return OUTPUT_SCOPES.some(
 		(scope) =>
-			app.local.kv.get(OUTPUT_KEYS[scope].cursor) ??
+			local.kv.get(OUTPUT_KEYS[scope].cursor) ??
 			DEVICE_DEFAULTS[OUTPUT_KEYS[scope].cursor],
 	);
 }
@@ -90,9 +91,11 @@ export async function deliverTranscriptionResult(
 	{
 		text,
 		source = 'recording',
+		showHistoryAction = true,
 	}: {
 		text: string;
 		source?: TranscriptionSource;
+		showHistoryAction?: boolean;
 	},
 ): Promise<DeliveryResult> {
 	return deliverToSink({
@@ -100,7 +103,7 @@ export async function deliverTranscriptionResult(
 		successCopy: TRANSCRIPTION_SUCCESS_COPY[source],
 		sink: resolveSettingsSink(app, 'transcription'),
 		// A transcription always belongs to a recording, so its history is reachable.
-		linkedRecording: true,
+		linkedRecording: showHistoryAction,
 	});
 }
 
@@ -135,14 +138,14 @@ function resolveSettingsSink(
 ): Sink {
 	const keys = OUTPUT_KEYS[settingsScope];
 	const cursorRequested =
-		app.local.kv.get(keys.cursor) ?? DEVICE_DEFAULTS[keys.cursor];
+		local.kv.get(keys.cursor) ?? DEVICE_DEFAULTS[keys.cursor];
 	const clipboardRequested =
-		app.local.kv.get(keys.clipboard) ?? DEVICE_DEFAULTS[keys.clipboard];
+		local.kv.get(keys.clipboard) ?? DEVICE_DEFAULTS[keys.clipboard];
 
 	return cursorRequested
 		? createCursorSink({
 				keepOnClipboard: clipboardRequested,
-				pressEnter: app.local.kv.get(keys.enter) ?? DEVICE_DEFAULTS[keys.enter],
+				pressEnter: local.kv.get(keys.enter) ?? DEVICE_DEFAULTS[keys.enter],
 			})
 		: clipboardRequested
 			? clipboardSink

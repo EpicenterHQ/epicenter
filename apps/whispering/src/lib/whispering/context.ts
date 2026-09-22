@@ -3,18 +3,17 @@ import type { WhisperingQueries } from '$lib/queries';
 import type { WhisperingApp } from './app';
 
 /**
- * Both reactive App stores, the recording workflow, and document-owned queries.
+ * The document-owned recording workflow and resources.
  * Operation modules receive this explicitly; components read it from context.
  */
 export type WhisperingContext = {
 	app: WhisperingApp;
-	queries: WhisperingQueries;
 };
 
 /**
  * Typed context supplied synchronously by `WhisperingShell` inside the `ready`
- * branch of the boot node. The focused getters below are ready-only by
- * construction: nothing outside that branch can reach either dependency.
+ * branch of the boot node. The App getter is ready-only by construction. Recording views provide their own
+ * concrete-store query context.
  */
 const [getWhisperingContext, setWhisperingContext] =
 	createContext<WhisperingContext>();
@@ -25,6 +24,5 @@ export function getWhisperingApp() {
 	return getWhisperingContext().app;
 }
 
-export function getWhisperingQueries() {
-	return getWhisperingContext().queries;
-}
+export const [getWhisperingQueries, setWhisperingQueries] =
+	createContext<WhisperingQueries>();

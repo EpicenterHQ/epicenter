@@ -1,7 +1,5 @@
-import { readRecordingAudio } from '../whispering/recordings.js';
 import {
-	type BlobNotFound,
-	type BlobStoreFailed,
+	type BlobStoreError,
 	type RemoteBlobsError,
 	selectBlobFormat,
 } from '@epicenter/blobs';
@@ -10,14 +8,15 @@ import { Err, type Result } from 'wellcrafted/result';
 import { type DownloadError, DownloadServiceLive } from '#platform/download';
 import type { WhisperingQueryRuntime } from '$lib/queries/client';
 import type { Recording } from '../data.js';
-import type { WhisperingApp } from '$lib/whispering/app';
+import type { RecordingStore } from '../whispering/app.js';
+import { readRecordingAudio } from '../whispering/recordings.js';
 
 export const downloadKeys = defineKeys({
 	downloadRecording: ['download', 'downloadRecording'],
 });
 
 export function createDownloadQueries(
-	app: WhisperingApp,
+	store: RecordingStore,
 	{ defineMutation }: Pick<WhisperingQueryRuntime, 'defineMutation'>,
 ) {
 	return {
@@ -26,13 +25,10 @@ export function createDownloadQueries(
 			mutationFn: async (
 				recording: Recording,
 			): Promise<
-				Result<
-					void,
-					BlobNotFound | BlobStoreFailed | RemoteBlobsError | DownloadError
-				>
+				Result<void, BlobStoreError | RemoteBlobsError | DownloadError>
 			> => {
 				const { data: audioBlob, error: getAudioBlobError } =
-					await readRecordingAudio(app, recording.id);
+					await readRecordingAudio(store, recording.id);
 
 				if (getAudioBlobError) return Err(getAudioBlobError);
 

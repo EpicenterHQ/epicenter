@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { local } from '$lib/whispering/local.js';
 	import { DEVICE_DEFAULTS } from '$lib/operations/settings.js';
 	import { Button } from '@epicenter/ui/button';
 	import LockIcon from '@lucide/svelte/icons/lock';
@@ -11,9 +12,6 @@
 	import { dictationCapability } from '$lib/state/dictation-capability.svelte';
 	import type { BooleanSettingKey } from '$lib/operations/settings.js';
 	import { tauri } from '#platform/tauri';
-	import { getWhisperingApp } from '$lib/whispering/context';
-
-	const app = getWhisperingApp();
 
 	// One scope's full output delivery UI: copy to clipboard, paste at cursor (with
 	// its macOS Accessibility notice), and the dependent "press Enter" sub-toggle.
@@ -58,13 +56,18 @@
 </script>
 
 <SettingSwitch
-	checked={app.local.kv.get(delivery.clipboard) ?? DEVICE_DEFAULTS[delivery.clipboard]}
-	onCheckedChange={checked => app.local.kv.update({ [delivery.clipboard]: checked })}
+	checked={local.kv.get(delivery.clipboard) ??
+		DEVICE_DEFAULTS[delivery.clipboard]}
+	onCheckedChange={(checked) =>
+		local.kv.update({ [delivery.clipboard]: checked })}
 	label={`Copy ${delivery.noun} to clipboard`}
 />
 
-<SettingSwitch checked={app.local.kv.get(delivery.cursor) ?? DEVICE_DEFAULTS[delivery.cursor]}
- onCheckedChange={checked => app.local.kv.update({ [delivery.cursor]: checked })} label={`Paste ${delivery.noun} at cursor`} />
+<SettingSwitch
+	checked={local.kv.get(delivery.cursor) ?? DEVICE_DEFAULTS[delivery.cursor]}
+	onCheckedChange={(checked) => local.kv.update({ [delivery.cursor]: checked })}
+	label={`Paste ${delivery.noun} at cursor`}
+/>
 
 {#if tauri && dictationCapability.needsAccessibility}
 	<!-- The toggle stays on and interactive (it records intent), but the paste
@@ -86,11 +89,12 @@
 	</div>
 {/if}
 
-{#if tauri && (app.local.kv.get(delivery.cursor) ?? DEVICE_DEFAULTS[delivery.cursor])}
+{#if tauri && (local.kv.get(delivery.cursor) ?? DEVICE_DEFAULTS[delivery.cursor])}
 	<div class:opacity-50={dictationCapability.needsAccessibility}>
 		<SettingSwitch
-			checked={app.local.kv.get(delivery.enter) ?? DEVICE_DEFAULTS[delivery.enter]}
-			onCheckedChange={checked => app.local.kv.update({ [delivery.enter]: checked })}
+			checked={local.kv.get(delivery.enter) ?? DEVICE_DEFAULTS[delivery.enter]}
+			onCheckedChange={(checked) =>
+				local.kv.update({ [delivery.enter]: checked })}
 			label={`Press Enter after pasting ${delivery.noun}`}
 		/>
 	</div>

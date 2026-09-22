@@ -15,7 +15,7 @@ import { createReachRouter } from './reach-router';
  */
 export function createAppShortcuts(app: WhisperingApp) {
 	return createReachRouter({
-		focused: createFocusedShortcuts(app),
+		focused: createFocusedShortcuts(),
 		global: createSystemShortcuts?.(app) ?? null,
 		commands,
 	});

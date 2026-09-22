@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { local } from '$lib/whispering/local.js';
 	import { DEVICE_DEFAULTS } from '$lib/operations/settings.js';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -8,9 +9,6 @@
 	import { report } from '$lib/report';
 	import { deviceConfig } from '$lib/state/device-config.svelte';
 	import SidebarNav from './SidebarNav.svelte';
-	import { getWhisperingApp } from '$lib/whispering/context';
-
-	const app = getWhisperingApp();
 
 	let { children } = $props();
 </script>
@@ -37,7 +35,7 @@
 						'This resets settings on this device, including shortcuts, sounds, and processing choices.',
 					confirm: { text: 'Reset Settings', variant: 'destructive' },
 					onConfirm: () => {
-						app.local.kv.update(DEVICE_DEFAULTS);
+						local.kv.update(DEVICE_DEFAULTS);
 						deviceConfig.reset();
 						report.success({
 							title: 'Settings reset',

@@ -110,8 +110,22 @@ test('Personal snapshots identity and transport before pending admission', async
 	});
 	gate.resolve();
 	const personal = await opening;
-	expect(personal.identity.principalId).toBe(asPrincipalId('alice'));
-	expect(Object.isFrozen(personal.identity)).toBe(true);
+	expect('identity' in personal).toBe(false);
+	personal.tables.notes.create({ title: 'captured Alice' });
+	await personal.persistence.flush();
+	await personal.close();
+	const alice = await openPersonal(definition, {
+		account: accountFor('alice'),
+		runtime,
+	});
+	expect(alice.tables.notes.rows[0]?.title).toBe('captured Alice');
+	await alice.close();
+	const bob = await openPersonal(definition, {
+		account: accountFor('bob'),
+		runtime,
+	});
+	expect(bob.tables.notes.rows).toEqual([]);
+	await bob.close();
 	await personal.close();
 	await runtime.dispose();
 });

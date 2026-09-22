@@ -4,6 +4,7 @@ import type { Recording, RecordingService } from '@epicenter/app/recorder';
 import { generateBlobId } from '@epicenter/blobs';
 import { Ok } from 'wellcrafted/result';
 import type { WhisperingApp } from '$lib/whispering/app';
+import { createPendingSaves } from '../whispering/pending-saves.js';
 
 Reflect.set(
 	globalThis,
@@ -101,22 +102,33 @@ function recordingApp<T extends object>(
 		enumerateDevices: async () => Ok([]),
 	} as RecordingService,
 ) {
+	let savedRow: Record<string, unknown> | undefined;
 	const app = {
 		signal: new AbortController().signal,
 		local: { kv: { update: mock() } },
-		library: {
+		store: {
 			tables: {
 				recordings: {
-					get: () => ({ id: 'original-row' }),
-					create: () => {
+					get: () => savedRow,
+					create: (values: Record<string, unknown>) => {
 						events.push('save');
-						return { id: 'original-row' };
+						savedRow = { ...values, id: 'original-row' };
+						return savedRow;
 					},
 				},
 			},
 		},
 		...options,
 	} as unknown as T & WhisperingApp;
+	app.pendingSaves = createPendingSaves(app.signal);
+	mock.module('../whispering/local.js', () => ({
+		local: {
+			...Reflect.get(app, 'local'),
+			...Reflect.get(app, 'store'),
+			blobs: Reflect.get(app, 'localBlobs'),
+			persistence: { flush: async () => {}, get: () => 'saved' },
+		},
+	}));
 	const session = createWhisperingRecording(app, service);
 	Object.defineProperty(app, 'recording', { value: session.recording });
 	return app;
@@ -258,12 +270,16 @@ test('disposal cancels active capture without finalizing a recording', async () 
 	const stop = mock(async () => {
 		throw new Error('Must not save on disposal');
 	});
-	const app = {
+		const app = {
 		signal: new AbortController().signal,
 		recordingEnabled: true,
 		local: { kv: { update: mock() } },
-		library: { tables: { recordings: {} } },
+		store: { tables: { recordings: {} } },
 	} as unknown as WhisperingApp;
+	app.pendingSaves = createPendingSaves(app.signal);
+	mock.module('../whispering/local.js', () => ({
+		local: Reflect.get(app, 'local'),
+	}));
 	const session = createWhisperingRecording(app, {
 		start: async () => Ok({ ...capture, cancel, stop } as unknown as Recording),
 		current: async () => Ok(null),
@@ -280,12 +296,16 @@ test('capture acquired after disposal is cancelled without publishing a row', as
 	const acquired = Promise.withResolvers<ReturnType<typeof Ok<Recording>>>();
 	const cancel = mock(async () => Ok(undefined));
 	const create = mock();
-	const app = {
+		const app = {
 		signal: new AbortController().signal,
 		recordingEnabled: true,
 		local: { kv: { update: mock() } },
-		library: { tables: { recordings: { create } } },
+		store: { tables: { recordings: { create } } },
 	} as unknown as WhisperingApp;
+	app.pendingSaves = createPendingSaves(app.signal);
+	mock.module('../whispering/local.js', () => ({
+		local: Reflect.get(app, 'local'),
+	}));
 	const session = createWhisperingRecording(app, {
 		start: () => acquired.promise,
 		current: async () => Ok(null),

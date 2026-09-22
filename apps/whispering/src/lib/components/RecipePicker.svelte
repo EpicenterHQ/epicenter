@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { getPersonal } from '../whispering/personal.js';
+	const personal = getPersonal();
 	import { pickableRecipes } from '../whispering/recipes.js';
 
 	import { Badge } from '@epicenter/ui/badge';
@@ -39,7 +41,7 @@
 			});
 			return;
 		}
-		await playSoundIfEnabled(app, 'recipeComplete');
+		await playSoundIfEnabled('recipeComplete');
 		const { notice } = await deliverRecipeResult(app, {
 			text: data,
 			recordingId: null,
@@ -50,7 +52,10 @@
 
 <Modal.Root
 	bind:open={
-		() => recipePicker.isOpen, (open) => { if (!open) recipePicker.close(); }
+		() => recipePicker.isOpen,
+		(open) => {
+			if (!open) recipePicker.close();
+		}
 	}
 >
 	<Modal.Content class="overflow-hidden p-0">
@@ -63,7 +68,7 @@
 			<Command.List>
 				<Command.Empty>No recipes found.</Command.Empty>
 				<Command.Group>
-					{#each pickableRecipes(app.personal) as recipe (recipe.id)}
+					{#each pickableRecipes(personal) as recipe (recipe.id)}
 						<Command.Item value={recipe.name} onSelect={() => run(recipe)}>
 							{#if recipe.icon}
 								<span aria-hidden="true">{recipe.icon}</span>

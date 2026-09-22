@@ -15,13 +15,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InstantString } from '@epicenter/app/field';
 import { openMemory } from '@epicenter/app/memory';
-import { createLocalBlobAccess } from '@epicenter/blobs/owner';
 import { createBrowserBlobSources } from '@epicenter/blobs/browser';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
+import { createLocalBlobAccess } from '@epicenter/blobs/owner';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { whisperingDefinition } from '../data.js';
-import { createRecording } from '../whispering/recordings.js';
+import { createPendingSaves } from '../whispering/pending-saves.js';
+import { newRecordingValues } from '../whispering/recordings.js';
 
 let transcriptionError: { name: string; message: string } | null = null;
 let willPolish = false;
@@ -69,7 +70,11 @@ mock.module('$lib/operations/sound', () => ({
 }));
 mock.module('$lib/operations/transcribe', () => ({
 	captureTranscription: () => async () => Ok('captured transcription'),
-	transcribeAndPersist: async (_app: unknown, recordingId: string) => {
+	transcribeAndPersist: async (
+		_app: unknown,
+		_store: unknown,
+		recordingId: string,
+	) => {
 		await finishTranscription?.();
 		persistedTranscriptions.push(recordingId);
 		return transcriptionError !== null
@@ -115,7 +120,7 @@ const { polishHud } = await import('../state/polish-hud.svelte');
 mock.module('$lib/state/polish-hud.svelte', () => ({ polishHud }));
 const { processRecordingPipeline } = await import('./pipeline.js');
 const { saveAudioRecording } = await import('./save-audio-recording.js');
-type WhisperingApp = import('$lib/whispering/app').WhisperingApp;
+type ProductApp = import('$lib/whispering/app').WhisperingApp;
 
 const directory = await mkdtemp(join(tmpdir(), 'whispering-pipeline-'));
 const data = await openMemory(whisperingDefinition);
@@ -127,8 +132,8 @@ const access = createLocalBlobAccess({
 const blobId = expectOk(
 	await access.value.add(new Blob(['saved audio'], { type: 'audio/wav' })),
 );
-const recording = expectOk(
-	createRecording(data, {
+const recording = data.tables.recordings.create(
+	newRecordingValues({
 		audioBlobId: blobId,
 		recordedAt: InstantString.now(),
 		recordedAtZone: 'UTC',
@@ -145,9 +150,14 @@ const app = {
 		return recordingEnabled;
 	},
 	authAccount: { baseURL: 'https://api.example.test', principalId: 'alice' },
-	local: { kv: { get: () => false } },
-	library: data,
+	local: { ...data, blobs: access.value, kv: { get: () => false } },
+	get pendingSaves() {
+		return createPendingSaves(lifetime.signal);
+	},
+	store: data,
 } as unknown as WhisperingApp;
+
+mock.module('../whispering/local.js', () => ({ local: app.local }));
 
 afterAll(async () => {
 	await access.close();
@@ -190,9 +200,15 @@ test('A inference finishes into its row while B retains current feedback', async
 	expect(attemptB()).toBe(true);
 	expect(dictationLifecycle.outcome.kind).toBe('none');
 	expect(persistedTranscriptions).toContain(recording.id);
-	expect(saveRecordingHistory).toHaveBeenLastCalledWith(app, recording.id, {
-		polishedTranscript: 'polished transcript',
-	});
+	expect(saveRecordingHistory).toHaveBeenLastCalledWith(
+		app,
+		app.local,
+		recording.id,
+		{
+			polishedTranscript: 'polished transcript',
+		},
+		expect.any(Object),
+	);
 	expect(deliverTranscriptionResult).toHaveBeenLastCalledWith(app, {
 		text: 'polished transcript',
 		source: 'recording',
@@ -398,9 +414,15 @@ test('polished history success does not hide an earlier raw history error', asyn
 		deliverySource: 'recording',
 	});
 
-	expect(saveRecordingHistory).toHaveBeenLastCalledWith(app, recording.id, {
-		polishedTranscript: 'polished transcript',
-	});
+	expect(saveRecordingHistory).toHaveBeenLastCalledWith(
+		app,
+		app.local,
+		recording.id,
+		{
+			polishedTranscript: 'polished transcript',
+		},
+		expect.any(Object),
+	);
 	expect(reportInfo).toHaveBeenCalledTimes(noticesBefore + 1);
 	expect(reportInfo).toHaveBeenLastCalledWith({
 		title: 'Transcription delivered, but history may be incomplete',
@@ -453,7 +475,7 @@ test('admitted audio finishes saving after UI admission closes without starting 
 		const row = expectOk(created);
 		if (row === null)
 			throw new Error('Closing admission must still create the row');
-		expect(app.library.tables.recordings.get(row.id)?.audioBlobId).toBe(
+		expect(app.store.tables.recordings.get(row.id)?.audioBlobId).toBe(
 			row.audioBlobId,
 		);
 		expect(await expectOk(await access.value.get(row.audioBlobId)).text()).toBe(
@@ -468,7 +490,7 @@ test('admitted audio finishes saving after UI admission closes without starting 
 		release.resolve();
 		write.mockRestore();
 		if (created?.data) {
-			app.library.tables.recordings.delete(created.data.id);
+			app.store.tables.recordings.delete(created.data.id);
 			expectOk(await access.value.delete(created.data.audioBlobId));
 		}
 	}
@@ -495,8 +517,15 @@ test('audio-only capture retains playable bytes without transcription, polish, d
 		await expectOk(await access.value.get(recording.audioBlobId)).text(),
 	).toBe('saved audio');
 	expect(reportInfo).toHaveBeenLastCalledWith({
-		title: 'Audio saved',
+		title: 'Audio saved to Local',
 		description:
 			'Choose a transcription model when you’re ready to turn it into text.',
 	});
 });
+
+type WhisperingApp = ProductApp & {
+	store: import('../whispering/app.js').RecordingStore;
+	local: import('../whispering/local.js').LocalStore;
+	localBlobs: import('../whispering/local.js').LocalStore['blobs'];
+	personal: import('../whispering/personal.js').PersonalStore;
+};

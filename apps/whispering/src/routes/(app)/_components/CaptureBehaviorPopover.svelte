@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { local } from '$lib/whispering/local.js';
 	import { DEVICE_DEFAULTS } from '$lib/operations/settings.js';
 	import { Button } from '@epicenter/ui/button';
 	import * as Popover from '@epicenter/ui/popover';
@@ -6,13 +7,11 @@
 	import OutputDeliveryControls from '$lib/components/OutputDeliveryControls.svelte';
 	import { SettingSwitch } from '$lib/components/settings';
 	import { captureSurface } from '$lib/state/capture-surface.svelte';
-	import { getWhisperingApp } from '$lib/whispering/context';
 
-	const app = getWhisperingApp();
 	let open = $state(false);
 
 	const pausePlaybackDescription = $derived.by(() => {
-		switch (captureSurface.current(app)) {
+		switch (captureSurface.current()) {
 			case 'vad':
 				return 'Pause music or video while you are speaking, then try to resume shortly after you stop.';
 			case 'manual':
@@ -40,8 +39,10 @@
 	<Popover.Content class="w-80">
 		<div class="flex flex-col gap-3">
 			<SettingSwitch
-				checked={app.local.kv.get('recordingPausePlayback') ?? DEVICE_DEFAULTS.recordingPausePlayback}
-				onCheckedChange={checked => app.local.kv.update({ recordingPausePlayback: checked })}
+				checked={local.kv.get('recordingPausePlayback') ??
+					DEVICE_DEFAULTS.recordingPausePlayback}
+				onCheckedChange={(checked) =>
+					local.kv.update({ recordingPausePlayback: checked })}
 				label="Pause playback while recording"
 				description={pausePlaybackDescription}
 			/>

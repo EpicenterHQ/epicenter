@@ -83,7 +83,9 @@ public arbitrary-ID writers, upload/download aliases, or destination overrides.
 
 Both scopes expose `get`, `open`, and `delete`; Local also exposes `stat` and
 `list`. Deleting a copy leaves the source, other placements, and rows alone.
-Personal objects use the captured authority, principal, and definition ID.
+Personal objects use the privately captured authority, principal, and definition ID.
+Store handles expose no `identity`, `account`, `authorityId`, or `principalId`;
+applications retain an Account separately when they need account data.
 Local bytes stay under the definition's fixed `no-account` namespace. Account
 changes do not move bytes or retarget handles.
 
@@ -109,10 +111,11 @@ Serve the exact `@epicenter/client/blob-worker` asset at
 
 ```ts
 await navigator.serviceWorker.register('/epicenter-blob-worker.js', { scope: '/' });
-// Wait until this page has a controller before calling personal.blobs.open(id).
+// Wait until this exact worker controls the page before personal.blobs.open(id).
 ```
 
-The desktop host serves that asset. Product registration remains deferred.
+The desktop host serves that asset. Whispering registers it independently of Local
+readiness and waits for its script URL to control the document.
 A missing or incompatible controlling worker fails `open`; opening a cached
 Personal store does not require the worker or a remote health probe.
 

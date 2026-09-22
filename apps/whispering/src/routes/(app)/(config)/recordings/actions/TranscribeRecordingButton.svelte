@@ -48,7 +48,8 @@
 	// `pending` is the recording domain's initialization value for a recording nobody has
 	// transcribed yet, which is this button's "unprocessed".
 	const transcriptionState = $derived.by(() => {
-		if (transcribeRecording.isPending) return { status: 'transcribing' } as const;
+		if (transcribeRecording.isPending)
+			return { status: 'transcribing' } as const;
 		if (recording.transcriptionStatus === 'pending')
 			return { status: 'unprocessed' } as const;
 		return { status: recording.transcriptionStatus } as const;
@@ -98,10 +99,11 @@
 				});
 			},
 			onSuccess: async ({ text, history }) => {
-				void playSoundIfEnabled(app, 'transcriptionComplete');
+				void playSoundIfEnabled('transcriptionComplete');
 
 				const { notice } = await deliverTranscriptionResult(app, {
 					text,
+					showHistoryAction: false,
 				});
 				loading.resolve(notice);
 				if (history.error !== null) {
@@ -115,7 +117,7 @@
 	}
 </script>
 
-<Button {tooltip} onclick={transcribe} {variant} {size}>
+<Button {tooltip} aria-label={tooltip} onclick={transcribe} {variant} {size}>
 	{#if transcriptionState.status === 'unprocessed'}
 		<PlayIcon class="size-4" />
 	{:else if transcriptionState.status === 'transcribing'}

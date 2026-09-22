@@ -3,7 +3,7 @@ import {
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
-import { isErr, Ok, type Result } from 'wellcrafted/result';
+import { isErr, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import type { Recipe } from '$lib/data';
 import { buildSystemPrompt } from '$lib/operations/build-system-prompt';
 import { completeWithGlobalDefault } from '$lib/operations/completion';
@@ -53,10 +53,18 @@ export async function runRecipe(
 		});
 	}
 
+	const ready = await tryAsync({
+		try: () => app.personalReady,
+		catch: (cause) =>
+			RunRecipeError.Failed({ message: extractErrorMessage(cause) }),
+	});
+	if (ready.error) return ready;
+	app.signal.throwIfAborted();
+	const personal = ready.data;
 	const result = await completeWithGlobalDefault(app, {
 		systemPrompt: buildSystemPrompt(
 			recipe.instructions,
-			app.personal?.kv.get('dictionary') ?? PERSONAL_DEFAULTS.dictionary,
+			personal?.kv.get('dictionary') ?? PERSONAL_DEFAULTS.dictionary,
 		),
 		userPrompt: input,
 	});

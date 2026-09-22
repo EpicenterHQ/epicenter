@@ -3,11 +3,14 @@ import { APIError } from 'openai';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import type { WhisperingApp } from '../whispering/app.js';
 import { getInferenceTarget } from '../whispering/inference.js';
+import { local } from '../whispering/local.js';
 
 /** Resolve exactly the saved connection and model from the ready document App. */
 export function resolveCompletionTarget(app: WhisperingApp) {
-	const target = app.catalog.resolve(getInferenceTarget(app.local.kv, 'completion'));
-    return target?.source === 'runtime' ? null : target;
+	const target = app.catalog.resolve(
+		getInferenceTarget(local.kv, 'completion'),
+	);
+	return target?.source === 'runtime' ? null : target;
 }
 
 /** Capture the model and transport together before starting the single HTTP request. */

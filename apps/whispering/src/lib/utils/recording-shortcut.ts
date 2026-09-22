@@ -49,7 +49,7 @@ export function getRecordingShortcutLabel(
 	mode: RecordingShortcutMode,
 ): string {
 	return shortcutLabelFor(
-		createSystemShortcuts?.(app) ?? createFocusedShortcuts(app),
+		createSystemShortcuts?.(app) ?? createFocusedShortcuts(),
 		mode,
 	);
 }

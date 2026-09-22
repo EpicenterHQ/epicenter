@@ -7,6 +7,7 @@ import { expect, mock, test } from 'bun:test';
 import { generateBlobId } from '@epicenter/blobs';
 import { Ok } from 'wellcrafted/result';
 import type { WhisperingApp } from '../whispering/app.js';
+import { createPendingSaves } from '../whispering/pending-saves.js';
 
 Reflect.set(globalThis, '$state', <T>(value: T) => value);
 mock.module('../state/vad-recorder.svelte.js', () => ({
@@ -51,7 +52,7 @@ test('failed import preserves saved sibling bytes and refuses new work after ret
 				return Ok(id);
 			},
 		},
-		library: {
+		store: {
 			tables: {
 				recordings: {
 					create: (value: Record<string, unknown>) => {
@@ -66,6 +67,17 @@ test('failed import preserves saved sibling bytes and refuses new work after ret
 			return recordingEnabled;
 		},
 	} as unknown as WhisperingApp;
+	app.pendingSaves = createPendingSaves(app.signal);
+	const store = Reflect.get(app, 'store');
+	store.tables.recordings.get ??= (id: string) =>
+		rows.find((row) => row.id === id);
+	mock.module('../whispering/local.js', () => ({
+		local: {
+			...store,
+			blobs: Reflect.get(app, 'localBlobs'),
+			persistence: { flush: async () => {}, get: () => 'saved' },
+		},
+	}));
 	const file = new File(['audio'], 'speech.wav', { type: 'audio/wav' });
 	const importing = importFiles(app, { files: [file, file] });
 	const failed = importing.catch((error: Error) => error);
@@ -111,8 +123,15 @@ test('retirement during import publication preserves committed bytes without a r
 				return Ok(blobId);
 			},
 		},
-		library: { tables: { recordings: { create } } },
+		store: { tables: { recordings: { create } } },
 	} as unknown as WhisperingApp;
+	app.pendingSaves = createPendingSaves(app.signal);
+	mock.module('../whispering/local.js', () => ({
+		local: {
+			...Reflect.get(app, 'store'),
+			blobs: Reflect.get(app, 'localBlobs'),
+		},
+	}));
 
 	const before = processed.length;
 	const importing = importFiles(app, {

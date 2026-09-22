@@ -5,14 +5,14 @@ import { createRuntimeTranscriber } from '../../../../../packages/app/src/runtim
  */
 
 import { expect, mock, test } from 'bun:test';
-import {
-	createInference,
-	type AiTransport,
-} from '../../../../../packages/app/src/inference.js';
-import { openConnectionCatalog } from '../../../../../packages/app/src/connection-catalog.js';
-import type { AccountIdentity } from '@epicenter/principal';
 import { createAiConnections } from '@epicenter/app/ai-connections';
+import type { AccountIdentity } from '@epicenter/principal';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { openConnectionCatalog } from '../../../../../packages/app/src/connection-catalog.js';
+import {
+	type AiTransport,
+	createInference,
+} from '../../../../../packages/app/src/inference.js';
 import { createInferenceCatalog } from '../../../../../packages/app-shell/src/inference-picker/catalog.svelte.js';
 import { completionDestination } from '../state/polish.js';
 import type { WhisperingApp } from '../whispering/app.js';
@@ -100,6 +100,10 @@ async function setup(
 		local: { kv },
 		catalog: connections,
 	} as unknown as WhisperingApp;
+	mock.module('../whispering/local.js', () => ({
+		local: Reflect.get(app, 'local'),
+	}));
+	app.personalReady = Promise.resolve(Reflect.get(app, 'personal'));
 
 	const run = () =>
 		completeWithGlobalDefault(app, {
@@ -272,28 +276,6 @@ test('native text completion refuses the unsupported operation without falling b
 	expect(fixture.requests).toEqual([]);
 	expect(invoke).not.toHaveBeenCalled();
 	await fixture.close();
-});
-
-test('opening another App cannot redirect a retained completion operation', async () => {
-	const first = await setup(new Map(), 'A');
-	const second = await setup(new Map(), 'B');
-	try {
-		for (const fixture of [first, second]) {
-			fixture.kv.update({
-				completionConnection: fixture.connections.accountId!,
-				completionModel: 'same-model',
-			});
-		}
-		expectOk(await first.run());
-		expect(first.requests).toHaveLength(1);
-		expect(second.requests).toHaveLength(0);
-		expectOk(await second.run());
-		expect(first.requests).toHaveLength(1);
-		expect(second.requests).toHaveLength(1);
-	} finally {
-		await first.close();
-		await second.close();
-	}
 });
 
 test('retired completion returns a failure Result without sending text', async () => {

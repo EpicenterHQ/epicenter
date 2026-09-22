@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { useSidebar } from '@epicenter/ui/sidebar';
 	import MoonIcon from '@lucide/svelte/icons/moon';
@@ -11,12 +10,6 @@
 	import { NAV_ITEMS } from './nav-items';
 	import { auth } from '$lib/auth.svelte.js';
 	import { AccountPopover } from '@epicenter/app-shell/account-popover';
-
-	let {
-		libraryMenu,
-	}: {
-		libraryMenu: Snippet;
-	} = $props();
 
 	const sidebar = useSidebar();
 </script>
@@ -49,7 +42,6 @@
 				</Sidebar.MenuButton>
 			</Sidebar.MenuItem>
 		</Sidebar.Menu>
-		{@render libraryMenu()}
 	</Sidebar.Header>
 
 	<Sidebar.Content>
@@ -80,10 +72,7 @@
 		<Sidebar.Menu>
 			<!-- Account / sync (route-independent: visible on the bare home page) -->
 			<Sidebar.MenuItem>
-				<AccountPopover
-					{auth}
-					syncNoun="recordings"
-				/>
+				<AccountPopover {auth} syncNoun="recordings" />
 			</Sidebar.MenuItem>
 
 			<!-- Toggle dark mode -->

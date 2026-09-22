@@ -8,9 +8,9 @@ import {
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 import { isSupportedLanguage } from '../constants/languages.js';
 import type { RecordingId } from '../data.js';
-import type { WhisperingApp } from '../whispering/app.js';
+import type { RecordingStore, WhisperingApp } from '../whispering/app.js';
 import { getInferenceTarget } from '../whispering/inference.js';
-import { readRecordingAudio } from '../whispering/recordings.js';
+import { local } from '../whispering/local.js';
 import { DEVICE_DEFAULTS, PERSONAL_DEFAULTS } from './settings.js';
 import {
 	recordTranscriptionOutcome,
@@ -47,43 +47,64 @@ const TranscriptionOperationError = defineErrors({
 
 /** Capture the exact saved SDK target. Discovery never chooses its destination. */
 export function resolveTranscriptionTarget(app: WhisperingApp) {
-	return app.catalog.resolve(getInferenceTarget(app.local.kv, 'transcription'));
+	return app.catalog.resolve(getInferenceTarget(local.kv, 'transcription'));
 }
 
 /** Capture the inference target before recording or import. No selection means audio only. */
-export function captureTranscription(app: WhisperingApp) {
+export function captureTranscription(
+	app: WhisperingApp,
+	store: RecordingStore,
+) {
 	let usesAccount = false;
 	const prepared = trySync({
 		try: () => {
 			app.signal.throwIfAborted();
 			const language =
-				app.local.kv.get('transcriptionLanguage') ??
+				local.kv.get('transcriptionLanguage') ??
 				DEVICE_DEFAULTS.transcriptionLanguage;
 			const spokenLanguage = isSupportedLanguage(language) ? language : 'auto';
-			const prompt = [
-				(
-					app.personal?.kv.get('transcriptionPrompt') ??
-					PERSONAL_DEFAULTS.transcriptionPrompt
-				).trim(),
-				(app.personal?.kv.get('dictionary') ?? []).join(', '),
-			]
-				.filter(Boolean)
-				.join(' ');
-			const selection = getInferenceTarget(app.local.kv, 'transcription');
+			const promptFrom = (personal: Awaited<WhisperingApp['personalReady']>) =>
+				[
+					(
+						personal?.kv.get('transcriptionPrompt') ??
+						PERSONAL_DEFAULTS.transcriptionPrompt
+					).trim(),
+					(personal?.kv.get('dictionary') ?? []).join(', '),
+				]
+					.filter(Boolean)
+					.join(' ');
+			// Snapshot ready inputs now; a late store is the captured account's acquisition.
+			const promptReady = app.personalReady.then(promptFrom);
+			void promptReady.catch(() => {});
+			const selection = getInferenceTarget(local.kv, 'transcription');
 			if (!selection) return Ok(null);
-            const capturedTarget = app.catalog.loading ? undefined : app.catalog.resolve(selection);
-            const transcribe = async (audio: Blob) => {
-                await app.catalog.ready;
-                app.signal.throwIfAborted();
-                const target = capturedTarget === undefined ? app.catalog.resolve(selection) : capturedTarget;
-                if (!target) return TranscriptionOperationError.SelectionRequired();
-                const { model, source } = target;
-                usesAccount = source === 'account';
+			const capturedTarget = app.catalog.loading
+				? undefined
+				: app.catalog.resolve(selection);
+			const transcribe = async (audio: Blob) => {
+				const prompt = await promptReady;
+				await app.catalog.ready;
+				app.signal.throwIfAborted();
+				const target =
+					capturedTarget === undefined
+						? app.catalog.resolve(selection)
+						: capturedTarget;
+				if (!target) return TranscriptionOperationError.SelectionRequired();
+				const { model, source } = target;
+				usesAccount = source === 'account';
 				if (target.source === 'runtime') {
-                    const result = await target.transcriber.transcribe({ audio, model, language: spokenLanguage === 'auto' ? undefined : spokenLanguage, prompt: prompt || undefined }, { signal: app.signal });
-                    return result.error ? result : Ok(result.data.text);
-                }
-                const response = await target.client.audio.transcriptions.create(
+					const result = await target.transcriber.transcribe(
+						{
+							audio,
+							model,
+							language: spokenLanguage === 'auto' ? undefined : spokenLanguage,
+							prompt: prompt || undefined,
+						},
+						{ signal: app.signal },
+					);
+					return result.error ? result : Ok(result.data.text);
+				}
+				const response = await target.client.audio.transcriptions.create(
 					{
 						// Bun 1.3.14 retains a single source File's cached name.
 						file: new File(
@@ -119,23 +140,16 @@ export function captureTranscription(app: WhisperingApp) {
 	): Promise<Result<string, TranscriptionError>> => {
 		const result = await tryAsync({
 			try: async () => {
-				if (
-					app.signal.aborted ||
-					!app.library.tables.recordings.get(recordingId)
-				)
+				if (app.signal.aborted || !store.tables.recordings.get(recordingId))
 					return TranscriptionOperationError.Closed();
-				const audio = await readRecordingAudio(app, recordingId);
-				if (
-					app.signal.aborted ||
-					!app.library.tables.recordings.get(recordingId)
-				)
+				const audio = await store.blobs.get(
+					store.tables.recordings.get(recordingId)!.audioBlobId,
+				);
+				if (app.signal.aborted || !store.tables.recordings.get(recordingId))
 					return TranscriptionOperationError.Closed();
 				if (audio.error) return Err(audio.error);
 				const transcription = await selected(audio.data);
-				if (
-					app.signal.aborted ||
-					!app.library.tables.recordings.get(recordingId)
-				)
+				if (app.signal.aborted || !store.tables.recordings.get(recordingId))
 					return TranscriptionOperationError.Closed();
 				return transcription;
 			},
@@ -161,8 +175,9 @@ export function captureTranscription(app: WhisperingApp) {
 export async function transcribeAudio(
 	recordingId: RecordingId,
 	owner: WhisperingApp,
+	store: RecordingStore,
 ) {
-	const transcribe = captureTranscription(owner);
+	const transcribe = captureTranscription(owner, store);
 	return transcribe
 		? transcribe(recordingId)
 		: TranscriptionOperationError.SelectionRequired();
@@ -171,13 +186,28 @@ export async function transcribeAudio(
 /** Every saved transcription attempts history only while its captured App is alive. */
 export async function transcribeAndPersist(
 	app: WhisperingApp,
+	store: RecordingStore,
 	recordingId: RecordingId,
-	transcribe = captureTranscription(app),
+	transcribe = captureTranscription(app, store),
 ): Promise<Result<TranscriptionSuccess, TranscriptionError>> {
 	const signal = app.signal;
 	if (transcribe === null)
 		return TranscriptionOperationError.SelectionRequired();
+	const reserved = trySync({
+		try: () => app.pendingSaves.reserve('Transcript'),
+		catch: (cause) => TranscriptionOperationError.TransportFailed({ cause }),
+	});
+	if (reserved.error) return reserved;
 	const result = await transcribe(recordingId);
-	if (signal.aborted) return TranscriptionOperationError.Closed();
-	return recordTranscriptionOutcome(app, recordingId, result);
+	if (signal.aborted) {
+		reserved.data.discard();
+		return TranscriptionOperationError.Closed();
+	}
+	return recordTranscriptionOutcome(
+		app,
+		store,
+		recordingId,
+		result,
+		reserved.data,
+	);
 }

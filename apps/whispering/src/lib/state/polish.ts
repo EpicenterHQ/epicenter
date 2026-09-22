@@ -4,6 +4,7 @@ import { resolveCompletionTarget } from '../operations/completion.js';
 import { DEVICE_DEFAULTS } from '../operations/settings.js';
 import { resolveTranscriptionTarget } from '../operations/transcribe.js';
 import type { WhisperingApp } from '../whispering/app.js';
+import { local } from '../whispering/local.js';
 
 /**
  * The Polish control's effective state, derived from two independent facts:
@@ -21,7 +22,7 @@ export type PolishStatus = 'off' | 'on' | 'needs-connection';
 
 export function polishStatus(app: WhisperingApp): PolishStatus {
 	const state = resolveCompletionTarget(app);
-	if (!(app.local.kv.get('polishEnabled') ?? DEVICE_DEFAULTS.polishEnabled))
+	if (!(local.kv.get('polishEnabled') ?? DEVICE_DEFAULTS.polishEnabled))
 		return 'off';
 	return state ? 'on' : 'needs-connection';
 }
