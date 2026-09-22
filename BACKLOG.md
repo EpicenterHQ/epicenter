@@ -65,6 +65,21 @@
 - Revisit when: Whispering's first-run or unavailable-transcription surface is
   next changed.
 
+## Explore Wispr Flow for Whispering onboarding and gamification
+
+- Desired result: Improve Whispering's onboarding and explore gamification
+  that shows how many hours a person has saved by dictating.
+- Grounding: Review Wispr Flow for inspiration for both onboarding and
+  dictation progress feedback.
+- Revisit when: Whispering's onboarding or usage statistics are next changed.
+
+## Show saved shortcuts in Whispering button tooltips
+
+- Desired result: Hovering over a button reveals its saved keyboard shortcuts
+  in a tooltip.
+- Grounding: Make configured shortcuts discoverable where their actions live.
+- Revisit when: Whispering's buttons or shortcut discoverability are next changed.
+
 ## Ship a trusted Epicenter macOS application
 
 - Desired result: Publish an Epicenter DMG whose application and bundled Bun
