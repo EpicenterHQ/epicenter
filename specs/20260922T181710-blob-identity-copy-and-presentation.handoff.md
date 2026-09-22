@@ -1,136 +1,36 @@
-# Execute the blob identity, copy, and presentation API
+# Implement the store-owned blob API
 
-Implement and verify the settled blob API through real callers in:
+- **Status:** Draft
+- **Date:** 2026-09-22
 
-```text
-/Users/braden/conductor/workspaces/epicenter/yamoussoukro
-```
+Implement the store-owned blob API in Epicenter, without migrating Whispering or other product workflows.
 
-Read the canonical execution plan:
+Start in /Users/braden/conductor/workspaces/epicenter/yamoussoukro. Read AGENTS.md and the applicable skills. The reviewed plan is specs/20260922T181710-blob-identity-copy-and-presentation.md. Follow its stages through implementation and verification, with independent adversarial-review checkpoints between stages. This is an execution assignment, not another planning-only pass.
 
-```text
-specs/20260922T181710-blob-identity-copy-and-presentation.md
-```
+The user settled the ownership model: openLocal(definition) and openPersonal(definition, { account }) each return tables, kv, and blobs. The store owns readiness, admission, and terminal close; borrowed .blobs has no public close. Recorder construction stays independent as createRecorder({ localBlobs: local.blobs }). Different Local and Personal definitions are allowed: a Personal recording can contain text without a Local audio BlobId. Shared remains deferred.
 
-Its linked ADRs 0372, 0426, and 0427 define the target. ADRs 0349, 0366, and
-0393 preserve local publication, recorder ownership, and independent row
-references. Read current code/READMEs to establish implementation state. This
-handoff is an implementation assignment, not another planning-only pass.
+Blob methods are add, copyFrom, get, open, and delete; Local also retains stat/list. add creates identity. copyFrom preserves exact bytes and BlobId. Initial source pairs are Local <- Local/Personal and Personal <- Local. Defer Personal <- Personal. Reject structural fake sources and preserve native provenance. No standalone public blob openers, public put, upload/download aliases, destination-ID overrides, compatibility registry, automatic blob sync, row-delete cascade, or generic transfer framework.
 
-The user converged on independent stores after exploring constructor coupling,
-mandatory local caching, get/put composition, and a top-level copy function.
-Do not recreate those discarded public shapes. The intended developer workflows
-are saving new bytes, copying existing objects, reading bytes for computation,
-and opening local or remote media with one player source contract.
+Read ADRs 0372, 0380, 0419, 0423, 0426, and 0427, plus the reconciled review in docs/reports/20260922-store-owned-blobs-api-review.md. Earlier independent-openers proposals were deliberately revised because scope and cleanup belong to the store. This removes repeated acquisition and ownership at the cost of requiring document readiness even for blob-only work. Preserve this decision while challenging needless implementation complexity.
 
-Target shape:
+Capture a fresh git status/diff/untracked baseline. This checkout contains extensive concurrent changes, including required untracked runtime files. Preserve them. Use an isolated implementation checkout with the reviewed working baseline; do not assume HEAD contains it. Do not stage, commit, overwrite unrelated work, deploy, or migrate stored data.
 
-```ts
-const local = await openLocalBlobs({ id: sourceNamespace });
-const remote = await openRemoteBlobs({ id: destinationNamespace, account });
+Known integration cost: current Whispering opens Local and blobs separately. Removing the old public opener necessarily breaks that composition. Do not secretly migrate Whispering, add a compatibility owner, or stop at internal preparation while claiming the new API is finished. Complete the API, inventory deferred consumer import/type/startup failures, and label the milestone not application-integrated or merge-ready. If whole-repository green becomes mandatory, request authorization for a separate atomic consumer composition cut.
 
-const added = await local.add(bytes);
-if (added.error) return added;
-const copied = await remote.copyFrom(local, added.data, { signal });
-if (copied.error) return copied;
-return remote.open(added.data);
-```
+Execute these stages:
 
-Both stores expose add/get/open/delete and identity-preserving copyFrom for their
-supported sources. Local retains stat/list; do not invent remote enumeration for
-symmetry. add creates a BlobId; copyFrom preserves it; get returns a complete
-Blob without another persistent copy; open returns a disposable presentation URL
-without requiring offline retention. Only explicit local.copyFrom(remote,id)
-promises a complete local copy. Public put, destination-ID overrides, upload,
-download, addFrom/addLocal, and top-level copyBlob are not part of the target.
-Raw publication remains private where actual adapters/producers need it.
+1. Pin contracts and prototype the risky pieces in package-level harnesses. The current server mints a fresh ID for upload; copying needs object-addressed immutable publication and verified equality for occupied-ID retries. Current remote open buffers a complete Blob and server GET lacks Range. Choose and prove private media delivery for the actual browser/WebView targets, including later requests and original-account authorization. Stop for any unresolved privacy policy rather than silently permitting access after sign-out.
+2. Implement store-owned acquisition and close. Capture scope before awaits. Settle every started acquisition, including late success after another failure. Preserve primary and cleanup errors; release ownership only when cleanup is known safe. Fence document and blob admission synchronously. Preserve recorder admitted Stop publication. Personal must open cached documents without a remote health probe. Extend the concrete isolated StoreRuntime binding without production fallbacks or new generic runtime machinery.
+3. Implement add/copyFrom across storage, server, client, and native transport. Preserve IDs, exact bytes, atomic publication, occupied-key conflict/equality behavior, source snapshots, and uncertain-outcome reconciliation. Track each transfer against both stores without closing unrelated work. Retain native streaming and exact descriptor ownership.
+4. Implement private disposable presentation without implicit persistent copying or a full-download prerequisite. Prove Range/HEAD, seek, 206/416, lengths/version consistency, cancellation, expiry, disposal, and account behavior in real target runtimes. Preserve authorization and safe serving of untrusted files. Do not claim large-media support merely by raising the current 25 MiB cap.
+5. Collapse unearned helpers, aliases, wrappers, and generics; update docs and exports; run cumulative verification and final review. Preserve the definition generic for table/KV inference. Review forwarding-only open.ts and blob helper placement, but retain provenance and admitted-work invariants. No speculative Shared types, generic source protocols, or resource graphs.
 
-Addressing is deliberate:
+After each stage, use adversarial-review on the cumulative implementation and remaining plan, not only the newest diff. Give two fresh read-only reviewers raw files, callers, baseline, and results; a lighter reviewer is permitted. Hold the surface stable until their initial verdicts, reconcile independently against live evidence, repair accepted findings, revise remaining work, and continue. Each checkpoint should ask what stronger invariant or smaller promise would delete a family of code, and what guarantee that deletion must preserve.
 
-```text
-Browser: epicenter/<namespace>/device/no-account/blobs, blobs[blobId]
-Desktop: <dataRoot>/apps/<namespace>/device/no-account/blobs/<blobId>
-Remote:  principals/<principalId>/apps/<namespace>/blobs/<blobId>
-         inside the captured server's object-storage bucket
-```
+Account retirement and store closure are different: retiring Account ends captured network authority but does not itself close/delete the cached Personal store or invalidate its generation. Product departure owns closing/replacing Personal. Never retarget an existing handle to a new account. There is no public Account retirement signal today; do not build tests or promises around an imagined one. Playback revocation needs an actual enforced mechanism.
 
-Namespace id and object blobId are different values. Namespace uses the current
-application-ID grammar. Local bytes are account-independent. Remote authority,
-principal, namespace, and BlobId together locate an authorized placement. Copies
-may cross namespaces. Same opaque ID does not prove equality across untrusted
-locations or grant access. Never overwrite an occupied key: verified equal bytes
-may succeed idempotently; different or unverifiable bytes produce a conflict.
-Copies leave their source intact and expose no partial destination objects.
+The review baseline passed:
+bun test --isolate packages/app/src/open-store.test.ts packages/app/src/independent-blobs.test.ts packages/app/src/import-boundaries.test.ts
+Result: 25 tests, 89 assertions, zero failures. This tests the old API, not the target. The initial doc-hygiene run reported 65 issues. Capture fresh results and distinguish baseline failures, task regressions, and explicitly deferred consumers. Some package tests import app startup: do not delete them to fake a green API milestone.
 
-Current implementation still uses remote.upload(local,id), fresh server IDs,
-URL-addressed remote reads, and full-download remote presentation. The upload
-endpoint caps bytes at 25 MiB and buffers them. Native upload already streams a
-host file without routing its payload through the WebView; preserve that path
-under copyFrom. A Blob does not automatically imply JS-heap copying, but the
-current get/broker paths have full-body barriers. Measure before claiming costs.
-
-Private remote playback is real work: media elements do not use Account.fetch.
-Prove authorized range/HEAD requests, delayed seeks, expiry, disposal, and
-account replacement on browser and desktop. Do not simply derive a URL, expose
-account tokens, make private objects public, or weaken content-serving protection.
-Remote opening must not persist locally. Players must handle errors after open
-succeeds. Do not claim large-video support merely by changing open or raising a cap.
-
-Start by capturing git status, name-status, binary working and index patches,
-untracked files, and focused baseline diagnostics. There is substantial unrelated
-work. Do not reset, erase, stage, or include it in your changes. The documentation
-preparation baseline in /tmp is historical evidence only; it may not exist in a
-fresh session. Capture your own. No data migration, deployment, push, or commits
-are authorized by this handoff alone. The user authorized the preparation docs
-commit separately. Use Bun and repository skills.
-
-Trace at least packages/app blob/recorder owners, packages/blobs adapters and
-publication, packages/client remote transport, packages/server blob routes/S3,
-apps/epicenter host relay/native files, auth transports, and Whispering
-recordings/upload/playback/transcription/download/availability callers. Follow
-actual imports beyond that list. Existing README exports are implementation
-facts, not permission to retain obsolete target APIs.
-
-Execute the plan's waves with independent adversarial-review checkpoints:
-
-1. Reconstruct owners and decide protocol evidence gates before broad migration.
-2. Build/prove immutable publication and retry equality; review before transfer.
-3. Build/prove supported copy pairs and native/browser transport; review before callers.
-4. Build/prove authenticated remote media delivery; review before removing old playback.
-5. Migrate actual application workflows and references; review cumulative callers.
-6. Switch, verify, remove obsolete paths, run local post-implementation-review,
-   and finish current documentation.
-
-Each checkpoint reviews cumulative behavior and remaining work. Resolve findings,
-rewrite obsolete tasks, and continue; a checkpoint does not end the assignment.
-Use parallel read-only reviewers and bounded investigations when available.
-Keep live-checkout edits and integration under one owner. Report unavailable
-reviewer/runtime evidence rather than pretending it occurred.
-
-Before deleting audioUrl, establish where the row obtains remote server,
-principal, and namespace. Local rows survive account switches. Same-ID copying
-removes the second identity, not missing placement metadata. A separate placement
-write can still fail after copy; retain completed identity and destination scope.
-Do not blindly copy again to repair that write. Stop still saves bytes before
-row creation, and a later row failure retains the saved ID. One final caller owns
-error presentation. Keep playback/transfer independent of recording, transcript,
-and row deletion policies.
-
-Mechanics still needing evidence are identified in the plan: copy source matrix,
-verified collision/retry mechanism, ambiguous remote add receipts, playback
-authorization lifetime, upload limits/buffering, and placement-reference shape.
-Choose implementation mechanics autonomously within the settled contracts. If a
-mechanism requires changing a user-visible security/retention promise, surface
-that precise decision and continue independent work rather than silently weaken it.
-
-Use the plan's focused Bun tests/typechecks and real browser/native media checks.
-Prove same IDs/exact bytes, conflicts and interrupted copies, offline local use,
-remote start/seek before full download, no local write during playback, explicit
-offline retention, and captured-account behavior. Passing library tests alone is
-not completion. Attribute failures against the fresh baseline, not memory of
-previous sessions. Do not reuse historical test counts.
-
-Return the final API and real callsites, concrete deleted machinery, verification
-with measured limits, and precise remaining blockers or product decisions. Retire
-the spent spec/handoff and update history when execution is complete; keep ADR
-status separate from implementation state.
+Done means the scoped API and transport are implemented with package/type, failure-race, browser, and native evidence; adversarial findings are resolved; active docs agree; and deferred product integration is listed precisely. If a required environment or policy blocks acceptance, report the exact missing evidence or smallest decision without claiming completion. End with the public API example, changes, checks and failures, accepted/rejected collapses, and the separate Whispering integration boundary.

@@ -1,8 +1,8 @@
-# 0372. Local and remote blobs open independently
+# 0372. Each store owns its blob namespace
 
 - **Status:** Proposed
 - **Date:** 2026-09-08
-- **Unbuilt:** Public `copyFrom`, remote `add`, ID-addressed remote operations, same-ID publication, and authenticated streaming presentation. Independent constructors already exist; current remote upload still creates a fresh ID.
+- **Unbuilt:** Store-owned `blobs`, removal of standalone public blob openers, public `copyFrom`, remote `add`, ID-addressed remote operations, same-ID publication, and authenticated streaming presentation. Current code opens blobs separately and uploads with a fresh remote ID. Shared ownership and authorization remain deferred.
 
 ## Context
 
@@ -14,31 +14,70 @@ as a download forces playback to wait for a durable local write.
 
 ## Decision
 
-**Independent stores create new objects with `add`, preserve stored objects with
-`copyFrom`, read bytes with `get`, and acquire presentation with `open`.**
+**Every opened store owns `tables`, `kv`, and `blobs` under its captured scope.**
+
+`openLocal(definition)` always provides `local.blobs` for device-local bytes.
+`openPersonal(definition, { account })` always provides `personal.blobs` for
+remote objects under that account. A future `openShared` provides `shared.blobs`
+under the authorized shared owner. Shared membership, addressing, and transport
+must be designed before that opener ships; this record adds no Shared export.
+
+The definition ID selects the blob namespace. The store fixes its owner before
+asynchronous acquisition and owns the blob capability's readiness and cleanup.
+There is no separate public `openLocalBlobs` or `openRemoteBlobs` in the target
+API, no optional `blobs` member, and no lazy acquisition mode. Internal adapters
+may remain separate. Opening a store acquires both its document and blob access;
+it does not fetch every blob or certify future network availability.
+
+**Blob operations create objects with `add`, preserve them with `copyFrom`, read
+bytes with `get`, and acquire presentation with `open`.**
 
 The following is the target public API, not a claim that all methods exist:
 
 ```ts
-import { openLocalBlobs, openRemoteBlobs } from '@epicenter/app/blobs';
+import { openLocal, openPersonal } from '@epicenter/app/open';
 
-const local = await openLocalBlobs({ id: 'so.epicenter.capture' });
-const remote = await openRemoteBlobs({ id: 'so.epicenter.library', account });
+const local = await openLocal(captureDefinition);
+const personal = await openPersonal(savedDefinition, { account });
 
-const added = await local.add(bytes);
+const added = await local.blobs.add(bytes);
 if (added.error) return added;
-const copied = await remote.copyFrom(local, added.data, { signal });
+const copied = await personal.blobs.copyFrom(local.blobs, added.data, { signal });
 if (copied.error) return copied;
-const offline = await openLocalBlobs({ id: 'so.epicenter.library' });
-return offline.copyFrom(remote, added.data, { signal });
+return local.blobs.copyFrom(personal.blobs, added.data, { signal });
 ```
 
-Local captures a namespace without an Account. Remote captures a namespace and
-Account identity/transport before asynchronous acquisition. Neither requires
-the other handle, a schema, or a row store. The namespace and BlobId are distinct;
+Local captures a definition without an Account. Personal captures a definition
+and Account identity/transport before asynchronous acquisition. Neither store
+requires the other. Different definitions can select different namespaces and
+row schemas. The namespace and BlobId are distinct;
 [ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md) owns
 address grammar, placement, and identity. Handles never retarget after account
-replacement. Closing one does not close the other.
+replacement. Closing one store does not close another.
+
+`store.close()` fences its document and blob access immediately, then settles
+both before releasing ownership. Local closure retires dependent recorders and
+drains admitted Stop publication. Blob capabilities are borrowed from their
+store; callers close the store, not an independently owned `.blobs` child.
+Failed opening settles every started acquisition, including a late successful
+acquisition, and preserves both the opening and cleanup failures. Neither handle
+escapes until required Local storage and document readiness succeed. Release
+the namespace claim only after cleanup is known safe; an uncertain release
+retains exclusion. Fence both capabilities synchronously before awaiting cleanup.
+Personal captures remote access without a network health probe, preserving
+cached document access during an outage.
+Closing preserves committed rows and bytes. There is no transaction spanning
+the document and blobs, no automatic byte synchronization, and no row-triggered
+blob deletion. Personal tables can be available offline while its remote blobs
+are unavailable.
+
+Account retirement ends captured network authority, not the cached Personal
+store's lifetime. The product working-lifetime owner closes or replaces that
+store on departure. Neither sign-out nor an outage invalidates its document
+generation or deletes pending edits. A new Account needs a new Personal handle;
+existing requests and presentation never retarget to it. Presentation must
+enforce captured-account authorization without assuming an unimplemented
+Account retirement signal.
 
 | Operation | Local and remote contract |
 | --- | --- |
@@ -47,7 +86,7 @@ replacement. Closing one does not close the other.
 | `get(blobId)` | Return `Result<Blob, E>` containing the complete payload, without creating a persistent copy in another store |
 | `open(blobId)` | Return `Result<BlobSource, E>` with a usable `url` and idempotent disposal; no promise of complete download or offline retention |
 | `delete(blobId)` | Remove only this placement; deleting an absent object succeeds |
-| `signal`, `close()` | Fence new work and settle admitted work without deleting committed bytes |
+| Owning store's `signal`, `close()` | Fence new work and settle admitted work without deleting committed bytes |
 
 Local retains `stat` and `list` for metadata and maintenance. Remote enumeration
 is not introduced for interface symmetry. A remote metadata operation may be
@@ -58,7 +97,7 @@ handle use may throw. Final application callers own presentation.
 
 ### New bytes and existing objects have different entrypoints
 
-`remote.add(bytes)` can create a remote object without first saving locally.
+`personal.blobs.add(bytes)` can create a remote object without first saving locally.
 `add` creates identity even if another object has equal bytes. Capture/import
 and transformations use `add` or a producer's private publication capability.
 The recorder keeps its selected ID across Stop publication retries.
@@ -75,23 +114,22 @@ validated ingestion contract; it is not implemented speculatively here.
 the target application surface. No destination-ID override exists. To create a
 new identity for supplied bytes, use `add`.
 
-### Copy owns one operation across independent handles
+### Copy owns one operation across store-owned blob capabilities
 
-The implementation must name its supported source/destination pairs. Local to
-remote, remote to local, and local to local across namespaces are required.
-Remote to remote is a separate acceptance case before a source type advertises
-it; it cannot become an unrestricted URL fetch or use destination credentials
-against the source server. Reject unsupported pairs before reading payloads or
-publishing. Do not promise all structural objects with a `get` method are sources.
+The initial source matrix is concrete: Local accepts Local or Personal;
+Personal accepts Local. Personal-to-Personal is deferred and must not appear
+in the source type. Shared adds no placeholder type. Reject unsupported pairs
+before reading payloads or publishing. Do not promise all structural objects
+with a `get` method are sources or add a generic source-store protocol.
 
 Each admitted copy uses both captured scopes. Native source provenance comes
 from the actual handle; a test/custom source must not silently select a
 same-named native file. Cross-namespace copying is valid. Cross-account/authority
 access requires independently authorized source and destination handles.
 
-Both handles must be usable at admission. The copy is tracked by both until
-settlement. Closing either cancels and drains admitted transfer work without
-closing the other or cancelling its unrelated work. Preserve opened source
+Both owning stores must be usable at admission. The copy is tracked by both until
+settlement. Closing either store cancels and drains admitted transfer work without
+closing the other store or cancelling its unrelated work. Preserve opened source
 snapshots and owned descriptors; source deletion racing a copy must produce
 complete captured bytes or a failure, never substituted or partial bytes.
 Destination publication is atomic, without overwriting an occupied identity.
@@ -122,22 +160,39 @@ background synchronization, or cache manager belongs to this copy operation.
 
 ## Consequences
 
-Applications choose scopes once at acquisition and supply source handles only
-for copying. Signed-out recording and local playback remain possible. Remote
-creation and remote playback do not require local persistence. Public byte reads
-remain available for transcription without retaining another device copy.
+Applications choose scopes once at store acquisition. The store supplies the
+namespace, account, and cleanup previously repeated by blob callers. Signed-out
+recording and local playback remain possible through Local. Remote creation and
+playback require Personal readiness, including its document acquisition, but
+do not require a device-local copy of the media. Public byte reads remain
+available for transcription without retaining another placement.
+
+The cost is deliberate: blob-only access without opening a structured store is
+outside this API. Table admission or hydration failure prevents acquiring its
+blobs, and closing the store ends playback and capture that depend on them.
+This removes two public constructors and separate product-owned blob lifetimes;
+it does not remove internal storage adapters or publication coordination.
 
 The physical publication primitive remains necessary even when its application
 method disappears. The smaller public surface costs arbitrary external-ID
 writes and requires deliberate copy/provenance and collision handling. It does
 not prove global equality between untrusted stores with matching opaque IDs.
 
-Current READMEs describe implemented exports. Implementation must change server,
-client, host relay, adapters, callers, and tests together before removing the old
-path. Historical APIs remain history; no compatibility aliases are required.
+Current READMEs describe implemented exports. An integrated release must change
+server, client, host relay, adapters, callers, and tests before removing the old
+path. An isolated API implementation can precede product migration, but must
+report broken consumers and cannot claim application integration or merge
+readiness. Keeping two public acquisition paths is not a compatibility solution.
+Historical APIs remain history; no compatibility aliases are required.
 
 ## Considered alternatives
 
+- Independent public blob openers: preserve schema-free media access but repeat
+  scope selection and cleanup outside the store that owns the namespace.
+- Keep both nested access and standalone openers: leaves two public ownership
+  paths and requires callers to understand which one owns cleanup.
+- Automatically synchronize blobs alongside tables: adds transfer and retention
+  policy that explicit `copyFrom` does not require.
 - Capture LocalBlobs in the remote constructor: makes remote-only creation and
   presentation acquire an unrelated dependency and ties namespace selection.
 - Expose `put(id, bytes)` to all application callers: permits arbitrary identity
@@ -152,8 +207,13 @@ path. Historical APIs remain history; no compatibility aliases are required.
 
 Prove new-byte creation, both local/remote copy directions, cross-namespace local
 copy, exact byte/ID preservation, atomic publication, identical and conflicting
-occupied keys, interrupted transfers, and independent close. Verify custom
+occupied keys, interrupted transfers, and independent store close. Verify custom
 sources never borrow native provenance. Compare browser and native results,
 including host descriptor release and account retirement. Preserve recorder
 Stop publication and subsequent row-write failure outcomes. Public type checks
 must reject removed methods and unsupported source pairs.
+Prove that every opened Local and Personal store exposes usable blobs, failed
+acquisition unwinds both children, and closing a store fences retained blob
+methods and retires its sources and recorders. Preserve committed bytes when
+document work or cleanup fails. Blob-only access without store readiness is no
+longer an acceptance case; Shared requires separate membership and access tests.

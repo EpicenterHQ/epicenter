@@ -19,7 +19,8 @@ one the component required.
 
 Store opening uses `openLocal(definition)` and
 `openPersonal(definition, { account })`. Capability constructors use their own
-required inputs. The target resource API is described in
+required inputs. Each store supplies its required `.blobs` capability; the
+boundary does not open or close blobs separately. The target resource API is described in
 [ADR-0423](0423-app-resources-open-as-independent-handles.md); inference and saved
 catalogs have separate constructors in
 [ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md).
@@ -35,8 +36,9 @@ its destination from ambient auth. URL changes, local recording policy, and
 copying into Personal remain product decisions; this record does not prescribe
 new `/local` or `/personal` routes.
 
-Account-backed inference and remote blobs are separate from Personal data.
-A product can acquire either without opening a synchronized document. Required
+Account-backed inference remains separate from Personal data and can open
+without a synchronized document. Remote blobs belong to `personal.blobs` and
+require that store to open. Required
 handles eliminate account-presence branches inside consumers, not network
 failures, account retirement, or resource closure.
 
@@ -44,6 +46,11 @@ UI context distributes borrowed capabilities. The product composition owns
 acquisition and shutdown; a component does not close a shared handle merely
 because it unmounts. In SvelteKit, client/Tauri resources belong to the mounted
 client owner, not request-scoped server `locals` or `+layout.server.ts`.
+
+Account retirement itself fences network authority, not the cached Personal
+store. The product working-lifetime owner closes or replaces Personal on
+departure. An outage or sign-out does not invalidate its document generation
+or delete pending edits. Retained handles never adopt a successor account.
 
 ## Consequences
 

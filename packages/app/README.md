@@ -5,7 +5,9 @@ The identity-preserving blob API is an implementation target in
 [ADR-0426](../../docs/adr/0426-blob-identities-survive-copies-between-scoped-locations.md),
 and [ADR-0427](../../docs/adr/0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md).
 The methods described below reflect current code; `copyFrom` is not implemented
-by this documentation change.
+by this documentation change. The target also moves blob acquisition and cleanup
+under `local.blobs` and `personal.blobs`; standalone blob constructors below
+describe current code. Future `shared.blobs` remains deferred with Shared.
 
 Open the resource your operation needs. Each handle captures its destination,
 becomes usable when acquisition completes, and owns terminal cleanup. Products

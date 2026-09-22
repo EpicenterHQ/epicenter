@@ -624,7 +624,7 @@ When you add an ADR, add its row here.
 
 | [0359](0359-the-document-factory-owns-readiness-and-closure.md) | The document factory owns readiness and closure | Proposed |
 
-| [0372](0372-local-and-remote-blobs-open-independently.md) | Local and remote blobs open independently | Proposed |
+| [0372](0372-local-and-remote-blobs-open-independently.md) | Each store owns its blob namespace | Proposed |
 
 | [0380](0380-resource-handles-own-terminal-shutdown.md) | Resource handles own terminal shutdown | Proposed |
 
@@ -655,14 +655,14 @@ When you add an ADR, add its row here.
 | [0396](0396-a-connection-transcribes-and-owns-the-four-rules.md) | A connection transcribes and owns the four rules | Proposed (connection owns inference rules, not blob storage or attachment delivery) |
 | [0397](0397-native-inference-selects-an-installed-model-explicitly.md) | Native inference selects an installed model explicitly | Proposed (amends 0180, 0012) |
 | [0398](0398-every-transcription-destination-speaks-the-openai-wire.md) | Every transcription destination speaks the OpenAI wire | Proposed (amends 0060) |
-| [0399](0399-moving-data-into-an-account-is-a-row-copy.md) | Cross-library copying is an application workflow | Proposed (supersedes 0143) |
+| [0399](0399-moving-data-into-an-account-is-a-row-copy.md) | Cross-store copying is an application workflow | Proposed (supersedes 0143) |
 | [0400](0400-device-sqlite-and-secrets-key-by-application-id.md) | Device SQLite and secrets key by application id | Accepted (superseded by 0404) |
 | [0401](0401-a-record-names-its-destination-at-creation.md) | A record names its destination at creation | Proposed |
 | [0402](0402-a-window-label-is-identity-never-authority-and-the-capability-is-a-host-constant.md) | A window label is identity, never authority, and the capability is a host constant | Proposed (amends 0189 at its capability-file consequence) |
 | [0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) | The package selects its platform leaves at runtime, and a consumer's build passes no condition | Proposed (amends 0388 and 0391 at the selector) |
 | [0404](0404-the-opened-account-owns-application-local-storage.md) | The opened account owns application-local storage | Accepted (supersedes 0400) |
 | [0405](0405-one-flat-application-declaration-opens-the-live-app.md) | One flat application declaration opens the live App | Accepted (amends 0391 at declaration shape; opening amended by 0407) |
-| [0406](0406-one-application-schema-is-used-by-every-store.md) | One application schema is used by every store | Accepted |
+| [0406](0406-one-application-schema-is-used-by-every-store.md) | One application schema is used by every store | Accepted (mandatory schema reuse amended by 0419) |
 | [0407](0407-app-owns-the-declaration-and-data-engine.md) | App owns the declaration and data engine | Accepted (amends 0405 at opening and package ownership; retires historical client generation helpers from 0292/0293) |
 | [0408](0408-one-app-opener-uses-a-complete-runtime.md) | One App opener uses a complete runtime | Accepted (amends 0407 at opening and 0391 at explicit runtime injection) |
 | [0409](0409-resource-admission-protects-its-storage-owner.md) | Resource admission protects its storage owner | Proposed |
@@ -674,7 +674,8 @@ When you add an ADR, add its row here.
 | [0417](0417-a-data-address-holds-one-document.md) | A data address holds one document | Proposed (generation-free current data; replacement outside sync guarantees) |
 
 | [0418](0418-push-translates-file-differences-into-ordinary-edits.md) | Push translates file differences into ordinary edits | Proposed |
+| [0419](0419-stores-open-for-explicit-owners-and-compose-live-projections.md) | Stores open for explicit owners and compose live projections | Proposed (amends 0406 at mandatory schema reuse; store-owned blobs remain unbuilt) |
 
-| [0423](0423-app-resources-open-as-independent-handles.md) | App resources open as independent handles | Proposed |
+| [0423](0423-app-resources-open-as-independent-handles.md) | Stores own data and blobs while services open independently | Proposed |
 | [0426](0426-blob-identities-survive-copies-between-scoped-locations.md) | Blob identities survive copies between scoped locations | Proposed |
 | [0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) | Opening a blob acquires presentation without retaining a copy | Proposed |

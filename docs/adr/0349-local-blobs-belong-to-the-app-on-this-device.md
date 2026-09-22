@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-05
-- **Unbuilt:** Identity-preserving `copyFrom`; private remote presentation is tracked separately in ADR-0427.
+- **Unbuilt:** Store-owned blob acquisition and identity-preserving `copyFrom`; private remote presentation is tracked separately in ADR-0427.
 - **Unverified:** Native Windows execution and abrupt-power-loss durability; installed desktop playback and physical microphone acceptance.
 
 ## Context
@@ -20,8 +20,9 @@ those facts. The same complete filename can identify a browser database value.
 ## Decision
 
 **Each opened namespace selects one canonical local blob store within a storage
-environment.** An application may open several namespaces with
-`openLocalBlobs({ id })`. Account, row, and document generation do not select
+environment.** An application may open several Local stores and use each
+store's `local.blobs`; the definition ID selects the namespace. Account, row,
+and document generation do not select
 its location. [ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md)
 defines the complete local and remote addresses; `id` selects the namespace and
 `blobId` selects an object inside it.
@@ -129,10 +130,11 @@ acknowledgment was lost. Retry after ambiguous publication must keep the same
 object identity. The publication primitive and durability barriers require
 proof on supported filesystems; removing sidecars does not remove those duties.
 
-Each opened blob handle owns access and acquired playback resources. Its closure
-fences new work and drains admitted operations; it does not delete committed files or
-invalidate independent handles to the same store. Standalone blob access does
-not open a Yjs document.
+The opened Local store owns blob access and acquired playback resources.
+`local.close()` fences document and blob operations, retires dependent recorders,
+and drains admitted work without deleting committed files. Public blob access
+requires the owning store to open. Internal byte adapters remain separate from
+the Yjs document; their separate storage does not introduce another public owner.
 
 ## Consequences
 
@@ -166,7 +168,8 @@ no recording title or transcript can be reconstructed from that key.
 - No enumeration: makes successful orphaned saves undiscoverable.
 - One browser implementation everywhere: native recording would need a second
   permanent store or a whole-file transfer into the WebView.
-- An aggregate blob owner: couples independently selected namespaces and lifetimes.
+- One blob owner across multiple stores: couples independently selected namespaces
+  and lifetimes; each store instead owns its own blob capability.
 - A per-blob directory with `data` and `metadata.json`: publishes a two-file
   object together but does not produce an ordinary extension-bearing media file.
 - Flat bytes plus JSON sidecars: keeps exact MIME round-tripping at the cost of

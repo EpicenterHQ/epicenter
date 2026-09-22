@@ -27,12 +27,19 @@ stops using it. The resource may return an object URL, host route, or authorized
 remote endpoint. Applications do not branch on URL schemes or fetch credentials
 on behalf of a player.
 
-`get` returns complete bytes for computation. `local.copyFrom(remote, id)`
-retains a complete local copy before success. `remote.open(id)` must not require
+`get` returns complete bytes for computation.
+`local.blobs.copyFrom(personal.blobs, id)` retains a complete local copy before
+success. `personal.blobs.open(id)` must not require
 that copy or claim offline availability. Browser buffering/HTTP caching is not
 application-controlled retention. Playback can outlive a network connection
 only to the extent already received data permits; there is no implicit pinning,
 eviction policy, cache metadata, or synchronization queue.
+
+Blob access belongs to the opened store under ADR-0372. Acquiring
+`personal.blobs` requires Personal store readiness, including its document;
+opening media adds no local blob-retention requirement. Closing the owning store
+releases its presentation sources. Consumers release individual sources when
+finished without closing the borrowed blob capability or store.
 
 ### A locator is not playback authority
 

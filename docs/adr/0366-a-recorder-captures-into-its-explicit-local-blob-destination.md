@@ -3,24 +3,28 @@
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Relates:** [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) (independent row references), [ADR-0401](0401-a-record-names-its-destination-at-creation.md) (original destination), [ADR-0380](0380-resource-handles-own-terminal-shutdown.md) (resource shutdown).
-- **Unbuilt:** `createRecorder({ blobs })`, native destination provenance, and recorder retirement when its LocalBlobs destination closes.
 - **Unverified:** Physical microphone, whole-host interruption, installed WebView playback, Windows publication, and concurrent-device acceptance.
 
 - **Blob identity:** The saved key can later be copied with `destination.copyFrom(localBlobs, blobId)` under [ADR-0372](0372-local-and-remote-blobs-open-independently.md). Capture keeps its private publication capability; no public arbitrary-ID `put` is required. Addresses are specified by [ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md).
 
 ## Decision
 
-**The recorder owns capture and borrows one LocalBlobs destination.**
+**The recorder owns capture and borrows one opened Local store's blob destination.**
 
-Recorder close leaves blobs usable. Blob close immediately retires dependent
+The target composition is `createRecorder({ localBlobs: local.blobs })` after
+`openLocal(definition)`. The store owns the destination; the recorder may be
+constructed wherever that live capability is available, but cannot outlive it.
+Store-owned acquisition is unbuilt; current code opens LocalBlobs separately.
+
+Recorder close leaves blobs usable. Owning Local store close immediately retires dependent
 recorders, stops unresolved capture, and waits for already-admitted Stop and
 publication to settle. New capture and Stop calls refuse after retirement. An
 admitted Stop can finish through its private writer; success still means fully
-published bytes. Neither closer succeeds while owned cleanup is unsettled.
+published bytes. Neither recorder nor store close succeeds while owned cleanup is unsettled.
 This dependency needs no public lease or generic resource graph.
 
 
-The target `createRecorder({ blobs })` constructor from
+The target `createRecorder({ localBlobs })` constructor from
 `@epicenter/app/recorder` takes a usable LocalBlobs handle. Construction is inert;
 `start()` acquires input. The handle fixes the actual storage namespace and
 platform used for publication; the caller supplies no second ID or Account.
@@ -45,8 +49,11 @@ Creating a recording row is a later application operation. Its failure can
 leave saved bytes without a row. Recording has no authority to create a row or
 upload audio. Temporary VAD/dictation primitives remain separate and do not
 acquire a durable history requirement merely because saved recording does.
-The later workflow stores the returned BlobId as an ordinary row value; it does
-not make the row own the bytes or create an automatic local-to-remote transfer.
+The later workflow may store the returned BlobId in its Local row. A Personal
+workflow may store text without an audio reference, or explicitly copy audio to
+`personal.blobs` before publishing a reference to that placement. These are
+product schema and mapping choices. Neither makes a row own bytes or creates
+an automatic local-to-remote transfer.
 
 Cancel releases unfinished capture. It cannot retract a committed blob. The
 native implementation retains finalized bytes after retryable publication

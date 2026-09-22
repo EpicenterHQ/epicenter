@@ -3,7 +3,7 @@
 - **Status:** Superseded
 - **Date:** 2026-07-18
 - **Superseded by:** [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md)
-- **Relates:** [ADR-0349](0349-local-blobs-belong-to-the-app-on-this-device.md) (local storage layout) and [ADR-0372](0372-local-and-remote-blobs-open-independently.md) (current target: independent handles with `copyFrom`, not the historical upload/download/purge surface)
+- **Relates:** [ADR-0349](0349-local-blobs-belong-to-the-app-on-this-device.md) (local storage layout) and [ADR-0372](0372-local-and-remote-blobs-open-independently.md) (current target: store-owned blob capabilities with `copyFrom`, not the historical upload/download/purge surface)
 
 ## Context
 

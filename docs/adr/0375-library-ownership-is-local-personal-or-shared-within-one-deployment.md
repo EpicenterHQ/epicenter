@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Amends:** [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md) at the hosted-only sign-in restriction; [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md) at shared-token-only self-hosting; [ADR-0076](0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md) at the prohibition on self-hosted session infrastructure; [ADR-0092](0092-identity-is-the-partition.md) at equating authenticated identity with every data partition; [ADR-0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) at the account-or-local definition of a library, preserving fixed page ownership.
-- **Amends:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at the opening API: one App contains device data and the captured Account's personal data. The common application data API, readiness, and closure remain, and ADR-0392 owns the opening call.
+- **Amends:** [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at the opening API: Local and Personal open independently and each owns its blobs. The common application data API, readiness, and closure remain, and ADR-0392 owns the opening call.
 - **Revised by:** [ADR-0416](0416-defer-server-wide-shared-data.md) removes Shared from the current model and records server-wide sharing as a deferred direction.
 - **Implementation:** Named self-hosted Accounts exist. Honeycrisp selection and current-generation integration pass the local Worker browser checkpoint; complete explicit blob-hosting, Bun sync, and packaged desktop evidence remain.
 
@@ -14,10 +14,9 @@ every authorized client to the same `instance` principal. The server uses that
 principal to address application data. Epicenter Cloud instead resolves a
 session to a named user and keeps users' data separate.
 
-The current application API exposes `openApp(definition, { account })` from
-`@epicenter/app/open`. Opening captures the account and returns its device data
-and personal data together. Opening without an account returns device data in a
-separate namespace.
+The current API opens Local and Personal independently. The target also places
+blob access on those stores. Local keeps one device-profile namespace across
+account changes. Personal captures one account and deployment.
 
 The desired self-hosted product admits named users without introducing
 organizations. Each person keeps personal data and authenticates as themselves.
@@ -31,17 +30,15 @@ needs it.
 
 A library is one application's data in one destination. These names describe
 ownership and synchronization, not authentication methods or subscription
-tiers. The application retains its identity and data definition in each library.
-Library ownership names the data destination and synchronization scope; it does
-not assign blob ownership. Rows may hold ordinary local BlobIds or remote URLs,
-while app-local and account-remote bytes keep independent lifetimes and require
-explicit operations.
+tiers. Definitions may differ by workflow. Each store owns tables, KV, and its blob
+namespace; rows reference bytes without owning their lifetime. Copying bytes
+between stores requires an explicit operation.
 
 Both deployments expose the same data destinations:
 
 | Library | Data boundary | Epicenter Cloud | Self-hosted deployment |
 | --- | --- | --- | --- |
-| Local | The captured owner on this device, with a separate signed-out namespace; no synchronization | Available | Available |
+| Local | The device profile across account changes; no synchronization | Available | Available |
 | Personal | One named user on one server; synchronized across that user's devices | Available | Available |
 
 Alice's Personal notes and Bob's Personal notes are separate. Local is a
@@ -49,20 +46,15 @@ separate store, not the offline state of Personal. Both use local storage.
 Browser-facing descriptions should say "this browser" when separate browser
 profiles hold separate Local data.
 
-**One open returns device data and optional personal data; Account names the
-signed-in person.**
+**Local needs a definition; Personal also needs a definite Account.**
 
 ```ts
-const app = await openApp(definition, { account }); // Account | undefined
-app.device             // always present; the Local data lives here
-app.account?.personal  // present when signed in
+const local = await openLocal(captureDefinition);
+const personal = await openPersonal(savedDefinition, { account });
 ```
 
-`device` holds the captured owner's application data on this machine.
-`account.personal` is that person's data on their server. Opening initiates no
-sign-in and accepts no other person's id as the owner to open.
-[ADR-0392](0392-product-boundaries-provide-required-resource-handles.md)
-owns the shape of those two scopes and what each carries.
+Each provides `tables`, `kv`, and `blobs`. Opening initiates no sign-in and
+accepts no other person's ID as the owner. ADR-0392 owns product composition.
 
 An Account is one uninterrupted attachment to one signed-in person on one
 server. Local has no fabricated account. Use Local and Personal wherever a
@@ -94,9 +86,10 @@ identifiers on different deployments do not merge data.
 **An opened application keeps one auth generation for its lifetime.**
 
 Viewing Local or Personal does not replace the Account. Sign-out and account
-replacement retire the old Account: producers and storage close before the new one opens, through
-a fresh document or the host's established restart boundary. Credential repair
-for the same person retires nothing.
+replacement retire the old Account's network authority. The product lifetime
+owner ends dependent work and closes or replaces Personal through its established
+departure boundary. Account retirement does not itself close or erase the cached
+store. Credential repair for the same person retires nothing.
 
 A temporary server outage preserves established local data and identity while
 remote work is unavailable. It does not select Local or sign in another person.
@@ -119,17 +112,15 @@ rename cannot establish that boundary. Existing `instance` data must remain
 intact until an explicit migration or import decision assigns its destination;
 the first named user does not inherit it automatically.
 
-Application callers read `app.device` and `app.account?.personal` from one open.
+Application callers use explicit Local and Personal store handles.
 Feature code continues to use the common data API each store exposes. Named
 self-hosted authentication does not require a Shared store.
 
 The Honeycrisp checkpoint is historical implementation evidence for atomic
 current-generation selection, actor-isolated caches, and self-host Worker sync.
-Its scoped data-addressing test did not make local blobs account-scoped: current
-app-local blob storage and explicit account-remote hosting keep independent
-lifetimes.
-Complete explicit blob-hosting evidence, Bun sync, and packaged desktop verification remain
-separate work. See the library-ownership execution spec for exact evidence.
+It is not evidence for the new store-owned blob contract.
+Complete blob-hosting, Bun sync, and packaged desktop verification remain
+separate work.
 
 Each write uses its intended library's handle (ADR-0401). The desktop host
 retains one signed-in person and server. Applications decide which libraries
@@ -137,23 +128,16 @@ to expose and whether to offer a picker or remember a destination. The framework
 does not impose a Personal default, a copy workflow, or a signed-out Local
 fallback. An application may require sign-in even though the Local handle exists.
 
-**Construction resolves reach once.** One `openApp(definition, { account })`
-feeds the existing App constructor with the device store and, when an Account is present, that person's
-Personal store. A private input type may describe those cases; no
-public Library wrapper or binding object gains its own lifecycle. The constructor captures transport and
-projects a credential-free replica scope for row storage and library locking.
-Recording saves app-local bytes independently. Resource backends validate their
-own scope. Inference and credentials remain attached to the authenticated actor.
+**Construction resolves reach once.** Personal captures account identity and
+transport before asynchronous acquisition. No public Library wrapper or binding
+object gains its own lifecycle. Recording borrows Local blobs independently of
+Account. Inference and credentials remain attached to their explicit actor.
 
-**Reload ends a lifetime; it does not erase its data.** An ordinary switch submits
-buffered edits, awaits App closure, preserves the previous cache and pending work,
-records the next choice, and navigates. Confirmed generation retirement instead
-fences writes and atomically invalidates the retired replica before closure and
-reload. The next page alone opens the replacement through normal startup.
-The device store is primary durable data. Personal uses an actor-bound replica
-with the same application/Yjs format and its own remote destination. The server
-owns one current generation per stable library, as developed in ADR-0379 and
-ADR-0385. No generation picker or persisted cache-transition phase is required.
+**Reload ends a lifetime; it does not erase its data.** Departure preserves the
+previous cache and pending work. Navigation is not proof of a successful flush.
+Only confirmed generation retirement invalidates a replica; sign-out, an outage,
+or store closure does not. Personal uses an actor-bound replica with its own
+remote destination. ADR-0379 and ADR-0385 own generation rules.
 
 ## Considered alternatives
 
@@ -167,7 +151,5 @@ ADR-0385. No generation picker or persisted cache-transition phase is required.
   beyond named users and personal data.
 - Rename Account to Personal: confuses the authenticated person with one of the
   libraries they can access.
-- Use one public `open(destination)` that selects one library: passes a
-  destination object to answer a question the caller should not have to answer
-  once. ADR-0392 removes the parameter instead: one `openApp(definition, { account })` returns
-  device data and optional personal data.
+- Use one aggregate opener: couples device access to account acquisition and
+  hides the store each workflow owns.

@@ -2,69 +2,59 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
-- **Relates:** [ADR-0392](0392-product-boundaries-provide-required-resource-handles.md) (the hub that makes several destinations reachable at once), [ADR-0375](0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md) (what Local, Personal, and Shared own), [ADR-0399](0399-moving-data-into-an-account-is-a-row-copy.md) (optional application-owned copying)
-- **Unbuilt:** Writes under the two-scope App. Current apps select one library before opening; this record requires no destination-control component.
+- **Relates:** [ADR-0392](0392-product-boundaries-provide-required-resource-handles.md), [ADR-0399](0399-moving-data-into-an-account-is-a-row-copy.md), and [ADR-0419](0419-stores-open-for-explicit-owners-and-compose-live-projections.md).
+- **Unbuilt:** Product migration to explicit store destinations and scope-specific recording schemas. No destination picker is required.
 
 ## Context
 
-While a page owned one library, a write had one possible destination and no
-call site had to say which. The library selection screen answered the question
-once per page, and `LibrarySelection.svelte` in Whispering is that screen.
-
-ADR-0392 keeps up to three libraries open. Each write must use the intended
-library's table handle; the App no longer identifies one destination by itself.
+An aggregate App and a selected library once hid the write destination.
+Independent Local and Personal stores make ownership explicit. A product may
+open both, but each workflow still needs one fixed destination for each write.
 
 ## Decision
 
-Writes name their destination; applications own how that destination is chosen.
-The framework neither selects Personal by default nor requires a picker,
-remembered preference, or exposure of every available library.
+**A workflow captures its destination before asynchronous work and never retargets it.**
 
-An application may use one fixed library, use the library shown by its current
-view, or offer a destination control. It resolves that policy before creation
-and calls the chosen table's `create`. A person need not choose "this device"
-or "account" for each recording: the developer expresses the application's
-mode or workflow through the appropriate library API. Recording rows follow their library
-while audio remains app-local until an explicit upload (ADR-0393). Moving existing Local recordings into an account is a separate,
-confirmed application workflow (ADR-0399).
+The application can use a fixed store, the current view, or a destination
+control. It resolves that policy before creation and calls that store's table
+handle. The framework requires neither a picker nor a Personal default.
+Missing account access never silently redirects an account write into Local.
 
-Missing account access is not permission
-to silently redirect an account write into Local.
+The table handle supplies store identity; a redundant destination field on
+every row is unnecessary. View changes cannot redirect a pending write.
+If the destination closes before row-write admission, the write refuses and
+already committed bytes remain intact.
 
-The workflow captures the chosen table handle and its lifetime before acquiring
-the microphone. Successful Stop saves app-local bytes and returns a BlobId. The workflow then
-creates an ordinary recording row referring to that ID (ADR-0393). No durable
-recording row exists during capture. The current App still has three openers;
-the proposed multi-library opener does not change this ordering.
+Recording captures `local.blobs` through its recorder before microphone
+acquisition. Successful Stop publishes local bytes and returns their BlobId.
+The application then creates a row in the schema its workflow selected.
+A Local recording row can retain the ID. A Personal workflow can save text
+without audio, or explicitly publish and reference a Personal blob placement.
+No recording row is required during capture. No chosen row destination causes
+automatic upload or field conversion.
 
-The table handle carries the library identity. No redundant destination field
-is required on the row. Changing a view or preference cannot retarget the
-pending save. If its original library closes or retires before save admission,
-the row write fails; the saved local blob remains discoverable. The workflow
-never chooses another library. An admitted Stop drains before App closure.
+The recorder and row destination may belong to different stores. Each retains
+its own admission and lifetime. Closing Local drains admitted Stop publication
+through the recorder's private writer; that does not authorize a row write into
+a closed Personal store. A later row failure must preserve the saved ID.
 
-Reading is separate. An application may show any subset of its available
-libraries. A mixed-library view must make ownership clear to the person and
-retain the owning handle for actions on each record.
+Reading is a separate choice. A product may show several stores, retaining the
+owning handle for each record's actions. UI context supplies ready handles;
+it does not change destination or make writes transactional across stores.
 
 ## Consequences
 
-- The two-scope migration removes library selection as an App-opening step.
-  Existing library UI may remain as application view or destination policy;
-  replace its consumers and verify them before removing obsolete wiring.
-- A caller already holding the chosen table needs no extra destination argument.
-- An application may omit Local from its interface or require sign-in. The
-  framework still supplies the captured owner's Local library (ADR-0404).
-  Opening without an account selects the separate no-account namespace.
-- Cross-library copying is optional application work (ADR-0399), not a required
-  correction flow. A remembered destination, if offered, is device policy and
-  must be checked against the newly opened account before use.
+A caller already holding its destination table needs no extra destination
+selector. Applications may require sign-in or hide Local while the SDK keeps
+Local device-owned. Account changes neither move Local data nor select another
+Local namespace.
+
+Cross-store copying remains optional application work under ADR-0399.
+Separate schemas express different product material without an owning blob
+field, framework copy controller, or mandatory transfer.
 
 ## Considered alternatives
 
-- **A mandatory picker and Personal default in the framework.** Rejected because
-  available storage does not dictate an application's interface.
-- **Resolve destination after capture finishes.** Rejected because account or
-  view changes could send the recording somewhere other than its original destination.
-- **Silently fall back to Local when account access disappears.** Rejected
-  because this changes ownership and delivery without the application's choice.
+- Resolve the destination after capture: account or view changes can redirect work.
+- Require a destination picker: exposes an implementation choice in every product.
+- Fall back to Local after Personal failure: silently changes the requested owner.

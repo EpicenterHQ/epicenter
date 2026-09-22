@@ -1,37 +1,59 @@
-# 0423. App resources open as independent handles
+# 0423. Stores own data and blobs while services open independently
 
 - **Status:** Proposed
 - **Date:** 2026-09-22
+- **Unbuilt:** Store-owned blob acquisition and cleanup, removal of standalone blob openers, page-root ownership, direct runtime transcription, inert catalog reads, and complete application outcome propagation.
 - **Amends:** [ADR-0388](0388-the-app-owns-what-a-library-scopes-and-the-package-s-modules-supply-what-the-device-supplies.md) and [ADR-0390](0390-the-app-is-the-unit-of-ownership-and-a-capability-is-the-unit-of-sharing.md) at resource ownership; [ADR-0389](0389-the-open-call-decides-the-app-s-type-and-a-local-app-has-no-account-members.md) at aggregate App return types; [ADR-0404](0404-the-opened-account-owns-application-local-storage.md) at account-partitioned local resources; [ADR-0407](0407-app-owns-the-declaration-and-data-engine.md) and [ADR-0408](0408-one-app-opener-uses-a-complete-runtime.md) at aggregate opening and runtime injection; [ADR-0410](0410-an-app-is-returned-ready-and-page-teardown-owns-recovery.md), [ADR-0411](0411-honeycrisp-displays-data-from-one-app.md), [ADR-0412](0412-app-data-addresses-name-scopes-not-libraries.md), and [ADR-0413](0413-app-boot-owns-the-working-page-lifetime.md) at App-wide lifecycle and nested capability access.
-- **Unbuilt:** Independent capability constructors, product composition and caller migration, resource-specific test bindings, and removal of `openApp` and `AppRuntime`; only standalone Local and Personal store opening exists.
+- **Implementation note (2026-09-22):** Current code opens stores and blobs separately. The store-owned `.blobs` surface below is the target, not an existing export. See `packages/app/README.md` for the current public API.
 
 ## Context
 
-`packages/app/src/open.ts` opens Local data, SQLite, secrets, recording, blobs,
-and AI as one App. Its `device` member combines borrowed Local data operations
-with capabilities. Its optional account supplies remote access. Personal data
-already opens independently through `openPersonal`.
-
-Opening one resource still acquires unrelated capabilities. The aggregate also
-makes consumers check whether an account-dependent member exists after opening.
-Moving those members into `openDevice` would preserve both problems.
+The former aggregate opener acquired Local data, SQLite, secrets, recording,
+blobs, and AI as one App. Independent constructors replace that dependency tree.
+Store and blob acquisition repeat the same scope selection and product cleanup.
+The target groups tables, KV, and blobs under a store while keeping recording,
+inference, SQL, and secrets independently constructed.
 
 ## Decision
 
+### Vocabulary and ownership
+
+`@epicenter/app` is a toolkit for building applications. The desktop host loads
+applications and supplies shared native capabilities. An application opens the
+independent resources its workflows need; it may use several stores.
+
+A store definition declares an ID and schema. An opened structured store holds
+one Yjs data document containing its tables, rows, and settings, and owns a blob
+namespace exposed as `store.blobs`. Local and Personal stores opened from the
+same definition are distinct datasets. Definitions can also differ by workflow.
+Audio bytes live outside the structured document even though the store owns
+both capabilities. Shared ownership does not make their writes atomic.
+
+Use “document” for this data document in application architecture explanations.
+Use “browser/WebView lifetime” explicitly when describing UI reload and handle
+ownership. A main interface and an auxiliary overlay can communicate by messages
+without the overlay opening another store. Window count does not determine
+store count. No AppInstance, application-document, or library primitive is needed.
+
+Root handles normally last for the browser/WebView lifetime. Reload replaces
+JavaScript state and access handles; committed data survives. The host owns
+shared native services and retirement of access belonging to a departed WebView.
+Shorter-lived operations still release their temporary resources.
+
+### Independent acquisition
+
 **Each resource constructor captures its required inputs and owns its handle.**
 
-The target public imports are listed here. They are implementation targets,
-not a claim that these exports exist.
+The public acquisition boundaries are listed here. Verify current signatures
+against the resource subpaths and `packages/app/README.md`.
 
 | Import | Constructor | Captured input |
 | --- | --- | --- |
-| `@epicenter/app/open` | `openLocal(definition)` | Device-local definition |
-| `@epicenter/app/open` | `openPersonal(definition, { account })` | Definition and account |
-| `@epicenter/app/blobs` | `openLocalBlobs({ id })` | Device-local blob namespace |
-| `@epicenter/app/blobs` | `openRemoteBlobs({ id, account })` | Remote blob namespace and account |
+| `@epicenter/app/open` | `openLocal(definition)` | Definition; owns local tables, KV, and blobs |
+| `@epicenter/app/open` | `openPersonal(definition, { account })` | Definition and account; owns personal tables, KV, and remote blobs |
 | `@epicenter/app/sqlite` | `openSqlite({ id })` | Device-local database namespace |
 | `@epicenter/app/secrets` | `openSecrets({ id })` | Device-local secret namespace |
-| `@epicenter/app/recorder` | `createRecorder({ blobs })` | Open LocalBlobs destination |
+| `@epicenter/app/recorder` | `createRecorder({ localBlobs: local.blobs })` | Borrowed Local blob destination |
 
 Inference and saved-catalog constructors are specified in
 [ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md).
@@ -39,10 +61,11 @@ Blob transfer and recorder dependencies are specified in
 [ADR-0372](0372-local-and-remote-blobs-open-independently.md) and
 [ADR-0366](0366-a-recorder-captures-into-its-explicit-local-blob-destination.md).
 
-Store definitions contain their ID and schema. Capabilities that need only an
-ID take `{ id }`; they do not accept a schema as a required dependency. Using
-`definition.id` for a capability is a product choice, not implicit attachment
-to the store. An ID selects a namespace; it grants no authorization.
+Store definitions contain their ID and schema. The ID selects both the document
+and blob namespace; the opener fixes their ownership. Every store has `blobs`.
+A future `openShared` follows the same shape with shared-owner authorization;
+it remains unbuilt. SQLite and secrets still take their own `{ id }` and do not
+become store children. An ID selects storage; it grants no authorization.
 
 `openSqlite` returns a namespace owner with `open(name)`, `delete(name)`, and
 `close()`. It retains connection identity, statement ordering, and deletion
@@ -60,12 +83,34 @@ not merge their credentials into device-global storage.
 
 **Products compose resources without a generic App or Device handle.**
 
-Remove `openApp`, the `App` capability tree, and the complete `AppRuntime`
-requirement after callers use independent handles. Do not retain an optional
+The SDK already removed aggregate `openApp`. Do not reintroduce its capability
+tree or complete `AppRuntime`. Product composition helpers are not SDK owners. Do not retain an optional
 generic composition API or a compatibility alias. A product can define its own
-composition function when that function owns startup rollback and workflows.
-It opens only the handles that product needs and passes required handles to
-consumers. Sign-in and runtime availability are resolved at that boundary.
+composition function that names its required resources. Root handles can belong
+to the whole page, with terminal startup failure and reload to retry. The
+function need not recreate an aggregate resource with its own close tree.
+Optional inference failure does not block unrelated data or recording. Operations
+receive the handles they use; sign-in and availability remain explicit.
+
+Product composition does not imply one readiness barrier. Local capture depends
+on an opened Local store's blobs and a recorder; it must not await Personal or
+inference. A definite Account can start Personal acquisition separately. A
+workflow selecting Personal waits for that store without changing its destination
+on failure. Signed-in Local workflows can still use ready account features.
+
+The mounted product starts any composition function. Exporting an eager live
+`app` promise or individual opening promises moves acquisition to import time
+and is outside this ownership model. An application namespace returned from a
+helper is ordinary composition, not a new SDK owner. Svelte distribution and
+the `get*`/`set*` naming rule are specified in
+[ADR-0392](0392-product-boundaries-provide-required-resource-handles.md).
+
+Keep the definition generic needed for table and KV inference. Blob ownership
+adds no schema, backend, or transfer generic. Extend the concrete store runtime
+with a complete isolated blob binding for tests; do not fall through to ambient
+production storage. Keep provenance and admitted-work tracking even if their
+helpers move beside the owning implementation. Delete forwarding-only modules
+when they add no contract; do not delete a boundary solely to reduce file count.
 
 Resource modules remain under `@epicenter/app` subpaths. The root retains inert
 declarations and schema types; importing a definition acquires no resources and
@@ -97,26 +142,30 @@ certify future network reachability, microphone permission, or model support.
 `createRecorder` constructs an inert capture controller; `start()` acquires
 input. Its usable destination is fixed at construction.
 
-Every resource owner exposes `signal` and an asynchronous, terminal, idempotent
+Every root resource owner exposes `signal` and an asynchronous, terminal, idempotent
 `close()`. Close or retirement synchronously aborts `signal` when it fences new
 work. Close settles admitted operations and releases owned resources. Repeated close observes the same outcome. Failed
 cleanup retains exclusion wherever another owner could race unfinished writes;
 page or process teardown remains the recovery boundary. A resource never closes
-an unrelated sibling. Closing preserves committed data and credentials.
+an unrelated sibling. A store fences and closes both its document and blobs;
+the borrowed `.blobs` capability has no independent public close. Failed store
+opening unwinds both acquisitions. Closing preserves committed data and credentials.
 
 Dependencies are directional. A recorder borrows its LocalBlobs destination:
 recorder close leaves blobs usable; blob close retires its recorders and waits
 for admitted publication and capture cleanup. A transfer admitted through
 `destination.copyFrom(source, blobId)` belongs to both handles until it settles. Either
-handle's close cancels that transfer and waits for settlement without closing
-the other handle. These requirements do not mandate a generic dependency graph
+owning store's close cancels that transfer and waits for settlement without closing
+the other store. These requirements do not mandate a generic dependency graph
 or public lease abstraction.
 
-Product composition stops its own producers before explicit resource closure.
-If a later opening fails, it attempts cleanup of every earlier acquisition.
-If a component disappears during opening, it closes the eventual handle rather
-than publishing it into a dead UI. A shared boot renderer may observe the
-product's opening promise; it does not require auth, a schema, or `openApp`.
+A page-root handle need not close on component unmount. Full document
+replacement ends its product lifetime; a failed root startup cannot retry in the
+same document. Earlier successful root acquisitions may remain until replacement.
+Individual failed openers still clean up their own partial acquisition.
+Shorter-lived owners close temporary handles and suppress late publication.
+A shared boot renderer may observe explicit page opening; it does not require
+a schema or `openApp`, and does not own an aggregate resource drain.
 Workflows spanning upload and row mutation retain their product cancellation
 check. Independent resources do not make those operations atomic.
 
@@ -128,8 +177,9 @@ handles while replacement is pending.
 ## Consequences
 
 The SDK loses borrowed `device` assembly, optional account capability branches,
-and mandatory initialization of unrelated services. Each resource gains its
-own acquisition, cancellation, and cleanup contract. Product startup owns the
+and mandatory initialization of unrelated services. Each store owns document
+and blob acquisition, cancellation, and cleanup as one scope. Services retain
+their own lifetimes. Product startup owns the
 small amount of composition it actually performs.
 
 Local content remains visible to users of the same device profile after account
@@ -138,10 +188,17 @@ infer it from Local: their product data model must provide it. AI catalog
 account isolation remains separate. Changing APIs does not rename durable
 addresses, adopt old account-local bytes, or authorize migration or deletion.
 
-The existing implementation is transitional. Land each independent owner with
-its required lifecycle behavior, then migrate its consumers. Remove the generic
-App once its remaining consumers no longer depend on it. Shared stores, native
-document persistence, and new storage layouts are independent work.
+The existing implementation is transitional. The integrated ownership cut makes
+stores own document and blob acquisition, moves consumers to `.blobs`, and
+removes standalone public blob openers together. An isolated API milestone may
+precede product migration but must report broken consumers and must not claim
+application integration or merge readiness. Retain internal adapters that
+publication and transport need. Do not introduce an optional blob mode or a
+second public ownership path.
+Identity-preserving copies and remote presentation still need their own evidence
+under ADR-0372, ADR-0426, and ADR-0427. Product composition helpers must not
+reintroduce the removed SDK App owner. Shared stores, native document persistence,
+and new storage layouts remain separate work.
 
 ## Considered alternatives
 
@@ -163,5 +220,9 @@ fencing, repeated close, and release after successful cleanup. Check duplicate
 persistence ownership, SQLite delete/reopen, recorder Stop racing blob close,
 transfer cancellation from either owner, and AI response-body cancellation.
 Verify source-accurate native recording and upload without materializing audio
-in the WebView. Check account catalog isolation, late opening after unmount,
-partial product startup failure, and the platform-free root import graph.
+in the WebView. Check account catalog isolation, late temporary acquisition, terminal page
+startup failure, and the platform-free root import graph. A page can open
+multiple stores with different blob namespaces; no library primitive is introduced.
+Verify that store opening acquires usable blob access, failure unwinds both
+children, and store close fences both before waiting for either. A failed table
+open also prevents blob access; this dependency is the cost of one owner.

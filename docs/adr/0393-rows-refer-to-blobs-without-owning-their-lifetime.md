@@ -7,7 +7,18 @@
 
 ## Decision
 
-Blob references are ordinary declared row values. A row stores a BlobId and
+**The store owns blob access; rows carry optional, ordinary references.**
+
+Every opened store has `blobs`, even when none of its rows references audio.
+Local and Personal definitions can differ. A Local recording may retain its
+saved audio BlobId while a Personal row contains only text. Personal does not
+need a device-local audio field merely because Local has one. A Personal row
+that deliberately references hosted audio can use an ID in `personal.blobs`.
+The application maps fields and explicitly copies required bytes; store opening
+does neither. This records the schema direction, not an implemented Whispering
+schema migration or a requirement that Personal must never reference audio.
+
+Blob references are ordinary declared row values. A row that references bytes stores a BlobId and
 whatever placement scope its enclosing context does not already supply.
 [ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md) defines
 identity separately from server, principal, and namespace. A credential-free
@@ -17,7 +28,9 @@ owning blob field, one-file-per-row rule, synchronization obligation, or server
 reference-liveness index. Byte payloads are not embedded in the synced document.
 
 Current Whispering stores `audioBlobId` as the full saved key and an optional
-`audioUrl` after upload. The target copies the same ID, but does not erase the
+`audioUrl` after upload. The target permits different Local and Personal row
+shapes and copies audio only when the receiving workflow needs it. Such a copy
+preserves the ID, but does not erase the
 need to remember the remote server/principal/namespace when the surrounding
 store does not determine them. Device-local rows survive account changes; a new
 sign-in must not silently reinterpret an earlier remote placement. Remove a

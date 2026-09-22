@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-09
 - **Amends:** [ADR-0367](0367-library-erasure-requires-exclusive-ownership-of-all-local-resources.md) at the document as the single shutdown coordinator; exclusive acquisition, physical release, and unsafe-release refusal remain.
-- **Unbuilt:** Independent capability shutdown, recorder-to-blob dependency retirement, and product composition migration.
+- **Unbuilt:** Joint document/blob acquisition and shutdown, page-root ownership migration, and removal of redundant product teardown; retain existing resource-local close and admitted-work guarantees.
 
 ## Context
 
@@ -25,17 +25,29 @@ it does not close shared resources on behalf of unrelated consumers.
 | --- | --- |
 | Recorder | Fence new capture, settle pending acquisition and admitted Stop, discard unresolved capture, and release exact owned sessions |
 | Inference | Cancel interruptible requests and drain response bodies and noninterruptible native work |
-| Local blobs | Fence public operations, retire dependent recorders, settle admitted publication and transfers, and release display sources |
-| Remote blobs | Cancel and settle requests and transfers, and release display sources |
-| Store | Stop sync and callbacks, settle document work, attempt its final persistence flush, and release backing storage |
+| Local store | Fence document and blobs together; retire recorders, settle admitted Stop and transfers, release display sources, flush persistence, and release ownership only when safe |
+| Personal store | Fence document and blobs together; settle requests and transfers, release display sources, flush the cached replica, and release ownership only when safe |
 | SQLite | Drain statements, retire borrowed connections, close physical connections, and release the namespace only when safe |
 | Secrets | Retire access and settle admitted operations without deleting saved credentials |
 | Connection catalog | End observation and retire owned clients while preserving saved records and keys |
 
-Closing a producer does not close its borrowed destination. Closing LocalBlobs
+Closing a producer does not close its borrowed destination. Closing Local
 retires its recorders and waits for admitted publication. A transfer is tracked
-by both blob handles; either close cancels it and waits for settlement. These
+by both owning stores; either close cancels it and waits for settlement. These
 concrete dependencies need no public cleanup registry or generic lease graph.
+
+In the target API, Local and remote blob access are borrowed `store.blobs`
+capabilities. Their cleanup responsibilities above belong to `store.close()`;
+there is no independent public child closer. Closing Local also retires its
+dependent recorders. Closing Personal leaves Local usable. Failed store opening
+unwinds both its document and blob acquisitions. Retained child methods refuse
+after the store fences admission, while admitted Stop publication can settle.
+
+Opening failure settles every started acquisition, including late successes.
+Preserve the original failure and cleanup failures. Unknown release retains
+the namespace claim. Child capabilities expose no second public close or
+admission signal. Account retirement fences network authority; the product
+working-lifetime owner still owns closing Personal and preserving its cache.
 
 Native teardown retains exact session identity. A late microphone acquisition
 is released by its original owner, and an old callback cannot affect a successor.

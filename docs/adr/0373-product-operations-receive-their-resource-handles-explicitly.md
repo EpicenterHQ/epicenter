@@ -20,11 +20,14 @@ buttons, shortcuts, queries, and workflows. A retained operation keeps those
 handles. It never resolves another account or write destination from a registry.
 Importing an operation acquires no resources.
 
-An upload workflow receives LocalBlobs, RemoteBlobs, its target store, and a
-product signal. It checks that signal after upload before writing the returned
-URL. Individual handle lifetime does not establish that the initiating UI or
-selected workflow still exists. Blob creation and row creation remain separate
-operations; failure can leave unreferenced bytes.
+A copy workflow receives its source and destination blob capabilities, borrowed
+from the opened stores, and a product signal. If it also publishes a row, it
+receives that destination explicitly and checks cancellation after the copy.
+For example, `personal.blobs.copyFrom(local.blobs, id)` preserves the ID; the
+workflow decides whether a Personal row needs that reference or only text.
+Store lifetime does not establish that the initiating UI or selected workflow
+still exists. Blob creation and row creation remain separate operations;
+failure can leave unreferenced bytes.
 
 Personal-only consumers receive required Personal handles from their route or
 product gate. They do not repeat sign-in branches or fall back to Local. A

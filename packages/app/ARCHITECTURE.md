@@ -1,5 +1,9 @@
 # Resource ownership
 
+This page describes the implemented constructors. The target in ADR-0372 and
+ADR-0423 makes each store own its blob namespace as `store.blobs`, removing
+standalone public blob openers. That ownership cut is not implemented yet.
+
 `defineApp` is an inert data declaration. Each resource constructor establishes
 its own destination and lifetime. A product opens the resources its workflows
 need, handles partial startup failure, and closes late results after unmount.

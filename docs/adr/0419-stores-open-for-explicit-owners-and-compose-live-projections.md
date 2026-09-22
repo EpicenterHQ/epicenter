@@ -2,7 +2,9 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-21
-- **Unbuilt:** Independent store openers, space membership and synchronization, store-first persistence addresses, native document persistence, and live SQLite projections. Examples below describe the target API, not existing exports.
+- **Implemented portion (2026-09-22):** `openLocal` and `openPersonal` independently own their documents. Blobs still open separately; store-owned blobs remain unbuilt. Local uses the existing no-account address; Personal captures one account.
+- **Unbuilt:** Store-owned blobs and cleanup, Shared opening, space membership and synchronization, store-first persistence addresses, native document persistence, and live SQLite projections. Those examples below remain proposals, not exports. Product migration is deferred.
+- **Amends:** [ADR-0406](0406-one-application-schema-is-used-by-every-store.md) at mandatory schema reuse: each opener receives its own definition; applications may reuse a schema or choose different schemas for different workflows.
 
 ## Context
 
@@ -11,8 +13,8 @@ saved personal or shared material. Honeycrisp can use the same note schema for
 local and synchronized notes. Neither product needs an implicit destination
 chosen by whether someone is signed in.
 
-The current `packages/app/src/open.ts` opens an App with device and personal
-stores sharing one definition and lifetime. Device storage is account-partitioned.
+At proposal time, `packages/app/src/open.ts` opened an App with device and personal
+stores sharing one definition and lifetime. Device storage was account-partitioned.
 `packages/app/src/platform/documents.ts` persists documents in IndexedDB in both
 the browser and desktop WebView. Native SQLite and blob capabilities already
 exist separately. This record changes that model; it does not describe a shipped
@@ -36,13 +38,27 @@ const shared = await openShared(recordingsDefinition, { account, spaceId });
 
 local.tables.recordings;
 personal.kv;
+local.blobs;
+personal.blobs;
+shared.blobs; // Future API, pending shared-owner authorization.
 
 const localSql = await projectSqlite(local);
 await localSql.close(); // Local remains usable.
 await local.close();
 ```
 
-Definitions may be identical or different across openings. Different local
+Every opened store owns `tables`, `kv`, and `blobs`. Its definition ID selects
+the blob namespace; its captured owner selects device-local, personal remote,
+or future shared remote access. [ADR-0372](0372-local-and-remote-blobs-open-independently.md)
+owns the blob operations and store cleanup contract. Bytes remain outside the
+Yjs document and are transferred explicitly.
+
+Definitions may be identical or different across openings. A Local recording
+schema can keep an audio BlobId while a Personal schema stores only a transcript
+or deliberately published material. The framework neither requires that local
+reference in Personal nor strips it automatically. Reusing a definition retains
+the same declared fields; different shapes require explicit definitions and
+product mapping. Different local
 stores have different definition IDs. The same complete address reopens the
 same data; minting another handle never implicitly creates a new dataset.
 Each local replica has one running persistence owner. Duplicate windows or
@@ -74,12 +90,17 @@ loss require a separate decision before Shared ships.
 
 **Each store has an independent lifetime and a fixed identity.**
 
+Account retirement ends Personal network authority but does not itself close
+the cached store. Product departure owns its closure or replacement. Preserve
+pending edits; sign-out and outages are not document-generation invalidation.
+
 Opening Personal or Shared is optional. Closing one store does not close its
 siblings. Account changes never retarget an existing handle. No mandatory
 `createRuntime` object is introduced merely to carry an ID or collect closers.
 Platform services may share engines and transports without sharing data owners.
 Independent acquisition does not remove explicit dependencies: a source store
-closes its projections, and a LocalBlobs destination retires its recorders.
+closes its projections and blobs, and its local blob destination retires
+dependent recorders. Closing one store never closes a sibling store.
 
 Agent access follows the field-only working-copy Push contract. Pull, live-store
 queries, and Push require the running owner; existing files remain editable
@@ -135,9 +156,11 @@ epicenter/stores/<definition-id>/accounts/<server>/<account>/personal
 epicenter/stores/<definition-id>/accounts/<server>/<account>/shared/<shared-owner>
 ```
 
-These are flat names, not directories. Blob namespaces open independently
-through LocalBlobs and RemoteBlobs handles. Opening a store opens no blob
-storage; choosing the same ID does not bind their lifetimes. Browser persistence need not reproduce native filesystem
+These are flat names, not directories. Each store acquires its blob namespace
+with the document and owns both lifetimes. This public ownership change does
+not move existing blob paths into the proposed store-first layout; those paths
+remain as recorded in ADR-0426 until a separate migration is designed.
+Browser persistence need not reproduce native filesystem
 formats. Browser SQL can run in memory; persisted projections need a suitable
 browser backing such as OPFS, not a claim that IndexedDB is a SQLite file.
 
@@ -239,6 +262,8 @@ not prerequisites bundled into agent access.
 - Same-definition Local, Personal, and Shared addresses never collide.
 - A member never inherits another member's pending shared edits.
 - Closing a projection preserves its source; closing a source ends followers.
+- Store close fences both document and blob access, releases playback, retires
+  dependent recorders, and drains admitted publication without deleting bytes.
 - Removing derived state preserves recordings and allows projection rebuild.
 - Duplicate acquisition, partial-open failure, and account-wide removal have
   explicit tested behavior across browser and native owners.

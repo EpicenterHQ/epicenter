@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-18
+- **Amended by:** [ADR-0419](0419-stores-open-for-explicit-owners-and-compose-live-projections.md) at mandatory schema reuse: explicit store openers may receive different definitions; reusing a definition still exposes the same declared fields.
 - **Relates:** [ADR-0405](0405-one-flat-application-declaration-opens-the-live-app.md) for declaration shape; [ADR-0404](0404-the-opened-account-owns-application-local-storage.md) for local ownership.
 
 ## Context

@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-22
-- **Unbuilt:** Same-ID remote publication and copy, verified retry equality, and application reference migration. The physical paths below already exist through the independent openers.
+- **Unbuilt:** Store-owned blob access, same-ID remote publication and copy, verified retry equality, and application reference migration. The physical paths below already exist through the current standalone openers.
 - **Amends:** [ADR-0089](0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md) at content-addressed keys, mandatory presigned transfer, and its fixed size doctrine; [ADR-0090](0090-the-blob-layer-stays-plaintext-confidentiality-belongs-to-the-encrypting-consumer.md) at its content-hash addressing assumption only; [ADR-0091](0091-blobs-trade-a-file-for-a-durable-content-addressed-url-documents-are-the-only-manifest.md) at URL-as-identity; [ADR-0092](0092-identity-is-the-partition.md) at blob route/key grammar; [ADR-0201](0201-epicenter-owns-one-app-data-root-and-an-app-partitions-its-one-directory-by-a-stable-authority-identifier.md) and [ADR-0404](0404-the-opened-account-owns-application-local-storage.md) at local blob addressing only.
 
 ## Context
@@ -25,10 +25,12 @@ namespace, account, path, URL, or row ID. `add` creates a new identity;
 `copyFrom` preserves an existing identity. Conversion or editing creates new
 bytes under a new ID. An extension declares format; it is not content validation.
 
-A namespace uses the existing validated application-ID grammar. An application
-can open several namespaces. Using a structured definition's ID is a convenient
-choice, not a requirement to open that structured store. These names select
-storage; they do not grant filesystem or account authority.
+A namespace uses the existing validated application-ID grammar and is selected
+by the owning store's definition ID. An application can open several stores
+with different definitions. `local.blobs` captures device-local placement;
+`personal.blobs` captures the store's account and remote placement. Future
+`shared.blobs` captures a shared owner, with authorization and physical paths
+still to be designed. These names select storage; they grant no authority.
 
 | Location | Logical address | Physical storage |
 | --- | --- | --- |
@@ -71,6 +73,14 @@ namespace from the other.
 
 ### Identity is not global proof of equality
 
+Remote publication addresses the destination object by its chosen BlobId.
+`add` mints that ID before publication; `copyFrom` supplies the source ID.
+The current collection POST that assigns a fresh ID cannot implement copying.
+Choose and verify the collision/equality protocol before claiming retry safety.
+If publication may have succeeded but acknowledgment is lost, preserve the ID
+and destination scope in the operation outcome so callers can reconcile it.
+This applies to new-byte creation as well as copying.
+
 Random generation makes accidental collision unlikely. Each physical store
 enforces key uniqueness within its scope; there is no global ID registry.
 Copies through the supported API preserve bytes. Equal opaque strings obtained
@@ -94,6 +104,13 @@ namespace and remote authority/principal. Otherwise a credential-free placement
 reference must retain the missing scope. Do not infer a former upload's owner
 from whoever is currently signed in. One ID can have placements under several
 accounts; knowledge of one does not discover or authorize the others.
+
+Local and Personal need not declare the same recording fields. A Personal row
+containing only saved text needs no audio reference. If it references audio in
+its own `personal.blobs`, that ID names a remote placement, not a promise that
+the reader's device has a local copy. Mapping a Local row into Personal must
+deliberately omit local-only fields or publish and reference the intended bytes.
+Nesting blobs does not perform that mapping or transfer.
 
 Removing a second remote blob identity does not automatically remove all remote
 location metadata. It removes a post-copy row write only when the destination
