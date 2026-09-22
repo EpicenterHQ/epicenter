@@ -7,9 +7,8 @@ description: Help the user work through an unsettled idea and find words for wha
 
 Carry the work forward with judgment and concrete attempts. Give the user
 something worth reacting to, explain the choices that matter, and recommend a
-direction when you have grounds for one. Let their response change your
-understanding and the next attempt. This is a conversation, not a sequence of
-stages the user must manage.
+direction when you have grounds for one. This is a conversation, not a sequence
+of stages the user must manage.
 
 Use simple language you could comfortably say aloud. Connect thoughts so the
 user can follow without spending attention on filler or announcements about
@@ -26,12 +25,11 @@ docs, and anticipate consequential tradeoffs. Distinguish evidence from
 inference and proposals. Existing decisions inform the conversation; explicit
 user constraints bind it.
 
-Make meaningful possibilities concrete through what they would produce. Show
-enough of each result for the user to experience the difference, rather than
-asking them to predict it from instructions or descriptions. For writing, the
-result is the prose; for an API, it is caller code; for a skill, it is the
-interaction those instructions could produce. Let reactions to these results
-reveal what matters and shape the next attempt, including the underlying design.
+Make possibilities concrete in the form the user would encounter them: prose
+to read, caller code to use, a conversation to experience, or a rendered page
+to see. Show enough of the result for them to judge it without having to imagine
+the missing pieces. Treat their reaction as information that can change your
+understanding of the problem and shape the next attempt.
 
 Comparison can reveal a preference even when a promising direction already
 exists. Use it when another possibility would help the user discover or judge
@@ -53,8 +51,8 @@ no closing question. When a question helps, keep it focused; a requested
 interview can proceed one question at a time.
 
 Read [the example conversations](references/conversations.md) when shaping an
-exploration of writing, an API, or a skill, or calibrating how to present work
-for a reaction. They illustrate judgment rather than a response template.
+exploration of writing, an API, a skill, or a website, or calibrating how to
+present work for a reaction. They illustrate judgment rather than a response template.
 Label invented exchanges as samples, never evidence of the user's preferences,
 and leave the user's next reply to them in live conversation.
 

@@ -1,8 +1,8 @@
 # Example conversations
 
 These illustrations show possibilities through their results: prose to read,
-code to use, and conversations a skill could produce. They are not measured
-runs or records of the user's preferences. The reactions help discover what
+code to use, conversations a skill could produce, and rendered website designs.
+They are not measured runs or records of the user's preferences. The reactions help discover what
 matters; they need not select one of the original options. The examples teach
 judgment, not a fixed sequence, number of versions, or response format.
 
@@ -221,3 +221,47 @@ The services and their constraints in these sample conversations are fictional.
 > **Agent:** I'll replace the push toward exhaustive analysis with that
 > judgment: offer a grounded provisional view and investigate what could change
 > it. The example's exact wording doesn't need to become a required opening.
+
+## Website design: react to the rendered page
+
+This sample draws on the blog typography exploration in conversation
+`01a0c8f6-d3a2-77f3-b9bc-9a4409167ede`. The follow-up reaction is hypothetical.
+The italicized actions below stand in for screenshots in this written example;
+in live work, actually capture and show the images.
+Make lightweight local edits or browser previews of the actual site and capture
+them with Playwright or another available tool. Keep content and viewport
+comparable so the user can judge the design itself.
+
+> **Human:** My blog feels strange compared with Substack. Can we think about
+> a better direction for the layout and typography?
+>
+> **Agent:** I'd start by tightening the opening so the article is easier to
+> get into. I'll show that on your actual blog, with and without changing the
+> headline font, so we can see what helps.
+>
+> *The agent runs the site locally and makes lightweight previews of the same
+> article: the current design, a tighter opening with the existing serif title,
+> and that same opening with a sans-serif title. It captures each at the same
+> mobile viewport, checks the images, and shows the labeled screenshots together.
+> It also supplies desktop captures at a comparable size to inspect.*
+>
+> **Agent:** B keeps the serif title and brings the article closer to the top.
+> C keeps B's spacing and changes the title to sans serif. Seeing them, I'd
+> start with B: the opening feels easier to enter, and the serif still suits
+> the writing.
+>
+> **Human:** B feels closer. But I like the title's size in the original.
+> Maybe the empty space was the problem more than the font.
+>
+> *The agent restores the original title size in B's preview, captures the
+> revised page, and shows it beside B at the same viewport.*
+>
+> **Agent:** Here's B with the original title size. The larger heading has
+> room again, while the tighter spacing still brings the body into view.
+
+The screenshots give the human something to discover a preference through.
+Descriptions such as "less ceremony" can propose an intention, but the actual
+page lets them judge whether it works. Use enough of the page to experience
+the layout; a CSS diff or isolated font swatch cannot show how the opening reads.
+Reactions can change the diagnosis and combine parts of different attempts.
+Local previews are part of this exploration; publishing remains a separate action.
