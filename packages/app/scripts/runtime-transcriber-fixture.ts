@@ -1,8 +1,8 @@
 /** Actual native inference behind a test-only stdin bridge and Tauri MockRuntime. */
 import assert from 'node:assert/strict';
-import { createNativeTransport } from '../src/native-ai.js';
+import { createRuntimeTranscriber } from '../src/runtime-transcriber.js';
 
-export async function createNativeAiFixture({
+export async function createRuntimeTranscriberFixture({
 	audioPath,
 	timeoutMs = 120_000,
 }: {
@@ -21,7 +21,7 @@ export async function createNativeAiFixture({
 			'apps/epicenter/src-tauri/Cargo.toml',
 			'--test',
 			'ai_runtime',
-			'sdk_native_command_bridge',
+			'runtime_transcription_command_bridge',
 			'--',
 			'--ignored',
 			'--nocapture',
@@ -117,7 +117,7 @@ export async function createNativeAiFixture({
 	}
 
 	return {
-		transport: createNativeTransport((command, args = {}) => {
+		transcriber: createRuntimeTranscriber((command, args = {}) => {
 			if (closing) throw new Error('Native test fixture is closed.');
 			if (child.exitCode !== null)
 				throw new Error('Native test fixture exited.');

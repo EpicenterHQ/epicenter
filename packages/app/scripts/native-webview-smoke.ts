@@ -1,5 +1,5 @@
 /**
- * Real macOS Wry WebView, production inference capability, SDK adapter, and cached model.
+ * Real macOS Wry WebView, production inference capability, direct transcriber, and cached model.
  * Builds only a temporary native example against the existing Cargo target cache.
  * No account or microphone opens; the WebView is incognito and settings are temporary.
  */
@@ -31,37 +31,35 @@ let timeout: ReturnType<typeof setTimeout> | undefined;
 
 const pageSource = `
 import { invoke, isTauri } from '${root}packages/app/node_modules/@tauri-apps/api/core.js';
-import { createInference } from '${root}packages/app/src/inference.ts';
-import { createNativeInferenceTransport } from '${root}packages/app/src/native-ai.ts';
+import { openRuntimeTranscriber } from '${root}packages/app/src/ai.ts';
+function value(result) { if (result.error) throw new Error(JSON.stringify(result.error)); return result.data; }
 const violations = [];
 document.addEventListener('securitypolicyviolation', event => violations.push(event.violatedDirective));
-const lifetime = new AbortController();
-const owner = createInference(createNativeInferenceTransport());
+const owner = await openRuntimeTranscriber();
+if (!owner) throw new Error("Native transcriber is absent");
 try {
  if (!isTauri()) throw new Error('Real Tauri IPC is absent');
- const client = owner.client;
  const model = 'handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf';
- const models = await client.models.list();
- if (!models.data.some(entry => entry.id === model)) throw new Error('Whisper Tiny is not cached');
+ const models = value(await owner.listModels());
+ if (!models.some(entry => entry.id === model)) throw new Error('Whisper Tiny is not cached');
  const file = new File([await (await fetch('./audio.wav')).arrayBuffer()], 'speech.wav', {type:'audio/wav'});
- const transcript = await client.audio.transcriptions.create({file, model, language:'en', prompt:'The application closes its inference clients.'});
+ const transcript = value(await owner.transcribe({audio:file, model, language:'en', prompt:'The application closes its transcription access.'}));
  if (!transcript.text.trim()) throw new Error('Speech produced no text');
  if (transcript.model !== model || transcript.applied.language !== 'en' || transcript.applied.initialPrompt !== true) throw new Error('Native model or applied hints changed');
- const empty = await client.audio.transcriptions.create({file:new File([], 'empty.wav'), model});
+ const empty = value(await owner.transcribe({audio:new Blob(), model}));
  if (empty.text !== '' || 'model' in empty || 'applied' in empty) throw new Error('Empty audio claims inference');
  let adminDenied = false;
  try { await invoke('get_active_model'); } catch (error) { adminDenied = String(error).includes('not allowed'); }
  if (!adminDenied) throw new Error('Production app capability did not refuse administration');
- lifetime.abort();
  await owner.close();
  let retainedRejected = false;
- try { await client.models.list(); } catch { retainedRejected = true; }
+ try { value(await owner.listModels()); } catch { retainedRejected = true; }
  if (!retainedRejected) throw new Error('Retained client survived retirement');
  if (violations.length) throw new Error('CSP violations: '+violations.join(', '));
  await fetch('./report', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ok:true, runtime:'real Wry WebView', inference:'real cached transcribe.cpp', model, byteLength:file.size, transcript, empty, adminDenied, retainedRejected, cspViolations:violations})});
 } catch(error) {
  await fetch('./report', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ok:false,error:String(error),stack:error?.stack,violations})});
-} finally { lifetime.abort(); await owner.close(); }
+} finally { await owner.close(); }
 `;
 const html =
 	'<!doctype html><html><head><meta charset="utf-8"><title>Native inference acceptance</title></head><body><script type="module" src="./main.js"></script></body></html>';

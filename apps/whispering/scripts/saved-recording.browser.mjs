@@ -10,7 +10,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createNativeAiFixture } from '../../../packages/app/scripts/native-ai-fixture.js';
+import { createRuntimeTranscriberFixture } from '../../../packages/app/scripts/runtime-transcriber-fixture.js';
 
 const root = join(import.meta.dir, '../../..');
 const { chromium } = createRequire(
@@ -187,7 +187,7 @@ try {
 		persist: false,
 		remoteBindings: false,
 	});
-	fixture = await createNativeAiFixture({ audioPath, timeoutMs: 600_000 });
+	fixture = await createRuntimeTranscriberFixture({ audioPath, timeoutMs: 600_000 });
 	let polishModel = null;
 	try {
 		const response = await fetch('http://127.0.0.1:11434/api/tags', {
@@ -266,12 +266,21 @@ try {
 						};
 						inferenceRequests.push(observed);
 					}
-					response = await fixture.transport.fetch(
-						new Request(
-							`${fixture.transport.baseURL}${path.replace(/^\/v1/, '')}`,
-							request,
-						),
-					);
+					// This test endpoint exercises network clients using a real native engine.
+					let result;
+					if (path.endsWith('/models')) {
+						result = await fixture.transcriber.listModels({ signal: request.signal });
+						if (!result.error) result = { data: { data: result.data }, error: null };
+					} else {
+						assert(path.endsWith('/audio/transcriptions'));
+						const form = await request.formData();
+						const audio = form.get('file');
+						const model = form.get('model');
+						assert(audio instanceof File && typeof model === 'string');
+						result = await fixture.transcriber.transcribe({ audio, model, language: form.get('language') ?? undefined, prompt: form.get('prompt') ?? undefined }, { signal: request.signal });
+					}
+					if (result.error) throw new Error(JSON.stringify(result.error));
+					response = Response.json(result.data);
 				}
 			} catch (error) {
 				response = Response.json(

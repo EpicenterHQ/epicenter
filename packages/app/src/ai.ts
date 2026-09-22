@@ -5,7 +5,7 @@ import {
 	validateInferenceDestination,
 	type AiTransport,
 } from './inference.js';
-import { createNativeInferenceTransport } from './native-ai.js';
+import { createRuntimeTranscriber } from './runtime-transcriber.js';
 import { endpointFetch } from './endpoint-transport.js';
 export type EndpointInferenceOptions = {
 	baseURL: string;
@@ -35,8 +35,8 @@ export async function openEpicenterInference({
 	const transport = accountInference(account);
 	return Object.freeze({ ...createInference(transport), identity });
 }
-export async function openRuntimeInference() {
-	return isTauri() ? createInference(createNativeInferenceTransport()) : null;
+export async function openRuntimeTranscriber() {
+	return isTauri() ? createRuntimeTranscriber() : null;
 }
 function accountInference(account: Account): AiTransport {
 	return {

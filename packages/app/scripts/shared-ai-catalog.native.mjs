@@ -96,12 +96,21 @@ const fixture = Bun.serve({
 						.digest('hex'),
 				});
 			}
-			const response = await nativeInference.transport.fetch(
-				new Request(
-					`${nativeInference.transport.baseURL}${path.slice('/product/v1'.length)}`,
-					request,
-				),
-			);
+			// This test endpoint exercises network clients using a real native engine.
+			let result;
+			if (path.endsWith('/models')) {
+				result = await nativeInference.transcriber.listModels({ signal: request.signal });
+				if (!result.error) result = { data: { data: result.data }, error: null };
+			} else {
+				assert(path.endsWith('/audio/transcriptions'));
+				const form = await request.formData();
+				const audio = form.get('file');
+				const model = form.get('model');
+				assert(audio instanceof File && typeof model === 'string');
+				result = await nativeInference.transcriber.transcribe({ audio, model, language: form.get('language') ?? undefined, prompt: form.get('prompt') ?? undefined }, { signal: request.signal });
+			}
+			if (result.error) throw new Error(JSON.stringify(result.error));
+			const response = Response.json(result.data);
 			if (observed) {
 				observed.status = response.status;
 				const body = await response.clone().json();
@@ -290,8 +299,8 @@ try {
 			productAudio,
 			'--whispering requires EPICENTER_NATIVE_AUDIO pointing to an existing speech WAV',
 		);
-		const { createNativeAiFixture } = await import('./native-ai-fixture.ts');
-		nativeInference = await createNativeAiFixture({
+		const { createRuntimeTranscriberFixture } = await import('./runtime-transcriber-fixture.ts');
+		nativeInference = await createRuntimeTranscriberFixture({
 			audioPath: productAudio,
 			timeoutMs: 600_000,
 		});

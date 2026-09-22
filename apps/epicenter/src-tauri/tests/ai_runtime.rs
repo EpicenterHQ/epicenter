@@ -1,6 +1,6 @@
-//! Opt-in SDK evidence bridge: real command handlers and cached inference, with
+//! Opt-in direct transcription evidence bridge: real command handlers and cached inference, with
 //! Tauri's mock window/runtime. Bun owns the assertions and stdin protocol in
-//! `packages/app/scripts/native-ai-smoke.ts`; no microphone or real settings open.
+//! `packages/app/scripts/runtime-transcriber-smoke.ts`; no microphone or real settings open.
 
 use epicenter_lib::transcription::{LocalTranscriptionSettings, ModelCache, UnloadPolicy};
 use serde::Deserialize;
@@ -20,8 +20,8 @@ fn emit(value: Value) {
 }
 
 #[test]
-#[ignore = "run through packages/app/scripts/native-ai-smoke.ts with cached model and speech fixture"]
-fn sdk_native_command_bridge() {
+#[ignore = "run through packages/app/scripts/runtime-transcriber-smoke.ts with cached model and speech fixture"]
+fn runtime_transcription_command_bridge() {
     let fixture =
         std::fs::read(std::env::var("EPICENTER_NATIVE_AUDIO").expect("speech fixture path"))
             .expect("read speech fixture");

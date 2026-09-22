@@ -78,7 +78,7 @@ for (const entrypoint of [
 		expect(
 			loaded.filter(
 				(path) =>
-					/\/app\/src\/(?:open\.ts|compose\.ts|ai\.ts|ai-connections[^/]*\.ts|native-ai\.ts|platform\/|recording\/|browser\.ts|epicenter-host\.ts)/.test(
+					/\/app\/src\/(?:open-store\.ts|compose\.ts|ai\.ts|ai-connections[^/]*\.ts|runtime-transcriber\.ts|platform\/|recording\/|browser\.ts|epicenter-host\.ts)/.test(
 						path,
 					) ||
 					/\/(?:device|blobs)\/src\/(?:browser|desktop|webview)/.test(path) ||
