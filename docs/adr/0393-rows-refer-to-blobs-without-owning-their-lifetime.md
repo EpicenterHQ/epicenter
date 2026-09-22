@@ -2,18 +2,29 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
+- **Unbuilt:** Application reference migration to same-ID copies with explicit remote scope; current Whispering still uses `audioBlobId` plus `audioUrl`.
 - **Amends:** [ADR-0154](0154-blob-access-is-address-only.md) at local inventory: app-local blobs can be listed independently of rows; remote access remains address-only. [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at attachment ownership: rows store ordinary references without owning publication, transfer, or deletion of bytes.
 
 ## Decision
 
-Blob references are ordinary declared row values. A row can store a local
-BlobId, a remote URL, both, or neither. The framework does not introduce an
+Blob references are ordinary declared row values. A row stores a BlobId and
+whatever placement scope its enclosing context does not already supply.
+[ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md) defines
+identity separately from server, principal, and namespace. A credential-free
+remote locator can remain a representation of that scope; temporary presentation
+URLs and access grants must never become durable references. The framework does not introduce an
 owning blob field, one-file-per-row rule, synchronization obligation, or server
 reference-liveness index. Byte payloads are not embedded in the synced document.
 
-Whispering stores audioBlobId as the full saved key, including its extension,
-for device audio and an optional audioUrl
-when explicit uploading succeeds. Stop saves bytes before row creation. A row
+Current Whispering stores `audioBlobId` as the full saved key and an optional
+`audioUrl` after upload. The target copies the same ID, but does not erase the
+need to remember the remote server/principal/namespace when the surrounding
+store does not determine them. Device-local rows survive account changes; a new
+sign-in must not silently reinterpret an earlier remote placement. Remove a
+post-copy reference write only when the destination scope was already known.
+Otherwise preserve completed copy identity and scope if later row publication
+fails. Availability remains an observation, not a permanent uploaded boolean.
+Stop saves bytes before row creation. A row
 write can fail afterward, leaving a complete blob discoverable through local
 list. Importing audio saves a Blob/File first and then creates the row.
 
@@ -48,7 +59,8 @@ On September 17, 2026, the user confirmed zero users and no existing data and
 authorized the complete-key clean break. Row validators accept full saved keys;
 no migration, reset, or fallback reader runs.
 
-Materialization preserves local keys and remote URLs as ordinary row values.
+Materialization preserves blob IDs and credential-free placement references as
+ordinary row values.
 It copies no blob bytes and performs no remote fetch. A saved folder preserves
 those references, not their availability (ADR-0394). Recovering old content
 through Push has the same rule (ADR-0395).

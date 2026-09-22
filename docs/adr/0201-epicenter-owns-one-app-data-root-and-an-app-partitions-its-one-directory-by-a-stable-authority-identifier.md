@@ -16,10 +16,10 @@
   inter-app API.
 - **Amended by:** [ADR-0349](0349-local-blobs-belong-to-the-app-on-this-device.md) at the open question this record left, "a
   separate question about who tells the recorder where blobs live, and it is not
-  decided here": the planned recorder handoff takes `{ appId, principalId }`
-  at start and targets `<root>/apps/<app-id>/<principal-id>/blobs/`. For blobs this
-  replaces the kind-first `partitionDir` spelling. The root question is not
-  otherwise reopened.
+  decided here": [ADR-0366](0366-a-recorder-captures-into-its-explicit-local-blob-destination.md)
+  makes the recorder borrow a LocalBlobs handle. Its namespace selects
+  `<root>/apps/<namespace>/device/no-account/blobs/<blobId>`. The root question
+  is not otherwise reopened.
 - **Amends:** [ADR-0062](0062-local-books-stores-oauth-tokens-in-a-single-0600-file.md) at one clause, the location of the token file, which is now the app directory's root and keeps its `0600` mode and its exclusion from any mirror directory; [ADR-0072](0072-local-books-ships-as-a-standalone-cli-the-daemon-surface-is-deferred.md) at one clause, where a standalone CLI's data lives, leaving its standalone shape and deferred daemon untouched.
 - **Completed by:** [ADR-0202](0202-a-provider-account-belongs-to-the-app-whose-durable-state-it-names-and-epicenter-brokers-none.md), which answers the one question this record left open: who owns the provider grant that names a partition. It amends nothing here.
 - **Corrected 2026-08-03, before merge, at one clause: which apps "an app" is.** A draft of ADR-0202 narrowed it to a closed set of host-composed engines and gave an admitted app (ADR-0179) no directory at all. That narrowing is withdrawn as a product decision, and the rule is restated below at the width it was always written at: **every trusted app Epicenter runs or admits has one place.** Nothing else in this record moves. Both records are unmerged, so this is an edit to an unlanded decision rather than a rewrite of a governing one.
@@ -30,6 +30,8 @@
 - **In force, partly executed.** The root, the app directory, and the single partition directory are code in both apps, and native desktop startup now passes its resolved paths to Bun (amended 2026-09-08). The partition *name* has not changed yet: Local Mail still names one by the account's email address, so the strand-on-rename defect described below is open until the `sub` adoption ships. One clause is unimplemented and this line is where it is admitted.
 - **Repriced 2026-08-02, then re-decided as a clean break.** An intermediate draft argued that because ADR-0198's intent store had shipped as code, this record owed the old directory a relocation and the identity change an emptiness gate. That reasoning is withdrawn: Local Mail has no released install, so everything under the pre-record path is local development state, and buying a migration for it costs a code path that outlives its only use. What survives the withdrawal is the *fact* the reprice was built on, which is about the future rather than the past: a partition holds something irreplaceable, so the identifier naming it has to be one the provider promises to keep.
 - **Re-challenged 2026-08-02, shape unchanged, argument replaced.** Every level was collapse-tested against the code that had shipped. The shape survived; two of the arguments for it did not. "Listing partitions is a directory read" was false against both apps, which enumerate from their token stores, and `apps/` had never been argued at all. Both are repaired below by the one rule the levels actually follow.
+
+- **Amended by:** [ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md) at blob identity and physical/HTTP addresses. Local blobs use the fixed `device/no-account` path; remote copies retain BlobId within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target.
 
 ## Context
 

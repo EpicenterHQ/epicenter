@@ -107,7 +107,7 @@ an unrelated sibling. Closing preserves committed data and credentials.
 Dependencies are directional. A recorder borrows its LocalBlobs destination:
 recorder close leaves blobs usable; blob close retires its recorders and waits
 for admitted publication and capture cleanup. A transfer admitted through
-`remote.addFrom(local, id)` belongs to both handles until it settles. Either
+`destination.copyFrom(source, blobId)` belongs to both handles until it settles. Either
 handle's close cancels that transfer and waits for settlement without closing
 the other handle. These requirements do not mandate a generic dependency graph
 or public lease abstraction.

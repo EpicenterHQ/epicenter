@@ -145,16 +145,21 @@ shapes, see `docs/adr/`.
   exist nowhere else. Its tables hold the library a person reads as Local. Local data and device
   preferences belong to the captured account, or to the separate no-account
   namespace. Returning to that owner reopens its bytes (ADR-0404). Blob storage
-  uses the same owner scope and remains independent of row libraries.
+  is independent of row libraries. The blob target uses fixed no-account local
+  storage as specified by ADR-0426; the aggregate vocabulary above does not
+  select blob addresses.
 - **Account scope**: `app.account`, everything true of the
   signed-in person on one server, present only while signed in. It holds
   `identity`, the `personal` store, the optional `shared` store, and
   `connection`, that server's inference gateway. It ends with the auth
   generation.
-- **Blob reference** (ADR-0393): a local BlobId or remote URL stored as an
-  ordinary row value. A row can reference several blobs and several rows can
-  reference one blob. Row deletion does not delete bytes. There is no owning
-  attachment field or automatic byte transfer.
+- **Blob namespace** (ADR-0426): the `id` captured by an independently opened
+  blob handle. A BlobId identifies an object within that location; it does not
+  include the namespace or account. Local paths retain `device/no-account`.
+- **Blob reference** (ADR-0393): a BlobId plus any placement scope not supplied
+  by context. Copies preserve ID and bytes across independently authorized
+  locations. A locator is not an access grant; a playback URL is temporary.
+  Rows do not own byte lifetime, and row synchronization does not copy bytes.
 - **Saved capture** (ADR-0366): Stop publishes completed audio into the app-local
   blob store and returns its key. The workflow then creates its recording row
   in the destination retained before capture. Failed row creation leaves the

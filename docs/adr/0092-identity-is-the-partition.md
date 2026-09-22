@@ -7,6 +7,8 @@
 - **Amends:** [ADR-0067](0067-auth-owns-the-session-endpoint-the-data-client-is-owner-scoped.md), [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md)
 - **Relates:** [ADR-0066](0066-runtime-portability-is-per-concern-injection-not-a-runtime-object.md), [ADR-0070](0070-self-host-adds-no-new-ownership-or-auth-mode.md), [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md), [ADR-0076](0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md)
 
+- **Amended by:** [ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md) at blob identity and physical/HTTP addresses. Local blobs use the fixed `device/no-account` path; remote copies retain BlobId within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target.
+
 ## Context
 
 Epicenter currently has two deployment seams that move together: the server resolves a user, then an ownership rule maps that user to a partition. Cloud always resolves Better Auth users with the per-user ownership rule. The self-hosted instance always resolves the operator bearer with the instance ownership rule. No deployment mixes the axes, so the second seam names optionality the product does not have.

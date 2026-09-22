@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-05
+- **Unbuilt:** Identity-preserving `copyFrom`; private remote presentation is tracked separately in ADR-0427.
 - **Unverified:** Native Windows execution and abrupt-power-loss durability; installed desktop playback and physical microphone acceptance.
 
 ## Context
@@ -18,15 +19,17 @@ those facts. The same complete filename can identify a browser database value.
 
 ## Decision
 
-**An app has one canonical local blob store within a storage environment.** Account,
-library, row, and document generation do not select its location. Application
-code uses the full `app.blobs.local` path; do not destructure `local` or `remote`
-from `app.blobs`.
+**Each opened namespace selects one canonical local blob store within a storage
+environment.** An application may open several namespaces with
+`openLocalBlobs({ id })`. Account, row, and document generation do not select
+its location. [ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md)
+defines the complete local and remote addresses; `id` selects the namespace and
+`blobId` selects an object inside it.
 
 | Environment | Address |
 | --- | --- |
-| Browser | IndexedDB database `epicenter/<appId>/blobs`, within the browser profile and origin |
-| Epicenter desktop | One ordinary file at `<dataRoot>/apps/<appId>/blobs/<blobId>` |
+| Browser | IndexedDB database `epicenter/<namespace>/device/no-account/blobs`, within the browser profile and origin |
+| Epicenter desktop | One ordinary file at `<dataRoot>/apps/<namespace>/device/no-account/blobs/<blobId>` |
 
 Native startup selects `dataRoot` once. Rust recording and Bun reads use that
 same value and directory grammar. A desktop WebView reaches the host store;
@@ -42,12 +45,12 @@ application ID, recording title, account, or row identity.
 The following examples use shortened random bodies for readability:
 
 ```text
-Desktop: apps/<appId>/blobs/
+Desktop: apps/<namespace>/device/no-account/blobs/
          |-- blob_abc.wav
          |-- blob_def.webm
          `-- blob_ghi.png
 
-Browser: epicenter/<appId>/blobs
+Browser: epicenter/<namespace>/device/no-account/blobs
          blobs["blob_abc.wav"]   -> { id, bytes, size }
          listing index          -> [id, size]
 
@@ -91,19 +94,22 @@ the equivalent information from the filename, file contents, and filesystem
 size. The index is not an application metadata catalog. A separate
 `blob-metadata` store is not part of the layout.
 
-The local API is `add`, `get`, `open`, `stat`, `list`, and `delete`. `add` accepts
-standard Blob/File bytes, selects an extension, mints an immutable BlobId, and reports success after
-publication. `get` returns a Blob. `open` acquires a disposable presentation URL;
+The target local API is `add`, `copyFrom`, `get`, `open`, `stat`, `list`, and
+`delete`, as specified in [ADR-0372](0372-local-and-remote-blobs-open-independently.md).
+`copyFrom` retains the source ID and bytes in this destination namespace.
+`add` accepts standard Blob/File bytes, selects an extension, mints an immutable
+BlobId, and reports success after publication. `get` returns a Blob. `open` acquires a disposable presentation URL;
 disposing it releases playback resources without deleting stored bytes.
 `stat` returns size and the conventional content type derived from the key
 without reading the payload. `get` reconstructs a Blob with that conventional
 type. Missing reads
 return a typed error. Deleting an absent object succeeds.
 
-The internal byte-store contract keeps `put`, `get`, `stat`, `list`, and
-`delete`. The unused `copy` and `statMany` operations and host copy endpoint
-were removed. Single-object metadata reads
-and size-bearing enumeration remain required.
+Storage adapters and producers need atomic publication under an established
+identity. The current raw contract uses `put`; its method name and boundary are
+implementation choices, not required application API. The old unused raw `copy`
+and batch-stat helpers do not prescribe the new public `copyFrom` contract.
+Single-object metadata reads and size-bearing enumeration remain required.
 
 `list({cursor, limit})` enumerates complete committed objects, including objects
 with no row. Its exclusive cursor is a BlobId; enumeration is not a snapshot
@@ -123,8 +129,8 @@ acknowledgment was lost. Retry after ambiguous publication must keep the same
 object identity. The publication primitive and durability barriers require
 proof on supported filesystems; removing sidecars does not remove those duties.
 
-The App owns access and acquired playback resources. App closure revokes its
-handles and drains admitted operations; it does not delete committed files or
+Each opened blob handle owns access and acquired playback resources. Its closure
+fences new work and drains admitted operations; it does not delete committed files or
 invalidate independent handles to the same store. Standalone blob access does
 not open a Yjs document.
 
@@ -160,8 +166,7 @@ no recording title or transcript can be reconstructed from that key.
 - No enumeration: makes successful orphaned saves undiscoverable.
 - One browser implementation everywhere: native recording would need a second
   permanent store or a whole-file transfer into the WebView.
-- A new createBlobs namespace wrapper: repeats the App's existing composition
-  boundary without owning another lifetime.
+- An aggregate blob owner: couples independently selected namespaces and lifetimes.
 - A per-blob directory with `data` and `metadata.json`: publishes a two-file
   object together but does not produce an ordinary extension-bearing media file.
 - Flat bytes plus JSON sidecars: keeps exact MIME round-tripping at the cost of
@@ -171,5 +176,5 @@ no recording title or transcript can be reconstructed from that key.
 - A shared SQLite chunk engine: changes capture transport and playback to
   achieve implementation uniformity that the shared saved-object contract does
   not require.
-- Retain unused copy and batch-stat APIs: adds adapter and transport work with
-  no application caller. Reintroducing either requires a concrete workflow.
+- Retain unused raw copy and batch-stat APIs: the public `copyFrom` operation
+  serves explicit placement transfer; it does not require those old helpers.

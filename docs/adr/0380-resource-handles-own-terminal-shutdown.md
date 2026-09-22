@@ -47,7 +47,7 @@ one input must not block unrelated inputs behind a long-held registry lock.
 
 For explicit closure, stop producers before releasing resources. A workflow that
 reads credentials, performs a request, and writes SQL remains product-owned
-between those operations. Recording close never invents a history row. An upload
+between those operations. Recording close never invents a history row. A copy
 can commit before row creation fails. Resource close cannot make either sequence
 atomic or promise that every edit was saved.
 

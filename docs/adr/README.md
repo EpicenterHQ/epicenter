@@ -676,3 +676,5 @@ When you add an ADR, add its row here.
 | [0418](0418-push-translates-file-differences-into-ordinary-edits.md) | Push translates file differences into ordinary edits | Proposed |
 
 | [0423](0423-app-resources-open-as-independent-handles.md) | App resources open as independent handles | Proposed |
+| [0426](0426-blob-identities-survive-copies-between-scoped-locations.md) | Blob identities survive copies between scoped locations | Proposed |
+| [0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) | Opening a blob acquires presentation without retaining a copy | Proposed |

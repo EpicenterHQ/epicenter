@@ -1,5 +1,12 @@
 # @epicenter/blobs
 
+The identity-preserving blob API is an implementation target in
+[ADR-0372](../../docs/adr/0372-local-and-remote-blobs-open-independently.md),
+[ADR-0426](../../docs/adr/0426-blob-identities-survive-copies-between-scoped-locations.md),
+and [ADR-0427](../../docs/adr/0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md).
+The methods described below reflect current code; `copyFrom` is not implemented
+by this documentation change.
+
 An app stores immutable bytes under a complete, extension-bearing key. That key
 is the desktop filename, browser database key, and reference held by a row.
 Applications use `openLocalBlobs({ id })` for device bytes and `openRemoteBlobs({ id, account })` for

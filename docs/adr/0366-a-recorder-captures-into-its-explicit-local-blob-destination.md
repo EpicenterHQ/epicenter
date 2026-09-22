@@ -6,6 +6,8 @@
 - **Unbuilt:** `createRecorder({ blobs })`, native destination provenance, and recorder retirement when its LocalBlobs destination closes.
 - **Unverified:** Physical microphone, whole-host interruption, installed WebView playback, Windows publication, and concurrent-device acceptance.
 
+- **Blob identity:** The saved key can later be copied with `destination.copyFrom(localBlobs, blobId)` under [ADR-0372](0372-local-and-remote-blobs-open-independently.md). Capture keeps its private publication capability; no public arbitrary-ID `put` is required. Addresses are specified by [ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md).
+
 ## Decision
 
 **The recorder owns capture and borrows one LocalBlobs destination.**

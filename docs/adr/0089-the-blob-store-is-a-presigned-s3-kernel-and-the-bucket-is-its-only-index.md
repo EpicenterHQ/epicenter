@@ -6,6 +6,10 @@
 
 > **2026-07-02 amendment:** Blob keys now use `principals/<principalId>/blobs/<sha256>`. The bucket-only index and presigned-S3 kernel decision are unchanged.
 
+- **Amended by:** [ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md) at blob identity and physical/HTTP addresses. Local blobs use the fixed `device/no-account` path; remote copies retain BlobId within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target. Mandatory presigned upload and the fixed 5 GiB ceiling are also withdrawn; implementation must establish and verify its supported transport and payload limits.
+
+- **Amended by:** [ADR-0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) at media delivery: plaintext and a locator alone do not establish authenticated range playback. The mandatory presigned/redirect transport is not retained; encryption ownership is unchanged.
+
 ## Context
 
 Epicenter needs a home for bytes too large for git or a Yjs doc (media, archives, exports). Worker request-body caps are edge-enforced, so bytes must not transit the Worker; R2 enforces a whole-object `x-amz-checksum-sha256` only on a single PutObject, so multipart uploads cannot carry content addressing; and a Workers-native `R2Bucket` binding is a runtime lock-in that a SigV4 presigned URL is not. A previous blob subsystem was deleted in January 2026 for having no consumers, so the surface must stay minimal.
