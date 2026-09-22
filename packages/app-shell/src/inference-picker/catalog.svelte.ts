@@ -1,4 +1,4 @@
-import type { AppAi } from '@epicenter/app/ai';
+import type { InferenceSources } from '../inference-target.js';
 import { ListModelsError } from '@epicenter/client';
 import OpenAI from 'openai';
 import { createSubscriber } from 'svelte/reactivity';
@@ -17,7 +17,7 @@ export function createInferenceCatalog({
 	ai,
 	hostedModels,
 }: {
-	ai: AppAi;
+	ai: InferenceSources;
 	hostedModels: HostedModel[];
 }) {
 	if (!ai.connections)
@@ -49,14 +49,8 @@ export function createInferenceCatalog({
 			observeConnections();
 			return ai.connections!.getAll();
 		},
-		discover(baseUrl: string, apiKey?: string, savedId?: string) {
-			return discoverModels(() => {
-				const client = savedId
-					? ai.connections!.get(savedId)?.client
-					: ai.connections!.preview({ baseUrl, apiKey });
-				if (!client) throw new Error('AI connection no longer exists.');
-				return client;
-			});
+		discover(client: OpenAI) {
+			return discoverModels(() => client);
 		},
 		async refresh(id: string) {
 			const connection = ai.connections!.get(id);

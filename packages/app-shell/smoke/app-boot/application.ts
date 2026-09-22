@@ -1,5 +1,5 @@
 import { defineApp, field } from '@epicenter/app';
-import { createMemoryRuntime } from '@epicenter/app/testing';
+import { createMemoryStoreRuntime } from '@epicenter/app/testing';
 import {
 	AuthError,
 	type AuthClient,
@@ -92,7 +92,7 @@ export const definition = defineApp({
 	kv: { text: field.string() },
 	tables: {},
 });
-const memory = createMemoryRuntime();
+const memory = createMemoryStoreRuntime();
 export const runtime = {
 	...memory,
 	async claim(...args: Parameters<typeof memory.claim>) {

@@ -1,9 +1,5 @@
 import { Hono } from 'hono';
-import type {
-	AiCatalog,
-	AiCatalogCommand,
-	AiCatalogInput,
-} from './ai-catalog.js';
+import type { AiCatalog, AiCatalogCommand } from './ai-catalog.js';
 
 /** Mount behind the host's browser-session and mutation-Origin checks. */
 export function createAiCatalogRoutes(catalog: AiCatalog) {
@@ -75,11 +71,5 @@ export function createAiCatalogRoutes(catalog: AiCatalog) {
 		const suffix = url.pathname.slice(index + marker.length) + url.search;
 		return catalog.proxy(id, accessVersion, context.req.raw, suffix);
 	});
-	routes.post('/preview', async (context) =>
-		catalog.preview(
-			await context.req.json<AiCatalogInput>(),
-			context.req.raw.signal,
-		),
-	);
 	return routes;
 }

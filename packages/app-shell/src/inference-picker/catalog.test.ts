@@ -4,7 +4,12 @@
  * Discovery suggests models but cannot revoke a user's explicit selection.
  */
 import { expect, test } from 'bun:test';
-import { type AiTransport, type AppAi, createAppAi } from '@epicenter/app/ai';
+import {
+	type AiTransport,
+	createInference,
+} from '../../../app/src/inference.js';
+import { openConnectionCatalog } from '../../../app/src/connection-catalog.js';
+import type { InferenceSources } from '../inference-target.js';
 import { createAiConnections } from '@epicenter/app/ai-connections';
 import { expectOk } from 'wellcrafted/testing';
 import { createInferenceSelections } from '../inference-selections.js';
@@ -12,7 +17,7 @@ import { createInferenceCatalog } from './catalog.svelte.js';
 
 Reflect.set(globalThis, '$state', { raw: <T>(value: T) => value });
 
-function setup(
+async function setup(
 	values = new Map<string, string>(),
 	principalId = 'A',
 	runtime: AiTransport | null = null,
@@ -26,31 +31,25 @@ function setup(
 			},
 		},
 	});
-	const controller = new AbortController();
+
 	const hosted = {
 		baseURL: 'https://epicenter.example/v1',
 		fetch: () => Promise.resolve(Response.json({ data: [] })),
 	};
-	const owner = createAppAi({
-		connections: records,
-		configuredFetch: (input, init) => fetch(input, init),
-		lifetime: {
-			signal: controller.signal,
-			assertUsable: () => controller.signal.throwIfAborted(),
+	const account = {
+		...createInference(hosted),
+		identity: {
+			authorityId: 'https://epicenter.example',
+			principalId: principalId as NonNullable<
+				InferenceSources['account']
+			>['identity']['principalId'],
 		},
-		account: {
-			...hosted,
-			identity: {
-				authorityId: 'https://epicenter.example',
-				principalId: principalId as NonNullable<
-					AppAi['account']
-				>['identity']['principalId'],
-			},
-		},
-		runtime,
-	});
+	};
+	const runtimeHandle = runtime ? createInference(runtime) : null;
+	const connections = await openConnectionCatalog(records);
+	const ai = { account, runtime: runtimeHandle, connections };
 	const catalog = createInferenceCatalog({
-		ai: owner.value.ai,
+		ai,
 		hostedModels: [{ id: 'shared-model', label: 'Hosted', credits: 1 }],
 	});
 	const selections = createInferenceSelections({
@@ -69,14 +68,17 @@ function setup(
 		hosted,
 		values,
 		close: () => {
-			controller.abort();
-			return owner.close();
+			return Promise.all([
+				account.close(),
+				runtimeHandle?.close(),
+				connections.close(),
+			]);
 		},
 	};
 }
 
 test('the same model selects either custom connection or hosted independently', async () => {
-	const { catalog, selections, hosted } = setup();
+	const { catalog, selections, hosted } = await setup();
 	const first = 'http://localhost:11434/v1';
 	const second = 'http://localhost:1234/v1';
 	const firstId = await catalog.ai.connections!.add({
@@ -120,8 +122,8 @@ test('the same model selects either custom connection or hosted independently', 
 	);
 });
 
-test('missing selections and empty models have no transport', () => {
-	const { catalog, selections } = setup();
+test('missing selections and empty models have no transport', async () => {
+	const { catalog, selections } = await setup();
 	expect(catalog.resolve(selections.get('new-device'))).toBeNull();
 	expect(
 		catalog.resolve({ connectionId: catalog.accountId!, model: '   ' }),
@@ -129,7 +131,7 @@ test('missing selections and empty models have no transport', () => {
 });
 
 test('removing then readding a connection does not resurrect its selections', async () => {
-	const { catalog, selections } = setup();
+	const { catalog, selections } = await setup();
 	const baseUrl = 'http://localhost:11434/v1';
 	const id = await catalog.ai.connections!.add({
 		baseUrl,
@@ -156,7 +158,7 @@ test('manual models resolve even when discovery returns an empty list', async ()
 		fetch: () => Response.json({ data: [] }),
 	});
 	try {
-		const { catalog, selections } = setup();
+		const { catalog, selections } = await setup();
 		const baseUrl = `${server.url}v1`;
 		const id = await catalog.ai.connections!.add({
 			baseUrl,
@@ -186,7 +188,7 @@ test('custom requests carry only the custom key instead of using the hosted tran
 		},
 	});
 	try {
-		const { catalog, selections, hosted } = setup();
+		const { catalog, selections, hosted } = await setup();
 		hosted.fetch = () => {
 			throw new Error('Hosted transport must not run');
 		};
@@ -209,7 +211,7 @@ test('custom requests carry only the custom key instead of using the hosted tran
 });
 
 test('adding a manual model to a saved connection retains earlier model choices', async () => {
-	const { catalog } = setup();
+	const { catalog } = await setup();
 	const baseUrl = 'http://localhost:1234/v1';
 	const id = await catalog.ai.connections!.add({
 		baseUrl,
@@ -223,13 +225,13 @@ test('adding a manual model to a saved connection retains earlier model choices'
 });
 
 test('a saved account A selection cannot resolve through account B', async () => {
-	const first = setup();
+	const first = await setup();
 	first.selections.set('chat', {
 		connectionId: first.catalog.accountId!,
 		model: 'shared-model',
 	});
 	await first.close();
-	const second = setup(first.values, 'B');
+	const second = await setup(first.values, 'B');
 	expect(second.selections.get('chat')?.connectionId).toBe(
 		first.catalog.accountId!,
 	);
@@ -247,7 +249,7 @@ test('same URL entries retain independent ids and credentials', async () => {
 			return Response.json({ data: [] });
 		},
 	});
-	const fixture = setup();
+	const fixture = await setup();
 	try {
 		const first = await fixture.catalog.ai.connections!.add({
 			baseUrl: String(server.url),
@@ -283,7 +285,7 @@ test('native inventory suggests models without selecting or redirecting them', a
 			return Response.json({ data: [{ id: 'installed-model' }] });
 		},
 	};
-	const fixture = setup(undefined, 'A', runtime);
+	const fixture = await setup(undefined, 'A', runtime);
 	expect(requests).toBe(0);
 	await fixture.catalog.refreshRuntime();
 	expect(fixture.catalog.runtimeModels).toEqual(['installed-model']);
@@ -299,7 +301,7 @@ test('native inventory suggests models without selecting or redirecting them', a
 		fixture.catalog.resolve(fixture.selections.get('audio'))?.client.baseURL,
 	).toBe(runtime.baseURL);
 	await fixture.close();
-	const absent = setup(fixture.values);
+	const absent = await setup(fixture.values);
 	expect(absent.catalog.resolve(absent.selections.get('audio'))).toBeNull();
 	await absent.close();
 });
@@ -314,16 +316,14 @@ test('discovery through a saved connection uses that connection credential', asy
 			return Response.json({ data: [{ id: 'saved-model' }] });
 		},
 	});
-	const fixture = setup();
+	const fixture = await setup();
 	try {
 		const id = await fixture.catalog.ai.connections!.add({
 			baseUrl: String(server.url),
 			apiKey: 'saved-key',
 		});
 		const result = await fixture.catalog.discover(
-			String(server.url),
-			undefined,
-			id,
+			fixture.catalog.ai.connections!.get(id)!.client,
 		);
 		expect(expectOk(result)).toEqual(['saved-model']);
 		expect(received).toEqual(['Bearer saved-key']);
@@ -338,7 +338,7 @@ test('failed refresh persistence rejects and leaves the saved models unchanged',
 		port: 0,
 		fetch: () => Response.json({ data: [{ id: 'discovered-model' }] }),
 	});
-	const fixture = setup();
+	const fixture = await setup();
 	try {
 		const id = await fixture.catalog.ai.connections!.add({
 			baseUrl: String(server.url),

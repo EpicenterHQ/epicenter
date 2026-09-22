@@ -1,6 +1,6 @@
 /**
  * Desktop AI catalog route tests.
- * Verifies shared event snapshots, model-preview isolation and proxy boundaries.
+ * Verifies shared event snapshots, saved inference proxy boundaries.
  * Session and Origin admission belongs to the parent host router.
  */
 import { afterEach, expect, test } from 'bun:test';
@@ -55,31 +55,6 @@ test('two subscribed app windows receive initial and committed shared snapshots'
 	expect(decoder.decode((await second.read()).value)).toBe(firstEvent);
 	await first.cancel();
 	await second.cancel();
-});
-
-test('preview discovers models without saving and forwards only custom authorization', async () => {
-	let received: Request | undefined;
-	const { app, catalog } = await setup((async (input, init) => {
-		received = new Request(input, init);
-		return Response.json({ data: [{ id: 'model' }] });
-	}) as typeof globalThis.fetch);
-	const response = await app.request('/_epicenter/ai/preview', {
-		method: 'POST',
-		headers: {
-			'content-type': 'application/json',
-			cookie: 'host=session',
-			authorization: 'Bearer account-key',
-		},
-		body: JSON.stringify({
-			baseUrl: 'https://models.example/v1',
-			apiKey: 'custom-key',
-		}),
-	});
-	expect(await response.json()).toEqual({ data: [{ id: 'model' }] });
-	expect(received!.url).toBe('https://models.example/v1/models');
-	expect(received!.headers.get('authorization')).toBe('Bearer custom-key');
-	expect(received!.headers.has('cookie')).toBe(false);
-	expect(catalog.getAll().connections).toEqual([]);
 });
 
 test('proxy preserves SDK path and query while malformed commands return sanitized errors', async () => {

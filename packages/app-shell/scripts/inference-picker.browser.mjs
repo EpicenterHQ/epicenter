@@ -26,17 +26,17 @@ await writeFile(
 	`<script>
 import InferencePicker from '../src/inference-picker/inference-picker.svelte';
 import { createInferenceCatalog } from '../src/inference-picker/catalog.svelte';
-import { createAppAi } from '../../app/src/ai';
-import { createBrowserAppAi } from '../../app/src/browser';
+import { openConnectionCatalog } from '../../app/src/connection-catalog';
+import { createBrowserConnections } from '../../app/src/browser';
 
-const records = createBrowserAppAi().connections('picker-acceptance');
+const records = createBrowserConnections();
 const hidden = (records) => records.map(({apiKey, ...record}) => ({ ...record, hasApiKey: Boolean(apiKey), accessVersion: apiKey ? 'credential' : 'anonymous' }));
 let blocked, release;
 let fail = false;
 const save = async (operation) => { if (blocked) await blocked; if (fail) throw new Error('Save failed'); return operation(); };
-const owner = createAppAi({
- lifetime: { signal: new AbortController().signal, assertUsable() {} }, account: null, runtime: null,
- connections: {
+let catalog = $state.raw(null);
+(async () => {
+const owner = await openConnectionCatalog({
   ...records,
   getAll: () => hidden(records.getAll()),
   subscribe: (listener) => records.subscribe((next) => listener(hidden(next))),
@@ -49,17 +49,16 @@ const owner = createAppAi({
     return fetch(input, { ...init, headers });
    }};
   },
- }
 });
-const app = { ai: owner.value.ai, account: null };
+const app = { ai: {account:null,runtime:null,connections:owner} };
 
-let catalog = $state.raw(createInferenceCatalog({ ai: app.ai, hostedModels: [] }));
-let shown = $state(true);
-let value = $state(null);
+catalog = createInferenceCatalog({ ai: app.ai, hostedModels: [] });
+
 window.acceptance = {
  selected: () => value,
  records: () => app.ai.connections.getAll().map(({client,...record}) => record),
  add: (input) => app.ai.connections.add(input),
+ remove: (id) => app.ai.connections.remove(id),
  update: (id, patch) => app.ai.connections.update(id, patch),
  key: (id) => records.getAll().find(entry => entry.id === id)?.apiKey,
  block() { blocked = new Promise(resolve => release = resolve); },
@@ -69,8 +68,11 @@ window.acceptance = {
  hide() { shown = false; },
  show() { shown = true; },
 };
+})();
+let shown = $state(true);
+let value = $state(null);
 </script>
-{#if shown}<InferencePicker {value} {catalog} onSelect={(target) => value = target} />{/if}
+{#if shown && catalog}<InferencePicker {value} {catalog} onSelect={(target) => value = target} />{/if}
 `,
 );
 await writeFile(
@@ -292,6 +294,36 @@ try {
 		);
 		await page.keyboard.press('Escape');
 	}
+	const deleted = await page.evaluate(() =>
+		window.acceptance.add({
+			name: 'Deleted while editing',
+			baseUrl: location.origin + '/models/v1',
+			apiKey: 'removed-key',
+			models: [],
+		}),
+	);
+	await page.locator('button[role="combobox"]').click();
+	await page
+		.getByText('Edit Deleted while editing or enter a model', { exact: true })
+		.click();
+	const beforeDelete = requests.length;
+	await page.evaluate((id) => window.acceptance.remove(id), deleted);
+	await page
+		.getByText('This connection is no longer available.', { exact: true })
+		.waitFor();
+	await page.waitForTimeout(700);
+	assert.equal(
+		requests.length,
+		beforeDelete,
+		'Removed saved connection cannot dispatch unsaved discovery',
+	);
+	await page.getByLabel('Model ID', { exact: true }).fill('still-editing');
+	await page.waitForTimeout(700);
+	assert.equal(
+		requests.length,
+		beforeDelete,
+		'Retained edit form cannot rediscover a removed connection',
+	);
 	assert.deepEqual(errors, []);
 	await writeFile(
 		join(evidence, 'result.json'),

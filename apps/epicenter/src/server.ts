@@ -276,6 +276,53 @@ export function createHomeServer({
 			createAiCatalogRoutes(noAccountAiCatalog),
 		);
 
+	app.use('/_epicenter/inference', async (c, next) => {
+		if (c.req.method === 'GET' || c.req.method === 'HEAD')
+			return requireBrowserSession(c, next);
+		return requirePrivateBroker(c, next);
+	});
+	app.all('/_epicenter/inference', async (c) => {
+		const destination = c.req.header('x-epicenter-inference-url');
+		if (!destination) return c.text('Missing inference destination', 400);
+		const target = new URL(destination);
+		if (
+			!['http:', 'https:'].includes(target.protocol) ||
+			target.username ||
+			target.password ||
+			target.hash
+		)
+			return c.text('Invalid inference destination', 400);
+		const headers = relayHeaders(c.req.raw.headers);
+		const authorization = c.req.header('authorization');
+		if (authorization !== undefined)
+			headers.set('authorization', authorization);
+		headers.delete('cookie');
+		headers.delete('x-epicenter-inference-url');
+		const response = await fetch(target, {
+			method: c.req.method,
+			headers,
+			body: ['GET', 'HEAD'].includes(c.req.method) ? undefined : c.req.raw.body,
+			signal: c.req.raw.signal,
+			redirect: 'error',
+			credentials: 'omit',
+		});
+		const outgoing = new Headers(response.headers);
+		for (const name of [
+			'set-cookie',
+			'set-cookie2',
+			'content-encoding',
+			'content-length',
+			'connection',
+		])
+			outgoing.delete(name);
+		outgoing.set('cache-control', 'no-store');
+		return new Response(response.body, {
+			status: response.status,
+			statusText: response.statusText,
+			headers: outgoing,
+		});
+	});
+
 	app.all('/_epicenter/account/http', async (c) => {
 		const account = desktopAuth.account;
 		if (!account) return c.text('Signed out', 401);
@@ -293,6 +340,10 @@ export function createHomeServer({
 			return c.text('Invalid account path', 400);
 		const headers = relayHeaders(c.req.raw.headers);
 		const localId = c.req.header('x-epicenter-local-blob-id');
+		const sourceAppId = c.req.header('x-epicenter-local-blob-app');
+		headers.delete('x-epicenter-local-blob-app');
+		if (sourceAppId !== undefined && localId === undefined)
+			return c.text('Invalid native source', 400);
 		headers.delete('x-epicenter-local-blob-id');
 		let body: BodyInit | undefined =
 			c.req.method === 'GET' || c.req.method === 'HEAD'
@@ -312,11 +363,13 @@ export function createHomeServer({
 				target.search !== '' ||
 				!appId ||
 				!isAppId(appId) ||
+				!sourceAppId ||
+				!isAppId(sourceAppId) ||
 				!id ||
 				c.req.raw.body !== null
 			)
 				return c.text('Invalid native blob upload', 400);
-			const store = blobs(appId, deviceOwnerPath(account));
+			const store = blobs(sourceAppId, deviceOwnerPath());
 			const stat = await store.stat(id);
 			if (stat.error)
 				return c.text(
@@ -577,7 +630,10 @@ export function createHomeServer({
 							if (!closed)
 								ws.send(stringifySqliteFrame({ id: frame.id, response }));
 						},
-						() => {
+						(cause: unknown) => {
+							createLogger('epicenter/sqlite').error(
+								new Error('SQLite request failed.', { cause }),
+							);
 							if (!closed)
 								ws.send(
 									stringifySqliteFrame({

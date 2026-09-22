@@ -223,7 +223,7 @@ async function setup({
 		}
 		return store;
 	}
-	const localBlobs = blobs('so.epicenter.notes', deviceOwnerPath(account));
+	const localBlobs = blobs('so.epicenter.notes');
 	const host = await createHomeHost({
 		model: 'test',
 		engine: async function* () {},
@@ -611,7 +611,7 @@ async function until(condition: () => boolean) {
 test('saved native upload sends no bytes through the window Account broker and strips its control header', async () => {
 	await using context = await setup();
 	const id = generateBlobId('wav');
-	for (const owner of [undefined, 'accounts/61/62']) {
+	for (const owner of [deviceOwnerPath(context.account), 'accounts/61/62']) {
 		expectOk(
 			await context
 				.blobs('so.epicenter.notes', owner)
@@ -627,13 +627,6 @@ test('saved native upload sends no bytes through the window Account broker and s
 	const remote = createRemoteBlobClient({
 		appId: 'so.epicenter.notes',
 		account: context.account,
-		host: true,
-		local: {
-			stat: context.localBlobs.stat,
-			async get() {
-				throw new Error('Native bytes crossed the window');
-			},
-		},
 	});
 	const openFile = context.localBlobs.openFile;
 	let closed = 0;
@@ -648,7 +641,12 @@ test('saved native upload sends no bytes through the window Account broker and s
 		}
 		return result;
 	});
-	const url = expectOk(await remote.addLocal(id));
+	const url = expectOk(
+		await remote.addFrom(
+			{ local: context.localBlobs, nativeAppId: 'so.epicenter.notes' },
+			id,
+		),
+	);
 	expect(closed).toBe(1);
 	expect(url).toContain('/principals/alice/blobs/');
 	expect(await context.localCalls.at(-1)!.text()).toBe('');
@@ -674,7 +672,10 @@ test('the host checks native upload size before opening bytes and accepts the co
 	);
 	const response = await context.account.fetch(collection, {
 		method: 'POST',
-		headers: { 'x-epicenter-local-blob-id': id },
+		headers: {
+			'x-epicenter-local-blob-id': id,
+			'x-epicenter-local-blob-app': 'so.epicenter.notes',
+		},
 	});
 	expect(response.status).toBe(413);
 	expect(context.requests).toHaveLength(0);
@@ -686,7 +687,10 @@ test('the host checks native upload size before opening bytes and accepts the co
 			(
 				await context.account.fetch(context.account.baseURL + path, {
 					method: 'POST',
-					headers: { 'x-epicenter-local-blob-id': id },
+					headers: {
+						'x-epicenter-local-blob-id': id,
+						'x-epicenter-local-blob-app': 'so.epicenter.notes',
+					},
 				})
 			).status,
 		).toBe(400);
@@ -715,10 +719,15 @@ test('early upstream rejection closes native upload bytes and preserves the save
 	const remote = createRemoteBlobClient({
 		appId: 'so.epicenter.notes',
 		account: context.account,
-		host: true,
-		local: context.localBlobs,
 	});
-	expect(expectErr(await remote.addLocal(id)).name).toBe('Failed');
+	expect(
+		expectErr(
+			await remote.addFrom(
+				{ local: context.localBlobs, nativeAppId: 'so.epicenter.notes' },
+				id,
+			),
+		).name,
+	).toBe('Failed');
 	await until(() => closed === 1);
 	expect(expectOk(await context.localBlobs.stat(id)).size).toBe(size);
 });
@@ -730,12 +739,17 @@ test('retired remote handles cannot upload saved files through a later same-pers
 	const remote = createRemoteBlobClient({
 		appId: 'so.epicenter.notes',
 		account: context.account,
-		local: context.localBlobs,
-		host: true,
 	});
 	expectOk(await context.auth.signOut());
 	await context.signIn('revised');
-	expect(expectErr(await remote.addLocal(id)).name).toBe('Failed');
+	expect(
+		expectErr(
+			await remote.addFrom(
+				{ local: context.localBlobs, nativeAppId: 'so.epicenter.notes' },
+				id,
+			),
+		).name,
+	).toBe('Failed');
 	expect(context.requests).toHaveLength(0);
 });
 
@@ -748,11 +762,13 @@ test('cancelling native addLocal aborts the pending upstream upload request', as
 	const remote = createRemoteBlobClient({
 		appId: 'so.epicenter.notes',
 		account: context.account,
-		local: context.localBlobs,
-		host: true,
 	});
 	const controller = new AbortController();
-	const pending = remote.addLocal(id, { signal: controller.signal });
+	const pending = remote.addFrom(
+		{ local: context.localBlobs, nativeAppId: 'so.epicenter.notes' },
+		id,
+		{ signal: controller.signal },
+	);
 	await context.uploadStarted.promise;
 	controller.abort();
 	expect(expectErr(await pending).name).toBe('Failed');
@@ -769,13 +785,84 @@ test('Account retirement aborts an already admitted native upload', async () => 
 	const remote = createRemoteBlobClient({
 		appId: 'so.epicenter.notes',
 		account: context.account,
-		local: context.localBlobs,
-		host: true,
 	});
-	const pending = remote.addLocal(id);
+	const pending = remote.addFrom(
+		{ local: context.localBlobs, nativeAppId: 'so.epicenter.notes' },
+		id,
+	);
 	await context.uploadStarted.promise;
 	expectOk(await context.auth.signOut());
 	expect(expectErr(await pending).name).toBe('Failed');
 	await context.uploadAborted.promise;
 	expect(context.localCalls.at(-1)!.body).toBeNull();
+});
+
+test('native upload reads the explicit source namespace even when the destination contains a different same-ID blob', async () => {
+	await using context = await setup();
+	const id = generateBlobId('bin');
+	const source = context.blobs('so.epicenter.source');
+	expectOk(await source.put(id, new Blob(['actual source bytes'])));
+	expectOk(
+		await context.localBlobs.put(id, new Blob(['wrong destination bytes'])),
+	);
+	const remote = createRemoteBlobClient({
+		appId: 'so.epicenter.notes',
+		account: context.account,
+	});
+	expectOk(
+		await remote.addFrom(
+			{
+				local: {
+					stat: source.stat,
+					async get() {
+						throw new Error('Native bytes crossed WebView');
+					},
+				},
+				nativeAppId: 'so.epicenter.source',
+			},
+			id,
+		),
+	);
+	expect(context.requests.at(-1)!.body).toBe('actual source bytes');
+});
+
+test('unsaved endpoint broker preserves explicit authentication and multipart transcription beyond discovery', async () => {
+	await using context = await setup();
+	let observed: Headers | undefined;
+	let received: FormData | undefined;
+	const upstream = Bun.serve({
+		hostname: '127.0.0.1',
+		port: 0,
+		async fetch(request) {
+			observed = request.headers;
+			received = await request.formData();
+			return Response.json({ text: 'transcribed' });
+		},
+	});
+	try {
+		const form = new FormData();
+		form.set('model', 'selected');
+		form.set('file', new File(['exact audio'], 'audio.wav'));
+		const response = await fetch(context.origin + '/_epicenter/inference', {
+			method: 'POST',
+			headers: {
+				cookie: context.cookie,
+				origin: context.origin,
+				authorization: 'Bearer explicit',
+				'cf-aig-authorization': 'Bearer gateway',
+				'x-epicenter-inference-url':
+					upstream.url.origin + '/v1/audio/transcriptions',
+			},
+			body: form,
+		});
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ text: 'transcribed' });
+		expect(observed!.get('authorization')).toBe('Bearer explicit');
+		expect(observed!.get('cf-aig-authorization')).toBe('Bearer gateway');
+		expect(observed!.get('cookie')).toBeNull();
+		expect(observed!.get('x-epicenter-inference-url')).toBeNull();
+		expect(await (received!.get('file') as File).text()).toBe('exact audio');
+	} finally {
+		await upstream.stop(true);
+	}
 });

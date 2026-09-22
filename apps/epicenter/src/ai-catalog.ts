@@ -550,23 +550,6 @@ export async function createAiCatalog({
 				throw new Error('AI connection request failed.');
 			}
 		},
-		async preview(candidate: AiCatalogInput, signal?: AbortSignal) {
-			assertOpen();
-			const value = input(candidate);
-			const controller = admit(null, 'preview');
-			try {
-				return await forward(
-					value.baseUrl,
-					value.apiKey?.trim() || undefined,
-					new Request('http://preview.invalid/models', { signal }),
-					'models',
-					controller,
-				);
-			} catch {
-				finish(controller);
-				throw new Error('AI connection preview failed.');
-			}
-		},
 		close() {
 			return (closing ??= (async () => {
 				lifetime.abort();

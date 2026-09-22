@@ -1,4 +1,14 @@
-import type { AppAi } from '@epicenter/app/ai';
+import type {
+	openEpicenterInference,
+	openRuntimeInference,
+} from '@epicenter/app/ai';
+import type { ConnectionCatalog } from '@epicenter/app/ai-connections';
+
+export type InferenceSources = {
+	account: Awaited<ReturnType<typeof openEpicenterInference>> | null;
+	runtime: Awaited<ReturnType<typeof openRuntimeInference>>;
+	connections: ConnectionCatalog | null;
+};
 import type OpenAI from 'openai';
 
 export type InferenceTarget = { connectionId: string; model: string };
@@ -9,19 +19,19 @@ export type ResolvedInferenceTarget = {
 };
 
 /** The account source's stable id, from the identity the AI capability carries. */
-export function accountInferenceId(ai: Pick<AppAi, 'account'>) {
+export function accountInferenceId(ai: Pick<InferenceSources, 'account'>) {
 	return ai.account
 		? `account:${JSON.stringify([ai.account.identity.authorityId, ai.account.identity.principalId])}`
 		: null;
 }
 
-export function runtimeInferenceId(ai: Pick<AppAi, 'runtime'>) {
+export function runtimeInferenceId(ai: Pick<InferenceSources, 'runtime'>) {
 	return ai.runtime ? `runtime:${ai.runtime.client.baseURL}` : null;
 }
 
 /** Resolve an explicit destination; missing identities never select another source. */
 export function resolveInferenceTarget(
-	ai: AppAi,
+	ai: InferenceSources,
 	target: InferenceTarget | null,
 ): ResolvedInferenceTarget | null {
 	if (!target || !target.model.trim()) return null;

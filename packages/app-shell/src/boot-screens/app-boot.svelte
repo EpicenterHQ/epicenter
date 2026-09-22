@@ -1,32 +1,40 @@
-<script lang="ts" generics="TDefinition extends DataDefinition">
-	import type { DataDefinition } from '@epicenter/app';
-	import { openApp, type App, type AppRuntime } from '@epicenter/app/open';
-	import { isCallbackAuthClient, type Account, type AuthClient } from '@epicenter/auth';
+<script lang="ts" generics="THandle extends { signal: AbortSignal; close(): Promise<void> }">
+	import {
+		isCallbackAuthClient,
+		type Account,
+		type AuthClient,
+	} from '@epicenter/auth';
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
 	import { onDestroy, onMount, tick, type Snippet } from 'svelte';
 	import { confirmAccountChange } from './confirm-account-change.js';
-	import { provideConnectionScreen, provideSignOut } from './connection-screen-context.js';
+	import {
+		provideConnectionScreen,
+		provideSignOut,
+	} from './connection-screen-context.js';
 	import CannotOpenScreen from './cannot-open-screen.svelte';
 
 	let props: {
-		auth: AuthClient;
-		definition: TDefinition;
-		runtime?: AppRuntime;
+		auth?: AuthClient;
+		open: ((signal: AbortSignal) => Promise<THandle>) | undefined;
 		signInHref: string;
 		signedOutHref: string;
 		appName: string;
 		noun: string;
 		openingFailure?: Snippet;
-		children: Snippet<[App<TDefinition>, Account | undefined]>;
+		children: Snippet<[THandle, Account | undefined]>;
 	} = $props();
 
 	const stopped = new URL(location.href).searchParams.has('stopped');
 	// This document captures its identity once. Recovery must not acquire an App.
 	// svelte-ignore state_referenced_locally
-	const account = props.auth.getState().account;
+	const account = props.auth?.getState().account;
 	// svelte-ignore state_referenced_locally
-	const opening = stopped ? undefined : openApp(props.definition, { account, runtime: props.runtime });
+	const acquire = stopped ? undefined : props.open;
+	const startup = new AbortController();
+	const opening = acquire
+		? Promise.resolve().then(() => acquire(startup.signal))
+		: undefined;
 	let phase = $state<'open' | 'stopped'>(stopped ? 'stopped' : 'open');
 	let error = $state('');
 	let surface = $state<HTMLDivElement>();
@@ -39,6 +47,7 @@
 	function disposeApp() {
 		if (disposed) return;
 		disposed = true;
+		startup.abort();
 		stopRetirement?.();
 		// Disposal also releases an acquisition that finishes after unmount.
 		// It never delays document replacement.
@@ -64,30 +73,35 @@
 
 	// Deliberate sign-out owns navigation until its asynchronous auth work ends.
 	// svelte-ignore state_referenced_locally
-	const stopAuth = props.auth.onStateChange((next) => {
+	const stopAuth = props.auth?.onStateChange((next) => {
 		if (next.account !== account && phase === 'open') void recover();
 	});
-	void opening?.then((app) => {
-		if (disposed) return;
-		const retired = () => { if (phase === 'open') void recover(); };
-		if (app.signal.aborted) retired();
-		else {
-			app.signal.addEventListener('abort', retired, { once: true });
-			stopRetirement = () => app.signal.removeEventListener('abort', retired);
-		}
-	}, () => {});
+	void opening?.then(
+		(app) => {
+			if (disposed) return;
+			const retired = () => {
+				if (phase === 'open') void recover();
+			};
+			if (app.signal.aborted) retired();
+			else {
+				app.signal.addEventListener('abort', retired, { once: true });
+				stopRetirement = () => app.signal.removeEventListener('abort', retired);
+			}
+		},
+		() => {},
+	);
 
 	provideConnectionScreen(() => {
-		if (changing || signingIn || phase !== 'open') return;
+		if (!props.auth || changing || signingIn || phase !== 'open') return;
 		signingIn = true;
 		changing = true;
 		void (async () => {
 			try {
-				const confirmed = await confirmAccountChange(props.auth);
+				const confirmed = await confirmAccountChange(props.auth!);
 				// The host can cancel a pending sign-in through explicit sign-out.
 				changing = false;
 				if (!confirmed || destroyed || phase !== 'open') return;
-				if (isCallbackAuthClient(props.auth)) {
+				if (isCallbackAuthClient(props.auth!)) {
 					stop();
 					await tick();
 					if (destroyed) return;
@@ -98,7 +112,7 @@
 					location.assign(props.signInHref);
 				} else {
 					// OAuth cancellation keeps this working document alive.
-					const result = await props.auth.startSignIn();
+					const result = await props.auth!.startSignIn();
 					if (result.error) throw result.error;
 				}
 			} catch (cause) {
@@ -110,17 +124,23 @@
 		})();
 	});
 	provideSignOut(async () => {
-		if (changing || phase !== 'open') return;
+		if (!props.auth || changing || phase !== 'open') return;
 		changing = true;
 		try {
-			if (!(await confirmAccountChange(props.auth)) || destroyed || phase !== 'open') return;
+			if (
+				!(await confirmAccountChange(props.auth!)) ||
+				destroyed ||
+				phase !== 'open'
+			)
+				return;
 			stop();
 			await tick();
 			if (destroyed) return;
-			const result = await props.auth.signOut();
+			const result = await props.auth!.signOut();
 			if (result.error) throw result.error;
 			if (destroyed) return;
-			if (isCallbackAuthClient(props.auth)) location.replace(props.signedOutHref);
+			if (isCallbackAuthClient(props.auth!))
+				location.replace(props.signedOutHref);
 		} finally {
 			changing = false;
 		}
@@ -128,7 +148,7 @@
 
 	onDestroy(() => {
 		destroyed = true;
-		stopAuth();
+		stopAuth?.();
 		disposeApp();
 	});
 	onMount(() => {

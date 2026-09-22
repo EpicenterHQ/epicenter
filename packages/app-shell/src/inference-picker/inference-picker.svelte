@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { openEndpointInference } from '@epicenter/app/ai';
 	/** Models grouped by exact connection; the owner persists each complete choice. */
 	import {
 		CONNECTION_PRESETS,
@@ -37,7 +38,15 @@
 		placeholder?: string;
 	};
 
-	let { value, onSelect, catalog, disabled = false, accountModels, includeRuntime = false, placeholder = 'Select model' }: Props = $props();
+	let {
+		value,
+		onSelect,
+		catalog,
+		disabled = false,
+		accountModels,
+		includeRuntime = false,
+		placeholder = 'Select model',
+	}: Props = $props();
 	const ai = $derived(catalog.ai);
 	const models = $derived(accountModels ?? catalog.hostedModels);
 
@@ -50,11 +59,15 @@
 	// is showing; a value means its sub-form is.
 	let formPreset = $state<PresetId | 'custom' | null>(null);
 	let formBaseUrl = $state('');
- let formName = $state('');
- let editingId = $state<string | null>(null);
+	let formName = $state('');
+	let editingId = $state<string | null>(null);
 	let formApiKey = $state('');
 	let removeApiKey = $state(false);
-	const savedConnection = $derived(editingId ? catalog.custom.find(entry => entry.id === editingId) : undefined);
+	const savedConnection = $derived(
+		editingId
+			? catalog.custom.find((entry) => entry.id === editingId)
+			: undefined,
+	);
 	let formModel = $state('');
 	let showKey = $state(false);
 
@@ -67,13 +80,22 @@
 
 	// The picker also runs in apps without a QueryClientProvider.
 	const queryClient = new QueryClient();
-	onDestroy(() => { alive = false; queryClient.clear(); });
-	const refreshConnection = createMutation(() => ({
-		mutationFn: (id: string) => catalog.refresh(id),
-	}), () => queryClient);
-	const removeConnection = createMutation(() => ({
-		mutationFn: (id: string) => ai.connections!.remove(id),
-	}), () => queryClient);
+	onDestroy(() => {
+		alive = false;
+		queryClient.clear();
+	});
+	const refreshConnection = createMutation(
+		() => ({
+			mutationFn: (id: string) => catalog.refresh(id),
+		}),
+		() => queryClient,
+	);
+	const removeConnection = createMutation(
+		() => ({
+			mutationFn: (id: string) => ai.connections!.remove(id),
+		}),
+		() => queryClient,
+	);
 
 	// Clear all of the connect form's working state. Called on close so a user who
 	// connected one provider lands back on the preset chooser (not a stale sub-form
@@ -82,8 +104,8 @@
 		formVersion++;
 		formPreset = null;
 		formBaseUrl = '';
-  formName = '';
-  editingId = null;
+		formName = '';
+		editingId = null;
 		formApiKey = '';
 		removeApiKey = false;
 		formModel = '';
@@ -117,7 +139,6 @@
 		}
 	}
 
-
 	const selected = $derived(value);
 	const model = $derived(value?.model ?? '');
 	const triggerLabel = $derived(
@@ -125,9 +146,9 @@
 			? placeholder
 			: selected.connectionId === catalog.runtimeId
 				? `${model} · This device`
-			: selected.connectionId === catalog.accountId
-				? `${models.find((entry) => entry.id === model)?.label ?? model} · ${catalog.accountLabel}`
-				: `${model} · ${catalog.custom.find(entry => entry.id === selected.connectionId)?.name ?? "Unavailable connection"}`,
+				: selected.connectionId === catalog.accountId
+					? `${models.find((entry) => entry.id === model)?.label ?? model} · ${catalog.accountLabel}`
+					: `${model} · ${catalog.custom.find((entry) => entry.id === selected.connectionId)?.name ?? 'Unavailable connection'}`,
 	);
 
 	function isSelected(connectionId: string, id: string) {
@@ -154,34 +175,56 @@
 	}
 
 	// Persist access before saving the workflow choice. A failed save keeps the form open.
-	const saveConnection = createMutation(() => ({
-		mutationFn: async (chosenModel: string) => {
-			const attempt = { catalog, formVersion };
-			const baseUrl = formBaseUrl.trim();
-			const trimmedModel = chosenModel.trim();
-			if (!baseUrl || !trimmedModel) throw new Error('Enter an endpoint and model.');
-			const credential = removeApiKey
-				? { apiKey: '' }
-				: formApiKey.trim() ? { apiKey: formApiKey.trim() } : {};
-			const input = {
-				baseUrl,
-				name: formName.trim() || savedConnection?.name || undefined,
-				...credential,
-				models: [...new Set([...(savedConnection?.models ?? []), ...(discovered ?? []), trimmedModel])],
-			};
-			const id = editingId;
-			if (id) {
-				await attempt.catalog.ai.connections!.update(id, input);
-				return { ...attempt, id, model: trimmedModel };
-			}
-			return { ...attempt, id: await attempt.catalog.ai.connections!.add(input), model: trimmedModel };
-		},
-		onSuccess: (saved) => {
-			if (!alive || !open || saved.catalog !== catalog || saved.formVersion !== formVersion) return;
-			editingId = saved.id;
-			selectModel(saved.id, saved.model);
-		},
-	}), () => queryClient);
+	const saveConnection = createMutation(
+		() => ({
+			mutationFn: async (chosenModel: string) => {
+				const attempt = { catalog, formVersion };
+				const baseUrl = formBaseUrl.trim();
+				const trimmedModel = chosenModel.trim();
+				if (!baseUrl || !trimmedModel)
+					throw new Error('Enter an endpoint and model.');
+				const credential = removeApiKey
+					? { apiKey: '' }
+					: formApiKey.trim()
+						? { apiKey: formApiKey.trim() }
+						: {};
+				const input = {
+					baseUrl,
+					name: formName.trim() || savedConnection?.name || undefined,
+					...credential,
+					models: [
+						...new Set([
+							...(savedConnection?.models ?? []),
+							...(discovered ?? []),
+							trimmedModel,
+						]),
+					],
+				};
+				const id = editingId;
+				if (id) {
+					await attempt.catalog.ai.connections!.update(id, input);
+					return { ...attempt, id, model: trimmedModel };
+				}
+				return {
+					...attempt,
+					id: await attempt.catalog.ai.connections!.add(input),
+					model: trimmedModel,
+				};
+			},
+			onSuccess: (saved) => {
+				if (
+					!alive ||
+					!open ||
+					saved.catalog !== catalog ||
+					saved.formVersion !== formVersion
+				)
+					return;
+				editingId = saved.id;
+				selectModel(saved.id, saved.model);
+			},
+		}),
+		() => queryClient,
+	);
 
 	// Reopening the picker always lands on the model list, never a half-filled form.
 	$effect(() => {
@@ -199,14 +242,24 @@
 	$effect(() => {
 		if (view !== 'connect') return;
 		const discoveryCatalog = catalog;
+		if (editingId && !savedConnection) {
+			discovered = null;
+			discovering = false;
+			discoveryError = 'This connection is no longer available.';
+			return;
+		}
 		const url = formBaseUrl.trim();
 		const key = formApiKey.trim();
 		const retainSavedKey = savedConnection?.hasApiKey && !key && !removeApiKey;
-		const savedId = savedConnection && savedConnection.baseUrl === url && !key && !removeApiKey ? savedConnection.id : undefined;
+		const savedId =
+			savedConnection && savedConnection.baseUrl === url && !key && !removeApiKey
+				? savedConnection.id
+				: undefined;
 		if (retainSavedKey && !savedId) {
 			discovered = null;
 			discovering = false;
-			discoveryError = 'Save the changed endpoint with a model ID before discovering models with its saved key.';
+			discoveryError =
+				'Save the changed endpoint with a model ID before discovering models with its saved key.';
 			return;
 		}
 		if (!url) {
@@ -219,20 +272,49 @@
 		let cancelled = false;
 		discovering = true;
 		discoveryError = null;
+		let endpoint: Awaited<ReturnType<typeof openEndpointInference>> | undefined;
 		const handle = setTimeout(async () => {
-			const { data, error } = await discoveryCatalog.discover(url, key || undefined, savedId);
-			if (cancelled) return;
-			discovering = false;
-			if (error) {
-				discovered = null;
-				discoveryError = discoveryMessage(error);
-				return;
+			try {
+				const saved = savedId
+					? discoveryCatalog.ai.connections?.get(savedId)?.client
+					: undefined;
+				if (savedId && !saved)
+					throw new Error('Saved connection is no longer available.');
+				if (!savedId)
+					endpoint = await openEndpointInference({
+						baseURL: url,
+						getAuthHeaders: key
+							? () => ({ Authorization: `Bearer ${key}` })
+							: undefined,
+					});
+				if (cancelled) {
+					await endpoint?.close();
+					return;
+				}
+				const { data, error } = await discoveryCatalog.discover(
+					saved ?? endpoint!.client,
+				);
+				if (cancelled) return;
+				discovering = false;
+				if (error) {
+					discovered = null;
+					discoveryError = discoveryMessage(error);
+					return;
+				}
+				discovered = data;
+			} catch {
+				if (!cancelled) {
+					discovering = false;
+					discoveryError = 'Could not discover models.';
+				}
+			} finally {
+				await endpoint?.close();
 			}
-			discovered = data;
 		}, 500);
 		return () => {
 			cancelled = true;
 			clearTimeout(handle);
+			void endpoint?.close();
 		};
 	});
 </script>
