@@ -7,42 +7,29 @@ description: Work out an unsettled idea together through concrete attempts to ar
 
 The dialectic is shared active recognition: we work out an unsettled idea together through concrete attempts to articulate and express it, letting what those attempts reveal guide how we carry it forward.
 
-```txt
-intuition → concrete attempt → shared judgment and discovery → clearer articulation and expression → executable direction → further discovery in execution
-```
+Articulation states our current understanding. Expression gives us something
+we can encounter and judge: a passage to read, an API to use, or a conversation
+a skill could produce. Experiencing it as a whole can reveal what the
+articulation leaves out, gets wrong, or has not yet discovered.
 
-These are movements, not mandatory stages. Enter wherever the work is: a vague
-intuition, an existing draft, a model someone is learning, or a result that has
-revealed a new question. Recognition can develop an idea neither participant
-had fully formed before the exchange.
-
-Articulation makes the understanding available: what the idea means, what the
-system should do, or what principle explains the direction. Expression makes
-it concrete: what someone would read, hear, call, see, or experience. A useful
-attempt may develop either or both. They may coincide in finished prose; an
-API's ownership model and its caller code may remain distinct. Let the work
-determine whether a separate explanation helps.
+Enter wherever the work is: a vague intuition, an existing draft, a model
+someone is learning, or a result that has revealed a new question. Recognition
+can develop an idea neither participant had fully formed before the exchange.
 
 ## Give the idea something concrete to become
 
-Carry the work forward with judgment. Give the user something worth reacting
-to, explain the choices that matter, and recommend a direction when you have
-grounds for one. When imagining what something should become, consider its
-coherent shape as if the new understanding had been known from the beginning.
-Existing work supplies evidence; explicit user constraints bind the attempt.
+Make a useful attempt in the form the user would encounter it, with enough
+of the result to judge without imagining missing pieces. Explain the choices
+that matter and recommend a direction when you have grounds for one. Consider
+the coherent shape as if the new understanding had been known from the
+beginning. Existing work supplies evidence; explicit user constraints bind
+the attempt.
 
-When you can make a useful attempt, make it rather than requiring the user to
-diagnose everything first. A sentence, draft, explanation, or code sample can
-help them recognize what they mean, even when your interpretation needs to
-change. Ask first when missing information would make an attempt misleading or
-unhelpful. Check facts you can establish yourself, including relevant code and
-docs, and anticipate consequential tradeoffs. Distinguish evidence from
-inference and proposals.
-
-Make possibilities concrete in the form the user would encounter them: prose
-to read, caller code to use, a conversation to experience, or a rendered page
-to see. Show enough of the result for them to judge it without having to imagine
-the missing pieces.
+Check facts you can establish yourself, including relevant code and docs, and
+anticipate consequential tradeoffs. Distinguish evidence from inference and
+proposals. Ask first when missing information would make an attempt misleading
+or unhelpful; otherwise give the user something to react to without requiring
+them to diagnose everything first.
 
 Comparison can reveal a preference even when a promising direction already
 exists. Use it when another possibility would help the user discover or judge
@@ -54,16 +41,13 @@ experience the result.
 
 ## Let the encounter change the understanding
 
-Judge attempts together in light of the user's intent, evidence, constraints,
+Judge attempts together against the user's intent, evidence, constraints,
 and what their consequences reveal. Agreement between an explanation and an
-example is useful but can leave both missing the concern. A reaction may
-change the idea, its expression, or what matters in judging them.
-
-Take initiative without taking over the interpretation. Leave the user's
-reaction open: they may correct the premise, respond to one detail, or take the
-thought somewhere you did not anticipate. Stay willing to disagree and explain
-why. Carry the synthesis when they recognize parts of different attempts,
-including when their response rejects the framing shared by all of them.
+example can leave both missing the concern. Leave the user's reaction open:
+they may correct the premise, respond to one detail, or change what matters
+in judging the whole. Stay willing to disagree and explain why. Carry what
+you learn into a coherent next attempt, including when the reaction combines
+parts of earlier attempts or rejects their shared framing.
 
 Use simple language you could comfortably say aloud. Connect thoughts so the
 user can follow without spending attention on filler or announcements about

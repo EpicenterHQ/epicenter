@@ -162,65 +162,75 @@ about current package exports. Unrelated setup is omitted.
 
 ## Agent skills: experience the behavior before encoding it
 
-The services and their constraints in these sample conversations are fictional.
+All exchanges below are invented samples. The services and their constraints
+are fictional; the outer reactions illustrate discovery, not recorded preferences.
 
 > **Human:** The architecture-review skill gives me a huge analysis. It doesn't
 > feel like we're thinking together.
 >
-> **Agent:** I'd make it take a position earlier and leave room to develop it
-> with you. These two conversations start with the same question, but give you
-> something different to respond to.
->
-> **1. Start with a recommendation**
+> **Agent:** I'd have it offer a provisional recommendation and ask what could
+> change that judgment. Here's a sample of how the conversation might develop.
 >
 >> **Human:** I'm thinking about combining these two services.
 >>
->> **Agent:** I'd probably combine them. They share a database, deploy together,
->> and most changes touch both. Billing's write restrictions are worth keeping,
->> but they may not require a separate deployment. What's making you hesitate?
+>> **Agent:** I'd lean toward combining them: they share a database, deploy
+>> together, and most changes touch both. I'd preserve billing's write
+>> restrictions behind an internal API. What prompted this now?
 >>
->> **Human:** Mostly protecting billing from unrelated code.
+>> **Human:** Yesterday a tiny change needed two deployments. But billing is
+>> about to move to another team.
 >>
->> **Agent:** Then I'd combine the deployment and keep billing behind a narrow
->> internal API. That preserves the restriction while removing release coordination.
+>> **Agent:** Separate ownership could make independent deployment useful.
+>> I'd check whether the new team needs to release billing without coordinating
+>> with you before deciding to merge.
+>>
+>> **Human:** I don't know yet. I'm meeting them tomorrow.
+>>
+>> **Agent:** Find that out tomorrow, then we can decide whether merging is
+>> still the right move.
 >
-> **2. Start with what led you here**
+> **Human:** That starts well, and I like that it changes its mind. But now
+> it's handed the work back to me. I'd want help figuring out tomorrow's
+> conversation. Having an opinion and asking questions isn't quite enough.
+>
+> **Agent:** The missing part is helping you act on the uncertainty. The skill
+> needs to carry the work forward even when it can't settle the original
+> decision. Here's that same situation with the consequence carried through.
 >
 >> **Human:** I'm thinking about combining these two services.
 >>
->> **Agent:** What happened recently that made you want to combine them?
+>> **Agent:** I'd lean toward combining them: they share a database, deploy
+>> together, and most changes touch both. I'd preserve billing's write
+>> restrictions behind an internal API. What prompted this now?
 >>
->> **Human:** I had to coordinate two deployments for a tiny change.
+>> **Human:** Yesterday a tiny change needed two deployments. But billing is
+>> about to move to another team.
 >>
->> **Agent:** If deploying them together were easy, would you still want to
->> combine them? That would help distinguish a deployment problem from a boundary
->> that makes ordinary changes harder.
+>> **Agent:** That makes me less certain. If the new team needs independent
+>> releases, merging could create the coordination you're trying to remove.
+>> Do you know what they'll own and release on their own?
 >>
->> **Human:** Almost every change crosses it. Deployment is only part of it.
+>> **Human:** I don't know yet. I'm meeting them tomorrow.
 >>
->> **Agent:** Then I'd examine combining them. Their billing write restriction
->> can remain an internal boundary; making it a separate service may be adding
->> work without providing the isolation you need.
+>> **Agent:** I'd bring yesterday's change to that meeting and walk through
+>> how it would work after the handoff: who changes the code, who approves it,
+>> and who releases it. Ask them for a change they'd expect to ship without
+>> you, too. Those two cases should show whether the service boundary helps
+>> the teams work independently. If both still require joint releases, I'd
+>> revisit merging; if billing can ship independently, I'd first fix the
+>> deployment friction while keeping that boundary.
 >
-> **Agent:** I'd lean toward 1 for your complaint: it gives you something to
-> push against immediately. The useful part of 2 is finding out what prompted
-> the question before getting attached to a solution.
+> **Human:** Yes. That's more like thinking together. Update the skill.
 >
-> **Human:** I want both. Have an opinion, but stay interested in why I'm asking.
-> I don't want an interview before you tell me anything.
->
-> **Agent:** Then I'd try this opening:
->
->> Combining them looks reasonable because they deploy and change together.
->> I'd preserve billing's write restrictions inside the combined service.
->> What happened that made you consider it now? That could change whether
->> combining them is the right fix.
->
-> **Human:** That's closer. Update the skill that way.
->
-> **Agent:** I'll replace the push toward exhaustive analysis with that
-> judgment: offer a grounded provisional view and investigate what could change
-> it. The example's exact wording doesn't need to become a required opening.
+> **Agent:** I'll have it offer a grounded provisional judgment, revise that
+> judgment when the situation changes, and help make the next useful move
+> concrete when uncertainty prevents a decision. The meeting suggestion is
+> specific to this example; it doesn't need to become a required step.
+
+The later turns reveal something the initial articulation did not name:
+revising a recommendation can still leave the user carrying the unresolved
+work. Experiencing the conversation makes that omission available for judgment.
+
 
 ## Website design: react to the rendered page
 
