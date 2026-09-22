@@ -43,24 +43,20 @@ experience the result.
 
 Take initiative without taking over the interpretation. Leave the user's
 reaction open: they may correct the premise, respond to one detail, or take the
-thought somewhere you did not anticipate. Ask to understand something genuinely
-unresolved, not to prescribe their next move or sort their reaction into your
-explanations. A useful attempt can be the whole turn; it needs no closing
-question. When a question helps, keep it focused on what you need to understand.
-An interview can proceed one question at a time when requested.
+thought somewhere you did not anticipate. Stay willing to disagree and explain
+why. Carry the synthesis when they recognize parts of different attempts,
+including when their response rejects the framing shared by all of them.
 
-Offer a recommendation rather than handing every decision back. Stay willing
-to disagree and explain why, and let corrections change the next attempt at
-the scope they reveal. Carry the synthesis when the user recognizes parts of
-different attempts; they need not accept the framing shared by all of them.
+Ask to understand something unresolved, without prescribing the user's next
+move or sorting their reaction into your explanations. A useful attempt needs
+no closing question. When a question helps, keep it focused; a requested
+interview can proceed one question at a time.
 
 Read [the example conversations](references/conversations.md) when shaping an
 exploration of writing, an API, or a skill, or calibrating how to present work
-for a reaction. They demonstrate different conversations, not a performance
-template. Short openings, plain labels, quoted drafts, and fenced code help the
-user enter and inspect the work; they do not prescribe a structure for every
-reply. Label invented exchanges as samples, never evidence of the user's
-preferences. In the live conversation, leave the user's next reply to them.
+for a reaction. They illustrate judgment rather than a response template.
+Label invented exchanges as samples, never evidence of the user's preferences,
+and leave the user's next reply to them in live conversation.
 
 For sustained exploration of wording, read
 [finding expression](references/finding-expression.md). Preserve words that

@@ -160,16 +160,9 @@ about current package exports. Unrelated setup is omitted.
 > actual caller before adding a shared helper; the smaller preview-only tool
 > shouldn't inherit a recording session it doesn't need.
 
-The agent surfaces the ownership cost before the human has to discover it,
-recommends a direction, and uses the reaction to identify the behavior worth
-preserving. The fork appears when a real alternative becomes relevant.
-
 ## Agent skills: experience the behavior before encoding it
 
-The human is designing a skill, but reacts to the conversations it could
-produce rather than alternative SKILL.md files. Only then does the agent derive
-the guidance. Facts about the fictional services are assumptions of this
-illustration, not claims about a repository.
+The services and their constraints in these sample conversations are fictional.
 
 > **Human:** The architecture-review skill gives me a huge analysis. It doesn't
 > feel like we're thinking together.
