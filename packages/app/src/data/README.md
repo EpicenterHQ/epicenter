@@ -31,6 +31,40 @@ removes generations and retirement.
 replaces checkout's three-way planning with field-level file-versus-baseline
 edits. Pull/Push application and CLI wiring remain unbuilt.
 
+## Validate working files
+
+From the repository root, run `bun run epicenter validate FOLDER --json`.
+The root command and executable launcher disable Bun's automatic dependency
+installation. When invoking the source directly, use
+`bun --no-install scripts/epicenter.ts validate FOLDER --json`.
+Replace `FOLDER` with the working folder path. The command imports that folder's
+`epicenter.config.ts` once in a fresh Bun process. Default-export a definition
+built with `defineApp`, `defineTable`, and `field`, or re-export an existing
+definition. Imports must resolve from the config's location; install its
+dependencies yourself. The workspace packages are private, not a published
+definition catalog.
+
+The validator reads `kv.json` and each declared table's Markdown directory.
+It creates no files or metadata and opens no store. Config and dependency code
+execute with ordinary process access and can have side effects. There is no
+automatic installation, typechecking, JSON-schema fallback, or config discovery.
+
+Exit codes are `0` for conforming files, `1` for conformance issues, and `2` for
+missing inputs or command errors. Undeclared fields produce no conformance
+issue. Omitted declared row fields are checked as null; declared KV keys must
+be present even if they accept null. Validation does not rewrite either form.
+
+With `--json`, stdout carries the report and global `console` diagnostics go
+to stderr. Separately accessed builtin console exports, including
+`import { log } from 'node:console'` and namespace `.log` calls, bypass that
+redirection on Bun 1.3.14. Configs and their dependencies must use global
+`console` or write diagnostics to stderr to preserve JSON output. Builtin console
+exports and direct stdout writes can corrupt the report even with exit code 0.
+An import that calls `process.exit` can end the process without a report.
+These are trusted-code exceptions; the command does not isolate imported code.
+Validation applies the existing compiler's semantics; it does not
+detect every JSON Schema keyword the underlying compiler might ignore.
+
 ## Current-data startup
 
 Applications await `openApp` from `@epicenter/app/open` for a ready App; see the
@@ -367,8 +401,8 @@ for (const issue of data.tables.notes.nonconforming) {
 data.tables.notes.update(issue.id, { n: 7 }); // an ordinary write repairs it
 ```
 
-A patch validates only the values it supplies, so it can fix the offending key
-even though the whole payload does not currently pass. `stored()` and the
+An update assigns the supplied fields without checking conformance, so it can
+repair one key while other fields remain nonconforming. `stored()` and the
 export read the raw values regardless, so a broken row is never invisible;
 `nonconforming` is the only thing that knows they failed.
 

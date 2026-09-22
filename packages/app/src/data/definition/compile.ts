@@ -1,11 +1,5 @@
 /**
- * Turning a first-party declaration into the compiled form the store reads.
- *
- * The runtime half of the rules `define.ts` states at the authoring call.
- * Definitions arrive from trusted TypeScript modules, not serialized JSON.
- *
- * Nothing an application writes points at this file. It is the boundary
- * between what was declared and what the engine holds.
+ * Compile developer declarations into read lenses with field checks and codecs.
  */
 
 import type { TSchema } from 'typebox';
@@ -261,11 +255,20 @@ function compileTable(
 				reason: 'expected a closed @epicenter/app/field descriptor',
 			});
 		}
-		const check = compileField(base.schema);
+		const checker = trySync({
+			try: () => compileField(base.schema),
+			catch: (cause) =>
+				DataDefinitionParseError.UnrecognizedField({
+					table: tableName,
+					field: fieldName,
+					reason: String(cause),
+				}),
+		});
+		if (checker.error) return checker;
+		const check = checker.data;
 		compiled.set(fieldName, {
 			name: fieldName,
 			kind: base.kind,
-			valueSchema: base.schema,
 			schema: wire,
 			check:
 				nullableDescriptor === null
@@ -310,7 +313,12 @@ function compileTable(
 function nullableParts(
 	value: Record<string, unknown>,
 ): { inner: TSchema } | null {
-	if (!Array.isArray(value.anyOf) || value.anyOf.length !== 2) return null;
+	if (
+		Object.keys(value).some((key) => key !== 'anyOf') ||
+		!Array.isArray(value.anyOf) ||
+		value.anyOf.length !== 2
+	)
+		return null;
 	const nonNull = value.anyOf.filter((part) => !isNullSchema(part));
 	return nonNull.length === 1 && isPlainObject(nonNull[0])
 		? { inner: nonNull[0] }

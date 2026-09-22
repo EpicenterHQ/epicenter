@@ -1,6 +1,7 @@
 /**
- * Declaration compilation preserves optional codecs and validates supplied ones.
- * Key behaviors: omission adds no codec; malformed codecs fail eagerly.
+ * Declaration compilation preserves codecs and compiles trusted field schemas.
+ * Key behaviors: malformed codecs and compiler failures report errors; nullable
+ * wrappers remain closed; conformance requires stored fields to be present.
  */
 import { expect, test } from 'bun:test';
 import { defineApp } from '@epicenter/app';
@@ -80,4 +81,71 @@ test('unserializable or non-finite field descriptors return a malformed declarat
 		});
 		expect(expectErr(result).name).toBe('Malformed');
 	}
+});
+
+test('field compiler failures identify the table and field', () => {
+	const error = expectErr(
+		compileData({
+			id: 'test.invalid-pattern',
+			kv: {},
+			tables: {
+				notes: { title: field.json({ type: 'string', pattern: '[' }) },
+			},
+		}),
+	);
+	expect(error).toMatchObject({
+		name: 'UnrecognizedField',
+		table: 'notes',
+		field: 'title',
+	});
+	expect(error.message).toContain('regular expression');
+});
+
+test('nullable wrappers refuse extra keywords that would otherwise be ignored', () => {
+	const error = expectErr(
+		compileData({
+			id: 'test.invalid-nullable',
+			kv: { title: { ...field.nullable(field.string()), maxLength: 2 } },
+			tables: {},
+		}),
+	);
+	expect(error).toMatchObject({
+		name: 'UnrecognizedField',
+		table: 'kv',
+		field: 'title',
+	});
+});
+
+test('nullable fields accept explicit null but still require stored presence', () => {
+	const definition = expectOk(
+		compileData({
+			id: 'test.nullable',
+			kv: { title: field.nullable(field.string()) },
+			tables: {},
+		}),
+	);
+	expect(definition.kv.conformance({ title: null })).toEqual({
+		conforming: { title: null },
+		issues: [],
+	});
+	expect(definition.kv.conformance({}).issues).toEqual([
+		{ field: 'title', message: 'title is missing' },
+	]);
+});
+
+test('trusted JSON fields retain compiler support for local schema references', () => {
+	const definition = expectOk(
+		compileData({
+			id: 'test.json-reference',
+			kv: {
+				value: field.json({
+					$defs: { text: { type: 'string', minLength: 2 } },
+					$ref: '#/$defs/text',
+				}),
+			},
+			tables: {},
+		}),
+	);
+	expect(definition.kv.conformance({ value: 'yes' }).issues).toEqual([]);
+	expect(definition.kv.conformance({ value: 'x' }).issues).toHaveLength(1);
 });

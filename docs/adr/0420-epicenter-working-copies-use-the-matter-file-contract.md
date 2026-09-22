@@ -1,219 +1,188 @@
-# 0420. Epicenter working copies use the Matter file contract
+# 0420. Working copies use an executable config and shared Markdown parsing
 
-- **Status:** Proposed
-- **Date:** 2026-09-21
-- **Implemented boundary:** Shared YAML parsing for Matter and Epicenter artifacts, with strict malformed-input refusal and artifact JSON-value validation. This does not implement the permitted-field Push policy.
-- **Unbuilt:** Faithful store-to-Matter schema mapping, generated per-table contracts on Pull, checkout-aware editing restrictions in Matter, root KV schema representation, and shared working-copy indexing integration.
+- **Status:** Accepted
+- **Date:** 2026-09-22
+- **Amends:** [ADR-0125](0125-record-definitions-are-release-local-lenses-and-never-migrate-user-data.md) at runtime write validation: ordinary store assignments, including permitted working-copy edits, preserve JSON values independently of conformance. Definitions remain consumer-specific read lenses and never migrate stored data; static authoring types are not a runtime write gate.
+- **Implemented boundary:** Executable-config validation, shared YAML parsing for Matter and Epicenter artifacts, strict malformed-input refusal, and artifact JSON-value validation.
+- **Unbuilt:** Owner-routed field-only Pull/Push and checkout-aware Matter integration.
 
 ## Context
 
-Matter describes table folders using `matter.json`, reads rows from Markdown
-frontmatter and bodies, and derives a disposable SQLite query index. Epicenter's
-working-copy direction also uses Markdown rows and read-only SQL. Maintaining
-two file contracts would duplicate schema interpretation, validation, and query
-mapping while making the same folder behave differently in different tools.
+People and agents edit Markdown frontmatter and root `kv.json`, then explicitly
+Push the intended field changes. A definition describes how a consumer reads
+those values; it does not own every interpretation of the stored data.
 
-The existing implementations are not interchangeable. In
-`packages/matter-core/src/core/contract.ts`, optionality is folder policy and
-nullable schema wrappers become untyped. Epicenter store definitions include
-nullable fields. Matter also permits body editing, whereas the agreed agent
-Push path refuses it. Root `kv.json` needs a schema representation that table
-folders alone do not provide.
+An editable JSON schema introduced another input language, object-admission
+checks, and schema conversion work. Generating JSON from TypeScript would keep
+both paths and introduce a question about which file is current. The user
+explicitly accepts installing config dependencies and ordinary execution
+failures. Dependency-free validation is not a requirement.
 
 ## Decision
 
-**An Epicenter working copy uses Matter's typed Markdown format.**
+**One root `epicenter.config.ts` supplies the working folder's read lens.**
 
-Each table carries its own `matter.json`. The root groups tables and contains
-KV and Epicenter working-copy metadata; it does not repeat all table schemas.
+The config default-exports a definition accepted by the existing `compileData`
+path. It can construct that definition with `defineApp`, `defineTable`, and
+`field`, or import an existing developer definition. No second config builder,
+JSON loader, or generated schema is required.
 
 ```text
 working-copy/
-  recordings/
-    matter.json
-    <recording-id>.md
-  folders/
-    matter.json
-    <folder-id>.md
+  epicenter.config.ts
   kv.json
+  recordings/
+    <recording-id>.md
   .gitignore
   AGENTS.md
   .epicenter/
     manifest.json
-    query.sqlite                 # optional, disposable
+    query.sqlite          # optional, disposable
 ```
 
-The directory name is the table name; each `<row-id>.md` file is one row.
-[ADR-0422](0422-git-versions-working-copy-content-not-submission-state.md) defines
-which files travel through Git and which state stays local. This is the target
-layout; indexing placement and filesystem integration remain unbuilt. Opening a
-table folder is sufficient to interpret its fields. Cross-table references can
-still require the containing workspace. Copying a table folder alone does not
-transfer Epicenter destination identity or make it independently pushable.
+The root config replaces the proposed `store.schema.json`, `kv.schema.json`,
+and per-table `matter.json` for Epicenter checkouts. Standalone Matter retains
+its own format. A future explicit JSON export needs a concrete consumer; no
+exporter, automatic generation, or fallback JSON reader is part of this work.
 
-**One YAML reader interprets frontmatter; field values define changes.**
+**Validation loads the explicitly selected folder's config once per invocation.**
 
-An empty field map retains a fenced mapping when serialized, including when
-Matter clears the last field. Empty or comment-only YAML represents an empty
-map. An explicit top-level YAML null is a scalar and refuses; it must not become
-an instruction to clear every field.
+The target command is `epicenter validate <folder> [--json]`. It imports exactly
+`<folder>/epicenter.config.ts` in a fresh Bun process, uses the exported
+definition's compiled field checks, and reads `kv.json` plus Markdown files
+in its declared table directories. It does not search parent directories,
+install dependencies, start a store, or load project configs when Desktop
+browses a directory. No watcher or hot-reload lifecycle is introduced.
+The supported launchers pass Bun's `--no-install` flag so runtime dependency
+resolution cannot automatically fetch a missing package.
 
-Epicenter artifacts and Matter use the parser exported by
-`@epicenter/matter-core/parse`. It depends on YAML parsing, not vault ownership,
-filesystem access, or SQL. Epicenter retains its JSON-compatible value boundary
-and artifact body framing. It does not keep a second line-by-line reader,
-skip malformed lines, or guess values after a parse failure.
+Missing config, missing dependencies, missing default export, thrown module or
+compile errors, unreadable files, and malformed file input are command errors.
+Use an error boundary around loading and validation; report file context and
+preserve structured output under `--json`. Exit codes are 0 for conforming
+input, 1 for conformance issues, and 2 for incomplete input or command errors.
+Unknown fields remain readable and produce no issue merely for being undeclared.
+Validation is not a Push preflight, permission check, or row-existence check.
 
-Frontmatter quoting, whitespace, key order, and comments are not preserved.
-The body remains opaque text. A formatting-only rewrite must produce no field
-edits. Pull and Push must interpret materialized values through the same reader
-and normalization rules. Artifact separator newlines are framing, not a second
-Markdown syntax.
+Under `--json`, the CLI writes its report to stdout and redirects global
+`console` diagnostics to stderr. On Bun 1.3.14, separately accessed builtin
+console exports bypass that redirection, including named imports and namespace
+access to `node:console`. The user accepted these as trusted-code exceptions,
+alongside direct stdout writes and explicit process exit. Configs and their
+dependencies must use global `console` or write diagnostics to stderr when JSON
+output is required. Otherwise output can be invalid JSON even with exit code 0.
+The CLI does not add loader hooks or subprocess isolation to control imported
+code. Test global logging, builtin exports, thrown imports, and explicit process
+exit; distinguish a reported failure from an aborted process.
 
-Support the declared shared field vocabulary and its constraints. Do not build
-an arbitrary schema converter or silently downgrade an unsupported field to
-claim a faithful checkout. App and Matter currently have separate field-model
-implementations; sharing them requires checking semantic differences first.
-Generated schemas remain descriptive and never grant mutation permission.
+Running validation executes trusted project code and its transitive imports.
+There is no repeated confirmation prompt or sandbox promise. The command's own
+validation logic does not write files, submit edits, or open persistence.
+Imported code can have side effects; the whole invocation cannot be promised
+read-only. Missing dependencies fail normally. Current private workspace
+packages do not establish an installable public definition distribution.
 
-Parsing and structural checks precede comparison. Validate permissions and
-field constraints on changed values before applying a submission. An unchanged
-stored value that does not conform to a newer definition must not silently
-become a repair or block an unrelated permitted edit. Unsupported schema shapes
-must be distinguished from nonconforming values under a supported schema.
+Use the existing compiler's semantics, including its closed field recognition.
+Do not introduce a handwritten second JSON Schema dialect to catch every
+authoring mistake. Catching an exception does not detect constraints an
+underlying library ignores. Fix demonstrated compiler defects in their owning
+layer without claiming universal schema linting. Config execution does not
+include automatic TypeScript typechecking.
 
-**The shared format does not imply shared authority.**
+**A lens grants no destination, persistence ownership, or write permission.**
 
-In standalone Matter, files are authoritative. Matter and ordinary editors
-write them, and its grid and SQL index follow them. No account or Push baseline
-is required.
+The app developer chooses the lens shipped by that app. A folder author chooses
+the config used by this tool. Changing either may change conformance diagnostics
+without changing stored values. A config's definition ID describes the lens;
+editing it cannot retarget an existing checkout.
 
-In an Epicenter checkout, the live store remains authoritative for synchronized
-application data. Pull materializes files and a comparison baseline. File edits
-are prepared changes until Push validates and submits permitted field differences
-through the running store owner. There is no automatic filesystem-to-store sync.
+The materialization manifest records the destination, managed table and row
+paths, field baseline, and protected body fingerprints. Push uses those facts
+and the receiving owner's permissions, independently of the mutable config.
+Removing a table from the config must not hide its prepared edits from Push.
+Adding a table cannot claim an unrelated directory. Config-only edits produce
+no store edits and require no schema fingerprint or tampering refusal.
 
-**Pull generates the file schema from the application definition.**
+Pull and Push do not need to execute the local config. Pull obtains raw values
+and body rendering from the running owner, whose definition can carry codecs.
+Push parses captured files and submits permitted differences under ADR-0418.
+Neither operation replaces the authored config. Creating or providing a
+config is an explicit authoring step, separate from materializing store data;
+a freshly pulled folder can be read and pushed before a config is provided,
+but validation reports the missing config. Do not invent an import path to an
+unpublished app package when scaffolding a folder.
 
-Generated `matter.json` describes the serialized fields without importing app
-code. It does not serialize content codecs, transports, credentials, or live
-resources. The running owner validates Push against its own mutation contract;
-editing local schema or editing-policy metadata cannot grant additional writes.
-Modified generated contracts must be reported and refused rather than adopted
-as store migrations. Standalone Matter schemas remain user-authored.
+**Markdown omission spells null; KV retains physical presence.**
 
-The app developer owns its definition. Pull obtains the portable schema from
-the definition used by the running owner; a server catalog is not required.
-A catalog may publish that definition without becoming a second schema authority.
-Changing an app definition requires an explicit release and data-upgrade policy;
-editing a checkout does not change the definition understood by an existing app.
+Epicenter and Matter share `@epicenter/matter-core/parse`. Artifact framing
+and JSON-compatible value checks remain at the file boundary. Malformed YAML,
+duplicate keys, non-JSON values, and top-level YAML scalars refuse. Empty or
+comment-only fenced YAML is an empty field map. Bodies remain opaque text.
 
-Removing a generated contract or checkout metadata does not turn a submission
-into an unrestricted import. A checkout with a missing destination or baseline
-cannot Push. Application schema changes must not silently reinterpret prepared
-edits: incompatible submissions refuse while preserving files. Updating the
-checkout schema belongs to an explicit working-copy operation.
+For row comparison, omitted and explicit-null fields are equivalent.
+Removing a populated row field assigns null. For row validation, supply null
+for each omitted declared field and run its actual check. This includes JSON
+fields whose schemas accept null without an explicit nullable wrapper.
+Required strings still fail. This file interpretation does not relax presence
+checks on stored rows or rewrite files. Empty strings, zero, and false retain
+their values. Nested JSON remains one assigned field.
 
-Within a checkout, `<table>/<row-id>.md` maps to the declared table and immutable
-row ID. Renaming a file does not rename the record. Matter's reserved names,
-including query columns such as `body`, require explicit collision handling;
-schema export must not overwrite a user field or silently change its identity.
+Every declared KV key must be present for conformance. Nullable allows a present
+null; it does not make the key optional. Removing a key present in the baseline
+deletes it, even when the deletion produces a conformance diagnostic. A key
+absent from both baseline and file produces no write. A missing entire
+`kv.json` is incomplete input, never delete-all.
 
-**Declared nullable fields have one empty value and two file spellings.**
+**Shared parsing does not imply shared storage or editor capabilities.**
 
-A complete typed record represents an empty nullable field as `null`. Canonical
-Markdown omits that key. Reading a declared nullable field accepts an absent key,
-explicit YAML null, or a bare `key:` as the same empty value. Missing or null
-non-nullable fields fail validation. Empty strings, zero, and false remain
-values subject to their field constraints. `undefined` is not a persisted field
-value. Top-level field null always means empty, including for JSON fields;
-nested JSON nulls remain ordinary data.
+Standalone Matter files are authoritative. Epicenter files hold prepared edits
+until Push through the running owner. Matter's current `matter.json` discovery
+does not load `epicenter.config.ts`; generic checkout UI integration remains
+unbuilt. Opening a checkout in an editor grants no body or protected-field
+writes. Push refuses body differences and added or removed rows before mutation.
 
-Push normalizes the files and baseline under the same checkout contract before
-comparison. Removing a populated nullable key submits a clear. Leaving an empty
-key absent submits nothing, even if the live store has since acquired a value.
-Replacing explicit null with omission changes formatting only. In an internal
-update patch, an omitted property still means no edit and explicit null clears.
-
-Strict parsing precedes normalization so malformed syntax cannot become a
-clearing instruction. Schema drift must not turn fields absent from an older
-checkout into edits. This boundary completes sparse file records; it does not
-silently repair incomplete persisted rows or reinterpret unknown fields.
-
-The shared field model has one emptiness policy rather than independent
-optional and nullable choices. Its serialized schema encoding remains to be
-implemented. Preserve field types and supported constraints; unsupported fields
-must be diagnosed rather than silently downgraded to claim compatibility.
-Root KV needs one explicit schema representation and absence policy; this
-record does not infer key deletion from the nullable row-field rule or invent a
-second table schema registry.
-
-**Matter tooling respects checkout editing restrictions.**
-
-Epicenter checkout bodies are readable context. Matter must expose their
-read-only status, and Push rejects any body change before applying a submission,
-regardless of the editor used. Protected fields are likewise not made writable
-by appearing in frontmatter. Standalone Matter keeps its own body-editing
-capability. Creation and deletion in Epicenter checkouts remain outside the
-settled field-update contract until separately specified.
-
-**SQL indexes are derived reads, never another authoring format.**
-
-Reuse Matter's file interpretation and index-building machinery for working-copy
-queries rather than build an Epicenter-specific Markdown query engine. An index
-maps rows to stable IDs and file paths, reports invalid files, and states its
-refresh point. Rebuilds do not modify files or Push baselines. Pull need not ship
-a SQLite file; local tooling can derive it from the files and contracts.
-
-The live application SQL projection follows the live store, not the working
-folder. It can share value-to-SQL mapping where semantics match, but it has a
-different source and lifecycle. Neither SQL view accepts user mutations or
-participates in Push. Indexing remains optional.
-
-**Scripts edit the same files as people and Matter.**
-
-A trusted TypeScript script can use parsing and field-edit helpers to batch-edit
-frontmatter or KV. It needs no persistent store handle or Yjs replica. Importing
-`matter.json` supplies a schema value, not automatic static types for parsed
-rows or arbitrary SQL results. Generated types are optional future tooling;
-runtime validation remains necessary for externally edited files.
+SQL is an optional derived read surface. A file index names its source and
+refresh point; it does not change files or the baseline. Matter's schema and
+query adapters are separate integration work, not a prerequisite for validation
+or the first script-driven Pull/edit/Push workflow.
 
 ## Consequences
 
-One typed-file contract serves standalone folders and Epicenter checkouts.
-Destination identity, access, baseline advancement, and interrupted-Push recovery
-remain Epicenter responsibilities. Matter does not become a synchronization
-service, and filesystem writes do not become live store mutations.
+One authored source removes portable-schema admission, schema conversion,
+generated-file precedence, regeneration, and freshness tracking. Working files
+remain ordinary readable Markdown and JSON; validation requires executing the
+config with its dependencies available.
 
-Implement the schema mapping and checkout restrictions, then wire Pull and
-field-only Push through the running owner with durable success and explicit
-reconciliation after interruption. Reuse indexing when a caller needs it. Native persistence migration, space membership, and
-TypeScript code generation do not block the file workflow.
+Importing a definition can load more than field builders. Honeycrisp's current
+definition imports its editor schema and Markdown codecs. Missing imports are
+ordinary failures, and reducing those dependency graphs is separate work.
 
-The composition is a target, not a statement that schema compatibility, body
-restrictions, KV integration, or application wiring already ship. Existing data
-and ongoing document-lineage work are not migrated by this record.
+Only fields changed against the last Pull or successful Push become edits.
+The manifest is durable local bookkeeping; an optional query index is disposable.
+The validator does not open persistence. Imported code remains responsible for
+its own effects and must not acquire a competing persistence owner.
 
 ## Considered alternatives
 
-- One root contract repeating every table schema: table folders lose their
-  self-description and schemas gain a second location to maintain.
-- A separate Epicenter Markdown format: duplicates parsing and indexing for
-  folders intended to be opened by the same tools.
-- Let edited checkout schemas redefine the store: turns descriptive local data
-  into mutation authority and an implicit migration mechanism.
-- Editable SQLite working copies: adds another authoring representation and
-  diff contract where files already express the supported edits.
-- Require application imports or generated TypeScript for every script: removes
-  the portable-file benefit before a caller needs static typing.
+- Editable JSON as the default: requires another schema input boundary for a
+  portability promise the user does not need.
+- Explicit TypeScript-to-JSON generation: useful for a future consumer, but adds
+  an exporter and a second validation input without a present requirement.
+- Automatic generation: adds execution timing, stale outputs, and overwrite
+  policy without simplifying the source of truth.
+- Validate writes against the local lens: confuses interpretation with permission
+  and rejects permitted edits the store can preserve.
 
 ## Verification
 
-Prove nullable omission and explicit null normalize identically; removing a
-populated nullable field clears it; unchanged absence submits no edit; omitted
-patch properties remain untouched; missing required fields fail; schema drift
-and malformed files cannot produce clears; opening a table folder retains its
-schema; standalone Matter body edits remain supported;
-checkout body and generated-contract edits refuse before any Push mutations;
-index rebuilds leave files and baselines unchanged; and the same permitted file
-edits produce the same Push changes regardless of which editor created them.
+Exercise a freshly loaded config on each CLI invocation, including imported
+definitions, missing packages, invalid exports, thrown errors, and config edits
+between runs. Verify structured exit codes and that the validator itself creates
+no metadata or writes. Use a side-effecting fixture to prove the documented
+execution boundary rather than claim imported code is sandboxed.
+
+Verify nullable KV absence versus present null, row omission versus null,
+JSON-field null, undeclared values, malformed files, and unchanged baseline
+fields. Config changes must neither grant writes nor retarget or hide managed
+paths. Test Push and config preservation separately from validation. Run a real
+Pull/title edit/durable Push before claiming the workflow ships.
