@@ -1,8 +1,8 @@
 # 0372. Each store owns its blob namespace
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-08
-- **Unbuilt:** Store-owned `blobs`, removal of standalone public blob openers, public `copyFrom`, remote `add`, ID-addressed remote operations, same-ID publication, and authenticated streaming presentation. Current code opens blobs separately and uploads with a fresh remote ID. Shared ownership and authorization remain deferred.
+- **Implementation (2026-09-22):** The scoped API and transport are implemented. Whispering uses store-owned blobs and scoped copy references; product playback-worker registration remains deferred; see the [verification report](../reports/20260922-store-owned-blobs-implementation.md).
 
 ## Context
 
@@ -24,15 +24,15 @@ must be designed before that opener ships; this record adds no Shared export.
 
 The definition ID selects the blob namespace. The store fixes its owner before
 asynchronous acquisition and owns the blob capability's readiness and cleanup.
-There is no separate public `openLocalBlobs` or `openRemoteBlobs` in the target
+There is no separate public `openLocalBlobs` or `openRemoteBlobs` in the
 API, no optional `blobs` member, and no lazy acquisition mode. Internal adapters
 may remain separate. Opening a store acquires both its document and blob access;
 it does not fetch every blob or certify future network availability.
 
-**Blob operations create objects with `add`, preserve them with `copyFrom`, read
+**Blob operations create objects with `add`, copy their bytes with `copyFrom`, read
 bytes with `get`, and acquire presentation with `open`.**
 
-The following is the target public API, not a claim that all methods exist:
+Each creation and copy returns its new destination ID:
 
 ```ts
 import { openLocal, openPersonal } from '@epicenter/app/open';
@@ -44,14 +44,14 @@ const added = await local.blobs.add(bytes);
 if (added.error) return added;
 const copied = await personal.blobs.copyFrom(local.blobs, added.data, { signal });
 if (copied.error) return copied;
-return local.blobs.copyFrom(personal.blobs, added.data, { signal });
+return local.blobs.copyFrom(personal.blobs, copied.data, { signal });
 ```
 
 Local captures a definition without an Account. Personal captures a definition
 and Account identity/transport before asynchronous acquisition. Neither store
 requires the other. Different definitions can select different namespaces and
 row schemas. The namespace and BlobId are distinct;
-[ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md) owns
+[ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) owns
 address grammar, placement, and identity. Handles never retarget after account
 replacement. Closing one store does not close another.
 
@@ -81,8 +81,8 @@ Account retirement signal.
 
 | Operation | Local and remote contract |
 | --- | --- |
-| `add(bytes)` | Accept Blob/File input, select its format, mint a BlobId, publish complete bytes, return `Result<BlobId, E>` |
-| `copyFrom(source, blobId, { signal }?)` | Copy committed bytes from an actual supported source handle into this destination under the same ID; return `Result<void, E>` after publication |
+| `add(bytes, { signal }?)` | Accept Blob/File input, select its format, mint a BlobId, publish complete bytes, return `Result<BlobId, E>` |
+| `copyFrom(source, blobId, { signal }?)` | Copy committed bytes from an actual supported source handle into this destination under a fresh destination ID; return `Result<BlobId, E>` after publication |
 | `get(blobId)` | Return `Result<Blob, E>` containing the complete payload, without creating a persistent copy in another store |
 | `open(blobId)` | Return `Result<BlobSource, E>` with a usable `url` and idempotent disposal; no promise of complete download or offline retention |
 | `delete(blobId)` | Remove only this placement; deleting an absent object succeeds |
@@ -109,7 +109,7 @@ where real adapters/producers use it. Its existence does not justify public ID
 assignment. Future restore from externally assigned IDs needs a concrete
 validated ingestion contract; it is not implemented speculatively here.
 
-`copyFrom` is the one public identity-preserving transfer spelling. Remove
+`copyFrom` is the one public copy spelling. Remove
 `upload`, `download`, `addFrom`, `addLocal`, and top-level `copyBlob` aliases from
 the target application surface. No destination-ID override exists. To create a
 new identity for supplied bytes, use `add`.
@@ -133,13 +133,13 @@ closing the other store or cancelling its unrelated work. Preserve opened source
 snapshots and owned descriptors; source deletion racing a copy must produce
 complete captured bytes or a failure, never substituted or partial bytes.
 Destination publication is atomic, without overwriting an occupied identity.
-Verified identical retries succeed; different bytes conflict. If equality cannot
-be verified, report conflict rather than guess.
+A new copy never accepts an occupied destination as success. An uncertain
+publication reports failure even if complete destination bytes may exist.
 
 Cancellation or a lost acknowledgment after publication can leave a complete
 destination object. Neither failure nor close promises rollback. The source is
-never deleted. Reconciliation uses the same ID and verified content, not a new
-upload identity. There is no transaction spanning stores or application rows.
+never deleted. A repeated public copy creates another destination ID. Lost server
+acknowledgments may leave an object whose ID the caller never received. There is no transaction spanning stores or application rows.
 
 ### The runtime chooses transport
 
@@ -206,7 +206,7 @@ Historical APIs remain history; no compatibility aliases are required.
 ## Verification
 
 Prove new-byte creation, both local/remote copy directions, cross-namespace local
-copy, exact byte/ID preservation, atomic publication, identical and conflicting
+copy, exact byte preservation with fresh destination IDs, atomic publication, refused
 occupied keys, interrupted transfers, and independent store close. Verify custom
 sources never borrow native provenance. Compare browser and native results,
 including host descriptor release and account retirement. Preserve recorder

@@ -1,18 +1,12 @@
 # @epicenter/app
 
-The identity-preserving blob API is an implementation target in
-[ADR-0372](../../docs/adr/0372-local-and-remote-blobs-open-independently.md),
-[ADR-0426](../../docs/adr/0426-blob-identities-survive-copies-between-scoped-locations.md),
-and [ADR-0427](../../docs/adr/0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md).
-The methods described below reflect current code; `copyFrom` is not implemented
-by this documentation change. The target also moves blob acquisition and cleanup
-under `local.blobs` and `personal.blobs`; standalone blob constructors below
-describe current code. Future `shared.blobs` remains deferred with Shared.
+A store owns its tables, KV, and blob namespace. `openLocal` and `openPersonal`
+return only after document and blob acquisition finish; `store.close()` fences
+both and drains their admitted work. Other services keep independent lifetimes.
 
-Open the resource your operation needs. Each handle captures its destination,
-becomes usable when acquisition completes, and owns terminal cleanup. Products
-choose which handles to acquire together and unwind earlier acquisitions if a
-later one fails.
+Whispering borrows blob access from its Local and Personal stores. The earlier
+[implementation report](../../docs/reports/20260922-store-owned-blobs-implementation.md)
+records the initial transport milestone.
 
 `defineApp` declares data. Importing the package root acquires nothing and loads
 no browser or native implementation. A schema is required only for data stores.
@@ -34,7 +28,7 @@ const personal = await openPersonal(definition, { account });
 Local retains the same address across account changes. Personal captures the
 account's authority, principal, and transport before asynchronous acquisition.
 It never retargets. Closing either store leaves the other usable. Both expose
-`tables`, `kv`, `persistence`, `signal`, and `close()`; their ID is `definition.id`.
+`tables`, `kv`, `blobs`, `persistence`, `signal`, and `close()`; their ID is `definition.id`.
 Personal opens from its cached generation offline, or asks the authority to
 select a generation when no cache exists. No Shared opener is exported.
 
@@ -43,11 +37,11 @@ select a generation when no cache exists. No Shared opener is exported.
 | Subpath | Constructors | Required destination |
 | --- | --- | --- |
 | `/open` | `openLocal`, `openPersonal` | Definition; Personal also requires `account` |
-| `/blobs` | `openLocalBlobs`, `openRemoteBlobs` | `{ id }`; remote also requires `account` |
+| `/blobs` | `LocalBlobs`, `PersonalBlobs` types | Borrow `store.blobs` |
 | `/sqlite` | `openSqlite` | `{ id }` |
 | `/secrets` | `openSecrets` | `{ id }` |
-| `/recorder` | `createRecorder` | `{ blobs: localBlobs }` |
-| `/ai` | `openEpicenterInference`, `openRuntimeInference`, `openEndpointInference` | Account, installed runtime, or endpoint URL |
+| `/recorder` | `createRecorder` | `{ localBlobs }` |
+| `/ai` | `openEpicenterInference`, `openRuntimeTranscriber`, `openEndpointInference` | Account, installed runtime, or endpoint URL |
 | `/ai-connections` | `openLocalConnectionCatalog`, `openAccountConnectionCatalog` | No account, or `{ account }` |
 
 Each owner exposes an abort signal and an idempotent asynchronous `close()`.
@@ -58,7 +52,7 @@ Closing preserves committed data and credentials. It does not sign out, navigate
 or prove every edit reached durable storage or a server.
 
 Default constructors select browser or host implementations with `isTauri()`.
-`StoreRuntime` supplies only document storage and admission to store openers.
+`StoreRuntime` supplies document storage, local blob storage, and admission to store openers.
 `createMemoryStoreRuntime()` from `/testing` provides isolated IndexedDB-backed
 store tests without changing globals. It retains committed data across handle
 close and refuses disposal while a store still owns it. It supplies no simulated
@@ -67,51 +61,90 @@ recording, network, SQL, or credential capabilities.
 ## Blobs and recording
 
 ```ts
-import { openLocalBlobs, openRemoteBlobs } from '@epicenter/app/blobs';
 import { createRecorder } from '@epicenter/app/recorder';
 
-const blobs = await openLocalBlobs({ id: definition.id });
-const recorder = createRecorder({ blobs });
-const started = await recorder.start({});
-if (started.error) throw started.error;
-const saved = await started.data.stop();
-if (saved.error) throw saved.error;
-// The product stores saved.data.blobId in its own recording schema.
-await recorder.close();
-// Closing capture leaves its destination usable.
-const audio = await blobs.get(saved.data.blobId);
+const local = await openLocal(localDefinition);
+const personal = await openPersonal(personalDefinition, { account });
+const recorder = createRecorder({ localBlobs: local.blobs });
+
+const added = await local.blobs.add(file);
+if (!added.error) {
+  const copied = await personal.blobs.copyFrom(local.blobs, added.data);
+  // On success, copied.data is the new destination BlobId.
+}
 ```
 
-Stop publishes bytes into the supplied LocalBlobs destination on both platforms.
-It returns a blob ID, duration, and byte length without creating a row. Cancel
-removes unfinished capture; it cannot retract published bytes. Closing LocalBlobs
-retires its recorders and waits for admitted Stop publication through a private
-writer even though public blob access is fenced. Finish wanted capture before
-closing. Reload or process restart may discard unfinished capture.
+Definitions can differ. A Personal document containing text need not have Local
+audio. `add(Blob)` creates an identity at its destination. `copyFrom(source, id)`
+returns a fresh destination ID and preserves exact bytes. Repeated calls may
+create duplicate objects. Supported directions are Local from Local or Personal, and
+Personal from Local. Handles must be genuine store-owned sources. There are no
+public arbitrary-ID writers, upload/download aliases, or destination overrides.
 
-Local bytes use the fixed `no-account` owner under the application ID. Browser
-storage is `epicenter/<id>/device/no-account/blobs`; native files are under
-`<dataRoot>/apps/<id>/device/no-account/blobs`. Account changes do not move bytes.
-Historical account-local bytes remain untouched, with no adoption or fallback.
+Both scopes expose `get`, `open`, and `delete`; Local also exposes `stat` and
+`list`. Deleting a copy leaves the source, other placements, and rows alone.
+Personal objects use the captured authority, principal, and definition ID.
+Local bytes stay under the definition's fixed `no-account` namespace. Account
+changes do not move bytes or retarget handles.
+
+Recorder Stop publishes locally and returns a Result containing
+`{ blobId, durationMs, byteLength }`. The product separately creates its row.
+Closing the Local store retires its recorders and waits for an admitted Stop
+through the private writer after public admission is fenced. Closing the recorder
+leaves Local usable. There is no `local.recorder` or remote recording destination.
+
+Native copies retain descriptor snapshots and stream outside the WebView.
+Browser copies acquire a Blob snapshot. Each transfer belongs to both stores.
+Remote publication is limited to 25 MiB. Local publication failures retain the destination ID when known. A lost remote
+creation response may leave that ID unknown. If native host cleanup cannot be
+confirmed, closing both participating stores rejects and retains their claims
+until context teardown, even if the host later finishes. An ordinary conflict
+does not poison cleanup.
+
+`get(id)` returns complete bytes. `open(id)` returns independently disposable
+presentation. Personal presentation streams with HEAD, Range, and a pinned strong
+ETag through the original Account; it creates no persistent Local placement.
+Serve the exact `@epicenter/client/blob-worker` asset at
+`/epicenter-blob-worker.js` and register it with scope `/` before presentation:
 
 ```ts
-const remote = await openRemoteBlobs({ id: definition.id, account });
-const uploaded = await remote.addFrom(blobs, saved.data.blobId, { signal });
+await navigator.serviceWorker.register('/epicenter-blob-worker.js', { scope: '/' });
+// Wait until this page has a controller before calling personal.blobs.open(id).
 ```
 
-`addFrom` receives the actual source handle. Native upload carries its validated
-source namespace to the host and streams that file; it does not infer the source
-from the remote destination. Size checks precede byte reads. Closing either
-participant cancels and settles the transfer without closing the other handle.
-An interrupted upload may leave a committed remote object. A workflow that then
-updates a row must check its own cancellation before writing.
+The desktop host serves that asset. Product registration remains deferred.
+A missing or incompatible controlling worker fails `open`; opening a cached
+Personal store does not require the worker or a remote health probe.
 
-`get` returns bytes. `open` returns a disposable display URL; release it when
-playback ends. Remote URLs returned by upload are account-scoped locators.
-Sharing a row does not grant access to its audio. Row deletion does not delete
-local or remote bytes.
+A presentation expires after five minutes. Reacquire deliberately for continued
+playback. Disposal, store close, version replacement, and Account retirement
+refuse later requests. Already received or decoded media cannot be retracted.
+Retiring Account does not close or erase the Personal cache; product departure
+owns closing or replacing the store. Persist BlobIds, never presentation URLs.
+
+## Results and presentation
+
+Resource operations return typed Results for expected failures. Application
+operations preserve those Results until a caller chooses recovery or presentation.
+A UI boundary can use `toastOnError(result, title)` from `@epicenter/ui/sonner`;
+it presents the error and returns the same Result. The resource package does not
+import UI, show toasts, or choose retry behavior.
+
+A workflow spanning bytes and rows must preserve completed work in its outcome.
+If Stop saved audio but row creation failed, retain the blob ID. If copying
+succeeded but storing its reference failed, retain the BlobId and placement. Retrying the
+row write must not require recording or copying again.
+
+Cancellation and presentation belong to the workflow owner. Deliberate departure
+need not show an error toast. Startup failures need a persistent failure state.
+Openers and `close()` retain their rejecting Promise contracts; invalid or closed
+handle use can throw. The product owns cleanup and the error boundary for these
+failures. A Result presenter does not catch arbitrary exceptions.
 
 ## SQLite and secrets
+
+`openSqlite` remains standalone. A future optional `projectSqlite(store)` would
+borrow a store; it is not part of store opening and is not implemented here.
 
 `openSqlite({ id })` acquires a namespace eagerly. `open(name)` and `delete(name)`
 address dynamically named databases under that application's fixed local owner.
@@ -130,12 +163,12 @@ rows. Saved inference keys use their separate catalog namespace.
 ```ts
 import {
   openEpicenterInference,
-  openRuntimeInference,
+  openRuntimeTranscriber,
   openEndpointInference,
 } from '@epicenter/app/ai';
 
 const hosted = await openEpicenterInference({ account });
-const runtime = await openRuntimeInference(); // null when absent
+const runtime = await openRuntimeTranscriber(); // null when absent
 const endpoint = await openEndpointInference({
   baseURL: 'https://inference.example/v1',
   getAuthHeaders: async ({ signal }) => ({
@@ -146,9 +179,31 @@ await endpoint.client.models.list();
 await endpoint.close();
 ```
 
-Each handle owns one OpenAI-compatible client. An available runtime's failure
-remains an error; no constructor chooses a fallback. Protocol compatibility does
-not imply support for every SDK operation.
+Hosted and endpoint handles own OpenAI-compatible clients. The native runtime
+exposes `listModels()` and `transcribe()` directly; it does not emulate HTTP or
+provide chat. An available runtime's failure remains an error; no constructor
+chooses a fallback. Protocol compatibility does not imply support for every
+network SDK operation.
+
+```ts
+const runtime = await openRuntimeTranscriber();
+if (runtime) {
+  const models = await runtime.listModels();
+  // Present models.data for selection when models.error is null.
+  // modelId is the exact ID selected from that host-provided list.
+  const transcript = await runtime.transcribe(
+    { audio, model: modelId, language: 'en' },
+    { signal },
+  );
+}
+```
+
+Model IDs are opaque host catalog strings, not a TypeScript literal union.
+The host lists installed models and validates the requested ID at execution.
+An unknown or removed model fails; no active-model fallback is selected.
+Explicit requests do not change the host's active-model setting. Cancellation
+suppresses delivery and close drains admitted native work without unloading
+the shared engine.
 
 Endpoint authentication has one option: `getAuthHeaders({ signal })`. Omit it
 for an unauthenticated endpoint; return constant headers for a static key.
@@ -203,10 +258,13 @@ platform-free. `/data` opens a document over caller-owned SQLite; disposal leave
 that connection open. `/memory` owns Bun test storage. See the
 [data engine README](src/data/README.md) and [architecture map](ARCHITECTURE.md).
 
-Svelte consumers call `fromData(store)` for each selected store. Products own
-startup rollback and handles that finish opening after unmount. Shared AppBoot
-accepts a product opening function and closes a late result. Startup cancellation retires earlier acquisitions immediately. Document
-replacement keeps its interruption policy; it is not a save barrier.
+Svelte consumers call `fromData(store)` for each selected store. Root handles
+normally live for the browser/WebView lifetime. Shared AppBoot captures the
+account and gives product work a departure signal; it does not close returned
+roots or retry acquisition in the same document. Document destruction ends the
+roots, and the host retires document-owned native access. Products stop capture
+when departure begins, even if navigation stalls. Explicit close remains useful
+for earlier retirement and library cleanup. Reload is not a save barrier.
 
 Clipboard is stateless: import `clipboard` from `/clipboard` directly. It needs
 no resource handle and has no artificial close operation.

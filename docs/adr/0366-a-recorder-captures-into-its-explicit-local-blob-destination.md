@@ -5,7 +5,7 @@
 - **Relates:** [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) (independent row references), [ADR-0401](0401-a-record-names-its-destination-at-creation.md) (original destination), [ADR-0380](0380-resource-handles-own-terminal-shutdown.md) (resource shutdown).
 - **Unverified:** Physical microphone, whole-host interruption, installed WebView playback, Windows publication, and concurrent-device acceptance.
 
-- **Blob identity:** The saved key can later be copied with `destination.copyFrom(localBlobs, blobId)` under [ADR-0372](0372-local-and-remote-blobs-open-independently.md). Capture keeps its private publication capability; no public arbitrary-ID `put` is required. Addresses are specified by [ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md).
+- **Blob identity:** The saved key can later be copied with `destination.copyFrom(localBlobs, blobId)` under [ADR-0372](0372-local-and-remote-blobs-open-independently.md). Capture keeps its private publication capability; no public arbitrary-ID `put` is required. Addresses are specified by [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md).
 
 ## Decision
 

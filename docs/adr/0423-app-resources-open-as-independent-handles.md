@@ -2,9 +2,9 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-22
-- **Unbuilt:** Store-owned blob acquisition and cleanup, removal of standalone blob openers, page-root ownership, direct runtime transcription, inert catalog reads, and complete application outcome propagation.
+- **Unbuilt:** Complete application outcome propagation, Shared resource opening, and live SQLite projections. Page-root composition, direct runtime transcription, and store-owned blob acquisition are implemented in the current product paths; the generic composition surface remains incomplete.
 - **Amends:** [ADR-0388](0388-the-app-owns-what-a-library-scopes-and-the-package-s-modules-supply-what-the-device-supplies.md) and [ADR-0390](0390-the-app-is-the-unit-of-ownership-and-a-capability-is-the-unit-of-sharing.md) at resource ownership; [ADR-0389](0389-the-open-call-decides-the-app-s-type-and-a-local-app-has-no-account-members.md) at aggregate App return types; [ADR-0404](0404-the-opened-account-owns-application-local-storage.md) at account-partitioned local resources; [ADR-0407](0407-app-owns-the-declaration-and-data-engine.md) and [ADR-0408](0408-one-app-opener-uses-a-complete-runtime.md) at aggregate opening and runtime injection; [ADR-0410](0410-an-app-is-returned-ready-and-page-teardown-owns-recovery.md), [ADR-0411](0411-honeycrisp-displays-data-from-one-app.md), [ADR-0412](0412-app-data-addresses-name-scopes-not-libraries.md), and [ADR-0413](0413-app-boot-owns-the-working-page-lifetime.md) at App-wide lifecycle and nested capability access.
-- **Implementation note (2026-09-22):** Current code opens stores and blobs separately. The store-owned `.blobs` surface below is the target, not an existing export. See `packages/app/README.md` for the current public API.
+- **Implementation note (2026-09-22):** Stores own `.blobs` acquisition and cleanup. Whispering opens Local, optional Personal, recorder, and inference resources from its page root; the direct runtime transcriber is implemented. Product integration remains incomplete outside those paths. See `packages/app/README.md` for the current public API.
 
 ## Context
 

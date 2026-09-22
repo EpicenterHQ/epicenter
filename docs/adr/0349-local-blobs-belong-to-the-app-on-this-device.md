@@ -23,7 +23,7 @@ those facts. The same complete filename can identify a browser database value.
 environment.** An application may open several Local stores and use each
 store's `local.blobs`; the definition ID selects the namespace. Account, row,
 and document generation do not select
-its location. [ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md)
+its location. [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md)
 defines the complete local and remote addresses; `id` selects the namespace and
 `blobId` selects an object inside it.
 

@@ -6,7 +6,7 @@
 
 > **2026-07-02 amendment:** Blob keys now use `principals/<principalId>/blobs/<sha256>`. The bucket-only index and presigned-S3 kernel decision are unchanged.
 
-- **Amended by:** [ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md) at blob identity and physical/HTTP addresses. Local blobs use the fixed `device/no-account` path; remote copies retain BlobId within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target. Mandatory presigned upload and the fixed 5 GiB ceiling are also withdrawn; implementation must establish and verify its supported transport and payload limits.
+- **Amended by:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at blob identity and physical/HTTP addresses. Local blobs use the fixed `device/no-account` path; copies return fresh BlobIds within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target. Mandatory presigned upload and the fixed 5 GiB ceiling are also withdrawn; implementation must establish and verify its supported transport and payload limits.
 
 - **Amended by:** [ADR-0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) at media delivery: plaintext and a locator alone do not establish authenticated range playback. The mandatory presigned/redirect transport is not retained; encryption ownership is unchanged.
 

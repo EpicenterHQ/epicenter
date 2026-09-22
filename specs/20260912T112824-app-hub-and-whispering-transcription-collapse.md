@@ -6,6 +6,16 @@
 **Branch**: braden-w/app-schema-derive-export-import (design only; execution branch to be chosen)
 **Supersedes**: `apps/whispering/specs/20260527T002843-cloud-transcription-collapse.md`, `apps/whispering/specs/20260527T003910-transcription-providers-from-first-principles.md`, `apps/whispering/specs/20260530T183000-transcription-provider-registry.md`
 
+## Execution direction, 2026-09-22
+
+For resource ownership and Whispering transcription, execute
+[the page-owned resource plan](20260922T170434-page-owned-resources-and-direct-native-transcription.md).
+The aggregate App, universal `Connection.transcribe`, and `connectionFor` shapes
+in this earlier exploration are not current execution requirements. The rewritten
+[transcription outcome decision](../docs/adr/0396-transcription-operations-preserve-destinations-and-results.md)
+records the operation boundary. Recheck any remaining independent work against
+current code before using this older plan.
+
 ## One Sentence
 
 One App owns Local and available account libraries, applications choose where
@@ -376,7 +386,7 @@ Settled decisions live in the records:
 ## References
 
 - `docs/adr/0392-an-app-has-a-device-scope-and-an-account-scope-and-each-store-sits-under-its-owner.md` - the decision this spec executes
-- `docs/adr/0396-a-connection-transcribes-and-owns-the-four-rules.md` - the `Connection` type, `connectionFor`, and the error set
+- `docs/adr/0396-transcription-operations-preserve-destinations-and-results.md` - the `Connection` type, `connectionFor`, and the error set
 - `packages/app/src/open.ts` - current App composition
 - `packages/app/src/index.ts` - `defineApplication` and the three openers to delete
 - `packages/app/src/recorder.ts` - the existing saved-BlobId Stop contract to preserve

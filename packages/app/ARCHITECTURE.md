@@ -1,38 +1,30 @@
 # Resource ownership
 
-This page describes the implemented constructors. The target in ADR-0372 and
-ADR-0423 makes each store own its blob namespace as `store.blobs`, removing
-standalone public blob openers. That ownership cut is not implemented yet.
-
-`defineApp` is an inert data declaration. Each resource constructor establishes
-its own destination and lifetime. A product opens the resources its workflows
-need, handles partial startup failure, and closes late results after unmount.
+`defineApp` declares data. A Local or Personal store owns document and blob
+readiness, admission, and terminal cleanup. The schema remains platform-free.
+Other services acquire independent resources.
 
 ```text
-Data declaration ──> openLocal ─────> local document admission and persistence
-                 └─> openPersonal ─> captured account, cache, sync, admission
-Application ID ────> openSqlite ────> named databases and physical SQL lifetime
-                 ├─> openSecrets ──> credential namespace
-                 └─> openLocalBlobs ─> bytes, display sources, admitted producers
-                          ↑
-                  createRecorder({ blobs })
-Account + ID ──────> openRemoteBlobs ─> captured transport and transfers
-Account ───────────> openEpicenterInference
-Installed runtime ─> openRuntimeInference
-URL + auth callback > openEndpointInference
-                        each owns one client, requests, and response bodies
-Account or local ──> connection catalog ─> saved records and their cached clients
+Definition -> openLocal -> tables, KV, Local blobs
+           -> openPersonal(Account) -> tables, KV, captured Personal blobs
+Local blobs <- createRecorder({ localBlobs })
+Application ID -> openSqlite -> named databases and physical SQL lifetime
+               -> openSecrets -> credential namespace
+Account -> openEpicenterInference
+Installed runtime -> openRuntimeTranscriber -> model listing and transcription
+URL + auth callback -> openEndpointInference
+Account or local -> connection catalog -> saved records and cached clients
 ```
 
-Closing a dependency ends the operations that need it. Closing a recorder leaves
-its destination alive; closing that destination retires the recorder. A transfer
-borrows both blob handles and is cancelled by either. These relationships live
-at their concrete boundaries, without a generic dependency container.
+A transfer borrows genuine source and destination handles. Both track admitted
+work. Closing a recorder leaves its Local destination alive; closing Local retires
+its recorders while allowing admitted Stop publication. SQL remains independent;
+no store-opening SQL projection is implemented.
 
 ## Documents
 
-`open-store.ts` captures Local or Personal identity and owns one document claim.
-`store-runtime.ts` describes document admission and backing acquisition only.
+`open-store.ts` captures Local or Personal identity and owns one store claim covering document and blob access.
+`store-runtime.ts` describes store admission, document backing, and local blob acquisition.
 `platform/documents.ts` provides the default implementation. The data engine
 owns tables, KV, persistence, and synchronization; see [its README](src/data/README.md).
 
@@ -43,13 +35,13 @@ product decides how its UI leaves the old session. Local remains independent.
 
 `openData` owns a document over caller-supplied SQLite and leaves that connection
 open on disposal. `openMemory` owns Bun test storage. `createMemoryStoreRuntime`
-provides isolated document storage with the same admission and persistence paths,
+provides isolated document and blob storage with the same admission and persistence paths,
 without changing browser globals or pretending capture and network calls succeed.
 
 ## Capabilities
 
 The blob owner holds public access and private publication separately. Its private
-destination registry proves that a recorder or upload received a real LocalBlobs
+destination registry proves that a recorder or copy received a real LocalBlobs
 handle. An admitted Stop can publish after public access is fenced. Native source
 provenance includes the source application ID; the host validates that ID and
 streams the exact source file.
@@ -61,20 +53,24 @@ backend retains credential values after close.
 
 `inference.ts` owns the destination check, authentication callback admission,
 request cancellation, and response-body drain. Public source constructors live in
-`ai.ts`; the native endpoint transport uses the host relay. Saved catalogs own
-only their persisted records and cached clients. Native catalog keys stay in the
+`ai.ts`. Network endpoint transport uses the host relay on desktop.
+`runtime-transcriber.ts` validates direct native model-listing and transcription
+IPC, preserves the exact host catalog ID, and drains admitted compute on close.
+Saved catalogs own their persisted records and cached clients. Native catalog keys stay in the
 broker, guarded by access versions. Unsaved endpoint handles own their own cleanup.
 
 ## Consumers
 
-Whispering, Local Mail, Honeycrisp, and Vocab compose named resources at product
-startup. Their composition functions unwind partial acquisition. The shared boot
-component invokes the product opening function with a cancellation signal, observes retirement, and releases a result
-that arrives after unmount. It does not choose storage or inference resources.
+Product startup owns composition. The shared boot component invokes product opening with a departure signal and captures account
+identity. Root handles normally last until browser/WebView destruction; AppBoot
+does not close late results or reopen roots in the same document. Product work
+must stop admission and capture on departure even if navigation stalls. The host
+retires document-owned native access when the document is replaced. Explicit
+resource close still owns library cleanup and admitted-work drainage.
 Svelte's `fromData` adapts each store without owning its lifetime.
 
 Operations that span multiple resources retain product cancellation checks.
-Successful upload alone does not authorize a later row mutation after departure.
+Successful copy alone does not authorize a later row mutation after departure.
 Document replacement and process restart can interrupt unsaved work; closing a
 resource does not turn navigation into a durability guarantee.
 

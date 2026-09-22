@@ -5,7 +5,7 @@
 
 - **Amended by:** [ADR-0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) at media delivery: plaintext and a locator alone do not establish authenticated range playback. The mandatory presigned/redirect transport is not retained; encryption ownership is unchanged.
 
-- **Amended by ADR-0426 (blob identity only):** [Scoped opaque identities](0426-blob-identities-survive-copies-between-scoped-locations.md) replace the historical content-hash addressing assumption below. Consumer-owned encryption remains unchanged.
+- **Amended by ADR-0426 (blob identity only):** [Scoped opaque identities](0426-copies-create-independent-blobs-at-their-destination.md) replace the historical content-hash addressing assumption below. Consumer-owned encryption remains unchanged.
 
 ## Context
 

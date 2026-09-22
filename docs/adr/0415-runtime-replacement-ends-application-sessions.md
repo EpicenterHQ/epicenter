@@ -2,6 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-19
+- **Unbuilt:** Page-owned product startup without aggregate rollback/close; proof of departure and native ownership before removing caller disposal.
+- **Amends:** [ADR-0410](0410-an-app-is-returned-ready-and-page-teardown-owns-recovery.md) at product composition rollback: successful page-owned acquisitions may remain until document replacement; individual failed acquisitions still own safe cleanup.
 - **Amends:** [ADR-0413](0413-app-boot-owns-the-working-page-lifetime.md) at departure ownership, UI cleanup registration, and recovery rendering.
 - **Amends:** [ADR-0155](0155-epicenter-desktop-auth-is-one-credential-free-window-bun-authority.md) at desktop identity transitions and same-person reauthentication.
 
@@ -54,13 +56,66 @@ Existing bounded server revocation remains separate from local credential
 clearing. Exiting with an unobserved revocation request is not a replacement for
 that behavior. A successful local transition does not certify server revocation.
 
-**One application document owns one session, and departure replaces the document.**
+**One page captures one account context, and account replacement ends the page.**
+
+Here “page” is shorthand for the browser/WebView lifetime, not an application
+primitive. In application architecture explanations, reserve “document” for a
+store's Yjs data document and explicitly qualify browser/WebView lifetimes.
+An application can open several stores; each structured store holds one data
+document. An auxiliary overlay can forward messages without opening a store.
+
+The captured account context may be signed out. This is the application
+operating rule, not a global account restriction in the resource SDK.
+
+A page may open several stores and namespaces, including Local and Personal
+together. There is no SDK library owner. Name concrete handles `local` and
+`personal`, and the selected recordings destination `store`. Existing `library`
+identifiers are migration work, not the target vocabulary; durable keys stay put.
+Switching a view or selecting an already-open store does not inherently require
+reload. Each handle retains its captured destination.
+
+**Root resources belong to the page; temporary operations retain shorter lifetimes.**
+
+Acquire root resources once from explicit page startup. Ordinary component or
+route changes do not reacquire or close them. Importing a module still acquires
+nothing. Retain `close()` for shorter-lived consumers, explicit release, and
+resource-internal cleanup; a root page does not need an aggregate close owner.
+
+Required startup failure is terminal for that document. A reload retries startup.
+Earlier successful root acquisitions may remain until replacement, provided no
+active capture or other temporary work is left running behind the failure
+screen. The resource whose own opening fails still owns safe partial acquisition
+cleanup. Do not add same-document reopen, takeover, or close-retry paths.
+
+Optional inference and catalog acquisition must not block recording or document
+use. A failed optional acquisition stays a feature failure; retrying acquisition
+may require reload. A failed request or model discovery can be retried through
+an existing usable handle. Absence, failure, and an empty model list stay distinct.
+
+A recording, playback URL, request body, temporary preview, and operation
+subscription can end while their page stays alive. They still stop, cancel, or
+release explicitly. Page ownership removes aggregate product teardown, not
+within-page cleanup or cross-window storage admission.
+
+**Departure must actually end the old working page.**
 
 The mounted product captures its required account and opens its chosen resource
 handles. Sign-in/callback and recovery documents open no primary product
 resources. Ordinary navigation that retains those handles, such as Honeycrisp
 Local/Personal navigation, remains inside the document.
 Exits from its lifetime use full navigation rather than an awaited UI drain.
+A stopped screen is not document destruction. Browser authentication work that
+can stall or reject belongs in a resource-free departure document when this
+allows the old working page to end first. Preserve required credential clearing
+and bounded server revocation in that destination. Desktop process restart
+retains the credential-persistence ordering specified above.
+
+Until replacement is proven, retain one immediate work fence and the stopping
+needed to prevent active capture or privileged work behind an inert page. Do not
+delete those protections merely because code requested navigation. A cancelled
+browser sign-in may return to a fresh working page rather than preserving its
+old transient state. Desktop sign-in cancellation before acceptance retains its
+existing policy.
 
 The explicit-store target permits several independently opened stores inside
 that session. Independent store closure does not promise that handles survive
@@ -73,8 +128,9 @@ unavailable, the operation refuses; preparing edits in an existing working copy
 requires no running owner. Restart does not wait for Push, so interrupted Push
 recovery belongs to the working-copy engine.
 
-Unexpected retirement fences access immediately and replaces the document with
-an inert recovery destination. That destination opens nothing until the person
+Unexpected retirement of the required page or account context fences access
+immediately and replaces the document with an inert recovery destination.
+Optional inference retirement stays local to that feature. That destination opens nothing until the person
 chooses to reopen. A navigation request is not proof of document destruction:
 the old UI becomes inert while replacement is pending, and failures must not
 re-enable the retired product. Browser history restoration cannot resurrect a
@@ -84,14 +140,21 @@ retired session.
 
 Native recorder cleanup follows document/window loss. SQLite socket loss closes
 the host's connection resources. Process shutdown ends remaining process-owned
-resources. Resource `close()`, acquisition rollback, storage transactions, account
+resources. Old native session identities must not affect a successor document.
+Recheck methods observe state; they do not replace host retirement. Remote
+server work may also finish after page loss, and reload does not undo it.
+Resource `close()`, individual acquisition rollback, storage transactions, account
 fences, and component-local disposals remain where they have callers independent
 of departure. Application-level drain promises do not gate navigation or restart.
 
 ## Consequences
 
 The native close/resume protocol and page departure controller are removed.
-Product boot retains opening, rendering, and minimal replacement/failure handling.
+Product boot retains explicit opening, rendering, and minimal replacement/failure
+handling. Delete product handle arrays, aggregate close promises, sibling-signal
+fan-in, and repeated late-acquisition cleanup only after the page boundary owns
+their former obligations. Opening an optional resource cannot make its retirement
+a reason to retire unrelated stores.
 Applications no longer register asynchronous departure cleanup with it.
 
 Already committed data remains recoverable. Pending writes, explicit-save
@@ -100,7 +163,7 @@ policy. A saved audio file can outlive a missing database row if the page ends
 between those writes. This decision introduces neither a recovery queue nor a
 new recording format.
 
-Cancelled sign-in before acceptance does not close working windows. Successful
+Cancelled desktop sign-in before acceptance does not close working windows. Successful
 sign-in closes them through process restart, including same-person sign-in.
 Browser authentication remains document-based; desktop policy does not remove
 the shared authentication library's browser installation and cancellation logic.

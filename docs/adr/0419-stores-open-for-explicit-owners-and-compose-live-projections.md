@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-21
-- **Implemented portion (2026-09-22):** `openLocal` and `openPersonal` independently own their documents. Blobs still open separately; store-owned blobs remain unbuilt. Local uses the existing no-account address; Personal captures one account.
-- **Unbuilt:** Store-owned blobs and cleanup, Shared opening, space membership and synchronization, store-first persistence addresses, native document persistence, and live SQLite projections. Those examples below remain proposals, not exports. Product migration is deferred.
+- **Implemented portion (2026-09-22):** `openLocal` and `openPersonal` independently own their documents and `.blobs` handles. Local uses the existing no-account address; Personal captures one account. Store close owns blob cleanup. The implementation does not establish Shared opening, store-first persistence addresses, native document persistence, or live SQLite projections.
+- **Unbuilt:** Shared opening, space membership and synchronization, store-first persistence addresses, native document persistence, and live SQLite projections. Those examples below remain proposals, not exports. Product migration is deferred.
 - **Amends:** [ADR-0406](0406-one-application-schema-is-used-by-every-store.md) at mandatory schema reuse: each opener receives its own definition; applications may reuse a schema or choose different schemas for different workflows.
 
 ## Context

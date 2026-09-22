@@ -5,6 +5,7 @@
 - **Amended by:** [ADR-0423](0423-app-resources-open-as-independent-handles.md) applies ready-return, terminal close, failed-open rollback, and safe release to each resource; products own composition.
 - **Amends:** [ADR-0408](0408-one-app-opener-uses-a-complete-runtime.md) at opening and failure recovery: replace the immediate handle and public readiness promise with an asynchronous opener that returns a usable App.
 - **Relates:** [ADR-0409](0409-resource-admission-protects-its-storage-owner.md), a proposed admission decision; the implementation preserves one claim and safe release.
+- **Amended by:** [ADR-0415](0415-runtime-replacement-ends-application-sessions.md) permits retaining successful page-root acquisitions after terminal product startup failure; individual failed acquisition cleanup remains.
 
 ## Context
 

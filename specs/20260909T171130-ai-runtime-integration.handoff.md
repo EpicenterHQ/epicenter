@@ -2,6 +2,10 @@
 
 Status: In Progress
 
+The dated native SDK evidence below predates the direct-transcriber clean break.
+For current reproduction, use `packages/app/scripts/runtime-transcriber-smoke.ts`
+and the [2026-09-22 verification report](../docs/reports/20260922-runtime-transcriber-clean-break.md).
+
 ## Connection migration checkpoint: 2026-09-10
 
 The custom connection migration is complete in the working tree. Core App owns

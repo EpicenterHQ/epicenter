@@ -18,18 +18,20 @@ own terminal boundary without moving physical cleanup into product code.
 
 The resource API in [ADR-0423](0423-app-resources-open-as-independent-handles.md)
 returns usable handles with `signal` and terminal, idempotent `close()`. Borrowing
-a handle does not transfer ownership. A component closes its own acquisitions;
-it does not close shared resources on behalf of unrelated consumers.
+a handle does not transfer ownership. A shorter-lived component closes its own
+acquisitions; it does not close page roots or shared resources on behalf of
+unrelated consumers.
 
 | Resource | Close responsibility |
 | --- | --- |
 | Recorder | Fence new capture, settle pending acquisition and admitted Stop, discard unresolved capture, and release exact owned sessions |
-| Inference | Cancel interruptible requests and drain response bodies and noninterruptible native work |
+| Network inference | Cancel interruptible requests and drain response bodies |
+| Runtime transcriber | Retire caller access and settle admitted host compute without owning the shared engine |
 | Local store | Fence document and blobs together; retire recorders, settle admitted Stop and transfers, release display sources, flush persistence, and release ownership only when safe |
 | Personal store | Fence document and blobs together; settle requests and transfers, release display sources, flush the cached replica, and release ownership only when safe |
 | SQLite | Drain statements, retire borrowed connections, close physical connections, and release the namespace only when safe |
 | Secrets | Retire access and settle admitted operations without deleting saved credentials |
-| Connection catalog | End observation and retire owned clients while preserving saved records and keys |
+| Connection catalog | End observation and retire access acquired through it while preserving saved records and keys |
 
 Closing a producer does not close its borrowed destination. Closing Local
 retires its recorders and waits for admitted publication. A transfer is tracked
@@ -63,12 +65,17 @@ between those operations. Recording close never invents a history row. A copy
 can commit before row creation fails. Resource close cannot make either sequence
 atomic or promise that every edit was saved.
 
-A product opening several resources unwinds every successful acquisition if a
-later one fails. Unmount during opening closes the eventual handle. Failure to
-close one independent resource does not skip cleanup of the others. Cleanup
-failure preserves its cause and any exclusion still needed to prevent racing
-writes. Repeated close returns the same terminal outcome; there is no force
-release or close-retry facade.
+Root resources can belong to the entire page. Required startup failure then
+requires document replacement before retry; earlier successful acquisitions may
+remain until replacement. Individual failed openers still unwind their own
+partial acquisition without releasing unsafe exclusion. A shorter-lived owner
+still closes its acquisitions, including a result arriving after that owner ends.
+These are different scopes, not two product startup modes.
+
+Cleanup failure preserves its cause and any exclusion still needed to prevent
+racing writes. Repeated close returns the same terminal outcome; there is no
+force release or close-retry facade. A page need not build an aggregate close
+coordinator merely because its individual handles expose close.
 
 Explicit close is awaitable. Runtime replacement follows its interruption policy
 and introduces no aggregate departure drain. Navigation, reload, and process

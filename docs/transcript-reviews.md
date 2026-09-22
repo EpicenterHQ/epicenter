@@ -5,6 +5,175 @@ written home. It does not mean its proposed implementation shipped. Retained
 transcripts are historical evidence; deleted exports are identified below.
 Current code, ADRs, and active plans must be read together.
 
+## Eight-export review, 2026-09-20
+
+Reviewed at `eef712ceac6796a0b89c0075f7974d1644ca0646`, including the
+pre-existing uncommitted Mail storage and Whispering ownership changes. Read
+the conversational turns throughout all eight exports; searched activity logs
+and inspected relevant evidence selectively. Historical test totals and live
+mail observations are not fresh verification. No production source was changed.
+During review, HEAD advanced to `fd30a306b0` through an unrelated agent-guidance
+commit. It changed none of the application source supporting these findings.
+
+Four exports describe completed or superseded work. Two more can leave after
+preserving their product direction here. Keep the last two as temporary
+references for still-actionable work. They are mixed histories, not plans to
+execute from top to bottom.
+
+| Export | Disposition | Current grounding and surviving value |
+| --- | --- | --- |
+| `codex-session-01a0af68-0807-7501-b307-bb518be8a6ec.md` | Deleted: superseded startup assessment | Historical browser generation helpers and the production `_initial_generation` experiment are gone. Skills now calls `openApp`. The inert declaration and current opener are implemented. Its Vocab boot failure no longer reproduces. The [startup report](reports/20260917-startup-and-unfinished-work.md) preserves the checkpoint; its next-step ordering is historical. Skills' product purpose and physical acceptance remain separate questions. |
+| `codex-session-01a0b345-aae0-7a41-89f3-c6fb70ce1877.md` | Deleted: repairs and package collapse completed | App, app-shell, and Whispering package test scripts use `--isolate`. `packages/data` is gone; the App root exports `defineApp`, `defineTable`, and `field`, with the engine under `src/data`. The late proposal is now implemented by [ADR-0407](adr/0407-app-owns-the-declaration-and-data-engine.md) and later opener amendments. Do not restore its earlier claim that the separate data package is necessary. |
+| `codex-session-01a0b36b-572c-7560-92a6-7ca714680133.md` | Deleted: completed SQLite explanation | [SQLite ownership](../packages/device/src/owner.ts) and its tests preserve connection closure, drain, pool release, and failure retention. Later App admission owns cross-context exclusion. The old explanation is not another unfinished redesign. The unused returned `drain` method is separately covered by the retained audit. |
+| `codex-session-01a0b46e-1f3e-72e2-ac68-7cabf6278cda.md` | Deleted: completed runtime verification | [The opener](../packages/app/src/open.ts), [memory runtime tests](../packages/app/src/runtime.test.ts), and [browser admission evidence](../packages/app/evidence/data/app-ownership/browser.ts) preserve the result. `await openApp` returns a ready App; there is no public `app.ready` phase. Its final WebKit rerun supersedes its earlier failed observation. Browser checks were not rerun in this review. |
+| `codex-session-01a0b1dd-1af1-70e0-addd-6299bf4830b4.md` | Deleted after extracting takeaways | Its framework direction is represented by current code and ADRs. Its claims that scopes and platform selection are unbuilt are stale. Preserve the Mail credential race, the unresolved “Zhongwen should be personal GitHub” correction, and hardware acceptance below. Its graceful-departure recommendation is superseded by process/document replacement. |
+| `codex-session-01a0b345-8c37-7fe0-82d4-8fc0b9c77f07.md` | Deleted after extracting product direction | The [integration review](reports/20260918-integration-review.md) already records the merge work. The user selected local Gmail reading/search/triage and a broader Chinese study app with saved words and review. Preserve those outcomes below. Its startup blocker is now resolved; its PR counts, mergeability, and clean-checkout claims are historical, not current status. |
+| `codex-session-01a0b531-b6c6-7e21-a89c-0db3c3d88683.md` | Retained: test/API work | Most final deletion candidates still exist. `StoreBacking` still allows replication without `discard`; signed-in opening still waits for Personal. Vocab still truncates candidate phrases. The duplicate Whispering owner lookup is already removed in the dirty checkout. Use the corrections below alongside the [dated test audit](reports/20260918-test-direction-audit.md). |
+| `codex-session-01a0b74a-1b65-7023-a484-f68c0587d625.md` | Retained: Mail execution work | Bounded storage writes exist in the dirty checkout. Account-wide pacing, shared cooldown, page-sized reconciliation, and request cancellation do not. Preserve the user's refusal to remove pending changes or formatted mail. Its early description of runtime replacement as unbuilt is obsolete. |
+
+### Current architecture, not another migration request
+
+The [root declaration](../packages/app/src/index.ts) is inert. The separate
+[opener](../packages/app/src/open.ts) captures an Account, acquires one
+[App claim](../packages/device/src/app-claim.ts), and returns ready device and
+optional Personal stores. [Platform selection](../packages/app/src/platform/default.ts)
+already chooses browser or host resources. No separate data package or Shared
+store remains. Separate signed-out and account-owned device storage remains;
+the older “Local survives sign-in” wording must not imply automatic adoption
+or a shared namespace across identities.
+
+[AppBoot](../packages/app-shell/src/boot-screens/app-boot.svelte) opens the
+working App. [Desktop auth](../apps/epicenter/src/desktop-auth-authority.ts)
+writes next-boot credentials and relaunches. Browser departures replace the
+document. Explicit resource closure still serves rollback, retirement, ordinary
+unmount, and tests; it does not restore a navigation drain barrier.
+
+Some decision headers lag implementation: ADRs 0409, 0415, and 0416 still say
+Proposed. ADR-0407's amendment header still calls runtime injection unbuilt.
+These labels are not evidence that current callers need another implementation.
+This review does not change decision acceptance statuses.
+
+### Mail: preserve the product, finish execution
+
+The user explicitly retained local mail, a durable pending-change queue, and
+formatted reading. Read-only Mail and plain-text-only rendering were explored
+and rejected as the next simplification. Removing concurrency was also narrowed
+to a measurement question; the final direction permits bounded concurrency
+through one account pacing policy.
+
+#### Extracted from `codex-session-01a0ba84`
+
+The session's product review is complete. Keep offline reading, offline triage,
+durable pending changes, formatted mail, and Undo. Undo belongs to the existing
+per-message assertion model: it is a newer assertion, not cancellation or a
+second history system.
+
+One concrete UI edge case remains actionable. Moving a message that is already
+in `TRASH` to Trash is a no-op, but the current generic Undo path inverts that
+assertion and restores the message. Make the no-op action ineligible for Undo,
+or capture the prior state before offering Undo, and add a regression test. This
+is a focused action-planning fix, not a reason to remove Undo or redesign the
+intent store.
+
+- [The Gmail client](../apps/local-mail/src/gmail-client.ts) retries each
+  request independently, has no shared rate gate, passes no cancellation signal
+  to `fetch`, and uses a non-cancellable sleep.
+- [Full pull](../apps/local-mail/src/sync.ts) loops through every page, fetching
+  groups of eight messages. [Reconciliation](../apps/local-mail/src/reconcile.ts)
+  drains pending changes once before that pull. A queued follow-up in
+  `reconcileNow` does not give changes delivery opportunities between pages.
+- [Message detail](../apps/local-mail/src/mailbox.ts) already reads stored
+  SQLite content without requesting Gmail. Incremental sync already uses
+  `history.list`. Neither needs a replacement read path.
+- Dirty `writeChunks` code saves bounded transactions before advancing the
+  checkpoint. It still rejects an individual serialized statement above
+  4 MiB. Preserve shared SQLite batch atomicity; this is a remaining Mail/large
+  value transport decision, not permission to split arbitrary transactions.
+- [Reconnect](../apps/local-mail/src/accounts.ts) and
+  [refresh rotation](../apps/local-mail/src/token-manager.ts) both write the
+  credential. `withAccount` tracks admitted work for removal; it does not
+  serialize reconnect with refresh. A synthetic probe paused a refresh,
+  installed a reconnect credential, then released the old refresh response:
+  the old rotated credential overwrote the reconnect. Existing pending-rotation
+  tests do not cover that in-flight interleaving.
+
+The transcript reports real Gmail login and 500 downloaded messages with a
+reload at 400, later reaching 1,600 before throttling. Keep that as historical
+partial acceptance. It does not prove full download, offline triage delivery,
+or keychain reopening after a complete desktop restart. The maintained
+[Mail evidence notes](../apps/local-mail/evidence/README.md) identify those
+remaining journeys. This review touched no mailbox or live credential.
+
+### Test/API audit: what remains actionable
+
+The dated audit's old bootstrap failures and historical auth-restoration
+recommendations are superseded. Its final narrower cleanup remains useful:
+
+| Current finding | Action to carry forward |
+| --- | --- |
+| Static-token generator and exported resolver still exist; the resolver's executable consumer is a Worker test fixture | Remove the obsolete tooling and replace the fixture together. Preserve the production 409 refusal for historical data. Current self-host deployables use named sessions. |
+| `createAppSqlite` returns `drain`; only its dedicated test calls it | Remove that returned method and the dedicated case; retain internal draining in `close` and real close-order tests. |
+| Foundation evidence still contains five cases over an alternate initialization implementation | Remove that prototype with its cases. Keep the first two production-backed tests and the real Worker initialization tests. |
+| Two App replacement cases manufacture a replacement without passing it to production | Remove/fold those cases while preserving actual identity-isolation tests. |
+| Hosted-identity/source-spelling tests and rejected passkey-hook evidence remain | Prune only with the maintained build, callback-boundary, and production enrollment coverage retained. The shared authenticator fixture is still used. |
+| Recording-close tests still observe obsolete `removeLocal` fakes; push-to-talk disposal coverage was weakened | Repair meaningful disposal/timer/session assertions. No blanket lifecycle-test deletion. |
+| `StoreBacking.replication` and `discard` are independently optional | Require invalidation for replicated storage before removing the legacy-backing test and fallback. |
+| Whispering used a supplied owner plus a global lookup | Already addressed by uncommitted explicit-owner changes in transcription and completion. Do not reimplement it from the transcript. |
+| Fresh signed-in Local depends on uncached Personal opening | Reproduced with the production opener and memory runtime: Device acquired successfully, Personal returned `StorageFailed`, and the App rejected. Signed-out opening succeeded. Browser journey and readiness design remain follow-ups. Preserve the signed-in storage identity. |
+| Vocab candidate parsing guesses that punctuation introduces glosses | Reproduced: `Yes: absolutely`, `你好：世界`, and `wait - what` become `Yes`, `你好`, and `wait`; `say:` disappears. Source validation and tests must change together. These are transient candidates, not proven corruption of saved entries. |
+
+The working-copy engine still has only tests and benchmark callers. That is a
+product-purpose question, not evidence that the whole engine should be deleted.
+The `pg-protocol` alias also remains in Worker test configuration; the integration
+report's concern about its removal condition survives. Neither warrants another
+storage rewrite during transcript cleanup.
+
+### Product choices and acceptance to preserve
+
+The earlier synthesis preserves the user's “Zhongwen should be personal GitHub”
+correction. The later conversation asks for a broader Chinese study app with
+saved words and review; it does not explicitly settle repository placement.
+Current Vocab has saved text, human notes, acquisition stages, and generated
+practice conversations. It has no demonstrated retrieval/review history loop.
+[The host's compiled-app list](../apps/epicenter/src/applications.ts) excludes
+Vocab. Preserve the product goal without silently choosing in-repo ownership,
+scheduled repetition, automatic glosses, or a desktop integration project.
+
+The team-notes discussion in `01a0b74a` is also a future product direction.
+Removing server-wide Shared is implemented. Restoring it would not provide
+workspace membership, invitations, revocation, or separate team budgets.
+Explicit shared collections were discussed, not implemented or adopted as a
+new mandatory architecture.
+
+Physical microphone interruption/reacquisition still has an unchecked gate in
+the [runtime lifetime plan](../specs/20260919T090341-runtime-lifetime-collapse.md).
+Its previous attempt failed before capture because macOS exposed no input
+device. Do not infer that hardware acceptance passed from synthetic browser
+recording or SQLite tests. Skills/chat product purpose remains open in root
+guidance; transcript deletion does not authorize deleting those applications.
+
+### Verification and disposition limits
+
+Fresh isolated tests: **265 passed, zero failed, 1,051 assertions across 23
+files**, covering all Mail source tests plus SQLite ownership, App ownership,
+scopes, declaration/import boundaries, retirement, foundation evidence, and
+Vocab boot/parser tests. A separate complete-runtime suite passed **10 tests,
+45 assertions**. Total: **275 passed, zero failed**. Passing parser/prototype
+tests can still preserve the wrong contract, as the probes above demonstrate.
+
+Commands:
+
+```sh
+bun test --isolate apps/local-mail/src packages/device/src/owner.test.ts packages/app/src/app.test.ts packages/app/src/scopes.test.ts packages/app/src/index.test.ts packages/app/src/import-boundaries.test.ts packages/app/src/data/store/store-retirement.test.ts packages/server/evidence/scope-ownership/foundation.test.ts apps/vocab/src/lib/boot-node.test.ts apps/vocab/src/lib/entry-candidates.test.ts
+bun test --isolate packages/app/src/runtime.test.ts
+```
+
+No browser/native acceptance, hosted CI, deployment, PR status, or full repository
+gate was rerun. The six deleted exports were untracked; this entry preserves
+their decisions and remaining work, not every tool log. The two retained exports
+may be removed once their active work has an implementation/decision record;
+retention is temporary, not a competing architecture reference.
+
 ## Reviewed
 
 - [x] `codex-session-01a09818-1756-7291-bd5b-817145613256.md`:

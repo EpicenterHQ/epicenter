@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
-- **Unbuilt:** Application reference migration to same-ID copies with explicit remote scope; current Whispering still uses `audioBlobId` plus `audioUrl`.
+- **Implementation (2026-09-22):** Whispering retains `audioBlobId` and a scoped `remoteAudio` reference returned by fresh-ID copying. Separate Local/Personal row schemas remain a design direction.
 - **Amends:** [ADR-0154](0154-blob-access-is-address-only.md) at local inventory: app-local blobs can be listed independently of rows; remote access remains address-only. [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at attachment ownership: rows store ordinary references without owning publication, transfer, or deletion of bytes.
 
 ## Decision
@@ -20,23 +20,20 @@ schema migration or a requirement that Personal must never reference audio.
 
 Blob references are ordinary declared row values. A row that references bytes stores a BlobId and
 whatever placement scope its enclosing context does not already supply.
-[ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md) defines
+[ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) defines
 identity separately from server, principal, and namespace. A credential-free
 remote locator can remain a representation of that scope; temporary presentation
 URLs and access grants must never become durable references. The framework does not introduce an
 owning blob field, one-file-per-row rule, synchronization obligation, or server
 reference-liveness index. Byte payloads are not embedded in the synced document.
 
-Current Whispering stores `audioBlobId` as the full saved key and an optional
-`audioUrl` after upload. The target permits different Local and Personal row
-shapes and copies audio only when the receiving workflow needs it. Such a copy
-preserves the ID, but does not erase the
-need to remember the remote server/principal/namespace when the surrounding
-store does not determine them. Device-local rows survive account changes; a new
-sign-in must not silently reinterpret an earlier remote placement. Remove a
-post-copy reference write only when the destination scope was already known.
-Otherwise preserve completed copy identity and scope if later row publication
-fails. Availability remains an observation, not a permanent uploaded boolean.
+Current Whispering stores `audioBlobId` as the Local key and optional
+`remoteAudio` with the returned destination BlobId, namespace, authority, and
+principal. Copies create fresh destination IDs. Saving the new reference is a
+separate row write; a failure must retain that reference for recovery. A new
+sign-in must not reinterpret an earlier remote placement. A reference for another
+account does not suppress an explicit upload into the current account.
+Availability remains an observation, not a permanent uploaded boolean.
 Stop saves bytes before row creation. A row
 write can fail afterward, leaving a complete blob discoverable through local
 list. Importing audio saves a Blob/File first and then creates the row.

@@ -3,35 +3,36 @@
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Amends:** [ADR-0398](0398-every-transcription-destination-speaks-the-openai-wire.md) at client ownership: independent inference handles replace the App lifetime; SDK operations and wire compatibility remain.
-- **Unbuilt:** Independent inference constructors, captured authentication headers, unsaved native endpoint requests beyond model discovery, separate catalog openers, and consumer migration; `createAppAi` still depends on App cancellation.
+- **Unbuilt:** Metadata-only catalog reads, explicit saved-access acquisition, direct runtime transcription, and page/operation consumer migration. Independent network constructors and native endpoint routing already exist.
 
 ## Context
 
-`packages/app/src/ai.ts` combines runtime inference, the captured account's
-Epicenter gateway, and a saved custom-connection catalog. App supplies its abort
-signal and operation fence. Calling this factory's close alone does not retire
-its SDK clients. The browser and desktop catalog bindings ignore the app ID and
-partition saved endpoints by account, including a separate no-account catalog.
+Independent inference constructors exist in `packages/app/src/ai.ts`. Saved
+catalog reads in `connection-catalog.ts` still materialize cached SDK clients.
+A settings snapshot therefore carries live execution access, and page startup
+still couples catalog acquisition to unrelated resources.
 
-A caller opening one endpoint should not need an App, a saved record, or an
-`owner: { kind: ... }` option. A saved endpoint and an open inference client also
-have different lifetimes: closing a client must not remove its configuration.
+A saved connection and an acquired client have different lifetimes. Reading
+configuration must not acquire execution access. Closing access preserves its
+saved configuration.
 
 ## Decision
 
 **Each inference source has a constructor with its own required inputs.**
 
-These are target APIs, not implemented exports:
+Network constructors exist. The runtime transcriber in this example is the
+target in [ADR-0424](0424-runtime-transcription-calls-the-host-directly.md); verify
+its final subpath and signature against implementation:
 
 ```ts
 import {
   openEpicenterInference,
-  openRuntimeInference,
+  openRuntimeTranscriber,
   openEndpointInference,
 } from '@epicenter/app/ai';
 
 const epicenter = await openEpicenterInference({ account });
-const runtime = await openRuntimeInference();
+const runtime = await openRuntimeTranscriber();
 const endpoint = await openEndpointInference({
   baseURL: 'https://inference.example/v1',
   getAuthHeaders: () => ({ Authorization: `Bearer ${providerKey}` }),
@@ -41,16 +42,17 @@ const endpoint = await openEndpointInference({
 | Constructor | Destination and authority |
 | --- | --- |
 | `openEpicenterInference({ account })` | The captured Account's Epicenter gateway, including self-hosted deployments |
-| `openRuntimeInference()` | The inference capability supplied by this environment |
+| `openRuntimeTranscriber()` | The native transcription capability supplied by this environment |
 | `openEndpointInference({ baseURL, getAuthHeaders? })` | The supplied OpenAI-compatible endpoint and captured HTTP authentication header source |
 
-A successful opening returns `{ client, signal, close }` with the actual SDK
-client. Each source also exposes its captured destination identity for exact
-workflow selection without exposing credentials. `openRuntimeInference` returns
-`null` when the environment supplies no runtime capability. Failure to initialize an available runtime reports failure;
-network or model errors do not become absence. No constructor selects a fallback
-destination. Model discovery and a successful inference request are not opening
-requirements, and client presence does not promise every SDK endpoint.
+A successful network opening returns `{ client, signal, close }` with an actual
+SDK client. Native transcription exposes direct model-listing and transcription
+operations. Each source has a stable destination identity without exposing
+credentials. Runtime absence returns `null`; an available provider's failures
+remain failures. Empty successful discovery means no installed models.
+Constructors never choose a fallback. Opening does not require discovery or
+prove future model support. Network client presence does not promise every SDK
+endpoint; the native transcriber makes its narrow operations explicit.
 
 Epicenter access requires an Account and captures its identity and transport
 before asynchronous acquisition. Same-owner credential refresh may continue
@@ -118,26 +120,27 @@ is not the default public abstraction: arbitrary transport code could bypass
 routing, credential fencing, and cancellation. No constructor per provider or
 per authentication scheme is introduced.
 
-The desktop unsaved preview route only supports model listing. Removing
-`catalog.preview` requires a host path for the supported unsaved inference
-operations, including ephemeral headers, destination checks, and cancellation.
+Desktop endpoint requests use the host path, including ephemeral headers,
+destination checks, cancellation, and supported multipart operations.
 Using browser fetch in a WebView is not a substitute for native routing parity.
 Neither headers nor token callbacks become persisted settings through opening.
 
 **Every inference handle owns its request lifetime.**
 
 Close is terminal and idempotent. It immediately fences retained clients,
-cancels interruptible requests, and waits for response bodies and
-noninterruptible native work to settle. It does not stop an external server or
-unload a shared native engine. Opening owns rollback. Closing one client does
+cancels interruptible network requests, and waits for response bodies to settle.
+The native transcriber separately settles admitted host work. Closing access
+does not stop an external server or unload a shared native engine. Opening owns rollback. Closing one client does
 not retire unrelated clients. The public handle owns its abort controller;
 exporting `createAppAi` unchanged does not satisfy this contract.
 
 The client stays bound to its destination and credentials. Redirects or SDK
 request options cannot redirect captured credentials to a different destination.
-Applications use SDK operations and protocol types. This decision adds no
-completion, dictation, or transcription wrapper; the separate proposal for
-`connection.transcribe` is not a prerequisite for these constructors.
+Applications use SDK operations and protocol types for network requests.
+Native transcription calls the typed host boundary directly. Application
+operations compose those paths; no universal `Connection.transcribe` object or
+second API for every SDK method is introduced. Page-root handles may live until
+document replacement. Temporary previews and operation-owned access still close.
 
 **Saved connection catalogs open separately from inference destinations.**
 
@@ -165,16 +168,30 @@ within the origin/profile. Sign-in does not adopt Local entries, and account
 replacement does not merge keys or retarget an existing catalog.
 
 Catalogs retain `add`, `update`, `remove`, `reorder`, `get`, `getAll`, and
-`subscribe`. Mutation resolves after persistence and snapshot publication.
-Subscription supplies an immediate snapshot and later changes. Opening resolves
-after hydration and subscription setup. Close ends observation and retires
-catalog-owned clients while preserving saved configuration.
+`subscribe`. Reads and subscriptions expose saved descriptions, without creating
+clients. Mutation resolves after persistence and snapshot publication. Opening
+resolves after hydration and subscription setup.
 
-Catalog entries retain stable IDs and client access. A URL or credential change
-retires previous access instead of retargeting a client held by an operation.
-Rename, model-list edits, and ordering preserve access. A missing `get(id)`
-returns `null`; removing and recreating an entry creates a new ID. Catalog close
-and access retirement cancel and drain the requests they own.
+A separate explicit acquisition, illustrated as `catalog.open(id)`, returns
+live access to the selected saved connection. The caller owns that access for
+its operation or page. A missing metadata `get(id)` returns `null`; acquiring a
+missing entry rejects with a distinguishable cause, never another destination.
+Acquisition follows the rejecting Promise contract of resource openers; expected
+request failures retain their operation contracts. Verify final method and error
+types against the implementation.
+
+Entries retain stable IDs. Acquired access captures its destination and credential
+revision. A URL or credential change, deletion, or catalog closure retires old
+access rather than retargeting it. Rename, model-list edits, and ordering preserve
+access. Removing and recreating an entry creates a new ID. Retirement cancels and
+drains admitted requests according to their resource contract.
+
+The catalog must still enforce revocation of acquired access. Moving from a
+client cache to tracked active access does not erase this obligation. The goal
+is inert reads and explicit acquisition, not an unverified claim of fewer
+lifetime checks. Model discovery updates metadata only if its captured entry
+and access revision still match; object identity of an SDK client is not the
+persistence concurrency token.
 
 Desktop snapshots expose key presence, not key material. The host uses the
 saved connection ID and access version to broker requests with keychain
@@ -190,24 +207,27 @@ persistence migration. Adapt the existing field at the serialization boundary.
 Unsaved endpoint preview uses `openEndpointInference` and closes that handle
 when the form is discarded. The target catalog has no `preview` method. Preview
 saves nothing and has no access to an existing hidden key unless it uses that
-saved entry's brokered client. Model discovery takes that selected client:
+saved entry's explicitly acquired brokered access. Model discovery takes the
+selected client:
 `discoverModels(client)`. Remove the mixed `discover(baseUrl, apiKey?, savedId?)`
 shape, where a saved ID silently makes the other arguments irrelevant.
 
 **Applications choose a concrete connection and model for each workflow.**
 
-The picker composes available inference handles and catalog entries. A signed-out
-Epicenter invitation is UI, not an unusable connection. Custom endpoint access
+The picker displays source descriptions and saved connection metadata. It
+acquires access only for discovery or execution, not merely to render the list.
+A signed-out Epicenter invitation is UI, not an unusable connection. Custom endpoint access
 remains available without Epicenter sign-in. Runtime absence is a platform fact,
 not a reason to silently select the hosted gateway.
 
 Selections retain destination identity: Epicenter authority and principal,
 runtime destination, or catalog owner and immutable entry ID, plus the chosen
 model. A saved selection must not match another account or an endpoint merely
-because it advertises the same model. Capture the selected client and model
-before sending data. Applications own defaults, validation, and persistence of
+because it advertises the same model. Capture the selected destination, acquired
+access, and model before sending data. Applications own defaults, validation, and persistence of
 those choices; inference constructors neither read product settings nor choose
-models. Catalog entries and clients must not enter synchronized rows or logs.
+models. Credentials and live clients must not enter synchronized rows or logs.
+Saved workflow selections retain only the source identity and model they need.
 
 ## Consequences
 
@@ -218,13 +238,14 @@ visible while preserving runtime absence and ordinary request failures.
 
 Catalog ownership remains explicit because saved keys need isolation even when
 their storage is local. The local/account constructor pair costs two names and
-avoids a tagged public option. Direct clients add a close obligation; form and
-workflow owners must release them. Catalog clients remain owned by their catalog
-rather than requiring another opener for every saved entry.
+avoids a tagged public option. Page roots retain acquired access for their
+document. Temporary form and workflow owners release their access. Catalog snapshots remain inert; listing
+settings cannot allocate request owners.
 
 Existing catalog paths and keychain identities stay unchanged. This decision
 neither migrates credentials nor adopts legacy catalogs. Whispering and other
-products need caller migration; these examples do not describe shipped APIs.
+products still need catalog and runtime caller migration. Read current code for
+implemented signatures; target examples do not claim completion.
 
 ## Considered alternatives
 

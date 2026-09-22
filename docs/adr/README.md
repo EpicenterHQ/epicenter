@@ -652,7 +652,7 @@ When you add an ADR, add its row here.
 | [0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) | Rows refer to blobs without owning their lifetime | Proposed |
 | [0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) | Materialization contains documents and blob references | Proposed (amends 0337 at recovery; structural archive and unused server backup removed) |
 | [0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) | Recovering old content uses the current working copy | Proposed (ordinary Push through the current baseline; no generation replacement) |
-| [0396](0396-a-connection-transcribes-and-owns-the-four-rules.md) | A connection transcribes and owns the four rules | Proposed (connection owns inference rules, not blob storage or attachment delivery) |
+| [0396](0396-transcription-operations-preserve-destinations-and-results.md) | Transcription operations preserve destinations and results | Proposed (connection owns inference rules, not blob storage or attachment delivery) |
 | [0397](0397-native-inference-selects-an-installed-model-explicitly.md) | Native inference selects an installed model explicitly | Proposed (amends 0180, 0012) |
 | [0398](0398-every-transcription-destination-speaks-the-openai-wire.md) | Every transcription destination speaks the OpenAI wire | Proposed (amends 0060) |
 | [0399](0399-moving-data-into-an-account-is-a-row-copy.md) | Cross-store copying is an application workflow | Proposed (supersedes 0143) |
@@ -674,8 +674,10 @@ When you add an ADR, add its row here.
 | [0417](0417-a-data-address-holds-one-document.md) | A data address holds one document | Proposed (generation-free current data; replacement outside sync guarantees) |
 
 | [0418](0418-push-translates-file-differences-into-ordinary-edits.md) | Push translates file differences into ordinary edits | Proposed |
-| [0419](0419-stores-open-for-explicit-owners-and-compose-live-projections.md) | Stores open for explicit owners and compose live projections | Proposed (amends 0406 at mandatory schema reuse; store-owned blobs remain unbuilt) |
+| [0419](0419-stores-open-for-explicit-owners-and-compose-live-projections.md) | Stores open for explicit owners and compose live projections | Proposed (amends 0406 at mandatory schema reuse; Shared, native persistence, and live projections remain unbuilt) |
 
 | [0423](0423-app-resources-open-as-independent-handles.md) | Stores own data and blobs while services open independently | Proposed |
-| [0426](0426-blob-identities-survive-copies-between-scoped-locations.md) | Blob identities survive copies between scoped locations | Proposed |
-| [0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) | Opening a blob acquires presentation without retaining a copy | Proposed |
+| [0424](0424-runtime-transcription-calls-the-host-directly.md) | Runtime transcription calls the host directly | Accepted (direct native API; amends 0398) |
+| [0425](0425-a-transcript-is-separate-from-its-latest-attempt.md) | A transcript is separate from its latest attempt | Proposed |
+| [0426](0426-copies-create-independent-blobs-at-their-destination.md) | Copies create independent blobs at their destination | Accepted |
+| [0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) | Opening a blob acquires presentation without retaining a copy | Accepted (scoped presentation transport; product worker registration remains deferred) |

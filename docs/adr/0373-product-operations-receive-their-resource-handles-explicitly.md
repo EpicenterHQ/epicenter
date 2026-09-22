@@ -15,10 +15,12 @@ boundary must preserve that property without requiring the App aggregate.
 
 **An operation receives the handles and product cancellation scope it uses.**
 
-A component obtains ready handles from its product context and passes them to
-buttons, shortcuts, queries, and workflows. A retained operation keeps those
-handles. It never resolves another account or write destination from a registry.
-Importing an operation acquires no resources.
+A component obtains ready handles through its product's `get*` context accessors
+during initialization. It passes the dependencies to operations, shortcuts,
+queries, and workflows. Ordinary TypeScript operations never call Svelte context
+getters. A retained operation keeps its handles and never resolves another
+account or write destination from a registry. Importing an operation acquires
+no resources.
 
 A copy workflow receives its source and destination blob capabilities, borrowed
 from the opened stores, and a product signal. If it also publishes a row, it
@@ -39,10 +41,19 @@ callbacks when they do not need to own storage policy. Product contexts may
 collect capabilities for a workflow, but they do not reconstruct the SDK's
 `device`/`account` namespace tree.
 
-Product composition owns resource opening and partial-startup cleanup. The UI
-session owns its recording workflows and query lifetimes. Explicit teardown
-stops those producers before closing their resources. Document replacement can
-interrupt work and does not claim a completed save.
+An operation names its selected destination `store`. Local and Personal remain
+distinct handles; the operation does not choose between them from current auth.
+Personal-dependent operations receive a required handle or concrete settings
+captured by their caller. A defaults policy belongs at composition, not in
+repeated `app.personal?.` reads. Preserve each operation's input-capture timing.
+
+Product composition owns resource opening. Each failed opener cleans up its own
+partial acquisition; successful roots can remain until browser/WebView replacement.
+The UI session owns recording workflows and query lifetimes. Retirement fences
+new work and prevents late publication even while root handles remain open.
+Temporary captures, previews, and requests retain their own cleanup. Context
+distribution adds no aggregate close owner. Document replacement can interrupt
+work and does not claim a completed save.
 
 ## Consequences
 

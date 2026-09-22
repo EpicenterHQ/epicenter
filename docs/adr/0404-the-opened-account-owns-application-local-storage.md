@@ -8,7 +8,7 @@
 
 - **Implementation checkpoint, 2026-09-18:** Account-scoped local storage and Account, undefined, and union opening overloads are implemented. App/device tests cover namespace isolation, durable reopen, acquisition, draining, and cleanup. The [single-SDK report](../reports/20260918-single-sdk-clean-break.md) and [flat-App report](../reports/20260918-flat-app-declaration.md) record verification and its limits. No existing data, credentials, or settings were migrated or adopted.
 
-- **Amended by:** [ADR-0426](0426-blob-identities-survive-copies-between-scoped-locations.md) at blob identity and physical/HTTP addresses. Local blobs use the fixed `device/no-account` path; remote copies retain BlobId within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target.
+- **Amended by:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at blob identity and physical/HTTP addresses. Local blobs use the fixed `device/no-account` path; copies return fresh BlobIds within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target.
 
 ## Context
 

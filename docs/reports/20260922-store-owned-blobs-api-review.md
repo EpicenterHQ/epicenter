@@ -113,6 +113,6 @@ or rejected-alternative mentions of aggregate opening.
   untrusted content, and no full-body completion or retention prerequisite.
 - Precise inventory of deferred product consumers after the public ownership cut.
 
-Follow specs/20260922T181710-blob-identity-copy-and-presentation.md. Review after
-each stage, resolve findings before dependent work, and end with cumulative
-adversarial and local post-implementation review.
+Execution is recorded in the [implementation report](20260922-store-owned-blobs-implementation.md).
+The API assignment's staged reviews are complete; product integration remains
+separate and deferred.

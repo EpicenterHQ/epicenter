@@ -1,8 +1,8 @@
 # 0427. Opening a blob acquires presentation without retaining a copy
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-22
-- **Unbuilt:** Private remote media acquisition, end-to-end range delivery, and real browser/WebView streaming acceptance. Current remote `open` fetches a complete Blob first.
+- **Implementation (2026-09-22):** The scoped API and transport are implemented. Whispering uses store-owned blobs and scoped copy references; product playback-worker registration remains deferred; see the [verification report](../reports/20260922-store-owned-blobs-implementation.md).
 - **Amends:** [ADR-0089](0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md) at mandatory presigned/redirected read transport; [ADR-0090](0090-the-blob-layer-stays-plaintext-confidentiality-belongs-to-the-encrypting-consumer.md) at the claim that plaintext alone provides ranged playback. Consumer-owned encryption remains unchanged.
 
 ## Context
@@ -12,8 +12,8 @@ object and seek without retaining the complete object in application storage.
 A browser Blob URL, an authenticated host-file route, and a remote playback URL
 can satisfy one player interface while using different transports.
 
-Current remote `open` calls `get`, waits for `response.blob()`, and creates an
-object URL. The cloud GET does not forward Range to object storage. Requiring
+The previous remote `open` called `get`, waited for `response.blob()`, and created
+an object URL. Its cloud GET did not forward Range to object storage. Requiring
 all playback to publish locally would add disk/quota failures and permanent
 retention without fixing those delivery limitations.
 
@@ -28,7 +28,7 @@ remote endpoint. Applications do not branch on URL schemes or fetch credentials
 on behalf of a player.
 
 `get` returns complete bytes for computation.
-`local.blobs.copyFrom(personal.blobs, id)` retains a complete local copy before
+`local.blobs.copyFrom(personal.blobs, id)` retains a complete local copy under a fresh returned ID before
 success. `personal.blobs.open(id)` must not require
 that copy or claim offline availability. Browser buffering/HTTP caching is not
 application-controlled retention. Playback can outlive a network connection

@@ -3,7 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-09-19
 - **Amended by:** [ADR-0423](0423-app-resources-open-as-independent-handles.md) replaces mandatory AppBoot auth/definition acquisition with product-owned resource composition; boot UI may render its opening promise.
+- **Amended by:** [ADR-0392](0392-product-boundaries-provide-required-resource-handles.md) replaces intact App forwarding with ready shared handles in typed Svelte context; context distribution does not own resource teardown.
 - **Amends:** [ADR-0411](0411-honeycrisp-displays-data-from-one-app.md) at boot and departure composition.
+- **Amended by:** [ADR-0415](0415-runtime-replacement-ends-application-sessions.md) replaces aggregate product draining with page-owned roots and full departure; temporary operation cleanup and immediate retirement fencing remain.
 
 ## Decision
 
