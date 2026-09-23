@@ -27,9 +27,9 @@ at any cost is the job.
 If you are already the delegated reviewer, perform the review yourself and
 launch no child agents. The following setup belongs to the coordinating agent.
 
-The coordinating agent appoints two fresh read-only Codex subagents using the
-runtime's available GPT-6 model, each with `fork_turns: "none"` and
-`reasoning_effort: "high"`. Explicit user choices override this default.
+The coordinating agent appoints two fresh read-only `gpt-6-astra` subagents,
+each with `fork_turns: "none"` and `reasoning_effort: "high"`. Explicit user
+choices override this default.
 Use [consult-claude](../consult-claude/SKILL.md) when the user requests a Claude
 review; Claude access is not required for this workflow. Ordinary final checks
 remain local under post-implementation-review.
