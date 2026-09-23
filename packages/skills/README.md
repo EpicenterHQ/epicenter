@@ -27,11 +27,11 @@ ids. A
 SKILL.md `metadata.id` is stored separately as `sourceId`, so filesystem
 round-trips can match records without forging canonical identity.
 
-Each skill and reference row carries a `content` rich field. A skill's holds its
+Each skill and reference row owns a collaborative body. A skill's holds its
 instructions; a reference's holds its Markdown body:
 
 ```ts
-const content = skills.tables.skills.get(skill.id)?.content;
+const content = skills.tables.skills.body(skill.id);
 content?.insert(0, ['# Instructions']);
 ```
 

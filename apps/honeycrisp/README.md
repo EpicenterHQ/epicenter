@@ -32,8 +32,9 @@ and navigates to a fresh document on account changes. Document destruction ends
 root resources; AppBoot does not close the returned resource collection. Reload
 is not a save barrier.
 
-Each note body is a live content node on its row. The editor subscribes to its
-changes to derive title and update time, and finishes pending writes on unmount.
+Each note body is the row’s sole sequence child, a stable `Y.Node`.
+`openContent` subscribes to body changes to derive title and update time,
+and finishes pending writes on unmount. The editor binds only that child.
 Normal deletion moves a note to Recently Deleted; permanent deletion removes
 its row and nested content.
 
@@ -60,15 +61,15 @@ its row and nested content.
 | `createdAt` | `string.date.iso` |
 | `updatedAt` | `string.date.iso` |
 | `deletedAt` | `string.date.iso \| null` (soft delete) |
-| `content` | live `Y.Type` (Markdown codec) |
+| document body | stable `Y.Node` at the row's sole sequence child |
 
 A data definition has no optional fields: a field has to be one type through the CRDT
 attribute, the exported frontmatter value and the row alike, and "absent" is not a
 type. So what would have been optional is nullable, and the application writes
 or recovers `null` explicitly.
 
-Each note's body lives at the reserved `content` key on its note row, nested in
-the one application document. The table picks its format through a codec;
+Each note’s body is the sole sequence child of its row in the store document.
+Editors access it through `data.tables.notes.body(noteId)`. The table picks its format through a codec;
 Epicenter mints the node with the row, collects it with the row, and never looks
 inside.
 
@@ -113,6 +114,19 @@ bun apps/honeycrisp/scripts/app.browser.ts
 It starts a temporary local Worker and exercises the Honeycrisp UI in Chromium,
 including Local and Personal navigation and Account retirement.
 
+The focused editor regression runs without an account or Worker:
+
+```bash
+bun run --cwd apps/honeycrisp smoke:editor
+```
+
+It requires Chrome and mounts the actual Honeycrisp and Skills editor
+components. It checks empty initialization, typing, metadata isolation,
+undo/redo, rewrites while bound, peer updates, IndexedDB reopen, and deletion.
+The `@y/prosemirror@2.0.0-12` patch keeps an empty schema placeholder virtual
+after undo; seeding a paragraph at mount would introduce concurrent opening
+writes. Headless conversion uses `ynodeToPmnode` and `pmnodeToDelta` directly.
+
 ### Manual two-client check
 
 Open the Honeycrisp web UI in two isolated browser profiles and sign both into
@@ -125,7 +139,7 @@ storage partition (ADR-0177), so they are one device rather than two.
 
 - [SvelteKit](https://kit.svelte.dev): UI framework (static adapter, SSR disabled)
 - [ProseMirror](https://prosemirror.net) + `@y/prosemirror`: collaborative rich-text editing
-- `@y/y` 14: row-owned note body documents
+- `@y/y@14.0.0-rc.26`: one document per store, with a stable body child per row
 - [Tailwind CSS](https://tailwindcss.com): styling
 - [Better Auth](https://better-auth.com): authentication
 - `@epicenter/app/store`: the store, its transport, and the data-definition vocabulary

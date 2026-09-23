@@ -102,15 +102,16 @@ memory, and rebuilt on read (ADR-0307).
 One database `Y.Doc` per store is persisted under the application log
 name `app` (ADR-0257). Its current top-level roots are the bare named root
 `kv` and one `tables:<name>` root for each declared table. Each table declares
-ordinary value fields and one required `content` codec.
+ordinary value fields under `fields` and an optional `body` codec.
 
 ```text
 Y.Doc "app"
  |- get("kv")               one value: this application's settings
  |- get("tables:notes")
- |   |- <rowId>             a nested Y.Type; holding it IS existing
+ |   |- <rowId>             a nested Y.Node; holding it IS existing
  |   |   |- title           a field is an attribute on the row
- |   |   `- folderId
+ |   |   |- folderId
+ |   |   `- child[0]          stable body Y.Node
  |   `- <rowId> ...
  `- get("tables:folders")
 ```
@@ -120,21 +121,24 @@ not a style choice: `Item.write` scans `doc.share` linearly, so one root per row
 makes encoding quadratic, measured at 5,417 ms against 13 ms at 20,000 rows.
 Deletion removes the row's attribute outright and the whole subtree goes with
 it, which leaves one deleted map key rather than a permanent corpse. The row is
-flat at the public API: `id`, its value fields, and one live `content` node.
+a value snapshot at the public API: `id` and its declared fields. Every row
+owns a sole body child, exposed separately through `table.body(id)`. An
+optional body codec supplies its file representation.
 
-## Content is one live node on the row
+## The body is the row’s sole sequence child
 
-The `content` codec only maps that node to and from the artifact body:
+The `body` codec only maps that node to and from the artifact body:
 
 ```ts
 const row = data.tables.notes.get(noteId);
 row?.title;
-row?.content; // the live Y.Type an editor binds to directly
+data.tables.notes.body(noteId); // the live Y.Node an editor binds to directly
 ```
 
-Storage mints an empty `content` node when a row is created without one, and
-deleting the row removes the node with the row. Lists and previews read value
-fields without opening another document; editors bind the row's live node.
+Storage creates an empty body node with every row unless `create` receives a
+fresh one. Deleting the row removes that node with the row. Lists and previews
+read value fields without opening another document; editors bind the row’s sole
+body child.
 
 ## What granularity an edit has
 
@@ -143,7 +147,7 @@ fields without opening another document; editors bind the row's live node.
 | two devices, different fields of one row | both survive |
 | two devices, one value field | last write wins |
 | two devices, one array or object field | last write wins on the WHOLE value |
-| two devices, an edit inside a row's content node | per character |
+| two devices, an edit inside a row's body node | per character |
 
 The third row is a decision, not a gap (ADR-0228). A field is one value, which
 is one sentence of semantics instead of a per-field CRDT type system. The cost

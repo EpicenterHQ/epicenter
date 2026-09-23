@@ -105,6 +105,19 @@ Opening replays a durable log into one Yjs document. Once ready, table reads
 and edits are synchronous. The App retains its ownership claim until the store
 and its other resources finish closing.
 
+## CRDT and editor versions
+
+The runtime pins `@y/y@14.0.0-rc.26`, which exports `Y.Node`. Honeycrisp binds
+its body child with `@y/prosemirror@2.0.0-12`; headless conversion uses
+`ynodeToPmnode` and `pmnodeToDelta`. An insertion delta does not replace a
+populated body: rewrites delete its sequence and apply the new delta inside
+one store transaction, preserving the body's identity.
+
+The root overrides keep Yjs and lib0 consistent through the protocols peer
+closure. A narrow ProseMirror patch keeps empty schema placeholders virtual after undo,
+so normalization does not interfere with redo. Stock Tiptap collaboration targets
+Yjs 13 and is not a supported binding here.
+
 ## The surface
 
 Each table the definition declares is a key on `data.tables`. The opened data
@@ -113,7 +126,8 @@ table can be named anything a person names it:
 
 ```ts
 data.tables.notes.create(fields)                  // Row, at a minted 24-character id
-data.tables.notes.get(id)                         // Row | undefined
+data.tables.notes.get(id)                         // Value snapshot | undefined
+data.tables.notes.body(id)                        // Live body | undefined
 data.tables.notes.update(id, patch)               // Result<void, RowAbsentError>; merges
 data.tables.notes.delete(id)                      // void; deleting nothing is a no-op fact
 data.tables.notes.rows                            // Row[], read through the declaration
@@ -136,7 +150,7 @@ so a reader re-reads and finds the same answer rather than missing one. A
 default belongs to the application, not the declaration:
 `kv.get('theme') ?? APPLICATION_DEFAULTS.theme`.
 
-The row owns its content node, and the database document owns its lifetime.
+The row owns its body node, and the database document owns its lifetime.
 `data.transact(() => { ... })` groups direct table and KV operations into one
 accepted transaction. Persistence is a separate best-effort step exposed by
 `data.persistence` (ADR-0300).
@@ -205,7 +219,7 @@ them: re-reading with `rows` walks a document already in memory and is always
 correct. What they buy is the caller holding a projection of the rows, which
 rebuilds only what moved instead of everything.
 
-It deliberately does NOT fire for an edit inside a row's content node. The
+It deliberately does NOT fire for an edit inside a row's body node. The
 node is nested on its row, so counting it here would wake every list in the
 application at typing frequency. `data.tables.notes.watch(node, listener)` is the signal for
 that, scoped to the one node, and it is delivered last so a listener that writes
@@ -246,9 +260,10 @@ Y.Doc "app"
 │   ├── <field>        one KV attribute
 │   └── ...
 ├── get("tables:notes")
-│   ├── <rowId>        a nested Y.Type: the row
+│   ├── <rowId>        a nested Y.Node: the row
 │   │   ├── title      an attribute: a field
-│   │   └── folderId
+│   │   ├── folderId
+│   │   └── child[0]   the stable body Y.Node
 │   └── <rowId>
 └── get("tables:folders")
 ```
@@ -265,46 +280,44 @@ two containers and map LWW discards one **with every field in it**. Anything an
 application wants to name by hand goes in `kv`, where independent minting
 converges (ADR-0216).
 
-### Rich content
+### Collaborative body
 
-A row's rich content is a nested `Y.Type` on the row, declared like any other
-field (ADR-0295, ADR-0296). It is in the same document as the values, so there
-is nothing to open, nothing to await, and nothing to dispose:
+Each row is a `Y.Node` whose attributes hold value fields and whose sole
+sequence child is the stable body `Y.Node`. No attribute name is consumed by
+the body: `body`, `content`, and `!`-prefixed names are ordinary fields. The
+declaration separates `fields` from the optional `body` codec.
 
 ```ts
-const note = data.tables.notes.get(id);
-const body = note?.content;                  // the live node, read off the row
+const note = data.tables.notes.get(id); // Serializable value snapshot
+const body = data.tables.notes.body(id); // Live node, independent of field conformance
 const stop = body && data.tables.notes.watch(body, onEdit);
 ```
 
-`watch` takes the type rather than an address, because a caller holding one has
-already done that lookup: rendering the field needs the type anyway.
+The store creates the body with its row and removes both on deletion. Reading
+never creates a body. An optional fresh node can be supplied as the second
+argument to `create(fields, body)`; it must not already belong to a document.
+File rewrites edit the existing body so editors and undo managers keep their
+bound node. Body-owned attributes cannot collide with the row's field attributes.
 
-The node is minted in the transaction that mints its row and never again. That
-is what makes it safe: a nested type is addressed by the struct that created it,
-so two devices minting one at the same key would lose a subtree, and a minted
-row id means only the creating device ever mints one.
-
-A row holds exactly one node, because one file has one region below the fence
-(ADR-0299). Every table declares how its node becomes that text and back:
+The platform writes stored values as frontmatter, including undeclared fields,
+and the codec's output below the fence. The table owns the body's meaning:
 
 ```ts
-type ContentCodec = {
-  encode: (node: Y.Type) => string;
-  decode: (text: string) => Result<Y.Type, ContentError>;
-  rewrite: (node: Y.Type, text: string) => Result<void, ContentError>;
+type BodyCodec = {
+  encode: (node: Y.Node) => string;
+  decode: (text: string) => Result<Y.Node, BodyError>;
+  rewrite: (node: Y.Node, text: string) => Result<void, BodyError>;
 };
 ```
 
-The platform owns the file, writing the values as frontmatter under their own
-field names and joining the encoded node beneath the fence, and reversing both.
-The table owns what its node MEANS, and there is no default: a node carries a
-sequence and attributes at once, so rendering one as text round-trips a keyed
-log into one literal string that prints identically. `plainText()` is a codec a
-table opts into, not a fallback. Epicenter picks no content format and never
-looks inside. A table may omit `content` for fields-only artifacts. Every row
-still owns a node; exporting a populated node or importing a nonempty body
-without a codec is refused.
+There is no default codec. `plainText()` explicitly describes a text sequence;
+chat instead uses a codec for keyed messages. Omitting `body` omits the codec,
+not the live node. A populated body without a codec refuses export, and nonempty
+incoming body text without a codec refuses import.
+
+The storage-key rename from `content` to `body` is a clean break. Existing Yjs
+state using the old key is not migrated or read through a fallback. Markdown
+artifacts still use the same frontmatter-plus-body layout.
 
 ## What merges with what
 
@@ -316,7 +329,7 @@ shaped.
 | two fields of one row | independent, both survive |
 | one value field | last write wins, converged |
 | one array or object field | last write wins on the WHOLE value |
-| the content node | per character |
+| the body node | per character |
 | any composed index | a cache derived from the CRDT |
 
 A row is an attribute map and a write sets only the attributes handed to it, so
@@ -355,10 +368,12 @@ export const notesDefinition = defineStore({
 	kv: { theme: field.select(['light', 'dark']) },
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			folderId: field.nullable(field.string()),
-			createdAt: field.instant(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+				folderId: field.nullable(field.string()),
+				createdAt: field.instant(),
+			},
+			body: plainText(),
 		}),
 	},
 });

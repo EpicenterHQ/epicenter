@@ -11,9 +11,9 @@ It is an explanation of intent.
 
 ## The one change everything else follows from
 
-**A store has one Yjs document, replayed in full before any handle
-exists, and the surface over it is synchronous.** Each row owns one nested live
-content node at `row.content`; every other field holds an ordinary value.
+**A store has one Yjs document, replayed in full before any handle exists, and
+row access is synchronous.** Rows expose value snapshots. A table can declare
+a body codec; its rows then own live nodes accessed through `table.body(id)`.
 
 The old stack was many documents behind a process boundary: a replica owned by a
 worker or a desktop host, reached over a message port or HTTP. Every read was a
@@ -84,7 +84,7 @@ a problem that no longer exists.
 
 **New:** `db.notes.subscribe(listener)` fires once per commit with the ROW IDS
 that commit touched (ADR-0221), for a local write and for bytes that arrived
-from another device alike. Text typed inside a row's content node is NOT a
+from another device alike. Text typed inside a row's body node is NOT a
 table commit: it has its own signal, `watch(node, listener)`, because routing
 it here would wake every list in the application at typing frequency.
 It fires after every `onCommitted` listener has run, so a composed follower
@@ -154,7 +154,7 @@ Two behaviour changes worth knowing:
 **New:** ids are minted, always, 24 characters (ADR-0206).
 
 This is a correctness decision, not ergonomics. A row is a record with one
-content node, addressed by the operation that created it, so two devices
+body node, addressed by the operation that created it, so two devices
 creating the same chosen id produce two records and map LWW discards one
 **with every field in it**. A minted id makes that unreachable.
 
@@ -184,16 +184,17 @@ data.kv.update({ theme: 'dark' });  // merges; other keys untouched
 
 ---
 
-## Nodes and row content
+## Nodes and row bodies
 
 **Old:** rich content was opened through a separate row-document lease and
 polled for remote changes.
 
-**New:** `data.tables.notes.get(id)`, `rows`, and `create` return one flat row.
-The row's `content` property is its live `Y.Type`, so an editor binds directly
-to `row.content`; remote edits arrive through the store's one connection.
-Creating a row always mints and persists exactly one content node, even when
-the caller omits `content`.
+**New:** `data.tables.notes.get(id)`, `rows`, and `create` return value
+snapshots. For a table with a body codec, `data.tables.notes.body(id)` returns
+the live `Y.Node` an editor binds to. Remote edits arrive through the store's
+one connection.
+For a table with a body codec, creating a row mints one body node, even when
+the caller omits `body`.
 
 Deleting the row removes that node with the row. There is no second document
 address or document lifecycle for an editor to manage.
@@ -209,8 +210,8 @@ machine-produced, replaced wholesale, and rendered in a list.
 
 **Old:** TypeBox, `defineTable({ fields: { title: field.string() } })`.
 
-**New:** ordinary value field descriptors at the table's top level, one
-optional `content` codec, inert store definitions, and application-owned
+**New:** ordinary value field descriptors under `fields`, an optional `body`
+codec, inert store definitions, and application-owned
 recovery values (ADR-0255).
 
 ```ts
@@ -219,7 +220,12 @@ import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 export const definition = defineStore({
   id: 'so.epicenter.honeycrisp',
   kv: { theme: field.select(['light', 'dark']) },
-  tables: { notes: defineTable({ title: field.string(), folderId: field.nullable(field.string()), content: plainText() }) },
+  tables: {
+    notes: defineTable({
+      fields: { title: field.string(), folderId: field.nullable(field.string()) },
+      body: plainText(),
+    }),
+  },
 });
 ```
 
@@ -387,8 +393,8 @@ collection?** One device at a time, or one place in the UI: an array field is
 right. Several devices, concurrently, each adding their own element: it is a
 table.
 
-**Per-character merging exists in exactly one place: the row's content node.**
-`row.content` is a live `Y.Type`, so two people typing in it merge at the
+**Per-character merging exists in exactly one place: the row's body node.**
+`table.body(id)` returns a live `Y.Node`, so two people typing in it merge at the
 character. That is the whole reason a node lives there rather than in a
 `string` field, and the reason a machine-produced transcript does not need to.
 
@@ -401,7 +407,7 @@ cache derived from the CRDT, so it never affects what merges with what.
 | two fields of one row | independent, both survive |
 | one value field | last write wins, converged |
 | one array or object field | last write wins on the WHOLE value (kept, see above) |
-| a row's content node | per character |
+| a row's body node | per character |
 | the SQL projection | a composed cache; rebuilt whole at the next read |
 
 ---
@@ -517,14 +523,14 @@ indefinitely without hurting anyone, and `raw` still holds it.
 
 1. Rewrite the workspace: arktype strings, nullable-with-default, no optionals, no
    objects, defaults inline. Settings to `kv`.
-2. Decide whether the value belongs in the row's `content` node or in an ordinary
+2. Decide whether the value belongs in the row's `body` node or in an ordinary
    value field.
 3. Replace `openEpicenter` with `openLocal(workspace)` (and `openAccount(workspace,
    { principalId })` for a signed-in replica, per ADR-0233).
 4. Replace `scan` + `refresh` + generations with `read()` + `subscribe(read)`.
 5. Drop `await` from every read and every mutation; destructure `{ data, error }`.
 6. Delete chosen-id machinery; move anything that needed a stable name to `kv`.
-7. Bind editors to the flat row's `content` node. Do not create a second row
+7. Bind editors through `table.body(id)`. Do not create a second row
    document or content address.
 8. Add a `dial` if the application syncs, and delete every `nudge`.
 9. Decide what the application does with `rows().nonconforming`. Showing it,

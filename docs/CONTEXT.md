@@ -181,39 +181,33 @@ shapes, see `docs/adr/`.
 - **Table root**: the `tables:<name>` root holding one table's rows. Every
   top-level root says what kind of thing it is, so a table genuinely named `kv`
   lands at `tables:kv` and cannot reach the settings root.
-- **Row**: a nested `Y.Type` held as an attribute on its table root. Holding it
+- **Row**: a nested `Y.Node` held as an attribute on its table root. Holding it
   is what existing means, and there is no second fact that can disagree. Its id
   is minted and never reused.
-- **Field**: one attribute on a row type. It holds either a **value** or a
-  **node**, and that is the only division worth naming (ADR-0309). A value is
-  replaced whole on write, so two devices writing one converge on a winner. A
-  node is edited in place, so two devices editing one both keep every
-  keystroke. Two devices editing different fields both keep their edit either
-  way.
-  <!-- vocab-check: ignore-next-line (the glossary entry that retires them) -->
-  The retired names for these two are `scalar` and `prose`. Both described the shape instead of the behaviour: a `tags` array is a value though it is not scalar, and a node holds whatever its table's codec says, which is often not prose.
+- **Field**: one JSON attribute on a row node, declared with `field.*` helpers.
+  Writes replace a field value whole. Concurrent edits to different attributes
+  merge independently. `body`, `content`, and `!`-prefixed names are ordinary
+  fields; only structural `id` is reserved. Row reads return value snapshots.
 - **Whole-value replacement**: an array or object field is one value, so a
   concurrent write replaces all of it and one addition is lost (ADR-0228). This
   is chosen, not missing. A collection several devices append to concurrently
   wants to be a table.
-- **Content node**: the one nested `Y.Type` every row holds, at the reserved
-  key `content` (ADR-0299). Read it off the row: `table.get(id).content` is
-  synchronous and hands back the live node; there is nothing to open and
-  nothing to dispose. **Minted in the transaction that mints its row and never
-  again**: a nested type is addressed by the struct that created it, so lazy
-  minting on two devices would lose a subtree. A row holds exactly one, because
-  one file has one region below the fence. Epicenter never reads inside one;
-  the table's declared codec is the only thing that turns one into text.
-- **Content codec**: the `content: { encode, decode }` every table declares
-  (ADR-0299). `encode` takes the node and returns the text below the fence;
-  `decode` takes that text and returns a fresh node. The platform owns the
-  file, writing the values as frontmatter under their own field names, so no
+- **Body node**: the sole sequence child of every row, a stable `Y.Node`
+  created together with its parent. `table.body(id)` reads it without creating
+  or repairing anything, independently of metadata conformance. Editors bind
+  to this child. Index zero is the storage convention; the child has its own
+  CRDT identity. Deletion removes the entire row subtree.
+- **Body codec**: the optional `body: { encode, decode, rewrite }` a table
+  declares. `encode` takes the node and returns the text below the fence;
+  `decode` takes that text and returns a fresh node; `rewrite` edits the existing
+  body in place. The platform owns the file, writing values as frontmatter
+  under their own field names, so no
   row shape ever reaches a codec author. There is no default: a node carries a
   sequence and attributes at once, so rendering one as text round-trips a keyed
   log into one literal string that prints identically. `plainText()` is a codec
   a table opts into.
 - **Deletion**: removing the row's attribute from its table root. The whole
-  subtree goes with it, the content node included, so there is one removal in one
+  subtree goes with it, the body node included, so there is one removal in one
   document and no second address to retire. No tombstone and no revive path
   (ADR-0219).
 - **Nonconforming row**: a row this release's declaration cannot read. A view, not

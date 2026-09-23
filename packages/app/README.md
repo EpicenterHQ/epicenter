@@ -20,7 +20,7 @@ import { openLocal, openPersonal } from '@epicenter/app/open';
 const definition = defineStore({
   id: 'so.epicenter.notes',
   kv: { language: field.string() },
-  tables: { notes: defineTable({ title: field.string() }) },
+  tables: { notes: defineTable({ fields: { title: field.string() } }) },
 });
 const local = await openLocal(definition);
 // Acquire separately when an authenticated workflow needs synchronized data.

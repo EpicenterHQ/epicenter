@@ -142,7 +142,7 @@ resource composition stays inside the implementation.
 | `persistence.ts` | IDs, the ordered queue, durable mirror, debt merging, and send eligibility |
 | `log.ts` | the SQLite `DurablePort`, the fold, and `replay` |
 | `browser.ts` | App-owned current-library acquisition and IndexedDB backing |
-| `document.ts` | the Yjs grammar: table roots, rows, content nodes |
+| `document.ts` | the Yjs grammar: table roots, rows, body nodes |
 | `persist.ts` | asking the browser not to evict this origin |
 | `flush-on-hide.ts` | getting the queue onto disk before the page goes away |
 | `claims.ts` | one writer per address across tabs |

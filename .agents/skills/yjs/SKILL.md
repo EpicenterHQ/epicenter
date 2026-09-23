@@ -58,52 +58,71 @@ converges to unexpected state or grows faster than its content.
 - Large updates are chunked at `CHUNK_BYTES`, set by Cloudflare's documented Durable Object SQLite value cap rather than by anything about Yjs. Do not raise it to the measured wall; the documented limit is the one Cloudflare is entitled to enforce.
 - Presence is deliberately absent until a concrete consumer earns awareness state and disconnect cleanup. If added later, awareness is ephemeral and must never be persisted into the Y.Doc or the SQLite update log as canonical data.
 
-## One Document Per Application
+## One document per store
 
-An application is ONE `Y.Doc`. Roots are `tables:<name>` and `kv`. A row is a
-nested `Y.Type` attribute on its table root, a field holding a **value** is a
-JSON attribute on the row, and the one field holding a **node** is a nested
-`Y.Type` at the row's reserved `content` key (ADR-0295, ADR-0309). Holding the
-attribute is what it means to exist; removing it is what deletion does, and it
-reclaims the row's whole subtree in one operation.
+Epicenter pins `@y/y@14.0.0-rc.26`. A store is one `Y.Doc` with table roots
+named `tables:<name>` and a `kv` root. Each row is a nested `Y.Node` attribute
+on its table root. The row’s attributes are JSON metadata and its sole sequence
+child is the stable body node (ADR-0431).
 
-Those two words are the vocabulary. A value is replaced whole on write, so two
-devices writing one converge on a winner. A node is edited in place, so two
-devices editing one both keep every keystroke.
-<!-- vocab-check: ignore-next-line (naming what is retired) -->
-Their retired names are `scalar` and `prose`; both belong in no new code or documentation (ADR-0309).
+The store creates both nodes together. Reads never create or repair them and
+require exactly one child of the correct node type. Field updates cannot
+replace the child; deleting the row removes its subtree. Child index zero is
+a storage convention, while the child has its own stable CRDT identity.
 
-The nesting is not stylistic. `Item.write` calls `findRootTypeKey`, a linear
-scan of `doc.share`, so one root per row makes encoding quadratic in rows
-(5,417 ms for 20,000 rows against 13 ms nested).
-
-There are no independent row documents. A row's content node used to live in its own
-top-level document at a derived address, with a document manager, a tombstone
-table and an `openDocument` verb (ADR-0248); ADR-0295 collapsed all of it into
-the row. Advice naming `documents.ts`, `openDocument`, `_tombstones`, or
-"hydrate the row's document" is describing a design that no longer exists.
+`get`, `rows`, and `create` return value snapshots. `table.body(id)` returns
+the live body independently of metadata conformance. `body`, `content`, and
+`!`-prefixed names are ordinary metadata; structural `id` remains reserved.
 
 ```typescript
-// Values are attributes on the row, written through the table.
-db.tables.notes.update(noteId, { title, pinned: true });
+const notes = defineTable({
+  fields: { title: field.string(), body: field.string() },
+  body: plainText(),
+});
 
-// The content node is ON the row, read synchronously with everything else.
-const note = db.tables.notes.get(noteId);
-const body = note?.content;           // a live Y.Type an editor binds to
+const row = db.tables.notes.create({ title: 'Trip', body: 'metadata' });
+const body = db.tables.notes.body(row.id);
+body?.insert(0, ['The writing.']);
 ```
 
-Inside the application document only `Doc.get` mints, and every key reaching it
-must be a table name the database declares: reading an unknown ROW through
-`getAttr` costs nothing, while a misspelled TABLE name costs a permanent root.
+Keep `field.*` helpers, which use TypeBox internally. A body codec owns
+`encode`, `decode`, and in-place `rewrite`. Artifact reads expose
+`{ id, fields, body }`; values become frontmatter and the codec supplies the
+text below it. Checkout distinguishes a field named `body` from a body edit
+by operation kind.
+
+Only declared table/KV roots reach `Doc.get`, which creates on miss. Row
+lookups use `getAttr` and never mint roots. Keeping rows nested also avoids
+`findRootTypeKey` scanning one document root per row during encoding.
+
+## Editor bindings
+
+Bind editors to the body child. Honeycrisp uses `@y/prosemirror@2.0.0-12`:
+`ynodeToPmnode(node, schema)` reads and `pmnodeToDelta(pmNode)` produces an
+insertion delta for `node.applyDelta`. The converter fills an empty top-level document from the schema without
+writing to Yjs. To rewrite, delete the old sequence and
+apply the new delta inside one store transaction; never replace the body.
+
+Editor normalization owns body attributes. Parent metadata stays outside it.
+A metadata edit must neither notify body watchers nor clear editor undo history.
+Honeycrisp clears history for foreign body edits and preserves undo/redo origins.
+The Skills CodeMirror adapter writes only its supplied body but replaces the
+whole text on each edit; this has weaker concurrent-edit behavior than an
+incremental collaborative binding.
+
+Root overrides keep RC26 and lib0 RC32 consistent through the dependency
+closure. The old renderer and internal-export patches are removed. A new ProseMirror
+patch restores the virtual empty-content gate after undo to preserve redo. Do not
+introduce Yjs 13 to accommodate stock Tiptap collaboration.
 
 ## Three Signals, And Which One Fires
 
 - `table.subscribe` fires when a table's SHAPE changes: a row added, removed,
-  or a value edited. It does NOT fire for an edit inside a content node. It
+  or a value edited. It does NOT fire for an edit inside a body node. It
   hands the listener the ROW IDS the commit touched, so a consumer holding a
   projection rebuilds only what moved; a consumer that just re-reads may
   ignore them.
-- `table.watch(node)` fires for edits inside one content node, keyed by the
+- `table.watch(node)` fires for edits inside one body node, keyed by the
   node's own identity.
 - `kv.subscribe` fires when any declared key changes, and carries nothing.
   There are ten keys, so naming them would buy nothing.
@@ -148,7 +167,7 @@ second document store.
 
 ## Storage Optimization
 
-v14 has ONE shared type, `Y.Type`, reached as `doc.get(name)` for a map-like
+v14 has ONE shared type, `Y.Node`, reached as `doc.get(name)` for a map-like
 root or `doc.get(name, 'text')` for a text one. There is no `Y.Map`, `Y.Text`,
 `Y.Array` or `Y.XmlFragment`; code or advice naming them is Yjs 13 and is
 replacement material.
@@ -159,25 +178,21 @@ creates a new internal item and tombstones the previous one, which is why
 
 ## Raw Types At The Boundary
 
-A `Y.Type` handed out by a table handle is a live CRDT reference and is MEANT
+A `Y.Node` handed out by a table handle is a live CRDT reference and is MEANT
 to be bound to an editor. That is the design: the store hands the editor the
 real thing rather than proxying it, because a copy would break the merge that
 makes it worth having.
 
-What does not belong in a feature:
+A raw node can reach its parent and document. It is not a security sandbox.
+Features must use `table.body(id)` instead of constructing or repairing the
+row layout. The store owns the invariant in
+`packages/app/src/data/store/document.ts`.
 
-- **Constructing the layout.** A feature does not decide which attribute a row
-  keeps its content node under. It asks the table for the row and reads the declared
-  field.
-- **Casting into shape.** `as Y.Type` outside `packages/app/src/data/store/` means
-  something is reading a document the store owns without going through it.
-- **Reaching the document.** `doc.get(...)` in a feature bypasses the
-  declaration, the conformance lens, and the durable queue at once.
-
-The store's own boundary is `packages/app/src/data/store/document.ts`: it holds one
-cast, at `rowType`, and states why (a container whose attributes are themselves
-types has no expressible configuration, so a table root stays untyped while a
-ROW's shape is declared). Everything downstream of that line is typed.
+RC26 still types configured children as `Fingerprintable`, which does not
+include a live `Y.Node`, and `insert` does not translate delta children into
+node children. Keep the insertion escape localized at row creation; do not
+broaden JSON metadata types or publish a compatibility alias to hide this gap.
+Verify the installed declarations before changing that boundary.
 
 ## References
 
@@ -192,7 +207,7 @@ ROW's shape is declared). Everything downstream of that line is typed.
 - `packages/app/evidence/data/invariants.test.ts`: the library behaviour this design rests on, pinned against the installed rc
 - `packages/app/src/data/sync/`: the Yjs 14 wire (frames, connection, client, authority)
 - [ADR-0295](../../../docs/adr/0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md): one document per application, and a row holds its rich content (supersedes ADR-0248)
-- [ADR-0309](../../../docs/adr/0309-a-field-holds-a-value-or-a-node-and-the-retired-words-fail-the-build.md): a row is its id, its values, and one node at `content`; the table declares what the node means
+- [ADR-0309](../../../docs/adr/0309-a-field-holds-a-value-or-a-node-and-the-retired-words-fail-the-build.md): historical field/node vocabulary, amended by [ADR-0431](../../../docs/adr/0431-rows-return-values-and-own-a-separate-body.md) for the sole-child layout
 - [ADR-0221](../../../docs/adr/0221-a-table-names-the-rows-a-commit-touched-and-says-so-after-the-projection-commits.md): what `subscribe` reports and when it fires
 - [ADR-0146](../../../docs/adr/0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md): Yjs 14-only persistence decision
 - [ADR-0159](../../../docs/adr/0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md): one owner-side SQLite update log and shared attachment seam

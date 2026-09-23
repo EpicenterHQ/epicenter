@@ -3,7 +3,7 @@
 An editor for Epicenter agent skills. Its route currently refuses startup
 pending a product and authentication decision. The Account-taking adapter
 opens the current Personal library through the shared App API and IndexedDB. Instructions and reference bodies are
-the `content` nodes on their owning rows in the workspace document. CodeMirror
+the body nodes on their owning rows in the workspace document. CodeMirror
 binds directly to those live nodes.
 
 Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo.
@@ -22,13 +22,13 @@ being silently deleted or migrated.
 The app uses runtime-owned structural record IDs. Each valid skill and reference
 also carries a stable `sourceId` in its JSON payload for domain-level references.
 Deleting a skill explicitly deletes its currently conforming reference records.
-Deleting a row also removes its content node, which is nested under it.
+Deleting a row also removes its body node, which is nested under it.
 
-Instructions and reference bodies are rich fields on their owning rows:
+Instructions and reference bodies are collaborative nodes on their owning rows:
 
 ```ts
-skills.data.tables.skills.get(skillId)?.content;
-skills.data.tables.skillReferences.get(referenceId)?.content;
+skills.data.tables.skills.body(skillId);
+skills.data.tables.skillReferences.body(referenceId);
 ```
 
 Application code never constructs addresses, authority identities, or providers.
@@ -38,7 +38,7 @@ There is one document, and the runtime owns it.
 
 The single route renders a resizable split view with a searchable skill list,
 metadata editor, Markdown instructions editor, references panel, and command
-palette. CodeMirror binds directly to the row's `content` field.
+palette. CodeMirror binds directly to the row's body node.
 
 ## Development
 

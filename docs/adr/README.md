@@ -683,4 +683,5 @@ When you add an ADR, add its row here.
 | [0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md) | Whispering recordings reference audio in their containing store | Accepted (amends 0426 at Whispering recording ownership; implementation unbuilt) |
 | [0429](0429-store-handles-keep-account-identity-private.md) | Store handles keep account identity private | Accepted (public Personal identity removal unbuilt) |
 | [0430](0430-define-store-declares-data-and-products-compose-resources.md) | Store definitions declare data and products compose resources | Proposed |
+| [0431](0431-rows-return-values-and-own-a-separate-body.md) | Rows return values and own a separate body | Proposed (amends 0295 and 0309 at the row layout and API) |
 | [0432](0432-captures-form-a-timeline-of-recursively-openable-entries.md) | Captures form a timeline of recursively openable entries | Proposed |
