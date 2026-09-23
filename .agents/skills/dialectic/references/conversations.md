@@ -187,14 +187,16 @@ about shipped behavior.
 > Whispering ── chosen text ──> another app
 > ```
 >
-> That second line is a specific user action. We can now ask which destination
-> would make it useful.
+> That second line is a user-chosen handoff. I would keep it separate from the
+> launch subscription promise for now. A Whispering-only user could already
+> pay for hosted transcription and saved work; the handoff needs a destination
+> worth opening. I would prototype one destination and see whether people use
+> it before selling “coordination” as a benefit.
 
 The first map makes the omission easy to name. The agent changes that map when
-the human corrects it and explains the new line without rebuilding the whole
-proposal in prose. A shorter reply that only asked what “coordination” meant
-would leave the human to supply the model; a longer service inventory would
-bury the relationship they wanted to change.
+the human corrects it, then recommends what to promise now and what to test
+next. The diagram gives the human a place to correct the model; the agent's
+judgment carries the conversation forward.
 
 
 ## Blog writing: compare the rendered openings
