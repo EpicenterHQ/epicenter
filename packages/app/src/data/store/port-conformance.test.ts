@@ -28,7 +28,7 @@ import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import * as Y from '@y/y';
 import type { Logger } from 'wellcrafted/logger';
 import { openIdbBacking } from './browser.js';
-import { createRow, readRow, tableRoot } from './document.js';
+import { createRow, readRow, tableRoot, updateRow } from './document.js';
 import { createSqliteDurablePort, replay } from './log.js';
 import {
 	createPersistenceController,
@@ -143,7 +143,8 @@ function chain(count: number): Uint8Array[] {
 	const updates: Uint8Array[] = [];
 	let since = Y.encodeStateVector(doc);
 	for (let index = 0; index < count; index += 1) {
-		createRow(root, 'only', { value: `v${index}` });
+		if (index === 0) createRow(root, 'only', { value: `v${index}` });
+		else updateRow(root, 'only', { value: `v${index}` });
 		updates.push(new Uint8Array(Y.encodeStateAsUpdateV2(doc, since)));
 		since = Y.encodeStateVector(doc);
 	}

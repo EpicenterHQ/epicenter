@@ -195,17 +195,15 @@ export function listRowIds(root: Y.Node): string[] {
 }
 
 /**
- * Write fields into one row, minting the row if the table holds none there.
+ * Mint one row and write its fields. Refuse an id the table already holds.
  *
  * Caller-supplied fields only: an absent key is left alone rather than being
  * filled from a declaration default. Missing values remain missing until the
  * application composes recovery. Must run inside a `transact`, so a minted row and
  * the fields it admits commit together.
  *
- * There is no revive path and no address to revive. Deletion takes the row's
- * attribute off the root, so a deleted address is indistinguishable from one
- * never used; `create` mints an id nothing has ever held, and `update` refuses
- * an address holding no row.
+ * There is no revive path. Deletion takes the row's attribute off the root;
+ * `create` supplies a fresh id and `update` refuses an absent address.
  */
 export function createRow(
 	root: Y.Node,
@@ -216,40 +214,21 @@ export function createRow(
 	validateRowFields(fields);
 	if (given !== undefined && !(given instanceof Y.Node))
 		throw new TypeError('The body must be a live Yjs node');
-	const existing = rowType(root, rowId);
-	if (existing === undefined && given !== undefined && given.doc !== null) {
+	if (rowType(root, rowId) !== undefined) {
+		throw new Error(
+			`row '${rowId}' already exists; use updateRow to edit its fields`,
+		);
+	}
+	if (given !== undefined && given.doc !== null) {
 		throw new Error(
 			`the body given for row '${rowId}' already belongs to a document; build a fresh node per row`,
 		);
 	}
-	const row = existing ?? mintRow(root, rowId);
-	if (existing === undefined) {
-		// **Integrated exactly once, in the transaction that mints the row.**
-		// Root types converge by name; nested ones do not, so two devices
-		// independently minting a node at the same key lose one subtree. Doing
-		// it with the row removes the concurrency entirely, because a row id is
-		// minted rather than chosen and no two devices ever mint the same one.
-		//
-		// **A given node must not already belong to a document.** Measured on
-		// `@y/y@14.0.0-rc.26`: setting one node at two keys leaves both keys
-		// holding the SAME node, so two rows would share it and edits to either
-		// would appear in both, silently. `doc` is non-null exactly when a node
-		// has been integrated, so refusing here makes that unrepresentable.
-		// RC26 accepts nested Y.Node children at runtime, but DeltaConf restricts
-		// children to Fingerprintable values. Keep that type-system gap here.
-		row.insert(0, [(given ?? new Y.Node()) as never]);
-	} else {
-		if (given !== undefined) {
-			throw new Error(
-				`cannot replace the body node for existing row '${rowId}'; edit the live node instead`,
-			);
-		}
-		if (readRowBody(root, rowId) === undefined) {
-			throw new Error(
-				`existing row '${rowId}' has no live body node; repair it before writing value fields`,
-			);
-		}
-	}
+	const row = mintRow(root, rowId);
+	// Integrated exactly once in the transaction that mints the row. Root types
+	// converge by name; nested ones do not, so creation must use a minted id.
+	// RC26 accepts nested nodes at runtime but DeltaConf omits them from its type.
+	row.insert(0, [(given ?? new Y.Node()) as never]);
 	fill(row, fields);
 }
 

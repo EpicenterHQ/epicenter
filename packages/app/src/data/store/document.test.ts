@@ -32,35 +32,13 @@ describe('createRow mints, and it is the only thing that does', () => {
 		expect(readRow(notes, 'a')).toEqual({ title: 'hello' });
 	});
 
-	test('creating over an existing row merges rather than replacing it', () => {
+	test('creating over an existing row refuses without changing it', () => {
 		const { document, notes } = table();
 		document.transact(() => createRow(notes, 'a', { title: 'hello' }));
-		document.transact(() => createRow(notes, 'a', { pinned: true }));
-		expect(readRow(notes, 'a')).toEqual({ title: 'hello', pinned: true });
-	});
-
-	test('creating over an existing row cannot replace its body node', () => {
-		const { document, notes } = table();
-		document.transact(() => createRow(notes, 'a', {}));
-		const replacement = new Y.Node();
-
 		expect(() =>
-			document.transact(() => createRow(notes, 'a', {}, replacement)),
-		).toThrow(/cannot replace the body node/);
-		expect(readRowBody(notes, 'a')).toBeDefined();
-		expect(replacement.doc).toBeNull();
-	});
-
-	test('creating over an existing row refuses one without body', () => {
-		const { document, notes } = table();
-		document.transact(() => createRow(notes, 'a', {}));
-		const row = notes.getAttr('a') as unknown;
-		if (!(row instanceof Y.Node)) throw new Error('row was not created');
-		document.transact(() => row.delete(0, 1));
-
-		expect(() =>
-			document.transact(() => createRow(notes, 'a', { title: 'hello' })),
-		).toThrow(/has no live body node/);
+			document.transact(() => createRow(notes, 'a', { pinned: true })),
+		).toThrow(/already exists/);
+		expect(readRow(notes, 'a')).toEqual({ title: 'hello' });
 	});
 
 	test('invalid body does not leave a partially minted row', () => {
@@ -137,7 +115,7 @@ describe('both refuse a reserved field name', () => {
 		expect(() =>
 			document.transact(() =>
 				which === 'createRow'
-					? createRow(notes, 'a', { id: 1 })
+					? createRow(notes, 'b', { id: 1 })
 					: updateRow(notes, 'a', { id: 1 }),
 			),
 		).toThrow(TypeError);
