@@ -182,8 +182,8 @@ local S3-compatible store.
 
 ### Local blob storage
 
-Blob storage is optional: omit `BLOBS_S3_*` and the blob routes answer `503
-StorageNotConfigured` while everything else runs. To exercise blobs locally, run
+Blob storage is optional: omit `BLOBS_S3_*` and the blob routes answer 503
+while everything else runs. To exercise blobs locally, run
 a real S3-compatible store alongside the server. `compose.yaml` starts
 [versitygw](https://github.com/versity/versitygw) (an S3 API over a plain folder)
 and creates the `epicenter-blobs` bucket:
@@ -196,11 +196,10 @@ Then set the `BLOBS_S3_*` values from `.env.example` (endpoint
 `http://localhost:7070`). Your blobs land as ordinary files under
 `.data/blobs/epicenter-blobs/`.
 
-Browser replicas upload and download through short-lived presigned object-store
-URLs. The bucket CORS policy must allow each trusted application origin to use
-`GET` and `PUT`, and must allow the `Content-Type` and `If-None-Match` request
-headers. This is deployment configuration, not Worker CORS: a missing
-`If-None-Match` allowance makes immutable browser uploads fail at preflight.
+Clients publish and read through the API authority. Its server-side S3 client
+signs exact-key PUT, GET, HEAD, and DELETE requests; object-store URLs and
+credentials never reach application rows or browsers. The API limits each
+publication to 25 MiB. Browser CORS applies to the API origin, not the bucket.
 
 The server runs the same portable S3 client against versitygw, Garage, AWS S3, or
 R2; the store is endpoint-as-config, so swapping it is a config change, never a

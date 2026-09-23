@@ -16,7 +16,7 @@ deletion is deferred for the zero-user V1; see
 | `StoreAuthority`, opaque snapshots and log | `mountStoreSyncApp`: import POST allocates then seeds; socket upgrade addresses any valid data ID and positive generation | No account data-ID registry. Socket-only generations can have bytes without any ledger row. `deleteStore()` only calls `deleteAll()`; it has no tombstone, socket retirement, or delayed-body fence. |
 | `GenerationsLedger`, reservations and admitted generations | Collection GET/POST and bootstrap GET address a ledger by principal/data ID; construction creates its SQL table; `allocate()` inserts before import | `list()` filters out reservations. Failed imports remain discoverable only if the data ID is already known and all rows are read. No deletion method or account registry exists. |
 | Prior Durable Object layouts | Earlier Worker/name layouts documented in `apps/api/wrangler.jsonc` | Renaming strands objects. Configuration comments requiring a past reset are not evidence that it happened. |
-| S3/R2 blob bucket | `routes/blobs.ts` issues 300-second presigned PUTs; clients write directly | Paginated prefix listing finds stored objects, including unattached uploads. A concurrent or previously authorized PUT can land after a sweep. Expiry alone does not prove an in-flight upload has stopped. |
+| S3/R2 blob bucket | `routes/authority-blobs.ts` admits authenticated owner publications and writes exact keys through S3 | Owner erasure has no coordinator. It must fence new publications, drain admitted writes, then enumerate and remove that owner's objects. The current exact-key adapter exposes no prefix sweep. |
 | Postgres `user`, `session`, `account`, `passkey` | Better Auth, social callbacks, passkey ceremonies, session handoff | User deletion cascades to the latter three through actual foreign keys. It does not cancel handlers that already resolved a session. |
 | Postgres `verification` | Better Auth OAuth state, passkey challenges, `sessionHandoff` | No user foreign key. Handoff values contain `principalId` and `sourceToken`; installed passkey registration values contain `userData.id`, name, and display name. OAuth linking state carries a link identity. Expiration is not proof of physical removal. Inventory needs explicit attribution at creation and grounded discovery for historical formats. |
 | Postgres `storage_observation` | `upsertStorageObservation`; historical registry and billing observation paths | Enumerable by principal, no cascade. Current store transport does not register allocations here. These rows cannot prove store completeness. |
@@ -87,7 +87,7 @@ enabling automated deletion:
 1. Finish and locally verify inventory registration, mutation retirement,
    durable retries, and every storage-owner deletion path.
 2. Prepare an approved deployment that temporarily refuses storage allocations
-   and upload issuance, including ledger-creating GETs. Retire existing sockets
+   and blob publication, including ledger-creating GETs. Retire existing sockets
    and drain delayed requests and old Worker/DO versions; deployment alone does
    not quiesce them. A past empty listing cannot stand in for this step.
 3. Repeat namespace enumeration after the gate is active, verify the actual blob

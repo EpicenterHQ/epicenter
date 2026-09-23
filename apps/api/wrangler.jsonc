@@ -111,9 +111,9 @@
 			"OPENAI_API_KEY",
 			"AUTUMN_SECRET_KEY",
 			"GEMINI_API_KEY",
-			// S3 credentials for the opaque-id blob store. The store is
-			// a portable S3 client (no R2 binding): it presigns PUT/GET and signs
-			// head/list/delete against BLOBS_S3_ENDPOINT. For hosted cloud that
+			// S3 credentials for owner-addressed hosted blobs. The portable
+			// S3 client signs exact-key PUT/GET/HEAD/DELETE requests against
+			// BLOBS_S3_ENDPOINT. For hosted cloud that
 			// endpoint is `https://<accountId>.r2.cloudflarestorage.com` with a
 			// bucket-scoped Object Read & Write token. The endpoint is grouped as
 			// a secret so the account id stays out of committed config; bucket
@@ -133,9 +133,8 @@
 		}
 	],
 	// --- R2: NO bindings ---
-	// This Worker names no `r2_buckets` binding. The opaque-id blob store
-	// (large media: video archive, files routinely >100 MB, sometimes multi-GB)
-	// talks plain S3-over-HTTPS via aws4fetch (BLOBS_S3_* secrets above), so the
+	// This Worker names no `r2_buckets` binding. Hosted blob requests
+	// talk plain S3-over-HTTPS via aws4fetch (BLOBS_S3_* secrets above), so the
 	// same code runs on this Worker against R2 and in a self-hosted Node binary
 	// against Garage/S3 with no Workers-only R2 binding. Create its bucket
 	// with: bunx wrangler r2 bucket create epicenter-blobs

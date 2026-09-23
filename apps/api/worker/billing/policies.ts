@@ -33,12 +33,9 @@
  * `BillingError` (fail closed), so the surface answers with a billing envelope
  * instead of a naked 500.
  *
- * The opaque-id blob store is unmetered in v1 (no storage policy here):
- * Autumn `check()` denies by default with no plan attached, so deferred quota
- * means not calling it. When blob storage is billed (deleted spec
- * 20260623T220000 decision 10, recoverable via git history; kernel is
- * ADR-0089), a `syncBlobStorageWithAutumn` policy lands here together with the
- * Hosted blob billing needs a policy seam on the authority route.
+ * Hosted blobs are unmetered in v1. Autumn `check()` denies by default with
+ * no plan attached, so the authority route does not call it. Billing hosted
+ * storage later requires an explicit policy seam and owner-level usage rules.
  *
  * The library remains billing-agnostic; everything here is cloud-only.
  */
