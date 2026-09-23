@@ -8,7 +8,7 @@ import { openData } from './open.js';
 const definition = defineStore({
 	id: 'test.data-open',
 	kv: {},
-	tables: { notes: defineTable({ title: field.string() }) },
+	tables: { notes: defineTable({ fields: { title: field.string() } }) },
 });
 
 test('disposing data leaves caller-owned SQLite open and preserves rows for reopening', async () => {

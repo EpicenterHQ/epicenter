@@ -41,14 +41,16 @@ const historicalSkillsWorkspace = defineStore({
 	kv: {},
 	tables: {
 		skills: defineTable({
-			name: field.string(),
-			description: field.string(),
-			license: field.nullable(field.string()),
-			compatibility: field.nullable(field.string()),
-			metadata: field.nullable(field.json(jsonValue)),
-			allowedTools: field.nullable(field.string()),
-			updatedAt: field.instant(),
-			content: plainText(),
+			fields: {
+				name: field.string(),
+				description: field.string(),
+				license: field.nullable(field.string()),
+				compatibility: field.nullable(field.string()),
+				metadata: field.nullable(field.json(jsonValue)),
+				allowedTools: field.nullable(field.string()),
+				updatedAt: field.instant(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -60,7 +62,7 @@ function openSkills(record: MemoryRecord) {
 function readInstructions(data: SkillsData, skillId: string): string {
 	const content = data.tables.skills.get(skillId);
 	if (content === undefined) throw new Error(`Skill '${skillId}' has no row`);
-	return content.content.toString();
+	return data.tables.skills.body(content.id)!.toString();
 }
 
 test('a stricter Skills workspace exposes nonconformance until an update repairs it', async () => {
@@ -136,7 +138,7 @@ test("a skill's instructions live under its own row id", async () => {
 			writtenTo = written.id;
 			const held = data.tables.skills.get(writtenTo);
 			if (held === undefined) throw new Error('the row has no content');
-			const content = held.content;
+			const content = data.tables.skills.body(held.id)!;
 			content.applyDelta(content.change.insert('Keep it concise.') as never);
 
 			const other = data.tables.skills.create({

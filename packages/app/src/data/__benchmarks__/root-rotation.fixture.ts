@@ -3,7 +3,7 @@ import * as Y from '@y/y';
 import {
 	createRow,
 	readRow,
-	readRowContent,
+	readRowBody,
 	tableRoot,
 } from '../store/document.js';
 
@@ -15,26 +15,26 @@ export function reopen(update: Uint8Array): Y.Doc {
 	return doc;
 }
 
-export function rows(doc: Y.Doc, wrapped = true): Y.Type {
+export function rows(doc: Y.Doc, wrapped = true): Y.Node {
 	if (!wrapped) return tableRoot(doc, 'notes');
-	return doc.get('application').getAttr('data' as never) as Y.Type;
+	return doc.get('application').getAttr('data' as never) as Y.Node;
 }
 
 export function seed(wrapped = true): Y.Doc {
 	const doc = new Y.Doc({ gc: true });
 	doc.transact(() => {
 		if (wrapped)
-			doc.get('application').setAttr('data' as never, new Y.Type() as never);
+			doc.get('application').setAttr('data' as never, new Y.Node() as never);
 		for (let i = 0; i < 100; i++)
 			put(rows(doc, wrapped), `live-${i}`, `Note ${i}`);
 	});
 	return doc;
 }
 
-export function put(root: Y.Type, id: string, title: string): void {
-	const content = new Y.Type();
+export function put(root: Y.Node, id: string, title: string): void {
+	const content = new Y.Node();
 	content.insert(0, ['x'.repeat(128)]);
-	createRow(root, id, { title, ordinal: 42, content });
+	createRow(root, id, { title, ordinal: 42 }, content);
 }
 
 export function visible(doc: Y.Doc, wrapped = true) {
@@ -45,7 +45,7 @@ export function visible(doc: Y.Doc, wrapped = true) {
 		.map((id) => ({
 			id,
 			fields: readRow(root, id)!,
-			text: readRowContent(root, id)!.toString(),
+			text: readRowBody(root, id)!.toString(),
 		}));
 }
 
@@ -54,12 +54,12 @@ export function reconstruct(source: Y.Doc, fresh = false): Y.Doc {
 	const saved = visible(source);
 	const target = fresh ? new Y.Doc({ gc: true }) : source;
 	target.transact(() => {
-		const root = new Y.Type();
+		const root = new Y.Node();
 		target.get('application').setAttr('data' as never, root as never);
 		for (const { id, fields, text } of saved) {
-			const content = new Y.Type();
+			const content = new Y.Node();
 			if (text) content.insert(0, [text]);
-			createRow(root, id, { ...fields, content });
+			createRow(root, id, { ...fields }, content);
 		}
 	});
 	return target;

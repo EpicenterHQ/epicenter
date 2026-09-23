@@ -1,5 +1,5 @@
 import {
-	ContentError,
+	BodyError,
 	defineTable,
 	field,
 	type RowOf,
@@ -16,7 +16,7 @@ import * as Y from '@y/y';
  * or knows which document a conversation lives in. An application splices
  * {@link conversationsTable} into its own workspace under its own id,
  * opens its own database document (device or account, ADR-0233), and hands the row's
- * `content` node to {@link createAgentMessageStore}. Vocab has always worked this
+ * `body` node to {@link createAgentMessageStore}. Vocab has always worked this
  * way and said so; the `chatLens` that used to sit beside the table was a
  * declaration no application ever bound, kept alive by its own test, and a
  * standalone declaration is a standalone document, which is exactly what a
@@ -56,14 +56,16 @@ export const asConversationId = (value: string): ConversationId =>
  * ```
  */
 export const conversationsTable = defineTable({
-	title: field.string(),
-	model: field.string(),
-	// Validation-only rather than `string.date.parse`: a field has to be one
-	// type through the CRDT attribute, the projection column and the row
-	// alike, and a parsing form would hand back a `Date` that could not
-	// round-trip.
-	createdAt: field.instant(),
-	updatedAt: field.instant(),
+	fields: {
+		title: field.string(),
+		model: field.string(),
+		// Validation-only rather than `string.date.parse`: a field has to be one
+		// type through the CRDT attribute, the projection column and the row
+		// alike, and a parsing form would hand back a `Date` that could not
+		// round-trip.
+		createdAt: field.instant(),
+		updatedAt: field.instant(),
+	},
 	/**
 	 * The conversation's finished messages, as a keyed log (ADR-0295, ADR-0296).
 	 *
@@ -82,8 +84,8 @@ export const conversationsTable = defineTable({
 	 * struct that created it, so two devices minting one would lose a subtree,
 	 * and only the creating device ever mints this.
 	 */
-	content: {
-		encode: (node: Y.Type) =>
+	body: {
+		encode: (node: Y.Node) =>
 			JSON.stringify(
 				[...node.attrEntries()].map(([key, val]) => ({
 					key: String(key),
@@ -92,11 +94,11 @@ export const conversationsTable = defineTable({
 				null,
 				2,
 			),
-		decode: (text: string): Result<Y.Type, ContentError> => {
+		decode: (text: string): Result<Y.Node, BodyError> => {
 			// Built here and handed back (ADR-0296, amended). `create` integrates
 			// it in the transaction that mints the row; nothing reads it before
 			// then, because a detached node reads as empty until it is integrated.
-			const messages = new Y.Type();
+			const messages = new Y.Node();
 			const entries = messageEntries(text);
 			if (entries.error !== null) return Err(entries.error);
 			for (const entry of entries.data) messages.setAttr(entry.key, entry.val);
@@ -115,7 +117,7 @@ export const conversationsTable = defineTable({
 		 * message from the file gets a conversation without it rather than one
 		 * where the deletion silently did nothing.
 		 */
-		rewrite: (node: Y.Type, text: string): Result<void, ContentError> => {
+		rewrite: (node: Y.Node, text: string): Result<void, BodyError> => {
 			const entries = messageEntries(text);
 			if (entries.error !== null) return Err(entries.error);
 			const named = new Set(entries.data.map((entry) => entry.key));
@@ -137,26 +139,26 @@ export const conversationsTable = defineTable({
  */
 function messageEntries(
 	text: string,
-): Result<{ key: string; val: unknown }[], ContentError> {
+): Result<{ key: string; val: unknown }[], BodyError> {
 	if (text.trim() === '') return Ok([]);
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(text);
 	} catch (cause) {
-		return ContentError.Unreadable({
+		return BodyError.Unreadable({
 			reason: 'the message log is not JSON',
 			cause,
 		});
 	}
 	if (!Array.isArray(parsed)) {
-		return ContentError.Unreadable({
+		return BodyError.Unreadable({
 			reason: 'the message log is not an array of entries',
 		});
 	}
 	const entries: { key: string; val: unknown }[] = [];
 	for (const entry of parsed as { key?: unknown; val?: unknown }[]) {
 		if (typeof entry?.key !== 'string') {
-			return ContentError.Unreadable({
+			return BodyError.Unreadable({
 				reason: 'a message entry carries no id',
 			});
 		}
@@ -172,16 +174,16 @@ export type Conversation = RowOf<typeof conversationsTable>;
 export type ConversationsTable = TypedTableHandle<typeof conversationsTable>;
 
 /**
- * Present one conversation's `content` node as the agent loop's by-id store.
+ * Present one conversation's `body` node as the agent loop's by-id store.
  *
  * An adapter and nothing more: it opens nothing and releases nothing. The type
  * is live on the database's one document (ADR-0295), so its lifetime is the
  * row's; durability is the store's write-behind and propagation is the
  * ordinary transport.
  *
- * @param messages The row's `content` node, from `table.get(id)?.content`.
+ * @param messages The row's `body` node, from `table.body(id)`.
  */
-export function createAgentMessageStore(messages: Y.Type): AgentMessageStore {
+export function createAgentMessageStore(messages: Y.Node): AgentMessageStore {
 	return {
 		set(key, value) {
 			messages.setAttr(key, value);

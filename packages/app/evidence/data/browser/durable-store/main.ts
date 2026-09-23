@@ -21,8 +21,10 @@ const workspaces = {
 		kv: {},
 		tables: {
 			notes: defineTable({
-				title: field.string(),
-				content: plainText(),
+				fields: {
+					title: field.string(),
+				},
+				body: plainText(),
 			}),
 		},
 	}),
@@ -31,8 +33,10 @@ const workspaces = {
 		kv: {},
 		tables: {
 			notes: defineTable({
-				title: field.string(),
-				content: plainText(),
+				fields: {
+					title: field.string(),
+				},
+				body: plainText(),
 			}),
 		},
 	}),
@@ -70,7 +74,7 @@ Object.assign(globalThis, {
 	async write(title: string, text: string, flush = true) {
 		const db = bound();
 		const made = db.tables.notes.create({ title });
-		const content = db.tables.notes.get(made.id)?.content;
+		const content = db.tables.notes.body(made.id);
 		if (content === undefined) return { error: 'the row has no content' };
 		content.applyDelta(content.change.insert(text) as never);
 		if (flush) await db.persistence.flush();
@@ -89,9 +93,7 @@ Object.assign(globalThis, {
 			// Through the CRDT, not through a cache the harness keeps.
 			notes.push({
 				title: row.title,
-				text: JSON.stringify(
-					db.tables.notes.get(row.id)?.content.toJSON() ?? null,
-				),
+				text: JSON.stringify(db.tables.notes.body(row.id)?.toJSON() ?? null),
 			});
 		}
 		return {

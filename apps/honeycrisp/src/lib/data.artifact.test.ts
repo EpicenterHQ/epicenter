@@ -12,13 +12,13 @@ import { readArtifact, renderArtifact } from '@epicenter/app/artifact';
 import { syncEngineOf } from '@epicenter/app/data';
 import { InstantString } from '@epicenter/app/field';
 import { openMemory } from '@epicenter/app/memory';
-import { pmToFragment } from '@y/prosemirror';
+import { pmnodeToDelta } from '@y/prosemirror';
 import { expectOk } from 'wellcrafted/testing';
 import { honeycrispDefinition } from './data.js';
 import { parseNoteBody } from './editor/markdown.js';
 
 /** The notes table's real codec, which is what these tests are about. */
-const noteFile = honeycrispDefinition.tables.notes.content;
+const noteFile = honeycrispDefinition.tables.notes.body;
 
 const AT = InstantString.fromDate(new Date('2026-08-10T00:00:00.000Z'));
 
@@ -68,7 +68,9 @@ test('a store exports to Markdown files and imports back whole', async () => {
 	const { data, note } = await seed();
 	const seeded = data.tables.notes.get(note.id);
 	if (seeded === undefined) throw new Error('the note has no row');
-	pmToFragment(parseNoteBody(MARKDOWN), seeded.content as never);
+	data.tables.notes
+		.body(seeded.id)!
+		.applyDelta(pmnodeToDelta(parseNoteBody(MARKDOWN)));
 
 	const files = await collect(renderArtifact(data, honeycrispDefinition));
 	// One file per row, and the note's file is text a person can read.
@@ -95,7 +97,7 @@ test('a store exports to Markdown files and imports back whole', async () => {
 	// row goes in, not a row spliced together with a bag of types.
 	const row = restored.tables.notes.get(note.id);
 	if (row === undefined) throw new Error('the note lost its row');
-	expect(noteFile.encode(row.content)).toBe(MARKDOWN);
+	expect(noteFile.encode(restored.tables.notes.body(row.id)!)).toBe(MARKDOWN);
 	await data[Symbol.asyncDispose]();
 });
 
@@ -109,7 +111,7 @@ test('a note with no body text exports as frontmatter alone and still imports', 
 	syncEngineOf(restored).applyRemote(state);
 	expect(restored.tables.notes.get(note.id)?.title).toBe('Groceries');
 	// The node is minted with the row, so an empty note still has one.
-	expect(restored.tables.notes.get(note.id)?.content).toBeDefined();
+	expect(restored.tables.notes.body(note.id)).toBeDefined();
 	await data[Symbol.asyncDispose]();
 });
 
@@ -125,29 +127,29 @@ test('a note with no body text exports as frontmatter alone and still imports', 
  */
 test('a rewritten body says what the file says, in the node the row already holds', async () => {
 	const { data, note } = await seed();
-	const before = data.tables.notes.get(note.id);
+	const before = data.tables.notes.body(note.id);
 	if (before === undefined) throw new Error('the note has no row');
-	pmToFragment(parseNoteBody('# Old\n\nold text'), before.content as never);
+	before.applyDelta(pmnodeToDelta(parseNoteBody('# Old\n\nold text')));
 
-	expectOk(noteFile.rewrite(before.content, MARKDOWN));
+	expectOk(noteFile.rewrite(before, MARKDOWN));
 
-	const after = data.tables.notes.get(note.id);
+	const after = data.tables.notes.body(note.id);
 	if (after === undefined) throw new Error('the note lost its row');
 	// The identity claim, which is the whole point. `toBe`, not `toEqual`.
-	expect(after.content).toBe(before.content);
-	expect(noteFile.encode(after.content)).toBe(MARKDOWN);
+	expect(after).toBe(before);
+	expect(noteFile.encode(after)).toBe(MARKDOWN);
 	await data[Symbol.asyncDispose]();
 });
 
 test('a rewrite to nothing empties the node without replacing it', async () => {
 	const { data, note } = await seed();
-	const row = data.tables.notes.get(note.id);
-	if (row === undefined) throw new Error('the note has no row');
-	pmToFragment(parseNoteBody(MARKDOWN), row.content as never);
+	const body = data.tables.notes.body(note.id);
+	if (body === undefined) throw new Error('the note has no row');
+	body.applyDelta(pmnodeToDelta(parseNoteBody(MARKDOWN)));
 
-	expectOk(noteFile.rewrite(row.content, ''));
+	expectOk(noteFile.rewrite(body, ''));
 
-	expect(data.tables.notes.get(note.id)?.content).toBe(row.content);
-	expect(noteFile.encode(row.content)).toBe('');
+	expect(data.tables.notes.body(note.id)).toBe(body);
+	expect(noteFile.encode(body)).toBe('');
 	await data[Symbol.asyncDispose]();
 });

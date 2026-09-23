@@ -55,8 +55,10 @@ const database = defineStore({
 	kv: {},
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -70,7 +72,7 @@ function snapshotOf(replica: { data: Replica['data'] }): Uint8Array {
 function editorOf(replica: Replica, rowId: string) {
 	const content = replica.db.tables.notes.get(rowId);
 	if (content === undefined) throw new Error('the table holds no such row');
-	return content.content;
+	return replica.db.tables.notes.body(content.id)!;
 }
 
 /**
@@ -1798,9 +1800,11 @@ const newerDatabase = defineStore({
 	kv: {},
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			pinned: field.boolean(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+				pinned: field.boolean(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -1811,12 +1815,16 @@ const twoTableDatabase = defineStore({
 	kv: {},
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+			},
+			body: plainText(),
 		}),
 		tasks: defineTable({
-			label: field.string(),
-			content: plainText(),
+			fields: {
+				label: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });

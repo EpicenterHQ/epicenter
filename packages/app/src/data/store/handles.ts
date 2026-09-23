@@ -15,7 +15,6 @@ import type {
 	CreateRowOf,
 	DataDefinition,
 	JsonObject,
-	JsonValue,
 	KvOf,
 	ParsedDataDefinition,
 	RowOf,
@@ -27,36 +26,18 @@ import type * as Y from '@y/y';
 import type { Result } from 'wellcrafted/result';
 
 import type { SyncConnectionStatus } from '../sync/connection.js';
-import type { RowInput } from './document.js';
 import type { NonconformingRow, RowAbsentError } from './errors.js';
 import type { PersistenceCapability } from './persistence.js';
 
-/**
- * One row, as an application reads it: the id, the value snapshots, and the
- * live `content` node.
- *
- * The row's `content` node is here rather than behind a second verb
- * (ADR-0299). `readRow` reads the value snapshot and `readRowContent` reads
- * the live node before the handle hands one flat object to the caller.
- *
- * **The two halves have different lifetimes, and that is forced rather than
- * chosen.** A value is a snapshot: it was copied out of the document when you
- * read, and a later commit does not change it. The content node is a reference: it
- * IS the container in the document, so an edit through it is an edit to the
- * store, and a peer's edit shows up in it without anyone re-reading.
- *
- * Neither could be the other. Copying a `Y.Type` out would break the merge that
- * makes it worth having, and a value has nothing to reference: it is a JSON
- * value on a map, not an object. So a row is half snapshot and half handle,
- * and which half a field is, its declared kind already says.
- *
- * What keeps that liveable is that reads are cheap and reactive. `get` walks a
- * document already in memory, and `fromData` re-runs a `$derived` on any commit
- * that touches the table, so a surface re-reads rather than holding. Holding a
- * destructured value across a commit is the one way to be surprised, and it is
- * the same way it always was.
- */
-export type Row = { id: string } & Record<string, JsonValue | Y.Type>;
+/** One row's identity and value snapshot. */
+export type Row = { id: string } & JsonObject;
+
+/** Faithful stored values and the live body, used only by file operations. */
+export type RowFile = {
+	id: string;
+	fields: JsonObject;
+	body: Y.Node | undefined;
+};
 
 /**
  * What a table's subscriber is handed: the rows this commit touched.
@@ -66,7 +47,11 @@ export type Row = { id: string } & Record<string, JsonValue | Y.Type>;
  */
 export type TableListener = (rowIds: readonly string[]) => void;
 
-export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
+export type TableHandle<
+	TRow = Row,
+	TInput = JsonObject,
+	TPatch = JsonObject,
+> = {
 	/**
 	 * Bring one row into being, at a minted id.
 	 *
@@ -77,26 +62,15 @@ export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
 	 * unreachable rather than merely unlikely. Anything an application wants to
 	 * name goes in `kv`, which lives at a name-addressed root.
 	 *
-	 * A content node IS passed here, already built (ADR-0296, amended). The node
-	 * is integrated in this transaction, which is what removes the concurrency:
-	 * a nested type is addressed by the struct that created it, so two devices
-	 * minting one at the same attribute key would lose a subtree, and a minted
-	 * row id means no two devices ever do. Omit one and it is minted empty.
+	 * An optional fresh body is integrated in the creation transaction. Omit it
+	 * to mint an empty body. An already integrated node is refused because sharing
+	 * it between rows would couple their edits and deletion.
 	 *
-	 * The type must not already belong to a document. Two rows given one type
-	 * share one body, silently; `createRow` refuses rather than allowing it.
-	 *
-	 * The return is the row `get` would give you: the id, the values, and the
-	 * INTEGRATED content node. Read back rather than echoed, because a node you passed
-	 * in was detached and reads as empty until it is integrated here, and one
-	 * you omitted was minted for you.
-	 *
-	 * The declaration is a read lens, so creation does not validate the supplied
-	 * values or field names. The returned object is the typed write view, while
-	 * a later `get` reports how the current lens interprets the stored payload.
-	 *
+	 * Returns the stored value snapshot. The declaration remains a read lens:
+	 * `get` reports whether those values conform. Reserved field names and live
+	 * nodes passed as values are refused before the row is created.
 	 */
-	create(fields: TInput): TRow;
+	create(fields: TInput, body?: Y.Node): TRow;
 	/**
 	 * One row, whole, or nothing.
 	 *
@@ -113,10 +87,12 @@ export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
 	 * Honeycrisp had written `table.rows.find(...)` by hand rather than use
 	 * this verb.
 	 *
-	 * A READ, not a value: see {@link Row}. Comparing what this returns is the
-	 * one thing it does not support, and `store.stored()` is where that goes.
+	 * The result is a serializable value snapshot. Use `body(rowId)` separately
+	 * for live collaborative editing state.
 	 */
 	get(rowId: string): TRow | undefined;
+	/** The existing live body, even when the row's values do not conform. Reading never creates it. */
+	body(rowId: string): Y.Node | undefined;
 	/**
 	 * Merge fields into an existing row. Refuses an absent address.
 	 *
@@ -129,10 +105,10 @@ export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
 	 */
 	update(rowId: string, fields: TPatch): Result<void, RowAbsentError>;
 	/**
-	 * Take one row off the table, its content node and all (ADR-0295).
+	 * Take one row off the table, its body node and all (ADR-0295).
 	 *
 	 * One removal in one document. Deleting the row's nested type reclaims
-	 * every value attribute and the content node's subtree with it, so there
+	 * every value attribute and the body node's subtree with it, so there
 	 * is no second address to retire and no crash point between two halves.
 	 *
 	 * Returns nothing: deleting an address that holds no row is a no-op fact
@@ -155,7 +131,7 @@ export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
 	 */
 	ids(): string[];
 	/**
-	 * Every row this declaration reads whole, with its live content node.
+	 * Value snapshots for every row this declaration can read.
 	 *
 	 * A member rather than a nested list result, because every consumer destructured
 	 * that tuple and three applications then re-exposed each half as its own
@@ -175,7 +151,7 @@ export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
 	 * Hear when this table's SHAPE changes: a row added, a row removed, or a
 	 * row's values edited.
 	 *
-	 * NOT an edit inside a row's content node. The content node is nested on its row
+	 * NOT an edit inside a row's body node. The body node is nested on its row
 	 * (ADR-0295), so counting it here would wake every list in the application
 	 * on every keystroke; `watch` below is the signal for that, scoped to
 	 * the one type. The store decides by depth against the table root, so the
@@ -203,13 +179,13 @@ export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
 	 * Hear edits to ONE live type of this table, local or remote.
 	 *
 	 * Takes the type rather than an address, because the caller is already
-	 * holding it: the content node is read off its row (ADR-0295), and rendering it
+	 * holding it: `body(id)` returns the live node, and rendering it
 	 * needs the type anyway. Naming an address instead looked the same object
 	 * up a second time and could disagree with the first, handing back a dead
 	 * subscription for a row deleted in between.
 	 *
 	 * It is on the table because that is where the caller got the type. Every
-	 * call site reads `table.get(id)?.field` and watches what it read, so the
+	 * call site reads `table.body(id)` and watches what it read, so the
 	 * verb anywhere else costs a second noun at every one of them. Delivery is
 	 * keyed by the type's own identity and does not consult the table, so
 	 * another table's type is accepted here and does exactly what it says. That
@@ -218,7 +194,7 @@ export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
 	 * The scope is the whole reason it exists: the store writes no derived
 	 * fields (ADR-0297), so an application hangs its own write on an edit, and
 	 * a row-scoped signal would fire on the write it caused. It is also the
-	 * only way to hear a node's content, because `subscribe` above reports this table's
+	 * only way to hear a body's structure, because `subscribe` above reports this table's
 	 * shape and deliberately not an edit inside a field.
 	 *
 	 * Fires once per commit, on the same flush every other subscriber's
@@ -227,14 +203,14 @@ export type TableHandle<TRow = Row, TInput = RowInput, TPatch = JsonObject> = {
 	 * the type's own `on('delta')` fires mid-acceptance, and a write from there
 	 * would re-enter the transaction being accepted.
 	 */
-	watch(type: Y.Type, listener: () => void): () => void;
+	watch(type: Y.Node, listener: () => void): () => void;
 };
 
 /** One table, with its own declaration's row and create-input types. */
 export type TypedTableHandle<TFields extends TableDeclaration> = TableHandle<
 	RowOf<TFields>,
 	CreateRowOf<TFields>,
-	Partial<Pick<RowOf<TFields>, Exclude<keyof RowOf<TFields>, 'id' | 'content'>>>
+	Partial<Pick<RowOf<TFields>, Exclude<keyof RowOf<TFields>, 'id'>>>
 >;
 
 /**
@@ -500,7 +476,7 @@ export type DataDocument = {
 	stored(): StoredData;
 	/**
 	 * One row exactly as the exporter needs it: every stored value, and the
-	 * the live content node beside them.
+	 * the live body node beside them.
 	 *
 	 * The narrow form of `stored()`, and the artifact layer's only per-row read.
 	 * It is on the STORE rather than on a table handle because it is not a
@@ -509,7 +485,7 @@ export type DataDocument = {
 	 * (ADR-0267). A handle answers what an application can see; this answers
 	 * what is there.
 	 */
-	rowFile(table: string, rowId: string): Row | undefined;
+	rowFile(table: string, rowId: string): RowFile | undefined;
 	/**
 	 * Hear when anything committed into this document, whoever authored it.
 	 *

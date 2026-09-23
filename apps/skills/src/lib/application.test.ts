@@ -84,9 +84,13 @@ test('a skill and its instructions survive an offline reopen', async () => {
 		skillId = runtime.state.createSkill('writing-voice');
 		const held = runtime.data.tables.skills.get(skillId);
 		if (held === undefined) throw new Error('The created row is absent');
-		held.content.applyDelta(
-			held.content.change.insert('Write directly.') as never,
-		);
+		runtime.data.tables.skills
+			.body(held.id)!
+			.applyDelta(
+				runtime.data.tables.skills
+					.body(held.id)!
+					.change.insert('Write directly.') as never,
+			);
 		await runtime.data.persistence.flush();
 		expect(runtime.data.persistence.get()).toBe('saved');
 	}
@@ -97,7 +101,7 @@ test('a skill and its instructions survive an offline reopen', async () => {
 	expect(reopened.state.skills.map(({ name }) => name)).toEqual([
 		'writing-voice',
 	]);
-	expect(reopened.data.tables.skills.get(skillId)?.content.toString()).toBe(
+	expect(reopened.data.tables.skills.body(skillId)?.toString()).toBe(
 		'Write directly.',
 	);
 });

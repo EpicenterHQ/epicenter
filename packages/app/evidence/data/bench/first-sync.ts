@@ -102,8 +102,10 @@ const benchDatabase = defineStore({
 	kv: {},
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -247,7 +249,7 @@ async function build(
 	};
 	/** One row's content node, live on the one document (ADR-0295). */
 	const bodyOf = (id: string) => {
-		const content = db.tables.notes.get(id)?.content;
+		const content = db.tables.notes.body(id);
 		if (content === undefined) throw new Error('the row has no content');
 		return content;
 	};
@@ -425,7 +427,7 @@ async function apply(
 	const canary = rows.rows.find((row) => row.title === expectation.canaryTitle);
 	let text: string | undefined;
 	if (canary !== undefined) {
-		text = db.tables.notes.get(canary.id)?.content.toString();
+		text = db.tables.notes.body(canary.id)?.toString();
 	}
 	// Guarding the guard: an expectation of an empty string would be satisfied by
 	// a replica that received nothing, which is the exact run this control exists

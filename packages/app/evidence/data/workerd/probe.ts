@@ -43,10 +43,12 @@ const evidenceDatabase = defineStore({
 	kv: {},
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			device: field.string(),
-			at: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+				device: field.string(),
+				at: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -185,7 +187,7 @@ console.log('\n2. an update past the cap, through the real socket');
 		device: 'probe',
 		at: new Date().toISOString(),
 	});
-	const text = author.db.tables.notes.get(note.id)?.content;
+	const text = author.db.tables.notes.body(note.id);
 	if (text === undefined) throw new Error('the row has no content');
 	// One transaction, well past the cap. There is no seam here for a coalescing
 	// bound to cut at, which is why the fix has to be framing at storage.
@@ -195,7 +197,7 @@ console.log('\n2. an update past the cap, through the real socket');
 
 	let arrived: { length: number } | undefined;
 	await until('the reader to receive the paste', async () => {
-		arrived = reader.db.tables.notes.get(note.id)?.content;
+		arrived = reader.db.tables.notes.body(note.id);
 		return (arrived?.length ?? 0) === 5_000_000;
 	});
 

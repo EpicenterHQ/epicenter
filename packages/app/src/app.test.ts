@@ -20,8 +20,14 @@ const definition = defineStore({
 	id: 'so.epicenter.app-test',
 	kv: {},
 	tables: {
-		notes: defineTable({ title: field.string(), content: plainText() }),
-		recordings: defineTable({ audio: field.string(), content: plainText() }),
+		notes: defineTable({
+			fields: { title: field.string() },
+			body: plainText(),
+		}),
+		recordings: defineTable({
+			fields: { audio: field.string() },
+			body: plainText(),
+		}),
 	},
 });
 

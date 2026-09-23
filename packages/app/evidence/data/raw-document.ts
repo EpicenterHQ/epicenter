@@ -6,7 +6,7 @@
  * it does not need is to re-learn, at every line, how to say that layout to
  * the compiler.
  *
- * `Y.Type`'s default configuration types no attributes at all, so `keyof` its
+ * `Y.Node`'s default configuration types no attributes at all, so `keyof` its
  * attribute map is empty and the key parameter of `getAttr` and `setAttr`
  * narrows to `never`. Every raw access therefore had to lie twice: once about
  * the key, once about what came back. That is a property of the library's
@@ -30,7 +30,7 @@ import type { JsonValue } from '../../src/data/definition/json.js';
  * cast to read or write one, which is where nearly every cast in evidence came
  * from.
  */
-export type ValuesType = Y.Type<{ attrs: Record<string, JsonValue> }>;
+export type ValuesType = Y.Node<{ attrs: Record<string, JsonValue> }>;
 
 /**
  * Read a type as a bag of values.
@@ -39,7 +39,7 @@ export type ValuesType = Y.Type<{ attrs: Record<string, JsonValue> }>;
  * unconfigured type, so this is where a test states the shape of one it is
  * about to fill with JSON. A root holding ROWS is not this: see `rowAt`.
  */
-export function asValues(type: Y.Type): ValuesType {
+export function asValues(type: Y.Node): ValuesType {
 	return type as ValuesType;
 }
 
@@ -48,16 +48,16 @@ export function asValues(type: Y.Type): ValuesType {
  *
  * The one cast, and the reason it cannot be typed away is the reason
  * `document.ts` states at its own copy: a `DeltaConf`'s attribute values must
- * be `Fingerprintable`, and a nested `Y.Type` is not one, so a TABLE ROOT,
+ * be `Fingerprintable`, and a nested `Y.Node` is not one, so a TABLE ROOT,
  * whose attributes are themselves types, has no expressible configuration. A
  * ROW's does, which is why everything downstream of this line is typed.
  */
-export function rowAt(root: Y.Type, rowId: string): ValuesType | undefined {
+export function rowAt(root: Y.Node, rowId: string): ValuesType | undefined {
 	return root.getAttr(rowId as never) as ValuesType | undefined;
 }
 
 /** Put a row at this address, minting nothing. */
-export function putRow(root: Y.Type, rowId: string, row: Y.Type): void {
+export function putRow(root: Y.Node, rowId: string, row: Y.Node): void {
 	root.setAttr(rowId as never, row as never);
 }
 
@@ -65,14 +65,14 @@ export function putRow(root: Y.Type, rowId: string, row: Y.Type): void {
  * Hang a nested type on a row, under one attribute name.
  *
  * Separate from writing a value for the same reason `rowAt` needs a cast: the
- * attribute is a `Y.Type`, which no attribute configuration can describe.
+ * attribute is a `Y.Node`, which no attribute configuration can describe.
  * Keeping it its own verb means a value write stays honest.
  */
-export function putType(row: Y.Type, name: string, type: Y.Type): void {
+export function putType(row: Y.Node, name: string, type: Y.Node): void {
 	row.setAttr(name as never, type as never);
 }
 
 /** The nested type at this attribute name, or `undefined`. */
-export function typeAt(row: Y.Type, name: string): Y.Type | undefined {
-	return row.getAttr(name as never) as Y.Type | undefined;
+export function typeAt(row: Y.Node, name: string): Y.Node | undefined {
+	return row.getAttr(name as never) as Y.Node | undefined;
 }

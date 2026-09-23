@@ -37,7 +37,10 @@ function definitionFor() {
 		id: `so.epicenter.browsertest.${crypto.randomUUID()}`,
 		kv: {},
 		tables: {
-			notes: defineTable({ title: field.string(), content: plainText() }),
+			notes: defineTable({
+				fields: { title: field.string() },
+				body: plainText(),
+			}),
 		},
 	});
 }
@@ -222,19 +225,23 @@ test('opening leaves historical numbered and superseded caches untouched', async
 	}
 });
 
-test('local content text and attributes survive a close and reopen', async () => {
+test('local body text and attributes survive a close and reopen', async () => {
 	const definition = definitionFor();
 	const first = await openLocal(definition);
 
 	const row = first.tables.notes.create({ title: 'x' });
-	row.content.applyDelta(row.content.change.insert('buy milk') as never);
-	row.content.setAttr('cursor' as never, 8 as never);
+	first.tables.notes
+		.body(row.id)!
+		.applyDelta(
+			first.tables.notes.body(row.id)!.change.insert('buy milk') as never,
+		);
+	first.tables.notes.body(row.id)!.setAttr('cursor' as never, 8 as never);
 	await first.close();
 	const reopened = await openLocal(definition);
 	try {
-		const content = reopened.tables.notes.get(row.id)?.content;
-		expect(content?.toString()).toContain('buy milk');
-		expect(content?.getAttr('cursor' as never)).toBe(8);
+		const body = reopened.tables.notes.body(row.id);
+		expect(body?.toString()).toContain('buy milk');
+		expect(body?.getAttr('cursor' as never)).toBe(8);
 	} finally {
 		await reopened.close();
 	}

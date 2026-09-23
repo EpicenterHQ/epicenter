@@ -12,7 +12,7 @@ import { createMemoryStoreRuntime } from './testing.js';
 const definition = defineStore({
 	id: 'test.complete-runtime',
 	kv: {},
-	tables: { notes: defineTable({ title: field.string() }) },
+	tables: { notes: defineTable({ fields: { title: field.string() } }) },
 });
 
 test('a rejected duplicate cannot release the incumbent', async () => {

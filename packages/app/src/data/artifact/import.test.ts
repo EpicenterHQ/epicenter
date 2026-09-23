@@ -1,5 +1,5 @@
 import {
-	ContentError,
+	BodyError,
 	defineStore,
 	defineTable,
 	field,
@@ -12,7 +12,7 @@ import {
  * The round trip is proven end to end rather than by inspecting bytes: export a
  * live store, read the files back into one document's state, apply that state
  * to a fresh store, and compare what the two stores hold. A frontmatter emitter
- * that retyped a value or a codec that lost a content shows up here as a
+ * that retyped a value or a codec that lost a body shows up here as a
  * difference between two stores, which is the failure a person would
  * actually suffer.
  */
@@ -32,21 +32,25 @@ const store = defineStore({
 	kv: { theme: field.string() },
 	tables: {
 		folders: defineTable({
-			name: field.string(),
-			content: plainText(),
+			fields: {
+				name: field.string(),
+			},
+			body: plainText(),
 		}),
 		notes: defineTable({
-			title: field.string(),
-			code: field.string(),
-			flag: field.string(),
-			pinned: field.boolean(),
-			count: field.number(),
-			tags: field.tags(),
-			folderId: field.nullable(field.string()),
+			fields: {
+				title: field.string(),
+				code: field.string(),
+				flag: field.string(),
+				pinned: field.boolean(),
+				count: field.number(),
+				tags: field.tags(),
+				folderId: field.nullable(field.string()),
+			},
 			// The faithful codec: everything the store holds goes above the fence
 			// and comes back off it, so a key an older release wrote survives the
 			// round trip. The `id` is the path, not a field.
-			content: plainText(),
+			body: plainText(),
 		}),
 	},
 });
@@ -68,9 +72,9 @@ async function seeded() {
 		tags: ['no', '2024-03-05'],
 		folderId: folder.id,
 	});
-	const content = data.tables.notes.get(note.id);
-	if (content === undefined) throw new Error('the row has no content');
-	content.content.insert(0, ['buy milk\n\n---\nnot a fence']);
+	const body = data.tables.notes.get(note.id);
+	if (body === undefined) throw new Error('the row has no body');
+	data.tables.notes.body(body.id)!.insert(0, ['buy milk\n\n---\nnot a fence']);
 	return { data, folder, note };
 }
 
@@ -102,14 +106,14 @@ describe('readArtifact (ADR-0267/0268)', () => {
 		expect(restored.kv.get('theme')).toBe('dark');
 		expect(restored.stored().kv).toEqual(data.stored().kv);
 		// Compared through `stored()` rather than `rows`, and the reason is the
-		// claim itself. A row carries its live content node now, and two documents'
+		// claim itself. A row carries its live body node now, and two documents'
 		// nodes are never equal: they are different objects with different client
 		// ids. "Imports back whole" is a statement about the RECORD, so the
 		// faithful read is what it should have been asserted against all along.
 		expect(restored.stored().tables).toEqual(data.stored().tables);
 
 		// And the body text, through the codec, `---` fence and all.
-		expect(restored.tables.notes.get(note.id)?.content.toString()).toBe(
+		expect(restored.tables.notes.body(note.id)?.toString()).toBe(
 			'buy milk\n\n---\nnot a fence',
 		);
 		await data[Symbol.asyncDispose]();
@@ -192,8 +196,10 @@ describe('readArtifact (ADR-0267/0268)', () => {
 			kv: {},
 			tables: {
 				notes: defineTable({
-					title: field.string(),
-					content: {
+					fields: {
+						title: field.string(),
+					},
+					body: {
 						encode: (node) => node.toString(),
 						decode: () => {
 							throw new Error('the codec exploded');
@@ -218,10 +224,12 @@ describe('readArtifact (ADR-0267/0268)', () => {
 			kv: {},
 			tables: {
 				notes: defineTable({
-					title: field.string(),
-					content: {
+					fields: {
+						title: field.string(),
+					},
+					body: {
 						encode: (node) => node.toString(),
-						decode: () => ContentError.Unreadable({ reason: 'no title line' }),
+						decode: () => BodyError.Unreadable({ reason: 'no title line' }),
 						rewrite: () => Ok(undefined),
 					},
 				}),
@@ -236,20 +244,22 @@ describe('readArtifact (ADR-0267/0268)', () => {
 	});
 
 	test('a codec that hands one node to two rows is refused', async () => {
-		// Two rows given one node hold the SAME content, and an edit to either
-		// shows up in both. Measured on `@y/y@14.0.0-rc.24`: setting one node at
+		// Two rows given one node hold the SAME body, and an edit to either
+		// shows up in both. Measured on `@y/y@14.0.0-rc.26`: setting one node at
 		// two keys leaves both keys holding the same instance, silently.
 		// `createRow` refuses a node that already belongs to a document, which is
 		// what makes that unrepresentable rather than a bug somebody finds later.
-		const shared = new Y.Type();
+		const shared = new Y.Node();
 		const sharing = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
 			tables: {
 				notes: defineTable({
-					title: field.string(),
+					fields: {
+						title: field.string(),
+					},
 					// Hands back ONE node for every row, which is the mistake.
-					content: {
+					body: {
 						encode: (node) => node.toString(),
 						decode: () => Ok(shared),
 						rewrite: () => Ok(undefined),

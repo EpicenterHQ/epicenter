@@ -2,7 +2,7 @@
  * What it costs to never compact the authority's log.
  *
  * Run: `bun run evidence/bench/never-compact.ts`
- * Method: `@y/y@14.0.0-rc.24`, `gc: true`, Bun, one process. Byte counts are
+ * Method: `@y/y@14.0.0-rc.26`, `gc: true`, Bun, one process. Byte counts are
  * `updateV2` lengths as they would be appended; replay is a fresh document
  * applying every entry in order.
  *
@@ -48,13 +48,13 @@ function simulate(days: number, policy: Policy) {
 	// A vault the size of the real one, created once.
 	doc.transact(() => {
 		for (let i = 0; i < 986; i += 1) {
-			const row = new Y.Type();
+			const row = new Y.Node();
 			root.setAttr(`r${String(i).padStart(23, '0')}` as never, row as never);
 			row.setAttr('!presence' as never, 'present' as never);
 			row.setAttr('title' as never, 'A note title of typical length' as never);
-			const container = new Y.Type();
+			const container = new Y.Node();
 			row.setAttr('!doc' as never, container as never);
-			const text = new Y.Type('text' as never);
+			const text = new Y.Node('text' as never);
 			container.setAttr('editor' as never, text as never);
 			text.applyDelta(text.change.insert('x'.repeat(2800)) as never);
 		}

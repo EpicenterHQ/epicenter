@@ -84,7 +84,9 @@ test('copy captures declared scalar values before awaiting bytes and creates ind
 	expect(copied.audioBlobId).toBe(f.destinationId);
 	expect(copied.title).toBe('before');
 	expect(copied.transcript).toBe('original');
-	expect(copied.content).not.toBe(f.row.content);
+	expect(personal.tables.recordings.body(copied.id)).not.toBe(
+		local.tables.recordings.body(f.row.id),
+	);
 	expect(f.copyFrom).toHaveBeenCalledWith(f.localBlobs, f.row.audioBlobId, {
 		signal: f.signal.signal,
 	});

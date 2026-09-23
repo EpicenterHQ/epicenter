@@ -66,7 +66,7 @@ type MessageLog = {
 
 /** A content node that records writes instead of storing a CRDT. */
 function createFakeMessages(): {
-	messages: Y.Type;
+	messages: Y.Node;
 	log: MessageLog;
 } {
 	const messages: AgentMessage[] = [];
@@ -81,7 +81,7 @@ function createFakeMessages(): {
 		unobserve: (handler: () => void) => handlers.delete(handler),
 	};
 	return {
-		messages: field as unknown as Y.Type,
+		messages: field as unknown as Y.Node,
 		log: {
 			messages,
 			texts: () =>
@@ -97,7 +97,7 @@ function createFakeMessages(): {
 function createFakeChat() {
 	const rows = new Map<string, Conversation>();
 	const listeners = new Set<() => void>();
-	const contents = new Map<string, { messages: Y.Type; log: MessageLog }>();
+	const contents = new Map<string, { messages: Y.Node; log: MessageLog }>();
 	const creates: Conversation[] = [];
 	const updates: { id: string; patch: Partial<Conversation> }[] = [];
 	let nextId = 0;
@@ -107,14 +107,9 @@ function createFakeChat() {
 	};
 
 	const table = {
-		// Returns the row WITH its live content node, like the real store: `create`
-		// integrates the type in the transaction that mints the row and hands
-		// back what `get` would (ADR-0296, amended). This fake has now followed
-		// that shape in both directions; when it drifts, the tests pass and a
-		// browser does not.
-		create(fields: Omit<Conversation, 'id' | 'content'>) {
+		create(fields: Omit<Conversation, 'id'>) {
 			const held = createFakeMessages();
-			const row = { id: `c${++nextId}`, ...fields, content: held.messages };
+			const row = { id: `c${++nextId}`, ...fields };
 			rows.set(row.id, row);
 			contents.set(row.id, held);
 			creates.push(row);
@@ -132,6 +127,9 @@ function createFakeChat() {
 			contents.delete(id);
 			announce();
 			return existed;
+		},
+		body(id: string) {
+			return contents.get(id)?.messages;
 		},
 		get(id: string) {
 			return rows.get(id);
@@ -230,7 +228,6 @@ test('a blank conversation is unchanged: placeholder title, no opening turn', as
 			model: DEFAULT_MODEL,
 			createdAt: expect.any(String),
 			updatedAt: expect.any(String),
-			content: expect.anything(),
 		},
 	]);
 	expect(document(id).messages).toEqual([]);

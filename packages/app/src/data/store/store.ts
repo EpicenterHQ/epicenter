@@ -24,7 +24,7 @@ import {
 	kvRoot,
 	listRowIds,
 	readRow,
-	readRowContent,
+	readRowBody,
 	storedTableNames,
 	tableRoot,
 	updateRow,
@@ -65,6 +65,7 @@ import type {
 	DocumentPressure,
 	KvHandle,
 	Row,
+	RowFile,
 	StoredData,
 	SyncCapability,
 	TableListener,
@@ -82,6 +83,7 @@ export type {
 	ReplicaData,
 	ReplicaDocument,
 	Row,
+	RowFile,
 	StoredData,
 	SyncCapability,
 	TableHandle,
@@ -475,7 +477,7 @@ export function createStoreOverPort<
 	 * produced was never used for anything but the lookup below. `typeListeners`
 	 * is keyed the same way, so both keyed signals are now one shape.
 	 */
-	const tableListeners = new Map<Y.Type, Set<TableListener>>();
+	const tableListeners = new Map<Y.Node, Set<TableListener>>();
 	/**
 	 * Row ids a table's own delta has named since the last delivery.
 	 *
@@ -488,21 +490,21 @@ export function createStoreOverPort<
 	 * thousand rows in an application that watches no table still collects
 	 * nothing.
 	 */
-	const touchedRows = new Map<Y.Type, Set<string>>();
+	const touchedRows = new Map<Y.Node, Set<string>>();
 	/** How to stop the delta listener filling `touchedRows` for one root. */
-	const rowNamers = new Map<Y.Type, () => void>();
+	const rowNamers = new Map<Y.Node, () => void>();
 	/** Who is watching the one KV root. Beside the tables', for the one reason. */
 	const kvListeners = new Set<() => void>();
 	/** The one KV root, taken once so a commit can be checked against it. */
 	const kvRootType = kvRoot(database);
 	/**
-	 * Who is watching each row's content node, by the node itself.
+	 * Who is watching each row's body node, by the node itself.
 	 *
 	 * Keyed by the live type rather than by a row and field name, because that
 	 * is what a commit names: `changedParentTypes` holds types, and a lookup
 	 * beats reconstructing an address for each one.
 	 */
-	const typeListeners = new Map<Y.Type, Set<() => void>>();
+	const typeListeners = new Map<Y.Node, Set<() => void>>();
 	const committedListeners = new Set<() => void>();
 
 	/**
@@ -551,7 +553,7 @@ export function createStoreOverPort<
 	 * property this rests on: a row is an attribute on the table root, so
 	 * `attrs` names it on insert, on a field edit, and on delete.
 	 */
-	function subscribeTable(root: Y.Type, listener: TableListener): () => void {
+	function subscribeTable(root: Y.Node, listener: TableListener): () => void {
 		assertUsable();
 		let forRoot = tableListeners.get(root);
 		if (forRoot === undefined) {
@@ -593,7 +595,7 @@ export function createStoreOverPort<
 	 * delivered from.
 	 *
 	 * Phase order is a contract: `onCommitted` listeners first, then KV, then
-	 * tables, then content nodes, so a follower that marks itself dirty in the
+	 * tables, then body nodes, so a follower that marks itself dirty in the
 	 * first phase is dirty before any subscriber reads.
 	 */
 	function deliver(transaction: Y.Transaction): void {
@@ -604,9 +606,9 @@ export function createStoreOverPort<
 		//
 		//   the table root    a row was added or removed
 		//   a row             one of its values changed
-		//   deeper            a row's content node. NOT a table event.
+		//   deeper            a row's body node. NOT a table event.
 		//
-		// The third line is the whole point. A row's content node is nested on the
+		// The third line is the whole point. A row's body node is nested on the
 		// row (ADR-0295), so before this every keystroke inside a node bubbled to the
 		// table root and woke every list in the application. `changed` holds only
 		// what a transaction modified DIRECTLY, so the bubble never happens and
@@ -617,7 +619,7 @@ export function createStoreOverPort<
 		// application that watches no table should walk nothing and allocate
 		// nothing. `subscribe` prunes its own entry so this stays true.
 		if (tableListeners.size === 0) return deliverTypes(transaction);
-		const roots = new Set<Y.Type>();
+		const roots = new Set<Y.Node>();
 		for (const type of transaction.changed.keys()) {
 			if (tableListeners.has(type)) {
 				roots.add(type);
@@ -763,7 +765,7 @@ export function createStoreOverPort<
 	 *
 	 * Everything durable happens in the `updateV2` listener, which fires inside
 	 * `transact` after the observers, after `afterTransaction`, and after
-	 * cleanup (verified against `@y/y@14.0.0-rc.24`). That is the only moment
+	 * cleanup (verified against `@y/y@14.0.0-rc.26`). That is the only moment
 	 * the change is settled AND its bytes exist, so it is the only moment both
 	 * halves of a commit can be done at once. Acceptance is the synchronous
 	 * half and cannot fail for storage reasons; durability is the queued half
@@ -809,7 +811,7 @@ export function createStoreOverPort<
 			//
 			// The RECEIVED bytes are what gets persisted, never what the
 			// document emitted in response to them. Measured against
-			// `@y/y@14.0.0-rc.24`: an update whose causal dependencies have
+			// `@y/y@14.0.0-rc.26`: an update whose causal dependencies have
 			// not arrived is buffered into `store.pendingStructs`,
 			// `applyUpdateV2` returns normally, and the document emits NO
 			// `updateV2` event at all. Persisting emitted bytes therefore
@@ -880,9 +882,9 @@ export function createStoreOverPort<
 		 * Untyped is the point: reaching for this means giving up the lens, and
 		 * the absent row types are what makes that visible at the call site.
 		 *
-		 * A row's content node is not here, and cannot be: a nested `Y.Type` is
+		 * A row's body node is not here, and cannot be: a nested `Y.Node` is
 		 * not a JSON value, so no faithful read of stored VALUES can carry one.
-		 * An export reaches it through `content` and the table's own file codec
+		 * An export reaches it through `body` and the table's own file codec
 		 * (ADR-0296).
 		 */
 		stored(): StoredData {
@@ -894,7 +896,7 @@ export function createStoreOverPort<
 			return { tables, kv: storedKv() };
 		},
 		/**
-		 * One row as the exporter reads it: faithful values and its live content node.
+		 * One row as the exporter reads it: faithful values and its live body node.
 		 *
 		 * Deliberately not through a table handle. `readRow` returns every
 		 * stored key including ones this release no longer declares, and no
@@ -903,17 +905,13 @@ export function createStoreOverPort<
 		 * because a type at an undeclared key is unreachable by any codec
 		 * anyway.
 		 */
-		rowFile(tableName: string, rowId: string): Row | undefined {
+		rowFile(tableName: string, rowId: string): RowFile | undefined {
 			assertUsable();
 			const root = tableRoot(database, tableName);
 			const fields = readRow(root, rowId);
 			if (fields === undefined) return undefined;
-			const content = readRowContent(root, rowId);
-			return {
-				id: rowId,
-				...fields,
-				...(content === undefined ? {} : { content }),
-			};
+			const body = readRowBody(root, rowId);
+			return { id: rowId, fields, body };
 		},
 		onCommitted(listener: () => void): () => void {
 			assertUsable();
@@ -1222,10 +1220,10 @@ export function createStoreOverPort<
 		): Result<Row, NonconformingRow> {
 			const { conforming, issues: fieldIssues } = table.conformance(payload);
 			const issues = [...fieldIssues];
-			if (readRowContent(root, rowId) === undefined) {
+			if (readRowBody(root, rowId) === undefined) {
 				issues.push({
-					field: 'content',
-					message: 'content is missing or is not a live Yjs node',
+					field: 'body',
+					message: 'row must own exactly one live body child',
 				});
 			}
 			return issues.length === 0
@@ -1242,24 +1240,13 @@ export function createStoreOverPort<
 					});
 		}
 
-		/** One row as an application reads it: the values, and the live node. */
-		function withContent(row: Row): Row {
-			const content = readRowContent(root, row.id);
-			if (content === undefined) {
-				throw new Error(
-					`row '${row.id}' passed conformance without a live content node`,
-				);
-			}
-			return { ...row, content };
-		}
-
 		const handle: UntypedDeclaredData['tables'][string] = {
-			create(fields) {
+			create(fields, body) {
 				assertUsable();
 				const rowId = mintRowId();
-				transact(() => createRow(root, rowId, fields));
-				// Return the integrated content node, never echo its detached input.
-				return withContent({ id: rowId, ...readRow(root, rowId) });
+				transact(() => createRow(root, rowId, fields, body));
+				// Return values only; live editing state is read through body(rowId).
+				return { id: rowId, ...readRow(root, rowId) };
 			},
 			get(rowId: string): Row | undefined {
 				assertUsable();
@@ -1271,7 +1258,11 @@ export function createStoreOverPort<
 				// (ADR-0125). Absent and unreadable answer the same way here because
 				// a caller asking for one row does the same thing with either.
 				const { data } = conformRow(rowId, payload);
-				return data === null ? undefined : withContent(data);
+				return data ?? undefined;
+			},
+			body(rowId: string) {
+				assertUsable();
+				return readRowBody(root, rowId);
 			},
 			update(rowId: string, fields: JsonObject): Result<void, RowAbsentError> {
 				assertUsable();
@@ -1285,7 +1276,7 @@ export function createStoreOverPort<
 			},
 			delete(rowId: string): void {
 				// One removal (ADR-0295). Taking the row's nested type off the root
-				// takes its content node with it, so there is no second address to
+				// takes its body node with it, so there is no second address to
 				// retire and nothing to compose this write with.
 				transact(() => {
 					deleteRow(root, rowId);
@@ -1300,7 +1291,7 @@ export function createStoreOverPort<
 				const rows: Row[] = [];
 				for (const [rowId, payload] of rowsOf(tableName)) {
 					const { data } = conformRow(rowId, payload);
-					if (data !== null) rows.push(withContent(data));
+					if (data !== null) rows.push(data);
 				}
 				return rows;
 			},
@@ -1315,7 +1306,7 @@ export function createStoreOverPort<
 			},
 			/**
 			 * Hear that this table's SHAPE changed: a row added, a row removed, or
-			 * a row's values edited. Not an edit inside its content node.
+			 * a row's values edited. Not an edit inside its body node.
 			 *
 			 * `deliver` decides WHO hears, by depth against the table root; the
 			 * root's own delta decides WHAT they are handed. Both are attached
@@ -1325,7 +1316,7 @@ export function createStoreOverPort<
 			subscribe(listener: TableListener): () => void {
 				return subscribeTable(root, listener);
 			},
-			watch(type: Y.Type, listener: () => void): () => void {
+			watch(type: Y.Node, listener: () => void): () => void {
 				assertUsable();
 				// Keyed by the type itself, which is what a commit names:
 				// `deliver` reads `changedParentTypes`, so an edit anywhere inside

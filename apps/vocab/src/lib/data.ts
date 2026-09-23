@@ -78,13 +78,15 @@ export type VocabMessage = AgentMessage;
  * human-owned: no code path machine-writes it.
  */
 const entriesTable = defineTable({
-	text: field.string(),
-	note: field.string(),
-	stage: field.select(['new', 'understood', 'usable']),
-	// Validation-only rather than `string.date.parse`: a parsing form would hand
-	// back a `Date` that could not round-trip through the projection.
-	createdAt: field.instant(),
-	content: plainText(),
+	fields: {
+		text: field.string(),
+		note: field.string(),
+		stage: field.select(['new', 'understood', 'usable']),
+		// Validation-only rather than `string.date.parse`: a parsing form would hand
+		// back a `Date` that could not round-trip through the projection.
+		createdAt: field.instant(),
+	},
+	body: plainText(),
 });
 
 /**

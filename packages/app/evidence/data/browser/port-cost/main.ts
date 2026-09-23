@@ -44,11 +44,11 @@ function workspace(
 } {
 	const doc = new Y.Doc({ gc: true });
 	const table = doc.get('tables:notes');
-	const bodies: Y.Type[] = [];
+	const bodies: Y.Node[] = [];
 	doc.transact(() => {
 		for (let i = 0; i < notes; i += 1) {
-			const row = new Y.Type();
-			const content = new Y.Type();
+			const row = new Y.Node();
+			const content = new Y.Node();
 			content.insert(
 				0,
 				'lorem ipsum dolor sit amet consectetur '.repeat(words / 6),

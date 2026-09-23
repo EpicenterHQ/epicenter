@@ -64,7 +64,9 @@ try {
 		const { defineTable, field }: typeof import('@epicenter/app/definition') =
 			await import(dataModule);
 		const application = defineStore({
-			tables: { recordings: defineTable({ audioBlobId: field.string() }) },
+			tables: {
+				recordings: defineTable({ fields: { audioBlobId: field.string() } }),
+			},
 			kv: {},
 			id: 'so.epicenter.recording-smoke',
 		});

@@ -138,8 +138,8 @@ function bodyFor(index: number): string {
 	return `body ${index} ` + 'x'.repeat(BODY_CHARS);
 }
 
-function addRow(root: Y.Type, row: Row): void {
-	const value = new Y.Type();
+function addRow(root: Y.Node, row: Row): void {
+	const value = new Y.Node();
 	root.setAttr(row.id as never, value as never);
 	value.setAttr('!presence' as never, 'present' as never);
 	value.setAttr('title' as never, row.title as never);
@@ -226,7 +226,7 @@ function readLogicalState(workspace: Workspace): LogicalState {
 	const rows: Row[] = [];
 	for (const key of root.attrKeys()) {
 		const value = root.getAttr(key as never) as unknown;
-		if (!(value instanceof Y.Type)) continue;
+		if (!(value instanceof Y.Node)) continue;
 		if (value.getAttr('!presence' as never) !== 'present') continue;
 		rows.push({
 			id: String(key),
@@ -318,7 +318,7 @@ function visibleRows(workspace: Workspace): number {
 	for (const key of root.attrKeys()) {
 		const row = root.getAttr(key as never) as unknown;
 		if (
-			row instanceof Y.Type &&
+			row instanceof Y.Node &&
 			row.getAttr('!presence' as never) === 'present'
 		)
 			count += 1;

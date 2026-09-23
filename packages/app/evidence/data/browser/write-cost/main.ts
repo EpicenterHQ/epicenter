@@ -115,7 +115,7 @@ type Config = {
 	seed: number;
 };
 
-type Note = { root: Y.Type; id: string };
+type Note = { root: Y.Node; id: string };
 
 /**
  * One document, N rows, each row carrying a rich content node. The nested
@@ -130,10 +130,10 @@ function buildWorkspace(config: Config): { doc: Y.Doc; notes: Note[] } {
 	doc.transact(() => {
 		for (let i = 0; i < config.notes; i += 1) {
 			const id = `note-${String(i).padStart(6, '0')}`;
-			const row = new Y.Type();
+			const row = new Y.Node();
 			row.setAttr('title', sentence(next, 4).trim() as never);
 			row.setAttr('createdAt', (1700000000000 + i * 60000) as never);
-			const content = new Y.Type();
+			const content = new Y.Node();
 			content.insert(0, sentence(next, config.bodyWords));
 			row.setAttr('content', content as never);
 			table.setAttr(id, row as never);
@@ -430,9 +430,9 @@ async function runWire(config: Config): Promise<WireResult[]> {
 		const peerNotes: Note[] = [];
 		const peerTable = peer.get('tables:notes');
 		for (const note of notes) {
-			const row = peerTable.getAttr(note.id) as unknown as Y.Type;
+			const row = peerTable.getAttr(note.id) as unknown as Y.Node;
 			peerNotes.push({
-				root: row.getAttr('content') as unknown as Y.Type,
+				root: row.getAttr('content') as unknown as Y.Node,
 				id: note.id,
 			});
 		}

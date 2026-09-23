@@ -9,8 +9,8 @@ function workspace(notes: number, words: number) {
 	const table = doc.get('tables:notes');
 	doc.transact(() => {
 		for (let i = 0; i < notes; i += 1) {
-			const row = new Y.Type();
-			const content = new Y.Type();
+			const row = new Y.Node();
+			const content = new Y.Node();
 			content.insert(0, 'lorem ipsum dolor sit amet '.repeat(words / 5));
 			row.setAttr('content', content as never);
 			table.setAttr(`n${i}`, row as never);

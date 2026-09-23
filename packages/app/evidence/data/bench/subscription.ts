@@ -7,7 +7,7 @@
  * ADR-0187 chose row ids over a void signal because "simplicity here is paid
  * for on every commit, forever", which is only the right trade if the ids are
  * close to free. A `'delta'` listener is not free: attaching one is what makes
- * a `YType` build and emit its delta, so the cost lands on every write whether
+ * a `YNode` build and emit its delta, so the cost lands on every write whether
  * or not the change is small.
  *
  * What matters is the SHAPE of the cost, not its absolute size. If it scales
@@ -38,7 +38,7 @@ const NOTE = {
 
 function buildTable(rows: number): {
 	document: Y.Doc;
-	notes: Y.Type;
+	notes: Y.Node;
 	ids: string[];
 } {
 	const document = new Y.Doc({ gc: true });
@@ -48,9 +48,9 @@ function buildTable(rows: number): {
 		for (let index = 0; index < rows; index += 1) {
 			const rowId = `note-${index.toString().padStart(6, '0')}`;
 			ids.push(rowId);
-			const row = new Y.Type();
+			const row = new Y.Node();
 			notes.setAttr(rowId as never, row as never);
-			row.setAttr('!doc' as never, new Y.Type() as never);
+			row.setAttr('!doc' as never, new Y.Node() as never);
 			for (const [name, value] of Object.entries(NOTE)) {
 				row.setAttr(name as never, value as never);
 			}
@@ -90,7 +90,7 @@ function timeCommits({
 		const started = performance.now();
 		document.transact(() => {
 			for (let index = 0; index < edited; index += 1) {
-				const row = notes.getAttr(ids[index] as never) as Y.Type;
+				const row = notes.getAttr(ids[index] as never) as Y.Node;
 				row.setAttr('updatedAt' as never, `edit-${round}-${index}` as never);
 			}
 		});

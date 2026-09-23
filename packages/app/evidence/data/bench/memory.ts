@@ -65,7 +65,7 @@ function build({ rows, fields, body }: Case): Uint8Array {
 	const root = doc.get('notes');
 	doc.transact(() => {
 		for (let index = 0; index < rows; index += 1) {
-			const row = new Y.Type();
+			const row = new Y.Node();
 			root.setAttr(
 				`r${String(index).padStart(23, '0')}` as never,
 				row as never,
@@ -75,9 +75,9 @@ function build({ rows, fields, body }: Case): Uint8Array {
 				row.setAttr(key as never, value as never);
 			}
 			if (body) {
-				const container = new Y.Type();
+				const container = new Y.Node();
 				row.setAttr('!doc' as never, container as never);
-				const text = new Y.Type('text' as never);
+				const text = new Y.Node('text' as never);
 				container.setAttr('editor' as never, text as never);
 				text.applyDelta(text.change.insert(BODY) as never);
 			}

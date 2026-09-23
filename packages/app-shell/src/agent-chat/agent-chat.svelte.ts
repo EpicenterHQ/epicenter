@@ -234,7 +234,7 @@ export function createAgentChatState({
 
 	function createConversationHandle(
 		conversationId: ConversationId,
-		messages: Y.Type,
+		messages: Y.Node,
 	) {
 		let inputValue = $state('');
 		let dismissedError = $state<string | null>(null);
@@ -536,7 +536,7 @@ export function createAgentChatState({
 		// the document this store already holds. Absent means the row went away
 		// between the read and this line rather than that a conversation lacks
 		// somewhere to keep its messages.
-		const messages = table.get(conversationId)?.content;
+		const messages = table.body(conversationId);
 		if (messages === undefined) return;
 		handles.set(
 			conversationId,

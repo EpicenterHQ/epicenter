@@ -1,8 +1,8 @@
 /**
  * What an application declares, and what that declaration reads as.
  *
- * All vocabulary and no behaviour. A definition names value fields directly
- * on each table and reserves one content codec beside them; the lens at the
+ * All vocabulary and no behaviour. A definition separates each table's value fields
+ * from its optional body codec; the lens at the
  * bottom turns that declaration into the types an application writes.
  *
  * Every type here is a LOOKUP. None asks whether its argument is a
@@ -18,7 +18,6 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import { type Field, field as genericField } from '../field/index.js';
 
-export const RESERVED_ATTRIBUTE_PREFIX = '!';
 export const KV_ROOT = 'kv';
 export const RESERVED_TABLE_NAMES: readonly string[] = [KV_ROOT];
 
@@ -39,7 +38,7 @@ export type FieldMap = {
 	readonly [field: string]: TSchema;
 };
 
-export const ContentError = defineErrors({
+export const BodyError = defineErrors({
 	/**
 	 * A table's own `decode` refused this text.
 	 *
@@ -48,15 +47,15 @@ export const ContentError = defineErrors({
 	 * reports which file it could not read.
 	 */
 	Unreadable: ({ reason, cause }: { reason: string; cause?: unknown }) => ({
-		message: `This content could not be read into a row's node: ${reason}`,
+		message: `This body could not be read into a row's node: ${reason}`,
 		reason,
 		cause,
 	}),
 });
-export type ContentError = InferErrors<typeof ContentError>;
+export type BodyError = InferErrors<typeof BodyError>;
 
 /**
- * How one table's content node becomes text, and back (ADR-0296, ADR-0329).
+ * How one table's body node becomes text, and back (ADR-0296, ADR-0329).
  *
  * A row is its values and ONE live node. The platform owns the file: it
  * writes the values as frontmatter by field name and joins this below the
@@ -77,30 +76,27 @@ export type ContentError = InferErrors<typeof ContentError>;
  * positional appends silently reverses, and it reads as empty until `create`
  * integrates it. `evidence/detached-type.test.ts` pins that.
  *
- * `rewrite` takes the node a row already holds and makes its content say what
+ * `rewrite` takes the node a row already holds and makes its body say what
  * the text says, in place. It is what a push calls when a person authorizes a
  * body edit to come home (ADR-0337), and it is not derivable from `decode`: a
  * detached node reads as empty until it is integrated, so there is nothing to
- * copy across, and only the codec knows whether its content lives in the
+ * copy across, and only the codec knows whether its body lives in the
  * node's sequence, its attributes, or both.
  *
- * **In place, rather than as a replacement**, which is the whole reason this
- * is a verb here rather than a store one. Setting a fresh node over the row's
- * attribute is the lazy-mint case ADR-0296 rules out: two devices doing it
- * concurrently resolve by attribute LWW and one loses its whole subtree, and
- * every editor, undo manager, and preview bound to the old node is detached
- * with it. Editing the node the row already holds keeps every binding and is
- * one ordinary commit.
+ * **In place, rather than as a replacement.** Replacing the body child detaches
+ * every editor, undo manager, and preview bound to it. Concurrent replacements
+ * could also leave the row with multiple children. The store integrates the
+ * sole child at row creation; this codec edits it without changing its identity.
  *
  * **It is not lossless, and the difference is worth knowing exactly**
- * (`evidence/rewriting-a-body.test.ts`). The two codecs whose content is a
+ * (`evidence/rewriting-a-body.test.ts`). The two codecs whose body is a
  * SEQUENCE clear it and refill it, so they keep the node and discard what was
  * in it: a peer's keystrokes INSIDE a block this removed are gone with the
  * block, because deleting a nested type reclaims what is under it. What
  * survives is a block the peer added beside the old ones, and two concurrent
- * rewrites concatenate rather than one winning. A codec whose content is in
+ * rewrites concatenate rather than one winning. A codec whose body is in
  * ATTRIBUTES reconciles by key instead and pays none of that, which is another
- * way of saying only the codec knows what its node's content is. Either way
+ * way of saying only the codec knows what its node's body is. Either way
  * this is better than a replacement rather than safe: a replacement would have
  * lost one device's whole node and every binding to it.
  *
@@ -110,39 +106,16 @@ export type ContentError = InferErrors<typeof ContentError>;
  * keystrokes survivable where the two edits do not overlap; it can replace a
  * codec's body later with no change here.
  */
-export type ContentCodec = {
-	readonly encode: (node: Y.Type) => string;
-	readonly decode: (text: string) => Result<Y.Type, ContentError>;
-	readonly rewrite: (node: Y.Type, text: string) => Result<void, ContentError>;
+export type BodyCodec = {
+	readonly encode: (node: Y.Node) => string;
+	readonly decode: (text: string) => Result<Y.Node, BodyError>;
+	readonly rewrite: (node: Y.Node, text: string) => Result<void, BodyError>;
 };
 
-/**
- * The field every row holds its live node at, reserved the way `id` is.
- *
- * A row has exactly one, because one file has one region below the fence and
- * an export that could not write a second node would be losing data rather
- * than formatting it. Naming it per table would be a second name for a role
- * the structure already fixes.
- */
-export const CONTENT_FIELD = 'content';
-
-/**
- * One table's declaration, as the inert definition carries it.
- *
- * Every top-level key except `content` is a value field: it holds one JSON
- * value, replaced whole on write, last write wins, and written to the file's
- * frontmatter under its own field name. The content is the row's one live node:
- * edited in place, merging internally, and written below the fence through the
- * codec declared here.
- *
- * `content` is optional, with no default codec. Export refuses a populated
- * node without a codec; import refuses a nonempty body without one.
- */
+/** Value-field schemas and the optional codec for the row's separately edited body. */
 export type TableDeclaration = {
-	/** Value field descriptors live directly on the table. */
-	readonly [key: string]: unknown;
-	/** How this table's content node becomes text, and back. */
-	readonly content?: ContentCodec;
+	readonly fields: FieldMap;
+	readonly body?: BodyCodec;
 };
 
 /**
@@ -226,59 +199,12 @@ type FieldsOut<TFields extends FieldMap> = {
 	[K in keyof TFields]: Static<TFields[K]>;
 };
 
-/**
- * One table's values: what `update` may patch, and what a row's
- * frontmatter carries. Every top-level schema except `content` is a value.
- *
- * The content node is absent because a node is not assignable: writing one
- * over a row's attribute deletes the old subtree, so a peer that edited it
- * concurrently loses every keystroke to map LWW. That rule is why this type
- * exists, and stating it as a signature is what keeps it from being a comment
- * somebody has to obey.
- */
-type TableFields<T extends TableDeclaration> = {
-	[K in keyof T as K extends string
-		? K extends typeof CONTENT_FIELD
-			? never
-			: T[K] extends TSchema
-				? K
-				: never
-		: never]: T[K] extends TSchema ? T[K] : never;
-};
+/** A value snapshot. Live collaborative state is accessed through `table.body(id)`. */
+export type RowOf<T extends TableDeclaration> = { id: string } & FieldsOut<
+	T['fields']
+>;
 
-type TableValues<T extends TableDeclaration> = {
-	[K in keyof TableFields<T>]: Static<TableFields<T>[K]>;
-};
-
-/**
- * One row: its id, its values, and its one live node.
- *
- * What `get` returns, what `create` returns, and what the export writes. No
- * conditional and no optionality: every row has a node, minted with it,
- * whether or not anything ever writes to it. Measured at 9 bytes per row for
- * an unwritten one against 31 for a written one, flat from a thousand rows to
- * a hundred thousand, which is what buys the simplicity here.
- */
-export type RowOf<T extends TableDeclaration> = {
-	id: string;
-	content: Y.Type;
-} & TableValues<T>;
-
-/**
- * What `create` takes: values and an optional content node.
- *
- * The node is OPTIONAL, and that is what keeps a programmatic `create` from
- * having to build an empty one it does not care about: an omitted node is
- * minted empty. An import that decoded a file passes the node it built, and
- * `create` integrates it in the transaction that mints the row.
- *
- * A node handed here must not already belong to a document. Two rows given one
- * node SHARE it, silently, and the same node set into two documents corrupts
- * across them; `createRow` refuses an integrated node rather than letting
- * either happen.
- */
-export type CreateRowOf<T extends TableDeclaration> = {
-	[K in keyof TableFields<T>]: Static<TableFields<T>[K]>;
-} & { content?: Y.Type };
+/** Values supplied when creating a row. The store creates its body in the same transaction. */
+export type CreateRowOf<T extends TableDeclaration> = FieldsOut<T['fields']>;
 
 export type KvOf<TDatabase extends DataDefinition> = FieldsOut<TDatabase['kv']>;

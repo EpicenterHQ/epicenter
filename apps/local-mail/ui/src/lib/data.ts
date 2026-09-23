@@ -6,7 +6,9 @@ export const mailDefinition = defineStore({
 	title: 'Local Mail',
 	kv: {},
 	tables: {
-		savedQueries: defineTable({ name: field.string(), sql: field.string() }),
+		savedQueries: defineTable({
+			fields: { name: field.string(), sql: field.string() },
+		}),
 	},
 });
 

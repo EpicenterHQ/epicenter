@@ -2,7 +2,7 @@
  * Three candidate row models, measured head to head.
  *
  * Run: `bun run evidence/bench/row-model.ts [rowCounts...]`
- * Method: `@y/y@14.0.0-rc.24`, `gc: true`, Bun's default allocator, one process.
+ * Method: `@y/y@14.0.0-rc.26`, `gc: true`, Bun's default allocator, one process.
  * Times are the median of three runs. Sizes are `encodeStateAsUpdateV2` length.
  *
  * ROOT   one Yjs root per row, named `<table>/<rowId>`.
@@ -93,7 +93,7 @@ const NESTED: Shape = {
 		const root = doc.get('notes');
 		doc.transact(() => {
 			for (const id of ids) {
-				const row = new Y.Type();
+				const row = new Y.Node();
 				root.setAttr(id as never, row as never);
 				row.setAttr('!presence' as never, 'present' as never);
 				for (const [k, v] of Object.entries(FIELDS))
@@ -116,7 +116,7 @@ const NESTED: Shape = {
 			[laptop, 'date', 'laptop'],
 		] as const) {
 			doc.transact(() => {
-				const row: ValuesType = new Y.Type();
+				const row: ValuesType = new Y.Node();
 				putRow(doc.get('notes'), 'n1', row);
 				row.setAttr(key, value);
 			});

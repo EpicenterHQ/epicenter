@@ -22,9 +22,9 @@ import { fromKv, type AdaptableKv } from './from-kv.svelte.js';
  * store beyond the ids it already had. `kv` and `persistence` use
  * `createSubscriber` instead, because there is nothing keyed to track.
  *
- * **A row's `content` node is not made reactive here, deliberately.** It
- * carries its own field-scoped `subscribe` (ADR-0296): an editor binds the
- * type directly and hears every keystroke without a table signal in the path.
+ * **`body(id)` tracks whether the row exists, including nonconforming rows.**
+ * Body edits have their own `watch` signal: an editor binds the node directly
+ * and hears every keystroke without a table signal in the path.
  * `fromSubscription` is how an application reads a value off one.
  *
  * **Eager, because it cannot be lazy.** An application reads `rows` inside
@@ -73,8 +73,8 @@ import type { Brand } from 'wellcrafted/brand';
  *
  * **Every reactive read verb is here.** `create`, `update`, `delete`, `watch` and
  * `subscribe` pass through the spread untouched; they are writes or their own
- * feeds. The row's live `content` node is intentionally a direct row property,
- * not a second table read surface.
+ * feeds. `body(id)` tracks existence through the readable and unreadable
+ * projections, then returns the raw table's live body.
  */
 type AdaptableTable = {
 	readonly rows: unknown[];
@@ -88,6 +88,7 @@ type AdaptableTable = {
 	readonly nonconforming: readonly { readonly id: string }[];
 	ids(): string[];
 	get(rowId: string): unknown;
+	body(rowId: string): unknown;
 	subscribe(listener: (rowIds: readonly string[]) => void): () => void;
 	watch(type: never, listener: () => void): () => void;
 };
@@ -309,6 +310,15 @@ function reactiveTable<TTable extends AdaptableTable>(table: TTable): TTable {
 				get: {
 					enumerable: true,
 					value: (rowId: string) => rows.get(rowId),
+				},
+				body: {
+					enumerable: true,
+					value: (rowId: string) => {
+						// Both projections own existence: malformed metadata must not hide a body.
+						rows.has(rowId);
+						unreadable.has(rowId);
+						return table.body(rowId);
+					},
 				},
 				nonconforming: {
 					enumerable: true,

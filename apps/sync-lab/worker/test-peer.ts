@@ -35,9 +35,11 @@ const labDatabase = defineStore({
 	kv: {},
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			body: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+				content: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -171,7 +173,7 @@ export class SyncLabTestPeer extends DurableObject<Env> {
 	/** Write one row and send it now. */
 	async write(title: string): Promise<void> {
 		const { db, client } = await this.ready;
-		db.tables.notes.create({ title, body: '' });
+		db.tables.notes.create({ title, content: '' });
 		await db.persistence.flush();
 		client.flush();
 	}
@@ -184,7 +186,7 @@ export class SyncLabTestPeer extends DurableObject<Env> {
 	 */
 	async writeLarge(title: string, bytes: number): Promise<void> {
 		const { db, client } = await this.ready;
-		db.tables.notes.create({ title, body: 'x'.repeat(bytes) });
+		db.tables.notes.create({ title, content: 'x'.repeat(bytes) });
 		await db.persistence.flush();
 		client.flush();
 	}

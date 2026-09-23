@@ -50,7 +50,9 @@ test('the agent store observes writes and survives a restart', async () => {
 
 			const row = db.tables.conversations.get(rowId);
 			if (row === undefined) throw new Error('the row has no content');
-			using store = createAgentMessageStore(row.content);
+			using store = createAgentMessageStore(
+				db.tables.conversations.body(row.id)!,
+			);
 			let observations = 0;
 			const unobserve = store.observe(() => observations++);
 			store.set(message.id, message);
@@ -62,7 +64,9 @@ test('the agent store observes writes and survives a restart', async () => {
 		await using _db = db;
 		const row = db.tables.conversations.get(rowId);
 		if (row === undefined) throw new Error('the row has no content');
-		using store = createAgentMessageStore(row.content);
+		using store = createAgentMessageStore(
+			db.tables.conversations.body(row.id)!,
+		);
 		expect([...store.entries()]).toEqual([{ key: message.id, val: message }]);
 	} finally {
 		record.close();

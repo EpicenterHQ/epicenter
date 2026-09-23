@@ -1,5 +1,6 @@
+import { parseRowFile } from './frontmatter.js';
 import {
-	ContentError,
+	BodyError,
 	defineStore,
 	defineTable,
 	field,
@@ -60,9 +61,11 @@ const definition = defineStore({
 	kv: { theme: field.string() },
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			pinned: field.boolean(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+				pinned: field.boolean(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -202,8 +205,8 @@ async function notebook() {
 	const data = addressed(await openMemory(definition));
 	const note = data.tables.notes.create({ title: 'Groceries', pinned: false });
 	const held = data.tables.notes.get(note.id);
-	if (held === undefined) throw new Error('the row has no content');
-	(held.content as Y.Type).insert(0, ['buy milk']);
+	if (held === undefined) throw new Error('the row has no body');
+	(data.tables.notes.body(held.id)! as Y.Node).insert(0, ['buy milk']);
 	return { data, noteId: note.id };
 }
 
@@ -904,8 +907,8 @@ describe('the preview says what a push would do (ADR-0337)', () => {
 				`${folder.get(`notes/${id}.md`) as string}and eggs\n`,
 			);
 		});
-		const held = data.tables.notes.get(noteId);
-		(held?.content as Y.Type).insert(0, ['typed here too. ']);
+		const held = data.tables.notes.body(noteId);
+		(held as Y.Node).insert(0, ['typed here too. ']);
 		const plan = await planOf(host, data);
 		expect(only(plan, 'body').storeChanged).toBe(true);
 		await data[Symbol.asyncDispose]();
@@ -919,11 +922,13 @@ describe('the preview says what a push would do (ADR-0337)', () => {
 			kv: { theme: field.string() },
 			tables: {
 				notes: defineTable({
-					title: field.string(),
-					pinned: field.boolean(),
-					content: {
+					fields: {
+						title: field.string(),
+						pinned: field.boolean(),
+					},
+					body: {
 						encode: (node) => node.toString(),
-						decode: () => ContentError.Unreadable({ reason: 'not a body' }),
+						decode: () => BodyError.Unreadable({ reason: 'not a body' }),
 						rewrite: () => Ok(undefined),
 					},
 				}),
@@ -1192,7 +1197,7 @@ describe('push sends the values back and re-renders', () => {
 		// Neither text reached the note: not the one they read, and not the one
 		// that replaced it and they declined.
 		expect(
-			(data.rowFile('notes', noteId)?.content as Y.Type).toString(),
+			(data.rowFile('notes', noteId)?.body as Y.Node).toString(),
 		).toContain('buy milk');
 		await data[Symbol.asyncDispose]();
 	});
@@ -1328,12 +1333,11 @@ describe('push sends the values back and re-renders', () => {
 
 	test('a name nothing declares goes in, and a name the store reserves goes nowhere', async () => {
 		// An undeclared name rides through a write untouched (ADR-0240), so it
-		// is an ordinary value. `id` and `content` are not values at all
-		// (ADR-0309) and writing either THROWS, so they are filtered off the
-		// file the way `readRow` filters them off a row.
+		// is an ordinary value. Structural identity comes from the filename,
+		// so a frontmatter id cannot replace it.
 		const { host, data, noteId } = await edited([
 			'pinned: false',
-			'pinned: false\nid: "forged"\ncontent: "text"\ntitel: "typo"',
+			'pinned: false\nid: "forged"\ntitel: "typo"',
 		]);
 		const plan = await planOf(host, data);
 		expect(plan).toEqual([
@@ -1354,19 +1358,51 @@ describe('push sends the values back and re-renders', () => {
 		await data[Symbol.asyncDispose]();
 	});
 
+	test('body metadata and document writing round-trip independently on push', async () => {
+		const { host, data, noteId } = await edited([
+			'pinned: false',
+			'pinned: false\nbody: "metadata"\ncontent: "ordinary"\n"!status": "draft"',
+		]);
+		const body = data.tables.notes.body(noteId);
+		const path = `notes/${noteId}.md`;
+		host.folder.set(path, `${host.folder.get(path)}extra writing\n`);
+		const plan = await planOf(host, data);
+		expect(
+			plan.some((item) => item.kind === 'value' && item.name === 'body'),
+		).toBe(true);
+		expect(plan.some((item) => item.kind === 'body')).toBe(true);
+		expectOk(await sendBack(host, data));
+		expect(data.rowFile('notes', noteId)?.fields).toMatchObject({
+			body: 'metadata',
+			content: 'ordinary',
+			'!status': 'draft',
+		});
+		expect(data.tables.notes.body(noteId)).toBe(body);
+		expect(body?.toString()).toContain('extra writing');
+		expectOk(await pullInto(host, data));
+		const file = parseRowFile(host.folder.get(`notes/${noteId}.md`)!);
+		expect(file?.fields).toMatchObject({
+			body: 'metadata',
+			content: 'ordinary',
+			'!status': 'draft',
+		});
+		expect(file?.body).toContain('extra writing');
+		await data[Symbol.asyncDispose]();
+	});
+
 	test('an answered body edit rewrites the note in the node it already has', async () => {
 		// The identity claim lives in the codec's own test; what this pins is
 		// that a push reaches the live node rather than replacing the row's.
 		const { host, data, noteId } = await edited(['buy milk', 'buy milk']);
-		const before = data.tables.notes.get(noteId)?.content;
+		const before = data.tables.notes.body(noteId);
 		host.folder.set(
 			`notes/${noteId}.md`,
 			`${host.folder.get(`notes/${noteId}.md`) as string}and eggs\n`,
 		);
 		const pushed = applied(expectOk(await sendBack(host, data)));
 		expect(pushed.bodies).toBe(1);
-		expect(data.tables.notes.get(noteId)?.content).toBe(before);
-		expect((before as Y.Type).toString()).toContain('and eggs');
+		expect(data.tables.notes.body(noteId)).toBe(before);
+		expect((before as Y.Node).toString()).toContain('and eggs');
 		expectOk(await pullInto(host, data));
 		await data[Symbol.asyncDispose]();
 	});
@@ -1382,7 +1418,7 @@ describe('push sends the values back and re-renders', () => {
 		const pushed = applied(expectOk(await sendBack(host, data)));
 		expect(pushed.bodies).toBe(1);
 		expect(
-			(data.rowFile('notes', noteId)?.content as Y.Type).toString(),
+			(data.rowFile('notes', noteId)?.body as Y.Node).toString(),
 		).toContain('and eggs');
 		expect(host.folder.get(`notes/${noteId}.md`)).toContain('and eggs');
 		await data[Symbol.asyncDispose]();
@@ -1409,7 +1445,9 @@ describe('push sends the values back and re-renders', () => {
 		expect(made?.title).toBe('Q3 plan');
 		expect(made?.pinned).toBe(true);
 		// The body came with it, through the same codec that writes it out.
-		expect((made?.content as Y.Type).toString()).toContain('ship the thing');
+		expect((data.tables.notes.body(minted) as Y.Node).toString()).toContain(
+			'ship the thing',
+		);
 
 		// The name the agent chose is gone, and the row is at its id.
 		expect(host.folder.has('notes/q3-plan.md')).toBe(false);
@@ -1444,9 +1482,11 @@ describe('push sends the values back and re-renders', () => {
 			kv: { theme: field.string() },
 			tables: {
 				notes: defineTable({
-					title: field.string(),
-					pinned: field.boolean(),
-					content: {
+					fields: {
+						title: field.string(),
+						pinned: field.boolean(),
+					},
+					body: {
 						encode: (node) => node.toString(),
 						decode: () => {
 							throw new Error('the codec exploded');
@@ -1479,9 +1519,11 @@ describe('push sends the values back and re-renders', () => {
 			kv: { theme: field.string() },
 			tables: {
 				notes: defineTable({
-					title: field.string(),
-					pinned: field.boolean(),
-					content: {
+					fields: {
+						title: field.string(),
+						pinned: field.boolean(),
+					},
+					body: {
 						encode: (node) => node.toString(),
 						decode: () => {
 							throw new Error('the codec exploded');
@@ -1623,11 +1665,16 @@ describe('the folder explains itself (ADR-0337, ADR-0330)', () => {
 		kv: {},
 		tables: {
 			notes: defineTable({
-				title: field.string(),
-				folderId: field.nullable(field.reference('folders')),
-				content: plainText(),
+				fields: {
+					title: field.string(),
+					folderId: field.nullable(field.reference('folders')),
+				},
+				body: plainText(),
 			}),
-			folders: defineTable({ name: field.string(), content: plainText() }),
+			folders: defineTable({
+				fields: { name: field.string() },
+				body: plainText(),
+			}),
 		},
 	});
 
@@ -1647,8 +1694,7 @@ describe('the folder explains itself (ADR-0337, ADR-0330)', () => {
 		);
 		for (const [name, table] of Object.entries(shapes.tables)) {
 			expect(agents).toContain(`### ${name}/`);
-			for (const fieldName of Object.keys(table)) {
-				if (fieldName === 'content') continue;
+			for (const fieldName of Object.keys(table.fields)) {
 				expect(agents).toContain(`\`${fieldName}\``);
 			}
 		}
@@ -1962,12 +2008,15 @@ test('a fields-only checkout pushes field edits without replacing its node', asy
 		id: DATA_ID,
 		kv: {},
 		tables: {
-			queries: defineTable({ name: field.string(), sql: field.string() }),
+			queries: defineTable({
+				fields: { name: field.string(), sql: field.string() },
+			}),
 		},
 	});
 	await using opened = await openMemory(fieldsOnly);
 	const data = addressed(opened);
 	const row = data.tables.queries.create({ name: 'Inbox', sql: 'SELECT 1' });
+	const body = data.tables.queries.body(row.id);
 	const host = fakeHost();
 	expectOk(await pullInto(host, data));
 	expect(host.folder.get(AGENTS_PATH)).toContain('Do not add body text');
@@ -1975,6 +2024,6 @@ test('a fields-only checkout pushes field edits without replacing its node', asy
 	host.folder.set(path, host.folder.get(path)!.replace('SELECT 1', 'SELECT 2'));
 	expectOk(await sendBack(host, data));
 	expect(data.tables.queries.get(row.id)?.sql).toBe('SELECT 2');
-	expect(data.tables.queries.get(row.id)?.content).toBe(row.content);
-	expect(row.content.length).toBe(0);
+	expect(data.tables.queries.body(row.id)).toBe(body);
+	expect(data.tables.queries.body(row.id)!.length).toBe(0);
 });

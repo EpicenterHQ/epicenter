@@ -1,7 +1,7 @@
 /**
  * The `'delta'` behaviour the store's per-table subscription rests on, pinned.
  *
- * Every assertion here is a property of `@y/y@14.0.0-rc.24` rather than of
+ * Every assertion here is a property of `@y/y@14.0.0-rc.26` rather than of
  * Epicenter's own code, and a failure means an upgrade moved something the
  * subscription's design is resting on rather than that the store has a bug.
  *
@@ -27,7 +27,7 @@ import * as Y from '@y/y';
 /** Row ids one listener saw, in order, one entry per emitted delta. */
 type Recorded = { rowIds: string[][]; origins: unknown[] };
 
-function watch(type: Y.Type): Recorded {
+function watch(type: Y.Node): Recorded {
 	const recorded: Recorded = { rowIds: [], origins: [] };
 	type.on('delta', (delta: unknown, origin: unknown) => {
 		const { attrs } = delta as { attrs?: Record<string, unknown> };
@@ -39,13 +39,13 @@ function watch(type: Y.Type): Recorded {
 
 /** The store's own grammar: a row is a nested type at its id on the root. */
 function writeRow(
-	root: Y.Type,
+	root: Y.Node,
 	rowId: string,
 	fields: Record<string, unknown>,
 ) {
-	let row = root.getAttr(rowId as never) as Y.Type | undefined;
-	if (!(row instanceof Y.Type)) {
-		row = new Y.Type();
+	let row = root.getAttr(rowId as never) as Y.Node | undefined;
+	if (!(row instanceof Y.Node)) {
+		row = new Y.Node();
 		root.setAttr(rowId as never, row as never);
 	}
 	for (const [name, value] of Object.entries(fields)) {
@@ -56,8 +56,8 @@ function writeRow(
 
 describe("a table root's 'delta' names the rows a commit touched", () => {
 	let document: Y.Doc;
-	let notes: Y.Type;
-	let folders: Y.Type;
+	let notes: Y.Node;
+	let folders: Y.Node;
 	let seen: Recorded;
 	let control: Recorded;
 

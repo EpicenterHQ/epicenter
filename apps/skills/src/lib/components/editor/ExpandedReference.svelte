@@ -8,7 +8,7 @@
 	// Same shape as InstructionsEditor: the content is a nested type on the row
 	// (ADR-0295), so there is nothing to open and nothing to dispose.
 	const content = $derived(
-		skills.data.tables.skillReferences.get(id)?.content,
+		skills.data.tables.skillReferences.body(id),
 	);
 </script>
 

@@ -33,10 +33,10 @@ export function defineStore<const TDefinition extends DataDefinition>(
 	return declaration;
 }
 
-export { plainText } from './data/definition/content.js';
+export { plainText } from './data/definition/body.js';
 export {
-	type ContentCodec,
-	ContentError,
+	type BodyCodec,
+	BodyError,
 	type CreateRowOf,
 	type DataDefinition,
 	field,

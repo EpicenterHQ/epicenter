@@ -44,12 +44,14 @@ const definition = defineStore({
 	kv: {},
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			pinned: field.boolean(),
-			folderId: field.nullable(field.string()),
-			deletedAt: field.nullable(field.string()),
-			updatedAt: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+				pinned: field.boolean(),
+				folderId: field.nullable(field.string()),
+				deletedAt: field.nullable(field.string()),
+				updatedAt: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -96,7 +98,7 @@ function walk(store: Store, withContent: boolean): Flat[] {
 			row.folderId,
 			row.deletedAt,
 			row.updatedAt,
-			withContent ? row.content.toString() : null,
+			withContent ? store.tables.notes.body(row.id)!.toString() : null,
 		]);
 	}
 	return out;
@@ -132,7 +134,7 @@ function rebuildInterleaved(store: Store, withContent: boolean): Database {
 				row.folderId,
 				row.deletedAt,
 				row.updatedAt,
-				withContent ? row.content.toString() : null,
+				withContent ? store.tables.notes.body(row.id)!.toString() : null,
 			);
 		}
 	})();
@@ -188,7 +190,7 @@ for (const size of SIZES) {
 				deletedAt: null,
 				updatedAt: InstantString.now(),
 			});
-			row.content.insert(0, `${BODY}${i}`);
+			store.tables.notes.body(row.id)!.insert(0, `${BODY}${i}`);
 		}
 	});
 	if (store.tables.notes.ids().length !== size)

@@ -32,7 +32,10 @@ const definition = defineStore({
 	id: 'so.epicenter.subprotocol-test',
 	kv: {},
 	tables: {
-		notes: defineTable({ title: field.string(), content: plainText() }),
+		notes: defineTable({
+			fields: { title: field.string() },
+			body: plainText(),
+		}),
 	},
 });
 

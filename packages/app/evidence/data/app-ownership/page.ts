@@ -7,7 +7,7 @@ const definition = defineStore({
 	id:
 		new URL(location.href).searchParams.get('appId') ??
 		'so.epicenter.admission-evidence',
-	tables: { notes: defineTable({ title: field.string() }) },
+	tables: { notes: defineTable({ fields: { title: field.string() } }) },
 	kv: {},
 });
 let failCleanup = false;
@@ -101,7 +101,7 @@ Object.assign(globalThis, {
 		);
 		const isolatedDefinition = defineStore({
 			id: 'so.epicenter.memory-coexistence',
-			tables: { notes: defineTable({ title: field.string() }) },
+			tables: { notes: defineTable({ fields: { title: field.string() } }) },
 			kv: {},
 		});
 		const firstRuntime = createMemoryStoreRuntime();

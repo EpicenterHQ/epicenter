@@ -1,81 +1,57 @@
 /**
- * Compile-time pins for the refusals in `define.ts`.
- *
- * Each rule here is also enforced at runtime by `compileData`. They are pinned
- * because a rule carried by a type can stop applying instead of failing:
- * `ValidateTable` dispatched on the key `fields` for a day after the
- * table fields are now top-level keys, so nothing needs a second wrapper or a
- * public list of content names. That whole type is gone now — a table reaches
- * `defineStore` branded, so `defineTable` is the one
- * place a table is checked — and these pins are what would notice if the one
- * remaining door stopped checking.
- *
- * Nothing runs. `tsc` is the runner, and a `@ts-expect-error` that stops
- * erroring is itself an error.
+ * Compile-time checks for reserved names, complete body codecs, value-only
+ * rows, and inferred creation inputs. Runtime checks live in compile.test.ts
+ * and body-boundary.test.ts.
  */
 import { defineStore } from '@epicenter/app';
 
-import type * as Y from '@y/y';
-import { plainText } from './content.js';
+import { plainText } from './body.js';
 import type { CreateRowOf, RowOf } from './declaration.js';
 
 import { defineTable, field } from './index.js';
 
-/**
- * A value cannot take a name a row already has.
- *
- * Every row holds an `id` and a `content` node (ADR-0299), so a value at
- * either name would collide with the row's own field: `RowOf` intersects the
- * two, and the field would read as an impossible type rather than as a
- * mistake. `compileData` refuses it too; this pins the half that fires while the
- * declaration is being written.
- *
- * The expected type at the offending KEY is the explanation, which is what
- * makes the error land on the field instead of on the object around it.
- *
- * This replaced a pin for a rule that no longer exists: a name declared as
- * both a value and the content key. When `types` was deleted, that pin kept
- * passing, because its `@ts-expect-error` absorbed the excess-property error
- * for `types` itself. Probed to confirm: with `types` removed entirely and an
- * unrelated key in its place, the expectation was still satisfied. A pin that
- * cannot tell you what it is pinning is the failure this file exists to catch.
- */
 defineTable({
-	// @ts-expect-error content is reserved for the table's codec
-	content: field.string(),
+	fields: {},
+	// @ts-expect-error the body option accepts a codec, not a field schema
+	body: field.string(),
 });
 
-const fieldsOnly = defineTable({ name: field.string(), sql: field.string() });
+const fieldsOnly = defineTable({
+	fields: { name: field.string(), sql: field.string() },
+});
 declare const fieldsOnlyRow: RowOf<typeof fieldsOnly>;
 const rowName: string = fieldsOnlyRow.name;
 const rowSql: string = fieldsOnlyRow.sql;
-const rowNode: Y.Type = fieldsOnlyRow.content;
+// @ts-expect-error live bodies are not part of value snapshots
+fieldsOnlyRow.body;
 const newRow: CreateRowOf<typeof fieldsOnly> = {
 	name: 'Inbox',
 	sql: 'SELECT 1',
 };
-void [rowName, rowSql, rowNode, newRow];
+void [rowName, rowSql, newRow];
 // @ts-expect-error omission does not widen the exact field keys
 fieldsOnlyRow.unknown;
 // @ts-expect-error SQL remains required
 const incomplete: CreateRowOf<typeof fieldsOnly> = { name: 'Inbox' };
+defineTable({ fields: {}, body: undefined });
 defineTable({
-	// @ts-expect-error explicit undefined is not a codec
-	content: undefined,
-});
-defineTable({
+	fields: {},
 	// @ts-expect-error a supplied codec requires rewrite
-	content: { encode: plainText().encode, decode: plainText().decode },
+	body: { encode: plainText().encode, decode: plainText().decode },
 });
 defineTable({
-	// @ts-expect-error reserved keys also fail without a codec
-	ID: field.string(),
+	fields: {
+		// @ts-expect-error reserved keys also fail without a codec
+		ID: field.string(),
+	},
 });
 
 defineTable({
-	// @ts-expect-error 'id' is reserved: every row already has one
-	id: field.string(),
-	content: plainText(),
+	fields: {
+		// @ts-expect-error 'id' is reserved: every row already has one
+		id: field.string(),
+	},
+	body: plainText(),
 });
 
 /**
@@ -97,9 +73,11 @@ defineTable({
  * here; the rest is `compileData`'s to refuse.
  */
 defineTable({
-	// @ts-expect-error a default belongs to the application, not the schema
-	title: { ...field.string(), default: 'untitled' },
-	content: plainText(),
+	fields: {
+		// @ts-expect-error a default belongs to the application, not the schema
+		title: { ...field.string(), default: 'untitled' },
+	},
+	body: plainText(),
 });
 
 /**
@@ -133,8 +111,35 @@ defineStore({
 	},
 	tables: {
 		items: defineTable({
-			title: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+			},
+			body: plainText(),
 		}),
+	},
+});
+
+// Body storage consumes no field name.
+const ordinaryNames = defineTable({
+	fields: {
+		content: field.string(),
+		'!status': field.string(),
+		Body: field.string(),
+		body: field.string(),
+	},
+});
+const ordinaryInput: CreateRowOf<typeof ordinaryNames> = {
+	content: 'value',
+	'!status': 'draft',
+	Body: 'capitalized',
+	body: 'ordinary metadata',
+};
+void ordinaryInput;
+declare const ordinaryRow: RowOf<typeof ordinaryNames>;
+const bodyValue: string = ordinaryRow.body;
+void bodyValue;
+defineTable({
+	fields: {
+		body: field.string(),
 	},
 });

@@ -13,13 +13,16 @@ import { syncEngineOf } from '../store/store.js';
 const installed = await Bun.file(
 	new URL('../../../node_modules/@y/y/package.json', import.meta.url),
 ).json();
-if (installed.version !== '14.0.0-rc.24')
+if (installed.version !== '14.0.0-rc.26')
 	throw new Error('Revalidate against the new @y/y version');
 const definition = defineStore({
 	id: 'so.epicenter.checkout-benchmark',
 	kv: {},
 	tables: {
-		notes: defineTable({ title: field.string(), content: plainText() }),
+		notes: defineTable({
+			fields: { title: field.string() },
+			body: plainText(),
+		}),
 	},
 });
 const results = [];
@@ -45,7 +48,7 @@ for (const bodySize of [1000, 100000, 1000000]) {
 				principalId: string;
 			};
 			const row = data.tables.notes.create({ title: 'Baseline' });
-			const node = data.tables.notes.get(row.id)!.content as Y.Type;
+			const node = data.tables.notes.body(row.id)! as Y.Node;
 			node.insert(0, ['x'.repeat(bodySize)]);
 			const doc = node.doc!;
 			const engine = syncEngineOf(store);

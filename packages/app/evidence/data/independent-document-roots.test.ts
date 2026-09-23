@@ -22,8 +22,8 @@ test('concurrent first creation of one named root in independent docs converges'
 	Y.applyUpdateV2(a, Y.encodeStateAsUpdateV2(b));
 	Y.applyUpdateV2(b, Y.encodeStateAsUpdateV2(a));
 
-	const textA = (a.get('editor') as Y.Type).toString();
-	const textB = (b.get('editor') as Y.Type).toString();
+	const textA = (a.get('editor') as Y.Node).toString();
+	const textB = (b.get('editor') as Y.Node).toString();
 	// Both writes survive on both sides: a name-addressed root has one logical
 	// identity, unlike a nested type addressed by the operation that made it.
 	expect(textA).toBe(textB);

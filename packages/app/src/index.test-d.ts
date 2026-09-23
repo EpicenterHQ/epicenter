@@ -9,7 +9,7 @@ const notes = defineStore({
 	id: 'test.notes',
 	title: 'Notes',
 	kv: { language: field.string() },
-	tables: { notes: defineTable({ title: field.string() }) },
+	tables: { notes: defineTable({ fields: { title: field.string() } }) },
 });
 expectTypeOf(notes.id).toEqualTypeOf<'test.notes'>();
 expectTypeOf(notes.title).toEqualTypeOf<'Notes'>();

@@ -33,7 +33,7 @@ export function permanentlyDeleteNote(data: HoneycrispData, id: NoteId): void {
 
 /** Keep title and edit time current while the editor holds a note open. */
 export function openContent(data: HoneycrispData, id: NoteId) {
-	const content = data.tables.notes.get(id)?.content;
+	const content = data.tables.notes.body(id);
 	if (content === undefined) return undefined;
 	// Coalesced to one write per animation-frame-ish burst, because a
 	// keystroke is a commit and writing the row on each one would write a row
@@ -82,7 +82,7 @@ export function openContent(data: HoneycrispData, id: NoteId) {
 
 /** Subscribe to the preview of this note only. */
 export function previewOf(data: HoneycrispData, id: NoteId): Tracked<string> {
-	const body = data.tables.notes.get(id)?.content;
+	const body = data.tables.notes.body(id);
 	if (body === undefined) return { current: '' };
 	return fromSubscription(
 		(update) => data.tables.notes.watch(body, update),

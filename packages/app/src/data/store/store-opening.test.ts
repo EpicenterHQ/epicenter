@@ -33,7 +33,10 @@ const definition = expectOk(
 			id: 'so.epicenter.store-opening-test',
 			kv: { theme: field.string() },
 			tables: {
-				notes: defineTable({ title: field.string(), content: plainText() }),
+				notes: defineTable({
+					fields: { title: field.string() },
+					body: plainText(),
+				}),
 			},
 		}),
 	),
@@ -54,9 +57,9 @@ async function setup() {
 	const row = notes.create({ title: 'accepted before close' });
 	if (row instanceof Promise)
 		throw new Error('The fixture declares plain notes');
-	const content = row.content;
-	if (!(content instanceof Y.Type)) throw new Error('The row has no content');
-	return { store, view, notes, row, content, close, port };
+	const body = notes.body(row.id)!;
+	if (!(body instanceof Y.Node)) throw new Error('The row has no body');
+	return { store, view, notes, row, body, close, port };
 }
 
 // ============================================================================
@@ -104,20 +107,20 @@ test('retained reads and writes throw as soon as close starts', async () => {
 });
 
 test('retained subscriptions refuse registration after close starts while teardown stays safe', async () => {
-	const { store, view, notes, content, close } = await setup();
+	const { store, view, notes, body, close } = await setup();
 	const { subscribe, watch } = notes;
 	const { subscribe: subscribeKv } = view.kv;
 	const { onCommitted } = store;
 	const listener = () => undefined;
 	const stops = [
 		subscribe(listener),
-		watch(content, listener),
+		watch(body, listener),
 		subscribeKv(listener),
 		onCommitted(listener),
 	];
 	const operations = [
 		() => subscribe(listener),
-		() => watch(content, listener),
+		() => watch(body, listener),
 		() => subscribeKv(listener),
 		() => onCommitted(listener),
 	];
@@ -231,11 +234,11 @@ test('repeated close shares the pending commit and final disposal completion', a
 	const row = notes.create({ title: 'pending durable write' });
 	if (row instanceof Promise)
 		throw new Error('The fixture declares plain notes');
-	const { content } = row;
-	if (!(content instanceof Y.Type) || content.doc === null) {
-		throw new Error('The content is not attached to its document');
+	const body = notes.body(row.id);
+	if (!(body instanceof Y.Node) || body.doc === null) {
+		throw new Error('The body is not attached to its document');
 	}
-	content.doc.on('destroy', () => {
+	body.doc.on('destroy', () => {
 		destroyCalls++;
 		destructionClosing = close();
 	});

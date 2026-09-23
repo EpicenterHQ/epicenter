@@ -45,12 +45,14 @@ const definition = defineStore({
 	kv: { theme: field.select(['light', 'dark']) },
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			pinned: field.boolean(),
-			folderId: field.nullable(field.string()),
-			deletedAt: field.nullable(field.string()),
-			updatedAt: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+				pinned: field.boolean(),
+				folderId: field.nullable(field.string()),
+				deletedAt: field.nullable(field.string()),
+				updatedAt: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -103,14 +105,14 @@ for (const size of SIZES) {
 			});
 			// The content node is minted by `create` and written into after, the
 			// way an editor writes it. It is never passed as a field.
-			row.content.insert(0, BODY);
+			db.tables.notes.body(row.id)!.insert(0, BODY);
 			ids.push(row.id);
 		}
 	});
 
 	const typed = ids[0];
 	if (typed === undefined) throw new Error('no rows built');
-	const content = db.tables.notes.get(typed)?.content;
+	const content = db.tables.notes.body(typed);
 	if (content === undefined) throw new Error('the note has no content node');
 
 	// Liveness: the derive sees every row, and the typed character lands.

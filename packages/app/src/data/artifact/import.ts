@@ -5,7 +5,7 @@
  * The mirror of `renderArtifact`, and deliberately the same kind of thing: a
  * pure function over the public vocabulary, composed outside the store. It
  * rebuilds the database's one Yjs document from every row file, mints each
- * row with its content node, and hands the table's codec the parsed
+ * row with its body node, and hands the table's codec the parsed
  * frontmatter and the body beneath it.
  *
  * Producing bytes rather than writing them is what keeps import honest about
@@ -27,7 +27,6 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 
 import {
-	CONTENT_FIELD,
 	compileData,
 	type DataDefinition,
 	type JsonObject,
@@ -37,7 +36,6 @@ import {
 	createDatabaseDocument,
 	createRow,
 	kvRoot,
-	type RowInput,
 	tableRoot,
 } from '../store/document.js';
 import { parseRowFile } from './frontmatter.js';
@@ -64,7 +62,7 @@ export const ImportError = defineErrors({
 	}),
 	/**
 	 * A row file carries a body and its table declares no codec to read it
-	 * with, so the content node has nowhere to go. Fatal rather than dropped: losing
+	 * with, so the body node has nowhere to go. Fatal rather than dropped: losing
 	 * a body on import is the failure ADR-0268 exists to prevent, arriving
 	 * from the other direction.
 	 */
@@ -98,7 +96,7 @@ export type ImportError = InferErrors<typeof ImportError>;
  * Read a whole artifact into the one document that IS the database.
  *
  * One value, because there is one document (ADR-0295). What this used to
- * return was a list, because a row's content node was an independent document at a
+ * return was a list, because a row's body node was an independent document at a
  * derived address and a mint uploaded each one separately (ADR-0286); the
  * addresses are gone and so is the list.
  *
@@ -156,7 +154,7 @@ export function readArtifact(
 				rowId: at.rowId,
 				path,
 				data: file.fields,
-				content: file.body,
+				body: file.body,
 			});
 			if (error !== null) return { data: null, error };
 		}
@@ -170,14 +168,14 @@ export function readArtifact(
 /**
  * Put one file's row into the document.
  *
- * One transaction. The codec reads the body into a fresh content node, and
+ * One transaction. The codec reads the body into a fresh body node, and
  * `createRow` integrates it beside the frontmatter values in the transaction
  * that mints the row.
  *
  * It used to be three writes: mint an empty row so the codec could be handed
  * ATTACHED types, read them back, let the codec fill them and return the
  * values, then write those. That existed because ADR-0296 measured a detached
- * `Y.Type` as unable to survive more than one write. The measurement does not
+ * `Y.Node` as unable to survive more than one write. The measurement does not
  * depend on detachment (the same `insert` pair throws on an attached type) and
  * does not hold for a Markdown conversion, which round trips through a
  * detached type to a byte-identical update. See ADR-0296's amendment.
@@ -189,7 +187,7 @@ function admitRow({
 	rowId,
 	path,
 	data,
-	content,
+	body,
 }: {
 	database: Y.Doc;
 	table: ParsedTable | undefined;
@@ -197,28 +195,28 @@ function admitRow({
 	rowId: string;
 	path: string;
 	data: JsonObject;
-	content: string;
+	body: string;
 }): Result<void, ImportError> {
 	const root = tableRoot(database, tableName);
-	const codec = table?.content;
+	const codec = table?.body;
 
 	// The frontmatter IS the row, verbatim, including a key this declaration
 	// does not name: the artifact is the truth here, and a release that stopped
 	// naming a field never meant its data was gone (ADR-0240, ADR-0125). No
 	// value is checked on the way in. Conformance is one decision, made once,
 	// at read, for every row from every direction.
-	const fields: RowInput = { ...data };
+	const fields = { ...data };
+	let node: Y.Node | undefined;
 
-	if (content !== '') {
+	if (body !== '') {
 		// A body with no codec to read it has nowhere to go, and dropping it is
 		// the data loss this refuses. That includes intentional codec omission,
 		// removed tables, and definitions that arrived as JSON.
 		if (codec === undefined) {
 			return ImportError.UncodedBody({ table: tableName, rowId });
 		}
-		let node: Y.Type;
 		try {
-			const read = codec.decode(content);
+			const read = codec.decode(body);
 			if (read.error !== null) {
 				return ImportError.RowUnreadable({
 					table: tableName,
@@ -236,14 +234,13 @@ function admitRow({
 				cause,
 			});
 		}
-		fields[CONTENT_FIELD] = node;
 	}
 
 	try {
 		// One transaction: the row is minted, its values filled, and the node
 		// the codec built integrated, together.
 		database.transact(() => {
-			createRow(root, rowId, fields);
+			createRow(root, rowId, fields, node);
 		});
 	} catch (cause) {
 		return ImportError.MalformedFile({

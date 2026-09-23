@@ -22,7 +22,7 @@ for (const host of [false, true]) {
 				const { defineStore, defineTable, field } = await import('@epicenter/app');
 				const declaration = defineStore({
 					id: 'test.import-boundary', kv: {},
-					tables: { notes: defineTable({ title: field.string() }) },
+					tables: { notes: defineTable({ fields: { title: field.string() } }) },
 				});
 				if (declaration.id !== 'test.import-boundary' || 'open' in declaration) {
 					throw new Error('The declaration lost its identity or contains an opener.');
@@ -129,7 +129,7 @@ test('memory stores ignore foreign IDB globals and leave them untouched', async 
   const {createMemoryStoreRuntime}=await import('@epicenter/app/testing');
   const {openLocal}=await import('@epicenter/app/open');
   const {defineStore,defineTable,field}=await import('@epicenter/app');
-  const definition=defineStore({id:'test.foreign-idb',kv:{},tables:{notes:defineTable({title:field.string()})}});
+  const definition=defineStore({id:'test.foreign-idb',kv:{},tables:{notes:defineTable({fields:{title:field.string()}})}});
   const runtime=createMemoryStoreRuntime();
   const app=await openLocal(definition,{runtime});
   app.tables.notes.create({title:'retained'});

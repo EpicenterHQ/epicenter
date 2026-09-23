@@ -19,11 +19,13 @@ const labDatabase = defineStore({
 	kv: {},
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			device: field.string(),
-			at: field.string(),
-			body: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+				device: field.string(),
+				at: field.string(),
+				content: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -132,7 +134,7 @@ function write(fields: { title: string }): void {
 		title: fields.title,
 		device,
 		at: new Date().toISOString(),
-		body: '',
+		content: '',
 	});
 	// Nothing nudges. The store announces the work it authored and the driver
 	// starts the idle timer, which is what turns a burst of transactions into
@@ -156,7 +158,7 @@ paste.addEventListener('click', () => {
 		title: 'a 3 MB paste',
 		device,
 		at: new Date().toISOString(),
-		body: 'x'.repeat(3_000_000),
+		content: 'x'.repeat(3_000_000),
 	});
 	render();
 });

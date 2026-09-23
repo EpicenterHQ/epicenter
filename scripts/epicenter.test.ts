@@ -29,11 +29,11 @@ const config = `import { defineStore, defineTable, field } from ${JSON.stringify
 export default defineStore({
   id: 'test.cli',
   kv: { label: field.nullable(field.string()) },
-  tables: { notes: defineTable({
+  tables: { notes: defineTable({ fields: {
     title: field.string(),
     optional: field.nullable(field.string()),
     jsonNull: field.json({ anyOf: [{ type: 'null' }, { type: 'string' }] }),
-  }) },
+  } }) },
 });`;
 
 afterEach(async () => {

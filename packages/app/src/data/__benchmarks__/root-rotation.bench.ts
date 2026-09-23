@@ -17,9 +17,9 @@ import {
 const packageInfo = await Bun.file(
 	new URL('../../../node_modules/@y/y/package.json', import.meta.url),
 ).json();
-if (packageInfo.name !== '@y/y' || packageInfo.version !== '14.0.0-rc.24') {
+if (packageInfo.name !== '@y/y' || packageInfo.version !== '14.0.0-rc.26') {
 	throw new Error(
-		'Revalidate this experiment when changing @y/y from 14.0.0-rc.24',
+		'Revalidate this experiment when changing @y/y from 14.0.0-rc.26',
 	);
 }
 

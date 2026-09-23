@@ -10,7 +10,7 @@
 	// half-hydrated state to bind to. Undefined means the row is gone, which
 	// renders as nothing rather than as an empty file it could then save over.
 	const content = $derived(
-		skills.data.tables.skills.get(skillId)?.content,
+		skills.data.tables.skills.body(skillId),
 	);
 </script>
 

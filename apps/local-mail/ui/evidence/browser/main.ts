@@ -91,8 +91,10 @@ try {
 						kv: {},
 						tables: {
 							savedQueries: defineTable({
-								name: field.string(),
-								sql: field.boolean(),
+								fields: {
+									name: field.string(),
+									sql: field.boolean(),
+								},
 							}),
 						},
 						id: 'so.epicenter.local-mail-evidence',

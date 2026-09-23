@@ -21,17 +21,15 @@ export {
 	type ParsedDataDefinition,
 	type ParsedTable,
 } from './compile.js';
-export { plainText } from './content.js';
+export { plainText } from './body.js';
 export {
-	CONTENT_FIELD,
-	type ContentCodec,
-	ContentError,
+	type BodyCodec,
+	BodyError,
 	type CreateRowOf,
 	type DataDefinition,
 	type FieldMap,
 	field,
 	type KvOf,
-	RESERVED_ATTRIBUTE_PREFIX,
 	type RowOf,
 	type TableDeclaration,
 } from './declaration.js';

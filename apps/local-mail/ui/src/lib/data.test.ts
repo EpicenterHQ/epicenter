@@ -64,7 +64,9 @@ test('incompatible saved queries can be repaired or deleted using their original
 		id: mailDefinition.id,
 		kv: {},
 		tables: {
-			savedQueries: defineTable({ name: field.string(), sql: field.boolean() }),
+			savedQueries: defineTable({
+				fields: { name: field.string(), sql: field.boolean() },
+			}),
 		},
 	});
 	await using peer = await openMemory(incompatible);

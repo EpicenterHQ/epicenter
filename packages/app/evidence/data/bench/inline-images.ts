@@ -30,7 +30,7 @@ if (phase === 'build') {
 	let sample = '';
 	doc.transact(() => {
 		for (let index = 0; index < count; index++) {
-			const row = asValues(new Y.Type());
+			const row = asValues(new Y.Node());
 			putRow(root, rowId(index), row);
 			row.setAttr('title', `Note ${index}`);
 			row.setAttr('body', BODY);

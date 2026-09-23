@@ -31,8 +31,10 @@ const database = defineStore({
 	kv: { theme: field.select(['light', 'dark']) },
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -222,13 +224,13 @@ describe('acceptance is live, durability is a visible debt', () => {
 		expectOk(replica.db.kv.update({ theme: 'dark' }));
 		expect(replica.db.kv.get('theme')).toBe('dark');
 
-		// A row's content node: an edit keeps writing text while blocked. The
+		// A row's body node: an edit keeps writing text while blocked. The
 		// type is live on the document the store already holds, so a blocked
 		// engine never blocks acceptance.
-		const content = replica.db.tables.notes.get(made.id)?.content;
-		if (content === undefined) throw new Error('the row has no content');
-		content.applyDelta(content.change.insert('typed while blocked') as never);
-		expect(content.toString()).toContain('typed while blocked');
+		const body = replica.db.tables.notes.body(made.id);
+		if (body === undefined) throw new Error('the row has no body');
+		body.applyDelta(body.change.insert('typed while blocked') as never);
+		expect(body.toString()).toContain('typed while blocked');
 
 		await new Promise<void>((resolve) => setImmediate(resolve));
 		expect(replica.store.persistence.get()).toBe('blocked');
@@ -241,7 +243,7 @@ describe('acceptance is live, durability is a visible debt', () => {
 		expect(replica.store.persistence.get()).toBe('saved');
 		const restarted = await reopen(replica.sqlite);
 		expect(restarted.db.kv.get('theme')).toBe('dark');
-		const survived = restarted.db.tables.notes.get(made.id)?.content;
+		const survived = restarted.db.tables.notes.body(made.id);
 		expect(survived?.toString()).toContain('typed while blocked');
 	});
 

@@ -14,12 +14,10 @@ import {
 
 import { DATA_ADDRESS_CEILINGS, isDataId, isTableName } from './addresses.js';
 import {
-	CONTENT_FIELD,
-	type ContentCodec,
+	type BodyCodec,
 	type DataDefinition,
 	type DataField,
 	KV_ROOT,
-	RESERVED_ATTRIBUTE_PREFIX,
 	RESERVED_TABLE_NAMES,
 	type TableDeclaration,
 } from './declaration.js';
@@ -64,18 +62,18 @@ export type Conformance = {
 export type ParsedTable = {
 	name: string;
 	/**
-	 * The value fields, compiled. The content node is NOT here: it holds no
+	 * The value fields, compiled. The body node is NOT here: it holds no
 	 * JSON value, so it has no schema to check a payload against and nothing a
 	 * conformance read could report.
 	 */
 	fields: ReadonlyMap<string, DataField>;
 	/**
-	 * How this table's content node becomes text, carried unread (ADR-0296).
+	 * How this table's body node becomes text, carried unread (ADR-0296).
 	 *
 	 * Absent when the table declares no codec. The artifact boundary refuses
 	 * populated nodes on export and nonempty bodies on import.
 	 */
-	content?: ContentCodec;
+	body?: BodyCodec;
 	conformance(payload: JsonObject): Conformance;
 };
 
@@ -167,20 +165,25 @@ function compileDefinition(
 		foldedNames.set(folded, tableName);
 		if (!isPlainObject(declaration)) {
 			return DataDefinitionParseError.Malformed({
-				reason: `table '${tableName}' must declare a flat field map`,
+				reason: `table '${tableName}' must declare fields and an optional body codec`,
 			});
 		}
 		const table = declaration as TableDeclaration;
-		if (CONTENT_FIELD in table && !isContentCodec(table.content)) {
+		if (Object.keys(table).some((key) => key !== 'fields' && key !== 'body')) {
 			return DataDefinitionParseError.Malformed({
-				reason: `table '${tableName}' declares an invalid content codec`,
+				reason: `table '${tableName}' declares an unknown option`,
 			});
 		}
-		const result = compileTable(tableName, table);
+		if (table.body !== undefined && !isBodyCodec(table.body)) {
+			return DataDefinitionParseError.Malformed({
+				reason: `table '${tableName}' declares an invalid body codec`,
+			});
+		}
+		const result = compileTable(tableName, table.fields);
 		if (result.error !== null) return result;
 		compiledTables.set(tableName, {
 			...result.data,
-			content: table.content,
+			body: table.body,
 		});
 	}
 	return Ok(
@@ -203,13 +206,6 @@ function compileTable(
 		});
 	const compiled = new Map<string, DataField>();
 	for (const [fieldName, descriptor] of Object.entries(declaration)) {
-		// A table's `content` is the codec for its rows' live node, not a field,
-		// so it never compiles as one. On a ROW and only there: kv holds settings
-		// rather than rows, so it has no node, and a setting a person happens to
-		// call `content` is an ordinary field. Skipping it for kv too would drop
-		// the key at compile and leave `kv.get` answering `undefined` for a value
-		// the document is holding, with `nonconforming` reporting nothing.
-		if (tableName !== KV_ROOT && fieldName === CONTENT_FIELD) continue;
 		const invalid = fieldNameProblem(tableName, fieldName);
 		if (invalid !== undefined) return invalid;
 		if (!isPlainObject(descriptor)) {
@@ -348,9 +344,8 @@ function fieldNameProblem(
 	fieldName: string,
 ): Result<never, DataDefinitionParseError> | undefined {
 	if (
-		fieldName.startsWith(RESERVED_ATTRIBUTE_PREFIX) ||
 		fieldName.toLowerCase() === 'id' ||
-		!/^[A-Za-z][A-Za-z0-9_]*$/.test(fieldName)
+		!/^[A-Za-z!][A-Za-z0-9_!]*$/.test(fieldName)
 	) {
 		return DataDefinitionParseError.Malformed({
 			reason: `field name '${tableName}.${fieldName}' is not usable`,
@@ -369,8 +364,8 @@ function fieldNameProblem(
  * written half of it. The authoring type demands all three; this is the door a
  * definition that did not go through it comes in by.
  */
-function isContentCodec(value: unknown): value is ContentCodec {
-	const codec = value as Partial<ContentCodec> | undefined;
+function isBodyCodec(value: unknown): value is BodyCodec {
+	const codec = value as Partial<BodyCodec> | undefined;
 	return (
 		typeof codec?.encode === 'function' &&
 		typeof codec.decode === 'function' &&

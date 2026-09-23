@@ -54,15 +54,15 @@ function build(rows: number): Uint8Array {
 	const root = doc.get('notes');
 	doc.transact(() => {
 		for (let index = 0; index < rows; index += 1) {
-			const row = new Y.Type();
+			const row = new Y.Node();
 			root.setAttr(
 				`r${String(index).padStart(23, '0')}` as never,
 				row as never,
 			);
 			row.setAttr('title' as never, 'A note title of typical length' as never);
-			const container = new Y.Type();
+			const container = new Y.Node();
 			row.setAttr('!doc' as never, container as never);
-			const text = new Y.Type('text' as never);
+			const text = new Y.Node('text' as never);
 			container.setAttr('editor' as never, text as never);
 			text.applyDelta(text.change.insert('x'.repeat(2800)) as never);
 		}

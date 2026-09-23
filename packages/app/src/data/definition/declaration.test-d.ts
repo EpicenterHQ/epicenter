@@ -8,7 +8,7 @@ import type {
 	InstantString,
 } from '../field/index.js';
 import type { TypedTableHandle } from '../store/handles.js';
-import { plainText } from './content.js';
+import { plainText } from './body.js';
 import { type CreateRowOf, defineTable, field, type RowOf } from './index.js';
 
 /**
@@ -47,18 +47,24 @@ const definition = defineStore({
 	},
 	tables: {
 		items: defineTable({
-			status: field.select(['draft', 'published']),
-			content: plainText(),
+			fields: {
+				status: field.select(['draft', 'published']),
+			},
+			body: plainText(),
 		}),
 		recordings: defineTable({
-			audio: field.string<BlobId>(),
-			optional: field.nullable(field.string<BlobId>()),
-			ordinaryId: field.string<BlobId>(),
-			content: plainText(),
+			fields: {
+				audio: field.string<BlobId>(),
+				optional: field.nullable(field.string<BlobId>()),
+				ordinaryId: field.string<BlobId>(),
+			},
+			body: plainText(),
 		}),
 		reversed: defineTable({
-			audio: Type.Union([Type.Null(), field.string<BlobId>()]),
-			content: plainText(),
+			fields: {
+				audio: Type.Union([Type.Null(), field.string<BlobId>()]),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -113,16 +119,17 @@ export type _RowStatusStatic = Expect<
 	Equal<Item['status'], 'draft' | 'published'>
 >;
 export type _RowIdIsString = Expect<Equal<Item['id'], string>>;
-export type _RowContentIsLiveType = Expect<Equal<Item['content'], Y.Type>>;
+export type _RowHasOnlyValues = Expect<Equal<keyof Item, 'id' | 'status'>>;
 export type _BlobRowStoresId = Expect<Equal<Recording['audio'], BlobId>>;
 
-declare const content: Y.Type;
+declare const body: Y.Node;
 const createWithoutContent: CreateRowOf<typeof definition.tables.items> = {
 	status: 'draft',
 };
 const createWithContent: CreateRowOf<typeof definition.tables.items> = {
 	status: 'published',
-	content,
+	// @ts-expect-error body is supplied separately from value fields
+	body,
 };
 void createWithoutContent;
 void createWithContent;

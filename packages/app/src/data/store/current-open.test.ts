@@ -259,7 +259,7 @@ for (const pending of ['structs', 'deletes'] as const) {
 	test(`unresolved ${pending} cannot publish a usable cache`, async () => {
 		const f = fixture();
 		const source = createDatabaseDocument();
-		const parent = new Y.Type();
+		const parent = new Y.Node();
 		source.get('proof').setAttr('unseen', parent);
 		let delta = new Uint8Array();
 		source.on('updateV2', (bytes: Uint8Array) => {

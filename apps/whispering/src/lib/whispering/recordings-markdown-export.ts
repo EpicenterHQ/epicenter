@@ -8,7 +8,7 @@ import { sortedRecordings } from './recordings.js';
 
 function recordingToMarkdown(recording: Recording): string {
 	// Whispering stores the transcript in a row value; its content node is unused.
-	const { transcript, content: _content, ...frontmatter } = recording;
+	const { transcript, ...frontmatter } = recording;
 	const yamlStr = yaml.dump(frontmatter, { lineWidth: -1 });
 	return `---\n${yamlStr}---\n${transcript || ''}\n`;
 }

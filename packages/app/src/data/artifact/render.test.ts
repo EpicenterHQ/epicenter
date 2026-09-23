@@ -12,25 +12,27 @@ const store = defineStore({
 	kv: { theme: field.string() },
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });
 
-/** Write text into one row's live `content` node. */
+/** Write text into one row's live `body` node. */
 function type(
 	data: {
 		tables: {
-			notes: { get(rowId: string): { content: Y.Type } | undefined };
+			notes: { body(rowId: string): Y.Node | undefined };
 		};
 	},
 	rowId: string,
 	text: string,
 ): void {
-	const content = data.tables.notes.get(rowId);
-	if (content === undefined) throw new Error('the row has no content');
-	content.content.insert(0, [text]);
+	const body = data.tables.notes.body(rowId);
+	if (body === undefined) throw new Error('the row has no body');
+	body.insert(0, [text]);
 }
 
 /** Collect the stream into a map, which is what an assertion wants. */
@@ -80,14 +82,16 @@ describe('renderRow is the unit (ADR-0271)', () => {
 		expect(rendered.contents).toBeUndefined();
 	});
 
-	test('a table with an empty content node renders frontmatter alone', async () => {
+	test('a table with an empty body node renders frontmatter alone', async () => {
 		const valuesOnly = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
 			tables: {
 				folders: defineTable({
-					name: field.string(),
-					content: plainText(),
+					fields: {
+						name: field.string(),
+					},
+					body: plainText(),
 				}),
 			},
 		});
@@ -110,12 +114,14 @@ describe('renderRow is the unit (ADR-0271)', () => {
 			kv: {},
 			tables: {
 				notes: defineTable({
-					title: field.string(),
-					content: {
+					fields: {
+						title: field.string(),
+					},
+					body: {
 						encode: () => {
 							throw new Error('the codec exploded');
 						},
-						decode: () => Ok(new Y.Type()),
+						decode: () => Ok(new Y.Node()),
 						rewrite: () => Ok(undefined),
 					},
 				}),
@@ -144,7 +150,7 @@ describe('renderRow is the unit (ADR-0271)', () => {
 });
 
 describe('renderArtifact is renderRow in a loop (ADR-0267/0268)', () => {
-	test('exports kv.json and one markdown file per row, fields above the content', async () => {
+	test('exports kv.json and one markdown file per row, fields above the body', async () => {
 		await using data = await openMemory(store);
 		data.kv.update({ theme: 'dark' });
 		const made = data.tables.notes.create({ title: 'Groceries' });
@@ -158,7 +164,7 @@ describe('renderArtifact is renderRow in a loop (ADR-0267/0268)', () => {
 
 		// The row is one file: its id is the path, its values the frontmatter
 		// (strings always quoted, so every value re-reads as itself), and its
-		// content node to the content (ADR-0268, ADR-0296).
+		// body node to the body (ADR-0268, ADR-0296).
 		expect(files.get(`notes/${made.id}.md`)).toBe(
 			['---', 'title: "Groceries"', '---', '', 'buy milk', ''].join('\n'),
 		);
@@ -190,8 +196,10 @@ describe('renderArtifact is renderRow in a loop (ADR-0267/0268)', () => {
 			kv: {},
 			tables: {
 				notes: defineTable({
-					title: field.string(),
-					content: {
+					fields: {
+						title: field.string(),
+					},
+					body: {
 						// Poisoned for ONE row, so the loop has both to carry.
 						encode: (node) => {
 							const text = node.toString();
@@ -200,7 +208,7 @@ describe('renderArtifact is renderRow in a loop (ADR-0267/0268)', () => {
 							}
 							return text;
 						},
-						decode: () => Ok(new Y.Type()),
+						decode: () => Ok(new Y.Node()),
 						rewrite: () => Ok(undefined),
 					},
 				}),
@@ -222,14 +230,16 @@ describe('renderArtifact is renderRow in a loop (ADR-0267/0268)', () => {
 		expect(seen.ok).not.toContain(`notes/${bad.id}.md`);
 	});
 
-	test('a table with an empty content node exports frontmatter-only files', async () => {
+	test('a table with an empty body node exports frontmatter-only files', async () => {
 		const valuesOnly = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
 			tables: {
 				folders: defineTable({
-					name: field.string(),
-					content: plainText(),
+					fields: {
+						name: field.string(),
+					},
+					body: plainText(),
 				}),
 			},
 		});

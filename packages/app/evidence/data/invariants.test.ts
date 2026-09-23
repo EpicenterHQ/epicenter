@@ -1,7 +1,7 @@
 /**
  * The Yjs behaviour Epicenter's data model depends on, pinned.
  *
- * Every assertion here is a property of `@y/y@14.0.0-rc.24` rather than of
+ * Every assertion here is a property of `@y/y@14.0.0-rc.26` rather than of
  * Epicenter's own code. They live in a test because they are load-bearing
  * design premises taken from a release candidate, and an rc can move them
  * quietly: one of them, that a type's behaviour comes from its name, was
@@ -38,7 +38,7 @@ function sync(a: Y.Doc, b: Y.Doc): void {
  * an assertion against `{}` is the same failure as an assertion against the
  * wrong contents, and it reads at the call site instead of a guard above it.
  */
-function attrs(type: Y.Type | undefined): Record<string, unknown> {
+function attrs(type: Y.Node | undefined): Record<string, unknown> {
 	return (type?.getAttrs() ?? {}) as Record<string, unknown>;
 }
 
@@ -51,10 +51,10 @@ describe('the database document has one named root grammar', () => {
 
 		document.transact(() => {
 			kv.setAttr('theme', 'dark');
-			const page: ValuesType = new Y.Type();
+			const page: ValuesType = new Y.Node();
 			page.setAttr('title', 'A page');
 			putRow(pages, 'page-1', page);
-			putRow(folders, 'folder-1', new Y.Type());
+			putRow(folders, 'folder-1', new Y.Node());
 		});
 
 		expect(KV_ROOT_NAME).toBe('kv');
@@ -101,7 +101,7 @@ describe('identity: a root is addressed by name, a nested type by struct', () =>
 			[laptop, 'fontSize', 22],
 		] as const) {
 			doc.transact(() => {
-				const container: ValuesType = new Y.Type();
+				const container: ValuesType = new Y.Node();
 				putRow(doc.get('settings'), 'app', container);
 				container.setAttr(key, value);
 			});
@@ -120,7 +120,7 @@ describe('identity: a root is addressed by name, a nested type by struct', () =>
 		const phone = new Y.Doc({ gc: true });
 		const laptop = new Y.Doc({ gc: true });
 		phone.transact(() => {
-			const row: ValuesType = new Y.Type();
+			const row: ValuesType = new Y.Node();
 			putRow(phone.get('notes'), 'n1', row);
 			row.setAttr('title', 'original');
 		});
@@ -196,7 +196,7 @@ describe('delivery: what the transport must guarantee', () => {
 		const origin = new Y.Doc({ gc: true });
 		let row!: ValuesType;
 		origin.transact(() => {
-			row = new Y.Type();
+			row = new Y.Node();
 			putRow(origin.get('notes'), 'n1', row);
 		});
 		const first = Y.encodeStateAsUpdateV2(origin);
@@ -319,7 +319,7 @@ describe('deletion against a concurrent write, and against a later one', () => {
 		const phone = new Y.Doc({ gc: true });
 		const laptop = new Y.Doc({ gc: true });
 		phone.transact(() => {
-			const row: ValuesType = new Y.Type();
+			const row: ValuesType = new Y.Node();
 			putRow(phone.get('tables:notes'), 'row1', row);
 			row.setAttr('title', 'hello');
 		});
@@ -344,7 +344,7 @@ describe('deletion against a concurrent write, and against a later one', () => {
 		const phone = new Y.Doc({ gc: true });
 		const laptop = new Y.Doc({ gc: true });
 		phone.transact(() => {
-			const row: ValuesType = new Y.Type();
+			const row: ValuesType = new Y.Node();
 			putRow(phone.get('tables:notes'), 'row2', row);
 			row.setAttr('title', 'hi');
 		});
@@ -355,7 +355,7 @@ describe('deletion against a concurrent write, and against a later one', () => {
 
 		// Exactly what `writeRow` does when `rowType` answers undefined.
 		laptop.transact(() => {
-			const fresh = new Y.Type();
+			const fresh = new Y.Node();
 			putRow(laptop.get('tables:notes'), 'row2', fresh);
 			fresh.setAttr('updatedAt', 'later');
 		});
@@ -389,7 +389,7 @@ describe('reclamation: what deletion actually returns', () => {
 			const root = doc.get('notes');
 			doc.transact(() => {
 				for (let index = 0; index < 200; index += 1) {
-					const row: ValuesType = new Y.Type();
+					const row: ValuesType = new Y.Node();
 					putRow(root, `r${String(index).padStart(23, '0')}`, row);
 					row.setAttr('!presence', 'present');
 					row.setAttr('title', 'x'.repeat(200));
@@ -430,7 +430,7 @@ describe('claims a record got wrong, kept so they stay wrong', () => {
 		// ADR-0215 asserted, as "verified", that `doc.get('editor')` silently
 		// discards inserts while `doc.get('editor', 'text')` does not. False: the
 		// original probe changed two variables and never called `applyDelta`. In
-		// rc.24 the name is an inert label. If a later rc makes it load-bearing,
+		// rc.26 the name is an inert label. If a later rc makes it load-bearing,
 		// this test fails and the API that passes a type name has to be re-read.
 		for (const name of [null, 'text', 'map', 'array']) {
 			const doc = new Y.Doc({ gc: true });

@@ -25,7 +25,7 @@ export async function saveToPersonal(
 			const localRecording = local.tables.recordings.get(recordingId);
 			if (!localRecording)
 				throw new Error('The Local recording is missing or nonconforming.');
-			const { id, content, ...values } = localRecording;
+			const { id, ...values } = localRecording;
 			if (
 				values.transcriptionStatus !== 'completed' &&
 				values.transcriptionStatus !== 'failed'

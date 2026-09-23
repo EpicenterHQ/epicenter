@@ -40,8 +40,10 @@ const database = defineStore({
 	kv: {},
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -303,12 +305,12 @@ describe('a write syncs without anyone remembering to say so', () => {
 		await run(wire, clock, 0);
 
 		const note = expectOk(phone.db.tables.notes.create({ title: 'Groceries' }));
-		const body = phone.db.tables.notes.get(note.id)?.content;
+		const body = phone.db.tables.notes.body(note.id);
 		if (body === undefined) throw new Error('the row has no content');
 		body.applyDelta(body.change.insert('milk and eggs') as never);
 		await run(wire, clock, 1_000);
 
-		const arrived = laptop.db.tables.notes.get(note.id)?.content;
+		const arrived = laptop.db.tables.notes.body(note.id);
 		expect(JSON.stringify(arrived?.toJSON())).toContain('milk and eggs');
 	});
 });

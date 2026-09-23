@@ -260,7 +260,7 @@ export async function exportSkillsToDisk({
  * reviving an address that no longer holds a skill.
  */
 function writeContent(table: SkillsTable, rowId: string, value: string): void {
-	const content = table.get(rowId)?.content;
+	const content = table.body(rowId);
 	if (content === undefined) return;
 	content.applyDelta(
 		content.change.delete(content.length).insert(value) as never,
@@ -268,7 +268,7 @@ function writeContent(table: SkillsTable, rowId: string, value: string): void {
 }
 
 function readContent(table: SkillsTable, rowId: string): string {
-	return table.get(rowId)?.content.toString() ?? '';
+	return table.body(rowId)?.toString() ?? '';
 }
 
 function referenceKey(skillId: string, path: string): string {

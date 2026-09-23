@@ -48,13 +48,11 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 
 import {
-	CONTENT_FIELD,
 	isJsonObject,
 	type JsonObject,
 	type JsonValue,
 	type ParsedDataDefinition,
 	type ParsedTable,
-	RESERVED_ATTRIBUTE_PREFIX,
 } from '../definition/index.js';
 import { type ParsedRowFile, parseRowFile } from './frontmatter.js';
 import { parseRowPath, ROW_FILE_EXTENSION, rowPath } from './layout.js';
@@ -619,7 +617,7 @@ function agentsFile(definition: ParsedDataDefinition): string {
 		}
 		lines.push(
 			'',
-			table.content === undefined
+			table.body === undefined
 				? 'These files contain fields only. Do not add body text below the frontmatter; it cannot be imported.'
 				: 'The text below the frontmatter is this row, written out and read back.',
 			'',
@@ -922,7 +920,10 @@ export type PushableData = RenderableData & {
 				 * or a node that already belongs to a document; `planPush` refuses
 				 * both before a person ever sees the file.
 				 */
-				create(fields: Record<string, JsonValue | Y.Type>): {
+				create(
+					fields: JsonObject,
+					body?: Y.Node,
+				): {
 					readonly id: string;
 				};
 				update(
@@ -930,7 +931,7 @@ export type PushableData = RenderableData & {
 					fields: JsonObject,
 				): Result<void, { name: string; message: string }>;
 				/**
-				 * Take the row off the table, its content node and all.
+				 * Take the row off the table, its body node and all.
 				 *
 				 * Returns nothing, because deleting an address that holds no row is
 				 * a no-op fact rather than an outcome: another device may have
@@ -1103,7 +1104,7 @@ export type PlannedAdmission = {
  * Honeycrisp is recoverable and this one is not.
  *
  * No trash key on `TableDeclaration`: it would reserve a third key beside `id`
- * and `content` to teach the platform one application's trash view (ADR-0309,
+ * and `body` to teach the platform one application's trash view (ADR-0309,
  * ADR-0338).
  */
 export type PlannedDeletion = {
@@ -1177,9 +1178,8 @@ export type PushPlan = readonly PlanItem[];
 /**
  * Where one item sits in a plan, and the order a person reads it in.
  *
- * The path, plus the field where the item is about one. `content` cannot
- * collide with a field name because the store reserves it (ADR-0309), and
- * every other kind is one item per path, so it needs no field to be unique.
+ * The path and item kind, plus the field where the item is about one.
+ * A value field named body and a body edit have distinct sort keys.
  *
  * It is a sort key rather than an identity: a plan is sorted by it so that
  * `samePlan` compares two readings of the same folder rather than two
@@ -1189,13 +1189,13 @@ function planKey(item: PlanItem): string {
 	switch (item.kind) {
 		case 'value':
 		case 'setting':
-			return `${item.path}#${item.name}`;
+			return `${item.path}#${item.kind}#${item.name}`;
 		case 'body':
-			return `${item.path}#${CONTENT_FIELD}`;
+			return `${item.path}#body`;
 		case 'admission':
 		case 'deletion':
 		case 'kept':
-			return item.path;
+			return `${item.path}#${item.kind}`;
 	}
 }
 
@@ -1777,7 +1777,7 @@ async function untouched(
  * independent of this body check.
  */
 function readsBack(table: ParsedTable, text: string): boolean {
-	const codec = table.content;
+	const codec = table.body;
 	if (codec === undefined) return false;
 	try {
 		return codec.decode(text).error === null;
@@ -1819,24 +1819,15 @@ async function admission(
 }
 
 /**
- * One file from the folder, with the keys that are not values taken out.
- *
- * The counterpart of `readRow`, which filters the same three off a live row
- * because what a value read owes is every value and these are not values:
- * `id` and `content` are the row's own (ADR-0309), and the `!` prefix is
- * reserved at the parser. `create` and `update` THROW on all three rather than
- * returning, so with nothing validated on the way in (ADR-0338) this is what
- * keeps a line somebody invented in a text editor from being the one thing a
- * push cannot survive. The line goes nowhere and the next pull sweeps it,
- * which is what a name nothing reads has always done.
+ * File values cannot overwrite row identity or the live body node.
+ * All other names, including undeclared and !-prefixed fields, round-trip.
  */
 function readRowFile(contents: string): ParsedRowFile | undefined {
 	const file = parseRowFile(contents);
 	if (file === undefined) return undefined;
 	const fields: JsonObject = {};
 	for (const [name, value] of Object.entries(file.fields)) {
-		if (name === 'id' || name === CONTENT_FIELD) continue;
-		if (name.startsWith(RESERVED_ATTRIBUTE_PREFIX)) continue;
+		if (name === 'id') continue;
 		fields[name] = value;
 	}
 	return { fields, body: file.body };
@@ -1991,7 +1982,7 @@ async function applyPush({
 	const admitting: {
 		item: PlannedAdmission;
 		fields: JsonObject;
-		node: Y.Type | undefined;
+		node: Y.Node | undefined;
 	}[] = [];
 	for (const item of plan) {
 		if (item.kind !== 'admission') continue;
@@ -2000,7 +1991,7 @@ async function applyPush({
 			broke(`'${item.path}' could not be read into a row`);
 			continue;
 		}
-		const codec = data.definition.tables.get(item.table)?.content;
+		const codec = data.definition.tables.get(item.table)?.body;
 		// No codec and an empty body is a row whose file IS its frontmatter,
 		// and `create` mints the empty node for it. A body with no codec was
 		// already kept at plan time.
@@ -2083,12 +2074,12 @@ async function applyPush({
 
 				for (const item of plan) {
 					if (item.kind !== 'body') continue;
-					const node = data.rowFile(item.table, item.rowId)?.[CONTENT_FIELD];
-					const codec = data.definition.tables.get(item.table)?.content;
+					const node = data.rowFile(item.table, item.rowId)?.body;
+					const codec = data.definition.tables.get(item.table)?.body;
 					// Both are defensive: a row with no live node renders as
 					// `MalformedRow`, so `planPush` already kept it,
 					// and a body item is only made where a codec read the text.
-					if (!(node instanceof Y.Type) || codec === undefined) {
+					if (!(node instanceof Y.Node) || codec === undefined) {
 						broke(`'${item.path}' has no live node to rewrite`);
 						continue;
 					}
@@ -2110,9 +2101,7 @@ async function applyPush({
 					// write below. `create` integrates the node in the
 					// transaction that mints the row, which is the only moment a
 					// nested type may arrive (ADR-0296).
-					const created = data.tables[item.table]?.create(
-						node === undefined ? fields : { ...fields, [CONTENT_FIELD]: node },
-					);
+					const created = data.tables[item.table]?.create(fields, node);
 					if (created === undefined) {
 						broke(`no table '${item.table}'`);
 						continue;

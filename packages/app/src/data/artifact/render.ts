@@ -7,7 +7,7 @@
  * because ADR-0267's layout put a row's fields and its document in two
  * separate trees correlated by coordinates. ADR-0268 collapsed that layout
  * into one file per row; this is the code catching up to it. A row's fields
- * and its content node go in the same file, so they are read in the same function
+ * and its body node go in the same file, so they are read in the same function
  * and never rejoined.
  *
  * **The platform owns the format; the table owns the mapping** (ADR-0296).
@@ -25,11 +25,9 @@ import { Ok, type Result } from 'wellcrafted/result';
 import {
 	compileData,
 	type DataDefinition,
-	type JsonObject,
-	type JsonValue,
 	type ParsedDataDefinition,
 } from '../definition/index.js';
-import type { Row, StoredData } from '../store/store.js';
+import type { RowFile, StoredData } from '../store/store.js';
 import { rowFile } from './frontmatter.js';
 import { rowPath } from './layout.js';
 
@@ -44,21 +42,21 @@ export const RenderError = defineErrors({
 		reason,
 	}),
 	/**
-	 * The table declares a content node and no codec to write it with, so this
+	 * The table declares a body node and no codec to write it with, so this
 	 * row's body has nowhere to go. Fatal for the row: a file that quietly
-	 * lacks its content node feeds a restore that would delete that node everywhere.
+	 * lacks its body node feeds a restore that would delete that node everywhere.
 	 *
 	 * A table may omit its codec, but writing to its live node still works.
 	 * Export must refuse that populated node to preserve its contents.
 	 */
 	UncodedRow: ({ table, rowId }: { table: string; rowId: string }) => ({
-		message: `Table '${table}' declares a content node and no file codec to write '${rowId}' with`,
+		message: `Table '${table}' declares a body node and no file codec to write '${rowId}' with`,
 		table,
 		rowId,
 	}),
-	/** The faithful row is malformed: it does not own the required content node. */
+	/** The faithful row is malformed: it does not own the required body node. */
 	MalformedRow: ({ table, rowId }: { table: string; rowId: string }) => ({
-		message: `Row '${table}/${rowId}' has no live content node to write`,
+		message: `Row '${table}/${rowId}' has no live body node to write`,
 		table,
 		rowId,
 	}),
@@ -86,7 +84,7 @@ export type RenderError = InferErrors<typeof RenderError>;
 
 /**
  * The slice of opened data a render reads: the faithful reads, and each
- * table's content node. Structural on purpose, so any typed or untyped view
+ * table's body node. Structural on purpose, so any typed or untyped view
  * satisfies it.
  */
 /**
@@ -95,7 +93,7 @@ export type RenderError = InferErrors<typeof RenderError>;
  * Two faithful reads, both on the store: everything, and one row. A handle
  * would be the wrong shape twice over, because it narrows to the declared
  * fields and refuses a row it cannot conform, and an export may do neither
- * (ADR-0267). This used to reach through `data.tables[table].stored/content`,
+ * (ADR-0267). This used to reach through `data.tables[table].stored/body`,
  * which meant the artifact layer's requirements sat on the type every
  * application holds.
  */
@@ -110,7 +108,7 @@ export type RenderableData = {
 	 * handle answers what an application can see; these answer what is there.
 	 */
 	stored(): StoredData;
-	rowFile(table: string, rowId: string): Row | undefined;
+	rowFile(table: string, rowId: string): RowFile | undefined;
 };
 
 /**
@@ -131,7 +129,7 @@ export type RenderedRow = {
  * Render one row to its file.
  *
  * Synchronous work behind an async signature, because nothing here loads
- * anything any more: a row's content node is in the one document the store
+ * anything any more: a row's body node is in the one document the store
  * already holds (ADR-0295). The signature stays a promise so the generator
  * below did not have to change shape around it.
  *
@@ -155,24 +153,16 @@ export async function renderRow(
 	if (row === undefined) {
 		return Ok({ path, contents: undefined });
 	}
-	const { id: _id, content, ...values } = row;
-	if (!(content instanceof Y.Type)) {
+	const { fields, body } = row;
+	if (!(body instanceof Y.Node)) {
 		return RenderError.MalformedRow({ table, rowId });
 	}
-	// The values ARE the frontmatter, by field name. The platform writes them,
-	// because the name is already the durable key in the document and a second
-	// name on disk would be a second copy of an identifier.
-	const fields: JsonObject = {};
-	for (const [name, value] of Object.entries(values)) {
-		if (!(value instanceof Y.Type)) fields[name] = value as JsonValue;
-	}
-
-	const node = content;
-	const codec = definition.tables.get(table)?.content;
+	const node = body;
+	const codec = definition.tables.get(table)?.body;
 	if (codec === undefined) {
 		// A table may declare no codec, and a row whose
 		// node is empty has nothing that needed one: its file is its frontmatter,
-		// which is the whole of what it is (ADR-0296). A node WITH content and no
+		// which is the whole of what it is (ADR-0296). A node WITH body and no
 		// codec has a body it cannot write, and writing the file without it is
 		// the data loss this refuses.
 		if (node.length > 0 || [...node.attrKeys()].length > 0) {

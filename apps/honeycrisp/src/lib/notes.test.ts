@@ -45,7 +45,7 @@ function setup() {
 			folders: { rows: [] },
 			notes: {
 				rows: [],
-				get: () => ({ content }),
+				body: () => content,
 				update,
 				watch: (_content: unknown, callback: () => void) => {
 					changed = callback;

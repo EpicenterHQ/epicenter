@@ -1,7 +1,7 @@
 /**
  * What a body rewrite costs two devices, measured rather than reasoned about.
  *
- * `ContentCodec.rewrite` clears a node's content and refills it, on the node
+ * `BodyCodec.rewrite` clears a node's content and refills it, on the node
  * the row already holds (ADR-0338). The alternative it was chosen over is
  * setting a fresh node over the row's `content` attribute, and the argument
  * for choosing it was that a replacement resolves by attribute
@@ -23,14 +23,14 @@ function sync(a: Y.Doc, b: Y.Doc): void {
 }
 
 /** One block of text, the shape a ProseMirror paragraph has in the document. */
-function block(text: string): Y.Type {
-	const node = new Y.Type();
+function block(text: string): Y.Node {
+	const node = new Y.Node();
 	node.insert(0, [text]);
 	return node;
 }
 
 /** What `rewrite` does, spelled out rather than reached through a codec. */
-function rewrite(node: Y.Type, blocks: readonly string[]): void {
+function rewrite(node: Y.Node, blocks: readonly string[]): void {
 	if (node.length > 0) node.delete(0, node.length);
 	node.insert(0, blocks.map(block));
 }
@@ -42,7 +42,7 @@ function bodyOf(doc: Y.Doc): string {
 test('the node is the same node, which is the whole reason for the verb', () => {
 	const doc = new Y.Doc();
 	const row = doc.get('notes');
-	const node = new Y.Type();
+	const node = new Y.Node();
 	row.setAttr('content', node as never);
 	rewrite(node, ['first']);
 	rewrite(node, ['second']);
@@ -76,7 +76,7 @@ test('a peer typing INSIDE a block the rewrite removed loses those keystrokes', 
 	sync(a, b);
 
 	// B is typing into the paragraph that is already there.
-	const typed = b.get('body').get(0) as Y.Type;
+	const typed = b.get('body').get(0) as Y.Node;
 	typed.insert(typed.length, [' there']);
 	// A answers `file` on the same note.
 	rewrite(a.get('body'), ['replaced']);

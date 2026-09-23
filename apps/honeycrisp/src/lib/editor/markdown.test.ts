@@ -80,7 +80,7 @@ describe('the note body Markdown codec', () => {
 	});
 
 	test('the declared codec round-trips a body through an attached node', () => {
-		const codec = honeycrispDefinition.tables.notes.content;
+		const codec = honeycrispDefinition.tables.notes.body;
 		const markdown = [
 			'# Title',
 			'',
@@ -102,7 +102,7 @@ describe('the note body Markdown codec', () => {
 			document.transact(() => {
 				row.setAttr('content' as never, built as never);
 			});
-			const node = row.getAttr('content' as never) as Y.Type;
+			const node = row.getAttr('content' as never) as Y.Node;
 			// What `decode` produced is what `encode` reads back: the pair is the
 			// identity on the text.
 			expect(codec.encode(node)).toBe(markdown);
@@ -113,7 +113,7 @@ describe('the note body Markdown codec', () => {
 	});
 
 	test('the node it returns is fresh, so two rows never share one', () => {
-		const codec = honeycrispDefinition.tables.notes.content;
+		const codec = honeycrispDefinition.tables.notes.body;
 		const one = expectOk(codec.decode('# One'));
 		const two = expectOk(codec.decode('# Two'));
 		expect(one).not.toBe(two);

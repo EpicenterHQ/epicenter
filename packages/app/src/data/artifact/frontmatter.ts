@@ -70,7 +70,7 @@ export type ParsedRowFile = { fields: JsonObject; body: string };
 /**
  * Read an artifact through Matter's YAML interpretation. An artifact requires
  * frontmatter and JSON-compatible values. Remove only the artifact emitter's
- * blank separator and terminal newline; content codecs retain their contract.
+ * blank separator and terminal newline; body codecs retain their contract.
  */
 export function parseRowFile(text: string): ParsedRowFile | undefined {
 	const { data, error } = parseMarkdown(text);

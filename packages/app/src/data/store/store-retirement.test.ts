@@ -21,7 +21,10 @@ const definition = expectOk(
 			id: 'so.epicenter.retirement-test',
 			kv: { theme: field.string() },
 			tables: {
-				notes: defineTable({ title: field.string(), content: plainText() }),
+				notes: defineTable({
+					fields: { title: field.string() },
+					body: plainText(),
+				}),
 			},
 		}),
 	),

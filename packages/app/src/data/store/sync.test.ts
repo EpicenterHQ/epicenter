@@ -25,8 +25,10 @@ const database = defineStore({
 	kv: {},
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -109,7 +111,7 @@ describe('the local log holds each update once', () => {
 		expect(syncEngineOf(reader.store).coalesce()).toBeUndefined();
 	});
 
-	test("content written into a row's node owes it, like any local work", async () => {
+	test("body written into a row's node owes it, like any local work", async () => {
 		// A node edit reaches storage through the document's own update listener
 		// rather than through a store verb, so it is the one local write that
 		// could plausibly be missed.
@@ -119,8 +121,8 @@ describe('the local log holds each update once', () => {
 		);
 		await author.store.persistence.flush();
 		const before = author.outbox().length;
-		const text = author.db.tables.notes.get(note.id)?.content;
-		if (text === undefined) throw new Error('the row has no content');
+		const text = author.db.tables.notes.body(note.id);
+		if (text === undefined) throw new Error('the row has no body');
 		text.applyDelta(text.change.insert('buy milk') as never);
 
 		await author.store.persistence.flush();
@@ -270,7 +272,7 @@ describe('the cursor is a log position, and never a state vector', () => {
 	});
 });
 
-describe("a row's content node is one type both devices edit", () => {
+describe("a row's body node is one type both devices edit", () => {
 	test('two devices typing into one note both keep their text', async () => {
 		// The race the old separate row-document model spent a name-addressed root
 		// closing. A nested type is addressed by the struct that created it, so what makes
@@ -290,8 +292,8 @@ describe("a row's content node is one type both devices edit", () => {
 			[author, 'written on the phone'],
 			[other, 'written on the laptop'],
 		] as const) {
-			const text = replica.db.tables.notes.get(note.id)?.content;
-			if (text === undefined) throw new Error('the row has no content');
+			const text = replica.db.tables.notes.body(note.id);
+			if (text === undefined) throw new Error('the row has no body');
 			text.applyDelta(text.change.insert(words) as never);
 		}
 
@@ -308,7 +310,7 @@ describe("a row's content node is one type both devices edit", () => {
 		expectOk(syncEngineOf(other.store).applyRemote(fromAuthor.bytes));
 
 		const readBack = (replica: typeof author) =>
-			JSON.stringify(replica.db.tables.notes.get(note.id)?.content.toJSON());
+			JSON.stringify(replica.db.tables.notes.body(note.id)?.toJSON());
 		const merged = readBack(author);
 		expect(merged).toContain('phone');
 		expect(merged).toContain('laptop');

@@ -15,12 +15,12 @@ import {
 	deleteRow,
 	hasRow,
 	readRow,
-	readRowContent,
+	readRowBody,
 	tableRoot,
 	updateRow,
 } from './document.js';
 
-function table(): { document: Y.Doc; notes: Y.Type } {
+function table(): { document: Y.Doc; notes: Y.Node } {
 	const document = createDatabaseDocument();
 	return { document, notes: tableRoot(document, 'notes') };
 }
@@ -39,50 +39,48 @@ describe('createRow mints, and it is the only thing that does', () => {
 		expect(readRow(notes, 'a')).toEqual({ title: 'hello', pinned: true });
 	});
 
-	test('creating over an existing row cannot replace its content node', () => {
+	test('creating over an existing row cannot replace its body node', () => {
 		const { document, notes } = table();
 		document.transact(() => createRow(notes, 'a', {}));
-		const replacement = new Y.Type();
+		const replacement = new Y.Node();
 
 		expect(() =>
-			document.transact(() => createRow(notes, 'a', { content: replacement })),
-		).toThrow(/cannot replace the content node/);
-		expect(readRowContent(notes, 'a')).toBeDefined();
+			document.transact(() => createRow(notes, 'a', {}, replacement)),
+		).toThrow(/cannot replace the body node/);
+		expect(readRowBody(notes, 'a')).toBeDefined();
 		expect(replacement.doc).toBeNull();
 	});
 
-	test('creating over an existing row refuses one without content', () => {
+	test('creating over an existing row refuses one without body', () => {
 		const { document, notes } = table();
 		document.transact(() => createRow(notes, 'a', {}));
 		const row = notes.getAttr('a') as unknown;
-		if (!(row instanceof Y.Type)) throw new Error('row was not created');
-		document.transact(() => row.deleteAttr('content'));
+		if (!(row instanceof Y.Node)) throw new Error('row was not created');
+		document.transact(() => row.delete(0, 1));
 
 		expect(() =>
 			document.transact(() => createRow(notes, 'a', { title: 'hello' })),
-		).toThrow(/has no live content node/);
+		).toThrow(/has no live body node/);
 	});
 
-	test('invalid content does not leave a partially minted row', () => {
+	test('invalid body does not leave a partially minted row', () => {
 		const { document, notes } = table();
 
 		expect(() =>
-			document.transact(() =>
-				createRow(notes, 'a', { content: 'body' as never }),
-			),
-		).toThrow(/reserved for the row's live content node/);
+			document.transact(() => createRow(notes, 'a', {}, 'body' as never)),
+		).toThrow(/body must be a live Yjs node/);
 		expect(hasRow(notes, 'a')).toBe(false);
 		expect([...notes.attrKeys()]).toEqual([]);
 	});
 
-	test('an integrated content node does not leave a partially minted row', () => {
+	test('an integrated body node does not leave a partially minted row', () => {
 		const { document, notes } = table();
 		const other = createDatabaseDocument();
-		const integrated = new Y.Type();
-		other.get('content').setAttr('node', integrated);
+		const integrated = new Y.Node();
+		other.get('body').setAttr('node', integrated);
 
 		expect(() =>
-			document.transact(() => createRow(notes, 'a', { content: integrated })),
+			document.transact(() => createRow(notes, 'a', {}, integrated)),
 		).toThrow(/already belongs to a document/);
 		expect(hasRow(notes, 'a')).toBe(false);
 		expect([...notes.attrKeys()]).toEqual([]);
@@ -114,7 +112,7 @@ describe('updateRow cannot bring a row into existence', () => {
 
 	test('a deleted row stays deleted, which is what the split is for', () => {
 		// The resurrection path, closed. `deriveOnCommit` writes `updatedAt`
-		// whenever a row's content node commits, so on a device whose row was deleted
+		// whenever a row's body node commits, so on a device whose row was deleted
 		// elsewhere a minting write would create a NEW nested type at the same
 		// key — new data, which nothing in Yjs can refuse
 		// (`evidence/invariants.test.ts`). This is that write, dropped.
@@ -139,11 +137,48 @@ describe('both refuse a reserved field name', () => {
 		expect(() =>
 			document.transact(() =>
 				which === 'createRow'
-					? createRow(notes, 'a', { '!internal': 1 })
-					: updateRow(notes, 'a', { '!internal': 1 }),
+					? createRow(notes, 'a', { id: 1 })
+					: updateRow(notes, 'a', { id: 1 }),
 			),
 		).toThrow(TypeError);
 	});
+});
+
+test('field writes reject live nodes before changing any values', () => {
+	const { document, notes } = table();
+	document.transact(() => createRow(notes, 'a', { title: 'original' }));
+	const body = readRowBody(notes, 'a');
+	const misplaced = new Y.Node();
+	const fields = { title: 'changed', extra: misplaced as never };
+
+	expect(() => document.transact(() => updateRow(notes, 'a', fields))).toThrow(
+		"Field 'extra' must be a JSON value",
+	);
+	expect(readRow(notes, 'a')).toEqual({ title: 'original' });
+	expect(readRowBody(notes, 'a')).toBe(body);
+	expect(misplaced.doc).toBeNull();
+	expect(() => document.transact(() => createRow(notes, 'b', fields))).toThrow(
+		"Field 'extra' must be a JSON value",
+	);
+	expect(hasRow(notes, 'b')).toBe(false);
+});
+
+test('a row owns exactly one body child beside its value attributes', () => {
+	const { document, notes } = table();
+	document.transact(() => createRow(notes, 'a', { body: 'metadata' }));
+	const row = notes.getAttr('a');
+	if (!(row instanceof Y.Node)) throw new Error('row was not created');
+	const body = readRowBody(notes, 'a');
+	expect(row.length).toBe(1);
+	expect(row.get(0)).toBe(body);
+	expect(body?.parent).toBe(row);
+	expect(readRow(notes, 'a')).toEqual({ body: 'metadata' });
+
+	// A malformed sequence is not silently interpreted as a valid body.
+	row.insert(1, [new Y.Node()]);
+	expect(readRowBody(notes, 'a')).toBeUndefined();
+	row.delete(1, 1);
+	expect(readRowBody(notes, 'a')).toBe(body);
 });
 
 describe('why there is no upsert', () => {

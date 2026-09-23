@@ -48,8 +48,10 @@ const probeDefinition = defineStore({
 	kv: {},
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -212,7 +214,7 @@ export class StoreTestReplica extends DurableObject<Env> {
 		const store = this.store;
 		if (store === undefined) throw new Error('open first');
 		const made = store.tables.notes.create({ title });
-		const content = store.tables.notes.get(made.id)?.content;
+		const content = store.tables.notes.body(made.id);
 		if (content === undefined) throw new Error('the row has no content');
 		content.applyDelta(content.change.insert(text) as never);
 	}
@@ -254,9 +256,7 @@ export class StoreTestReplica extends DurableObject<Env> {
 			connected: status?.connected ?? false,
 			titles: listed.rows.map((row) => row.title).sort(),
 			text: listed.rows
-				.map((row) =>
-					JSON.stringify(listed.get(row.id)?.content.toJSON() ?? null),
-				)
+				.map((row) => JSON.stringify(listed.body(row.id)?.toJSON() ?? null))
 				.sort(),
 			// A dial that failed is a failure a test wants to see as loudly as a
 			// client error, so both report through the one field.

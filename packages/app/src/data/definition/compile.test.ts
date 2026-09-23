@@ -7,7 +7,7 @@ import { expect, test } from 'bun:test';
 import { defineStore } from '@epicenter/app';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { compileData } from './compile.js';
-import { plainText } from './content.js';
+import { plainText } from './body.js';
 import { field } from './declaration.js';
 import { defineTable } from './define.js';
 
@@ -16,15 +16,17 @@ const database = defineStore({
 	kv: { name: field.string() },
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });
 
 test('trusted TypeScript definitions compile and retain their codecs', () => {
 	const result = expectOk(compileData(database));
-	expect(result.tables.get('notes')?.content).toBeDefined();
+	expect(result.tables.get('notes')?.body).toBeDefined();
 	expect([...(result.tables.get('notes')?.fields.keys() ?? [])]).toEqual([
 		'title',
 	]);
@@ -39,29 +41,31 @@ test('omitting a codec compiles only the declared fields', () => {
 		id: 'so.epicenter.fields-only',
 		kv: {},
 		tables: {
-			queries: defineTable({ name: field.string(), sql: field.string() }),
+			queries: defineTable({
+				fields: { name: field.string(), sql: field.string() },
+			}),
 		},
 	});
 	const table = expectOk(compileData(definition)).tables.get('queries');
-	expect(table?.content).toBeUndefined();
+	expect(table?.body).toBeUndefined();
 	expect([...table!.fields.keys()]).toEqual(['name', 'sql']);
 });
 
 test('an explicitly malformed codec is refused at compilation', () => {
-	for (const content of [undefined, null, {}, { encode() {}, decode() {} }]) {
+	for (const body of [null, {}, { encode() {}, decode() {} }]) {
 		expect(() =>
 			defineStore({
 				id: 'so.epicenter.invalid-codec',
 				kv: {},
 				tables: {
-					// @ts-expect-error malformed table also fails the branded definition contract
 					notes: defineTable({
+						fields: {},
 						// @ts-expect-error exercise the runtime declaration boundary
-						content,
+						body,
 					}),
 				},
 			}),
-		).toThrow('invalid content codec');
+		).toThrow('invalid body codec');
 	}
 });
 
@@ -90,7 +94,9 @@ test('field compiler failures identify the table and field', () => {
 			kv: {},
 			tables: {
 				notes: defineTable({
-					title: field.json({ type: 'string', pattern: '[' }),
+					fields: {
+						title: field.json({ type: 'string', pattern: '[' }),
+					},
 				}),
 			},
 		}),

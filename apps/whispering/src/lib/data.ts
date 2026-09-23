@@ -44,40 +44,44 @@ export type RecordingId = string;
 export type RecipeId = string;
 
 const recordingsTable = defineTable({
-	/** Immutable bytes addressed only through this recording's containing store. */
-	audioBlobId: field.string<BlobId>({ pattern: `^${BLOB_ID_ROUTE_REGEX}$` }),
-	title: field.string(),
-	recordedAt: field.instant(),
-	recordedAtZone: field.string(),
-	transcript: field.string(),
-	polishedTranscript: field.nullable(field.string()),
-	duration: field.nullable(field.number()),
-	/**
-	 * The transcription outcome, flattened into three columns.
-	 *
-	 * It was one nullable discriminated union, and a workspace cannot express an
-	 * inline object: `'{ status: ... }'` does not parse, and `'object|null'`
-	 * parses but validates nothing and makes the whole outcome one LWW value.
-	 * Three columns keep every field checked and let a failure's message merge
-	 * independently of its timestamp.
-	 */
-	transcriptionStatus: field.string(),
-	transcriptionCompletedAt: field.nullable(field.instant()),
-	transcriptionError: field.nullable(field.string()),
-	content: plainText(),
+	fields: {
+		/** Immutable bytes addressed only through this recording's containing store. */
+		audioBlobId: field.string<BlobId>({ pattern: `^${BLOB_ID_ROUTE_REGEX}$` }),
+		title: field.string(),
+		recordedAt: field.instant(),
+		recordedAtZone: field.string(),
+		transcript: field.string(),
+		polishedTranscript: field.nullable(field.string()),
+		duration: field.nullable(field.number()),
+		/**
+		 * The transcription outcome, flattened into three columns.
+		 *
+		 * It was one nullable discriminated union, and a workspace cannot express an
+		 * inline object: `'{ status: ... }'` does not parse, and `'object|null'`
+		 * parses but validates nothing and makes the whole outcome one LWW value.
+		 * Three columns keep every field checked and let a failure's message merge
+		 * independently of its timestamp.
+		 */
+		transcriptionStatus: field.string(),
+		transcriptionCompletedAt: field.nullable(field.instant()),
+		transcriptionError: field.nullable(field.string()),
+	},
+	body: plainText(),
 });
 
 const recipesTable = defineTable({
-	/**
-	 * No `sourceId`. It existed because the old store let an application choose
-	 * a row id and a recipe needed a portable one; the store now refuses chosen
-	 * ids by construction (ADR-0206), so a user recipe's identity IS its minted
-	 * row id. Built-in recipes keep their `builtin:` ids and remain non-rows.
-	 */
-	name: field.string(),
-	instructions: field.string(),
-	icon: field.nullable(field.string()),
-	content: plainText(),
+	fields: {
+		/**
+		 * No `sourceId`. It existed because the old store let an application choose
+		 * a row id and a recipe needed a portable one; the store now refuses chosen
+		 * ids by construction (ADR-0206), so a user recipe's identity IS its minted
+		 * row id. Built-in recipes keep their `builtin:` ids and remain non-rows.
+		 */
+		name: field.string(),
+		instructions: field.string(),
+		icon: field.nullable(field.string()),
+	},
+	body: plainText(),
 });
 
 /**

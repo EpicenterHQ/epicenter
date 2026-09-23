@@ -1,17 +1,12 @@
-import {
-	CONTENT_FIELD,
-	type JsonObject,
-	type JsonValue,
-	RESERVED_ATTRIBUTE_PREFIX,
-} from '@epicenter/app/definition';
+import { type JsonObject, type JsonValue } from '@epicenter/app/definition';
 
 import * as Y from '@y/y';
 /**
  * A database's document: one per database, holding every table's rows and
- * every row's content node (ADR-0295).
+ * every row's body node (ADR-0295).
  *
  * There is no second document and no address that reaches one. A row is a
- * nested type on its table root, and the content node is nested on the row,
+ * nested type on its table root, and the body node is the row's sole sequence child,
  * so what used to be N documents multiplexed over one connection is one
  * document with one identity, one socket, one stored blob.
  */
@@ -39,7 +34,7 @@ export function createDatabaseDocument(): Y.Doc {
  * `findRootTypeKey`, a linear scan of `doc.share`, so one root per row makes
  * encoding quadratic in rows: 5,417 ms at 20,000 rows against 13 ms nested.
  */
-export function tableRoot(document: Y.Doc, tableName: string): Y.Type {
+export function tableRoot(document: Y.Doc, tableName: string): Y.Node {
 	return document.get(tableRootName(tableName));
 }
 
@@ -94,7 +89,7 @@ export const KV_ROOT_NAME = 'kv';
  * as one. Minting is safe for the same reason a table's is: `Doc.get` is
  * `setIfUndefined`, so every device that mints `kv` converges on one root.
  */
-export function kvRoot(document: Y.Doc): Y.Type {
+export function kvRoot(document: Y.Doc): Y.Node {
 	return document.get(KV_ROOT_NAME);
 }
 
@@ -107,23 +102,23 @@ export function kvRoot(document: Y.Doc): Y.Type {
  * with this one.
  *
  * Unlike `Doc.get`, `getAttr` does not mint: verified against
- * `@y/y@14.0.0-rc.24`, reading an unknown row id leaves the table root's
+ * `@y/y@14.0.0-rc.26`, reading an unknown row id leaves the table root's
  * attribute keys unchanged. So a misspelled row id costs nothing here, while a
  * misspelled table name would cost a permanent root.
  */
-function rowType(root: Y.Type, rowId: string): RowType | undefined {
+function rowType(root: Y.Node, rowId: string): RowType | undefined {
 	// A table root stays at the Yjs default configuration, so its keys are
 	// `string` and this is a plain read. It cannot be configured further: a
 	// `DeltaConf`'s `attrs` values must be `Fingerprintable` and a nested
-	// `Y.Type` is not one, so a container whose attributes are themselves types
+	// `Y.Node` is not one, so a container whose attributes are themselves types
 	// has no expressible shape. A ROW's does, which is why `RowType` exists and
 	// why the value is narrowed here rather than asserted.
 	const value: unknown = root.getAttr(rowId);
-	return value instanceof Y.Type ? (value as RowType) : undefined;
+	return value instanceof Y.Node ? (value as RowType) : undefined;
 }
 
 /**
- * One row's own type: its attributes are the declared fields, which are JSON.
+ * One row's own type: JSON attributes and one stable body child.
  *
  * Declared so that reading and writing a field is typed rather than cast. The
  * `as never` this replaces was not defensive, it was the default `DConf = any`
@@ -135,59 +130,45 @@ function rowType(root: Y.Type, rowId: string): RowType | undefined {
  * `JsonObject`. Exporting it would publish the CRDT shape a row happens to
  * have, which is the thing this module exists to keep in here.
  */
-type RowType = Y.Type<{ attrs: Record<string, JsonValue> }>;
-
-/** What `createRow` admits: values, plus the caller's content node. */
-export type RowInput = Record<string, JsonValue | Y.Type>;
+type RowType = Y.Node<{ attrs: Record<string, JsonValue> }>;
 
 /** Whether this table holds a row at this address. */
-export function hasRow(root: Y.Type, rowId: string): boolean {
+export function hasRow(root: Y.Node, rowId: string): boolean {
 	return rowType(root, rowId) !== undefined;
 }
 
 /**
- * One row's declared fields, or undefined when the table holds no row there.
- *
- * Reserved attributes are filtered out, so what comes back is only what a
- * database could have declared: the `!` prefix stays reserved at the parser,
- * so a reserved attribute is never a field however it got there. Nothing is
- * validated here: interpreting the payload is the declaration's job, and a
- * row this release cannot read must still be readable as raw JSON (ADR-0125).
+ * Stored value fields, including undeclared and !-prefixed names.
+ * Nested nodes stay out of value snapshots; the declaration owns conformance.
  */
-export function readRow(root: Y.Type, rowId: string): JsonObject | undefined {
+export function readRow(root: Y.Node, rowId: string): JsonObject | undefined {
 	const row = rowType(root, rowId);
 	if (row === undefined) return undefined;
 	const payload: JsonObject = {};
 	for (const name of row.attrKeys()) {
-		if (name.startsWith(RESERVED_ATTRIBUTE_PREFIX)) continue;
 		const value = row.getAttr(name);
 		if (value === undefined) continue;
-		// The content node is a nested type, not a value (ADR-0299). Read through
-		// the live attributes rather than through the declaration, so a nested type
-		// an older release wrote is still not mistaken
-		// for JSON: what a value read owes is every value, and a type is not one.
-		if (value instanceof Y.Type) continue;
+		// Read every stored value, including undeclared fields. A malformed
+		// node-valued attribute must not leak into a JSON snapshot.
+		if (value instanceof Y.Node) continue;
 		payload[name] = value as JsonValue;
 	}
 	return payload;
 }
 
 /**
- * One row's content node.
+ * One row's body node.
  *
- * Reads what is THERE rather than what is declared, so a row an older release
- * minted without one is simply absent here and a caller never receives a node
- * it cannot bind. Every row this release mints holds one, because minting is
- * one transaction (`createRow`).
+ * The row container owns exactly one sequence child. Reject a malformed
+ * container without repairing it on read. Creation integrates the child once,
+ * in the row's transaction; field writes never modify the row's sequence.
  */
-export function readRowContent(
-	root: Y.Type,
-	rowId: string,
-): Y.Type | undefined {
+export function readRowBody(root: Y.Node, rowId: string): Y.Node | undefined {
 	const row = rowType(root, rowId);
 	if (row === undefined) return undefined;
-	const value = row.getAttr(CONTENT_FIELD) as unknown;
-	return value instanceof Y.Type ? value : undefined;
+	if (row.length !== 1) return undefined;
+	const value: unknown = row.get(0);
+	return value instanceof Y.Node ? value : undefined;
 }
 
 /**
@@ -204,7 +185,7 @@ export function readRowContent(
  * type is not a row anywhere else in this module, and an id this returns that
  * `get` then reports as absent would be worse than the lookup it saves.
  */
-export function listRowIds(root: Y.Type): string[] {
+export function listRowIds(root: Y.Node): string[] {
 	const ids: string[] = [];
 	for (const key of root.attrKeys()) {
 		const rowId = key as string;
@@ -227,45 +208,18 @@ export function listRowIds(root: Y.Type): string[] {
  * an address holding no row.
  */
 export function createRow(
-	root: Y.Type,
+	root: Y.Node,
 	rowId: string,
-	/**
-	 * The values, and the content node if the caller built one.
-	 *
-	 * A `Y.Type` at `content` is integrated there; anything else is a value.
-	 * An omitted node is minted empty, so a table whose rows are created
-	 * programmatically never has to think about it.
-	 */
-	fields: RowInput,
+	fields: JsonObject,
+	given?: Y.Node,
 ): void {
-	refuseReservedFields(fields, true);
-	const values: JsonObject = {};
-	let given: Y.Type | undefined;
-	for (const [name, value] of Object.entries(fields)) {
-		if (name === CONTENT_FIELD) {
-			if (!(value instanceof Y.Type)) {
-				throw new TypeError(
-					`'${CONTENT_FIELD}' is reserved for the row's live content node`,
-				);
-			}
-			given = value;
-			continue;
-		}
-		if (!(value instanceof Y.Type)) {
-			values[name] = value as JsonValue;
-			continue;
-		}
-		// A row holds one node, at one reserved key. A node anywhere else would be
-		// unreachable through every read verb and unwritable by every codec, so this
-		// is a programmer error rather than a value.
-		throw new Error(
-			`'${name}' cannot hold a node: a row's one node is at '${CONTENT_FIELD}'`,
-		);
-	}
+	validateRowFields(fields);
+	if (given !== undefined && !(given instanceof Y.Node))
+		throw new TypeError('The body must be a live Yjs node');
 	const existing = rowType(root, rowId);
 	if (existing === undefined && given !== undefined && given.doc !== null) {
 		throw new Error(
-			`the content given for row '${rowId}' already belongs to a document; build a fresh node per row`,
+			`the body given for row '${rowId}' already belongs to a document; build a fresh node per row`,
 		);
 	}
 	const row = existing ?? mintRow(root, rowId);
@@ -277,24 +231,26 @@ export function createRow(
 		// minted rather than chosen and no two devices ever mint the same one.
 		//
 		// **A given node must not already belong to a document.** Measured on
-		// `@y/y@14.0.0-rc.24`: setting one node at two keys leaves both keys
+		// `@y/y@14.0.0-rc.26`: setting one node at two keys leaves both keys
 		// holding the SAME node, so two rows would share it and edits to either
 		// would appear in both, silently. `doc` is non-null exactly when a node
 		// has been integrated, so refusing here makes that unrepresentable.
-		row.setAttr(CONTENT_FIELD, (given ?? new Y.Type()) as never);
+		// RC26 accepts nested Y.Node children at runtime, but DeltaConf restricts
+		// children to Fingerprintable values. Keep that type-system gap here.
+		row.insert(0, [(given ?? new Y.Node()) as never]);
 	} else {
 		if (given !== undefined) {
 			throw new Error(
-				`cannot replace the content node for existing row '${rowId}'; edit the live node instead`,
+				`cannot replace the body node for existing row '${rowId}'; edit the live node instead`,
 			);
 		}
-		if (readRowContent(root, rowId) === undefined) {
+		if (readRowBody(root, rowId) === undefined) {
 			throw new Error(
-				`existing row '${rowId}' has no live content node; repair it before writing value fields`,
+				`existing row '${rowId}' has no live body node; repair it before writing value fields`,
 			);
 		}
 	}
-	fill(row, values);
+	fill(row, fields);
 }
 
 /**
@@ -316,11 +272,11 @@ export function createRow(
  * remembering every address that ever died.
  */
 export function updateRow(
-	root: Y.Type,
+	root: Y.Node,
 	rowId: string,
 	fields: JsonObject,
 ): boolean {
-	refuseReservedFields(fields);
+	validateRowFields(fields);
 	const row = rowType(root, rowId);
 	if (row === undefined) return false;
 	fill(row, fields);
@@ -338,8 +294,8 @@ export function updateRow(
  * down here because this is the line that would be unsafe if that ever stopped
  * being true.
  */
-function mintRow(root: Y.Type, rowId: string): RowType {
-	const row = new Y.Type() as RowType;
+function mintRow(root: Y.Node, rowId: string): RowType {
+	const row = new Y.Node() as RowType;
 	root.setAttr(rowId, row);
 	return row;
 }
@@ -350,17 +306,13 @@ function fill(row: RowType, fields: JsonObject): void {
 	}
 }
 
-function refuseReservedFields(fields: RowInput, allowContent = false): void {
-	for (const name of Object.keys(fields)) {
-		if (
-			name.startsWith(RESERVED_ATTRIBUTE_PREFIX) ||
-			name === 'id' ||
-			(name === CONTENT_FIELD && !allowContent)
-		) {
-			throw new TypeError(
-				`Field '${name}' is reserved: every row already has an id and a content node`,
-			);
+function validateRowFields(fields: JsonObject): void {
+	for (const [name, value] of Object.entries(fields)) {
+		if (name === 'id') {
+			throw new TypeError(`Field '${name}' is reserved for row identity`);
 		}
+		if (value instanceof Y.Node)
+			throw new TypeError(`Field '${name}' must be a JSON value`);
 	}
 }
 
@@ -372,7 +324,7 @@ function refuseReservedFields(fields: RowInput, allowContent = false): void {
  * (`evidence/invariants.test.ts`), so what remains is one deleted map key,
  * measured at 2.0 items and 44.5 bytes (`evidence/bench/tombstones.ts`).
  *
- * There is nothing else to retire. A row's content node is IN here now
+ * There is nothing else to retire. A row's body node is IN here now
  * (ADR-0295), so deletion is one removal in one document rather than a value
  * removal composed with a durable tombstone on a second address.
  *
@@ -390,7 +342,7 @@ function refuseReservedFields(fields: RowInput, allowContent = false): void {
  * 451 MB of resident memory against 156,000 and 101 MB, on every device that
  * ever opens the application.
  */
-export function deleteRow(root: Y.Type, rowId: string): boolean {
+export function deleteRow(root: Y.Node, rowId: string): boolean {
 	if (rowType(root, rowId) === undefined) return false;
 	root.deleteAttr(rowId);
 	return true;

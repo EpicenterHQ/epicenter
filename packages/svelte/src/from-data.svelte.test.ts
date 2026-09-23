@@ -111,7 +111,8 @@ function createFakeTable<TRow extends { id: string }>(seed: TRow[]) {
 			},
 			delete(rowId: string) {
 				const removed = rows.delete(rowId);
-				if (removed) announce(rowId);
+				const removedUnreadable = unreadable.delete(rowId);
+				if (removed || removedUnreadable) announce(rowId);
 			},
 			ids() {
 				return [...rows.keys(), ...unreadable.keys()].sort();
@@ -123,6 +124,9 @@ function createFakeTable<TRow extends { id: string }>(seed: TRow[]) {
 			get nonconforming() {
 				calls.nonconforming += 1;
 				return [...unreadable.values()];
+			},
+			body(rowId: string) {
+				return rows.get(rowId) ?? unreadable.get(rowId)?.raw;
 			},
 			watch() {
 				return () => undefined;
@@ -438,4 +442,15 @@ test('adapting KV alone shares its wrapper with the full store adapter', () => {
 	expect(adapted.get('theme')).toBe('dark');
 	adapted.update({ theme: 'light' });
 	expect(kv.handle.get('theme')).toBe('light');
+});
+
+test('body access survives nonconforming values and ends when that row is deleted', () => {
+	const { notes, reactive } = setup();
+	const table = reactive.tables.notes;
+	const body = table.body('n1');
+	notes.breakRow('n1');
+	expect(table.get('n1')).toBeUndefined();
+	expect(table.body('n1')).toBe(body);
+	table.delete('n1');
+	expect(table.body('n1')).toBeUndefined();
 });

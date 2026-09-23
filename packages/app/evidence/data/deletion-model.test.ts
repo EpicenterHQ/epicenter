@@ -35,15 +35,15 @@ function sync(a: Y.Doc, b: Y.Doc): void {
 	Y.applyUpdateV2(a, fromB);
 }
 
-function rowsOf(doc: Y.Doc): Y.Type {
+function rowsOf(doc: Y.Doc): Y.Node {
 	return doc.get('notes');
 }
 
 function create(doc: Y.Doc, rowId: string, title: string): void {
 	doc.transact(() => {
-		const row: ValuesType = new Y.Type();
+		const row: ValuesType = new Y.Node();
 		putRow(rowsOf(doc), rowId, row);
-		putType(row, CONTENT, new Y.Type());
+		putType(row, CONTENT, new Y.Node());
 		row.setAttr(PRESENCE, 'present');
 		row.setAttr('title', title);
 	});
@@ -79,7 +79,7 @@ function read(doc: Y.Doc, rowId: string): Record<string, unknown> | undefined {
 	const payload: Record<string, unknown> = {};
 	for (const name of row.attrKeys()) {
 		const value = row.getAttr(name);
-		if (!name.startsWith('!') && !(value instanceof Y.Type)) {
+		if (!name.startsWith('!') && !(value instanceof Y.Node)) {
 			payload[name] = value;
 		}
 	}
@@ -224,7 +224,7 @@ describe("a row's content node under a concurrent delete", () => {
 
 			remove(laptop, rowId, model);
 			phone.transact(() => {
-				const editor = new Y.Type('text' as never);
+				const editor = new Y.Node('text' as never);
 				putType(text, 'editor', editor);
 				editor.applyDelta(editor.change.insert('buy milk') as never);
 			});

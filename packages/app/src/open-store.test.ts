@@ -15,7 +15,7 @@ import { createMemoryStoreRuntime } from './testing.js';
 const definition = defineStore({
 	id: 'test.independent-stores',
 	kv: {},
-	tables: { notes: defineTable({ title: field.string() }) },
+	tables: { notes: defineTable({ fields: { title: field.string() } }) },
 });
 function accountFor(principalId = 'alice', authorityId = 'test'): Account {
 	return {

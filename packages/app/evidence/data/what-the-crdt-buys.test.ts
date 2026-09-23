@@ -37,7 +37,7 @@ function pair() {
 	const phone = new Y.Doc({ gc: true });
 	const laptop = new Y.Doc({ gc: true });
 	phone.transact(() => {
-		const row: ValuesType = new Y.Type();
+		const row: ValuesType = new Y.Node();
 		putRow(phone.get('notes'), 'n1', row);
 		row.setAttr('title', 'original');
 		row.setAttr('tags', ['a']);

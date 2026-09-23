@@ -109,7 +109,7 @@ function buildDoc({ live, dead, pattern }: Case): Y.Doc {
 	const id = () => `r${String(minted++).padStart(23, '0')}`;
 
 	const create = (key: string) => {
-		const row: ValuesType = new Y.Type();
+		const row: ValuesType = new Y.Node();
 		putRow(root, key, row);
 		row.setAttr('!presence', 'present');
 		for (const [field, value] of Object.entries(RECORDING)) {
@@ -372,7 +372,7 @@ try {
 		for (const key of source.attrKeys()) {
 			const row = rowAt(source, String(key));
 			if (row === undefined) continue;
-			const fresh: ValuesType = new Y.Type();
+			const fresh: ValuesType = new Y.Node();
 			putRow(root, String(key), fresh);
 			for (const field of row.attrKeys()) {
 				fresh.setAttr(field, row.getAttr(field) ?? null);
