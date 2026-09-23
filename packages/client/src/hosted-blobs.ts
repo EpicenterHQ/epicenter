@@ -17,10 +17,9 @@ export const HostedBlobError = defineErrors({
 		message: 'Hosted blob publication could not be confirmed.',
 		cause,
 	}),
-	Failed: ({ cause, status }: { cause: unknown; status?: number }) => ({
+	Failed: ({ cause }: { cause: unknown }) => ({
 		message: `Hosted blob operation failed: ${extractErrorMessage(cause)}`,
 		cause,
-		status,
 	}),
 });
 
