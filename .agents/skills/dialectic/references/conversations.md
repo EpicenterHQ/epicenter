@@ -153,76 +153,48 @@ about current package exports. Unrelated setup is omitted.
 > actual caller before adding a shared helper; the smaller preview-only tool
 > shouldn't inherit a recording session it doesn't need.
 
-## Agent skills: experience the behavior before encoding it
+## Agent skills: revise a visible model
 
-All exchanges below are invented samples. The services and their constraints
-are fictional; the outer reactions illustrate discovery, not recorded preferences.
+This hypothetical exchange uses the Epicenter cloud discussion to show a model
+the human can point to and change. The services are a proposal, not a claim
+about shipped behavior.
 
-> **Human:** The architecture-review skill gives me a huge analysis. It doesn't
-> feel like we're thinking together.
+> **Human:** One subscription could work even if someone only uses Whispering.
+> What would be inside Epicenter's cloud?
 >
-> **Agent:** I'd have it offer a provisional recommendation and ask what could
-> change that judgment. Here's a sample of how the conversation might develop.
+> **Agent:** I think one account could give each app access to shared services:
 >
->> **Human:** I'm thinking about combining these two services.
->>
->> **Agent:** I'd lean toward combining them: they share a database, deploy
->> together, and most changes touch both. I'd preserve billing's write
->> restrictions behind an internal API. What prompted this now?
->>
->> **Human:** Yesterday a tiny change needed two deployments. But billing is
->> about to move to another team.
->>
->> **Agent:** Separate ownership could make independent deployment useful.
->> I'd check whether the new team needs to release billing without coordinating
->> with you before deciding to merge.
->>
->> **Human:** I don't know yet. I'm meeting them tomorrow.
->>
->> **Agent:** Find that out tomorrow, then we can decide whether merging is
->> still the right move.
+> ```text
+> apps ──> one account
+>            ├── sync
+>            ├── storage
+>            └── hosted AI
+> ```
 >
-> **Human:** That starts well, and I like that it changes its mind. But now
-> it's handed the work back to me. I'd want help figuring out tomorrow's
-> conversation. Having an opinion and asking questions isn't quite enough.
+> In Whispering, that could mean transcription without configuring a provider
+> and access to work someone chooses to save on another device. That alone
+> could make a subscription useful to a Whispering-only customer.
 >
-> **Agent:** The missing part is helping you act on the uncertainty. The skill
-> needs to carry the work forward even when it can't settle the original
-> decision. Here's that same situation with the consequence carried through.
+> **Human:** I meant coordination too. The apps might pass things to each other.
 >
->> **Human:** I'm thinking about combining these two services.
->>
->> **Agent:** I'd lean toward combining them: they share a database, deploy
->> together, and most changes touch both. I'd preserve billing's write
->> restrictions behind an internal API. What prompted this now?
->>
->> **Human:** Yesterday a tiny change needed two deployments. But billing is
->> about to move to another team.
->>
->> **Agent:** That makes me less certain. If the new team needs independent
->> releases, merging could create the coordination you're trying to remove.
->> Do you know what they'll own and release on their own?
->>
->> **Human:** I don't know yet. I'm meeting them tomorrow.
->>
->> **Agent:** I'd bring yesterday's change to that meeting and walk through
->> how it would work after the handoff: who changes the code, who approves it,
->> and who releases it. Ask them for a change they'd expect to ship without
->> you, too. Those two cases should show whether the service boundary helps
->> the teams work independently. If both still require joint releases, I'd
->> revisit merging; if billing can ship independently, I'd first fix the
->> deployment friction while keeping that boundary.
+> **Agent:** Then the map is missing a relationship:
 >
-> **Human:** Yes. That's more like thinking together. Update the skill.
+> ```text
+> apps ──> one account
+>            ├── sync
+>            ├── storage
+>            └── hosted AI
+> Whispering ── chosen text ──> another app
+> ```
 >
-> **Agent:** I'll have it offer a grounded provisional judgment, revise that
-> judgment when the situation changes, and help make the next useful move
-> concrete when uncertainty prevents a decision. The meeting suggestion is
-> specific to this example; it doesn't need to become a required step.
+> That second line is a specific user action. We can now ask which destination
+> would make it useful.
 
-The later turns reveal something the initial articulation did not name:
-revising a recommendation can still leave the user carrying the unresolved
-work. Experiencing the conversation makes that omission available for judgment.
+The first map makes the omission easy to name. The agent changes that map when
+the human corrects it and explains the new line without rebuilding the whole
+proposal in prose. A shorter reply that only asked what “coordination” meant
+would leave the human to supply the model; a longer service inventory would
+bury the relationship they wanted to change.
 
 
 ## Blog writing: compare the rendered openings

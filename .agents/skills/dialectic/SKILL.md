@@ -18,18 +18,28 @@ it to make possible.
 an API, a conversation following a skill, or the actual prose of a piece of
 writing.
 
-Usually present them together so the user can judge both the model and the
-choices made in expressing it. Keep the articulation clear enough to correct
-and the expression complete enough to judge. Use reactions to either to revise
-our understanding and the next attempt, working toward “that’s right” to both.
+Make the thought clear enough to think alongside. Keep its useful shape; cut
+repetition and premature elaboration. Bring articulation and expression together
+where they help the user grasp the proposal and judge its consequences. Use
+reactions to either to revise our understanding and the next attempt, working
+toward “that’s right” to both.
 
 ## Make the model and its consequences judgeable
 
-Offer your best current understanding and a useful attempt without requiring
-the user to diagnose everything first. They may arrive with an idea, an
-existing expression, or a result that raises a new question. These are two
-things to develop together, not mandatory stages or response headings. Keep
-an already clear articulation brief; a settled edit needs no new explanation.
+Offer a coherent thought with enough reasoning and concrete expression for the
+user to engage with it. Let the live uncertainty determine how much to develop:
+a broad design question may need a substantial comparison, while a correction
+may need only the revised idea and its consequence. Carry settled context
+forward without presenting it again. Avoid making the user pull an explanation
+out of a sequence of small replies or leading questions.
+
+Make the current thought visible in a form the user can point to and change.
+A small map can expose connections and omissions; a list, passage, or caller
+example can expose other choices. When a response changes the model, revise
+the same expression where it still fits so the user can see what changed.
+Let prose explain a consequence the expression cannot show, without repeating
+it. Judge by how readily the user can understand and correct the thought,
+not by reply length or a required format.
 
 Check facts you can establish yourself and distinguish evidence from proposals.
 Ask when missing information would make the attempt misleading or unhelpful.
@@ -51,20 +61,13 @@ matters, let the user read it. Complete enough means enough for the live
 question, not an entire application or a rewrite of settled work. Economical
 commentary does not require a short expression.
 
-When several meaningful directions remain open, usually show two or three
-distinct concrete expressions so the user can discover which direction fits.
-A correction may clarify what to avoid without settling what to make next.
-Keep what the user has recognized and explore the choices that remain; do not
-automatically turn every correction into one supposedly definitive revision.
-Choose alternatives for the differences they reveal, not to fill a set. A
-settled selection or a straightforward correction needs no new comparison.
-
-Give each alternative a standalone articulation of the thought or approach it
-develops, followed by its concrete expression. The headings should let the user
-understand the directions by skimming, without relying on the introduction or
-a comparison afterward. State what each version says or does, rather than
-using a topic fragment or vague style label. Recommend a direction when useful
-and let the user combine, reject, or redirect the possibilities.
+Show distinct alternatives when comparing them would help settle the live
+question. A correction may clarify what to avoid while leaving meaningful
+directions open; preserve what the user has recognized and make those remaining
+differences concrete. Explain each direction enough to judge it on its own,
+using headings when they help the comparison. Recommend a direction when you
+have grounds, and leave room to combine, reject, or redirect the possibilities.
+A settled selection or a straightforward correction needs no new comparison.
 
 When comparing revisions, show the relevant original and alternatives together
 so the user need not reconstruct earlier versions from memory. Keep unrelated
@@ -91,6 +94,11 @@ parts of different versions, do the synthesis rather than making them assemble
 fragments. If their response changes the premise, reconsider the relevant
 whole as if that understanding had been known from the beginning. Discovery
 may produce an idea neither participant had fully formed beforehand.
+
+Let that response guide further development. Work through the consequences of
+a challenged assumption before building more design on it. Introduce names,
+schemas, workflows, or further examples when they help the current judgment;
+premature detail makes the user untangle decisions they have not made yet.
 
 Leave the user's reaction open, including rejection of your framing. Judge
 against their intent, evidence, constraints, and consequences; stay willing
