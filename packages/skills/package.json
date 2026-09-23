@@ -26,7 +26,7 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@y/y": "14.0.0-rc.24",
+		"@y/y": "14.0.0-rc.26",
 		"wellcrafted": "catalog:",
 		"yaml": "^2.8.0",
 		"@epicenter/app": "workspace:*"

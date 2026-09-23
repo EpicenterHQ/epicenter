@@ -15,7 +15,7 @@
 	"dependencies": {
 		"@epicenter/sqlite": "workspace:*",
 		"@sqlite.org/sqlite-wasm": "catalog:",
-		"@y/y": "14.0.0-rc.24",
+		"@y/y": "14.0.0-rc.26",
 		"@epicenter/app": "workspace:*"
 	},
 	"devDependencies": {

@@ -74,7 +74,6 @@
 			"@standard-schema/spec": "^1.1.0",
 			"hono": "^4.12.25",
 			"mime": "^4.0.6",
-			"yjs": "^13.6.31",
 			"typebox": "^1.0.0",
 			"better-auth": "^1.6.23",
 			"@better-auth/drizzle-adapter": "^1.6.23",
@@ -102,6 +101,8 @@
 	},
 	"packageManager": "bun@1.4.2",
 	"overrides": {
+		"@y/y": "14.0.0-rc.26",
+		"lib0": "1.0.0-rc.32",
 		"@protobufjs/utf8": "^1.1.1",
 		"axios": "^1.18.0",
 		"brace-expansion": "^5.0.6",
@@ -123,7 +124,9 @@
 		"ws": "^8.21.0",
 		"yaml": "^2.9.0"
 	},
-	"bin": { "epicenter": "./scripts/epicenter.ts" },
+	"bin": {
+		"epicenter": "./scripts/epicenter.ts"
+	},
 	"scripts": {
 		"epicenter": "bun --no-install scripts/epicenter.ts",
 		"build": "bun run --filter '*' build",
@@ -176,6 +179,7 @@
 		"jsrepo:build": "jsrepo build"
 	},
 	"devDependencies": {
+		"@y/y": "14.0.0-rc.26",
 		"@biomejs/biome": "catalog:",
 		"@changesets/cli": "^2.31.0",
 		"@types/bun": "catalog:",
@@ -187,7 +191,6 @@
 		"tinyexec": "^1.0.4"
 	},
 	"patchedDependencies": {
-		"@y/prosemirror@2.0.0-6": "patches/@y%2Fprosemirror@2.0.0-6.patch",
-		"@y/y@14.0.0-rc.24": "patches/@y%2Fy@14.0.0-rc.24.patch"
+		"@y/prosemirror@2.0.0-12": "patches/@y%2Fprosemirror@2.0.0-12.patch"
 	}
 }

@@ -49,7 +49,7 @@
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/sync": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",
-		"@y/y": "14.0.0-rc.24",
+		"@y/y": "14.0.0-rc.26",
 		"typebox": "catalog:"
 	},
 	"devDependencies": {

@@ -28,7 +28,7 @@
 		"@epicenter/sync": "workspace:*",
 		"@hono/standard-validator": "catalog:",
 		"@simplewebauthn/server": "13.3.2",
-		"@y/y": "14.0.0-rc.24",
+		"@y/y": "14.0.0-rc.26",
 		"arktype": "catalog:",
 		"aws4fetch": "catalog:",
 		"better-auth": "catalog:",

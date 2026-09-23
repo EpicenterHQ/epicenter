@@ -12,6 +12,7 @@
         "@biomejs/biome": "catalog:",
         "@changesets/cli": "^2.31.0",
         "@types/bun": "catalog:",
+        "@y/y": "14.0.0-rc.26",
         "jsrepo": "^3.6.2",
         "wrangler": "catalog:",
       },
@@ -135,8 +136,8 @@
         "@epicenter/device": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@epicenter/sync": "workspace:*",
-        "@y/prosemirror": "2.0.0-6",
-        "@y/y": "14.0.0-rc.24",
+        "@y/prosemirror": "2.0.0-12",
+        "@y/y": "14.0.0-rc.26",
         "arktype": "catalog:",
         "better-auth": "catalog:",
         "bits-ui": "catalog:",
@@ -387,7 +388,7 @@
         "@epicenter/app": "workspace:*",
         "@epicenter/auth": "workspace:*",
         "@epicenter/principal": "workspace:*",
-        "@y/y": "14.0.0-rc.24",
+        "@y/y": "14.0.0-rc.26",
         "mode-watcher": "^1.1.0",
         "wellcrafted": "catalog:",
       },
@@ -424,7 +425,7 @@
         "@epicenter/app": "workspace:*",
         "@epicenter/sqlite": "workspace:*",
         "@sqlite.org/sqlite-wasm": "catalog:",
-        "@y/y": "14.0.0-rc.24",
+        "@y/y": "14.0.0-rc.26",
       },
       "devDependencies": {
         "@cloudflare/vitest-pool-workers": "^0.20.3",
@@ -548,7 +549,7 @@
       "name": "@examples/yjs-size-benchmark",
       "version": "0.0.1",
       "dependencies": {
-        "yjs": "catalog:",
+        "@y/y": "14.0.0-rc.26",
       },
       "devDependencies": {
         "@types/node": "catalog:",
@@ -606,7 +607,7 @@
         "@epicenter/sync": "workspace:*",
         "@tauri-apps/api": "catalog:",
         "@tauri-apps/plugin-clipboard-manager": "^2.3.0",
-        "@y/y": "14.0.0-rc.24",
+        "@y/y": "14.0.0-rc.26",
         "nanoid": "catalog:",
         "openai": "^7.12.1",
         "typebox": "catalog:",
@@ -635,7 +636,7 @@
         "@lucide/svelte": "catalog:",
         "@standard-schema/spec": "catalog:",
         "@tanstack/svelte-query": "catalog:",
-        "@y/y": "14.0.0-rc.24",
+        "@y/y": "14.0.0-rc.26",
         "arktype": "catalog:",
         "nanoid": "catalog:",
         "wellcrafted": "catalog:",
@@ -694,7 +695,7 @@
       "dependencies": {
         "@epicenter/agent": "workspace:*",
         "@epicenter/app": "workspace:*",
-        "@y/y": "14.0.0-rc.24",
+        "@y/y": "14.0.0-rc.26",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -802,7 +803,7 @@
         "@epicenter/sync": "workspace:*",
         "@hono/standard-validator": "catalog:",
         "@simplewebauthn/server": "13.3.2",
-        "@y/y": "14.0.0-rc.24",
+        "@y/y": "14.0.0-rc.26",
         "arktype": "catalog:",
         "aws4fetch": "catalog:",
         "better-auth": "catalog:",
@@ -829,7 +830,7 @@
       "version": "0.3.0",
       "dependencies": {
         "@epicenter/app": "workspace:*",
-        "@y/y": "14.0.0-rc.24",
+        "@y/y": "14.0.0-rc.26",
         "wellcrafted": "catalog:",
         "yaml": "^2.8.0",
       },
@@ -926,11 +927,11 @@
     },
   },
   "patchedDependencies": {
-    "@y/prosemirror@2.0.0-6": "patches/@y%2Fprosemirror@2.0.0-6.patch",
-    "@y/y@14.0.0-rc.24": "patches/@y%2Fy@14.0.0-rc.24.patch",
+    "@y/prosemirror@2.0.0-12": "patches/@y%2Fprosemirror@2.0.0-12.patch",
   },
   "overrides": {
     "@protobufjs/utf8": "^1.1.1",
+    "@y/y": "14.0.0-rc.26",
     "axios": "^1.18.0",
     "brace-expansion": "^5.0.6",
     "cookie": "^1.1.1",
@@ -940,6 +941,7 @@
     "fast-xml-parser": "^5.8.0",
     "follow-redirects": "^1.16.0",
     "fx-runner": "^1.5.0",
+    "lib0": "1.0.0-rc.32",
     "postcss": "^8.5.15",
     "protobufjs": "^7.6.4",
     "qs": "^6.15.2",
@@ -1013,7 +1015,6 @@
     "vite-plugin-singlefile": "^2.3.3",
     "wellcrafted": "^0.44.0",
     "wrangler": "^4.71.0",
-    "yjs": "^13.6.31",
   },
   "packages": {
     "@alcalzone/ansi-tokenize": ["@alcalzone/ansi-tokenize@0.2.5", "", { "dependencies": { "ansi-styles": "^6.2.1", "is-fullwidth-code-point": "^5.0.0" } }, "sha512-3NX/MpTdroi0aKz134A6RC2Gb2iXVECN4QaAXnvCIxxIm3C3AVB1mkUe8NaaiyvOpDfsrqWhYtj+Q6a62RrTsw=="],
@@ -1888,11 +1889,11 @@
 
     "@vscode/l10n": ["@vscode/l10n@0.0.18", "", {}, "sha512-KYSIHVmslkaCDyw013pphY+d7x1qV8IZupYfeIfzNA+nsaWHbn5uPuQRvdRFsa9zFzGeudPuoGoZ1Op4jrJXIQ=="],
 
-    "@y/prosemirror": ["@y/prosemirror@2.0.0-6", "", { "dependencies": { "@y/y": "^14.0.0-rc.23", "lib0": "^1.0.0-rc.22" }, "peerDependencies": { "@y/protocols": "^1.0.6-rc.1", "prosemirror-model": "^1.7.1", "prosemirror-state": "^1.2.3", "prosemirror-view": "^1.9.10" } }, "sha512-SRXxliKc2Q0EBoN3bayP+5PgFNzkPW0xG7PsFAeRJYn/d0kYKpJcdCPhH2awjO34P8CZXCD0eC8hDkujYFyHgg=="],
+    "@y/prosemirror": ["@y/prosemirror@2.0.0-12", "", { "dependencies": { "@y/y": "^14.0.0-rc.26", "lib0": "^1.0.0-rc.32" }, "peerDependencies": { "@y/protocols": "^1.0.6-rc.1", "prosemirror-model": "^1.7.1", "prosemirror-state": "^1.2.3", "prosemirror-transform": "^1.8.0", "prosemirror-view": "^1.9.10" } }, "sha512-8q8zInhc03FiqMcTMh/U4v3+Js8WIhwTHRtPFd9OTmGTeyWxI3oogVq/1FcctlcEkViFhuCfs0z0RzTZP273dg=="],
 
     "@y/protocols": ["@y/protocols@1.0.6-rc.1", "", { "dependencies": { "lib0": "^1.0.0-rc.1" }, "peerDependencies": { "@y/y": "*" } }, "sha512-e/qs7hXcLk/SeNitxMXv2ymozyWFTULwbJEi7cAf/K/iXw9nGwGXHrR5TNluQ/bMwOX1cwuUT0hjEojkfH0gsA=="],
 
-    "@y/y": ["@y/y@14.0.0-rc.24", "", { "dependencies": { "lib0": "^1.0.0-rc.21" } }, "sha512-E22nv/q6CWNodzU/yowxEp95TUVBTP5T63kAiJy2FpsuB5zxqfGhdW2222S4tFF9mo9UtBqg8ep7tPMJ9bZVOg=="],
+    "@y/y": ["@y/y@14.0.0-rc.26", "", { "dependencies": { "lib0": "^1.0.0-rc.29" } }, "sha512-sJ0N5qkYFtFTIdHWV77Fx+JU7bPqNXUmoFC807FscFtsxMSXp6zjPwHQ1PdUCYv8PJlNcPjsuGGyVpOT+FF5SQ=="],
 
     "accepts": ["accepts@2.0.0", "", { "dependencies": { "mime-types": "^3.0.0", "negotiator": "^1.0.0" } }, "sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng=="],
 
@@ -2494,8 +2495,6 @@
 
     "isexe": ["isexe@2.0.0", "", {}, "sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw=="],
 
-    "isomorphic.js": ["isomorphic.js@0.2.5", "", {}, "sha512-PIeMbHqMt4DnUP3MA/Flc0HElYjMXArsw1qwJZcm9sqR8mq3l8NYizFMty0pWwE/tzIGH3EKK5+jes5mAr85yw=="],
-
     "jiti": ["jiti@2.6.1", "", { "bin": { "jiti": "lib/jiti-cli.mjs" } }, "sha512-ekilCSN1jwRvIbgeg/57YFh8qQDNbwDb9xT/qu2DAHbFFZUicIl4ygVaAvzveMhMVr3LnpSKTNnwt8PoOfmKhQ=="],
 
     "jose": ["jose@6.2.2", "", {}, "sha512-d7kPDd34KO/YnzaDOlikGpOurfF0ByC2sEV4cANCtdqLlTfBlw2p14O/5d/zv40gJPbIQxfES3nSx1/oYNyuZQ=="],
@@ -2524,7 +2523,7 @@
 
     "layerchart": ["layerchart@2.0.0-next.48", "", { "dependencies": { "@dagrejs/dagre": "^2.0.4", "@layerstack/svelte-actions": "1.0.1-next.18", "@layerstack/svelte-state": "0.1.0-next.23", "@layerstack/tailwind": "2.0.0-next.21", "@layerstack/utils": "2.0.0-next.18", "@types/d3-contour": "^3.0.6", "d3-array": "^3.2.4", "d3-chord": "^3.0.1", "d3-color": "^3.1.0", "d3-contour": "^4.0.2", "d3-delaunay": "^6.0.4", "d3-dsv": "^3.0.1", "d3-force": "^3.0.0", "d3-geo": "^3.1.1", "d3-geo-voronoi": "^2.1.0", "d3-hierarchy": "^3.1.2", "d3-interpolate": "^3.0.1", "d3-interpolate-path": "^2.3.0", "d3-path": "^3.1.0", "d3-quadtree": "^3.0.1", "d3-random": "^3.0.1", "d3-sankey": "^0.12.3", "d3-scale": "^4.0.2", "d3-scale-chromatic": "^3.1.0", "d3-shape": "^3.2.0", "d3-tile": "^1.0.0", "d3-time": "^3.1.0", "memoize": "^10.2.0", "runed": "^0.37.1" }, "peerDependencies": { "svelte": "^5.0.0" } }, "sha512-XoEYBztamA8lMxtF/Jz3aDX0HMk8dI+o4fK9fSl8ecT2Tdx3DQUjtKGtlQAOFdwC/AWifeLmKq5cMTQt9COZPQ=="],
 
-    "lib0": ["lib0@1.0.0-rc.22", "", { "bin": { "0gentesthtml": "src/bin/gentesthtml.js", "0serve": "src/bin/0serve.js", "0ecdsa-generate-keypair": "src/bin/0ecdsa-generate-keypair.js" } }, "sha512-KNefJloRQIsWncTF2tIcRqQXSQ7bDRYHwVSUhf1lY2P65Rej4WWFnen6L8L+odJQIo1ZNJGVVjK2WzqB9a+B/g=="],
+    "lib0": ["lib0@1.0.0-rc.32", "", { "bin": { "0serve": "src/bin/0serve.js", "0gentesthtml": "src/bin/gentesthtml.js", "0ecdsa-generate-keypair": "src/bin/0ecdsa-generate-keypair.js" } }, "sha512-AaFxUR1ta0Zf3LmryubLTfYWmZCDfPjy5kAkDjURszy1RYJ7Rtt07xums81FLfj9Oa/6XLx7dOypiWXcSWJWyQ=="],
 
     "lightningcss": ["lightningcss@1.33.0", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.33.0", "lightningcss-darwin-arm64": "1.33.0", "lightningcss-darwin-x64": "1.33.0", "lightningcss-freebsd-x64": "1.33.0", "lightningcss-linux-arm-gnueabihf": "1.33.0", "lightningcss-linux-arm64-gnu": "1.33.0", "lightningcss-linux-arm64-musl": "1.33.0", "lightningcss-linux-x64-gnu": "1.33.0", "lightningcss-linux-x64-musl": "1.33.0", "lightningcss-win32-arm64-msvc": "1.33.0", "lightningcss-win32-x64-msvc": "1.33.0" } }, "sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA=="],
 
@@ -3360,8 +3359,6 @@
 
     "yargs-parser": ["yargs-parser@22.0.0", "", {}, "sha512-rwu/ClNdSMpkSrUb+d6BRsSkLUq1fmfsY6TOpYzTwvwkg1/NRG85KBy3kq++A8LKQwX6lsu+aWad+2khvuXrqw=="],
 
-    "yjs": ["yjs@13.6.31", "", { "dependencies": { "lib0": "^0.2.99" } }, "sha512-Eq+5BRfbeGyqGVrTJL3bEcr8gKkxPuyuoHmAwpk52fDb8kOVMrfVSTRPd6yiGgX5Fskb96qCRjzjbRjrL4YEnw=="],
-
     "yn": ["yn@3.1.1", "", {}, "sha512-Ux4ygGWsu2c7isFWe8Yu1YluJmqVhxqK2cLXNQA5AcC3QfbGNpM7fu0Y8b/z16pXLnFxZYvWhd3fhBY9DLmC6Q=="],
 
     "yocto-queue": ["yocto-queue@1.2.2", "", {}, "sha512-4LCcse/U2MHZ63HAJVE+v71o7yOdIe4cZ70Wpf8D/IyjDKYQLV5GD46B+hSTjJsvV5PztjvHoU580EftxjDZFQ=="],
@@ -3613,8 +3610,6 @@
     "yargs/string-width": ["string-width@4.2.3", "", { "dependencies": { "emoji-regex": "^8.0.0", "is-fullwidth-code-point": "^3.0.0", "strip-ansi": "^6.0.1" } }, "sha512-wKyQRQpjJ0sIp62ErSZdGsjMJWsap5oRNihHhu6G7JVO/9jIB6UyevL+tXuOqrng8j/cxKTWyWUwvSTriiZz/g=="],
 
     "yargs/yargs-parser": ["yargs-parser@21.1.1", "", {}, "sha512-tVpsJW7DdjecAiFpbIB1e3qxIQsE6NoPc5/eTdrbbIC4h0LVsWhnoa3g+m2HclBIujHzsxZ4VJVA+GUuc2/LBw=="],
-
-    "yjs/lib0": ["lib0@0.2.117", "", { "dependencies": { "isomorphic.js": "^0.2.4" }, "bin": { "0serve": "bin/0serve.js", "0gentesthtml": "bin/gentesthtml.js", "0ecdsa-generate-keypair": "bin/0ecdsa-generate-keypair.js" } }, "sha512-DeXj9X5xDCjgKLU/7RR+/HQEVzuuEUiwldwOGsHK/sfAfELGWEyTcf0x+uOvCvK3O2zPmZePXWL85vtia6GyZw=="],
 
     "@astrojs/internal-helpers/shiki/@shikijs/core": ["@shikijs/core@4.0.2", "", { "dependencies": { "@shikijs/primitive": "4.0.2", "@shikijs/types": "4.0.2", "@shikijs/vscode-textmate": "^10.0.2", "@types/hast": "^3.0.4", "hast-util-to-html": "^9.0.5" } }, "sha512-hxT0YF4ExEqB8G/qFdtJvpmHXBYJ2lWW7qTHDarVkIudPFE6iCIrqdgWxGn5s+ppkGXI0aEGlibI0PAyzP3zlw=="],
 

@@ -42,7 +42,7 @@
 	"dependencies": {
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/auth": "workspace:*",
-		"@y/y": "14.0.0-rc.24",
+		"@y/y": "14.0.0-rc.26",
 		"mode-watcher": "^1.1.0",
 		"wellcrafted": "catalog:",
 		"@epicenter/app": "workspace:*"
