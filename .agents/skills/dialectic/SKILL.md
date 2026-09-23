@@ -70,6 +70,13 @@ When comparing revisions, show the relevant original and alternatives together
 so the user need not reconstruct earlier versions from memory. Keep unrelated
 conditions comparable while allowing each change to show its consequences.
 
+A correction often narrows the possibilities without settling the next
+expression. When useful, compare a gradation of editorial distance, from
+repairing the current expression to reconsidering its approach. Carry forward
+what the user has recognized so exploration accumulates rather than repeatedly
+starting over. Page-writing owns the writing-specific default of a close repair,
+an intermediate reworking, and a more adventurous attempt.
+
 ## Learn from the response
 
 Treat the user's response as evidence about what you understood and what the
