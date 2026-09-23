@@ -23,10 +23,11 @@ export function buildSessionCallbacks(baseURL: string, desktopPort = '39131') {
 		...(local ? ['http://localhost:5177/auth/callback'] : []),
 		// Outside /auth/*, which belongs to Better Auth on the issuer origin.
 		`${origin}/session/callback`,
-		...[APPS.HONEYCRISP, APPS.WHISPERING, APPS.VOCAB].flatMap((app) =>
-			[...prodOrigins(app), ...(local ? [localUrl(app)] : [])].map(
-				(appOrigin) => `${appOrigin}/auth/callback`,
-			),
+		...[APPS.HONEYCRISP, APPS.WHISPERING, APPS.VOCAB, APPS.CAPTURE].flatMap(
+			(app) =>
+				[...prodOrigins(app), ...(local ? [localUrl(app)] : [])].map(
+					(appOrigin) => `${appOrigin}/auth/callback`,
+				),
 		),
 	];
 }

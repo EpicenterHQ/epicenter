@@ -133,6 +133,8 @@
 		"check": "bun run lint:ci && bun run typecheck && bun run test && bun run check:structure",
 		"dev": "bun run dev:honeycrisp",
 		"dev:api": "bun run --cwd apps/api dev",
+		"dev:capture": "bun run --filter @epicenter/api --filter @epicenter/capture-app dev",
+		"dev:capture:ui": "bun run --cwd apps/capture dev",
 		"dev:api-dashboard": "API_PUBLIC_ORIGIN=http://localhost:5178 bun run --filter @epicenter/api --filter @epicenter/api-ui dev",
 		"dev:api-dashboard:ui": "bun run --cwd apps/api/ui dev",
 		"dev:epicenter": "EPICENTER_API_URL=http://localhost:8787 bun run --filter @epicenter/api --filter @epicenter/epicenter dev",

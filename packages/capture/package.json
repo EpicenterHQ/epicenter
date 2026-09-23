@@ -1,0 +1,22 @@
+{
+	"name": "@epicenter/capture",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"license": "AGPL-3.0-or-later",
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@epicenter/app": "workspace:*",
+		"@y/y": "14.0.0-rc.26"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	}
+}

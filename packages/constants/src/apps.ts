@@ -43,6 +43,11 @@ export const APPS = {
 		url: 'https://vocab.epicenter.so',
 		id: 'so.epicenter.vocab',
 	},
+	CAPTURE: {
+		port: 5179,
+		url: 'https://capture.epicenter.so',
+		id: 'so.epicenter.capture',
+	},
 } as const;
 
 /**
