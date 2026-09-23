@@ -205,7 +205,15 @@ without evidence.
 The coordinating agent reconciles both reviews into one recommendation,
 preserving consequential disagreement. Verify findings against current artifacts
 and accept, reject, or defer them with reasons; agreement is not a correctness
-test. Present the strongest opportunity, deletion prize, costs, and judgment
+test. State the decisive claim behind a consequential recommendation, including
+one synthesized from the two reviews. If neither reviewer tested that specific
+alternative against the guarantee it must preserve, ask the reviewer best placed
+to challenge it for a focused counterexample or the caller evidence that rules
+one out. Verify the deciding fact directly; if it remains unproven, keep the
+recommendation conditional. Do not start another full review to answer a
+focused question.
+
+Present the strongest opportunity, deletion prize, costs, and judgment
 together so the user can assess the bargain. Keep reviewer inventories and
 deliberation in the supporting evidence; the user should not have to reconstruct
 the recommendation from two reports. An unresolved condition belongs beside
