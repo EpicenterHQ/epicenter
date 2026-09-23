@@ -230,6 +230,63 @@ starting: a prior session may already have completed it.
 - Revisit when: Whispering's first-run or unavailable-transcription surface is
   next changed.
 
+## Make Whispering's dictation loop clear from speech to delivered text
+
+- Desired result: A person can start dictation from another app, see whether
+  Whispering is listening and processing, and tell when text reached the intended
+  field or stayed available for copying. A failed delivery does not lose the
+  transcript.
+- Grounding: [FluidVoice](https://github.com/altic-dev/FluidVoice) describes a
+  live preview and direct insertion; [FreeFlow](https://github.com/zachlatta/freeflow)
+  emphasizes its hold-to-talk and toggle flow. Compare the whole journey in
+  Whispering before choosing an overlay or shortcut change. Whispering already
+  has global shortcuts, a recording overlay, and cursor delivery with a
+  clipboard fallback.
+- Revisit when: Whispering's recording overlay, shortcuts, or text delivery is
+  next designed as a user workflow.
+
+## Let a spoken instruction revise selected text
+
+- Desired result: A person selects text in another app, speaks a one-off change
+  such as "make this shorter," reviews the result, and can leave the original
+  untouched. Ordinary dictation remains predictable when no edit was requested.
+- Grounding: [FluidVoice Write Mode](https://github.com/altic-dev/FluidVoice)
+  and [FreeFlow Edit Mode](https://github.com/zachlatta/freeflow) describe this
+  interaction. Whispering's Recipes already reshape a selection with a saved
+  instruction; this item is about speaking the instruction for that selection.
+  The draft [voice-cursor exploration](apps/whispering/specs/20260628T003033-voice-cursor-intent-in-context.md)
+  contains earlier research, not a settled implementation plan.
+- Revisit when: The basic dictation and delivery journey is sound enough to
+  judge a second spoken action.
+
+## Let a person deliberately use screen content with speech
+
+- Desired result: A person chooses visible content, such as a captured screen
+  region, and speaks a request about it. Whispering shows what was captured and
+  where the resulting text will go before acting on it.
+- Grounding: [VoiceInk](https://github.com/Beingpax/VoiceInk) describes adapting
+  to screen content, and [FreeFlow](https://github.com/zachlatta/freeflow)
+  describes nearby app context for correcting names. These are different uses:
+  text context may help spell dictated words, while an image can support a
+  request about visual content. Compare them against a concrete user task before
+  choosing screenshot capture, text extraction, or both. Whispering has no
+  general screen-context capture path today.
+- Revisit when: A concrete dictation or "speak about this screen" journey needs
+  context that the person's saved Dictionary and selected text cannot provide.
+
+## Show where Whispering keeps audio and transcripts after dictation
+
+- Desired result: After speaking, a person can find the saved audio and text,
+  see whether they are in Local or Personal, and understand whether a chosen
+  transcription or Polish provider received them.
+- Grounding: Whispering saves capture in Local, supports an explicit copy to
+  Personal, and sends audio or text to selected providers when those steps need
+  inference. The [app README](apps/whispering/README.md) describes these data
+  boundaries; the interface should make the relevant outcome clear in the
+  recording journey.
+- Revisit when: Whispering's recording results, history, or Personal save flow
+  is next changed.
+
 ## Explore Wispr Flow for Whispering onboarding and gamification
 
 - Desired result: Improve Whispering's onboarding and explore gamification
