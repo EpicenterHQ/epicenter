@@ -23,15 +23,22 @@ resources, captures no Account, and exposes no opening method. The package stays
 `@epicenter/app`: it supplies tools for applications, including store declarations
 and independent resource constructors. `defineApp` is removed without an alias.
 
-The definition ID names the store's document, blob, and SQL namespaces. It uses the
-same reverse-domain grammar as host application IDs. A product may open several
+The definition ID names the store's document and SQL namespaces, and currently
+also names its blob namespace. [ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md)
+proposes hosted objects with owner-level URLs independent of that definition ID,
+while retaining the store's borrowed `.blobs` capability. The ID uses the same
+reverse-domain grammar as host application IDs.
+A product may open several
 store definitions; its installed application identity is a separate concern.
 Existing strings, address encodings, locks, and persisted bytes are unchanged.
 Renaming the constructor does not authorize renaming a store's ID.
 
 Products acquire usable handles through `openLocal(definition)` and
-`openPersonal(definition, { account })`. The store owns tables, KV, blobs, and
-terminal cleanup. [ADR-0436](0436-stores-own-local-sqlite-namespaces.md) adds
+`openPersonal(definition, { account })`. The store owns tables, KV, its borrowed
+blob capability, and terminal cleanup. The target retains Local blob storage
+and publishes hosted bytes through Personal or Shared stores without putting
+their definition IDs into hosted URLs.
+[ADR-0436](0436-stores-own-local-sqlite-namespaces.md) adds
 store-owned local SQLite; this acquisition is implemented. Recording
 borrows Local blobs. Secrets and inference have independent constructors. Product code expresses workflow dependencies and
 page lifetime; it does not recreate a generic App handle or resource tree.

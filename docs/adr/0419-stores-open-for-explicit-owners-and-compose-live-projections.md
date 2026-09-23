@@ -48,10 +48,14 @@ await local.close();
 ```
 
 Every opened store owns `tables`, `kv`, and `blobs`. Its definition ID selects
-the blob namespace; its captured owner selects device-local, personal remote,
-or future shared remote access. [ADR-0372](0372-local-and-remote-blobs-open-independently.md)
-owns the blob operations and store cleanup contract. Bytes remain outside the
-Yjs document and are transferred explicitly.
+the device-local blob namespace. For hosted blobs, its captured Personal or
+Shared owner selects publication and deletion authority, while the returned URL
+identifies the object independently of the definition under
+[ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md). Local and hosted
+`.blobs` have different operation contracts despite sharing the property name.
+[ADR-0372](0372-local-and-remote-blobs-open-independently.md) owns the current
+blob operations and store cleanup contract. Bytes remain outside the Yjs
+document and are transferred explicitly.
 
 Definitions may be identical or different across openings. A Local recording
 schema can keep an audio BlobId while a Personal schema stores only a transcript
@@ -156,10 +160,12 @@ epicenter/stores/<definition-id>/accounts/<server>/<account>/personal
 epicenter/stores/<definition-id>/accounts/<server>/<account>/shared/<shared-owner>
 ```
 
-These are flat names, not directories. Each store acquires its blob namespace
-with the document and owns both lifetimes. This public ownership change does
-not move existing blob paths into the proposed store-first layout; those paths
-remain as recorded in ADR-0426 until a separate migration is designed.
+These are flat names, not directories. Each store acquires its borrowed blob
+capability with the document and owns both lifetimes. The definition ID remains
+part of the device-local blob namespace but not the proposed hosted object URL.
+This public ownership change does not move existing blob paths into the proposed
+store-first layout; those paths remain as recorded in ADR-0426 until a separate
+migration is designed.
 Browser persistence need not reproduce native filesystem
 formats. Browser SQL can run in memory; persisted projections need a suitable
 browser backing such as OPFS, not a claim that IndexedDB is a SQLite file.

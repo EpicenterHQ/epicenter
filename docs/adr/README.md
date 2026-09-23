@@ -624,7 +624,7 @@ When you add an ADR, add its row here.
 
 | [0359](0359-the-document-factory-owns-readiness-and-closure.md) | The document factory owns readiness and closure | Proposed |
 
-| [0372](0372-local-and-remote-blobs-open-independently.md) | Each store owns its blob namespace | Proposed |
+| [0372](0372-local-and-remote-blobs-open-independently.md) | Each store owns its blob namespace | Accepted (hosted addressing and operations proposed to change in 0438; stores retain `.blobs`) |
 
 | [0380](0380-resource-handles-own-terminal-shutdown.md) | Resource handles own terminal shutdown | Proposed |
 
@@ -675,15 +675,16 @@ When you add an ADR, add its row here.
 | [0418](0418-push-translates-file-differences-into-ordinary-edits.md) | Push translates file differences into ordinary edits | Proposed |
 | [0419](0419-stores-open-for-explicit-owners-and-compose-live-projections.md) | Stores open for explicit owners and compose live projections | Proposed (amends 0406 at mandatory schema reuse; Shared, native persistence, and live projections remain unbuilt) |
 
-| [0423](0423-app-resources-open-as-independent-handles.md) | Stores own data, blobs, and SQLite while services open independently | Proposed |
+| [0423](0423-app-resources-open-as-independent-handles.md) | Stores own data, Local blobs, and SQLite while services open independently | Proposed |
 | [0424](0424-runtime-transcription-calls-the-host-directly.md) | Runtime transcription calls the host directly | Accepted (direct native API; amends 0398) |
 | [0425](0425-a-transcript-is-separate-from-its-latest-attempt.md) | A transcript is separate from its latest attempt | Proposed |
 | [0426](0426-copies-create-independent-blobs-at-their-destination.md) | Copies create independent blobs at their destination | Accepted |
 | [0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) | Opening a blob acquires presentation without retaining a copy | Accepted (scoped presentation transport; product worker registration remains deferred) |
-| [0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md) | Whispering recordings reference audio in their containing store | Accepted (amends 0426 at Whispering recording ownership; implementation unbuilt) |
+| [0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md) | Whispering recordings reference audio in their containing store | Accepted (current store-relative implementation) |
 | [0429](0429-store-handles-keep-account-identity-private.md) | Store handles keep account identity private | Accepted (public Personal identity removal unbuilt) |
 | [0430](0430-define-store-declares-data-and-products-compose-resources.md) | Store definitions declare data and products compose resources | Proposed |
 | [0431](0431-rows-return-values-and-own-a-separate-body.md) | Rows return values and own a separate body | Proposed (amends 0295 and 0309 at the row layout and API) |
 | [0432](0432-captures-form-a-timeline-of-recursively-openable-entries.md) | Captures form a timeline of recursively openable entries | Proposed |
 | [0436](0436-stores-own-local-sqlite-namespaces.md) | Stores own local SQLite namespaces | Accepted (implemented; Local Mail starts fresh) |
 | [0437](0437-sign-out-offers-removal-of-downloaded-account-data.md) | Sign-out offers removal of downloaded account data | Proposed (unbuilt) |
+| [0438](0438-hosted-blobs-have-stable-authority-urls.md) | Hosted blobs have stable authority URLs | Proposed (Local and hosted `.blobs` contracts and authority URLs unbuilt) |

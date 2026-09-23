@@ -1,4 +1,4 @@
-# 0423. Stores own data, blobs, and SQLite while services open independently
+# 0423. Stores own data, Local blobs, and SQLite while services open independently
 
 - **Status:** Proposed
 - **Date:** 2026-09-22
@@ -10,9 +10,9 @@
 
 The former aggregate opener acquired Local data, SQLite, secrets, recording,
 blobs, and AI as one App. Independent constructors replace that dependency tree.
-Store and blob acquisition repeat the same scope selection and product cleanup.
-The target groups tables, KV, blobs, and local SQLite under a store while keeping
-recording, inference, and secrets independently constructed. SQLite ownership is
+Current stores acquire both Local and remote blobs. The target keeps `.blobs`
+on each store while [ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md)
+gives hosted objects owner-level authority URLs. SQLite ownership is
 implemented as specified in [ADR-0436](0436-stores-own-local-sqlite-namespaces.md).
 
 ## Decision
@@ -32,11 +32,14 @@ and live stores consume the same declaration. An application may open several
 definitions; the definition ID names data, not the product's execution.
 
 An opened structured store holds one Yjs data document containing its tables,
-rows, and settings, and owns a blob namespace exposed as `store.blobs`. The
-store additionally owns a local SQL namespace exposed as `store.sqlite`. Local and Personal stores opened from the
-same definition are distinct datasets. Definitions can also differ by workflow.
-Audio bytes live outside the structured document even though the store owns
-these capabilities. Shared ownership does not make their writes atomic.
+rows, and settings. Stores lend a blob capability as `store.blobs`. The
+definition ID scopes Local bytes; proposed hosted URLs identify objects by
+owner independently of the definition. Local and hosted capabilities have
+different operations. The store additionally owns a
+local SQL namespace exposed as `store.sqlite`. Local and Personal stores opened
+from the same definition are distinct datasets. Definitions can differ by workflow.
+Audio bytes live outside the structured document. Neither current store
+ownership nor the target's hosted URL identity makes their writes atomic.
 
 Use “document” for this data document in application architecture explanations.
 Use “browser/WebView lifetime” explicitly when describing UI reload and handle
@@ -59,7 +62,7 @@ against the resource subpaths and `packages/app/README.md`.
 | Import | Constructor | Captured input |
 | --- | --- | --- |
 | `@epicenter/app/open` | `openLocal(definition)` | Definition; owns local tables, KV, blobs, and SQLite |
-| `@epicenter/app/open` | `openPersonal(definition, { account })` | Definition and account; owns personal tables, KV, remote blobs, and account-scoped local SQLite |
+| `@epicenter/app/open` | `openPersonal(definition, { account })` | Definition and account; currently owns personal tables, KV, remote blobs, and account-scoped local SQLite |
 | `@epicenter/app/secrets` | `openSecrets({ id })` | Device-local secret namespace |
 | `@epicenter/app/recorder` | `createRecorder({ localBlobs: local.blobs })` | Borrowed Local blob destination |
 
@@ -69,8 +72,11 @@ Blob transfer and recorder dependencies are specified in
 [ADR-0372](0372-local-and-remote-blobs-open-independently.md) and
 [ADR-0366](0366-a-recorder-captures-into-its-explicit-local-blob-destination.md).
 
-Store definitions contain their ID and schema. The ID selects the document, blob, and SQL
-namespaces; the opener fixes their ownership. Every store exposes `blobs` and `sqlite`.
+Store definitions contain their ID and schema. The ID selects the document and
+SQL namespaces, and currently selects the blob namespace. Today every store
+exposes `blobs` and `sqlite`; proposed hosted publication remains on the
+borrowed `personal.blobs` or `shared.blobs` capability, without making the
+definition ID part of the hosted URL.
 The public store shape keeps account identity private under
 [ADR-0429](0429-store-handles-keep-account-identity-private.md); openers capture
 Personal identity privately and handles expose no Account projection.
@@ -88,9 +94,10 @@ databases. This capability is distinct from a derived store SQL projection.
 Secrets retain `get`, `put`, and `delete`; browser secrets last for the document,
 and desktop secrets use the keychain.
 
-Local data, blobs, Local SQLite, secrets, and recording destinations take no Account.
+Local data, Local blobs, Local SQLite, secrets, and recording destinations take no Account.
 They retain the same namespace across sign-in and account replacement. Personal
-data, remote blobs, and Personal SQLite require an Account and capture its identity and transport
+data, current remote blobs, and Personal SQLite require an Account and capture
+its identity and transport
 before asynchronous acquisition. Replacing an account never retargets a handle.
 Saved AI catalogs retain their separate account partitions; this decision does
 not merge their credentials into device-global storage.
@@ -119,9 +126,9 @@ helper is ordinary composition, not a new SDK owner. Svelte distribution and
 the `get*`/`set*` naming rule are specified in
 [ADR-0392](0392-product-boundaries-provide-required-resource-handles.md).
 
-Keep the definition generic needed for table and KV inference. Blob ownership
-adds no schema, backend, or transfer generic. Extend the concrete store runtime
-with complete isolated blob and SQL bindings for tests; do not fall through to ambient
+Keep the definition generic needed for table and KV inference. Local blob ownership
+adds no schema, backend, or transfer generic. Current stores need complete isolated
+blob and SQL bindings for tests; do not fall through to ambient
 production storage. Keep provenance and admitted-work tracking even if their
 helpers move beside the owning implementation. Delete forwarding-only modules
 when they add no contract; do not delete a boundary solely to reduce file count.
@@ -161,13 +168,17 @@ Every root resource owner exposes `signal` and an asynchronous, terminal, idempo
 work. Close settles admitted operations and releases owned resources. Repeated close observes the same outcome. Failed
 cleanup retains exclusion wherever another owner could race unfinished writes;
 page or process teardown remains the recovery boundary. A resource never closes
-an unrelated sibling. A store fences and closes its document, blobs, and SQL namespace;
-the borrowed `.blobs` and `.sqlite` capabilities have no independent public close.
+an unrelated sibling. Today a store fences and closes its document, blobs, and
+SQL namespace; the borrowed `.blobs` and `.sqlite` capabilities have no
+independent public close. Under ADR-0438, hosted publication uses the store's
+captured owner and Account. Store close fences the borrowed capability without
+deleting published objects.
 Failed store opening unwinds every acquisition. Closing preserves committed data and credentials.
 
 Dependencies are directional. A recorder borrows its LocalBlobs destination:
 recorder close leaves blobs usable; blob close retires its recorders and waits
-for admitted publication and capture cleanup. A transfer admitted through
+for admitted publication and capture cleanup. In the current API, a transfer
+admitted through
 `destination.copyFrom(source, blobId)` belongs to both handles until it settles. Either
 owning store's close cancels that transfer and waits for settlement without closing
 the other store. These requirements do not mandate a generic dependency graph
@@ -191,10 +202,11 @@ handles while replacement is pending.
 ## Consequences
 
 The SDK loses borrowed `device` assembly, optional account capability branches,
-and mandatory initialization of unrelated services. Each store owns document, blob, and SQL namespace acquisition, cancellation,
-and cleanup as one scope. Services retain
-their own lifetimes. Product startup owns the
-small amount of composition it actually performs.
+and mandatory initialization of unrelated services. Each target store owns its
+document, Local blobs when applicable, and SQL namespace. Personal and Shared
+stores lend hosted `.blobs` capabilities; published objects retain independent
+identities and lifetimes. Services retain their own lifetimes. Product startup
+owns the small amount of composition it actually performs.
 
 Local content remains visible to users of the same device profile after account
 changes. Applications requiring per-person mail or credential isolation cannot
@@ -202,15 +214,10 @@ infer it from Local: their product data model must provide it. AI catalog
 account isolation remains separate. Changing APIs does not rename durable
 addresses, adopt old account-local bytes, or authorize migration or deletion.
 
-The existing implementation is transitional. The integrated ownership cut makes
-stores own document and blob acquisition, moves consumers to `.blobs`, and
-removes standalone public blob openers together. An isolated API milestone may
-precede product migration but must report broken consumers and must not claim
-application integration or merge readiness. Retain internal adapters that
-publication and transport need. Do not introduce an optional blob mode or a
-second public ownership path.
-Fresh-destination copies and remote presentation still need their own evidence
-under ADR-0372, ADR-0426, and ADR-0427. Product composition helpers must not
+The existing implementation is transitional. The earlier integrated ownership
+cut moved blob acquisition into stores and consumers to `.blobs`. The hosted
+URL direction changes remote object identity and publication methods while
+keeping that borrowed capability. Product composition helpers must not
 reintroduce the removed SDK App owner. Shared stores, native document persistence,
 and new storage layouts remain separate work.
 
@@ -229,6 +236,9 @@ and new storage layouts remain separate work.
 
 ## Verification
 
+The store-owned blob checks below verify the implemented API. ADR-0438 requires
+separate hosted publication and authorization evidence before changing it.
+
 Before removing App, verify each handle's failed acquisition, retained-method
 fencing, repeated close, and release after successful cleanup. Check duplicate
 persistence ownership, SQLite delete/reopen, recorder Stop racing blob close,
@@ -236,7 +246,9 @@ transfer cancellation from either owner, and AI response-body cancellation.
 Verify source-accurate native recording and upload without materializing audio
 in the WebView. Check account catalog isolation, late temporary acquisition, terminal page
 startup failure, and the platform-free root import graph. A page can open
-multiple stores with different blob namespaces; no extra data-selection primitive is introduced.
+multiple stores with different Local blob namespaces. Hosted objects stay at
+their captured owner's authority across those definitions; no extra
+data-selection primitive is introduced.
 Verify that store opening acquires usable blob and SQL access, failure unwinds all
 children, and store close fences all children before awaiting cleanup. A failed
 table open also prevents blob and SQL access; this dependency is the cost of one owner.

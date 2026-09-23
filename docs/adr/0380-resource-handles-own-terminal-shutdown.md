@@ -38,10 +38,12 @@ retires its recorders and waits for admitted publication. A transfer is tracked
 by both owning stores; either close cancels it and waits for settlement. These
 concrete dependencies need no public cleanup registry or generic lease graph.
 
-In the target API, Local and remote blob access are borrowed `store.blobs`
+In the current API, Local and remote blob access are borrowed `store.blobs`
 capabilities. Their cleanup responsibilities above belong to `store.close()`;
-there is no independent public child closer. Closing Local also retires its
-dependent recorders. Closing Personal leaves Local usable. Failed store opening
+there is no independent public child closer. ADR-0438 proposes hosted object
+identity independent of the store definition, while Personal and Shared stores
+still lend owner-bound `.blobs` capabilities fenced by `store.close()`. Closing
+Local also retires its dependent recorders. Closing Personal leaves Local usable. Failed store opening
 unwinds both its document and blob acquisitions. Retained child methods refuse
 after the store fences admission, while admitted Stop publication can settle.
 

@@ -2,99 +2,71 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
-- **Implementation (2026-09-22):** Whispering retains `audioBlobId` and a scoped `remoteAudio` reference returned by fresh-ID copying. Separate Local/Personal row schemas remain a design direction.
-- **Amends:** [ADR-0154](0154-blob-access-is-address-only.md) at local inventory: app-local blobs can be listed independently of rows; remote access remains address-only. [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at attachment ownership: rows store ordinary references without owning publication, transfer, or deletion of bytes.
+- **Unbuilt:** Hosted authority URLs in Personal and Shared rows. Current Whispering rows still carry store-relative `audioBlobId` values.
+- **Amends:** [ADR-0154](0154-blob-access-is-address-only.md) at local listing: device-local blobs can be listed independently of rows; hosted access remains address-only. [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at attachment ownership: rows store ordinary references without owning publication, transfer, or deletion of bytes.
+
+## Context
+
+Whispering currently saves audio through a store's `.blobs` handle and writes
+the returned BlobId into a recording row. Saving to Personal copies the bytes
+and creates a separate row. The row and byte operations commit independently.
+[ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md) proposes an authority
+URL as the hosted object's durable address; it is not the current API.
 
 ## Decision
 
-**The store owns blob access; rows carry optional, ordinary references.**
+**A row may cite bytes, but its lifetime does not own them.**
 
-Every opened store has `blobs`, even when none of its rows references audio.
-Local and Personal definitions can differ. A Local recording may retain its
-saved audio BlobId while a Personal row contains only text. Personal does not
-need a device-local audio field merely because Local has one. A Personal row
-that deliberately references hosted audio can use an ID in `personal.blobs`.
-The application maps fields and explicitly copies required bytes; store opening
-does neither. This records the schema direction, not an implemented Whispering
-schema migration or a requirement that Personal must never reference audio.
+Local rows may contain a device-local BlobId. A Personal or Shared row
+that cites hosted bytes contains the complete, credential-free authority URL as
+an ordinary declared string value. The URL identifies an immutable object
+with a fixed owner; signing into another account cannot reinterpret it. An
+application maps references when it publishes or copies bytes between
+owners. Store opening and Yjs synchronization do not transfer bytes.
 
-Blob references are ordinary declared row values. A row that references bytes stores a BlobId and
-whatever placement scope its enclosing context does not already supply.
-[ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) defines
-identity separately from server, principal, and namespace. A credential-free
-remote locator can remain a representation of that scope; temporary presentation
-URLs and access grants must never become durable references. The framework does not introduce an
-owning blob field, one-file-per-row rule, synchronization obligation, or server
-reference-liveness index. Byte payloads are not embedded in the synced document.
+No `field.blob()`, `field.attachment()`, one-file-per-row rule, automatic byte
+queue, or server reference-liveness index follows from a cited URL. Temporary
+download or presentation grants are never durable row values. A URL is an
+address, not a credential: the authority checks personal ownership,
+space membership, or public visibility on each read. Application code
+chooses whether to fetch a private URL with its captured Account or present a
+public URL directly.
 
-Current Whispering stores `audioBlobId` as the Local key and optional
-`remoteAudio` with the returned destination BlobId, namespace, authority, and
-principal. Copies create fresh destination IDs. Saving the new reference is a
-separate row write; a failure must retain that reference for recovery. A new
-sign-in must not reinterpret an earlier remote placement. A reference for another
-account does not suppress an explicit upload into the current account.
-Availability remains an observation, not a permanent uploaded boolean.
-Stop saves bytes before row creation. A row
-write can fail afterward, leaving a complete blob discoverable through local
-list. Importing audio saves a Blob/File first and then creates the row.
+The row may hold a title, transcript, dates, and application-specific media
+details. The hosted object does not gain a reverse row ID. Several rows
+may cite one URL, and an object may have no row. Deleting a row deletes only
+that row. Explicit blob deletion can leave a broken citation. Losing the last
+citation can leave an unreachable hosted object; there is no user-facing hosted
+inventory or automatic reclaim pass. Internal object-store listing does not
+make a parent authority URL a public collection endpoint.
 
-Titles, transcripts, recording dates, and application-specific media details
-belong in the recording row, not beside the audio in a JSON file. Preserve an
-exact content type or codec description in a declared row field only when a
-workflow needs more than the key's conventional format. Do not add a second
-metadata catalog or require that field for ordinary key-only playback.
+Publication comes before saving a new row reference. If the row write fails,
+the application retains the known URL and row values for retry. It can retry
+the same row write when its row ID is known. If row creation was accepted but
+the caller lost its row ID, it cannot promise a duplicate-free retry. A lost
+publication response can leave an object whose URL the caller never received;
+retrying publication may create another object. No atomic transaction spans
+Yjs, local bytes, and hosted storage.
 
-The row points to the blob; the blob does not store a reverse recording ID.
-Two rows can refer to one immutable file. A row may refer to several blobs;
-a blob may exist with no row. One recording per audio file is Whispering's
-convention, not a framework cardinality or row-derived address. Changing a title
-leaves its key unchanged. Conversion creates new bytes under a new key. The same
-extension-bearing key identifies a desktop file and a browser database record,
-but sharing a row does not copy bytes between those storage environments.
-
-Deleting a row deletes the row. An application may separately attempt local or
-remote deletion, but missed cleanup is accepted. A store may offer inspection
-and cleanup while open; no background service must determine row existence.
-Absence from one device's current row view is not proof that a blob is orphaned.
-An application can compare local enumeration with its known references to
-present cleanup candidates. It must account for other stores, trashed rows,
-and publication that has not yet created its row before deleting anything.
-Unknown or unavailable store contents cannot certify a blob as unused.
-
-A remote object can outlive the row's URL, and a row can retain a URL whose
-object was deleted. Applications report unavailable content; storage does not
-repair one side automatically.
-
-On September 17, 2026, the user confirmed zero users and no existing data and
-authorized the complete-key clean break. Row validators accept full saved keys;
-no migration, reset, or fallback reader runs.
-
-Materialization preserves blob IDs and credential-free placement references as
-ordinary row values.
-It copies no blob bytes and performs no remote fetch. A saved folder preserves
-those references, not their availability (ADR-0394). Recovering old content
-through Push has the same rule (ADR-0395).
-
-The structural archive and its byte-installation helpers were removed after
-the caller audit in ADR-0379. Materialization has no path that embeds blob bytes.
+Materialization writes BlobIds and URLs as ordinary values. It does not copy
+their bytes or prove future access to a private URL. Push must treat a changed
+reference as an application-permitted field edit, never as an instruction to
+publish or delete an object.
 
 ## Consequences
 
-Row synchronization does not imply audio availability. Applications decide how
-to present missing local files and whether to upload or fetch remote content.
-There is no atomic transaction across Yjs, local bytes, and remote storage.
-
-The former finished-file handoff, attachment content evidence, automatic byte
-queue, and generation admission do not belong to the application blob path.
-Recording owns publication and ordinary rows carry its resulting address.
+Row synchronization does not establish byte availability. A Personal URL can
+be unavailable because the object was deleted, the Account lacks access, or
+the authority is offline. A local replica of a Personal or Shared row retains
+its URL, not a persistent local copy of its bytes. A saved working folder also
+retains the citation but not the bytes. Local enumeration remains useful for
+device-local maintenance; hosted object listing remains a deployment operation.
 
 ## Considered alternatives
 
-- Address files by table and row: couples independent identities and prevents
-  storing a file before a row exists.
-- Delete bytes whenever a row disappears: requires a reliable global liveness
-  view and creates data-loss races with offline replicas.
-- Guarantee no orphan objects: requires transactions or durable reconciliation
-  across storage systems.
-- Store small image bytes in Yjs: adds payload and initial-hydration cost to every
-  replica, including devices that never display the image.
+- Delete bytes when the last row disappears: requires a reliable liveness view
+  across offline replicas and other applications.
+- Maintain a hosted inventory independent of rows: keeps uncited objects
+  findable but adds a catalog and retention promise.
+- Store bytes in Yjs: makes every replica receive large payloads it may never
+  play.

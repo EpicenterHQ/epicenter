@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-19
 - **Amends:** [ADR-0089](0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md) and [ADR-0091](0091-blobs-trade-a-file-for-a-durable-content-addressed-url-documents-are-the-only-manifest.md)
-- **Amended by:** [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) at blob references: rows carry ordinary local BlobIds or remote URLs, local listing remains available for app-local maintenance, remote access remains address-only, and [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) defines copies that return fresh BlobIds at independent destinations. The row address, `field.blob()` inventory, and an ADR-0394 reclaim pass do not govern blob lifetime.
+- **Amended by:** [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) at ordinary references and local listing; [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at fresh destination BlobIds; [ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md) at hosted addressing, where the authority URL is the retained reference. Hosted access remains address-only, without a user-facing inventory.
 
 ## Context
 

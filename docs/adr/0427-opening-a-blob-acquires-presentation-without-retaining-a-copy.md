@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-22
 - **Implementation (2026-09-22):** The scoped API and transport are implemented. Whispering uses store-owned blobs and scoped copy references; product playback-worker registration remains deferred; see the [verification report](../reports/20260922-store-owned-blobs-implementation.md).
+- **Amended by:** [ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md) at hosted access, where an authority URL can be fetched without a required remote `open` transport. Local presentation remains separate.
 - **Amends:** [ADR-0089](0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md) at mandatory presigned/redirected read transport; [ADR-0090](0090-the-blob-layer-stays-plaintext-confidentiality-belongs-to-the-encrypting-consumer.md) at the claim that plaintext alone provides ranged playback. Consumer-owned encryption remains unchanged.
 
 ## Context
