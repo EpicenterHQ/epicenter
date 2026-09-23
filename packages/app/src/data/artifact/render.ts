@@ -10,10 +10,10 @@
  * and its body node go in the same file, so they are read in the same function
  * and never rejoined.
  *
- * **The platform owns the format; the table owns the mapping** (ADR-0296).
+ * **The platform owns the format; the table owns the body mapping** (ADR-0296).
  * What is here is the fence: the frontmatter block, the blank separator, and
- * the body beneath it. What the codec answers is which values go above the
- * fence and what text goes below it.
+ * the body beneath it. Stored fields go above the fence; the codec turns the
+ * body node into the text below it.
  *
  * Composed on the opened data's public surface, so it is a follower and never
  * a store verb. It reads; nothing it returns can reach back in.
@@ -83,11 +83,6 @@ export const RenderError = defineErrors({
 export type RenderError = InferErrors<typeof RenderError>;
 
 /**
- * The slice of opened data a render reads: the faithful reads, and each
- * table's body node. Structural on purpose, so any typed or untyped view
- * satisfies it.
- */
-/**
  * What a render needs, and it is not a table handle.
  *
  * Two faithful reads, both on the store: everything, and one row. A handle
@@ -102,8 +97,8 @@ export type RenderableData = {
 	 * The raw reads, declared as the slice this module needs rather than taken
 	 * as a whole store.
 	 *
-	 * They live under `store` because they are not application verbs: they
-	 * return keys this release no longer declares and rows it cannot conform,
+	 * They are direct store methods because they return keys this release no
+	 * longer declares and rows it cannot conform,
 	 * which is the one thing an export may not narrow (ADR-0267). A table
 	 * handle answers what an application can see; these answer what is there.
 	 */
@@ -138,9 +133,8 @@ export type RenderedRow = {
  * names, so rendering through the lens would drop a value an older release
  * wrote: the row still conforms, so it is not reported as nonconforming, and
  * the value is simply gone from the file. That is the one thing an artifact
- * may not do, which is why the codec is handed the STORED payload rather than
- * a conformed row, and why a codec that spreads what it was given keeps
- * everything the store holds.
+ * may not do. The artifact writes the stored payload as frontmatter and hands
+ * only the body node to its codec.
  */
 export async function renderRow(
 	data: RenderableData,

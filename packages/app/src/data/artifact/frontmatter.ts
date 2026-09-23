@@ -18,9 +18,8 @@
  * boundary remain here; malformed YAML never falls back to guessed strings.
  */
 import { parseMarkdown } from '@epicenter/matter-core/parse';
-import { isJsonObject } from '../definition/json.js';
-
 import type { JsonObject, JsonValue } from '../definition/index.js';
+import { isJsonObject } from '../definition/json.js';
 
 /** A key YAML takes unquoted without reinterpretation: the field grammar. */
 const BARE_KEY = /^[A-Za-z][A-Za-z0-9_]*$/;
@@ -55,8 +54,8 @@ function yamlValue(value: JsonValue | undefined): string {
  * One row's whole export file: frontmatter, and the body when there is one.
  *
  * A blank line separates the block from the body for legibility; a row with
- * no body (a table without a document block, or a codec that serialized the
- * empty document to nothing) is the frontmatter block alone.
+ * no body text (an omitted codec or a codec that encoded an empty body) is
+ * the frontmatter block alone.
  */
 export function rowFile(fields: JsonObject, body: string | undefined): string {
 	const block = frontmatter(fields);

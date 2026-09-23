@@ -542,8 +542,7 @@ export function createAgentChatState({
 			conversationId,
 			createConversationHandle(conversationId, messages),
 		);
-		// The open resolved after the reconcile that requested it, so re-run the
-		// selection rule now that the handle exists.
+		// Select a live handle after installing it.
 		if (selection.current === null || !handles.has(selection.current)) {
 			selection.select(conversationId);
 		}
