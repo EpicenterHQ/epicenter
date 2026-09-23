@@ -53,7 +53,7 @@ Concrete regressions to watch for:
 - **Noisy `satisfies` generic lists**: if a return object should prove it extends a generic contract but `satisfies Contract<A, B, C> & Extras` forces callers to restate inferred table, action, or runtime types, prefer a constrained identity helper owned by the contract module. Example: `return defineWorkspace({ ...workspace, ...runtime })` where the helper accepts `TWorkspace extends Workspace<...>` and returns `TWorkspace`. This keeps the call site readable, preserves the exact inferred return type, and leaves Go-to-Def on the real object members.
 - **When not to add `defineX`**: do not wrap a simple `satisfies` check just to give it a helper name. If the contract has no required type arguments, or its generics have defaults that make `satisfies Contract` readable, prefer `satisfies`. The helper only earns the extra name when it removes generic noise the reader would otherwise have to carry.
 
-For broader public-shape decisions that affect navigation across packages, see `greenfield-clean-breaks`.
+For broader public-shape decisions that affect navigation across packages, see `rethink`.
 
 ## Reference Map
 

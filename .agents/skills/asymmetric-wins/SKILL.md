@@ -45,9 +45,10 @@ simplification.
   docs paths, and other code-family evidence before the refusal is executed.
 - `ui-design` owns visual direction, accessibility, brand, and whether a
   UI detail is load-bearing before pixel fidelity is refused.
-- `greenfield-clean-breaks` executes the resulting breaking change, wave ordering,
-  and old-path deletion.
-- `radical-options` links here instead of re-deriving the refusal move.
+- [Rethink's clean-break reference](../rethink/references/clean-breaks.md) guides
+  the resulting replacement, verification, and old-path deletion. Use
+  [rethink](../rethink/SKILL.md) when the refusal calls for developing a new
+  destination.
 
 ## Domain Manifestations
 

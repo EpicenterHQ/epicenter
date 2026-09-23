@@ -344,16 +344,11 @@ Break into phases. Use checkboxes for tracking. Phase 1 should be detailed; late
 
 #### Wave ordering for clean breaks: Build, Prove, Remove
 
-If the spec replaces an old code path with a new one, write separate phases:
-
-```txt
-1. Build the new path                     (waves 1 to N)
-2. Stop importing the old path             (one wave; old code stays on disk, unused)
-3. Verify (typecheck, tests, smoke)        (one wave; rollback is one revert)
-4. Delete the old path                     (final cleanup wave)
-```
-
-Do not schedule deletion before verification passes. [greenfield-clean-breaks](../greenfield-clean-breaks/SKILL.md) owns the full Build, Prove, Remove rationale.
+If the spec replaces an old code path, plan how consumers switch to the new path,
+what proves the replacement works, and how recovery remains possible before
+retirement. Use [rethink's clean-break reference](../rethink/references/clean-breaks.md)
+for separable and inseparable replacements. Let dependencies determine the
+phases rather than imposing a fixed wave count.
 
 ### Edge Cases
 

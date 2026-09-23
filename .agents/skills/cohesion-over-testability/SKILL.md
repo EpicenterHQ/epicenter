@@ -21,10 +21,9 @@ and find a different way to pay the regression-coverage bill: integration
 tests through the real boundary, type-level invariants, or deletion of a
 test that was insuring trivial branch logic at high seam cost.
 
-Related skills: [greenfield-clean-breaks](../greenfield-clean-breaks/SKILL.md)
-owns the decision once you find a candidate; [refactoring](../refactoring/SKILL.md)
-for caller counting and inlining mechanics; [radical-options](../radical-options/SKILL.md)
-when the helper is honoring a bad shape; [testing](../testing/SKILL.md)
+Related skills: [rethink](../rethink/SKILL.md) develops the replacement when a
+candidate reveals a flawed surrounding design; [refactoring](../refactoring/SKILL.md)
+owns caller counting and inlining mechanics; [testing](../testing/SKILL.md)
 for what the post-collapse tests should look like;
 [one-sentence-test](../one-sentence-test/SKILL.md) to confirm the inner
 function has no independent product sentence.

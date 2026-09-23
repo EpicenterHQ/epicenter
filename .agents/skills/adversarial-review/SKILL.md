@@ -143,11 +143,12 @@ coordination, read [references/deletion-prizes.md](references/deletion-prizes.md
 
 Use focused skills for deeper decisions, without copying their procedures:
 
-- [radical-options](../radical-options/SKILL.md) when local fixes preserve a bad
-  abstraction and the better design may sit one level above it.
+- [Rethink's radical-options reference](../rethink/references/radical-options.md)
+  when local fixes preserve a bad abstraction and the better design may sit one
+  level above it.
 - [asymmetric-wins](../asymmetric-wins/SKILL.md) when refusing a small promise
   could delete a disproportionate code family. Name who loses what.
-- [greenfield-clean-breaks](../greenfield-clean-breaks/SKILL.md) when the finding
+- [rethink](../rethink/SKILL.md) when the finding
   changes ownership, lifecycle, public contracts, or package boundaries. Use
   its design reasoning here; execution belongs to the coordinating agent.
 

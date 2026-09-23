@@ -10,7 +10,7 @@ metadata:
 
 Related skills: use [post-implementation-review](../post-implementation-review/SKILL.md)
 when the sentence is part of a post-change second read, and
-[greenfield-clean-breaks](../greenfield-clean-breaks/SKILL.md) when the sentence
+[rethink](../rethink/SKILL.md) when the sentence
 drives an API, ownership, lifecycle, or package boundary change.
 
 **Core move.** Before continuing, stop and write one concrete sentence that describes the subject. Name the objects, verbs, and scope. No marketing words. No "flexibly handles." No "unified experience." Then use the sentence as an audit tool.
