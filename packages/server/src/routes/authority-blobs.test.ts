@@ -207,7 +207,8 @@ test('HEAD, ranges, and conditional status survive the proxy', async () => {
 	);
 	expect(range.status).toBe(206);
 	expect(range.headers.get('content-range')).toBe('bytes 0-3/10');
-	expect(requests[1]!.headers.get('range')).toBe('bytes=0-3');
+	expect(requests[1]?.method).toBe('HEAD');
+	expect(requests[2]?.headers.get('range')).toBe('bytes=0-3');
 	expect(
 		(
 			await setup(null).request(
@@ -217,7 +218,28 @@ test('HEAD, ranges, and conditional status survive the proxy', async () => {
 			)
 		).status,
 	).toBe(400);
-	expect(requests).toHaveLength(2);
+	expect(requests).toHaveLength(3);
+});
+
+test('If-Range serves the full object when its validator does not match', async () => {
+	const requests: Request[] = [];
+	globalThis.fetch = (async (input, init) => {
+		const request = new Request(input, init);
+		requests.push(request);
+		const headers = { etag: '"current"', 'content-type': 'text/plain' };
+		if (request.method === 'HEAD') return new Response(null, { headers });
+		return request.headers.has('range')
+			? new Response('abc', { status: 206, headers })
+			: new Response('abcdefghij', { headers });
+	}) as typeof fetch;
+	const response = await setup(null).request(
+		object,
+		{ headers: { range: 'bytes=0-2', 'if-range': '"old"' } },
+		config,
+	);
+	expect(response.status).toBe(200);
+	expect(await response.text()).toBe('abcdefghij');
+	expect(requests.at(-1)?.headers.has('range')).toBe(false);
 });
 
 test.each([

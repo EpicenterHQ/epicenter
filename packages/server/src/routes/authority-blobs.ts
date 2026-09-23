@@ -43,13 +43,36 @@ export function mountPersonalAuthorityBlobs<E extends Env>(
 		const store = resolveDeploymentBlobStore(c.env);
 		if (!store) return c.text('Blob storage is unavailable', 503);
 		const forwarded = new Headers();
-		for (const name of ['range', 'if-match', 'if-range']) {
+		for (const name of ['range', 'if-match']) {
 			const value = c.req.header(name);
 			if (value !== undefined) forwarded.set(name, value);
 		}
 		const range = forwarded.get('range');
 		if (range !== null && !/^bytes=(?:\d+-\d*|-\d+)$/.test(range))
 			return c.text('A single byte range is required', 400);
+		if (c.req.method === 'HEAD') forwarded.delete('range');
+		const ifRange = c.req.header('if-range');
+		if (c.req.method === 'GET' && range !== null && ifRange !== undefined) {
+			const metadata = await store.get(address.storageKey, c.req.raw.signal, {
+				method: 'HEAD',
+				headers: new Headers(),
+			});
+			if (metadata.status === 404) {
+				await metadata.body?.cancel();
+				return c.notFound();
+			}
+			if (metadata.status !== 200) {
+				await metadata.body?.cancel();
+				return c.text('Blob storage read failed', 502);
+			}
+			const etag = metadata.headers.get('etag');
+			const lastModified = metadata.headers.get('last-modified');
+			await metadata.body?.cancel();
+			const matches =
+				(ifRange.startsWith('"') && etag === ifRange) ||
+				(lastModified !== null && lastModified === ifRange);
+			if (!matches) forwarded.delete('range');
+		}
 		const response = await store.get(address.storageKey, c.req.raw.signal, {
 			method: c.req.method === 'HEAD' ? 'HEAD' : 'GET',
 			headers: forwarded,

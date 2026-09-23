@@ -2,7 +2,9 @@
 
 Date: 2026-09-24 (Singapore)
 
-Result: **passed**. No API or storage code change was needed.
+Result: **passed** for the Personal lifecycle and Chrome audio playback. A later
+conditional-range probe exposed one HTTP correctness bug, repaired in the
+authority route after this first pass.
 
 ## Environment
 
@@ -18,6 +20,18 @@ Result: **passed**. No API or storage code change was needed.
 - The public object contained a valid one-second, 8 kHz PCM WAV. Anonymous GET returned exact bytes and `audio/wav`, `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`, and `Content-Security-Policy: sandbox; default-src 'none'`. Anonymous HEAD returned the correct length with no body. Anonymous `bytes=44-63` GET returned 206, the expected `Content-Range`, and exact bytes.
 - A different principal could not delete the public object (403). An unauthenticated public DELETE was also denied (403). The owner deleted both objects (204); subsequent reads returned 404. Listing the disposable S3 bucket after the run showed no objects.
 - Headless Chrome loaded the public WAV in an HTML `<audio>` element. Its network response was 206 with `audio/wav`, `inline`, `nosniff`, sandbox CSP, `Accept-Ranges: bytes`, and `Content-Range: bytes 0-16043/16044`. `loadedmetadata` fired with a one-second duration and `readyState` 4. `audio.play()` resolved, playback was unpaused, and `currentTime` advanced beyond 0.22 seconds without a media error.
+
+## Conditional range follow-up
+
+The first pass did not exercise a mismatched `If-Range` validator. A later
+request for `bytes=0-2` with a false ETag returned 206 and `abc` from a ten-byte
+object. [HTTP semantics](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.5)
+require the full representation when `If-Range` does not match.
+The route now checks the current storage validator before requesting the range.
+Against the same disposable gateway, a matching ETag returned 206 and `abc`;
+a mismatched or weak ETag returned 200 and `abcdefghij`. The object was deleted
+afterward. The focused blob suites passed 24 tests and 80 assertions, and the
+server package typecheck passed.
 
 ## Limits
 
