@@ -21,7 +21,6 @@
  */
 
 import { expect, mock, test } from 'bun:test';
-import { generateBlobId, REMOTE_BLOB_ROUTES } from '@epicenter/blobs';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { CURRENT_ROUTE, STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { makeSignature } from 'better-auth/crypto';
@@ -68,9 +67,6 @@ type Surface = {
 /** The origin every probe and both entries answer on; the path is what matters. */
 const ORIGIN = 'http://localhost:8787';
 
-/** A complete key accepted by the shared blob route parser. */
-const PROBE_BLOB_ID = generateBlobId('wav');
-
 const PROFILE: Surface[] = [
 	{
 		surface: 'health',
@@ -101,21 +97,16 @@ const PROFILE: Surface[] = [
 		bun: 'served',
 	},
 	{
-		surface: 'mountBlobsApp (collection)',
+		surface: 'Personal authority collection',
 		method: 'POST',
-		url: REMOTE_BLOB_ROUTES.collectionUrl(ORIGIN, 'so.epicenter.notes'),
+		url: `${ORIGIN}/api/blobs/personal/probe/private`,
 		worker: 'served',
 		bun: 'served',
 	},
 	{
-		surface: 'mountBlobsApp (by id)',
-		method: 'GET',
-		url: REMOTE_BLOB_ROUTES.objectUrl(
-			ORIGIN,
-			'so.epicenter.notes',
-			'probe',
-			PROBE_BLOB_ID,
-		),
+		surface: 'Personal authority object',
+		method: 'DELETE',
+		url: `${ORIGIN}/api/blobs/personal/probe/private/AAAAAAAAAAAAAAAAAAAAAA`,
 		worker: 'served',
 		bun: 'served',
 	},
@@ -258,6 +249,14 @@ test('the Bun entry serves its declared profile', async () => {
 	);
 });
 
+test('anonymous public blob reads bypass hosted session setup on both runtimes', async () => {
+	const url = `${ORIGIN}/api/blobs/personal/probe/public/AAAAAAAAAAAAAAAAAAAAAA`;
+	for (const fetcher of [await workerFetcher(), await bunFetcher()]) {
+		const response = await fetcher(new Request(url));
+		expect(response.status).toBe(503); // Storage is deliberately unconfigured.
+	}
+});
+
 test('an unmounted path reads as absent on both runtimes', async () => {
 	for (const fetcher of [await workerFetcher(), await bunFetcher()]) {
 		const response = await fetcher(
@@ -316,7 +315,7 @@ test('Worker public HTML shells and both runtimes unrelated 404s survive Postgre
 			for (const [method, path] of [
 				['DELETE', '/api/session'],
 				['GET', '/api/blobs'],
-				['PUT', `/api/blobs/${PROBE_BLOB_ID}`],
+				['PUT', '/api/blobs/personal/probe/public/AAAAAAAAAAAAAAAAAAAAAA'],
 				['GET', '/v1/chat/completions'],
 				['GET', '/v1/audio/transcriptions'],
 				['POST', '/api/billing/plans'],

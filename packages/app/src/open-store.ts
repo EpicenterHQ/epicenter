@@ -4,8 +4,7 @@ import { isAppId } from '@epicenter/constants/app-id';
 import { appClaimAddress } from '@epicenter/device/app-claim';
 import type { SqliteLifetime } from '@epicenter/device/owner';
 import { createLogger } from 'wellcrafted/logger';
-import { Ok, type Result } from 'wellcrafted/result';
-import { acquireRemoteBlobs } from './blob-owner.js';
+import type { Result } from 'wellcrafted/result';
 import { compileData, type DataDefinition } from './data/definition/index.js';
 import {
 	createStoreOverPort,
@@ -24,11 +23,14 @@ export async function openLocal<const TDefinition extends DataDefinition>(
 	{ runtime = indexedDbStoreRuntime }: { runtime?: StoreRuntime } = {},
 ) {
 	const id = definition.id;
-	return Object.freeze(
-		await openStore(definition, { kind: 'local' }, runtime, (assertUsable) =>
-			runtime.localBlobs(id, assertUsable),
-		),
+	const store = await openStore(
+		definition,
+		{ kind: 'local' },
+		runtime,
+		(assertUsable) => runtime.localBlobs(id, assertUsable),
 	);
+	if (!store.blobs) throw new Error('Local blob acquisition was absent.');
+	return Object.freeze(Object.assign(store, { blobs: store.blobs }));
 }
 
 /** Personal captures identity and transport together before any asynchronous work. */
@@ -39,7 +41,6 @@ export async function openPersonal<const TDefinition extends DataDefinition>(
 		runtime = indexedDbStoreRuntime,
 	}: { account: Account; runtime?: StoreRuntime },
 ) {
-	const id = definition.id;
 	const captured = Object.freeze({
 		authorityId: account.authorityId,
 		principalId: account.principalId,
@@ -52,8 +53,6 @@ export async function openPersonal<const TDefinition extends DataDefinition>(
 		definition,
 		{ kind: 'personal', account: captured },
 		runtime,
-		async (assertUsable) =>
-			Ok(await acquireRemoteBlobs({ id, account: captured, assertUsable })),
 	);
 	return Object.freeze(store);
 }
@@ -61,11 +60,11 @@ export async function openPersonal<const TDefinition extends DataDefinition>(
 const log = createLogger('app/store');
 
 /** The engine owns cleanup; this boundary owns exclusion until cleanup is proven. */
-async function openStore<const TDefinition extends DataDefinition, TBlobs>(
+async function openStore<const TDefinition extends DataDefinition, TBlobs = undefined>(
 	definition: TDefinition,
 	owner: StoreOwner,
 	runtime: StoreRuntime,
-	acquireBlobs: (
+	acquireBlobs?: (
 		assertUsable: () => void,
 	) => Promise<
 		Result<{ value: TBlobs; close(): Promise<void> }, BlobStoreFailed>
@@ -139,7 +138,7 @@ async function openStore<const TDefinition extends DataDefinition, TBlobs>(
 		if (!blobs) return;
 		return (blobClosing ??= (async () => blobs.close())());
 	}
-	const blobAcquisition = Promise.resolve()
+	const blobAcquisition = acquireBlobs && Promise.resolve()
 		.then(() => acquireBlobs(assertUsable))
 		.then(
 			(acquired) => {
@@ -153,7 +152,7 @@ async function openStore<const TDefinition extends DataDefinition, TBlobs>(
 				throw cause;
 			},
 		);
-	void blobAcquisition.catch(() => {});
+	void blobAcquisition?.catch(() => {});
 	function close(): Promise<void> {
 		if (closing) return closing;
 		const completion = Promise.withResolvers<void>();
@@ -172,7 +171,7 @@ async function openStore<const TDefinition extends DataDefinition, TBlobs>(
 			} catch (cause) {
 				failures.push(cause);
 			}
-			await blobAcquisition.catch(() => {});
+			await blobAcquisition?.catch(() => {});
 			try {
 				await closeBlobs();
 			} catch (cause) {
@@ -208,7 +207,7 @@ async function openStore<const TDefinition extends DataDefinition, TBlobs>(
 			document.ready.then((ready) => {
 				if (ready.error) throw ready.error;
 			}),
-			blobAcquisition.then((result) => {
+			blobAcquisition?.then((result) => {
 				if (result.error) throw result.error;
 				return result.data;
 			}),
@@ -220,7 +219,7 @@ async function openStore<const TDefinition extends DataDefinition, TBlobs>(
 			document.store,
 			document.view as DeclaredData<TDefinition>,
 			{
-				blobs: acquired.value,
+				...(acquired ? { blobs: acquired.value } : {}),
 				sqlite: borrowSqlite(sql, assertUsable),
 				signal: document.lifetime.signal,
 				close,

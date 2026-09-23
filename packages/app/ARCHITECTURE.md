@@ -1,13 +1,15 @@
 # Resource ownership
 
-`defineStore` declares data. A Local or Personal store owns document, blob, and SQLite
-readiness, admission, and terminal cleanup. The schema remains platform-free.
-Other services acquire independent resources.
+`defineStore` declares data. Local owns document, blob, and SQLite readiness,
+admission, and terminal cleanup. Personal owns document and SQLite resources.
+Hosted blobs belong to a captured Account outside the structured store. The
+schema remains platform-free. Other services acquire independent resources.
 
 ```text
 Definition -> openLocal -> tables, KV, Local blobs, Local SQLite
-           -> openPersonal(Account) -> tables, KV, captured Personal blobs, Personal SQLite
+           -> openPersonal(Account) -> tables, KV, Personal SQLite
 Local blobs <- createRecorder({ localBlobs })
+Account -> createPersonalHostedBlobs -> authority URLs
 Application ID -> openSecrets -> credential namespace
 Account -> openEpicenterInference
 Installed runtime -> openRuntimeTranscriber -> model listing and transcription
@@ -21,7 +23,7 @@ its recorders while allowing admitted Stop publication. SQLite remains local, in
 
 ## Documents
 
-`open-store.ts` captures Local or Personal identity and owns one store claim covering document, blob, and SQL access.
+`open-store.ts` captures Local or Personal identity and owns one store claim covering document and SQL access, plus Local blobs.
 `store-runtime.ts` describes store admission, document backing, local blob acquisition, and scoped SQL acquisition.
 `platform/documents.ts` provides the default implementation. The data engine
 owns tables, KV, persistence, and synchronization; see [its README](src/data/README.md).

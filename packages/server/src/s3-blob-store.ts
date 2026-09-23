@@ -1,5 +1,5 @@
 /**
- * Portable S3 client for the opaque-id blob store.
+ * Portable S3 client for hosted blob objects.
  *
  * The whole module talks plain S3-over-HTTPS via `aws4fetch` (SigV4) — there is
  * NO Cloudflare Workers R2 binding here, by design. aws4fetch uses only `fetch`
@@ -27,9 +27,6 @@ export type S3BlobStoreConfig = {
 	bucket: string;
 };
 
-/** One object returned by {@link createS3BlobStore.list}. */
-export type S3Object = { key: string; size: number; uploaded: string };
-
 /** The store handle returned by {@link createS3BlobStore}. */
 export type S3BlobStore = ReturnType<typeof createS3BlobStore>;
 
@@ -49,41 +46,6 @@ export function createS3BlobStore(config: S3BlobStoreConfig) {
 	});
 	const objectUrl = (key: string) =>
 		new URL(`${config.endpoint}/${config.bucket}/${key}`);
-
-	async function list(prefix: string): Promise<S3Object[]> {
-		const out: S3Object[] = [];
-		let continuationToken: string | undefined;
-		do {
-			const url = new URL(`${config.endpoint}/${config.bucket}`);
-			url.searchParams.set('list-type', '2');
-			url.searchParams.set('prefix', prefix);
-			url.searchParams.set('max-keys', '1000');
-			if (continuationToken) {
-				url.searchParams.set('continuation-token', continuationToken);
-			}
-			const res = await client.fetch(url.toString(), { method: 'GET' });
-			if (!res.ok) {
-				throw new Error(`S3 LIST ${prefix} failed: ${res.status}`);
-			}
-			const { objects, nextToken } = parseListObjectsV2(await res.text());
-			out.push(...objects);
-			continuationToken = nextToken;
-		} while (continuationToken);
-		return out;
-	}
-
-	async function deleteObject(
-		key: string,
-		signal?: AbortSignal,
-	): Promise<void> {
-		const res = await client.fetch(objectUrl(key).toString(), {
-			method: 'DELETE',
-			signal,
-		});
-		if (!res.ok && res.status !== 404) {
-			throw new Error(`S3 DELETE ${key} failed: ${res.status}`);
-		}
-	}
 
 	return {
 		/** Publish one immutable object through the authenticated server. */
@@ -113,63 +75,14 @@ export function createS3BlobStore(config: S3BlobStoreConfig) {
 		) {
 			return client.fetch(objectUrl(key).toString(), { ...options, signal });
 		},
-		/**
-		 * ListObjectsV2 under `prefix`, following `IsTruncated` +
-		 * `NextContinuationToken` to completion (max 1000/page). Returns every
-		 * object's key, size, and upload time. The S3 list API is XML-only, so
-		 * the body is parsed by {@link parseListObjectsV2}.
-		 */
-		list,
-
 		/** DeleteObject. Idempotent: a missing key is not an error. */
-		delete: deleteObject,
-
-		/**
-		 * Delete every object under `prefix` (list-then-delete; idempotent, so an
-		 * account-deletion coordinator can re-run it after a partial failure). Not
-		 * atomic: an in-flight PUT can land after this sweep completes.
-		 */
-		async deletePrefix(prefix: string): Promise<void> {
-			for (const object of await list(prefix)) {
-				await deleteObject(object.key);
-			}
+		async delete(key: string, signal?: AbortSignal): Promise<void> {
+			const response = await client.fetch(objectUrl(key).toString(), {
+				method: 'DELETE',
+				signal,
+			});
+			if (!response.ok && response.status !== 404)
+				throw new Error(`S3 DELETE ${key} failed: ${response.status}`);
 		},
 	};
-}
-
-/** Extract the first `<Tag>…</Tag>` text from an XML fragment. */
-function xmlTag(xml: string, name: string): string | undefined {
-	const match = xml.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`));
-	return match?.[1];
-}
-
-/**
- * Parse the fields we need out of an S3 ListObjectsV2 XML response.
- *
- * Direct extraction (not a full XML parse) is safe here because blob keys are
- * `principals/<principalId>/blobs/<BlobId>`: only `[a-z0-9_/]`, never an
- * XML-special character, so no entity-unescaping is required. The continuation
- * token is opaque base64 and likewise carries no `<`, `>`, or `&`.
- */
-function parseListObjectsV2(xml: string): {
-	objects: S3Object[];
-	nextToken: string | undefined;
-} {
-	const objects: S3Object[] = [];
-	for (const match of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
-		const block = match[1];
-		if (block === undefined) continue;
-		const key = xmlTag(block, 'Key');
-		if (key === undefined) continue;
-		objects.push({
-			key,
-			size: Number(xmlTag(block, 'Size') ?? '0'),
-			uploaded: xmlTag(block, 'LastModified') ?? '',
-		});
-	}
-	const truncated = xmlTag(xml, 'IsTruncated') === 'true';
-	const nextToken = truncated
-		? xmlTag(xml, 'NextContinuationToken')
-		: undefined;
-	return { objects, nextToken };
 }

@@ -25,10 +25,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { openSelfHostAuth } from '@epicenter/server/self-host-auth/bun';
-import {
-	generateBlobId,
-	REMOTE_BLOB_ROUTES,
-} from '../../packages/blobs/src/index.js';
 import { createAuthenticator } from '../../packages/server/evidence/enrollment/authenticator.js';
 
 // The Worker entry re-exports the Durable Object authority, whose module imports
@@ -53,9 +49,6 @@ type Surface = {
 
 /** The origin every probe and both entries answer on; the path is what matters. */
 const ORIGIN = 'http://localhost:8787';
-
-/** A complete key accepted by the shared blob route parser. */
-const PROBE_BLOB_ID = generateBlobId('wav');
 
 const PROFILE: Surface[] = [
 	{
@@ -87,21 +80,16 @@ const PROFILE: Surface[] = [
 		bun: 'served',
 	},
 	{
-		surface: 'mountBlobsApp (collection)',
+		surface: 'Personal authority collection',
 		method: 'POST',
-		url: REMOTE_BLOB_ROUTES.collectionUrl(ORIGIN, 'so.epicenter.notes'),
+		url: `${ORIGIN}/api/blobs/personal/probe/private`,
 		worker: 'served',
 		bun: 'served',
 	},
 	{
-		surface: 'mountBlobsApp (by id)',
-		method: 'GET',
-		url: REMOTE_BLOB_ROUTES.objectUrl(
-			ORIGIN,
-			'so.epicenter.notes',
-			'probe',
-			PROBE_BLOB_ID,
-		),
+		surface: 'Personal authority object',
+		method: 'DELETE',
+		url: `${ORIGIN}/api/blobs/personal/probe/private/AAAAAAAAAAAAAAAAAAAAAA`,
 		worker: 'served',
 		bun: 'served',
 	},
@@ -348,6 +336,15 @@ test('the Bun entry serves its declared profile', async () => {
 	expect(await readProfile(fetcher)).toEqual(
 		Object.fromEntries(PROFILE.map((row) => [row.surface, row.bun])),
 	);
+});
+
+test('anonymous public reads and private bearer gate agree on both runtimes', async () => {
+	for (const fetcher of [await workerFetcher(), await bunFetcher()]) {
+		const publicUrl = `${ORIGIN}/api/blobs/personal/probe/public/AAAAAAAAAAAAAAAAAAAAAA`;
+		const privateUrl = `${ORIGIN}/api/blobs/personal/probe/private/AAAAAAAAAAAAAAAAAAAAAA`;
+		expect((await fetcher(new Request(publicUrl))).status).toBe(503);
+		expect((await fetcher(new Request(privateUrl))).status).toBe(401);
+	}
 });
 
 test('an unmounted path reads as absent on both runtimes', async () => {

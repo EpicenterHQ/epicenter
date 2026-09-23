@@ -1,8 +1,8 @@
 # Apps
 
 An application composes the stores and services its workflows need. Each store
-owns its tables, KV, blobs, and cleanup. Recording, inference, SQL, and secrets
-have their own constructors and lifetimes.
+owns its tables, KV, and cleanup; Local also owns its blobs. Hosted blobs,
+recording, inference, SQL, and secrets have their own constructors and lifetimes.
 
 Epicenter's desktop applications run as SPAs in Tauri WebViews. The Tauri host
 launches a Bun sidecar that serves bundles, HTTP, WebSockets, and the Home
@@ -20,8 +20,8 @@ operations in `local-mail/src`.
 `defineStore` declares a stable store ID and schema. The declaration is inert:
 importing it opens no storage and captures no Account. Applications can reuse a
 definition across Local and Personal or use different definitions by workflow.
-The definition ID names its data and blob namespace; host application identity
-remains separate even when the two use the same string.
+The definition ID names its data and Local blob namespace; host application
+identity remains separate even when the two use the same string.
 
 ```ts
 import { defineStore, defineTable, field } from '@epicenter/app';

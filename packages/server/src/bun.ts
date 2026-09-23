@@ -45,7 +45,7 @@ export {
 	resolveRequestSessionPrincipal,
 } from './middleware/require-auth.js';
 export { mountAuthRoutes } from './routes/auth.js';
-export { mountBlobsApp } from './routes/blobs.js';
+export { mountPersonalAuthorityBlobs } from './routes/authority-blobs.js';
 export { mountInferenceApp } from './routes/inference.js';
 export { mountSessionApp } from './routes/session.js';
 export { mountTranscriptionApp } from './routes/transcription.js';

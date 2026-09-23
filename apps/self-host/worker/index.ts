@@ -3,7 +3,7 @@ import { asPrincipalId } from '@epicenter/principal';
 import {
 	createServerApp,
 	GenerationsLedger,
-	mountBlobsApp,
+	mountPersonalAuthorityBlobs,
 	mountInferenceApp,
 	mountSessionApp,
 	mountStoreSyncApp,
@@ -75,7 +75,7 @@ mountTranscriptionApp(app, {
 	auth,
 	policies: [rateLimit({ requests: 120, windowSeconds: 60 })],
 });
-mountBlobsApp(app, { auth });
+mountPersonalAuthorityBlobs(app, { auth });
 export default app;
 export {
 	GenerationsLedger,

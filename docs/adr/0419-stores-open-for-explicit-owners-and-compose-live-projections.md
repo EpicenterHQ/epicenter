@@ -2,9 +2,11 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-21
-- **Implemented portion (2026-09-22):** `openLocal` and `openPersonal` independently own their documents and `.blobs` handles. Local uses the existing no-account address; Personal captures one account. Store close owns blob cleanup. The implementation does not establish Shared opening, store-first persistence addresses, native document persistence, or live SQLite projections.
+- **Implemented portion (2026-09-23):** `openLocal` and `openPersonal` independently own their documents. Local lends `.blobs` under the no-account address; Personal captures one account but owns no hosted blob handle. The implementation does not establish Shared opening, store-first persistence addresses, native document persistence, or live SQLite projections.
 - **Unbuilt:** Shared opening, space membership and synchronization, store-first persistence addresses, native document persistence, and live SQLite projections. Those examples below remain proposals, not exports. Product migration is deferred.
 - **Amends:** [ADR-0406](0406-one-application-schema-is-used-by-every-store.md) at mandatory schema reuse: each opener receives its own definition; applications may reuse a schema or choose different schemas for different workflows.
+
+- **Related target:** [ADR-0436](0436-stores-own-local-sqlite-namespaces.md) adds raw, store-owned local SQL. It is separate from this record's derived read-only projections and proposed native Yjs persistence. Raw SQL may hold original data and is not inherently disposable.
 
 ## Context
 
@@ -39,23 +41,19 @@ const shared = await openShared(recordingsDefinition, { account, spaceId });
 local.tables.recordings;
 personal.kv;
 local.blobs;
-personal.blobs;
-shared.blobs; // Future API, pending shared-owner authorization.
+const hosted = createPersonalHostedBlobs(account); // Independent of the store.
 
 const localSql = await projectSqlite(local);
 await localSql.close(); // Local remains usable.
 await local.close();
 ```
 
-Every opened store owns `tables`, `kv`, and `blobs`. Its definition ID selects
-the device-local blob namespace. For hosted blobs, its captured Personal or
-Shared owner selects publication and deletion authority, while the returned URL
-identifies the object independently of the definition under
-[ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md). Local and hosted
-`.blobs` have different operation contracts despite sharing the property name.
-[ADR-0372](0372-local-and-remote-blobs-open-independently.md) owns the current
-blob operations and store cleanup contract. Bytes remain outside the Yjs
-document and are transferred explicitly.
+Every opened store owns `tables` and `kv`. A Local store also owns `.blobs`;
+its definition ID selects the device-local blob namespace. Hosted publication
+belongs to an Account-bound client independent of the definition under
+[ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md). The proposed Shared
+store does not imply a Shared blob handle. Bytes remain outside the Yjs document
+and are transferred explicitly.
 
 Definitions may be identical or different across openings. A Local recording
 schema can keep an audio BlobId while a Personal schema stores only a transcript

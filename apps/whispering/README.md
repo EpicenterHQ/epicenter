@@ -66,8 +66,6 @@ bun run --cwd apps/whispering typecheck
 # App tests
 bun test --isolate apps/whispering/src/lib/operations apps/whispering/src/lib/whispering apps/whispering/src/lib/queries
 
-# Isolated actual UI, synthetic microphone/inference and local S3 fixture
-bun apps/whispering/scripts/store-relative.browser.mjs
 ```
 
 Run the two asset builds sequentially in one checkout. SvelteKit owns a shared `.svelte-kit` directory, so concurrent default and Epicenter builds can race over generated configuration.
@@ -97,20 +95,17 @@ Whispering transcribes through an explicitly selected connection and model. Deep
 Capture and import always save bytes and a recording in Local. The reactive
 `local` module is initialized once by admitted boot. Personal opens independently
 for the captured Account; its provider supplies a non-null context only when ready.
-The Personal view never changes where capture saves.
+Personal settings do not change where capture saves. Whispering currently keeps
+recordings and audio Local; the retired Personal recording view and copy action
+are unavailable. Row deletion keeps audio bytes; it is not an erasure operation.
 
-Save to Personal copies Local bytes and declared recording values into an
-independent Personal recording with fresh blob and row IDs. Later edits and deletions
-do not propagate. Every recording reads audio through its containing store. Row
-deletion keeps audio bytes; it is not an erasure operation.
-
-Success requires local durable row persistence. Personal metadata may still await
-sync. Partial saves and transcript writes retain page-lifetime Finish saving actions
-across route changes without another upload, row creation, or inference request.
+Success requires local durable row persistence. Partial saves and transcript
+writes retain page-lifetime Finish saving actions across route changes without
+another row creation or inference request.
 Reload ends those recovery actions. Signing out fences old attempts before navigation.
 
-Audio leaves the device for an explicit Personal copy or when the selected
-transcription provider requires an upload. Transcription can go to a direct provider connection, the hosted Epicenter gateway, or a self-hosted endpoint.
+Audio leaves the device when the selected transcription provider requires an
+upload. Transcription can go to a direct provider connection, the hosted Epicenter gateway, or a self-hosted endpoint.
 
 See the repository [trust model](../../docs/trust-model.md) for hosted sync and account boundaries.
 
@@ -123,7 +118,5 @@ ADR-0227 says what would reopen this, which is trying-before-installing turning 
 ## Recording verification
 
 [Store-relative recording evidence](docs/store-relative-recordings-verification.md)
-records the isolated product flow, review findings, and limits. The browser harness
-uses installed Chrome, temporary profiles, local worker state, and an S3 fixture.
-It does not access production or erase existing user data. Synthetic capture does
-not establish physical microphone behavior or packaged native acceptance.
+records the earlier product flow, review findings, and limits. Its Personal audio
+copy verification is historical; that path has been retired.

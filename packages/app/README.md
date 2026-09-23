@@ -1,12 +1,10 @@
 # @epicenter/app
 
-A store owns its tables, KV, blob namespace, and SQLite namespace. `openLocal` and `openPersonal`
-return only after document, blob, and SQL namespace acquisition finish; `store.close()` fences
-all three and drains their admitted work. Other services keep independent lifetimes.
-
-Whispering borrows blob access from its Local and Personal stores. The earlier
-[implementation report](../../docs/reports/20260922-store-owned-blobs-implementation.md)
-records the initial transport milestone.
+A store owns its tables, KV, and SQLite namespace. Local also owns a device-local
+blob namespace. `openLocal` waits for document, blob, and SQL acquisition;
+`openPersonal` waits for document and SQL acquisition. Closing either store fences
+its acquired resources. Hosted blob access uses a captured Account independently
+of a structured store.
 
 `defineStore` declares a store's stable ID and schema. An application composes
 the stores and services its workflows need; there is no aggregate App handle.
@@ -27,7 +25,7 @@ const local = await openLocal(definition);
 const personal = await openPersonal(definition, { account });
 ```
 
-The definition ID names the document, blob, and SQLite namespaces. It uses the same
+The definition ID names the document and SQLite namespaces, plus Local blobs. It uses the same
 reverse-domain grammar as a host application ID, but an application may open
 several definitions. Reusing a definition for Local and Personal preserves the
 declared shape, not the dataset. Changing its ID selects a different persistent
@@ -38,7 +36,7 @@ For the naming decision, see [ADR-0430](../../docs/adr/0430-define-store-declare
 Local retains the same address across account changes. Personal captures the
 account's authority, principal, and transport before asynchronous acquisition.
 It never retargets. Closing either store leaves the other usable. Both expose
-`tables`, `kv`, `blobs`, `sqlite`, `persistence`, `signal`, and `close()`; their ID is `definition.id`.
+`tables`, `kv`, `sqlite`, `persistence`, `signal`, and `close()`; Local also exposes `blobs`. Their ID is `definition.id`.
 Personal opens from its cached generation offline, or asks the authority to
 select a generation when no cache exists. No Shared opener is exported.
 
@@ -47,7 +45,7 @@ select a generation when no cache exists. No Shared opener is exported.
 | Subpath | Constructors | Required destination |
 | --- | --- | --- |
 | `/open` | `openLocal`, `openPersonal` | Definition; Personal also requires `account` |
-| `/blobs` | `LocalBlobs`, `PersonalBlobs` types | Borrow `store.blobs` |
+| `/blobs` | `LocalBlobs` type | Borrow `local.blobs` |
 | `/secrets` | `openSecrets` | `{ id }` |
 | `/recorder` | `createRecorder` | `{ localBlobs }` |
 | `/ai` | `openEpicenterInference`, `openRuntimeTranscriber`, `openEndpointInference` | Account, installed runtime, or endpoint URL |
@@ -71,68 +69,42 @@ recording, network, or credential capabilities.
 
 ```ts
 import { createRecorder } from '@epicenter/app/recorder';
+import { createPersonalHostedBlobs } from '@epicenter/client';
 
 const local = await openLocal(localDefinition);
-const personal = await openPersonal(personalDefinition, { account });
 const recorder = createRecorder({ localBlobs: local.blobs });
+const hosted = createPersonalHostedBlobs(account);
 
-const added = await local.blobs.add(file);
-if (!added.error) {
-  const copied = await personal.blobs.copyFrom(local.blobs, added.data);
-  // On success, copied.data is the new destination BlobId.
-}
+const saved = await local.blobs.add(file);
+const published = await hosted.publishPrivate(file);
+// On success, published.data is the complete authority URL.
 ```
 
-Definitions can differ. A Personal document containing text need not have Local
-audio. `add(Blob)` creates an identity at its destination. `copyFrom(source, id)`
-returns a fresh destination ID and preserves exact bytes. Repeated calls may
-create duplicate objects. Supported directions are Local from Local or Personal, and
-Personal from Local. Handles must be genuine store-owned sources. There are no
-public arbitrary-ID writers, upload/download aliases, or destination overrides.
+Local `add(Blob)` returns a BlobId in the definition's device-local namespace.
+`local.blobs.copyFrom(otherLocal.blobs, id)` creates a separate Local object.
+Local also supports `get`, `open`, `stat`, `list`, and `delete` by BlobId.
+Closing the Local store fences its blob operations and recorder.
 
-Both scopes expose `get`, `open`, and `delete`; Local also exposes `stat` and
-`list`. Deleting a copy leaves the source, other placements, and rows alone.
-Personal objects use the privately captured authority, principal, and definition ID.
-Store handles expose no `identity`, `account`, `authorityId`, or `principalId`;
-applications retain an Account separately when they need account data.
-Local bytes stay under the definition's fixed `no-account` namespace. Account
-changes do not move bytes or retarget handles.
+Hosted publication accepts supplied Blob bytes up to 25 MiB. The Account fixes
+its Personal owner and authority; `publishPrivate` and `publishPublic` select
+fixed read visibility and return a complete URL. `download(url)` fetches bytes
+through the captured Account. `delete(url)` removes a known URL owned by that
+Personal principal. The client checks URL shape, owner, and visibility in the
+publication response; the server enforces permission. Public URLs can be used
+directly for safe media. There is no hosted inventory or store-relative BlobId.
+
+A row stores the URL as an ordinary string. Publishing bytes and saving the row
+are separate writes. Retain a known URL when a row write fails so the row can
+be retried without uploading again. A lost publication response may leave bytes
+whose URL the client never learned. Closing a structured Personal store does not
+cancel an independent hosted request; pass a workflow abort signal when its
+publication should stop with that store. Account retirement fences network work.
 
 Recorder Stop publishes locally and returns a Result containing
 `{ blobId, durationMs, byteLength }`. The product separately creates its row.
 Closing the Local store retires its recorders and waits for an admitted Stop
 through the private writer after public admission is fenced. Closing the recorder
-leaves Local usable. There is no `local.recorder` or remote recording destination.
-
-Native copies retain descriptor snapshots and stream outside the WebView.
-Browser copies acquire a Blob snapshot. Each transfer belongs to both stores.
-Remote publication is limited to 25 MiB. Local publication failures retain the destination ID when known. A lost remote
-creation response may leave that ID unknown. If native host cleanup cannot be
-confirmed, closing both participating stores rejects and retains their claims
-until context teardown, even if the host later finishes. An ordinary conflict
-does not poison cleanup.
-
-`get(id)` returns complete bytes. `open(id)` returns independently disposable
-presentation. Personal presentation streams with HEAD, Range, and a pinned strong
-ETag through the original Account; it creates no persistent Local placement.
-Serve the exact `@epicenter/client/blob-worker` asset at
-`/epicenter-blob-worker.js` and register it with scope `/` before presentation:
-
-```ts
-await navigator.serviceWorker.register('/epicenter-blob-worker.js', { scope: '/' });
-// Wait until this exact worker controls the page before personal.blobs.open(id).
-```
-
-The desktop host serves that asset. Whispering registers it independently of Local
-readiness and waits for its script URL to control the document.
-A missing or incompatible controlling worker fails `open`; opening a cached
-Personal store does not require the worker or a remote health probe.
-
-A presentation expires after five minutes. Reacquire deliberately for continued
-playback. Disposal, store close, version replacement, and Account retirement
-refuse later requests. Already received or decoded media cannot be retracted.
-Retiring Account does not close or erase the Personal cache; product departure
-owns closing or replacing the store. Persist BlobIds, never presentation URLs.
+leaves Local usable. There is no remote recording destination.
 
 ## Results and presentation
 
@@ -143,9 +115,8 @@ it presents the error and returns the same Result. The resource package does not
 import UI, show toasts, or choose retry behavior.
 
 A workflow spanning bytes and rows must preserve completed work in its outcome.
-If Stop saved audio but row creation failed, retain the blob ID. If copying
-succeeded but storing its reference failed, retain the BlobId and placement. Retrying the
-row write must not require recording or copying again.
+If Stop saved audio but row creation failed, retain the blob ID. If hosted publication succeeded but storing its reference failed, retain the URL.
+Retrying the row write must not publish again.
 
 Cancellation and presentation belong to the workflow owner. Deliberate departure
 need not show an error toast. Startup failures need a persistent failure state.

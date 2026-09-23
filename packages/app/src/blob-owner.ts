@@ -1,4 +1,3 @@
-import type { Account } from '@epicenter/auth';
 import {
 	type BlobAlreadyExists,
 	type BlobId,
@@ -9,7 +8,6 @@ import {
 	type BlobStoreFailed,
 	blobKeyFormat,
 	generateBlobId,
-	type RemoteBlobsError as RemoteError,
 } from '@epicenter/blobs';
 import {
 	createBrowserBlobSources,
@@ -17,14 +15,12 @@ import {
 } from '@epicenter/blobs/browser';
 import {
 	createLocalBlobAccess,
-	createRemoteBlobAccess,
 } from '@epicenter/blobs/owner';
 import { createWebviewBlobs } from '@epicenter/blobs/webview';
-import { createRemoteBlobClient } from '@epicenter/client';
 import { isAppId } from '@epicenter/constants/app-id';
 import { isTauri } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { blobDestination, blobDestinations } from './blob-destination.js';
+import { blobDestinations } from './blob-destination.js';
 import type { RecordingFactory } from './recorder.js';
 import { createBrowserRecording } from './recording/browser.js';
 import { createDesktopRecording } from './recording/desktop.js';
@@ -89,16 +85,14 @@ export async function acquireLocalBlobs({
 			});
 		},
 		copyFrom(
-			source: LocalBlobs | PersonalBlobs,
+			source: LocalBlobs,
 			blobId: BlobId,
 			options?: { signal?: AbortSignal },
-		): Promise<Result<BlobId, BlobStorageError | RemoteError>> {
+		): Promise<Result<BlobId, BlobStorageError>> {
 			assertOpen();
-			const localSource = blobDestinations.get(source);
-			const personalSource = personalSources.get(source);
-			if (!localSource && !personalSource)
+			const origin = blobDestinations.get(source);
+			if (!origin)
 				throw new TypeError('Expected a store-owned blob source.');
-			const origin = localSource ?? personalSource!;
 			origin.assertOpen();
 			const destinationId = generateBlobId(blobKeyFormat(blobId).extension);
 			const signal = AbortSignal.any([
@@ -106,37 +100,17 @@ export async function acquireLocalBlobs({
 				origin.signal,
 				...(options?.signal ? [options.signal] : []),
 			]);
-			let nativeDispatched = false;
+			const nativeDispatched = native || origin.native;
 			const transfer = Promise.resolve().then(async () => {
 				try {
 					signal.throwIfAborted();
-					if (native && personalSource) {
-						nativeDispatched = true;
-						const copied = await personalSource.copyToLocal(
-							blobId,
-							id,
-							destinationId,
-							{
-								signal,
-							},
-						);
-						if (copied.error?.name === 'BlobAlreadyExists') return copied;
-						return copied.error
-							? BlobStoreError.PublicationUnconfirmed({
-									id: destinationId,
-									namespace: id,
-									cause: copied.error,
-								})
-							: copied;
-					}
-					if (native && localSource?.native) {
-						nativeDispatched = true;
+					if (native && origin.native) {
 						const response = await fetch(
 							`/api/apps/${encodeURIComponent(id)}/blobs/${destinationId}?owner=no-account`,
 							{
 								method: 'PUT',
 								headers: {
-									'x-epicenter-copy-source-app': localSource.id,
+									'x-epicenter-copy-source-app': origin.id,
 									'x-epicenter-copy-source-id': blobId,
 								},
 								credentials: 'same-origin',
@@ -155,12 +129,8 @@ export async function acquireLocalBlobs({
 							});
 						return Ok(destinationId);
 					}
-					// A custom source still publishes through the native destination;
-					// a native source can also own an unfinished host read.
-					nativeDispatched = native || localSource?.native === true;
-					const snapshot = await (localSource
-						? localSource.store.get(blobId)
-						: personalSource!.get(blobId, { signal }));
+					// A custom source still publishes through the native destination.
+					const snapshot = await origin.store.get(blobId);
 					if (snapshot.error) return snapshot;
 					signal.throwIfAborted();
 					const result = await bytes.local.put(destinationId, snapshot.data);
@@ -244,7 +214,6 @@ export async function acquireLocalBlobs({
 	return Ok(handle);
 }
 const localBrand = Symbol('LocalBlobs');
-const personalBrand = Symbol('PersonalBlobs');
 type LocalReadAccess = Pick<
 	ReturnType<typeof createLocalBlobAccess>['value'],
 	'get' | 'stat' | 'list' | 'open' | 'delete'
@@ -264,135 +233,8 @@ export type LocalBlobs = LocalReadAccess & {
 		>
 	>;
 	copyFrom(
-		source: LocalBlobs | PersonalBlobs,
-		id: BlobId,
-		options?: { signal?: AbortSignal },
-	): Promise<Result<BlobId, BlobStorageError | RemoteError>>;
-};
-export type PersonalBlobs = Pick<
-	ReturnType<typeof createRemoteBlobAccess>['value'],
-	'get' | 'open' | 'delete'
-> & {
-	readonly [personalBrand]: true;
-	add(
-		blob: Blob,
-		options?: { signal?: AbortSignal },
-	): Promise<Result<BlobId, RemoteError>>;
-	copyFrom(
 		source: LocalBlobs,
 		id: BlobId,
 		options?: { signal?: AbortSignal },
-	): Promise<Result<BlobId, BlobStorageError | RemoteError>>;
+	): Promise<Result<BlobId, BlobStorageError>>;
 };
-
-const personalSources = new WeakMap<
-	object,
-	{
-		signal: AbortSignal;
-		assertOpen(): void;
-		transfers: Set<Promise<unknown>>;
-		cleanupFailures: unknown[];
-		get: ReturnType<typeof createRemoteBlobAccess>['value']['get'];
-		copyToLocal: ReturnType<
-			typeof createRemoteBlobAccess
-		>['value']['copyToLocal'];
-	}
->();
-
-/** Captured Personal transport; the store owns its admission and cleanup. */
-export async function acquireRemoteBlobs({
-	id,
-	account,
-	assertUsable,
-}: {
-	id: string;
-	account: Account;
-	assertUsable: () => void;
-}) {
-	const remote = createRemoteBlobClient({ appId: id, account });
-	const access = createRemoteBlobAccess({ remote, assertUsable });
-	const transfers = new Set<Promise<unknown>>();
-	const cleanupFailures: unknown[] = [];
-	const value: PersonalBlobs = Object.freeze({
-		[personalBrand]: true as const,
-		get: access.value.get,
-		open: access.value.open,
-		delete: access.value.delete,
-		add: access.value.add,
-		copyFrom(
-			localBlobs: LocalBlobs,
-			blobId: BlobId,
-			options?: { signal?: AbortSignal },
-		) {
-			const source = blobDestination(localBlobs);
-			const signal = AbortSignal.any([
-				source.signal,
-				access.signal,
-				...(options?.signal ? [options.signal] : []),
-			]);
-			const transfer = access.value.copyFromLocal(
-				{
-					local: source.store,
-					nativeAppId: source.native ? source.id : undefined,
-				},
-				blobId,
-				{ signal },
-			);
-			source.transfers.add(transfer);
-			void transfer.then(
-				(result) => {
-					if (
-						source.native &&
-						result.error?.name === 'PublicationUnconfirmed'
-					) {
-						cleanupFailures.push(result.error);
-						source.cleanupFailures.push(result.error);
-					}
-					source.transfers.delete(transfer);
-				},
-				(cause) => {
-					if (source.native) {
-						cleanupFailures.push(cause);
-						source.cleanupFailures.push(cause);
-					}
-					source.transfers.delete(transfer);
-				},
-			);
-			return transfer;
-		},
-	});
-	personalSources.set(value, {
-		signal: access.signal,
-		assertOpen() {
-			assertUsable();
-			access.signal.throwIfAborted();
-		},
-		transfers,
-		cleanupFailures,
-		get: access.value.get,
-		copyToLocal: access.value.copyToLocal,
-	});
-	let closing: Promise<void> | undefined;
-	return Object.freeze({
-		value,
-		signal: access.signal,
-		close() {
-			if (closing) return closing;
-			const closed = access.close();
-			closing = (async () => {
-				const [result] = await Promise.all([
-					Promise.allSettled([closed]),
-					Promise.allSettled(transfers),
-				]);
-				if (result[0]!.status === 'rejected')
-					cleanupFailures.push(result[0]!.reason);
-				if (cleanupFailures.length)
-					throw new AggregateError(
-						cleanupFailures,
-						'Personal blob cleanup failed.',
-					);
-			})();
-			return closing;
-		},
-	});
-}

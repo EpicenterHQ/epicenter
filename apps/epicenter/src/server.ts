@@ -1,4 +1,3 @@
-import blobWorker from '@epicenter/client/blob-worker' with { type: 'text' };
 import type { AiCatalog } from './ai-catalog.ts';
 import { createAiCatalogRoutes } from './ai-catalog-routes.ts';
 /**
@@ -13,7 +12,6 @@ import type { AgentToolDefinition } from '@epicenter/agent';
 import { CHECKOUT_PATH } from '@epicenter/app/artifact/checkout';
 import {
 	type BlobId,
-	MAX_REMOTE_BLOB_BYTES,
 	parseBlobId,
 } from '@epicenter/blobs';
 import type { BunBlobStore } from '@epicenter/blobs/bun';
@@ -340,106 +338,10 @@ export function createHomeServer({
 		)
 			return c.text('Invalid account path', 400);
 		const headers = relayHeaders(c.req.raw.headers);
-		const copyDestination = c.req.header('x-epicenter-copy-destination-app');
-		headers.delete('x-epicenter-copy-destination-app');
-		const copyDestinationId = c.req.header('x-epicenter-copy-destination-id');
-		headers.delete('x-epicenter-copy-destination-id');
-		if (copyDestinationId !== undefined && copyDestination === undefined)
-			return c.text('Invalid native destination', 400);
-		const localId = c.req.header('x-epicenter-local-blob-id');
-		const sourceAppId = c.req.header('x-epicenter-local-blob-app');
-		headers.delete('x-epicenter-local-blob-app');
-		if (sourceAppId !== undefined && localId === undefined)
-			return c.text('Invalid native source', 400);
-		headers.delete('x-epicenter-local-blob-id');
-		if (copyDestination !== undefined) {
-			const match =
-				/^\/api\/apps\/([^/]+)\/principals\/([^/]+)\/blobs\/([^/]+)$/.exec(
-					target.pathname,
-				);
-			if (
-				localId !== undefined ||
-				c.req.method !== 'POST' ||
-				!isAppId(copyDestination) ||
-				!copyDestinationId ||
-				!parseBlobId(copyDestinationId) ||
-				!match ||
-				match[2] !== encodeURIComponent(account.principalId) ||
-				!parseBlobId(match[3]) ||
-				target.search ||
-				c.req.raw.body ||
-				account !== bootAccount
-			)
-				return c.text('Invalid native copy', 400);
-			headers.delete('range');
-			headers.delete('if-range');
-			const response = await account.fetch(target, {
-				headers,
-				signal: c.req.raw.signal,
-			});
-			if (response.status !== 200) {
-				await response.body?.cancel();
-				return c.text('Source unavailable', 502);
-			}
-			const result = await blobs(
-				copyDestination,
-				deviceOwnerPath(),
-			).putResponse(parseBlobId(copyDestinationId!)!, response);
-			if (result.error)
-				return c.text(
-					'Copy publication failed',
-					result.error.name === 'BlobAlreadyExists' ? 409 : 500,
-				);
-			return c.json({ id: copyDestinationId }, 201);
-		}
-
-		let body: BodyInit | undefined =
+		const body: BodyInit | undefined =
 			c.req.method === 'GET' || c.req.method === 'HEAD'
 				? undefined
 				: (c.req.raw.body ?? undefined);
-		let upload: ReturnType<typeof ownedFileBody> | undefined;
-		if (localId !== undefined) {
-			// The captured Account owns both cancellation and the destination.
-			// The control request contains no bytes for WebKit to materialize.
-			if (!bootAccount || account !== bootAccount)
-				return c.text('Account retired', 401);
-			const match = /^\/api\/apps\/([^/]+)\/principals\/([^/]+)\/blobs$/.exec(
-				target.pathname,
-			);
-			const appId = match?.[1];
-			const id = parseBlobId(localId);
-			if (
-				c.req.method !== 'POST' ||
-				match?.[2] !== encodeURIComponent(account.principalId) ||
-				target.search !== '' ||
-				!appId ||
-				!isAppId(appId) ||
-				!sourceAppId ||
-				!isAppId(sourceAppId) ||
-				!id ||
-				c.req.raw.body !== null
-			)
-				return c.text('Invalid native blob upload', 400);
-			const store = blobs(sourceAppId, deviceOwnerPath());
-			const opened = await store.openFile(id);
-			if (opened.error)
-				return c.text(
-					'Local blob unavailable',
-					opened.error.name === 'BlobNotFound' ? 404 : 500,
-				);
-			if (opened.data.stat.size > MAX_REMOTE_BLOB_BYTES) {
-				await opened.data.close();
-				return c.text('Blob is too large', 413);
-			}
-			upload = ownedFileBody(
-				opened.data.file,
-				opened.data.close,
-				opened.data.stat.size,
-			);
-			body = upload.stream;
-			headers.set('content-type', opened.data.stat.contentType);
-			headers.set('content-length', String(opened.data.stat.size));
-		}
 		try {
 			const response = await account.fetch(
 				new Request(target, {
@@ -478,8 +380,6 @@ export function createHomeServer({
 			)
 				return c.text('Account network access unavailable', 401);
 			return c.text('Account transport unavailable', 502);
-		} finally {
-			await upload?.close();
 		}
 	});
 	app.get('/_epicenter/account/sync', requirePrivateBroker, (c) => {
@@ -541,14 +441,6 @@ export function createHomeServer({
 		const result = await desktopAuth.signOut();
 		if (result.error) return c.text('Sign-out failed', 500);
 		return c.body(null, 202);
-	});
-
-	app.get('/epicenter-blob-worker.js', (c) => {
-		c.header('content-type', 'text/javascript');
-		c.header('cache-control', 'no-cache');
-		c.header('service-worker-allowed', '/');
-		// Bun embeds a string for `type: 'text'`; TypeScript sees the JS module.
-		return c.body(blobWorker as unknown as string);
 	});
 
 	// Home and the release-bundled placeholders: one document each, no asset

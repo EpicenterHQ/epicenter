@@ -5,9 +5,6 @@
 	import type { BlobSource } from '@epicenter/blobs';
 	import { createLogger } from 'wellcrafted/logger';
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import { getWhisperingApp } from '$lib/whispering/context';
-
-	const app = getWhisperingApp();
 	let {
 		id,
 		store,
@@ -43,10 +40,7 @@
 		const blobId = audioBlobId;
 		let cancelled = false;
 		let owned: BlobSource | null = null;
-		void (async () => {
-			if (!('stat' in owner.blobs)) await app.playbackReady;
-			return openRecordingAudio(owner, { audioBlobId: blobId });
-		})()
+		void openRecordingAudio(owner, { audioBlobId: blobId })
 			.then(({ data, error }) => {
 				if (error && !cancelled) failure = 'Audio could not be opened.';
 				if (data === null) return;

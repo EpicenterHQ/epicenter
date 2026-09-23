@@ -2,16 +2,16 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-12
-- **Unbuilt:** Hosted authority URLs in Personal and Shared rows. Current Whispering rows still carry store-relative `audioBlobId` values.
+- **Unbuilt:** Hosted authority URLs in Personal and Shared rows. Whispering's Local rows still carry device-local `audioBlobId` values.
 - **Amends:** [ADR-0154](0154-blob-access-is-address-only.md) at local listing: device-local blobs can be listed independently of rows; hosted access remains address-only. [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at attachment ownership: rows store ordinary references without owning publication, transfer, or deletion of bytes.
 
 ## Context
 
-Whispering currently saves audio through a store's `.blobs` handle and writes
-the returned BlobId into a recording row. Saving to Personal copies the bytes
-and creates a separate row. The row and byte operations commit independently.
-[ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md) proposes an authority
-URL as the hosted object's durable address; it is not the current API.
+Whispering saves Local audio through its store's `.blobs` handle and writes the
+returned BlobId into a recording row. The former Save to Personal flow copied
+bytes and created a separate Personal row. [ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md)
+establishes an authority URL as the hosted object's durable address. No current
+application row cites one yet.
 
 ## Decision
 

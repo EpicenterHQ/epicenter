@@ -2,7 +2,7 @@
  * One-scenario smoke test for the runtime port. Same backend, either runtime.
  *
  * Point it at a base URL and it runs ONE end-to-end scenario against the live
- * HTTP server: read the session and exercise the full opaque-id blob lifecycle
+ * HTTP server: read the session and exercise the Personal URL blob lifecycle
  * (authenticated upload -> read back -> delete).
  * Every step prints a single PASS/FAIL/SKIP line, so the same
  * invocation against the Bun process (:8788) and the wrangler process (:8787)
@@ -27,7 +27,7 @@
  *     that as an expected, non-fatal outcome.
  */
 
-import { parseBlobId, REMOTE_BLOB_ROUTES } from '@epicenter/blobs';
+import { parsePersonalBlobUrl, personalBlobCollectionUrl } from '@epicenter/blobs';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { API_BUN_DEV_PORT } from '@epicenter/constants/apps';
 
@@ -103,11 +103,7 @@ async function main() {
 		`epicenter blob smoke ${new Date().toISOString()} ${randHex(4)}\n`,
 	);
 	const upload = await fetch(
-		REMOTE_BLOB_ROUTES.collectionUrl(
-			BASE_URL,
-			'so.epicenter.smoke',
-			resolvedPrincipalId,
-		),
+		personalBlobCollectionUrl(BASE_URL, resolvedPrincipalId, 'private'),
 		{
 			method: 'POST',
 			headers: { ...authHeaders, 'content-type': 'text/plain' },
@@ -124,20 +120,20 @@ async function main() {
 		record('FAIL', 'blob upload', `${upload.status} ${await upload.text()}`);
 	} else {
 		const body: unknown = await upload.json();
-		const id =
-			body && typeof body === 'object' && 'id' in body
-				? parseBlobId(body.id)
-				: null;
-		if (upload.status !== 201 || !id) {
+		const url =
+			body && typeof body === 'object' && 'url' in body && typeof body.url === 'string'
+				? body.url
+				: '';
+		const address = parsePersonalBlobUrl(url, BASE_URL);
+		if (
+			upload.status !== 201 ||
+			!address ||
+			address.principalId !== resolvedPrincipalId ||
+			address.visibility !== 'private'
+		) {
 			record('FAIL', 'blob upload', 'Missing creation receipt');
 			return summarize();
 		}
-		const url = REMOTE_BLOB_ROUTES.objectUrl(
-			BASE_URL,
-			'so.epicenter.smoke',
-			resolvedPrincipalId,
-			id,
-		);
 		record('PASS', 'blob upload', String(upload.status));
 		try {
 			const read = await fetch(url, {

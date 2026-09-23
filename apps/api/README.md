@@ -111,7 +111,7 @@ Cloudflare Workers
 │   ├── /session/callback      dashboard handoff completion
 │   ├── /api/session           the principal projection
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
-│   ├── /api/apps/:appId/blobs owner-pinned opaque blob objects (S3-compatible backend)
+│   ├── /api/blobs/personal/:principalId/:visibility owner-pinned hosted blobs (S3-compatible backend)
 │   ├── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │   └── /api/store/v1/sync     store sync upgrade (mountStoreSyncApp)
 │

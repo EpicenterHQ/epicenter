@@ -2,7 +2,6 @@ import type {
 	BlobSource,
 	BlobSourceFailed,
 	BlobStoreError,
-	RemoteBlobsError,
 } from '@epicenter/blobs';
 import { type Result } from 'wellcrafted/result';
 import { type Recording } from '../data.js';
@@ -43,7 +42,7 @@ export function openRecordingAudio(
 	store: Pick<RecordingStore, 'blobs'>,
 	row: Pick<Recording, 'audioBlobId'>,
 ): Promise<
-	Result<BlobSource, BlobStoreError | BlobSourceFailed | RemoteBlobsError>
+	Result<BlobSource, BlobStoreError | BlobSourceFailed>
 > {
 	return store.blobs.open(row.audioBlobId);
 }
@@ -51,7 +50,7 @@ export function openRecordingAudio(
 export function readRecordingAudio(
 	store: Pick<RecordingStore, 'tables' | 'blobs'>,
 	id: string,
-): Promise<Result<Blob, BlobStoreError | RemoteBlobsError>> {
+): Promise<Result<Blob, BlobStoreError>> {
 	const row = store.tables.recordings.get(id);
 	if (!row) throw new Error(`Recording '${id}' no longer exists.`);
 	return store.blobs.get(row.audioBlobId);

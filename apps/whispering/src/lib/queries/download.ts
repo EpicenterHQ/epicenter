@@ -1,6 +1,5 @@
 import {
 	type BlobStoreError,
-	type RemoteBlobsError,
 	selectBlobFormat,
 } from '@epicenter/blobs';
 import { defineKeys } from 'wellcrafted/query';
@@ -25,7 +24,7 @@ export function createDownloadQueries(
 			mutationFn: async (
 				recording: Recording,
 			): Promise<
-				Result<void, BlobStoreError | RemoteBlobsError | DownloadError>
+				Result<void, BlobStoreError | DownloadError>
 			> => {
 				const { data: audioBlob, error: getAudioBlobError } =
 					await readRecordingAudio(store, recording.id);

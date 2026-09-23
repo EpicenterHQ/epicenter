@@ -28,10 +28,9 @@ which synchronously calls `setPersonal` before rendering descendants. Descendant
 capture `getPersonal()` during initialization and pass that handle into operations.
 Shared recording views receive a concrete store and own their query client.
 
-Capture and import save Local bytes and a Local recording. Save to Personal copies
-bytes and creates a fresh Personal row from values captured before the transfer.
-The two rows have no lasting relationship. Each row's containing store owns its
-audio reads and transcript writes. Account-dependent transcription waits for its
+Capture and import save Local bytes and a Local recording. Whispering has no
+Personal audio copy path. Local recordings own their audio reads and transcript
+writes. Account-dependent transcription waits for its
 captured Personal prompt and dictionary; Local saving proceeds independently.
 
 Deliberate account departure fences publication before navigation. Sign-out reloads;

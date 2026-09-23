@@ -12,12 +12,8 @@ import {
 import { createDesktopBrokerAuth } from '@epicenter/auth/desktop';
 import {
 	generateBlobId,
-	MAX_REMOTE_BLOB_BYTES,
-	REMOTE_BLOB_ROUTES,
 } from '@epicenter/blobs';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
-import { createRemoteBlobClient } from '@epicenter/client';
-import { deviceOwnerPath } from '@epicenter/principal';
 import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -26,15 +22,9 @@ import { createHomeServer } from './server.ts';
 
 async function setup({
 	verification,
-	holdBlobUpload = false,
-	rejectBlobUpload = false,
 }: {
 	verification?: Promise<void>;
-	holdBlobUpload?: boolean;
-	rejectBlobUpload?: boolean;
 } = {}) {
-	const uploadStarted = Promise.withResolvers<void>();
-	const uploadAborted = Promise.withResolvers<void>();
 	const sessionRequests: Request[] = [];
 	const requests: {
 		path: string;
@@ -44,7 +34,6 @@ async function setup({
 		body: string;
 		cookie: string | null;
 		protocols: string | null;
-		localBlob: string | null;
 	}[] = [];
 	const retryReceived = Promise.withResolvers<void>();
 	const releaseRetry = Promise.withResolvers<void>();
@@ -73,38 +62,6 @@ async function setup({
 				});
 			}
 			if (url.pathname === '/auth/sign-out') return new Response(null);
-			if (
-				rejectBlobUpload &&
-				url.pathname.startsWith(
-					'/api/apps/so.epicenter.notes/principals/alice/blobs',
-				)
-			)
-				return new Response('storage unavailable', { status: 503 });
-			if (
-				holdBlobUpload &&
-				url.pathname.startsWith(
-					'/api/apps/so.epicenter.notes/principals/alice/blobs',
-				)
-			) {
-				request.signal.addEventListener(
-					'abort',
-					() => uploadAborted.resolve(),
-					{ once: true },
-				);
-				// Consume the body as the real upload route does before storage.put.
-				// Bun does not reliably report disconnects while it remains unread.
-				await request.arrayBuffer();
-				uploadStarted.resolve();
-				await uploadAborted.promise;
-				return new Response(null, { status: 499 });
-			}
-			if (
-				request.method === 'GET' &&
-				url.pathname.includes('/principals/alice/blobs/')
-			)
-				return new Response('remote bytes', {
-					headers: { 'content-type': 'application/octet-stream' },
-				});
 			requests.push({
 				path: url.pathname,
 				scope: url.searchParams.get('scope'),
@@ -115,14 +72,7 @@ async function setup({
 					: '',
 				cookie: request.headers.get('cookie'),
 				protocols: request.headers.get('sec-websocket-protocol'),
-				localBlob: request.headers.get('x-epicenter-local-blob-id'),
 			});
-			if (
-				url.pathname.startsWith(
-					'/api/apps/so.epicenter.notes/principals/alice/blobs',
-				)
-			)
-				return Response.json({ id: generateBlobId('bin') }, { status: 201 });
 			if (url.pathname === STORE_SYNC_ROUTE.pattern) {
 				if (server.upgrade(request)) return undefined;
 				return new Response(null, { status: 400 });
@@ -334,8 +284,6 @@ async function setup({
 	return {
 		origin,
 		cookie,
-		uploadStarted,
-		uploadAborted,
 		localBlobs,
 		blobs,
 		account: windowState.account,
@@ -615,224 +563,6 @@ async function until(condition: () => boolean) {
 	}
 }
 
-test('saved native upload sends no bytes through the window Account broker and strips its control header', async () => {
-	await using context = await setup();
-	const id = generateBlobId('wav');
-	for (const owner of [deviceOwnerPath(context.account), 'accounts/61/62']) {
-		expectOk(
-			await context
-				.blobs('so.epicenter.notes', owner)
-				.put(id, new Blob([owner ?? 'no-account'])),
-		);
-	}
-	expectOk(
-		await context.localBlobs.put(
-			id,
-			new Blob(['saved audio'], { type: 'audio/wav' }),
-		),
-	);
-	const remote = createRemoteBlobClient({
-		appId: 'so.epicenter.notes',
-		account: context.account,
-	});
-	const openFile = context.localBlobs.openFile;
-	let closed = 0;
-	spyOn(context.localBlobs, 'openFile').mockImplementation(async (key) => {
-		const result = await openFile(key);
-		if (!result.error) {
-			const close = result.data.close;
-			result.data.close = async () => {
-				closed++;
-				await close();
-			};
-		}
-		return result;
-	});
-	expectOk(
-		await remote.copyFromLocal(
-			{ local: context.localBlobs, nativeAppId: 'so.epicenter.notes' },
-			id,
-		),
-	);
-	expect(closed).toBe(1);
-	expect(context.requests.at(-1)!.path).toEndWith('/principals/alice/blobs');
-	expect(await context.localCalls.at(-1)!.text()).toBe('');
-	expect(context.requests.at(-1)).toMatchObject({
-		body: 'saved audio',
-		bearer: 'Bearer initial',
-		localBlob: null,
-	});
-});
-
-test('the host bounds native upload from its acquired descriptor and restricts control headers to collection POST', async () => {
-	await using context = await setup();
-	const id = generateBlobId('bin');
-	expectOk(
-		await context.localBlobs.put(
-			id,
-			new Blob([new Uint8Array(MAX_REMOTE_BLOB_BYTES + 1)]),
-		),
-	);
-	const collection = REMOTE_BLOB_ROUTES.collectionUrl(
-		context.account.baseURL,
-		'so.epicenter.notes',
-		'alice',
-	);
-	const response = await context.account.fetch(collection, {
-		method: 'POST',
-		headers: {
-			'x-epicenter-local-blob-id': id,
-			'x-epicenter-local-blob-app': 'so.epicenter.notes',
-		},
-	});
-	expect(response.status).toBe(413);
-	expect(context.requests).toHaveLength(0);
-	for (const path of [
-		'/api/other',
-		'/api/apps/so.epicenter.notes/blobs?owner=bob',
-	]) {
-		expect(
-			(
-				await context.account.fetch(context.account.baseURL + path, {
-					method: 'POST',
-					headers: {
-						'x-epicenter-local-blob-id': id,
-						'x-epicenter-local-blob-app': 'so.epicenter.notes',
-					},
-				})
-			).status,
-		).toBe(400);
-	}
-	expect(context.requests).toHaveLength(0);
-});
-
-test('early upstream rejection closes native upload bytes and preserves the saved file', async () => {
-	await using context = await setup({ rejectBlobUpload: true });
-	const id = generateBlobId('bin');
-	const size = 8 * 1024 * 1024;
-	expectOk(await context.localBlobs.put(id, new Blob([new Uint8Array(size)])));
-	const openFile = context.localBlobs.openFile;
-	let closed = 0;
-	spyOn(context.localBlobs, 'openFile').mockImplementation(async (key) => {
-		const result = await openFile(key);
-		if (!result.error) {
-			const close = result.data.close;
-			result.data.close = async () => {
-				closed++;
-				await close();
-			};
-		}
-		return result;
-	});
-	const remote = createRemoteBlobClient({
-		appId: 'so.epicenter.notes',
-		account: context.account,
-	});
-	expect(
-		expectErr(
-			await remote.copyFromLocal(
-				{ local: context.localBlobs, nativeAppId: 'so.epicenter.notes' },
-				id,
-			),
-		).name,
-	).toBe('PublicationUnconfirmed');
-	await until(() => closed === 1);
-	expect(expectOk(await context.localBlobs.stat(id)).size).toBe(size);
-});
-
-test('retired remote handles cannot upload saved files through a later same-person sign-in', async () => {
-	await using context = await setup();
-	const id = generateBlobId('bin');
-	expectOk(await context.localBlobs.put(id, new Blob(['saved'])));
-	const remote = createRemoteBlobClient({
-		appId: 'so.epicenter.notes',
-		account: context.account,
-	});
-	expectOk(await context.auth.signOut());
-	await context.signIn('revised');
-	expect(
-		expectErr(
-			await remote.copyFromLocal(
-				{ local: context.localBlobs, nativeAppId: 'so.epicenter.notes' },
-				id,
-			),
-		).name,
-	).toBe('PublicationUnconfirmed');
-	expect(context.requests).toHaveLength(0);
-});
-
-test('cancelling native copyFromLocal aborts the pending upstream upload request', async () => {
-	await using context = await setup({ holdBlobUpload: true });
-	const id = generateBlobId('bin');
-	expectOk(
-		await context.localBlobs.put(id, new Blob([new Uint8Array(1024 * 1024)])),
-	);
-	const remote = createRemoteBlobClient({
-		appId: 'so.epicenter.notes',
-		account: context.account,
-	});
-	const controller = new AbortController();
-	const pending = remote.copyFromLocal(
-		{ local: context.localBlobs, nativeAppId: 'so.epicenter.notes' },
-		id,
-		{ signal: controller.signal },
-	);
-	await context.uploadStarted.promise;
-	controller.abort();
-	expect(expectErr(await pending).name).toBe('PublicationUnconfirmed');
-	await context.uploadAborted.promise;
-	expect(context.localCalls.at(-1)!.body).toBeNull();
-});
-
-test('Account retirement aborts an already admitted native upload', async () => {
-	await using context = await setup({ holdBlobUpload: true });
-	const id = generateBlobId('bin');
-	expectOk(
-		await context.localBlobs.put(id, new Blob([new Uint8Array(1024 * 1024)])),
-	);
-	const remote = createRemoteBlobClient({
-		appId: 'so.epicenter.notes',
-		account: context.account,
-	});
-	const pending = remote.copyFromLocal(
-		{ local: context.localBlobs, nativeAppId: 'so.epicenter.notes' },
-		id,
-	);
-	await context.uploadStarted.promise;
-	expectOk(await context.auth.signOut());
-	expect(expectErr(await pending).name).toBe('PublicationUnconfirmed');
-	await context.uploadAborted.promise;
-	expect(context.localCalls.at(-1)!.body).toBeNull();
-});
-
-test('native upload reads the explicit source namespace even when the destination contains a different same-ID blob', async () => {
-	await using context = await setup();
-	const id = generateBlobId('bin');
-	const source = context.blobs('so.epicenter.source');
-	expectOk(await source.put(id, new Blob(['actual source bytes'])));
-	expectOk(
-		await context.localBlobs.put(id, new Blob(['wrong destination bytes'])),
-	);
-	const remote = createRemoteBlobClient({
-		appId: 'so.epicenter.notes',
-		account: context.account,
-	});
-	expectOk(
-		await remote.copyFromLocal(
-			{
-				local: {
-					async get() {
-						throw new Error('Native bytes crossed WebView');
-					},
-				},
-				nativeAppId: 'so.epicenter.source',
-			},
-			id,
-		),
-	);
-	expect(context.requests.at(-1)!.body).toBe('actual source bytes');
-});
-
 test('unsaved endpoint broker preserves explicit authentication and multipart transcription beyond discovery', async () => {
 	await using context = await setup();
 	let observed: Headers | undefined;
@@ -912,26 +642,6 @@ test('native Local copies stream snapshots across namespaces, survive source del
 	expect(
 		await expectOk(await context.localBlobs.get(destinationId)).text(),
 	).toBe('snapshot bytes');
-});
-
-test('native Personal-to-Local copy streams through the captured Account without returning bytes to the WebView', async () => {
-	await using context = await setup();
-	const id = generateBlobId('bin');
-	const destinationId = generateBlobId('bin');
-	const remote = createRemoteBlobClient({
-		appId: 'so.epicenter.notes',
-		account: context.account,
-	});
-	expectOk(await remote.copyToLocal(id, 'so.epicenter.saved', destinationId));
-	expectErr(await remote.copyToLocal(id, 'so.epicenter.saved', destinationId));
-	expect(
-		await expectOk(
-			await context.blobs('so.epicenter.saved').get(destinationId),
-		).text(),
-	).toBe('remote bytes');
-	expect(
-		context.localCalls.at(-1)!.headers.get('x-epicenter-copy-destination-app'),
-	).toBe('so.epicenter.saved');
 });
 
 test('lost native copy acknowledgment retains both store claims while host cleanup is blocked', async () => {

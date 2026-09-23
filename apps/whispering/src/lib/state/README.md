@@ -55,14 +55,12 @@ ongoing source of truth.
 
 ## Audio lifetime
 
-Recording producers save Local bytes before creating a Local row. Save to Personal
-copies bytes and publishes an independent Personal row with fresh IDs. Deleting a
-row retains its audio; it does not erase bytes.
+Recording producers save Local bytes before creating a Local row. Deleting a row
+retains its audio; it does not erase bytes.
 
-Playback opens the row's audio through its containing store and disposes the source
+Playback opens the Local row's audio through its store and disposes the source
 when the player closes. Transcription and downloads read from that same store.
-Personal playback waits for the root worker to control the document. Expired sources
-can be reopened in the player.
+Expired sources can be reopened in the player.
 
 Document-owned recovery keeps known BlobIds, mapped values, accepted row IDs and
 inferred text across route changes. Finish saving retries persistence without another

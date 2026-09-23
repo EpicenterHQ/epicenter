@@ -1,5 +1,9 @@
 # Store-relative recording implementation evidence
 
+Historical evidence: the Personal audio copy path and its browser harness were
+removed during the hosted blob authority cutover. The results below describe the
+earlier implementation, not the current Whispering UI.
+
 Date: 2026-09-23. Task baseline: `f6e51408a5c811c34e1adb0321c28639ffd6200a`.
 Decision foundation: `8e02241510`. The foundation documented the design; it did not
 implement it. The continuation narrowed copying to declared scalar values and
@@ -82,7 +86,6 @@ bun test --isolate apps/whispering/src/lib/operations \
 bun run --cwd packages/app typecheck
 bun run --cwd apps/whispering typecheck
 bun run --cwd apps/whispering build
-bun apps/whispering/scripts/store-relative.browser.mjs
 ```
 
 The final cumulative suite passed 161 tests with 553 assertions across 25 files.

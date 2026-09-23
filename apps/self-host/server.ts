@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { asPrincipalId } from '@epicenter/principal';
 import {
 	createServerApp,
-	mountBlobsApp,
+	mountPersonalAuthorityBlobs,
 	mountInferenceApp,
 	mountSessionApp,
 	mountTranscriptionApp,
@@ -79,7 +79,7 @@ export function startSelfHostServer(): void {
 		auth,
 		policies: [rateLimit({ requests: 120, windowSeconds: 60 })],
 	});
-	mountBlobsApp(app, { auth });
+	mountPersonalAuthorityBlobs(app, { auth });
 	const requests = new Set<Promise<Response>>();
 	let closing: Promise<void> | undefined;
 	const server = Bun.serve({

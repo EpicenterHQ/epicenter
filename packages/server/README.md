@@ -51,7 +51,7 @@ choice and any deployment policy.
 | Mount | Source | Notes |
 | --- | --- | --- |
 | `mountSessionApp` | `src/routes/session.ts` | Reads the current principal back to a client. |
-| `mountBlobsApp` | `src/routes/blobs.ts` | Opaque owner-pinned blob objects, S3-compatible behind `resolveDeploymentBlobStore`. |
+| `mountPersonalAuthorityBlobs` | `src/routes/authority-blobs.ts` | Personal owner URLs with private and public reads, backed by the same S3-compatible storage. |
 | `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference, with `rateLimit` available as a policy. |
 | `mountTranscriptionApp` | `src/routes/transcription.ts` | Provider-backed speech to text. |
 | `mountAuthRoutes` | `src/routes/auth.ts` | Public auth shells and database-backed auth endpoints. Cloud only. |
@@ -69,6 +69,26 @@ route dependencies. Billing keeps a sub-app for its local error handler.
 
 Billing is not here and never comes here: the catalog, the routes, and Autumn
 live in `apps/api/worker/billing/`, because they are hosted-only.
+
+### Personal hosted blobs
+
+Both deployments mount `POST /api/blobs/personal/{principalId}/{private|public}`.
+The body is limited to 25 MiB. A successful create-only write returns
+`{ "url": "https://.../api/blobs/personal/{principalId}/{visibility}/{key}" }`.
+The authority allocates the key; callers cannot choose or replace one. An
+uncertain storage response returns 503 without exposing the allocated URL.
+
+`GET` and `HEAD` at that exact URL support single byte ranges and conditional
+reads. Public reads need no session. Private reads require a live bearer for the
+URL's principal. Safe image, audio, and video types are served inline on public
+URLs; other types are attachments. `DELETE` requires a live bearer for the named
+principal at either visibility. Deletion is idempotent and does not change rows.
+These routes provide no listing or owner-wide erasure operation.
+
+The URL parser and collection constructor live in `@epicenter/blobs` so the
+Account-bound client validates publication responses against the same grammar.
+The server parses request paths independently of the inbound Host header and
+mints returned URLs on its configured public authority.
 
 ## Shared protocol packages
 

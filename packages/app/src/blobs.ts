@@ -2,5 +2,4 @@
 export type {
 	LocalBlobBinding,
 	LocalBlobs,
-	PersonalBlobs,
 } from './blob-owner.js';

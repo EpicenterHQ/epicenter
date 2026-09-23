@@ -15,7 +15,6 @@ import { whisperingDefinition } from '../data.js';
 import { local, openLocalStore } from './local.js';
 import { createPendingSaves } from './pending-saves.js';
 import type { PersonalStore } from './personal.js';
-import { preparePlaybackWorker } from './playback-worker.js';
 
 const log = createLogger('whispering/resources');
 
@@ -44,8 +43,6 @@ export async function openWhisperingResources(
 		},
 		{ once: true },
 	);
-	const playbackReady = preparePlaybackWorker();
-	void playbackReady.catch(() => {});
 	const inference = Promise.allSettled([
 		account ? openEpicenterInference({ account }) : Promise.resolve(null),
 		openRuntimeTranscriber(),
@@ -62,7 +59,6 @@ export async function openWhisperingResources(
 	}));
 	return {
 		personalReady,
-		playbackReady,
 		pendingSaves: createPendingSaves(signal),
 		recorder,
 		inference,

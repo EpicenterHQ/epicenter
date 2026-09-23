@@ -21,7 +21,7 @@ import {
 	createServerApp,
 	GenerationsLedger,
 	mountAuthRoutes,
-	mountBlobsApp,
+	mountPersonalAuthorityBlobs,
 	mountInferenceApp,
 	mountSessionApp,
 	mountStoreSyncApp,
@@ -145,12 +145,9 @@ mountStoreSyncApp(app, {
 		};
 	},
 });
-// Content-addressed blob store (supersedes the retired assets surface). v1 is
-// unmetered (no Autumn policy): Autumn's check() denies by default with no plan
-// attached, so deferred quota means not calling it. When storage is billed, a
-// `syncBlobStorageWithAutumn` policy and the `policies` seam it needs land on
-// `mountBlobsApp` together.
-mountBlobsApp(app, { auth: bearer });
+// Owner-addressed hosted blobs are currently unmetered. Autumn's check()
+// denies by default without a plan, so this route has no billing policy.
+mountPersonalAuthorityBlobs(app, { auth: bearer });
 mountInferenceApp(app, {
 	auth: bearer,
 	policies: [chargeOpenAiCreditsWithAutumn],

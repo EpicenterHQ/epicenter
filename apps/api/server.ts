@@ -56,7 +56,7 @@ import {
 	createDb,
 	createServerApp,
 	mountAuthRoutes,
-	mountBlobsApp,
+	mountPersonalAuthorityBlobs,
 	mountInferenceApp,
 	mountSessionApp,
 	mountTranscriptionApp,
@@ -179,7 +179,7 @@ export function startBunApiServer(
 	// transcription working against `dev:bun`; the Worker is the only hosted
 	// artifact, and it meters both gateways.
 	mountTranscriptionApp(app, { auth: bearer });
-	mountBlobsApp(app, { auth: bearer });
+	mountPersonalAuthorityBlobs(app, { auth: bearer });
 
 	const server = Bun.serve({
 		port,

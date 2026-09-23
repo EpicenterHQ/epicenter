@@ -23,14 +23,6 @@ export default defineConfig(
 				// lands directly at /vad/<name> (the plugin otherwise mirrors the
 				// full absolute source path under dest).
 				targets: [
-					{
-						src: new URL(
-							'../../packages/client/src/blob-worker.js',
-							import.meta.url,
-						).pathname,
-						dest: '.',
-						rename: { stripBase: true, name: 'epicenter-blob-worker.js' },
-					},
 					...vadAssetSources.map((src) => ({
 						src,
 						dest: VAD_ASSET_DEST,

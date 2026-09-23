@@ -624,7 +624,7 @@ When you add an ADR, add its row here.
 
 | [0359](0359-the-document-factory-owns-readiness-and-closure.md) | The document factory owns readiness and closure | Proposed |
 
-| [0372](0372-local-and-remote-blobs-open-independently.md) | Each store owns its blob namespace | Accepted (hosted addressing and operations proposed to change in 0438; stores retain `.blobs`) |
+| [0372](0372-local-and-remote-blobs-open-independently.md) | Each store owns its blob namespace | Accepted (hosted ownership and operations amended by 0438; Local retains `.blobs`) |
 
 | [0380](0380-resource-handles-own-terminal-shutdown.md) | Resource handles own terminal shutdown | Proposed |
 
@@ -687,4 +687,4 @@ When you add an ADR, add its row here.
 | [0432](0432-captures-form-a-timeline-of-recursively-openable-entries.md) | Captures form a timeline of recursively openable entries | Proposed |
 | [0436](0436-stores-own-local-sqlite-namespaces.md) | Stores own local SQLite namespaces | Accepted (implemented; Local Mail starts fresh) |
 | [0437](0437-sign-out-offers-removal-of-downloaded-account-data.md) | Sign-out offers removal of downloaded account data | Proposed (unbuilt) |
-| [0438](0438-hosted-blobs-have-stable-authority-urls.md) | Hosted blobs have stable authority URLs | Proposed (Local and hosted `.blobs` contracts and authority URLs unbuilt) |
+| [0438](0438-hosted-blobs-have-stable-authority-urls.md) | Hosted blobs have stable authority URLs | Proposed (Personal authority routes and Account client implemented; Shared and row citations unbuilt) |

@@ -40,11 +40,10 @@
 import { type } from 'arktype';
 
 export const ServerBindings = type({
-	// Content-addressed blob store (routes/blobs.ts): a portable S3 client over
+	// Owner-addressed hosted blob storage: a portable S3 client over
 	// aws4fetch with NO Workers R2 binding, so the identical code runs on the
 	// Worker (against R2) and on a Bun host (against Garage/S3). All
-	// optional: a deployment without object storage does not mount
-	// `mountBlobsApp`, and the route 503s if reached unconfigured.
+	// optional: hosted blob routes return 503 when storage is unconfigured.
 	// `BLOBS_S3_BUCKET` defaults to `epicenter-blobs` and `BLOBS_S3_REGION` to
 	// `auto` (R2's region) when unset.
 	'BLOBS_S3_ENDPOINT?': 'string',

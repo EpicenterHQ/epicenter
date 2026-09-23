@@ -21,6 +21,4 @@ export type WhisperingApp = WhisperingAppHandle & {
 };
 
 /** Shared recording rendering consumes a concrete owner, never a selected default. */
-export type RecordingStore =
-	| import('./local.js').LocalStore
-	| import('./personal.js').PersonalStore;
+export type RecordingStore = import('./local.js').LocalStore;

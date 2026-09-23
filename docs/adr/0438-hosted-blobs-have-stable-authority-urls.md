@@ -2,22 +2,23 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-23
-- **Unbuilt:** Distinct Local and hosted `.blobs` contracts, canonical owner-level hosted URLs through Personal and Shared stores, space authorization, anonymous public reads, and URL references in application rows. Current hosted blobs remain store-scoped BlobIds.
-- **Amends:** [ADR-0154](0154-blob-access-is-address-only.md) at hosted addressing: callers retain authority URLs instead of supplying a separate BlobId and store namespace; remote access remains address-only. [ADR-0372](0372-local-and-remote-blobs-open-independently.md) at the shared blob-operation contract and hosted addressing: every store still lends `.blobs`, but Local and hosted capabilities have different operations and the definition ID no longer scopes hosted object identity. [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at hosted result shape: each publication returns a fresh URL rather than a store-relative BlobId. [ADR-0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) at hosted presentation: an authority URL is fetched as bytes, without a required remote `open` transport.
+- **Implemented portion (2026-09-23):** Personal authority routes publish, read, and delete owner-level URLs. An Account-bound TypeScript client provides `publishPrivate`, `publishPublic`, `download`, and `delete`. Both server deployments mount the routes.
+- **Unbuilt:** Shared owner authorization and routes, URL references in application rows, and owner-wide erasure.
+- **Amends:** [ADR-0154](0154-blob-access-is-address-only.md) at hosted addressing: callers retain authority URLs instead of supplying a separate BlobId and store namespace; remote access remains address-only. [ADR-0372](0372-local-and-remote-blobs-open-independently.md) at hosted ownership: Local stores lend `.blobs`, while hosted blobs belong to a captured Account rather than a structured store definition. [ADR-0423](0423-app-resources-open-as-independent-handles.md) at hosted lifecycle: Account retirement fences hosted traffic, while workflow cancellation belongs to its caller. [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at hosted result shape: each publication returns a fresh URL rather than a store-relative BlobId. [ADR-0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) at hosted presentation: an authority URL is fetched as bytes, without a required remote `open` transport.
 
 ## Context
 
-Today `openPersonal(definition, { account })` acquires `personal.blobs` under the
+Before this cutover, `openPersonal(definition, { account })` acquired `personal.blobs` under the
 definition ID and principal. `add` or `copyFrom` returns a BlobId, and a row
 resolves it through the containing store. A private HTML media element cannot
 send the Account bearer, so remote `open` uses a page and service worker to
-relay authenticated byte ranges.
+relay authenticated byte ranges. That store-scoped transport is retired.
 
 A published file can instead be an immutable hosted object with one address.
 The application may save that address in a row, fetch private bytes with its
 captured Account, or place a public address directly in a media element. A
-Personal or Shared store already captures the Account and owner needed to
-publish; its definition need not become part of the object's address.
+captured Account supplies authentication and one Personal owner. A structured
+store definition does not participate in the object's identity or lifetime.
 
 ## Decision
 
@@ -73,26 +74,27 @@ segment reveal the same owner. A self-hosted operator can choose a meaningful
 principal ID, so the segment can expose a name directly. The object key remains
 unguessable; knowing the owner segment grants neither listing nor private read.
 
-**The opened store fixes the publishing owner; the `.blobs` method fixes
-visibility.** `openPersonal(definition, { account })` lends `personal.blobs`
-for that Account's personal owner. The proposed
-`openShared(definition, { account, spaceId })` lends `shared.blobs` for one
-space. Both expose `publishPrivate(bytes: Blob)` and
+**The captured Account fixes the Personal owner; the method fixes visibility.**
+`createPersonalHostedBlobs(account)` exposes `publishPrivate(bytes: Blob)` and
 `publishPublic(bytes: Blob)`, each returning a fresh authority URL on success.
-They also expose `delete(url)`, which removes only a known object belonging to
-the store's captured owner after a fresh server authorization check. `File` is
-a `Blob` input. A caller
-cannot supply the key, owner, or visibility as another parameter. The server
-does not delete rows that cite it.
+It also exposes `download(url)` for authenticated byte reads and `delete(url)`
+for a known object belonging to that Personal owner. The server checks current
+permission on every request. `File` is a `Blob` input. A caller cannot supply
+the key or publishing owner. The server does not delete rows that cite an object.
 
-The common `.blobs` property does not promise one common interface.
-`local.blobs` remains a `LocalBlobs` capability over device-local BlobIds.
-`personal.blobs` and `shared.blobs` become an owner-bound `HostedBlobs`
-capability. It does not expose the current store-relative `add(blob)`,
-`copyFrom(source, id)`, or remote `open(blobId)` operations. Hosted reads
-use the authority URL: public reads are ordinary web requests, and private
-reads use an Account captured for that authority. Hosted handles expose no
-user-facing `list` or `stat` merely to mirror Local.
+`local.blobs` remains a store-borrowed `LocalBlobs` capability over device-local
+BlobIds. Hosted access is independent of `openPersonal(definition)`: opening or
+closing a Yjs store neither opens nor closes the Account-bound blob client.
+Account retirement fences its requests. A workflow that needs publication to
+stop when its row destination closes passes its own abort signal and retains a
+known URL when its row write fails. The hosted client does not expose the old
+store-relative `add`, `copyFrom`, or `open(blobId)` operations, nor a user-facing
+`list` or `stat`. Public URLs can be read directly; private reads use the
+captured Account.
+
+A future space owner needs its own Account-authorized owner binding and server
+membership policy. `openShared` need not exist just to publish bytes. Its client
+constructor waits for that policy; this record adds no Shared route or facade.
 
 Publication accepts supplied Blob bytes and has an explicit server-enforced
 size bound; accepting a `Blob` does not promise arbitrary-size uploads. It
@@ -102,12 +104,13 @@ must establish that transfer requirement explicitly; reading a native Local
 recording completely into a WebView Blob is not an implicit substitute.
 
 For example, Alice publishes supplied bytes with
-`personal.blobs.publishPrivate`, then publishes a separate copy with
-`shared.blobs.publishPublic` into a space. The resulting URLs identify
+`createPersonalHostedBlobs(account).publishPrivate`, then publishes a separate
+copy through a future space-owner capability. The resulting URLs identify
 independent objects. The space URL can go directly into a media element when
 its bytes have a safe media type; the Personal URL requires Alice's captured
 Account to fetch it. Publishing and deleting never enumerate the owner's other
-objects. These methods and the Shared opener are proposals, not current exports.
+objects. The Personal client methods and authority routes are current exports;
+the space-owner capability remains proposed.
 
 | Request | Server rule |
 | --- | --- |
@@ -150,10 +153,11 @@ is required. Explicit blob deletion can break saved citations.
 
 ## Consequences
 
-Structured stores retain their Yjs and local SQL lifetimes. Store close fences
-its borrowed hosted blob capability but does not delete published objects.
-Opening another definition for the same Personal or Shared owner reaches the
-same hosted objects by URL; the definition ID is not part of hosted identity.
+Structured stores retain their Yjs and local SQL lifetimes. Closing one does
+not fence Account-bound hosted traffic or delete published objects. Account
+retirement fences its network requests. Opening another definition for the same
+Personal or Shared owner reaches the same hosted objects by URL; the definition
+ID is not part of hosted identity.
 Local blob and recorder storage keep their device-local ownership. A Personal or
 Shared store may persist a local replica of its Yjs data, but that replica does
 not contain its hosted bytes or imply an offline copy of every cited URL.
@@ -196,9 +200,9 @@ no citation catalog that could guarantee a complete rewrite.
 
 - Keep hosted object identity under each structured store: makes the definition
   and containing row scope necessary to resolve an otherwise independent object.
-- Open separate `openPersonalBlobs` and `openSharedBlobs` handles: duplicates
-  the owner already captured by Personal and Shared stores without a current
-  blob-only caller requiring an independent lifetime.
+- Lend hosted `.blobs` from each structured store: couples owner-level bytes to
+  an unrelated definition ID and store-close lifetime. A thin workflow wrapper
+  may add the store's abort signal where that cancellation is actually needed.
 - Give Local and hosted `.blobs` the same BlobId operations: makes a hosted URL
   look store-relative again and retains remote presentation machinery without
   a current caller requiring it.
@@ -218,7 +222,6 @@ no citation catalog that could guarantee a complete rewrite.
   could read its bytes without the owner's Account or space membership.
 - Use a content hash as the URL key: exposes byte equality across owners and
   makes independent copies share an address and deletion lifetime.
-- Require native Local-to-hosted streaming in the initial hosted API: the only
-  current remote-copy product caller is Whispering's Save to Personal audio
-  flow, whose future product shape is unsettled. The platform cannot justify
-  retaining a second transfer transport on that basis alone.
+- Require native Local-to-hosted streaming in the initial hosted API: Whispering's
+  former Save to Personal audio path was retired. No current product caller
+  justifies retaining a second transfer transport.

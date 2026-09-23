@@ -1,7 +1,6 @@
 /** Explicit stores fix identity, exclude duplicate writers, and close independently. */
 import { expect, test } from 'bun:test';
 import type { Account } from '@epicenter/auth';
-import { generateBlobId } from '@epicenter/blobs';
 import { appClaimAddress } from '@epicenter/device/app-claim';
 import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
@@ -209,7 +208,7 @@ test('failed Personal cleanup retains its claim without retiring Local', async (
 	await expect(runtime.dispose()).rejects.toThrow('open stores');
 });
 
-test('cached Personal opens without blob probes and fences remote methods inside abort callbacks', async () => {
+test('cached Personal opens offline and closes without acquiring blobs', async () => {
 	const runtime = createMemoryStoreRuntime();
 	const account = accountFor();
 	const first = await openPersonal(definition, { account, runtime });
@@ -221,16 +220,9 @@ test('cached Personal opens without blob probes and fences remote methods inside
 	};
 	const personal = await openPersonal(definition, { account, runtime });
 	expect(probes).toBe(0);
-	let refused = false;
-	personal.signal.addEventListener('abort', () => {
-		try {
-			void personal.blobs.get(generateBlobId('bin'));
-		} catch {
-			refused = true;
-		}
-	});
+	expect('blobs' in personal).toBe(false);
 	await personal.close();
-	expect(refused).toBe(true);
+	expect(personal.signal.aborted).toBe(true);
 	expect(probes).toBe(0);
 	await runtime.dispose();
 });

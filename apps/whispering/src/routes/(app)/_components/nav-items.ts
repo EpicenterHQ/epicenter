@@ -36,12 +36,6 @@ export const NAV_ITEMS = [
 		isActive: matchesRoute(resolve('/recordings')),
 	},
 	{
-		label: 'Personal',
-		href: resolve('/personal'),
-		icon: ListIcon,
-		isActive: matchesRoute(resolve('/personal')),
-	},
-	{
 		label: 'Recipes',
 		href: resolve('/recipes'),
 		icon: LayersIcon,

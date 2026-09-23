@@ -53,7 +53,8 @@ export {
 // composes none of them (ADR-0075).
 export { storeAuthorityName } from './principal.js';
 export { mountAuthRoutes } from './routes/auth.js';
-export { mountBlobsApp, resolveDeploymentBlobStore } from './routes/blobs.js';
+export { resolveDeploymentBlobStore } from './routes/blob-storage.js';
+export { mountPersonalAuthorityBlobs } from './routes/authority-blobs.js';
 export { mountInferenceApp } from './routes/inference.js';
 export { mountSessionApp } from './routes/session.js';
 export { mountTranscriptionApp } from './routes/transcription.js';

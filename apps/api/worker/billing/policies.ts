@@ -38,7 +38,7 @@
  * means not calling it. When blob storage is billed (deleted spec
  * 20260623T220000 decision 10, recoverable via git history; kernel is
  * ADR-0089), a `syncBlobStorageWithAutumn` policy lands here together with the
- * `policies` seam `mountBlobsApp` will need to carry it.
+ * Hosted blob billing needs a policy seam on the authority route.
  *
  * The library remains billing-agnostic; everything here is cloud-only.
  */

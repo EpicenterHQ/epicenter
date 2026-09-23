@@ -5,8 +5,7 @@
 	"type": "module",
 	"description": "Typed HTTP client for the Epicenter server (assets, blobs, AI chat). Composes on @epicenter/auth's AuthFetch.",
 	"exports": {
-		".": "./src/index.ts",
-		"./blob-worker": "./src/blob-worker.js"
+		".": "./src/index.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",

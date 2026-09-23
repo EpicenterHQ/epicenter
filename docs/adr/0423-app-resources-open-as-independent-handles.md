@@ -4,15 +4,15 @@
 - **Date:** 2026-09-22
 - **Unbuilt:** Complete application outcome propagation, Shared resource opening, and live SQLite projections. Page-root composition, direct runtime transcription, and store-owned blob acquisition are implemented in the current product paths; the generic composition surface remains incomplete.
 - **Amends:** [ADR-0388](0388-the-app-owns-what-a-library-scopes-and-the-package-s-modules-supply-what-the-device-supplies.md) and [ADR-0390](0390-the-app-is-the-unit-of-ownership-and-a-capability-is-the-unit-of-sharing.md) at resource ownership; [ADR-0389](0389-the-open-call-decides-the-app-s-type-and-a-local-app-has-no-account-members.md) at aggregate App return types; [ADR-0404](0404-the-opened-account-owns-application-local-storage.md) at account-partitioned local resources; [ADR-0407](0407-app-owns-the-declaration-and-data-engine.md) and [ADR-0408](0408-one-app-opener-uses-a-complete-runtime.md) at aggregate opening and runtime injection; [ADR-0410](0410-an-app-is-returned-ready-and-page-teardown-owns-recovery.md), [ADR-0411](0411-honeycrisp-displays-data-from-one-app.md), [ADR-0412](0412-app-data-addresses-name-scopes-not-libraries.md), and [ADR-0413](0413-app-boot-owns-the-working-page-lifetime.md) at App-wide lifecycle and nested capability access.
-- **Implementation note (2026-09-22):** Stores own `.blobs` acquisition and cleanup. Whispering opens Local, optional Personal, recorder, and inference resources from its page root; the direct runtime transcriber is implemented. Product integration remains incomplete outside those paths. See `packages/app/README.md` for the current public API.
+- **Implementation note (2026-09-23):** Local stores own `.blobs` acquisition and cleanup. Personal stores own data and SQL; an Account-bound client owns hosted access under [ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md). Whispering opens Local, optional Personal, recorder, and inference resources from its page root. See `packages/app/README.md` for the current public API.
 
 ## Context
 
 The former aggregate opener acquired Local data, SQLite, secrets, recording,
 blobs, and AI as one App. Independent constructors replace that dependency tree.
-Current stores acquire both Local and remote blobs. The target keeps `.blobs`
-on each store while [ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md)
-gives hosted objects owner-level authority URLs. SQLite ownership is
+Local stores acquire Local blobs. [ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md)
+gives hosted objects owner-level authority URLs through an Account-bound client.
+SQLite ownership is
 implemented as specified in [ADR-0436](0436-stores-own-local-sqlite-namespaces.md).
 
 ## Decision
@@ -32,10 +32,9 @@ and live stores consume the same declaration. An application may open several
 definitions; the definition ID names data, not the product's execution.
 
 An opened structured store holds one Yjs data document containing its tables,
-rows, and settings. Stores lend a blob capability as `store.blobs`. The
-definition ID scopes Local bytes; proposed hosted URLs identify objects by
-owner independently of the definition. Local and hosted capabilities have
-different operations. The store additionally owns a
+rows, and settings. Local stores lend `local.blobs`. The definition ID scopes
+Local bytes; hosted URLs identify objects by owner independently of the
+definition. The store additionally owns a
 local SQL namespace exposed as `store.sqlite`. Local and Personal stores opened
 from the same definition are distinct datasets. Definitions can differ by workflow.
 Audio bytes live outside the structured document. Neither current store
@@ -62,7 +61,8 @@ against the resource subpaths and `packages/app/README.md`.
 | Import | Constructor | Captured input |
 | --- | --- | --- |
 | `@epicenter/app/open` | `openLocal(definition)` | Definition; owns local tables, KV, blobs, and SQLite |
-| `@epicenter/app/open` | `openPersonal(definition, { account })` | Definition and account; currently owns personal tables, KV, remote blobs, and account-scoped local SQLite |
+| `@epicenter/app/open` | `openPersonal(definition, { account })` | Definition and account; owns Personal tables, KV, and account-scoped local SQLite |
+| `@epicenter/client` | `createPersonalHostedBlobs(account)` | Account; publishes and reads Personal authority URLs |
 | `@epicenter/app/secrets` | `openSecrets({ id })` | Device-local secret namespace |
 | `@epicenter/app/recorder` | `createRecorder({ localBlobs: local.blobs })` | Borrowed Local blob destination |
 
@@ -73,10 +73,9 @@ Blob transfer and recorder dependencies are specified in
 [ADR-0366](0366-a-recorder-captures-into-its-explicit-local-blob-destination.md).
 
 Store definitions contain their ID and schema. The ID selects the document and
-SQL namespaces, and currently selects the blob namespace. Today every store
-exposes `blobs` and `sqlite`; proposed hosted publication remains on the
-borrowed `personal.blobs` or `shared.blobs` capability, without making the
-definition ID part of the hosted URL.
+SQL namespaces and the Local blob namespace. Both stores expose `sqlite`; Local
+also exposes `blobs`. Hosted publication captures the Account independently,
+without making the definition ID part of the hosted URL.
 The public store shape keeps account identity private under
 [ADR-0429](0429-store-handles-keep-account-identity-private.md); openers capture
 Personal identity privately and handles expose no Account projection.
@@ -168,11 +167,10 @@ Every root resource owner exposes `signal` and an asynchronous, terminal, idempo
 work. Close settles admitted operations and releases owned resources. Repeated close observes the same outcome. Failed
 cleanup retains exclusion wherever another owner could race unfinished writes;
 page or process teardown remains the recovery boundary. A resource never closes
-an unrelated sibling. Today a store fences and closes its document, blobs, and
-SQL namespace; the borrowed `.blobs` and `.sqlite` capabilities have no
-independent public close. Under ADR-0438, hosted publication uses the store's
-captured owner and Account. Store close fences the borrowed capability without
-deleting published objects.
+an unrelated sibling. A Local store fences its document, blobs, and SQL
+namespace; a Personal store fences its document and SQL namespace. Borrowed
+`.blobs` and `.sqlite` capabilities have no independent public close. Account
+retirement fences hosted traffic; a workflow supplies its own cancellation signal.
 Failed store opening unwinds every acquisition. Closing preserves committed data and credentials.
 
 Dependencies are directional. A recorder borrows its LocalBlobs destination:
@@ -203,9 +201,8 @@ handles while replacement is pending.
 
 The SDK loses borrowed `device` assembly, optional account capability branches,
 and mandatory initialization of unrelated services. Each target store owns its
-document, Local blobs when applicable, and SQL namespace. Personal and Shared
-stores lend hosted `.blobs` capabilities; published objects retain independent
-identities and lifetimes. Services retain their own lifetimes. Product startup
+document, Local blobs when applicable, and SQL namespace. Hosted objects have
+independent identities and Account-bound access. Services retain their own lifetimes. Product startup
 owns the small amount of composition it actually performs.
 
 Local content remains visible to users of the same device profile after account
@@ -216,8 +213,8 @@ addresses, adopt old account-local bytes, or authorize migration or deletion.
 
 The existing implementation is transitional. The earlier integrated ownership
 cut moved blob acquisition into stores and consumers to `.blobs`. The hosted
-URL direction changes remote object identity and publication methods while
-keeping that borrowed capability. Product composition helpers must not
+URL cut moves remote access back to the captured Account because its identity
+and lifetime are independent of a structured store. Product composition helpers must not
 reintroduce the removed SDK App owner. Shared stores, native document persistence,
 and new storage layouts remain separate work.
 
