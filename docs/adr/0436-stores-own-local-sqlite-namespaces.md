@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-23
-- **Implemented:** Store-owned SQL acquisition, complete isolated runtimes, and consumer API migration. See the [implementation evidence](../reports/20260923-store-owned-sqlite.md). Legacy Local Mail recovery remains unbuilt.
+- **Implemented:** Store-owned SQL acquisition, complete isolated runtimes, and consumer API migration. See the [implementation evidence](../reports/20260923-store-owned-sqlite.md). Local Mail takes a greenfield break; there are no existing users or data to migrate.
 - **Relates:** [ADR-0430](0430-define-store-declares-data-and-products-compose-resources.md) names declarations and product composition. Its proposed composition is updated alongside this record.
 - **Relates:** [ADR-0429](0429-store-handles-keep-account-identity-private.md), whose private captured account identity remains; [ADR-0437](0437-sign-out-offers-removal-of-downloaded-account-data.md) separates account departure from data removal.
 
@@ -82,11 +82,9 @@ recording, and inference keep their separate contracts. SQL projections of Yjs
 remain a separate, unbuilt feature.
 
 Preserve existing namespace encodings. Local keeps its current no-account SQL
-address; Personal uses the existing authority/principal encoding. Previously
-account-independent Local Mail files cannot be assigned to the current account
-by guessing. Do not copy, rename, delete, or silently adopt those files. Document
-the fresh Personal namespace and any needed recovery workflow before claiming
-product migration is complete.
+address; Personal uses the existing authority/principal encoding. Local Mail
+starts in a fresh Personal namespace. The product has no existing users or data,
+so it needs no legacy importer or recovery flow.
 
 This decision changes API ownership, not stored document layout, sync protocol,
 or retention policy. In particular, an account-scoped SQL database can contain
@@ -103,14 +101,12 @@ the only copy of pending work and is not automatically disposable.
 - Restore a generic App handle: recording and inference do not need to share
   the data store's ownership or readiness.
 
-## Migration and cleanup boundary
+## Greenfield and cleanup boundary
 
-Local Mail now borrows Personal SQL. Its old `no-account` databases remain untouched
-and are not automatically visible. Recovery requires explicit ownership selection
-and import tooling, which is not implemented. Reconnecting Gmail cannot reconstruct
-old pending triage. The [Local Mail README](../../apps/local-mail/README.md#existing-local-mail-data)
-records the inventory and user-visible limitation. Secrets retain their independent
-application-scoped identity; this change does not claim credential isolation.
+Local Mail now borrows Personal SQL. There are no existing users or Local Mail
+files to migrate. The [Local Mail README](../../apps/local-mail/README.md)
+describes the fresh namespace. Secrets retain their independent application-scoped
+identity; this change does not claim credential isolation.
 
 ADR-0437 remains proposed. No sign-out checkbox, account-data erasure, SQL
 disposability classification, or interruption recovery is implemented here.

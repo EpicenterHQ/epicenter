@@ -86,27 +86,15 @@ desktop reauthentication restarts the host.
 Gmail caches, connected-account metadata, and pending triage belong to the captured
 Epicenter account's SQL namespace. Disconnecting Gmail remains a separate product
 action. Durable schema version 1 is preserved; unknown durable schemas are refused.
-The existing mailbox-cache schema migration applies only to explicitly opened files.
-
-## Existing Local Mail data
-
-Earlier builds wrote `local` and `mail-<sub>` databases under `no-account`.
-This build starts a separate Personal namespace. It does not adopt, copy, rename,
-rewrite, or delete those old files. Previously connected mailboxes therefore do
-not appear automatically. Reconnecting Gmail can download mail again, but cannot
-recover pending triage stored only in the old `local` file.
-
-There is no in-product legacy import or recovery tool yet. Preserve the old
-browser site storage or native data directory. Recovery needs an explicit source
-inventory, confirmation of which Epicenter account owns the data, and a reviewed
-import of connected-account records and pending label intents. Do not clear site
-storage or delete the old files to resolve an empty mailbox list.
+The mailbox-cache schema migration applies only to explicitly opened files.
+Local Mail starts fresh under its captured account. No earlier Local Mail data
+needs importing or recovery.
 
 The `local` database contains `accounts`, `label_intents`, `intent_counters`, and
-`last_pass`. Pending intents can be the only copy of undelivered work. Known
-`mail-<sub>` schemas contain Gmail resources, derived search fields, labels, and
-sync checkpoints. This inventory does not authorize blanket deletion of SQL or
-unknown schemas. Sign-out cleanup and its checkbox remain unimplemented.
+`last_pass`. Pending intents created after this change can be the only copy of
+undelivered work. `mail-<sub>` contains Gmail resources, derived search fields,
+labels, and sync checkpoints. Account ownership alone does not make these files
+disposable. Sign-out cleanup and its checkbox remain unimplemented.
 
 Refresh tokens retain the existing application-ID/Google-subject scope. Two
 Epicenter accounts connecting the same Google subject still share that credential

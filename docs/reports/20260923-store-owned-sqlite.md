@@ -1,5 +1,8 @@
 # Store-owned SQLite implementation
 
+Subsequent product decision: Local Mail has no existing users or data. It takes
+a greenfield break into Personal SQL. No legacy import or recovery is needed.
+
 Local and Personal stores now own a SQLite namespace. `store.sqlite.open(name)`
 and `store.sqlite.delete(name)` return Results. The namespace has no public close;
 store close fences SQL before document abort callbacks and drains physical cleanup.
@@ -35,17 +38,11 @@ Address encoding is unchanged: Local uses `no-account`; Personal uses
 storage continue using the existing application/database naming. No migration
 scans, file renames, copies, erasures, or SQL rewrites were added.
 
-Local Mail's existing no-account `local` file can contain `accounts`,
-`label_intents`, `intent_counters`, and `last_pass`. Pending intents are unique
-undelivered work. Known mailbox files contain Gmail messages, derived search
-fields, labels, and sync checkpoints. Neither that inventory nor an account scope
-makes arbitrary SQL disposable.
-
-The new Personal namespace starts separately. Previously connected mailboxes do
-not appear automatically. Reconnecting Gmail can redownload mail but cannot recover
-pending triage from the old file. There is no legacy import/recovery UI or tool.
-Keep old site/native storage until an explicit ownership-confirmed recovery can
-inventory and import those records. See the [Local Mail limitation](../../apps/local-mail/README.md#existing-local-mail-data).
+The new Personal namespace starts fresh. No Local Mail legacy import is required.
+New `local` files contain connected accounts and pending triage; pending intents
+can become unique undelivered work. Mailbox files contain Gmail messages, derived
+search fields, labels, and sync checkpoints. Neither the database name nor its
+account scope makes arbitrary SQL disposable.
 
 Secrets retain their existing application-ID/Google-subject scope. Accounts that
 connect the same Google subject can share a token slot; credential isolation is
@@ -75,7 +72,7 @@ Passing checks:
 - Local Mail browser journey in Chromium and WebKit: saved queries, restricted SQL,
   offline reopen, incompatible-row repair, and quota-failure recovery (2 passed).
 - Native Local Mail evidence: 100 messages reopen, mailbox/account isolation,
-  checkpoint recovery, and legacy no-account pending intent preservation.
+  and checkpoint recovery.
 
 The first real Local Mail browser run caught a full Account object reaching
 `postMessage`, which memory SQL does not serialize. The fix projects only identity
@@ -133,6 +130,6 @@ failed-delete recovery needs a separate decision and fault-injection test.
 
 ADR-0437 remains proposed. No checkbox, downloaded-data erasure, classification of
 unknown databases, cross-window cleanup coordinator, or interruption recovery was
-implemented. The combined spec and handoff remain as explicitly scoped planning
-context for that unbuilt work. Legacy Local Mail recovery and credential isolation
-remain distinct from sign-out deletion.
+implemented. The spent combined spec and handoff were retired; ADR-0437 records
+the proposed cleanup decision. Credential isolation remains distinct from
+sign-out deletion.

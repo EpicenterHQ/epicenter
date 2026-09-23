@@ -21,7 +21,7 @@ import {
 	watchParentPipe,
 } from '../../epicenter/src/sidecar-runtime.js';
 import { openMailbox } from '../src/mailbox.js';
-import { LOCAL_SCHEMA, openLocalMailStorage } from '../src/storage.js';
+import { openLocalMailStorage } from '../src/storage.js';
 
 const build = Bun.spawn(
 	[
@@ -122,20 +122,6 @@ const owner = createDesktopSqliteOwner({ baseURL: server.url.origin });
 
 const alice = { authorityId: 'evidence', principalId: asPrincipalId('alice') };
 const bob = { authorityId: 'evidence', principalId: asPrincipalId('bob') };
-const legacy = await owner.acquire('so.epicenter.local-mail');
-const legacyLocal = await legacy.open('local');
-unwrap(
-	await legacyLocal.batch([
-		...LOCAL_SCHEMA.map((sql) => ({ sql })),
-		{
-			sql: "INSERT INTO accounts VALUES ('legacy', 'legacy@example.com', '2026-09-23')",
-		},
-		{
-			sql: "INSERT INTO label_intents VALUES ('legacy', 'm1', 'INBOX', 0, 1, '2026-09-23')",
-		},
-	]),
-);
-await legacy.close();
 let app = await owner.acquire('so.epicenter.local-mail', alice);
 function storageFor(lifetime: typeof app) {
 	return openLocalMailStorage({
@@ -197,18 +183,6 @@ try {
 	const recovered = openMailbox(await reopened.mail('synthetic'));
 	assert.equal((await recovered.counts()).messages, 100);
 	assert.deepEqual(await recovered.readFullPullCheckpoint(), checkpoint);
-	const retainedLegacy = await owner.acquire('so.epicenter.local-mail');
-	try {
-		const retained = await retainedLegacy.open('local');
-		assert.deepEqual(
-			unwrap(
-				await retained.all('SELECT sub, message_id, want FROM label_intents'),
-			),
-			[{ sub: 'legacy', message_id: 'm1', want: 0 }],
-		);
-	} finally {
-		await retainedLegacy.close();
-	}
 	assert.ok(largestNativeFrame < 8 * 1024 * 1024);
 	console.log(
 		JSON.stringify({
@@ -217,7 +191,6 @@ try {
 			reopened: true,
 			isolatedMailboxes: true,
 			isolatedAccounts: true,
-			legacyPendingWorkPreserved: true,
 			largestNativeFrame,
 		}),
 	);

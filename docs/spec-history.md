@@ -16,13 +16,15 @@
 >
 > **Regenerate (deterministic per ref set, lossless):** `bun scripts/generate-spec-history.ts`. The totals track the refs this clone can see; `--all` is deliberate so the timeline recovers specs that only lived on unmerged or deleted branches.
 
-**1430 specs ever** (524 still in tree, 906 removed).
+**1432 specs ever** (524 still in tree, 908 removed).
 
 
 ## 2026
 
 | Date | Spec | State | Path |
 |------|------|-------|------|
+| 2026-09-23 | store-owned-sqlite-and-signout-cleanup.handoff | removed | specs/20260923T120725-store-owned-sqlite-and-signout-cleanup.handoff.md |
+| 2026-09-23 | store-owned-sqlite-and-signout-cleanup | removed | specs/20260923T120725-store-owned-sqlite-and-signout-cleanup.md |
 | 2026-09-18 | ready-app-page-lifetime | removed | specs/20260918T211222-ready-app-page-lifetime.md |
 | 2026-09-18 | app-runtime-and-admission | removed | specs/20260918T192656-app-runtime-and-admission.md |
 | 2026-09-07 | direct-session-auth.handoff | removed | specs/20260907T214002-direct-session-auth.handoff.md |

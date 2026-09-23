@@ -166,7 +166,7 @@ it does not sync or project Yjs tables automatically. Closing drains admitted SQ
 work and releases physical connections; failed cleanup retains exclusion.
 Browser storage uses an owner-specific OPFS pool. Native storage uses the host
 SQLite lifetime socket. Older pools and account-independent files remain untouched.
-See [Local Mail's migration limitation](../../apps/local-mail/README.md#existing-local-mail-data).
+Local Mail starts in a fresh Personal SQL namespace.
 
 `openSecrets({ id })` addresses credentials by application ID and label.
 Browser credentials remain in document memory; native credentials use the OS

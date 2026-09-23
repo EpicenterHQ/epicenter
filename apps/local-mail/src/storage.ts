@@ -10,7 +10,7 @@ import { type SqliteHandle, sqliteHandle } from './handle.ts';
  * Connected Gmail accounts and pending triage live in `local`.
  * Downloaded Gmail facts live in one `mail-<sub>` file per subject.
  * Personal scopes SQL to the captured Epicenter account; secrets remain independent.
- * The account namespace starts fresh; old device-owned files are left alone.
+ * The account namespace starts fresh for this Local Mail build.
  */
 
 export const LOCAL_MAIL_APP_ID = 'so.epicenter.local-mail';
