@@ -8,7 +8,7 @@
   let composing = false;
 
   function applyInput() {
-    if (composing) return;
+    if (composing || !body || !textarea) return;
     const before = body.toString();
     const after = textarea.value;
     if (before === after) return;
@@ -27,6 +27,7 @@
   onMount(() => {
     textarea.value = body.toString();
     const update = () => {
+      if (!body || !textarea) return;
       const value = body.toString();
       if (textarea.value === value) return;
       const start = textarea.selectionStart;

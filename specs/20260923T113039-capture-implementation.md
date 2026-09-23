@@ -8,7 +8,7 @@
 
 Capture opens one account-backed timeline of editable, timestamped entries whose children open with the same interaction at every depth.
 
-## Current slice
+## First slice
 
 Build the inert `so.epicenter.capture` definition and shared entry operations in `packages/capture`, then a signed-in web app. The definition has one `entries` table. Each row has a minted ID, nullable `parentId`, immutable `capturedAt`, and a collaborative plain-text body. The timeline shows roots newest first; an entry view shows its body and immediate children. There is no title, recording pointer, child-ID array, or processed flag.
 
@@ -16,7 +16,7 @@ An entry typed in Capture uses its creation time. The first slice ends when dire
 
 The current checkout contains unrelated dirty work. The [older baseline manifest](20260923T113039-capture-implementation.baseline.json) is an audit record from 2026-09-23, not proof of the current state or a backup. A fresh status, diff inventory, and focused test/typecheck baseline precede edits. Current store and account APIs, not examples from the former draft, determine calls.
 
-## Product decisions for later waves
+## Product decisions across waves
 
 The Proposed ADRs hold the decisions and their rationale:
 
@@ -31,4 +31,5 @@ Future Add to Capture copies exactly the selected Original or Cleaned text. It f
 1. Implement and verify the Capture store contract, then run an independent adversarial review before expanding the UI.
 2. Build the signed-in web app and recursive entry view. Bind one opened Personal store to one captured Account. Show acquisition failures and already-open ownership failures; never substitute an empty inbox. Apply text changes to the current row body incrementally so concurrent keystrokes remain collaborative.
 3. Verify persistence and two-browser synchronization with disposable entries. Review ownership, lifecycle, and unnecessary machinery cumulatively.
-4. Next wave: move and deletion rules, then Markdown handoff, then Whispering's Local result cutover and exact-text promotion. Those waves need their own verification. Do not mark the Proposed ADRs Accepted merely because this slice works.
+4. Move entries through the visible forest and confirm exact-subtree deletion after a refreshed preview and local persistence check. Verify sequential moves, offline cycles, competing deletion and edits, unseen surviving children, reload, and two replicas. Run an independent adversarial checkpoint before the UI expansion.
+5. Following wave: explicit Markdown handoff. Then cut Whispering over to Local results and add exact-text top-level promotion using the recording's `recordedAt`. These waves need their own verification. Do not mark the Proposed ADRs Accepted merely because the Capture work passes.

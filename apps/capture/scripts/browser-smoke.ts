@@ -246,13 +246,88 @@ try {
 	await second.getByRole('button', { name: 'Capture' }).click();
 	await second.getByLabel('Capture a thought').fill('Root two');
 	await second.getByRole('button', { name: 'Add entry' }).click();
+	const secondRootUrl = second.url();
+	const secondRootId = new URL(secondRootUrl).searchParams.get('entry');
+	assert(secondRootId);
 	await first.getByRole('button', { name: 'Capture' }).click();
 	const timeline = first.getByLabel('Timeline entries').getByRole('button');
 	await timeline.first().getByText('Root two').waitFor();
 	await timeline.nth(1).getByText('Root one typed').waitFor();
+	await first.goto(secondRootUrl);
+	await first.getByRole('button', { name: 'Move', exact: true }).click();
+	await first.getByLabel('Move destination').selectOption(rootId);
+	await first.getByRole('button', { name: 'Move entry' }).click();
+	await second.goto(rootUrl);
+	await second.getByLabel('Replies').getByText('Root two', { exact: true }).waitFor();
+	await first.goto(rootUrl);
+	await first.getByRole('button', { name: 'Delete entry…' }).click();
+	await second.getByLabel('Entry text').pressSequentially('!');
+	await first.getByText('This subtree changed. Review the updated list before deleting.').waitFor();
+	await first.getByRole('button', { name: 'I reviewed the changes' }).click();
+	await first.getByRole('button', { name: 'Cancel' }).click();
+	await second.getByLabel('Entry text').press('Backspace');
+
+	// The second replica creates a child the confirming replica never sees.
+	await secondContext.setOffline(true);
+	await second.getByLabel('Replies').getByText('Root two', { exact: true }).click();
+	await second.getByLabel('Entry text').pressSequentially(' edited offline');
+	await second.getByLabel('Entry text').blur();
+	await second.getByRole('button', { name: 'Move', exact: true }).click();
+	await second.getByLabel('Move destination').selectOption('');
+	await second.getByRole('button', { name: 'Move entry' }).click();
+	await second.getByRole('button', { name: 'Capture' }).click();
+	await second.getByLabel('Timeline entries').getByText('Root one typed', { exact: true }).click();
+	await second.getByLabel('Add a reply').fill('Unseen reply');
+	await second.getByRole('button', { name: 'Add reply' }).click();
+	await second.getByRole('button', { name: 'Capture' }).click();
+	await first.goto(rootUrl);
+	await first.getByRole('button', { name: 'Delete entry…' }).click();
+	await first.getByRole('region', { name: 'Delete preview' }).getByText('Permanently delete 5 entries?').waitFor();
+	await first.getByRole('button', { name: 'Permanently delete' }).click();
+	await first.getByRole('heading', { name: 'Timeline' }).waitFor();
+	await secondContext.setOffline(false);
+	await first.getByLabel('Timeline entries').getByText('Unseen reply', { exact: true }).waitFor({ timeout: 15000 });
+	await first.reload();
+	await first.getByLabel('Timeline entries').getByText('Unseen reply', { exact: true }).waitFor();
+	assert.equal(await first.getByLabel('Timeline entries').getByText('Root one typed', { exact: true }).count(), 0);
+	assert.equal(await first.getByLabel('Timeline entries').getByText('Root two edited offline', { exact: true }).count(), 0);
+
+	await first.getByLabel('Capture a thought').fill('Cycle A');
+	await first.getByRole('button', { name: 'Add entry' }).click();
+	const cycleAUrl = first.url();
+	const cycleAId = new URL(cycleAUrl).searchParams.get('entry');
+	assert(cycleAId);
+	await first.getByRole('button', { name: 'Capture' }).click();
+	await first.getByLabel('Capture a thought').fill('Cycle B');
+	await first.getByRole('button', { name: 'Add entry' }).click();
+	const cycleBUrl = first.url();
+	const cycleBId = new URL(cycleBUrl).searchParams.get('entry');
+	assert(cycleBId);
+	await second.getByRole('button', { name: 'Capture' }).click();
+	await second.getByLabel('Timeline entries').getByText('Cycle B', { exact: true }).waitFor();
+	await first.goto(cycleAUrl);
+	await second.goto(cycleBUrl);
+	await Promise.all([
+		first.getByLabel('Entry text').waitFor(),
+		second.getByLabel('Entry text').waitFor(),
+	]);
+	await Promise.all([firstContext.setOffline(true), secondContext.setOffline(true)]);
+	await first.getByRole('button', { name: 'Move', exact: true }).click();
+	await first.getByLabel('Move destination').selectOption(cycleBId);
+	await first.getByRole('button', { name: 'Move entry' }).click();
+	await second.getByRole('button', { name: 'Move', exact: true }).click();
+	await second.getByLabel('Move destination').selectOption(cycleAId);
+	await second.getByRole('button', { name: 'Move entry' }).click();
+	await Promise.all([firstContext.setOffline(false), secondContext.setOffline(false)]);
+	const visibleRootUrl = cycleAId < cycleBId ? cycleAUrl : cycleBUrl;
+	const visibleChild = cycleAId < cycleBId ? 'Cycle B' : 'Cycle A';
+	await first.goto(visibleRootUrl);
+	await first.getByLabel('Replies').getByText(visibleChild, { exact: true }).waitFor({ timeout: 15000 });
+	await second.goto(visibleRootUrl);
+	await second.getByLabel('Replies').getByText(visibleChild, { exact: true }).waitFor({ timeout: 15000 });
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser proof passed: typing, reload, three nested levels, order, and two signed-in replicas.',
+		'Capture browser proof passed: typing, reload, nesting, move, confirmed deletion, unseen child survival, offline cycle, and two signed-in replicas.',
 	);
 } catch (cause) {
 	console.error(cause);
