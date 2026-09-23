@@ -243,6 +243,53 @@ describe('readArtifact (ADR-0267/0268)', () => {
 		expect(refused.message).toContain('no title line');
 	});
 
+	test('a declared codec can refuse an empty file body', () => {
+		const refusing = defineStore({
+			id: 'so.epicenter.empty-refusal',
+			kv: {},
+			tables: {
+				notes: defineTable({
+					fields: { title: field.string() },
+					body: {
+						encode: () => '',
+						decode: () => BodyError.Unreadable({ reason: 'empty refused' }),
+						rewrite: () => Ok(undefined),
+					},
+				}),
+			},
+		});
+		const files = new Map([['notes/aaaa.md', '---\ntitle: "x"\n---\n']]);
+		expect(expectErr(readArtifact(files, refusing)).name).toBe('RowUnreadable');
+	});
+
+	test('a declared codec builds structure from an empty file body', async () => {
+		const initializing = defineStore({
+			id: 'so.epicenter.empty-structure',
+			kv: {},
+			tables: {
+				notes: defineTable({
+					fields: { title: field.string() },
+					body: {
+						encode: () => '',
+						decode: () => {
+							const node = new Y.Node();
+							node.setAttr('initialized', true);
+							return Ok(node);
+						},
+						rewrite: () => Ok(undefined),
+					},
+				}),
+			},
+		});
+		const files = new Map([['notes/aaaa.md', '---\ntitle: "x"\n---\n']]);
+		const state = expectOk(readArtifact(files, initializing));
+		await using restored = await openMemory(initializing);
+		expectOk(syncEngineOf(restored).applyRemote(state));
+		expect(restored.tables.notes.body('aaaa')?.getAttr('initialized')).toBe(
+			true,
+		);
+	});
+
 	test('a codec that hands one node to two rows is refused', async () => {
 		// Two rows given one node hold the SAME body, and an edit to either
 		// shows up in both. Measured on `@y/y@14.0.0-rc.26`: setting one node at

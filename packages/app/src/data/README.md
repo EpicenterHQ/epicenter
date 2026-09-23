@@ -314,6 +314,9 @@ There is no default codec. `plainText()` explicitly describes a text sequence;
 chat instead uses a codec for keyed messages. Omitting `body` omits the codec,
 not the live node. A populated body without a codec refuses export, and nonempty
 incoming body text without a codec refuses import.
+When a codec is declared, import and checkout hand it every body string,
+including empty text. The codec may reject that text or decode it into a
+structured node.
 
 The storage-key rename from `content` to `body` is a clean break. Existing Yjs
 state using the old key is not migrated or read through a fallback. Markdown

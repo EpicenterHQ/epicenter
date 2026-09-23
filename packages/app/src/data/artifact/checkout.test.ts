@@ -1,4 +1,3 @@
-import { parseRowFile } from './frontmatter.js';
 import {
 	BodyError,
 	defineStore,
@@ -6,6 +5,7 @@ import {
 	field,
 	plainText,
 } from '@epicenter/app';
+import { parseRowFile } from './frontmatter.js';
 /**
  * `pull` and the base it writes (ADR-0337).
  *
@@ -942,6 +942,30 @@ describe('the preview says what a push would do (ADR-0337)', () => {
 			`notes/${note.id}.md`,
 			`${host.folder.get(`notes/${note.id}.md`) as string}\nprose\n`,
 		);
+		const plan = await planOf(host, data);
+		expect(only(plan, 'kept').reason).toBe('body-unreadable');
+		await data[Symbol.asyncDispose]();
+	});
+
+	test('an empty admission the codec refuses stays out of the plan', async () => {
+		const refusing = defineStore({
+			id: 'so.epicenter.honeycrisp',
+			kv: { theme: field.string() },
+			tables: {
+				notes: defineTable({
+					fields: { title: field.string(), pinned: field.boolean() },
+					body: {
+						encode: () => '',
+						decode: () => BodyError.Unreadable({ reason: 'empty refused' }),
+						rewrite: () => Ok(undefined),
+					},
+				}),
+			},
+		});
+		const host = fakeHost();
+		const data = addressed(await openMemory(refusing));
+		expectOk(await pullInto(host, data));
+		host.folder.set('notes/new.md', '---\ntitle: "new"\npinned: false\n---\n');
 		const plan = await planOf(host, data);
 		expect(only(plan, 'kept').reason).toBe('body-unreadable');
 		await data[Symbol.asyncDispose]();

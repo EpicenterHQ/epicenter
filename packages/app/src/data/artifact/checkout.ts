@@ -1810,9 +1810,12 @@ async function admission(
 	if (file === undefined) {
 		return { kind: 'kept', path, reason: 'unreadable' };
 	}
-	// Defensive on the codec, which `compileData` refuses a table without: an
-	// empty body needs none, because `create` mints an empty node.
-	if (file.body !== '' && !readsBack(table, file.body)) {
+	// A missing codec accepts only empty text. A declared codec owns empty
+	// text too, so preview and commit make the same admission decision.
+	if (
+		(table.body === undefined && file.body !== '') ||
+		(table.body !== undefined && !readsBack(table, file.body))
+	) {
 		return { kind: 'kept', path, reason: 'body-unreadable' };
 	}
 	return { kind: 'admission', path, table: tableName };

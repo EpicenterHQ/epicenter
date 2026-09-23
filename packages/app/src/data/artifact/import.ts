@@ -5,8 +5,8 @@
  * The mirror of `renderArtifact`, and deliberately the same kind of thing: a
  * pure function over the public vocabulary, composed outside the store. It
  * rebuilds the database's one Yjs document from every row file, mints each
- * row with its body node, and hands the table's codec the parsed
- * frontmatter and the body beneath it.
+ * row with its body node, and hands the table's codec the body beneath the
+ * frontmatter.
  *
  * Producing bytes rather than writing them is what keeps import honest about
  * where the destruction happens. Replacing a store means discarding its
@@ -208,13 +208,15 @@ function admitRow({
 	const fields = { ...data };
 	let node: Y.Node | undefined;
 
-	if (body !== '') {
+	if (codec === undefined && body !== '') {
 		// A body with no codec to read it has nowhere to go, and dropping it is
 		// the data loss this refuses. That includes intentional codec omission,
 		// removed tables, and definitions that arrived as JSON.
-		if (codec === undefined) {
-			return ImportError.UncodedBody({ table: tableName, rowId });
-		}
+		return ImportError.UncodedBody({ table: tableName, rowId });
+	}
+	if (codec !== undefined) {
+		// The codec owns empty text too: it may reject it or build structure
+		// that a bare empty node would omit.
 		try {
 			const read = codec.decode(body);
 			if (read.error !== null) {
