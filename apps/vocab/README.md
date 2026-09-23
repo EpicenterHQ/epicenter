@@ -8,11 +8,11 @@ Multilingual chat tutor. A learner asks about a word, phrase, or sentence; the t
 
 **Markdown + readings**: Settled assistant messages render through `@epicenter/ui/markdown` via `ReadingMarkdown.svelte`, which resolves the deterministic per-script romanizers whose script appears in the passage (`src/lib/readings/`, ADR-0105) and composes them behind the shared Markdown component. Readings are a client-side derived view over clean text: pure, offline, lazily loaded per script, with no model call and no network, so a reading can only be missing, never wrong. The shared Markdown component owns sanitization, markdown rendering, and `<ruby>` output. Chinese (`pinyin-pro`), Japanese kana (`wanakana`), and Cyrillic (`transliteration`) ship today; adding a language is one provider file plus one registry line.
 
-**Workspace state**: `vocabDefinition` in `vocab.ts` is the shared isomorphic definition. It defines `epicenter-vocab`, the flat `conversations` table with its content codec, the KV settings, the Vocab model constant, and the `VocabMessage` shape. Transcripts are content nodes on conversation rows, not child documents. The boot node reads auth and gates: signed out renders the sign-in screen and opens nothing, signed in opens the principal-scoped replica with sync attached.
+**Workspace state**: `vocabDefinition` in `src/lib/data.ts` is the shared isomorphic definition. It defines `so.epicenter.vocab`, the flat `conversations` table with its content codec, the KV settings, the Vocab model constant, and the `VocabMessage` shape. Transcripts are content nodes on conversation rows, not child documents. The boot node reads auth and gates: signed out renders the sign-in screen and opens nothing, signed in opens the principal-scoped replica with sync attached.
 
 ```txt
 vocabDefinition
-  -> openVocabBrowser() opens with a browser connection
+  -> openVocabResources(account, signal) opens Local and Personal stores
 ```
 
 **UI state**: split by lifetime. `src/routes/components/VocabShell.svelte` owns the page-local conversation list, active id, and CRUD. The per-conversation runtime lives in `ConversationView.svelte`, mounted via `{#key activeConversationId}`, so each conversation gets a real component lifecycle. `ConversationView` reads the active row's `content` node and hands it to the shared chat controller, which streams the live turn into `$state`, persists finished messages, and exposes `messages` / `isThinking` / `isGenerating` / `error` plus `send` / `stop` / `retry`.
@@ -29,7 +29,8 @@ The shell constructs the shared inference catalog. Chat owns each conversationâ€
 src/
   lib/
     auth.ts                # Plain auth client
-    application.ts         # One captured Account and App per document
+    resources.ts           # Stores and inference resources for one document
+    data.ts                # Inert store definition
     auth.svelte.ts        # UI auth tracking
     state/
       dictation.svelte.ts              # dictation state and interruption handling
@@ -43,7 +44,7 @@ src/
   routes/
     +layout.svelte         # Root layout with Toaster
     +layout.ts             # SSR disabled (CSR only)
-    +page.svelte           # Imports the App after mounting and renders readiness
+    +page.svelte           # AppBoot acquires resources after mounting
     auth/callback/+page.svelte # OAuth callback return to app shell
     components/
       VocabShell.svelte        # Main layout: chat state, sidebar + chat area + readings toggle
@@ -51,16 +52,18 @@ src/
       ReadingMarkdown.svelte   # Renders one settled message with its deterministic reading overlay
       DictationButton.svelte   # Speech input control
       VocabSidebar.svelte      # Sidebar conversation list with create/switch/delete
-vocab.ts                    # Shared isomorphic model (tables, KV, VocabMessage shape, row content)
+
 ```
 
 ## Key decisions
 
-- `$lib/application.ts` captures the plain auth client's Account and opens one
-  App. The mounted application page imports it and awaits the `openApp` promise before
-  rendering `VocabShell`. Departure stops dictation and chat, closes the App,
-  then changes identity and starts a fresh document. Switching conversations
-  stays within the same App. Callback and route preloading open no library.
+- The mounted AppBoot captures the Account and calls `openVocabResources`.
+  It opens independent Local and Personal stores, then acquires hosted inference,
+  native transcription, and the account connection catalog separately. The shell
+  renders after store acquisition and can observe inference availability later.
+  Departure signals stop dictation and chat before navigation to a fresh document.
+  Document destruction ends root resources. Switching conversations keeps them
+  alive. Callback and route preloading open no library.
 - The conversation list and each transcript live in the database document: metadata is ordinary row values and messages are keyed attributes on the row's `content` node. There is no `chatMessages` table.
 - The live answer streams in component `$state`, not the synced doc (ADR-0046): vocab is capability-free, so re-asking is free and only finished messages need to sync. Each finished message is one LWW JSON blob keyed by message id, written the moment a normal app would POST the row.
 - The cloud never writes the doc: it is a blind relay plus a stateless metered inference stream (ADR-0033).

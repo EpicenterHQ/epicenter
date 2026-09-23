@@ -17,15 +17,17 @@ workspace plane. The seam below is the part that survived.
 **Every build opens its own store.** A host serves bundles and brokers
 credentials and owns no application data (ADR-0226), so there is no build where
 data lives somewhere else, and a `#platform/*` seam for storage is the thing to
-delete rather than to route. Applications call `openApp(definition, { account?, runtime? })`
-from `@epicenter/app/open`. The package owns their store backing and selects
-native capabilities with `isTauri()` (ADR-0403). An explicit complete runtime
-bypasses this selection. `defineApp` from the root is
-platform-free and carries no runtime or AI override (ADR-0407).
+delete rather than to route. Applications acquire independent stores through
+`openLocal` and `openPersonal` from `@epicenter/app/open`. Resource constructors
+select browser or native implementations with `isTauri()` (ADR-0403).
+`StoreRuntime` injection controls store storage and admission; it is not an
+application-wide runtime. `defineStore` from the root is platform-free and
+carries no runtime or AI override.
 
-App-level seams select auth and product capabilities. They do not compose an
-App or choose its persistence. Whispering's former `#platform/runtime` seam is
-removed; every application uses the package's resource selection.
+App-level seams select auth and product capabilities. They do not choose store
+persistence. Keep resource composition at the product boundary; do not restore
+Whispering's removed `#platform/runtime` seam. For constructors and ownership,
+read the [resource contracts](../../../packages/app/README.md).
 
 ## Declaring one
 

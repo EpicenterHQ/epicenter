@@ -1,4 +1,4 @@
-import { defineApp } from '@epicenter/app';
+import { defineStore } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
 /** Current startup installs canonical bytes, preserves offline outboxes by actor/scope,
  * and returns to ordinary bootstrap after durable retirement invalidation. */
@@ -15,7 +15,7 @@ import { createDatabaseDocument } from './document.js';
 function fixture() {
 	const appId = `so.epicenter.current.${crypto.randomUUID()}`;
 	const definition = expectOk(
-		compileData(defineApp({ id: appId, kv: {}, tables: {} })),
+		compileData(defineStore({ id: appId, kv: {}, tables: {} })),
 	);
 	const doc = createDatabaseDocument();
 	doc.get('proof').setAttr('canonical', 'server');

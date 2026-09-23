@@ -1,4 +1,4 @@
-import { defineApp } from '@epicenter/app';
+import { defineStore } from '@epicenter/app';
 /**
  * What this package promises: the canonical table splices into an application's
  * own workspace, and a conversation's messages survive a restart of that
@@ -16,7 +16,7 @@ import { InstantString } from '@epicenter/app/field';
 import { createMemoryRecord, openMemory } from '@epicenter/app/memory';
 import { conversationsTable, createAgentMessageStore } from './index.js';
 
-const testDefinition = defineApp({
+const testDefinition = defineStore({
 	id: 'so.epicenter.chat-test',
 	kv: {},
 	tables: {

@@ -1,4 +1,4 @@
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 /**
  * What the transport does inside `workerd`, measured rather than assumed.
  *
@@ -38,7 +38,7 @@ import {
 const origin = process.argv[2] ?? 'http://127.0.0.1:8787';
 const application = `probe-${Date.now()}`;
 
-const evidenceDatabase = defineApp({
+const evidenceDatabase = defineStore({
 	id: 'so.epicenter.synclab',
 	kv: {},
 	tables: {

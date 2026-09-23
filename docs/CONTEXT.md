@@ -20,10 +20,9 @@ shapes, see `docs/adr/`.
 - **Account**: one resolved principal inside one deployment. Credentials may
   rotate, but deployment identity plus `principalId` is the stable identity of
   the person's synchronized Epicenter.
-- **Epicenter**: one person's logical body of application data. Each application
-  is one document holding its own tables and settings, and applications bind
-  one data definition over it; the definition id is the one lifecycle scope
-  beneath it (ADR-0229, ADR-0255).
+- **Epicenter**: one person's logical body of application data. Each store
+  holds one document with its tables and settings. Applications compose stores
+  and bind a store definition to each opening.
 - **The Ark**: the public home of an Epicenter. It makes selected authored work
   publicly inhabitable as living pages whose text, audio, and video are
   alternate expressions of the same idea (ADR-0291).
@@ -39,9 +38,9 @@ shapes, see `docs/adr/`.
   the cache header, not in the page URL. The numbered-cache client APIs of
   ADR-0292/0293 are retired by ADR-0407. Historical bytes remain, and the server
   refuses fresh Personal initialization over admitted history with HTTP 409.
-- **Sync attachment**: a connection held by one account store for its App
-  lifetime. Account replacement closes that App; it does not attach another
-  principal to its existing local state.
+- **Sync attachment**: a connection held by one Personal store for its
+  lifetime. A store captures one account and never retargets its existing local
+  state to another principal.
 - **Epicenter Home**: an application beside the other typed surfaces, not a shell
   above them (ADR-0209, amended by ADR-0226). It owns the launchable list,
   assistant sessions, commands and approvals. The applications are the crafted
@@ -125,41 +124,29 @@ shapes, see `docs/adr/`.
 
 ## Data API
 
-- **Store**: one application's replica. One `Y.Doc` held in memory, its
-  durable ledgers behind a persistence controller, and a synchronous surface
-  over both. Opening one is the only asynchronous operation an application
-  has.
-- **Library**: a UI name for one application's data, Local or Personal. Local
-  stays on this machine; Personal synchronizes through the signed-in account.
-  Server-wide Shared data is deferred (ADR-0416).
-- **App**: what `await openApp(definition, { account?, runtime? })` returns: `device`,
-  an optional `account`, plus `signal` and `close`. `device` is always
-  present; `account` is present when a person is signed in. The framework supplies
-  libraries and safe storage; applications choose library views and write
-  destinations without a mandatory picker or copy feature. Each store sits
-  under the scope that owns it. A page owns one auth generation, and an account
-  change ends it.
-- **Device scope**: `app.device`, everything true of this
-  application's device storage or browser profile. The same store implementation with no
-  authority, plus `sqlite`, `secrets`, `connections`, and `recording`, which
-  exist nowhere else. Its tables hold the library a person reads as Local. Local data and device
-  preferences belong to the captured account, or to the separate no-account
-  namespace. Returning to that owner reopens its bytes (ADR-0404). Blob storage
-  is independent of row libraries. The blob target uses fixed no-account local
-  storage as specified by ADR-0426; the aggregate vocabulary above does not
-  select blob addresses.
-- **Account scope**: `app.account`, everything true of the
-  signed-in person on one server, present only while signed in. It holds
-  `identity`, the `personal` store, the optional `shared` store, and
-  `connection`, that server's inference gateway. It ends with the auth
-  generation.
-- **Blob namespace** (ADR-0426): the `id` captured by an independently opened
-  blob handle. A BlobId identifies an object within that location; it does not
-  include the namespace or account. Local paths retain `device/no-account`.
-- **Blob reference** (ADR-0393): a BlobId plus any placement scope not supplied
-  by context. Copies preserve ID and bytes across independently authorized
-  locations. A locator is not an access grant; a playback URL is temporary.
-  Rows do not own byte lifetime, and row synchronization does not copy bytes.
+- **Store**: one replica with tables, KV, and a blob namespace. Opening acquires
+  documents and blobs before returning the handle. Row and KV access is
+  synchronous; persistence and blob operations remain asynchronous.
+- **Library**: a UI name for data in a Local or Personal store. Local stays on
+  this machine; Personal synchronizes through the signed-in account. Shared
+  stores have no public opener.
+- **Local store**: `await openLocal(definition)` opens device data under the
+  definition's fixed `no-account` namespace. Signing in does not change its
+  address or move its data.
+- **Personal store**: `await openPersonal(definition, { account })` captures the
+  account's authority, principal, and transport. The handle keeps account
+  identity private and never retargets. Applications retain Account separately
+  when their workflows need it.
+- **Resource composition**: an application opens the stores, SQL, secrets,
+  recording, and inference it needs. Each resource owns its lifetime; there is
+  no aggregate App handle. Store definitions can differ within one application.
+- **Blob namespace** (ADR-0426): a store owns the blob namespace selected by its
+  definition ID and storage owner. A BlobId identifies an object there; it does
+  not include the namespace or account. Local paths retain `device/no-account`.
+- **Blob reference** (ADR-0427, ADR-0428): a BlobId plus any placement scope not
+  supplied by context. `copyFrom` preserves bytes and creates a fresh destination
+  ID. A locator is not an access grant; a playback URL is temporary. Rows do not
+  own byte lifetime, and row synchronization does not copy bytes.
 - **Saved capture** (ADR-0366): Stop publishes completed audio into the app-local
   blob store and returns its key. The workflow then creates its recording row
   in the destination retained before capture. Failed row creation leaves the
@@ -178,8 +165,8 @@ shapes, see `docs/adr/`.
   manifest, bring selected old content into its files, and preview ordinary
   Push. Deleted rows return as newly admitted rows. File deletion permanently
   deletes the row; an application's Trash field is a normal frontmatter value.
-- **Data definition**: the schema exposed by an inert `defineApp` declaration,
-  compiled by `compileData` without opening an App.
+- **Data definition**: the schema exposed by an inert `defineStore` declaration,
+  compiled by `compileData` without opening storage.
   It is release-local: a newer release ships a newer declaration over the same
   durable data. Definitions have no defaults; initialization and recovery are
   application decisions.
@@ -296,42 +283,36 @@ shapes, see `docs/adr/`.
 
 ## App composition
 
-- **Application declaration**: `defineApp({ id, title, kv, tables })` from
-  `@epicenter/app` validates a platform-free schema. The same value feeds App
-  opening, memory tests, caller-owned SQLite data, and artifact operations.
-- **App lifetime**: `openApp(definition, { account?, runtime? })` from `@epicenter/app/open`
-  resolves to a ready handle. The page owns the opening promise; `app.close()`
-  revokes operations, drains work, and releases resources. `app.device` always exists;
-  `app.account` exists when the caller supplied an Account. `open.ts` owns
-  the private resource lifetime. An optional complete runtime replaces the
-  `isTauri()`-selected implementation; the declaration remains inert. One admission
-  covers all App stores and lazy SQL. Failed opening publishes no handle.
-  Close is terminal even on failure; unsafe cleanup retains admission until page
-  teardown. Reload does not prove unsaved changes survived.
-- **Memory App runtime**: `createMemoryRuntime()` from `@epicenter/app/testing`
-  isolates document/blob IndexedDB storage and named SQL databases. App close
-  releases connections while runtime-owned storage survives reopening.
-  `runtime.dispose()` refuses held admission, then releases storage. SQL uses
-  SQLite WASM `memdb` anchors so physical App connection closure still rolls
-  back unfinished transactions. The account-wide AI catalog retains separate
-  coordination because multiple app IDs share it.
+- **Store definition**: `defineStore({ id, title, kv, tables })` from
+  `@epicenter/app` validates a platform-free schema. The same value feeds store
+  opening, memory tests, caller-owned SQLite data, and artifact operations. Its
+  ID names the store definition and need not equal the host application's ID.
+- **Store lifetime**: `openLocal` and `openPersonal` from `@epicenter/app/open`
+  resolve to ready handles. Each store owns document and blob acquisition.
+  `store.close()` fences new operations, drains admitted work, and releases
+  resources. Failed opening publishes no handle; unsafe cleanup retains
+  admission until context teardown. Reload does not prove edits survived.
+  `StoreRuntime` supplies document storage, local blobs, and store admission.
+- **Memory store runtime**: `createMemoryStoreRuntime()` from
+  `@epicenter/app/testing` isolates document/blob IndexedDB storage. Store close
+  releases ownership while runtime-owned storage survives reopening.
+  `runtime.dispose()` refuses held admission, then releases storage. It supplies
+  no simulated SQL, recording, credentials, or inference.
 - **Data document**: `openData(definition, sqlite)` from `@epicenter/app/data`
   opens over caller-owned SQLite. Disposing the document leaves the connection
   open. `openMemory` is Bun test support and can borrow a reusable memory record.
-- **Ready-application shape**: a mounted boot node captures auth once, opens an
-  App through one opening promise, and renders only its resolved value. The shell borrows stores through `fromData`.
-  Deliberate account changes stop UI producers and close the App before full
-  navigation. Callbacks and auxiliary routes open no primary App.
+- **Page bootstrap**: a mounted AppBoot captures auth once, invokes product
+  resource acquisition, and renders its resolved value. The shell borrows stores
+  through `fromData`. Departure signals stop producers before full navigation.
+  AppBoot does not close returned roots; document destruction ends those
+  resources. Callbacks and auxiliary routes open no primary library.
 - **Capability**: the operation surface a consumer borrows from its owner,
-  such as `app.device.sqlite` or `app.blobs.local`. Borrowing operations does
-  not transfer readiness or shutdown ownership.
+  such as `store.blobs`. Borrowing operations does not transfer readiness or
+  shutdown ownership. A recorder borrows Local blobs from its store.
 - **Device settings vs synced settings**: per-device settings (global shortcuts,
-  the microphone, the inference selection) versus synced settings (in-app
-  shortcuts). The asymmetry is deliberate (ADR-0007): machine-world settings face
-  per-device collisions and OS keys. Device settings live in Whispering's
-  `deviceConfig` today and belong in `device.kv` (unbuilt, ADR-0392). The
-  machine's endpoint catalog is `app.device.connections` and the server's
-  gateway is `app.account.connection` (unbuilt, ADR-0396).
+  microphone, inference selection) belong to Local; synced settings belong to
+  Personal. This follows the collision and OS ownership distinction in ADR-0007.
+  Inference catalogs and gateway clients open independently of either store.
 - **Vault**: the designated, not-yet-built home for the one encryption that
   survives ADR-0004: an explicitly encrypted store for the values a person
   brings that name no durable local state, such as a provider API key. The key

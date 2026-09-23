@@ -1,7 +1,7 @@
-import { defineApp, defineTable, field } from '@epicenter/app';
+import { defineStore, defineTable, field } from '@epicenter/app';
 import type { PersonalStore } from '@epicenter/app/open';
 
-export const mailDefinition = defineApp({
+export const mailDefinition = defineStore({
 	id: 'so.epicenter.local-mail',
 	title: 'Local Mail',
 	kv: {},

@@ -71,7 +71,7 @@ async function openStore<const TDefinition extends DataDefinition, TBlobs>(
 	>,
 ) {
 	if (!isAppId(definition.id))
-		throw new Error(`The application id '${definition.id}' is not valid.`);
+		throw new Error(`The store definition ID '${definition.id}' is not valid.`);
 	const parsed = compileData(definition);
 	if (parsed.error)
 		throw new Error(parsed.error.message, { cause: parsed.error });

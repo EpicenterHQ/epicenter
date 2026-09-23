@@ -1,4 +1,4 @@
-import { defineApp, field } from '@epicenter/app';
+import { defineStore, field } from '@epicenter/app';
 import { createMemoryStoreRuntime } from '@epicenter/app/testing';
 import {
 	AuthError,
@@ -87,7 +87,7 @@ export const auth: AuthClient = new URL(location.href).searchParams.has(
 			},
 		}
 	: browserAuth;
-export const definition = defineApp({
+export const definition = defineStore({
 	id: 'test.boot-probe',
 	kv: { text: field.string() },
 	tables: {},

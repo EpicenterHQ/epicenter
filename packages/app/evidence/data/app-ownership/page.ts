@@ -1,9 +1,9 @@
 /** Real browser App lifetime, with one opt-in document cleanup failure. */
-import { defineApp, defineTable, field } from '../../../src/index.js';
+import { defineStore, defineTable, field } from '../../../src/index.js';
 import { openLocal } from '../../../src/open-store.js';
 import { indexedDbStoreRuntime as resources } from '../../../src/platform/documents.js';
 
-const definition = defineApp({
+const definition = defineStore({
 	id:
 		new URL(location.href).searchParams.get('appId') ??
 		'so.epicenter.admission-evidence',
@@ -99,7 +99,7 @@ Object.assign(globalThis, {
 		const { createMemoryStoreRuntime } = await import(
 			'../../../src/testing.js'
 		);
-		const isolatedDefinition = defineApp({
+		const isolatedDefinition = defineStore({
 			id: 'so.epicenter.memory-coexistence',
 			tables: { notes: defineTable({ title: field.string() }) },
 			kv: {},

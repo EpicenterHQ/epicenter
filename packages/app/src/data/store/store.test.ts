@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 import { InstantString } from '@epicenter/app/definition';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import * as Y from '@y/y';
@@ -12,7 +12,7 @@ import {
 	syncEngineOf,
 } from './store.js';
 
-const database = defineApp({
+const database = defineStore({
 	id: 'so.epicenter.honeycrisp',
 	kv: { theme: field.select(['light', 'dark']), fontSize: field.number() },
 	tables: {
@@ -219,7 +219,7 @@ describe('deletion', () => {
 });
 
 describe('a nonconforming row is reported, never repaired', () => {
-	const wrongDatabase = defineApp({
+	const wrongDatabase = defineStore({
 		id: 'so.epicenter.honeycrisp',
 		kv: {},
 		tables: {
@@ -626,7 +626,7 @@ describe('a subscription says a table changed', () => {
 		// The control. Without it every assertion above would still pass on an
 		// implementation that invalidated every subscriber on every commit.
 		const other = await openMemory(
-			defineApp({
+			defineStore({
 				id: 'so.epicenter.honeycrisp',
 				kv: {},
 				tables: {
@@ -832,7 +832,7 @@ describe('kv survives a declaration upgrade (ADR-0240)', () => {
 		await first[Symbol.asyncDispose]();
 
 		const second = await openMemory(
-			defineApp({
+			defineStore({
 				id: 'so.epicenter.honeycrisp',
 				kv: {
 					theme: field.select(['light', 'dark']),
@@ -863,7 +863,7 @@ describe('kv survives a declaration upgrade (ADR-0240)', () => {
 });
 
 describe('an undeclared table waits in the CRDT (ADR-0240)', () => {
-	const withScratch = defineApp({
+	const withScratch = defineStore({
 		id: 'so.epicenter.honeycrisp',
 		kv: { theme: field.select(['light', 'dark']) },
 		tables: {
@@ -877,7 +877,7 @@ describe('an undeclared table waits in the CRDT (ADR-0240)', () => {
 			}),
 		},
 	});
-	const withoutScratch = defineApp({
+	const withoutScratch = defineStore({
 		id: 'so.epicenter.honeycrisp',
 		kv: {},
 		tables: {
@@ -936,7 +936,7 @@ describe('an undeclared table waits in the CRDT (ADR-0240)', () => {
 });
 
 describe('stored() is the faithful read (ADR-0267)', () => {
-	const withPreview = defineApp({
+	const withPreview = defineStore({
 		id: 'so.epicenter.honeycrisp',
 		kv: {},
 		tables: {
@@ -947,7 +947,7 @@ describe('stored() is the faithful read (ADR-0267)', () => {
 			}),
 		},
 	});
-	const withoutPreview = defineApp({
+	const withoutPreview = defineStore({
 		id: 'so.epicenter.honeycrisp',
 		kv: {},
 		tables: {
@@ -1166,7 +1166,7 @@ describe('the store manages no timestamps (ADR-0297)', () => {
 		// `field.instant()` is a type, not a contract. The platform stops
 		// holding an opinion about time: a table that wants recency declares
 		// the field and writes it, and what it stores is exactly that.
-		const timed = defineApp({
+		const timed = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
 			tables: {
@@ -1189,7 +1189,7 @@ describe('the store manages no timestamps (ADR-0297)', () => {
 	});
 
 	test('a table declaring no timestamp stores none', async () => {
-		const plain = defineApp({
+		const plain = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
 			tables: {

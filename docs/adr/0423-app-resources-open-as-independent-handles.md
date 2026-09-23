@@ -22,8 +22,16 @@ inference, SQL, and secrets independently constructed.
 applications and supplies shared native capabilities. An application opens the
 independent resources its workflows need; it may use several stores.
 
-A store definition declares an ID and schema. An opened structured store holds
-one Yjs data document containing its tables, rows, and settings, and owns a blob
+`defineStore({ id, title?, tables, kv })` declares a store's stable ID and schema
+under [ADR-0430](0430-define-store-declares-data-and-products-compose-resources.md).
+Its literal inference, validation, and schema-only consumers remain independent
+of acquisition. Importing the definition opens no storage, captures no Account,
+and selects no platform implementation. Schema inspection, artifacts, tests,
+and live stores consume the same declaration. An application may open several
+definitions; the definition ID names data, not the product's execution.
+
+An opened structured store holds one Yjs data document containing its tables,
+rows, and settings, and owns a blob
 namespace exposed as `store.blobs`. Local and Personal stores opened from the
 same definition are distinct datasets. Definitions can also differ by workflow.
 Audio bytes live outside the structured document even though the store owns
@@ -64,8 +72,9 @@ Blob transfer and recorder dependencies are specified in
 Store definitions contain their ID and schema. The ID selects both the document
 and blob namespace; the opener fixes their ownership. Every store has `blobs`.
 The public store shape keeps account identity private under
-[ADR-0429](0429-store-handles-keep-account-identity-private.md); removing that
-projection remains unbuilt. Whispering's recording ownership follows
+[ADR-0429](0429-store-handles-keep-account-identity-private.md); openers capture
+Personal identity privately and handles expose no Account projection.
+Whispering's recording ownership follows
 [ADR-0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md).
 A future `openShared` follows the same shape with shared-owner authorization;
 it remains unbuilt. SQLite and secrets still take their own `{ id }` and do not

@@ -11,9 +11,9 @@ AGPL-3.0 licensed.
 
 ## Workspace composition
 
-`openSkillsRuntime({ account })` calls `openApp(skillsDefinition, { account })`,
-awaits readiness, and constructs UI state over `app.account.personal`. Its
-disposal stops UI state before closing the App. The mounted layout renders its
+`openSkillsRuntime({ account })` awaits `openPersonal(skillsDefinition, { account })`
+and constructs UI state over the ready store. Its disposal stops UI state before
+closing the store. The mounted layout renders its
 current authentication refusal through Svelte's `{#await}` failure branch.
 Importing Skills modules opens no storage. The declaration validates row data. Rows that do not
 conform stay stored and appear in the UI's invalid-record count rather than
@@ -43,8 +43,8 @@ palette. CodeMirror binds directly to the row's `content` field.
 ## Development
 
 The SvelteKit server hook and Vite dev and preview servers set COOP and COEP
-headers. Document persistence uses IndexedDB; SQL is acquired only if a caller
-opens a named database through the App.
+headers. Document persistence uses IndexedDB. SQL has an independent
+`openSqlite` constructor; opening the Skills store does not acquire SQL.
 
 From the repository root:
 

@@ -7,12 +7,12 @@ import { BlobStoreError } from '@epicenter/blobs';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { StoreError } from './data/store/store.js';
-import { defineApp } from './index.js';
+import { defineStore } from './index.js';
 import { openLocal } from './open-store.js';
 import { createRecorder } from './recorder.js';
 import { createMemoryStoreRuntime } from './testing.js';
 
-const definition = defineApp({ id: 'test.store-blobs', tables: {}, kv: {} });
+const definition = defineStore({ id: 'test.store-blobs', tables: {}, kv: {} });
 
 test('stores own blob admission and close while isolated runtimes retain independent bytes', async () => {
 	const first = createMemoryStoreRuntime();

@@ -46,7 +46,7 @@ test('mounted Whispering uses device data for every signed-out saved selection',
 	);
 	await Bun.write(
 		join(directory, 'data.ts'),
-		`import { defineApp } from ${JSON.stringify(join(repo, 'packages/app/src/index.ts'))}; export const whisperingDefinition = defineApp({ id: 'test.whispering-startup', tables: {}, kv: {} });`,
+		`import { defineStore } from ${JSON.stringify(join(repo, 'packages/app/src/index.ts'))}; export const whisperingDefinition = defineStore({ id: 'test.whispering-startup', tables: {}, kv: {} });`,
 	);
 	await build({
 		configFile: false,
@@ -84,7 +84,7 @@ test('mounted Whispering uses device data for every signed-out saved selection',
 						)
 						.replace(
 							"import { openWhisperingResources } from '$lib/whispering/resources.js';",
-							`import { openLocal } from ${JSON.stringify(join(repo, 'packages/app/src/open.ts'))}; import { whisperingDefinition } from ${JSON.stringify(join(directory, 'data.ts'))}; const openWhisperingResources = async () => ({local:await openLocal(whisperingDefinition,{runtime}), close:async()=>{}, signal:new AbortController().signal});`,
+							`import { openLocal } from ${JSON.stringify(join(repo, 'packages/app/src/open-store.ts'))}; import { whisperingDefinition } from ${JSON.stringify(join(directory, 'data.ts'))}; const openWhisperingResources = async () => ({local:await openLocal(whisperingDefinition,{runtime}), close:async()=>{}, signal:new AbortController().signal});`,
 						);
 				},
 			},

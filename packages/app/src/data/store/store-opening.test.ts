@@ -11,7 +11,7 @@
  */
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import * as Y from '@y/y';
@@ -29,7 +29,7 @@ import {
 
 const definition = expectOk(
 	compileData(
-		defineApp({
+		defineStore({
 			id: 'so.epicenter.store-opening-test',
 			kv: { theme: field.string() },
 			tables: {

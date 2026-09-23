@@ -1,5 +1,5 @@
 import {
-	defineApp,
+	defineStore,
 	defineTable,
 	field,
 	jsonValue,
@@ -66,7 +66,7 @@ const referencesTable = defineTable({
 	content: plainText(),
 });
 
-export const skillsDefinition = defineApp({
+export const skillsDefinition = defineStore({
 	id: 'so.epicenter.skills',
 	title: 'Skills',
 	kv: {},

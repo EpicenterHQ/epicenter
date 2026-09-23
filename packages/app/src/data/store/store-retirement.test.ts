@@ -6,7 +6,7 @@
  */
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { Ok } from 'wellcrafted/result';
@@ -17,7 +17,7 @@ import { createStoreOverPort, StoreUnusableError } from './store.js';
 
 const definition = expectOk(
 	compileData(
-		defineApp({
+		defineStore({
 			id: 'so.epicenter.retirement-test',
 			kv: { theme: field.string() },
 			tables: {

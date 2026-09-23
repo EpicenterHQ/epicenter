@@ -1,4 +1,4 @@
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 
 /**
  * THROWAWAY. One page, two devices, one row crossing between them.
@@ -14,7 +14,7 @@ import { createSyncConnection } from '@epicenter/app/sync';
 import { createBrowserSqliteAdapter } from '@epicenter/sqlite/browser';
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 
-const labDatabase = defineApp({
+const labDatabase = defineStore({
 	id: 'so.epicenter.synclab',
 	kv: {},
 	tables: {

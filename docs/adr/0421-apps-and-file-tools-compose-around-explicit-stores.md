@@ -12,8 +12,9 @@ supported data through an app, Matter, an editor, or a script without each tool
 inventing its own storage and schema interpretation.
 
 `openLocal` and `openPersonal` already own separate lifetimes.
-`packages/app/src/open.ts` re-exports the explicit store openers. Independent
-capability constructors exist; store-owned blobs remain unbuilt.
+`@epicenter/app/open` exports the explicit store openers from
+`packages/app/src/open-store.ts`. Independent capability constructors and
+store-owned blobs are implemented. `defineStore` declares their data schema.
 Matter's `createVault` discovers table folders through `matter.json` and follows
 file changes. These provide parts of the target, but do not yet implement a
 shared app-to-working-copy workflow. A definition also does not transport

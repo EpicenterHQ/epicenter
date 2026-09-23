@@ -7,7 +7,7 @@ import { createCurrentDownloadResponse } from '@epicenter/sync/current-download'
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { acquireLocalBlobs } from './blob-owner.js';
 import type { LocalBlobs } from './blobs.js';
-import { defineApp } from './index.js';
+import { defineStore } from './index.js';
 import { openLocal, openPersonal } from './open-store.js';
 import { createMemoryStoreRuntime } from './testing.js';
 
@@ -53,7 +53,7 @@ function setup() {
 			throw new Error('unused');
 		},
 	};
-	const definition = (id: string) => defineApp({ id, tables: {}, kv: {} });
+	const definition = (id: string) => defineStore({ id, tables: {}, kv: {} });
 	return { runtime: createMemoryStoreRuntime(), account, objects, definition };
 }
 

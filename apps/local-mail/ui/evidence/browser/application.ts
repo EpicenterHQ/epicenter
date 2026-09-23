@@ -1,4 +1,4 @@
-import { defineApp } from '@epicenter/app';
+import { defineStore } from '@epicenter/app';
 import { openPersonal } from '@epicenter/app/open';
 import { openSqlite } from '@epicenter/app/sqlite';
 import { openSecrets } from '@epicenter/app/secrets';
@@ -23,7 +23,7 @@ export const account: Account = {
 		throw new Error('Fixture has no profile');
 	},
 };
-export const definition = defineApp({
+export const definition = defineStore({
 	...mailDefinition,
 	id: 'so.epicenter.local-mail-evidence',
 });

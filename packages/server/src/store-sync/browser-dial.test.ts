@@ -1,4 +1,4 @@
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 /**
  * The browser's dial, handed to the server's gate, with no header a test author
  * typed.
@@ -38,7 +38,7 @@ const BASE_URL = 'http://localhost:8787';
 const PRINCIPAL_ID = 'user-1';
 const ACCESS_TOKEN = 'access-token';
 
-const definition = defineApp({
+const definition = defineStore({
 	id: 'so.epicenter.browserdial',
 	kv: {},
 	tables: {

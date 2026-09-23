@@ -4,7 +4,7 @@
  */
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
-import { defineApp, field } from '@epicenter/app';
+import { defineStore, field } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { Ok } from 'wellcrafted/result';
@@ -15,7 +15,7 @@ import { createStoreOverPort, syncEngineOf } from '../store/store.js';
 import { createSyncConnection } from './connection.js';
 import { decodeFrame, encodeFrame } from './frames.js';
 
-const definition = defineApp({
+const definition = defineStore({
 	id: 'so.epicenter.scheduling',
 	kv: { value: field.number() },
 	tables: {},

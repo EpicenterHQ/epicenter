@@ -71,9 +71,9 @@ Use when two to six files move and the new location communicates intent (these b
 When components stack, show them from high-level to low-level with a one-line job per layer. Keep it to a thin form; full boxes are rarely worth it.
 
 ```txt
-defineApp({ tables, kv })            declare and validate the schema
-  openApp(declaration, account)          acquire application resources
-    app.ready                       wait for stores and capabilities
+defineStore({ id, tables, kv })       declare and validate the schema
+  await openPersonal(definition, { account })  acquire a ready store
+    store.tables / store.kv / store.blobs     use store-owned data
 ```
 
 ## Comparison Table

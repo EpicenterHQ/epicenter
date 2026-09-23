@@ -19,7 +19,7 @@
  * plain JSON, and both are faithful where the lens narrows.
  */
 import { describe, expect, test } from 'bun:test';
-import { defineApp } from '@epicenter/app';
+import { defineStore } from '@epicenter/app';
 import {
 	defineTable,
 	field,
@@ -28,7 +28,7 @@ import {
 import { openMemory } from '../../src/data/store/memory.js';
 import { syncEngineOf } from '../../src/data/store/store.js';
 
-const database = defineApp({
+const database = defineStore({
 	id: 'so.epicenter.rowvalue',
 	kv: {},
 	tables: {

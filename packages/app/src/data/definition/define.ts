@@ -1,5 +1,5 @@
 /**
- * Table authoring and the field constraints shared with defineApp.
+ * Table authoring and the field constraints shared with defineStore.
  *
  * defineTable brands its result so the application constructor can require
  * validated tables. compileData checks the runtime schema at declaration time.
@@ -25,7 +25,7 @@ type ReservedRowKey<K extends string> =
  * a reserved name refused at the key.
  *
  * `defineTable` applies this to all top-level table keys except `content`, and
- * `defineApp` applies it to `kv`, which are the two places field maps are
+ * `defineStore` applies it to `kv`, which are the two places field maps are
  * authored.
  *
  * The reserved-name arm is what replaced a mapped type over the type-field

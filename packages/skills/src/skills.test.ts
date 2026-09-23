@@ -1,5 +1,5 @@
 import {
-	defineApp,
+	defineStore,
 	defineTable,
 	field,
 	jsonValue,
@@ -36,7 +36,7 @@ import { exportSkillsToDisk, importSkillsFromDisk } from './node.js';
 import { type SkillsData, skillsDefinition } from './workspace.js';
 
 /** The Skills workspace as an earlier release declared it, before `sourceId`. */
-const historicalSkillsWorkspace = defineApp({
+const historicalSkillsWorkspace = defineStore({
 	id: 'so.epicenter.skills',
 	kv: {},
 	tables: {

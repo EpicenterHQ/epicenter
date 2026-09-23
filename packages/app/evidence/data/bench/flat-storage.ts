@@ -1,4 +1,4 @@
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 /**
  * What the authority's storage actually tracks.
  *
@@ -36,7 +36,7 @@ import {
 } from '../../../src/data/store/store.js';
 import { openSyncAuthority } from '../../../src/data/sync/authority.js';
 
-const evidenceDatabase = defineApp({
+const evidenceDatabase = defineStore({
 	id: 'so.epicenter.honeycrisp',
 	kv: {},
 	tables: {

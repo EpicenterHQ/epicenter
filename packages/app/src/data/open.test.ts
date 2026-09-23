@@ -1,11 +1,11 @@
 /** Data-only opening borrows SQLite, drains writes on disposal, and replays the same record. */
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
-import { defineApp, defineTable, field } from '@epicenter/app';
+import { defineStore, defineTable, field } from '@epicenter/app';
 import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import { openData } from './open.js';
 
-const definition = defineApp({
+const definition = defineStore({
 	id: 'test.data-open',
 	kv: {},
 	tables: { notes: defineTable({ title: field.string() }) },

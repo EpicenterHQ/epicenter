@@ -18,7 +18,7 @@
  * deploys grows a class that exists for a test.
  */
 import { DurableObject } from 'cloudflare:workers';
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 import { openData } from '@epicenter/app/data';
 import {
 	createSyncClient,
@@ -30,7 +30,7 @@ import {
 	type DurableObjectSqliteStorage,
 } from '@epicenter/sqlite/durable-object';
 
-const labDatabase = defineApp({
+const labDatabase = defineStore({
 	id: 'so.epicenter.synclab',
 	kv: {},
 	tables: {

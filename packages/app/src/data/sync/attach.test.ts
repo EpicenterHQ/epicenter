@@ -1,4 +1,4 @@
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 
 /**
  * What the shared dial has to get right: the address it asks for, including
@@ -24,7 +24,7 @@ import { openAccountStore } from '../store/store.js';
 import { attachStoreSync } from './attach.js';
 import { encodeFrame } from './frames.js';
 
-const database = defineApp({
+const database = defineStore({
 	id: 'so.epicenter.attach-test',
 	kv: {},
 	tables: {

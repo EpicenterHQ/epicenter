@@ -1,5 +1,5 @@
 import {
-	defineApp,
+	defineStore,
 	defineTable,
 	field,
 	plainText,
@@ -108,7 +108,7 @@ const entriesTable = defineTable({
  * (ADR-0213). It is read from the DEVICE document in every generation: how this
  * screen renders is a fact about this screen, not portable work (ADR-0233).
  */
-export const vocabDefinition = defineApp({
+export const vocabDefinition = defineStore({
 	id: APPS.VOCAB.id,
 	title: 'Vocab',
 	kv: {

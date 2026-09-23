@@ -95,7 +95,7 @@ const parsed = new WeakMap<
  * Parse and compile one definition, held beside the definition object (ADR-0266).
  *
  * Keyed on object identity, not a content hash. The memo is what makes eager
- * validation free: `defineApp` compiles at the authoring call so a malformed
+ * validation free: `defineStore` compiles at the authoring call so a malformed
  * definition fails there rather than at first open (ADR-0266), and without this
  * every opener would redo that work. It is not here for the milliseconds; it is
  * here so "validate early" does not mean "validate twice".

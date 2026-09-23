@@ -80,25 +80,26 @@ refused was a hosted surface that reached a host-owned replica instead.
 +---------------------------------------------------------------------------+
 ```
 
-`@epicenter/app` supplies `defineApp`, `defineTable`, and `field` at its root.
-The declaration is platform-free. `openApp(definition, { account?, runtime? })` from
-`@epicenter/app/open` acquires the live App. The default runtime comes from the
-build; `@epicenter/app/testing` supplies `createMemoryRuntime()` for App tests.
-Both run the same readiness, sync, and closure logic. Memory storage survives
-App close and reopen until runtime disposal.
+`@epicenter/app` supplies `defineStore`, `defineTable`, and `field` at its root.
+The definition is platform-free. `openLocal` and `openPersonal` from
+`@epicenter/app/open` acquire independent stores. Each resolves after document
+and blob acquisition. The default constructors select browser or host resources
+with `isTauri()`. `createMemoryStoreRuntime()` from `@epicenter/app/testing`
+isolates document and blob storage for store tests. Its storage survives store
+close and reopen until runtime disposal.
 Independent `/definition`, `/store`, `/sync`, and `/artifact/format`
 entrypoints let engine consumers load only their required modules. The Bun
 memory opener has a separate entrypoint because it imports `bun:sqlite`.
-`/data` opens over caller-owned SQLite; browser persistence is internal to App. See the [application architecture](../packages/app/ARCHITECTURE.md). There is no `./projection`: the packaged SQL
+`/data` opens over caller-owned SQLite; browser persistence is internal to the store. See the [application architecture](../packages/app/ARCHITECTURE.md). There is no `./projection`: the packaged SQL
 follower was deleted (ADR-0269), and a derived index is now app-owned, in
 memory, and rebuilt on read (ADR-0307).
 
 `@epicenter/server` and the core packages above it are AGPL. See
 [`licensing strategy`](licensing/licensing-strategy.md).
 
-## An application has one database document
+## A store has one database document
 
-One database `Y.Doc` per application is persisted under the application log
+One database `Y.Doc` per store is persisted under the application log
 name `app` (ADR-0257). Its current top-level roots are the bare named root
 `kv` and one `tables:<name>` root for each declared table. Each table declares
 ordinary value fields and one required `content` codec.
@@ -176,28 +177,26 @@ durable JSON stays unchanged
 
 ## Reads are synchronous
 
-`openApp` returns a handle synchronously. `app.ready` waits for storage
-acquisition and durable replay. Once ready, row and KV operations read and edit
-the in-memory document synchronously; persistence and network work remain async.
+`openLocal` and `openPersonal` resolve to ready stores. Row and KV operations
+then read and edit the in-memory document synchronously; persistence, blobs,
+and network work remain async.
 
-One admission covers all App stores and lazy SQL. A duplicate app/account
-opener fails with `AlreadyOpen`; retry constructs a fresh App after the first
-closes. Failed readiness makes the handle unusable but does not prove cleanup
-released ownership. The shared account-wide AI catalog keeps its own mutation
-coordination because its lifetime spans app identities.
+Each store owns its document and blob admission. Duplicate acquisition of the
+same store address fails with `AlreadyOpen`. Closing fences new work and drains
+admitted operations; failed cleanup retains exclusion when another writer would
+be unsafe. SQL, secrets, recording, and inference have separate constructors
+and lifetimes.
 
 ```ts
-import { openApp } from '@epicenter/app/open';
+import { openPersonal } from '@epicenter/app/open';
 
-const app = openApp(honeycrispDefinition, { account });
-const ready = await app.ready;
-if (ready.error !== null) throw ready.error;
-const data = app.account.personal;
+const data = await openPersonal(honeycrispDefinition, { account });
 const rows = data.tables.notes.rows;
 const nonconforming = data.tables.notes.nonconforming;
 data.tables.notes.update(noteId, { title: 'x' });
 data.tables.notes.subscribe(() => { /* refresh the table view */ });
-// The page stops producers and awaits app.close() before leaving.
+// Explicitly retire this store when its workflow finishes.
+await data.close();
 ```
 
 `subscribe` names the rows a commit touched (ADR-0221), so a view refreshes

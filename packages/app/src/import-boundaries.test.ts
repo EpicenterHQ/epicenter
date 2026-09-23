@@ -19,8 +19,8 @@ for (const host of [false, true]) {
 				for (const name of ['window', 'document', 'navigator', 'indexedDB', 'Worker']) {
 					Reflect.deleteProperty(globalThis, name);
 				}
-				const { defineApp, defineTable, field } = await import('@epicenter/app');
-				const declaration = defineApp({
+				const { defineStore, defineTable, field } = await import('@epicenter/app');
+				const declaration = defineStore({
 					id: 'test.import-boundary', kv: {},
 					tables: { notes: defineTable({ title: field.string() }) },
 				});
@@ -98,11 +98,11 @@ for (const host of [false, true]) {
 				`
    globalThis.isTauri = ${host};
    for (const name of ['window','document','navigator','indexedDB','Worker']) Reflect.deleteProperty(globalThis,name);
-   const {defineApp} = await import('@epicenter/app');
+   const {defineStore} = await import('@epicenter/app');
    const {openLocal} = await import('@epicenter/app/open');
    const {createMemoryStoreRuntime} = await import('@epicenter/app/testing');
    const runtime = createMemoryStoreRuntime();
-   const app = await openLocal(defineApp({id:'test.no-platform',tables:{},kv:{}}),{runtime});
+   const app = await openLocal(defineStore({id:'test.no-platform',tables:{},kv:{}}),{runtime});
    await app.close(); await runtime.dispose();
    for (const name of ['indexedDB','IDBRequest','IDBTransaction','IDBKeyRange','IDBDatabase']) { if(globalThis[name] !== undefined) throw new Error('Installed ambient '+name); }
   `,
@@ -128,8 +128,8 @@ test('memory stores ignore foreign IDB globals and leave them untouched', async 
   for(const [name,value] of sentinel) globalThis[name]=value;
   const {createMemoryStoreRuntime}=await import('@epicenter/app/testing');
   const {openLocal}=await import('@epicenter/app/open');
-  const {defineApp,defineTable,field}=await import('@epicenter/app');
-  const definition=defineApp({id:'test.foreign-idb',kv:{},tables:{notes:defineTable({title:field.string()})}});
+  const {defineStore,defineTable,field}=await import('@epicenter/app');
+  const definition=defineStore({id:'test.foreign-idb',kv:{},tables:{notes:defineTable({title:field.string()})}});
   const runtime=createMemoryStoreRuntime();
   const app=await openLocal(definition,{runtime});
   app.tables.notes.create({title:'retained'});

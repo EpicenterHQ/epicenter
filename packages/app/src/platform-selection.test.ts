@@ -12,10 +12,10 @@ test('an explicit memory runtime never reads the platform marker', async () => {
 			`
   Object.defineProperty(globalThis, 'isTauri', {get() {throw new Error('Detected platform');}});
   const {openLocal} = await import('./src/open-store.ts');
-  const {defineApp} = await import('./src/index.ts');
+  const {defineStore} = await import('./src/index.ts');
   const {createMemoryStoreRuntime} = await import('./src/testing.ts');
   const runtime = createMemoryStoreRuntime();
-  const app = await openLocal(defineApp({id:'test.explicit-runtime',tables:{},kv:{}}),{runtime});
+  const app = await openLocal(defineStore({id:'test.explicit-runtime',tables:{},kv:{}}),{runtime});
   await app.close(); await runtime.dispose();
  `,
 		],

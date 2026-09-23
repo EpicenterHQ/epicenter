@@ -10,19 +10,19 @@ The main entrypoints are:
 | --- | --- |
 | `@epicenter/app/store` | Store handle and error types |
 | `@epicenter/app/data` | `openData(definition, sqlite)` and `syncEngineOf`; the caller owns SQLite |
-| `@epicenter/app` | `defineApp`, `defineTable`, and `field`: the application declaration |
+| `@epicenter/app` | `defineStore`, `defineTable`, and `field`: the store declaration |
 | `@epicenter/app/definition` | Reusable table vocabulary and schema compilation |
 | `@epicenter/app/sync` | `createSyncConnection`, and the authority half a server runs |
 | `@epicenter/app/artifact` | `renderArtifact` renders Markdown; `readArtifact` reads Markdown into a fresh document. Ordinary edits use checkout instead. |
 | `@epicenter/app/artifact/checkout` | `createWorkingCopy` with previewed `pull` and `push`, using the checkout manifest as the three-way baseline |
 | `@epicenter/app/memory` | `openMemory(definition)` and `createMemoryRecord()`, test support |
 
-Application data persists through the App's IndexedDB backing. `openData`
+Local and Personal stores persist through their IndexedDB backing. `openData`
 opens the same document engine over a caller-owned SQLite connection, including
 Worker probes. Disposing the data document leaves that connection open.
 `openMemory` supplies Bun-only in-memory storage for tests. A supplied
 `MemoryRecord` survives document disposal so a test can reopen the same bytes.
-These entrypoints do not load the App or its platform implementations.
+These entrypoints do not acquire product resources or load platform implementations.
 
 The descriptions below reflect the current implementation. The unbuilt
 [ADR-0417 direction](../../../../docs/adr/0417-a-data-address-holds-one-document.md)
@@ -39,7 +39,7 @@ installation. When invoking the source directly, use
 `bun --no-install scripts/epicenter.ts validate FOLDER --json`.
 Replace `FOLDER` with the working folder path. The command imports that folder's
 `epicenter.config.ts` once in a fresh Bun process. Default-export a definition
-built with `defineApp`, `defineTable`, and `field`, or re-export an existing
+built with `defineStore`, `defineTable`, and `field`, or re-export an existing
 definition. Imports must resolve from the config's location; install its
 dependencies yourself. The workspace packages are private, not a published
 definition catalog.
@@ -348,9 +348,9 @@ equal. One application may open several data domains, and a data domain may be
 opened by several applications or tools.
 
 ```ts
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 
-export const notesDefinition = defineApp({
+export const notesDefinition = defineStore({
 	id: 'com.example.notes',
 	kv: { theme: field.select(['light', 'dark']) },
 	tables: {

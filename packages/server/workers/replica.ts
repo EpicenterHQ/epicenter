@@ -1,4 +1,4 @@
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 import type { ReplicaData } from '@epicenter/app/store';
 /**
  * Test-only: a replica that lives inside `workerd`, driven by the real driver.
@@ -43,7 +43,7 @@ import { expectOk } from 'wellcrafted/testing';
 /** This harness covers fresh stores; restore admission has its own Worker suite. */
 const PROBE_GENERATION = 1;
 
-const probeDefinition = defineApp({
+const probeDefinition = defineStore({
 	id: 'so.epicenter.storeprobe',
 	kv: {},
 	tables: {

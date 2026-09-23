@@ -1,4 +1,4 @@
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
 /**
  * The optimistic persistence boundary (ADR-0238, amended by ADR-0300):
@@ -26,7 +26,7 @@ import {
 
 /** Wrap one application-document update the way the wire carries it. */
 
-const database = defineApp({
+const database = defineStore({
 	id: 'so.epicenter.honeycrisp',
 	kv: { theme: field.select(['light', 'dark']) },
 	tables: {

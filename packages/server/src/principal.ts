@@ -17,7 +17,7 @@ import type { PrincipalId } from '@epicenter/principal';
  *
  * The resource segment is `data` rather than `stores` (ADR-0276). A store is the
  * runtime object a client holds; what is addressed here is one data definition,
- * the value of `defineApp({ id })`. It is a sibling of `blobs` under the same
+ * the value of `defineStore({ id })`. It is a sibling of `blobs` under the same
  * partition, which is the whole job `stores` was doing.
  *
  * The name carries the GENERATION (ADR-0276, ADR-0292), and that is what makes

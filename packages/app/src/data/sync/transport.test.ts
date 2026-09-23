@@ -1,6 +1,6 @@
 import {
 	type DataDefinition,
-	defineApp,
+	defineStore,
 	defineTable,
 	field,
 	plainText,
@@ -50,7 +50,7 @@ import {
 } from './frames.js';
 import { createSyncHub, type HubConnection } from './hub.js';
 
-const database = defineApp({
+const database = defineStore({
 	id: 'so.epicenter.honeycrisp',
 	kv: {},
 	tables: {
@@ -1793,7 +1793,7 @@ describe('the snapshot path under sustained traffic', () => {
  * that does not declare it, while a missing one is a row a database cannot read, and
  * the two directions have to be told apart.
  */
-const newerDatabase = defineApp({
+const newerDatabase = defineStore({
 	id: 'so.epicenter.honeycrisp',
 	kv: {},
 	tables: {
@@ -1806,7 +1806,7 @@ const newerDatabase = defineApp({
 });
 
 /** The same application again, one release later still: a whole new table. */
-const twoTableDatabase = defineApp({
+const twoTableDatabase = defineStore({
 	id: 'so.epicenter.honeycrisp',
 	kv: {},
 	tables: {

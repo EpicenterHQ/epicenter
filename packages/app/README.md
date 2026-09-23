@@ -8,14 +8,16 @@ Whispering borrows blob access from its Local and Personal stores. The earlier
 [implementation report](../../docs/reports/20260922-store-owned-blobs-implementation.md)
 records the initial transport milestone.
 
-`defineApp` declares data. Importing the package root acquires nothing and loads
-no browser or native implementation. A schema is required only for data stores.
+`defineStore` declares a store's stable ID and schema. An application composes
+the stores and services its workflows need; there is no aggregate App handle.
+Importing the package root acquires nothing and loads no browser or native
+implementation. A schema is required only for data stores.
 
 ```ts
-import { defineApp, defineTable, field } from '@epicenter/app';
+import { defineStore, defineTable, field } from '@epicenter/app';
 import { openLocal, openPersonal } from '@epicenter/app/open';
 
-const definition = defineApp({
+const definition = defineStore({
   id: 'so.epicenter.notes',
   kv: { language: field.string() },
   tables: { notes: defineTable({ title: field.string() }) },
@@ -24,6 +26,14 @@ const local = await openLocal(definition);
 // Acquire separately when an authenticated workflow needs synchronized data.
 const personal = await openPersonal(definition, { account });
 ```
+
+The definition ID names the document and blob namespace. It uses the same
+reverse-domain grammar as a host application ID, but an application may open
+several definitions. Reusing a definition for Local and Personal preserves the
+declared shape, not the dataset. Changing its ID selects a different persistent
+address. SQL and secrets take their own namespace IDs without a store definition.
+
+For the naming decision, see [ADR-0430](../../docs/adr/0430-define-store-declares-data-and-products-compose-resources.md).
 
 Local retains the same address across account changes. Personal captures the
 account's authority, principal, and transport before asynchronous acquisition.

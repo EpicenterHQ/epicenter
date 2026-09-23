@@ -4,7 +4,7 @@
  * It exposes verbs rather than running a script, so the runner decides when a
  * reload happens, which is the only part of this that matters.
  */
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 
 import { type LocalStore, openLocal } from '@epicenter/app/open';
 
@@ -16,7 +16,7 @@ import { type LocalStore, openLocal } from '@epicenter/app/open';
  * is no second name left to vary, and the honest control is a second dataId.
  */
 const workspaces = {
-	vault: defineApp({
+	vault: defineStore({
 		id: 'so.epicenter.durableprobe',
 		kv: {},
 		tables: {
@@ -26,7 +26,7 @@ const workspaces = {
 			}),
 		},
 	}),
-	'somewhere-else': defineApp({
+	'somewhere-else': defineStore({
 		id: 'so.epicenter.durableprobe.elsewhere',
 		kv: {},
 		tables: {

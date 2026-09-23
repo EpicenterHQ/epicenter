@@ -1,4 +1,4 @@
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 /**
  * What a note list costs while somebody types, and whether the fine-grained
  * signal is what protects it.
@@ -40,7 +40,7 @@ import { defineApp, defineTable, field, plainText } from '@epicenter/app';
 import { InstantString } from '../../../src/data/field/index.js';
 import { openMemory } from '../../../src/data/store/memory.js';
 
-const definition = defineApp({
+const definition = defineStore({
 	id: 'so.epicenter.honeycrisp',
 	kv: { theme: field.select(['light', 'dark']) },
 	tables: {

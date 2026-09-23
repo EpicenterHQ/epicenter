@@ -1,5 +1,5 @@
 /** Actual working-copy operations with an in-memory folder host and SQLite store. */
-import { defineApp } from '@epicenter/app';
+import { defineStore } from '@epicenter/app';
 import * as Y from '@y/y';
 import {
 	checkoutLine,
@@ -15,7 +15,7 @@ const installed = await Bun.file(
 ).json();
 if (installed.version !== '14.0.0-rc.24')
 	throw new Error('Revalidate against the new @y/y version');
-const definition = defineApp({
+const definition = defineStore({
 	id: 'so.epicenter.checkout-benchmark',
 	kv: {},
 	tables: {

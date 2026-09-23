@@ -1,5 +1,5 @@
 /** Independent process: its own IndexedDB factory and current-scope cache. */
-import { defineApp } from '@epicenter/app';
+import { defineStore } from '@epicenter/app';
 import 'fake-indexeddb/auto';
 import { asPrincipalId } from '@epicenter/principal';
 import { expectOk } from 'wellcrafted/testing';
@@ -9,7 +9,7 @@ import { acquireStoreData } from '../../../src/data/store/browser.js';
 const baseURL = process.argv[2]!;
 const definition = expectOk(
 	compileData(
-		defineApp({
+		defineStore({
 			id: 'so.epicenter.firstopen',
 			tables: {},
 			kv: {},

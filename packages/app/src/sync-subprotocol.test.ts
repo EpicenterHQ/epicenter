@@ -1,4 +1,4 @@
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 /**
  * What the store's dial actually offers when a real auth client is the
  * transport.
@@ -28,7 +28,7 @@ import {
 	MAIN_SUBPROTOCOL,
 } from '@epicenter/sync/auth-subprotocol';
 
-const definition = defineApp({
+const definition = defineStore({
 	id: 'so.epicenter.subprotocol-test',
 	kv: {},
 	tables: {

@@ -6,14 +6,14 @@
  * `ValidateTable` dispatched on the key `fields` for a day after the
  * table fields are now top-level keys, so nothing needs a second wrapper or a
  * public list of content names. That whole type is gone now — a table reaches
- * `defineApp` branded, so `defineTable` is the one
+ * `defineStore` branded, so `defineTable` is the one
  * place a table is checked — and these pins are what would notice if the one
  * remaining door stopped checking.
  *
  * Nothing runs. `tsc` is the runner, and a `@ts-expect-error` that stops
  * erroring is itself an error.
  */
-import { defineApp } from '@epicenter/app';
+import { defineStore } from '@epicenter/app';
 
 import type * as Y from '@y/y';
 import { plainText } from './content.js';
@@ -84,7 +84,7 @@ defineTable({
  * `compileData` refuses one at runtime too (`DeclarationDefault`), and this is
  * the compile-time half of that rule, for both buckets a definition has.
  *
- * Through `defineTable` rather than a table literal handed to `defineApp`. A
+ * Through `defineTable` rather than a table literal handed to `defineStore`. A
  * literal is refused for having no brand, and that refusal fires FIRST: the
  * table half of this pin used to sit on a bare literal, and it passed with the
  * default removed entirely, so it was testing the door rather than the
@@ -106,17 +106,17 @@ defineTable({
  * A table has one door, and a bare literal is not it.
  *
  * `defineTable` brands its return and `DataDefinition` requires the brand, so a
- * structurally-correct literal handed straight to `defineApp` is refused. That
+ * structurally-correct literal handed straight to `defineStore` is refused. That
  * is what lets every table rule live on `defineTable`'s parameter alone: there
  * is no second authoring path left to re-check, which is what `ValidateTable`
  * and `ValidateDefinition` used to be for.
  *
- * It also fixed the message. On the old `defineApp` path the refusal was
+ * It also fixed the message. On the old `defineStore` path the refusal was
  * carried through `TData & ValidateDefinition<TData>`, and the intersection
  * collapsed the offending element to `never`, taking the explanation with it.
  * A collision now reports the same sentence wherever it is written.
  */
-defineApp({
+defineStore({
 	id: 'so.epicenter.bare-literal',
 	kv: {},
 	tables: {
@@ -125,7 +125,7 @@ defineApp({
 	},
 });
 
-defineApp({
+defineStore({
 	id: 'so.epicenter.declaration-default',
 	kv: {
 		// @ts-expect-error a default belongs to the application, not the schema

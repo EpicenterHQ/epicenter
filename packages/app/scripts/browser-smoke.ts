@@ -58,12 +58,12 @@ try {
 		const { openLocal }: typeof import('../src/open-store.js') = await import(
 			openModule
 		);
-		const { defineApp }: typeof import('../src/index.js') = await import(
+		const { defineStore }: typeof import('../src/index.js') = await import(
 			appModule
 		);
 		const { defineTable, field }: typeof import('@epicenter/app/definition') =
 			await import(dataModule);
-		const application = defineApp({
+		const application = defineStore({
 			tables: { recordings: defineTable({ audioBlobId: field.string() }) },
 			kv: {},
 			id: 'so.epicenter.recording-smoke',

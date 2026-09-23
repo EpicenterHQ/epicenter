@@ -4,7 +4,7 @@
  * in the same factory, without changing the ambient browser factory.
  */
 import { expect, test } from 'bun:test';
-import { defineApp } from '@epicenter/app';
+import { defineStore } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
 import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
@@ -18,7 +18,7 @@ test.each([
 ] as const)('%s stores isolate simultaneous factories and reopen their own committed records', async (scope) => {
 	const appId = `so.epicenter.factory.${crypto.randomUUID()}`;
 	const definition = expectOk(
-		compileData(defineApp({ id: appId, kv: {}, tables: {} })),
+		compileData(defineStore({ id: appId, kv: {}, tables: {} })),
 	);
 	const ambient = globalThis.indexedDB;
 	const factories = [new IDBFactory(), new IDBFactory()];

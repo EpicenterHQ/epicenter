@@ -11,7 +11,7 @@ It is an explanation of intent.
 
 ## The one change everything else follows from
 
-**An application has ONE Yjs document, replayed in full before any handle
+**A store has one Yjs document, replayed in full before any handle
 exists, and the surface over it is synchronous.** Each row owns one nested live
 content node at `row.content`; every other field holds an ordinary value.
 
@@ -20,7 +20,7 @@ worker or a desktop host, reached over a message port or HTTP. Every read was a
 round trip, so every read was `async`, so every consumer was `async`, so every
 consumer needed cache invalidation and race protection.
 
-Once the whole application is one document in memory, none of that is true. A
+Once the store is one document in memory, none of that is true. A
 read is a property access. That single fact deletes more code than any other
 decision here, and most of the entries below are consequences of it rather than
 independent changes.
@@ -210,13 +210,13 @@ machine-produced, replaced wholesale, and rendered in a list.
 **Old:** TypeBox, `defineTable({ fields: { title: field.string() } })`.
 
 **New:** ordinary value field descriptors at the table's top level, one
-optional `content` codec, inert application declarations, and application-owned
+optional `content` codec, inert store definitions, and application-owned
 recovery values (ADR-0255).
 
 ```ts
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 
-export const definition = defineApp({
+export const definition = defineStore({
   id: 'so.epicenter.honeycrisp',
   kv: { theme: field.select(['light', 'dark']) },
   tables: { notes: defineTable({ title: field.string(), folderId: field.nullable(field.string()), content: plainText() }) },

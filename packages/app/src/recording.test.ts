@@ -14,7 +14,7 @@ import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { acquireLocalBlobs } from './blob-owner.js';
-import { defineApp } from './index.js';
+import { defineStore } from './index.js';
 import { openLocal } from './open-store.js';
 import {
 	createRecorder,
@@ -134,7 +134,7 @@ function setup({
 	};
 	const idb = { factory: new IDBFactory(), keyRange: IDBKeyRange };
 	const runtime = createMemoryStoreRuntime();
-	const definition = defineApp({ id: appId, tables: {}, kv: {} });
+	const definition = defineStore({ id: appId, tables: {}, kv: {} });
 	const openFixture = async () => {
 		const local = createBrowserBlobStore({ appId, idb });
 		const put = local.put;

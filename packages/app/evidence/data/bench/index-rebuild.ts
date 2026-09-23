@@ -1,4 +1,4 @@
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 /**
  * What ADR-0307's rebuild actually costs.
  *
@@ -39,7 +39,7 @@ import { Database } from 'bun:sqlite';
 import { InstantString } from '../../../src/data/field/index.js';
 import { openMemory } from '../../../src/data/store/memory.js';
 
-const definition = defineApp({
+const definition = defineStore({
 	id: 'so.epicenter.honeycrisp',
 	kv: {},
 	tables: {

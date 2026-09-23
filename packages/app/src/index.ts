@@ -3,8 +3,8 @@ import type { DeclaredTable } from './data/definition/declaration.js';
 import type { ValidateFields } from './data/definition/define.js';
 import { compileData, type DataDefinition } from './data/definition/index.js';
 
-/** Declare and validate a platform-free schema. Opening belongs to @epicenter/app/open. */
-export function defineApp<const TDefinition extends DataDefinition>(
+/** Declare a store's identity and schema without acquiring resources. Open it through @epicenter/app/open. */
+export function defineStore<const TDefinition extends DataDefinition>(
 	schema: TDefinition & {
 		kv: ValidateFields<TDefinition['kv']>;
 		tables: {
@@ -19,7 +19,8 @@ export function defineApp<const TDefinition extends DataDefinition>(
 		'id' | 'title' | 'kv' | 'tables'
 	>;
 	const { id, title, kv, tables } = schema;
-	if (!isAppId(id)) throw new Error(`The application id '${id}' is not valid.`);
+	if (!isAppId(id))
+		throw new Error(`The store definition ID '${id}' is not valid.`);
 	const declaration: Definition = Object.freeze({
 		id,
 		...(title === undefined ? {} : { title }),

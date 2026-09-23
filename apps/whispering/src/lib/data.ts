@@ -1,5 +1,5 @@
 import {
-	defineApp,
+	defineStore,
 	defineTable,
 	field,
 	type KvOf,
@@ -156,7 +156,7 @@ const settingsKv = {
 	shortcutOpenSettingsKeys: field.nullable(field.tags()),
 } as const;
 
-export const whisperingDefinition = defineApp({
+export const whisperingDefinition = defineStore({
 	id: APPS.WHISPERING.id,
 	title: 'Whispering',
 	kv: settingsKv,

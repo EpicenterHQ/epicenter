@@ -46,7 +46,7 @@ export const asConversationId = (value: string): ConversationId =>
  *
  * @example
  * ```ts
- * export const vocabDefinition = defineApp({
+ * export const vocabDefinition = defineStore({
  *   id: 'so.epicenter.vocab',
  *   tables: {
  *     conversations: conversationsTable,

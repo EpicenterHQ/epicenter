@@ -3,7 +3,7 @@
  * Empty nodes round-trip; populated nodes and incoming bodies are refused.
  */
 import { expect, test } from 'bun:test';
-import { defineApp } from '@epicenter/app';
+import { defineStore } from '@epicenter/app';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { compileData } from '../definition/compile.js';
 import { defineTable, field } from '../definition/index.js';
@@ -12,7 +12,7 @@ import { syncEngineOf } from '../store/store.js';
 import { readArtifact } from './import.js';
 import { renderArtifact, renderRow } from './render.js';
 
-const definition = defineApp({
+const definition = defineStore({
 	id: 'so.epicenter.saved-queries',
 	kv: {},
 	tables: {

@@ -12,11 +12,11 @@ import { createCurrentDownloadResponse } from '@epicenter/sync/current-download'
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { encodeFrame } from './data/sync/frames.js';
-import { defineApp } from './index.js';
+import { defineStore } from './index.js';
 import { openLocal, openPersonal } from './open-store.js';
 import { createMemoryStoreRuntime } from './testing.js';
 
-const definition = defineApp({
+const definition = defineStore({
 	id: 'so.epicenter.app-test',
 	kv: {},
 	tables: {
@@ -97,7 +97,7 @@ test('Personal acquisition hydrates the existing handles and survives refused sy
 test('invalid definitions throw before opening storage', async () => {
 	// Runtime validation also refuses defaults hidden by a broad schema type.
 	const invalid = () =>
-		defineApp({
+		defineStore({
 			id: 'so.epicenter.app-test',
 			tables: {},
 			kv: {
@@ -155,7 +155,7 @@ test('Personal retirement retains its claim after terminal invalidation failure'
 						transport: account,
 					},
 				});
-	const fixtureDefinition = defineApp({ ...definition, id: appId });
+	const fixtureDefinition = defineStore({ ...definition, id: appId });
 	const openFixture = (account: Account) =>
 		openPersonal(fixtureDefinition, { account, runtime });
 	const app = await openFixture(account);
@@ -245,7 +245,7 @@ test('Personal retirement during attachment refuses readiness without auto-relea
 						transport: account,
 					},
 				});
-	const appDefinition = defineApp({
+	const appDefinition = defineStore({
 		...definition,
 		id: `test.${crypto.randomUUID()}`,
 	});
@@ -318,7 +318,7 @@ test('replacing the Account cannot submit Alice pending Personal edits as Bob', 
 			return current(input, init);
 		},
 	});
-	const fixtureDefinition = defineApp({ ...definition, id: appId });
+	const fixtureDefinition = defineStore({ ...definition, id: appId });
 	const openFixture = (account: Account) =>
 		openPersonal(fixtureDefinition, { account, runtime });
 	const state = auth.getState();

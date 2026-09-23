@@ -1,4 +1,4 @@
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 /**
  * The client half of sync: what a replica owes the authority, and what it has
  * read from it.
@@ -20,7 +20,7 @@ import { openAccountStore, syncEngineOf } from './store.js';
 
 /** Wrap one application-document update the way the wire carries it. */
 
-const database = defineApp({
+const database = defineStore({
 	id: 'so.epicenter.honeycrisp',
 	kv: {},
 	tables: {

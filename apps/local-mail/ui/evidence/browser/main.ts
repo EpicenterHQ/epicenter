@@ -1,6 +1,6 @@
 import { openPersonal } from '@epicenter/app/open';
 import './style.css';
-import { defineApp, defineTable, field } from '@epicenter/app';
+import { defineStore, defineTable, field } from '@epicenter/app';
 import { syncEngineOf } from '@epicenter/app/data';
 import type { Account } from '@epicenter/auth';
 import { mount, unmount } from 'svelte';
@@ -55,7 +55,7 @@ try {
 			},
 			async remoteEdit(remove = false) {
 				const peer = await openPersonal(
-					defineApp({
+					defineStore({
 						...mailDefinition,
 						id: 'so.epicenter.local-mail-evidence',
 					}),
@@ -87,7 +87,7 @@ try {
 			},
 			async malformed() {
 				const peer = await openPersonal(
-					defineApp({
+					defineStore({
 						kv: {},
 						tables: {
 							savedQueries: defineTable({

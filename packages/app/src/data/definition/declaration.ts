@@ -151,7 +151,7 @@ export type TableDeclaration = {
  * A table declaration is a plain object, so any literal of the right shape used
  * to satisfy `DataDefinition`. That made two authoring paths for one thing:
  * `defineTable`, which checks its parameter, and a bare literal handed to
- * `defineApp`, which needed a second set of conditional types to re-check the
+ * `defineStore`, which needed a second set of conditional types to re-check the
  * same rules and could not report them as well. Every rule was written twice
  * and one of the copies silently stopped applying for a day.
  *

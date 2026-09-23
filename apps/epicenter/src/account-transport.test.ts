@@ -935,7 +935,7 @@ test('native Personal-to-Local copy streams through the captured Account without
 });
 
 test('lost native copy acknowledgment retains both store claims while host cleanup is blocked', async () => {
-	const { defineApp } = await import('../../../packages/app/src/index.ts');
+	const { defineStore } = await import('../../../packages/app/src/index.ts');
 	const { openLocal } = await import('../../../packages/app/src/open-store.ts');
 	const { acquireLocalBlobs } = await import(
 		'../../../packages/app/src/blob-owner.ts'
@@ -984,8 +984,8 @@ test('lost native copy acknowledgment retains both store claims while host clean
 			localBlobs: (id: string, assertUsable: () => void) =>
 				acquireLocalBlobs({ id, assertUsable }),
 		};
-		const aDef = defineApp({ id: 'so.epicenter.source', tables: {}, kv: {} });
-		const bDef = defineApp({ id: 'so.epicenter.notes', tables: {}, kv: {} });
+		const aDef = defineStore({ id: 'so.epicenter.source', tables: {}, kv: {} });
+		const bDef = defineStore({ id: 'so.epicenter.notes', tables: {}, kv: {} });
 		const a = await openLocal(aDef, { runtime });
 		const b = await openLocal(bDef, { runtime });
 		const id = expectOk(await a.blobs.add(new Blob(['snapshot'])));
@@ -1008,7 +1008,7 @@ test('lost native copy acknowledgment retains both store claims while host clean
 });
 
 test('custom source provenance still retains claims after an uncertain native destination write', async () => {
-	const { defineApp } = await import('../../../packages/app/src/index.ts');
+	const { defineStore } = await import('../../../packages/app/src/index.ts');
 	const { openLocal } = await import('../../../packages/app/src/open-store.ts');
 	const { acquireLocalBlobs } = await import(
 		'../../../packages/app/src/blob-owner.ts'
@@ -1044,8 +1044,8 @@ test('custom source provenance still retains claims after an uncertain native de
 			localBlobs: (id: string, assertUsable: () => void) =>
 				acquireLocalBlobs({ id, assertUsable }),
 		};
-		const aDef = defineApp({ id: 'test.custom-source', tables: {}, kv: {} });
-		const bDef = defineApp({ id: 'so.epicenter.notes', tables: {}, kv: {} });
+		const aDef = defineStore({ id: 'test.custom-source', tables: {}, kv: {} });
+		const bDef = defineStore({ id: 'so.epicenter.notes', tables: {}, kv: {} });
 		const a = await openLocal(aDef, { runtime: memory });
 		const b = await openLocal(bDef, { runtime });
 		const id = expectOk(await a.blobs.add(new Blob(['custom snapshot'])));

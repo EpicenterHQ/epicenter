@@ -191,13 +191,13 @@ signature padding is illegal in raw WebSocket protocol names.
 ## Boot selection
 
 The mounted AppBoot instance reads the plain client's `getState()` once and
-opens one captured App from the inert definition. Imports and preloads acquire
-no App. Keep reactive `.state` reads in UI modules adapted with `fromAuth`.
-Callbacks and sign-in routes acquire no primary App.
+passes the captured Account to the product's resource opener. Imports and
+preloads acquire no resources. Keep reactive `.state` reads in UI modules adapted
+with `fromAuth`. Callbacks and sign-in routes acquire no primary stores.
 
 Honeycrisp and Whispering support signed-out local startup. Vocab requires an
-Account. Honeycrisp's Local and Personal routes display the nested handles on
-one App. One warning before explicit account changes authorizes interruption of
+Account. Honeycrisp's Local and Personal routes select independently opened
+stores. One warning before explicit account changes authorizes interruption of
 active recordings and unsaved drafts, including work started while sign-in is
 pending. Desktop acceptance disposes the boot auth owner, serializes next-boot
 credentials behind its queued writes, awaits bounded token revocation, and
@@ -209,7 +209,7 @@ Browser departures make the UI inert and replace the document without waiting
 for producer or persistence drains. Deliberate sign-out marks departure before
 calling auth: its retirement notification must not navigate before credential
 clearing and bounded revocation finish. Unexpected retirement navigates to
-`?stopped`; check that marker before calling `openApp`. Recovery opens no App
-until explicitly requested. A cancelled navigation or history restoration must
-not reactivate the old App. Preserve component disposal, acquisition rollback,
+`?stopped`; check that marker before acquiring resources. Recovery opens no
+resources until explicitly requested. A cancelled navigation or history
+restoration must not reactivate retired resources. Preserve component disposal, acquisition rollback,
 account fences, and independent source-library transfer lifetimes.

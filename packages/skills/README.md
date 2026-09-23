@@ -4,8 +4,8 @@
 services over an already opened handle. The package does not open storage,
 construct browser or Node runtimes, expose Yjs GUIDs, or register actions.
 
-A consumer chooses the opening boundary. An application calls `openApp` from
-`@epicenter/app/open` with this declaration and its captured Account. Tests and
+A consumer chooses the opening boundary. An application calls `openPersonal` from
+`@epicenter/app/open` with this definition and `{ account }`. Tests and
 Bun tools can use a memory record:
 
 ```ts

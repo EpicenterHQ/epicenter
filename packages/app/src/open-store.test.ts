@@ -8,11 +8,11 @@ import { createCurrentDownloadResponse } from '@epicenter/sync/current-download'
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { StoreError } from './data/store/store.js';
-import { defineApp, defineTable, field } from './index.js';
+import { defineStore, defineTable, field } from './index.js';
 import { openLocal, openPersonal } from './open-store.js';
 import { createMemoryStoreRuntime } from './testing.js';
 
-const definition = defineApp({
+const definition = defineStore({
 	id: 'test.independent-stores',
 	kv: {},
 	tables: { notes: defineTable({ title: field.string() }) },

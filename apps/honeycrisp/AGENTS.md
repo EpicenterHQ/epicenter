@@ -5,24 +5,15 @@ note's body is the node on its note row inside that same document
 (ADR-0295, ADR-0309). The one application running on the store today, so it is also the
 reference for how an app is built.
 
-## One App across Local and Personal
+## Store ownership
 
-The `[collection=notes]` page captures one Account and owns one App across `/local`
-and `/personal`. Its mounted AppBoot captures and opens the App; module imports, route
-preloading, sign-in, and callbacks acquire no primary App. Personal is the
-default destination; Local also works signed out.
+Read [the application README](README.md) for route composition and resource
+lifetimes. Keep acquisition under the mounted AppBoot; imports, preloads,
+sign-in, and callbacks must acquire no primary stores.
 
-Pass the actual App or its nested data handle intact. Notes receives
-`app.device` or `app.account.personal` and adapts its tables through `fromData`.
-Use direct props and explicit domain functions, not a second application
-controller or context. There is no saved selection or replacement App on view
-navigation.
-
-The browser build fixes its authentication service. The desktop build accepts
-the Account supplied by the host. Drain editors before closing the App and
-changing authentication. Retirement suppresses a pending auth action; failed
-cleanup retains ownership until teardown. Unmounting during opening must close
-the eventual App. See [the ownership decision](../../docs/adr/0411-honeycrisp-displays-data-from-one-app.md).
+Pass the selected store intact through direct props and adapt its tables with
+`fromData`. Use explicit domain functions rather than another application
+controller or context. View navigation must not reopen stores or copy data.
 
 ## Two builds, one store shape
 
@@ -44,10 +35,11 @@ only the default one is checked by an editor.
 ## Don'ts
 
 - Keep lifetime verbs at the application boundary. `Notes` consumes the
-  ready data; it does not open or close an App.
-- Deliberate account/server changes must await departure before auth mutation and
-  full navigation. A reactive auth subscriber may close a retired App, but
-  must never open a replacement or reload on recoverable credential refusal.
+  ready store; it does not open or close resources.
+- Delegate account/server departure to AppBoot. Stop producers on its departure
+  signal; do not add resource drains before document replacement. A reactive
+  auth subscriber must never reopen resources in the retired document or reload
+  on recoverable credential refusal.
 - Do not render a store error to a person as the message. `routes/[collection=notes]/+page.svelte`
   passes `appName` and `noun` to `@epicenter/app-shell/boot-screens` and writes
   no sentence itself; `openFailure` decides which failure earns one. A failure
@@ -79,8 +71,8 @@ only the default one is checked by an editor.
   same way, so a seam over the data is the
   thing ADR-0226 refused.
 - Do not compose the handle inside a platform leaf. The seam holds the binding
-  and nothing built from it, so the application's one App is opened
-  once rather than once per build (ADR-0339).
+  and nothing built from it; product code owns resource acquisition across
+  builds (ADR-0339).
 - Do not write a note's `title` or `updatedAt` from anywhere but
 	  `openContent`'s subscription. The store writes no derived fields and no
 	  timestamps (ADR-0297), so those are Honeycrisp's, hung on the content node's

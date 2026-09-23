@@ -1,4 +1,4 @@
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 /**
  * What a brand-new device pays to join a vault that has been lived in.
  *
@@ -97,7 +97,7 @@ import {
 } from '../../../src/data/store/store.js';
 import { openSyncAuthority } from '../../../src/data/sync/authority.js';
 
-const benchDatabase = defineApp({
+const benchDatabase = defineStore({
 	id: 'so.epicenter.honeycrisp',
 	kv: {},
 	tables: {

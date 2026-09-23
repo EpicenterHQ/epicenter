@@ -313,7 +313,7 @@ type StoreEngineOptions<
 };
 
 export type CreateStoreOptions<TDatabase extends DataDefinition> = {
-	/** The application's definition declaration, a `defineApp` literal. */
+	/** The store's identity and schema, a `defineStore` literal. */
 	definition: TDatabase;
 	/** The durable record: the update log, the outbox, the cursor, the metadata. */
 	sqlite: SqliteDatabase;
@@ -325,7 +325,7 @@ export type CreateStoreOptions<TDatabase extends DataDefinition> = {
  * Parse a declaration handed to a constructor as a literal.
  *
  * Throwing, not Result-returning, and that is a boundary rather than an
- * accident: at this level the declaration is a `defineApp` literal the
+ * accident: at this level the declaration is a `defineStore` literal the
  * compiler already validated, so a parse refusal is a programmer error. The
  * openers, which may be handed a declaration that arrived as data, parse
  * first and return the refusal as a boot outcome instead.

@@ -1,5 +1,5 @@
 /** Real App writes through IndexedDB in an admitted native application window. */
-import { defineApp, defineTable, field } from '@epicenter/app';
+import { defineStore, defineTable, field } from '@epicenter/app';
 import { openLocal } from '@epicenter/app/open';
 import { openSqlite } from '@epicenter/app/sqlite';
 import { unwrap } from 'wellcrafted/result';
@@ -10,7 +10,7 @@ try {
 		'evidence_boot',
 	);
 	const app = await openLocal(
-		defineApp({
+		defineStore({
 			id: 'so.epicenter.runtimeevidence',
 			kv: {},
 			tables: { markers: defineTable({ value: field.number() }) },

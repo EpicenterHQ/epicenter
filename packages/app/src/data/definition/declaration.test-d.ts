@@ -1,4 +1,4 @@
-import { defineApp } from '@epicenter/app';
+import { defineStore } from '@epicenter/app';
 import { type BlobId, generateBlobId } from '@epicenter/blobs';
 import type * as Y from '@y/y';
 import { type Static, Type } from 'typebox';
@@ -34,7 +34,7 @@ type Equal<X, Y> =
 		: { expected: Y; got: X };
 type Expect<T extends true> = T;
 
-const definition = defineApp({
+const definition = defineStore({
 	id: 'so.epicenter.definition-types',
 	kv: {
 		status: field.select(['draft', 'published']),

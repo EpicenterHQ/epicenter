@@ -1,6 +1,6 @@
 # Resource ownership
 
-`defineApp` declares data. A Local or Personal store owns document and blob
+`defineStore` declares data. A Local or Personal store owns document and blob
 readiness, admission, and terminal cleanup. The schema remains platform-free.
 Other services acquire independent resources.
 

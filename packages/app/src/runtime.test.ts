@@ -5,11 +5,11 @@
 import { expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { defineApp, defineTable, field } from './index.js';
+import { defineStore, defineTable, field } from './index.js';
 import { openLocal } from './open-store.js';
 import { createMemoryStoreRuntime } from './testing.js';
 
-const definition = defineApp({
+const definition = defineStore({
 	id: 'test.complete-runtime',
 	kv: {},
 	tables: { notes: defineTable({ title: field.string() }) },

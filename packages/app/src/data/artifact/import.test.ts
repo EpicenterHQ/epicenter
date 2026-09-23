@@ -1,6 +1,6 @@
 import {
 	ContentError,
-	defineApp,
+	defineStore,
 	defineTable,
 	field,
 	plainText,
@@ -27,7 +27,7 @@ import { syncEngineOf } from '../store/store.js';
 import { readArtifact } from './import.js';
 import { type RenderedRow, renderArtifact } from './render.js';
 
-const store = defineApp({
+const store = defineStore({
 	id: 'so.epicenter.honeycrisp',
 	kv: { theme: field.string() },
 	tables: {
@@ -187,7 +187,7 @@ describe('readArtifact (ADR-0267/0268)', () => {
 	});
 
 	test('a codec that throws on a body refuses the whole import', async () => {
-		const breaking = defineApp({
+		const breaking = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
 			tables: {
@@ -213,7 +213,7 @@ describe('readArtifact (ADR-0267/0268)', () => {
 	test('a codec that refuses a file refuses the whole import', async () => {
 		// The codec's error arm is a Result, not a throw: a folder a person
 		// hands to an import is data, and the file it could not read is named.
-		const refusing = defineApp({
+		const refusing = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
 			tables: {
@@ -242,7 +242,7 @@ describe('readArtifact (ADR-0267/0268)', () => {
 		// `createRow` refuses a node that already belongs to a document, which is
 		// what makes that unrepresentable rather than a bug somebody finds later.
 		const shared = new Y.Type();
-		const sharing = defineApp({
+		const sharing = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
 			tables: {

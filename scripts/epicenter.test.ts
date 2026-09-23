@@ -25,8 +25,8 @@ const honeycrisp = resolve(
 	'../apps/honeycrisp/src/lib/data.ts',
 );
 const temporaryFolders: string[] = [];
-const config = `import { defineApp, defineTable, field } from ${JSON.stringify(app)};
-export default defineApp({
+const config = `import { defineStore, defineTable, field } from ${JSON.stringify(app)};
+export default defineStore({
   id: 'test.cli',
   kv: { label: field.nullable(field.string()) },
   tables: { notes: defineTable({

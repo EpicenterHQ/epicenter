@@ -13,7 +13,7 @@ When a schema, builder, or configuration is only used once in a test, inline it 
 
 ```typescript
 test('declares an app', () => {
-	const definition = defineApp({
+	const definition = defineStore({
 		id: 'test.app',
 		kv: { theme: field.string() },
 		tables: {
@@ -32,7 +32,7 @@ test('declares an app', () => {
 
 ```typescript
 test('declares an app', () => {
-	expect(defineApp({
+	expect(defineStore({
 		id: 'test.app', kv: {}, tables: {},
 	}).id).toBe('test.app');
 });
@@ -56,7 +56,7 @@ Extract to a variable when:
 
 ### Applies To
 
-- `defineApp()`, `defineTable()`, `createDisposableCache()` builders
+- `defineStore()`, `defineTable()`, `createDisposableCache()` builders
 - Schema definitions (TypeBox `field.*` / `Type.*`, arktype, zod, etc.)
 - Configuration objects passed to factories
 - Mock functions used only once

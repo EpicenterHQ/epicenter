@@ -1,4 +1,4 @@
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 
 /**
  * The driver, over the same hub and authority that get deployed.
@@ -35,7 +35,7 @@ import {
 import { encodeFrame } from './frames.js';
 import { createSyncHub, type HubConnection } from './hub.js';
 
-const database = defineApp({
+const database = defineStore({
 	id: 'so.epicenter.honeycrisp',
 	kv: {},
 	tables: {

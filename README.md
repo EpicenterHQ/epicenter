@@ -4,7 +4,7 @@
   </a>
   <h1 align="center">Epicenter</h1>
   <p align="center"><strong>Local-first apps over a store you own.</strong></p>
-  <p align="center">An app's whole data set is one CRDT document on your machine, complete enough to work with the network off. Sign in on a second device and the two converge. No server holds the only copy, and no app owns your storage.</p>
+  <p align="center">A store's whole data set is one CRDT document on your machine, complete enough to work with the network off. Sign in on a second device and the two converge. No server holds the only copy, and no app owns your storage.</p>
   <p align="center"><a href="apps/honeycrisp">Honeycrisp</a>, a local-first notes app, is the app built on it today.</p>
   <p align="center">Run the apps freely under AGPL-3.0-or-later. <a href="#license">What that means</a>.</p>
 </p>
@@ -47,10 +47,10 @@ invalidation or race protection. The rich half is in there too: a row's node is
 a nested type on the row, not a second document with an address of its own.
 
 ```typescript
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
-import { openApp } from '@epicenter/app/open';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
+import { openLocal } from '@epicenter/app/open';
 
-const notesDefinition = defineApp({
+const notesDefinition = defineStore({
 	id: 'com.example.notes',
 	kv: {},
 	tables: {
@@ -63,11 +63,8 @@ const notesDefinition = defineApp({
 	},
 });
 
-// Open once for this page. Stores become usable after readiness.
-const app = openApp(notesDefinition);
-const { error } = await app.ready;
-if (error !== null) throw error;
-const data = app.device;
+// Opening resolves after storage acquisition and replay.
+const data = await openLocal(notesDefinition);
 
 const note = data.tables.notes.create({ title: 'Hello', pinned: false, folderId: null });
 
@@ -76,12 +73,13 @@ const stop = data.tables.notes.subscribe(() => { /* re-read rows */ });
 
 // Before leaving the application:
 stop();
-await app.close();
+await data.close();
 ```
 
-An application declaration describes its durable data. `openApp` opens its
-resources for one page lifetime.
-Constructing it opens no storage and captures no account. It is
+A store definition describes durable data. `openLocal` acquires its Local store;
+`openPersonal` acquires a Personal store for an explicitly supplied account.
+Applications compose these stores with any other resources they need.
+Constructing a definition opens no storage and captures no account. It is
 release-local and never migrates your data. A row it cannot read is reported
 beside the rows it can, with the reason and the raw values intact, and an
 ordinary write repairs it.

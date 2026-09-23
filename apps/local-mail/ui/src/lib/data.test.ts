@@ -5,7 +5,7 @@
  * deletion under their original structural ids.
  */
 import { expect, test } from 'bun:test';
-import { defineApp, defineTable, field } from '@epicenter/app';
+import { defineStore, defineTable, field } from '@epicenter/app';
 import { readArtifact, renderArtifact } from '@epicenter/app/artifact';
 import { syncEngineOf } from '@epicenter/app/data';
 import { createMemoryRecord, openMemory } from '@epicenter/app/memory';
@@ -60,7 +60,7 @@ test('SQL remains a field through frontmatter export and import without a conten
 });
 
 test('incompatible saved queries can be repaired or deleted using their original ids', async () => {
-	const incompatible = defineApp({
+	const incompatible = defineStore({
 		id: mailDefinition.id,
 		kv: {},
 		tables: {

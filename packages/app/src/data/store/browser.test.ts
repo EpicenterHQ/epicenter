@@ -6,7 +6,7 @@
  */
 import 'fake-indexeddb/auto';
 import { afterAll, expect, spyOn, test } from 'bun:test';
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
 import { openLocal, openPersonal } from '@epicenter/app/open';
 import type { Account } from '@epicenter/auth';
@@ -33,7 +33,7 @@ afterAll(() => {
 });
 
 function definitionFor() {
-	return defineApp({
+	return defineStore({
 		id: `so.epicenter.browsertest.${crypto.randomUUID()}`,
 		kv: {},
 		tables: {

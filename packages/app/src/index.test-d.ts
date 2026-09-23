@@ -1,11 +1,11 @@
-/** Flat declarations preserve schema inference and the ready handle and optional Account. */
+/** Store declarations preserve schema inference; independent openers require their own inputs. */
 import { expectTypeOf } from 'bun:test';
 import { defineTable, field, type KvOf, type RowOf } from '@epicenter/app';
 import type { Account } from '@epicenter/auth';
-import { defineApp } from './index.js';
+import { defineStore } from './index.js';
 import { openLocal, openPersonal, type StoreRuntime } from './open-store.js';
 
-const notes = defineApp({
+const notes = defineStore({
 	id: 'test.notes',
 	title: 'Notes',
 	kv: { language: field.string() },
@@ -18,7 +18,7 @@ expectTypeOf<
 	RowOf<typeof notes.tables.notes>['title']
 >().toEqualTypeOf<string>();
 
-const untitled = defineApp({ id: 'test.untitled', kv: {}, tables: {} });
+const untitled = defineStore({ id: 'test.untitled', kv: {}, tables: {} });
 expectTypeOf(untitled.id).toEqualTypeOf<'test.untitled'>();
 expectTypeOf(untitled.title).toEqualTypeOf<string | undefined>();
 
@@ -46,12 +46,12 @@ function invalidDeclarations() {
 	// @ts-expect-error Declarations do not own live resources.
 	notes.open();
 	// @ts-expect-error Runtime resources belong to opening, not the declaration.
-	defineApp({ id: 'test.runtime', tables: {}, kv: {}, runtime: {} });
+	defineStore({ id: 'test.runtime', tables: {}, kv: {}, runtime: {} });
 	// @ts-expect-error AI wiring is not part of a schema.
-	defineApp({ id: 'test.ai', tables: {}, kv: {}, ai: {} });
+	defineStore({ id: 'test.ai', tables: {}, kv: {}, ai: {} });
 	// @ts-expect-error An empty runtime cannot replace the complete implementation.
 	openLocal(notes, { runtime: {} });
-	defineApp({
+	defineStore({
 		id: 'test.invalid',
 		tables: {},
 		kv: {
@@ -59,7 +59,7 @@ function invalidDeclarations() {
 			id: field.string(),
 		},
 	});
-	defineApp({
+	defineStore({
 		id: 'test.invalid',
 		tables: {},
 		kv: {
@@ -67,7 +67,7 @@ function invalidDeclarations() {
 			theme: { ...field.string(), default: 'light' },
 		},
 	});
-	defineApp({
+	defineStore({
 		id: 'test.invalid',
 		kv: {},
 		tables: {

@@ -630,7 +630,6 @@ When you add an ADR, add its row here.
 
 | [0381](0381-user-authored-sql-runs-through-a-bounded-read-only-operation.md) | User-authored SQL runs through a bounded read-only operation | Proposed |
 
-| [0376](0376-data-declarations-remain-independent-of-resource-composition.md) | Data declarations remain independent of resource composition | Proposed |
 | [0377](0377-a-table-may-omit-its-content-codec-while-every-row-owns-a-node.md) | A table may omit its content codec while every row owns a node | Proposed |
 
 | [0379](0379-reconstruction-is-an-explicit-destructive-library-operation.md) | Storage maintenance preserves document lineage | Proposed |
@@ -683,4 +682,5 @@ When you add an ADR, add its row here.
 | [0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) | Opening a blob acquires presentation without retaining a copy | Accepted (scoped presentation transport; product worker registration remains deferred) |
 | [0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md) | Whispering recordings reference audio in their containing store | Accepted (amends 0426 at Whispering recording ownership; implementation unbuilt) |
 | [0429](0429-store-handles-keep-account-identity-private.md) | Store handles keep account identity private | Accepted (public Personal identity removal unbuilt) |
+| [0430](0430-define-store-declares-data-and-products-compose-resources.md) | Store definitions declare data and products compose resources | Proposed |
 | [0432](0432-captures-form-a-timeline-of-recursively-openable-entries.md) | Captures form a timeline of recursively openable entries | Proposed |

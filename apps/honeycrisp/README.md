@@ -11,25 +11,26 @@ Licensed under AGPL-3.0-or-later.
 
 `/` redirects to `/personal`. `/local` displays device notes and works signed
 out. `/personal` displays account notes or offers sign-in. Both URLs use one
-page component, whose mounted AppBoot captures one Account and opens one App. Switching views keeps that App alive.
+page component, whose mounted AppBoot captures one Account and calls
+`openHoneycrispResources`. It opens Local and, when signed in, Personal as
+independent stores. Switching views keeps those stores alive.
 
 ```text
-notes page: AppBoot auth + definition -> ready App
-  /local:    Notes data={app.device}
-  /personal: Notes data={app.account.personal}
+notes page: AppBoot -> openHoneycrispResources
+  /local:    Notes data={resources.local}
+  /personal: Notes data={resources.personal}
 ```
 
-The page passes the actual nested handle directly. Notes uses `fromData` for
-reactive table reads and passes data through props. Explicit functions own
-note operations; there is no second application controller or App context.
-The URL chooses the view, with no saved preference or data copy.
+The page passes the selected store directly. Notes uses `fromData` for reactive
+table reads and passes data through props. Explicit functions own note
+operations. The URL chooses the view, with no saved preference or data copy.
 
-Imports, preloading, `/connect`, and `/auth/callback` acquire no App. The browser
-build fixes its authentication service; the desktop build receives its Account
-from the host, which retains credentials. Account changes finish editor writes,
-close the App, and navigate to a fresh document. Retirement closes locally
-without replacement. Failed cleanup requires page teardown; unmounting while
-opening closes the eventual App.
+Imports, preloading, `/connect`, and `/auth/callback` acquire no stores. The
+browser build fixes its authentication service; the desktop build receives its
+Account from the host, which retains credentials. AppBoot signals departure
+and navigates to a fresh document on account changes. Document destruction ends
+root resources; AppBoot does not close the returned resource collection. Reload
+is not a save barrier.
 
 Each note body is a live content node on its row. The editor subscribes to its
 changes to derive title and update time, and finishes pending writes on unmount.

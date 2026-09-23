@@ -1,6 +1,6 @@
 import {
 	ContentError,
-	defineApp,
+	defineStore,
 	defineTable,
 	field,
 	plainText,
@@ -55,7 +55,7 @@ function only<TKind extends PlanItem['kind']>(
 	return found[0] as Extract<PlanItem, { kind: TKind }>;
 }
 
-const definition = defineApp({
+const definition = defineStore({
 	id: 'so.epicenter.honeycrisp',
 	kv: { theme: field.string() },
 	tables: {
@@ -914,7 +914,7 @@ describe('the preview says what a push would do (ADR-0337)', () => {
 	test('a body the codec cannot read is a file the send rewrites', async () => {
 		// Checked with `decode`, which validates the text `rewrite` would apply,
 		// so a person never reads a plan its own push then refuses.
-		const refusing = defineApp({
+		const refusing = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: { theme: field.string() },
 			tables: {
@@ -1439,7 +1439,7 @@ describe('push sends the values back and re-renders', () => {
 		// A codec is application code run over a file somebody hand-edited, and
 		// a plan that let a throw escape would make the preview REJECT on the one
 		// surface a person has to be able to look at.
-		const exploding = defineApp({
+		const exploding = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: { theme: field.string() },
 			tables: {
@@ -1474,7 +1474,7 @@ describe('push sends the values back and re-renders', () => {
 		// the values in the same frontmatter are ordinary values: everything the
 		// folder can express lands, and only what cannot be read is written
 		// over (ADR-0338).
-		const exploding = defineApp({
+		const exploding = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: { theme: field.string() },
 			tables: {
@@ -1618,7 +1618,7 @@ describe('the folder explains itself (ADR-0337, ADR-0330)', () => {
 	 * A definition with the shapes the generator has to render: a nullable
 	 * field, a reference, and a table whose rows have no text.
 	 */
-	const shapes = defineApp({
+	const shapes = defineStore({
 		id: 'so.epicenter.shapes',
 		kv: {},
 		tables: {
@@ -1958,7 +1958,7 @@ describe('the working copy owns the loop, and what bounds it', () => {
 });
 
 test('a fields-only checkout pushes field edits without replacing its node', async () => {
-	const fieldsOnly = defineApp({
+	const fieldsOnly = defineStore({
 		id: DATA_ID,
 		kv: {},
 		tables: {

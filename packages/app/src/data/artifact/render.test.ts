@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { defineApp, defineTable, field, plainText } from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
 import * as Y from '@y/y';
 import { Ok } from 'wellcrafted/result';
@@ -7,7 +7,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openMemory } from '../store/memory.js';
 import { type RenderedRow, renderArtifact, renderRow } from './render.js';
 
-const store = defineApp({
+const store = defineStore({
 	id: 'so.epicenter.honeycrisp',
 	kv: { theme: field.string() },
 	tables: {
@@ -81,7 +81,7 @@ describe('renderRow is the unit (ADR-0271)', () => {
 	});
 
 	test('a table with an empty content node renders frontmatter alone', async () => {
-		const valuesOnly = defineApp({
+		const valuesOnly = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
 			tables: {
@@ -105,7 +105,7 @@ describe('renderRow is the unit (ADR-0271)', () => {
 	test('a codec that throws is a refusal, not an escaping exception', async () => {
 		// The contract is a Result. A codec that throws is a case a person needs
 		// told, not a stack trace mid-write.
-		const breaking = defineApp({
+		const breaking = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
 			tables: {
@@ -185,7 +185,7 @@ describe('renderArtifact is renderRow in a loop (ADR-0267/0268)', () => {
 		// restore, so it abandoned the artifact over one bad row; the mirror
 		// writes files, and refusing to write 999 of them over the 1000th is
 		// worse than a folder missing one file the next commit re-renders.
-		const poisoned = defineApp({
+		const poisoned = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
 			tables: {
@@ -223,7 +223,7 @@ describe('renderArtifact is renderRow in a loop (ADR-0267/0268)', () => {
 	});
 
 	test('a table with an empty content node exports frontmatter-only files', async () => {
-		const valuesOnly = defineApp({
+		const valuesOnly = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
 			tables: {

@@ -4,14 +4,14 @@
  * wrappers remain closed; conformance requires stored fields to be present.
  */
 import { expect, test } from 'bun:test';
-import { defineApp } from '@epicenter/app';
+import { defineStore } from '@epicenter/app';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { compileData } from './compile.js';
 import { plainText } from './content.js';
 import { field } from './declaration.js';
 import { defineTable } from './define.js';
 
-const database = defineApp({
+const database = defineStore({
 	id: 'so.epicenter.data',
 	kv: { name: field.string() },
 	tables: {
@@ -35,7 +35,7 @@ test('compilation is memoized by definition identity', () => {
 });
 
 test('omitting a codec compiles only the declared fields', () => {
-	const definition = defineApp({
+	const definition = defineStore({
 		id: 'so.epicenter.fields-only',
 		kv: {},
 		tables: {
@@ -50,7 +50,7 @@ test('omitting a codec compiles only the declared fields', () => {
 test('an explicitly malformed codec is refused at compilation', () => {
 	for (const content of [undefined, null, {}, { encode() {}, decode() {} }]) {
 		expect(() =>
-			defineApp({
+			defineStore({
 				id: 'so.epicenter.invalid-codec',
 				kv: {},
 				tables: {

@@ -1,6 +1,6 @@
 import {
 	type ContentCodec,
-	defineApp,
+	defineStore,
 	defineTable,
 	field,
 	plainText,
@@ -93,7 +93,7 @@ const noteMarkdown: ContentCodec = {
 	},
 };
 
-export const honeycrispDefinition = defineApp({
+export const honeycrispDefinition = defineStore({
 	id: APPS.HONEYCRISP.id,
 	title: 'Honeycrisp',
 	kv: {},
