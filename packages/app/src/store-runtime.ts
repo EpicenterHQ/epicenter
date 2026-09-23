@@ -1,4 +1,5 @@
 import type { claim } from '@epicenter/device/app-claim';
+import type { DeviceSqliteOwner } from '@epicenter/device/owner';
 import type { Result } from 'wellcrafted/result';
 import type { acquireLocalBlobs } from './blob-owner.js';
 import type { ParsedDataDefinition } from './data/definition/index.js';
@@ -13,6 +14,8 @@ export type StoreOwner =
 export type StoreRuntime = {
 	/** Disposable runtimes reserve before the returned promise yields. */
 	claim: typeof claim;
+	/** Acquire the physical namespace. A rejection conservatively retains store exclusion. */
+	sqlite: DeviceSqliteOwner['acquire'];
 	/** Acquire ready Local bytes. Thrown acquisition failure retains exclusion. */
 	localBlobs(
 		id: string,

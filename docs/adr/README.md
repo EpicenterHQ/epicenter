@@ -675,7 +675,7 @@ When you add an ADR, add its row here.
 | [0418](0418-push-translates-file-differences-into-ordinary-edits.md) | Push translates file differences into ordinary edits | Proposed |
 | [0419](0419-stores-open-for-explicit-owners-and-compose-live-projections.md) | Stores open for explicit owners and compose live projections | Proposed (amends 0406 at mandatory schema reuse; Shared, native persistence, and live projections remain unbuilt) |
 
-| [0423](0423-app-resources-open-as-independent-handles.md) | Stores own data and blobs while services open independently | Proposed |
+| [0423](0423-app-resources-open-as-independent-handles.md) | Stores own data, blobs, and SQLite while services open independently | Proposed |
 | [0424](0424-runtime-transcription-calls-the-host-directly.md) | Runtime transcription calls the host directly | Accepted (direct native API; amends 0398) |
 | [0425](0425-a-transcript-is-separate-from-its-latest-attempt.md) | A transcript is separate from its latest attempt | Proposed |
 | [0426](0426-copies-create-independent-blobs-at-their-destination.md) | Copies create independent blobs at their destination | Accepted |
@@ -685,3 +685,5 @@ When you add an ADR, add its row here.
 | [0430](0430-define-store-declares-data-and-products-compose-resources.md) | Store definitions declare data and products compose resources | Proposed |
 | [0431](0431-rows-return-values-and-own-a-separate-body.md) | Rows return values and own a separate body | Proposed (amends 0295 and 0309 at the row layout and API) |
 | [0432](0432-captures-form-a-timeline-of-recursively-openable-entries.md) | Captures form a timeline of recursively openable entries | Proposed |
+| [0436](0436-stores-own-local-sqlite-namespaces.md) | Stores own local SQLite namespaces | Accepted (implemented; legacy Local Mail recovery remains unbuilt) |
+| [0437](0437-sign-out-offers-removal-of-downloaded-account-data.md) | Sign-out offers removal of downloaded account data | Proposed (unbuilt) |

@@ -1,6 +1,6 @@
 import { openEndpointInference } from '@epicenter/app/ai';
 import { openLocalConnectionCatalog } from '@epicenter/app/ai-connections';
-import { openSqlite } from '@epicenter/app/sqlite';
+import { createDesktopSqliteOwner } from '@epicenter/device/desktop';
 import { unwrap } from 'wellcrafted/result';
 import { createBrowserInferenceSelections } from '../../../app-shell/src/inference-selections.js';
 
@@ -43,7 +43,7 @@ if (!localStorage.getItem(`${product}.seeded`)) {
 	localStorage.setItem(`${product}.seeded`, 'yes');
 }
 const catalog = await openLocalConnectionCatalog();
-const sqlite = await openSqlite({ id: product });
+const sqlite = await createDesktopSqliteOwner().acquire(product);
 const selections = createBrowserInferenceSelections(product);
 let retained: ReturnType<(typeof catalog)['get']>;
 let pending: Promise<string> | undefined;
@@ -125,7 +125,7 @@ Object.assign(window, {
 			return pending ? await pending : 'closed';
 		},
 		async leaveSqlOpen() {
-			const database = unwrap(await sqlite.open('teardown-proof'));
+			const database = await sqlite.open('teardown-proof');
 			unwrap(
 				await database.run('CREATE TABLE IF NOT EXISTS persisted (value TEXT)'),
 			);
@@ -140,7 +140,7 @@ Object.assign(window, {
 			return 'held';
 		},
 		async verifySqlTeardown() {
-			const database = unwrap(await sqlite.open('teardown-proof'));
+			const database = await sqlite.open('teardown-proof');
 			const rows = unwrap(await database.all('SELECT value FROM persisted'));
 			const temporary = unwrap(
 				await database.all(

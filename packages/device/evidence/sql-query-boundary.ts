@@ -1,4 +1,3 @@
-import { openSqlite } from '../../app/src/sqlite.js';
 /**
  * Characterize the existing trusted SQL operation before adding saved queries.
  * Run from the repository root: bun packages/device/evidence/sql-query-boundary.ts
@@ -88,17 +87,13 @@ try {
 			},
 		},
 	});
-	const device = await openSqlite({
-		owner: createDesktopSqliteOwner({
-			baseURL: `http://localhost:${native.port}`,
-		}),
-		id: appId,
-	});
+	const device = await createDesktopSqliteOwner({
+		baseURL: `http://localhost:${native.port}`,
+	}).acquire(appId);
 	try {
 		const opened = await device.open('mail-synthetic');
-		if (opened.error) throw opened.error;
 		await characterize('desktop WebSocket / Bun file', async (verb, sql) => {
-			const answer = await opened.data[verb](sql);
+			const answer = await opened[verb](sql);
 			return answer.error
 				? { ok: false, error: answer.error.message }
 				: { ok: true, value: answer.data };

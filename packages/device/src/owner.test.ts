@@ -1,4 +1,3 @@
-import { openSqlite } from '../../app/src/sqlite.js';
 /**
  * Physical SQLite lifetime tests.
  * Verifies exclusive acquisition, admitted-operation drain, failed cleanup,
@@ -51,16 +50,16 @@ function setup() {
 
 test('SQL acquires its namespace and holds identity until close', async () => {
 	const { owner, calls } = setup();
-	const storage = await openSqlite({ owner, id: appId });
+	const storage = await owner.acquire(appId);
 	expect(calls).toEqual([]);
 	await expect(owner.acquire(appId)).rejects.toThrow('already acquired');
-	expectOk(await storage.open('search'));
+	await storage.open('search');
 	await expect(owner.acquire(appId)).rejects.toThrow('already acquired');
 	expect(calls).toEqual([['open', appId, 'search']]);
 	await storage.close();
 	const replacement = await owner.acquire(appId);
 	await replacement.close();
-	expect(() => storage.open('search')).toThrow();
+	await expect(storage.open('search')).rejects.toThrow();
 });
 
 test('physical pool release follows connection close and retains exclusion until completion', async () => {
@@ -95,8 +94,8 @@ test('failed physical pool release is terminal and retains backend ownership', a
 		releases++;
 		throw new Error('Pool release failed');
 	};
-	const storage = await openSqlite({ owner, id: 'so.epicenter.failed-pool' });
-	expectOk(await storage.open('search'));
+	const storage = await owner.acquire('so.epicenter.failed-pool');
+	await storage.open('search');
 	const closing = storage.close();
 	await expect(closing).rejects.toThrow('Pool release failed');
 	expect(storage.close()).toBe(closing);
@@ -104,9 +103,9 @@ test('failed physical pool release is terminal and retains backend ownership', a
 	await expect(owner.acquire('so.epicenter.failed-pool')).rejects.toThrow(
 		'already acquired',
 	);
-	await expect(
-		openSqlite({ owner, id: 'so.epicenter.failed-pool' }),
-	).rejects.toThrow('already acquired');
+	await expect(owner.acquire('so.epicenter.failed-pool')).rejects.toThrow(
+		'already acquired',
+	);
 });
 
 test('a failed connection close does not release its pool', async () => {
@@ -259,10 +258,12 @@ test.each([
 	'search.sqlite',
 ])('invalid name %s does not acquire storage', async (name) => {
 	const { owner, calls } = setup();
-	const storage = await openSqlite({ owner, id: appId });
-	expect(expectErr(await storage.open(name)).name).toBe('InvalidDatabaseName');
-	expect(expectErr(await storage.delete(name)).name).toBe(
-		'InvalidDatabaseName',
+	const storage = await owner.acquire(appId);
+	await expect(storage.open(name)).rejects.toThrow(
+		'Invalid SQLite database name',
+	);
+	await expect(storage.delete(name)).rejects.toThrow(
+		'Invalid SQLite database name',
 	);
 	expect(calls).toEqual([]);
 	await storage.close();

@@ -204,8 +204,7 @@ test('saved queries, offline storage and failure recovery', async ({
 		assert(
 			(await page.evaluate(
 				(id) =>
-					globalThis.evidence.app.account.personal.tables.savedQueries.get(id)
-						?.sql,
+					globalThis.evidence.app.personal.tables.savedQueries.get(id)?.sql,
 				malformed.repair,
 			)) === 'SELECT subject FROM messages',
 			'Repair changed original row identity',
@@ -223,7 +222,7 @@ test('saved queries, offline storage and failure recovery', async ({
 		assert(
 			(await page.evaluate(
 				(id) =>
-					globalThis.evidence.app.account.personal.tables.savedQueries
+					globalThis.evidence.app.personal.tables.savedQueries
 						.ids()
 						.includes(id),
 				malformed.remove,

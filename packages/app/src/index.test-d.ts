@@ -26,6 +26,15 @@ expectTypeOf(untitled.title).toEqualTypeOf<string | undefined>();
 async function openings(account: Account, runtime: StoreRuntime) {
 	const local = await openLocal(notes, { runtime });
 	const personal = await openPersonal(notes, { account, runtime });
+	await local.sqlite.open('search');
+	await personal.sqlite.delete('search');
+	// @ts-expect-error The store owns namespace close.
+	local.sqlite.close();
+	// @ts-expect-error Account identity stays private.
+	personal.sqlite.account;
+	const { sqlite: _sqlite, ...incomplete } = runtime;
+	// @ts-expect-error Explicit runtimes must supply isolated SQL.
+	openLocal(notes, { runtime: incomplete });
 	personal.tables.notes.create({ title: 'Personal' });
 	local.kv.update({ language: 'en' });
 	// @ts-expect-error Personal requires an account.

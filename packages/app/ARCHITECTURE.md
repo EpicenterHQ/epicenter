@@ -1,15 +1,14 @@
 # Resource ownership
 
-`defineStore` declares data. A Local or Personal store owns document and blob
+`defineStore` declares data. A Local or Personal store owns document, blob, and SQLite
 readiness, admission, and terminal cleanup. The schema remains platform-free.
 Other services acquire independent resources.
 
 ```text
-Definition -> openLocal -> tables, KV, Local blobs
-           -> openPersonal(Account) -> tables, KV, captured Personal blobs
+Definition -> openLocal -> tables, KV, Local blobs, Local SQLite
+           -> openPersonal(Account) -> tables, KV, captured Personal blobs, Personal SQLite
 Local blobs <- createRecorder({ localBlobs })
-Application ID -> openSqlite -> named databases and physical SQL lifetime
-               -> openSecrets -> credential namespace
+Application ID -> openSecrets -> credential namespace
 Account -> openEpicenterInference
 Installed runtime -> openRuntimeTranscriber -> model listing and transcription
 URL + auth callback -> openEndpointInference
@@ -18,13 +17,12 @@ Account or local -> connection catalog -> saved records and cached clients
 
 A transfer borrows genuine source and destination handles. Both track admitted
 work. Closing a recorder leaves its Local destination alive; closing Local retires
-its recorders while allowing admitted Stop publication. SQL remains independent;
-no store-opening SQL projection is implemented.
+its recorders while allowing admitted Stop publication. SQLite remains local, including on Personal; no SQL projection is implemented.
 
 ## Documents
 
-`open-store.ts` captures Local or Personal identity and owns one store claim covering document and blob access.
-`store-runtime.ts` describes store admission, document backing, and local blob acquisition.
+`open-store.ts` captures Local or Personal identity and owns one store claim covering document, blob, and SQL access.
+`store-runtime.ts` describes store admission, document backing, local blob acquisition, and scoped SQL acquisition.
 `platform/documents.ts` provides the default implementation. The data engine
 owns tables, KV, persistence, and synchronization; see [its README](src/data/README.md).
 
@@ -35,7 +33,7 @@ product decides how its UI leaves the old session. Local remains independent.
 
 `openData` owns a document over caller-supplied SQLite and leaves that connection
 open on disposal. `openMemory` owns Bun test storage. `createMemoryStoreRuntime`
-provides isolated document and blob storage with the same admission and persistence paths,
+provides isolated document, blob, and SQL storage with the same admission and persistence paths,
 without changing browser globals or pretending capture and network calls succeed.
 
 ## Capabilities
@@ -46,7 +44,7 @@ handle. An admitted Stop can publish after public access is fenced. Native sourc
 provenance includes the source application ID; the host validates that ID and
 streams the exact source file.
 
-SQLite admission belongs to the physical namespace owner. The opener acquires it
+SQLite admission belongs to the physical namespace owner. The containing store acquires it
 eagerly and exposes dynamic database names. Native close sends cancellation before
 waiting for queued work. Secret handles own their pending operations while their
 backend retains credential values after close.

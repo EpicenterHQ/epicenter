@@ -1,5 +1,5 @@
-/** Product startup keeps successful roots until replacement. Required failure is
- * terminal to the caller; optional inference cannot block recording readiness. */
+/** Product startup fences departure independently of replacement. Local Mail
+ * rolls back partial opening; optional inference cannot block recording readiness. */
 import { expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -11,7 +11,7 @@ for (const [path, exported, required] of [
 		'openWhisperingResources',
 		3,
 	],
-	['apps/local-mail/ui/src/lib/resources.ts', 'openMailResources', 3],
+	['apps/local-mail/ui/src/lib/resources.ts', 'openMailResources', 2],
 	['apps/honeycrisp/src/lib/resources.ts', 'openHoneycrispResources', 2],
 	['apps/vocab/src/lib/resources.ts', 'openVocabResources', 2],
 ] as const)
@@ -23,6 +23,8 @@ for (const [path, exported, required] of [
 		let count = 0;
 		let failAt = 1;
 		let optionalPending = false;
+		let interrupt: AbortController | undefined;
+		let interruptAt = -1;
 		const optional = Promise.withResolvers<null>();
 		const failure = new Error('Acquisition failed');
 		globals[key] = (name: string) => {
@@ -41,6 +43,7 @@ for (const [path, exported, required] of [
 				},
 			};
 			acquired.push(handle);
+			if (count === interruptAt) interrupt?.abort();
 			return handle;
 		};
 		try {
@@ -48,7 +51,6 @@ for (const [path, exported, required] of [
 				'openLocal',
 				'openPersonal',
 				'createRecorder',
-				'openSqlite',
 				'openSecrets',
 				'openEpicenterInference',
 				'openRuntimeTranscriber',
@@ -102,7 +104,9 @@ for (const [path, exported, required] of [
 				failure,
 			);
 			expect(acquired).toHaveLength(1);
-			expect(acquired[0]!.signal.aborted).toBe(false);
+			expect(acquired[0]!.signal.aborted).toBe(
+				exported === 'openMailResources',
+			);
 			count = 0;
 			failAt = Infinity;
 			acquired.length = 0;
@@ -114,14 +118,27 @@ for (const [path, exported, required] of [
 			expect(roots.signal).toBe(departure.signal);
 			departure.abort();
 			expect(roots.signal.aborted).toBe(true);
-			// The data root remains owned by the browser/WebView.
-			expect(acquired[0]!.signal.aborted).toBe(false);
+			// Mail closes its SQL-owning store on departure; other roots await replacement.
+			expect(acquired[0]!.signal.aborted).toBe(
+				exported === 'openMailResources',
+			);
 			if (exported === 'openWhisperingResources')
 				expect(acquired[2]!.signal.aborted).toBe(true);
 			if (exported === 'openMailResources')
 				expect(acquired.slice(1).every((handle) => handle.signal.aborted)).toBe(
 					true,
 				);
+			if (exported === 'openMailResources') {
+				for (interruptAt of [1, 2]) {
+					count = 0;
+					acquired.length = 0;
+					interrupt = new AbortController();
+					await expect(open({}, interrupt.signal)).rejects.toBeDefined();
+					expect(acquired).toHaveLength(interruptAt);
+					expect(acquired.every((handle) => handle.signal.aborted)).toBe(true);
+				}
+				interruptAt = -1;
+			}
 			optional.resolve(null);
 			await roots.inference;
 			count = 0;

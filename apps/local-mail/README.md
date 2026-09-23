@@ -4,11 +4,12 @@ Local Mail downloads Gmail, records triage changes on this device, and saves
 named SQL queries in your Epicenter library. Select a connected Gmail account
 and press **Run** to inspect its downloaded messages and labels.
 
-One mounted application document composes Personal, SQLite, and secrets.
-Personal captures the Epicenter account; SQLite and secrets use the application ID.
-Gmail accounts are separate: their Google subjects select individual cache
-files within this application's fixed device-local namespace. Switching Epicenter
-accounts leaves connected Gmail mailboxes and downloaded bytes on this device.
+One mounted application document opens Personal and independent secrets.
+Personal captures the Epicenter account and owns its local SQLite namespace.
+Google subjects select mailbox files within that captured account's namespace.
+Switching Epicenter accounts leaves the previous account's bytes in place and
+opens a separate namespace. SQL does not synchronize through Personal.
+Secrets remain application-scoped and labeled by Google subject.
 
 ## Saved queries and downloaded mail
 
@@ -60,8 +61,9 @@ updates the cache. Query results offer no message actions.
 mounts `AppBoot`, which calls the product resource opener with a startup cancellation signal and renders the mail shell. Auth callbacks and Gmail consent callbacks open no
 primary library. Importing or preloading the route does not open one either.
 
-Each application document opens Personal with its captured Account and acquires SQLite and secrets independently. Saved queries
-live in `app.personal`. Gmail SQLite and credentials use `app.sqlite` and `app.secrets` in the fixed Local namespace.
+Each application document opens Personal with its captured Account and acquires secrets independently. Saved queries
+live in `app.personal`. `app.sqlite` borrows `app.personal.sqlite`; closing Personal
+fences the mail databases. Credentials use the independent `app.secrets` handle.
 Identity is required on first opening. A cached
 identity and an existing library can reopen without network access; connection
 health does not disable local triage, Undo, outbox reads, or queries.
@@ -81,13 +83,35 @@ Unexpected retirement removes the working UI and replaces the document with
 data remains available. Same-owner credential refresh preserves the open resources; explicit
 desktop reauthentication restarts the host.
 
-Gmail caches, account registries, credentials, and pending work use one fixed
-device namespace per application ID. Epicenter account changes retain that local
-data. Disconnecting Gmail remains a separate product action. Historical
-account-partitioned storage is neither merged nor deleted. Saved queries remain
-synchronized Personal data.
-Durable schema version 1 is preserved;
-unknown durable schemas are refused. Unknown cache schemas can be rebuilt.
+Gmail caches, connected-account metadata, and pending triage belong to the captured
+Epicenter account's SQL namespace. Disconnecting Gmail remains a separate product
+action. Durable schema version 1 is preserved; unknown durable schemas are refused.
+The existing mailbox-cache schema migration applies only to explicitly opened files.
+
+## Existing Local Mail data
+
+Earlier builds wrote `local` and `mail-<sub>` databases under `no-account`.
+This build starts a separate Personal namespace. It does not adopt, copy, rename,
+rewrite, or delete those old files. Previously connected mailboxes therefore do
+not appear automatically. Reconnecting Gmail can download mail again, but cannot
+recover pending triage stored only in the old `local` file.
+
+There is no in-product legacy import or recovery tool yet. Preserve the old
+browser site storage or native data directory. Recovery needs an explicit source
+inventory, confirmation of which Epicenter account owns the data, and a reviewed
+import of connected-account records and pending label intents. Do not clear site
+storage or delete the old files to resolve an empty mailbox list.
+
+The `local` database contains `accounts`, `label_intents`, `intent_counters`, and
+`last_pass`. Pending intents can be the only copy of undelivered work. Known
+`mail-<sub>` schemas contain Gmail resources, derived search fields, labels, and
+sync checkpoints. This inventory does not authorize blanket deletion of SQL or
+unknown schemas. Sign-out cleanup and its checkbox remain unimplemented.
+
+Refresh tokens retain the existing application-ID/Google-subject scope. Two
+Epicenter accounts connecting the same Google subject still share that credential
+slot; disconnecting it can affect the other account. Credential isolation is
+separate remaining work.
 
 ## Receiving and changing mail
 
@@ -129,7 +153,7 @@ that order so a failed step remains reachable for retry.
 
 ## Browser and desktop
 
-Both builds use App-owned storage. Browser SQLite runs in an OPFS worker;
+Both builds use store-owned SQLite. Browser SQLite runs in an OPFS worker;
 desktop SQLite runs in the native Rust owner through the host transport.
 Browser Gmail credentials last only for the document. Desktop credentials use
 the device keychain. Neither enters table synchronization or query results.

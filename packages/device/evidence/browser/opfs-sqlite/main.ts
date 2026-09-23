@@ -8,7 +8,6 @@
 import { asPrincipalId } from '@epicenter/principal';
 import { createBrowserSqliteOwner } from '../../../src/browser.js';
 import type { SqliteLifetime } from '../../../src/owner.js';
-import { openSqlite } from '../../../../app/src/sqlite.js';
 
 let workersStarted = 0;
 const BrowserWorker = globalThis.Worker;
@@ -31,10 +30,7 @@ const account =
 			};
 const owner = createBrowserSqliteOwner();
 function openStorage(id: string) {
-	return openSqlite({
-		id,
-		owner: { acquire: (id) => owner.acquire(id, account) },
-	});
+	return owner.acquire(id, account);
 }
 
 let storage = openStorage(APP_ID);
@@ -96,16 +92,13 @@ Object.assign(globalThis, {
 	async closeAndReopen(): Promise<Answer> {
 		return attempt(async () => {
 			const retained = await (await storage).open('local');
-			if (retained.error) return { ok: false, error: retained.error.message };
 			await (await storage).close();
-			const stale = await retained.data.all('SELECT 1');
+			const stale = await retained.all('SELECT 1');
 			if (!stale.error)
 				return { ok: false, error: 'Closed connection accepted a statement.' };
 			storage = openStorage(APP_ID);
-			const reopened = await (await storage).open('local');
-			return reopened.error
-				? { ok: false, error: reopened.error.message }
-				: { ok: true };
+			await (await storage).open('local');
+			return { ok: true };
 		});
 	},
 	async duplicateOwner(): Promise<Answer> {
@@ -120,13 +113,7 @@ Object.assign(globalThis, {
 	async otherApp(sql: string): Promise<Answer> {
 		return attempt(async () => {
 			const opened = await (await otherStorage).open('local');
-			if (opened.error !== null)
-				return {
-					ok: false,
-					error: opened.error.message,
-					errorName: opened.error.name,
-				};
-			const result = await opened.data.all(sql);
+			const result = await opened.all(sql);
 			return result.error === null
 				? { ok: true, value: result.data }
 				: { ok: false, error: result.error.message };
@@ -139,13 +126,7 @@ Object.assign(globalThis, {
 	): Promise<Answer> {
 		return attempt(async () => {
 			const opened = await (await storage).open(name);
-			if (opened.error !== null)
-				return {
-					ok: false,
-					error: opened.error.message,
-					errorName: opened.error.name,
-				};
-			const result = await opened.data.run(sql, parameters as never);
+			const result = await opened.run(sql, parameters as never);
 			return result.error === null
 				? { ok: true, value: result.data }
 				: { ok: false, error: result.error.message };
@@ -158,13 +139,7 @@ Object.assign(globalThis, {
 	): Promise<Answer> {
 		return attempt(async () => {
 			const opened = await (await storage).open(name);
-			if (opened.error !== null)
-				return {
-					ok: false,
-					error: opened.error.message,
-					errorName: opened.error.name,
-				};
-			const result = await opened.data.all(sql, parameters as never);
+			const result = await opened.all(sql, parameters as never);
 			return result.error === null
 				? { ok: true, value: result.data }
 				: { ok: false, error: result.error.message };
@@ -176,13 +151,7 @@ Object.assign(globalThis, {
 	): Promise<Answer> {
 		return attempt(async () => {
 			const opened = await (await storage).open(name);
-			if (opened.error !== null)
-				return {
-					ok: false,
-					error: opened.error.message,
-					errorName: opened.error.name,
-				};
-			const result = await opened.data.batch(statements as never);
+			const result = await opened.batch(statements as never);
 			return result.error === null
 				? { ok: true, value: result.data }
 				: { ok: false, error: result.error.message };
@@ -191,13 +160,10 @@ Object.assign(globalThis, {
 	async remove(name: string): Promise<Answer> {
 		return attempt(async () => {
 			const retained = await (await storage).open(name);
-			if (retained.error) return { ok: false, error: retained.error.message };
-			const gone = await (await storage).delete(name);
-			if (!gone.error && !(await retained.data.all('SELECT 1')).error)
+			await (await storage).delete(name);
+			if (!(await retained.all('SELECT 1')).error)
 				return { ok: false, error: 'Deleted handle accepted a statement.' };
-			return gone.error === null
-				? { ok: true }
-				: { ok: false, error: gone.error.message };
+			return { ok: true };
 		});
 	},
 });

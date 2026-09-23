@@ -7,9 +7,9 @@ import type { ScopedSqlite } from '@epicenter/device/owner';
 import { type SqliteHandle, sqliteHandle } from './handle.ts';
 
 /**
- * This App's connected Gmail accounts and pending triage live in `local`.
- * Downloaded Gmail facts live in one disposable `mail-<sub>` file per subject.
- * App scopes both files and secrets to the selected Epicenter account.
+ * Connected Gmail accounts and pending triage live in `local`.
+ * Downloaded Gmail facts live in one `mail-<sub>` file per subject.
+ * Personal scopes SQL to the captured Epicenter account; secrets remain independent.
  * The account namespace starts fresh; old device-owned files are left alone.
  */
 

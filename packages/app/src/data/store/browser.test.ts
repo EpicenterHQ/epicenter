@@ -11,6 +11,8 @@ import { compileData } from '@epicenter/app/definition';
 import { openLocal, openPersonal } from '@epicenter/app/open';
 import type { Account } from '@epicenter/auth';
 import { claimApp } from '@epicenter/device/app-claim';
+import { createMemorySqliteOwner } from '@epicenter/device/memory';
+import { indexedDbStoreRuntime } from '../../platform/documents.js';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
@@ -19,6 +21,8 @@ import { acquireStoreData, openIdbBacking } from './browser.js';
 import { idbRequest, idbTransactionDone } from './idb-updates.js';
 
 installTestLocks();
+const sql = createMemorySqliteOwner();
+const runtime = { ...indexedDbStoreRuntime, sqlite: sql.owner.acquire };
 const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
 Object.defineProperty(globalThis, 'window', {
 	configurable: true,
@@ -83,10 +87,13 @@ const localAddress = (id: string) =>
 
 test('current and local addresses retain their durable spellings', async () => {
 	const definition = definitionFor();
-	const local = await openLocal(definition);
+	const local = await openLocal(definition, { runtime });
 
 	await local.close();
-	const app = await openPersonal(definition, { account: accountFor() });
+	const app = await openPersonal(definition, {
+		runtime,
+		account: accountFor(),
+	});
 	try {
 		const names = (await indexedDB.databases()).map(({ name }) => name);
 		expect(names).toContain(localAddress(definition.id));
@@ -99,20 +106,23 @@ test('current and local addresses retain their durable spellings', async () => {
 test('a second Personal cannot acquire an open Personal and can retry after closure', async () => {
 	const definition = definitionFor();
 	const account = accountFor();
-	const first = await openPersonal(definition, { account: account });
+	const first = await openPersonal(definition, { runtime, account: account });
 
-	const second = openPersonal(definition, { account: account });
+	const second = openPersonal(definition, { runtime, account: account });
 	await expect(second).rejects.toMatchObject({ name: 'AlreadyOpen' });
 
 	await first.close();
-	const third = await openPersonal(definition, { account: account });
+	const third = await openPersonal(definition, { runtime, account: account });
 
 	await third.close();
 });
 
 test('different applications and accounts cannot read each others rows', async () => {
 	const definition = definitionFor();
-	const first = await openPersonal(definition, { account: accountFor() });
+	const first = await openPersonal(definition, {
+		runtime,
+		account: accountFor(),
+	});
 
 	first.tables.notes.create({ title: 'Alice kept work' });
 	await first.close();
@@ -120,7 +130,10 @@ test('different applications and accounts cannot read each others rows', async (
 		[definition, accountFor('bob')],
 		[definitionFor(), accountFor()],
 	] as const) {
-		const isolated = await openPersonal(declaration, { account: account });
+		const isolated = await openPersonal(declaration, {
+			runtime,
+			account: account,
+		});
 
 		expect(isolated.tables.notes.rows).toHaveLength(0);
 		await isolated.close();
@@ -129,7 +142,10 @@ test('different applications and accounts cannot read each others rows', async (
 	offline.fetch = async () => {
 		throw new Error('Offline');
 	};
-	const reopened = await openPersonal(definition, { account: offline });
+	const reopened = await openPersonal(definition, {
+		runtime,
+		account: offline,
+	});
 
 	expect(reopened.tables.notes.rows.map((row) => row.title)).toEqual([
 		'Alice kept work',
@@ -141,10 +157,13 @@ test('a failed current bootstrap releases ownership and a later attempt hydrates
 	const definition = definitionFor();
 	const unavailable = accountFor();
 	unavailable.fetch = async () => new Response(null, { status: 503 });
-	const failed = openPersonal(definition, { account: unavailable });
+	const failed = openPersonal(definition, { runtime, account: unavailable });
 	await expect(failed).rejects.toMatchObject({ name: 'StorageFailed' });
 
-	const retry = await openPersonal(definition, { account: accountFor() });
+	const retry = await openPersonal(definition, {
+		runtime,
+		account: accountFor(),
+	});
 
 	expect(retry.tables.notes.rows).toHaveLength(0);
 	await retry.close();
@@ -177,7 +196,7 @@ test('a runtime without Web Locks refuses Local opening before storage acquisiti
 	if (!held) throw new Error('The test must install Web Locks');
 	Reflect.deleteProperty(navigator, 'locks');
 	try {
-		const app = openLocal(definition);
+		const app = openLocal(definition, { runtime });
 		await expect(app).rejects.toMatchObject({ name: 'LocksUnsupported' });
 
 		expect((await indexedDB.databases()).map(({ name }) => name)).not.toContain(
@@ -210,7 +229,10 @@ test('opening leaves historical numbered and superseded caches untouched', async
 		await done;
 		database.close();
 	}
-	const app = await openPersonal(definition, { account: accountFor() });
+	const app = await openPersonal(definition, {
+		runtime,
+		account: accountFor(),
+	});
 
 	expect(app.tables.notes.rows).toHaveLength(0);
 	await app.close();
@@ -227,7 +249,7 @@ test('opening leaves historical numbered and superseded caches untouched', async
 
 test('local body text and attributes survive a close and reopen', async () => {
 	const definition = definitionFor();
-	const first = await openLocal(definition);
+	const first = await openLocal(definition, { runtime });
 
 	const row = first.tables.notes.create({ title: 'x' });
 	first.tables.notes
@@ -237,7 +259,7 @@ test('local body text and attributes survive a close and reopen', async () => {
 		);
 	first.tables.notes.body(row.id)!.setAttr('cursor' as never, 8 as never);
 	await first.close();
-	const reopened = await openLocal(definition);
+	const reopened = await openLocal(definition, { runtime });
 	try {
 		const body = reopened.tables.notes.body(row.id);
 		expect(body?.toString()).toContain('buy milk');
@@ -249,7 +271,10 @@ test('local body text and attributes survive a close and reopen', async () => {
 
 test('owed updates compact without losing rows across an offline reopen', async () => {
 	const definition = definitionFor();
-	const app = await openPersonal(definition, { account: accountFor() });
+	const app = await openPersonal(definition, {
+		runtime,
+		account: accountFor(),
+	});
 
 	for (let index = 0; index < 70; index++) {
 		app.tables.notes.create({ title: `note ${index}` });
@@ -269,7 +294,10 @@ test('owed updates compact without losing rows across an offline reopen', async 
 	offline.fetch = async () => {
 		throw new Error('Offline');
 	};
-	const reopened = await openPersonal(definition, { account: offline });
+	const reopened = await openPersonal(definition, {
+		runtime,
+		account: offline,
+	});
 
 	expect(reopened.tables.notes.rows).toHaveLength(70);
 	await reopened.close();
@@ -286,7 +314,7 @@ test('corrupt local bytes refuse every retry without retaining ownership', async
 	await backing.create({ bytes: new Uint8Array([1, 2, 3, 4, 5]), position: 0 });
 	backing.close();
 	for (let attempt = 0; attempt < 2; attempt++) {
-		const app = openLocal(definition);
+		const app = openLocal(definition, { runtime });
 		await expect(app).rejects.toMatchObject({ name: 'StorageFailed' });
 	}
 });
@@ -299,7 +327,7 @@ test('failed acquisition cleanup retains Local exclusion and both failures', asy
 		},
 	);
 	try {
-		const failure: unknown = await openLocal(definition).catch(
+		const failure: unknown = await openLocal(definition, { runtime }).catch(
 			(cause: unknown) => cause,
 		);
 		expect(failure).toBeInstanceOf(AggregateError);

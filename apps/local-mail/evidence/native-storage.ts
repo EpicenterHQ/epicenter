@@ -1,4 +1,4 @@
-import { openSqlite } from '@epicenter/app/sqlite';
+import { Ok, unwrap } from 'wellcrafted/result';
 /**
  * Real desktop SQLite transport with synthetic Gmail pages. Uses temporary
  * files, the production native framing/worker, and the desktop WebSocket client.
@@ -21,7 +21,7 @@ import {
 	watchParentPipe,
 } from '../../epicenter/src/sidecar-runtime.js';
 import { openMailbox } from '../src/mailbox.js';
-import { openLocalMailStorage } from '../src/storage.js';
+import { LOCAL_SCHEMA, openLocalMailStorage } from '../src/storage.js';
 
 const build = Bun.spawn(
 	[
@@ -120,9 +120,37 @@ const server = Bun.serve<{
 });
 const owner = createDesktopSqliteOwner({ baseURL: server.url.origin });
 
-let app = await openSqlite({ owner, id: 'so.epicenter.local-mail' });
+const alice = { authorityId: 'evidence', principalId: asPrincipalId('alice') };
+const bob = { authorityId: 'evidence', principalId: asPrincipalId('bob') };
+const legacy = await owner.acquire('so.epicenter.local-mail');
+const legacyLocal = await legacy.open('local');
+unwrap(
+	await legacyLocal.batch([
+		...LOCAL_SCHEMA.map((sql) => ({ sql })),
+		{
+			sql: "INSERT INTO accounts VALUES ('legacy', 'legacy@example.com', '2026-09-23')",
+		},
+		{
+			sql: "INSERT INTO label_intents VALUES ('legacy', 'm1', 'INBOX', 0, 1, '2026-09-23')",
+		},
+	]),
+);
+await legacy.close();
+let app = await owner.acquire('so.epicenter.local-mail', alice);
+function storageFor(lifetime: typeof app) {
+	return openLocalMailStorage({
+		sqlite: {
+			open: async (name) => Ok(await lifetime.open(name)),
+			delete: async (name) => Ok(await lifetime.delete(name)),
+		},
+	});
+}
 try {
-	const storage = await openLocalMailStorage({ sqlite: app });
+	const storage = await storageFor(app);
+	assert.deepEqual(
+		unwrap(await storage.local.all('SELECT * FROM accounts')),
+		[],
+	);
 	const mailbox = openMailbox(await storage.mail('synthetic'));
 	await mailbox.ingestLabels([{ id: 'INBOX', name: 'Inbox', type: 'system' }]);
 	const body = Buffer.from('Synthetic mail body. '.repeat(12_000)).toString(
@@ -157,18 +185,30 @@ try {
 		0,
 	);
 	await app.close();
-	app = await openSqlite({ owner, id: 'so.epicenter.local-mail' });
-	const otherAccount = await openLocalMailStorage({ sqlite: app });
+	app = await owner.acquire('so.epicenter.local-mail', bob);
+	const otherAccount = await storageFor(app);
 	assert.equal(
 		(await openMailbox(await otherAccount.mail('synthetic')).counts()).messages,
-		100,
+		0,
 	);
 	await app.close();
-	app = await openSqlite({ owner, id: 'so.epicenter.local-mail' });
-	const reopened = await openLocalMailStorage({ sqlite: app });
+	app = await owner.acquire('so.epicenter.local-mail', alice);
+	const reopened = await storageFor(app);
 	const recovered = openMailbox(await reopened.mail('synthetic'));
 	assert.equal((await recovered.counts()).messages, 100);
 	assert.deepEqual(await recovered.readFullPullCheckpoint(), checkpoint);
+	const retainedLegacy = await owner.acquire('so.epicenter.local-mail');
+	try {
+		const retained = await retainedLegacy.open('local');
+		assert.deepEqual(
+			unwrap(
+				await retained.all('SELECT sub, message_id, want FROM label_intents'),
+			),
+			[{ sub: 'legacy', message_id: 'm1', want: 0 }],
+		);
+	} finally {
+		await retainedLegacy.close();
+	}
 	assert.ok(largestNativeFrame < 8 * 1024 * 1024);
 	console.log(
 		JSON.stringify({
@@ -177,6 +217,7 @@ try {
 			reopened: true,
 			isolatedMailboxes: true,
 			isolatedAccounts: true,
+			legacyPendingWorkPreserved: true,
 			largestNativeFrame,
 		}),
 	);

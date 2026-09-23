@@ -1,3 +1,4 @@
+import { createMemorySqliteOwner } from '@epicenter/device/memory';
 import {
 	createBrowserBlobSources,
 	createBrowserBlobStore,
@@ -16,10 +17,12 @@ import type { StoreRuntime } from './store-runtime.js';
  */
 export function createMemoryStoreRuntime() {
 	const idb = { factory: new IDBFactory(), keyRange: IDBKeyRange };
+	const sql = createMemorySqliteOwner();
 	const held = new Set<string>();
 	let disposed = false;
 	let disposing: Promise<void> | undefined;
 	const runtime: StoreRuntime = {
+		sqlite: sql.owner.acquire,
 		async claim(address) {
 			if (disposed)
 				return AppClaimError.ClaimFailed({
@@ -61,6 +64,7 @@ export function createMemoryStoreRuntime() {
 		async dispose() {
 			if (held.size) throw new Error('Memory runtime still has open stores.');
 			if (disposing) return disposing;
+			sql.dispose();
 			disposed = true;
 			disposing = (async () => {
 				for (const { name } of await idb.factory.databases()) {

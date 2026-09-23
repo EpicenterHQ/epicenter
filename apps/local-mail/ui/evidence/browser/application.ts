@@ -1,6 +1,5 @@
 import { defineStore } from '@epicenter/app';
 import { openPersonal } from '@epicenter/app/open';
-import { openSqlite } from '@epicenter/app/sqlite';
 import { openSecrets } from '@epicenter/app/secrets';
 import type { Account } from '@epicenter/auth';
 import { mailDefinition } from '../../src/lib/data.js';
@@ -30,26 +29,16 @@ export const definition = defineStore({
 export const opening = (async () => {
 	const personal = await openPersonal(definition, { account });
 	try {
-		const sqlite = await openSqlite({ id: definition.id });
-		try {
-			const secrets = await openSecrets({ id: definition.id });
-			return {
-				personal,
-				sqlite,
-				secrets,
-				signal: personal.signal,
-				async close() {
-					await Promise.all([
-						personal.close(),
-						sqlite.close(),
-						secrets.close(),
-					]);
-				},
-			};
-		} catch (cause) {
-			await sqlite.close();
-			throw cause;
-		}
+		const secrets = await openSecrets({ id: definition.id });
+		return {
+			personal,
+			sqlite: personal.sqlite,
+			secrets,
+			signal: personal.signal,
+			async close() {
+				await Promise.all([personal.close(), secrets.close()]);
+			},
+		};
 	} catch (cause) {
 		await personal.close();
 		throw cause;

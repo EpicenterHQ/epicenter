@@ -43,8 +43,8 @@ palette. CodeMirror binds directly to the row's body node.
 ## Development
 
 The SvelteKit server hook and Vite dev and preview servers set COOP and COEP
-headers. Document persistence uses IndexedDB. SQL has an independent
-`openSqlite` constructor; opening the Skills store does not acquire SQL.
+headers. Document persistence uses IndexedDB. Opening the Skills store also acquires its local SQLite namespace; named
+databases remain unopened until `store.sqlite.open(name)`.
 
 From the repository root:
 

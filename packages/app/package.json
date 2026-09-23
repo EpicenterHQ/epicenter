@@ -23,7 +23,6 @@
 		"./data": "./src/data/open.ts",
 		"./testing": "./src/testing.ts",
 		"./blobs": "./src/blobs.ts",
-		"./sqlite": "./src/sqlite.ts",
 		"./secrets": "./src/secrets.ts"
 	},
 	"scripts": {

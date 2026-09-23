@@ -55,7 +55,7 @@ Each workflow names its destination; products decide which features require
 sign-in and which acquisitions may proceed independently.
 
 Recording borrows an opened Local store's blobs through
-`createRecorder({ localBlobs: local.blobs })`. SQL and secrets take their own
+`createRecorder({ localBlobs: local.blobs })`. Stores expose local SQL through `store.sqlite`; secrets take their own
 namespace IDs. Inference takes the account, runtime, or endpoint it uses. Schema
 consumers, tests, and artifact tools import the same definition without opening
 these resources.

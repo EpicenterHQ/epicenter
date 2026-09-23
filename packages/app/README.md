@@ -1,8 +1,8 @@
 # @epicenter/app
 
-A store owns its tables, KV, and blob namespace. `openLocal` and `openPersonal`
-return only after document and blob acquisition finish; `store.close()` fences
-both and drains their admitted work. Other services keep independent lifetimes.
+A store owns its tables, KV, blob namespace, and SQLite namespace. `openLocal` and `openPersonal`
+return only after document, blob, and SQL namespace acquisition finish; `store.close()` fences
+all three and drains their admitted work. Other services keep independent lifetimes.
 
 Whispering borrows blob access from its Local and Personal stores. The earlier
 [implementation report](../../docs/reports/20260922-store-owned-blobs-implementation.md)
@@ -27,18 +27,18 @@ const local = await openLocal(definition);
 const personal = await openPersonal(definition, { account });
 ```
 
-The definition ID names the document and blob namespace. It uses the same
+The definition ID names the document, blob, and SQLite namespaces. It uses the same
 reverse-domain grammar as a host application ID, but an application may open
 several definitions. Reusing a definition for Local and Personal preserves the
 declared shape, not the dataset. Changing its ID selects a different persistent
-address. SQL and secrets take their own namespace IDs without a store definition.
+address. Secrets take their own namespace IDs without a store definition.
 
 For the naming decision, see [ADR-0430](../../docs/adr/0430-define-store-declares-data-and-products-compose-resources.md).
 
 Local retains the same address across account changes. Personal captures the
 account's authority, principal, and transport before asynchronous acquisition.
 It never retargets. Closing either store leaves the other usable. Both expose
-`tables`, `kv`, `blobs`, `persistence`, `signal`, and `close()`; their ID is `definition.id`.
+`tables`, `kv`, `blobs`, `sqlite`, `persistence`, `signal`, and `close()`; their ID is `definition.id`.
 Personal opens from its cached generation offline, or asks the authority to
 select a generation when no cache exists. No Shared opener is exported.
 
@@ -48,7 +48,6 @@ select a generation when no cache exists. No Shared opener is exported.
 | --- | --- | --- |
 | `/open` | `openLocal`, `openPersonal` | Definition; Personal also requires `account` |
 | `/blobs` | `LocalBlobs`, `PersonalBlobs` types | Borrow `store.blobs` |
-| `/sqlite` | `openSqlite` | `{ id }` |
 | `/secrets` | `openSecrets` | `{ id }` |
 | `/recorder` | `createRecorder` | `{ localBlobs }` |
 | `/ai` | `openEpicenterInference`, `openRuntimeTranscriber`, `openEndpointInference` | Account, installed runtime, or endpoint URL |
@@ -62,11 +61,11 @@ Closing preserves committed data and credentials. It does not sign out, navigate
 or prove every edit reached durable storage or a server.
 
 Default constructors select browser or host implementations with `isTauri()`.
-`StoreRuntime` supplies document storage, local blob storage, and admission to store openers.
+`StoreRuntime` supplies document storage, local blob storage, SQLite acquisition, and admission to store openers.
 `createMemoryStoreRuntime()` from `/testing` provides isolated IndexedDB-backed
-store tests without changing globals. It retains committed data across handle
+store tests and a private WASM SQLite owner without changing globals. It retains committed data across handle
 close and refuses disposal while a store still owns it. It supplies no simulated
-recording, network, SQL, or credential capabilities.
+recording, network, or credential capabilities.
 
 ## Blobs and recording
 
@@ -156,15 +155,18 @@ failures. A Result presenter does not catch arbitrary exceptions.
 
 ## SQLite and secrets
 
-`openSqlite` remains standalone. A future optional `projectSqlite(store)` would
-borrow a store; it is not part of store opening and is not implemented here.
+Every store acquires a local SQLite namespace as part of opening. Named databases
+open explicitly through `store.sqlite.open(name)` and return Results. Use
+`store.sqlite.delete(name)` to delete one named database and retire its old
+connections. The borrowed namespace has no `close()`; close the containing store.
 
-`openSqlite({ id })` acquires a namespace eagerly. `open(name)` and `delete(name)`
-address dynamically named databases under that application's fixed local owner.
-Deleting a database retires its old connections. Closing drains the namespace
-and releases its physical connections; failed cleanup retains exclusion.
+Local uses the existing `no-account` address. Personal adds the captured authority
+and principal using the existing hex path encoding. Personal SQL remains local:
+it does not sync or project Yjs tables automatically. Closing drains admitted SQL
+work and releases physical connections; failed cleanup retains exclusion.
 Browser storage uses an owner-specific OPFS pool. Native storage uses the host
-SQLite lifetime socket. The previous origin-wide OPFS pool remains untouched.
+SQLite lifetime socket. Older pools and account-independent files remain untouched.
+See [Local Mail's migration limitation](../../apps/local-mail/README.md#existing-local-mail-data).
 
 `openSecrets({ id })` addresses credentials by application ID and label.
 Browser credentials remain in document memory; native credentials use the OS
