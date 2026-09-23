@@ -113,7 +113,7 @@ conventional type. Backup-specific storage and structural archives have been
 removed. Local bytes and explicitly hosted objects remain independent of row
 lifetime and working-copy recovery.
 
-The [ADR-0394 folder direction](../../docs/adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md)
+The [ADR-0394 folder direction](../../docs/adr/0394-materialization-contains-documents-and-blob-references.md)
 is document-only: Markdown, settings, and the checkout manifest carry
 references, without copying or fetching local or remote blob payloads. The
 [ADR-0395 recovery direction](../../docs/adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md)

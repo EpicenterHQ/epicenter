@@ -7,7 +7,7 @@
 	 *
 	 * Mounted by the boot node, which is the narrowest node not shared with
 	 * `/auth/callback` (ADR-0345). Which sentence, which repair, and whether the
-	 * library's own message belongs underneath are all `openFailure`'s; this
+	 * store's own message belongs underneath are all `openFailure`'s; this
 	 * renders them and decides nothing.
 	 */
 	type CannotOpenScreenProps = {

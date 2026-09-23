@@ -28,15 +28,15 @@ needs it.
 
 **An application exposes Local and, when signed in, Personal data.**
 
-A library is one application's data in one destination. These names describe
-ownership and synchronization, not authentication methods or subscription
-tiers. Definitions may differ by workflow. Each store owns tables, KV, and its blob
-namespace; rows reference bytes without owning their lifetime. Copying bytes
-between stores requires an explicit operation.
+A Local or Personal store holds one application's data in one destination.
+These names describe ownership and synchronization, not authentication methods
+or subscription tiers. Definitions may differ by workflow. Each store owns
+tables, KV, and its blob namespace; rows reference bytes without owning their
+lifetime. Copying bytes between stores requires an explicit operation.
 
 Both deployments expose the same data destinations:
 
-| Library | Data boundary | Epicenter Cloud | Self-hosted deployment |
+| Store | Data boundary | Epicenter Cloud | Self-hosted deployment |
 | --- | --- | --- | --- |
 | Local | The device profile across account changes; no synchronization | Available | Available |
 | Personal | One named user on one server; synchronized across that user's devices | Available | Available |
@@ -76,7 +76,7 @@ user admission and removal without a product-level organization hierarchy.
 Removing a person stops their future authorized server access according to the
 session-revocation contract. It cannot retract data already copied to a device.
 
-**The authenticated person and the library being accessed remain distinct.**
+**The authenticated person and the Personal store being accessed remain distinct.**
 
 The server authorizes the person making a request and selects their personal
 data. A client-supplied destination is not permission to access another person's
@@ -93,7 +93,8 @@ store. Credential repair for the same person retires nothing.
 
 A temporary server outage preserves established local data and identity while
 remote work is unavailable. It does not select Local or sign in another person.
-Writing to one library neither copies nor merges data from another; a copy is an explicit operation (ADR-0399).
+Writing to one store neither copies nor merges data from another; a copy is an
+explicit operation (ADR-0399).
 
 ## Consequences
 
@@ -107,7 +108,7 @@ The shared-token-only deployment's minimal provisioning is no longer the target.
 Removing client token-entry code does not remove this server-side work.
 
 Storage, synchronization, blobs, and local caches must distinguish the
-authenticated person from the selected library. A reserved word or a field
+authenticated person from the selected store. A reserved word or a field
 rename cannot establish that boundary. Existing `instance` data must remain
 intact until an explicit migration or import decision assigns its destination;
 the first named user does not inherit it automatically.
@@ -122,14 +123,14 @@ It is not evidence for the new store-owned blob contract.
 Complete blob-hosting, Bun sync, and packaged desktop verification remain
 separate work.
 
-Each write uses its intended library's handle (ADR-0401). The desktop host
-retains one signed-in person and server. Applications decide which libraries
+Each write uses its intended store handle (ADR-0401). The desktop host
+retains one signed-in person and server. Applications decide which stores
 to expose and whether to offer a picker or remember a destination. The framework
 does not impose a Personal default, a copy workflow, or a signed-out Local
 fallback. An application may require sign-in even though the Local handle exists.
 
 **Construction resolves reach once.** Personal captures account identity and
-transport before asynchronous acquisition. No public Library wrapper or binding
+transport before asynchronous acquisition. No extra data-selection wrapper or binding
 object gains its own lifecycle. Recording borrows Local blobs independently of
 Account. Inference and credentials remain attached to their explicit actor.
 
@@ -141,8 +142,8 @@ remote destination. ADR-0379 and ADR-0385 own generation rules.
 
 ## Considered alternatives
 
-- Keep one operator token and one common data partition: loses personal
-  libraries and independent user access management.
+- Keep one operator token and one common data partition: loses separate
+  Personal data and independent user access management.
 - Retain a server-wide Shared store alongside Personal: deferred by ADR-0416.
   Named self-hosted accounts remain useful without this feature.
 - Represent shared data as a special user: would conflate the person
@@ -150,6 +151,6 @@ remote destination. ADR-0379 and ADR-0385 own generation rules.
 - Add organizations, teams, and workspace memberships: adds administration
   beyond named users and personal data.
 - Rename Account to Personal: confuses the authenticated person with one of the
-  libraries they can access.
+  stores they can access.
 - Use one aggregate opener: couples device access to account acquisition and
   hides the store each workflow owns.

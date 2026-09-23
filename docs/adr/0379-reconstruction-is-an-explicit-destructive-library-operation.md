@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-09
 - **Amends:** [ADR-0276](0276-an-authority-holds-a-numbered-succession-of-generations-and-nothing-is-ever-overwritten.md) at maintenance and recovery: folding preserves lineage and readable-content recovery uses ordinary edits.
-- **Relates:** [ADR-0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) describes document materialization; [ADR-0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) describes recovery through Push; [ADR-0417](0417-a-data-address-holds-one-document.md) defines coordinated replacement without generations.
+- **Relates:** [ADR-0394](0394-materialization-contains-documents-and-blob-references.md) describes document materialization; [ADR-0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) describes recovery through Push; [ADR-0417](0417-a-data-address-holds-one-document.md) defines coordinated replacement without generations.
 
 ## Context
 

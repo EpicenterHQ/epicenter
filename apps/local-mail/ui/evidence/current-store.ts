@@ -1,7 +1,7 @@
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 
-/** Echo a new library's seed in the production download format; no remote sync. */
-export async function currentLibraryResponse(request: Request) {
+/** Echo a new Personal store's seed in the production download format; no remote sync. */
+export async function currentStoreResponse(request: Request) {
 	if (
 		request.method !== 'POST' ||
 		!/^\/api\/apps\/[^/]+\/personal\/data\/[^/]+\/current$/.test(

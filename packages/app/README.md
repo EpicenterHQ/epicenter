@@ -279,7 +279,7 @@ account and gives product work a departure signal; it does not close returned
 roots or retry acquisition in the same document. Document destruction ends the
 roots, and the host retires document-owned native access. Products stop capture
 when departure begins, even if navigation stalls. Explicit close remains useful
-for earlier retirement and library cleanup. Reload is not a save barrier.
+for earlier retirement and resource cleanup. Reload is not a save barrier.
 
 Clipboard is stateless: import `clipboard` from `/clipboard` directly. It needs
 no resource handle and has no artificial close operation.

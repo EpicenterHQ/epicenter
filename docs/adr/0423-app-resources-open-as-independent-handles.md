@@ -42,7 +42,7 @@ Use “document” for this data document in application architecture explanatio
 Use “browser/WebView lifetime” explicitly when describing UI reload and handle
 ownership. A main interface and an auxiliary overlay can communicate by messages
 without the overlay opening another store. Window count does not determine
-store count. No AppInstance, application-document, or library primitive is needed.
+store count. No AppInstance, application-document, or extra data-selection primitive is needed.
 
 Root handles normally last for the browser/WebView lifetime. Reload replaces
 JavaScript state and access handles; committed data survives. The host owns
@@ -236,7 +236,7 @@ transfer cancellation from either owner, and AI response-body cancellation.
 Verify source-accurate native recording and upload without materializing audio
 in the WebView. Check account catalog isolation, late temporary acquisition, terminal page
 startup failure, and the platform-free root import graph. A page can open
-multiple stores with different blob namespaces; no library primitive is introduced.
+multiple stores with different blob namespaces; no extra data-selection primitive is introduced.
 Verify that store opening acquires usable blob and SQL access, failure unwinds all
 children, and store close fences all children before awaiting cleanup. A failed
 table open also prevents blob and SQL access; this dependency is the cost of one owner.

@@ -3,25 +3,25 @@
 - **Status:** Proposed
 - **Date:** 2026-09-12
 - **Amends:** [ADR-0272](0272-restore-replaces-a-workspace-from-an-artifact-under-a-new-document-identity.md) at the product recovery workflow: bringing old content back uses ordinary Push, not a restore endpoint or replacement document. [ADR-0281](0281-a-generation-is-a-whole-database-and-a-device-chooses-which-one-it-holds.md) at recovery through writable historical generations: no generation picker is required.
-- **Relates:** [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) (the working copy), [ADR-0338](0338-the-folder-wins-and-a-push-is-one-approval.md) (historical Push semantics), [ADR-0343](0343-a-preview-is-an-output-and-the-side-that-showed-it-applies-it.md) (file-change inspection), [ADR-0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) (folder contents).
+- **Relates:** [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) (the working copy), [ADR-0338](0338-the-folder-wins-and-a-push-is-one-approval.md) (historical Push semantics), [ADR-0343](0343-a-preview-is-an-output-and-the-side-that-showed-it-applies-it.md) (file-change inspection), [ADR-0394](0394-materialization-contains-documents-and-blob-references.md) (folder contents).
 - **Implementation:** `createWorkingCopy` already exposes Pull and Push with previews, new-row admission, permanent row deletion, and reports for unreadable files. A dedicated backup-restoration UI is not required.
 
 ## Context
 
 The earlier draft specified a one-request destructive restore with a server
-safety copy. It would replace every device's library and discard unsynchronized
+safety copy. It would replace every device's Personal data and discard unsynchronized
 work from retired generations.
 
 The selected use case is narrower: someone has old readable files and wants to
 bring some content back. Schema changes and serialization loss are acceptable
-when the files can be inspected and repaired. The working-copy library supplies the editing mechanism; application and CLI
+when the files can be inspected and repaired. The working-copy tools supply the editing mechanism; application and CLI
 wiring remain unbuilt.
 
 ## Decision
 
 **Recover old content by editing a current working copy, then use ordinary Push.**
 
-1. Preserve the old folder separately. Pull the intended destination library
+1. Preserve the old folder separately. Pull the intended destination store
    into its working copy, preserving any unsubmitted folder edits before materialization.
 2. Copy selected old document contents into that working copy. Keep the current
    `.epicenter/manifest.json`; do not replace it with the old copy's manifest.
@@ -36,7 +36,7 @@ Local Push retries must not duplicate creations; separately importing the same
 old source again is not automatic deduplication.
 
 The baseline makes recovered content a deliberate change relative to the
-current library. Copying an old manifest would instead change the comparison
+current store. Copying an old manifest would instead change the comparison
 base and can misrepresent unrelated edits or deletions. Recovery copies selected
 content; replacing the whole working directory is not an implicit restore.
 
@@ -77,7 +77,7 @@ and establish a fresh Pull baseline before using this recovery workflow.
 
 ## Considered alternatives
 
-- Restore an entire historical library: introduces a cross-device loss boundary
+- Restore an entire historical dataset: introduces a cross-device loss boundary
   and a separate product action.
 - Import the old manifest together with old content: mistakes historical
   provenance for the destination's current comparison baseline.

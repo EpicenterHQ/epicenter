@@ -6,7 +6,7 @@ import type { Recording } from '../data.js';
 type RecordingDeletionTarget = Pick<Recording, 'id'>;
 
 /**
- * Delete library rows without claiming that retained audio bytes are reclaimed.
+ * Delete recording rows without claiming that retained audio bytes are reclaimed.
  */
 export function deleteRecordingsWithConfirmation(
 	store: RecordingStore,
@@ -19,7 +19,9 @@ export function deleteRecordingsWithConfirmation(
 
 	confirmationDialog.open({
 		title: `Delete ${noun}`,
-		description: `Remove ${isSingle ? 'this recording' : 'these recordings'} from this library? Stored audio files are not erased.`,
+		description: isSingle
+			? 'Its stored audio file will remain.'
+			: 'Their stored audio files will remain.',
 		confirm: {
 			text: 'Delete',
 			variant: 'destructive',

@@ -8,7 +8,7 @@
 - **Relates:** [ADR-0234](0234-the-ark-owns-living-pages-and-markdown-is-an-explicit-checkout.md) (which invented this shape for one table and never generalized it), [ADR-0281](0281-a-generation-is-a-whole-database-and-a-device-chooses-which-one-it-holds.md) (the backup), [ADR-0330](0330-an-agent-uses-the-surfaces-a-person-uses.md) (who edits and who pushes)
 - **Amended by:** [ADR-0338](0338-the-folder-wins-and-a-push-is-one-approval.md) allows body edits through the existing content node; its earlier folder-wins and mandatory-approval proposal is withdrawn.
 - **Amended by:** [ADR-0343](0343-a-preview-is-an-output-and-the-side-that-showed-it-applies-it.md) separates file-change inspection from application; the earlier mandatory confirmation-loop proposal is withdrawn.
-- **Amended by:** [ADR-0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) at recovery: a saved folder is readable source material, not a historical generation or exact backup; document-only materialization retains the Pull/Push comparison baseline.
+- **Amended by:** [ADR-0394](0394-materialization-contains-documents-and-blob-references.md) at recovery: a saved folder is readable source material, not a historical generation or exact backup; document-only materialization retains the Pull/Push comparison baseline.
 - **Built**, in `packages/app/src/data/artifact/checkout.ts` and `apps/epicenter/src/checkout.ts`: all three verbs, the manifest, and the `AGENTS.md` a pull generates. What is not is named at "What a push refuses" below, and each line there waits on its own record.
 
 ## Context

@@ -68,9 +68,9 @@ The captured account context may be signed out. This is the application
 operating rule, not a global account restriction in the resource SDK.
 
 A page may open several stores and namespaces, including Local and Personal
-together. There is no SDK library owner. Name concrete handles `local` and
-`personal`, and the selected recordings destination `store`. Existing `library`
-identifiers are migration work, not the target vocabulary; durable keys stay put.
+together. There is no aggregate SDK owner. Name concrete handles `local` and
+`personal`, and the selected recordings destination `store`. Old identifiers
+are migration work; durable keys stay put.
 Switching a view or selecting an already-open store does not inherently require
 reload. Each handle retains its captured destination.
 

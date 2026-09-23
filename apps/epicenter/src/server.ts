@@ -799,7 +799,7 @@ export function createHomeServer({
 		if (folder === undefined) return c.text('Invalid checkout path', 400);
 		// Required, not optional. A checkout with no reading behind it is a write
 		// nobody approved, and refusing it here makes that impossible at the wire
-		// rather than only in the library that usually sends one.
+		// rather than only in the client that usually sends one.
 		const ifMatch = c.req.header('if-match');
 		if (ifMatch === undefined) {
 			return c.text('A checkout write must carry If-Match', 428);

@@ -48,11 +48,11 @@ app.persistence.get() === 'blocked';     // this device stopped saving
 ### `fromKv`
 
 Adapts KV reads without building table projections. Use it when a view needs
-device settings while displaying another library. Repeated calls reuse the same
+device settings while displaying another store. Repeated calls reuse the same
 wrapper, including calls through `fromData`. Writes pass through unchanged.
 
 ```ts
-const preferences = fromKv(openedApp.device.kv);
+const preferences = fromKv(local.kv);
 preferences.get('showReadings');
 preferences.update({ showReadings: true });
 ```

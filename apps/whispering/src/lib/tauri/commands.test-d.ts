@@ -105,7 +105,7 @@ type _StartRecording = Expect<
 	>
 >;
 
-// Capture is disposable and carries no library or row destination.
+// Capture is disposable and carries no store or row destination.
 type _HostRecordingShape = Expect<
 	Equal<
 		HostRecording,
@@ -131,7 +131,7 @@ type _DeviceAcquisitionShape = Expect<
 	>
 >;
 
-// Stop returns a temporary finished-file token, not a published library row.
+// Stop returns a temporary finished-file token, not a published recording row.
 type _StopRecordingArgs = Expect<
 	Equal<Parameters<typeof commands.stopRecording>, [string, string]>
 >;

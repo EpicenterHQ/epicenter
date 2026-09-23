@@ -105,7 +105,7 @@ Related in-flight work must be coordinated, not overwritten:
 - [ADR-0373](../docs/adr/0373-product-operations-receive-the-page-owned-app-explicitly.md)
   already proposes call-time product access. Reuse its import-safe bootstrap
   pattern; do not create another ADR for the same decision.
-- [ADR-0375](../docs/adr/0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md)
+- [ADR-0375](../docs/adr/0375-local-and-personal-data-preserve-named-account-ownership.md)
   and its [API handoff](20260909T062714-library-ownership-api.handoff.md) reconsider
   actor versus library destination. This feature initially targets Personal.
   It does not implement Shared libraries or assume Shared credentials.

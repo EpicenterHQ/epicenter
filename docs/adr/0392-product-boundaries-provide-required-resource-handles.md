@@ -46,8 +46,8 @@ of individual live handles establish the owner. Module imports acquire nothing.
 
 Name the store handles `local` and `personal`. Name a workflow's concrete selected
 destination `store`. `remote` describes remote blob access, not an account store
-that also works offline. `library` is not a handle name or a new primitive.
-This vocabulary change does not rename durable keys such as `whispering.library`.
+that also works offline. No separate data-selection handle or primitive is introduced.
+This vocabulary change does not rename existing durable keys.
 
 The target context shape is:
 

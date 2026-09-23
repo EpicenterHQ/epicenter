@@ -33,8 +33,8 @@ shapes, see `docs/adr/`.
   crash cannot reconstruct, which is the update log, with the outbox and the
   cursor read off it. One IndexedDB object store in the browser, with no worker
   and no OPFS (ADR-0238, ADR-0241).
-- **Generation**: the authority's identity for the current library baseline.
-  App startup downloads or reopens the current library; its generation lives in
+- **Generation**: the authority's identity for the current Personal data baseline.
+  App startup downloads or reopens the current Personal data; its generation lives in
   the cache header, not in the page URL. The numbered-cache client APIs of
   ADR-0292/0293 are retired by ADR-0407. Historical bytes remain, and the server
   refuses fresh Personal initialization over admitted history with HTTP 409.
@@ -92,7 +92,7 @@ shapes, see `docs/adr/`.
   any third-party OpenAI-compatible endpoint. A BYOK key is handed to a custom
   inference server (self-hosted or local), never to the Epicenter gateway or a
   daemon (ADR-0054).
-- **Deployable vs library**: one library, `packages/server`, consumed by two
+- **Deployable vs shared package**: one package, `packages/server`, consumed by two
   deployables: `apps/api` (hosted personal cloud) and `apps/self-host` (the
   community single-partition instance reference, not Epicenter-operated; ADR-0075).
 - **Cross-device planes**: cross-device work splits by responsibility. _Inference_ (the
@@ -127,9 +127,6 @@ shapes, see `docs/adr/`.
 - **Store**: one replica with tables, KV, and a blob namespace. Opening acquires
   documents and blobs before returning the handle. Row and KV access is
   synchronous; persistence and blob operations remain asynchronous.
-- **Library**: a UI name for data in a Local or Personal store. Local stays on
-  this machine; Personal synchronizes through the signed-in account. Shared
-  stores have no public opener.
 - **Local store**: `await openLocal(definition)` opens device data under the
   definition's fixed `no-account` namespace. Signing in does not change its
   address or move its data.
@@ -151,9 +148,9 @@ shapes, see `docs/adr/`.
   blob store and returns its key. The workflow then creates its recording row
   in the destination retained before capture. Failed row creation leaves the
   blob available. Unfinished capture may be lost on reload or termination.
-- **Cross-library copy** (optional application workflow, ADR-0399): an app
+- **Cross-store copy** (optional application workflow, ADR-0399): an app
   composes reads and ordinary destination creation. New rows get new IDs.
-  Copying blob references does not upload bytes or transfer remote ownership.
+  Copying blob references alone does not upload bytes or transfer remote ownership.
   Sign-in does not move Local data.
 - **Materialization** (ADR-0394): readable row Markdown, settings, and checkout
   metadata. Blob keys and URLs remain references; Pull copies no audio and
@@ -241,8 +238,8 @@ shapes, see `docs/adr/`.
   (ADR-0292, ADR-0298). It appends opaque bytes and reads nothing about their
   meaning.
 - **`dial`**: the one thing a host supplies to the transport, a function that
-  makes a socket. The library owns the cursor, attach and detach, reconnect, and
-  the unacknowledged-submission watchdog (ADR-0222).
+  makes a socket. The sync connection owns the cursor, attach and detach,
+  reconnection, and the unacknowledged-submission watchdog (ADR-0222).
 - **Blob**: immutable bytes with their own identity and lifetime. Local objects
   belong to the app on this device and use extension-bearing BlobIds (ADR-0349).
   Explicit remote uploads create independent account-owned objects and return
@@ -299,7 +296,7 @@ shapes, see `docs/adr/`.
   resource acquisition, and renders its resolved value. The shell borrows stores
   through `fromData`. Departure signals stop producers before full navigation.
   AppBoot does not close returned roots; document destruction ends those
-  resources. Callbacks and auxiliary routes open no primary library.
+  resources. Callbacks and auxiliary routes open no primary store.
 - **Capability**: the operation surface a consumer borrows from its owner,
   such as `store.blobs`. Borrowing operations does not transfer readiness or
   shutdown ownership. A recorder borrows Local blobs from its store.

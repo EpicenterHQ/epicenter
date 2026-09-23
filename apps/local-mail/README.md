@@ -1,7 +1,7 @@
 # Local Mail
 
 Local Mail downloads Gmail, records triage changes on this device, and saves
-named SQL queries in your Epicenter library. Select a connected Gmail account
+named SQL queries in your Personal data. Select a connected Gmail account
 and press **Run** to inspect its downloaded messages and labels.
 
 One mounted application document opens Personal and independent secrets.
@@ -59,13 +59,13 @@ updates the cache. Query results offer no message actions.
 
 `ui/src/lib/data.ts` declares data without opening resources. The primary route
 mounts `AppBoot`, which calls the product resource opener with a startup cancellation signal and renders the mail shell. Auth callbacks and Gmail consent callbacks open no
-primary library. Importing or preloading the route does not open one either.
+primary store. Importing or preloading the route does not open one either.
 
 Each application document opens Personal with its captured Account and acquires secrets independently. Saved queries
 live in `app.personal`. `app.sqlite` borrows `app.personal.sqlite`; closing Personal
 fences the mail databases. Credentials use the independent `app.secrets` handle.
 Identity is required on first opening. A cached
-identity and an existing library can reopen without network access; connection
+identity and an existing Personal store can reopen without network access; connection
 health does not disable local triage, Undo, outbox reads, or queries.
 
 The exported `mail` object holds module-private workflow state. Core account

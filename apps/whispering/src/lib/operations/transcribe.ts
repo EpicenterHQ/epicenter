@@ -26,7 +26,7 @@ const TranscriptionOperationError = defineErrors({
 			'Choose a transcription connection and model in Privacy & Processing settings.',
 	}),
 	Closed: () => ({
-		message: 'This library has closed. Reopen it to transcribe.',
+		message: 'Recording data is unavailable. Reopen Whispering to transcribe.',
 	}),
 	InsufficientCredits: () => ({
 		message:

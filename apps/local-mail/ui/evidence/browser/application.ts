@@ -3,7 +3,7 @@ import { openPersonal } from '@epicenter/app/open';
 import { openSecrets } from '@epicenter/app/secrets';
 import type { Account } from '@epicenter/auth';
 import { mailDefinition } from '../../src/lib/data.js';
-import { currentLibraryResponse } from '../current-library.js';
+import { currentStoreResponse } from '../current-store.js';
 
 /** Synthetic account; App, SQLite, persistence, query policy, and panel are production. */
 export const account: Account = {
@@ -13,7 +13,7 @@ export const account: Account = {
 	async fetch(input, init) {
 		if (localStorage.getItem('evidence-offline') === 'true')
 			throw new TypeError('Fixture is offline');
-		return currentLibraryResponse(new Request(input, init));
+		return currentStoreResponse(new Request(input, init));
 	},
 	async openWebSocket() {
 		throw new TypeError('Fixture has no cloud transport');

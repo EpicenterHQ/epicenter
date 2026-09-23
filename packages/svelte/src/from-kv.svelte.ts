@@ -9,7 +9,7 @@ export type AdaptableKv = {
 
 const projections = new WeakMap<AdaptableKv, AdaptableKv>();
 
-/** Adapt KV reads without projecting tables from a library the UI does not display. */
+/** Adapt KV reads without projecting tables from a store the UI does not display. */
 export function fromKv<TKv extends AdaptableKv>(kv: TKv): TKv {
 	// Read through, unlike a table, and the rule is the same one: hold what is
 	// expensive to rebuild. Ten keys and ten validations is not, so there is

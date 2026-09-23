@@ -2,7 +2,7 @@
 
 An editor for Epicenter agent skills. Its route currently refuses startup
 pending a product and authentication decision. The Account-taking adapter
-opens the current Personal library through the shared App API and IndexedDB. Instructions and reference bodies are
+opens the Personal store through `openPersonal` and IndexedDB. Instructions and reference bodies are
 the body nodes on their owning rows in the workspace document. CodeMirror
 binds directly to those live nodes.
 

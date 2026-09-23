@@ -142,7 +142,7 @@ operation that owns dispatch may import them directly.
 
 ## Error Flow
 
-- Adapt throwing platform and library calls at the service boundary.
+- Adapt throwing platform and dependency calls at the service boundary.
 - Define a service error only for a failure the service understands.
 - Pass lower-layer tagged errors through when composing services.
 - Keep user presentation in operations, routes, or components through

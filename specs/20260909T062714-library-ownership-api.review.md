@@ -15,7 +15,7 @@ Files inspected by the coordinator and independent reviewer follow. Some large f
 |   |-- specification-writing/SKILL.md
 |   `-- writing-voice/SKILL.md
 |-- specs/20260909T062714-library-ownership-api.handoff.md
-|-- docs/adr/0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md
+|-- docs/adr/0375-local-and-personal-data-preserve-named-account-ownership.md
 |-- apps/
 |   |-- api/worker/
 |   |   |-- index.ts
@@ -495,7 +495,7 @@ Reviewer file inventory (focused excerpts and symbol searches included):
 |-- greenfield-clean-breaks/SKILL.md
 `-- testing/{SKILL.md,references/honest-tests.md}
 docs/adr/
-`-- 0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md
+`-- 0375-local-and-personal-data-preserve-named-account-ownership.md
 specs/
 |-- 20260909T004225-library-ownership-execution.md
 `-- 20260909T062714-library-ownership-api.review.md
@@ -560,7 +560,7 @@ Files read across the two reviews (focused excerpts included):
 |-- auth/SKILL.md
 `-- testing/{SKILL.md,references/honest-tests.md}
 docs/adr/
-|-- 0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md
+|-- 0375-local-and-personal-data-preserve-named-account-ownership.md
 `-- 0382-session-composition-selects-issuer-identity-and-management-capabilities.md
 specs/
 |-- 20260909T004225-library-ownership-execution.md

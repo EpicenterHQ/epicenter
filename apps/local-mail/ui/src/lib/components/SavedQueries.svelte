@@ -18,8 +18,8 @@
 		data,
 		account,
 	}: { data: MailData; account: string | null } = $props();
-	const library = fromData(untrack(() => data));
-	const queries = library.tables.savedQueries;
+	const store = fromData(untrack(() => data));
+	const queries = store.tables.savedQueries;
 	let selected = $state<string | null>(null);
 	let name = $state('');
 	let sql = $state('');
@@ -58,7 +58,7 @@
 	const conflict = $derived(
 		selected !== null && fingerprint !== baseline.fingerprint,
 	);
-	const persistence = $derived(library.persistence.get());
+	const persistence = $derived(store.persistence.get());
 
 	function open(id: string | null) {
 		const row = id === null ? undefined : queries.get(id);
@@ -98,8 +98,8 @@
 	}
 
 	async function persist() {
-		await library.persistence.flush();
-		if (library.persistence.get() !== 'saved')
+		await store.persistence.flush();
+		if (store.persistence.get() !== 'saved')
 			throw new Error(
 				'Could not save to this device. Keep this window open and retry.',
 			);

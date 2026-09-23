@@ -64,7 +64,7 @@ identity. Root handles normally last until browser/WebView destruction; AppBoot
 does not close late results or reopen roots in the same document. Product work
 must stop admission and capture on departure even if navigation stalls. The host
 retires document-owned native access when the document is replaced. Explicit
-resource close still owns library cleanup and admitted-work drainage.
+resource close still owns cleanup and admitted-work drainage.
 Svelte's `fromData` adapts each store without owning its lifetime.
 
 Operations that span multiple resources retain product cancellation checks.

@@ -8,7 +8,7 @@ import { PlaySoundServiceLive } from './sound';
  * Cross-platform services.
  * These are available on both web and desktop.
  *
- * The library owns audio bytes and transfers. Recording consumers read locally
+ * Each recording store owns its audio bytes. Recording consumers read them
  * through the recordings domain, never through a module-level blob service.
  */
 export const services = {

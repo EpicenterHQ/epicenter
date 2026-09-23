@@ -36,7 +36,7 @@ policy, database filename, or another account's connection from saved SQL.
 
 | Boundary | What it fixes |
 | --- | --- |
-| Opened App | Application, actor, and selected library scope |
+| Opened Personal store | Application and captured account |
 | Selected database | One application's named file; in Local Mail, one Gmail cache |
 | `tables` | Physical main-schema tables readable by the statement, including nested reads |
 | SQLite policy | One read-only statement, admitted functions, bounded work, and bounded output |

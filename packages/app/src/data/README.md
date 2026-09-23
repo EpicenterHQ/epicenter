@@ -468,7 +468,7 @@ and a blocked device stops syncing until storage recovers (ADR-0302).
 
 ## Sync
 
-A host supplies one thing, `dial`, and the library owns everything done with a
+A host supplies one thing, `dial`, and the sync connection owns everything done with a
 socket (ADR-0222):
 
 ```ts
@@ -515,7 +515,7 @@ retirement fixture constructs fresh replacement state independently.
 The Markdown `readArtifact` reader remains a separate whole-document API with
 package and app test callers. It is not ordinary Push.
 
-The [ADR-0394 folder direction](../../../../docs/adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md)
+The [ADR-0394 folder direction](../../../../docs/adr/0394-materialization-contains-documents-and-blob-references.md)
 is document-only: Markdown, settings, and the checkout manifest carry readable
 references without copying or fetching local or remote blob payloads. The
 [ADR-0395 recovery direction](../../../../docs/adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md)

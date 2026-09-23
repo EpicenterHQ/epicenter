@@ -1,7 +1,7 @@
 /** Actual built SvelteKit routes, App and OPFS; synthetic auth, no live Gmail or desktop host. */
 import assert from 'node:assert/strict';
 import { test, origins } from './fixtures.mjs';
-import { currentLibraryResponse } from '../evidence/current-library.js';
+import { currentStoreResponse } from '../evidence/current-store.js';
 
 test.use({
 	persistentOrigin: origins.routes,
@@ -77,7 +77,7 @@ test('application startup, draft protection and durable reopen', async ({
 				headers,
 			});
 		if (url.pathname.endsWith('/current')) {
-			const response = await currentLibraryResponse(
+			const response = await currentStoreResponse(
 				new Request(request.url(), {
 					method: request.method(),
 					body: request.postDataBuffer(),
@@ -177,7 +177,7 @@ test('application startup, draft protection and durable reopen', async ({
 		return state;
 	};
 
-	await test.step('callbacks and preload open no primary library', async () => {
+	await test.step('callbacks and preload open no primary store', async () => {
 		await page.goto(`${origin}/connected`);
 		await page
 			.getByText('Open Local Mail and connect Gmail again.', { exact: false })
@@ -210,7 +210,7 @@ test('application startup, draft protection and durable reopen', async ({
 			await page.evaluate(() => !globalThis.observedBoot),
 			'Auth callback imported the application chunk',
 		);
-		observe('Auth callback with cached identity opens no primary library');
+		observe('Auth callback with cached identity opens no primary store');
 
 		requests.length = 0;
 		await page.goto(`${origin}/connected`);

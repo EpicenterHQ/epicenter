@@ -4,7 +4,7 @@
 - **Date:** 2026-09-18
 - **Amended by:** [ADR-0417](0417-a-data-address-holds-one-document.md) withdraws document-generation retirement propagation while retaining App cancellation and existing address bytes. [ADR-0423](0423-app-resources-open-as-independent-handles.md) withdraws nested App handle and aggregate lifetime assumptions while preserving existing durable address bytes.
 - **Amended by:** [ADR-0416](0416-defer-server-wide-shared-data.md) removes Shared from supported data scopes; personal addressing and durable identities remain.
-- **Amends:** [ADR-0375](0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md) and [ADR-0392](0392-product-boundaries-provide-required-resource-handles.md) at terminology and public data metadata.
+- **Amends:** [ADR-0375](0375-local-and-personal-data-preserve-named-account-ownership.md) and [ADR-0392](0392-product-boundaries-provide-required-resource-handles.md) at terminology and public data metadata.
 
 ## Decision
 

@@ -211,7 +211,7 @@ Apps built for `epicenter-host` use one custom inference catalog per desktop
 profile. The host stores endpoint metadata in `ai/connections.json` under its
 resolved data directory and optional keys in the OS keychain. This configuration
 is shared across apps on that profile; it does not sync between devices or enter
-an application's library data.
+an application's store data.
 
 The `/_epicenter/ai` broker uses the existing browser session. Mutations also
 require the exact host Origin. Open apps receive committed snapshots over SSE;

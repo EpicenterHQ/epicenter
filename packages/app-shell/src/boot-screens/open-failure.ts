@@ -5,15 +5,15 @@
  * `@epicenter/app/store` states a failure for whoever is debugging one: a refused
  * claim names the storage address it was refused at. That sentence is correct
  * and it is not what someone who opened a notes app should be handed. The
- * library keeps its words; this picks theirs (ADR-0244).
+ * store keeps its words; this picks theirs (ADR-0244).
  *
- * **The sentence, the repair, and the library's message are one decision, made
+ * **The sentence, the repair, and the store's message are one decision, made
  * here.** They were drifting apart when they were three: a screen that re-read
  * the error to pick its button could offer a retry under a sentence that just
  * said retrying cannot help, and a screen that printed the cause under every
  * sentence printed a storage address under two that already said everything a
  * person can act on. So `detail` is returned rather than derived: it is set on
- * the fallback arm, where the sentence admits it is guessing and the library's
+ * the fallback arm, where the sentence admits it is guessing and the store's
  * own words keep a bug report useful and a wrong guess visible, and it is
  * absent everywhere else. The screen renders what it is handed and decides
  * nothing.
@@ -45,9 +45,9 @@ export type OpenFailure = {
 	 */
 	repair: 'retry' | 'none';
 	/**
-	 * The library's own message, printed under a sentence that is a guess.
+	 * The store's own message, printed under a sentence that is a guess.
 	 *
-	 * Absent under the two named sentences, whose library messages name the
+	 * Absent under the two named sentences, whose store messages name the
 	 * storage address, which carries the principal id and helps nobody reading a
 	 * boot screen.
 	 */

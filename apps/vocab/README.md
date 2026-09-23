@@ -63,7 +63,7 @@ src/
   renders after store acquisition and can observe inference availability later.
   Departure signals stop dictation and chat before navigation to a fresh document.
   Document destruction ends root resources. Switching conversations keeps them
-  alive. Callback and route preloading open no library.
+  alive. Callback and route preloading open no store.
 - The conversation list and each transcript live in the database document: metadata is ordinary row values and messages are keyed attributes on the row's body node. There is no `chatMessages` table.
 - The live answer streams in component `$state`, not the synced doc (ADR-0046): vocab is capability-free, so re-asking is free and only finished messages need to sync. Each finished message is one LWW JSON blob keyed by message id, written the moment a normal app would POST the row.
 - The cloud never writes the doc: it is a blind relay plus a stateless metered inference stream (ADR-0033).

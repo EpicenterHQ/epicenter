@@ -19,8 +19,8 @@ described the artifacts Local Mail held then, not a prohibition on preferences.
 
 Local Mail stores named query definitions in `savedQueries` through Epicenter
 Data. Each row uses the existing row identity and the fields `name` and `sql`.
-The target destination is the person's Personal library, written as
-`app.account.personal.tables.savedQueries` after one `open(account)` (ADR-0392).
+The target destination is the person's Personal store, written through
+`personal.tables.savedQueries` after `openPersonal(definition, { account })` (ADR-0392).
 SQL results, provider credentials, mailbox caches, and pending intentions never
 synchronize with it.
 

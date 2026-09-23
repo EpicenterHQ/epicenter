@@ -53,13 +53,13 @@ extension-bearing key identifies a desktop file and a browser database record,
 but sharing a row does not copy bytes between those storage environments.
 
 Deleting a row deletes the row. An application may separately attempt local or
-remote deletion, but missed cleanup is accepted. A library may offer inspection
+remote deletion, but missed cleanup is accepted. A store may offer inspection
 and cleanup while open; no background service must determine row existence.
 Absence from one device's current row view is not proof that a blob is orphaned.
 An application can compare local enumeration with its known references to
-present cleanup candidates. It must account for other libraries, trashed rows,
+present cleanup candidates. It must account for other stores, trashed rows,
 and publication that has not yet created its row before deleting anything.
-Unknown or unavailable library contents cannot certify a blob as unused.
+Unknown or unavailable store contents cannot certify a blob as unused.
 
 A remote object can outlive the row's URL, and a row can retain a URL whose
 object was deleted. Applications report unavailable content; storage does not

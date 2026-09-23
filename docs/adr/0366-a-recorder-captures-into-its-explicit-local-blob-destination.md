@@ -82,7 +82,7 @@ not be disguised as complete audio or successful persistence.
 ### One native owner, independent sessions
 
 The native host reserves each resolved input for one capture across windows.
-Two products, or two sessions in one product, can use distinct inputs. Storage libraries
+Two products, or two sessions in one product, can use distinct inputs. Stores
 do not partition hardware ownership. No recovery-driven one-unresolved-capture
 limit is part of this contract.
 
@@ -172,10 +172,10 @@ durability. Native per-device admission also needs real concurrent-device
 acceptance; source compatibility is not proof.
 
 The [capture plan](../../specs/20260912T122859-concurrent-native-capture.md) owns
-native admission only. Its finished-file handoff and separate library-save
+native admission only. Its finished-file handoff and separate row-save
 instructions are superseded by this decision. The
 [blob package](../../packages/blobs/README.md) describes the implemented layout.
 Successful Stop already means saved; admission work must preserve that boundary.
 The [backup cleanup](0379-reconstruction-is-an-explicit-destructive-library-operation.md)
 removed unused orchestration while preserving these recording guarantees and
-live library safeguards. The older attachment direction is withdrawn.
+live store safeguards. The older attachment direction is withdrawn.

@@ -27,7 +27,7 @@ const SIZE_INDEX = 'by-id-size';
 /** One application's bytes on this browser profile and origin. */
 export type BrowserBlobScope = { appId: string; account?: AccountIdentity };
 
-/** The captured account selects local bytes; libraries within that App share them. */
+/** The captured account selects local bytes shared by stores in this app. */
 export function browserBlobStoreName({
 	appId,
 	account,

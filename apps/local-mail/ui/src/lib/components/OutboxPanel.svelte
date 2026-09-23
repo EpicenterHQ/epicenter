@@ -73,7 +73,7 @@
 
 	/**
 	 * What a person is told about the failure, in their words rather than the
-	 * library's. The library states the failure precisely and this decides what
+	 * operation's. The operation states the failure precisely and this decides what
 	 * is said about it (ADR-0244); the precise text is available in Error details.
 	 */
 	const explanation = $derived.by(() => {

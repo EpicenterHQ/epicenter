@@ -6,8 +6,8 @@
 
 ## Context
 
-Self-hosted Personal and Shared libraries need stable named users. A credential
-change must preserve the user's identity and Personal library. The operator
+Self-hosted Personal data needs stable named users. A credential
+change must preserve the user's identity and Personal store. The operator
 needs a usable first-sign-in and recovery path without a mandatory external
 identity provider or email service.
 
@@ -20,8 +20,8 @@ registration for that user. Public registration does not confer admission.
 If a user loses access, the operator verifies the person and issues recovery for
 the same user. Recovery invalidates lost credentials, existing sessions, and
 outstanding enrollment/recovery grants before replacement access becomes usable.
-It preserves the principal and library ownership. Recovery never creates a new
-Personal library or restores a removed user's admission implicitly.
+It preserves the principal and store ownership. Recovery never creates a new
+Personal store or restores a removed user's admission implicitly.
 
 Operators may enable passwords as an additional sign-in method. Passwords are
 disabled by default. Enablement requires working setup, change, and reset flows,

@@ -165,7 +165,7 @@ test('Gmail consent callback validation and cancellation', async ({
 			.waitFor();
 		await standalone.close();
 		observations.push(
-			'Standalone actual callback route reports missing opener without opening a library',
+			'Standalone actual callback route reports missing opener without opening a store',
 		);
 	});
 	await test.step('record the limits of automated popup permissions', async () => {

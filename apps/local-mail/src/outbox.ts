@@ -54,7 +54,7 @@ export type OutboxFailureKind = 'signin' | 'retry' | 'refused';
 
 export type OutboxFailure = {
 	kind: OutboxFailureKind;
-	/** The variant the library reported, kept so a reader can be specific. */
+	/** The variant the operation reported, kept so a reader can be specific. */
 	name: string;
 	message: string;
 };

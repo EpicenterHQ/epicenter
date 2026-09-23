@@ -12,7 +12,7 @@ import type { AuthClient, AuthState } from '../index.js';
  *
  * Application bootstrap reads the plain client once. This adapter belongs to
  * UI consumers that display changing identity or credential refusal; it does not
- * own application lifetime or select a replacement library.
+ * own application lifetime or select a replacement store.
  *
  * The parameter carries the wrapped client's own type through, because a
  * `CallbackAuthClient` that came out of here as a bare `AuthClient` would lose

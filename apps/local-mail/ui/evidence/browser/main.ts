@@ -8,7 +8,7 @@ import { expectOk } from 'wellcrafted/testing';
 import { openLocalMailStorage } from '../../../src/storage.js';
 import { mailDefinition } from '../../src/lib/data.js';
 import { attachMail, mail } from '../../src/lib/mail.js';
-import { currentLibraryResponse } from '../current-library.js';
+import { currentStoreResponse } from '../current-store.js';
 import { account, opening } from './application.js';
 import Panel from './Panel.svelte';
 
@@ -64,7 +64,7 @@ try {
 							...account,
 							principalId: 'synthetic-peer' as Account['principalId'],
 							fetch: (input, init) =>
-								currentLibraryResponse(new Request(input, init)),
+								currentStoreResponse(new Request(input, init)),
 						},
 					},
 				);
@@ -104,7 +104,7 @@ try {
 							...account,
 							principalId: 'synthetic-malformed' as Account['principalId'],
 							fetch: (input, init) =>
-								currentLibraryResponse(new Request(input, init)),
+								currentStoreResponse(new Request(input, init)),
 						},
 					},
 				);

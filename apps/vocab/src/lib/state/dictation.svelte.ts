@@ -11,8 +11,8 @@
  * caller routes text into its input and errors to its toast layer. A failed
  * phrase does not end the session.
  *
- * Transcription is a stateless service (the spec's star/service/library model):
- * this holds no preferences and reaches for no sync. It receives its
+ * Transcription is a stateless service: this holds no preferences and reaches
+ * for no sync. It receives its
  * hosted transport and uses Vocab's app-local transcription model constant.
  *
  * Dictation explicitly uses the app's hosted transcription transport. Chat

@@ -1,7 +1,7 @@
 import type { Recipe } from '../data';
 
 /**
- * The built-in Recipes that ship in code, shown in the picker and the library
+ * The built-in Recipes that ship in code, shown in the picker and Recipes page
  * alongside the user's own. They cover the reshapes the category leans on
  * (Wispr Flow, Apple Writing Tools): an email, a reply, notes, a to-do list.
  * There is deliberately no "Clean" recipe; Polish owns meaning-preserving
@@ -9,8 +9,8 @@ import type { Recipe } from '../data';
  *
  * Each is a plain {@link Recipe}: a name and one instruction, text in and text
  * out. Built-in ids carry the `builtin:` prefix so they never collide with a
- * user recipe's generated id, and so the library can show them read-only (a user
- * edits a copy, not the shipped original). See ADR-0099.
+ * user recipe's generated id, and so the Recipes page can show them read-only
+ * (a user edits a copy, not the shipped original). See ADR-0099.
  */
 export const BUILTIN_RECIPES: Recipe[] = [
 	{

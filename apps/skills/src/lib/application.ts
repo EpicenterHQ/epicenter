@@ -1,14 +1,14 @@
 /**
  * Skills' App and UI state share one lifetime. The route still awaits a product
  * decision about authentication; callers that hold an Account use the same
- * current-library opening path as the store applications.
+ * Personal store opening path as the other store applications.
  */
 import { openPersonal } from '@epicenter/app/open';
 import type { Account } from '@epicenter/auth';
 import { skillsDefinition } from '@epicenter/skills';
 import { createSkillsState } from './state/skills-state.svelte.js';
 
-/** Open the captured account's current Personal library before creating UI state. */
+/** Open the captured account's Personal store before creating UI state. */
 export async function openSkillsRuntime({
 	account,
 	signal,

@@ -1,9 +1,9 @@
 # @epicenter/recorder
 
 Portable microphone streams, device vocabulary, and voice activity detection.
-Transient dictation can capture utterances without opening an application library.
-Saved recordings belong to [App](../app/README.md#saved-recordings), which binds
-capture to storage and coordinates shutdown.
+Transient dictation can capture utterances without opening a store.
+Saved recordings use [the recorder resource in `@epicenter/app`](../app/README.md#blobs-and-recording),
+which commits audio to a Local store's blobs and coordinates shutdown.
 
 ## Public API
 

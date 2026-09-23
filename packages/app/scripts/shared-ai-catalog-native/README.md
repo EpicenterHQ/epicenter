@@ -37,7 +37,7 @@ EPICENTER_NATIVE_AUDIO=/path/to/speech.wav bun packages/app/scripts/shared-ai-ca
 
 This mode requires an existing speech WAV and the already-cached
 `handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf` model. It downloads
-nothing. The runner opens Whispering's Local library, adds a connection through
+nothing. The runner opens Whispering's Local store, adds a connection through
 its transcription picker, and observes the shared connection from another App.
 It supplies the WAV to the actual Upload File control and checks the transcript
 and saved selection after document reload. Automation uses DOM events without

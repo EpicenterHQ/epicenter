@@ -9,8 +9,8 @@
 ## Context
 
 An earlier draft made the authority keep daily copies of the materialized
-library and use their row references to protect attachment bytes. That assumed
-rows owned files and the library delivered them automatically.
+store and use their row references to protect attachment bytes. That assumed
+rows owned files and the store delivered them automatically.
 
 The application instead saves blobs independently and uploads explicitly.
 A row may contain a local BlobId, a remote URL, both, or neither. People accept
@@ -23,7 +23,7 @@ second exact-state backup format or restoration UI.
 **Materialization writes documents, settings, and checkout metadata. Blob keys
 and URLs remain ordinary values; no blob bytes are copied or fetched.**
 
-The existing per-library folder shape remains:
+The existing per-store folder shape remains:
 
 ```txt
 <working-copy>/
@@ -39,11 +39,11 @@ URL stays a URL. Pull and Push neither check the referenced bytes for existence
 nor upload, download, or delete them. The canonical local blob directory is
 outside this working-copy contract.
 
-Local and account libraries remain distinct data sources. A cached account
-replica is the same logical library as its authority, not a second library to
-export. Materializing Local rows does not make them account-synchronized.
+Local and Personal stores remain distinct data sources. A cached Personal
+replica represents the same Personal dataset as its authority, not another
+dataset to export. Materializing Local rows does not make them account-synchronized.
 This record does not introduce an aggregate root-folder layout or a new
-multi-library export API.
+multi-store export API.
 
 **Pull and Push use the manifest as their comparison baseline.**
 
@@ -53,7 +53,7 @@ defines comparison against the last Pull or successful Push baseline. No
 current-store conflict comparison belongs to the target workflow.
 
 Baseline advancement follows durable local edits, not remote acknowledgement.
-A ZIP operation neither refreshes nor alters that baseline. The library and
+A ZIP operation neither refreshes nor alters that baseline. The store and
 folder host exist; application and CLI integration remain unbuilt.
 
 **A saved folder is a copy of the files as they stand, including unpushed edits.**

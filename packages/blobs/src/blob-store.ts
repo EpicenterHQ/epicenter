@@ -7,8 +7,6 @@ import {
 import type { Result } from 'wellcrafted/result';
 import type { BlobId } from './blob-id.js';
 
-/** Canonical app-local immutable bytes, independent of accounts and libraries. */
-
 export const BlobStoreError = defineErrors({
 	PublicationUnconfirmed: ({
 		id,

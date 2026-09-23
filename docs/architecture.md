@@ -35,8 +35,8 @@ identities; invalid content can be edited and retried.
 This folder workflow is wired into host-backed Honeycrisp. Whispering's existing
 Markdown ZIP is a one-way recording export, without a manifest, settings, or
 audio; it is not yet the same workflow. Unused backup orchestration and structural
-archives are removed; live library safeguards remain under
-[ADR-0379](adr/0379-reconstruction-is-an-explicit-destructive-library-operation.md). [ADR-0394](adr/0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md)
+archives are removed; live store safeguards remain under
+[ADR-0379](adr/0379-reconstruction-is-an-explicit-destructive-library-operation.md). [ADR-0394](adr/0394-materialization-contains-documents-and-blob-references.md)
 and [ADR-0395](adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md)
 record the folder and recovery decisions.
 
@@ -76,7 +76,7 @@ refused was a hosted surface that reached a host-owned replica instead.
 | @epicenter/app/field release-local field declarations                     |
 | @epicenter/sqlite    one engine seam over bun:sqlite and sqlite-wasm      |
 | @epicenter/sync      route contracts a browser can import                 |
-| @epicenter/server    the shared Hono library both deployables consume     |
+| @epicenter/server    the shared Hono package both deployables consume     |
 +---------------------------------------------------------------------------+
 ```
 
@@ -224,7 +224,7 @@ structs.
 
 ## The authority owns availability, not meaning
 
-The mounted authority uses a stable application/library/data address resolved
+The mounted authority uses a stable application/data address resolved
 from the authenticated principal. It owns the current generation and appends
 opaque bytes without interpreting row values. Historical per-generation objects
 are a different layout; the historical ledger still prevents silently opening
@@ -234,7 +234,7 @@ Being signed in is the whole of the sharing model. The route stamps the
 principal from the bearer and addresses one Durable Object by it, so every
 device on one account converges without anything being paired or invited.
 
-The host supplies only `dial`, a function that makes a socket. The library owns
+The host supplies only `dial`, a function that makes a socket. The sync connection owns
 the cursor, attach and detach, reconnect on close and on `needsResync`, and the
 unacknowledged-submission watchdog (ADR-0222).
 
@@ -243,9 +243,9 @@ keys or ordinary remote URLs. App-local bytes and account-remote objects have
 independent lifetimes; uploads are explicit, with no automatic byte sync or
 row-driven cleanup.
 
-## Two deployables, one library
+## Two deployables, one shared package
 
-`packages/server` is the shared Hono library. `apps/api` is the hosted personal
+`packages/server` is the shared Hono package. `apps/api` is the hosted personal
 cloud and `apps/self-host` is the self-hosted single-partition instance
 reference, which is community-supported rather than Epicenter-operated. They
 differ by principal resolver: an instance resolves every valid bearer to the

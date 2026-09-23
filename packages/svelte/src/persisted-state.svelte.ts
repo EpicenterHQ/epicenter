@@ -198,7 +198,7 @@ export function createPersistedState<TSchema extends StandardSchemaV1>({
 
 	window.addEventListener('storage', handleStorage);
 
-	// Same-tab sync: catches DevTools edits and writes from other libraries.
+	// Same-tab sync: catches DevTools edits and writes from other stores.
 	window.addEventListener('focus', handleFocus);
 
 	return {

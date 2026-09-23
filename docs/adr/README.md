@@ -620,7 +620,7 @@ When you add an ADR, add its row here.
 | [0366](0366-a-recorder-captures-into-its-explicit-local-blob-destination.md) | A recorder captures into its explicit local blob destination | Proposed |
 | [0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) | An application page owns one library and changing it ends the page | Accepted (unbuilt) |
 | [0373](0373-product-operations-receive-their-resource-handles-explicitly.md) | Product operations receive their resource handles explicitly | Proposed |
-| [0375](0375-library-ownership-is-local-personal-or-shared-within-one-deployment.md) | Library ownership is local, personal, or shared within one deployment | Proposed (library scope does not assign blob ownership) |
+| [0375](0375-local-and-personal-data-preserve-named-account-ownership.md) | Local and Personal data preserve named account ownership | Proposed (store scope does not assign blob ownership) |
 
 | [0359](0359-the-document-factory-owns-readiness-and-closure.md) | The document factory owns readiness and closure | Proposed |
 
@@ -649,7 +649,7 @@ When you add an ADR, add its row here.
 | [0391](0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md) | The build selects every implementation, and an application declares only its id and data | Accepted |
 | [0392](0392-product-boundaries-provide-required-resource-handles.md) | Product boundaries provide required resource handles | Proposed |
 | [0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) | Rows refer to blobs without owning their lifetime | Proposed |
-| [0394](0394-a-backup-is-the-library-s-folder-kept-by-the-authority.md) | Materialization contains documents and blob references | Proposed (amends 0337 at recovery; structural archive and unused server backup removed) |
+| [0394](0394-materialization-contains-documents-and-blob-references.md) | Materialization contains documents and blob references | Proposed (amends 0337 at recovery; structural archive and unused server backup removed) |
 | [0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) | Recovering old content uses the current working copy | Proposed (ordinary Push through the current baseline; no generation replacement) |
 | [0396](0396-transcription-operations-preserve-destinations-and-results.md) | Transcription operations preserve destinations and results | Proposed (connection owns inference rules, not blob storage or attachment delivery) |
 | [0397](0397-native-inference-selects-an-installed-model-explicitly.md) | Native inference selects an installed model explicitly | Proposed (amends 0180, 0012) |
