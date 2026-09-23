@@ -85,8 +85,9 @@ const body = db.tables.notes.body(row.id);
 body?.insert(0, ['The writing.']);
 ```
 
-Keep `field.*` helpers, which use TypeBox internally. A body codec owns
-`encode`, `decode`, and in-place `rewrite`. Artifact reads expose
+Keep `field.*` helpers, which use TypeBox internally. The current two-method
+body file format and artifact sequence replacement are specified in
+`packages/app/src/data/README.md`. Artifact reads expose
 `{ id, fields, body }`; values become frontmatter and the codec supplies the
 text below it. Checkout distinguishes a field named `body` from a body edit
 by operation kind.

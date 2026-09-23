@@ -635,6 +635,7 @@
         "@tauri-apps/api": "catalog:",
         "@tauri-apps/plugin-clipboard-manager": "^2.3.0",
         "@y/y": "14.0.0-rc.26",
+        "lib0": "1.0.0-rc.32",
         "nanoid": "catalog:",
         "openai": "^7.12.1",
         "typebox": "catalog:",
@@ -734,7 +735,6 @@
       "dependencies": {
         "@epicenter/agent": "workspace:*",
         "@epicenter/app": "workspace:*",
-        "@y/y": "14.0.0-rc.26",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {

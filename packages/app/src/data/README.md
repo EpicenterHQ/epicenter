@@ -305,18 +305,21 @@ and the codec's output below the fence. The table owns the body's meaning:
 ```ts
 type BodyCodec = {
   encode: (node: Y.Node) => string;
-  decode: (text: string) => Result<Y.Node, BodyError>;
-  rewrite: (node: Y.Node, text: string) => Result<void, BodyError>;
+  decode: (text: string) => DeltaAny; // Complete insertion-only content
 };
 ```
 
-There is no default codec. `plainText()` explicitly describes a text sequence;
-chat instead uses a codec for keyed messages. Omitting `body` omits the codec,
+There is no default codec. `plainText()` explicitly describes a text sequence.
+Omitting `body` omits the codec,
 not the live node. A populated body without a codec refuses export, and nonempty
 incoming body text without a codec refuses import.
 When a codec is declared, import and checkout hand it every body string,
-including empty text. The codec may reject that text or decode it into a
-structured node.
+including empty text. The codec returns complete sequence content; the artifact
+layer applies it to a fresh node or replaces the sequence of an existing node
+inside the store transaction. The existing node and its root attributes stay in
+place. A codec-backed body with root attributes refuses export because this
+sequence format cannot round-trip them. Converter exceptions become
+file-specific errors before live mutation.
 
 The storage-key rename from `content` to `body` is a clean break. Existing Yjs
 state using the old key is not migrated or read through a fallback. Markdown

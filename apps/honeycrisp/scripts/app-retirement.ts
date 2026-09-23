@@ -190,11 +190,8 @@ async function freshReplacement(
 		updatedAt: at,
 		deletedAt: null,
 	});
-	expectOk(
-		honeycrispDefinition.tables.notes.content.rewrite(
-			note.content,
-			'Replacement from another device',
-		),
+	replacement.tables.notes.body(note.id)!.applyDelta(
+		honeycrispDefinition.tables.notes.body.decode('Replacement from another device'),
 	);
 	const bytes = syncEngineOf(replacement).encodeSnapshot();
 	const oldWriters = Y.decodeStateVector(

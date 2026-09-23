@@ -164,6 +164,13 @@ export async function renderRow(
 		}
 		return Ok({ path, contents: rowFile(fields, undefined) });
 	}
+	if ([...node.attrKeys()].length > 0) {
+		return RenderError.BodyUnwritable({
+			table,
+			rowId,
+			cause: new Error('The body has root attributes this sequence codec cannot represent'),
+		});
+	}
 
 	try {
 		return Ok({

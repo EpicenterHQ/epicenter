@@ -2,6 +2,7 @@
 import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
 import { openIdbBacking } from '../../../../packages/app/src/data/store/browser.js';
+import { replaceBody } from '../../../../packages/app/src/data/artifact/body-content.js';
 import {
 	createStoreOverPort,
 	type DeclaredData,
@@ -127,14 +128,16 @@ export function remoteMetadata() {
 	expectOk(syncEngineOf(data).applyRemote(Y.encodeStateAsUpdateV2(peer)));
 }
 export function rewrite(markdown: string) {
+	const content = codec.decode(markdown);
 	data.transact(() => {
-		expectOk(codec.rewrite(body, markdown));
+		replaceBody(body, content);
 	});
 }
 export function remoteBody() {
 	Y.applyUpdateV2(peer, data.encodeStateSince());
+	const content = codec.decode('# Remote writing');
 	peer.transact(() => {
-		expectOk(codec.rewrite(peerBody, '# Remote writing'));
+		replaceBody(peerBody, content);
 	});
 	expectOk(syncEngineOf(data).applyRemote(Y.encodeStateAsUpdateV2(peer)));
 }

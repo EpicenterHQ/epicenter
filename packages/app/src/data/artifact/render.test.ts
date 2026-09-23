@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
 import * as Y from '@y/y';
-import { Ok } from 'wellcrafted/result';
+import * as delta from 'lib0/delta';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openMemory } from '../store/memory.js';
 import { type RenderedRow, renderArtifact, renderRow } from './render.js';
@@ -106,9 +106,16 @@ describe('renderRow is the unit (ADR-0271)', () => {
 		);
 	});
 
+	test('root attributes refuse a sequence-only body export', async () => {
+		await using data = await openMemory(store);
+		const made = data.tables.notes.create({ title: 'Groceries' });
+		data.tables.notes.body(made.id)!.setAttr('legacy', 'kept');
+		const refused = expectErr(await renderRow(data, parsed(store), 'notes', made.id));
+		expect(refused.name).toBe('BodyUnwritable');
+	});
+
 	test('a codec that throws is a refusal, not an escaping exception', async () => {
-		// The contract is a Result. A codec that throws is a case a person needs
-		// told, not a stack trace mid-write.
+		// A codec that throws is reported as a file failure.
 		const breaking = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
@@ -121,8 +128,7 @@ describe('renderRow is the unit (ADR-0271)', () => {
 						encode: () => {
 							throw new Error('the codec exploded');
 						},
-						decode: () => Ok(new Y.Node()),
-						rewrite: () => Ok(undefined),
+						decode: () => delta.create().done(),
 					},
 				}),
 			},
@@ -208,8 +214,7 @@ describe('renderArtifact is renderRow in a loop (ADR-0267/0268)', () => {
 							}
 							return text;
 						},
-						decode: () => Ok(new Y.Node()),
-						rewrite: () => Ok(undefined),
+						decode: () => delta.create().done(),
 					},
 				}),
 			},

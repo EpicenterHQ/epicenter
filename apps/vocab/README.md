@@ -4,18 +4,21 @@ Multilingual chat tutor. A learner asks about a word, phrase, or sentence; the t
 
 ## How it works
 
-**Live answer in state, finished messages in the row body node**: Vocab is capability-free (ADR-0043), so the open browser tab answers its own turns, and the live answer needs nothing durable (re-asking is free). `src/routes/+page.svelte` builds the shared `createAgentChatState()` controller with Vocab's system prompt and default model, and `ConversationView.svelte` renders the active `AgentChatThread`. Only finished messages persist (ADR-0046): the user turn the moment it is sent, the assistant turn on a clean finish, each written once as one JSON blob into the conversation row's body node. A stopped or failed turn writes nothing; the durable user turn stays, ready to retry. On open, the controller reads the row and observes its body node, so a message finished on another device shows up here.
+**Live answer in state, finished messages on this device**: Vocab is capability-free (ADR-0043), so the open browser tab answers its own turns, and the live answer needs nothing durable (re-asking is free). `VocabShell.svelte` builds the shared `createAgentChatState()` controller with Vocab's system prompt and default model, and `ConversationView.svelte` renders the active `AgentChatThread`. Only finished messages persist (ADR-0046): the user turn the moment it is sent, the assistant turn on a clean finish, each written once as one JSON value in its own message row. A stopped or failed turn writes nothing; the durable user turn stays, ready to retry. Conversations and messages persist in the local store and do not sync to another device.
 
 **Markdown + readings**: Settled assistant messages render through `@epicenter/ui/markdown` via `ReadingMarkdown.svelte`, which resolves the deterministic per-script romanizers whose script appears in the passage (`src/lib/readings/`, ADR-0105) and composes them behind the shared Markdown component. Readings are a client-side derived view over clean text: pure, offline, lazily loaded per script, with no model call and no network, so a reading can only be missing, never wrong. The shared Markdown component owns sanitization, markdown rendering, and `<ruby>` output. Chinese (`pinyin-pro`), Japanese kana (`wanakana`), and Cyrillic (`transliteration`) ship today; adding a language is one provider file plus one registry line.
 
-**Workspace state**: `vocabDefinition` in `src/lib/data.ts` is the shared isomorphic definition. It defines `so.epicenter.vocab`, the flat `conversations` table with its body codec, the KV settings, the Vocab model constant, and the `VocabMessage` shape. Transcripts are body nodes on conversation rows, not child documents. The boot node reads auth and gates: signed out renders the sign-in screen and opens nothing, signed in opens the principal-scoped replica with sync attached.
+**Workspace state**: `src/lib/data.ts` declares two stores with the same Vocab namespace and different owners. `vocabLocalDefinition` holds the `conversations` and `messages` tables and the readings setting on this device. `vocabDefinition` holds saved `entries` in the account replica. Each finished message is a local row linked to its local conversation by id. Local conversations carry an account key so switching accounts in one browser does not mix their lists; the underlying Local store is still app-wide on that device. Sign-in still gates the app because hosted inference needs an account.
+
+This is a clean break from synced chat and from the former conversation-body message map. Existing account conversations and old keyed body messages are not copied into local chat.
 
 ```txt
-vocabDefinition
-  -> openVocabResources(account, signal) opens Local and Personal stores
+vocabLocalDefinition -> Local: conversations, messages, readings setting
+vocabDefinition      -> Personal: saved entries
+openVocabResources(account, signal) opens both stores
 ```
 
-**UI state**: split by lifetime. `src/routes/components/VocabShell.svelte` owns the page-local conversation list, active id, and CRUD. The per-conversation runtime lives in `ConversationView.svelte`, mounted via `{#key activeConversationId}`, so each conversation gets a real component lifecycle. `ConversationView` reads the active conversation's body with `data.tables.conversations.body(id)` and hands it to the shared chat controller, which streams the live turn into `$state`, persists finished messages, and exposes `messages` / `isThinking` / `isGenerating` / `error` plus `send` / `stop` / `retry`.
+**UI state**: split by lifetime. `src/routes/components/VocabShell.svelte` binds the chat controller to the local store and saved entries to the personal store. Practice copies selected entry text into the first turn of a new local conversation. It does not keep a live reference to the account entry. The controller streams the live turn into `$state` and persists finished messages on this device.
 
 **Auth**: Google OAuth through the shared Epicenter auth path. Sign-in is required to reach the app: there is no unowned store to boot into (ADR-0336), and a signed-out person meets the sign-in screen. `AccountPopover` is the account surface.
 
@@ -64,8 +67,8 @@ src/
   Departure signals stop dictation and chat before navigation to a fresh document.
   Document destruction ends root resources. Switching conversations keeps them
   alive. Callback and route preloading open no store.
-- The conversation list and each transcript live in the database document: metadata is ordinary row values and messages are keyed attributes on the row's body node. There is no `chatMessages` table.
-- The live answer streams in component `$state`, not the synced doc (ADR-0046): vocab is capability-free, so re-asking is free and only finished messages need to sync. Each finished message is one LWW JSON blob keyed by message id, written the moment a normal app would POST the row.
+- The conversation list and each transcript live in the device document: metadata and finished messages are rows in separate tables, linked by conversation id. Saved entries live in the account document.
+- The live answer streams in component `$state` (ADR-0046). Finished messages persist as local rows; saved entries sync through the account store. A message row holds one complete JSON value keyed by its message id in the agent loop.
 - The cloud never writes the doc: it is a blind relay plus a stateless metered inference stream (ADR-0033).
 - SSR is disabled; the app is CSR-only.
 - The system prompt forbids readings (pinyin, romaji, transliteration) in AI responses so the client controls annotation rendering and toggle visibility, and the stored message stays clean for reuse as conversation memory and verbatim entries (ADR-0102, ADR-0105).

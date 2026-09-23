@@ -9,6 +9,7 @@ import { expectOk } from 'wellcrafted/testing';
 import * as Y from '@y/y';
 import { createMemoryRecord, openMemory } from '../store/memory.js';
 import { syncEngineOf } from '../store/store.js';
+import { replaceBody } from './body-content.js';
 import { readArtifact } from './import.js';
 import { renderArtifact } from './render.js';
 
@@ -135,7 +136,7 @@ test('body metadata and child edits sync independently with separate notificatio
 	expect(right.tables.notes.get(note.id)).toBeUndefined();
 });
 
-test('a fresh body retains its attributes through rewrite, persistence, and deletion', async () => {
+test('a fresh body retains its attributes through sequence replacement, persistence, and deletion', async () => {
 	const record = createMemoryRecord();
 	try {
 		const original = await openMemory(definition, record);
@@ -150,7 +151,7 @@ test('a fresh body retains its attributes through rewrite, persistence, and dele
 		};
 		const row = original.tables.notes.create(fields, fresh);
 		expect(original.tables.notes.body(row.id)).toBe(fresh);
-		original.transact(() => expectOk(plainText().rewrite(fresh, 'Rewritten')));
+		original.transact(() => replaceBody(fresh, plainText().decode('Rewritten')));
 		expect(fresh.getAttr('language')).toBe('en');
 		await original[Symbol.asyncDispose]();
 		await using reopened = await openMemory(definition, record);

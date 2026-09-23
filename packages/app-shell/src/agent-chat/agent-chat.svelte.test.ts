@@ -13,12 +13,11 @@
  * a write went, not whether a view recomputed.
  *
  * The fake table is synchronous, because the real one is: rows come back from a
- * document already in memory and a row's message root is allocated beside the
- * row. The only thing still awaited is the agent loop's own turn.
+ * store already in memory. The only thing still awaited is the agent loop's
+ * own turn.
  */
 
 import { expect, mock, test } from 'bun:test';
-import type * as Y from '@y/y';
 import OpenAI from 'openai';
 import type { OpenAiTurnContext } from '@epicenter/client';
 let probeEngine: ((data: () => OpenAiTurnContext) => Promise<void>) | undefined;
@@ -49,7 +48,7 @@ mock.module('@epicenter/client', () => ({
 }));
 
 import type { AgentMessage } from '@epicenter/agent';
-import type { Conversation, ConversationsTable } from '@epicenter/chat';
+import type { Conversation, ConversationsTable, MessagesTable } from '@epicenter/chat';
 import { Ok } from 'wellcrafted/result';
 import { createAgentChatState } from './agent-chat.svelte.js';
 
@@ -57,47 +56,34 @@ import { createAgentChatState } from './agent-chat.svelte.js';
 const settle = () => Bun.sleep(1);
 
 const DEFAULT_MODEL = 'test-model';
+const ACCOUNT_KEY = '["test-authority","test-principal"]';
 
 type MessageLog = {
-	/** Every message written into this conversation's document, in write order. */
+	/** Every message written as a row for this conversation, in write order. */
 	readonly messages: AgentMessage[];
 	texts(): string[];
 };
 
-/** A content node that records writes instead of storing a CRDT. */
-function createFakeMessages(): {
-	messages: Y.Node;
-	log: MessageLog;
-} {
-	const messages: AgentMessage[] = [];
-	const handlers = new Set<() => void>();
-	const field = {
-		setAttr(_key: string, value: AgentMessage) {
-			messages.push(value);
-			for (const handler of handlers) handler();
-		},
-		attrEntries: () => messages.map((message) => [message.id, message]),
-		observe: (handler: () => void) => handlers.add(handler),
-		unobserve: (handler: () => void) => handlers.delete(handler),
-	};
-	return {
-		messages: field as unknown as Y.Node,
-		log: {
-			messages,
-			texts: () =>
-				messages.flatMap((message) =>
-					message.parts.flatMap((part) =>
-						part.type === 'text' ? [part.text] : [],
-					),
-				),
-		},
-	};
-}
-
-function createFakeChat() {
+function createFakeChat(withOtherAccount = false) {
 	const rows = new Map<string, Conversation>();
+	if (withOtherAccount) {
+		rows.set('other-account', {
+			id: 'other-account',
+			accountKey: '["test-authority","other-principal"]',
+			title: 'Private to another account',
+			model: DEFAULT_MODEL,
+			createdAt: '2026-09-24T00:00:00.000Z' as Conversation['createdAt'],
+			updatedAt: '2026-09-24T00:00:00.000Z' as Conversation['updatedAt'],
+		});
+	}
 	const listeners = new Set<() => void>();
-	const contents = new Map<string, { messages: Y.Node; log: MessageLog }>();
+	const messageRows = new Map<string, {
+		id: string;
+		conversationId: string;
+		messageId: string;
+		message: AgentMessage;
+	}>();
+	const messageListeners = new Set<() => void>();
 	const creates: Conversation[] = [];
 	const updates: { id: string; patch: Partial<Conversation> }[] = [];
 	let nextId = 0;
@@ -108,10 +94,8 @@ function createFakeChat() {
 
 	const table = {
 		create(fields: Omit<Conversation, 'id'>) {
-			const held = createFakeMessages();
 			const row = { id: `c${++nextId}`, ...fields };
 			rows.set(row.id, row);
-			contents.set(row.id, held);
 			creates.push(row);
 			announce();
 			return row;
@@ -124,12 +108,8 @@ function createFakeChat() {
 		},
 		delete(id: string) {
 			const existed = rows.delete(id);
-			contents.delete(id);
 			announce();
 			return existed;
-		},
-		body(id: string) {
-			return contents.get(id)?.messages;
 		},
 		get(id: string) {
 			return rows.get(id);
@@ -146,6 +126,31 @@ function createFakeChat() {
 			return () => listeners.delete(listener);
 		},
 	} as unknown as ConversationsTable;
+	const messages = {
+		create(fields: { conversationId: string; messageId: string; message: AgentMessage }) {
+			const row = { id: `m${++nextId}`, ...fields };
+			messageRows.set(row.id, row);
+			for (const listener of messageListeners) listener();
+			return row;
+		},
+		update(id: string, patch: { message: AgentMessage }) {
+			const row = messageRows.get(id);
+			if (row) messageRows.set(id, { ...row, ...patch });
+			for (const listener of messageListeners) listener();
+			return Ok(undefined);
+		},
+		delete(id: string) {
+			messageRows.delete(id);
+			for (const listener of messageListeners) listener();
+		},
+		get rows() {
+			return [...messageRows.values()];
+		},
+		subscribe(listener: () => void) {
+			messageListeners.add(listener);
+			return () => messageListeners.delete(listener);
+		},
+	} as unknown as MessagesTable;
 
 	const targets = new Map<string, { connectionId: string; model: string }>();
 	const clients = new Map([
@@ -154,6 +159,9 @@ function createFakeChat() {
 	]);
 	const chat = createAgentChatState({
 		table,
+		messages,
+		transact: (run) => run(),
+		accountKey: ACCOUNT_KEY,
 		reportBackgroundError: (cause) => {
 			throw cause;
 		},
@@ -186,14 +194,36 @@ function createFakeChat() {
 		creates,
 		updates,
 		rows,
+		messageRows,
 		/** The message log for one conversation, which must already exist. */
 		document(id: string): MessageLog {
-			const held = contents.get(id);
-			if (!held) throw new Error(`No conversation exists at ${id}`);
-			return held.log;
+			if (!rows.has(id)) throw new Error(`No conversation exists at ${id}`);
+			const log = [...messageRows.values()]
+				.filter((row) => row.conversationId === id)
+				.map((row) => row.message);
+			return {
+				messages: log,
+				texts: () => log.flatMap((message) =>
+					message.parts.flatMap((part) => part.type === 'text' ? [part.text] : []),
+				),
+			};
 		},
 	};
 }
+
+test('deleting a conversation removes its finished message rows', async () => {
+	const { chat, topicId, messageRows } = await bootWithActiveTopic();
+	expect([...messageRows.values()].some((row) => row.conversationId === topicId)).toBe(true);
+	chat.active?.delete();
+	expect([...messageRows.values()].some((row) => row.conversationId === topicId)).toBe(false);
+});
+
+test('a device conversation from another account is not opened', () => {
+	const { chat, rows } = createFakeChat(true);
+	expect(rows.has('other-account')).toBe(true);
+	expect(chat.conversations.some((conversation) => conversation.id === 'other-account')).toBe(false);
+	expect(chat.activeConversationId).not.toBe('other-account');
+});
 
 /**
  * Boot the registry and return the conversation it lands the user in, with one
@@ -224,6 +254,7 @@ test('a blank conversation is unchanged: placeholder title, no opening turn', as
 	expect(creates.slice(createdBefore)).toEqual([
 		{
 			id,
+			accountKey: ACCOUNT_KEY,
 			title: 'New Chat',
 			model: DEFAULT_MODEL,
 			createdAt: expect.any(String),

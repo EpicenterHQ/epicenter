@@ -25,8 +25,7 @@
 	// route and this component only mounts under `ready`: the type carries "the
 	// store is open" without a second object to own and dispose.
 	//
-	// One document, because an account is required. Everything below reads
-	// `data` and never asks which one it is.
+	// The account store holds entries; the device store holds chat and settings.
 	let {
 		data: opened,
 	}: {
@@ -40,6 +39,8 @@
 	// per opened store and the adaptation is per store.
 	/* svelte-ignore state_referenced_locally */
 	const data = fromData(opened.personal);
+	/* svelte-ignore state_referenced_locally */
+	const localData = fromData(opened.local);
 
 	// Read once, not `$derived`: the route mounts this exactly once per opened
 	// store, so `data` never changes while this component lives.
@@ -61,7 +62,10 @@
 	// on. The active conversation lives in internal state (Vocab has no URL seam).
 	/* svelte-ignore state_referenced_locally */
 	const chat = createAgentChatState({
-		table: data.tables.conversations,
+		table: localData.tables.conversations,
+		messages: localData.tables.messages,
+		transact: localData.transact,
+		accountKey: JSON.stringify([opened.account.authorityId, opened.account.principalId]),
 		reportBackgroundError,
 		catalog,
 		selections,
@@ -72,7 +76,7 @@
 	});
 
 	/* svelte-ignore state_referenced_locally */
-	const settings = createSettingsState({ data: opened.local });
+	const settings = createSettingsState({ data: localData });
 
 	onDestroy(() => {
 		void dictation.close().catch(reportBackgroundError);
@@ -99,6 +103,7 @@
 </script>
 
 <PersistenceNotice persistence={data.persistence} />
+<PersistenceNotice persistence={localData.persistence} />
 
 <Sidebar.Provider>
 	<VocabSidebar

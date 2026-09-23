@@ -54,6 +54,7 @@ import {
 	type ParsedDataDefinition,
 	type ParsedTable,
 } from '../definition/index.js';
+import { decodeBody, replaceBody } from './body-content.js';
 import { type ParsedRowFile, parseRowFile } from './frontmatter.js';
 import { parseRowPath, ROW_FILE_EXTENSION, rowPath } from './layout.js';
 import { type RenderableData, RenderError, renderRow } from './render.js';
@@ -1034,14 +1035,14 @@ export type PlannedSetting = {
  * The text under one file's frontmatter changed (ADR-0329, amended by
  * ADR-0338).
  *
- * The table's codec rewrites the node the row already holds so that it says
- * what the file says. It is the file's whole text winning rather than a merge,
+ * The file is decoded before commit. The artifact layer then replaces the
+ * existing node's sequence with that content. The file's whole text wins,
  * and no conflict marker is ever written into a file.
  *
  * This is the one item a person cannot put back by hand, which is why the
  * overview ranks it with the deletions: a value is printed beside its
- * replacement and can be typed back, and `rewrite` clears the node and the
- * editor's history with it.
+ * replacement and can be typed back, while a body replacement removes the
+ * old sequence and ends the editor's history for it.
  */
 export type PlannedBody = {
 	readonly kind: 'body';
@@ -1768,10 +1769,8 @@ async function untouched(
  * crash. A plan that let one escape would make the preview REJECT on a folder,
  * which is the one thing a person has to be able to look at.
  *
- * It is also the promise `rewrite` is applied under: a push validates a body
- * by decoding it here and rewrites with the same text after the approval,
- * so a codec whose two readers disagreed would show a plan its own push
- * refuses.
+ * Preview discards the decoded content. Push decodes the approved file again
+ * before starting its transaction.
  *
  * A table without a codec cannot read body text back. Its field edits remain
  * independent of this body check.
@@ -1780,7 +1779,8 @@ function readsBack(table: ParsedTable, text: string): boolean {
 	const codec = table.body;
 	if (codec === undefined) return false;
 	try {
-		return codec.decode(text).error === null;
+		decodeBody(codec, text);
+		return true;
 	} catch {
 		return false;
 	}
@@ -1976,12 +1976,8 @@ async function applyPush({
 		failure ??= { name: 'PlanUnapplied', message };
 	};
 
-	// **Every node is built before the transaction opens.** `decode` is
-	// application code over a file a person hand-edited: it can refuse and it
-	// can throw, and either inside the commit would leave half a push written
-	// and escape as a rejected promise rather than as this function's error.
-	// A detached node costs nothing to build and throw away, so the fallible
-	// half happens where nothing has been written yet.
+	// Decode file bodies before the transaction opens. An unexpected converter
+	// failure must not follow earlier writes in the same push.
 	const admitting: {
 		item: PlannedAdmission;
 		fields: JsonObject;
@@ -2003,14 +1999,36 @@ async function applyPush({
 			continue;
 		}
 		const built = trySync({
-			try: () => codec.decode(file.body),
+			try: () => {
+				const node = new Y.Node();
+				node.applyDelta(decodeBody(codec, file.body));
+				return node;
+			},
 			catch: (cause) => Err({ name: 'CodecThrew', message: String(cause) }),
 		});
-		if (built.error !== null || built.data.error !== null) {
+		if (built.error !== null) {
 			broke(`'${item.path}' could not be read into a row`);
 			continue;
 		}
-		admitting.push({ item, fields: file.fields, node: built.data.data });
+		admitting.push({ item, fields: file.fields, node: built.data });
+	}
+	const rewrites = new Map<string, ReturnType<typeof decodeBody>>();
+	for (const item of plan) {
+		if (item.kind !== 'body') continue;
+		const codec = data.definition.tables.get(item.table)?.body;
+		if (codec === undefined) {
+			broke(`'${item.path}' has no body codec`);
+			continue;
+		}
+		const decoded = trySync({
+			try: () => decodeBody(codec, bodyOf(held, item.path)),
+			catch: (cause) => Err({ name: 'CodecThrew', message: String(cause) }),
+		});
+		if (decoded.error !== null) {
+			broke(`'${item.path}' could not be read into a body`);
+			continue;
+		}
+		rewrites.set(item.path, decoded.data);
 	}
 	if (failure !== undefined) return unapplied(failure);
 
@@ -2078,24 +2096,19 @@ async function applyPush({
 				for (const item of plan) {
 					if (item.kind !== 'body') continue;
 					const node = data.rowFile(item.table, item.rowId)?.body;
-					const codec = data.definition.tables.get(item.table)?.body;
+					const content = rewrites.get(item.path);
 					// Both are defensive: a row with no live node renders as
 					// `MalformedRow`, so `planPush` already kept it,
 					// and a body item is only made where a codec read the text.
-					if (!(node instanceof Y.Node) || codec === undefined) {
+					if (!(node instanceof Y.Node) || content === undefined) {
 						broke(`'${item.path}' has no live node to rewrite`);
 						continue;
 					}
 					// The node the row already holds, edited rather than replaced,
 					// so an editor bound to this very note is still bound after
-					// (ADR-0338). The text was decoded once at plan time to prove
-					// the codec accepts it; a live node is not JSON, so it could
-					// not travel through the plan a person read.
-					const { error } = codec.rewrite(node, bodyOf(held, item.path));
-					if (error !== null) {
-						failure ??= error;
-						continue;
-					}
+					// (ADR-0338). Push decoded this file into complete insertion
+					// content before opening the transaction.
+					replaceBody(node, content);
 					outcome.bodies += 1;
 				}
 

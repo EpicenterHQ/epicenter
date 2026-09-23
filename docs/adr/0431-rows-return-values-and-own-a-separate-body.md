@@ -15,7 +15,8 @@ serialization and required consumers to remove the special `content` property.
 A single combined Yjs node could remove the nested body slot, but then editor
 normalization, codecs, subscriptions, and undo would each need to distinguish
 row attributes from body operations. Keeping the nested node enforces that
-boundary across the existing rich-text, plain-text, and keyed-message callers.
+boundary across the rich-text and plain-text callers. Chat now stores finished
+messages as separate rows instead of body attributes.
 
 ## Decision
 
@@ -43,7 +44,7 @@ Deleting the row removes its fields and body together.
 The file layer preserves all stored value fields as frontmatter and renders
 the body through its codec. Its faithful read returns `{ id, fields, body }`,
 keeping JSON fields separate from the live node through serialization.
-File-body rewrites edit the existing node so open
+File-body rewrites replace the sequence inside the existing node so open
 editors retain their binding. The reactive adapter tracks body existence even
 when metadata fails validation.
 
@@ -81,7 +82,8 @@ by `body(id)`, while the row container remains internal.
 Tests cover a field named `body` alongside the editor body, artifact import and
 checkout push/pull of both, replica convergence, stable node identity, separate
 field/body notifications, malformed metadata, and deletion. Honeycrisp's codec
-and editor tests cover rich-text serialization and in-place rewrites.
+and editor tests cover rich-text serialization and the artifact layer's
+in-place sequence replacement.
 
 The browser regression at `apps/honeycrisp/evidence/editor/browser.ts` mounts
 both real editor components and checks typing, undo/redo, parent metadata,

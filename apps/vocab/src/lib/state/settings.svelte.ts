@@ -11,14 +11,14 @@
  * it (ADR-0213).
  */
 
-import type { VocabData } from '$lib/data';
+import type { VocabLocalData } from '$lib/data';
 
 const APPLICATION_DEFAULTS = { showReadings: true } as const;
 
 export function createSettingsState({
 	data,
 }: {
-	data: VocabData;
+	data: VocabLocalData;
 }) {
 	function read(): boolean {
 		// One key, one fallback. `get` answers `undefined` for a key never

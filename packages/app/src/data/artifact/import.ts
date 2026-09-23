@@ -38,6 +38,7 @@ import {
 	kvRoot,
 	tableRoot,
 } from '../store/document.js';
+import { decodeBody } from './body-content.js';
 import { parseRowFile } from './frontmatter.js';
 import { parseRowPath } from './layout.js';
 
@@ -168,9 +169,9 @@ export function readArtifact(
 /**
  * Put one file's row into the document.
  *
- * One transaction. The codec reads the body into a fresh body node, and
- * `createRow` integrates it beside the frontmatter values in the transaction
- * that mints the row.
+ * Decode the file into insertion-only content before changing the document.
+ * Apply it to a fresh body, then integrate that body with its row in one
+ * transaction.
  *
  * It used to be three writes: mint an empty row so the codec could be handed
  * ATTACHED types, read them back, let the codec fill them and return the
@@ -215,19 +216,11 @@ function admitRow({
 		return ImportError.UncodedBody({ table: tableName, rowId });
 	}
 	if (codec !== undefined) {
-		// The codec owns empty text too: it may reject it or build structure
-		// that a bare empty node would omit.
+		// The codec owns empty text too: it may initialize rich-text structure.
 		try {
-			const read = codec.decode(body);
-			if (read.error !== null) {
-				return ImportError.RowUnreadable({
-					table: tableName,
-					rowId,
-					reason: read.error.reason,
-					cause: read.error.cause,
-				});
-			}
-			node = read.data;
+			const content = decodeBody(codec, body);
+			node = new Y.Node();
+			node.applyDelta(content);
 		} catch (cause) {
 			return ImportError.RowUnreadable({
 				table: tableName,

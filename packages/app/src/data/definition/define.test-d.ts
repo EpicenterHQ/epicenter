@@ -36,8 +36,8 @@ const incomplete: CreateRowOf<typeof fieldsOnly> = { name: 'Inbox' };
 defineTable({ fields: {}, body: undefined });
 defineTable({
 	fields: {},
-	// @ts-expect-error a supplied codec requires rewrite
-	body: { encode: plainText().encode, decode: plainText().decode },
+	// @ts-expect-error a supplied codec requires decode
+	body: { encode: plainText().encode },
 });
 defineTable({
 	fields: {

@@ -1,10 +1,4 @@
-import {
-	BodyError,
-	defineStore,
-	defineTable,
-	field,
-	plainText,
-} from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 /**
  * The artifact read back, and the round trip that is the whole promise: what a
  * person exports is what they get when they import it again (ADR-0267/0268).
@@ -19,8 +13,7 @@ import {
 
 import { describe, expect, test } from 'bun:test';
 
-import * as Y from '@y/y';
-import { Ok } from 'wellcrafted/result';
+import * as delta from 'lib0/delta';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createMemoryRecord, openMemory } from '../store/memory.js';
 import { syncEngineOf } from '../store/store.js';
@@ -204,7 +197,6 @@ describe('readArtifact (ADR-0267/0268)', () => {
 						decode: () => {
 							throw new Error('the codec exploded');
 						},
-						rewrite: () => Ok(undefined),
 					},
 				}),
 			},
@@ -217,8 +209,7 @@ describe('readArtifact (ADR-0267/0268)', () => {
 	});
 
 	test('a codec that refuses a file refuses the whole import', async () => {
-		// The codec's error arm is a Result, not a throw: a folder a person
-		// hands to an import is data, and the file it could not read is named.
+		// A converter failure is attached to the file rather than escaping.
 		const refusing = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
@@ -229,8 +220,7 @@ describe('readArtifact (ADR-0267/0268)', () => {
 					},
 					body: {
 						encode: (node) => node.toString(),
-						decode: () => BodyError.Unreadable({ reason: 'no title line' }),
-						rewrite: () => Ok(undefined),
+						decode: () => { throw new Error('no title line'); },
 					},
 				}),
 			},
@@ -252,8 +242,7 @@ describe('readArtifact (ADR-0267/0268)', () => {
 					fields: { title: field.string() },
 					body: {
 						encode: () => '',
-						decode: () => BodyError.Unreadable({ reason: 'empty refused' }),
-						rewrite: () => Ok(undefined),
+						decode: () => { throw new Error('empty refused'); },
 					},
 				}),
 			},
@@ -262,7 +251,7 @@ describe('readArtifact (ADR-0267/0268)', () => {
 		expect(expectErr(readArtifact(files, refusing)).name).toBe('RowUnreadable');
 	});
 
-	test('a declared codec builds structure from an empty file body', async () => {
+	test('a declared codec builds sequence content from an empty file body', async () => {
 		const initializing = defineStore({
 			id: 'so.epicenter.empty-structure',
 			kv: {},
@@ -271,12 +260,7 @@ describe('readArtifact (ADR-0267/0268)', () => {
 					fields: { title: field.string() },
 					body: {
 						encode: () => '',
-						decode: () => {
-							const node = new Y.Node();
-							node.setAttr('initialized', true);
-							return Ok(node);
-						},
-						rewrite: () => Ok(undefined),
+						decode: () => delta.create().insert('initialized').done(),
 					},
 				}),
 			},
@@ -285,19 +269,11 @@ describe('readArtifact (ADR-0267/0268)', () => {
 		const state = expectOk(readArtifact(files, initializing));
 		await using restored = await openMemory(initializing);
 		expectOk(syncEngineOf(restored).applyRemote(state));
-		expect(restored.tables.notes.body('aaaa')?.getAttr('initialized')).toBe(
-			true,
-		);
+		expect(restored.tables.notes.body('aaaa')?.toString()).toBe('initialized');
 	});
 
-	test('a codec that hands one node to two rows is refused', async () => {
-		// Two rows given one node hold the SAME body, and an edit to either
-		// shows up in both. Measured on `@y/y@14.0.0-rc.26`: setting one node at
-		// two keys leaves both keys holding the same instance, silently.
-		// `createRow` refuses a node that already belongs to a document, which is
-		// what makes that unrepresentable rather than a bug somebody finds later.
-		const shared = new Y.Node();
-		const sharing = defineStore({
+	test('a codec cannot edit body-root attributes', () => {
+		const invalid = defineStore({
 			id: 'so.epicenter.honeycrisp',
 			kv: {},
 			tables: {
@@ -305,21 +281,35 @@ describe('readArtifact (ADR-0267/0268)', () => {
 					fields: {
 						title: field.string(),
 					},
-					// Hands back ONE node for every row, which is the mistake.
 					body: {
 						encode: (node) => node.toString(),
-						decode: () => Ok(shared),
-						rewrite: () => Ok(undefined),
+						decode: () => delta.create().setAttr('surprise', true).done(),
 					},
 				}),
 			},
 		});
-		const files = new Map([
-			['notes/aaaa.md', '---\ntitle: "x"\n---\n\nfirst\n'],
-			['notes/bbbb.md', '---\ntitle: "y"\n---\n\nsecond\n'],
-		]);
-		const refused = expectErr(readArtifact(files, sharing));
-		expect(refused.message).toContain('already belongs to a document');
+		const files = new Map([['notes/aaaa.md', '---\ntitle: "x"\n---\n\nfirst\n']]);
+		const refused = expectErr(readArtifact(files, invalid));
+		expect(refused.message).toContain('may not edit body-root attributes');
+	});
+
+	test('a codec cannot return a positional edit as complete body content', () => {
+		const invalid = defineStore({
+			id: 'so.epicenter.invalid-body-edit',
+			kv: {},
+			tables: {
+				notes: defineTable({
+					fields: { title: field.string() },
+					body: {
+						encode: (node) => node.toString(),
+						decode: () => delta.create().retain(1).insert('new').done(),
+					},
+				}),
+			},
+		});
+		const files = new Map([['notes/aaaa.md', '---\ntitle: "x"\n---\n\nnew\n']]);
+		const refused = expectErr(readArtifact(files, invalid));
+		expect(refused.message).toContain('insertion-only content');
 	});
 
 	test('a file that is not part of the artifact is left alone', async () => {

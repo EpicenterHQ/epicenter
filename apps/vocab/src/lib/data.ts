@@ -8,8 +8,8 @@ import {
 import type { DeclaredData } from '@epicenter/app/store';
 import { APPS } from '@epicenter/constants/apps';
 /**
- * Vocab's inert workspace declaration: the workspace id it owns, its tables, and its device-local
- * values. Isomorphic: no IndexedDB, WebSockets, Svelte state, or browser APIs.
+ * Vocab's inert local and personal store declarations. Isomorphic: no IndexedDB,
+ * WebSockets, Svelte state, or browser APIs.
  *
  * The app imports it as `$lib/data`, which is the one specifier there is for
  * it. It used to be the target of a `"."` package export as well, so the same
@@ -19,13 +19,11 @@ import { APPS } from '@epicenter/constants/apps';
  * sync; forking a field shape breaks sync compatibility with peers running the
  * canonical workspace.
  *
- * `AppBoot` captures the Account and opens this declaration
- * only after the primary route mounts.
+ * `AppBoot` captures the Account and opens both stores only after the primary
+ * route mounts.
  */
 
-import type { AgentMessage } from '@epicenter/agent';
-
-import { conversationsTable } from '@epicenter/chat';
+import { conversationsTable, messagesTable } from '@epicenter/chat';
 import type { ServableModel } from '@epicenter/constants/ai-providers';
 
 /**
@@ -59,18 +57,6 @@ Guidelines:
 - Be conversational and encouraging.`;
 
 /**
- * A complete chat message: the unit Vocab persists. Each finished message is
- * written once, whole, as one JSON blob at the conversation's `messages` root,
- * keyed by its message id (ADR-0046/0047), the moment a turn finishes.
- *
- * It is the shared {@link AgentMessage} so Vocab rides the one client agent loop
- * (`@epicenter/agent`). Vocab is capability-free, so every message is a single
- * text part, but the parts-array shape is the same one a tool agent fills with
- * tool-call and tool-result parts.
- */
-export type VocabMessage = AgentMessage;
-
-/**
  * The entries table: the user-curated store of language units of any length
  * (words, phrases, chengyu) captured by selection. One pool, no decks.
  * `stage` is the one acquisition dial (new: saved because you did not know
@@ -90,17 +76,9 @@ const entriesTable = defineTable({
 });
 
 /**
- * The isomorphic Vocab workspace.
- *
- * A workspace declares exactly one workspace id, so Vocab owns the
- * canonical `conversationsTable` shape under its own id rather than
- * composing a chat table: the conversations are Vocab's, not a workspace id another
- * application owns.
- *
- * Conversation transcripts are not value fields: each conversation row owns a
- * content node holding one {@link VocabMessage} per key (ADR-0046). The open client tab
- * answers in-process (ADR-0043): it streams the live turn in component state
- * and writes each finished message into that content node.
+ * Device-only Vocab state: chat history and presentation settings. Practice
+ * copies selected entry text into a local conversation; it does not maintain
+ * a reference from that conversation to account-backed entries.
  *
  * `showReadings` is `kv` rather than a `settings` row, and that is a
  * correctness fix rather than tidiness. It used to be a row at a chosen id, so
@@ -110,21 +88,34 @@ const entriesTable = defineTable({
  * (ADR-0213). It is read from the DEVICE document in every generation: how this
  * screen renders is a fact about this screen, not portable work (ADR-0233).
  */
-export const vocabDefinition = defineStore({
+export const vocabLocalDefinition = defineStore({
 	id: APPS.VOCAB.id,
-	title: 'Vocab',
+	title: 'Vocab on this device',
 	kv: {
 		/** Readings render by default. */
 		showReadings: field.boolean(),
 	},
 	tables: {
 		conversations: conversationsTable,
+		messages: messagesTable,
+	},
+});
+
+/** Account-backed vocabulary entries follow the learner across devices. */
+export const vocabDefinition = defineStore({
+	id: APPS.VOCAB.id,
+	title: 'Vocab',
+	kv: {},
+	tables: {
 		entries: entriesTable,
 	},
 });
 
-/** The typed view of one store through Vocab's workspace. */
+/** The typed view of Vocab's account-backed entries. */
 export type VocabData = DeclaredData<typeof vocabDefinition>;
+
+/** The typed view of this device's chat and settings. */
+export type VocabLocalData = DeclaredData<typeof vocabLocalDefinition>;
 
 /** One entry row. Row ids are runtime-minted, so the runtime owns `id`. */
 export type Entry = RowOf<typeof entriesTable>;

@@ -41,6 +41,7 @@
 		"@epicenter/matter-core": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"nanoid": "catalog:",
+		"lib0": "1.0.0-rc.32",
 		"openai": "^7.12.1",
 		"wellcrafted": "catalog:",
 		"@tauri-apps/api": "catalog:",

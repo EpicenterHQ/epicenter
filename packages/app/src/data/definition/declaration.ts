@@ -13,9 +13,8 @@
  */
 
 import type * as Y from '@y/y';
+import type { DeltaAny } from 'lib0/delta';
 import { type Static, type TSchema, Type } from 'typebox';
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import type { Result } from 'wellcrafted/result';
 import { type Field, field as genericField } from '../field/index.js';
 
 export const KV_ROOT = 'kv';
@@ -38,78 +37,18 @@ export type FieldMap = {
 	readonly [field: string]: TSchema;
 };
 
-export const BodyError = defineErrors({
-	/**
-	 * A table's own `decode` refused this text.
-	 *
-	 * Returned rather than thrown, because a folder a person hands to an import
-	 * is data rather than a programmer error, and the import that reads it
-	 * reports which file it could not read.
-	 */
-	Unreadable: ({ reason, cause }: { reason: string; cause?: unknown }) => ({
-		message: `This body could not be read into a row's node: ${reason}`,
-		reason,
-		cause,
-	}),
-});
-export type BodyError = InferErrors<typeof BodyError>;
-
 /**
- * How one table's body node becomes text, and back (ADR-0296, ADR-0329).
+ * One table's file format for its body's complete sequence.
  *
- * A row is its values and ONE live node. The platform owns the file: it
- * writes the values as frontmatter by field name and joins this below the
- * fence, and it reverses both. The table owns what its node MEANS, which is
- * these three verbs and nothing else.
- *
- * There is no default. A node carries a sequence and attributes at once, so
- * "render it as text" is not a safe fallback: `toString` is a debug rendering,
- * not a serialization, and feeding its output back through `insert` turns an
- * attribute-bearing node into one literal string that PRINTS IDENTICALLY. A
- * table that declares no codec can export only an empty node.
- *
- * **`decode` mints and `rewrite` edits, and they are not the same verb.**
- * `decode` builds a node for a row that does not exist yet, and the node it
- * returns must be fresh: two rows given one node share it, silently, so
- * `createRow` refuses one that already belongs to a document. **How you fill
- * it matters**: one bulk operation or attribute writes are safe, a loop of
- * positional appends silently reverses, and it reads as empty until `create`
- * integrates it. `evidence/detached-type.test.ts` pins that.
- *
- * `rewrite` takes the node a row already holds and makes its body say what
- * the text says, in place. It is what a push calls when a person authorizes a
- * body edit to come home (ADR-0337), and it is not derivable from `decode`: a
- * detached node reads as empty until it is integrated, so there is nothing to
- * copy across, and only the codec knows whether its body lives in the
- * node's sequence, its attributes, or both.
- *
- * **In place, rather than as a replacement.** Replacing the body child detaches
- * every editor, undo manager, and preview bound to it. Concurrent replacements
- * could also leave the row with multiple children. The store integrates the
- * sole child at row creation; this codec edits it without changing its identity.
- *
- * **It is not lossless, and the difference is worth knowing exactly**
- * (`evidence/rewriting-a-body.test.ts`). The two codecs whose body is a
- * SEQUENCE clear it and refill it, so they keep the node and discard what was
- * in it: a peer's keystrokes INSIDE a block this removed are gone with the
- * block, because deleting a nested type reclaims what is under it. What
- * survives is a block the peer added beside the old ones, and two concurrent
- * rewrites concatenate rather than one winning. A codec whose body is in
- * ATTRIBUTES reconciles by key instead and pays none of that, which is another
- * way of saying only the codec knows what its node's body is. Either way
- * this is better than a replacement rather than safe: a replacement would have
- * lost one device's whole node and every binding to it.
- *
- * What `rewrite` does NOT promise is a minimal edit. A person asked for the
- * file's version to win, and that is what they get. A real text diff would
- * make the change smaller, the undo step finer, and a peer's concurrent
- * keystrokes survivable where the two edits do not overlap; it can replace a
- * codec's body later with no change here.
+ * The codec turns the live body into file text and parses file text into
+ * insertion-only content. The artifact layer owns fresh-node creation and
+ * in-place sequence replacement, preserving editor bindings and root attributes.
+ * Nested rich-text nodes may carry their own attributes. A table without a
+ * codec can export only an empty body and import only empty body text.
  */
 export type BodyCodec = {
 	readonly encode: (node: Y.Node) => string;
-	readonly decode: (text: string) => Result<Y.Node, BodyError>;
-	readonly rewrite: (node: Y.Node, text: string) => Result<void, BodyError>;
+	readonly decode: (text: string) => DeltaAny;
 };
 
 /** Value-field schemas and the optional codec for the row's separately edited body. */

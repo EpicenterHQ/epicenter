@@ -354,22 +354,12 @@ function fieldNameProblem(
 	return undefined;
 }
 
-/**
- * All three verbs, because a partial codec is a runtime failure rather than a
- * degraded one.
- *
- * `rewrite` is checked here for the same reason `decode` is: a push calls it
- * on a body a person answered for, inside the transaction that carries the
- * whole plan, and a missing one would throw out of a commit that had already
- * written half of it. The authoring type demands all three; this is the door a
- * definition that did not go through it comes in by.
- */
+/** Check both conversion verbs at the runtime definition boundary. */
 function isBodyCodec(value: unknown): value is BodyCodec {
 	const codec = value as Partial<BodyCodec> | undefined;
 	return (
 		typeof codec?.encode === 'function' &&
-		typeof codec.decode === 'function' &&
-		typeof codec.rewrite === 'function'
+		typeof codec.decode === 'function'
 	);
 }
 

@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/chat",
-	"description": "The canonical conversation shape every chat surface shares: the conversations table an application splices into its own workspace, its messages root, and the ConversationId vocabulary.",
+	"description": "Conversation and message tables shared by chat surfaces, with a table-backed agent message adapter.",
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
@@ -18,7 +18,6 @@
 	},
 	"dependencies": {
 		"@epicenter/agent": "workspace:*",
-		"@y/y": "14.0.0-rc.26",
 		"wellcrafted": "catalog:",
 		"@epicenter/app": "workspace:*"
 	},

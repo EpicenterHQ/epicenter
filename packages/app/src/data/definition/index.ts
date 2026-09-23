@@ -24,7 +24,6 @@ export {
 export { plainText } from './body.js';
 export {
 	type BodyCodec,
-	BodyError,
 	type CreateRowOf,
 	type DataDefinition,
 	type FieldMap,

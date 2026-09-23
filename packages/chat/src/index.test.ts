@@ -14,13 +14,19 @@ import type { AgentMessage } from '@epicenter/agent';
 
 import { InstantString } from '@epicenter/app/field';
 import { createMemoryRecord, openMemory } from '@epicenter/app/memory';
-import { conversationsTable, createAgentMessageStore } from './index.js';
+import {
+	asConversationId,
+	conversationsTable,
+	createAgentMessageStore,
+	messagesTable,
+} from './index.js';
 
 const testDefinition = defineStore({
 	id: 'so.epicenter.chat-test',
 	kv: {},
 	tables: {
 		conversations: conversationsTable,
+		messages: messagesTable,
 	},
 });
 
@@ -30,6 +36,15 @@ const message: AgentMessage = {
 	createdAt: 1,
 	parts: [{ type: 'text', text: 'Durable hello' }],
 };
+
+test('concurrent rows with the same message id present one keyed message', async () => {
+	await using db = await openMemory(testDefinition);
+	const conversationId = asConversationId('conversation-1');
+	db.tables.messages.create({ conversationId, messageId: message.id, message });
+	db.tables.messages.create({ conversationId, messageId: message.id, message });
+	using store = createAgentMessageStore(db.tables.messages, conversationId);
+	expect([...store.entries()]).toEqual([{ key: message.id, val: message }]);
+});
 
 test('the agent store observes writes and survives a restart', async () => {
 	// One durable record, two runtimes over it: the second is the restart.
@@ -41,6 +56,7 @@ test('the agent store observes writes and survives a restart', async () => {
 			await using _db = db;
 			const now = InstantString.fromDate(new Date('2026-07-19T00:00:00.000Z'));
 			const created = db.tables.conversations.create({
+				accountKey: 'test-account',
 				title: 'New Chat',
 				model: 'test',
 				createdAt: now,
@@ -50,9 +66,7 @@ test('the agent store observes writes and survives a restart', async () => {
 
 			const row = db.tables.conversations.get(rowId);
 			if (row === undefined) throw new Error('the row has no content');
-			using store = createAgentMessageStore(
-				db.tables.conversations.body(row.id)!,
-			);
+			using store = createAgentMessageStore(db.tables.messages, asConversationId(row.id));
 			let observations = 0;
 			const unobserve = store.observe(() => observations++);
 			store.set(message.id, message);
@@ -64,9 +78,7 @@ test('the agent store observes writes and survives a restart', async () => {
 		await using _db = db;
 		const row = db.tables.conversations.get(rowId);
 		if (row === undefined) throw new Error('the row has no content');
-		using store = createAgentMessageStore(
-			db.tables.conversations.body(row.id)!,
-		);
+		using store = createAgentMessageStore(db.tables.messages, asConversationId(row.id));
 		expect([...store.entries()]).toEqual([{ key: message.id, val: message }]);
 	} finally {
 		record.close();

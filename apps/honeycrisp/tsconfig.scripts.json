@@ -2,6 +2,7 @@
 	"extends": "./tsconfig.json",
 	// The browser journey runs in Bun and evaluates callbacks in the app document.
 	"include": [
+		"evidence/editor/**/*.ts",
 		"scripts/app.browser.ts",
 		"scripts/app-retirement.ts",
 		"scripts/app-auth.ts",

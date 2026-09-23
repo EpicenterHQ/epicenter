@@ -3,20 +3,17 @@
  * plus one client agent loop (ADR-0047) per conversation, with each app's
  * differences injected rather than forked.
  *
- * The conversation list is a `conversations` table the app spliced into its own
- * workspace shape (@epicenter/chat), in whichever document the app's root
- * chose for this generation (ADR-0233); each row's turns live in its `content`
- * node on that database document. A handle registry mirrors the table:
+ * The app places `conversations` and `messages` tables in one chosen store
+ * (ADR-0233). A handle registry mirrors the conversation table:
  * {@link createAgentChatState} opens a handle for every row and disposes one
- * whose row is gone. Each handle binds that row's content node to the loop through
- * `bindAgentConversation`; the loop streams the live turn into component state
- * and writes each finished message into the document the moment the turn ends.
+ * whose row is gone. Each handle binds that conversation's message rows to the
+ * loop through `bindAgentConversation`; the loop streams the live turn into
+ * component state and writes each finished message as a row when the turn ends.
  * The live turn never enters the CRDT, and the loop dies with the tab.
  *
  * Everything here is synchronous, which is what the store being synchronous
- * buys: a read is a property access on a document already in memory, a row's
- * document is already allocated beside the row (ADR-0215), and `subscribe`
- * reports a commit after the projection has caught up (ADR-0187). So there is
+ * buys: reads use a store already in memory, and `subscribe` reports a commit
+ * after the projection has caught up (ADR-0187). So there is
  * no `whenReady`, no in-flight-handle set, and no awaiting a document lease;
  * a handle exists for a row the instant the registry hears about it.
  *
@@ -60,13 +57,13 @@ import {
 	type ConversationId,
 	type ConversationsTable,
 	createAgentMessageStore,
+	type MessagesTable,
 } from '@epicenter/chat';
 import {
 	createOpenAiAgentEngine,
 	type OpenAiTurnContext,
 } from '@epicenter/client';
 import { bindAgentConversation } from '@epicenter/svelte';
-import type * as Y from '@y/y';
 import { createSubscriber, SvelteMap } from 'svelte/reactivity';
 import type { InferenceCatalog } from '../inference-picker/catalog.svelte.js';
 import type { InferenceSelections } from '../inference-selections.js';
@@ -132,6 +129,9 @@ export type AgentKit = {
 
 export function createAgentChatState({
 	table,
+	messages,
+	transact,
+	accountKey,
 	reportBackgroundError,
 	catalog,
 	selections,
@@ -146,14 +146,17 @@ export function createAgentChatState({
 	/**
 	 * The conversations table of the document this surface chose (ADR-0233).
 	 *
-	 * One table, and the registry never asks which document it came from: an app
+	 * The registry never asks which document it came from: an app
 	 * with an account replica passes the account's, a signed-out one passes the
-	 * device's, and a surface writes one or the other and never both. It is also
-	 * where a conversation's messages come from: `get(id)` hands back the row with
-	 * its log on it, which is why there is no separate document opener to
-	 * inject. The row and the log beside it are one thing in one document.
+	 * device's, and a surface writes one or the other and never both.
 	 */
 	table: ConversationsTable;
+	/** Finished messages are separate rows linked by conversation id. */
+	messages: MessagesTable;
+	/** Commit conversation deletion and its message rows together. */
+	transact(run: () => void): void;
+	/** Keep device-local conversations separated across signed-in accounts. */
+	accountKey: string;
 	/** Report failures from subscription-driven refreshes and metadata writes. */
 	reportBackgroundError(cause: unknown): void;
 	/** The available inference sources for this document. */
@@ -183,7 +186,7 @@ export function createAgentChatState({
 	function readRows(): void {
 		// Only the conforming rows; the doc comment on `rows` says why the
 		// nonconforming ones are skipped rather than surfaced.
-		rows = table.rows;
+		rows = table.rows.filter((row) => row.accountKey === accountKey);
 	}
 
 	const rowById = (id: ConversationId): Conversation | undefined =>
@@ -232,10 +235,7 @@ export function createAgentChatState({
 		),
 	);
 
-	function createConversationHandle(
-		conversationId: ConversationId,
-		messages: Y.Node,
-	) {
+	function createConversationHandle(conversationId: ConversationId) {
 		let inputValue = $state('');
 		let dismissedError = $state<string | null>(null);
 
@@ -291,7 +291,7 @@ export function createAgentChatState({
 		// mid-conversation model switch takes effect on the next answer.
 		const convo = bindAgentConversation(
 			createAgentConversation({
-				store: createAgentMessageStore(messages),
+				store: createAgentMessageStore(messages, conversationId),
 				engine: createOpenAiAgentEngine({
 					// One target is captured before send/retry and reused across tool steps.
 					data: () => {
@@ -327,9 +327,8 @@ export function createAgentChatState({
 				// Unblock a pending approval so the awaiting loop unwinds, then abort.
 				settleApproval(false);
 				convo[Symbol.dispose]();
-				// Nothing to release. The message log is a nested type on the row in
-				// the one document this store holds (ADR-0295), so its lifetime is
-				// the row's and holding it pins nothing.
+				// The agent message adapter observes the sibling messages table and
+				// releases that subscription with the loop.
 			},
 
 			// ── Identity and metadata (from the row) ──
@@ -347,8 +346,8 @@ export function createAgentChatState({
 				return metadata?.updatedAt ?? '';
 			},
 
-			/** A picker preview built from the last turn. Reads the open `messages`
-			 * doc, so any picker that shows this (tab-manager) requires every handle's
+			/** A picker preview built from the last turn. Reads message rows through
+			 * the loop, so any picker that shows this requires every handle's
 			 * loop to be live; that coupling is why the registry opens loops eagerly.
 			 * Denormalizing this onto the conversation row would let the loop open
 			 * lazily (active + in-flight only) without losing the preview. */
@@ -532,15 +531,11 @@ export function createAgentChatState({
 	 */
 	function ensureHandle(conversationId: ConversationId): void {
 		if (disposed || handles.has(conversationId)) return;
-		// Nothing loads (ADR-0295): the message log is a nested type on the row in
-		// the document this store already holds. Absent means the row went away
-		// between the read and this line rather than that a conversation lacks
-		// somewhere to keep its messages.
-		const messages = table.body(conversationId);
-		if (messages === undefined) return;
+		// Both tables are already open in the same store. The adapter selects
+		// message rows by this conversation's id.
 		handles.set(
 			conversationId,
-			createConversationHandle(conversationId, messages),
+			createConversationHandle(conversationId),
 		);
 		// Select a live handle after installing it.
 		if (selection.current === null || !handles.has(selection.current)) {
@@ -582,9 +577,8 @@ export function createAgentChatState({
 	 * first turn is sent through its own handle, so a deliberately opened session
 	 * never writes into whatever conversation happened to be active.
 	 *
-	 * Synchronous, because nothing here loads. The message log is a nested type
-	 * minted in the same transaction as the row (ADR-0295), so by the time
-	 * `create` returns, the row, its log and its handle all exist.
+	 * Synchronous, because both tables are already open. A new conversation
+	 * starts with no message rows; its handle can observe rows written later.
 	 *
 	 * The row write has no schema-error channel; a later read remains the
 	 * conformance boundary.
@@ -595,6 +589,7 @@ export function createAgentChatState({
 			selection.current === null ? undefined : handles.get(selection.current);
 
 		const row = table.create({
+			accountKey,
 			title: opener.title ?? UNTITLED,
 			model: current?.model ?? defaultModel,
 			createdAt: nowIso,
@@ -625,7 +620,13 @@ export function createAgentChatState({
 	function deleteConversation(conversationId: ConversationId): void {
 		// Reports only whether a row was there to take; an already-gone
 		// conversation is still truthfully deleted.
-		table.delete(conversationId);
+		transact(() => {
+			for (const message of messages.rows) {
+				if (message.conversationId === conversationId)
+					messages.delete(message.id);
+			}
+			table.delete(conversationId);
+		});
 		readRows();
 		destroyConversation(conversationId);
 

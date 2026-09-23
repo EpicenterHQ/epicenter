@@ -20,8 +20,6 @@ import { APPS } from '@epicenter/constants/apps';
  */
 
 import { pmnodeToDelta, ynodeToPmnode } from '@y/prosemirror';
-import * as Y from '@y/y';
-import { Ok } from 'wellcrafted/result';
 import { parseNoteBody, serializeNoteBody } from './editor/markdown.js';
 import { noteSchema } from './editor/schema.js';
 
@@ -37,7 +35,7 @@ export type FolderId = string;
  * The whole of what this app declares about its files. The platform writes the
  * values as frontmatter under their own field names and joins this below the
  * fence, and reverses both; only Honeycrisp knows that a note's node is a
- * ProseMirror document rather than a line of text or a keyed log.
+ * ProseMirror document rather than a line of text.
  *
  * `decode` cannot fail on well-formed input, because any Markdown parses. What
  * it must not do is judge the frontmatter: a value this release cannot read is
@@ -48,33 +46,7 @@ export type FolderId = string;
  */
 const noteMarkdown: BodyCodec = {
 	encode: (node) => serializeNoteBody(ynodeToPmnode(node, noteSchema)),
-	decode: (text) => {
-		// Built here and handed over (ADR-0296, amended). Fresh per row: two rows
-		// given one node would share it. One `applyDelta` rather than a loop,
-		// because a detached node replays one positional delta and appends would
-		// reverse.
-		const node = new Y.Node();
-		node.applyDelta(pmnodeToDelta(parseNoteBody(text)));
-		return Ok(node);
-	},
-	// The note the person is looking at may be this one, so the node is edited
-	// rather than replaced (ADR-0338): the fragment the editor, its undo
-	// manager, and every open preview are bound to is the same fragment
-	// afterwards. Cleared and refilled in one call each, inside the one
-	// transaction the push runs in, so a bound view sees one delta and not a
-	// moment where the note is empty.
-	//
-	// `pmnodeToDelta` supplies a full insertion delta, so rewrite clears the
-	// old sequence first. A concurrent peer typing
-	// into a paragraph this removes loses those keystrokes
-	// (`packages/app/evidence/data/rewriting-a-body.test.ts`). A person is told the
-	// note's text moved in both places before they answer, and answering `file`
-	// is them saying the file wins.
-	rewrite: (node, text) => {
-		if (node.length > 0) node.delete(0, node.length);
-		node.applyDelta(pmnodeToDelta(parseNoteBody(text)));
-		return Ok(undefined);
-	},
+	decode: (text) => pmnodeToDelta(parseNoteBody(text)),
 };
 
 export const honeycrispDefinition = defineStore({

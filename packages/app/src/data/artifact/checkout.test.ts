@@ -1,10 +1,4 @@
-import {
-	BodyError,
-	defineStore,
-	defineTable,
-	field,
-	plainText,
-} from '@epicenter/app';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 import { parseRowFile } from './frontmatter.js';
 /**
  * `pull` and the base it writes (ADR-0337).
@@ -19,7 +13,6 @@ import { parseRowFile } from './frontmatter.js';
 import { describe, expect, test } from 'bun:test';
 
 import type * as Y from '@y/y';
-import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openMemory } from '../store/memory.js';
 import {
@@ -928,8 +921,7 @@ describe('the preview says what a push would do (ADR-0337)', () => {
 					},
 					body: {
 						encode: (node) => node.toString(),
-						decode: () => BodyError.Unreadable({ reason: 'not a body' }),
-						rewrite: () => Ok(undefined),
+						decode: () => { throw new Error('not a body'); },
 					},
 				}),
 			},
@@ -956,8 +948,7 @@ describe('the preview says what a push would do (ADR-0337)', () => {
 					fields: { title: field.string(), pinned: field.boolean() },
 					body: {
 						encode: () => '',
-						decode: () => BodyError.Unreadable({ reason: 'empty refused' }),
-						rewrite: () => Ok(undefined),
+						decode: () => { throw new Error('empty refused'); },
 					},
 				}),
 			},
@@ -1414,9 +1405,8 @@ describe('push sends the values back and re-renders', () => {
 		await data[Symbol.asyncDispose]();
 	});
 
-	test('an answered body edit rewrites the note in the node it already has', async () => {
-		// The identity claim lives in the codec's own test; what this pins is
-		// that a push reaches the live node rather than replacing the row's.
+	test('an answered body edit updates the note in the node it already has', async () => {
+		// A push reaches the live node rather than replacing the row's child.
 		const { host, data, noteId } = await edited(['buy milk', 'buy milk']);
 		const before = data.tables.notes.body(noteId);
 		host.folder.set(
@@ -1431,19 +1421,18 @@ describe('push sends the values back and re-renders', () => {
 		await data[Symbol.asyncDispose]();
 	});
 
-	test('an edited body is rewritten into the node the row already holds', async () => {
-		// The folder wins the text too, and `rewrite` is what keeps an editor
-		// bound to this very note bound after (ADR-0338).
+	test('an edited file replaces the existing body sequence', async () => {
+		// The edited file supplies the complete body, so pushing must not append
+		// a second copy of its original text.
 		const { host, data, noteId } = await edited(['buy milk', 'buy milk']);
 		host.folder.set(
 			`notes/${noteId}.md`,
 			`${host.folder.get(`notes/${noteId}.md`) as string}and eggs\n`,
 		);
+		const expected = parseRowFile(host.folder.get(`notes/${noteId}.md`)!)!.body;
 		const pushed = applied(expectOk(await sendBack(host, data)));
 		expect(pushed.bodies).toBe(1);
-		expect(
-			(data.rowFile('notes', noteId)?.body as Y.Node).toString(),
-		).toContain('and eggs');
+		expect((data.rowFile('notes', noteId)?.body as Y.Node).toString()).toBe(expected);
 		expect(host.folder.get(`notes/${noteId}.md`)).toContain('and eggs');
 		await data[Symbol.asyncDispose]();
 	});
@@ -1515,7 +1504,6 @@ describe('push sends the values back and re-renders', () => {
 						decode: () => {
 							throw new Error('the codec exploded');
 						},
-						rewrite: () => Ok(undefined),
 					},
 				}),
 			},
@@ -1552,7 +1540,6 @@ describe('push sends the values back and re-renders', () => {
 						decode: () => {
 							throw new Error('the codec exploded');
 						},
-						rewrite: () => Ok(undefined),
 					},
 				}),
 			},
