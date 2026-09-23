@@ -7,8 +7,8 @@ import {
 	personalBlobCollectionUrl,
 } from '@epicenter/blobs';
 import type { Handler, Hono, MiddlewareHandler } from 'hono';
+import { resolveDeploymentBlobStore } from '../s3-blob-store.js';
 import type { Env } from '../types.js';
-import { resolveDeploymentBlobStore } from './blob-storage.js';
 
 const inlineMedia = new Set([
 	'audio/mpeg',
