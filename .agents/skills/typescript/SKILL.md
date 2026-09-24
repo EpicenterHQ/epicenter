@@ -1,6 +1,6 @@
 ---
 name: typescript
-description: Apply project conventions for TypeScript types, imports, generics, factories, and runtime schemas. Use when editing `.ts` files or reviewing TypeScript design and tests.
+description: Apply project conventions for TypeScript types, imports, generics, factories, and runtime schemas. Use when editing `.ts` files or reviewing TypeScript design and tests, including constraints that need to name an invalid literal key or string in a compiler error.
 metadata:
   author: epicenter
   version: '2.0'
@@ -64,3 +64,4 @@ For broader public-shape decisions that affect navigation across packages, see `
 - [Runtime schema patterns](references/runtime-schema-patterns.md): arktype, branded IDs, optional property syntax, and workspace table IDs.
 - [Testing patterns](references/testing-patterns.md): inline single-use setup and source-shadowing tests.
 - [Advanced TypeScript features](references/advanced-typescript-features.md): iterator helpers and const generic array inference.
+- [Readable constraint errors](references/readable-constraint-errors.md): read when a literal key or string constraint needs to identify the offending value in a compiler diagnostic.
