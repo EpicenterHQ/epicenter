@@ -1,6 +1,6 @@
 ---
 name: factory-function-composition
-description: Factory function patterns to compose clients and services. Use when wrapping resources with domain methods or refactoring mixed client/service/method options.
+description: Factory function patterns to compose clients and services. Use when wrapping resources with domain methods, refactoring mixed client/service/method options, or documenting returned factory methods.
 metadata:
   author: epicenter
   version: '1.0'
@@ -10,7 +10,7 @@ metadata:
 
 This skill helps you apply factory function patterns for clean dependency injection and function composition in TypeScript.
 
-> **Related Skills**: See `method-shorthand-jsdoc` for when to move helpers into the return object. See `refactoring` for caller counting and inlining single-use extractions.
+> **Related Skills**: See `refactoring` for caller counting and inlining single-use extractions.
 
 ## The Universal Signature
 
@@ -218,13 +218,13 @@ export function createRemoteClient(options: RemoteClientOptions) {
 
 Zone 4 is already the public API. Duplicating it in a manual return type creates a second source of truth and changes editor navigation: Go to Definition tends to jump to the alias instead of the returned member. Keep method parameter and return annotations inside zone 4 when they make the public surface clearer.
 
-This is one face of a broader principle: when organizing types and exports, always consider Go-to-Definition. Adapter / proxy / wrapper factories with no behavior change are another regression in the same family: Go-to-Def lands on the wrapper instead of the source of truth. The "collapsed adapter" rule below is its concrete remedy. See `typescript` "Go-to-Definition Awareness" for the full set of regressions to watch for, and `method-shorthand-jsdoc` for the JSDoc sibling of this navigation concern.
+This is one face of a broader principle: when organizing types and exports, always consider Go-to-Definition. Adapter / proxy / wrapper factories with no behavior change are another regression in the same family: Go-to-Def lands on the wrapper instead of the source of truth. The "collapsed adapter" rule below is its concrete remedy. See `typescript` "Go-to-Definition Awareness" for the full set of regressions to watch for.
 
 Do not use this for shared service contracts that several factories implement. Those contracts are vocabulary. Use `satisfies` at the return object when a factory needs to prove it matches an external contract while preserving the concrete returned shape.
 
 ### The `this` Decision Rule
 
-Inside the return object, public methods sometimes need to call other public methods. Use `this.method()` for that; method shorthand gives proper `this` binding.
+Inside the return object, public methods sometimes need to call other public methods. Use `this.method()` when the method is called on the returned object; method shorthand receives that object as its `this`. If callers extract the method, it loses that receiver. See [method documentation and sibling calls](references/method-documentation-and-sibling-calls.md) for the documentation and extraction tradeoffs.
 
 If a function is called both by return-object methods *and* by pre-return initialization logic, it belongs in zone 3 (private helpers). Call it directly by name; no `this` needed.
 
@@ -324,3 +324,4 @@ Load on demand:
 
 - [references/single-or-array-pattern.md](references/single-or-array-pattern.md): when a factory or CRUD entry point should accept either a single item or an array.
 - [references/sync-construction-render-gate.md](references/sync-construction-render-gate.md): when a client's synchronous methods depend on async-initialized state and the UI must gate render on readiness.
+- [references/method-documentation-and-sibling-calls.md](references/method-documentation-and-sibling-calls.md): where JSDoc belongs on returned methods, and when `this` is safe for sibling calls.

@@ -8,7 +8,7 @@ metadata:
 
 # TypeScript Guidelines
 
-Project-wide TypeScript conventions compose with narrower skills such as `arktype`, `typebox`, `testing`, and `method-shorthand-jsdoc`.
+Project-wide TypeScript conventions compose with narrower skills such as `arktype`, `typebox`, `testing`, and `factory-function-composition`.
 
 ## Core Rules
 
@@ -49,7 +49,7 @@ Concrete regressions to watch for:
 - **`: T` annotation over `satisfies` for a multi-impl port**: the complement of the rule above. When an interface `T` has several impls (a `#platform/*` or browser/tauri split) and one impl is deliberately narrower than `T` (e.g. ignores a param the contract declares), `export const x = {...} satisfies T` leaks that narrow concrete type, so a caller's view of the method changes by platform. Annotate `export const x: T = {...}` to publish the wide contract, and the narrower impl still type-checks. Reference: whispering's `ManualRecorderLive: RecorderService<...>` (unary CPAL impl behind a binary contract).
 - **Re-export chains in non-barrel files**: `export { X } from './alias'` outside `index.ts` costs an extra hop with nothing to show for it. Reserve `export { ... } from ...` for barrels; export at the declaration everywhere else.
 - **Adapter / proxy / wrapper with no behavior change**: a `fromX` translator or thin passthrough makes Go-to-Def land on the wrapper. Widen the underlying factory's return shape instead (see `factory-function-composition` "collapsed adapter" rule).
-- **Manual return type annotation duplicating zone 4**: annotating a factory with a hand-written interface diverts Go-to-Def to the alias. Let the factory return its concrete object, then put the exported alias directly after it as `export type Thing = ReturnType<typeof createThing>`. This keeps navigation on the returned members and lets their JSDoc own the public documentation. See `method-shorthand-jsdoc`.
+- **Manual return type annotation duplicating zone 4**: annotating a factory with a hand-written interface diverts Go-to-Def to the alias. Let the factory return its concrete object, then put the exported alias directly after it as `export type Thing = ReturnType<typeof createThing>`. This keeps navigation on the returned members and lets their JSDoc own the public documentation. See [factory method documentation](../factory-function-composition/references/method-documentation-and-sibling-calls.md) when hover or navigation is in question.
 - **Noisy `satisfies` generic lists**: if a return object should prove it extends a generic contract but `satisfies Contract<A, B, C> & Extras` forces callers to restate inferred table, action, or runtime types, prefer a constrained identity helper owned by the contract module. Example: `return defineWorkspace({ ...workspace, ...runtime })` where the helper accepts `TWorkspace extends Workspace<...>` and returns `TWorkspace`. This keeps the call site readable, preserves the exact inferred return type, and leaves Go-to-Def on the real object members.
 - **When not to add `defineX`**: do not wrap a simple `satisfies` check just to give it a helper name. If the contract has no required type arguments, or its generics have defaults that make `satisfies Contract` readable, prefer `satisfies`. The helper only earns the extra name when it removes generic noise the reader would otherwise have to carry.
 
