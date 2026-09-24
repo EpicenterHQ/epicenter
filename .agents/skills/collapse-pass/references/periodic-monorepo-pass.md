@@ -46,7 +46,7 @@ apps/honeycrisp
 apps/whispering
 apps/local-mail
 apps/api
-packages/data
+packages/app
 shared TypeScript utilities
 ```
 
