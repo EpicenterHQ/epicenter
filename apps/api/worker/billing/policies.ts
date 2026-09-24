@@ -33,16 +33,14 @@
  * `BillingError` (fail closed), so the surface answers with a billing envelope
  * instead of a naked 500.
  *
- * The opaque-id blob store is unmetered in v1 (no storage policy here):
- * Autumn `check()` denies by default with no plan attached, so deferred quota
- * means not calling it. When blob storage is billed (deleted spec
- * 20260623T220000 decision 10, recoverable via git history; kernel is
- * ADR-0089), a `syncBlobStorageWithAutumn` policy lands here together with the
- * `policies` seam `mountBlobsApp` will need to carry it.
+ * Hosted blobs are unmetered in v1. Autumn `check()` denies by default with
+ * no plan attached, so the authority route does not call it. Billing hosted
+ * storage later requires an explicit policy seam and owner-level usage rules.
  *
  * The library remains billing-agnostic; everything here is cloud-only.
  */
 
+import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
 import type { CloudEnv } from '@epicenter/server';
 import { createMiddleware } from 'hono/factory';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -84,10 +82,7 @@ export const chargeOpenAiCreditsWithAutumn = createMiddleware<CloudEnv>(
 	},
 );
 
-// The hosted STT gateway pins one backend (mirrors `STT_MODEL` / `STT_BASE_URL`
-// in the library's transcription route), so the usage event's model and provider
-// are fixed here rather than read from the request.
-const HOSTED_STT_MODEL = 'whisper-1';
+// The gateway pins one upstream provider. Never trust request fields as billing metadata.
 const HOSTED_STT_PROVIDER = 'openai';
 
 /**
@@ -126,7 +121,7 @@ export const chargeOpenAiTranscriptionCredits = createMiddleware<CloudEnv>(
 		c.var.afterResponseQueue.push(
 			billing.trackAiTranscription({
 				seconds,
-				model: HOSTED_STT_MODEL,
+				model: HOSTED_TRANSCRIPTION_MODEL,
 				provider: HOSTED_STT_PROVIDER,
 			}),
 		);

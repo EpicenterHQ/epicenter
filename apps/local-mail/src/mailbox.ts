@@ -19,7 +19,7 @@
  * inbox page immediately and the page still come back full.
  */
 
-import type { AppSqliteDatabase } from '@epicenter/app';
+import type { AppSqliteDatabase } from '@epicenter/device';
 import { type Statement, sqliteHandle } from './handle.ts';
 import type { LabelIntent } from './intent-store.ts';
 import {
@@ -30,9 +30,18 @@ import {
 } from './message-fields.ts';
 import type { GmailLabel, GmailMessage } from './schema.ts';
 
+/** One completed page and the original baseline of its full download.
+ * A null nextPageToken means enumeration finished but finalization may remain.
+ */
+export type FullPullCheckpoint = {
+	scanId: string;
+	historyId: string;
+	syncedAt: string;
+	nextPageToken: string | null;
+};
+
 export type CacheState = {
 	historyId: string | null;
-	lastFullPullAt: string | null;
 	lastSyncedAt: string | null;
 };
 
@@ -43,7 +52,6 @@ export type CacheState = {
  */
 export type MessageSummary = {
 	id: string;
-	threadId: string | null;
 	subject: string | null;
 	sender: string | null;
 	snippet: string | null;
@@ -75,28 +83,38 @@ export type LabelSummary = {
 	type: string | null;
 };
 
-/** What a read applies on top of Gmail's facts, for one account. */
+/**
+ * What a read applies on top of Gmail's facts, for one account.
+ *
+ * Read-only in the type, because it is a snapshot of the intent store taken
+ * before a query and not a thing a query edits. That is also what makes
+ * `EMPTY_OVERLAY` safe to share: a `Map` cannot be frozen, so the only thing
+ * that can stop one default value from being poisoned for every read in the
+ * process is a type nobody can call `set` through.
+ */
 export type LabelOverlay = {
 	/** `messageId` -> labels this machine wants on it. */
-	wanted: Map<string, Set<string>>;
+	wanted: ReadonlyMap<string, ReadonlySet<string>>;
 	/** `messageId` -> labels this machine wants off it. */
-	unwanted: Map<string, Set<string>>;
+	unwanted: ReadonlyMap<string, ReadonlySet<string>>;
 };
 
+/** The overlay of an account owing Gmail nothing, which is the common case. */
 export const EMPTY_OVERLAY: LabelOverlay = {
 	wanted: new Map(),
 	unwanted: new Map(),
 };
 
 export function overlayOf(intents: readonly LabelIntent[]): LabelOverlay {
-	const overlay: LabelOverlay = { wanted: new Map(), unwanted: new Map() };
+	const wanted = new Map<string, Set<string>>();
+	const unwanted = new Map<string, Set<string>>();
 	for (const intent of intents) {
-		const side = intent.want ? overlay.wanted : overlay.unwanted;
+		const side = intent.want ? wanted : unwanted;
 		const labels = side.get(intent.messageId) ?? new Set<string>();
 		labels.add(intent.labelId);
 		side.set(intent.messageId, labels);
 	}
-	return overlay;
+	return { wanted, unwanted };
 }
 
 /** The effective label set of one mirrored row under `overlay`. */
@@ -115,21 +133,59 @@ export function effectiveLabels(
 	return [...labels];
 }
 
+/** What one account's disposable copy of Gmail currently holds. */
+export type MailStatus = {
+	cache: 'empty' | 'building' | 'ready';
+	lastSyncedAt: string | null;
+	rows: { messages: number; labels: number };
+};
+
 export type Mailbox = ReturnType<typeof openMailbox>;
 
 export function openMailbox(mail: AppSqliteDatabase) {
 	const { all, run, batch } = sqliteHandle(mail);
 
-	function upsertMessageStatement(message: GmailMessage, syncedAt: string) {
+	/** The final statement advances the cursor only after every chunk commits. */
+	async function writeChunks(statements: readonly Statement[]): Promise<void> {
+		// Leave room for the envelope beneath native framing's 8 MiB limit.
+		const limit = 4 * 1024 * 1024;
+		const encoder = new TextEncoder();
+		const sizes = statements.map(
+			(statement) => encoder.encode(JSON.stringify(statement)).byteLength + 1,
+		);
+		// Refuse before writing any part of a page that cannot fit one message.
+		if (sizes.some((size) => size > limit))
+			throw new Error(
+				'One downloaded message is too large to save on this device.',
+			);
+		let start = 0;
+		let bytes = 2;
+		for (const [index, size] of sizes.entries()) {
+			if (bytes + size > limit && index > start) {
+				await batch(statements.slice(start, index));
+				start = index;
+				bytes = 2;
+			}
+			bytes += size;
+		}
+		await batch(statements.slice(start));
+	}
+
+	function upsertMessageStatement(
+		message: GmailMessage,
+		syncedAt: string,
+		scanId: string | null,
+	) {
 		return {
-			sql: `INSERT INTO messages (id, resource, subject, sender, body_text, synced_at)
-			      VALUES (?, ?, ?, ?, ?, ?)
+			sql: `INSERT INTO messages (id, resource, subject, sender, body_text, synced_at, full_pull_id)
+			      VALUES (?, ?, ?, ?, ?, ?, ?)
 			      ON CONFLICT(id) DO UPDATE SET
 			        resource = excluded.resource,
 			        subject = excluded.subject,
 			        sender = excluded.sender,
 			        body_text = excluded.body_text,
-			        synced_at = excluded.synced_at`,
+			        synced_at = excluded.synced_at,
+			        full_pull_id = COALESCE(excluded.full_pull_id, messages.full_pull_id)`,
 			parameters: [
 				message.id,
 				JSON.stringify(message),
@@ -137,6 +193,7 @@ export function openMailbox(mail: AppSqliteDatabase) {
 				headerValue(message, 'From'),
 				bodyText(message),
 				syncedAt,
+				scanId,
 			] as const,
 		};
 	}
@@ -153,7 +210,7 @@ export function openMailbox(mail: AppSqliteDatabase) {
 	 */
 	async function foldLabels(
 		messageId: string,
-		labelIds: readonly string[],
+		labels: readonly string[] | ReadonlyMap<string, boolean>,
 		syncedAt: string,
 	): Promise<{ statement: Statement; changed: boolean } | undefined> {
 		const [row] = await all<{ resource: string }>(
@@ -165,6 +222,16 @@ export function openMailbox(mail: AppSqliteDatabase) {
 			labelIds?: string[];
 		};
 		const previous = Array.isArray(parsed.labelIds) ? parsed.labelIds : [];
+		const labelIds = new Set(previous);
+		if (Array.isArray(labels)) {
+			labelIds.clear();
+			for (const label of labels) labelIds.add(label);
+		} else {
+			for (const [label, want] of labels as ReadonlyMap<string, boolean>) {
+				if (want) labelIds.add(label);
+				else labelIds.delete(label);
+			}
+		}
 		return {
 			statement: {
 				sql: `UPDATE messages SET resource = ?, synced_at = ?
@@ -175,15 +242,7 @@ export function openMailbox(mail: AppSqliteDatabase) {
 					messageId,
 				],
 			},
-			changed: !sameLabelSet(previous, labelIds),
-		};
-	}
-
-	function setMetaStatement(key: string, value: string) {
-		return {
-			sql: `INSERT INTO cache_meta (key, value) VALUES (?, ?)
-			      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-			parameters: [key, value] as const,
+			changed: !sameLabelSet(previous, [...labelIds]),
 		};
 	}
 
@@ -216,10 +275,7 @@ export function openMailbox(mail: AppSqliteDatabase) {
 		};
 	}
 
-	function idsAsserting(
-		side: Map<string, Set<string>>,
-		label: string,
-	): string[] {
+	function idsAsserting(side: LabelOverlay['wanted'], label: string): string[] {
 		const ids: string[] = [];
 		for (const [messageId, labels] of side) {
 			if (labels.has(label)) ids.push(messageId);
@@ -227,21 +283,29 @@ export function openMailbox(mail: AppSqliteDatabase) {
 		return ids;
 	}
 
-	function toSummary(
-		row: {
-			id: string;
-			thread_id: string | null;
-			subject: string | null;
-			sender: string | null;
-			snippet: string | null;
-			internal_date: number | null;
-			label_ids: string | null;
-		},
-		overlay: LabelOverlay,
-	): MessageSummary {
+	const SUMMARY_COLUMNS =
+		'id, subject, sender, snippet, internal_date, label_ids';
+
+	/**
+	 * The columns a summary is built from, named once.
+	 *
+	 * Declared beside `SUMMARY_COLUMNS` because the two have to agree: a column
+	 * added to one and not the other is a row this reads as `undefined`. The
+	 * detail read selects these plus two more, so it says so as an intersection
+	 * rather than by restating the seven.
+	 */
+	type SummaryRow = {
+		id: string;
+		subject: string | null;
+		sender: string | null;
+		snippet: string | null;
+		internal_date: number | null;
+		label_ids: string | null;
+	};
+
+	function toSummary(row: SummaryRow, overlay: LabelOverlay): MessageSummary {
 		return {
 			id: row.id,
-			threadId: row.thread_id,
 			subject: row.subject,
 			sender: row.sender,
 			snippet: row.snippet,
@@ -250,25 +314,77 @@ export function openMailbox(mail: AppSqliteDatabase) {
 		};
 	}
 
+	async function readCacheState(): Promise<CacheState> {
+		const [state] = await all<{
+			history_id: string | null;
+			last_synced_at: string | null;
+		}>(`SELECT history_id, last_synced_at FROM sync_state WHERE id = 1`);
+		if (!state) throw new Error('The mailbox sync state is missing.');
+		return {
+			historyId: state.history_id,
+			lastSyncedAt: state.last_synced_at,
+		};
+	}
+
+	async function counts(): Promise<{ messages: number; labels: number }> {
+		const [messages, labels] = await Promise.all([
+			all<{ n: number }>(`SELECT count(*) AS n FROM messages`),
+			all<{ n: number }>(`SELECT count(*) AS n FROM labels`),
+		]);
+		return { messages: messages[0]?.n ?? 0, labels: labels[0]?.n ?? 0 };
+	}
+
 	return {
-		async readCacheState(): Promise<CacheState> {
-			const rows = await all<{ key: string; value: string | null }>(
-				`SELECT key, value FROM cache_meta`,
-			);
-			const meta = new Map(rows.map((row) => [row.key, row.value]));
+		readCacheState,
+		counts,
+
+		/**
+		 * How much of Gmail this device holds, and how fresh it is.
+		 *
+		 * The cache describing itself, because there is nothing else in the answer.
+		 * This was a `status.ts` module with its own deps type for as long as it
+		 * also reported what a person still owed Gmail; that half is the outbox,
+		 * over the durable file, and keeping the two reads apart is what makes it
+		 * impossible for an empty or broken cache to report zero waiting work
+		 * (ADR-0306).
+		 *
+		 * `building` means downloaded rows are available, but population and its
+		 * first history catchup have not both succeeded.
+		 */
+		async status(): Promise<MailStatus> {
+			const [state, rows] = await Promise.all([readCacheState(), counts()]);
 			return {
-				historyId: meta.get('history_id') ?? null,
-				lastFullPullAt: meta.get('last_full_pull_at') ?? null,
-				lastSyncedAt: meta.get('last_synced_at') ?? null,
+				cache:
+					state.historyId !== null && state.lastSyncedAt !== null
+						? 'ready'
+						: rows.messages === 0
+							? 'empty'
+							: 'building',
+				lastSyncedAt: state.lastSyncedAt,
+				rows,
 			};
 		},
 
-		async counts(): Promise<{ messages: number; labels: number }> {
-			const [messages, labels] = await Promise.all([
-				all<{ n: number }>(`SELECT count(*) AS n FROM messages`),
-				all<{ n: number }>(`SELECT count(*) AS n FROM labels`),
-			]);
-			return { messages: messages[0]?.n ?? 0, labels: labels[0]?.n ?? 0 };
+		/**
+		 * Subject lines for a handful of ids, for the outbox's list.
+		 *
+		 * A missing id is a missing key rather than a null value, because the two
+		 * absences differ: this device may not hold the message at all, and a
+		 * message may genuinely have no subject. An id the copy does not hold is
+		 * ordinary here, since undelivered triage outlives a cache reset
+		 * (ADR-0306).
+		 */
+		async subjectsOf(
+			ids: readonly string[],
+		): Promise<Map<string, string | null>> {
+			if (ids.length === 0) return new Map();
+			const unique = [...new Set(ids)];
+			const rows = await all<{ id: string; subject: string | null }>(
+				`SELECT id, subject FROM messages
+				 WHERE id IN (${unique.map(() => '?').join(', ')})`,
+				unique,
+			);
+			return new Map(rows.map((row) => [row.id, row.subject]));
 		},
 
 		async hasMessage(id: string): Promise<boolean> {
@@ -276,19 +392,6 @@ export function openMailbox(mail: AppSqliteDatabase) {
 				id,
 			]);
 			return rows.length > 0;
-		},
-
-		async findLabelByIdOrExactName(
-			label: string,
-		): Promise<{ id: string; name: string | null } | null> {
-			const rows = await all<{ id: string; name: string | null }>(
-				`SELECT id, name FROM labels
-				 WHERE id = ? OR name = ?
-				 ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id
-				 LIMIT 1`,
-				[label, label, label],
-			);
-			return rows[0] ?? null;
 		},
 
 		/**
@@ -331,16 +434,8 @@ export function openMailbox(mail: AppSqliteDatabase) {
 				parameters.push(pattern, pattern, pattern);
 			}
 			parameters.push(limit, offset);
-			const rows = await all<{
-				id: string;
-				thread_id: string | null;
-				subject: string | null;
-				sender: string | null;
-				snippet: string | null;
-				internal_date: number | null;
-				label_ids: string | null;
-			}>(
-				`SELECT id, thread_id, subject, sender, snippet, internal_date, label_ids
+			const rows = await all<SummaryRow>(
+				`SELECT ${SUMMARY_COLUMNS}
 				 FROM messages${where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''}
 				 ORDER BY internal_date DESC
 				 LIMIT ? OFFSET ?`,
@@ -353,19 +448,10 @@ export function openMailbox(mail: AppSqliteDatabase) {
 			id: string,
 			overlay: LabelOverlay = EMPTY_OVERLAY,
 		): Promise<MessageDetail | null> {
-			const rows = await all<{
-				id: string;
-				thread_id: string | null;
-				subject: string | null;
-				sender: string | null;
-				snippet: string | null;
-				internal_date: number | null;
-				label_ids: string | null;
-				body_text: string | null;
-				resource: string;
-			}>(
-				`SELECT id, thread_id, subject, sender, snippet, internal_date,
-				        label_ids, body_text, resource
+			const rows = await all<
+				SummaryRow & { body_text: string | null; resource: string }
+			>(
+				`SELECT ${SUMMARY_COLUMNS}, body_text, resource
 				 FROM messages WHERE id = ?`,
 				[id],
 			);
@@ -404,54 +490,84 @@ export function openMailbox(mail: AppSqliteDatabase) {
 			);
 		},
 
-		/**
-		 * One page of a full backfill: upsert every message, no cursor advance.
-		 * One `batch` per page, so a crash mid-backfill loses the in-flight page
-		 * rather than the whole pull.
-		 */
+		/** Resume only from a checkpoint committed with its completed page. */
+		async readFullPullCheckpoint(): Promise<FullPullCheckpoint | null> {
+			const [row] = await all<{
+				history_id: string;
+				scan_id: string;
+				synced_at: string;
+				next_page_token: string | null;
+			}>(
+				'SELECT history_id, scan_id, synced_at, next_page_token FROM full_pull_checkpoint WHERE id = 1',
+			);
+			return row
+				? {
+						historyId: row.history_id,
+						scanId: row.scan_id,
+						syncedAt: row.synced_at,
+						nextPageToken: row.next_page_token,
+					}
+				: null;
+		},
+
+		/** Save bounded chunks before advancing the page continuation. */
 		async ingestFullPullPage(
 			messages: readonly GmailMessage[],
-			syncedAt: string,
+			checkpoint: FullPullCheckpoint,
 		): Promise<void> {
-			await batch(
-				messages.map((message) => upsertMessageStatement(message, syncedAt)),
-			);
+			await writeChunks([
+				...messages.map((message) =>
+					upsertMessageStatement(
+						message,
+						checkpoint.syncedAt,
+						checkpoint.scanId,
+					),
+				),
+				{
+					sql: `INSERT INTO full_pull_checkpoint (id, history_id, scan_id, synced_at, next_page_token)
+					      VALUES (1, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
+					      history_id = excluded.history_id, scan_id = excluded.scan_id, synced_at = excluded.synced_at,
+					      next_page_token = excluded.next_page_token`,
+					parameters: [
+						checkpoint.historyId,
+						checkpoint.scanId,
+						checkpoint.syncedAt,
+						checkpoint.nextPageToken,
+					],
+				},
+			]);
 		},
 
 		/** Replace the label set, which `labels.list` returns complete every call. */
-		async ingestLabels(
-			labels: readonly GmailLabel[],
-			syncedAt: string,
-		): Promise<void> {
+		async ingestLabels(labels: readonly GmailLabel[]): Promise<void> {
 			await batch([
 				{
 					sql: `DELETE FROM labels`,
 				},
 				...labels.map((label) => ({
-					sql: `INSERT INTO labels (id, resource, synced_at)
-					      VALUES (?, ?, ?)
-					      ON CONFLICT(id) DO UPDATE SET
-					        resource = excluded.resource,
-					        synced_at = excluded.synced_at`,
-					parameters: [label.id, JSON.stringify(label), syncedAt] as const,
+					sql: `INSERT INTO labels (id, resource) VALUES (?, ?)`,
+					parameters: [label.id, JSON.stringify(label)] as const,
 				})),
 			]);
 		},
 
 		/**
-		 * Close out a full pull: sweep what this pass did not touch and record the
+		 * Checkpoint enumeration: sweep what this pass did not touch and record the
 		 * `historyId` baseline read BEFORE page one, so changes made during the
 		 * pull replay idempotently instead of disappearing behind a later cursor.
+		 * History catchup alone records the successful-sync time.
 		 */
-		async finishFullPull(historyId: string, syncedAt: string): Promise<number> {
+		async finishFullPull(historyId: string, scanId: string): Promise<number> {
 			const changes = await batch([
 				{
-					sql: `DELETE FROM messages WHERE synced_at < ?`,
-					parameters: [syncedAt],
+					sql: `DELETE FROM messages WHERE full_pull_id IS NOT ?`,
+					parameters: [scanId],
 				},
-				setMetaStatement('history_id', historyId),
-				setMetaStatement('last_full_pull_at', syncedAt),
-				setMetaStatement('last_synced_at', syncedAt),
+				{
+					sql: `UPDATE sync_state SET history_id = ? WHERE id = 1`,
+					parameters: [historyId],
+				},
+				{ sql: `DELETE FROM full_pull_checkpoint` },
 			]);
 			return changes[0] ?? 0;
 		},
@@ -475,9 +591,8 @@ export function openMailbox(mail: AppSqliteDatabase) {
 		},
 
 		/**
-		 * Apply one `history.list` batch and advance the cursor together, so a
-		 * crash rolls back to the prior `historyId` and the next pass re-pulls the
-		 * window, which is idempotent either way.
+		 * Apply history in bounded chunks, then advance its cursor. Interruption
+		 * leaves the previous cursor, so the next pass replays the same window.
 		 *
 		 * The label patches are read first, outside the batch, because a patch
 		 * needs the row it is patching and the handle has no transaction callback
@@ -493,31 +608,32 @@ export function openMailbox(mail: AppSqliteDatabase) {
 		}: {
 			messagesToUpsert: readonly GmailMessage[];
 			messagesToDelete: readonly string[];
-			labelPatches: readonly { messageId: string; labelIds: string[] }[];
+			labelPatches: readonly {
+				messageId: string;
+				wants: ReadonlyMap<string, boolean>;
+			}[];
 			newHistoryId: string;
 			syncedAt: string;
 		}): Promise<{ labelsChanged: number }> {
 			const folds: { statement: Statement; changed: boolean }[] = [];
 			for (const patch of labelPatches) {
-				const fold = await foldLabels(
-					patch.messageId,
-					patch.labelIds,
-					syncedAt,
-				);
+				const fold = await foldLabels(patch.messageId, patch.wants, syncedAt);
 				if (fold !== undefined) folds.push(fold);
 			}
 
-			await batch([
+			await writeChunks([
 				...messagesToUpsert.map((message) =>
-					upsertMessageStatement(message, syncedAt),
+					upsertMessageStatement(message, syncedAt, null),
 				),
 				...messagesToDelete.map((id) => ({
 					sql: `DELETE FROM messages WHERE id = ?`,
 					parameters: [id] as const,
 				})),
 				...folds.map((fold) => fold.statement),
-				setMetaStatement('history_id', newHistoryId),
-				setMetaStatement('last_synced_at', syncedAt),
+				{
+					sql: `UPDATE sync_state SET history_id = ?, last_synced_at = ? WHERE id = 1`,
+					parameters: [newHistoryId, syncedAt],
+				},
 			]);
 			return { labelsChanged: folds.filter((fold) => fold.changed).length };
 		},

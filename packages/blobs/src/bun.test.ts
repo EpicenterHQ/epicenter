@@ -1,313 +1,500 @@
 /**
- * Bun Filesystem Blob Store Tests
+ * Flat Bun blob publication tests.
  *
- * Verifies the desktop filesystem implementation of the shared local blob
- * contract and its streaming request extension.
- *
- * Key behaviors:
- * - Complete body and metadata directories publish atomically
- * - Immutable identifiers refuse replacement, including concurrent writers
- * - Stat verifies data presence and exact size without loading its bytes
- * - Request bodies stream into the store without becoming an in-memory Blob
- * - Runtime BlobId validation protects every filesystem operation
- * - Missing reads and repeated deletes keep their typed contract
+ * Verifies immutable flat files, metadata-only enumeration, scoped deletion,
+ * no-follow reads, collision races, and retained publication receipts after
+ * failed durability barriers. Historical and other publishers' files survive.
  */
-
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, expect, spyOn, test } from 'bun:test';
 import {
-	stat as fsStat,
+	lstat,
 	mkdir,
 	mkdtemp,
+	open,
 	readdir,
 	readFile,
 	rm,
+	symlink,
 	unlink,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { type BlobId, generateBlobId } from './blob-id.js';
+import type { BlobId } from './blob-id.js';
+import { generateBlobId } from './blob-id.js';
 import { createBunBlobStore } from './bun.js';
 
-const testDirectories: string[] = [];
-
+const directories: string[] = [];
 afterEach(async () => {
-	await Promise.all(
-		testDirectories
-			.splice(0)
-			.map((directory) => rm(directory, { recursive: true, force: true })),
-	);
+	for (const directory of directories.splice(0))
+		await rm(directory, { recursive: true, force: true });
 });
 
 async function setup() {
-	const directory = await mkdtemp(join(tmpdir(), 'epicenter-bun-blobs-'));
-	testDirectories.push(directory);
-	return { blobs: createBunBlobStore({ directory }), directory };
+	const directory = await mkdtemp(join(tmpdir(), 'epicenter-flat-blobs-'));
+	directories.push(directory);
+	return { directory, store: createBunBlobStore({ directory }) };
 }
 
-async function pathExists(path: string): Promise<boolean> {
-	try {
-		await fsStat(path);
-		return true;
-	} catch (cause) {
-		if (
-			cause instanceof Error &&
-			'code' in cause &&
-			(cause as Error & { code?: unknown }).code === 'ENOENT'
-		) {
-			return false;
-		}
-		throw cause;
-	}
-}
-
-async function setupHostilePathTarget() {
-	const root = await mkdtemp(join(tmpdir(), 'epicenter-hostile-bun-blobs-'));
-	testDirectories.push(root);
-	const directory = join(root, 'blobs');
-	const outside = join(root, 'outside');
-	await mkdir(directory);
-	await mkdir(outside);
-	await writeFile(join(outside, 'sentinel'), 'untouched');
-	await writeFile(join(outside, 'data'), 'outside bytes');
-	await writeFile(
-		join(outside, 'metadata.json'),
-		JSON.stringify({ contentType: 'text/plain', size: 13 }),
+test('one complete key is one ordinary file with canonical format and no sidecar', async () => {
+	const { directory, store } = await setup();
+	const id = generateBlobId('wav');
+	expectOk(
+		await store.put(id, new Blob(['wave bytes'], { type: 'audio/x-wav' })),
 	);
-	return {
-		blobs: createBunBlobStore({ directory }),
-		directory,
-		outside,
-		hostileId: '../outside' as BlobId,
-	};
-}
-
-test('put stores immutable bytes and metadata under one id', async () => {
-	const { blobs } = await setup();
-	const id = generateBlobId();
-	const input = new Blob(['hello'], { type: 'text/plain' });
-
-	expectOk(await blobs.put(id, input));
-	const stored = expectOk(await blobs.get(id));
-
-	expect(stored).toBeInstanceOf(Blob);
-	expect(stored.type).toStartWith('text/plain');
-	expect(await stored.text()).toBe('hello');
-	expect(expectOk(await blobs.stat(id))).toEqual({
-		contentType: input.type,
-		size: 5,
+	expect(await readdir(directory)).toEqual([id]);
+	expect((await lstat(join(directory, id))).isFile()).toBe(true);
+	expect(await readFile(join(directory, id), 'utf8')).toBe('wave bytes');
+	const saved = expectOk(await store.get(id));
+	expect(saved.type).toBe('audio/wav');
+	expect(await saved.text()).toBe('wave bytes');
+	expect(expectOk(await store.stat(id))).toEqual({
+		size: 10,
+		contentType: 'audio/wav',
 	});
+	expectErr(
+		await store.put(id, new Blob(['replacement'], { type: 'audio/wav' })),
+	);
+	expect(await readFile(join(directory, id), 'utf8')).toBe('wave bytes');
 });
 
-test('put refuses to replace bytes under an existing id', async () => {
-	const { blobs } = await setup();
-	const id = generateBlobId();
-	expectOk(await blobs.put(id, new Blob(['first'])));
-
-	const error = expectErr(await blobs.put(id, new Blob(['second'])));
-
-	expect(error.name).toBe('BlobAlreadyExists');
-	expect(await expectOk(await blobs.get(id)).text()).toBe('first');
-});
-
-test('concurrent puts publish one complete immutable object', async () => {
-	const { blobs } = await setup();
-	const id = generateBlobId();
-	const results = await Promise.all([
-		blobs.put(id, new Blob(['first'], { type: 'text/first' })),
-		blobs.put(id, new Blob(['second'], { type: 'text/second' })),
+test('independent publishers racing one key publish exactly one complete body', async () => {
+	const { directory, store } = await setup();
+	const other = createBunBlobStore({ directory });
+	const id = generateBlobId('bin');
+	const outcomes = await Promise.all([
+		store.put(id, new Blob(['a'.repeat(1024 * 1024)])),
+		other.put(id, new Blob(['b'.repeat(1024 * 1024)])),
 	]);
-
-	expect(results.filter((result) => result.error === null)).toHaveLength(1);
-	expect(
-		results.filter((result) => result.error?.name === 'BlobAlreadyExists'),
-	).toHaveLength(1);
-	const stored = expectOk(await blobs.get(id));
-	expect(['first', 'second']).toContain(await stored.text());
-});
-
-test('putRequest keeps the final id invisible until the stream completes', async () => {
-	const { blobs } = await setup();
-	const id = generateBlobId();
-	const started = Promise.withResolvers<void>();
-	const release = Promise.withResolvers<void>();
-	let chunk = 0;
-	const body = new ReadableStream<Uint8Array>({
-		pull(controller) {
-			if (chunk === 0) {
-				chunk += 1;
-				controller.enqueue(new TextEncoder().encode('first'));
-				started.resolve();
-				return;
-			}
-			if (chunk === 1) {
-				chunk += 1;
-				return release.promise.then(() => {
-					controller.enqueue(new TextEncoder().encode('-second'));
-					controller.close();
-				});
-			}
-		},
-	});
-	const request = new Request('http://127.0.0.1/upload', {
-		method: 'PUT',
-		headers: { 'content-type': 'audio/test' },
-		body,
-	});
-
-	const write = blobs.putRequest(id, request);
-	await started.promise;
-	expect(expectErr(await blobs.stat(id)).name).toBe('BlobNotFound');
-	release.resolve();
-	expectOk(await write);
-
-	const stored = expectOk(await blobs.get(id));
-	expect(stored.type).toBe('audio/test');
-	expect(await stored.text()).toBe('first-second');
-});
-
-test('putRequest streams a large multi-chunk body without truncation', async () => {
-	const { blobs } = await setup();
-	const id = generateBlobId();
-	const chunkSize = 128 * 1024;
-	const chunkCount = 96;
-	let chunkIndex = 0;
-	const body = new ReadableStream<Uint8Array>({
-		pull(controller) {
-			if (chunkIndex === chunkCount) {
-				controller.close();
-				return;
-			}
-			controller.enqueue(new Uint8Array(chunkSize).fill(chunkIndex % 251));
-			chunkIndex += 1;
-		},
-	});
-	const request = new Request('http://127.0.0.1/upload', {
-		method: 'PUT',
-		headers: { 'content-type': 'audio/test' },
-		body,
-	});
-
-	expectOk(await blobs.putRequest(id, request));
-	expect(expectOk(await blobs.stat(id)).size).toBe(chunkSize * chunkCount);
-	const bytes = new Uint8Array(
-		await expectOk(await blobs.get(id)).arrayBuffer(),
+	expect(outcomes.filter((result) => result.error === null)).toHaveLength(1);
+	expect(outcomes.find((result) => result.error)?.error?.name).toBe(
+		'BlobAlreadyExists',
 	);
-	for (const sample of [0, 1, 47, chunkCount - 1]) {
-		expect(bytes[sample * chunkSize]).toBe(sample % 251);
-		expect(bytes[(sample + 1) * chunkSize - 1]).toBe(sample % 251);
+	const body = await readFile(join(directory, id), 'utf8');
+	expect(['a'.repeat(1024 * 1024), 'b'.repeat(1024 * 1024)]).toContain(body);
+	expect(await readdir(directory)).toEqual([id]);
+});
+
+test('stat and paginated list never create a BunFile or read blob bodies', async () => {
+	const { store } = await setup();
+	const ids = Array.from({ length: 4 }, () => generateBlobId('bin')).sort();
+	for (const id of ids) expectOk(await store.put(id, new Blob([])));
+	const file = spyOn(Bun, 'file').mockImplementation(() => {
+		throw new Error('Body read forbidden');
+	});
+	try {
+		expect(expectOk(await store.stat(ids[0]!)).size).toBe(0);
+		const first = expectOk(await store.list({ limit: 2 }));
+		expect(first.items.map(({ id }) => id)).toEqual(ids.slice(0, 2));
+		const second = expectOk(
+			await store.list({ cursor: first.nextCursor, limit: 2 }),
+		);
+		expect(second.items.map(({ id }) => id)).toEqual(ids.slice(2));
+		expect(second.nextCursor).toBeUndefined();
+		expect(file).not.toHaveBeenCalled();
+	} finally {
+		file.mockRestore();
 	}
 });
 
-test('putRequest removes partial staging bytes when the source stream throws', async () => {
-	const { blobs, directory } = await setup();
-	const id = generateBlobId();
-	let pullCount = 0;
-	const body = new ReadableStream<Uint8Array>({
-		pull(controller) {
-			pullCount += 1;
-			if (pullCount === 1) {
-				controller.enqueue(new Uint8Array(2 * 1024 * 1024).fill(7));
-				return;
-			}
-			controller.error(new Error('source failed'));
-		},
-	});
-	const request = new Request('http://127.0.0.1/upload', {
-		method: 'PUT',
-		body,
-	});
+test('symlinks, dangling symlinks, and directories are collisions and never readable blobs', async () => {
+	const { directory, store } = await setup();
+	const outside = join(directory, 'outside');
+	await writeFile(outside, 'preserve');
+	const ids = [
+		generateBlobId('bin'),
+		generateBlobId('bin'),
+		generateBlobId('bin'),
+	];
+	await symlink(outside, join(directory, ids[0]!));
+	await symlink(join(directory, 'missing'), join(directory, ids[1]!));
+	await mkdir(join(directory, ids[2]!));
+	for (const id of ids) {
+		expect(expectErr(await store.put(id, new Blob(['new']))).name).toBe(
+			'BlobAlreadyExists',
+		);
+		expect(expectErr(await store.get(id)).name).toBe('BlobStoreFailed');
+		expect(expectErr(await store.stat(id)).name).toBe('BlobStoreFailed');
+		expect(expectErr(await store.delete(id)).name).toBe('BlobStoreFailed');
+	}
+	expect(expectOk(await store.list()).items).toEqual([]);
+	expect(await readFile(outside, 'utf8')).toBe('preserve');
+	expect((await lstat(join(directory, ids[1]!))).isSymbolicLink()).toBe(true);
+});
 
-	expect(expectErr(await blobs.putRequest(id, request)).name).toBe(
+test('every key boundary refuses traversal and legacy names without touching files', async () => {
+	const { directory, store } = await setup();
+	await writeFile(join(directory, 'sentinel'), 'preserve');
+	for (const value of [
+		'./sentinel',
+		'%2e%2e/sentinel',
+		generateBlobId('wav') + '/data',
+		'blob_' + 'a'.repeat(21),
+	]) {
+		const id = value as BlobId;
+		expect(expectErr(await store.put(id, new Blob(['new']))).name).toBe(
+			'BlobStoreFailed',
+		);
+		expect(expectErr(await store.get(id)).name).toBe('BlobStoreFailed');
+		expect(expectErr(await store.stat(id)).name).toBe('BlobStoreFailed');
+		expect(expectErr(await store.delete(id)).name).toBe('BlobStoreFailed');
+		expect(expectErr(await store.list({ cursor: value })).name).toBe(
+			'BlobStoreFailed',
+		);
+	}
+	expect(await readdir(directory)).toEqual(['sentinel']);
+});
+
+test('deleting a key preserves legacy objects and all unrelated staging', async () => {
+	const { directory, store } = await setup();
+	const legacy = join(directory, 'blob_' + 'a'.repeat(21));
+	await mkdir(legacy);
+	await writeFile(join(legacy, 'data'), 'old bytes');
+	await writeFile(join(legacy, 'metadata.json'), '{"size":9}');
+	await mkdir(join(directory, '.staging'));
+	await writeFile(join(directory, '.bun-other.tmp'), 'other bun writer');
+	await writeFile(join(directory, '.native-other.tmp'), 'other native writer');
+	const id = generateBlobId('bin');
+	expectOk(await store.put(id, new Blob(['new'])));
+	expectOk(await store.delete(id));
+	expectOk(await store.delete(id));
+	expect(expectOk(await store.list()).items).toEqual([]);
+	expect(await readFile(join(legacy, 'data'), 'utf8')).toBe('old bytes');
+	expect((await readdir(directory)).sort()).toEqual([
+		'.bun-other.tmp',
+		'.native-other.tmp',
+		'.staging',
+		'blob_' + 'a'.repeat(21),
+	]);
+});
+
+test("temporary-name collision preserves the other publisher's staging file", async () => {
+	const { directory, store } = await setup();
+	const name = '.bun-11111111-1111-4111-8111-111111111111.tmp';
+	await writeFile(join(directory, name), 'other publisher');
+	const random = spyOn(crypto, 'randomUUID').mockReturnValue(
+		'11111111-1111-4111-8111-111111111111',
+	);
+	try {
+		expect(
+			expectErr(await store.put(generateBlobId('bin'), new Blob(['new']))).name,
+		).toBe('BlobStoreFailed');
+	} finally {
+		random.mockRestore();
+	}
+	expect(await readFile(join(directory, name), 'utf8')).toBe('other publisher');
+	expect(await readdir(directory)).toEqual([name]);
+});
+
+test('known MIME mismatch fails before creating an entry', async () => {
+	const { directory, store } = await setup();
+	expect(
+		expectErr(
+			await store.put(
+				generateBlobId('wav'),
+				new Blob(['bad'], { type: 'audio/webm; codecs=opus' }),
+			),
+		).name,
+	).toBe('BlobStoreFailed');
+	expect(await readdir(directory)).toEqual([]);
+});
+
+test('streaming failure exposes no final file and removes only its own partial stage', async () => {
+	const { directory, store } = await setup();
+	let reads = 0;
+	const request = new Request('https://example.test', {
+		method: 'POST',
+		body: new ReadableStream({
+			pull(controller) {
+				if (reads++ === 0) controller.enqueue(new Uint8Array([1, 2, 3]));
+				else controller.error(new Error('capture lost'));
+			},
+		}),
+	});
+	expect(
+		expectErr(await store.putRequest(generateBlobId('bin'), request)).name,
+	).toBe('BlobStoreFailed');
+	expect(await readdir(directory)).toEqual([]);
+});
+
+test('failed prepublication sync retains complete bytes and retries a consumed request', async () => {
+	const { directory, store } = await setup();
+	const probe = await open(directory, 'r');
+	const prototype: Pick<typeof probe, 'sync'> = Object.getPrototypeOf(probe);
+	await probe.close();
+	const sync = spyOn(prototype, 'sync').mockRejectedValueOnce(
+		new Error('disk unavailable'),
+	);
+	const id = generateBlobId('bin');
+	const input = new Request('https://example.test', {
+		method: 'POST',
+		body: 'complete',
+	});
+	try {
+		expect(expectErr(await store.putRequest(id, input)).name).toBe(
+			'BlobStoreFailed',
+		);
+	} finally {
+		sync.mockRestore();
+	}
+	expect(expectOk(await store.list()).items).toEqual([]);
+	expect(await readdir(directory)).toHaveLength(1);
+	expectOk(await store.putRequest(id, input));
+	expect(await readFile(join(directory, id), 'utf8')).toBe('complete');
+	expect(await readdir(directory)).toEqual([id]);
+});
+
+test('failed postpublication sync retains the final file and receipt for retry', async () => {
+	const { directory, store } = await setup();
+	const probe = await open(directory, 'r');
+	const prototype: Pick<typeof probe, 'sync'> = Object.getPrototypeOf(probe);
+	const original = prototype.sync;
+	await probe.close();
+	let calls = 0;
+	const sync = spyOn(prototype, 'sync').mockImplementation(function (
+		this: typeof probe,
+	) {
+		if (++calls === 2)
+			return Promise.reject(new Error('directory sync failed'));
+		return original.call(this);
+	});
+	const id = generateBlobId('bin');
+	const input = new Blob(['published']);
+	try {
+		expect(expectErr(await store.put(id, input)).name).toBe('BlobStoreFailed');
+	} finally {
+		sync.mockRestore();
+	}
+	expect(await readFile(join(directory, id), 'utf8')).toBe('published');
+	expect(await readdir(directory)).toHaveLength(2);
+	expect(expectErr(await store.put(id, new Blob(['different']))).name).toBe(
 		'BlobStoreFailed',
 	);
-	expect(expectErr(await blobs.stat(id)).name).toBe('BlobNotFound');
-	expect(await readdir(join(directory, '.staging', 'bun'))).toEqual([]);
+	expectOk(await store.put(id, input));
+	expect(await readdir(directory)).toEqual([id]);
+	expect(await readFile(join(directory, id), 'utf8')).toBe('published');
 });
 
-test('stat fails when immutable data is missing or differs from metadata', async () => {
-	const { blobs, directory } = await setup();
-	const id = generateBlobId();
-	expectOk(
-		await blobs.put(id, new Blob(['bytes'], { type: 'application/test' })),
+for (const barrier of [1, 2]) {
+	for (const kind of ['Blob', 'Request', 'Response']) {
+		test(`fresh ${kind} retry verifies bytes after ${barrier === 1 ? 'pre' : 'post'}publication failure`, async () => {
+			const { directory, store } = await setup();
+			const id = generateBlobId('bin');
+			const bytes = 'abc123'.repeat(30_000);
+			function input(value: string) {
+				if (kind === 'Request')
+					return new Request('https://example.test', {
+						method: 'POST',
+						body: value,
+					});
+				if (kind === 'Response') return new Response(value);
+				return new Blob([value]);
+			}
+			function put(value: string) {
+				const data = input(value);
+				if (data instanceof Request) return store.putRequest(id, data);
+				if (data instanceof Response) return store.putResponse(id, data);
+				return store.put(id, data);
+			}
+			const probe = await open(directory, 'r');
+			const prototype: Pick<typeof probe, 'sync'> =
+				Object.getPrototypeOf(probe);
+			const original = prototype.sync;
+			await probe.close();
+			let calls = 0;
+			const sync = spyOn(prototype, 'sync').mockImplementation(function (
+				this: typeof probe,
+			) {
+				if (++calls === barrier)
+					return Promise.reject(new Error('sync failed'));
+				return original.call(this);
+			});
+			try {
+				expect(expectErr(await put(bytes)).name).toBe('BlobStoreFailed');
+			} finally {
+				sync.mockRestore();
+			}
+			for (const wrong of [
+				bytes.slice(1),
+				`${bytes}x`,
+				`${bytes.slice(0, -1)}x`,
+			]) {
+				expect(expectErr(await put(wrong)).name).toBe('BlobStoreFailed');
+			}
+			if (barrier === 1)
+				expect(expectErr(await store.get(id)).name).toBe('BlobNotFound');
+			else expect(await readFile(join(directory, id), 'utf8')).toBe(bytes);
+			expectOk(await put(bytes));
+			expect(await readdir(directory)).toEqual([id]);
+			expect(await readFile(join(directory, id), 'utf8')).toBe(bytes);
+		});
+	}
+}
+
+test('get reports descriptor close failure through its Result and releases the handle', async () => {
+	const { directory, store } = await setup();
+	const id = generateBlobId('bin');
+	expectOk(await store.put(id, new Blob(['saved'])));
+	const probe = await open(directory, 'r');
+	const prototype: Pick<typeof probe, 'close'> = Object.getPrototypeOf(probe);
+	await probe.close();
+	const close = spyOn(prototype, 'close').mockRejectedValueOnce(
+		new Error('close failed'),
 	);
-	await unlink(join(directory, id, 'data'));
-
-	expect(expectErr(await blobs.stat(id)).name).toBe('BlobStoreFailed');
-	expect(expectErr(await blobs.get(id)).name).toBe('BlobStoreFailed');
-
-	await writeFile(join(directory, id, 'data'), 'different-size');
-	expect(expectErr(await blobs.stat(id)).name).toBe('BlobStoreFailed');
-	expect(expectErr(await blobs.get(id)).name).toBe('BlobStoreFailed');
+	try {
+		const error = expectErr(await store.get(id));
+		expect(error.name).toBe('BlobStoreFailed');
+		expect(error.message).toContain('close failed');
+		expect(close).toHaveBeenCalledTimes(2);
+	} finally {
+		close.mockRestore();
+	}
 });
 
-test('corrupt content-type metadata never reaches an HTTP header boundary', async () => {
-	const { blobs, directory } = await setup();
-	const id = generateBlobId();
-	expectOk(await blobs.put(id, new Blob(['bytes'], { type: 'audio/wav' })));
-	await writeFile(
-		join(directory, id, 'metadata.json'),
-		JSON.stringify({ contentType: 'audio/wav\r\nx-injected: yes', size: 5 }),
+test('Response stream finalization closes the borrowed file after completion and cancellation', async () => {
+	const { store } = await setup();
+	const id = generateBlobId('bin');
+	expectOk(await store.put(id, new Blob(['saved data'])));
+	for (const cancel of [false, true]) {
+		const opened = expectOk(await store.openFile(id));
+		const close = spyOn(opened, 'close');
+		const reader = opened.file.stream().getReader();
+		const response = new Response(
+			new ReadableStream({
+				async pull(controller) {
+					try {
+						const { done, value } = await reader.read();
+						if (done) {
+							await opened.close();
+							controller.close();
+						} else controller.enqueue(value);
+					} catch (cause) {
+						await opened.close();
+						controller.error(cause);
+					}
+				},
+				async cancel(reason) {
+					try {
+						await reader.cancel(reason);
+					} finally {
+						await opened.close();
+					}
+				},
+			}),
+		);
+		if (cancel) await response.body!.cancel('client disconnected');
+		else expect(await response.text()).toBe('saved data');
+		expect(close).toHaveBeenCalledTimes(1);
+		close.mockRestore();
+	}
+});
+
+test('descriptor-backed ranges survive path replacement and close after consumption', async () => {
+	const { directory, store } = await setup();
+	const id = generateBlobId('bin');
+	expectOk(await store.put(id, new Blob(['0123456789'])));
+	const opened = expectOk(await store.openFile(id));
+	try {
+		await unlink(join(directory, id));
+		await writeFile(join(directory, 'outside'), 'outside');
+		await symlink(join(directory, 'outside'), join(directory, id));
+		const response = new Response(opened.file.slice(2, 5));
+		expect(await response.text()).toBe('234');
+	} finally {
+		await opened.close();
+	}
+	expect(expectErr(await store.openFile(id)).name).toBe('BlobStoreFailed');
+});
+
+test('a same-store writer waits for failed staging before publishing its own complete body', async () => {
+	const { store } = await setup();
+	const id = generateBlobId('bin');
+	const entered = Promise.withResolvers<void>();
+	const released = Promise.withResolvers<void>();
+	const first = store.putRequest(
+		id,
+		new Request('https://fixture.invalid', {
+			method: 'PUT',
+			body: new ReadableStream({
+				async pull() {
+					entered.resolve();
+					await released.promise;
+					throw new Error('capture failed');
+				},
+			}),
+		}),
 	);
-
-	expect(expectErr(await blobs.stat(id)).name).toBe('BlobStoreFailed');
-	expect(expectErr(await blobs.get(id)).name).toBe('BlobStoreFailed');
+	await entered.promise;
+	let settled = false;
+	const second = store
+		.put(id, new Blob(['second complete body']))
+		.then((result) => {
+			settled = true;
+			return result;
+		});
+	await Bun.sleep(0);
+	expect(settled).toBe(false);
+	released.resolve();
+	expect(expectErr(await first).name).toBe('BlobStoreFailed');
+	expectOk(await second);
+	expect(await expectOk(await store.get(id)).text()).toBe(
+		'second complete body',
+	);
 });
 
-test('missing reads are typed and repeated deletes succeed', async () => {
-	const { blobs } = await setup();
-	const id = generateBlobId();
-
-	expect(expectErr(await blobs.get(id)).name).toBe('BlobNotFound');
-	expect(expectErr(await blobs.stat(id)).name).toBe('BlobNotFound');
-	expectOk(await blobs.delete(id));
-	expectOk(await blobs.delete(id));
-});
-
-test('get rejects a path-hostile runtime id before reading outside the store', async () => {
-	const { blobs, outside, hostileId } = await setupHostilePathTarget();
-
-	expect(expectErr(await blobs.get(hostileId)).name).toBe('BlobStoreFailed');
-	expect(await readFile(join(outside, 'sentinel'), 'utf8')).toBe('untouched');
-});
-
-test('stat rejects a path-hostile runtime id before reading outside the store', async () => {
-	const { blobs, outside, hostileId } = await setupHostilePathTarget();
-
-	expect(expectErr(await blobs.stat(hostileId)).name).toBe('BlobStoreFailed');
-	expect(await readFile(join(outside, 'sentinel'), 'utf8')).toBe('untouched');
-});
-
-test('put rejects a path-hostile runtime id before writing outside the store', async () => {
-	const { blobs, directory, outside } = await setupHostilePathTarget();
-	const escaped = join(directory, '..', 'escaped-put');
-
+test('response publication refuses occupied final keys even for identical bytes', async () => {
+	const { store } = await setup();
+	const id = generateBlobId('bin');
+	expectOk(await store.putResponse(id, new Response('snapshot')));
+	expectErr(await store.putResponse(id, new Response('snapshot')));
 	expect(
-		expectErr(await blobs.put('../escaped-put' as BlobId, new Blob(['bad'])))
-			.name,
-	).toBe('BlobStoreFailed');
-	expect(await pathExists(escaped)).toBe(false);
-	expect(await readFile(join(outside, 'sentinel'), 'utf8')).toBe('untouched');
+		expectErr(await store.putResponse(id, new Response('different'))).name,
+	).toBe('BlobAlreadyExists');
+	expect(await expectOk(await store.get(id)).text()).toBe('snapshot');
 });
 
-test('delete rejects a path-hostile runtime id before deleting outside the store', async () => {
-	const { blobs, outside, hostileId } = await setupHostilePathTarget();
-
-	expect(expectErr(await blobs.delete(hostileId)).name).toBe('BlobStoreFailed');
-	expect(await readFile(join(outside, 'sentinel'), 'utf8')).toBe('untouched');
-});
-
-test('putResponse streams a response body under its content type', async () => {
-	const { blobs } = await setup();
-	const id = generateBlobId();
-	const response = new Response('response bytes', {
-		headers: { 'content-type': 'audio/test' },
+test('copy owns and cancels its response when destination setup fails', async () => {
+	const { directory } = await setup();
+	await writeFile(join(directory, 'occupied'), 'file');
+	const store = createBunBlobStore({
+		directory: join(directory, 'occupied', 'child'),
 	});
+	let cancelled = false;
+	const response = new Response(
+		new ReadableStream({
+			cancel() {
+				cancelled = true;
+			},
+		}),
+	);
+	expectErr(await store.putResponse(generateBlobId('bin'), response));
+	expect(cancelled).toBe(true);
+});
 
-	expectOk(await blobs.putResponse(id, response));
-	const stat = expectOk(await blobs.stat(id));
-	expect(stat).toEqual({ contentType: 'audio/test', size: 14 });
-	const read = expectOk(await blobs.get(id));
-	expect(await read.text()).toBe('response bytes');
+test('copy cancels its source after a disk write fails', async () => {
+	const { directory, store } = await setup();
+	const probe = await open(join(directory, 'probe'), 'w');
+	const prototype = Object.getPrototypeOf(probe);
+	await probe.close();
+	const write = spyOn(prototype, 'write').mockRejectedValueOnce(
+		new Error('disk failed'),
+	);
+	let cancelled = false;
+	try {
+		const response = new Response(
+			new ReadableStream({
+				pull(controller) {
+					controller.enqueue(new Uint8Array([1]));
+				},
+				cancel() {
+					cancelled = true;
+				},
+			}),
+		);
+		expectErr(await store.putResponse(generateBlobId('bin'), response));
+		expect(cancelled).toBe(true);
+	} finally {
+		write.mockRestore();
+	}
 });

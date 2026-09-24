@@ -1,6 +1,7 @@
 # 0184. One host recorder progressively stages each claimable recording until its owner stops or cancels it
 
 - **Status:** Superseded
+- **Current target:** [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) and [ADR-0366](0366-a-recorder-captures-into-its-explicit-local-blob-destination.md) supersede ADR-0205's recovery promise. This record remains historical; its single global slot is not reinstated.
 - **Date:** 2026-07-27
 - **Superseded by:** [ADR-0205](0205-a-recording-is-a-row-that-fills-and-a-crash-finishes-it.md), which makes a recording a row that fills rather than staged bytes awaiting a claim. Most of this record survives there verbatim: the one recorder, the single slot and its `Busy` refusal, the flat-memory streaming WAV, the refusal of a second audio channel, and the refusal of in-capture `fsync` and periodic header checkpoints. What ADR-0205 withdraws is the claimable-recording premise: the staging identity, the claim, and the clause that host death loses active capture.
 - **Relates:** [ADR-0016](0016-prewarm-the-cold-model-load-and-refuse-the-rest-of-the-latency-menu.md), [ADR-0011](0011-rust-owns-the-macos-dictation-capability.md), [ADR-0173](0173-each-row-owns-at-most-one-write-once-immutable-blob.md)

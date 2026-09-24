@@ -11,6 +11,35 @@ package READMEs and code. For how this replaced the previous stack, verb by
 verb, see
 [`the store and what it replaced`](the-store-and-what-it-replaced.md).
 
+## The direction
+
+> Epicenter keeps your data understandable and your actions explicit. Account
+> records synchronize; files have independent local and remote lives. Recordings
+> save locally first and reach another device only through an explicit upload.
+> Your data can become readable Markdown that you or an agent can edit, then
+> push back into the app. Recovering older content uses that same workflow.
+> A separate backup product is deferred.
+
+The working folder contains documents, settings, and a checkout manifest. Blob
+IDs and remote URLs remain ordinary references; materialization neither copies
+local audio nor fetches remote audio. Saving a copy of that folder preserves its
+current contents, including unpushed edits, not every byte the app can reference.
+
+Pull writes app data to the folder. Push previews and applies folder edits
+relative to the manifest. Deleting a tracked Markdown file deletes its row on
+approved Push, but never deletes its blobs. Trash is an application field.
+Recover selected old content by first pulling the current working copy, keeping
+its manifest, then copying in old content and pushing. Missing rows receive fresh
+identities; invalid content can be edited and retried.
+
+This folder workflow is wired into host-backed Honeycrisp. Whispering's existing
+Markdown ZIP is a one-way recording export, without a manifest, settings, or
+audio; it is not yet the same workflow. Unused backup orchestration and structural
+archives are removed; live store safeguards remain under
+[ADR-0379](adr/0379-reconstruction-is-an-explicit-destructive-library-operation.md). [ADR-0394](adr/0394-materialization-contains-documents-and-blob-references.md)
+and [ADR-0395](adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md)
+record the folder and recovery decisions.
+
 ## One runtime
 
 A desktop SPA in a WebView, over a store the client owns (ADR-0227). The Bun
@@ -36,48 +65,53 @@ refused was a hosted surface that reached a host-owned replica instead.
 | SURFACE                                                                   |
 |                                                                           |
 | @epicenter/ui        @epicenter/app-shell     @epicenter/svelte         |
-| @epicenter/chat      @epicenter/blobs         @epicenter/skills           |
+| @epicenter/client    @epicenter/blobs         @epicenter/skills           |
 +---------------------------------------------------------------------------+
                                      |
                                      v
 +---------------------------------------------------------------------------+
 | CORE                                                                      |
 |                                                                           |
-| @epicenter/data      the store and its definition, opener, sync, and SQL surfaces |
-| @epicenter/field     release-local field declarations                     |
+| @epicenter/app       declarations, lifetime, store, persistence, and sync |
+| @epicenter/app/field release-local field declarations                     |
 | @epicenter/sqlite    one engine seam over bun:sqlite and sqlite-wasm      |
 | @epicenter/sync      route contracts a browser can import                 |
-| @epicenter/server    the shared Hono library both deployables consume     |
+| @epicenter/server    the shared Hono package both deployables consume     |
 +---------------------------------------------------------------------------+
 ```
 
-`@epicenter/data` splits by what a caller has to load: `.` for the opened data
-surface, `./definition` for `defineData` and `parseData`, `./browser` for the
-one opener a person's data lands in, `./memory` for test support, `./sync` for
-the transport, `./direct` for the construction seam, and `./artifact` for the
-files a person keeps. The openers are separate because the memory opener imports
-`bun:sqlite` and the browser opener imports `idb`, and neither belongs in a
-barrel the other has to load. There is no `./projection`: the packaged SQL
+`@epicenter/app` supplies `defineStore`, `defineTable`, and `field` at its root.
+The definition is platform-free. `openLocal` and `openPersonal` from
+`@epicenter/app/open` acquire independent stores. Each resolves after document
+and blob acquisition. The default constructors select browser or host resources
+with `isTauri()`. `createMemoryStoreRuntime()` from `@epicenter/app/testing`
+isolates document and blob storage for store tests. Its storage survives store
+close and reopen until runtime disposal.
+Independent `/definition`, `/store`, `/sync`, and `/artifact/format`
+entrypoints let engine consumers load only their required modules. The Bun
+memory opener has a separate entrypoint because it imports `bun:sqlite`.
+`/data` opens over caller-owned SQLite; browser persistence is internal to the store. See the [application architecture](../packages/app/ARCHITECTURE.md). There is no `./projection`: the packaged SQL
 follower was deleted (ADR-0269), and a derived index is now app-owned, in
 memory, and rebuilt on read (ADR-0307).
 
 `@epicenter/server` and the core packages above it are AGPL. See
 [`licensing strategy`](licensing/licensing-strategy.md).
 
-## An application has one database document
+## A store has one database document
 
-One database `Y.Doc` per application is persisted under the application log
+One database `Y.Doc` per store is persisted under the application log
 name `app` (ADR-0257). Its current top-level roots are the bare named root
 `kv` and one `tables:<name>` root for each declared table. Each table declares
-ordinary value fields and one required `content` codec.
+ordinary value fields under `fields` and an optional `body` codec.
 
 ```text
 Y.Doc "app"
  |- get("kv")               one value: this application's settings
  |- get("tables:notes")
- |   |- <rowId>             a nested Y.Type; holding it IS existing
+ |   |- <rowId>             a nested Y.Node; holding it IS existing
  |   |   |- title           a field is an attribute on the row
- |   |   `- folderId
+ |   |   |- folderId
+ |   |   `- child[0]          stable body Y.Node
  |   `- <rowId> ...
  `- get("tables:folders")
 ```
@@ -87,21 +121,24 @@ not a style choice: `Item.write` scans `doc.share` linearly, so one root per row
 makes encoding quadratic, measured at 5,417 ms against 13 ms at 20,000 rows.
 Deletion removes the row's attribute outright and the whole subtree goes with
 it, which leaves one deleted map key rather than a permanent corpse. The row is
-flat at the public API: `id`, its value fields, and one live `content` node.
+a value snapshot at the public API: `id` and its declared fields. Every row
+owns a sole body child, exposed separately through `table.body(id)`. An
+optional body codec supplies its file representation.
 
-## Content is one live node on the row
+## The body is the row’s sole sequence child
 
-The `content` codec only maps that node to and from the artifact body:
+The `body` codec only maps that node to and from the artifact body:
 
 ```ts
 const row = data.tables.notes.get(noteId);
 row?.title;
-row?.content; // the live Y.Type an editor binds to directly
+data.tables.notes.body(noteId); // the live Y.Node an editor binds to directly
 ```
 
-Storage mints an empty `content` node when a row is created without one, and
-deleting the row removes the node with the row. Lists and previews read value
-fields without opening another document; editors bind the row's live node.
+Storage creates an empty body node with every row unless `create` receives a
+fresh one. Deleting the row removes that node with the row. Lists and previews
+read value fields without opening another document; editors bind the row’s sole
+body child.
 
 ## What granularity an edit has
 
@@ -110,7 +147,7 @@ fields without opening another document; editors bind the row's live node.
 | two devices, different fields of one row | both survive |
 | two devices, one value field | last write wins |
 | two devices, one array or object field | last write wins on the WHOLE value |
-| two devices, an edit inside a row's content node | per character |
+| two devices, an edit inside a row's body node | per character |
 
 The third row is a decision, not a gap (ADR-0228). A field is one value, which
 is one sentence of semantics instead of a per-field CRDT type system. The cost
@@ -144,20 +181,26 @@ durable JSON stays unchanged
 
 ## Reads are synchronous
 
-Opening a store is the only asynchronous operation in an application. It is real
-I/O: a file or an IndexedDB read, and the replay of a durable log. Everything
-after it is a property access on a document already in memory.
+`openLocal` and `openPersonal` resolve to ready stores. Row and KV operations
+then read and edit the in-memory document synchronously; persistence, blobs,
+and network work remain async.
+
+Each store owns its document and blob admission. Duplicate acquisition of the
+same store address fails with `AlreadyOpen`. Closing fences new work and drains
+admitted operations; failed cleanup retains exclusion when another writer would
+be unsafe. SQL, secrets, recording, and inference have separate constructors
+and lifetimes.
 
 ```ts
-const { data, error } = await openDatabase(honeycrispDefinition, {
-	generation,
-});
-if (error !== null) throw error;
+import { openPersonal } from '@epicenter/app/open';
 
+const data = await openPersonal(honeycrispDefinition, { account });
 const rows = data.tables.notes.rows;
 const nonconforming = data.tables.notes.nonconforming;
-data.tables.notes.update(noteId, { title: 'x' }); // a transaction
-data.tables.notes.subscribe(() => { ... });       // a table commit touched
+data.tables.notes.update(noteId, { title: 'x' });
+data.tables.notes.subscribe(() => { /* refresh the table view */ });
+// Explicitly retire this store when its workflow finishes.
+await data.close();
 ```
 
 `subscribe` names the rows a commit touched (ADR-0221), so a view refreshes
@@ -181,37 +224,37 @@ structs.
 
 ## The authority owns availability, not meaning
 
-One Durable Object per principal, application, and generation, named
-`principals/<id>/data/<dataId>/generations/<generation>` (ADR-0292,
-ADR-0298). It appends opaque bytes and reads nothing about their meaning.
+The mounted authority uses a stable application/data address resolved
+from the authenticated principal. It owns the current generation and appends
+opaque bytes without interpreting row values. Historical per-generation objects
+are a different layout; the historical ledger still prevents silently opening
+an empty replacement over existing data.
 
 Being signed in is the whole of the sharing model. The route stamps the
 principal from the bearer and addresses one Durable Object by it, so every
 device on one account converges without anything being paired or invited.
 
-The host supplies only `dial`, a function that makes a socket. The library owns
+The host supplies only `dial`, a function that makes a socket. The sync connection owns
 the cursor, attach and detach, reconnect on close and on `needsResync`, and the
 unacknowledged-submission watchdog (ADR-0222).
 
-Blobs are a separate plane and were never CRDT-backed. They are content
-addressed bytes logged against the server, with local ones queued until they
-are uploaded.
+Blobs are a separate plane and were never CRDT-backed. Rows store opaque minted
+keys or ordinary remote URLs. App-local bytes and account-remote objects have
+independent lifetimes; uploads are explicit, with no automatic byte sync or
+row-driven cleanup.
 
-## Two deployables, one library
+## Two deployables, one shared package
 
-`packages/server` is the shared Hono library. `apps/api` is the hosted personal
+`packages/server` is the shared Hono package. `apps/api` is the hosted personal
 cloud and `apps/self-host` is the self-hosted single-partition instance
 reference, which is community-supported rather than Epicenter-operated. They
 differ by principal resolver: an instance resolves every valid bearer to the
 literal `instance` principal (ADR-0075, amended by ADR-0092). Billing is
 hosted-only and lives in `apps/api/worker/billing/`.
 
-## What is broken right now
+## Implementation status
 
-ADR-0227 was executed as a clean break, so the applications that had not moved
-are broken on purpose and their data on the old stack is gone: `apps/whispering`,
-`apps/vocab`, `apps/skills`, `apps/epicenter`, `packages/chat`,
-`packages/skills`, and `packages/app-shell`'s agent chat. Green:
-`packages/data`, `packages/sync`, `packages/sqlite`,
-`packages/svelte-utils`, `apps/api`, `apps/self-host`, `apps/honeycrisp`, and
-`apps/sync-lab`.
+ADRs describe decisions, not a current build report. Check the affected app's
+code and verification scripts before treating historical migration checkpoints
+as present failures. The archive/recovery cleanup plan above names the remaining
+work without classifying live startup and synchronization safeguards as obsolete.

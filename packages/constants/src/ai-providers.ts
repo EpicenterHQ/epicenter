@@ -1,5 +1,5 @@
 /**
- * AI provider registry and model catalog for hosted chat.
+ * Hosted chat catalog and the hosted transcription model identifier.
  *
  * `AI_MODELS` is the single source of the live provider vocabulary: `AiProvider`
  * is derived from it, and `AI_PROVIDERS` must carry a label for every provider
@@ -76,6 +76,9 @@ export const AI_MODELS = [
 	{ id: 'gemini-3.5-flash', provider: 'gemini', label: 'Fast', credits: 2 },
 ] as const satisfies readonly AiModel[];
 
+/** The gateway, usage events, and application choices share this model ID. */
+export const HOSTED_TRANSCRIPTION_MODEL = 'whisper-1';
+
 export type ServableModel = (typeof AI_MODELS)[number]['id'];
 
 /** Tuple of every servable model id, for arktype `type.enumerated(...)`. */
@@ -91,7 +94,7 @@ export const MODELS_BY_ID = Object.fromEntries(
 
 /**
  * Decorate the model ids an app sells with their hosted label and credits. Every
- * chat app feeds the result to `createInferenceConnections` as its hosted
+ * chat app feeds the result to `createInferenceCatalog` as its hosted
  * catalog, so the `{ id, label, credits }` mapping lives here once instead of
  * being rewritten per app. The shape matches `@epicenter/app-shell` `HostedModel`.
  */

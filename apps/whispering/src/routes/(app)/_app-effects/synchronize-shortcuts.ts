@@ -1,6 +1,6 @@
 import { onMount } from 'svelte';
 import { tauri } from '#platform/tauri';
-import { createAppShortcuts } from '$lib/platform/shortcuts';
+import { createAppShortcuts } from '$lib/shortcuts';
 import type { WhisperingApp } from '$lib/whispering/app';
 
 /**

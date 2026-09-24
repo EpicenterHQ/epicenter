@@ -6,8 +6,9 @@
  * The hosted cloud's Bun bootstrap and the instance's Bun bootstrap each own
  * their own composition (`apps/api/server.ts`, `apps/self-host/server.ts`); the
  * library ships the parts, not a shared launcher (ADR-0075/0076). A cloud-on-Bun
- * entry additionally installs `mountCloudDb` with a `pg.Pool` checkout and a
- * fire-and-forget drain. Bun is the one non-Cloudflare runtime (ADR-0066):
+ * entry uses `createCloudContextMiddleware` with a shared `pg.Pool` and a
+ * fire-and-forget drain on database-dependent routes. Bun is the one
+ * non-Cloudflare runtime (ADR-0066):
  * `bun:sqlite` is the built-in synchronous engine the Epicenter authority needs,
  * and `bun build --compile` is what ships the self-host binary and the Tauri
  * sidecar. There is no Node backend; this code imports `bun:sqlite` and
@@ -18,16 +19,20 @@
  * load in a Bun process. A Bun host supplies its own db concerns.
  */
 
+// Hosted auth routes are separate from the cloud request-context middleware.
+// CloudAuthBindings is merged into the Bun host's boot validation.
+export { CloudAuthBindings } from './auth/create-auth.js';
 // The single-partition instance's bearer resolver (self-host; ADR-0075): the
 // `ResolveBearerPrincipal` a Bun instance injects (`createEnvTokenResolver(token)`).
 // The pure generator + boot entropy gate (`generateInstanceToken` /
 // `assertStrongToken`) live in `@epicenter/auth`.
 export { createEnvTokenResolver } from './auth/instance-token.js';
-// The OAuth resource-boundary error union the bearer resolver emits. Exported
+// The bearer resource-boundary error union the resolver emits. Exported
 // here too (it is not a Cloudflare module) so a Bun entry's dev bearer resolver
 // gets it without importing the main barrel, which would drag in the Cloudflare
 // Durable Objects and their `cloudflare:workers` import.
 export { OAuthError } from './auth/oauth-errors.js';
+export { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
 export { createDb } from './db/create-db.js';
 export {
 	listStorageObservations,
@@ -37,17 +42,10 @@ export {
 export { rateLimit } from './middleware/rate-limit.js';
 export {
 	requireBearerPrincipal,
-	requireCookieOrBearerPrincipal,
-	resolveRequestOAuthPrincipal,
+	resolveRequestSessionPrincipal,
 } from './middleware/require-auth.js';
-// The cloud-only relational layer (Better Auth on `c.var.auth` + the auth surface,
-// and the Postgres lifecycle). A cloud-on-Bun entry calls `mountCloudAuth` +
-// `mountCloudDb` once after `createServerApp`; the single-partition instance calls
-// neither (ADR-0076). `CloudAuthBindings` is the Cloud-only auth env contract,
-// merged into the cloud Bun host's boot validation.
-export { CloudAuthBindings, mountCloudAuth } from './mount-cloud-auth.js';
-export { mountCloudDb } from './mount-cloud-db.js';
-export { mountBlobsApp } from './routes/blobs.js';
+export { mountAuthRoutes } from './routes/auth.js';
+export { mountPersonalAuthorityBlobs } from './routes/authority-blobs.js';
 export { mountInferenceApp } from './routes/inference.js';
 export { mountSessionApp } from './routes/session.js';
 export { mountTranscriptionApp } from './routes/transcription.js';

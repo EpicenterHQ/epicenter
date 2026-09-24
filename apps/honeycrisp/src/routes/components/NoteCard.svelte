@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { previewOf, deleteNote, permanentlyDeleteNote } from '$lib/notes.js';
+	import type { ReactiveData } from '@epicenter/svelte';
+	import type { HoneycrispData } from '$lib/data.js';
 	import type { Note } from '$lib/data';
 	import * as AlertDialog from '@epicenter/ui/alert-dialog';
 	import { Button, buttonVariants } from '@epicenter/ui/button';
@@ -11,35 +14,28 @@
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import { format } from 'date-fns';
-	import { getHoneycrisp } from '$lib/app.svelte.js';
 
-	const honeycrisp = getHoneycrisp();
 
-	let {
-		note,
-		isSelected,
-		onSelect,
-	}: {
-		note: Note;
-		isSelected: boolean;
-		onSelect: () => void;
-	} = $props();
+	let props: { data: ReactiveData<HoneycrispData>; note: Note; isSelected: boolean; onSelect: () => void } = $props();
 
 	/** Derive deleted status from the note itself, no need to check view mode. */
-	const isDeleted = $derived(note.deletedAt !== null);
+	const isDeleted = $derived(props.note.deletedAt !== null);
 
 	// Read off this note's node rather than off a stored field, and subscribed
 	// to this note's body alone (ADR-0295).
 	//
 	// The initial id is the right one to capture: `NoteList` keys its `{#each}`
-	// by `note.id`, so this component is torn down and rebuilt for a different
+	// by `props.note.id`, so this component is torn down and rebuilt for a different
 	// note rather than handed one. Deriving it instead would rebuild the
-	// subscription on every commit that touches the row, because `notes.all`
-	// hands out a fresh object each time.
+	// subscription on every commit that touches the row, because the table projection
+	// hands out a fresh row object each time.
 	// svelte-ignore state_referenced_locally
-	const preview = honeycrisp.tables.notes.previewOf(note.id);
+	const preview = previewOf(props.data, props.note.id);
 
 	let confirmingPermanentDelete = $state(false);
+	const folders = $derived(
+		props.data.tables.folders.rows.toSorted((a, b) => a.name.localeCompare(b.name)),
+	);
 </script>
 
 <ContextMenu.Root>
@@ -48,19 +44,19 @@
 			size="sm"
 			class={cn(
 				'cursor-pointer flex-col items-stretch gap-0.5 rounded-lg py-2 hover:bg-accent/30',
-				isSelected && 'bg-accent',
+				props.isSelected && 'bg-accent',
 			)}
-			onclick={onSelect}
+			onclick={props.onSelect}
 		>
 			<div class="flex items-start justify-between gap-2">
 				<span class="font-medium line-clamp-1">
-					{#if note.pinned}
+					{#if props.note.pinned}
 						<PinIcon class="mr-1 inline size-3 fill-current align-baseline" />
 					{/if}
-					{note.title || 'Untitled'}
+					{props.note.title || 'Untitled'}
 				</span>
 				<span class="shrink-0 text-xs text-muted-foreground">
-					{format(new Date(note.updatedAt), 'h:mm a')}
+					{format(new Date(props.note.updatedAt), 'h:mm a')}
 				</span>
 			</div>
 			<Item.Description class="text-xs">
@@ -73,7 +69,7 @@
 						'absolute bottom-1 right-2 hidden items-center gap-0.5 group-hover/item:flex',
 						// `cn` merges this against `hidden` rather than stacking both and
 						// letting stylesheet order decide which display wins.
-						isSelected && 'flex',
+						props.isSelected && 'flex',
 					)}
 				>
 					<Button
@@ -84,7 +80,7 @@
 						aria-label="Restore"
 						onclick={(e) => {
 							e.stopPropagation();
-							honeycrisp.tables.notes.restore(note.id);
+							props.data.tables.notes.update(props.note.id, { deletedAt: null });
 						}}
 					>
 						<ArchiveRestoreIcon class="size-3" />
@@ -109,21 +105,21 @@
 						'absolute bottom-1 right-2 hidden items-center gap-0.5 group-hover/item:flex',
 						// `cn` merges this against `hidden` rather than stacking both and
 						// letting stylesheet order decide which display wins.
-						isSelected && 'flex',
+						props.isSelected && 'flex',
 					)}
 				>
 					<Button
 						variant="ghost"
 						size="icon"
 						class="size-6"
-						tooltip={note.pinned ? 'Unpin' : 'Pin'}
-						aria-label={note.pinned ? 'Unpin' : 'Pin'}
+						tooltip={props.note.pinned ? 'Unpin' : 'Pin'}
+						aria-label={props.note.pinned ? 'Unpin' : 'Pin'}
 						onclick={(e) => {
 							e.stopPropagation();
-							honeycrisp.tables.notes.togglePin(note.id);
+							props.data.tables.notes.update(props.note.id, { pinned: !props.note.pinned });
 						}}
 					>
-						<PinIcon class={cn('size-3', note.pinned && 'fill-current')} />
+						<PinIcon class={cn('size-3', props.note.pinned && 'fill-current')} />
 					</Button>
 					<Button
 						variant="ghost-destructive"
@@ -133,7 +129,7 @@
 						aria-label="Delete"
 						onclick={(e) => {
 							e.stopPropagation();
-							honeycrisp.tables.notes.softDelete(note.id);
+							deleteNote(props.data, props.note.id);
 						}}
 					>
 						<TrashIcon class="size-3" />
@@ -147,7 +143,7 @@
 		{#if isDeleted}
 			<ContextMenu.Item
 				onclick={() =>
-					honeycrisp.tables.notes.restore(note.id)}
+					props.data.tables.notes.update(props.note.id, { deletedAt: null })}
 			>
 				<ArchiveRestoreIcon class="mr-2 size-4" />
 				Restore
@@ -165,10 +161,10 @@
 		{:else}
 			<ContextMenu.Item
 				onclick={() =>
-					honeycrisp.tables.notes.togglePin(note.id)}
+					props.data.tables.notes.update(props.note.id, { pinned: !props.note.pinned })}
 			>
-				<PinIcon class={cn('mr-2 size-4', note.pinned && 'fill-current')} />
-				{note.pinned ? 'Unpin' : 'Pin'}
+				<PinIcon class={cn('mr-2 size-4', props.note.pinned && 'fill-current')} />
+				{props.note.pinned ? 'Unpin' : 'Pin'}
 			</ContextMenu.Item>
 			<ContextMenu.Separator />
 			<ContextMenu.Sub>
@@ -179,16 +175,16 @@
 				<ContextMenu.SubContent class="w-48">
 					<ContextMenu.Item
 						onclick={() =>
-							honeycrisp.tables.notes.moveToFolder(note.id, null)}
+							props.data.tables.notes.update(props.note.id, { folderId: null })}
 					>
 						<FileTextIcon class="mr-2 size-4" />
 						Unfiled
 					</ContextMenu.Item>
 					<ContextMenu.Separator />
-					{#each honeycrisp.tables.folders.all as folder (folder.id)}
+					{#each folders as folder (folder.id)}
 						<ContextMenu.Item
 							onclick={() =>
-								honeycrisp.tables.notes.moveToFolder(note.id, folder.id)}
+								props.data.tables.notes.update(props.note.id, { folderId: folder.id })}
 						>
 							{#if folder.icon}
 								<span class="mr-2 text-base leading-none">{folder.icon}</span>
@@ -204,7 +200,7 @@
 			<ContextMenu.Item
 				class="text-destructive focus:text-destructive"
 				onclick={() =>
-					honeycrisp.tables.notes.softDelete(note.id)}
+					deleteNote(props.data, props.note.id)}
 			>
 				<TrashIcon class="mr-2 size-4" />
 				Delete
@@ -226,7 +222,7 @@
 			<AlertDialog.Action
 				class={buttonVariants({ variant: 'destructive' })}
 				onclick={() =>
-					honeycrisp.tables.notes.permanentlyDelete(note.id)}
+					permanentlyDeleteNote(props.data, props.note.id)}
 				>Delete</AlertDialog.Action
 			>
 		</AlertDialog.Footer>

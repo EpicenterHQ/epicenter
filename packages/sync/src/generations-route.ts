@@ -29,11 +29,20 @@ const stripTrailing = (value: string): string => value.replace(/\/+$/, '');
  * What makes a bootstrap worth making. Without it a device would seed a cursor
  * of zero, dial, and be handed the authority's snapshot, which is the same
  * state it just downloaded over HTTP; with it the socket carries only what
- * happened afterwards. It is a header rather than a wrapper around the body
- * because the body is stored whole and served verbatim, and anything that
- * framed it would have to be unframed on both sides.
+ * happened afterwards. Current data downloads frame the snapshot and its
+ * complete tail together; this header names the captured head they cover.
+ * Historical generation responses carry their snapshot's position.
  */
 export const LOG_POSITION_HEADER = 'epicenter-log-position';
+export const CURRENT_GENERATION_HEADER = 'epicenter-generation';
+
+/** Personal application data. Account authentication identifies the owner. */
+export const CURRENT_ROUTE = {
+	pattern: '/api/apps/:appId/:scope/data/:dataId/current',
+	url(baseURL: string, appId: string, scope: 'personal', dataId: string) {
+		return `${stripTrailing(baseURL)}/api/apps/${encodeURIComponent(appId)}/${scope}/data/${encodeURIComponent(dataId)}/current`;
+	},
+};
 
 export const GENERATIONS_ROUTE = {
 	/** Every generation of one database. The `:dataId` is a path parameter. */

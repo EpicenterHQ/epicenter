@@ -11,14 +11,6 @@ export type { WriteTextOutcome };
 type MaybePromise<T> = T | Promise<T>;
 
 export const TextError = defineErrors({
-	ClipboardRead: ({ cause }: { cause: unknown }) => ({
-		message: `Failed to read from clipboard: ${extractErrorMessage(cause)}`,
-		cause,
-	}),
-	ClipboardWrite: ({ cause }: { cause: unknown }) => ({
-		message: `Failed to write to clipboard: ${extractErrorMessage(cause)}`,
-		cause,
-	}),
 	WriteToCursor: ({ cause }: { cause: unknown }) => ({
 		message: `Failed to write text at cursor position: ${extractErrorMessage(cause)}`,
 		cause,
@@ -34,19 +26,12 @@ export const TextError = defineErrors({
 });
 export type TextError = InferErrors<typeof TextError>;
 
+/**
+ * Whispering's delivery into other applications: cursor paste and synthetic
+ * keystrokes. Plain clipboard reads and writes are not here; they are the
+ * shared `clipboard` from `@epicenter/app/clipboard`.
+ */
 export type TextService = {
-	/**
-	 * Reads text from the system clipboard.
-	 * @returns The text content of the clipboard, or null if empty.
-	 */
-	readFromClipboard: () => Promise<Result<string | null, TextError>>;
-
-	/**
-	 * Copies text to the system clipboard.
-	 * @param text The text to copy to the clipboard.
-	 */
-	copyToClipboard: (text: string) => Promise<Result<void, TextError>>;
-
 	/**
 	 * Delivers the provided text to the current cursor position, falling back to
 	 * the clipboard when it cannot paste.
@@ -78,15 +63,4 @@ export type TextService = {
 	 * for security reasons.
 	 */
 	simulateEnterKeystroke: () => Promise<Result<void, TextError>>;
-
-	/**
-	 * Simulates pressing the copy shortcut (Cmd+C on macOS, Ctrl+C elsewhere) to
-	 * copy the active selection in the foreground app to the clipboard. Compose
-	 * with a clipboard save/read/restore to capture a selection without clobbering
-	 * the user's clipboard (see `captureSelection` in `operations/selection`).
-	 *
-	 * Note: This is only supported on desktop (Tauri). Web browsers cannot
-	 * simulate keystrokes for security reasons.
-	 */
-	simulateCopyKeystroke: () => Promise<Result<void, TextError>>;
 };

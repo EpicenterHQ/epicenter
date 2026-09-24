@@ -19,7 +19,7 @@ Map one bare specifier in `apps/whispering/package.json`:
 
 ```jsonc
 "#platform/text": {
-  "tauri": "./src/lib/services/text/index.tauri.ts",
+  "epicenter-host": "./src/lib/services/text/index.tauri.ts",
   "default": "./src/lib/services/text/index.browser.ts"
 }
 ```
@@ -30,25 +30,26 @@ Shared consumers import one name:
 import { TextServiceLive } from '#platform/text';
 ```
 
-The web bundle resolves `default`; the Epicenter/Tauri surface activates the
-`tauri` condition. Do not add a runtime `window.__TAURI_INTERNALS__` branch or a
-second platform registry.
+The web bundle resolves `default`; the Epicenter host build activates the
+`epicenter-host` condition. Do not add a runtime `window.__TAURI_INTERNALS__` branch or a
+second platform registry in an app service. Proposed ADR-0403 would move
+`@epicenter/app` selection inside the package; current code still uses build
+conditions.
 
 Each implementation exports the same name and checks the shared contract:
 
 ```typescript
 export const TextServiceLive = {
-	readFromClipboard,
-	copyToClipboard,
 	writeToCursor,
 	simulateEnterKeystroke,
 	simulateCopyKeystroke,
 } satisfies TextService;
 ```
 
-Current service seams include analytics, blobs, download, HTTP, recorder,
-and text. Check `package.json#imports` rather than copying this list when adding
-or moving a service.
+Plain clipboard text is not a Whispering service. It is the shared `clipboard`
+from `@epicenter/app/clipboard`, a device module selected by the same build
+condition inside that package. Check `package.json#imports` for the current
+seam list when adding or moving a service.
 
 ## Tauri-Only Capability
 

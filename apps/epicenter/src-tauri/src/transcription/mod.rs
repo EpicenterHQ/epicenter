@@ -10,7 +10,8 @@ pub use error::TranscriptionError;
 pub use model_cache::ModelCache;
 pub use settings::{LocalTranscriptionSettings, SettingsError, UnloadPolicy};
 
-use crate::recorder::read_blob_samples;
+use crate::audio::read_blob_samples;
+use crate::blobs::BlobDestination;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
@@ -31,11 +32,10 @@ pub enum UnavailableReason {
     ActiveModelUnavailable,
 }
 
-/// What an application may learn about the local transcription route: whether it
-/// is ready, and which advisory inputs it accepts.
+/// Whether the active-model transcription route is ready and which hints it accepts.
 ///
-/// Readiness and capability, never identity (ADR-0180). This is advisory UI
-/// state, not a preflight gate: a caller uses it to warn before capture and to
+/// This route preserves ADR-0180's identity-free readiness response. It is advisory
+/// UI state, not a preflight gate: a caller uses it to warn before capture and to
 /// decide whether to offer a prompt or language field, never to decide whether
 /// `transcribe_recording` may be called. Transcription resolves the active model
 /// independently at the point of use, so a stale read here can only produce a
@@ -46,7 +46,11 @@ pub enum UnavailableReason {
 /// and the next transcribe turns a `ready` answer stale, and the transcribe path
 /// still fails closed on its own.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, specta::Type)]
-#[serde(tag = "status", rename_all = "kebab-case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "status",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum LocalTranscriptionReadiness {
     Ready {
         /// Whether the active model accepts an initial prompt.
@@ -63,10 +67,10 @@ pub enum LocalTranscriptionReadiness {
 
 /// The advisory hints an application supplies with a transcription.
 ///
-/// Model identity is deliberately absent (ADR-0180): the host resolves the one
-/// active model at use, so an ordinary request cannot reassign the shared model
-/// cache. Language and prompt stay application-owned and read-at-use, exactly as
-/// ADR-0012 left them; nothing here is retained between calls.
+/// The active-model route resolves the model from host settings. Explicit file
+/// inference receives the model separately from these hints. Neither route
+/// changes the active-model setting. Language and prompt remain application-owned;
+/// nothing here is retained between calls.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptionHints {
@@ -99,14 +103,18 @@ pub struct AppliedHints {
 /// What a transcription request produced.
 ///
 /// Two outcomes because there are two honest stories. `transcribed` names the
-/// exact model that produced the text, which is what makes an accidental
-/// substitution detectable: with the active model unchanged, identical ordinary
-/// requests must name the same model however the host arranges residency.
+/// exact model that produced the text, which makes accidental substitution
+/// detectable. Explicit inference must name the requested model; the active-model
+/// route must name the model it resolved from settings, regardless of residency.
 /// `empty-audio` reports that nothing ran, and deliberately carries no model and
 /// no applied hints, because claiming either would be claiming an inference that
 /// never happened.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, specta::Type)]
-#[serde(tag = "outcome", rename_all = "kebab-case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "outcome",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum TranscriptionOutcome {
     Transcribed {
         text: String,
@@ -124,9 +132,8 @@ pub enum TranscriptionOutcome {
 ///
 /// **Administration only.** Home holds this grant because Home chooses the
 /// active model and must show which one that is. Applications are not granted
-/// it and read `get_local_transcription_readiness` instead, which answers the
-/// question they actually have without handing them an identity they could
-/// start keying behaviour off.
+/// this command. Their active-model route reads `get_local_transcription_readiness`;
+/// explicit file inference reads installed IDs through `list_inference_models`.
 #[tauri::command]
 #[specta::specta]
 pub fn get_active_model(model_cache: State<'_, ModelCache>) -> Option<ActiveModel> {
@@ -173,8 +180,8 @@ pub fn set_unload_policy(
 
 /// Whether the local transcription route can run right now, and what it accepts.
 ///
-/// The one ordinary application-facing read. It exists so an app can warn the
-/// user *before* they speak, which matters because the surface that reports a
+/// Readiness for the active-model route lets an app warn the user before they
+/// speak, which matters because the surface that reports a
 /// failure afterwards (a dictation pill) has nowhere to put a recovery action.
 /// Advisory only: it never mutates, and it is not a gate the caller must pass
 /// before transcribing.
@@ -196,11 +203,12 @@ pub fn get_local_transcription_readiness(
 pub async fn transcribe_recording(
     audio_blob_id: String,
     hints: TranscriptionHints,
+    destination: BlobDestination,
     app_handle: AppHandle,
     model_cache: State<'_, ModelCache>,
 ) -> Result<TranscriptionOutcome, TranscriptionError> {
     let samples = crate::timing::measure("transcribe.read+decode", || {
-        read_blob_samples(&app_handle, &audio_blob_id)
+        read_blob_samples(&app_handle, &audio_blob_id, &destination)
     })
     .map_err(|e| TranscriptionError::AudioReadError {
         message: e.to_string(),
@@ -239,4 +247,43 @@ fn join_err(e: tauri::Error) -> TranscriptionError {
     TranscriptionError::TranscriptionError {
         message: format!("Background transcription task failed: {}", e),
     }
+}
+
+/// Installed native models available to explicit file inference. No cache paths escape.
+#[tauri::command]
+#[specta::specta]
+pub fn list_inference_models(model_cache: State<'_, ModelCache>) -> Vec<InferenceModel> {
+    let active = model_cache.settings().active_model_id();
+    catalog::list_models()
+        .into_iter()
+        .filter(|model| model.downloaded)
+        .map(|model| InferenceModel {
+            active: active.as_deref() == Some(model.id.as_str()),
+            id: model.id,
+            installed: true,
+        })
+        .collect()
+}
+
+/// Decode uploaded bytes in memory and run the exact requested catalog model.
+/// The blocking job owns its input until inference finishes, including after caller abort.
+#[tauri::command]
+#[specta::specta]
+pub async fn transcribe_audio_bytes(
+    model_id: String,
+    bytes: Vec<u8>,
+    hints: TranscriptionHints,
+    model_cache: State<'_, ModelCache>,
+) -> Result<TranscriptionOutcome, TranscriptionError> {
+    let cache = model_cache.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || cache.transcribe_explicit(model_id, bytes, hints))
+        .await
+        .map_err(join_err)?
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct InferenceModel {
+    pub id: String,
+    pub installed: bool,
+    pub active: bool,
 }

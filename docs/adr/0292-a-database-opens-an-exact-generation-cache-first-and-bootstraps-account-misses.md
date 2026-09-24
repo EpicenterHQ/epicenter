@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-29
+- **Amended by:** [ADR-0417](0417-a-data-address-holds-one-document.md) removes current-data generation identity while retaining cache-first opening, complete bootstrap, and historical-data refusal.
+- **Amended by:** [ADR-0407](0407-app-owns-the-declaration-and-data-engine.md) at the client opener: current App acquisition replaces exact numbered-cache opening. Existing historical bytes and the server refusal of fresh current Personal initialization over admitted history remain. The implementation account below records the earlier protocol, not a current client API.
 - **Amends:** [ADR-0285](0285-a-generation-is-a-url-parameter-and-a-device-stores-no-selection.md) at the opener's cache and bootstrap behavior; the URL remains the generation selector.
 - **Supersedes:** [ADR-0278](0278-a-replica-syncs-the-application-document-and-fetches-row-documents-on-demand.md) entirely.
 - **Relates:** [ADR-0261](0261-a-local-account-replica-is-addressed-by-its-application-server-url-and-verified-principal.md), [ADR-0281](0281-a-generation-is-a-whole-database-and-a-device-chooses-which-one-it-holds.md), [ADR-0295](0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md)
@@ -53,7 +55,7 @@ working rather than drifting: ADR-0295 changed the record's shape to reach
 took the server and the principal out of the name to reach `v4`. What this
 record decided, that the generation is the last segment and an address rather
 than an instruction to allocate, is unchanged by all three. The current value
-lives in `packages/data/src/store/browser.ts`; this record owns the scheme, not
+lives in `packages/app/src/data/store/browser.ts`; this record owns the scheme, not
 the number and not the segments above it.
 
 Enumeration parses the number rather than sorting it, because `9` sorts above

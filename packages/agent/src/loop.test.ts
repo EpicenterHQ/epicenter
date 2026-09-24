@@ -60,6 +60,38 @@ async function settle(handle: { snapshot(): { isGenerating: boolean } }) {
 }
 
 describe('createConversation', () => {
+	test('assigns ordered timestamps that preserve rapid turns after reopening', async () => {
+		const { store } = makeStore();
+		const engine: AgentEngine = () =>
+			streamOf([{ type: 'text-delta', delta: 'answer' }]);
+		const conversation = createConversation({
+			store,
+			engine,
+			generateId: ids(),
+		});
+		conversation.send('first');
+		await settle(conversation);
+		conversation.send('second');
+		await settle(conversation);
+		const saved = conversation.snapshot().messages;
+		expect(saved.map((message) => message.role)).toEqual([
+			'user',
+			'assistant',
+			'user',
+			'assistant',
+		]);
+		expect(saved.map((message) => message.createdAt)).toEqual(
+			[...saved.map((message) => message.createdAt)].sort((a, b) => a - b),
+		);
+		expect(new Set(saved.map((message) => message.createdAt)).size).toBe(4);
+		conversation[Symbol.dispose]();
+		const reopened = createConversation({ store, engine, generateId: ids() });
+		expect(
+			reopened.snapshot().messages.map((message) => agentMessageText(message)),
+		).toEqual(['first', 'answer', 'second', 'answer']);
+		reopened[Symbol.dispose]();
+	});
+
 	test('persists a finished streamed turn and reports send guards', async () => {
 		const { store, values } = makeStore();
 		const engine: AgentEngine = () =>

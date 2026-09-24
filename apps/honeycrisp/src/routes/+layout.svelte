@@ -1,28 +1,28 @@
 <script lang="ts">
 	import { FlushEditsOnHide } from '@epicenter/svelte';
-	import { reloadOnAuthChange } from '@epicenter/auth/svelte';
+	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { ModeWatcher } from 'mode-watcher';
-	import { authClient } from '#platform/auth';
 	import '@epicenter/ui/app.css';
 
-	let { children } = $props();
+	let props = $props();
 
-	// Auth changes start a fresh document generation. The route that initiated
-	// the change does not swap its database in place, so every route boots with
-	// one principal and one data capability.
-	//
-	// `authClient`, not `auth`: this reads `state` once to seed itself and then
-	// subscribes by hand, so tracking it would make the effect re-run and rebuild
-	// the subscription on the transitions it exists to reload on.
-	$effect(() => reloadOnAuthChange(authClient, { callbackDestination: '/' }));
 </script>
 
 <svelte:head><title>Honeycrisp</title></svelte:head>
 
-<Tooltip.Provider>{@render children?.()}</Tooltip.Provider>
+<Tooltip.Provider>{@render props.children?.()}</Tooltip.Provider>
 
 <Toaster offset={16} closeButton />
+<!-- Both of these are mounted HERE, above the boot node, and that placement is
+     load-bearing rather than tidy. `Forget this device` closes the session
+     before it erases, which unmounts the shell and the account popover that
+     opened the dialog; a dialog or a toast mounted under the shell would go
+     with it, taking the confirmation mid-flight and the failure message with
+     it. `confirmationDialog.open()` writes global state that only a mounted
+     `ConfirmationDialog` renders, so without this the button does nothing at
+     all. -->
+<ConfirmationDialog />
 <ModeWatcher defaultMode="dark" track={false} />
 <FlushEditsOnHide />

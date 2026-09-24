@@ -1,69 +1,61 @@
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
+import { RecorderError } from '@epicenter/app/recorder';
+import { createInferenceCatalog } from '@epicenter/app-shell/inference-picker';
+import type { Account } from '@epicenter/auth';
+import { toHostedCatalog } from '@epicenter/constants/ai-providers';
+import { createLogger } from 'wellcrafted/logger';
 import { pushToTalk } from '../operations/push-to-talk';
-import { watchManualRecordingEnded } from '../operations/recording';
-import { createWhisperingQueries } from '../queries';
-import { createWhisperingQueryRuntime } from '../queries/client';
-import { createRecordings } from '../state/recordings.svelte';
-import { createSettingsView } from '../state/settings.svelte';
 import {
-	openWhisperingApp,
-	type WhisperingApp,
-	type WhisperingAppDependencies,
-} from './app';
+	createWhisperingRecording,
+	disposeVadRecording,
+} from '../operations/recording.svelte.js';
+import { createWhisperingQueryRuntime } from '../queries/client';
+import { type WhisperingApp, type WhisperingAppHandle } from './app';
+import { importLegacyInferenceSelections } from './inference.js';
+import { local } from './local.js';
 
-function createWhisperingUiSession(core: WhisperingApp) {
+/** Own recording admission and shell queries for this document. */
+export function createWhisperingUiSession({
+	openedApp,
+	account,
+}: {
+	openedApp: WhisperingAppHandle;
+	account: Account | undefined;
+}) {
+	importLegacyInferenceSelections(local.kv, account);
+	const catalog = createInferenceCatalog({
+		ai: openedApp.inference,
+		signal: openedApp.signal,
+		hostedModels: toHostedCatalog(['gpt-5.4-mini', 'gpt-5.5']),
+	});
+	const log = createLogger('whispering/ui-session');
+	// One flag fences new work and records UI disposal, including late callbacks.
+	let recordingEnabled = true;
 	const app: WhisperingApp = {
-		...core,
-		settings: createSettingsView(core.settings),
-		recordings: createRecordings(core),
-		recipes: core.recipes,
+		...openedApp,
+		get recordingEnabled() {
+			return recordingEnabled && !openedApp.signal.aborted;
+		},
+		authAccount: account,
+		catalog,
+		get recording() {
+			return recordingSession.recording;
+		},
 	};
+	const recordingSession = createWhisperingRecording(app, openedApp.recorder);
 	const queryRuntime = createWhisperingQueryRuntime();
-	const queries = createWhisperingQueries(app, queryRuntime);
-	// A capture can end without anyone asking, including while no screen is
-	// mounted, so the reaction belongs to the session rather than to a component.
-	watchManualRecordingEnded(app);
-	let disposal: Promise<void> | undefined;
 
 	return {
 		app,
-		queries,
 		queryClient: queryRuntime.queryClient,
-		[Symbol.asyncDispose]() {
-			disposal ??= (async () => {
-				try {
-					await pushToTalk.dispose(app);
-				} finally {
-					queryRuntime.queryClient.clear();
-					await core[Symbol.asyncDispose]();
-				}
-			})();
-			return disposal;
+		[Symbol.dispose]() {
+			if (!recordingEnabled) return;
+			recordingEnabled = false;
+			pushToTalk.dispose(app);
+			recordingSession[Symbol.dispose]();
+			void disposeVadRecording().catch((cause) =>
+				log.warn(RecorderError.RecorderFailed({ cause })),
+			);
+			queryRuntime.queryClient.clear();
 		},
 	};
-}
-
-export type WhisperingUiSession = ReturnType<typeof createWhisperingUiSession>;
-
-export const WhisperingUiSessionError = defineErrors({
-	TeardownFailed: ({ cause }: { cause: unknown }) => ({
-		message: 'Whispering UI session teardown failed',
-		cause,
-	}),
-});
-export type WhisperingUiSessionError = InferErrors<
-	typeof WhisperingUiSessionError
->;
-
-export async function openWhisperingUiSession(
-	dependencies: WhisperingAppDependencies,
-	signal: AbortSignal,
-): Promise<WhisperingUiSession> {
-	const core = await openWhisperingApp(dependencies, { signal });
-	try {
-		return createWhisperingUiSession(core);
-	} catch (cause) {
-		await core[Symbol.asyncDispose]();
-		throw cause;
-	}
 }

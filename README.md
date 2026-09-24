@@ -4,7 +4,7 @@
   </a>
   <h1 align="center">Epicenter</h1>
   <p align="center"><strong>Local-first apps over a store you own.</strong></p>
-  <p align="center">An app's whole data set is one CRDT document on your machine, complete enough to work with the network off. Sign in on a second device and the two converge. No server holds the only copy, and no app owns your storage.</p>
+  <p align="center">A store's whole data set is one CRDT document on your machine, complete enough to work with the network off. Sign in on a second device and the two converge. No server holds the only copy, and no app owns your storage.</p>
   <p align="center"><a href="apps/honeycrisp">Honeycrisp</a>, a local-first notes app, is the app built on it today.</p>
   <p align="center">Run the apps freely under AGPL-3.0-or-later. <a href="#license">What that means</a>.</p>
 </p>
@@ -47,10 +47,10 @@ invalidation or race protection. The rich half is in there too: a row's node is
 a nested type on the row, not a second document with an address of its own.
 
 ```typescript
-import { openDatabase } from '@epicenter/data/browser';
-import { defineData, defineTable, field, plainText } from '@epicenter/data/definition';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
+import { openLocal } from '@epicenter/app/open';
 
-const notesDefinition = defineData({
+const notesDefinition = defineStore({
 	id: 'com.example.notes',
 	kv: {},
 	tables: {
@@ -63,18 +63,23 @@ const notesDefinition = defineData({
 	},
 });
 
-// Opening is the asynchronous boundary; reads and writes are synchronous.
-const { data, error } = await openDatabase(notesDefinition, { generation: 1 });
-if (error !== null) throw error;
+// Opening resolves after storage acquisition and replay.
+const data = await openLocal(notesDefinition);
 
 const note = data.tables.notes.create({ title: 'Hello', pinned: false, folderId: null });
 
 const listed = data.tables.notes.rows;             // synchronous flat rows
 const stop = data.tables.notes.subscribe(() => { /* re-read rows */ });
+
+// Before leaving the application:
+stop();
+await data.close();
 ```
 
-A *data definition* is one application's declaration of its durable data: pure
-JSON field descriptors, no storage and no lifecycle of its own. It is
+A store definition describes durable data. `openLocal` acquires its Local store;
+`openPersonal` acquires a Personal store for an explicitly supplied account.
+Applications compose these stores with any other resources they need.
+Constructing a definition opens no storage and captures no account. It is
 release-local and never migrates your data. A row it cannot read is reported
 beside the rows it can, with the reason and the raw values intact, and an
 ordinary write repairs it.
@@ -91,7 +96,7 @@ Sync is one Cloudflare Durable Object per (account, application). Being signed
 in on two devices is the entire sharing model: nothing is paired, invited, or
 approved.
 
-[Read the data package docs](packages/data/README.md) | [What it replaced, and why](docs/the-store-and-what-it-replaced.md)
+[Read the application API](packages/app/README.md) | [What it replaced, and why](docs/the-store-and-what-it-replaced.md)
 
 ## Status
 
@@ -109,8 +114,10 @@ so old data is not imported into the new model.
 
 [Matter](apps/matter) edits user-owned Markdown folders directly and keeps a
 disposable `matter.sqlite` query mirror beside them. [Local
-Books](apps/local-books) and [Local Mail](apps/local-mail) are headless mirrors
-that pull a hosted account into local SQLite. Those three do not use the store.
+Books](apps/local-books) is a headless mirror that pulls a QuickBooks account
+into local SQLite. [Local Mail](apps/local-mail) is an Epicenter application
+with no CLI: it mirrors Gmail into local SQLite and reconciles from its own
+window. Those three do not use the store.
 
 ## Trust Boundaries
 
@@ -134,7 +141,8 @@ Signed-in sync sends your data to a trusted server that reads it in plaintext. O
 | --- | --- | --- |
 | [Honeycrisp](apps/honeycrisp) | Runs on the store | Local-first notes. Folders and notes are rows; a note's body is the node on its row. |
 | [Matter](apps/matter) | Runs, separately | Typed grid over user-owned Markdown folders. It edits ordinary `.md` files directly; `matter.sqlite` is a disposable query mirror. |
-| [Local Books](apps/local-books), [Local Mail](apps/local-mail) | Run, separately | Headless CLI mirrors that pull QuickBooks and Gmail into local SQLite. |
+| [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
+| [Local Mail](apps/local-mail) | Runs, separately | Gmail mirror with a triage window. No CLI; it reconciles in the foreground only. |
 | [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns the store authority binding, hosted-only billing, and the dashboard. |
 | [Self-host](apps/self-host) | Reference deployable | Community-supported single-partition instance without hosted billing. |
 | [Whispering](apps/whispering), [vocab](apps/vocab), [skills](apps/skills), [Epicenter](apps/epicenter) | Compile | Migrated onto the store. |
@@ -146,8 +154,7 @@ These packages carry the main architecture.
 
 | Package | Role | License |
 | --- | --- | --- |
-| [`@epicenter/data`](packages/data) | The store: one Yjs document per application, a synchronous surface over it, and the transport that carries it. | AGPL-3.0-or-later |
-| [`@epicenter/data/definition`](packages/data/src/definition) | The inert data-definition vocabulary: JSON field descriptors, row addresses, and nonconformance. | AGPL-3.0-or-later |
+| [`@epicenter/app`](packages/app) | Application declarations and lifetime, with the store, persistence, and sync engine inside the package. | AGPL-3.0-or-later |
 | [`@epicenter/sqlite`](packages/sqlite) | Neutral embedded-SQLite driver with Browser, Bun, and Durable Object adapters. It owns no product schema. | AGPL-3.0-or-later |
 | [`@epicenter/sync`](packages/sync) | The WebSocket subprotocol vocabulary both halves of a handshake must agree on. | AGPL-3.0-or-later |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte component library used by multiple apps. | AGPL-3.0-or-later |

@@ -1,22 +1,23 @@
 <script lang="ts">
+	import { AuthError, isCallbackAuthClient } from '@epicenter/auth';
+	import { Ok, tryAsync } from 'wellcrafted/result';
 	import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
 	import type { Snippet } from 'svelte';
 	import { Button } from '@epicenter/ui/button';
-	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as Popover from '@epicenter/ui/popover';
-	import { toast, toastOnError } from '@epicenter/ui/sonner';
-	import { Spinner } from '@epicenter/ui/spinner';
+	import { toastOnError } from '@epicenter/ui/sonner';
 	import CircleUser from '@lucide/svelte/icons/circle-user';
-	import DatabaseZap from '@lucide/svelte/icons/database-zap';
+	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import {
 		createMutation,
 		createQuery,
 		QueryClient,
 	} from '@tanstack/svelte-query';
-	import { extractErrorMessage } from 'wellcrafted/error';
 	import { resultMutationOptions, resultQueryOptions } from 'wellcrafted/query';
+	import { confirmAccountChange } from '../boot-screens/confirm-account-change.js';
 	import SignInPanel from './sign-in-panel.svelte';
+	import { getSignOut } from '../boot-screens/connection-screen-context.js';
 
 	const accountProfileQueryClient = new QueryClient({
 		defaultOptions: {
@@ -29,8 +30,7 @@
 	/**
 	 * Shared account popover.
 	 *
-	 * Renders auth identity and sign-out. When a Data runtime is present, it also
-	 * renders a plain sync status from its narrow observation surface.
+	 * Renders hosted auth identity, account website navigation, and sign-out.
 	 *
 	 * Mount once in each app's root layout, alongside `<ConfirmationDialog />`
 	 * and inside a `<Tooltip.Provider>`: the trigger pill renders a tooltip,
@@ -38,32 +38,11 @@
 	 */
 	type AccountPopoverProps = {
 		/**
-		 * The app's auth client. Its connection
-		 * supplies the selected server and live connection status.
+		 * The app's reactive auth client for its configured server.
 		 */
 		auth: ReactiveAuthClient;
 		/** Noun describing what gets synced, e.g. "tabs" or "notes". */
 		syncNoun: string;
-		/**
-		 * When set, the account actions that reload the page (sign in, sign out,
-		 * forget device, and connecting, retrying, or changing a self-hosted
-		 * instance) are disabled and this reason is shown, as the trigger tooltip, a
-		 * line inside the popover, and a line inside the instance modal while it is
-		 * open. The trigger itself stays openable so the reason is discoverable (a
-		 * disabled trigger swallows hover, hiding the one message that matters). Lets
-		 * a host block account changes at an unsafe moment, e.g. while a recording is
-		 * in progress. Omit to leave it enabled.
-		 */
-		disabledReason?: string;
-		/**
-		 * If provided, exposes a Forget this device button. The callback is
-		 * the destructive primitive that clears the local replica. The popover
-		 * confirms with the user, awaits the
-		 * callback, then reloads the page; reload after wipe is universal
-		 * in this context so the component owns it rather than asking
-		 * every caller to remember.
-		 */
-		onForgetDevice?: () => void | Promise<void>;
 		/** Optional replacement for the compact account icon trigger. */
 		trigger?: Snippet<[{ props: Record<string, unknown> }]>;
 	};
@@ -71,44 +50,41 @@
 	let {
 		auth,
 		syncNoun,
-		onForgetDevice,
-		disabledReason,
 		trigger,
 	}: AccountPopoverProps = $props();
 
 	let popoverOpen = $state(false);
-	let forgettingDevice = $state(false);
+	const signOutApplication = getSignOut();
 	const isSignedIn = $derived(auth.state.status === 'signed-in');
-	// A page-reloading account change (sign in/out, forget device) is unsafe right
-	// now; the reason is shown and those actions are disabled. Reconnect is safe
-	// (it never reloads), so it stays enabled.
-	const accountLocked = $derived(!!disabledReason);
-	const accountCacheKey = $derived(
-		auth.state.status === 'signed-out' ? null : auth.state.principalId,
-	);
-	// Identity lives on the auth client: `state` carries the principal partition,
-	// and `getProfile()` reads presentational identity (the email) on demand.
-	// TanStack Query owns the reactive cache here, keyed by account, and
-	// `resultQueryOptions` bridges the Result into its throw-on-error contract.
+	// A new auth selection gets its own profile query. The controller captures
+	// its account when the request begins; retirement cancels a stale read.
 	const profile = createQuery(
 		() =>
 			resultQueryOptions({
-				queryKey: ['account-profile', accountCacheKey],
+				queryKey: ['account-profile', auth.state],
 				queryFn: () => auth.getProfile(),
 				enabled: auth.state.status !== 'signed-out',
-				staleTime: Infinity,
+				staleTime: 0,
 			}),
 		() => accountProfileQueryClient,
 	);
 	const accountLabel = $derived(
-		profile.data?.email ?? (profile.error ? 'Offline' : 'Loading...'),
+		profile.data?.email ?? (profile.data ? 'Your server' : profile.error ? 'Offline' : 'Loading...'),
 	);
 
 	const signOut = createMutation(
 		() =>
 			resultMutationOptions({
 				mutationKey: ['account', 'signOut'],
-				mutationFn: () => auth.signOut(),
+				mutationFn: async () => {
+					if (signOutApplication) {
+						return tryAsync({ try: signOutApplication, catch: (cause) => AuthError.SignOutFailed({ cause }) });
+					}
+					if (!(await confirmAccountChange(auth))) return Ok(undefined);
+					const result = await auth.signOut();
+					if (!result.error && isCallbackAuthClient(auth)) location.reload();
+					return result;
+				},
 				onMutate: () => {
 					popoverOpen = false;
 				},
@@ -125,7 +101,6 @@
 	// are theme tokens (success connected, warning pulse in flight, muted
 	// offline, destructive failed).
 	const tooltip = $derived.by(() => {
-		if (disabledReason) return disabledReason;
 		if (!isSignedIn) return 'Sign in';
 		return 'Account';
 	});
@@ -143,28 +118,6 @@
 		return undefined;
 	});
 
-	function forgetDevice() {
-		if (!onForgetDevice) return;
-		popoverOpen = false;
-		confirmationDialog.open({
-			title: 'Forget this device?',
-			description: 'This deletes local data for this account on this device.',
-			confirm: { text: 'Forget device', variant: 'destructive' },
-			onConfirm: async () => {
-				forgettingDevice = true;
-				try {
-					await onForgetDevice();
-					window.location.reload();
-				} catch (error) {
-					toast.error('Failed to forget this device', {
-						description: extractErrorMessage(error),
-					});
-				} finally {
-					forgettingDevice = false;
-				}
-			},
-		});
-	}
 </script>
 
 <Popover.Root bind:open={popoverOpen}>
@@ -173,7 +126,13 @@
 			{#if trigger}
 				{@render trigger({ props })}
 			{:else}
-				<Button {...props} variant="ghost" size="icon-sm" {tooltip}>
+				<Button
+					{...props}
+					variant="ghost"
+					size="icon-sm"
+					{tooltip}
+					aria-label="Account"
+				>
 					<!-- Identity glyph stays fixed; the sync dot sits at its
 					     bottom-right like a presence badge (top-right would read
 					     as a notification). -->
@@ -200,45 +159,39 @@
 				<div class="space-y-1">
 					<p class="text-sm font-medium">{accountLabel}</p>
 				</div>
-				{#if disabledReason}
-					<p class="text-xs text-muted-foreground">{disabledReason}</p>
-				{/if}
-				<div class="border-t pt-3 flex gap-2">
+				<div class="border-t pt-3 flex flex-col gap-1">
+					{#if auth.accountManagementUrl}
+						<Button
+							href={auth.accountManagementUrl(auth.state.account, 'account').href}
+							target="_blank"
+							rel="noopener noreferrer"
+							variant="ghost"
+							size="sm"
+							class="w-full justify-start"
+							onclick={() => (popoverOpen = false)}
+						>
+							<ExternalLink class="size-3.5" />
+							Manage account
+							<span class="sr-only">(opens in browser)</span>
+						</Button>
+					{/if}
 					<Button
 						variant="ghost"
 						size="sm"
-						class="flex-1"
+						class="w-full justify-start"
 						onclick={() => signOut.mutate()}
-						disabled={accountLocked}
+						disabled={signOut.isPending}
 					>
 						<LogOut class="size-3.5" />
 						Sign out
 					</Button>
 				</div>
-				{#if onForgetDevice}
-					<div class="border-t pt-3">
-						<Button
-							variant="ghost-destructive"
-							size="sm"
-							class="w-full justify-start"
-							onclick={forgetDevice}
-							disabled={forgettingDevice || accountLocked}
-						>
-							{#if forgettingDevice}
-								<Spinner class="size-3.5" />
-							{:else}
-								<DatabaseZap class="size-3.5" />
-							{/if}
-							Forget this device
-						</Button>
-					</div>
-				{/if}
+
 			</div>
 		{:else}
 			<div class="p-4">
-					<SignInPanel {auth} {syncNoun} {disabledReason} />
+					<SignInPanel {auth} {syncNoun} />
 			</div>
 		{/if}
 	</Popover.Content>
 </Popover.Root>
-

@@ -1,5 +1,5 @@
 /**
- * The one grammar for an app id.
+ * The shared reverse-domain grammar for host application and store namespace IDs.
  *
  * Its own module, and not because `app-data.ts` grew too long. That file
  * resolves an OS application-data root, so it imports `node:os` and `node:path`
@@ -11,9 +11,10 @@
  *
  * **An app id is reverse domain, and that is enforced here rather than
  * observed.** Two or more lowercase dot-separated labels, which is the
- * namespace grammar ADR-0178 defines and ADR-0204 adopts as the app id: one
- * identifier names the app's Lens namespace, its directory, its route segment,
- * and its origin-storage prefix, and there is no second name.
+ * namespace grammar ADR-0178 defines and ADR-0204 adopts as the app id.
+ * Store definitions use the same grammar (ADR-0430), but a product may open
+ * several store IDs. Existing host and persistence addresses keep their bytes;
+ * sharing this predicate does not require their identifiers to be equal.
  *
  * This predicate used to admit a bare label, and the prose beside it explained
  * that an admitted folder names itself. That clause was withdrawn: ADR-0204

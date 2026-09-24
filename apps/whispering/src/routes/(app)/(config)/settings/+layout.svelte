@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { local } from '$lib/whispering/local.js';
+	import { DEVICE_DEFAULTS } from '$lib/operations/settings.js';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as SectionHeader from '@epicenter/ui/section-header';
@@ -7,9 +9,6 @@
 	import { report } from '$lib/report';
 	import { deviceConfig } from '$lib/state/device-config.svelte';
 	import SidebarNav from './SidebarNav.svelte';
-	import { getWhisperingApp } from '$lib/whispering/context';
-
-	const app = getWhisperingApp();
 
 	let { children } = $props();
 </script>
@@ -31,16 +30,16 @@
 			size="sm"
 			onclick={() => {
 				confirmationDialog.open({
-					title: 'Reset All Settings',
+					title: 'Reset device settings',
 					description:
-						'This will reset all settings to their default values. This action cannot be undone.',
+						'This resets settings on this device, including shortcuts, sounds, and processing choices.',
 					confirm: { text: 'Reset Settings', variant: 'destructive' },
 					onConfirm: () => {
-						app.settings.reset();
+						local.kv.update(DEVICE_DEFAULTS);
 						deviceConfig.reset();
 						report.success({
 							title: 'Settings reset',
-							description: 'All settings have been reset to defaults.',
+							description: 'Device settings have been reset to defaults.',
 						});
 					},
 				});

@@ -123,32 +123,3 @@ pub async fn simulate_enter_keystroke() -> Result<(), String> {
         .map_err(|error| format!("Failed to simulate Enter key: {error}"))?;
     Ok(())
 }
-
-/// Simulates the platform copy shortcut with layout-independent key codes.
-#[tauri::command]
-#[specta::specta]
-pub async fn simulate_copy_keystroke() -> Result<(), String> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|error| error.to_string())?;
-
-    #[cfg(target_os = "macos")]
-    let (modifier, c_key) = (Key::Meta, Key::Other(8));
-    #[cfg(target_os = "windows")]
-    let (modifier, c_key) = (Key::Control, Key::Other(0x43));
-    #[cfg(target_os = "linux")]
-    let (modifier, c_key) = (Key::Control, Key::Unicode('c'));
-
-    enigo
-        .key(modifier, Direction::Press)
-        .map_err(|error| format!("Failed to press modifier key: {error}"))?;
-    enigo
-        .key(c_key, Direction::Press)
-        .map_err(|error| format!("Failed to press C key: {error}"))?;
-    enigo
-        .key(c_key, Direction::Release)
-        .map_err(|error| format!("Failed to release C key: {error}"))?;
-    enigo
-        .key(modifier, Direction::Release)
-        .map_err(|error| format!("Failed to release modifier key: {error}"))?;
-
-    Ok(())
-}

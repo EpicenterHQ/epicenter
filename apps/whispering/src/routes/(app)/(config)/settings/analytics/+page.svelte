@@ -1,12 +1,11 @@
 <script lang="ts">
+	import { local } from '$lib/whispering/local.js';
+	import { DEVICE_DEFAULTS } from '$lib/operations/settings.js';
 	import { Badge } from '@epicenter/ui/badge';
 	import * as Card from '@epicenter/ui/card';
 	import * as SectionHeader from '@epicenter/ui/section-header';
 	import { SettingSwitch } from '$lib/components/settings';
 	import { logAnalyticsEvent } from '$lib/operations/analytics';
-	import { getWhisperingApp } from '$lib/whispering/context';
-
-	const app = getWhisperingApp();
 </script>
 
 <div class="space-y-8">
@@ -16,7 +15,7 @@
 			<SectionHeader.Title level={3} class="text-xl tracking-tight"
 				>Analytics</SectionHeader.Title
 			>
-			{#if app.settings.get('analyticsEnabled')}
+			{#if local.kv.get('analyticsEnabled') ?? DEVICE_DEFAULTS.analyticsEnabled}
 				<Badge
 					variant="outline"
 					class="text-xs text-green-700 dark:text-green-400 border-green-200 dark:border-green-400/30"
@@ -41,13 +40,15 @@
 	<Card.Root>
 		<Card.Content class="py-2">
 			<SettingSwitch
-				key="analyticsEnabled"
+				checked={local.kv.get('analyticsEnabled') ??
+					DEVICE_DEFAULTS.analyticsEnabled}
 				label="Share anonymized events"
-				description='We log simple events like "recording started" or "transcription completed". No personal data is attached to any of these events.'
+				description={'We log simple events like "recording started" or "transcription completed". No personal data is attached to any of these events.'}
 				onCheckedChange={(checked) => {
+					local.kv.update({ analyticsEnabled: checked });
 					// Log the change (only actually sends if analytics is now enabled).
 					if (checked) {
-						void logAnalyticsEvent(app, {
+						void logAnalyticsEvent({
 							type: 'settings_changed',
 							section: 'analytics',
 						});
@@ -71,7 +72,9 @@
 			</ul>
 		</div>
 		<div class="space-y-2">
-			<p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+			<p
+				class="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+			>
 				Never collected
 			</p>
 			<ul class="text-sm text-muted-foreground space-y-1 leading-relaxed">
@@ -144,7 +147,7 @@
 
 	<!-- Status Footer -->
 	<div class="flex items-center gap-2 text-xs">
-		{#if app.settings.get('analyticsEnabled')}
+		{#if local.kv.get('analyticsEnabled') ?? DEVICE_DEFAULTS.analyticsEnabled}
 			<div class="flex items-center gap-2 text-green-700 dark:text-green-400">
 				<div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
 				<span class="font-medium">Analytics active</span>

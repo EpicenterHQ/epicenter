@@ -2,9 +2,11 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-01
-- **Amended by:** [ADR-0092](0092-identity-is-the-partition.md), [ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md), and [ADR-0154](0154-blob-access-is-address-only.md)
+- **Amended by:** [ADR-0092](0092-identity-is-the-partition.md), [ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md), [ADR-0154](0154-blob-access-is-address-only.md), and [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) at references and lifetime: rows carry ordinary blob references without owning publication, transfer, or deletion. The row is not the blob address. ADR-0426 specifies scoped placements and fresh destination IDs.
 
 > **2026-07-02 amendment:** The durable read URL is now `<origin>/api/blobs/<sha256>`. Auth resolves the principal, so the URL no longer echoes the owner or principal id.
+
+- **Amended by:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at blob identity and physical/HTTP addresses. Local blobs use the fixed `device/no-account` path; copies return fresh BlobIds within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target.
 
 ## Context
 

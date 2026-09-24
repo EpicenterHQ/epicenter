@@ -2,12 +2,14 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-28
+- **Amended by:** [ADR-0417](0417-a-data-address-holds-one-document.md) withdraws generation selection and independently writable histories from current data; historical bytes remain untouched.
 - **Amends:** [ADR-0276](0276-an-authority-holds-a-numbered-succession-of-generations-and-nothing-is-ever-overwritten.md) at what a generation does to a device. The numbering, the retention rule, and "nothing is ever deleted except by a person" are unchanged. Withdrawn: `current` as a stored value, `PUT /current`, `setCurrent` as a verb, `supersededBy` as a client signal, and "a replica on an old generation is told, and discards and refills."
 - **Amends:** [ADR-0280](0280-a-browser-stores-durable-record-is-a-chain-of-updates-in-indexeddb-folded-on-idle.md) at the database's identity. One IndexedDB database per store becomes one per generation, which is what `record.ts` already implements and what makes discarding one a `deleteDatabase` rather than a scan.
 - **Amends:** [ADR-0272](0272-restore-replaces-a-workspace-from-an-artifact-under-a-new-document-identity.md) at the loss it announced. A restore discards nothing, so the paragraph describing what a person is told they are giving up describes a cost that no longer exists.
 - **Unbuilt:** all of it.
 - **Amended by:** [ADR-0285](0285-a-generation-is-a-url-parameter-and-a-device-stores-no-selection.md) at where the choice lives: the local ledger database, the stored selection, and the in-app switch are withdrawn, and the generation becomes a URL parameter. Held-and-chosen and fully-live are unchanged.
 - **Amended by:** [ADR-0286](0286-every-generation-is-minted-from-an-artifact-and-compaction-is-an-export-then-an-import.md) at compaction, which stops being an in-memory path of its own and becomes an export followed by an import.
+- **Amended by:** [ADR-0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) at product recovery: no generation picker or writable historical generation is required; recovery uses the current working copy and ordinary Push while generation and retirement mechanisms remain separate.
 
 ## Context
 

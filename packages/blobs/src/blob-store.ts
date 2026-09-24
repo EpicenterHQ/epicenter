@@ -7,40 +7,34 @@ import {
 import type { Result } from 'wellcrafted/result';
 import type { BlobId } from './blob-id.js';
 
-/**
- * @fileoverview The canonical local blob store contract.
- *
- * The local store is where app operations read and write bytes; the remote
- * (see `blob-remote.ts`) is an optional, explicit copy target. Both are
- * address-only: they act on a {@link BlobId} the application already knows
- * and never enumerate ids or reconstruct application state. Application data
- * (a recording row, a document citation) supplies each id's meaning.
- *
- * Deliberately absent, so implementations cannot grow them by accident:
- * - `list`/`clear`: blob capabilities are address-only. Bulk operations
- *   iterate the ids the application's own data knows about.
- * - local `copy`: without a live caller, independent lifetime is the ordinary
- *   `get(existingId)` + `put(generateBlobId(), blob)` composition.
- */
-
 export const BlobStoreError = defineErrors({
+	PublicationUnconfirmed: ({
+		id,
+		namespace,
+		cause,
+	}: {
+		id: BlobId;
+		namespace: string;
+		cause: unknown;
+	}) => ({
+		message: `Publication of '${id}' could not be confirmed.`,
+		id,
+		destination: { kind: 'local' as const, namespace },
+		cause,
+	}),
 	/** The id already names immutable local bytes and cannot be overwritten. */
 	BlobAlreadyExists: ({ id }: { id: BlobId }) => ({
 		message: `Blob '${id}' already exists.`,
 		id,
 	}),
-	/**
-	 * The store holds no bytes for this id. Expected, not exceptional: a row
-	 * can sync to a device before (or without) its bytes ever being copied
-	 * there. Callers branch on this to offer a remote download.
-	 */
+	/** The id has no bytes in this app's local store. */
 	BlobNotFound: ({ id }: { id: BlobId }) => ({
 		message: `No local bytes stored for blob '${id}'.`,
 		id,
 	}),
 	/** The underlying storage operation itself failed (IO, quota, corruption). */
-	BlobStoreFailed: ({ id, cause }: { id: BlobId; cause: unknown }) => ({
-		message: `Blob store operation failed for blob '${id}': ${extractErrorMessage(cause)}`,
+	BlobStoreFailed: ({ id, cause }: { id?: BlobId; cause: unknown }) => ({
+		message: `Blob store operation failed${id ? ` for blob '${id}'` : ''}: ${extractErrorMessage(cause)}`,
 		id,
 		cause,
 	}),
@@ -58,12 +52,23 @@ export type BlobStat = {
 	contentType: string;
 };
 
+/** Exclusive lexicographic cursor; pages are observations, not a snapshot. */
+export type BlobListOptions = { cursor?: string; limit?: number };
+export type BlobListPage = {
+	items: Array<{ id: BlobId; size: number; contentType: string }>;
+	nextCursor?: string;
+};
+
 /**
  * Canonical local blob operations. Implementations are platform-owned
  * (browser IndexedDB, Bun filesystem, the desktop WebView's HTTP adapter);
  * this contract is what callers and the remote compose over.
  */
 export type BlobStore = {
+	/** List complete generic blobs. Defaults to 100 entries, at most 1000. */
+	list(
+		options?: BlobListOptions,
+	): Promise<Result<BlobListPage, BlobStoreFailed>>;
 	/**
 	 * Store bytes under a freshly minted id. Blob ids are immutable:
 	 * implementations return `BlobAlreadyExists` instead of replacing bytes.

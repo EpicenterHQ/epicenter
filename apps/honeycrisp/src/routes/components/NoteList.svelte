@@ -1,25 +1,33 @@
 <script lang="ts">
+	import { createNote } from '$lib/notes.js';
+	import type { ReactiveData } from '@epicenter/svelte';
+	import type { HoneycrispData } from '$lib/data.js';
 	import type { Note } from '$lib/data';
 	import { Button } from '@epicenter/ui/button';
 	import * as ScrollArea from '@epicenter/ui/scroll-area';
 	import PlusIcon from '@lucide/svelte/icons/plus';
-	import { getHoneycrisp } from '$lib/app.svelte.js';
 	import { navigation } from '$lib/navigation.svelte.js';
 	import { getDateLabel } from '$lib/date-label.js';
 	import NoteCard from '../components/NoteCard.svelte';
 
-	// Whether there is a folder to send somebody to, which the shell knows
-	// because it is the one that opened it. Read as a fact rather than as the
-	// capability itself: what this list needs is a sentence, not a verb.
-	let { hasFolder }: { hasFolder: boolean } = $props();
+	let props: { data: ReactiveData<HoneycrispData> } = $props();
 
-	const honeycrisp = getHoneycrisp();
+	const visibleNotes = $derived(
+		props.data.tables.notes.rows
+			.filter((note) => {
+				if (navigation.isDeletedView) return note.deletedAt !== null;
+				return note.deletedAt === null
+					&& (navigation.folderId === null || note.folderId === navigation.folderId)
+					&& note.title.toLowerCase().includes(navigation.query.trim().toLowerCase());
+			})
+			.toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+	);
 
 	const title = $derived.by(() => {
 		if (navigation.isDeletedView) return 'Recently Deleted';
 		const folderId = navigation.folderId;
 		if (folderId === null) return 'All Notes';
-		return honeycrisp.tables.folders.get(folderId)?.name ?? 'Notes';
+		return props.data.tables.folders.get(folderId)?.name ?? 'Notes';
 	});
 
 	/**
@@ -58,7 +66,7 @@
 	 * beside the title stays the count of notes this release reads, for the same
 	 * reason: it counts a list, and these are not in it.
 	 */
-	const unreadableNotes = $derived(honeycrisp.tables.notes.nonconforming);
+	const unreadableNotes = $derived(props.data.tables.notes.nonconforming);
 
 	/** The name a person has for a note whose title did not survive. */
 	function nameOf(row: { id: string; raw: { title?: unknown } }): string {
@@ -70,7 +78,7 @@
 	// Grouping only: `visibleNotes` already owns the order (newest edit first),
 	// so the pinned partition and the date labels preserve it.
 	const groupedNotes = $derived.by(() => {
-		const notes = honeycrisp.visibleNotes;
+		const notes = visibleNotes;
 		const pinned = notes.filter((n) => n.pinned);
 		const unpinned = notes.filter((n) => !n.pinned);
 
@@ -140,7 +148,7 @@
 				{title}
 			</h2>
 			<span class="text-xs text-muted-foreground"
-				>{honeycrisp.visibleNotes.length}</span
+				>{visibleNotes.length}</span
 			>
 		</div>
 		{#if !navigation.isDeletedView}
@@ -152,7 +160,7 @@
 					tooltip="New note"
 					aria-label="New note"
 					onclick={() =>
-						honeycrisp.createNote()}
+						createNote(props.data)}
 				>
 					<PlusIcon class="size-4" />
 				</Button>
@@ -162,7 +170,7 @@
 
 	<ScrollArea.Root class="flex-1">
 		<div class="flex flex-col gap-4 p-2">
-			{#if honeycrisp.visibleNotes.length === 0}
+			{#if visibleNotes.length === 0}
 				<!--
 					Still said when the unreadable group is not empty, because it is
 					still true: "No deleted notes" is a claim about this view, and a
@@ -179,6 +187,7 @@
 					</h3>
 					{#each group.entries as note (note.id)}
 						<NoteCard
+							data={props.data}
 							{note}
 							isSelected={note.id === navigation.noteId}
 							onSelect={() => navigation.selectNote(note.id)}
@@ -208,14 +217,7 @@
 						</div>
 					{/each}
 					<p class="px-3 pt-1 text-xs text-muted-foreground">
-						{#if hasFolder}
-							Nothing has been lost. Save these notes as files, fix the lines
-							above in your Epicenter folder, and send the edits back.
-						{:else}
-							Nothing has been lost. These notes are stored whole, and fixing
-							the lines above needs the Epicenter folder, which this copy of
-							Honeycrisp does not have.
-						{/if}
+						These notes are still stored, but this version cannot open them.
 					</p>
 				</div>
 			{/if}

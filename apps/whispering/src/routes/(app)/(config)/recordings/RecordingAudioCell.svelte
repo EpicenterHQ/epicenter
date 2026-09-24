@@ -1,19 +1,19 @@
 <script lang="ts">
-	import { createQuery } from '@tanstack/svelte-query';
-	import type { Recording } from '$lib/state/recordings.svelte';
-	import RenderAudioUrl from './RenderAudioUrl.svelte';
-	import { getWhisperingQueries } from '$lib/whispering/context';
-
-	const queries = getWhisperingQueries();
-
-	let { recording }: { recording: Recording } = $props();
-	const availability = createQuery(
-		() => queries.audio.availability(() => recording).options,
-	);
+	import type { Recording } from '../../../../lib/data.js';
+	import AudioBlobPlayer from '$lib/components/AudioBlobPlayer.svelte';
+	import { viewTransition } from '$lib/utils/viewTransitions';
+	let {
+		recording,
+		store,
+	}: {
+		recording: Recording;
+		store: import('$lib/whispering/app.js').RecordingStore;
+	} = $props();
 </script>
 
-{#if availability.data === 'local-only' || availability.data === 'local-and-remote'}
-	<RenderAudioUrl id={recording.id} audioBlobId={recording.audioBlobId} />
-{:else if availability.data}
-	<span class="text-muted-foreground text-sm">Not on this device</span>
-{/if}
+<AudioBlobPlayer
+	{store}
+	id={recording.id}
+	class="h-8"
+	viewTransitionName={viewTransition.recording(recording.id).audio}
+/>

@@ -1,80 +1,47 @@
 # Vocab
 
-Multilingual chat tutor. A learner asks about a word, phrase, or sentence; the tutor answers in the language being studied alongside English, inferring that language from the conversation (ADR-0105). The client annotates non-Latin scripts with pronunciation readings (pinyin over Han, romaji over kana, Latin over Cyrillic) using `<ruby>` tags, produced by a deterministic offline registry. The system prompt tells the tutor to write plain text and never include readings itself.
+Vocab helps a learner understand English expressions in a tutor chat and save the ones they want to remember. Each saved entry has the learner's note and one self-reported stage: New, Recognize, Understand, or Use. Vocab does not score proficiency or change stages automatically.
 
-## How it works
+## Data ownership
 
-**Live answer in state, finished messages in the row content node**: Vocab is capability-free (ADR-0043), so the open browser tab answers its own turns, and the live answer needs nothing durable (re-asking is free). `src/routes/+page.svelte` builds the shared `createAgentChatState()` controller with Vocab's system prompt and default model, and `ConversationView.svelte` renders the active `AgentChatThread`. Only finished messages persist (ADR-0046): the user turn the moment it is sent, the assistant turn on a clean finish, each written once as one JSON blob into the conversation row's content node. A stopped or failed turn writes nothing; the durable user turn stays, ready to retry. On open, the controller reads the row and observes its content node, so a message finished on another device shows up here.
+```text
+openLocal(chatHistoryDefinition)              This device
+  messages                                 Account + chat + message ID + complete message
+  chats                                    Derived from messages; no metadata table
 
-**Markdown + readings**: Settled assistant messages render through `@epicenter/ui/markdown` via `ReadingMarkdown.svelte`, which resolves the deterministic per-script romanizers whose script appears in the passage (`src/lib/readings/`, ADR-0105) and composes them behind the shared Markdown component. Readings are a client-side derived view over clean text: pure, offline, lazily loaded per script, with no model call and no network, so a reading can only be missing, never wrong. The shared Markdown component owns sanitization, markdown rendering, and `<ruby>` output. Chinese (`pinyin-pro`), Japanese kana (`wanakana`), and Cyrillic (`transliteration`) ship today; adding a language is one provider file plus one registry line.
-
-**Workspace state**: `vocabDefinition` in `vocab.ts` is the shared isomorphic definition. It defines `epicenter-vocab`, the flat `conversations` table with its content codec, the KV settings, the Vocab model constant, and the `VocabMessage` shape. Transcripts are content nodes on conversation rows, not child documents. `openVocabBrowser()` reads auth once at boot: signed out uses bare local IndexedDB storage, signed in uses principal-scoped storage plus relay sync.
-
-```txt
-vocabDefinition
-  -> openVocabBrowser() opens with a browser connection
+openPersonal(vocabDefinition, { account })    Personal account
+  entries                                  Exact text, note, stage, creation time
 ```
 
-**UI state**: split by lifetime. `src/routes/components/VocabShell.svelte` owns the page-local conversation list, active id, and CRUD. The per-conversation runtime lives in `ConversationView.svelte`, mounted via `{#key activeConversationId}`, so each conversation gets a real component lifecycle. `ConversationView` reads the active row's `content` node and hands it to the shared chat controller, which streams the live turn into `$state`, persists finished messages, and exposes `messages` / `isThinking` / `isGenerating` / `error` plus `send` / `stop` / `retry`.
+`src/lib/resources.ts` opens both stores after `AppBoot` captures the account. The Local document is device-owned across sign-ins, so each message carries an account key. Switching accounts shows only that account's chats. Chats survive refresh on this device but do not follow the account to another device. Entries follow the account.
 
-**Auth**: Google OAuth through the shared Epicenter auth path. Sign-in is optional: Vocab boots into the local workspace first, then uses principal-scoped storage and sync on signed-in boots. `AccountPopover` is the account surface.
+Sending writes the question locally before generation. The answer streams in page state and is saved once after a clean finish. Stopping, failure, or switching chats leaves the submitted question available for retry. An unsent draft and partial answer are not durable.
 
-**Providers**: `@epicenter/constants/ai-providers` owns the shared servable model registry. `vocab.ts` owns Vocab's Gemini model.
+## Learner flow
 
-## File map
+Ask about an English word or phrase, follow up, and select text in a settled answer to save it. New chat selects an empty chat; it writes nothing until the first question is sent. Its sidebar title comes from that question. Older chats remain available in the sidebar, sorted by recent activity. Only the selected chat has a mounted agent loop, draft, microphone, and active answer. Switching chats stops that work.
 
-```
-src/
-  lib/
-    platform/auth.ts       # OAuth auth client
-    platform/binding.ts    # who owns this build's SQLite files and secrets
-    epicenter.svelte.ts    # the one handle: createEpicenter + fromEpicenter
-    state/
-      dictation.svelte.ts              # dictation state and interruption handling
-      inference-connections.svelte.ts  # hosted/custom inference connection registry
-      recorder.svelte.ts               # speech recorder wiring
-    readings/
-      registry.ts        # resolveRomanizer(): loads + composes the per-script providers
-      pinyin.ts          # Chinese: per-character pinyin over Han (pinyin-pro)
-      romaji.ts          # Japanese: romaji over kana (wanakana)
-      cyrillic.ts        # Cyrillic: Latin transliteration (transliteration)
-      runs.ts            # shared whole-run walker for run-based providers
-  routes/
-    +layout.svelte         # Root layout with Toaster
-    +layout.ts             # SSR disabled (CSR only)
-    +page.svelte             # Opens the store, and renders its four states
-    auth/callback/+page.svelte # OAuth callback return to app shell
-    components/
-      VocabShell.svelte        # Main layout: chat state, sidebar + chat area + readings toggle
-      ConversationView.svelte  # Keyed per-conversation view; binds the message store to the inference stream
-      ReadingMarkdown.svelte   # Renders one settled message with its deterministic reading overlay
-      DictationButton.svelte   # Speech input control
-      VocabSidebar.svelte      # Sidebar conversation list with create/switch/delete
-vocab.ts                    # Shared isomorphic model (tables, KV, VocabMessage shape, row content)
+The sidebar also supports adding an entry directly. Saving trims the selection, deduplicates by exact text, and starts with an empty learner-owned note and the New stage. The learner can select any stage later, including an earlier one. Suggested entries and dictation are optional chat actions; neither changes saved stages.
+
+The former Practice-in-a-new-chat action and automatic pronunciation readings have been removed. A separate Practice activity can be designed later. The tutor can explain pronunciation when asked.
+
+## Runtime
+
+The client runs the UI-free `@epicenter/agent` loop over Vocab's Local message adapter. `src/lib/chat/session.svelte.ts` binds one loop to the active keyed chat view and captures the inference connection and model for each turn. The inference picker persists one device workflow choice for that account. Vocab supplies no tool catalog, so chat has no web search. `src/lib/data.ts` declares the Local and Personal store shapes and English tutor prompt. The app is client-rendered and requires sign-in for account-backed entries and hosted inference.
+
+## Main files
+
+```text
+src/lib/data.ts                         Store definitions and tutor prompt
+src/lib/resources.ts                    Local, Personal, and inference opening
+src/lib/entries.svelte.ts               Personal entry actions
+src/lib/chat/messages.ts                Local message adapter and derived chat list
+src/lib/chat/session.svelte.ts          One active tutor loop
+src/lib/chat/dictation.svelte.ts        Microphone and transcription lifetime
+src/lib/chat/candidates.ts              Optional entry suggestions
+src/routes/components/VocabShell.svelte       Resource and selection lifetime
+src/routes/components/ConversationView.svelte Active chat and selection save
+src/routes/components/VocabSidebar.svelte     Chats and saved entries
 ```
 
-## Key decisions
-
-- The store is opened explicitly. `$lib/epicenter.svelte.ts` composes one
-  `createEpicenter` over the definition and the account and adapts it with
-  `fromEpicenter`; `routes/+page.svelte` calls `epicenter.open()` once after
-  reading auth and renders `closed | opening | ready | failed`, handing
-  `state.data` to `VocabShell` (ADR-0339, ADR-0344). Vocab's own opener is
-  gone, and with it the flush-on-hide listener it never had: the shared opener
-  asks the page for a flush before it goes, so the last few seconds of typing
-  survive.
-- The conversation list and each transcript live in the database document: metadata is ordinary row values and messages are keyed attributes on the row's `content` node. There is no `chatMessages` table.
-- The live answer streams in component `$state`, not the synced doc (ADR-0046): vocab is capability-free, so re-asking is free and only finished messages need to sync. Each finished message is one LWW JSON blob keyed by message id, written the moment a normal app would POST the row.
-- The cloud never writes the doc: it is a blind relay plus a stateless metered inference stream (ADR-0033).
-- SSR is disabled; the app is CSR-only.
-- The system prompt forbids readings (pinyin, romaji, transliteration) in AI responses so the client controls annotation rendering and toggle visibility, and the stored message stays clean for reuse as conversation memory and verbatim entries (ADR-0102, ADR-0105).
-
-## Scripts
-
-```sh
-bun dev:vocab      # Start the local API and Vocab UI from the repo root
-bun dev:vocab:ui   # Start only the Vocab UI
-bun run build      # Production build, from apps/vocab
-bun run preview    # Preview production build, from apps/vocab
-bun run typecheck  # svelte-check, from apps/vocab
-```
+Start from the repository root with `bun dev:vocab`. Run focused checks with `bun run --cwd apps/vocab typecheck` and `bun test apps/vocab/src/lib`.

@@ -13,9 +13,8 @@
 		MANUAL_RECORDING_BUTTON,
 		VAD_RECORDING_BUTTON,
 	} from '$lib/constants/audio';
-	import { whisperingPath } from '$lib/constants/urls';
+	import { resolve } from '$app/paths';
 	import { captureSurface } from '$lib/state/capture-surface.svelte';
-	import { manualRecorder } from '$lib/state/manual-recorder.svelte';
 	import { vadRecorder } from '$lib/state/vad-recorder.svelte';
 	import { viewTransition } from '$lib/utils/viewTransitions';
 	import { getWhisperingApp } from '$lib/whispering/context';
@@ -25,7 +24,7 @@
 	let { children } = $props();
 
 	const ManualButtonIcon = $derived(
-		MANUAL_RECORDING_BUTTON[manualRecorder.state].Icon,
+		MANUAL_RECORDING_BUTTON[app.recording.state].Icon,
 	);
 	const VadButtonIcon = $derived(VAD_RECORDING_BUTTON[vadRecorder.state].Icon);
 </script>
@@ -36,14 +35,14 @@
 		'flex h-14 w-full items-center justify-between px-4 sm:px-8',
 	)}
 >
-	<Button tooltip="Go home" href={whisperingPath('/')} variant="ghost" class="-ml-4">
+	<Button tooltip="Go home" href={resolve('/')} variant="ghost" class="-ml-4">
 		<span class="text-lg font-bold">whispering</span>
 	</Button>
 
 	<!-- The row hides while a capture is live: the pill owns stop and cancel on
 	every route, and the state-derived toggle here would just duplicate them. -->
 	<div class="flex items-center gap-1.5">
-		{#if captureSurface.current(app) === 'manual' && manualRecorder.state !== 'RECORDING'}
+		{#if captureSurface.current() === 'manual' && app.recording.state !== 'RECORDING'}
 			<ManualDeviceSelector
 				iconViewTransitionName={viewTransition.pipeline.device}
 			/>
@@ -54,6 +53,7 @@
 			<div class="flex">
 				<Button
 					tooltip="Start recording"
+					aria-label="Start recording"
 					onclick={() => commandRunners.toggleManualRecording(app)}
 					variant="ghost"
 					size="icon"
@@ -68,7 +68,7 @@
 				</Button>
 				<CaptureSurfaceSelector class="rounded-l-none" />
 			</div>
-		{:else if captureSurface.current(app) === 'vad' && vadRecorder.state === 'IDLE'}
+		{:else if captureSurface.current() === 'vad' && vadRecorder.state === 'IDLE'}
 			<VadDeviceSelector
 				iconViewTransitionName={viewTransition.pipeline.device}
 			/>
@@ -93,7 +93,7 @@
 				</Button>
 				<CaptureSurfaceSelector class="rounded-l-none" />
 			</div>
-		{:else if captureSurface.current(app) === 'import'}
+		{:else if captureSurface.current() === 'import'}
 			<TranscriptionSelector
 				variant="standalone"
 				iconViewTransitionName={viewTransition.pipeline.transcription}

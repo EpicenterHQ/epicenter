@@ -1,3 +1,4 @@
+/** Client boundaries keep credential verification on the server and runtime storage private. */
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -84,11 +85,10 @@ describe('client auth boundary', () => {
 		// through the storage adapters, never by importing the schema. Keeping
 		// it off the barrel is the structural guard: the package `exports` map
 		// exposes no path to `auth-types.js`, so an app cannot reach it at all.
-		// (OAuthTokenGrant is type-only and never had a runtime export.)
 		expect('PersistedAuth' in authRoot).toBe(false);
 
 		// The capability surface stays public.
 		expect('createWebStoragePersistedAuthStorage' in authRoot).toBe(true);
-		expect('loadPersistedAuthStorage' in authRoot).toBe(true);
+		expect('createSessionAuth' in authRoot).toBe(true);
 	});
 });

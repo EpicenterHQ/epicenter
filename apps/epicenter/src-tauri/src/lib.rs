@@ -1,9 +1,12 @@
+#[cfg(feature = "runtime-evidence")]
+pub mod runtime_evidence;
+
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -29,13 +32,17 @@ use tauri_specta::Event as _;
 mod command_names;
 
 pub mod app_data;
+mod device_owner;
+mod sqlite;
 
 pub mod audio;
 use audio::encode_recording_for_upload;
 
+pub mod blobs;
 pub mod recorder;
 use recorder::commands::{
-    cancel_recording, cancel_recording_owned_by, current_recording, enumerate_recording_devices,
+    cancel_recording, cancel_recording_owned_by, close_recording_session, current_recording,
+    enumerate_recording_devices, recording_document_generation, register_recording_session, resolve_recording_start,
     start_recording, stop_recording,
 };
 use recorder::recorder::Recorder;
@@ -43,8 +50,9 @@ use recorder::recorder::Recorder;
 pub mod transcription;
 use transcription::{
     delete_model, download_model, get_active_model, get_local_transcription_readiness,
-    get_unload_policy, list_models, prewarm_model, set_active_model, set_unload_policy,
-    transcribe_recording, LocalTranscriptionSettings, ModelCache,
+    get_unload_policy, list_inference_models, list_models, prewarm_model, set_active_model,
+    set_unload_policy, transcribe_audio_bytes, transcribe_recording, LocalTranscriptionSettings,
+    ModelCache,
 };
 
 pub mod command;
@@ -57,7 +65,7 @@ pub mod download;
 use download::{cancel_download, DownloadManager};
 
 mod delivery;
-use delivery::{simulate_copy_keystroke, simulate_enter_keystroke, write_text};
+use delivery::{simulate_enter_keystroke, write_text};
 
 mod keyring_storage;
 use keyring_storage::{
@@ -92,7 +100,7 @@ const APP_WINDOW_PREFIX: &str = "app-";
 const PRODUCTION_PORT: u16 = 39_130;
 #[cfg(any(debug_assertions, test))]
 const DEVELOPMENT_PORT: u16 = 39_131;
-const PROTOCOL_VERSION: u8 = 2;
+const PROTOCOL_VERSION: u8 = 7;
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 const READY_TIMEOUT: Duration = Duration::from_secs(15);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
@@ -102,15 +110,17 @@ enum BuiltInApp {
     Home,
     Whispering,
     Honeycrisp,
+    Capture,
     Mail,
     Books,
 }
 
 impl BuiltInApp {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Home,
         Self::Whispering,
         Self::Honeycrisp,
+        Self::Capture,
         Self::Mail,
         Self::Books,
     ];
@@ -124,7 +134,7 @@ impl BuiltInApp {
     /// All stay reserved IDs the catalog refuses to admit, so "not launchable"
     /// never means "free for someone else to claim".
     const fn is_launchable(self) -> bool {
-        matches!(self, Self::Whispering | Self::Honeycrisp | Self::Mail)
+        matches!(self, Self::Whispering | Self::Honeycrisp | Self::Capture | Self::Mail)
     }
 
     const fn id(self) -> &'static str {
@@ -132,6 +142,7 @@ impl BuiltInApp {
             Self::Home => "home",
             Self::Whispering => "whispering",
             Self::Honeycrisp => "honeycrisp",
+            Self::Capture => "capture",
             Self::Mail => "mail",
             Self::Books => "books",
         }
@@ -142,6 +153,7 @@ impl BuiltInApp {
             Self::Home => "/apps/home/",
             Self::Whispering => "/apps/whispering/",
             Self::Honeycrisp => "/apps/honeycrisp/",
+            Self::Capture => "/apps/capture/",
             Self::Mail => "/apps/mail/",
             Self::Books => "/apps/books/",
         }
@@ -152,6 +164,7 @@ impl BuiltInApp {
             Self::Home => "Epicenter: Home",
             Self::Whispering => "Epicenter: Whispering",
             Self::Honeycrisp => "Epicenter: Honeycrisp",
+            Self::Capture => "Epicenter: Capture",
             Self::Mail => "Epicenter: Mail",
             Self::Books => "Epicenter: Books",
         }
@@ -172,6 +185,10 @@ struct BootFrame<'a> {
     token: &'a str,
     port: u16,
     auth_cell: Option<&'a str>,
+    auth_server: AuthServer,
+    account_management: bool,
+    #[serde(flatten)]
+    paths: &'a app_data::DesktopPaths,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -182,9 +199,18 @@ struct ReadyFrame {
     port: u16,
 }
 
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
-enum BunToRustAuthFrame {
+enum BunToRustNativeFrame {
+    Sqlite {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        request: sqlite::Request,
+    },
+    SqliteCancel {
+        #[serde(rename = "requestId")]
+        request_id: String,
+    },
     StoreAuth {
         #[serde(rename = "requestId")]
         request_id: String,
@@ -196,36 +222,36 @@ enum BunToRustAuthFrame {
         url: String,
     },
     PutAppSecret {
+        account: Option<device_owner::AccountIdentity>,
         #[serde(rename = "requestId")]
         request_id: String,
         #[serde(rename = "appId")]
         app_id: String,
-        #[serde(rename = "accountId")]
-        account_id: String,
+        label: String,
         value: String,
     },
     GetAppSecret {
+        account: Option<device_owner::AccountIdentity>,
         #[serde(rename = "requestId")]
         request_id: String,
         #[serde(rename = "appId")]
         app_id: String,
-        #[serde(rename = "accountId")]
-        account_id: String,
+        label: String,
     },
     DeleteAppSecret {
+        account: Option<device_owner::AccountIdentity>,
         #[serde(rename = "requestId")]
         request_id: String,
         #[serde(rename = "appId")]
         app_id: String,
-        #[serde(rename = "accountId")]
-        account_id: String,
+        label: String,
     },
     Relaunch {},
 }
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-enum RustToBunAuthFrame<'a> {
+enum RustToBunNativeFrame<'a> {
     NativeResult {
         #[serde(rename = "requestId")]
         request_id: &'a str,
@@ -243,7 +269,7 @@ enum RustToBunAuthFrame<'a> {
         status: &'static str,
         value: Option<&'a str>,
     },
-    OauthCallback {
+    AuthCallback {
         url: &'a str,
     },
 }
@@ -251,7 +277,9 @@ enum RustToBunAuthFrame<'a> {
 struct ManagedChild {
     generation: u64,
     child: Child,
-    stdin: Option<ChildStdin>,
+    stdin: Option<mpsc::SyncSender<String>>,
+    sqlite: sqlite::Worker,
+    writer: Option<thread::JoinHandle<()>>,
 }
 
 struct HostState {
@@ -260,7 +288,7 @@ struct HostState {
     process: Mutex<Option<ManagedChild>>,
     active_token: Mutex<Option<String>>,
     pending_apps: Mutex<Vec<BuiltInApp>>,
-    pending_oauth_callback: Mutex<Option<String>>,
+    pending_auth_callback: Mutex<Option<String>>,
     /// A section of Home an application asked the shell to open, held until Home
     /// is able to claim it. Only the latest survives: two recovery nudges in a
     /// row should land the user somewhere once, not queue a backlog.
@@ -277,7 +305,7 @@ impl HostState {
             process: Mutex::new(None),
             active_token: Mutex::new(None),
             pending_apps: Mutex::new(Vec::new()),
-            pending_oauth_callback: Mutex::new(None),
+            pending_auth_callback: Mutex::new(None),
             pending_home_section: Mutex::new(None),
             shutting_down: AtomicBool::new(false),
             starting: AtomicBool::new(false),
@@ -316,17 +344,17 @@ impl HostState {
             .take()
     }
 
-    fn queue_oauth_callback(&self, url: String) {
+    fn queue_auth_callback(&self, url: String) {
         *self
-            .pending_oauth_callback
+            .pending_auth_callback
             .lock()
-            .expect("pending OAuth callback lock poisoned") = Some(url);
+            .expect("pending auth callback lock poisoned") = Some(url);
     }
 
-    fn take_oauth_callback(&self) -> Option<String> {
-        self.pending_oauth_callback
+    fn take_auth_callback(&self) -> Option<String> {
+        self.pending_auth_callback
             .lock()
-            .expect("pending OAuth callback lock poisoned")
+            .expect("pending auth callback lock poisoned")
             .take()
     }
 
@@ -381,13 +409,18 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .commands(tauri_specta::collect_commands![
             write_text,
             simulate_enter_keystroke,
-            simulate_copy_keystroke,
             enumerate_recording_devices,
             start_recording,
             stop_recording,
             cancel_recording,
+            recording_document_generation,
+            register_recording_session,
             current_recording,
+            resolve_recording_start,
+            close_recording_session,
             transcribe_recording,
+            transcribe_audio_bytes,
+            list_inference_models,
             prewarm_model,
             open_accessibility_settings,
             request_accessibility_permission,
@@ -570,7 +603,23 @@ fn launch_application(
     };
     let port = state.port().map_err(|error| format!("{error:#}"))?;
 
-    launch_on_main_thread(&app, application, port, &token).map_err(|error| format!("{error:#}"))
+    launch_on_main_thread(&app, application, port, &token, true).map_err(|error| format!("{error:#}"))
+}
+
+/// Whispering may prepare Capture in the background or reveal it after an
+/// acknowledged promotion. The command cannot launch another application.
+#[tauri::command(async)]
+fn set_capture_window_visible(
+    app: DesktopAppHandle,
+    state: State<'_, HostState>,
+    reveal: bool,
+) -> std::result::Result<(), String> {
+    let Some(token) = state.active_token() else {
+        return Err("the Epicenter host is not ready".to_string());
+    };
+    let port = state.port().map_err(|error| format!("{error:#}"))?;
+    launch_on_main_thread(&app, Application::Compiled(BuiltInApp::Capture), port, &token, reveal)
+        .map_err(|error| format!("{error:#}"))
 }
 
 /// Create or reveal the window on the main thread and report what happened.
@@ -584,6 +633,7 @@ fn launch_on_main_thread(
     application: Application,
     port: u16,
     token: &str,
+    reveal: bool,
 ) -> Result<()> {
     let (sender, receiver) = mpsc::sync_channel(1);
     let window_app = app.clone();
@@ -592,7 +642,7 @@ fn launch_on_main_thread(
         let result = if window_app.state::<HostState>().token_is_active(&token) {
             match application {
                 Application::Compiled(built_in) => {
-                    ensure_window(&window_app, built_in, port, &token, true)
+                    ensure_window(&window_app, built_in, port, &token, reveal)
                 }
                 Application::Admitted(id) => ensure_app_window(&window_app, &id, port, &token),
             }
@@ -673,13 +723,17 @@ fn ensure_app_window(app: &DesktopAppHandle, id: &str, port: u16, token: &str) -
     let origin = origin(port);
     let url: tauri::Url = format!("{origin}/apps/{id}/").parse()?;
     let initialization_script = initialization_script(&origin, token)?;
-    let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
+    let account_opener = app.clone();
+    let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url));
+    #[cfg(feature = "runtime-evidence")]
+    let builder = runtime_evidence::isolate_webview(builder);
+    let window = builder
         .title(format!("Epicenter: {id}"))
         .inner_size(1100.0, 760.0)
         .min_inner_size(680.0, 480.0)
         .initialization_script(initialization_script)
         .on_navigation(move |url| is_allowed_navigation(url, port))
-        .on_new_window(|_, _| NewWindowResponse::Deny)
+        .on_new_window(move |url, _| open_account_website(&account_opener, &url))
         .build()
         .with_context(|| format!("create the {id} app WebView"))?;
     release_host_resources_on_destroy(&window);
@@ -689,11 +743,8 @@ fn ensure_app_window(app: &DesktopAppHandle, id: &str, port: u16, token: &str) -
 
 /// Release the host resources a window owns once it is destroyed.
 ///
-/// Only destruction, never hide or navigation: a hidden window still owns its
-/// recording (push-to-talk from the tray depends on that), and reload keeps the
-/// same label, which is exactly why `current_recording` exists. A destroyed
-/// window can no longer stop or cancel anything, so its recording would hold
-/// the one host recorder until the process exits.
+/// A hidden window keeps capture. Destruction releases its document; the
+/// builder's page-load hook also releases it before a replacement page loads.
 ///
 /// Built-in windows are hidden rather than destroyed when the user closes them,
 /// so this fires for them only on a host restart teardown. App windows have no
@@ -712,7 +763,7 @@ pub fn run() {
     let port = configured_port();
     let specta_builder = make_specta_builder();
     let specta_handler = tauri_specta::Builder::invoke_handler(&specta_builder);
-    let native_handler = tauri::generate_handler![encode_recording_for_upload, launch_application]
+    let native_handler = tauri::generate_handler![encode_recording_for_upload, launch_application, set_capture_window_visible]
         as fn(tauri::ipc::Invoke<tauri::Wry>) -> bool;
     let log_plugin = tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Info)
@@ -728,6 +779,11 @@ pub fn run() {
         .build();
 
     let builder = tauri::Builder::default()
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                cancel_recording_owned_by(webview.app_handle(), webview.label());
+            }
+        })
         // This must remain the first plugin: later plugins and setup must only run
         // in the process that owns the application instance.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -755,7 +811,7 @@ pub fn run() {
         .invoke_handler(move |invoke| {
             if matches!(
                 invoke.message.command(),
-                "encode_recording_for_upload" | "launch_application"
+                "encode_recording_for_upload" | "launch_application" | "set_capture_window_visible"
             ) {
                 native_handler(invoke)
             } else {
@@ -765,14 +821,7 @@ pub fn run() {
         .setup(move |app| {
             specta_builder.mount_events(app);
 
-            // A recording that was still capturing when a previous launch died
-            // left a partial WAV in the recorder's private staging. It is not a
-            // blob and never will be one, so it is deleted here and nothing
-            // else happens: no promotion, no repair, no notice. Owned by the
-            // recorder rather than by blob-store startup because `.staging/rust`
-            // is the recorder's alone (`packages/blobs` stages its own uploads
-            // under `.staging/bun` and cleans them per operation).
-            crate::recorder::blob::delete_stale_staging(app.handle());
+            app.manage(app_data::DesktopPaths::resolve(app.handle())?);
 
             // The active local model and the unload policy are device-local host
             // state (ADR-0180), so they live beside the app's own config rather
@@ -801,8 +850,8 @@ pub fn run() {
             let mut opened_window = false;
             if let Some(urls) = current {
                 for url in &urls {
-                    if let Some(callback) = parse_oauth_callback(url) {
-                        queue_or_send_oauth_callback(app.handle(), callback);
+                    if let Some(callback) = parse_auth_callback(url) {
+                        queue_or_send_auth_callback(app.handle(), callback);
                     }
                     if let Some(built_in) = parse_app_deep_link(url) {
                         request_window(app.handle(), built_in);
@@ -831,8 +880,8 @@ fn open_forwarded_deep_links(app: &DesktopAppHandle, arguments: &[String]) {
         let Ok(url) = tauri::Url::parse(argument) else {
             continue;
         };
-        if let Some(callback) = parse_oauth_callback(&url) {
-            queue_or_send_oauth_callback(app, callback);
+        if let Some(callback) = parse_auth_callback(&url) {
+            queue_or_send_auth_callback(app, callback);
         }
     }
     if built_ins.is_empty() {
@@ -862,8 +911,8 @@ fn apps_from_arguments(arguments: &[String]) -> Vec<BuiltInApp> {
 
 fn open_deep_links(app: &DesktopAppHandle, urls: &[tauri::Url]) {
     for url in urls {
-        if let Some(callback) = parse_oauth_callback(url) {
-            queue_or_send_oauth_callback(app, callback);
+        if let Some(callback) = parse_auth_callback(url) {
+            queue_or_send_auth_callback(app, callback);
         }
         if let Some(built_in) = parse_app_deep_link(url) {
             request_window(app, built_in);
@@ -871,7 +920,7 @@ fn open_deep_links(app: &DesktopAppHandle, urls: &[tauri::Url]) {
     }
 }
 
-fn parse_oauth_callback(url: &tauri::Url) -> Option<String> {
+fn parse_auth_callback(url: &tauri::Url) -> Option<String> {
     if url.scheme() != "epicenter"
         || url.host_str() != Some("auth")
         || url.path() != "/callback"
@@ -887,7 +936,7 @@ fn parse_oauth_callback(url: &tauri::Url) -> Option<String> {
     Some(url.to_string())
 }
 
-fn queue_or_send_oauth_callback(app: &DesktopAppHandle, url: String) {
+fn queue_or_send_auth_callback(app: &DesktopAppHandle, url: String) {
     let state = app.state::<HostState>();
     let generation = state
         .process
@@ -896,16 +945,16 @@ fn queue_or_send_oauth_callback(app: &DesktopAppHandle, url: String) {
         .as_ref()
         .map(|process| process.generation);
     let Some(generation) = generation else {
-        state.queue_oauth_callback(url);
+        state.queue_auth_callback(url);
         return;
     };
-    if let Err(error) = send_auth_frame(
+    if let Err(error) = send_native_frame(
         &state,
         generation,
-        &RustToBunAuthFrame::OauthCallback { url: &url },
+        &RustToBunNativeFrame::AuthCallback { url: &url },
     ) {
-        state.queue_oauth_callback(url);
-        append_parent_log(app, &format!("deliver OAuth callback: {error:#}"));
+        state.queue_auth_callback(url);
+        append_parent_log(app, &format!("deliver auth callback: {error:#}"));
     }
 }
 
@@ -1037,20 +1086,43 @@ fn start_once(app: &DesktopAppHandle) -> Result<()> {
             stop_starting_child(child, stdin);
             bail!("a Bun host is already managed by Epicenter");
         }
+        let (sender, receiver) = mpsc::sync_channel::<String>(64);
+        let failed = Arc::new(AtomicBool::new(false));
+        let writer_failed = failed.clone();
+        let writer = thread::spawn(move || {
+            let mut stdin = stdin;
+            for line in receiver {
+                if writeln!(stdin, "{line}")
+                    .and_then(|()| stdin.flush())
+                    .is_err()
+                {
+                    writer_failed.store(true, Ordering::Release);
+                    break;
+                }
+            }
+        });
+        let sqlite = sqlite::Worker::new(
+            app.state::<app_data::DesktopPaths>().data_dir.clone(),
+            generation,
+            sender.clone(),
+            failed,
+        );
         *process = Some(ManagedChild {
             generation,
             child,
-            stdin: Some(stdin),
+            stdin: Some(sender),
+            sqlite,
+            writer: Some(writer),
         });
     }
 
-    if let Some(callback) = state.take_oauth_callback() {
-        send_auth_frame(
+    if let Some(callback) = state.take_auth_callback() {
+        send_native_frame(
             &state,
             generation,
-            &RustToBunAuthFrame::OauthCallback { url: &callback },
+            &RustToBunNativeFrame::AuthCallback { url: &callback },
         )
-        .context("deliver the queued OAuth callback")?;
+        .context("deliver the queued auth callback")?;
     }
 
     state.activate(&token);
@@ -1074,12 +1146,7 @@ fn start_once(app: &DesktopAppHandle) -> Result<()> {
 fn launch_host(app: &DesktopAppHandle, port: u16) -> Result<LaunchedHost> {
     let log = open_log_file(app)?;
 
-    // The Bun host resolves the Epicenter data root itself, from the one
-    // TypeScript function that owns that path (ADR-0201). Do not pass one from
-    // here: a Rust-computed root leaves the desktop and every CLI as two
-    // implementations of a directory they have to agree on exactly, and it
-    // swallows the ambient `EPICENTER_DATA_DIR` that the host and the
-    // recorder's `crate::app_data` both honour.
+    // The native startup owns paths; the sidecar receives them in its boot frame.
     let mut command = host_command(app)?;
     command
         .env("EPICENTER_APPS_DIST", apps_dist(app)?)
@@ -1093,8 +1160,14 @@ fn launch_host(app: &DesktopAppHandle, port: u16) -> Result<LaunchedHost> {
     let mut stdin = child.stdin.take().context("capture Bun stdin")?;
     let stdout = child.stdout.take().context("capture Bun stdout")?;
     let token = launch_token()?;
-    let auth_cell = read_auth_cell().context("read the desktop auth cell")?;
-    let frame = boot_frame_json(&token, port, auth_cell.as_deref())?;
+    let auth_cell =
+        read_auth_cell(&app.config().identifier).context("read the desktop auth cell")?;
+    let frame = boot_frame_json(
+        &token,
+        port,
+        auth_cell.as_deref(),
+        &app.state::<app_data::DesktopPaths>(),
+    )?;
 
     if let Err(error) = writeln!(stdin, "{frame}").and_then(|()| stdin.flush()) {
         stop_starting_child(child, stdin);
@@ -1112,7 +1185,7 @@ fn launch_host(app: &DesktopAppHandle, port: u16) -> Result<LaunchedHost> {
         Ok(value) => value,
         Err(mpsc::RecvTimeoutError::Timeout) => {
             stop_starting_child(child, stdin);
-            bail!("Bun did not emit its v2 ready frame within 15 seconds");
+            bail!("Bun did not emit its versioned ready frame within 15 seconds");
         }
         Err(mpsc::RecvTimeoutError::Disconnected) => {
             stop_starting_child(child, stdin);
@@ -1197,14 +1270,17 @@ fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<Ch
     let (stdout_sender, stdout_receiver) = mpsc::sync_channel(1);
     thread::spawn(move || loop {
         let mut line = String::new();
-        let event = match stdout.read_line(&mut line) {
+        let event = match (&mut stdout)
+            .take((sqlite::MAX_FRAME_BYTES + 1) as u64)
+            .read_line(&mut line)
+        {
             Ok(0) => Err("Bun closed stdout after readiness".to_string()),
-            Ok(_) if !line.ends_with('\n') => {
-                Err("Bun closed stdout during an auth frame".to_string())
+            Ok(_) if line.len() > sqlite::MAX_FRAME_BYTES || !line.ends_with('\n') => {
+                Err("Bun closed stdout during an native frame".to_string())
             }
             Ok(_) => {
-                serde_json::from_str::<BunToRustAuthFrame>(line.trim_end_matches(['\r', '\n']))
-                    .map_err(|error| format!("Bun emitted an invalid auth frame: {error}"))
+                serde_json::from_str::<BunToRustNativeFrame>(line.trim_end_matches(['\r', '\n']))
+                    .map_err(|error| format!("Bun emitted an invalid native frame: {error}"))
             }
             Err(error) => Err(format!("failed to monitor Bun stdout: {error}")),
         };
@@ -1226,11 +1302,11 @@ fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<Ch
         if let Ok(event) = stdout_receiver.recv_timeout(Duration::from_millis(150)) {
             match event {
                 Ok(frame) => {
-                    if let Err(error) = handle_auth_frame(&app, generation, frame) {
+                    if let Err(error) = handle_native_frame(&app, generation, frame) {
                         fail_generation(
                             &app,
                             generation,
-                            format!("handle Bun auth frame: {error:#}"),
+                            format!("handle Bun native frame: {error:#}"),
                         );
                         return;
                     }
@@ -1250,6 +1326,10 @@ fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<Ch
             };
             if process.generation != generation {
                 return;
+            }
+            if process.sqlite.failed.load(Ordering::Acquire) {
+                // A failed/bounded response pipe is terminal; never strand a request.
+                let _ = process.child.kill();
             }
             process.child.try_wait()
         };
@@ -1276,50 +1356,99 @@ fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<Ch
     });
 }
 
-fn handle_auth_frame(
+fn handle_native_frame(
     app: &DesktopAppHandle,
     generation: u64,
-    frame: BunToRustAuthFrame,
+    frame: BunToRustNativeFrame,
 ) -> Result<()> {
+    {
+        let state = app.state::<HostState>();
+        if state.shutting_down.load(Ordering::Acquire) {
+            bail!("Native frame arrived after host shutdown began");
+        }
+        let process = state.process.lock().expect("host state lock poisoned");
+        if !process
+            .as_ref()
+            .is_some_and(|process| process.generation == generation)
+        {
+            bail!("Native frame belongs to a retired Bun generation");
+        }
+    }
+    // Dispatch without the process lock: restart delivers Exit, whose cleanup
+    // takes this lock before waiting for the Bun child.
     match frame {
-        BunToRustAuthFrame::StoreAuth {
+        BunToRustNativeFrame::Sqlite {
+            request_id,
+            request,
+        } => {
+            let state = app.state::<HostState>();
+            let process = state.process.lock().expect("host state lock poisoned");
+            let process = process
+                .as_ref()
+                .filter(|process| process.generation == generation)
+                .context("SQLite generation retired")?;
+            process
+                .sqlite
+                .submit(request_id, request)
+                .map_err(|error| anyhow!(error))
+        }
+        BunToRustNativeFrame::SqliteCancel { request_id } => {
+            let state = app.state::<HostState>();
+            let process = state.process.lock().expect("host state lock poisoned");
+            let process = process
+                .as_ref()
+                .filter(|process| process.generation == generation)
+                .context("SQLite generation retired")?;
+            process.sqlite.cancel(&request_id);
+            Ok(())
+        }
+        BunToRustNativeFrame::StoreAuth {
             request_id,
             serialized,
         } => {
-            let result = write_auth_cell(serialized);
+            let result = write_auth_cell(&app.config().identifier, serialized);
             send_native_result(app, generation, &request_id, result)
         }
-        BunToRustAuthFrame::OpenAuthUrl { request_id, url } => {
-            let result = validate_hosted_auth_url(&url).and_then(|()| {
+        BunToRustNativeFrame::OpenAuthUrl { request_id, url } => {
+            let result = configured_auth_server().and_then(|server| {
+                validate_auth_url(&url, &server.server)?;
                 app.opener()
                     .open_url(url, None::<String>)
                     .map_err(Into::into)
             });
             send_native_result(app, generation, &request_id, result)
         }
-        BunToRustAuthFrame::PutAppSecret {
+        BunToRustNativeFrame::PutAppSecret {
+            account,
             request_id,
             app_id,
-            account_id,
+            label,
             value,
         } => {
-            let result = write_app_secret(&app_id, &account_id, &value);
+            let result = write_app_secret(
+                &app.config().identifier,
+                &app_id,
+                &label,
+                &value,
+                account.as_ref(),
+            );
             send_native_result(app, generation, &request_id, result)
         }
-        BunToRustAuthFrame::GetAppSecret {
+        BunToRustNativeFrame::GetAppSecret {
+            account,
             request_id,
             app_id,
-            account_id,
+            label,
         } => {
             if request_id.is_empty() {
                 bail!("native requestId must be non-empty");
             }
             let state = app.state::<HostState>();
-            match read_app_secret(&app_id, &account_id) {
-                Ok(value) => send_auth_frame(
+            match read_app_secret(&app.config().identifier, &app_id, &label, account.as_ref()) {
+                Ok(value) => send_native_frame(
                     &state,
                     generation,
-                    &RustToBunAuthFrame::NativeValue {
+                    &RustToBunNativeFrame::NativeValue {
                         request_id: &request_id,
                         status: "ok",
                         value: value.as_deref(),
@@ -1327,10 +1456,10 @@ fn handle_auth_frame(
                 ),
                 Err(error) => {
                     let message = error.to_string();
-                    send_auth_frame(
+                    send_native_frame(
                         &state,
                         generation,
-                        &RustToBunAuthFrame::NativeResult {
+                        &RustToBunNativeFrame::NativeResult {
                             request_id: &request_id,
                             status: "error",
                             message: Some(&message),
@@ -1339,15 +1468,19 @@ fn handle_auth_frame(
                 }
             }
         }
-        BunToRustAuthFrame::DeleteAppSecret {
+        BunToRustNativeFrame::DeleteAppSecret {
+            account,
             request_id,
             app_id,
-            account_id,
+            label,
         } => {
-            let result = delete_app_secret(&app_id, &account_id);
+            let result =
+                delete_app_secret(&app.config().identifier, &app_id, &label, account.as_ref());
             send_native_result(app, generation, &request_id, result)
         }
-        BunToRustAuthFrame::Relaunch {} => app.restart(),
+        // This handler runs on the sidecar reader thread. Tauri's restart()
+        // delivers RunEvent::Exit here, which terminates the managed Bun child.
+        BunToRustNativeFrame::Relaunch {} => app.restart(),
     }
 }
 
@@ -1362,10 +1495,10 @@ fn send_native_result<E: std::fmt::Display>(
     }
     let state = app.state::<HostState>();
     match result {
-        Ok(()) => send_auth_frame(
+        Ok(()) => send_native_frame(
             &state,
             generation,
-            &RustToBunAuthFrame::NativeResult {
+            &RustToBunNativeFrame::NativeResult {
                 request_id,
                 status: "ok",
                 message: None,
@@ -1373,10 +1506,10 @@ fn send_native_result<E: std::fmt::Display>(
         ),
         Err(error) => {
             let message = error.to_string();
-            send_auth_frame(
+            send_native_frame(
                 &state,
                 generation,
-                &RustToBunAuthFrame::NativeResult {
+                &RustToBunNativeFrame::NativeResult {
                     request_id,
                     status: "error",
                     message: Some(&message),
@@ -1386,12 +1519,12 @@ fn send_native_result<E: std::fmt::Display>(
     }
 }
 
-fn send_auth_frame(
+fn send_native_frame(
     state: &HostState,
     generation: u64,
-    frame: &RustToBunAuthFrame<'_>,
+    frame: &RustToBunNativeFrame<'_>,
 ) -> Result<()> {
-    let line = serde_json::to_string(frame).context("serialize the native auth frame")?;
+    let line = serde_json::to_string(frame).context("serialize the native native frame")?;
     let mut process = state.process.lock().expect("host state lock poisoned");
     let process = process
         .as_mut()
@@ -1401,23 +1534,112 @@ fn send_auth_frame(
         .stdin
         .as_mut()
         .context("the target Bun generation has no command pipe")?;
-    writeln!(stdin, "{line}").and_then(|()| stdin.flush())?;
+    if line.len() > sqlite::MAX_FRAME_BYTES {
+        bail!("Native response exceeds frame limit");
+    }
+    stdin
+        .try_send(line)
+        .context("native response queue is full or closed")?;
     Ok(())
 }
 
-fn validate_hosted_auth_url(value: &str) -> Result<()> {
-    let url = tauri::Url::parse(value).context("parse the hosted authorization URL")?;
-    if url.scheme() != "https"
-        || url.host_str() != Some("api.epicenter.so")
-        || url.port().is_some()
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthServer {
+    #[serde(rename = "baseURL")]
+    base_url: String,
+    authority_id: String,
+}
+
+struct AuthConfiguration {
+    server: AuthServer,
+    account_management: bool,
+}
+
+fn configured_auth_server() -> Result<AuthConfiguration> {
+    #[cfg(debug_assertions)]
+    let development_origin = std::env::var("EPICENTER_API_URL").ok();
+    #[cfg(not(debug_assertions))]
+    let development_origin: Option<String> = None;
+    auth_server(
+        option_env!("EPICENTER_SERVER_ORIGIN"),
+        development_origin.as_deref(),
+    )
+}
+
+fn auth_server(self_hosted: Option<&str>, development: Option<&str>) -> Result<AuthConfiguration> {
+    let origin = self_hosted.or(development).unwrap_or(HOSTED_AUTH_ORIGIN);
+    let url = tauri::Url::parse(origin).context("parse the configured authentication origin")?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        bail!("The configured authentication server must be an HTTP or HTTPS origin");
+    }
+    if self_hosted.is_none()
+        && development.is_some()
+        && (url.scheme() != "http"
+            || !matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]")))
+    {
+        bail!("EPICENTER_API_URL must be an HTTP loopback origin in development");
+    }
+    let base_url = url.origin().ascii_serialization();
+    let authority_id = if self_hosted.is_some() {
+        let hex: String = base_url
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        format!("instance-{hex}")
+    } else {
+        "epicenter-api".to_owned()
+    };
+    Ok(AuthConfiguration {
+        server: AuthServer {
+            base_url,
+            authority_id,
+        },
+        account_management: self_hosted.is_none(),
+    })
+}
+
+fn validate_auth_url(value: &str, server: &AuthServer) -> Result<()> {
+    let url = tauri::Url::parse(value).context("parse the authorization URL")?;
+    if url.origin().ascii_serialization() != server.base_url
         || !url.username().is_empty()
         || url.password().is_some()
         || url.fragment().is_some()
-        || !url.path().starts_with("/auth/")
+        || url.path() != "/sign-in"
     {
-        bail!("authorization URL must stay under {HOSTED_AUTH_ORIGIN}/auth/");
+        bail!("authorization URL must be {}/sign-in", server.base_url);
     }
     Ok(())
+}
+
+/// Ordinary new-tab account links leave the desktop app's work in place.
+/// The host opens only the hosted account destinations in the system browser.
+fn is_hosted_account_url(url: &tauri::Url, config: &AuthConfiguration) -> bool {
+    config.account_management
+        && url.origin().ascii_serialization() == config.server.base_url
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.fragment().is_none()
+        && matches!(
+            url.path(),
+            "/dashboard" | "/dashboard/usage" | "/dashboard/account"
+        )
+}
+
+fn open_account_website(app: &DesktopAppHandle, url: &tauri::Url) -> NewWindowResponse<Wry> {
+    if configured_auth_server().is_ok_and(|server| is_hosted_account_url(url, &server)) {
+        if let Err(error) = app.opener().open_url(url.as_str(), None::<String>) {
+            append_parent_log(app, &format!("could not open the account website: {error}"));
+        }
+    }
+    NewWindowResponse::Deny
 }
 
 fn fail_generation(app: &DesktopAppHandle, generation: u64, message: String) {
@@ -1453,17 +1675,21 @@ fn stop_starting_child(mut child: Child, stdin: ChildStdin) {
 }
 
 fn stop_child(mut process: ManagedChild) {
+    process.sqlite.stop();
     drop(process.stdin.take());
     let deadline = Instant::now() + SHUTDOWN_TIMEOUT;
     loop {
         match process.child.try_wait() {
-            Ok(Some(_)) => return,
+            Ok(Some(_)) => break,
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(25)),
             Ok(None) | Err(_) => break,
         }
     }
     let _ = process.child.kill();
     let _ = process.child.wait();
+    if let Some(writer) = process.writer.take() {
+        let _ = writer.join();
+    }
 }
 
 fn shutdown_host(app: &DesktopAppHandle) {
@@ -1539,6 +1765,7 @@ fn ensure_window(
     let origin = origin(port);
     let url: tauri::Url = format!("{origin}{}", built_in.path()).parse()?;
     let initialization_script = initialization_script(&origin, token)?;
+    let account_opener = app.clone();
     let window = WebviewWindowBuilder::new(app, built_in.id(), WebviewUrl::External(url))
         .title(built_in.title())
         .inner_size(1100.0, 760.0)
@@ -1546,7 +1773,7 @@ fn ensure_window(
         .visible(reveal)
         .initialization_script(initialization_script)
         .on_navigation(move |url| is_allowed_navigation(url, port))
-        .on_new_window(|_, _| NewWindowResponse::Deny)
+        .on_new_window(move |url, _| open_account_website(&account_opener, &url))
         .build()
         .with_context(|| format!("create the {} WebView", built_in.title()))?;
 
@@ -1679,13 +1906,22 @@ fn launch_token() -> Result<String> {
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
-fn boot_frame_json(token: &str, port: u16, auth_cell: Option<&str>) -> Result<String> {
+fn boot_frame_json(
+    token: &str,
+    port: u16,
+    auth_cell: Option<&str>,
+    paths: &app_data::DesktopPaths,
+) -> Result<String> {
+    let config = configured_auth_server()?;
     serde_json::to_string(&BootFrame {
         r#type: "boot",
         protocol_version: PROTOCOL_VERSION,
         token,
         port,
         auth_cell,
+        auth_server: config.server,
+        account_management: config.account_management,
+        paths,
     })
     .context("serialize the Bun boot frame")
 }
@@ -1696,15 +1932,15 @@ fn read_ready_frame(reader: &mut impl BufRead, expected_port: u16) -> Result<()>
         .read_line(&mut line)
         .context("read the Bun readiness frame")?;
     if count == 0 {
-        bail!("Bun exited without emitting its v2 ready frame");
+        bail!("Bun exited without emitting its versioned ready frame");
     }
     if !line.ends_with('\n') {
-        bail!("Bun closed stdout before completing its v2 ready frame");
+        bail!("Bun closed stdout before completing its versioned ready frame");
     }
 
     let line = line.trim_end_matches(['\r', '\n']);
-    let frame: ReadyFrame =
-        serde_json::from_str(line).context("Bun stdout was not one strict v2 ready frame")?;
+    let frame: ReadyFrame = serde_json::from_str(line)
+        .context("Bun stdout was not one strict versioned ready frame")?;
     if frame.r#type != "ready" {
         bail!("Bun emitted a frame other than ready");
     }
@@ -1805,14 +2041,88 @@ mod tests {
     }
 
     #[test]
+    fn development_sign_in_opens_only_the_configured_local_issuer() {
+        let server = auth_server(None, Some("http://localhost:8787")).unwrap();
+        validate_auth_url("http://localhost:8787/sign-in?state=state", &server.server).unwrap();
+        for url in [
+            "https://api.epicenter.so/sign-in",
+            "http://localhost:8788/sign-in",
+            "http://127.0.0.1:8787/sign-in",
+            "http://localhost:8787/other",
+            "http://user@localhost:8787/sign-in",
+            "http://localhost:8787/sign-in#fragment",
+        ] {
+            assert!(validate_auth_url(url, &server.server).is_err());
+        }
+        assert!(validate_auth_url(
+            "http://localhost:8787/sign-in",
+            &auth_server(None, None).unwrap().server
+        )
+        .is_err());
+        assert!(auth_server(None, Some("https://evil.test")).is_err());
+    }
+
+    #[test]
     fn production_port_is_stable() {
         assert_eq!(PRODUCTION_PORT, 39_130);
     }
 
     #[test]
-    fn parses_only_the_expected_v2_ready_frame() {
+    fn native_dashboard_policy_is_independent_of_server_identity() {
+        let mut config = auth_server(Some("https://self.example"), None).unwrap();
+        let identity = config.server.authority_id.clone();
+        let dashboard = "https://self.example/dashboard".parse().unwrap();
+        assert!(!is_hosted_account_url(&dashboard, &config));
+        config.account_management = true;
+        assert!(is_hosted_account_url(&dashboard, &config));
+        validate_auth_url("https://self.example/sign-in", &config.server).unwrap();
+        assert_eq!(config.server.authority_id, identity);
+    }
+
+    #[test]
+    fn fixed_self_hosted_origin_owns_identity_and_browser_allowlist() {
+        let server = auth_server(
+            Some("https://SELF.example:443/"),
+            Some("http://localhost:8787"),
+        )
+        .unwrap();
+        assert_eq!(server.server.base_url, "https://self.example");
+        assert_eq!(
+            server.server.authority_id,
+            "instance-68747470733a2f2f73656c662e6578616d706c65"
+        );
+        assert!(!server.account_management);
+        validate_auth_url("https://self.example/sign-in?state=pending", &server.server).unwrap();
+        for url in [
+            "https://api.epicenter.so/sign-in",
+            "https://self.example.evil.test/sign-in",
+            "https://self.example:444/sign-in",
+            "https://self.example/dashboard",
+            "https://user@self.example/sign-in",
+            "https://self.example/sign-in#fragment",
+        ] {
+            assert!(validate_auth_url(url, &server.server).is_err());
+        }
+        assert!(!is_hosted_account_url(
+            &"https://self.example/dashboard".parse().unwrap(),
+            &server
+        ));
+        for origin in [
+            "ftp://self.example",
+            "https://self.example/path",
+            "https://user@self.example",
+            "https://self.example?query",
+            "https://self.example#fragment",
+            "",
+        ] {
+            assert!(auth_server(Some(origin), None).is_err());
+        }
+    }
+
+    #[test]
+    fn parses_only_the_expected_v7_ready_frame() {
         read_ready_frame(
-            &mut Cursor::new(b"{\"type\":\"ready\",\"protocolVersion\":2,\"port\":39130}\n"),
+            &mut Cursor::new(b"{\"type\":\"ready\",\"protocolVersion\":7,\"port\":39130}\n"),
             PRODUCTION_PORT,
         )
         .unwrap();
@@ -1820,9 +2130,9 @@ mod tests {
         for invalid in [
             "preamble\n",
             "{\"type\":\"ready\",\"protocolVersion\":1,\"port\":39130}\n",
-            "{\"type\":\"ready\",\"protocolVersion\":2,\"port\":39131}\n",
-            "{\"type\":\"ready\",\"protocolVersion\":2,\"port\":39130,\"extra\":true}\n",
-            "{\"type\":\"ready\",\"protocolVersion\":2,\"port\":39130}",
+            "{\"type\":\"ready\",\"protocolVersion\":7,\"port\":39131}\n",
+            "{\"type\":\"ready\",\"protocolVersion\":7,\"port\":39130,\"extra\":true}\n",
+            "{\"type\":\"ready\",\"protocolVersion\":7,\"port\":39130}",
         ] {
             assert!(read_ready_frame(&mut Cursor::new(invalid), PRODUCTION_PORT).is_err());
         }
@@ -1863,6 +2173,7 @@ mod tests {
                 ("home", "/apps/home/", "Epicenter: Home"),
                 ("whispering", "/apps/whispering/", "Epicenter: Whispering"),
                 ("honeycrisp", "/apps/honeycrisp/", "Epicenter: Honeycrisp"),
+                ("capture", "/apps/capture/", "Epicenter: Capture"),
                 ("mail", "/apps/mail/", "Epicenter: Mail"),
                 ("books", "/apps/books/", "Epicenter: Books"),
             ]
@@ -1880,7 +2191,7 @@ mod tests {
             .filter(|window| window.is_launchable())
             .map(BuiltInApp::id)
             .collect();
-        assert_eq!(launchable, ["whispering", "honeycrisp", "mail"]);
+        assert_eq!(launchable, ["whispering", "honeycrisp", "capture", "mail"]);
     }
 
     #[test]
@@ -1892,6 +2203,10 @@ mod tests {
         assert!(matches!(
             parse_application_id("honeycrisp"),
             Some(Application::Compiled(BuiltInApp::Honeycrisp))
+        ));
+        assert!(matches!(
+            parse_application_id("capture"),
+            Some(Application::Compiled(BuiltInApp::Capture))
         ));
         assert!(matches!(
             parse_application_id("mail"),
@@ -2142,7 +2457,7 @@ mod tests {
     /// (raw bytes) or are host-owned rather than part of the app contract.
     #[test]
     fn generated_bindings_cover_every_declared_command() {
-        const HANDWRITTEN: &[&str] = &["encode_recording_for_upload", "launch_application"];
+        const HANDWRITTEN: &[&str] = &["encode_recording_for_upload", "launch_application", "set_capture_window_visible"];
         for bindings in [
             include_str!("../../../whispering/src/lib/tauri/bindings.gen.ts"),
             include_str!("../../src/ui/bindings.gen.ts"),
@@ -2259,7 +2574,13 @@ mod tests {
         "stop_recording",
         "cancel_recording",
         "current_recording",
+        "resolve_recording_start",
+        "recording_document_generation",
+    "register_recording_session",
+        "close_recording_session",
         "transcribe_recording",
+        "transcribe_audio_bytes",
+        "list_inference_models",
         "prewarm_model",
         "get_local_transcription_readiness",
     ];
@@ -2493,6 +2814,7 @@ mod tests {
             ("epicenter://app/home", BuiltInApp::Home),
             ("epicenter://app/whispering", BuiltInApp::Whispering),
             ("epicenter://app/honeycrisp", BuiltInApp::Honeycrisp),
+            ("epicenter://app/capture", BuiltInApp::Capture),
             ("epicenter://app/mail", BuiltInApp::Mail),
             ("epicenter://app/books", BuiltInApp::Books),
         ] {
@@ -2518,13 +2840,13 @@ mod tests {
     }
 
     #[test]
-    fn oauth_deep_links_accept_only_the_exact_callback_route() {
+    fn auth_deep_links_accept_only_the_exact_callback_route() {
         for url in [
             "epicenter://auth/callback?code=code&state=state",
             "epicenter://auth/callback?error=access_denied&state=state",
         ] {
             assert_eq!(
-                parse_oauth_callback(&url.parse().unwrap()),
+                parse_auth_callback(&url.parse().unwrap()),
                 Some(url.to_string())
             );
         }
@@ -2537,46 +2859,90 @@ mod tests {
             "epicenter://user@auth/callback?code=code",
             "https://api.epicenter.so/auth/callback?code=code",
         ] {
-            assert_eq!(parse_oauth_callback(&denied.parse().unwrap()), None);
+            assert_eq!(parse_auth_callback(&denied.parse().unwrap()), None);
+        }
+    }
+
+    #[test]
+    fn system_browser_accepts_only_hosted_account_destinations() {
+        for allowed in [
+            "https://api.epicenter.so/dashboard?expectedPrincipal=alice",
+            "https://api.epicenter.so/dashboard/usage?expectedPrincipal=alice",
+            "https://api.epicenter.so/dashboard/account",
+        ] {
+            assert!(is_hosted_account_url(
+                &allowed.parse().unwrap(),
+                &auth_server(None, None).unwrap()
+            ));
+        }
+        for denied in [
+            "http://api.epicenter.so/dashboard",
+            "https://api.epicenter.so.evil.test/dashboard",
+            "https://api.epicenter.so:444/dashboard",
+            "https://user@api.epicenter.so/dashboard",
+            "https://api.epicenter.so/dashboard#fragment",
+            "https://api.epicenter.so/dashboard/other",
+            "https://api.epicenter.so/dashboard/usage/extra",
+            "https://api.epicenter.so/sign-in",
+            "https://api.epicenter.so/auth/sign-out",
+            "file:///dashboard",
+        ] {
+            assert!(!is_hosted_account_url(
+                &denied.parse().unwrap(),
+                &auth_server(None, None).unwrap()
+            ));
         }
     }
 
     #[test]
     fn system_browser_accepts_only_hosted_auth_urls() {
         for allowed in [
-            "https://api.epicenter.so/auth/oauth2/authorize?client_id=desktop",
-            "https://api.epicenter.so/auth/sign-in",
+            "https://api.epicenter.so/sign-in?callback=epicenter%3A%2F%2Fauth%2Fcallback&state=state&challenge=challenge",
+            "https://api.epicenter.so/sign-in?reauth=1",
         ] {
-            validate_hosted_auth_url(allowed).unwrap();
+            validate_auth_url(allowed, &auth_server(None, None).unwrap().server).unwrap();
         }
         for denied in [
-            "http://api.epicenter.so/auth/sign-in",
-            "https://api.epicenter.so.evil.test/auth/sign-in",
+            "http://api.epicenter.so/sign-in",
+            "https://api.epicenter.so.evil.test/sign-in",
             "https://api.epicenter.so/not-auth",
-            "https://user@api.epicenter.so/auth/sign-in",
-            "https://api.epicenter.so/auth/sign-in#fragment",
+            "https://api.epicenter.so/sign-in/extra",
+            "https://api.epicenter.so/auth/sign-in",
+            "https://user@api.epicenter.so/sign-in",
+            "https://api.epicenter.so/sign-in#fragment",
+            "https://api.epicenter.so:444/sign-in",
         ] {
-            assert!(validate_hosted_auth_url(denied).is_err());
+            assert!(validate_auth_url(denied, &auth_server(None, None).unwrap().server).is_err());
         }
     }
 
     #[test]
     fn bun_auth_frames_are_closed_and_exact() {
         assert_eq!(
-            serde_json::from_str::<BunToRustAuthFrame>(
+            serde_json::to_value(RustToBunNativeFrame::AuthCallback {
+                url: "epicenter://auth/callback?code=code&state=state",
+            })
+            .unwrap(),
+            serde_json::json!({
+                "type": "auth-callback",
+                "url": "epicenter://auth/callback?code=code&state=state",
+            })
+        );
+        assert_eq!(
+            serde_json::from_str::<BunToRustNativeFrame>(
                 "{\"type\":\"store-auth\",\"requestId\":\"one\",\"serialized\":null}"
             )
             .unwrap(),
-            BunToRustAuthFrame::StoreAuth {
+            BunToRustNativeFrame::StoreAuth {
                 request_id: "one".to_string(),
                 serialized: None,
             }
         );
-        assert!(serde_json::from_str::<BunToRustAuthFrame>(
+        assert!(serde_json::from_str::<BunToRustNativeFrame>(
             "{\"type\":\"execute\",\"command\":\"shell\"}"
         )
         .is_err());
-        assert!(serde_json::from_str::<BunToRustAuthFrame>(
+        assert!(serde_json::from_str::<BunToRustNativeFrame>(
             "{\"type\":\"relaunch\",\"extra\":true}"
         )
         .is_err());
@@ -2599,16 +2965,25 @@ mod tests {
     }
 
     #[test]
-    fn boot_frame_is_strict_v2_and_carries_the_opaque_auth_cell() {
-        let token = URL_SAFE_NO_PAD.encode([7_u8; 32]);
-        let json = boot_frame_json(&token, PRODUCTION_PORT, Some("opaque")).unwrap();
+    fn boot_frame_carries_the_native_directories_and_auth_cell() {
+        let paths = app_data::DesktopPaths {
+            data_dir: std::env::temp_dir().join("so.epicenter.dev"),
+            folder_dir: std::env::temp_dir().join("Epicenter Dev"),
+        };
+        let json = boot_frame_json("safe_token", PRODUCTION_PORT, Some("opaque"), &paths).unwrap();
+        let frame: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(frame["authServer"]["baseURL"].is_string());
+        assert!(frame["authServer"].get("baseUrl").is_none());
         assert_eq!(
-            json,
-            format!(
-                "{{\"type\":\"boot\",\"protocolVersion\":2,\"token\":\"{token}\",\"port\":39130,\"authCell\":\"opaque\"}}"
-            )
+            frame,
+            serde_json::json!({
+                "type": "boot", "protocolVersion": 7, "token": "safe_token",
+                "port": PRODUCTION_PORT, "authCell": "opaque",
+                "authServer": configured_auth_server().unwrap().server,
+                "accountManagement": configured_auth_server().unwrap().account_management,
+                "dataDir": paths.data_dir, "folderDir": paths.folder_dir,
+            })
         );
-        assert!(!token.contains('='));
     }
 
     #[test]

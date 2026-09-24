@@ -2,14 +2,14 @@
  * Reading a note's title and preview off the node itself.
  *
  * These replace the assertions that used to run against a ProseMirror document
- * built by `fragmentToPm`. The subject is now the nested `Y.Type` (ADR-0295),
+ * built by `ynodeToPmnode`. The subject is now the nested `Y.Node` (ADR-0295),
  * so the tests fill a real note through the real Markdown codec and read what
  * a list would read.
  */
 import { expect, test } from 'bun:test';
-import { InstantString } from '@epicenter/data/field';
-import { openMemory } from '@epicenter/data/memory';
-import { pmToFragment } from '@y/prosemirror';
+import { InstantString } from '@epicenter/app/field';
+import { openMemory } from '@epicenter/app/memory';
+import { pmnodeToDelta } from '@y/prosemirror';
 import { honeycrispDefinition } from '../data.js';
 import { parseNoteBody } from './markdown.js';
 import { notePreview, noteTitle } from './node-text.js';
@@ -30,9 +30,11 @@ async function noteWith(markdown: string) {
 	const content = data.tables.notes.get(note.id);
 	if (content === undefined) throw new Error('the note has no content');
 	if (markdown !== '') {
-		pmToFragment(parseNoteBody(markdown), content.content as never);
+		data.tables.notes
+			.body(content.id)!
+			.applyDelta(pmnodeToDelta(parseNoteBody(markdown)));
 	}
-	return content.content;
+	return data.tables.notes.body(content.id)!;
 }
 
 test('the title is the first block', async () => {

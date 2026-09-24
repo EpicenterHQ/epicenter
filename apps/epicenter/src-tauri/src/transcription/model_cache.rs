@@ -199,6 +199,44 @@ impl ModelCache {
         })
     }
 
+    /// File inference resolves the requested catalog identity without changing dictation settings.
+    pub fn transcribe_explicit(
+        &self,
+        model_id: String,
+        bytes: Vec<u8>,
+        hints: TranscriptionHints,
+    ) -> Result<TranscriptionOutcome, TranscriptionError> {
+        let invalid = |message: String| TranscriptionError::TranscriptionError { message };
+        let info = describe(&model_id)
+            .ok_or_else(|| invalid(format!("Unknown native transcription model: {model_id}")))?;
+        let path = installed_model_path(&model_id).ok_or_else(|| {
+            invalid(format!(
+                "Native transcription model is not installed: {model_id}"
+            ))
+        })?;
+        let samples = crate::audio::decode_to_pcm16k_mono(&bytes).map_err(|error| {
+            TranscriptionError::AudioReadError {
+                message: error.to_string(),
+            }
+        })?;
+        if samples.is_empty() {
+            return Ok(TranscriptionOutcome::EmptyAudio);
+        }
+        let model = ResolvedModel {
+            id: model_id,
+            path,
+            supports_prompt: info.supports_prompt,
+            supports_language: info.supports_language,
+        };
+        let (text, applied) = self.run_loaded(&model, &hints, &sanitize_samples(samples))?;
+        self.evict_if_immediate();
+        Ok(TranscriptionOutcome::Transcribed {
+            text,
+            model_id: model.id,
+            applied,
+        })
+    }
+
     // ── Model cache + eviction ────────────────────────────────────────
 
     /// Load the active model into the cache without running inference, so the
@@ -852,5 +890,74 @@ mod tests {
         let path = std::env::temp_dir().join("epicenter-whispering-id-missing-does-not-exist");
         std::fs::remove_file(&path).ok();
         assert!(disk_identity(&path).is_none());
+    }
+}
+
+#[cfg(test)]
+mod explicit_inference_evidence {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires EPICENTER_NATIVE_AUDIO and the already cached Whisper Tiny model; never downloads"]
+    fn cached_model_transcribes_uploaded_bytes_without_active_settings() {
+        let audio = std::env::var("EPICENTER_NATIVE_AUDIO").expect("fixture path");
+        let bytes = std::fs::read(audio).expect("read fixture");
+        let path = std::env::temp_dir().join(format!(
+            "epicenter-native-evidence-{}.json",
+            std::process::id()
+        ));
+        assert!(!path.exists());
+        let cache = ModelCache::new(LocalTranscriptionSettings::load(path.clone()));
+        let id = "handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf";
+        assert!(cache.settings().active_model_id().is_none());
+        assert!(cache
+            .transcribe_explicit(
+                "unknown".into(),
+                bytes.clone(),
+                TranscriptionHints::default()
+            )
+            .is_err());
+        assert!(cache
+            .transcribe_explicit(
+                id.into(),
+                b"invalid audio".to_vec(),
+                TranscriptionHints::default()
+            )
+            .is_err());
+        assert_eq!(
+            cache
+                .transcribe_explicit(id.into(), Vec::new(), TranscriptionHints::default(),)
+                .expect("empty audio succeeds"),
+            TranscriptionOutcome::EmptyAudio
+        );
+        assert!(
+            cache.cached.lock().unwrap().is_none(),
+            "empty audio loads no model"
+        );
+        let outcome = cache
+            .transcribe_explicit(
+                id.into(),
+                bytes,
+                TranscriptionHints {
+                    language: Some("en".into()),
+                    initial_prompt: Some("The quick brown fox.".into()),
+                },
+            )
+            .expect("native inference");
+        let TranscriptionOutcome::Transcribed {
+            text,
+            model_id,
+            applied,
+        } = outcome
+        else {
+            panic!("speech fixture produced an empty-audio outcome");
+        };
+        eprintln!("EXPLICIT NATIVE TRANSCRIPTION: {text}");
+        assert!(!text.trim().is_empty());
+        assert_eq!(model_id, id);
+        assert_eq!(applied.language.as_deref(), Some("en"));
+        assert!(applied.initial_prompt);
+        assert!(cache.settings().active_model_id().is_none());
+        assert!(!path.exists());
     }
 }

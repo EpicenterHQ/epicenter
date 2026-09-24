@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/blobs",
-	"description": "Opaque blob identity (BlobId) and the shared BlobStore and BlobRemote contracts for Epicenter blob storage",
+	"description": "Immutable app-local bytes, display sources, and explicit remote blob contracts",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
@@ -8,7 +8,9 @@
 		".": "./src/index.ts",
 		"./browser": "./src/browser.ts",
 		"./bun": "./src/bun.ts",
-		"./webview": "./src/webview.ts"
+		"./webview": "./src/webview.ts",
+		"./native": "./src/native.ts",
+		"./owner": "./src/owner.ts"
 	},
 	"license": "AGPL-3.0-or-later",
 	"scripts": {
@@ -17,6 +19,8 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@epicenter/constants": "workspace:*",
+		"@epicenter/principal": "workspace:*",
 		"arktype": "catalog:",
 		"nanoid": "catalog:",
 		"wellcrafted": "catalog:"

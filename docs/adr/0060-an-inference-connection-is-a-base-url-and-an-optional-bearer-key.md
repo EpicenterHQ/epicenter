@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-24
+- **Amended by:** [ADR-0363](0363-an-inference-selection-identifies-the-connection-and-model.md) replaces custom-first model-name resolution with explicit device-local selections, which `connectionFor` matches to one connection.
+- **Amended by:** [ADR-0398](0398-every-transcription-destination-speaks-the-openai-wire.md) at the two named transcription holdouts: Deepgram and ElevenLabs are deleted rather than kept with their own config, so every transcription destination is a connection on this floor.
 - **Amends:** [ADR-0059](0059-an-inference-connection-is-a-capability-orthogonal-device-endpoint.md) (collapses the hosted/custom `kind` discriminant into one flat connection; specifies the model-id tie-break and that capability metadata is read-side decoration)
 - **Relates:** [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md) (the audience-scoped bearer that makes the injected hosted transport safe), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (the metered house-key gateway hosted points at), [ADR-0050](0050-the-inference-contract-is-openai-compatible.md) (the OpenAI-compatible wire every connection speaks), [ADR-0022](0022-rust-owns-the-models-folder-the-webview-owns-the-catalog.md) (the downloaded-binary engine kind that is *not* a connection)
 

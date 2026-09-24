@@ -1,6 +1,7 @@
 <script lang="ts">
 	// The first thing a person sees with no account connected, and the only
 	// place Local Mail asks for one.
+	import { gmailSignInNotice } from '#platform/gmail-authorization';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
@@ -8,7 +9,6 @@
 	import { toast } from 'svelte-sonner';
 	import { hasGmailIdentity } from '$lib/identity';
 	import { mail } from '$lib/mail';
-	import { gmailAuthorization } from '#platform/gmail-authorization';
 
 	let { loading, another = false, onConnected, onCancel }: {
 		loading: boolean;
@@ -19,8 +19,14 @@
 		 * different act. What changes is that there is a mailbox to go back to.
 		 */
 		another?: boolean;
-		/** Called when an account may have appeared, so the list re-reads. */
-		onConnected: () => void;
+		/**
+		 * Called when the flow finished, with the account's Google subject when
+		 * one was connected and `null` when nothing was. The page re-reads the
+		 * list either way, and reconciles the account it was handed: a credential
+		 * is only proven by a pass, and re-connecting a signed-out account has to
+		 * replace the failure its last pass wrote down.
+		 */
+		onConnected: (sub: string | null) => void;
 		/** Leave without connecting. Only reachable when there is a mailbox behind this. */
 		onCancel?: () => void;
 	} = $props();
@@ -29,18 +35,18 @@
 
 	async function connect(): Promise<void> {
 		starting = true;
+		let connected: string | null = null;
 		try {
 			const request = await mail.beginConnect();
-			// The web build leaves the page here and never comes back to this
-			// line; the desktop build waits and answers with where Google sent
-			// the person. Either way the request stays in hand.
-			const callbackUrl = await gmailAuthorization.authorize(request);
-			await mail.finishConnect(request, callbackUrl);
+			// Both builds retain this document and return the consent callback.
+			// The verifier and browser credentials stay with the open App.
+			const callbackUrl = await mail.authorize(request);
+			connected = (await mail.finishConnect(request, callbackUrl)).sub;
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : String(error));
 		} finally {
 			starting = false;
-			onConnected();
+			onConnected(connected);
 		}
 	}
 </script>
@@ -57,8 +63,7 @@
 				</Empty.Title>
 				<Empty.Description>
 					Local Mail keeps a copy of your mail on this machine and delivers your
-					triage back to Gmail. Your credential stays in this device's secure
-					store and never synchronizes.
+					changes back to Gmail. {gmailSignInNotice}
 				</Empty.Description>
 			</Empty.Header>
 			<Empty.Content>

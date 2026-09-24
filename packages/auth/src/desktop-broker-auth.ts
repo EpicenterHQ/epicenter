@@ -1,12 +1,18 @@
+import { STORE_SYNC_ROUTE } from '@epicenter/sync';
+import { isOpenWebSocketDenial } from '@epicenter/sync/transport';
 import { Ok } from 'wellcrafted/result';
+import { createAccountManagementUrl } from './account-management.js';
 import type {
+	Account,
 	AuthClient,
 	AuthFetch,
 	AuthState,
-	ConnectionStatus,
 } from './auth-contract.js';
 import { AuthError, OpenWebSocketDenied } from './auth-errors.js';
-import type { Principal } from './auth-types.js';
+import type { AuthIdentityState } from './auth-identity-state.js';
+import type { AuthServer } from './auth-server.js';
+import { getProfileVia } from './read-api-session.js';
+import { resolveTargetUrl } from './resolve-target-url.js';
 
 /**
  * Non-secret identity projection a desktop window boots with. The Bun
@@ -14,12 +20,10 @@ import type { Principal } from './auth-types.js';
  * never contains a bearer, refresh grant, or instance token.
  */
 export type DesktopAuthBootstrap = {
-	state: AuthState;
-	connection: {
-		baseURL: string;
-		status: ConnectionStatus;
-	};
-	networkEligible: boolean;
+	state: AuthIdentityState;
+	server: AuthServer;
+	accountManagement: boolean;
+	credentialUnreadable: boolean;
 };
 
 /** Where the Bun authority stamps the boot snapshot into a served document. */
@@ -83,53 +87,194 @@ function createDesktopBroker({
 	};
 }
 
-/**
- * Construct one window-local projection of the process-wide Bun credential
- * authority.
- *
- * No credential crosses this boundary in either direction: identity is the
- * serve-time boot snapshot, account commands (sign-in, sign-out, instance
- * selection) are same-origin broker POSTs the authority acts on before
- * relaunching the process, and the profile email is a same-origin projection
- * the authority reads from the selected server. `fetch` attaches nothing:
- * a desktop window has no server transport, and the loopback-only CSP
- * refuses cloud origins exactly as it did before this client existed.
- * `openWebSocket` is denied for the same reason: desktop sync belongs to the
- * host process, not a window.
- */
+/** The window holds account identity; Bun carries its authenticated traffic. */
 export function createDesktopBrokerAuth({
-	bootstrap,
+	bootstrap = readDesktopAuthBootstrap(),
 	brokerBaseURL,
 	fetch: fetchImpl = globalThis.fetch.bind(globalThis),
+	WebSocket: WebSocketImpl = globalThis.WebSocket,
 }: {
-	bootstrap: DesktopAuthBootstrap;
+	bootstrap?: DesktopAuthBootstrap;
 	brokerBaseURL: string;
 	fetch?: AuthFetch;
+	WebSocket?: typeof WebSocket;
 }): AuthClient {
-	const baseURL = bootstrap.connection.baseURL;
-	const broker = createDesktopBroker({ brokerBaseURL, fetch: fetchImpl });
-
-	return {
-		get state() {
-			return bootstrap.state;
+	const baseURL = bootstrap.server.baseURL;
+	const origin = new URL(baseURL).origin;
+	const broker = createDesktopBroker({
+		brokerBaseURL,
+		fetch: async (input, init) => {
+			const response = await fetchImpl(input, init);
+			observe(response.headers.get('x-epicenter-auth-state'));
+			return response;
 		},
-		connection: {
-			baseURL,
-			// Identity is immutable per process generation, so the serve-time
-			// status is the projection until relaunch.
-			get status() {
-				return bootstrap.connection.status;
-			},
-			onChange() {
-				return () => undefined;
-			},
+	});
+	const lifetime = new AbortController();
+	const listeners = new Set<(state: AuthState) => void>();
+	let state: AuthState = { status: 'signed-out' };
+	function publish(status: AuthState['status']) {
+		if (lifetime.signal.aborted && status !== 'signed-out') return;
+		if (status === 'signed-out') lifetime.abort();
+		if (state.status === status) return;
+		state =
+			status === 'signed-out' || !account
+				? { status: 'signed-out' }
+				: { status, account };
+		for (const listener of listeners) listener(state);
+	}
+	function observe(status: string | null) {
+		// Successful desktop reauthentication relaunches into a fresh bootstrap.
+		// A delayed success header must not erase a newer credential refusal.
+		if (status === 'signed-out' || status === 'reauth-required')
+			publish(status);
+	}
+	const accountFetch: AuthFetch = async (input, init) => {
+		lifetime.signal.throwIfAborted();
+		const target = resolveTargetUrl(input, baseURL);
+		if (target?.origin !== origin)
+			throw new TypeError('Account requests must target their own server.');
+		const remote =
+			input instanceof Request
+				? new Request(input, init)
+				: new Request(target, init);
+		const local = new URL('/_epicenter/account/http', brokerBaseURL);
+		local.searchParams.set('path', target.pathname + target.search);
+		const headers = remote.headers;
+		headers.delete('authorization');
+		headers.delete('cookie');
+		const signal = AbortSignal.any([lifetime.signal, remote.signal]);
+		// Reconstructing a Request turns even binary and FormData bodies into
+		// streaming uploads, which WebKit rejects. Preserve the encoded bytes
+		// and cancel their preparation with the captured request lifetime.
+		const body = remote.body
+			? await new Response(
+					remote.body.pipeThrough(new TransformStream(), { signal }),
+				).blob()
+			: undefined;
+		signal.throwIfAborted();
+		const response = await fetchImpl(local, {
+			method: remote.method,
+			headers,
+			body,
+			cache: remote.cache,
+			integrity: remote.integrity,
+			keepalive: remote.keepalive,
+			mode: remote.mode,
+			referrer: remote.referrer,
+			referrerPolicy: remote.referrerPolicy,
+			credentials: 'include',
+			redirect: 'manual',
+			signal,
+		});
+		lifetime.signal.throwIfAborted();
+		observe(response.headers.get('x-epicenter-auth-state'));
+		return response;
+	};
+	const account: Account | null =
+		bootstrap.state.status === 'signed-out'
+			? null
+			: Object.freeze({
+					authorityId: bootstrap.server.authorityId,
+					principalId: bootstrap.state.principalId,
+					baseURL,
+					fetch: accountFetch,
+					getProfile: () => getProfileVia(accountFetch, baseURL),
+					async openWebSocket(address) {
+						if (lifetime.signal.aborted)
+							throw OpenWebSocketDenied({ code: 'signed-out' }).error;
+						const target = new URL(address.url);
+						target.protocol = target.protocol === 'wss:' ? 'https:' : 'http:';
+						if (
+							target.origin !== origin ||
+							target.pathname !== STORE_SYNC_ROUTE.pattern
+						)
+							throw new TypeError('Account sync must target its own server.');
+						const local = new URL('/_epicenter/account/sync', brokerBaseURL);
+						local.protocol = local.protocol === 'https:' ? 'wss:' : 'ws:';
+						local.search = target.search;
+						const socket = new WebSocketImpl(local);
+						socket.binaryType = 'arraybuffer';
+						return new Promise<WebSocket>((resolve, reject) => {
+							let ready = false;
+							const timeout = setTimeout(
+								() => fail(new Error('Desktop sync handshake timed out.')),
+								30_000,
+							);
+							const abort = () =>
+								fail(OpenWebSocketDenied({ code: 'signed-out' }).error);
+							function fail(error: unknown) {
+								clearTimeout(timeout);
+								if (!ready) reject(error);
+								socket.close();
+							}
+							lifetime.signal.addEventListener('abort', abort, { once: true });
+							socket.addEventListener(
+								'close',
+								() => {
+									lifetime.signal.removeEventListener('abort', abort);
+									clearTimeout(timeout);
+									if (!ready)
+										reject(
+											new Error('Desktop sync closed before it was ready.'),
+										);
+								},
+								{ once: true },
+							);
+							socket.addEventListener(
+								'error',
+								() => fail(new Error('Desktop sync connection failed.')),
+								{ once: true },
+							);
+							socket.addEventListener(
+								'message',
+								(event) => {
+									try {
+										const message = JSON.parse(String(event.data));
+										if (message.type === 'refused') {
+											const denial = OpenWebSocketDenied({
+												code: message.code,
+											}).error;
+											if (!isOpenWebSocketDenial(denial))
+												throw new Error('Invalid desktop sync refusal.');
+											if (
+												denial.code === 'signed-out' ||
+												denial.code === 'reauth-required'
+											)
+												publish(denial.code);
+											fail(denial);
+											return;
+										}
+										if (message.type !== 'ready')
+											throw new Error('Invalid desktop sync handshake.');
+										clearTimeout(timeout);
+										ready = true;
+										resolve(socket);
+									} catch (error) {
+										fail(error);
+									}
+								},
+								{ once: true },
+							);
+							if (lifetime.signal.aborted) abort();
+						});
+					},
+				});
+	if (bootstrap.state.status !== 'signed-out' && account)
+		state = { status: bootstrap.state.status, account };
+	const auth: AuthClient = {
+		getState() {
+			return state;
 		},
-		onStateChange() {
-			return () => undefined;
+		baseURL,
+		onStateChange(fn) {
+			listeners.add(fn);
+			return () => {
+				listeners.delete(fn);
+			};
 		},
-		async startSignIn() {
+		async startSignIn(options) {
 			try {
-				await broker('/_epicenter/account/sign-in', {});
+				await broker('/_epicenter/account/sign-in', options ?? {});
 				return Ok(undefined);
 			} catch (cause) {
 				return AuthError.StartSignInFailed({ cause });
@@ -138,28 +283,25 @@ export function createDesktopBrokerAuth({
 		async signOut() {
 			try {
 				await broker('/_epicenter/account/sign-out', {});
+				publish('signed-out');
 				return Ok(undefined);
 			} catch (cause) {
 				return AuthError.SignOutFailed({ cause });
 			}
 		},
-		// Pass-through on purpose: nothing here may attach a credential. A
-		// server-origin request from a window fails under the loopback-only
-		// CSP, which is the boundary this client exists to preserve.
-		fetch: (input, init) => fetchImpl(input, init),
-		async getProfile() {
-			try {
-				return Ok(await broker<Principal>('/_epicenter/account/profile'));
-			} catch (cause) {
-				return AuthError.ProfileUnavailable({ cause });
-			}
+		getProfile() {
+			return (
+				account?.getProfile() ??
+				Promise.resolve(AuthError.ProfileUnavailable({ cause: 'Signed out.' }))
+			);
 		},
-		async openWebSocket() {
-			throw OpenWebSocketDenied({
-				permanence: 'permanent',
-				code: 'auth-unavailable',
-			}).error;
+		...(bootstrap.accountManagement
+			? { accountManagementUrl: createAccountManagementUrl }
+			: {}),
+		[Symbol.dispose]() {
+			lifetime.abort();
+			listeners.clear();
 		},
-		[Symbol.dispose]() {},
 	};
+	return auth;
 }

@@ -1,4 +1,10 @@
-import { field, jsonValue, plainText } from '@epicenter/data/definition';
+import {
+	defineStore,
+	defineTable,
+	field,
+	jsonValue,
+	plainText,
+} from '@epicenter/app';
 /**
  * Skills data tests, against the real workspace through a memory store.
  *
@@ -18,31 +24,33 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { defineData, defineTable } from '@epicenter/data/definition';
-import { InstantString } from '@epicenter/data/field';
+
+import { InstantString } from '@epicenter/app/field';
 import {
 	createMemoryRecord,
 	type MemoryRecord,
 	openMemory,
-} from '@epicenter/data/memory';
+} from '@epicenter/app/memory';
 import { expectOk } from 'wellcrafted/testing';
 import { exportSkillsToDisk, importSkillsFromDisk } from './node.js';
 import { type SkillsData, skillsDefinition } from './workspace.js';
 
 /** The Skills workspace as an earlier release declared it, before `sourceId`. */
-const historicalSkillsWorkspace = defineData({
+const historicalSkillsWorkspace = defineStore({
 	id: 'so.epicenter.skills',
 	kv: {},
 	tables: {
 		skills: defineTable({
-			name: field.string(),
-			description: field.string(),
-			license: field.nullable(field.string()),
-			compatibility: field.nullable(field.string()),
-			metadata: field.nullable(field.json(jsonValue)),
-			allowedTools: field.nullable(field.string()),
-			updatedAt: field.instant(),
-			content: plainText(),
+			fields: {
+				name: field.string(),
+				description: field.string(),
+				license: field.nullable(field.string()),
+				compatibility: field.nullable(field.string()),
+				metadata: field.nullable(field.json(jsonValue)),
+				allowedTools: field.nullable(field.string()),
+				updatedAt: field.instant(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -54,7 +62,7 @@ function openSkills(record: MemoryRecord) {
 function readInstructions(data: SkillsData, skillId: string): string {
 	const content = data.tables.skills.get(skillId);
 	if (content === undefined) throw new Error(`Skill '${skillId}' has no row`);
-	return content.content.toString();
+	return data.tables.skills.body(content.id)!.toString();
 }
 
 test('a stricter Skills workspace exposes nonconformance until an update repairs it', async () => {
@@ -130,7 +138,7 @@ test("a skill's instructions live under its own row id", async () => {
 			writtenTo = written.id;
 			const held = data.tables.skills.get(writtenTo);
 			if (held === undefined) throw new Error('the row has no content');
-			const content = held.content;
+			const content = data.tables.skills.body(held.id)!;
 			content.applyDelta(content.change.insert('Keep it concise.') as never);
 
 			const other = data.tables.skills.create({

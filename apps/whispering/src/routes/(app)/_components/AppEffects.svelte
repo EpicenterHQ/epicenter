@@ -8,7 +8,7 @@
 	import { synchronizeAutoPasteIntent } from '../_app-effects/synchronize-auto-paste-intent.svelte';
 	import { synchronizeShortcuts } from '../_app-effects/synchronize-shortcuts';
 
-	// Headless component: mounts Whispering's page-lifetime listeners and
+	// Headless component: mounts Whispering's document listeners and
 	// reactive projections once, at the session root outside the responsive nav
 	// branch, so crossing a layout breakpoint never re-runs any of them. Each
 	// helper registers its own lifecycle with Svelte; any required teardown is

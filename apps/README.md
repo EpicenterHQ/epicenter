@@ -1,97 +1,113 @@
 # Apps
 
-There is one runtime: a desktop SPA in a WebView, served by a Bun host over a
-store the client owns (ADR-0227). The host serves bundles and brokers
-credentials; it owns no application data and constructs no database (ADR-0226).
-Hosted web as a second runtime with a host-owned replica is refused, and so are
-third-party installed apps, for now.
+An application composes the stores and services its workflows need. Each store
+owns its tables, KV, and cleanup; Local also owns its blobs. Hosted blobs,
+recording, inference, SQL, and secrets have their own constructors and lifetimes.
 
-Not every folder here is that. `api` and `self-host` are server deployables,
-`landing` is a public site, `local-books` and `local-mail` are headless mirrors
-with their own CLIs, and `sync-lab` is a throwaway harness for watching a row
-cross the wire. The rest of this page is about the surfaces that hold a person's
-data.
+Epicenter's desktop applications run as SPAs in Tauri WebViews. The Tauri host
+launches a Bun sidecar that serves bundles, HTTP, WebSockets, and the Home
+session; Rust owns native mechanisms. The host brokers credentials and device
+resources without opening an application's synchronized store. Browser builds
+open stores through the same API.
 
-## How a surface is put together
+This directory also contains server deployables (`api` and `self-host`), the
+public `landing` site, the `local-books` accounting CLI, and the `sync-lab`
+harness. Local Mail has a Svelte UI in `local-mail/ui` and Gmail cache and triage
+operations in `local-mail/src`.
 
-An application declares one inert default data definition and opens its own
-store through it. The application ID and the definition's data ID usually use
-the same reverse-domain string, but they are separate concepts: an application
-can open another data domain, and a data domain can be opened by another
-application or tool.
+## Declare data, then acquire resources
 
-```txt
-defineData({ id, title, kv, tables })
-  pure JSON: one durable data domain; no storage, network, or framework
+`defineStore` declares a stable store ID and schema. The declaration is inert:
+importing it opens no storage and captures no Account. Applications can reuse a
+definition across Local and Personal or use different definitions by workflow.
+The definition ID names its data and Local blob namespace; host application
+identity remains separate even when the two use the same string.
 
-openDatabase(definition, { generation, account? })
-  one Yjs document in the page, one IndexedDB object store of updates,
-  one database per generation (ADR-0261, ADR-0292)
+```ts
+import { defineStore, defineTable, field } from '@epicenter/app';
 
-data.tables.notes.rows
-  synchronous from here on
+export const notesDefinition = defineStore({
+  id: 'com.example.notes',
+  title: 'Notes',
+  kv: {},
+  tables: { notes: defineTable({ title: field.string() }) },
+});
 ```
 
-Opening the store is the only asynchronous thing the application does.
-`data.tables.notes.rows` returns rows synchronously, and
-`data.tables.notes.subscribe(...)`
-reports which rows a commit touched, for a local write and for bytes from
-another device alike (ADR-0221). Nothing polls, and there is no generation
-counter to keep.
+The mounted product acquires the resources it needs. A store opener resolves
+with a usable handle after required acquisition and hydration:
 
-Every build opens its own store, with no seam deciding where data lives. Two
-windows on one machine converge through the same authority every other device
-uses, because a surface is a replica of one authority per signed-in account
-(ADR-0225). Sign-in is never a door: the app works completely signed out, and
-signing in attaches sync.
+```ts
+import { openLocal, openPersonal } from '@epicenter/app/open';
 
-The full contract for the store is in
-[`packages/data/README.md`](../packages/data/README.md).
+const local = await openLocal(notesDefinition);
+local.tables.notes.create({ title: 'On this device' });
 
-## Layout
-
-The inert data definition is exported from the app's definition module, and
-runtime composition sits beside it:
-
-```txt
-apps/<app>/
-├── src/lib/workspace/index.ts   the data definition and its row types
-├── src/lib/                     the store opener, sync, and app services
-├── src/                         SvelteKit routes and components
-└── package.json                 "exports": { ".": "./src/lib/workspace/index.ts" }
+// A workflow requiring synchronized data supplies its captured Account.
+const personal = await openPersonal(notesDefinition, { account });
+personal.tables.notes.create({ title: 'Personal notes' });
 ```
 
-`honeycrisp` uses that nesting. Follow the existing package shape. The
-application document's physical root grammar is documented in
-`../docs/adr/0257-the-application-document-has-named-kv-and-table-roots.md`.
+Local and Personal hold separate datasets. Local retains its namespace across
+sign-in and account changes. Personal captures its account identity and transport
+when opening and never retargets. Signing in does not move Local data to Personal.
+Each workflow names its destination; products decide which features require
+sign-in and which acquisitions may proceed independently.
 
-Where a build genuinely differs, put the difference behind a `#platform/*`
-build-time subpath import rather than a runtime branch. Honeycrisp's
-`#platform/auth` resolves to `auth.epicenter-host.ts`, `auth.tauri.ts`, or
-`auth.browser.ts` under the `epicenter-host`, `tauri`, and default conditions.
-Auth keeps a seam because the host really does broker a credential its windows
-cannot obtain; storage does not, because it does not differ.
+Recording borrows an opened Local store's blobs through
+`createRecorder({ localBlobs: local.blobs })`. Stores expose local SQL through `store.sqlite`; secrets take their own
+namespace IDs. Inference takes the account, runtime, or endpoint it uses. Schema
+consumers, tests, and artifact tools import the same definition without opening
+these resources.
+
+See the [resource contract](../packages/app/README.md) for acquisition and cleanup,
+and the [data contract](../packages/app/src/data/README.md) for schema and store
+behavior. [ADR-0423](../docs/adr/0423-app-resources-open-as-independent-handles.md)
+records resource composition; [ADR-0430](../docs/adr/0430-define-store-declares-data-and-products-compose-resources.md)
+records the declaration name.
+
+## Product ownership
+
+Keep the inert declaration separate from live acquisition. Honeycrisp and Vocab
+use `src/lib/data.ts` and `src/lib/resources.ts`; Whispering composes its resources
+in `src/lib/whispering/resources.ts`. Mounted routes start acquisition. Importing
+those modules or preloading a route must not acquire root resources.
+
+Pass the store or capability a consumer needs. Product composition functions
+express startup dependencies and feature availability; they do not create a
+mandatory SDK App handle or one readiness barrier for unrelated services.
+
+Root handles normally last for the browser/WebView lifetime. Product departure
+fences new work and active capture even while navigation is pending. Full document
+replacement or desktop restart ends the session. Explicit resource `close()` is
+terminal and awaitable; it settles admitted work and leaves sibling resources
+usable. Temporary owners close their own handles. Navigation itself does not
+prove that pending work was saved.
+
+Application-specific platform differences use `#platform/*` subpath imports.
+Honeycrisp's `#platform/auth` selects its host or browser binding at build time.
+`@epicenter/app` selects its default browser or host resource implementations
+through `isTauri()`. Store tests inject `createMemoryStoreRuntime()` from
+`@epicenter/app/testing` into the store opener. Other resource tests supply the
+bindings that resource needs.
 
 ## Adding an app
 
-1. Write the data definition at `apps/<app>/src/lib/workspace/index.ts`: one
-   `defineData({ id, kv, tables })` value plus its row types. Read the data
-   rules first, especially that there are no optional fields or definition
-   defaults.
-2. Point `package.json` `exports["."]` at that file.
-3. Add the store opener beside it, and a `dial` if the app syncs. The host
-   supplies the socket; `@epicenter/data/sync` owns everything done with one
-   (ADR-0222).
-4. Open the definition once where the app is acquired and pass the opened data
-   handle to ordinary services. Do not spread it through the UI.
-5. Add the app to `docs/licensing/licensing-strategy.md` and, if it needs the
-   hosted API in development, a `dev:<app>` script at the repo root.
+1. Declare `defineStore({ id, title, kv, tables })` in
+   `apps/<app>/src/lib/data.ts`. Preserve existing durable IDs, table names, and
+   field names. Applications own fallback values; schema fields have no defaults.
+2. Add a product opening function beside the declaration. Open the required
+   stores and services, capturing an Account only where needed. Keep optional
+   feature acquisition from blocking unrelated workflows.
+3. Start opening from the mounted primary route. Callback and auxiliary routes
+   must not acquire a second primary persistence owner. Pass usable stores and
+   capabilities to services and UI.
+4. Connect product work to page departure and account retirement. Do not retarget
+   retained handles when credentials change.
+5. If the app needs the hosted API in development, add a `dev:<app>` script at
+   the repo root.
 
-## Where each surface stands
-
-`honeycrisp` is the surface built on the store, and its
-[README](honeycrisp/README.md) is the worked example.
-
-`whispering`, `vocab`, `skills`, and `epicenter` now compile against the store.
-The superseded data stack was deleted before they were migrated, deliberately,
-so old data is not imported into the new model (ADR-0227).
+Honeycrisp's [README](honeycrisp/README.md) is the notes application's worked
+example; [Local Mail's README](local-mail/README.md) explains its saved queries
+and Gmail cache. Epicenter owns the desktop host and Home session, not these
+applications' stores.

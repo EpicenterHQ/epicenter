@@ -3,7 +3,7 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Shared Epicenter app chrome: account popover, workspace gate, and agent chat. Branded, full-stack-aware UI mounted in each app's layout. Private (not published).",
+	"description": "Shared Epicenter app chrome: account popover, boot screens, and inference picker. Branded UI mounted in each app's layout. Private (not published).",
 	"keywords": [
 		"svelte",
 		"epicenter",
@@ -11,33 +11,35 @@
 	],
 	"exports": {
 		"./account-popover": "./src/account-popover/index.ts",
-		"./agent-chat": "./src/agent-chat/index.ts",
-		"./inference-picker": "./src/inference-picker/index.ts"
+		"./boot-screens": "./src/boot-screens/index.ts",
+		"./inference-target": "./src/inference-target.ts",
+		"./inference-selections": "./src/inference-selections.ts",
+		"./inference-picker": "./src/inference-picker/index.ts",
+		"./persistence-notice": "./src/persistence-notice/index.ts"
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun test"
+		"test": "bun test --isolate"
 	},
 	"dependencies": {
-		"@epicenter/agent": "workspace:*",
+		"@epicenter/principal": "workspace:*",
 		"@epicenter/auth": "workspace:*",
-		"@epicenter/chat": "workspace:*",
 		"@epicenter/client": "workspace:*",
-		"@epicenter/data": "workspace:*",
-		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@standard-schema/spec": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
-		"@y/y": "14.0.0-rc.24",
+		"@y/y": "14.0.0-rc.26",
 		"arktype": "catalog:",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"@epicenter/app": "workspace:*"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
-		"typescript": "catalog:"
+		"typescript": "catalog:",
+		"openai": "^7.12.1"
 	},
 	"license": "AGPL-3.0-or-later"
 }

@@ -2,11 +2,14 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-02
+- **Amended by:** [ADR-0418](0418-push-translates-file-differences-into-ordinary-edits.md) replaces current-store conflict comparison with file-versus-baseline edits and ordinary CRDT resolution; no remote-conflict preview or eventual folder-wins guarantee remains.
+- **Amended by:** [ADR-0417](0417-a-data-address-holds-one-document.md) removes generation from working-copy identity and requires a fresh comparison baseline after coordinated document replacement.
 - **Amends:** [ADR-0271](0271-a-workspace-mirrors-continuously-to-the-epicenter-folder-one-way.md) by withdrawing the continuous render and the one-way rule; [ADR-0289](0289-the-folder-is-where-a-generation-is-minted-from-not-a-surface-kept-current-for-its-own-sake.md) by making the folder a working copy rather than only a mint source; [ADR-0329](0329-frontmatter-round-trips-and-the-body-only-renders-out.md) at the return path's mechanism, keeping its rule that values round-trip and a body does not
 - **Relates:** [ADR-0234](0234-the-ark-owns-living-pages-and-markdown-is-an-explicit-checkout.md) (which invented this shape for one table and never generalized it), [ADR-0281](0281-a-generation-is-a-whole-database-and-a-device-chooses-which-one-it-holds.md) (the backup), [ADR-0330](0330-an-agent-uses-the-surfaces-a-person-uses.md) (who edits and who pushes)
-- **Amended by:** [ADR-0338](0338-the-folder-wins-and-a-push-is-one-approval.md) at "What a push refuses", which becomes what a push DOES. A new file becomes a row, a deleted file deletes one, an edited body comes home, a value goes in whatever it says, and a file the push cannot read is rewritten from the store; the only thing left that stops a push is a folder nothing ever wrote. Withdrawn with it: this record's `Amends` line above, where "keeping its rule that values round-trip and a body does not" no longer holds; "A person whose manifest is stale resolves it inside the push", since a person resolves it in the folder and the push is one yes or no; the sentence under "An agent edits; a person pushes" that "a body, a new file, and a deleted file do not" come back; and, in the Consequences, "`readArtifact` is `push`'s [half]", which was never true of the code and is not true now, since a push reaches rows through the table handles. The cycle, the manifest, absence as a fact, and the whole-or-nothing rule are unchanged.
-- **Amended by:** [ADR-0343](0343-a-preview-is-an-output-and-the-side-that-showed-it-applies-it.md) at three bounded places. The three verbs become one factory whose two verbs each run the whole sequence and take an approval through a callback, so `diff` is not a verb. The manifest keeps `kv`'s values rather than `kvHash`, and this record's reason for the hash, that the kv root has no per-field base a push could resolve against, is withdrawn as wrong: it is a declared field map compiled by the same code as a table and last-write-wins per key. The host gains a promise this record does not make, that a write lands only on the folder it was prepared against. The cycle, the completeness rule, absence as a fact, and the whole-or-nothing rule are unchanged.
-- **Built**, in `packages/data/src/artifact/checkout.ts` and `apps/epicenter/src/checkout.ts`: all three verbs, the manifest, and the `AGENTS.md` a pull generates. What is not is named at "What a push refuses" below, and each line there waits on its own record.
+- **Amended by:** [ADR-0338](0338-the-folder-wins-and-a-push-is-one-approval.md) allows body edits through the existing content node; its earlier folder-wins and mandatory-approval proposal is withdrawn.
+- **Amended by:** [ADR-0343](0343-a-preview-is-an-output-and-the-side-that-showed-it-applies-it.md) separates file-change inspection from application; the earlier mandatory confirmation-loop proposal is withdrawn.
+- **Amended by:** [ADR-0394](0394-materialization-contains-documents-and-blob-references.md) at recovery: a saved folder is readable source material, not a historical generation or exact backup; document-only materialization retains the Pull/Push comparison baseline.
+- **Built**, in `packages/app/src/data/artifact/checkout.ts` and `apps/epicenter/src/checkout.ts`: all three verbs, the manifest, and the `AGENTS.md` a pull generates. What is not is named at "What a push refuses" below, and each line there waits on its own record.
 
 ## Context
 
@@ -56,7 +59,7 @@ push    show the plan, apply on confirm, then re-render
 The three verbs are actions in the application's window. The application
 renders, diffs, and decides; the host does one thing per verb through one route
 (`CHECKOUT_ROUTE` in `apps/epicenter/src/routes.ts`, at the `CHECKOUT_PATH` both
-ends read from `packages/data/src/artifact/checkout.ts`): `PUT` replaces the
+ends read from `packages/app/src/data/artifact/checkout.ts`): `PUT` replaces the
 folder with the checkout `pull` hands it, and `GET` returns the folder's files
 for `push` and for the dirty check `pull` makes first. There is no CLI.
 
@@ -119,7 +122,7 @@ push holding any of these applies nothing at all and a person reads why:
 | refusal | why, and what is missing |
 | --- | --- |
 | an edited body | A body renders out and does not read back (ADR-0329). This record said it pushes as a whole-value replace; `ContentCodec` declares `encode` and `decode` and no verb that replaces a live node in place, and giving it a third one is a decision about the definition vocabulary. |
-| a new file | A row id is minted and never chosen (`packages/data/src/store/handles.ts`), because two devices creating one address produce two containers and one loses every field in it. A file cannot say which row it would be. |
+| a new file | A row id is minted and never chosen (`packages/app/src/data/store/handles.ts`), because two devices creating one address produce two containers and one loses every field in it. A file cannot say which row it would be. |
 | a missing file | Where a table names a trash field a deletion lands there as a value; no table can name one, which is the interim this record already sets. Adding `trash` to `TableDeclaration` reserves a third key beside `content` (ADR-0309), so it is an ADR rather than a push's business. |
 | an edited `kv.json` | Pulled to read, never pushed, as below. |
 | a removed frontmatter line | "Unset this" and "I did not mean to touch it" are the same signal, and a base cannot tell them apart. Setting the value to `null` says the first one. |
@@ -139,7 +142,7 @@ editing a hidden file.
 one.
 
 **An agent edits; a person pushes.** `pull` writes an `AGENTS.md` at the folder
-root from `compileData`'s output (`packages/data/src/definition/compile.ts`):
+root from `compileData`'s output (`packages/app/src/data/definition/compile.ts`):
 the tables, their fields and types, and the rules an agent needs. Values in the
 frontmatter are what comes back; a body, a new file, and a deleted file do not,
 and the table above is why. An agent never pushes. ADR-0330 makes the diff the thing that
@@ -149,7 +152,7 @@ the review.
 ## Consequences
 
 - **Deleted**, and the paths are named here for the last time because none of
-  them resolves any more: `packages/data/src/artifact/`'s `mirror.ts`, its test
+  them resolves any more: `packages/app/src/data/artifact/`'s `mirror.ts`, its test
   and `protocol.ts`; `apps/epicenter/src/`'s `mirror.ts` and its test;
   `MIRROR_ROUTE` and its handler; and Honeycrisp's `attachMirror` wiring. What replaced them is smaller than
   what went: the debounce, the batch ceiling, the in-flight pass, the

@@ -1,9 +1,8 @@
 /**
  * Where an authorization returns, on each build.
  *
- * The web build returns by navigation: the tab leaves for Google and Google
- * brings it back to `CALLBACK_PATH`, still holding the PKCE verifier in
- * `sessionStorage`. One path is enough there.
+ * The browser opens consent separately. `CALLBACK_PATH` relays the return URL
+ * to the primary window, which retains the PKCE verifier and opened App.
  *
  * The desktop build cannot. Google refuses a custom URI scheme for a Desktop
  * OAuth client and admits only a loopback redirect, and an Epicenter app window
@@ -18,7 +17,7 @@
  * Neither path carries a credential. The host holds an opaque URL for one
  * collection and reads nothing out of it; the code is redeemed in the window
  * that holds the verifier, and the refresh token goes straight to
- * `epicenter.secrets` from there (ADR-0310).
+ * `app.secrets` from there (ADR-0310).
  */
 
 /** Google's redirect target, relative to the base this build is served under. */

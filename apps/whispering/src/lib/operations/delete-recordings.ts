@@ -1,40 +1,49 @@
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { report } from '$lib/report';
-import type { Recording } from '$lib/state/recordings.svelte';
-import type { WhisperingApp } from '$lib/whispering/app';
+import type { RecordingStore } from '$lib/whispering/app';
+import type { Recording } from '../data.js';
 
-type RecordingDeletionTarget = Pick<Recording, 'id' | 'uploadedAt'>;
+type RecordingDeletionTarget = Pick<Recording, 'id'>;
 
 /**
- * Confirm and run the app's recording deletion workflow. The copy escalates
- * when any selected recording has an online copy, since deletion then removes
- * the recording everywhere, not just on this device.
+ * Delete recording rows without claiming that retained audio bytes are reclaimed.
  */
 export function deleteRecordingsWithConfirmation(
-	app: WhisperingApp,
+	store: RecordingStore,
 	toDelete: RecordingDeletionTarget | RecordingDeletionTarget[],
 	{ onSuccess }: { onSuccess?: () => void } = {},
 ) {
 	const arr = Array.isArray(toDelete) ? toDelete : [toDelete];
 	const isSingle = arr.length === 1;
 	const noun = isSingle ? 'recording' : 'recordings';
-	const deletesRemote = arr.some(({ uploadedAt }) => uploadedAt !== null);
 
 	confirmationDialog.open({
-		title: deletesRemote ? `Delete ${noun} everywhere` : `Delete ${noun}`,
-		description: deletesRemote
-			? `This permanently deletes ${isSingle ? 'this recording' : 'these recordings'} from this device and online storage.`
-			: `Are you sure you want to delete ${isSingle ? 'this' : 'these'} ${noun}?`,
+		title: `Delete ${noun}`,
+		description: isSingle
+			? 'Its stored audio file will remain.'
+			: 'Their stored audio files will remain.',
 		confirm: {
-			text: deletesRemote ? 'Delete everywhere' : 'Delete',
+			text: 'Delete',
 			variant: 'destructive',
 		},
 		onConfirm: async () => {
-			const { error } = await app.recordings.delete(arr.map(({ id }) => id));
-			if (error !== null) {
-				report.error({ title: `Failed to delete ${noun}`, cause: error });
-				return;
-			}
+			const ids = new Set(arr.map(({ id }) => id));
+			store.transact(() => {
+				const resultIds = new Set(
+					store.tables.transcriptions.rows
+						.filter((result) => ids.has(result.recordingId))
+						.map((result) => result.id),
+				);
+				for (const promotion of store.tables.capturePromotions.rows) {
+					if (resultIds.has(promotion.resultId))
+						store.tables.capturePromotions.delete(promotion.id);
+				}
+				for (const result of store.tables.transcriptions.rows) {
+					if (ids.has(result.recordingId))
+						store.tables.transcriptions.delete(result.id);
+				}
+				for (const { id } of arr) store.tables.recordings.delete(id);
+			});
 			report.success({
 				title: `Deleted ${noun}!`,
 				description: `Your ${noun} ${isSingle ? 'has' : 'have'} been deleted.`,

@@ -8,11 +8,11 @@
  *
  * Usage: bun run update-overhead.ts
  */
-import * as Y from 'yjs';
+import * as Y from '@y/y';
 
-type Entry = { key: string; val: Record<string, unknown>; ts: number };
+type Entry = { key: string; val: ReturnType<typeof row>; ts: number };
 
-function kvSet(yarray: Y.Array<Entry>, doc: Y.Doc, key: string, val: Record<string, unknown>) {
+function kvSet(yarray: Y.Node<{ children: Entry }>, doc: Y.Doc, key: string, val: ReturnType<typeof row>) {
 	doc.transact(() => {
 		const entries = yarray.toArray();
 		const idx = entries.findIndex((e) => e.key === key);
@@ -21,7 +21,7 @@ function kvSet(yarray: Y.Array<Entry>, doc: Y.Doc, key: string, val: Record<stri
 	});
 }
 
-function kvDelete(yarray: Y.Array<Entry>, doc: Y.Doc, key: string) {
+function kvDelete(yarray: Y.Node<{ children: Entry }>, doc: Y.Doc, key: string) {
 	doc.transact(() => {
 		const entries = yarray.toArray();
 		const idx = entries.findIndex((e) => e.key === key);
@@ -62,7 +62,7 @@ const row = (i: number) => ({
 header('TEST 1: Same-key updates (GC structs merge)');
 
 const doc1 = new Y.Doc();
-const arr1 = doc1.getArray<Entry>('data');
+const arr1 = doc1.get('data') as Y.Node<{ children: Entry }>;
 kvSet(arr1, doc1, 'skill_0', row(0));
 const baseline1 = size(doc1);
 
@@ -71,7 +71,7 @@ for (let i = 0; i < 500; i++) {
 }
 
 const fresh1 = new Y.Doc();
-const freshArr1 = fresh1.getArray<Entry>('data');
+const freshArr1 = fresh1.get('data') as Y.Node<{ children: Entry }>;
 kvSet(freshArr1, fresh1, 'skill_0', { ...row(0), description: 'Edit 499' });
 
 console.log(`Baseline (1 insert):    ${fmt(baseline1)}`);
@@ -86,7 +86,7 @@ console.log(`Overhead:               ${((size(doc1) / size(fresh1) - 1) * 100).t
 header('TEST 2: Interleaved add 10 / remove 5 cycles');
 
 const doc2 = new Y.Doc();
-const arr2 = doc2.getArray<Entry>('data');
+const arr2 = doc2.get('data') as Y.Node<{ children: Entry }>;
 let nextId = 0;
 let activeKeys: string[] = [];
 
@@ -106,7 +106,7 @@ for (let cycle = 0; cycle < 10; cycle++) {
 
 // Fresh doc with same final data
 const fresh2 = new Y.Doc();
-const freshArr2 = fresh2.getArray<Entry>('data');
+const freshArr2 = fresh2.get('data') as Y.Node<{ children: Entry }>;
 for (const key of activeKeys) {
 	kvSet(freshArr2, fresh2, key, row(Number(key.split('_')[1])));
 }
@@ -126,7 +126,7 @@ console.log(`Overhead:               ${((size(doc2) / size(fresh2) - 1) * 100).t
 header('TEST 3: add 10, remove 5, add 10, remove 5, remove 10');
 
 const doc3 = new Y.Doc();
-const arr3 = doc3.getArray<Entry>('data');
+const arr3 = doc3.get('data') as Y.Node<{ children: Entry }>;
 let id3 = 0;
 let keys3: string[] = [];
 
@@ -163,7 +163,7 @@ for (let i = 0; i < 10; i++) kvDelete(arr3, doc3, keys3.shift()!);
 snap('After remove 10');
 
 const fresh3 = new Y.Doc();
-const freshArr3 = fresh3.getArray<Entry>('data');
+const freshArr3 = fresh3.get('data') as Y.Node<{ children: Entry }>;
 for (const key of keys3) {
 	kvSet(freshArr3, fresh3, key, row(Number(key.split('_')[1])));
 }
@@ -171,13 +171,13 @@ console.log(`  ${'Fresh (same data)'.padEnd(30)} ${fmt(size(fresh3)).padStart(10
 console.log(`  Overhead: ${((size(doc3) / Math.max(size(fresh3), 1) - 1) * 100).toFixed(1)}%`);
 
 // ═══════════════════════════════════════════════════════════════════════
-// TEST 4: Y.Text with interleaved typing (for comparison)
+// TEST 4: Y.Node text with interleaved typing (for comparison)
 // ═══════════════════════════════════════════════════════════════════════
 
-header('TEST 4: Y.Text: type 100 chars, delete 50, type 100, delete 50');
+header('TEST 4: Y.Node text: type 100 chars, delete 50, type 100, delete 50');
 
 const doc4 = new Y.Doc();
-const text4 = doc4.getText('content');
+const text4 = doc4.get('content', 'text');
 const phrase = 'The quick brown fox jumps over the lazy dog. ';
 
 // Type 100
@@ -198,18 +198,18 @@ console.log(`After delete 50:        ${fmt(size(doc4))}`);
 
 // Fresh comparison
 const fresh4 = new Y.Doc();
-fresh4.getText('content').insert(0, text4.toString());
+fresh4.get('content', 'text').insert(0, text4.toString());
 console.log(`Fresh (same text):      ${fmt(size(fresh4))}`);
 console.log(`Overhead:               ${((size(doc4) / size(fresh4) - 1) * 100).toFixed(1)}%`);
 
 // ═══════════════════════════════════════════════════════════════════════
-// TEST 5: Y.Text with gc:false (what instruction docs use)
+// TEST 5: Y.Node text with gc:false (what instruction docs use)
 // ═══════════════════════════════════════════════════════════════════════
 
-header('TEST 5: Y.Text gc:false: type 100, delete 50, type 100, delete 50');
+header('TEST 5: Y.Node text gc:false: type 100, delete 50, type 100, delete 50');
 
 const doc5 = new Y.Doc({ gc: false });
-const text5 = doc5.getText('content');
+const text5 = doc5.get('content', 'text');
 
 for (let i = 0; i < 100; i++) text5.insert(text5.length, phrase[i % phrase.length]);
 console.log(`After type 100:         ${fmt(size(doc5))}`);
@@ -224,7 +224,7 @@ text5.delete(0, 50);
 console.log(`After delete 50:        ${fmt(size(doc5))}`);
 
 const fresh5 = new Y.Doc({ gc: false });
-fresh5.getText('content').insert(0, text5.toString());
+fresh5.get('content', 'text').insert(0, text5.toString());
 console.log(`Fresh (same text):      ${fmt(size(fresh5))}`);
 console.log(`Overhead:               ${((size(doc5) / size(fresh5) - 1) * 100).toFixed(1)}%`);
 
@@ -233,6 +233,6 @@ console.log(`Overhead:               ${((size(doc5) / size(fresh5) - 1) * 100).t
 header('SUMMARY');
 console.log('Same-key updates:       GC structs merge → ~fixed overhead');
 console.log('Multi-key add/remove:   GC structs interleaved → overhead scales');
-console.log('Y.Text gc:true:         Deleted chars → small GC structs');
-console.log('Y.Text gc:false:        Deleted chars retain full content → grows fast');
+console.log('Y.Node text gc:true:         Deleted chars → small GC structs');
+console.log('Y.Node text gc:false:        Deleted chars retain full content → grows fast');
 console.log('');

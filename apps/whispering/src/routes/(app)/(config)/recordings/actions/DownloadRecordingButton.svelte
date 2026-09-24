@@ -5,7 +5,7 @@
 	import { createMutation } from '@tanstack/svelte-query';
 	import type { ComponentProps } from 'svelte';
 	import { report } from '$lib/report';
-	import type { Recording } from '$lib/state/recordings.svelte';
+	import type { Recording } from '../../../../../lib/data.js';
 	import { getWhisperingQueries } from '$lib/whispering/context';
 
 	const queries = getWhisperingQueries();
@@ -50,7 +50,13 @@
 	}
 </script>
 
-<Button tooltip="Download recording" onclick={download} {variant} {size}>
+<Button
+	tooltip="Download recording"
+	aria-label="Download recording"
+	onclick={download}
+	{variant}
+	{size}
+>
 	{#if downloadRecording.isPending}
 		<Spinner />
 	{:else}

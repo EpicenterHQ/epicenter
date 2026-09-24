@@ -4,7 +4,7 @@
  * A field holds a **value**, replaced whole, or a **node**, edited in place.
  * `scalar` and `prose` were the old names and both were wrong: `tags` is an
  * array and behaves exactly like `title`, and a node holds whatever its table's
- * codec says, which `packages/chat` proves is often not writing at all.
+ * codec says, which a message row proves is often not writing at all.
  *
  * The reason this is a script and not a note in a style guide is that ADR-0244
  * settled the same kind of question, shipped no check, and needed a hand-run
@@ -100,8 +100,7 @@ const RULES: readonly Rule[] = [
 		instead: 'node (the container) or text (the characters)',
 		excludes: [],
 		scope: [
-			'packages/data/',
-			'packages/chat/',
+			'packages/app/src/data/',
 			'packages/skills/',
 			'packages/svelte/',
 			'packages/server/workers/',

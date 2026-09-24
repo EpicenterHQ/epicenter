@@ -1,6 +1,6 @@
 ---
 name: platform-seams
-description: Apply Epicenter’s `#platform/*` build-time seam across browser, Tauri, and host targets. Use when adding or changing a seam, build condition, typecheck leaf, or deciding whether code belongs behind one.
+description: Apply Epicenter’s `#platform/*` build-time seam across browser and host targets. Use when adding or changing a seam, build condition, typecheck leaf, or deciding whether code belongs behind one.
 metadata:
   author: epicenter
   version: '7.0'
@@ -17,13 +17,17 @@ workspace plane. The seam below is the part that survived.
 **Every build opens its own store.** A host serves bundles and brokers
 credentials and owns no application data (ADR-0226), so there is no build where
 data lives somewhere else, and a `#platform/*` seam for storage is the thing to
-delete rather than to route. Honeycrisp calls `openBrowserStore` in every build
-including the Tauri one, and `apps/honeycrisp/src/lib/application-platform.ts`
-states that as a refusal with its reasons.
+delete rather than to route. Applications acquire independent stores through
+`openLocal` and `openPersonal` from `@epicenter/app/open`. Resource constructors
+select browser or native implementations with `isTauri()` (ADR-0403).
+`StoreRuntime` injection controls store storage and admission; it is not an
+application-wide runtime. `defineStore` from the root is platform-free and
+carries no runtime or AI override.
 
-What is left behind a seam is how a build gets a bearer and which deployment it
-talks to, plus native capability. Honeycrisp declares exactly two:
-`#platform/auth` and `#platform/instance`.
+App-level seams select auth and product capabilities. They do not choose store
+persistence. Keep resource composition at the product boundary; do not restore
+Whispering's removed `#platform/runtime` seam. For constructors and ownership,
+read the [resource contracts](../../../packages/app/README.md).
 
 ## Declaring one
 
@@ -92,6 +96,11 @@ They used to be conflated because `epicenter-host` also meant the host owned the
 build's replica. ADR-0226 removed that, so the condition is now about brokered
 credentials and nothing about data.
 
+**Package selection and app seams.** `@epicenter/app` selects its default runtime
+and clipboard inside the package with `isTauri()` (ADR-0403). It requires no
+consumer build condition. Keep app-level conditions where they select auth or
+product UI; removing the package map does not remove those app-owned choices.
+
 A build that owns its own storage uses neither host condition, whether a browser
 or a bundle serves it: a WebView is a storage partition and origin pair like any
 other (ADR-0177). Every build owns its own storage, so this is now always true.
@@ -117,9 +126,11 @@ of the import graph stays ordinary.
 
 - Adding a `#platform/*` seam for storage, a replica, or a database. Every build
   opens its own store; that seam is what ADR-0226 refused.
-- Branching on the platform at a `#platform/*` call site. Import the bare
-  specifier and let the build select the leaf.
-- Detecting the host at runtime. The build already answered.
+- Branching on the platform at an app's `#platform/*` call site. Import the
+  bare specifier and let the build select the leaf.
+- Detecting the host at runtime in an app seam. The build already answered.
+  `@epicenter/app` is the explicit exception: ADR-0403 selects its runtime and
+  clipboard with `isTauri()`, under the supported Epicenter-host-only Tauri model.
 - Using `satisfies` on a leaf instead of a `: Contract` annotation.
 - Importing a `.tauri.ts`-only symbol through `#platform/*`. It resolves to the
   browser leaf off Tauri; import it directly from the `.tauri` module inside
@@ -128,6 +139,8 @@ of the import graph stays ordinary.
 - Dropping `...defaultClientConditions` from the Tauri `conditions` array.
 - Adding a condition leaf with no `tsconfig.<condition>.json`, which means it is
   never typechecked.
-- Gating a route or the app shell on identity: no `(signed-in)` route groups, no
-  signed-out screen, no redirect-to-sign-in. Sign-in is an enhancement
-  (ADR-0088), and signed-in-only features get small inline affordances.
+- A `#platform/*` seam over identity. Whether a person is signed in is runtime
+  state, not a build condition, so the gate is an `{#if}` in the boot node and
+  never a leaf. Every app renders a sign-in screen when signed out (ADR-0342,
+  rejected: sign-in IS a door), and that is one branch in one file rather than a
+  seam.

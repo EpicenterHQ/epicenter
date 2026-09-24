@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-29
+- **Amended by:** [ADR-0407](0407-app-owns-the-declaration-and-data-engine.md) at the public client listing/import/erasure helpers, which are removed. Existing historical bytes and the server refusal of fresh current Personal initialization over admitted history remain. The implementation account below records the earlier protocol, not a current client API.
 - **Amended by:** [ADR-0336](0336-an-authority-mints-every-generation-so-every-store-has-an-account.md) at the no-account branch: "the device assigns `n` by reading its own addresses" is withdrawn. A client never chooses the number.
 - **Supersedes:** [ADR-0286](0286-every-generation-is-minted-from-an-artifact-and-compaction-is-an-export-then-an-import.md) and [ADR-0290](0290-a-mint-is-a-foreground-job-the-client-owns-and-it-cannot-outlive-a-page.md) at the upload and publication protocol. The folder as the source, client-owned codecs, and one foreground path are retained.
 - **Amends:** [ADR-0283](0283-a-generations-collection-is-a-ledger-that-allocates-admits-and-sweeps.md) at allocation timing and the request body; [ADR-0287](0287-the-authority-does-not-delete-a-generation-and-erasure-is-an-account-operation.md) at its per-object economics, which no longer apply.

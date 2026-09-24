@@ -1,10 +1,7 @@
-import type { BlobId } from '@epicenter/blobs';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { report } from '$lib/report';
-import { manualRecorder } from '$lib/state/manual-recorder.svelte';
 import type { WhisperingApp } from '$lib/whispering/app';
-import { startManualRecording, stopManualRecordingById } from './recording';
 
 /**
  * Push-to-talk owns the recording it starts. A press starts a session; a release
@@ -47,7 +44,7 @@ type Session = {
 	/** The ready app whose command started this session. */
 	app: WhisperingApp;
 	/** The recording this press started, or null until startup resolves. */
-	recordingId: BlobId | null;
+	recordingId: string | null;
 	/** A release that arrived before startup finished, honored once it exists. */
 	stopRequested: boolean;
 };
@@ -56,7 +53,7 @@ function createPushToTalk() {
 	let generation = 0;
 	let session: Session | null = null;
 	let capTimer: ReturnType<typeof setTimeout> | undefined;
-	let pendingStart: Promise<void> | undefined;
+	let starting: number | undefined;
 
 	function clearSession() {
 		session = null;
@@ -72,9 +69,9 @@ function createPushToTalk() {
 	function sessionIsStale(): boolean {
 		return (
 			session !== null &&
-			pendingStart === undefined &&
-			manualRecorder.state !== 'RECORDING' &&
-			!manualRecorder.isStarting
+			starting === undefined &&
+			session.app.recording.state !== 'RECORDING' &&
+			!session.app.recording.isStarting
 		);
 	}
 
@@ -86,7 +83,7 @@ function createPushToTalk() {
 		if (session?.id !== id) return; // superseded by a newer press
 		const { recordingId } = session;
 		clearSession();
-		if (recordingId) await stopManualRecordingById(app, recordingId);
+		if (recordingId) await app.recording.stop(recordingId);
 		if (options?.capped) {
 			report.info({
 				title: 'Recording stopped',
@@ -103,32 +100,28 @@ function createPushToTalk() {
 
 		const id = ++generation;
 		session = { id, app, recordingId: null, stopRequested: false };
-		const completion = Promise.withResolvers<void>();
-		pendingStart = completion.promise;
+		starting = id;
 
 		try {
 			// Null means this press started nothing it owns: startup failed, or a
 			// recording was already live (a toggle/button capture) so the start no-op'd.
 			// Either way, do not arm a cap or stop another source's recording.
-			let recordingId: BlobId | null;
+			let recordingId: string | null;
 			try {
-				recordingId = await startManualRecording(app);
+				recordingId = await app.recording.start();
 			} catch (cause) {
 				if (session?.id === id) clearSession();
 				throw cause;
 			}
 
-			if (session?.id !== id) {
-				if (recordingId) await stopManualRecordingById(app, recordingId);
-				return;
-			}
+			// The recording owner releases capture after component disposal.
+			if (session?.id !== id) return;
 			if (!recordingId) {
 				clearSession();
 				return;
 			}
 			session.recordingId = recordingId;
-			// A release or app teardown arrived during startup: honor it now
-			// that the recording exists, before the old app can be disposed.
+			// A release arrived during startup: honor it now that capture exists.
 			if (session.stopRequested) {
 				await end(app, id);
 				return;
@@ -139,8 +132,7 @@ function createPushToTalk() {
 				);
 			}, MAX_HOLD_MS);
 		} finally {
-			completion.resolve();
-			if (pendingStart === completion.promise) pendingStart = undefined;
+			if (starting === id) starting = undefined;
 		}
 	}
 
@@ -152,22 +144,16 @@ function createPushToTalk() {
 	 */
 	async function stop(app: WhisperingApp) {
 		if (!session || session.app !== app) return; // not this app's hold
-		if (manualRecorder.state === 'RECORDING') return end(app, session.id);
-		if (manualRecorder.isStarting) {
+		if (app.recording.state === 'RECORDING') return end(app, session.id);
+		if (app.recording.isStarting) {
 			session.stopRequested = true; // honored when start completes
 			return;
 		}
 		clearSession(); // not recording and not starting: ended by other means
 	}
 
-	async function dispose(app: WhisperingApp): Promise<void> {
-		if (!session || session.app !== app) return;
-		if (pendingStart) {
-			session.stopRequested = true;
-			await pendingStart;
-			return;
-		}
-		await end(app, session.id);
+	function dispose(app: WhisperingApp): void {
+		if (session?.app === app) clearSession();
 	}
 
 	return { start, stop, dispose };

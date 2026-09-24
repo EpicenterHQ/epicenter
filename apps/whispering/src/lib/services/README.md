@@ -36,13 +36,16 @@ services/
 |-- blobs/
 |-- download/
 |-- http/
-|-- recorder/
 |-- text/
 |-- transcription/
 |-- local-shortcut-manager.ts
 |-- sound/
 `-- index.ts
 ```
+
+`text/` is delivery into other applications: cursor paste and synthetic
+keystrokes. Plain clipboard reads and writes are the shared `clipboard` from
+`@epicenter/app/clipboard`; call sites import it directly.
 
 Check the directory and `apps/whispering/package.json#imports` for the current
 set. This tree explains the ownership shape, not a permanent inventory.
@@ -57,7 +60,9 @@ and `satisfies DownloadService` without a construction-only factory.
 Use a factory only when construction inputs, isolated mutable state, resource
 lifetime, or teardown earn one. Browser and CPAL recorder factories qualify
 because they create recording sessions that own stop, cancel, subscription, and
-teardown state.
+teardown state. Those factories now live in `@epicenter/recorder`; Whispering
+binds `openedApp.recording` to one UI session's `app.recording` workflow.
+It owns reactive capture state; the public stop saves a row and runs transcription.
 
 ## Build-Time Platform Injection
 
@@ -66,7 +71,7 @@ imports:
 
 ```jsonc
 "#platform/text": {
-  "tauri": "./src/lib/services/text/index.tauri.ts",
+  "epicenter-host": "./src/lib/services/text/index.tauri.ts",
   "default": "./src/lib/services/text/index.browser.ts"
 }
 ```
@@ -77,8 +82,8 @@ Shared code imports one stable name:
 import { TextServiceLive } from '#platform/text';
 ```
 
-The web build resolves `default`. The Epicenter/Tauri build activates the
-`tauri` condition. The off-target file is not part of that module graph. Do not
+The web build resolves `default`. The Epicenter host build activates the
+`epicenter-host` condition. The off-target file is not part of that module graph. Do not
 add runtime `window.__TAURI_INTERNALS__` checks or parallel service registries.
 
 Each branch exports the same public name and conforms to the same contract.
@@ -92,7 +97,7 @@ to the Tauri namespace on desktop and `null` on web:
 import { tauri } from '#platform/tauri';
 
 if (tauri) {
-	await tauri.mainWindow.focus();
+	await tauri.mainWindow.reveal();
 }
 ```
 
@@ -120,20 +125,24 @@ platform imports resolve:
 export const services = {
 	analytics: AnalyticsServiceLive,
 	text: TextServiceLive,
-	blobs: BlobsLive,
-	blobSources: BlobSourcesLive,
 	download: DownloadServiceLive,
 	localShortcutManager: LocalShortcutManagerLive,
 	sound: PlaySoundServiceLive,
 } as const;
 ```
 
+Recording reads receive the containing store and resolve only its `audioBlobId`.
+Local capture/import and explicit Personal copy are product operations. The
+services layer does not infer row ownership or search another store for fallback
+bytes. Playback acquires a disposable source; download and transcription read
+complete bytes through that same owner.
+
 Runtime-selected provider services do not need to live in this barrel. The
 operation that owns dispatch may import them directly.
 
 ## Error Flow
 
-- Adapt throwing platform and library calls at the service boundary.
+- Adapt throwing platform and dependency calls at the service boundary.
 - Define a service error only for a failure the service understands.
 - Pass lower-layer tagged errors through when composing services.
 - Keep user presentation in operations, routes, or components through

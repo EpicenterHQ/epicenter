@@ -26,11 +26,10 @@
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { onMount } from 'svelte';
-	import { account, accountKeys } from '$lib/account/queries';
+	import { onDestroy, onMount } from 'svelte';
+	import { accountKeys } from '$lib/account/queries';
 	import {
 		type AuthError,
-		authClient,
 		isPasskeyCancellation,
 		requiresReauth,
 		supportsPasskeys,
@@ -41,14 +40,22 @@
 		type SocialProvider,
 	} from '$lib/auth/providers';
 	import ProviderButton from '$lib/auth/ProviderButton.svelte';
-	import { session } from '$lib/auth/session';
 	import UserIdentity from '$lib/auth/UserIdentity.svelte';
-	import { auth } from '$lib/platform/auth';
-	import { queryClient } from '$lib/query/client';
+	import { startDashboardSignIn } from '$lib/platform/auth';
+	import { getDashboard } from '$lib/dashboard/context';
+	const { accountQueries, management: authClient, queryClient, signal } = getDashboard();
+	// Leaving account settings does not retire the shared dashboard Account.
+	let pageDisposed = false;
+	let ownedDialog: typeof confirmationDialog.options = null;
+	onDestroy(() => {
+		pageDisposed = true;
+		if (ownedDialog && confirmationDialog.options === ownedDialog)
+			confirmationDialog.close();
+	});
 
-	const sessionQuery = createQuery(() => session.options);
-	const linkedQuery = createQuery(() => account.linked.options);
-	const passkeysQuery = createQuery(() => account.passkeys.options);
+	const sessionQuery = createQuery(() => accountQueries.session.options);
+	const linkedQuery = createQuery(() => accountQueries.linked.options);
+	const passkeysQuery = createQuery(() => accountQueries.passkeys.options);
 
 	const profile = $derived(sessionQuery.data?.user ?? null);
 	const linkedAccounts = $derived(linkedQuery.data ?? []);
@@ -107,22 +114,13 @@
 		history.replaceState(null, '', url.pathname + url.search + url.hash);
 	});
 
-	/**
-	 * The stale-session remedy is a one-click re-sign-in. It must SIGN OUT first:
-	 * only a new sign-in mints a session with a fresh `createdAt` (Better Auth's
-	 * `getSession` refreshes `expiresAt`/`updatedAt` but never `createdAt`), and
-	 * the hosted `/sign-in` page bounces an already-signed-in browser straight
-	 * back to its callback, so a stale-but-valid session would loop without ever
-	 * seeing the provider buttons. Dropping the cookie first lets `/sign-in`
-	 * render the providers, and the returning session is fresh.
-	 */
 	function reauthToast() {
 		toast.error('Sign in again to change your sign-in methods.', {
 			action: {
 				label: 'Sign in',
 				onClick: async () => {
-					await auth.signOut();
-					await auth.startSignIn();
+					if (pageDisposed || signal.aborted) return;
+					await startDashboardSignIn({ reauthenticate: true });
 				},
 			},
 		});
@@ -151,6 +149,7 @@
 			description: `You're signed in as ${email}. Connect a ${label} account as another way to sign in? If its email differs from ${email}, it is still linked to this account.`,
 			confirm: { text: 'Connect' },
 			onConfirm: async () => {
+				if (pageDisposed || signal.aborted) return;
 				const { data, error } = await authClient.linkSocial({
 					provider,
 					callbackURL: window.location.href,
@@ -160,6 +159,7 @@
 					// `?error`/`?error_description` it appends into a toast.
 					errorCallbackURL: window.location.href,
 				});
+				if (pageDisposed || signal.aborted) return;
 				if (error) {
 					reportError(error, `Could not connect ${label}.`);
 					return;
@@ -168,6 +168,7 @@
 				if (data?.url) window.location.href = data.url;
 			},
 		});
+		ownedDialog = confirmationDialog.options;
 	}
 
 	function disconnect(linkedAccount: LinkedAccount) {
@@ -178,10 +179,12 @@
 			description: `Remove ${label} as a way to sign in to ${email}? You can reconnect it anytime.`,
 			confirm: { text: 'Disconnect', variant: 'destructive' },
 			onConfirm: async () => {
+				if (pageDisposed || signal.aborted) return;
 				const { error } = await authClient.unlinkAccount({
 					providerId: linkedAccount.providerId,
 					accountId: linkedAccount.accountId,
 				});
+				if (pageDisposed || signal.aborted) return;
 				if (error) {
 					if (reportError(error, `Could not disconnect ${label}.`).terminal) {
 						return;
@@ -192,10 +195,13 @@
 				invalidate(accountKeys.linked);
 			},
 		});
+		ownedDialog = confirmationDialog.options;
 	}
 
 	async function addPasskey() {
+		if (pageDisposed || signal.aborted) return;
 		const { error } = await authClient.passkey.addPasskey();
+		if (pageDisposed || signal.aborted) return;
 		if (error) {
 			if (isPasskeyCancellation(error)) return;
 			if (requiresReauth(error)) {
@@ -220,6 +226,7 @@
 	}
 
 	async function saveRename(passkey: Passkey) {
+		if (pageDisposed || signal.aborted) return;
 		const name = editingName.trim();
 		if (!name || name === passkey.name) {
 			cancelRename();
@@ -230,6 +237,7 @@
 			id: passkey.id,
 			name,
 		});
+		if (pageDisposed || signal.aborted) return;
 		renaming = false;
 		if (error) {
 			reportError(error, 'Could not rename this passkey.');
@@ -239,45 +247,6 @@
 		invalidate(accountKeys.passkeys);
 	}
 
-	/**
-	 * Hosted account deletion (`DELETE /api/account`). The server deletes in a
-	 * retry-safe order and answers 503 with the failed step on a partial
-	 * failure, so the remedy is always "retry until 204". Only a 204 means the
-	 * account is gone; afterwards the session is dead, so sign-out is
-	 * best-effort cookie cleanup before leaving the dashboard.
-	 */
-	function deleteAccount() {
-		const email = profile?.email ?? 'this account';
-		confirmationDialog.open({
-			title: 'Delete account',
-			description: `Permanently delete ${email} everywhere: synced workspaces, documents, uploaded files, billing, and every way to sign in. This cannot be undone. Data stored on your devices stays on your devices.`,
-			confirm: { text: 'Delete forever', variant: 'destructive' },
-			onConfirm: async () => {
-				const response = await auth.fetch('/api/account', { method: 'DELETE' });
-				if (!response.ok) {
-					if (response.status === 403) {
-						// The route requires a fresh session; the remedy is the same
-						// re-sign-in the other sensitive account changes use.
-						reauthToast();
-						return;
-					}
-					toast.error(
-						response.status === 503
-							? 'Deletion did not finish. Confirm again to retry until it completes.'
-							: 'Could not delete your account. Please try again.',
-					);
-					throw new Error(`Account deletion answered ${response.status}`); // retryable: keep the dialog open
-				}
-				toast.success('Your account has been deleted');
-				try {
-					await auth.signOut();
-				} catch {
-					// The session was already destroyed with the account.
-				}
-				window.location.href = '/';
-			},
-		});
-	}
 
 	function deletePasskey(passkey: Passkey) {
 		const label = passkey.name?.trim() || 'this passkey';
@@ -286,9 +255,11 @@
 			description: `Remove ${label}? You won't be able to sign in with it anymore.`,
 			confirm: { text: 'Remove', variant: 'destructive' },
 			onConfirm: async () => {
+				if (pageDisposed || signal.aborted) return;
 				const { error } = await authClient.passkey.deletePasskey({
 					id: passkey.id,
 				});
+				if (pageDisposed || signal.aborted) return;
 				if (error) {
 					if (reportError(error, 'Could not remove this passkey.').terminal) {
 						return;
@@ -299,6 +270,7 @@
 				invalidate(accountKeys.passkeys);
 			},
 		});
+		ownedDialog = confirmationDialog.options;
 	}
 </script>
 
@@ -345,6 +317,8 @@
 						{linkedQuery.error.message || 'Could not load connected accounts.'}
 					</Alert.Description>
 				</Alert.Root>
+			{:else if linkedAccounts.length === 0}
+				<p class="text-sm text-muted-foreground">No connected accounts yet.</p>
 			{:else}
 				<ul class="flex flex-col divide-y rounded-md border">
 					{#each linkedAccounts as linkedAccount (linkedAccount.id)}
@@ -374,9 +348,9 @@
 			{/if}
 
 			{#if availableProviders.length > 0}
-				<Separator />
+				{#if linkedAccounts.length > 0}<Separator />{/if}
 				<div class="flex flex-col gap-3">
-					<p class="text-sm font-medium">Connect another account</p>
+					<p class="text-sm font-medium">{linkedAccounts.length > 0 ? 'Connect another account' : 'Connect an account'}</p>
 					{#each availableProviders as provider (provider)}
 						<ProviderButton
 							{provider}
@@ -503,12 +477,12 @@
 		</Card.Header>
 		<Card.Content class="flex flex-col gap-4">
 			<p class="text-sm text-muted-foreground">
-				Permanently deletes your synced workspaces, documents, uploaded files,
-				billing, and every way to sign in. Data stored on your devices stays on
-				your devices. This cannot be undone.
+				Account deletion is currently unavailable because we cannot yet guarantee
+				complete removal of your hosted data. Copies on your devices must be
+				removed separately.
 			</p>
 			<div>
-				<Button variant="destructive" onclick={deleteAccount}>
+				<Button variant="destructive" disabled>
 					<Trash2Icon class="size-4" />
 					Delete account
 				</Button>

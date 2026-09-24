@@ -8,17 +8,17 @@
  * actually be lost.
  */
 import { expect, test } from 'bun:test';
-import { readArtifact, renderArtifact } from '@epicenter/data/artifact';
-import { syncEngineOf } from '@epicenter/data/direct';
-import { InstantString } from '@epicenter/data/field';
-import { openMemory } from '@epicenter/data/memory';
-import { pmToFragment } from '@y/prosemirror';
+import { readArtifact, renderArtifact } from '@epicenter/app/artifact';
+import { syncEngineOf } from '@epicenter/app/data';
+import { InstantString } from '@epicenter/app/field';
+import { openMemory } from '@epicenter/app/memory';
+import { pmnodeToDelta } from '@y/prosemirror';
 import { expectOk } from 'wellcrafted/testing';
 import { honeycrispDefinition } from './data.js';
 import { parseNoteBody } from './editor/markdown.js';
 
 /** The notes table's real codec, which is what these tests are about. */
-const noteFile = honeycrispDefinition.tables.notes.content;
+const noteFile = honeycrispDefinition.tables.notes.body;
 
 const AT = InstantString.fromDate(new Date('2026-08-10T00:00:00.000Z'));
 
@@ -68,7 +68,9 @@ test('a store exports to Markdown files and imports back whole', async () => {
 	const { data, note } = await seed();
 	const seeded = data.tables.notes.get(note.id);
 	if (seeded === undefined) throw new Error('the note has no row');
-	pmToFragment(parseNoteBody(MARKDOWN), seeded.content as never);
+	data.tables.notes
+		.body(seeded.id)!
+		.applyDelta(pmnodeToDelta(parseNoteBody(MARKDOWN)));
 
 	const files = await collect(renderArtifact(data, honeycrispDefinition));
 	// One file per row, and the note's file is text a person can read.
@@ -95,7 +97,7 @@ test('a store exports to Markdown files and imports back whole', async () => {
 	// row goes in, not a row spliced together with a bag of types.
 	const row = restored.tables.notes.get(note.id);
 	if (row === undefined) throw new Error('the note lost its row');
-	expect(noteFile.encode(row.content)).toBe(MARKDOWN);
+	expect(noteFile.encode(restored.tables.notes.body(row.id)!)).toBe(MARKDOWN);
 	await data[Symbol.asyncDispose]();
 });
 
@@ -109,45 +111,6 @@ test('a note with no body text exports as frontmatter alone and still imports', 
 	syncEngineOf(restored).applyRemote(state);
 	expect(restored.tables.notes.get(note.id)?.title).toBe('Groceries');
 	// The node is minted with the row, so an empty note still has one.
-	expect(restored.tables.notes.get(note.id)?.content).toBeDefined();
-	await data[Symbol.asyncDispose]();
-});
-
-/**
- * `rewrite`, which is the verb a push calls when a person authorizes a body
- * edit to come home (ADR-0337).
- *
- * What these pin is the reason it is a verb at all: the node the row holds
- * afterwards is the SAME node, so an editor, an undo manager, and a preview
- * bound to it are still bound. A codec that built a fresh node and let the
- * platform swap it in would pass a round-trip assertion and detach every one of
- * them.
- */
-test('a rewritten body says what the file says, in the node the row already holds', async () => {
-	const { data, note } = await seed();
-	const before = data.tables.notes.get(note.id);
-	if (before === undefined) throw new Error('the note has no row');
-	pmToFragment(parseNoteBody('# Old\n\nold text'), before.content as never);
-
-	expectOk(noteFile.rewrite(before.content, MARKDOWN));
-
-	const after = data.tables.notes.get(note.id);
-	if (after === undefined) throw new Error('the note lost its row');
-	// The identity claim, which is the whole point. `toBe`, not `toEqual`.
-	expect(after.content).toBe(before.content);
-	expect(noteFile.encode(after.content)).toBe(MARKDOWN);
-	await data[Symbol.asyncDispose]();
-});
-
-test('a rewrite to nothing empties the node without replacing it', async () => {
-	const { data, note } = await seed();
-	const row = data.tables.notes.get(note.id);
-	if (row === undefined) throw new Error('the note has no row');
-	pmToFragment(parseNoteBody(MARKDOWN), row.content as never);
-
-	expectOk(noteFile.rewrite(row.content, ''));
-
-	expect(data.tables.notes.get(note.id)?.content).toBe(row.content);
-	expect(noteFile.encode(row.content)).toBe('');
+	expect(restored.tables.notes.body(note.id)).toBeDefined();
 	await data[Symbol.asyncDispose]();
 });

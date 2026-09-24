@@ -8,9 +8,8 @@
 	import { GithubIcon } from '$lib/components/icons';
 	import studioMicrophone from '$lib/assets/studio-microphone.png';
 	import { NAV_ITEMS } from './nav-items';
-	import { auth } from '#platform/auth';
+	import { auth } from '$lib/auth.svelte.js';
 	import { AccountPopover } from '@epicenter/app-shell/account-popover';
-	import { recordingActive } from '$lib/state/recording-active.svelte';
 
 	const sidebar = useSidebar();
 </script>
@@ -73,13 +72,7 @@
 		<Sidebar.Menu>
 			<!-- Account / sync (route-independent: visible on the bare home page) -->
 			<Sidebar.MenuItem>
-				<AccountPopover
-					{auth}
-					syncNoun="recordings"
-					disabledReason={recordingActive.current
-						? 'Stop recording to change your account'
-						: undefined}
-				/>
+				<AccountPopover {auth} syncNoun="recordings" />
 			</Sidebar.MenuItem>
 
 			<!-- Toggle dark mode -->

@@ -6,6 +6,7 @@
  * resolves the settings once and hands each sink everything it needs at
  * construction, so a sink is reusable outside a settings-backed caller too.
  */
+import { clipboard } from '@epicenter/app/clipboard';
 import { services } from '$lib/services';
 import type { DeliveryReach } from './delivery-reach';
 
@@ -25,7 +26,7 @@ export interface Sink {
 export const clipboardSink: Sink = {
 	kind: 'clipboard',
 	async deliver(text) {
-		await services.text.copyToClipboard(text);
+		await clipboard.writeText(text);
 		return 'output';
 	},
 };
@@ -70,7 +71,7 @@ export function createCursorSink({
 			if (writeError) {
 				// The write failed outright (rare). Ensure the text is at least on
 				// the clipboard, and report the reduced reach.
-				await services.text.copyToClipboard(text);
+				await clipboard.writeText(text);
 				return 'clipboard';
 			}
 

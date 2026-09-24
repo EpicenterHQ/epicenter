@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/constants",
-	"description": "Shared Epicenter platform contracts: app origins and ports, API and OAuth route surfaces, first-party OAuth clients and their seed projection, Vite build URLs, the model catalog, and the application-data root apps partition below",
+	"description": "Shared Epicenter platform contracts: app origins and ports, API routes, Vite build URLs, the model catalog, and the application-data root",
 	"version": "0.1.1",
 	"private": true,
 	"type": "module",
@@ -16,14 +16,10 @@
 		"./app-data": "./src/app-data.ts",
 		"./app-id": "./src/app-id.ts",
 		"./apps": "./src/apps.ts",
-		"./oauth-clients": "./src/oauth-clients.ts",
-		"./oauth-routes": "./src/oauth-routes.ts",
-		"./oauth-seed": "./src/oauth-seed.ts",
 		"./provider-credentials": "./src/provider-credentials.ts",
 		"./vite": "./src/vite.ts"
 	},
 	"devDependencies": {
-		"@better-auth/oauth-provider": "catalog:",
 		"@types/bun": "catalog:",
 		"@types/node": "catalog:",
 		"typescript": "catalog:",

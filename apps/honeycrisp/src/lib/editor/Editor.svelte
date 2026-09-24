@@ -148,7 +148,7 @@
 		yxmlfragment,
 		focusRequest,
 	}: {
-		yxmlfragment: Y.Type;
+		yxmlfragment: Y.Node;
 		focusRequest: number;
 	} = $props();
 

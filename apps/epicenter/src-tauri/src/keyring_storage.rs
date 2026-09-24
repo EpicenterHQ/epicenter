@@ -1,8 +1,9 @@
 //! Internal OS credential-store backing for the desktop auth cell and for one
-//! labeled secret per application account.
+//! labeled secret per application.
 //!
+//! The running bundle identifier names the service, isolating dev credentials.
 //! Rust owns the service and account strings. Bun sends the desktop auth cell's
-//! opaque value, or an application id and an account id; it never sends an
+//! opaque value, or an application id, and label; it never sends an
 //! address in the credential store, and it cannot construct one. WebViews never
 //! receive a credential-store primitive.
 //!
@@ -10,54 +11,48 @@
 //! boots and writes it, and every application secret, only for correlated
 //! requests on the private sidecar pipe.
 
+use crate::device_owner::{self, AccountIdentity};
 use keyring::{Entry, Error as KeyringCrateError};
 use thiserror::Error;
-
-const KEYRING_SERVICE: &str = "so.epicenter";
-// macOS scopes keychain ACLs to the app's code signature, so an
-// ad-hoc-signed dev build touching an entry created by the notarized prod
-// build, or the reverse, can trigger a Keychain permission prompt. If that
-// bites, suffix this service string per channel, such as `so.epicenter.dev`,
-// rather than sharing one entry across signatures.
 
 // Epicenter stores exactly one desktop auth cell, so the account is a Rust
 // constant rather than an input from Bun or a WebView.
 const KEYRING_ACCOUNT: &str = "auth-grant";
 
-/// The label grammar Rust will compose an account string out of.
-///
-/// Both halves are already validated at Bun's route; this is the second check,
-/// and it is the one that matters, because it is what makes the composed string
-/// unambiguous. A separator inside either label would let two different pairs
-/// name one entry, so the grammar has no separator in it.
 fn is_label(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= 128
         && value
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
 
-/// Where one application's account secret is stored.
-///
-/// The `app:` prefix is what keeps this namespace clear of `auth-grant`, which
-/// is a bare account name and can never collide with a prefixed one. Two
-/// applications each naming a secret `gmail` land on two entries (ADR-0310).
-fn app_secret_account(app_id: &str, account_id: &str) -> Result<String, KeyringError> {
-    if !is_label(app_id) || !is_label(account_id) {
+/// JSON preserves identity component boundaries; the prefix excludes auth-grant.
+fn app_secret_account(
+    app_id: &str,
+    label: &str,
+    account: Option<&AccountIdentity>,
+) -> Result<String, KeyringError> {
+    if !is_label(app_id) || !is_label(label) {
         return Err(KeyringError::Failed {
-            message: "an application secret label must be one dot, dash, underscore, or alphanumeric run".to_string(),
+            message: "invalid application secret identity or label".to_string(),
         });
     }
-    Ok(format!("app:{app_id}:{account_id}"))
+    let owner = device_owner::path(account).map_err(|message| KeyringError::Failed { message })?;
+    serde_json::to_string(&(app_id, owner, label))
+        .map(|address| format!("app-secret:{address}"))
+        .map_err(|error| KeyringError::Failed {
+            message: error.to_string(),
+        })
 }
 
 pub(crate) fn read_app_secret(
+    service: &str,
     app_id: &str,
-    account_id: &str,
+    label: &str,
+    owner: Option<&AccountIdentity>,
 ) -> Result<Option<String>, KeyringError> {
-    let account = app_secret_account(app_id, account_id)?;
-    let entry = Entry::new(KEYRING_SERVICE, &account)
+    let account = app_secret_account(app_id, label, owner)?;
+    let entry = Entry::new(service, &account)
         .map_err(|e| KeyringError::from_crate_error("opening keyring entry", e))?;
     match entry.get_password() {
         Ok(password) => Ok(Some(password)),
@@ -67,20 +62,27 @@ pub(crate) fn read_app_secret(
 }
 
 pub(crate) fn write_app_secret(
+    service: &str,
     app_id: &str,
-    account_id: &str,
+    label: &str,
     value: &str,
+    owner: Option<&AccountIdentity>,
 ) -> Result<(), KeyringError> {
-    let account = app_secret_account(app_id, account_id)?;
-    Entry::new(KEYRING_SERVICE, &account)
+    let account = app_secret_account(app_id, label, owner)?;
+    Entry::new(service, &account)
         .map_err(|e| KeyringError::from_crate_error("opening keyring entry", e))?
         .set_password(value)
         .map_err(|e| KeyringError::from_crate_error("writing keyring entry", e))
 }
 
-pub(crate) fn delete_app_secret(app_id: &str, account_id: &str) -> Result<(), KeyringError> {
-    let account = app_secret_account(app_id, account_id)?;
-    let entry = Entry::new(KEYRING_SERVICE, &account)
+pub(crate) fn delete_app_secret(
+    service: &str,
+    app_id: &str,
+    label: &str,
+    owner: Option<&AccountIdentity>,
+) -> Result<(), KeyringError> {
+    let account = app_secret_account(app_id, label, owner)?;
+    let entry = Entry::new(service, &account)
         .map_err(|e| KeyringError::from_crate_error("opening keyring entry", e))?;
     match entry.delete_credential() {
         Ok(()) | Err(KeyringCrateError::NoEntry) => Ok(()),
@@ -95,8 +97,8 @@ pub enum KeyringError {
     Failed { message: String },
 }
 
-pub(crate) fn read_auth_cell() -> Result<Option<String>, KeyringError> {
-    let entry = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+pub(crate) fn read_auth_cell(service: &str) -> Result<Option<String>, KeyringError> {
+    let entry = Entry::new(service, KEYRING_ACCOUNT)
         .map_err(|e| KeyringError::from_crate_error("opening keyring entry", e))?;
     match entry.get_password() {
         Ok(password) => Ok(Some(password)),
@@ -105,8 +107,8 @@ pub(crate) fn read_auth_cell() -> Result<Option<String>, KeyringError> {
     }
 }
 
-pub(crate) fn write_auth_cell(value: Option<String>) -> Result<(), KeyringError> {
-    let entry = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+pub(crate) fn write_auth_cell(service: &str, value: Option<String>) -> Result<(), KeyringError> {
+    let entry = Entry::new(service, KEYRING_ACCOUNT)
         .map_err(|e| KeyringError::from_crate_error("opening keyring entry", e))?;
     match value {
         Some(password) => entry
@@ -132,23 +134,41 @@ mod tests {
     use super::app_secret_account;
 
     #[test]
-    fn a_label_pair_composes_one_unambiguous_account() {
+    fn account_keys_do_not_collide_with_other_accounts_or_no_account() {
+        let mut keys = std::collections::HashSet::new();
+        keys.insert(app_secret_account("so.epicenter.mail", "token", None).unwrap());
+        for (authority, person) in [
+            ("one", "alice"),
+            ("one", "bob"),
+            ("two", "alice"),
+            ("one", "Alice"),
+        ] {
+            let account = crate::device_owner::AccountIdentity {
+                authority_id: authority.into(),
+                principal_id: person.into(),
+            };
+            assert!(keys
+                .insert(app_secret_account("so.epicenter.mail", "token", Some(&account)).unwrap()));
+        }
+    }
+
+    #[test]
+    fn application_and_label_define_the_keychain_address() {
+        let mut addresses = std::collections::HashSet::new();
+        for app in ["so.epicenter.mail", "so.epicenter.other"] {
+            for label in ["token", "other"] {
+                assert!(addresses.insert(app_secret_account(app, label, None).unwrap()));
+            }
+        }
         assert_eq!(
-            app_secret_account("so.epicenter.local-mail", "abc123").unwrap(),
-            "app:so.epicenter.local-mail:abc123"
+            app_secret_account("so.epicenter.mail", "token", None).unwrap(),
+            r#"app-secret:["so.epicenter.mail","no-account","token"]"#
         );
     }
 
     #[test]
-    fn a_separator_in_a_label_is_refused_rather_than_escaped() {
-        for (app_id, account_id) in [
-            ("so.epicenter:mail", "abc"),
-            ("so.epicenter.mail", "a:b"),
-            ("", "abc"),
-            ("so.epicenter.mail", ""),
-            ("so.epicenter.mail", "a/b"),
-        ] {
-            assert!(app_secret_account(app_id, account_id).is_err());
-        }
+    fn malformed_identity_and_labels_are_refused_without_opening_keychain() {
+        assert!(app_secret_account("", "token", None).is_err());
+        assert!(app_secret_account("so.epicenter.mail", "a/b", None).is_err());
     }
 }

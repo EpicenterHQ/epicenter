@@ -111,7 +111,7 @@ const ecosystem = [
 	},
 ];
 
-const quickstartCodeHtml = `<span class="text-violet-400">import</span> { defineTable, field, plainText } <span class="text-violet-400">from</span> <span class="text-emerald-400">'@epicenter/data/definition'</span>
+const quickstartCodeHtml = `<span class="text-violet-400">import</span> { defineTable, field, plainText } <span class="text-violet-400">from</span> <span class="text-emerald-400">'@epicenter/app/definition'</span>
 
 <span class="text-violet-400">const</span> posts = <span class="text-amber-300">defineTable</span>({
   title: field.<span class="text-amber-300">string</span>(),
@@ -312,7 +312,7 @@ row?.content`;
 						</div>
 						<pre
 							class="p-6 overflow-x-auto"
-						><code class="text-sm font-mono text-zinc-100"><span class="text-zinc-500">$</span> bun add @epicenter/data</code></pre>
+						><code class="text-sm font-mono text-zinc-100"><span class="text-zinc-500">$</span> bun add @epicenter/app/store</code></pre>
 					</div>
 
 					<div

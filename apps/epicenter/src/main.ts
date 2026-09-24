@@ -1,3 +1,4 @@
+import { type AiCatalog, createAiCatalog } from './ai-catalog.ts';
 /**
  * The Bun sidecar entrypoint: accept one versioned boot frame from Rust, bind
  * its validated loopback port, announce readiness once, and remain tied to the
@@ -9,27 +10,26 @@
  */
 
 import { join } from 'node:path';
-import { createBunBlobStore } from '@epicenter/blobs/bun';
-import {
-	type AgentEngine,
-	createBunBlobRemote,
-	createEpicenterClient,
-	createOpenAiAgentEngine,
-} from '@epicenter/client';
-import { epicenterDataRoot } from '@epicenter/constants/app-data';
+import { type BunBlobStore, createBunBlobStore } from '@epicenter/blobs/bun';
+import { type AgentEngine, createOpenAiAgentEngine } from '@epicenter/client';
+import OpenAI from 'openai';
 import { extractErrorMessage } from 'wellcrafted/error';
+import { discoverInstalledApplications } from './app-installation.ts';
 import { createNativeAppSecrets } from './app-secrets.ts';
-import { createBunAppStorage } from './app-storage.ts';
-import { COMPILED_APPLICATIONS } from './applications.ts';
+import {
+	COMPILED_APPLICATIONS,
+	RESERVED_APPLICATION_IDS,
+} from './applications.ts';
 import {
 	createDesktopAuthAuthority,
 	type DesktopAuthAuthority,
 } from './desktop-auth-authority.ts';
-import { createDesktopAuthorityFetch } from './desktop-authority-fetch.ts';
+import { createNativeDevice } from './device.ts';
 import { createHomeHost, type HomeHost } from './host.ts';
+import { SIGN_IN_CALLBACK_ROUTE } from './routes.ts';
 import { createHomeServer } from './server.ts';
 import {
-	createNativeAuthPort,
+	createNativePort,
 	createReadyFrame,
 	parseBootFrame,
 	parseRuntimeMode,
@@ -38,60 +38,71 @@ import {
 } from './sidecar-runtime.ts';
 import { loadStaticAssets } from './static-assets.ts';
 
+// 1.3.1 and 1.3.3 report false stdin EOF during native sign-in, leaving
+// a live sidecar without its HTTP listener. 1.3.14 passes the native flow.
+const MINIMUM_BUN_VERSION = '1.3.14';
+
 async function main(): Promise<void> {
+	if (Bun.semver.order(Bun.version, MINIMUM_BUN_VERSION) < 0) {
+		throw new Error(
+			`Epicenter requires Bun ${MINIMUM_BUN_VERSION} or newer; found ${Bun.version}. Upgrade Bun and restart development, or rebuild the packaged Epicenter application.`,
+		);
+	}
 	const parentPipe = watchParentPipe(Bun.stdin.stream());
 	let host: HomeHost | undefined;
 	let desktopAuth: DesktopAuthAuthority | undefined;
 	let server: ReturnType<typeof Bun.serve> | undefined;
 	let lifecycleOwnsResources = false;
+	let aiCatalog: AiCatalog | undefined;
+	let noAccountAiCatalog: AiCatalog | undefined;
 
 	try {
 		const runtimeMode = parseRuntimeMode(Bun.argv);
 		const boot = parseBootFrame(await parentPipe.bootLine, runtimeMode);
-		const nativeAuthPort = createNativeAuthPort({ parentPipe });
+		const nativePort = createNativePort({ parentPipe });
 		const auth = createDesktopAuthAuthority({
 			authCell: boot.authCell,
-			nativeAuthPort,
+			server: boot.authServer,
+			accountManagement: boot.accountManagement,
+			nativeAuthPort: nativePort,
+			callbackUrl:
+				runtimeMode === 'development'
+					? SIGN_IN_CALLBACK_ROUTE.url(`http://127.0.0.1:${boot.port}`)
+					: undefined,
 		});
 		desktopAuth = auth;
 
 		const { engine, model } = homeEngineFromEnvironment(process.env);
 
-		// The one Epicenter root, resolved here rather than received. A desktop
-		// host and a CLI that each computed this path would have to agree on it
-		// exactly, so one TypeScript function owns it and everything else calls
-		// that (ADR-0201). `blobs` below it is the host's own
-		// names, and everything under `apps/` is somebody else's.
-		//
-		// There is no `data/` any more. The host used to open a store there, sync
-		// it, render it to markdown, project it to SQLite and serve it raw; every
-		// one of those read application data the host had no business holding
-		// (ADR-0226), and the applications on the store each own their own now
-		// (ADR-0227).
-		const dataRoot = epicenterDataRoot();
+		const dataRoot = boot.dataDir;
 
 		host = await createHomeHost({ engine, model });
-		const blobs = createBunBlobStore({
-			directory: join(dataRoot, 'blobs'),
-		});
-		const appStorage = createBunAppStorage(dataRoot);
+		// Publication receipts and in-flight writes belong to the app for this
+		// host lifetime, including retries arriving in later HTTP requests.
+		const blobStores = new Map<string, BunBlobStore>();
+		const blobs = (appId: string, owner = 'no-account') => {
+			const key = JSON.stringify([appId, owner]);
+			let store = blobStores.get(key);
+			if (!store) {
+				store = createBunBlobStore({
+					directory: join(dataRoot, 'apps', appId, 'device', owner, 'blobs'),
+				});
+				blobStores.set(key, store);
+			}
+			return store;
+		};
+		const device = createNativeDevice(nativePort);
 		// The credential store is Rust's, reached over the private sidecar pipe.
 		// Bun sends two labels and never a keyring address (ADR-0310).
-		const appSecrets = createNativeAppSecrets(nativeAuthPort);
-		// Identity is immutable per process generation, so remote availability
-		// is a boot-time fact: a signed-in generation composes the streaming
-		// remote over the authority's own deployment fetch, a signed-out one
-		// has none until sign-in relaunches the app.
-		const blobRemote =
-			auth.bootSnapshot.state.status === 'signed-in'
-				? createBunBlobRemote({
-						store: blobs,
-						client: createEpicenterClient({
-							baseURL: auth.baseURL,
-							fetch: createDesktopAuthorityFetch(auth),
-						}),
-					})
-				: null;
+		const appSecrets = createNativeAppSecrets(nativePort);
+		aiCatalog = await createAiCatalog({
+			dataRoot,
+			secrets: appSecrets,
+			account: auth.account ?? undefined,
+		});
+		noAccountAiCatalog = auth.account
+			? await createAiCatalog({ dataRoot, secrets: appSecrets })
+			: aiCatalog;
 
 		const appsDist = process.env.EPICENTER_APPS_DIST;
 		if (!appsDist) {
@@ -102,18 +113,24 @@ async function main(): Promise<void> {
 		const staticAssets = await loadStaticAssets(
 			appsDist,
 			COMPILED_APPLICATIONS,
+			await discoverInstalledApplications({
+				dataRoot,
+				reservedIds: RESERVED_APPLICATION_IDS,
+			}),
 		);
 		const origin = `http://127.0.0.1:${boot.port}`;
 		const { app, websocket } = createHomeServer({
+			folderRoot: boot.folderDir,
 			host,
 			origin,
 			launchToken: boot.token,
 			staticAssets,
 			blobs,
 			desktopAuth: auth,
-			blobRemote,
-			appStorage,
+			device,
 			appSecrets,
+			aiCatalog,
+			noAccountAiCatalog,
 		});
 
 		server = Bun.serve({
@@ -132,17 +149,25 @@ async function main(): Promise<void> {
 			host: {
 				async [Symbol.asyncDispose]() {
 					ownedDesktopAuth[Symbol.dispose]();
-					await ownedHost[Symbol.asyncDispose]();
+					await Promise.all([
+						aiCatalog!.close(),
+						noAccountAiCatalog!.close(),
+						ownedHost[Symbol.asyncDispose](),
+					]);
 				},
 			},
 			parentPipe,
-			protocol: nativeAuthPort,
+			protocol: nativePort,
 		});
 	} finally {
 		if (!lifecycleOwnsResources) {
-			if (server) await server.stop(true);
+			if (server) void server.stop(true);
 			desktopAuth?.[Symbol.dispose]();
-			if (host) await host[Symbol.asyncDispose]();
+			await Promise.all([
+				aiCatalog?.close(),
+				noAccountAiCatalog?.close(),
+				host?.[Symbol.asyncDispose](),
+			]);
 			await parentPipe.cancel();
 		}
 	}
@@ -168,21 +193,18 @@ export function homeEngineFromEnvironment(
 		};
 	}
 
+	const client = new OpenAI({
+		baseURL,
+		apiKey: apiKey || 'unauthenticated',
+		defaultHeaders: apiKey ? undefined : { Authorization: null },
+		maxRetries: 0,
+	});
+
 	return {
 		model,
 		engine: createOpenAiAgentEngine({
 			data: () => ({
-				fetch: apiKey
-					? (input, init) =>
-							fetch(input, {
-								...init,
-								headers: {
-									...init?.headers,
-									authorization: `Bearer ${apiKey}`,
-								},
-							})
-					: fetch,
-				baseURL,
+				client,
 				model,
 				systemPrompts: [
 					'You are Epicenter Home, a local assistant that acts across the apps on this machine through their tools.',

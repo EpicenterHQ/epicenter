@@ -1,5 +1,5 @@
 import type { WhisperingApp } from '$lib/whispering/app';
-import { createAudioQueries } from './audio';
+import type { RecordingStore } from '../whispering/app.js';
 import type { WhisperingQueryRuntime } from './client';
 import { createDownloadQueries } from './download';
 import { createTranscriptionQueries } from './transcription';
@@ -10,12 +10,12 @@ import { createTranscriptionQueries } from './transcription';
  */
 export function createWhisperingQueries(
 	app: WhisperingApp,
+	store: RecordingStore,
 	runtime: WhisperingQueryRuntime,
 ) {
 	return {
-		audio: createAudioQueries(app, runtime),
-		download: createDownloadQueries(runtime),
-		transcription: createTranscriptionQueries(app, runtime),
+		download: createDownloadQueries(store, runtime),
+		transcription: createTranscriptionQueries(app, store, runtime),
 	};
 }
 

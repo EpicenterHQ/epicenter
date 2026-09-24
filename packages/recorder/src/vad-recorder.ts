@@ -209,15 +209,20 @@ export function createVadRecorder({
 
 			const { vad, stream } = _session;
 			const { error: destroyError } = await tryAsync({
-				try: async () => vad.destroy(),
+				try: async () => {
+					try {
+						await vad.destroy();
+					} finally {
+						cleanupRecordingStream(stream);
+					}
+				},
 				catch: (error) => VadRecorderError.StopFailed({ cause: error }),
 			});
 
-			// Always clean up, even if dispose had an error
-			_session = null;
-			cleanupRecordingStream(stream);
-
+			// A failed destroy still owns resources. Keep its cleanup capability
+			// so retry cannot report idle while an audio graph remains held.
 			if (destroyError) return Err(destroyError);
+			_session = null;
 			return Ok({ status: 'stopped' as const });
 		},
 	};

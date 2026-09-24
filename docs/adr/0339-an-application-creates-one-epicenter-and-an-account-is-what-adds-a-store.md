@@ -1,6 +1,8 @@
 # 0339. An application creates one epicenter, and an account is what adds a store
 
 - **Status:** Accepted
+- **Amended by:** [ADR-0353](0353-a-data-session-keeps-one-account-for-its-entire-lifetime.md) at account selection: the constructor is inert over app id and definition, and `open(account)` captures the Account per session. The one-handle and one-store decisions stand.
+- **Amended by:** [ADR-0352](0352-an-account-s-data-and-a-device-s-files-are-two-packages-because-only-one-of-them-is-removed.md) at its mechanism: `EpicenterBinding`, `EpicenterBindingFactory`, the `binding` option, and the `Epicenter<never>` overload are withdrawn, and the runtime half is `@epicenter/device`. "An application creates one epicenter, and an account is what adds a store" stands.
 - **Date:** 2026-09-02
 - **Unbuilt:** nothing. Built with two corrections this record now carries: the two names an application mints are branded, and the root is not types only.
 - **Amends:** [ADR-0316](0316-an-application-creates-one-scoped-epicenter-handle.md) at "the composition is `openData`, `openSqlite`, and `secrets`" and at the handle's argument list. The scoped handle, its one name, and its refusal of `createAppRuntime` stand.
@@ -61,8 +63,8 @@ createEpicenter({ appId, binding, definition, account }): Epicenter<typeof defin
 type Epicenter<TDefinition extends DataDefinition = never> = {
 	readonly appId: string;
 	readonly sqlite: {
-		open(name: DatabaseName): Promise<Result<AppSqliteDatabase, AppError>>;
-		delete(name: DatabaseName): Promise<Result<void, AppError>>;
+		open(name: DatabaseName): Promise<Result<AppSqliteDatabase, DeviceError>>;
+		delete(name: DatabaseName): Promise<Result<void, DeviceError>>;
 	};
 	readonly secrets: {
 		put(label: SecretLabel, value: string): Promise<Result<void, SecretError>>;
@@ -139,16 +141,16 @@ a `Result`.** Reading it starts the open, so an application that never reads it
 pays no Web Lock, no IndexedDB, and no round trip. Sync attaches inside, because
 the account is on the handle.
 
-**The error is the store's own, not `AppError.StorageFailed` wrapping it.** An
+**The error is the store's own, not `DeviceError.StorageFailed` wrapping it.** An
 application's boot gate switches on the failure's `name` to choose between a
 retry and an erase; `apps/honeycrisp/src/lib/boot-failure.ts` had arms for
 `AlreadyOpen`, `Unaddressable`, and `BoundElsewhere`, and `openClientOwnedData`
-flattened all of them into `AppError.StorageFailed({ cause })`, so every arm
+flattened all of them into `DeviceError.StorageFailed({ cause })`, so every arm
 fell through to "Something went wrong" and both repairs disappeared. The
 `Unaddressable` arm went for a different reason, below: the wrapper answers its
 one remaining producer.
 `data` resolves `Result<…, StoreError | DataDefinitionParseError>`, which is what
-`openDatabase` and `resolveGeneration` already return. `AppError` was minted for
+`openDatabase` and `resolveGeneration` already return. `DeviceError` was minted for
 the SQLite and secrets owners and is the wrong error for a store `packages/data`
 opens.
 
@@ -284,9 +286,9 @@ it. That record is
   twice over. It holds the one `createEpicenter` every build calls, the errors,
   the two name mints and their guards, and `EpicenterBindingFactory`, the
   contract every seam leaf annotates against. The runtime subpaths hold a
-  binding each, and the Bun host is the third
-  (`apps/epicenter/src/app-binding.ts`, which nothing in `main.ts` wires yet:
-  ADR-0323's background half is a leaf and a test).
+  binding each. The Bun host built a third in `apps/epicenter/src/app-binding.ts`,
+  which nothing ever composed and which is now deleted; ADR-0323's background
+  half is unbuilt.
 - ADR-0337's folder verbs stay functions over an opened store rather than
   methods on the handle, because they belong to the store's address.
 
@@ -378,7 +380,7 @@ drifts fails to typecheck rather than at a person's runtime, and
   `createDesktopEpicenter`). Built, then withdrawn; the amendment above records
   why. The short version is nine overloads, three casts, and a runtime check
   standing in for a type.
-- **`AppStorage` beside `Epicenter`, as two constructors.** Refused. The base
+- **`Device` beside `Epicenter`, as two constructors.** Refused. The base
   name teaches the wrong lesson: a developer would learn "storage" first and
   "Epicenter" as the upgrade, when the reference application has all four parts
   and the accountless one is the documented exception (ADR-0319).
@@ -408,7 +410,7 @@ drifts fails to typecheck rather than at a person's runtime, and
   `unknown`, so the failed state could not carry a typed error without an
   assertion, and `data` would be the only verb on a handle whose `sqlite.open`
   returns a `Result` that fails a different way.
-- **Wrapping the store's failure in `AppError.StorageFailed`.** Refused. It hides
+- **Wrapping the store's failure in `DeviceError.StorageFailed`.** Refused. It hides
   the `name` a boot gate switches on under `cause`, which makes every arm the
   fallback and deletes the erase and retry repairs.
 - **A top-level `data` accessor that throws before the store opens.** Refused. It

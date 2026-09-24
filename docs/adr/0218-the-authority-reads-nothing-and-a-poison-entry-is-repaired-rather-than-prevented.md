@@ -10,9 +10,9 @@
   the authority "makes exactly one Yjs call". Everything else in 0217 stands,
   including the refusal to compact, the client-owned merge, the ack, the
   chunking, and the absence of state vectors from the transport.
-- Evidence: `packages/data/evidence/bench/validate.ts`,
-  `packages/data/evidence/validation.test.ts`,
-  `packages/data/src/sync/transport.test.ts`.
+- Evidence: `packages/app/evidence/data/bench/validate.ts`,
+  `packages/app/evidence/data/validation.test.ts`,
+  `packages/app/src/data/sync/transport.test.ts`.
 
 ## Context
 
@@ -32,7 +32,7 @@ its price or the price of not having it.
 **The authority makes no Yjs call at all and never reads the bytes it stores.
 A poison entry is recovered from, not prevented.**
 
-`packages/data/src/sync/authority.ts` has zero Yjs imports, and that is the
+`packages/app/src/data/sync/authority.ts` has zero Yjs imports, and that is the
 invariant to protect rather than an accident of the current implementation.
 
 ### What the filter actually cost

@@ -3,31 +3,19 @@
 	import { Input } from '@epicenter/ui/input';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import type { Entry } from '$lib/data';
+	import type { createEntriesState } from '$lib/entries.svelte.js';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TrashIcon from '@lucide/svelte/icons/trash';
-	import { getVocabSurface } from '$lib/surface';
+	let { entries }: { entries: ReturnType<typeof createEntriesState> } = $props();
 
-	const { entries } = getVocabSurface();
-
-	let {
-		onPractice,
-	}: {
-		/** Open a new conversation built from these entries. The current
-		 * conversation is untouched, so a turn in flight there is irrelevant. */
-		onPractice: (entryTexts: string[]) => void;
-	} = $props();
-
-	/** The one-way cycle a stage button steps through on each click. */
-	const NEXT_STAGE: Record<Entry['stage'], Entry['stage']> = {
-		new: 'understood',
-		understood: 'usable',
-		usable: 'new',
+	const STAGES = ['new', 'recognized', 'understood', 'usable'] as const;
+	const STAGE_LABELS: Record<Entry['stage'], string> = {
+		new: 'New',
+		recognized: 'Recognize',
+		understood: 'Understand',
+		usable: 'Use',
 	};
-
-	/** Stage filter values: `all` plus the three acquisition stages. Drives both
-	 * the visible list and the set "Practice these" compiles. Focus is a filter
-	 * over the flat pool, never a stored partition. */
-	const STAGE_FILTERS = ['all', 'new', 'understood', 'usable'] as const;
+	const STAGE_FILTERS = ['all', ...STAGES] as const;
 	type StageFilter = (typeof STAGE_FILTERS)[number];
 	let stageFilter = $state<StageFilter>('all');
 
@@ -37,21 +25,12 @@
 			: entries.entries.filter((entry) => entry.stage === stageFilter),
 	);
 
-	/** Cap the compiled set so a large pool cannot build a runaway prompt. Newest
-	 * first, since `entries.entries` already sorts that way. */
-	const PRACTICE_CAP = 20;
-	const practiceEntries = $derived(filteredEntries.slice(0, PRACTICE_CAP));
-
 	let newEntry = $state('');
 
 	function addEntry() {
 		if (entries.save(newEntry)) {
 			newEntry = '';
 		}
-	}
-
-	function cycleStage(id: string, stage: Entry['stage']) {
-		entries.setStage(id, NEXT_STAGE[stage]);
 	}
 
 	function commitNote(entry: Entry, note: string) {
@@ -91,25 +70,9 @@
 					aria-pressed={stageFilter === filter}
 					onclick={() => (stageFilter = filter)}
 				>
-					{filter}
+						{filter === 'all' ? 'All' : STAGE_LABELS[filter]}
 				</button>
 			{/each}
-		</div>
-
-		<div class="px-2 py-1">
-			<Button
-				type="button"
-				size="sm"
-				variant="outline"
-				class="w-full"
-				disabled={practiceEntries.length === 0}
-				title={filteredEntries.length > PRACTICE_CAP
-					? `Practicing the ${PRACTICE_CAP} newest of ${filteredEntries.length}`
-					: undefined}
-				onclick={() => onPractice(practiceEntries.map((entry) => entry.text))}
-			>
-				Practice in a new chat ({practiceEntries.length})
-			</Button>
 		</div>
 
 		{#if entries.entries.length === 0}
@@ -132,14 +95,16 @@
 								placeholder="Note"
 								onblur={(event) => commitNote(entry, event.currentTarget.value)}
 							/>
-							<button
-								type="button"
-								class="shrink-0 rounded-sm border px-1.5 py-0.5 text-[10px] text-muted-foreground uppercase hover:bg-accent"
-								title="Cycle stage: new, understood, usable"
-								onclick={() => cycleStage(entry.id, entry.stage)}
+							<select
+								class="max-w-28 shrink-0 rounded-sm border bg-background px-1 py-0.5 text-[10px]"
+								aria-label="Familiarity with {entry.text}"
+								value={entry.stage}
+								onchange={(event) => entries.setStage(entry.id, event.currentTarget.value as Entry['stage'])}
 							>
-								{entry.stage}
-							</button>
+								{#each STAGES as stage (stage)}
+									<option value={stage}>{STAGE_LABELS[stage]}</option>
+								{/each}
+							</select>
 						</div>
 						<Sidebar.MenuAction
 							showOnHover

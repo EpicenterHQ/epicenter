@@ -5,11 +5,12 @@
 - **Amended by:** [ADR-0276](0276-an-authority-holds-a-numbered-succession-of-generations-and-nothing-is-ever-overwritten.md) at the authority operation. Restore creates a new generation and re-points rather than installing an envelope over the current one, so the operation is not destructive and restore-over-live is no longer deferred. The refusal of server-side retention is withdrawn with it.
 - **Amends:** [ADR-0267](0267-a-workspace-exports-and-imports-as-a-legible-folder-structured-artifact.md) at its unbuilt half. Import is named `restore`, it takes a destination rather than putting an artifact back where it came from, and the authority operation it needed is specified here.
 - **Relates:** [ADR-0231](0231-rebuilding-replaces-a-workspaces-current-yjs-document.md) (the document identity and the supersession this rides on), [ADR-0268](0268-a-row-exports-as-one-markdown-file-and-its-codec-is-mandatory.md) (the artifact), [ADR-0270](0270-an-application-has-two-workspaces-and-moving-a-row-between-them-is-the-primitive.md) (the additive verb this is not), [ADR-0271](0271-a-workspace-mirrors-continuously-to-the-epicenter-folder-one-way.md) (the folder this reads).
-- **Built:** the artifact reader. `readArtifact` in `packages/data/src/artifact/` parses a folder into one envelope through the same codecs the export writes with, and the round trip is tested end to end through real stores.
+- **Built:** the artifact reader. `readArtifact` in `packages/app/src/data/artifact/` parses a folder into one envelope through the same codecs the export writes with, and the round trip is tested end to end through real stores.
 - **Unbuilt:** the authority operation, and everything that calls it.
 - **Amended by:** [ADR-0281](0281-a-generation-is-a-whole-database-and-a-device-chooses-which-one-it-holds.md) at the loss it announced. A restore discards nothing, because the old generation is retained and stays live, so the paragraph naming what a person gives up describes a cost that no longer exists.
 
 - **Amended by:** [ADR-0289](0289-the-folder-is-where-a-generation-is-minted-from-not-a-surface-kept-current-for-its-own-sake.md) at one supporting reason. "There is no pre-restore backup feature. The mirror is already on disk and already current" is no longer true of the folder, which may be stale and which an application need not render at all. The refusal stands on ADR-0281's ground instead: the generation a restore replaces is retained, so it is the backup.
+- **Amended by:** [ADR-0395](0395-restore-is-one-request-that-carries-its-own-safety-copy.md) at product recovery: old readable content is copied into the current working folder and applied through ordinary Push; recovery does not replace the document or generation.
 
 ## Context
 

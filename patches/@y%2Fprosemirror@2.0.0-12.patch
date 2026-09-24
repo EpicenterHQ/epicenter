@@ -1,0 +1,27 @@
+diff --git a/src/rdt/prosemirror.js b/src/rdt/prosemirror.js
+--- a/src/rdt/prosemirror.js
++++ b/src/rdt/prosemirror.js
+@@ -570,6 +570,23 @@
+     }
+     const actualDoc = this.view.state.doc
+     const actual = nodeToDeltaCached(actualDoc)
++    // Undoing the first edit can empty Y again. Keep the schema placeholder
++    // virtual, just as at initial bind: writing it back interferes with redo
++    // and makes replicas independently seed empty paragraphs.
++    if (expected.children.start == null) {
++      const defaultDoc = this._isInitialContent == null ? actualDoc.type.createAndFill() : null
++      const isInitial = this._isInitialContent != null
++        ? this._isInitialContent(actualDoc)
++        : defaultDoc != null && actual.fingerprint === nodeToDeltaCached(defaultDoc).fingerprint
++      if (isInitial) {
++        this._defaultFingerprint = actual.fingerprint
++        this._state = /** @type {ProsemirrorDelta} */ (expected.done(false))
++        // The displayed placeholder has no counterpart in the empty delta.
++        this._pmstate = null
++        this.emit('delta', [d, origin])
++        return null
++      }
++    }
+     /** @type {delta.Delta<any> | null} */
+     let fix = null
+     try {

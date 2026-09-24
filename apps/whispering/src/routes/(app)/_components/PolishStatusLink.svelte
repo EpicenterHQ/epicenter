@@ -2,8 +2,9 @@
 	import { Link } from '@epicenter/ui/link';
 	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
-	import { whisperingPath } from '$lib/constants/urls';
-	import { polishStatus } from '$lib/operations/run-polish';
+	import { resolve } from '$app/paths';
+	import { polishStatus } from '$lib/state/polish.js';
+
 	import { getWhisperingApp } from '$lib/whispering/context';
 
 	const app = getWhisperingApp();
@@ -12,10 +13,10 @@
 		'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm no-underline hover:bg-accent hover:no-underline';
 </script>
 
-{#if status === 'needs-key'}
+{#if status === 'needs-connection'}
 	<Link
-		href={whisperingPath('/settings/processing')}
-		tooltip="Polish needs setup; transcripts currently ship raw"
+		href={resolve('/settings/processing')}
+		tooltip="Cleanup needs setup; transcriptions currently use original text"
 		class="{triggerClass} text-muted-foreground hover:text-foreground"
 	>
 		<KeyRoundIcon class="size-4 text-warning" />
@@ -23,17 +24,17 @@
 	</Link>
 {:else if status === 'on'}
 	<Link
-		href={whisperingPath('/settings/dictation')}
-		tooltip="Polish is on"
+		href={resolve('/settings/dictation')}
+		tooltip="Cleanup is on"
 		class="{triggerClass} text-muted-foreground hover:text-foreground"
 	>
 		<SparklesIcon class="size-4 text-green-500" />
-		Polish on
+		Cleanup on
 	</Link>
 {:else}
 	<Link
-		href={whisperingPath('/settings/dictation')}
-		tooltip="Polish is off"
+		href={resolve('/settings/dictation')}
+		tooltip="Cleanup is off"
 		class="{triggerClass} text-muted-foreground hover:text-foreground"
 	>
 		<SparklesIcon class="size-4" />

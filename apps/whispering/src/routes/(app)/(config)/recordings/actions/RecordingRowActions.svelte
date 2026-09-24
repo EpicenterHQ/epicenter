@@ -1,6 +1,5 @@
 <script lang="ts">
-	import type { Recording } from '$lib/state/recordings.svelte';
-	import RecordingStorageAction from '../RecordingStorageAction.svelte';
+	import type { Recording } from '../../../../../lib/data.js';
 	import TranscribeRecordingButton from './TranscribeRecordingButton.svelte';
 
 	/**
@@ -13,10 +12,14 @@
 	 * the row lean stops it from re-offering what its neighboring columns and the
 	 * modal already do.
 	 */
-	let { recording }: { recording: Recording } = $props();
+	let {
+		recording,
+		actions,
+	}: { recording: Recording; actions?: import('svelte').Snippet<[Recording]> } =
+		$props();
 </script>
 
 <div class="flex items-center gap-1">
 	<TranscribeRecordingButton {recording} />
-	<RecordingStorageAction {recording} />
+	{@render actions?.(recording)}
 </div>

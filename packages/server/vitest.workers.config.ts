@@ -27,6 +27,12 @@ export default defineConfig({
 			miniflare: {
 				compatibilityDate: '2026-03-06',
 				compatibilityFlags: ['nodejs_compat'],
+				bindings: {
+					BLOBS_S3_ENDPOINT: 'https://attachment-store.test',
+					BLOBS_S3_ACCESS_KEY_ID: 'test-access',
+					BLOBS_S3_SECRET_ACCESS_KEY: 'test-secret',
+					BLOBS_S3_BUCKET: 'test-bucket',
+				},
 				durableObjects: {
 					STORE_AUTHORITY: {
 						className: 'StoreAuthority',

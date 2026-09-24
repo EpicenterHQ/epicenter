@@ -1,16 +1,6 @@
 <script lang="ts">
-	/**
-	 * The shared, model-first inference picker (ADR-0059). One flat searchable list
-	 * of models grouped by connection: the hosted Epicenter catalog plus each
-	 * device-local custom connection's discovered models, with "Connect a
-	 * provider..." as the footer escape hatch. The model is the only leaf; the
-	 * connection (billing / location) is a group facet, never a level.
-	 *
-	 * The device's connections, discovery, and resolution all live in the injected
-	 * {@link InferenceConnections} registry, so this component is just UI: it reads
-	 * the registry and calls its methods. Mounted like `<AccountPopover />`: once per
-	 * chat surface, bound to that app's registry.
-	 */
+	import { openEndpointInference } from '@epicenter/app/ai';
+	/** Models grouped by exact connection; the owner persists each complete choice. */
 	import {
 		CONNECTION_PRESETS,
 		type ListModelsError,
@@ -25,37 +15,59 @@
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Check from '@lucide/svelte/icons/check';
 	import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down';
-	import Cloud from '@lucide/svelte/icons/cloud';
 	import Eye from '@lucide/svelte/icons/eye';
 	import EyeOff from '@lucide/svelte/icons/eye-off';
-	import HardDrive from '@lucide/svelte/icons/hard-drive';
 	import Plus from '@lucide/svelte/icons/plus';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
-	import { SvelteSet } from 'svelte/reactivity';
-	import type { InferenceConnections } from './connections.svelte.js';
+	import { createMutation, QueryClient } from '@tanstack/svelte-query';
+	import { onDestroy } from 'svelte';
+	import type { InferenceTarget } from '../inference-target.js';
+	import type { InferenceCatalog } from './catalog.svelte.js';
 
 	type Props = {
-		/** The conversation's current model id (synced, ADR-0055). */
-		model: string;
-		/** Commit a model pick. Writes the synced conversation model column. */
-		onSelectModel: (model: string) => void;
-		/** The device's inference connection registry (hosted catalog + custom set). */
-		connections: InferenceConnections;
+		value: InferenceTarget | null;
+		onSelect: (target: InferenceTarget) => void;
+		catalog: InferenceCatalog;
 		/** Disable while a turn generates, so a transcript never spans backends. */
 		disabled?: boolean;
+		/** Suggestions appropriate to this workflow's account operation. */
+		accountModels?: InferenceCatalog['hostedModels'];
+		/** Native file inference is useful to audio workflows only. */
+		includeRuntime?: boolean;
+		placeholder?: string;
 	};
 
-	let { model, onSelectModel, connections, disabled = false }: Props = $props();
+	let {
+		value,
+		onSelect,
+		catalog,
+		disabled = false,
+		accountModels,
+		includeRuntime = false,
+		placeholder = 'Select model',
+	}: Props = $props();
+	const ai = $derived(catalog.ai);
+	const models = $derived(accountModels ?? catalog.hostedModels);
 
 	let open = $state(false);
+	let formVersion = 0;
+	let alive = true;
 	let view = $state<'list' | 'connect'>('list');
 
 	// "Connect a provider" form state. `formPreset` null means the preset chooser
 	// is showing; a value means its sub-form is.
 	let formPreset = $state<PresetId | 'custom' | null>(null);
 	let formBaseUrl = $state('');
+	let formName = $state('');
+	let editingId = $state<string | null>(null);
 	let formApiKey = $state('');
+	let removeApiKey = $state(false);
+	const savedConnection = $derived(
+		editingId
+			? catalog.custom.find((entry) => entry.id === editingId)
+			: undefined,
+	);
 	let formModel = $state('');
 	let showKey = $state(false);
 
@@ -66,18 +78,36 @@
 	// malformed), or null when discovery has not failed.
 	let discoveryError = $state<string | null>(null);
 
-	// Connections currently re-discovering their models, for per-group refresh
-	// spinners. Usually one entry, but keep the set keyed per URL so overlapping
-	// refreshes cannot clear each other's loading state.
-	const refreshingBaseUrls = new SvelteSet<string>();
+	// The picker also runs in apps without a QueryClientProvider.
+	const queryClient = new QueryClient();
+	onDestroy(() => {
+		alive = false;
+		queryClient.clear();
+	});
+	const refreshConnection = createMutation(
+		() => ({
+			mutationFn: (id: string) => catalog.refresh(id),
+		}),
+		() => queryClient,
+	);
+	const removeConnection = createMutation(
+		() => ({
+			mutationFn: (id: string) => ai.connections!.remove(id),
+		}),
+		() => queryClient,
+	);
 
 	// Clear all of the connect form's working state. Called on close so a user who
 	// connected one provider lands back on the preset chooser (not a stale sub-form
 	// with a leftover typed API key) the next time they open the picker.
 	function resetConnectForm() {
+		formVersion++;
 		formPreset = null;
 		formBaseUrl = '';
+		formName = '';
+		editingId = null;
 		formApiKey = '';
+		removeApiKey = false;
 		formModel = '';
 		showKey = false;
 		discovering = false;
@@ -100,67 +130,41 @@
 		}
 	}
 
-	function isLocal(baseUrl: string): boolean {
-		return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/.test(baseUrl);
-	}
-
-	function localityLabel(baseUrl: string): 'local' | 'cloud' {
-		return isLocal(baseUrl) ? 'local' : 'cloud';
-	}
-
-	// Derive the group label from the stored base URL: match a preset by its full
-	// normalized base URL (so a self-hosted proxy that merely shares a host won't
-	// false-match, and Ollama's :11434 stays distinct from LM Studio's :1234), else
-	// fall back to the URL host. Derived, not stored, so it cannot drift when the
-	// user edits the URL (ADR-0060).
-	function connectionLabel(baseUrl: string): string {
-		const normalized = baseUrl.replace(/\/+$/, '');
-		const preset = CONNECTION_PRESETS.find(
-			(p) => p.baseUrl.replace(/\/+$/, '') === normalized,
-		);
-		if (preset) return preset.label;
+	function hostLabel(baseUrl: string): string {
 		try {
-			return new URL(baseUrl).host;
+			const url = new URL(baseUrl);
+			return `${url.host}${url.pathname.replace(/\/+$/, '')}`;
 		} catch {
-			return baseUrl;
+			return 'Invalid endpoint';
 		}
 	}
 
-	const requiresKey = $derived(
-		formPreset === 'custom' ||
-			(formPreset !== null &&
-				(CONNECTION_PRESETS.find((p) => p.id === formPreset)?.requiresKey ??
-					false)),
-	);
-
-	// The label on the closed trigger: a hosted model shows its product role
-	// (Fast, Best); a custom model shows its raw id (Ollama ids have no nice name).
+	const selected = $derived(value);
+	const model = $derived(value?.model ?? '');
 	const triggerLabel = $derived(
-		!model
-			? 'Select model'
-			: (connections.hostedModels.find((m) => m.id === model)?.label ?? model),
+		!selected
+			? placeholder
+			: selected.connectionId === catalog.runtimeId
+				? `${model} · This device`
+				: selected.connectionId === catalog.accountId
+					? `${models.find((entry) => entry.id === model)?.label ?? model} · ${catalog.accountLabel}`
+					: `${model} · ${catalog.custom.find((entry) => entry.id === selected.connectionId)?.name ?? 'Unavailable connection'}`,
 	);
 
-	function selectModel(id: string) {
-		onSelectModel(id);
+	function isSelected(connectionId: string, id: string) {
+		return selected?.connectionId === connectionId && selected.model === id;
+	}
+
+	function selectModel(connectionId: string, id: string) {
+		onSelect({ connectionId, model: id });
 		open = false;
 	}
 
-	// Re-discover a connected endpoint's models in place. Best effort: the group's
-	// list updates reactively when the fresh ids land, and stands on error.
-	async function refreshConnection(baseUrl: string) {
-		if (refreshingBaseUrls.has(baseUrl)) return;
-		refreshingBaseUrls.add(baseUrl);
-		try {
-			await connections.refresh(baseUrl);
-		} finally {
-			refreshingBaseUrls.delete(baseUrl);
-		}
-	}
-
 	function choosePreset(id: PresetId | 'custom') {
+		formVersion++;
 		formPreset = id;
 		formApiKey = '';
+		removeApiKey = false;
 		formModel = '';
 		discovered = null;
 		discoveryError = null;
@@ -170,22 +174,57 @@
 				: (CONNECTION_PRESETS.find((p) => p.id === id)?.baseUrl ?? '');
 	}
 
-	// Save the connection being configured (caching its discovered models), select
-	// the chosen model, and close: one commit for the whole "connect and use" path.
-	function commitConnection(chosenModel: string) {
-		const baseUrl = formBaseUrl.trim();
-		const trimmedModel = chosenModel.trim();
-		if (!baseUrl || !trimmedModel) return;
-		connections.add(
-			{
-				baseUrl,
-				apiKey: formApiKey.trim() || undefined,
+	// Persist access before saving the workflow choice. A failed save keeps the form open.
+	const saveConnection = createMutation(
+		() => ({
+			mutationFn: async (chosenModel: string) => {
+				const attempt = { catalog, formVersion };
+				const baseUrl = formBaseUrl.trim();
+				const trimmedModel = chosenModel.trim();
+				if (!baseUrl || !trimmedModel)
+					throw new Error('Enter an endpoint and model.');
+				const credential = removeApiKey
+					? { apiKey: '' }
+					: formApiKey.trim()
+						? { apiKey: formApiKey.trim() }
+						: {};
+				const input = {
+					baseUrl,
+					name: formName.trim() || savedConnection?.name || undefined,
+					...credential,
+					models: [
+						...new Set([
+							...(savedConnection?.models ?? []),
+							...(discovered ?? []),
+							trimmedModel,
+						]),
+					],
+				};
+				const id = editingId;
+				if (id) {
+					await attempt.catalog.ai.connections!.update(id, input);
+					return { ...attempt, id, model: trimmedModel };
+				}
+				return {
+					...attempt,
+					id: await attempt.catalog.ai.connections!.add(input),
+					model: trimmedModel,
+				};
 			},
-			discovered ?? undefined,
-		);
-		onSelectModel(trimmedModel);
-		open = false;
-	}
+			onSuccess: (saved) => {
+				if (
+					!alive ||
+					!open ||
+					saved.catalog !== catalog ||
+					saved.formVersion !== formVersion
+				)
+					return;
+				editingId = saved.id;
+				selectModel(saved.id, saved.model);
+			},
+		}),
+		() => queryClient,
+	);
 
 	// Reopening the picker always lands on the model list, never a half-filled form.
 	$effect(() => {
@@ -194,47 +233,91 @@
 			resetConnectForm();
 		}
 	});
+	$effect(() => {
+		if (open && includeRuntime) void catalog.refreshRuntime();
+	});
 
 	// Auto-discover on a debounced change of the connect form's endpoint or key.
 	// Best effort: a failure degrades to the free-text model floor, never a toast.
 	$effect(() => {
 		if (view !== 'connect') return;
+		const discoveryCatalog = catalog;
+		if (editingId && !savedConnection) {
+			discovered = null;
+			discovering = false;
+			discoveryError = 'This connection is no longer available.';
+			return;
+		}
 		const url = formBaseUrl.trim();
 		const key = formApiKey.trim();
+		const retainSavedKey = savedConnection?.hasApiKey && !key && !removeApiKey;
+		const savedId =
+			savedConnection && savedConnection.baseUrl === url && !key && !removeApiKey
+				? savedConnection.id
+				: undefined;
+		if (retainSavedKey && !savedId) {
+			discovered = null;
+			discovering = false;
+			discoveryError =
+				'Save the changed endpoint with a model ID before discovering models with its saved key.';
+			return;
+		}
 		if (!url) {
 			discovered = null;
 			discoveryError = null;
 			discovering = false;
 			return;
 		}
+		discovered = null;
 		let cancelled = false;
 		discovering = true;
 		discoveryError = null;
+		let endpoint: Awaited<ReturnType<typeof openEndpointInference>> | undefined;
 		const handle = setTimeout(async () => {
-			const { data, error } = await connections.discover(url, key || undefined);
-			if (cancelled) return;
-			discovering = false;
-			if (error) {
-				discovered = null;
-				discoveryError = discoveryMessage(error);
-				return;
+			try {
+				const saved = savedId
+					? discoveryCatalog.ai.connections?.get(savedId)?.client
+					: undefined;
+				if (savedId && !saved)
+					throw new Error('Saved connection is no longer available.');
+				if (!savedId)
+					endpoint = await openEndpointInference({
+						baseURL: url,
+						getAuthHeaders: key
+							? () => ({ Authorization: `Bearer ${key}` })
+							: undefined,
+					});
+				if (cancelled) {
+					await endpoint?.close();
+					return;
+				}
+				const { data, error } = await discoveryCatalog.discover(
+					saved ?? endpoint!.client,
+				);
+				if (cancelled) return;
+				discovering = false;
+				if (error) {
+					discovered = null;
+					discoveryError = discoveryMessage(error);
+					return;
+				}
+				discovered = data;
+			} catch {
+				if (!cancelled) {
+					discovering = false;
+					discoveryError = 'Could not discover models.';
+				}
+			} finally {
+				await endpoint?.close();
 			}
-			discovered = data;
 		}, 500);
 		return () => {
 			cancelled = true;
 			clearTimeout(handle);
+			void endpoint?.close();
 		};
 	});
 </script>
-
-{#snippet localityIcon(baseUrl: string)}
-	{#if isLocal(baseUrl)}
-		<HardDrive class="size-4 shrink-0 opacity-70" />
-	{:else}
-		<Cloud class="size-4 shrink-0 opacity-70" />
-	{/if}
-{/snippet}
 
 <Popover.Root bind:open>
 	<Popover.Trigger>
@@ -245,6 +328,7 @@
 				variant="outline"
 				size="sm"
 				role="combobox"
+				aria-label={triggerLabel}
 				aria-expanded={open}
 				class="max-w-56 justify-between gap-2 font-normal"
 			>
@@ -254,70 +338,103 @@
 		{/snippet}
 	</Popover.Trigger>
 	<Popover.Content class="w-80 p-0" align="end">
+                    {#if catalog.loading}<p role="status">Loading transcription connections…</p>{/if}
+                    {#each catalog.errors as error}<p role="alert">{error} Reload to try opening connections again.</p>{/each}
 		{#if view === 'list'}
 			<Command.Root>
 				<Command.Input placeholder="Search models..." />
 				<Command.List class="max-h-80">
 					<Command.Empty>No models found.</Command.Empty>
+					{#if includeRuntime && catalog.runtimeError}<p role="alert">{catalog.runtimeError}</p>{/if}
+                    {#if includeRuntime && catalog.runtimeId}
+						<Command.Group heading="This device">
+							{#each catalog.runtimeModels as id (id)}
+								<Command.Item value="native {id}" onSelect={() => selectModel(catalog.runtimeId!, id)}>
+									<Check class="size-4 {isSelected(catalog.runtimeId!, id) ? 'opacity-100' : 'opacity-0'}" />
+									<span class="break-all">{id}</span>
+								</Command.Item>
+							{/each}
+							<div class="flex gap-1 p-2">
+								<Input bind:value={formModel} aria-label="Native model ID" placeholder="Enter an installed model ID" />
+								<Button size="sm" disabled={!formModel.trim()} onclick={() => selectModel(catalog.runtimeId!, formModel.trim())}>Use</Button>
+							</div>
+						</Command.Group>
+					{/if}
 
-					{#if connections.hostedModels.length > 0}
-						<Command.Group heading="Epicenter · metered">
-							{#each connections.hostedModels as hostedModel (hostedModel.id)}
+					{#if ai.account && catalog.accountId}
+						<Command.Group heading={`Connected account · ${catalog.accountLabel}`}>
+							{#each models as hostedModel (hostedModel.id)}
 								<Command.Item
-									value={`${hostedModel.label} ${hostedModel.id}`}
+									value={`hosted ${hostedModel.id}`}
 									keywords={[hostedModel.id, hostedModel.label]}
-									onSelect={() => selectModel(hostedModel.id)}
+									onSelect={() => selectModel(catalog.accountId!, hostedModel.id)}
 								>
 									<Check
-										class="size-4 shrink-0 {model === hostedModel.id
+										class="size-4 shrink-0 {isSelected(catalog.accountId!, hostedModel.id)
 											? 'opacity-100'
 											: 'opacity-0'}"
 									/>
 									<span class="flex-1 truncate">{hostedModel.label}</span>
-									<span class="text-xs text-muted-foreground">
-										{hostedModel.credits} cr
-									</span>
+
 								</Command.Item>
 							{/each}
+       <div class="flex gap-1 p-2">
+        <Input bind:value={formModel} aria-label="Account model ID" placeholder="Enter a model ID" />
+        <Button size="sm" disabled={!formModel.trim()} onclick={() => selectModel(catalog.accountId!, formModel.trim())}>Use</Button>
+       </div>
 						</Command.Group>
 					{/if}
 
-					{#each connections.custom as connection (connection.baseUrl)}
+					{#each catalog.custom as connection (connection.id)}
 						{@const ids = connection.models ?? []}
-						{@const label = connectionLabel(connection.baseUrl)}
-						{@const locality = localityLabel(connection.baseUrl)}
-						<Command.Group heading="{label} · {locality}">
+						{@const label = connection.name}
+						<Command.Group heading={label}>
 							{#each ids as id (id)}
 								<Command.Item
-									value="{id} {label}"
-									keywords={[id]}
-									onSelect={() => selectModel(id)}
+									value="{connection.id} {id}"
+									keywords={[id, label]}
+									onSelect={() => selectModel(connection.id, id)}
 								>
 									<Check
-										class="size-4 shrink-0 {model === id
+										class="size-4 shrink-0 {isSelected(connection.id, id)
 											? 'opacity-100'
 											: 'opacity-0'}"
 									/>
-									{@render localityIcon(connection.baseUrl)}
 									<span
-										class="line-clamp-2 flex-1 break-all {model === id
+										class="line-clamp-2 flex-1 break-all {isSelected(connection.id, id)
 											? 'font-medium'
 											: ''}"
 										title={id}>{id}</span>
 								</Command.Item>
 							{:else}
-								<Command.Item disabled value="{connection.baseUrl} empty">
+								<Command.Item disabled value="{connection.id} empty">
 									<span class="text-xs text-muted-foreground">
 										No models discovered
 									</span>
 								</Command.Item>
 							{/each}
 							<Command.Item
-								value="refresh {connection.baseUrl}"
-								disabled={refreshingBaseUrls.has(connection.baseUrl)}
-								onSelect={() => refreshConnection(connection.baseUrl)}
+								value="configure {connection.id}"
+								onSelect={() => {
+									choosePreset('custom');
+									formBaseUrl = connection.baseUrl;
+         formName = connection.name;
+         editingId = connection.id;
+									formApiKey = '';
+									removeApiKey = false;
+									saveConnection.reset();
+									view = 'connect';
+								}}
 							>
-								{#if refreshingBaseUrls.has(connection.baseUrl)}
+								<Plus class="size-4" />
+								<span class="text-xs">Edit {label} or enter a model</span>
+							</Command.Item>
+							<Command.Item
+								value="refresh {connection.id}"
+								disabled={refreshConnection.isPending && refreshConnection.variables === connection.id}
+								onSelect={() => refreshConnection.mutate(connection.id)}
+							>
+								{#if refreshConnection.isPending && refreshConnection.variables === connection.id}
 									<Spinner class="size-4" />
 								{:else}
 									<RefreshCw class="size-4" />
@@ -325,8 +442,9 @@
 								<span class="text-xs">Refresh {label}</span>
 							</Command.Item>
 							<Command.Item
-								value="remove {connection.baseUrl}"
-								onSelect={() => connections.remove(connection.baseUrl)}
+								value="remove {connection.id}"
+								disabled={removeConnection.isPending}
+								onSelect={() => removeConnection.mutate(connection.id)}
 							>
 								<Trash2 class="size-4" />
 								<span class="text-xs">Remove {label}</span>
@@ -337,19 +455,21 @@
 					<Command.Separator />
 					<Command.Item
 						value="connect a provider"
+                        disabled={!ai.connections}
 						onSelect={() => (view = 'connect')}
 					>
 						<Plus class="size-4" />
-						<span>Connect a provider...</span>
+						<span>{ai.connections ? "Connect a provider..." : "Saved connections unavailable"}</span>
 					</Command.Item>
 				</Command.List>
 			</Command.Root>
 		{:else}
-			<div class="space-y-3 p-3">
+			<fieldset class="space-y-3 p-3" disabled={saveConnection.isPending}>
 				<div class="flex items-center gap-2">
 					<Button
 						variant="ghost"
 						size="icon-sm"
+						disabled={saveConnection.isPending}
 						onclick={() => (view = 'list')}
 						aria-label="Back to models"
 					>
@@ -366,10 +486,9 @@
 									value={preset.label}
 									onSelect={() => choosePreset(preset.id)}
 								>
-									{@render localityIcon(preset.baseUrl)}
 									<span class="flex-1">{preset.label}</span>
 									<span class="text-xs text-muted-foreground">
-										{localityLabel(preset.baseUrl)}
+										{hostLabel(preset.baseUrl)}
 									</span>
 								</Command.Item>
 							{/each}
@@ -385,40 +504,49 @@
 					</Command.Root>
 				{:else}
 					<div class="space-y-1">
-						<Label for="conn-url" class="text-xs">Base URL</Label>
+						<Label for="conn-name" class="text-xs">Name</Label>
+      <Input id="conn-name" bind:value={formName} placeholder="Connection name" />
+      <Label for="conn-url" class="text-xs">Base URL</Label>
 						<Input
 							id="conn-url"
 							bind:value={formBaseUrl}
+							disabled={saveConnection.isPending}
 							placeholder="http://localhost:11434/v1"
 						/>
 					</div>
 
-					{#if requiresKey}
-						<div class="space-y-1">
-							<Label for="conn-key" class="text-xs">
-								API key{formPreset === 'custom' ? ' (optional)' : ''}
-							</Label>
-							<div class="flex gap-1">
-								<Input
-									id="conn-key"
-									type={showKey ? 'text' : 'password'}
-									bind:value={formApiKey}
-									placeholder="sk-..."
-								/>
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									onclick={() => (showKey = !showKey)}
-									aria-label={showKey ? 'Hide key' : 'Show key'}
-								>
-									{#if showKey}
-										<EyeOff class="size-4" />
-									{:else}
-										<Eye class="size-4" />
-									{/if}
-								</Button>
-							</div>
+					<div class="space-y-1">
+						<Label for="conn-key" class="text-xs">
+							API key (if required by your server)
+						</Label>
+						<div class="flex gap-1">
+							<Input
+								id="conn-key"
+								type={showKey ? 'text' : 'password'}
+								bind:value={formApiKey}
+								disabled={saveConnection.isPending || removeApiKey}
+								placeholder={savedConnection?.hasApiKey ? "Leave blank to keep saved key" : "sk-..."}
+							/>
+							<Button
+								variant="ghost"
+								size="icon-sm"
+								onclick={() => (showKey = !showKey)}
+								aria-label={showKey ? 'Hide key' : 'Show key'}
+							>
+								{#if showKey}
+									<EyeOff class="size-4" />
+								{:else}
+									<Eye class="size-4" />
+								{/if}
+							</Button>
 						</div>
+					</div>
+
+					{#if savedConnection?.hasApiKey}
+						<Button variant="outline" size="sm" disabled={saveConnection.isPending} onclick={() => (removeApiKey = !removeApiKey)}>
+							{removeApiKey ? 'Keep saved API key' : 'Remove saved API key'}
+						</Button>
+						{#if removeApiKey}<p class="text-xs text-muted-foreground">The saved key will be removed when you save.</p>{/if}
 					{/if}
 
 					<div class="space-y-1">
@@ -439,7 +567,8 @@
 										<Command.Item
 											value={id}
 											keywords={[id]}
-											onSelect={() => commitConnection(id)}
+											disabled={saveConnection.isPending}
+											onSelect={() => saveConnection.mutate(id)}
 										>
 											<span class="line-clamp-2 break-all" title={id}>{id}</span>
 										</Command.Item>
@@ -460,17 +589,17 @@
 									Enter an endpoint to load models.
 								</p>
 							{/if}
-							<div class="flex gap-1">
-								<Input bind:value={formModel} placeholder="qwen2.5:3b" />
-								<Button
-									size="sm"
-									disabled={!formBaseUrl.trim() || !formModel.trim()}
-									onclick={() => commitConnection(formModel)}
-								>
-									Add
-								</Button>
-							</div>
 						{/if}
+						<div class="flex gap-1">
+							<Input bind:value={formModel} aria-label="Model ID" placeholder="Enter a model ID" />
+							<Button
+								size="sm"
+								disabled={saveConnection.isPending || !formBaseUrl.trim() || !formModel.trim()}
+								onclick={() => saveConnection.mutate(formModel)}
+							>
+								{saveConnection.isPending ? 'Saving...' : editingId ? 'Save' : 'Add'}
+							</Button>
+						</div>
 					</div>
 
 					<p class="text-xs text-muted-foreground">
@@ -478,7 +607,12 @@
 						sent there.
 					</p>
 				{/if}
-			</div>
+			</fieldset>
+		{/if}
+		{#if saveConnection.isError || removeConnection.isError || refreshConnection.isError}
+			<p role="alert" class="p-3 text-xs text-destructive">
+				{saveConnection.isError ? 'Could not save the connection. Your selection has not changed.' : removeConnection.isError ? 'Could not remove the connection.' : 'Could not refresh the models.'} Try again.
+			</p>
 		{/if}
 	</Popover.Content>
 </Popover.Root>

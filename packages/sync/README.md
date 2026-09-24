@@ -28,33 +28,49 @@ The package has no runtime dependencies.
 
 ```typescript
 import {
-  BEARER_SUBPROTOCOL_PREFIX,
+  bearerSubprotocol,
   MAIN_SUBPROTOCOL,
   parseSubprotocols,
+  STORE_SYNC_ROUTE,
 } from "@epicenter/sync";
 
-// Client: offer the main subprotocol plus the credential.
-new WebSocket(url, [MAIN_SUBPROTOCOL, `${BEARER_SUBPROTOCOL_PREFIX}${token}`]);
+// Route: the URL and the main subprotocol, as one value.
+const address = STORE_SYNC_ROUTE.address(baseURL, { dataId, generation, cursor });
+
+// Auth: append the credential to the list the route built.
+new WebSocket(address.url, [...address.protocols, bearerSubprotocol(token)]);
 
 // Server: read the offer, then echo back only the main subprotocol.
-const { main, bearer } = parseSubprotocols(
-  request.headers.get("sec-websocket-protocol"),
-);
+const offered = parseSubprotocols(request.headers.get("sec-websocket-protocol"));
+offered.includes(MAIN_SUBPROTOCOL);
 ```
 
 `isOpenWebSocketDenial` classifies a rejected upgrade so a client can tell an
-auth refusal from a transport failure.
+auth refusal from a transport failure. The refusal carries a `SyncRefusal`
+code: `'signed-out'`, `'reauth-required'`, `'auth-unavailable'`, or
+`'no-credential-model'` for a client that can never open a socket. A refusal is
+data, not a stop signal; the sync driver reports it and dials again.
 
-`STORE_SYNC_ROUTE` is where a replica connects:
+`STORE_SYNC_ROUTE.address` is where a replica connects: the URL and the
+subprotocols as one value, which auth completes with the bearer entry.
 
 ```typescript
-import { STORE_SYNC_ROUTE } from "@epicenter/sync";
+import { bearerSubprotocol, STORE_SYNC_ROUTE } from "@epicenter/sync";
 
-new WebSocket(
-  STORE_SYNC_ROUTE.url(baseURL, { dataId, cursor }),
-  STORE_SYNC_ROUTE.subprotocols(token),
-);
+const address = STORE_SYNC_ROUTE.address(baseURL, {
+  dataId,
+  generation,
+  cursor,
+});
+new WebSocket(address.url, [...address.protocols, bearerSubprotocol(token)]);
 ```
+
+A `SocketTransport` (`@epicenter/sync/transport`) is the one contract for that
+last step. `AuthClient` implements it, `attachStoreSync` consumes it, and no
+consumer redeclares it: a transport that took a URL without its subprotocols
+once shipped a replica the server refused on every upgrade. `protocols` is a
+non-empty tuple for the same reason, one step further on: an upgrade offering
+nothing is refused exactly like an upgrade offering only a bearer.
 
 One path (`/api/store/v1/sync`), and the addressing lives in the query: a
 replica says which application `dataId` it is syncing and how far through the
@@ -65,10 +81,12 @@ grammar both halves check against one definition.
 
 ## Scope
 
-This package carries no Yjs, no document framing, and no transport. It is the
-addressing and the handshake, and nothing that speaks over them: the rules about
-who has been sent what live in `@epicenter/data/sync`, and the mount that
-answers this route lives in `packages/server/src/store-sync/`.
+This package owns addressing, the handshake, and the opaque current-download
+envelope. `@epicenter/sync/current-download` carries a captured snapshot and its
+complete accepted tail so the browser can install a complete cache before sync.
+It does not interpret Yjs or own a running transport. The rules about who has
+been sent what live in `@epicenter/app/sync`; the server mount lives in
+`packages/server/src/store-sync/`.
 
 ## License
 

@@ -1,0 +1,9 @@
+# Capture store contract
+
+`captureDefinition` is inert. The web app opens its `so.epicenter.capture` Personal store for the signed-in account and owns that handle. The current model has dated `captures` with editable plain-text bodies and one layer of independently editable `thoughts`. A thought stores its capture ID and integer position. The capture timeline sorts by `capturedAt` descending, then ID; thoughts sort by position, then ID. Creation mints row IDs, and moving or reordering a thought keeps its body and identity.
+
+`captureView` places every readable thought either under its readable capture or in recovery when that capture is unavailable. Reads do not repair references. A recovered thought can be moved to an existing capture. Concurrent offline reorder can merge positions from both devices; the ID tie-breaker makes the result deterministic without promising either complete order.
+
+`previewCaptureDeletion` snapshots a capture and its currently readable thoughts. The UI refreshes that preview when local membership or text changes. `deleteConfirmedCapture` checks the reviewed snapshot, deletes only those IDs in one transaction, and waits for local persistence. An unseen offline thought can survive and appear in recovery. Unreadable thought membership blocks a complete preview. Individual thought deletion checks its reviewed text and waits for local persistence.
+
+The old `entries` table remains declared as a read-only recovery source for retained recursive data. The web app shows every readable earlier entry with full text and a copy action. People can copy wanted text into new captures or thoughts. No automatic converter runs: without an account-wide migration boundary, two offline replicas could duplicate converted rows, and deleting a converted row could otherwise revive it from its source. The old rows are not deleted. Markdown handoff and Whispering promotion are later waves.

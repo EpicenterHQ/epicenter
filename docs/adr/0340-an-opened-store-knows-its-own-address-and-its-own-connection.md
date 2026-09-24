@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-02
+- **Amended by:** [ADR-0417](0417-a-data-address-holds-one-document.md) removes generation from the opened data address and checkout identity; owner-derived destination and transport remain.
 - **Unbuilt:** nothing. Built in `feat(data): a store knows which store it is` and `feat(data): the folder verbs read the store's own address`.
 - **Relates:** [ADR-0339](0339-an-application-creates-one-epicenter-and-an-account-is-what-adds-a-store.md) (which needs this and does not govern it), [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md), [ADR-0292](0292-a-database-opens-an-exact-generation-cache-first-and-bootstraps-account-misses.md), [ADR-0324](0324-a-database-address-is-its-data-id-and-generation-and-the-declaration-declares-its-authority.md), [ADR-0233](0233-a-route-owns-one-runtime-and-disposes-it.md)
 

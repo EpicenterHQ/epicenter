@@ -1,227 +1,196 @@
 # Sync Construction, Async Property, UI Render Gate Pattern
 
-> The initialization of the client is synchronous. The async work is stored as a property you can await, while passing the reference around.
+Export the app synchronously, then wait once before rendering the components
+that use its initialized data. The children do not render until the promise is
+done. Their instance scripts can read the shared handle directly.
 
-**Related**: [Skill reference](/.claude/skills/sync-construction-async-property-ui-render-gate-pattern/SKILL.md)
+## Export the app now and render its consumers after readiness
 
-A common pattern in UI frameworks: make client initialization synchronous. The async work is stored as a property you can await, while passing the reference around.
+The three files make the ordering visible. `createLocalApp` below is a
+hypothetical synchronous factory: it returns one stable object, starts loading,
+and exposes `ready`, a promise that fulfills only after initialization succeeds.
+The example assumes a client-only application with one app instance; component
+imports for `Loading`, `OpenFailure`, and `Recordings` are omitted.
 
-This is great for UI libraries because you can have a singleton that you export and import without ever awaiting at the call site.
-
-Use this pattern when creating clients that need async initialization but must be exportable from modules and usable synchronously in UI components.
-
-## The Pattern
-
-```typescript
-// client.ts
-export const client = createClient();
-
-// Sync access works immediately
-client.save(data);
-client.load(id);
-
-// The async work (loading from IndexedDB, etc.) tracked here
-await client.whenReady;
+```ts
+// app.ts: hypothetical API
+export const app = createLocalApp();
 ```
-
-Construction returns immediately. The async initialization (loading from disk, connecting to servers) happens in the background and is tracked via `whenReady`.
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  createClient()  →  Returns IMMEDIATELY with:                           │
-│                                                                         │
-│    ┌─────────────────────────────────────────────────────────────────┐  │
-│    │  client                                                         │  │
-│    │  ├── .save(data)     ← Function (returned now)                  │  │
-│    │  ├── .load(id)       ← Function (returned now)                  │  │
-│    │  └── .whenReady      ← Promise  (returned now)                  │  │
-│    └─────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-│    All three properties exist on the object immediately.                │
-│                                                                         │
-│    However, save() and load() may internally depend on initialization:  │
-│    • They might `await this.whenReady` before doing real work           │
-│    • They might throw if called before initialization completes         │
-│    • They might queue operations until whenReady resolves               │
-│                                                                         │
-│    The whenReady promise lets you (or the UI) wait for readiness.       │
-└─────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Timeline                                                               │
-│  ────────                                                               │
-│                                                                         │
-│    t=0  createClient() returns immediately      ┃  Background:          │
-│         │                                       ┃                       │
-│         │  You have:                            ┃  Initializing...      │
-│         │  ├── client.save(data)                ┃  Loading IndexedDB    │
-│         │  ├── client.load(id)                  ┃  Connecting server    │
-│         │  └── client.whenReady (pending)       ┃        │              │
-│         │                                       ┃        │              │
-│         │  If you call save() or load() now,    ┃        │              │
-│         │  they may internally await            ┃        │              │
-│         │  whenReady before doing real work.    ┃        ↓              │
-│         │                                       ┃                       │
-│    t=N  │                                       ┃  Done!                │
-│         └── whenReady resolves ←────────────────┛                       │
-│             Now save/load proceed without waiting                       │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-## The Problem With Async Construction
-
-If your constructor were async, you can't export the result:
-
-```typescript
-// This doesn't work
-export const client = await createClient(); // Top-level await breaks bundlers
-```
-
-Which means you can't do the clean import pattern in components:
-
-```typescript
-// component-a.svelte
-import { client } from '$lib/client';
-client.save(data); // Can't work due to top level await
-```
-
-So you end up with workarounds. The getter function pattern:
-
-```typescript
-let client: Client | null = null;
-
-export async function getClient() {
-	if (!client) {
-		client = await createClient();
-	}
-	return client;
-}
-
-// Every consumer must await
-const client = await getClient();
-client.save(data);
-```
-
-Every call site needs `await getClient()`. You can't import the client directly. You're passing promises around instead of objects.
-
-## Why This Matters for UI
-
-You can export the client from a module:
-
-```typescript
-// client.ts
-export const client = createClient();
-
-// component-a.svelte
-import { client } from '$lib/client';
-client.save(data); // Just use it
-
-// component-b.svelte
-import { client } from '$lib/client';
-client.load(id); // Same client, no await
-```
-
-Simple imports, synchronous access. No getter functions, no `await` at every call site.
-
-## The UI Render Gate
-
-With sync construction, await once at the root of your app:
 
 ```svelte
-<!-- +layout.svelte -->
+<!-- Parent.svelte -->
 <script>
-	import { client } from '$lib/client';
+  import { app } from './app';
 </script>
 
-{#await client.whenReady}
-	<LoadingSpinner />
+{#await app.ready}
+  <Loading />
 {:then}
-	{@render children?.()}
+  <Recordings />
+{:catch error}
+  <OpenFailure {error} />
 {/await}
 ```
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  +layout.svelte                                                  │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │  {#await client.whenReady}                                │ │
-│  │    <Loading />          ← UI blocked here                  │ │
-│  │  {:then}                                                   │ │
-│  │    {@render children()}  ← Only renders after sync         │ │
-│  │  {/await}                                                  │ │
-│  └────────────────────────────────────────────────────────────┘ │
-│                                                                  │
-│  Child components:                                               │
-│    import { client } from '$lib/client';                         │
-│    client.save(data);  ← Safe! Data already loaded               │
-└─────────────────────────────────────────────────────────────────┘
+```svelte
+<!-- Recordings.svelte -->
+<script>
+  import { app } from './app';
+
+  // Runs when this component is instantiated, after app.ready resolves.
+  const recordings = app.tables.recordings;
+</script>
 ```
 
-The gate guarantees: by the time any child component's script runs, the async work is complete. Children use sync access without checking readiness.
+The parent can render while loading continues. The child does not exist until
+success, so its ordinary instance `<script>` cannot read the tables prematurely.
+It runs before the child's DOM is mounted, but after readiness. No queue or
+repeated readiness check is needed for calls made through this gated subtree.
+The gate guarantees initial readiness, not that every later read or write succeeds.
 
-> The initialization of the client is synchronous. The async work is stored as a property you can await, while passing the reference around.
+## Top-level await works, but puts the wait in the module graph
 
-## Before and After
+An async factory can export a singleton in an environment that supports
+top-level await. The difference is where its consumers wait:
 
-**Before: Async construction**
-
-```typescript
-// Can't export directly
-export const client = await createClient();  // Doesn't work!
-
-// Must use getter function
-let client: Client | null = null;
-export async function getClient() { ... }
-
-// Every consumer awaits
-const client = await getClient();
+```ts
+// Alternative app.ts: hypothetical async factory
+export const app = await openLocalApp();
 ```
 
-**After: Sync construction with whenReady**
+A module that statically imports this `app` waits for the dependency to finish
+evaluating. If the parent statically imports it, that parent cannot render its
+own pending branch during the wait. Another already-running shell could still
+show loading, or dynamically import the module. Top-level await does not block
+all JavaScript or make singletons impossible. [JavaScript await](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/await)
 
-```typescript
-// Export directly
-export const client = createClient();
+Exporting the promise is another valid choice. It preserves module-level
+singleton construction without blocking the importing parent's evaluation:
 
-// Import and use
-import { client } from '$lib/client';
-client.save(data);  // No await!
-
-// Await once at the UI boundary
-{#await client.whenReady}...{/await}
+```ts
+// Alternative app.ts: hypothetical async factory
+export const opening = openLocalApp();
 ```
 
-## This Is What y-indexeddb Does
+The parent can use `{#await opening}` and pass the resolved app to its children.
+An async factory does not force every child to await. Choose the synchronous
+object plus `ready` when gated children should import that same object directly;
+choose a promise of a ready value when the parent should select and distribute
+an instance. Both can wait once at the UI boundary. [Svelte await blocks](https://svelte.dev/docs/svelte/await)
 
-The Yjs ecosystem figured this out. Every official provider follows this pattern:
+## The gate delays component initialization, not imported modules
 
-```typescript
-const provider = new IndexeddbPersistence('my-db', doc);
-// Constructor returns immediately
+A top-level statement in an ordinary component `<script>` runs when that
+component is instantiated. A top-level statement in an imported `.ts` module,
+or in `<script module>`, has a different lifetime. Those modules can evaluate
+before the gate opens. [Svelte component scripts](https://svelte.dev/docs/svelte/svelte-files)
 
-provider.on('update', handleUpdate); // Sync access works
-
-await provider.whenSynced; // Wait when you need to
+```ts
+// recording-actions.ts: premature module-level read
+import { app } from './app';
+const recordings = app.tables.recordings;
 ```
 
-They never block construction. The async work is always deferred to a property you can await.
+Move the read into the call if this module serves gated components:
 
-## When to Apply
+```ts
+// recording-actions.ts
+import { app } from './app';
 
-You're fighting async initialization when you see:
+export function createRecording(input) {
+  // Safe with respect to readiness when called by the gated subtree.
+  return app.tables.recordings.create(input);
+}
+```
 
-- `await getX()` patterns for objects you want to use synchronously
-- Top-level await complaints from bundlers
-- Getter functions wrapping singleton access
-- Components that can't import a client directly
+Every component that requires initialized data must enter through the gate.
+Background tasks and other module-level callers need their own ordering. A
+promise that resolves a `Result` must be checked for success in `{:then}`;
+fulfillment alone can carry an error Result. The example above instead uses a
+promise that rejects on initialization failure.
 
-The fix: make construction synchronous, attach async work to the object via `whenReady`, and await once at the UI boundary.
+Imports and props preserve object identity; neither copies nor dereferences
+away the app. A property captured too early is a different matter:
 
----
+```ts
+const tables = app.tables; // Captures this property's current value.
+// If initialization later replaces app.tables, `tables` does not follow it.
+```
 
-| Aspect         | Async Construction        | Sync + whenReady        |
-| -------------- | ------------------------- | ----------------------- |
-| Module export  | Can't export directly     | Export the object       |
-| Consumer code  | `await getX()` everywhere | Direct import, sync use |
-| UI integration | Awkward promise handling  | Single `{#await}` gate  |
-| Type signature | `Promise<X>`              | `X` with `.whenReady`   |
+Capturing the property inside the gated child's instance script avoids that
+initialization race. Readiness also does not make snapshots reactive or replace
+old references when the user selects another app instance. Remount the owning
+subtree or use explicit reactive access for that transition. Keep account-specific
+singletons out of shared server module state; these examples describe client-side
+ownership.
+
+## Pass a ready app once, then use context in descendants
+
+Passing the resolved value need not become prop drilling. The gate passes it to
+one provider component, which sets context during component initialization.
+Intermediate components need no `app` prop. These are conceptual Svelte examples;
+`App` is the ready application type and UI imports are omitted.
+
+```ts
+// app-context.ts
+import { createContext } from 'svelte';
+import type { App } from './app-types';
+export const [getApp, setApp] = createContext<App>();
+```
+
+```svelte
+<!-- Parent.svelte: alternative with an owned session -->
+<script>
+  import { onDestroy } from 'svelte';
+  const session = epicenter.openLocal(); // Proposed Epicenter API.
+  onDestroy(() => { void session.close(); });
+</script>
+
+{#await session.opened}
+  <Loading />
+{:then result}
+  {#if result.error}
+    <OpenFailure error={result.error} />
+  {:else}
+    <AppProvider app={result.data}>
+      <Recordings />
+    </AppProvider>
+  {/if}
+{/await}
+```
+
+```svelte
+<!-- AppProvider.svelte -->
+<script>
+  import { setApp } from './app-context';
+  let { app, children } = $props();
+  setApp(app);
+</script>
+
+{@render children()}
+```
+
+```svelte
+<!-- Recordings.svelte: alternative to a singleton import -->
+<script>
+  import { getApp } from './app-context';
+  const app = getApp();
+  const recordings = app.tables.recordings;
+</script>
+```
+
+The provider belongs to one session identity and must be recreated if that
+identity changes. Context is useful when local and account libraries, or two
+editors, coexist in separate subtrees. A client-only singleton is simpler when
+there truly is one app instance. Context distributes the value; the render gate
+establishes readiness. [Svelte context](https://svelte.dev/docs/svelte/context)
+
+A synchronous session with `opened` and `close` has a further job: the owner can
+close it before opening completes. An async opener can support cancellation too,
+but needs an explicit signal or late-result cleanup. Render gating works with
+either promise shape; it does not decide resource ownership.
+
+See [Gate the Component, Not the Data](gate-the-component-not-the-data.md) for
+replacing effect seeding, [the tab-manager example](render-gate-saved-us-from-effect-seeding.md)
+for the original bug, and [await in every method](idb-await-every-method-pattern.md)
+for a lower-level API whose operations are all asynchronous.

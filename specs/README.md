@@ -127,6 +127,12 @@ There is no terminal status. A spec does not become `Implemented`, `Superseded`,
 
 When executing a spec, update checkboxes and implementation notes in the same review unit as the code. If implementation diverges from the spec, update the spec instead of leaving stale instructions behind.
 
+Before deleting a spent spec, record any durable decisions using
+[the ADR guidance](../docs/adr/README.md). Implementation completion does not
+authorize accepting an ADR. A mechanical change with no durable decision needs
+no ADR. After retirement, run `bun scripts/check-doc-hygiene.ts`; resolve issues
+introduced by the work and report unrelated failures against the task baseline.
+
 ## Minimum Useful Sections
 
 Not every spec needs every section. The common shape is:

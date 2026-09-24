@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { AuthError } from '@epicenter/auth';
+	import { tryAsync } from 'wellcrafted/result';
+	import { getConnectionScreen, getSignOut } from '@epicenter/app-shell/boot-screens';
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
 	import { toastOnError } from '@epicenter/ui/sonner';
@@ -6,30 +9,27 @@
 	import { createMutation } from '@tanstack/svelte-query';
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import { resultMutationOptions } from 'wellcrafted/query';
-	import { auth } from '#platform/auth';
+	import { auth } from '$lib/auth.svelte.js';
 	import { tauri } from '#platform/tauri';
-	import { recordingActive } from '$lib/state/recording-active.svelte';
 
 	// Identity (email) is shown by the footer AccountPopover, which owns the
 	// /api/session query. This page is for the sign in / sign out actions, so it
 	// reads auth.state directly and does not re-fetch the profile.
 	const isSignedIn = $derived(auth.state.status === 'signed-in');
 
-	// Sign in/out reloads the page (Option A) and a reload kills an in-flight
-	// browser recording, so block account changes while a capture is active.
-	const accountLocked = $derived(recordingActive.current);
-
-	const startSignIn = createMutation(() =>
-		resultMutationOptions({
-			mutationKey: ['account', 'startSignIn'],
-			mutationFn: () => auth.startSignIn(),
-		}),
-	);
+	const openConnection = getConnectionScreen();
+	const signOutApplication = getSignOut();
 
 	const signOut = createMutation(() =>
 		resultMutationOptions({
 			mutationKey: ['account', 'signOut'],
-			mutationFn: () => auth.signOut(),
+			mutationFn: () => tryAsync({
+				try: async () => {
+					if (!signOutApplication) throw new Error('Application sign-out is unavailable.');
+					await signOutApplication();
+				},
+				catch: (cause) => AuthError.SignOutFailed({ cause }),
+			}),
 			onError: (error) => toastOnError(error, 'Failed to sign out'),
 		}),
 	);
@@ -46,11 +46,6 @@
 	<Field.Separator />
 
 	<Field.Group>
-		{#if accountLocked}
-			<Field.Description class="text-muted-foreground">
-				Stop recording to change your account.
-			</Field.Description>
-		{/if}
 		{#if isSignedIn}
 			<Field.Field orientation="horizontal">
 				<Field.Content>
@@ -62,7 +57,7 @@
 				<Button
 					variant="outline"
 					onclick={() => signOut.mutate()}
-					disabled={signOut.isPending || accountLocked}
+					disabled={signOut.isPending}
 				>
 					{#if signOut.isPending}
 						<Spinner class="size-4" />
@@ -74,20 +69,11 @@
 			</Field.Field>
 		{:else}
 			<Field.Field>
-				{#if startSignIn.error}
-					<Field.Description class="text-destructive">
-						{startSignIn.error.message}
-					</Field.Description>
-				{/if}
 				<Button
 					class="w-full sm:w-auto sm:self-start"
-					onclick={() => startSignIn.mutate()}
-					disabled={startSignIn.isPending || accountLocked}
+					onclick={openConnection}
 				>
-					{#if startSignIn.isPending}
-						<Spinner class="size-4" />
-						Signing in...
-					{:else if auth.state.status === 'reauth-required'}
+					{#if auth.state.status === 'reauth-required'}
 						Reconnect
 					{:else}
 						Sign in with Epicenter

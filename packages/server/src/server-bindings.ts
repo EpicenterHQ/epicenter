@@ -22,8 +22,8 @@
  *   by value or by type.
  * - The relational-auth secrets (`BETTER_AUTH_SECRET` and the OAuth provider
  *   credentials) are NOT here: the relational-auth substrate is a Cloud-only
- *   layer, so its env is `CloudAuthBindings` (beside `mountCloudAuth`), supplied
- *   by the cloud at its own edge and threaded onto `c.var.authSecrets`. Keeping
+ *   layer, so its env is `CloudAuthBindings` (beside `createAuth`), supplied
+ *   by the cloud at its own edge and passed directly to `createAuth`. Keeping
  *   them out of the portable contract is what makes it truly portable: the
  *   single-partition instance's env never inherits a secret it does not read
  *   (ADR-0076).
@@ -40,11 +40,10 @@
 import { type } from 'arktype';
 
 export const ServerBindings = type({
-	// Content-addressed blob store (routes/blobs.ts): a portable S3 client over
+	// Owner-addressed hosted blob storage: a portable S3 client over
 	// aws4fetch with NO Workers R2 binding, so the identical code runs on the
 	// Worker (against R2) and on a Bun host (against Garage/S3). All
-	// optional: a deployment without object storage does not mount
-	// `mountBlobsApp`, and the route 503s if reached unconfigured.
+	// optional: hosted blob routes return 503 when storage is unconfigured.
 	// `BLOBS_S3_BUCKET` defaults to `epicenter-blobs` and `BLOBS_S3_REGION` to
 	// `auto` (R2's region) when unset.
 	'BLOBS_S3_ENDPOINT?': 'string',

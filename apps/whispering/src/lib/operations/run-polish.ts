@@ -3,17 +3,15 @@ import {
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
-import { isErr, Ok, type Result } from 'wellcrafted/result';
-import { auth } from '#platform/auth';
-import { buildPolishSystemPrompt } from '$lib/operations/build-system-prompt';
+import { isErr, Ok, type Result, tryAsync } from 'wellcrafted/result';
+import type { WhisperingApp } from '../whispering/app.js';
+import { local } from '../whispering/local.js';
+import { buildPolishSystemPrompt } from './build-system-prompt.js';
 import {
 	completeWithGlobalDefault,
-	resolveCompletionState,
-} from '$lib/operations/completion';
-import { describePolishDestination } from '$lib/operations/completion-target';
-import { resolveTranscriptionLocalityFromConfig } from '$lib/operations/transcription-target';
-import { deviceConfig } from '$lib/state/device-config.svelte';
-import type { WhisperingApp } from '$lib/whispering/app';
+	resolveCompletionTarget,
+} from './completion.js';
+import { DEVICE_DEFAULTS, PERSONAL_DEFAULTS } from './settings.js';
 
 export const RunPolishError = defineErrors({
 	/**
@@ -32,44 +30,6 @@ export const RunPolishError = defineErrors({
 export type RunPolishError = InferErrors<typeof RunPolishError>;
 
 /**
- * The Polish control's effective state, derived from two independent facts:
- * intent (`polishEnabled`, the toggle) and capability (the selected provider can
- * serve a completion). Speed mode is `off`; `on` means a pass will run; and
- * `needs-key` is the "wanted but blocked" state, intent without capability,
- * which a bare boolean used to hide by collapsing it into the same `false` as
- * `off`. The UI reads this so the Settings toggle and the home chip can show
- * *why* Polish is or is not running, instead of a toggle that reads "on" while
- * the pipeline silently ships raw. Configuring a provider is capability, not
- * consent, so the two facts stay separate concepts even though both must hold to
- * run. Read at use per ADR 0012; nothing is cached.
- */
-export type PolishStatus = 'off' | 'on' | 'needs-key';
-
-export function polishStatus(app: WhisperingApp): PolishStatus {
-	if (!app.settings.get('polishEnabled')) return 'off';
-	return resolveCompletionState(app).canRun ? 'on' : 'needs-key';
-}
-
-/**
- * The privacy boundary the UI shows for the current Polish configuration: where
- * audio is transcribed and where Polish sends transcript text. Assembled once
- * here, beside {@link polishStatus}, so the Polish controls only render the
- * derived sentence instead of each reconstructing it from settings and the
- * resolved completion target. Read at use per ADR 0012.
- */
-export function polishDestination(app: WhisperingApp): string {
-	return describePolishDestination(
-		resolveTranscriptionLocalityFromConfig({
-			service: app.settings.get('transcriptionService'),
-			getDeviceConfig: deviceConfig.get,
-			sessionBaseUrl: auth.connection.baseURL,
-		}),
-		app.settings.get('completionProvider'),
-		resolveCompletionState(app),
-	);
-}
-
-/**
  * Whether a Polish AI pass will actually run for `input`: the control is `on`
  * (enabled AND the provider is usable) AND the input is non-empty. The single
  * source for this decision so the pipeline shows the "Polishing..." HUD only when
@@ -77,7 +37,11 @@ export function polishDestination(app: WhisperingApp): string {
  * unconfigured install); `runPolish` reads it too.
  */
 export function polishWillRun(app: WhisperingApp, input: string): boolean {
-	return polishStatus(app) === 'on' && input.trim().length > 0;
+	return (
+		(local.kv.get('polishEnabled') ?? DEVICE_DEFAULTS.polishEnabled) &&
+		resolveCompletionTarget(app) !== null &&
+		input.trim().length > 0
+	);
 }
 
 /**
@@ -92,8 +56,8 @@ export function polishWillRun(app: WhisperingApp, input: string): boolean {
  * because shipping the raw transcript was the user's explicit intent.
  *
  * Pure execution: no workspace writes, no toasts. The pipeline owns delivery and
- * keeps the raw transcript on `recordings.transcript` underneath the polished
- * text. On a genuine AI failure the raw input rides along in the error so
+ * keeps the Original in the result row alongside Cleaned text. On a genuine AI
+ * failure the raw input rides along in the error so
  * delivery can still proceed.
  */
 export async function runPolish(
@@ -106,12 +70,25 @@ export async function runPolish(
 		signal?: AbortSignal;
 	},
 ): Promise<Result<string, RunPolishError>> {
+	app.signal.throwIfAborted();
 	if (!polishWillRun(app, input)) return Ok(input);
 
+	const ready = await tryAsync({
+		try: () => app.personalReady,
+		catch: (cause) =>
+			RunPolishError.PolishFailed({
+				message: extractErrorMessage(cause),
+				fallback: input,
+			}),
+	});
+	if (ready.error) return ready;
+	app.signal.throwIfAborted();
+	const personal = ready.data;
 	const result = await completeWithGlobalDefault(app, {
 		systemPrompt: buildPolishSystemPrompt(
-			app.settings.get('polishInstructions'),
-			app.settings.get('dictionary'),
+			personal?.kv.get('polishInstructions') ??
+				PERSONAL_DEFAULTS.polishInstructions,
+			personal?.kv.get('dictionary') ?? PERSONAL_DEFAULTS.dictionary,
 		),
 		userPrompt: input,
 		signal,

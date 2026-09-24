@@ -1,16 +1,18 @@
 <script lang="ts">
+	import type { createDictation } from '$lib/chat/dictation.svelte.js';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import CircleStopIcon from '@lucide/svelte/icons/circle-stop';
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import { dictation } from '$lib/state/dictation.svelte';
 
 	let {
+		dictation,
 		onTranscript,
 		disabled = false,
 	}: {
+		dictation: ReturnType<typeof createDictation>;
 		/** Called with the recognized text once a spoken phrase transcribes. */
 		onTranscript: (text: string) => void;
 		/**

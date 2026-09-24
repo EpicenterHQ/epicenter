@@ -4,6 +4,7 @@
 - **Date:** 2026-07-25
 - **Amends:** [ADR-0012](0012-transcription-settings-are-read-at-use-not-mirrored-into-rust.md) at the model-identity boundary only. The model name stops being an application-owned value carried per call; read-at-use delivery and the refusal to mirror config into Rust stand unchanged.
 - **Amended by:** [ADR-0181](0181-every-app-receives-one-portable-epicenter-capability-handle.md) at the application-facing readiness and recovery boundary.
+- **Amended by:** [ADR-0397](0397-native-inference-selects-an-installed-model-explicitly.md) at the active-model clause: a request names an installed model, so the refusal of a per-request `modelId` and of an application-facing model listing is withdrawn. Host-owned residency, Home-owned administration, and naming the exact model on every transcript stand.
 - **Relates:** [ADR-0016](0016-prewarm-the-cold-model-load-and-refuse-the-rest-of-the-latency-menu.md), [ADR-0022](0022-rust-owns-the-models-folder-the-webview-owns-the-catalog.md), [ADR-0152](0152-epicenter-home-is-a-shell-above-workspaces.md), [ADR-0179](0179-an-installed-app-is-an-inert-built-folder-admitted-through-one-static-artifact-boundary.md)
 
 ## Context

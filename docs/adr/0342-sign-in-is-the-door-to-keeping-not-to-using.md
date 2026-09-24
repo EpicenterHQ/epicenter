@@ -1,10 +1,28 @@
 # 0342. Sign-in is the door to keeping, not to using
 
-- **Status:** Proposed
+- **Status:** Rejected
 - **Date:** 2026-09-03
-- **Unbuilt:** all of it. No trial opener exists; `openMemory` is Bun-only test support and says so in its own first line. Whispering does not boot at all (ADR-0227), and the three tests it fails still assert the device document ADR-0336 removed.
-- **Amends:** [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md) at "No Epicenter workspace app gates behind sign-in", and at the two mechanisms under it that no longer exist: the signed-out bare IndexedDB document, and the Add / Delete / Keep migration on first signed-in boot. Both were removed by [ADR-0336](0336-an-authority-mints-every-generation-so-every-store-has-an-account.md) without a record. Everything else in 0088 stands, including the parts live code cites it for: one composition shape, auth read once at boot, a page lifetime is one auth generation, a principal change reloads the document, the account popover is the only auth surface, and `apps/api/ui` is exempt.
-- **Relates:** [ADR-0336](0336-an-authority-mints-every-generation-so-every-store-has-an-account.md) (why there is no unowned store to boot into), [ADR-0321](0321-app-owned-storage-is-named-sqlite-files-an-application-opens-and-deletes-and-nothing-else.md) (what an app-owned file is for), [ADR-0310](0310-an-applications-provider-credential-is-a-labeled-secret-and-the-browser-keeps-none.md) (a credential a person brings), [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) (the desktop answer), [ADR-0293](0293-a-generation-is-created-by-importing-a-folder-and-the-ledger-row-is-its-existence.md) (the import path this refuses to need)
+- **Rejected:** 2026-09-06. To prevent silent data loss (for example an unrecorded dictation), unauthenticated states must block interaction entirely rather than providing an ephemeral session. Sign-in is a door.
+- **Never built.** No trial opener was written. `openMemory` is Bun-only test support and says so in its own first line, so nothing has to be removed to reject this: all three applications already render a sign-in screen when the client is signed out, and this record only ever proposed that they stop.
+- **Amends:** [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md) at "No Epicenter workspace app gates behind sign-in", which is withdrawn, but NOT in the direction this record argued. The two mechanisms under that sentence, the signed-out bare IndexedDB document and the Add / Delete / Keep migration on first signed-in boot, were removed by [ADR-0336](0336-an-authority-mints-every-generation-so-every-store-has-an-account.md) without a record, and nothing replaced them. Every application gates, and that is now the decision rather than an accident. Everything else in 0088 stands that has not been withdrawn elsewhere: one composition shape, the account popover as the only auth surface, and `apps/api/ui` exempt. Its page-lifetime and reload clauses are withdrawn by [ADR-0350](0350-a-data-session-is-a-value-the-tree-owns-and-sync-runs-for-the-life-of-the-store.md).
+- **Relates:** [ADR-0336](0336-an-authority-mints-every-generation-so-every-store-has-an-account.md) (why there is no unowned store to boot into), [ADR-0321](0321-app-owned-storage-is-named-sqlite-files-an-application-opens-and-deletes-and-nothing-else.md) (what an app-owned file is for), [ADR-0310](0310-an-applications-provider-credential-is-a-labeled-secret-and-the-browser-keeps-none.md) (a credential a person brings), [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) (the desktop answer), [ADR-0293](0293-a-generation-is-created-by-importing-a-folder-and-the-ledger-row-is-its-existence.md) (the import path this refuses to need), [ADR-0349](0349-local-blobs-belong-to-the-app-on-this-device.md) (where local blob bytes live, and why a trial has none)
+
+## Why this was rejected
+
+A trial store answers "can a person try the app" and creates a worse question:
+what happens to the work they did in it. Whispering is the case that decides it.
+A person opens it signed out, records a dictation, and the tab closes; an
+ephemeral store means that recording was never anywhere, and nothing in the
+product could have told them so at the moment it mattered, because the store had
+every verb a real one has and refused nothing.
+
+Blocking interaction is the honest version. A person who cannot start is not a
+person who lost something. The cost is real and accepted: bring-your-own-key
+transcription now needs an account before the first recording, which is a
+product decision rather than a technical one.
+
+The rest of this record is kept because its Context is accurate and its
+alternatives are the ones anyone reopening this will reach for.
 
 ## Context
 
@@ -16,8 +34,9 @@ signed-out document needed. There is nothing left to boot a signed-out person
 into.
 
 That was recorded nowhere. ADR-0088 is still `Accepted`, still says no app
-gates, and every app that boots today gates: Honeycrisp renders `AccountGate`
-on `signed-out`, and Whispering does not boot at all. Nine live citations of
+gates, and every app that boots today gates: each of the three renders its own
+sign-in screen from its boot node on `signed-out`, and opens nothing until
+somebody signs in. Nine live citations of
 ADR-0088 exist in `packages/` and none of them is about gating. They cite its
 corollary, that a page lifetime is one auth generation, which is load-bearing
 and unaffected.
@@ -56,12 +75,15 @@ list on disk is not lying to anyone. An application that puts a person's own
 work in a SQLite file to survive the tab is breaking this rule, and the rule is
 the thing to enforce, not the capability.
 
-**A trial holds its blobs in memory, because an OPFS root is an address.**
-`createOpfsBlobs` is rooted at a store's address, and an ephemeral store has
-none. A trial that wrote audio to OPFS would leave files on disk after the tab
-that owned the rows was gone: durable audio nothing points at, which is worse
-than losing it. In-memory bounds a trial by RAM, and a trial is a demonstration
-rather than a recorder for an afternoon.
+**A trial has no blob store, for the same reason it has no replica.** Local
+blob bytes are scoped per app and per principal, at
+`epicenter/v5/<app-id>/<principal-id>/blobs` in a browser (ADR-0349), and a
+trial has no principal to scope them by, which is the same absence that leaves
+it no account replica to open (ADR-0336). `createOpfsBlobs` is deleted. A trial
+that wrote audio to disk would leave files behind after the tab that owned the
+rows was gone: durable audio nothing points at, which is worse than losing it.
+Audio a trial records is bounded by RAM, and a trial is a demonstration rather
+than a recorder for an afternoon.
 
 **A secret goes to the home its KIND has, and there are two kinds.** A
 credential the device holds on an application's behalf, like an OAuth refresh

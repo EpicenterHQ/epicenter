@@ -42,7 +42,7 @@ Cloudflare Durable Objects are the hosted deployment target. Three things make t
 
 `StoreAuthority` (`packages/server/src/store-sync/authority.ts`) is a thin
 adapter and nothing more. Every rule about who has been sent what lives in
-`@epicenter/data/sync`, so what is deployed here and what the transport's tests
+`@epicenter/app/sync`, so what is deployed here and what the transport's tests
 drive are the same object rather than two that agree today. Routes, auth, AI,
 and validation are plain runtime-portable Hono.
 
@@ -58,7 +58,12 @@ dashboard shell comes from `ASSETS`, and billing needs the Autumn secret and the
 after-response drain. `runtime-profile.test.ts` is where that divergence is
 declared and checked against both entries.
 
-Better Auth handles identity. Hosted Epicenter requires Google, GitHub, and Microsoft social sign-in (email/password is disabled in `base-config.ts`), plus an OAuth provider plugin that turns the hub into a standards-compliant OAuth server. Desktop and mobile clients authenticate via OAuth/PKCE flows, get a token, and use it for all subsequent API calls and WebSocket connections.
+Better Auth owns identity and sessions. Hosted Epicenter configures Google,
+GitHub, Microsoft, and Apple social sign-in, with optional passkeys and no
+email/password flow. Browser apps, the dashboard, and the Bun desktop host
+receive independent signed sessions through a PKCE/state handoff. Resources
+validate those session bearers against live session rows. Epicenter no longer
+issues OAuth access/refresh grants to its applications.
 
 ## Trust model
 
@@ -101,10 +106,12 @@ For the full argument:
 ```
 Cloudflare Workers
 ├── Hono app (worker/index.ts)
-│   ├── /auth/*                Better Auth (social OAuth, OAuth provider)
+│   ├── /auth/*                Better Auth (social login, sessions, handoff, passkeys)
+│   ├── /sign-in               hosted browser sign-in
+│   ├── /session/callback      dashboard handoff completion
 │   ├── /api/session           the principal projection
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
-│   ├── /api/blobs             content-addressed blob store (presigned S3)
+│   ├── /api/blobs/personal/:principalId/:visibility owner-pinned hosted blobs (S3-compatible backend)
 │   ├── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │   └── /api/store/v1/sync     store sync upgrade (mountStoreSyncApp)
 │
@@ -116,11 +123,19 @@ API keys for AI providers are environment secrets (`wrangler secret put`). They 
 
 ## Development
 
+For the real browser sign-in and billing flow with an isolated Homebrew
+Postgres cluster, follow [Local account integration](./ACCOUNT-INTEGRATION.md).
+
 Prerequisites: Bun, local PostgreSQL, and Infisical CLI authentication
 (`infisical login`). `bun run dev` pipes secrets from Infisical's dev
 environment into Wrangler via `process.env`, so Postgres alone is not enough.
 This package owns the hosted API `.infisical.json`; account-wide operator
 commands live in `ops`. The monorepo root intentionally has no Infisical config.
+
+The launcher rebuilds the hosted UI at startup. After editing that UI while
+Wrangler is running, restart the root dev command or run
+`bun run --cwd apps/api/ui build`. A leftover sign-in page can use a different
+handoff protocol from the current clients.
 
 ### Local Postgres setup
 
@@ -167,8 +182,8 @@ local S3-compatible store.
 
 ### Local blob storage
 
-Blob storage is optional: omit `BLOBS_S3_*` and the blob routes answer `503
-StorageNotConfigured` while everything else runs. To exercise blobs locally, run
+Blob storage is optional: omit `BLOBS_S3_*` and the blob routes answer 503
+while everything else runs. To exercise blobs locally, run
 a real S3-compatible store alongside the server. `compose.yaml` starts
 [versitygw](https://github.com/versity/versitygw) (an S3 API over a plain folder)
 and creates the `epicenter-blobs` bucket:
@@ -181,11 +196,10 @@ Then set the `BLOBS_S3_*` values from `.env.example` (endpoint
 `http://localhost:7070`). Your blobs land as ordinary files under
 `.data/blobs/epicenter-blobs/`.
 
-Browser replicas upload and download through short-lived presigned object-store
-URLs. The bucket CORS policy must allow each trusted application origin to use
-`GET` and `PUT`, and must allow the `Content-Type` and `If-None-Match` request
-headers. This is deployment configuration, not Worker CORS: a missing
-`If-None-Match` allowance makes immutable browser uploads fail at preflight.
+Clients publish and read through the API authority. Its server-side S3 client
+signs exact-key PUT, GET, HEAD, and DELETE requests; object-store URLs and
+credentials never reach application rows or browsers. The API limits each
+publication to 25 MiB. Browser CORS applies to the API origin, not the bucket.
 
 The server runs the same portable S3 client against versitygw, Garage, AWS S3, or
 R2; the store is endpoint-as-config, so swapping it is a config change, never a

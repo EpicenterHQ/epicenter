@@ -1,5 +1,5 @@
 /**
- * Runtime profile for the single-partition instance: which surfaces each of this
+ * Runtime profile for the named-user self-hosted instance: which surfaces each of this
  * deployment's two entries actually serves.
  *
  * Each `mount*` declares one reusable surface. This test pins down the part
@@ -15,16 +15,24 @@
  * when unconfigured); an unmounted one answers Hono's 404. Every probe carries a
  * bearer so the `/api/*` CSRF gate is skipped, otherwise an unmounted mutating
  * path would 403 before it could 404. Nothing here asserts a status code beyond
- * that. A separate test below verifies the instance token and partition at
+ * that. A separate test below verifies the admitted session and principal at
  * the store boundary; shared transport tests cover payload and socket behavior.
  */
 
-import { expect, mock, test } from 'bun:test';
+import { afterAll, expect, mock, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
+import { openSelfHostAuth } from '@epicenter/server/self-host-auth/bun';
+import { createAuthenticator } from '../../packages/server/evidence/enrollment/authenticator.js';
 
 // The Worker entry re-exports the Durable Object authority, whose module imports
 // `cloudflare:workers`. Only the class identity matters for route composition.
-mock.module('cloudflare:workers', () => ({ DurableObject: class {} }));
+mock.module('cloudflare:workers', () => ({
+	DurableObject: class {},
+	WorkerEntrypoint: class {},
+}));
 
 type Presence = 'served' | 'absent';
 
@@ -41,9 +49,6 @@ type Surface = {
 
 /** The origin every probe and both entries answer on; the path is what matters. */
 const ORIGIN = 'http://localhost:8787';
-
-/** A blob id shaped for the `blob_[a-z0-9]{21}` route pattern. */
-const PROBE_BLOB_ID = `blob_${'a'.repeat(21)}`;
 
 const PROFILE: Surface[] = [
 	{
@@ -75,16 +80,16 @@ const PROFILE: Surface[] = [
 		bun: 'served',
 	},
 	{
-		surface: 'mountBlobsApp (collection)',
+		surface: 'Personal authority collection',
 		method: 'POST',
-		url: API_ROUTES.blobs.collection.url(ORIGIN),
+		url: `${ORIGIN}/api/blobs/personal/probe/private`,
 		worker: 'served',
 		bun: 'served',
 	},
 	{
-		surface: 'mountBlobsApp (by id)',
-		method: 'GET',
-		url: API_ROUTES.blobs.byId.url(ORIGIN, PROBE_BLOB_ID),
+		surface: 'Personal authority object',
+		method: 'DELETE',
+		url: `${ORIGIN}/api/blobs/personal/probe/private/AAAAAAAAAAAAAAAAAAAAAA`,
 		worker: 'served',
 		bun: 'served',
 	},
@@ -97,36 +102,29 @@ const PROFILE: Surface[] = [
 		why: 'The Worker reuses the shared Durable Object backend; no Bun store backend exists.',
 	},
 	{
-		surface: 'generations list',
-		method: 'GET',
-		url: `${ORIGIN}/api/data/v1/test.notes/generations`,
-		worker: 'served',
-		bun: 'absent',
-		why: 'The Worker reuses the shared Durable Object backend; no Bun store backend exists.',
-	},
-	{
-		surface: 'generations import',
+		surface: 'current library',
 		method: 'POST',
-		url: `${ORIGIN}/api/data/v1/test.notes/generations`,
+		url: `${ORIGIN}/api/apps/so.epicenter.notes/personal/data/test.notes/current`,
 		worker: 'served',
 		bun: 'absent',
-		why: 'The Worker reuses the shared Durable Object backend; no Bun store backend exists.',
+		why: 'No Bun store backend exists.',
 	},
+	...['generations', 'generations/initial', 'generations/1'].flatMap((path) =>
+		(['GET', 'POST'] as const).map((method) => ({
+			surface: method + ' historical ' + path,
+			method,
+			url: `${ORIGIN}/api/data/v1/test.notes/${path}`,
+			worker: 'absent' as const,
+			bun: 'absent' as const,
+			why: 'Historical generation endpoints are not mounted.',
+		})),
+	),
 	{
-		surface: 'generation bootstrap',
-		method: 'GET',
-		url: `${ORIGIN}/api/data/v1/test.notes/generations/1`,
-		worker: 'served',
-		bun: 'absent',
-		why: 'The Worker reuses the shared Durable Object backend; no Bun store backend exists.',
-	},
-	{
-		surface: 'mountCloudAuth',
+		surface: 'named-user auth',
 		method: 'GET',
 		url: `${ORIGIN}/auth/get-session`,
-		worker: 'absent',
-		bun: 'absent',
-		why: 'The relational-auth substrate is Cloud-only (ADR-0076). The instance composes no Better Auth and no sessions; the operator bearer is the only gate.',
+		worker: 'served',
+		bun: 'served',
 	},
 	{
 		surface: 'billing',
@@ -135,6 +133,14 @@ const PROFILE: Surface[] = [
 		worker: 'absent',
 		bun: 'absent',
 		why: 'Billing is hosted-only and lives in `apps/api/worker/billing/` (ADR-0075). An instance must never grow it.',
+	},
+	{
+		surface: 'hosted account deletion',
+		method: 'DELETE',
+		url: `${ORIGIN}/api/account`,
+		worker: 'absent',
+		bun: 'absent',
+		why: 'Admission removal belongs to internal operator commands; hosted account deletion is not mounted.',
 	},
 	{
 		surface: 'dashboard SPA',
@@ -146,8 +152,76 @@ const PROFILE: Surface[] = [
 	},
 ];
 
-/** A token that clears `assertStrongToken`'s entropy floor. */
-const INSTANCE_TOKEN = `probe-${'k7Qm2xZ9'.repeat(5)}`;
+const cleanup: (() => void | Promise<void>)[] = [];
+afterAll(async () => {
+	for (const close of cleanup.reverse()) await close();
+});
+
+/** Real passkey enrollment issues the bearer the Worker namespace fixture resolves. */
+async function authenticationFixture() {
+	const owner = openSelfHostAuth({
+		path: ':memory:',
+		origin: ORIGIN,
+		callbacks: [],
+	});
+	cleanup.push(() => owner.close());
+	const grant = await owner.auth.admit({ id: 'alice', name: 'Alice' });
+	const post = (path: string, body: unknown, cookie?: string) =>
+		owner.auth.handle(
+			new Request(`${ORIGIN}/auth/${path}`, {
+				method: 'POST',
+				headers: {
+					origin: ORIGIN,
+					'content-type': 'application/json',
+					...(cookie ? { cookie } : {}),
+				},
+				body: JSON.stringify(body),
+			}),
+		);
+	const start = await post('passkey/registration-options', {
+		token: grant.token,
+	});
+	const ceremony = (await start.json()) as {
+		id: string;
+		options: { challenge: string };
+	};
+	const binding = start.headers
+		.getSetCookie()
+		.map((cookie) => cookie.split(';')[0])
+		.join('; ');
+	const authenticator = await createAuthenticator(ORIGIN);
+	const finish = await post(
+		'passkey/register',
+		{
+			id: ceremony.id,
+			response: await authenticator.register(ceremony.options.challenge),
+		},
+		binding,
+	);
+	if (finish.status !== 200) throw new Error('Fixture enrollment failed');
+	const token = finish.headers
+		.getSetCookie()
+		.find((cookie) => cookie.startsWith('epicenter_session='))
+		?.split(';')[0]
+		?.slice('epicenter_session='.length);
+	if (!token) throw new Error('Fixture session missing');
+	return {
+		auth: owner.auth,
+		token,
+		namespace: {
+			idFromName(name: string) {
+				if (name !== 'deployment') throw new Error('Unexpected auth owner');
+				return name;
+			},
+			get() {
+				return {
+					fetch: (request: Request) => owner.auth.handle(request),
+					resolveSession: (token: string) => owner.auth.resolveSession(token),
+				};
+			},
+		},
+	};
+}
 
 type Fetcher = (request: Request) => Response | Promise<Response>;
 
@@ -181,10 +255,8 @@ function once(build: () => Promise<Fetcher>): () => Promise<Fetcher> {
 /** The Cloudflare entry, driven through its exported Hono app. */
 const workerFetcher = once(async () => {
 	const entry = await import('./worker/index.js');
-	const env = {
-		API_PUBLIC_ORIGIN: ORIGIN,
-		INSTANCE_TOKEN,
-	};
+	const fixture = await authenticationFixture();
+	const env = { API_PUBLIC_ORIGIN: ORIGIN, SELF_HOST_AUTH: fixture.namespace };
 	return (request: Request) => entry.default.fetch(request, env as never);
 });
 
@@ -197,11 +269,19 @@ const workerFetcher = once(async () => {
  * production and hands back the composed app's `fetch`, with no port bound.
  */
 const bunFetcher = once(async () => {
-	Object.assign(process.env, {
-		INSTANCE_TOKEN,
+	const directory = mkdtempSync(join(tmpdir(), 'self-host-profile-'));
+	const configured = {
 		PORT: '8787',
 		API_PUBLIC_ORIGIN: ORIGIN,
-	});
+		AUTH_DB_PATH: join(directory, 'auth.sqlite'),
+		SELF_HOST_CALLBACKS: '[]',
+	};
+	const previous = Object.fromEntries(
+		Object.keys(configured).map((key) => [key, process.env[key]]),
+	);
+	const signals = ['SIGINT', 'SIGTERM'] as const;
+	const listeners = signals.map((signal) => process.listeners(signal));
+	Object.assign(process.env, configured);
 	const entry = await import('./server.js');
 	const realServe = Bun.serve;
 	let captured: Fetcher | undefined;
@@ -214,6 +294,24 @@ const bunFetcher = once(async () => {
 		entry.startSelfHostServer();
 	} finally {
 		Bun.serve = realServe;
+		for (const [key, value] of Object.entries(previous)) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+		const installed = signals.flatMap((signal, index) =>
+			process
+				.listeners(signal)
+				.filter((listener) => !listeners[index]!.includes(listener))
+				.map((listener) => ({ signal, listener })),
+		);
+		cleanup.push(async () => {
+			await installed
+				.find((entry) => entry.signal === 'SIGTERM')
+				?.listener('SIGTERM');
+			for (const { signal, listener } of installed)
+				process.removeListener(signal, listener);
+			rmSync(directory, { recursive: true, force: true });
+		});
 	}
 	if (!captured) throw new Error('the Bun entry never called Bun.serve');
 	return captured;
@@ -240,6 +338,15 @@ test('the Bun entry serves its declared profile', async () => {
 	);
 });
 
+test('anonymous public reads and private bearer gate agree on both runtimes', async () => {
+	for (const fetcher of [await workerFetcher(), await bunFetcher()]) {
+		const publicUrl = `${ORIGIN}/api/blobs/personal/probe/public/AAAAAAAAAAAAAAAAAAAAAA`;
+		const privateUrl = `${ORIGIN}/api/blobs/personal/probe/private/AAAAAAAAAAAAAAAAAAAAAA`;
+		expect((await fetcher(new Request(publicUrl))).status).toBe(503);
+		expect((await fetcher(new Request(privateUrl))).status).toBe(401);
+	}
+});
+
 test('an unmounted path reads as absent on both runtimes', async () => {
 	for (const fetcher of [await workerFetcher(), await bunFetcher()]) {
 		const response = await fetcher(
@@ -252,51 +359,73 @@ test('an unmounted path reads as absent on both runtimes', async () => {
 	}
 });
 
-test('store routes verify the current operator token before addressing the instance backend', async () => {
+test('current startup resolves a live session and refuses owner overrides before addressing storage', async () => {
 	const { default: app } = await import('./worker/index.js');
 	const addressed: string[] = [];
+	const fixture = await authenticationFixture();
 	const env = {
 		API_PUBLIC_ORIGIN: ORIGIN,
-		INSTANCE_TOKEN,
+		SELF_HOST_AUTH: fixture.namespace,
 		GENERATIONS_LEDGER: {
+			idFromName: (name: string) => name,
+			get: () => ({ list: () => [] }),
+		},
+		STORE_AUTHORITY: {
 			idFromName(name: string) {
 				addressed.push(name);
 				return name;
 			},
-			get() {
-				return { list: () => [1] };
-			},
+			get: () => ({
+				fetch: () => new Response('authority reached', { status: 418 }),
+			}),
 		},
 	};
-	const request = (token: string) =>
+	const request = (token: string, suffix = '') =>
 		new Request(
-			`${ORIGIN}/api/data/v1/test.notes/generations?principalId=somebody-else`,
-			{ headers: { authorization: `Bearer ${token}` } },
+			`${ORIGIN}/api/apps/so.epicenter.notes/personal/data/test.notes/current${suffix}`,
+			{
+				method: 'POST',
+				headers: { authorization: `Bearer ${token}`, origin: ORIGIN },
+				body: new Uint8Array([1]),
+			},
 		);
-	for (const token of ['', 'wrong-token']) {
+	for (const token of ['', 'wrong-token'])
 		expect((await app.fetch(request(token), env as never)).status).toBe(401);
-	}
+	for (const suffix of ['?owner=somebody-else', '?principalId=somebody-else'])
+		expect(
+			(await app.fetch(request(fixture.token, suffix), env as never)).status,
+		).toBe(403);
 	expect(addressed).toEqual([]);
-	const response = await app.fetch(request(INSTANCE_TOKEN), env as never);
-	expect(response.status).toBe(200);
-	expect(await response.json()).toEqual({ generations: [1] });
-	expect(addressed).toEqual(['principals/instance/data/test.notes']);
-	env.INSTANCE_TOKEN = `rotated-${'x9Qk7Pm2'.repeat(5)}`;
-	expect((await app.fetch(request(INSTANCE_TOKEN), env as never)).status).toBe(
+	expect((await app.fetch(request(fixture.token), env as never)).status).toBe(
+		418,
+	);
+	expect(addressed).toEqual([
+		'libraries/apps/so.epicenter.notes/personal/alice/data/test.notes',
+	]);
+	await fixture.auth.revokeSession(fixture.token);
+	expect((await app.fetch(request(fixture.token), env as never)).status).toBe(
 		401,
 	);
 	expect(addressed).toHaveLength(1);
-	expect(
-		(await app.fetch(request(env.INSTANCE_TOKEN), env as never)).status,
-	).toBe(200);
 });
 
-test('store upgrades use the subprotocol bearer and address only the instance authority', async () => {
+test('store upgrades resolve the subprotocol session and address only its principal authority', async () => {
 	const { default: app } = await import('./worker/index.js');
 	const addressed: string[] = [];
+	const ledgers: string[] = [];
+	const fixture = await authenticationFixture();
 	const env = {
 		API_PUBLIC_ORIGIN: ORIGIN,
-		INSTANCE_TOKEN,
+		SELF_HOST_AUTH: fixture.namespace,
+		GENERATIONS_LEDGER: {
+			idFromName(name: string) {
+				ledgers.push(name);
+				return name;
+			},
+			get() {
+				throw new Error('Socket admission must not read the historical ledger');
+			},
+		},
 		STORE_AUTHORITY: {
 			idFromName(name: string) {
 				addressed.push(name);
@@ -311,11 +440,11 @@ test('store upgrades use the subprotocol bearer and address only the instance au
 	};
 	for (const [token, status] of [
 		['invalid', 401],
-		[INSTANCE_TOKEN, 418],
+		[fixture.token, 418],
 	] as const) {
 		const response = await app.fetch(
 			new Request(
-				`${ORIGIN}/api/store/v1/sync?dataId=test.notes&generation=2&principalId=other`,
+				`${ORIGIN}/api/store/v1/sync?appId=so.epicenter.notes&scope=personal&dataId=test.notes&generation=2`,
 				{
 					headers: {
 						upgrade: 'websocket',
@@ -327,7 +456,8 @@ test('store upgrades use the subprotocol bearer and address only the instance au
 		);
 		expect(response.status).toBe(status);
 	}
+	expect(ledgers).toEqual([]);
 	expect(addressed).toEqual([
-		'principals/instance/data/test.notes/generations/2',
+		'libraries/apps/so.epicenter.notes/personal/alice/data/test.notes',
 	]);
 });

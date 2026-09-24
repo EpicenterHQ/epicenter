@@ -9,7 +9,7 @@
 		"preview": "vite preview --host"
 	},
 	"dependencies": {
-		"yjs": "catalog:"
+		"@y/y": "14.0.0-rc.26"
 	},
 	"devDependencies": {
 		"@types/node": "catalog:",

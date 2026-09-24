@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-inference-models"
+description = "Enables the list_inference_models command without any pre-configured scope."
+commands.allow = ["list_inference_models"]
+
+[[permission]]
+identifier = "deny-list-inference-models"
+description = "Denies the list_inference_models command without any pre-configured scope."
+commands.deny = ["list_inference_models"]

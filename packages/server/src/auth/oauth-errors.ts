@@ -1,7 +1,7 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 /**
- * Structured error variants for the OAuth resource boundary.
+ * Structured error variants for the bearer resource boundary.
  *
  * Emitted by the bearer-token resolver and surfaced to clients via
  * `createOAuthUnauthorizedResourceResponse`:
@@ -11,17 +11,16 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
  * Owned by the server auth layer that emits it. The server calls the factory at
  * runtime (`OAuthError.InvalidToken()`); consumers that only narrow (a client
  * SDK, or `apps/api`'s dev bearer resolver) import the value or type from
- * `@epicenter/server`, where it is re-exported. The serialized envelope is
- * `wellcrafted`'s `{ data: null, error: { name, message, ...fields } }`;
- * receivers branch on `body.error.name`.
+ * `@epicenter/server`, where it is re-exported. HTTP responses serialize the
+ * error payload `{ name, message, status }`; receivers branch on `body.name`.
  *
- * The variant carries its own HTTP `status` (401), so call sites just forward
+ * The variant carries its own HTTP `status`, so call sites just forward
  * the baked-in code to `c.json`. No external status mapper required.
  *
  * `ServerError` (503) is distinct from `InvalidToken`: it means the resource
- * server could not verify the token because the signing-key (JWKS) endpoint
- * was unreachable, not because the token is bad. Flattening that case into a
- * 401 would make clients discard and refresh a perfectly good token (and pause
+ * server could not verify the token because the session database was
+ * unavailable, not because the token is bad. Flattening that case into a
+ * 401 would make clients discard a perfectly good token (and pause
  * network auth) over a transient server fault, so it gets its own retryable
  * status instead.
  *
@@ -43,17 +42,17 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
  */
 export const OAuthError = defineErrors({
 	InvalidToken: () => ({
-		message: 'OAuth access token is missing, malformed, or unverifiable.',
+		message: 'Bearer token is missing, malformed, or unverifiable.',
 		status: 401 as const,
 	}),
 	ServerError: () => ({
-		message: 'OAuth token verification is temporarily unavailable.',
+		message: 'Bearer token verification is temporarily unavailable.',
 		status: 503 as const,
 	}),
 });
 
 /**
- * Discriminated union of all OAuth resource-boundary error payloads.
+ * Discriminated union of all bearer resource-boundary error payloads.
  *
  * The `name` field discriminates variants in exhaustive `switch`
  * statements with `default: error satisfies never`.

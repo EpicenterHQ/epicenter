@@ -3,13 +3,14 @@
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import RepeatIcon from '@lucide/svelte/icons/repeat';
-	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import { createMutation } from '@tanstack/svelte-query';
 	import type { ComponentProps } from 'svelte';
-	import { deliverTranscriptionResult } from '$lib/operations/delivery';
+	import { creditAction } from '$lib/operations/credit-action';
 	import { report } from '$lib/report';
 	import { playSoundIfEnabled } from '$lib/operations/sound';
-	import type { Recording } from '$lib/state/recordings.svelte';
+	import { local } from '$lib/whispering/local';
+	import { latestTranscription } from '$lib/whispering/transcriptions';
+	import type { Recording } from '../../../../../lib/data.js';
 	import {
 		getWhisperingApp,
 		getWhisperingQueries,
@@ -49,9 +50,7 @@
 	const transcriptionState = $derived.by(() => {
 		if (transcribeRecording.isPending)
 			return { status: 'transcribing' } as const;
-		if (recording.transcriptionStatus === 'pending')
-			return { status: 'unprocessed' } as const;
-		return { status: recording.transcriptionStatus } as const;
+		return { status: latestTranscription(local, recording.id) ? 'completed' : 'unprocessed' } as const;
 	});
 
 	const tooltip = $derived.by(() => {
@@ -62,8 +61,6 @@
 				return 'Currently transcribing...';
 			case 'completed':
 				return 'Retry transcription';
-			case 'failed':
-				return `Transcription failed: ${recording.transcriptionError}. Click to retry`;
 		}
 	});
 
@@ -74,7 +71,6 @@
 			case 'transcribing':
 				return 'Transcribing...';
 			case 'completed':
-			case 'failed':
 				return 'Retry';
 		}
 	});
@@ -94,18 +90,19 @@
 				loading.reject({
 					cause: error,
 					title: 'Failed to transcribe recording',
+					action: creditAction(error, app.authAccount),
 				});
 			},
-			onSuccess: async ({ text, history }) => {
-				void playSoundIfEnabled(app, 'transcriptionComplete');
-
-				const { notice } = await deliverTranscriptionResult(app, {
-					text,
+			onSuccess: ({ history }) => {
+				void playSoundIfEnabled('transcriptionComplete');
+				loading.resolve({
+					title: history.error
+						? 'Transcription finished; save needs attention'
+						: 'Transcription saved to recording history',
 				});
-				loading.resolve(notice);
 				if (history.error !== null) {
 					report.info({
-						title: 'Transcription delivered, but history may be incomplete',
+						title: 'Transcription history may be incomplete',
 						description: history.error.message,
 					});
 				}
@@ -114,15 +111,13 @@
 	}
 </script>
 
-<Button {tooltip} onclick={transcribe} {variant} {size}>
+<Button {tooltip} aria-label={tooltip} onclick={transcribe} {variant} {size}>
 	{#if transcriptionState.status === 'unprocessed'}
 		<PlayIcon class="size-4" />
 	{:else if transcriptionState.status === 'transcribing'}
 		<EllipsisIcon class="size-4" />
 	{:else if transcriptionState.status === 'completed'}
 		<RepeatIcon class="size-4 text-green-500" />
-	{:else if transcriptionState.status === 'failed'}
-		<RotateCcwIcon class="size-4 text-red-500" />
 	{/if}
 	{#if showLabel}{label}{/if}
 </Button>

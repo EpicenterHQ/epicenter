@@ -5,7 +5,7 @@
 - **Amends:** [ADR-0233](0233-a-browser-application-keeps-a-private-document-and-one-workspace-replica-per-account.md) and [ADR-0261](0261-a-local-account-replica-is-addressed-by-its-application-server-url-and-verified-principal.md) at the storage medium only. Both addresses stay exactly as they are; what changes is what holds the bytes at that address.
 - **Amends:** [ADR-0238](0238-the-live-document-is-the-truth-while-open-and-persistence-is-a-visible-debt.md) at one clause. Its acceptance-and-durability split, its observable queue, and its whole-queue flush all stand; what it decided and this withdraws is that "browser durability moves into IndexedDB directly."
 - **Relates:** [ADR-0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md) (one target, which is why there is no seam), [ADR-0272](0272-restore-replaces-a-workspace-from-an-artifact-under-a-new-document-identity.md) (the recovery path if a record is ever lost), [ADR-0271](0271-a-workspace-mirrors-continuously-to-the-epicenter-folder-one-way.md) (the projection, which is not the original).
-- **Unbuilt.** `packages/data/src/store/browser.ts` still opens IndexedDB. The evidence below was gathered by probe, not by shipping.
+- **Unbuilt.** `packages/app/src/data/store/browser.ts` still opens IndexedDB. The evidence below was gathered by probe, not by shipping.
 - **Superseded by:** [ADR-0280](0280-a-browser-stores-durable-record-is-a-chain-of-updates-in-indexeddb-folded-on-idle.md). SQLite over OPFS in a worker was sized for a log that no longer exists. The OPFS half was reverted in `7cf2e01b`; the medium is IndexedDB, the record is a chain of updates, and `claims.ts` stays.
 
 ## Context

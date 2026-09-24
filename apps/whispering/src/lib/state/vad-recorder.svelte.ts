@@ -6,8 +6,8 @@ import {
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { defineKeys, resultQueryOptions } from 'wellcrafted/query';
 import { Ok } from 'wellcrafted/result';
+import { base } from '$app/paths';
 import type { VadState } from '$lib/constants/audio';
-import { WHISPERING_BASE_PATHNAME } from '$lib/constants/urls';
 import { deviceConfig } from '$lib/state/device-config.svelte';
 
 const VadRecorderError = defineErrors({
@@ -43,7 +43,7 @@ function createReactiveVadRecorder() {
 	// The SPA is mounted below Epicenter's shared origin, so runtime asset fetches
 	// must stay below the Whispering base too.
 	const vad = createVadRecorder({
-		assetBaseUrl: `${WHISPERING_BASE_PATHNAME}/vad/`,
+		assetBaseUrl: `${base}/vad/`,
 	});
 	let _state = $state<VadState>('IDLE');
 
@@ -122,7 +122,7 @@ function createReactiveVadRecorder() {
 		 */
 		async stopActiveListening() {
 			const result = await vad.stopActiveListening();
-			_state = 'IDLE';
+			if (result.error === null) _state = 'IDLE';
 			return result;
 		},
 	};

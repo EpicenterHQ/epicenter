@@ -1,41 +1,20 @@
-import { CompleteError, complete, resolveConnection } from '@epicenter/client';
-import type { Result } from 'wellcrafted/result';
-import { customFetch } from '#platform/http';
-import {
-	type CompletionState,
-	resolveCompletionStateFromConfig,
-} from '$lib/operations/completion-target';
-import { deviceConfig } from '$lib/state/device-config.svelte';
-import type { WhisperingApp } from '$lib/whispering/app';
+import { CompleteError } from '@epicenter/client';
+import { APIError } from 'openai';
+import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
+import type { WhisperingApp } from '../whispering/app.js';
+import { getInferenceTarget } from '../whispering/inference.js';
+import { local } from '../whispering/local.js';
 
-/**
- * Resolve the single global completion state: what to call (`target`), whether
- * Polish can run (`canRun`), and whether transcript text stays on this device
- * (`textStaysOnDevice`). All three are derived together from the global
- * `completion.*` setting and deviceConfig, read at use (ADR 0012) so nothing goes
- * stale. `target` is null when there is no base URL to talk to (Custom with no
- * endpoint configured), the one genuinely un-runnable state.
- */
-export function resolveCompletionState(app: WhisperingApp): CompletionState {
-	return resolveCompletionStateFromConfig({
-		provider: app.settings.get('completionProvider'),
-		getDeviceConfig: deviceConfig.get,
-	});
+/** Resolve exactly the saved connection and model from the ready document App. */
+export function resolveCompletionTarget(app: WhisperingApp) {
+	const target = app.catalog.resolve(
+		getInferenceTarget(local.kv, 'completion'),
+	);
+	return target?.source === 'runtime' ? null : target;
 }
 
-/**
- * Run one completion against the single global AI default. Both the Polish pass
- * and every Recipe share this one call path, so provider/model/key resolution
- * lives here once. Every provider speaks the OpenAI completion wire (Anthropic
- * and Google through their OpenAI-compatibility endpoints, ADR-0060), so there is
- * no per-provider client and no wire-vs-bespoke branch: resolve a connection from
- * the `INFERENCE` table and hand it to the shared `complete()`. Provider and model
- * come from `completion.*` in settings, the key and endpoint from deviceConfig,
- * all read at use (ADR 0012) so nothing goes stale; pasted strings are trimmed.
- *
- * `signal` aborts the in-flight request (the Polish HUD's "ship raw" control).
- */
-export function completeWithGlobalDefault(
+/** Capture the model and transport together before starting the single HTTP request. */
+export async function completeWithGlobalDefault(
 	app: WhisperingApp,
 	{
 		systemPrompt,
@@ -47,27 +26,35 @@ export function completeWithGlobalDefault(
 		signal?: AbortSignal;
 	},
 ): Promise<Result<string, CompleteError>> {
-	const { target } = resolveCompletionState(app);
-	if (!target) {
-		const provider = app.settings.get('completionProvider');
-		return Promise.resolve(
-			CompleteError.TransportFailed({
-				cause: new Error(
-					`No base URL set for the ${provider} completion provider. Add an endpoint in settings.`,
-				),
-			}),
-		);
-	}
-	return complete(
-		resolveConnection(
-			{ baseUrl: target.baseUrl, apiKey: target.apiKey },
-			customFetch,
-		),
-		{
-			model: app.settings.get('completionModel').trim(),
-			systemPrompt,
-			userPrompt,
-			signal,
+	const result = await tryAsync({
+		try: async () => {
+			app.signal.throwIfAborted();
+			const target = resolveCompletionTarget(app);
+			if (!target)
+				throw new Error(
+					'Choose a text connection and model in Privacy & Processing settings.',
+				);
+			return await target.client.chat.completions.create(
+				{
+					model: target.model,
+					messages: [
+						{ role: 'system', content: systemPrompt },
+						{ role: 'user', content: userPrompt },
+					],
+					stream: false,
+				},
+				{ signal: signal ? AbortSignal.any([app.signal, signal]) : app.signal },
+			);
 		},
-	);
+		catch: (cause) =>
+			cause instanceof APIError && cause.status !== undefined
+				? CompleteError.RequestFailed({
+						status: cause.status,
+						detail: cause.message,
+					})
+				: CompleteError.TransportFailed({ cause }),
+	});
+	if (result.error) return Err(result.error);
+	const text = result.data.choices?.[0]?.message?.content;
+	return typeof text === 'string' ? Ok(text) : CompleteError.Malformed();
 }

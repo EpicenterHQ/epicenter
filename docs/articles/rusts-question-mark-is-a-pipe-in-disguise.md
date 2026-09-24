@@ -7,7 +7,7 @@ Rust's `?` and functional programming's `pipe(andThen(...))` do the same thing: 
 A Rust function that fetches a user, validates them, and loads their profile:
 
 ```rust
-fn process_user(id: UserId) -> Result<Profile, AppError> {
+fn process_user(id: UserId) -> Result<Profile, DeviceError> {
     let user = get_user(id)?;
     let validated = validate(user)?;
     let profile = load_profile(validated)?;
@@ -69,7 +69,7 @@ Three levels of `pipe` nesting. The `flatMap` with a ternary is an if-statement 
 In Rust, the same branching is just an if-statement:
 
 ```rust
-fn process_user(id: UserId) -> Result<Profile, AppError> {
+fn process_user(id: UserId) -> Result<Profile, DeviceError> {
     let user = get_user(id)?;
     let dashboard = if user.is_admin {
         get_admin_dashboard(&user)?

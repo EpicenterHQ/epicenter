@@ -1,54 +1,22 @@
 import {
 	type AppSqliteDatabase,
-	type DatabaseName,
-	databaseName,
-	type Epicenter,
-	isDatabaseName,
 	isSecretLabel,
 	type SecretLabel,
-} from '@epicenter/app';
+} from '@epicenter/device';
+import type { ScopedSqlite } from '@epicenter/device/owner';
 import { type SqliteHandle, sqliteHandle } from './handle.ts';
 
 /**
- * Local Mail's storage, which is two kinds of file and one keychain entry.
- *
- * | | what it is | where it lives |
- * | --- | --- | --- |
- * | which accounts are connected | this device's own fact | `local`, durable |
- * | what this machine still owes Gmail | a person's own act | `local`, durable |
- * | the mail itself | borrowed data | `mail-<sub>`, one per account |
- *
- * **Nothing here is Epicenter Data.** Run ADR-0318's test on each artifact and
- * it answers no four times: Gmail is the authority for the copy, undelivered
- * triage is a command addressed to Gmail, the credential is Google's and lives
- * in the keychain, and which accounts are connected is a fact about this device
- * because the credential that makes a connection real cannot leave it
- * (ADR-0319). A preference would be the first artifact to answer yes, and there
- * is not one yet.
- *
- * **The split is by lifetime, not by concern.** `local` holds the only
- * irreplaceable bytes and is never unlinked; a mail file is a copy Gmail still
- * has and is unlinked whenever it is easier than repairing it. Putting them in
- * one file would give the account registry and a person's undelivered triage
- * the same corruption fate and the same backup size as gigabytes of cached
- * mail, and would buy no atomicity, because the write path never crosses them:
- * the effective-label overlay is applied at read time.
- *
- * **Nothing is mirrored to `~/Epicenter`.** That folder is how a person opens
- * their own data as files, and none of this is theirs to export: the mail copy
- * is Gmail's, and ADR-0306 refuses backup and export for a provider copy. The
- * two folder names this module used to claim were also keyed by a data id that
- * no longer exists, since Local Mail holds no Epicenter Data.
- *
- * **The partition key is the Google subject.** Reconnecting an account lands on
- * its own rows by arithmetic rather than by lookup, so no id is allocated and
- * none can be allocated twice.
+ * Connected Gmail accounts and pending triage live in `local`.
+ * Downloaded Gmail facts live in one `mail-<sub>` file per subject.
+ * Personal scopes SQL to the captured Epicenter account; secrets remain independent.
+ * The account namespace starts fresh for this Local Mail build.
  */
 
 export const LOCAL_MAIL_APP_ID = 'so.epicenter.local-mail';
 
-/** The durable file. One per device, never per account, never unlinked. */
-export const LOCAL_DATABASE = databaseName('local');
+/** The durable file. One per captured Epicenter account on this device; retained until erasure. */
+export const LOCAL_DATABASE = 'local';
 
 /**
  * Where one account's bytes are filed: the file it owns, and the label its
@@ -63,13 +31,13 @@ export const LOCAL_DATABASE = databaseName('local');
  * nothing has reached it.
  */
 export type AccountFiling = {
-	readonly database: DatabaseName;
+	readonly database: string;
 	readonly secret: SecretLabel;
 };
 
 export function accountFiling(sub: string): AccountFiling | undefined {
 	const database = `mail-${sub}`;
-	return isDatabaseName(database) && isSecretLabel(sub)
+	return /^mail-[a-z0-9_-]+$/.test(database) && isSecretLabel(sub)
 		? { database, secret: sub }
 		: undefined;
 }
@@ -105,17 +73,17 @@ export type LocalMailStorage = {
  * every handle, and the `Promise` is what is cached rather than the handle, so
  * two callers asking at once join one open instead of racing it.
  */
-export async function openLocalMailStorage(
-	epicenter: Epicenter,
-): Promise<LocalMailStorage> {
-	const local = await open(epicenter, LOCAL_DATABASE);
-	await migrateDurable(sqliteHandle(local));
+export async function openLocalMailStorage(app: {
+	sqlite: ScopedSqlite;
+}): Promise<LocalMailStorage> {
+	const local = await open(app, LOCAL_DATABASE);
+	await initializeDurable(sqliteHandle(local));
 
 	const mailboxes = new Map<string, Promise<AppSqliteDatabase>>();
 	function opening(sub: string): Promise<AppSqliteDatabase> {
 		const existing = mailboxes.get(sub);
 		if (existing !== undefined) return existing;
-		const opened = openBorrowed(epicenter, requireAccountFiling(sub).database);
+		const opened = openBorrowed(app, requireAccountFiling(sub).database);
 		// This open, not whatever is under the key when it fails.
 		opened.catch(() => {
 			if (mailboxes.get(sub) === opened) mailboxes.delete(sub);
@@ -134,27 +102,25 @@ export async function openLocalMailStorage(
 			const inflight = mailboxes.get(sub);
 			mailboxes.delete(sub);
 			await inflight?.catch(() => undefined);
-			const gone = await epicenter.sqlite.delete(
-				requireAccountFiling(sub).database,
-			);
+			const gone = await app.sqlite.delete(requireAccountFiling(sub).database);
 			if (gone.error !== null) throw gone.error;
 		},
 	};
 }
 
 async function open(
-	epicenter: Epicenter,
-	name: DatabaseName,
+	app: { sqlite: ScopedSqlite },
+	name: string,
 ): Promise<AppSqliteDatabase> {
-	const opened = await epicenter.sqlite.open(name);
+	const opened = await app.sqlite.open(name);
 	if (opened.error !== null) throw opened.error;
 	return opened.data;
 }
 
 /**
- * The durable file's shape, and the only place a migration will ever go.
+ * The durable file's shape in the fresh account namespace.
  *
- * `user_version` is a migration cursor here, because these bytes cannot be
+ * `user_version` identifies this schema because pending triage cannot be
  * fetched again. A file stamped ahead of this build belongs to a newer release
  * and is refused rather than opened: a downgrade that wrote through an older
  * schema would lose the columns it does not know about.
@@ -165,27 +131,32 @@ export const LOCAL_SCHEMA = [
 	`CREATE TABLE IF NOT EXISTS accounts (
 		sub TEXT PRIMARY KEY,
 		email TEXT NOT NULL,
-		connected_at TEXT NOT NULL,
-		last_synced_at TEXT
+		connected_at TEXT NOT NULL
 	)`,
 	`CREATE TABLE IF NOT EXISTS label_intents (
 		sub TEXT NOT NULL,
 		message_id TEXT NOT NULL,
 		label_id TEXT NOT NULL,
 		want INTEGER NOT NULL,
-		seq INTEGER NOT NULL,
+		revision INTEGER NOT NULL,
 		asserted_at TEXT NOT NULL,
 		PRIMARY KEY (sub, message_id, label_id)
 	)`,
-	`CREATE TABLE IF NOT EXISTS intent_meta (
-		sub TEXT NOT NULL,
-		key TEXT NOT NULL,
-		value TEXT,
-		PRIMARY KEY (sub, key)
+	`CREATE TABLE IF NOT EXISTS intent_counters (
+        sub TEXT PRIMARY KEY,
+        next_revision INTEGER NOT NULL
+    )`,
+	`CREATE TABLE IF NOT EXISTS last_pass (
+		sub TEXT PRIMARY KEY,
+		finished_at TEXT NOT NULL,
+		discarded TEXT NOT NULL,
+		failure_kind TEXT,
+		failure_name TEXT,
+		failure_message TEXT
 	)`,
 ] as const;
 
-async function migrateDurable(handle: SqliteHandle): Promise<void> {
+async function initializeDurable(handle: SqliteHandle): Promise<void> {
 	const version = await userVersion(handle);
 	if (version === LOCAL_SCHEMA_VERSION) return;
 	if (version > LOCAL_SCHEMA_VERSION) {
@@ -193,8 +164,6 @@ async function migrateDurable(handle: SqliteHandle): Promise<void> {
 			`This device's Local Mail data was written by a newer version (${version}); this build understands ${LOCAL_SCHEMA_VERSION}.`,
 		);
 	}
-	// One version so far, so the whole migration is creating it. The next one
-	// appends a step here and raises the constant; nothing else moves.
 	await handle.batch([
 		...LOCAL_SCHEMA.map((sql) => ({ sql })),
 		{ sql: `PRAGMA user_version = ${LOCAL_SCHEMA_VERSION}` },
@@ -214,54 +183,62 @@ async function migrateDurable(handle: SqliteHandle): Promise<void> {
  * cannot reach another account's mail, which is the isolation an arbitrary-SQL
  * handle can actually enforce (ADR-0319).
  */
-export const MAIL_SCHEMA_VERSION = 1;
+export const MAIL_SCHEMA_VERSION = 2;
+
+const FULL_PULL_CHECKPOINT_SCHEMA = `CREATE TABLE IF NOT EXISTS full_pull_checkpoint (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    history_id TEXT NOT NULL,
+    scan_id TEXT NOT NULL,
+    synced_at TEXT NOT NULL,
+    next_page_token TEXT
+)`;
 
 export const MAIL_CACHE_SCHEMA = [
-	`CREATE TABLE IF NOT EXISTS cache_meta (
-		key TEXT PRIMARY KEY,
-		value TEXT
-	)`,
+	FULL_PULL_CHECKPOINT_SCHEMA,
+	`CREATE TABLE IF NOT EXISTS sync_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        history_id TEXT,
+        last_synced_at TEXT
+    )`,
+	`INSERT OR IGNORE INTO sync_state (id) VALUES (1)`,
 	`CREATE TABLE IF NOT EXISTS messages (
 		id TEXT PRIMARY KEY,
 		resource TEXT NOT NULL,
-		thread_id TEXT GENERATED ALWAYS AS (json_extract(resource, '$.threadId')) VIRTUAL,
 		snippet TEXT GENERATED ALWAYS AS (json_extract(resource, '$.snippet')) STORED,
 		label_ids TEXT GENERATED ALWAYS AS (json_extract(resource, '$.labelIds')) VIRTUAL,
 		internal_date INTEGER GENERATED ALWAYS AS (CAST(json_extract(resource, '$.internalDate') AS INTEGER)) STORED,
 		subject TEXT,
 		sender TEXT,
 		body_text TEXT,
-		synced_at TEXT NOT NULL
+		synced_at TEXT NOT NULL,
+		full_pull_id TEXT
 	)`,
 	`CREATE TABLE IF NOT EXISTS labels (
 		id TEXT PRIMARY KEY,
 		resource TEXT NOT NULL,
 		name TEXT GENERATED ALWAYS AS (json_extract(resource, '$.name')) VIRTUAL,
-		type TEXT GENERATED ALWAYS AS (json_extract(resource, '$.type')) VIRTUAL,
-		synced_at TEXT NOT NULL
+		type TEXT GENERATED ALWAYS AS (json_extract(resource, '$.type')) VIRTUAL
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_messages_recent ON messages(internal_date DESC)`,
-	`CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, internal_date)`,
 ] as const;
 
-/**
- * Open one account's copy at the shape this build expects, demolishing it if it
- * holds another.
- *
- * `user_version` is a demolition trigger here rather than a migration cursor,
- * and that inversion is the lifetime split stated in code: Gmail still has the
- * originals, so the cheapest correct answer to a file this build does not
- * understand is to delete it and pull again. A version from the future gets the
- * same treatment as one from the past, because neither is a shape this build
- * can read and neither costs anything but a backfill.
- */
+/** Open a known cache in place; rebuild only an unrecognized schema. */
 async function openBorrowed(
-	epicenter: Epicenter,
-	name: DatabaseName,
+	app: { sqlite: ScopedSqlite },
+	name: string,
 ): Promise<AppSqliteDatabase> {
-	const opened = await open(epicenter, name);
+	const opened = await open(app, name);
 	const handle = sqliteHandle(opened);
-	if ((await userVersion(handle)) === MAIL_SCHEMA_VERSION) return opened;
+	const version = await userVersion(handle);
+	if (version === MAIL_SCHEMA_VERSION) return opened;
+	if (version === 1) {
+		await handle.batch([
+			{ sql: 'ALTER TABLE messages ADD COLUMN full_pull_id TEXT' },
+			{ sql: FULL_PULL_CHECKPOINT_SCHEMA },
+			{ sql: `PRAGMA user_version = ${MAIL_SCHEMA_VERSION}` },
+		]);
+		return opened;
+	}
 
 	// A file nothing has ever written answers version zero and holds no tables,
 	// which is the first account rather than a shape this build refuses. It is
@@ -272,9 +249,9 @@ async function openBorrowed(
 		return opened;
 	}
 
-	const gone = await epicenter.sqlite.delete(name);
+	const gone = await app.sqlite.delete(name);
 	if (gone.error !== null) throw gone.error;
-	const fresh = await open(epicenter, name);
+	const fresh = await open(app, name);
 	await applyMailSchema(sqliteHandle(fresh));
 	return fresh;
 }

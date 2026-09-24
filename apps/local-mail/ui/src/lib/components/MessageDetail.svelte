@@ -22,7 +22,7 @@
 	} from '$lib/actions';
 	import { mail } from '$lib/mail';
 	import { fullDate, labelDisplayName } from '$lib/format';
-	import type { MailLabel } from '$lib/types';
+	import type { LabelSummary } from '@epicenter/local-mail/mailbox';
 	import MessageBody from './MessageBody.svelte';
 
 	let {
@@ -38,12 +38,12 @@
 		/** The account whose cache this message is read from; the detail fetch is
 		 * scoped to it. Null only before the account list has loaded. */
 		account: string | null;
-		labels: MailLabel[];
+		labels: LabelSummary[];
 		/** True while an act is in flight (the page owns the mutation). */
 		busy: boolean;
 		/** Page-owned open state for the Labels menu, so the `l` key can open it. */
 		labelsOpen: boolean;
-		/** Fire a planned triage action; the page runs it, gates read-only, and
+		/** Fire a planned triage action; the page records it and
 		 * owns the undo toast. Buttons and the keyboard share this one path. */
 		onDispatch: (action: TriageAction) => void;
 		onLabelsOpenChange: (open: boolean) => void;
