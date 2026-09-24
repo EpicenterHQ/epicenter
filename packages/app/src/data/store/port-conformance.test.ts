@@ -383,8 +383,8 @@ for (const engine of ENGINES) {
 			const { loaded } = await record.reopen();
 			expect(believed?.id).toBe(loaded.outbox.at(-1)?.id);
 			expect(loaded.outbox.length).toBeLessThan(80);
-			expect(valueOf([...written.slice(0, 2), believed!.bytes])).toBe('v81');
-			expect(valueOf(loaded.updates)).toBe('v81');
+			expect(readValue([...written.slice(0, 2), believed!.bytes])).toBe('v81');
+			expect(readValue(loaded.updates)).toBe('v81');
 			expect(controller.durableCursor()).toBe(loaded.cursor);
 			expect(loaded.cursor).toBe(12);
 		});

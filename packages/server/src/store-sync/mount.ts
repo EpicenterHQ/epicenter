@@ -13,7 +13,6 @@ import { extractUpgradeBearer } from '../auth/extract-upgrade-bearer.js';
 import { OAuthError } from '../auth/oauth-errors.js';
 import { resolveDataPrefix } from '../data-scope.js';
 import { isWebSocketUpgrade } from '../is-websocket-upgrade.js';
-import { resolveLibraryPrefix } from '../library.js';
 import { setPrincipalOrReject } from '../middleware/require-auth.js';
 import { storeCollectionName } from '../principal.js';
 import type { ServerBindings } from '../server-bindings.js';
