@@ -1,12 +1,77 @@
-# Example conversations
+# Example conversations and first attempts
 
-These illustrations pair an articulation of the model with a concrete
-expression: prose to read, caller code, a conversation a skill could produce,
-or a rendered website. The articulation explains the proposed meaning or
-arrangement; the expression lets the user judge the choices made in realizing
-it. They are not measured runs or records of the user's preferences. Reactions
-may change either or both. The examples teach judgment, not a fixed sequence,
-number of versions, or response format.
+These invented samples pair an articulation of the model with something the
+person can judge: a timeline, an interaction sketch, prose to read, caller
+code, a conversation a skill could produce, or a rendered website. They are
+not measured runs or records of the user's preferences. The first two keep the
+same system but change the question, showing why a timeline helps one judgment
+and a product sketch helps another. The longer exchanges move to other domains
+and show how a reaction can change the model and its expression. They teach
+judgment, not a fixed sequence, number of versions, or response format.
+
+## First attempt: make a sequence visible
+
+> **Human:** Alice signs out, Bob signs in on the same computer, then Alice
+> returns offline. What should happen to her unsent mail change?
+>
+> **Agent:** Here is the experience I think we are trying to preserve. The
+> question mark is a product choice, not a missing implementation detail.
+>
+> | Moment | What the person sees | Work still on this computer |
+> | --- | --- | --- |
+> | Alice archives offline | The email leaves her inbox; delivery says waiting | Alice's pending archive |
+> | Bob opens his workspace | None of Alice's mail or pending work appears | Alice's archive remains retained |
+> | Alice returns offline | Can she reopen her retained work? **?** | The archive still has not reached Gmail |
+>
+> I would keep Bob's view separate and preserve Alice's action. The unsettled
+> choice is what sign-out means for reopening Alice's retained work. Should
+> it require an online sign-in, or can she return offline?
+
+The table separates visibility, retention, and delivery. It makes the
+experience available for correction before introducing an access mechanism or
+surveying the current account system.
+
+## First attempt: compare the product people would use
+
+> **Human:** Should Mail and a unified communications inbox be separate apps?
+>
+> **Agent:** Here is the same offline mail task in three arrangements. These
+> are interface sketches, not current screens or storage designs.
+>
+> ```text
+> A. Two products, two windows
+> ┌─ Local Mail ─────────────┐  ┌─ Unified inbox ───────────┐
+> │ Gmail · Inbox            │  │ All | Mail | Chats         │
+> │ Budget update            │  │ Budget update · waiting   │
+> │ Archived · waiting       │  │ Chat from Maya            │
+> └──────────────────────────┘  │ Ask across mail and chat   │
+>                               └───────────────────────────┘
+>
+> B. One product, one window
+> ┌─ Communications ────────────────────────────────────────┐
+> │ All | Mail | Chats                   Ask across both     │
+> │ Mail: Budget update · Archived · waiting               │
+> │ Chat: Maya                                              │
+> └──────────────────────────────────────────────────────────┘
+>
+> C. One product, two windows
+> ┌─ Communications: Mail ──┐  ┌─ Communications: All ─────┐
+> │ Budget update           │  │ Budget update · waiting   │
+> │ Archived · waiting      │  │ Chat from Maya            │
+> └─────────────────────────┘  │ Ask across mail and chat   │
+>                              └───────────────────────────┘
+> ```
+>
+> The third arrangement separates product identity from window count. I would
+> start there if focused Mail and the combined inbox both need to stay open.
+> When you launch Mail while the combined inbox is open, do you expect a
+> focused second window, or should it switch the existing window to Mail?
+
+The sketches let the person judge navigation and simultaneous use, which the
+previous action-propagation arrows could not. The repeated “waiting” status is
+a proposed experience, not a claim that the current apps share a live store.
+If the user questions whether both windows update at once, the next attempt
+should show that timing separately rather than assume it from the layout.
 
 ## Writing: a correction can leave several directions open
 
