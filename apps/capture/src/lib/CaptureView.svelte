@@ -48,13 +48,14 @@
   function add(event: SubmitEvent) {
     event.preventDefault();
     try {
-      if (selected) createThought(data, selected.id, draft);
-      else {
+      if (selected) {
+        createThought(data, selected.id, draft);
+        setDraft('');
+      } else {
         const id = createCapture(data, draft).id;
         setDraft('');
         open(id);
       }
-      setDraft('');
       error = '';
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Could not save this writing.';
@@ -248,8 +249,7 @@
     <div aria-label="Thoughts">
       {#each selectedThoughts as thought, index (thought.id)}
         <ThoughtItem {store} {thought} captures={view.captures}
-          canMoveUp={index > 0} canMoveDown={index < selectedThoughts.length - 1}
-          onError={(message) => error = message} />
+          canMoveUp={index > 0} canMoveDown={index < selectedThoughts.length - 1} />
       {/each}
     </div>
   {:else}
@@ -268,7 +268,7 @@
         <h2 class="text-lg font-medium">Thoughts needing a capture</h2>
         <p class="mt-1 text-sm text-muted-foreground">Their capture is unavailable. You can edit, copy, move, or delete each thought.</p>
         {#each view.recovery as thought (thought.id)}
-          <ThoughtItem {store} {thought} captures={view.captures} onError={(message) => error = message} />
+          <ThoughtItem {store} {thought} captures={view.captures} />
         {/each}
       </section>
     {/if}

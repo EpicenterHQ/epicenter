@@ -294,6 +294,9 @@ try {
 				) as HTMLElement
 			)?.innerText === 'Owning the outcome, edited independently',
 	);
+	await first.getByLabel('Thoughts').locator('article').first().getByRole('button', { name: 'Thought actions' }).click();
+	await first.getByRole('menuitem', { name: 'Copy text' }).click();
+	assert.equal(await first.evaluate(() => navigator.clipboard.readText()), 'Owning the outcome, edited independently');
 
 	await second.getByRole('button', { name: 'Capture', exact: true }).click();
 	await second.getByLabel('Add a capture').fill('Second capture');
@@ -484,9 +487,18 @@ try {
 	await first.waitForFunction(
 		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Peer Second capture local',
 	);
+	await first.getByLabel('Add a thought').fill('Delete this thought only');
+	await first.getByRole('button', { name: 'Add thought' }).click();
+	await second.waitForFunction(() => document.querySelectorAll('[aria-label="Thoughts"] article').length === 4);
+	await first.getByLabel('Thoughts').locator('article').last().getByRole('button', { name: 'Thought actions' }).click();
+	await first.getByRole('menuitem', { name: 'Delete thought…' }).click();
+	await first.getByRole('region', { name: 'Delete thought preview' }).getByText('Delete this thought only').waitFor();
+	await first.getByRole('button', { name: 'Permanently delete thought' }).click();
+	await first.getByRole('status').getByText('Saved on this device').waitFor();
+	await second.waitForFunction(() => document.querySelectorAll('[aria-label="Thoughts"] article').length === 3);
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser proof passed: rich clipboard with multiline text, non-text paste, two replicas, local and peer-aware editor undo, ordering and concurrent reorder, independent edits, moves, refreshed deletion, offline survival, and recovery.',
+		'Capture browser proof passed: rich clipboard with multiline text, non-text paste, two replicas, local and peer-aware editor undo, ordering and concurrent reorder, independent edits, thought copy and deletion, moves, refreshed capture deletion, offline survival, and recovery.',
 	);
 } catch (cause) {
 	console.error(cause);

@@ -3,26 +3,28 @@
   import { Button } from '@epicenter/ui/button';
   import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
   import { toast } from '@epicenter/ui/sonner';
+  import { fromData } from '@epicenter/svelte';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import type { openCapture } from './open.js';
   import TextEditor from './TextEditor.svelte';
 
-  let { store, thought, captures, canMoveUp = false, canMoveDown = false, onError }: {
+  let { store, thought, captures, canMoveUp = false, canMoveDown = false }: {
     store: Awaited<ReturnType<typeof openCapture>>;
     thought: Thought;
     captures: readonly Capture[];
     canMoveUp?: boolean;
     canMoveDown?: boolean;
-    onError: (message: string) => void;
   } = $props();
-  // A keyed item is mounted for one thought and one captured store.
+  // The parent mounts this item for one store; its body can arrive after its row.
   // svelte-ignore state_referenced_locally
-  const body = store.tables.thoughts.body(thought.id);
+  const data = fromData(store);
+  const body = $derived(data.tables.thoughts.body(thought.id));
   const inRecovery = $derived(!captures.some((capture) => capture.id === thought.captureId));
   let destinations = $state<{ id: string; preview: string; capturedAt: string }[]>([]);
   let confirming = $state(false);
   let reviewedText = $state('');
   let deleting = $state(false);
+  let error = $state('');
 
   function refreshDestinations() {
     destinations = captures.filter((capture) => capture.id !== thought.captureId).map((capture) => ({
@@ -34,34 +36,35 @@
   function move(captureId: string) {
     try {
       moveThought(store, thought.id, captureId);
-      onError('');
+      error = '';
     } catch (cause) {
-      onError(cause instanceof Error ? cause.message : 'Could not move this thought.');
+      error = cause instanceof Error ? cause.message : 'Could not move this thought.';
     }
   }
   function reorder(direction: -1 | 1) {
-    try { reorderThought(store, thought.id, direction); onError(''); }
-    catch (cause) { onError(cause instanceof Error ? cause.message : 'Could not reorder this thought.'); }
+    try { reorderThought(store, thought.id, direction); error = ''; }
+    catch (cause) { error = cause instanceof Error ? cause.message : 'Could not reorder this thought.'; }
   }
   async function copy() {
+    if (!body) return;
     try {
-      await navigator.clipboard.writeText(body?.toString() ?? '');
+      await navigator.clipboard.writeText(body.toString());
       toast.success('Thought copied');
-      onError('');
+      error = '';
     } catch {
-      onError('Could not copy this thought. You can select its text and copy it.');
+      error = 'Could not copy this thought. You can select its text and copy it.';
     }
   }
   async function remove() {
-    if (deleting) return;
+    if (!body || deleting) return;
     deleting = true;
     try {
       await deleteConfirmedThought(store, thought.id, reviewedText);
       confirming = false;
-      onError('');
+      error = '';
     } catch (cause) {
-      onError(cause instanceof Error ? cause.message : 'Could not delete this thought.');
-      reviewedText = body?.toString() ?? '';
+      error = cause instanceof Error ? cause.message : 'Could not delete this thought.';
+      reviewedText = body.toString();
     } finally { deleting = false; }
   }
 </script>
@@ -69,7 +72,7 @@
 <article class="border-b border-border py-3">
   <div class="flex items-start gap-2">
     {#if body}
-      <div class="min-w-0 flex-1"><TextEditor {body} compact label="Thought text" /></div>
+      <div class="min-w-0 flex-1">{#key body}<TextEditor {body} compact label="Thought text" />{/key}</div>
     {:else}
       <p role="alert" class="min-w-0 flex-1 py-2">This thought cannot be read yet.</p>
     {/if}
@@ -87,7 +90,7 @@
           <DropdownMenu.Item disabled={!canMoveDown} onclick={() => reorder(1)}>Move down</DropdownMenu.Item>
           <DropdownMenu.Separator />
         {/if}
-        <DropdownMenu.Item onclick={copy}>Copy text</DropdownMenu.Item>
+        <DropdownMenu.Item disabled={!body} onclick={copy}>Copy text</DropdownMenu.Item>
         {#if destinations.length}
           <DropdownMenu.Sub>
             <DropdownMenu.SubTrigger>Move to capture</DropdownMenu.SubTrigger>
@@ -102,10 +105,11 @@
           </DropdownMenu.Sub>
         {/if}
         <DropdownMenu.Separator />
-        <DropdownMenu.Item variant="destructive" onclick={() => { reviewedText = body?.toString() ?? ''; confirming = true; }}>Delete thought…</DropdownMenu.Item>
+        <DropdownMenu.Item variant="destructive" disabled={!body} onclick={() => { reviewedText = body?.toString() ?? ''; confirming = true; }}>Delete thought…</DropdownMenu.Item>
       </DropdownMenu.Content>
     </DropdownMenu.Root>
   </div>
+  {#if error}<p role="alert" class="mt-2 text-sm text-destructive">{error}</p>{/if}
   {#if confirming}
     <section aria-label="Delete thought preview" class="mt-3 rounded border border-destructive p-3">
       <p>Permanently delete this thought?</p>
