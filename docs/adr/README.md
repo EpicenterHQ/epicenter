@@ -699,3 +699,4 @@ When you add an ADR, add its row here.
 | [0445](0445-vocab-keeps-one-current-session-on-device-and-syncs-saved-entries.md) | Vocab keeps one current session on device and syncs saved entries | Proposed |
 | [0446](0446-vocab-teaches-english-without-automatic-pronunciation-readings.md) | Vocab teaches English without automatic pronunciation readings | Proposed |
 | [0447](0447-the-bun-self-hosted-server-owns-one-data-root.md) | The Bun self-hosted server owns one data root | Proposed (amends 0066 at S3-only storage; Bun sync and local blobs unbuilt) |
+| [0448](0448-vocab-stages-are-four-learner-reported-abilities.md) | Vocab stages are four learner-reported abilities | Proposed (amends 0102 at stages) |

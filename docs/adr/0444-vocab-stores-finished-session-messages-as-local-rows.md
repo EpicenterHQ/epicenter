@@ -13,7 +13,7 @@ The current `@epicenter/chat` adapter puts one completed `AgentMessage` JSON val
 
 **Vocab persists each finished message as one row in its Local `chatHistoryDefinition`.** Each row carries the signed-in account key, the agent message id, and one complete message value. The session adapter presents only rows for the active account, ordered by the message timestamp, to the agent loop. The Local store owns the rows; the agent loop owns the live attempt.
 
-Sending writes the user message before generation. Clean completion writes the assistant message once. A failed or stopped answer writes no partial assistant message, leaving the user message for retry. Starting a new session or Practice deletes that account's current message rows in one local transaction after stopping the old loop. Rows for another account on the same device remain untouched.
+Sending writes the user message before generation. Clean completion writes the assistant message once. A failed or stopped answer writes no partial assistant message, leaving the user message for retry. Starting a new tutor exchange deletes that account's current message rows in one local transaction after stopping the old loop. Practice does not replace the tutor exchange. Rows for another account on the same device remain untouched.
 
 ## Consequences
 
