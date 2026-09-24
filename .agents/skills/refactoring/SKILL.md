@@ -10,7 +10,7 @@ metadata:
 
 Systematic approach to auditing and improving code. Every change is evidence-based: count callers, show diffs, commit surgically.
 
-> **Related Skills**: See `post-implementation-review` for the full second-read ritual after implementation. See `greenfield-clean-breaks` when the refactor changes public shape, ownership, naming, or lifecycle boundaries. See `control-flow` for linearizing conditionals and guard clauses. See `factory-function-composition` for the four-zone factory anatomy. See `method-shorthand-jsdoc` for when to use `this.method()` vs direct calls. See `code-prose` for the naming and comment pass over whatever the refactor leaves behind.
+> **Related Skills**: See `post-implementation-review` for the full second-read ritual after implementation. See `rethink` when the refactor changes public shape, ownership, naming, or lifecycle boundaries. See `control-flow` for linearizing conditionals and guard clauses. See `factory-function-composition` for the four-zone factory anatomy. See `method-shorthand-jsdoc` for when to use `this.method()` vs direct calls. See `code-prose` for the naming and comment pass over whatever the refactor leaves behind.
 
 Use [asymmetric-wins](../asymmetric-wins/SKILL.md) when a refactor is preserving
 a small promise that owns a large code family: legacy aliases, fallback parsers,

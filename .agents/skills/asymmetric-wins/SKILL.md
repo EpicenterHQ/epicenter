@@ -29,6 +29,13 @@ the workflow, safety, accessibility, and recognizable product feel. Refuse only
 the promise that was forcing a second system, and keep it when the evidence says
 the loss is load-bearing.
 
+Complexity is evidence, not a verdict. A feature can own a large code family and
+still be worth keeping when the capability it provides is load-bearing. Establish
+the valuable workflow before ranking deletion prizes. Compare each refusal on two
+axes: what the person loses and what machinery disappears. Treat a change to the
+product's purpose as a separate product decision, not as an ordinary
+simplification.
+
 ## Compose With
 
 - `one-sentence-test` detects the opportunity (the surface audit surfaces the
@@ -38,9 +45,10 @@ the loss is load-bearing.
   docs paths, and other code-family evidence before the refusal is executed.
 - `ui-design` owns visual direction, accessibility, brand, and whether a
   UI detail is load-bearing before pixel fidelity is refused.
-- `greenfield-clean-breaks` executes the resulting breaking change, wave ordering,
-  and old-path deletion.
-- `radical-options` links here instead of re-deriving the refusal move.
+- [Rethink's clean-break reference](../rethink/references/clean-breaks.md) guides
+  the resulting replacement, verification, and old-path deletion. Use
+  [rethink](../rethink/SKILL.md) when the refusal calls for developing a new
+  destination.
 
 ## Domain Manifestations
 
@@ -72,20 +80,24 @@ Architecture
 ## Procedure
 
 ```txt
-1. Name the product sentence that must remain true.
+1. Name the product sentence and the workflow that must remain true.
 2. List candidate refusal points: fast paths, old shapes, rare modes, provider
    exceptions, compatibility aliases, fallback parsers, exact reproduction,
    partial reflection, hand-reproduced UI structure.
-3. For each candidate, name the deletion prize: methods, adapters, unions,
-   error variants, tests, docs branches, UI states, styling branches, fixtures,
-   screenshots, migrations, local markup, custom CSS, diagram upkeep.
-4. Pick the candidate with the largest code family, not the most visible name.
-5. Ask who loses what if that behavior is refused.
-6. If the loss is a small convenience and the deletion removes a second shape,
-   refuse the behavior and write that refusal into the spec.
+3. For each candidate, name both the capability loss and the deletion prize:
+   methods, adapters, unions, error variants, tests, docs branches, UI states,
+   styling branches, fixtures, screenshots, migrations, local markup, custom CSS,
+   and diagram upkeep.
+4. Separate candidates that change the product's purpose from candidates that
+   remove a convenience within the same workflow.
+5. Prefer the smallest capability loss that removes the underlying second shape;
+   do not choose a larger product sacrifice merely because it deletes more code.
+6. If the loss is load-bearing, keep the feature and write down why its
+   complexity is worth owning. Otherwise, refuse the behavior when the deletion
+   removes a second shape and write that refusal into the spec.
 ```
 
-The rule is evidence-seeking, not dramatic: if the product sentence survives and
+The rule is evidence-seeking, not dramatic: if the valuable workflow survives and
 the code family disappears, refusal is the default recommendation. Keep the
 feature when the user loss is load-bearing or when the "deletion" would only move
 complexity somewhere harder to see.

@@ -39,10 +39,10 @@ A `/goal` that invokes this skill should be 5-10 lines. The skill carries the ri
 /goal Run a collapse pass on the store runtime.
 
   Load skill: collapse-pass.
-  Scope: packages/data, packages/svelte
+  Scope: packages/app, packages/svelte
   Stop condition: three consecutive no-finding files
   Citation: optional
-  Starting target: packages/data
+  Starting target: packages/app
 
   Begin.
 ```
