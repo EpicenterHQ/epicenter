@@ -1,4 +1,5 @@
 import { blobInputContentType, selectBlobFormat } from '@epicenter/blobs';
+import { InstantString } from '@epicenter/app/field';
 import { APIError } from 'openai';
 import {
 	type AnyTaggedError,
@@ -19,6 +20,11 @@ import {
 
 export type TranscriptionError = AnyTaggedError;
 export type { TranscriptionSuccess } from './transcription-history.js';
+type CapturedTranscription = ((
+	recordingId: RecordingId,
+) => Promise<Result<string, TranscriptionError>>) & {
+	selection?: ReturnType<typeof getInferenceTarget>;
+};
 
 const TranscriptionOperationError = defineErrors({
 	SelectionRequired: () => ({
@@ -54,8 +60,9 @@ export function resolveTranscriptionTarget(app: WhisperingApp) {
 export function captureTranscription(
 	app: WhisperingApp,
 	store: RecordingStore,
-) {
+): CapturedTranscription | null {
 	let usesAccount = false;
+	let capturedSelection: ReturnType<typeof getInferenceTarget> = null;
 	const prepared = trySync({
 		try: () => {
 			app.signal.throwIfAborted();
@@ -77,6 +84,7 @@ export function captureTranscription(
 			const promptReady = app.personalReady.then(promptFrom);
 			void promptReady.catch(() => {});
 			const selection = getInferenceTarget(local.kv, 'transcription');
+			capturedSelection = selection;
 			if (!selection) return Ok(null);
 			const capturedTarget = app.catalog.loading
 				? undefined
@@ -131,11 +139,11 @@ export function captureTranscription(
 	const target = prepared.error ? Err(prepared.error) : prepared.data;
 	if (target.error) {
 		const error = target.error;
-		return async () => Err(error);
+		return Object.assign(async () => Err(error), { selection: capturedSelection });
 	}
 	const selected = target.data;
 	if (selected === null) return null;
-	return async (
+	return Object.assign(async (
 		recordingId: RecordingId,
 	): Promise<Result<string, TranscriptionError>> => {
 		const result = await tryAsync({
@@ -168,7 +176,7 @@ export function captureTranscription(
 			},
 		});
 		return result.error ? Err(result.error) : result.data;
-	};
+	}, { selection: capturedSelection });
 }
 
 /** A deliberate transcription captures its selection when invoked. */
@@ -191,6 +199,7 @@ export async function transcribeAndPersist(
 	transcribe = captureTranscription(app, store),
 ): Promise<Result<TranscriptionSuccess, TranscriptionError>> {
 	const signal = app.signal;
+	const attemptedAt = InstantString.now();
 	if (transcribe === null)
 		return TranscriptionOperationError.SelectionRequired();
 	const reserved = trySync({
@@ -209,5 +218,7 @@ export async function transcribeAndPersist(
 		recordingId,
 		result,
 		reserved.data,
+		attemptedAt,
+		transcribe.selection ?? null,
 	);
 }

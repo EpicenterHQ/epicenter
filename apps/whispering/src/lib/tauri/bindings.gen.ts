@@ -19,9 +19,6 @@ export const commands = {
 	/**  Simulates pressing the Enter/Return key. */
 	simulateEnterKeystroke: () =>
 		typedError<null, string>(__TAURI_INVOKE('simulate_enter_keystroke')),
-	/**  Simulates the platform copy shortcut with layout-independent key codes. */
-	simulateCopyKeystroke: () =>
-		typedError<null, string>(__TAURI_INVOKE('simulate_copy_keystroke')),
 	enumerateRecordingDevices: () =>
 		typedError<string[], RecorderError>(
 			__TAURI_INVOKE('enumerate_recording_devices'),

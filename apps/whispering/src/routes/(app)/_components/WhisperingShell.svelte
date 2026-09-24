@@ -44,21 +44,27 @@
 
 	// Previous device-authored content stays downloadable before signing in.
 	// It never becomes a fallback for account reads or gets uploaded automatically.
-	const previousDeviceData = $derived({
-		dictionary: local.kv.get('dictionary'),
-		polishInstructions: local.kv.get('polishInstructions'),
-		transcriptionPrompt: local.kv.get('transcriptionPrompt'),
-		recipes: local.tables.recipes.rows.map(
-			({ id, name, instructions, icon }) => ({ id, name, instructions, icon }),
-		),
+	const previousDeviceData = $derived.by(() => {
+		const { dictionary, polishInstructions, transcriptionPrompt } =
+			local.stored().kv;
+		return {
+			dictionary:
+				Array.isArray(dictionary) &&
+				dictionary.every((term) => typeof term === 'string')
+					? dictionary
+					: null,
+			polishInstructions:
+				typeof polishInstructions === 'string' ? polishInstructions : null,
+			transcriptionPrompt:
+				typeof transcriptionPrompt === 'string' ? transcriptionPrompt : null,
+		};
 	});
 	const hasPreviousDeviceData = $derived(
 		(previousDeviceData.dictionary?.length ?? 0) > 0 ||
 			(Boolean(previousDeviceData.polishInstructions) &&
 				previousDeviceData.polishInstructions !==
 					PERSONAL_DEFAULTS.polishInstructions) ||
-			Boolean(previousDeviceData.transcriptionPrompt) ||
-			previousDeviceData.recipes.length > 0,
+			Boolean(previousDeviceData.transcriptionPrompt),
 	);
 
 	onDestroy(() => {
@@ -78,7 +84,7 @@
 		class="flex flex-wrap items-center justify-between gap-3 border-b p-3 text-sm"
 	>
 		<p>
-			Previous dictionary, instructions, or recipes are saved on this device.
+			Previous dictionary or instructions are saved on this device.
 			Download them before signing in or changing accounts, then copy what you
 			need into your account settings.
 		</p>

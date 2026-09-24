@@ -18,9 +18,4 @@ export const TextServiceLive: TextService = {
 		return Ok(undefined);
 	},
 
-	simulateCopyKeystroke: async () => {
-		const { error } = await commands.simulateCopyKeystroke();
-		if (error !== null) return TextError.SimulateKeystroke({ cause: error });
-		return Ok(undefined);
-	},
 };

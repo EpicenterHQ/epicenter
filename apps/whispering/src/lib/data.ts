@@ -27,8 +27,8 @@ import { APPS } from '@epicenter/constants/apps';
  * value in it. KV lives at a name-addressed root, where independent minting
  * converges (ADR-0216).
  *
- * **Transcripts stay in the row.** They are machine-produced, replaced
- * wholesale, and rendered in the recordings list, so nothing about them wants
+ * **Transcripts stay in result rows.** They are machine-produced, written
+ * whole, and rendered in the recordings list, so nothing about them wants
  * per-character merging. That is the opposite of Honeycrisp's call for a node
  * (ADR-0207) and it is deliberate: a note is written by a person a character at
  * a time, a transcript arrives finished.
@@ -41,7 +41,6 @@ import { APPS } from '@epicenter/constants/apps';
 
 /** Runtime-minted structural row ids. */
 export type RecordingId = string;
-export type RecipeId = string;
 
 const recordingsTable = defineTable({
 	fields: {
@@ -50,38 +49,38 @@ const recordingsTable = defineTable({
 		title: field.string(),
 		recordedAt: field.instant(),
 		recordedAtZone: field.string(),
-		transcript: field.string(),
-		polishedTranscript: field.nullable(field.string()),
 		duration: field.nullable(field.number()),
-		/**
-		 * The transcription outcome, flattened into three columns.
-		 *
-		 * It was one nullable discriminated union, and a workspace cannot express an
-		 * inline object: `'{ status: ... }'` does not parse, and `'object|null'`
-		 * parses but validates nothing and makes the whole outcome one LWW value.
-		 * Three columns keep every field checked and let a failure's message merge
-		 * independently of its timestamp.
-		 */
-		transcriptionStatus: field.string(),
-		transcriptionCompletedAt: field.nullable(field.instant()),
-		transcriptionError: field.nullable(field.string()),
 	},
 	body: plainText(),
 });
 
-const recipesTable = defineTable({
+/** Each successful inference keeps its own Original and accepted Cleaned text. */
+const transcriptionsTable = defineTable({
 	fields: {
-		/**
-		 * No `sourceId`. It existed because the old store let an application choose
-		 * a row id and a recipe needed a portable one; the store now refuses chosen
-		 * ids by construction (ADR-0206), so a user recipe's identity IS its minted
-		 * row id. Built-in recipes keep their `builtin:` ids and remain non-rows.
-		 */
-		name: field.string(),
-		instructions: field.string(),
-		icon: field.nullable(field.string()),
+		recordingId: field.string(),
+		attemptedAt: field.instant(),
+		completedAt: field.instant(),
+		rawText: field.string(),
+		cleanedText: field.nullable(field.string()),
+		connectionId: field.nullable(field.string()),
+		model: field.nullable(field.string()),
+		/** Marks the single result copied from an older recording-wide transcript. */
+		legacyRecordingId: field.nullable(field.string()),
 	},
 	body: plainText(),
+});
+
+/** Local handoff receipts survive a lost acknowledgement or a page reload. */
+const capturePromotionsTable = defineTable({
+	fields: {
+		resultId: field.string(),
+		requestId: field.string(),
+		authorityId: field.string(),
+		principalId: field.string(),
+		text: field.string(),
+		capturedAt: field.instant(),
+		captureId: field.nullable(field.string()),
+	},
 });
 
 /**
@@ -111,14 +110,10 @@ const settingsKv = {
 	soundVadCapture: field.boolean(),
 	soundVadStop: field.boolean(),
 	soundTranscriptionComplete: field.boolean(),
-	soundRecipeComplete: field.boolean(),
 
 	outputTranscriptionClipboard: field.boolean(),
 	outputTranscriptionCursor: field.boolean(),
 	outputTranscriptionEnter: field.boolean(),
-	outputRecipeClipboard: field.boolean(),
-	outputRecipeCursor: field.boolean(),
-	outputRecipeEnter: field.boolean(),
 
 	recordingTrigger: field.select(['vad', 'manual']),
 	recordingPausePlayback: field.boolean(),
@@ -134,14 +129,11 @@ const settingsKv = {
 	 * a two-to-eight-member union is worth checking at the storage boundary.
 	 */
 	transcriptionLanguage: field.string(),
-	transcriptionPrompt: field.string(),
 
 	completionConnection: field.nullable(field.string()),
 	completionModel: field.string(),
 
-	dictionary: field.nullable(field.tags()),
 	polishEnabled: field.boolean(),
-	polishInstructions: field.string(),
 	analyticsEnabled: field.boolean(),
 
 	shortcutPushToTalkModifiers: shortcut.modifiers,
@@ -152,12 +144,14 @@ const settingsKv = {
 	shortcutCancelRecordingKeys: field.nullable(field.tags()),
 	shortcutToggleVadRecordingModifiers: shortcut.modifiers,
 	shortcutToggleVadRecordingKeys: field.nullable(field.tags()),
-	shortcutOpenRecipePickerModifiers: shortcut.modifiers,
-	shortcutOpenRecipePickerKeys: field.nullable(field.tags()),
-	shortcutRunRecipeOnClipboardModifiers: shortcut.modifiers,
-	shortcutRunRecipeOnClipboardKeys: field.nullable(field.tags()),
 	shortcutOpenSettingsModifiers: shortcut.modifiers,
 	shortcutOpenSettingsKeys: field.nullable(field.tags()),
+} as const;
+
+const speechProfileKv = {
+	dictionary: field.nullable(field.tags()),
+	transcriptionPrompt: field.string(),
+	polishInstructions: field.string(),
 } as const;
 
 export const whisperingDefinition = defineStore({
@@ -166,19 +160,25 @@ export const whisperingDefinition = defineStore({
 	kv: settingsKv,
 	tables: {
 		recordings: recordingsTable,
-		recipes: recipesTable,
+		transcriptions: transcriptionsTable,
+		capturePromotions: capturePromotionsTable,
 	},
+});
+
+/** Account-bound vocabulary and instructions, without a recording table. */
+export const speechProfileDefinition = defineStore({
+	id: 'so.epicenter.whispering.speech',
+	title: 'Whispering speech profile',
+	kv: speechProfileKv,
+	tables: {},
 });
 
 /** The typed view of one store through Whispering's workspace. */
 export type WhisperingData = DeclaredData<typeof whisperingDefinition>;
 
 export type Recording = RowOf<typeof recordingsTable>;
-/** The recipe values the picker and editor read. */
-export type Recipe = Pick<
-	RowOf<typeof recipesTable>,
-	'id' | 'name' | 'instructions' | 'icon'
->;
+export type Transcription = RowOf<typeof transcriptionsTable>;
+export type CapturePromotion = RowOf<typeof capturePromotionsTable>;
 /**
  * The settings values an application composes after a read.
  *
@@ -186,6 +186,7 @@ export type Recipe = Pick<
  * (a record of descriptors) wearing the name of the values.
  */
 export type WhisperingSettingValues = KvOf<typeof whisperingDefinition>;
+export type SpeechProfileSettingValues = KvOf<typeof speechProfileDefinition>;
 
 /**
  * Default shortcuts, applied by the app rather than declared in the definition.
@@ -200,7 +201,5 @@ export const DEFAULT_SHORTCUT_KEYS = {
 	toggleManualRecording: ['space'],
 	cancelRecording: ['keyC'],
 	toggleVadRecording: ['keyV'],
-	openRecipePicker: ['keyT'],
-	runRecipeOnClipboard: ['keyR'],
 	openSettings: ['comma'],
 } as const;

@@ -219,7 +219,7 @@
 			<div class="flex items-center text-white/80">
 				<Spinner class="size-4 text-white/80" />
 			</div>
-			<span class="min-w-0 truncate text-[13px] font-medium">Polishing…</span>
+			<span class="min-w-0 truncate text-[13px] font-medium">Cleaning…</span>
 			<button
 				type="button"
 				class={cn(actionBase, 'hover:bg-[#faa2ca]/20 hover:text-[#ffd2e4]')}

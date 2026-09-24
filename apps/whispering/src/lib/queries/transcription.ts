@@ -1,18 +1,27 @@
 import { defineKeys } from 'wellcrafted/query';
 import { Ok, partitionResults } from 'wellcrafted/result';
-import { transcribeAndPersist } from '$lib/operations/transcribe';
+import { transcribeAndPersist } from '../operations/transcribe.js';
+import { prepareCleanup } from '../operations/process-cleanup.js';
 import type { WhisperingQueryRuntime } from '$lib/queries/client';
 import type { WhisperingApp } from '$lib/whispering/app';
 import type { Recording } from '../data.js';
 import type { RecordingStore } from '../whispering/app.js';
 
-function retry(
+async function retry(
 	app: WhisperingApp,
 	store: RecordingStore,
 	recording: Recording,
 ) {
 	if (!app.recordingEnabled) throw new Error('Whispering is closing.');
-	return transcribeAndPersist(app, store, recording.id);
+	const transcription = await transcribeAndPersist(app, store, recording.id);
+	if (transcription.error || !app.recordingEnabled) return transcription;
+	const cleanup = prepareCleanup(app, store, transcription.data);
+	const cleaned = await cleanup.run();
+	return Ok({
+		...transcription.data,
+		text: cleaned.text,
+		history: cleaned.history.error ? cleaned.history : transcription.data.history,
+	});
 }
 
 export const transcriptionKeys = defineKeys({

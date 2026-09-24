@@ -65,7 +65,7 @@ pub mod download;
 use download::{cancel_download, DownloadManager};
 
 mod delivery;
-use delivery::{simulate_copy_keystroke, simulate_enter_keystroke, write_text};
+use delivery::{simulate_enter_keystroke, write_text};
 
 mod keyring_storage;
 use keyring_storage::{
@@ -110,15 +110,17 @@ enum BuiltInApp {
     Home,
     Whispering,
     Honeycrisp,
+    Capture,
     Mail,
     Books,
 }
 
 impl BuiltInApp {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Home,
         Self::Whispering,
         Self::Honeycrisp,
+        Self::Capture,
         Self::Mail,
         Self::Books,
     ];
@@ -132,7 +134,7 @@ impl BuiltInApp {
     /// All stay reserved IDs the catalog refuses to admit, so "not launchable"
     /// never means "free for someone else to claim".
     const fn is_launchable(self) -> bool {
-        matches!(self, Self::Whispering | Self::Honeycrisp | Self::Mail)
+        matches!(self, Self::Whispering | Self::Honeycrisp | Self::Capture | Self::Mail)
     }
 
     const fn id(self) -> &'static str {
@@ -140,6 +142,7 @@ impl BuiltInApp {
             Self::Home => "home",
             Self::Whispering => "whispering",
             Self::Honeycrisp => "honeycrisp",
+            Self::Capture => "capture",
             Self::Mail => "mail",
             Self::Books => "books",
         }
@@ -150,6 +153,7 @@ impl BuiltInApp {
             Self::Home => "/apps/home/",
             Self::Whispering => "/apps/whispering/",
             Self::Honeycrisp => "/apps/honeycrisp/",
+            Self::Capture => "/apps/capture/",
             Self::Mail => "/apps/mail/",
             Self::Books => "/apps/books/",
         }
@@ -160,6 +164,7 @@ impl BuiltInApp {
             Self::Home => "Epicenter: Home",
             Self::Whispering => "Epicenter: Whispering",
             Self::Honeycrisp => "Epicenter: Honeycrisp",
+            Self::Capture => "Epicenter: Capture",
             Self::Mail => "Epicenter: Mail",
             Self::Books => "Epicenter: Books",
         }
@@ -404,7 +409,6 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .commands(tauri_specta::collect_commands![
             write_text,
             simulate_enter_keystroke,
-            simulate_copy_keystroke,
             enumerate_recording_devices,
             start_recording,
             stop_recording,
@@ -599,7 +603,23 @@ fn launch_application(
     };
     let port = state.port().map_err(|error| format!("{error:#}"))?;
 
-    launch_on_main_thread(&app, application, port, &token).map_err(|error| format!("{error:#}"))
+    launch_on_main_thread(&app, application, port, &token, true).map_err(|error| format!("{error:#}"))
+}
+
+/// Whispering may prepare Capture in the background or reveal it after an
+/// acknowledged promotion. The command cannot launch another application.
+#[tauri::command(async)]
+fn set_capture_window_visible(
+    app: DesktopAppHandle,
+    state: State<'_, HostState>,
+    reveal: bool,
+) -> std::result::Result<(), String> {
+    let Some(token) = state.active_token() else {
+        return Err("the Epicenter host is not ready".to_string());
+    };
+    let port = state.port().map_err(|error| format!("{error:#}"))?;
+    launch_on_main_thread(&app, Application::Compiled(BuiltInApp::Capture), port, &token, reveal)
+        .map_err(|error| format!("{error:#}"))
 }
 
 /// Create or reveal the window on the main thread and report what happened.
@@ -613,6 +633,7 @@ fn launch_on_main_thread(
     application: Application,
     port: u16,
     token: &str,
+    reveal: bool,
 ) -> Result<()> {
     let (sender, receiver) = mpsc::sync_channel(1);
     let window_app = app.clone();
@@ -621,7 +642,7 @@ fn launch_on_main_thread(
         let result = if window_app.state::<HostState>().token_is_active(&token) {
             match application {
                 Application::Compiled(built_in) => {
-                    ensure_window(&window_app, built_in, port, &token, true)
+                    ensure_window(&window_app, built_in, port, &token, reveal)
                 }
                 Application::Admitted(id) => ensure_app_window(&window_app, &id, port, &token),
             }
@@ -742,7 +763,7 @@ pub fn run() {
     let port = configured_port();
     let specta_builder = make_specta_builder();
     let specta_handler = tauri_specta::Builder::invoke_handler(&specta_builder);
-    let native_handler = tauri::generate_handler![encode_recording_for_upload, launch_application]
+    let native_handler = tauri::generate_handler![encode_recording_for_upload, launch_application, set_capture_window_visible]
         as fn(tauri::ipc::Invoke<tauri::Wry>) -> bool;
     let log_plugin = tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Info)
@@ -790,7 +811,7 @@ pub fn run() {
         .invoke_handler(move |invoke| {
             if matches!(
                 invoke.message.command(),
-                "encode_recording_for_upload" | "launch_application"
+                "encode_recording_for_upload" | "launch_application" | "set_capture_window_visible"
             ) {
                 native_handler(invoke)
             } else {
@@ -2152,6 +2173,7 @@ mod tests {
                 ("home", "/apps/home/", "Epicenter: Home"),
                 ("whispering", "/apps/whispering/", "Epicenter: Whispering"),
                 ("honeycrisp", "/apps/honeycrisp/", "Epicenter: Honeycrisp"),
+                ("capture", "/apps/capture/", "Epicenter: Capture"),
                 ("mail", "/apps/mail/", "Epicenter: Mail"),
                 ("books", "/apps/books/", "Epicenter: Books"),
             ]
@@ -2169,7 +2191,7 @@ mod tests {
             .filter(|window| window.is_launchable())
             .map(BuiltInApp::id)
             .collect();
-        assert_eq!(launchable, ["whispering", "honeycrisp", "mail"]);
+        assert_eq!(launchable, ["whispering", "honeycrisp", "capture", "mail"]);
     }
 
     #[test]
@@ -2181,6 +2203,10 @@ mod tests {
         assert!(matches!(
             parse_application_id("honeycrisp"),
             Some(Application::Compiled(BuiltInApp::Honeycrisp))
+        ));
+        assert!(matches!(
+            parse_application_id("capture"),
+            Some(Application::Compiled(BuiltInApp::Capture))
         ));
         assert!(matches!(
             parse_application_id("mail"),
@@ -2431,7 +2457,7 @@ mod tests {
     /// (raw bytes) or are host-owned rather than part of the app contract.
     #[test]
     fn generated_bindings_cover_every_declared_command() {
-        const HANDWRITTEN: &[&str] = &["encode_recording_for_upload", "launch_application"];
+        const HANDWRITTEN: &[&str] = &["encode_recording_for_upload", "launch_application", "set_capture_window_visible"];
         for bindings in [
             include_str!("../../../whispering/src/lib/tauri/bindings.gen.ts"),
             include_str!("../../src/ui/bindings.gen.ts"),
@@ -2788,6 +2814,7 @@ mod tests {
             ("epicenter://app/home", BuiltInApp::Home),
             ("epicenter://app/whispering", BuiltInApp::Whispering),
             ("epicenter://app/honeycrisp", BuiltInApp::Honeycrisp),
+            ("epicenter://app/capture", BuiltInApp::Capture),
             ("epicenter://app/mail", BuiltInApp::Mail),
             ("epicenter://app/books", BuiltInApp::Books),
         ] {

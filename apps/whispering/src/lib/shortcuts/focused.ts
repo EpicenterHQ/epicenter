@@ -57,14 +57,6 @@ const SHORTCUT_KEYS = {
 		modifiers: 'shortcutToggleVadRecordingModifiers',
 		keys: 'shortcutToggleVadRecordingKeys',
 	},
-	openRecipePicker: {
-		modifiers: 'shortcutOpenRecipePickerModifiers',
-		keys: 'shortcutOpenRecipePickerKeys',
-	},
-	runRecipeOnClipboard: {
-		modifiers: 'shortcutRunRecipeOnClipboardModifiers',
-		keys: 'shortcutRunRecipeOnClipboardKeys',
-	},
 	openSettings: {
 		modifiers: 'shortcutOpenSettingsModifiers',
 		keys: 'shortcutOpenSettingsKeys',

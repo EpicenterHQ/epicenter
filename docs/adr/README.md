@@ -691,6 +691,9 @@ When you add an ADR, add its row here.
 | [0436](0436-stores-own-local-sqlite-namespaces.md) | Stores own local SQLite namespaces | Accepted (implemented; Local Mail starts fresh) |
 | [0437](0437-sign-out-offers-removal-of-downloaded-account-data.md) | Sign-out offers removal of downloaded account data | Proposed (unbuilt) |
 | [0438](0438-hosted-blobs-have-stable-authority-urls.md) | Hosted blobs have stable authority URLs | Proposed (Personal authority routes and Account client implemented; Shared and row citations unbuilt) |
+| [0439](0439-whispering-promotes-text-to-capture-instead-of-copying-recordings.md) | Whispering promotes text to Capture instead of copying recordings | Proposed (desktop handoff implemented; hosted browser handoff unbuilt) |
+| [0440](0440-whispering-cleans-transcriptions-and-does-not-own-general-text-actions.md) | Whispering cleans transcriptions and does not own general text actions | Proposed (amends 0099 at Polish and Recipes) |
+| [0441](0441-whispering-keeps-speech-evidence-local-and-syncs-only-its-speech-profile.md) | Whispering keeps speech evidence local and syncs only its speech profile | Proposed |
 | [0443](0443-body-file-codecs-return-sequence-content.md) | Body file codecs return sequence content | Proposed (browser checkout evidence unbuilt) |
 | [0444](0444-chat-stores-finished-messages-as-rows.md) | Chat stores finished messages as rows | Proposed |
 | [0445](0445-vocab-keeps-chat-on-the-device-and-syncs-saved-entries.md) | Vocab keeps chat on the device and syncs saved entries | Proposed |

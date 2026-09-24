@@ -15,11 +15,6 @@ export function newRecordingValues(value: NewRecording) {
 	return {
 		...value,
 		title: '',
-		transcript: '',
-		polishedTranscript: null,
-		transcriptionStatus: 'pending',
-		transcriptionCompletedAt: null,
-		transcriptionError: null,
 	};
 }
 

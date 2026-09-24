@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { local } from '$lib/whispering/local.js';
 	import { sortedRecordings } from '../../lib/whispering/recordings.js';
+	import { latestTranscription, transcriptionText } from '$lib/whispering/transcriptions.js';
 
 	import { getInferenceTarget } from '$lib/whispering/inference.js';
 	import { FileDropZone } from '@epicenter/ui/file-drop-zone';
@@ -263,8 +264,7 @@
 	{#if latestRecording}
 		<RecordingResult
 			recordingId={latestRecording.id}
-			transcript={latestRecording.polishedTranscript ??
-				latestRecording.transcript}
+			transcript={transcriptionText(latestTranscription(local, latestRecording.id))}
 			rows={1}
 			onDelete={() => {
 				deleteRecordingsWithConfirmation(local, latestRecording);

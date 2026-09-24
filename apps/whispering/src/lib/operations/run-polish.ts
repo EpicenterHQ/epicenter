@@ -56,8 +56,8 @@ export function polishWillRun(app: WhisperingApp, input: string): boolean {
  * because shipping the raw transcript was the user's explicit intent.
  *
  * Pure execution: no workspace writes, no toasts. The pipeline owns delivery and
- * keeps the raw transcript on `recordings.transcript` underneath the polished
- * text. On a genuine AI failure the raw input rides along in the error so
+ * keeps the Original in the result row alongside Cleaned text. On a genuine AI
+ * failure the raw input rides along in the error so
  * delivery can still proceed.
  */
 export async function runPolish(

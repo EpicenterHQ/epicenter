@@ -4,7 +4,7 @@
   <p align="center">Press shortcut → speak → get text.</p>
 </p>
 
-Whispering is a free and open source speech-to-text app. It records speech, transcribes it with a provider you choose, optionally polishes the transcript, and delivers the text.
+Whispering is a free and open source speech-to-text app. It records speech, transcribes it with a provider you choose, optionally cleans the transcript, and delivers the text.
 
 There is one shipped build. Epicenter serves it under `/apps/whispering`, and every native capability comes from that host. Whispering does not own a native shell: Epicenter owns the only Tauri runtime, at `apps/epicenter/src-tauri`.
 
@@ -93,11 +93,15 @@ bun run --cwd apps/epicenter desktop:build
 Whispering transcribes through an explicitly selected connection and model. Deepgram, ElevenLabs, and Mistral’s separate provider adapters are not supported. Existing provider keys remain stored but are not read or imported; configure a supported connection in the intended account.
 
 Capture and import always save bytes and a recording in Local. The reactive
-`local` module is initialized once by admitted boot. Personal opens independently
-for the captured Account; its provider supplies a non-null context only when ready.
-Personal settings do not change where capture saves. Whispering currently keeps
-recordings and audio Local; the retired Personal recording view and copy action
-are unavailable. Row deletion keeps audio bytes; it is not an erasure operation.
+`local` module is initialized once by admitted boot. The separate Personal
+speech profile opens for the captured Account; its provider supplies a non-null
+context only when ready. The profile holds known terms and speech instructions,
+while recordings, audio, results, and device settings stay Local. Recording
+detail can select any successful result. In the Epicenter desktop app, a person
+can add its Original or Cleaned text to Capture without moving the recording or
+revealing Capture. The browser build has no background promotion transport, so
+it does not offer that action. Row deletion keeps audio bytes; it is not an
+erasure operation.
 
 Success requires local durable row persistence. Partial saves and transcript
 writes retain page-lifetime Finish saving actions across route changes without

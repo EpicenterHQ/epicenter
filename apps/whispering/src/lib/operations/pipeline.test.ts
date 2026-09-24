@@ -41,29 +41,34 @@ const reportError = mock();
 const rejectLoading = mock();
 let historyError: { name: string; message: string } | null = null;
 let polishedHistoryError: { name: string; message: string } | null = null;
-const saveRecordingHistory = mock(() =>
+const saveCleanedTranscription = mock((..._args: unknown[]) =>
 	polishedHistoryError === null ? Ok(undefined) : Err(polishedHistoryError),
 );
 
 mock.module('$lib/operations/delivery', () => ({
 	deliverTranscriptionResult,
 }));
-mock.module('$lib/operations/run-polish', () => ({
-	polishWillRun: () => willPolish,
-	runPolish: async (
-		_app: WhisperingApp,
-		{
-			input,
-			signal,
-		}: {
-			input: string;
-			signal?: AbortSignal;
+mock.module('$lib/operations/process-cleanup', () => ({
+	prepareCleanup: (
+		owner: WhisperingApp,
+		store: unknown,
+		{ text, resultId }: { text: string; resultId: string | null },
+	) => ({
+		willRun: willPolish,
+		run: async (signal?: AbortSignal) => {
+			if (!willPolish)
+				return { text, history: Ok(undefined), cleanupError: null };
+			polishSignals.push(signal);
+			await finishPolish?.();
+			if (owner.signal.aborted)
+				return { text, history: Ok(undefined), cleanupError: null };
+			const history = await saveCleanedTranscription(
+				owner, store, resultId, { rawText: text, cleanedText: null },
+				'polished transcript', {},
+			);
+			return { text: 'polished transcript', history, cleanupError: null };
 		},
-	) => {
-		polishSignals.push(signal);
-		await finishPolish?.();
-		return Ok(willPolish ? 'polished transcript' : input);
-	},
+	}),
 }));
 mock.module('$lib/operations/sound', () => ({
 	playSoundIfEnabled: mock(async () => Ok(undefined)),
@@ -81,12 +86,13 @@ mock.module('$lib/operations/transcribe', () => ({
 			? Err(transcriptionError)
 			: Ok({
 					text: 'transcript',
+					resultId: 'result',
 					history: historyError === null ? Ok(undefined) : Err(historyError),
 				});
 	},
 }));
 mock.module('$lib/operations/transcription-history', () => ({
-	saveRecordingHistory,
+	saveCleanedTranscription,
 }));
 mock.module('$lib/report', () => ({
 	log: { warn: mock() },
@@ -200,13 +206,12 @@ test('A inference finishes into its row while B retains current feedback', async
 	expect(attemptB()).toBe(true);
 	expect(dictationLifecycle.outcome.kind).toBe('none');
 	expect(persistedTranscriptions).toContain(recording.id);
-	expect(saveRecordingHistory).toHaveBeenLastCalledWith(
+	expect(saveCleanedTranscription).toHaveBeenLastCalledWith(
 		app,
 		app.local,
-		recording.id,
-		{
-			polishedTranscript: 'polished transcript',
-		},
+		'result',
+		{ rawText: 'transcript', cleanedText: null },
+		'polished transcript',
 		expect.any(Object),
 	);
 	expect(deliverTranscriptionResult).toHaveBeenLastCalledWith(app, {
@@ -292,7 +297,7 @@ test('retirement during Polish suppresses late history and delivery', async () =
 		entered.resolve();
 		return released.promise;
 	};
-	const writesBefore = saveRecordingHistory.mock.calls.length;
+	const writesBefore = saveCleanedTranscription.mock.calls.length;
 	const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
 	const processing = processRecordingPipeline(app, {
 		transcribe: async () => Ok('captured transcription'),
@@ -302,7 +307,7 @@ test('retirement during Polish suppresses late history and delivery', async () =
 	lifetime.abort();
 	released.resolve();
 	await processing;
-	expect(saveRecordingHistory).toHaveBeenCalledTimes(writesBefore);
+	expect(saveCleanedTranscription).toHaveBeenCalledTimes(writesBefore);
 	expect(deliverTranscriptionResult).toHaveBeenCalledTimes(deliveriesBefore);
 });
 
@@ -414,13 +419,12 @@ test('polished history success does not hide an earlier raw history error', asyn
 		deliverySource: 'recording',
 	});
 
-	expect(saveRecordingHistory).toHaveBeenLastCalledWith(
+	expect(saveCleanedTranscription).toHaveBeenLastCalledWith(
 		app,
 		app.local,
-		recording.id,
-		{
-			polishedTranscript: 'polished transcript',
-		},
+		'result',
+		{ rawText: 'transcript', cleanedText: null },
+		'polished transcript',
 		expect.any(Object),
 	);
 	expect(reportInfo).toHaveBeenCalledTimes(noticesBefore + 1);

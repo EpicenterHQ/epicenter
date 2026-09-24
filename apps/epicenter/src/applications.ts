@@ -47,6 +47,11 @@ export const HONEYCRISP_APPLICATION: Application = {
 	title: BUILT_IN_ROUTES.honeycrisp.title,
 };
 
+export const CAPTURE_APPLICATION: Application = {
+	id: BUILT_IN_ROUTES.capture.id,
+	title: BUILT_IN_ROUTES.capture.title,
+};
+
 export const MAIL_APPLICATION: Application = {
 	id: BUILT_IN_ROUTES.mail.id,
 	title: BUILT_IN_ROUTES.mail.title,
@@ -62,6 +67,7 @@ export const MAIL_APPLICATION: Application = {
 export const COMPILED_APPLICATIONS: readonly Application[] = [
 	WHISPERING_APPLICATION,
 	HONEYCRISP_APPLICATION,
+	CAPTURE_APPLICATION,
 	MAIL_APPLICATION,
 ];
 
@@ -70,6 +76,7 @@ export const RESERVED_APPLICATION_IDS: readonly string[] = [
 	...Object.values(BUILT_IN_ROUTES).map((route) => route.id),
 	APPS.WHISPERING.id,
 	APPS.HONEYCRISP.id,
+	APPS.CAPTURE.id,
 	APPS.VOCAB.id,
 	'so.epicenter.local-mail',
 ];

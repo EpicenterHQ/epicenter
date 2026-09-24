@@ -13,9 +13,4 @@ export const TextServiceLive: TextService = {
 	async simulateEnterKeystroke() {
 		return TextError.NotSupported({ operation: 'Simulating the Enter key' });
 	},
-	async simulateCopyKeystroke() {
-		return TextError.NotSupported({
-			operation: 'Copying another application’s selection',
-		});
-	},
 };

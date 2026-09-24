@@ -24,12 +24,27 @@ test('ZIP export retains row descriptions and full audio keys under recordings.z
 		title: 'Planning: next release',
 		recordedAt: InstantString.fromDate(new Date('2026-09-17T11:33:09Z')),
 		recordedAtZone: 'Asia/Singapore',
-		transcript: 'First line.\nSecond line with **emphasis**.',
-		polishedTranscript: null,
 		duration: 4,
-		transcriptionStatus: 'complete',
-		transcriptionCompletedAt: null,
-		transcriptionError: null,
+	});
+	store.tables.transcriptions.create({
+		recordingId: row.id,
+		attemptedAt: row.recordedAt,
+		completedAt: row.recordedAt,
+		rawText: 'First line.\nSecond line with **emphasis**.',
+		cleanedText: 'First line. Second line with emphasis.',
+		connectionId: null,
+		model: null,
+		legacyRecordingId: null,
+	});
+	store.tables.transcriptions.create({
+		recordingId: row.id,
+		attemptedAt: InstantString.fromDate(new Date('2026-09-18T11:33:09Z')),
+		completedAt: InstantString.fromDate(new Date('2026-09-18T11:33:09Z')),
+		rawText: 'A later attempt.',
+		cleanedText: null,
+		connectionId: null,
+		model: null,
+		legacyRecordingId: null,
 	});
 	const downloaded: Array<{ name: string; blob: Blob }> = [];
 	const download = spyOn(
@@ -61,7 +76,11 @@ test('ZIP export retains row descriptions and full audio keys under recordings.z
 			audioBlobId,
 			recordedAtZone: 'Asia/Singapore',
 		});
-		expect(markdown.slice(separator + 5)).toBe(`${row.transcript}\n`);
+		const body = markdown.slice(separator + 5);
+		expect(body).toContain('A later attempt.');
+		expect(body).toContain('First line.\nSecond line with **emphasis**.');
+		expect(body).toContain('First line. Second line with emphasis.');
+		expect(body.indexOf('A later attempt.')).toBeLessThan(body.indexOf('First line.'));
 	} finally {
 		download.mockRestore();
 	}

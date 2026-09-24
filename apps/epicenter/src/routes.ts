@@ -36,6 +36,7 @@ export const BUILT_IN_ROUTES = {
 	home: builtInRoute('home', 'Home'),
 	whispering: builtInRoute('whispering', 'Whispering'),
 	honeycrisp: builtInRoute('honeycrisp', 'Honeycrisp'),
+	capture: builtInRoute('capture', 'Capture'),
 	mail: builtInRoute('mail', 'Mail'),
 	books: builtInRoute('books', 'Books'),
 } as const;
@@ -52,6 +53,7 @@ export const ACCOUNT_SIGN_OUT_ROUTE = route('/_epicenter/account/sign-out');
 export const HOME_ROUTE = BUILT_IN_ROUTES.home;
 export const WHISPERING_ROUTE = BUILT_IN_ROUTES.whispering;
 export const HONEYCRISP_ROUTE = BUILT_IN_ROUTES.honeycrisp;
+export const CAPTURE_ROUTE = BUILT_IN_ROUTES.capture;
 export const MAIL_ROUTE = BUILT_IN_ROUTES.mail;
 export const BOOKS_ROUTE = BUILT_IN_ROUTES.books;
 /** What Home lists as launchable (ADR-0189). */

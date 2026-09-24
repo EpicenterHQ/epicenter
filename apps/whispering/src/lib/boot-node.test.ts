@@ -47,7 +47,7 @@ describe('the callback opens nothing', () => {
 		const bootNode = join(routes, '(app)/+layout.svelte');
 		const source = await Bun.file(bootNode).text();
 		expect(source).toContain(
-			'openWhisperingResources(auth.getState().account, signal)',
+			'openWhisperingResources(account, signal)',
 		);
 		expect(source).toContain('<WhisperingShell ');
 		expect(source).not.toMatch(/openApplication|createDeparture|attachUi/);

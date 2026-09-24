@@ -9,9 +9,10 @@
 	},
 	"scripts": {
 		"build": "bun run scripts/with-build-lock.ts bun run build:apps",
-		"build:apps": "bun run clean:dist && bun run build:home && bun run build:whispering && bun run build:honeycrisp && bun run build:mail",
+		"build:apps": "bun run clean:dist && bun run build:home && bun run build:whispering && bun run build:honeycrisp && bun run build:capture && bun run build:mail",
 		"build:desktop": "bun run build && bun run build:sidecar",
 		"build:home": "vite build",
+		"build:capture": "bun run --cwd ../capture build:epicenter",
 		"build:honeycrisp": "bun run --cwd ../honeycrisp build:epicenter",
 		"build:mail": "bun run --cwd ../local-mail build:epicenter",
 		"build:sidecar": "bun run scripts/build-sidecar.ts",
@@ -25,7 +26,7 @@
 		"tauri": "tauri",
 		"test": "bun test",
 		"typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",
-		"typecheck:desktop": "bun run typecheck && bun run --cwd ../whispering typecheck && bun run --cwd ../honeycrisp typecheck"
+		"typecheck:desktop": "bun run typecheck && bun run --cwd ../whispering typecheck && bun run --cwd ../honeycrisp typecheck && bun run --cwd ../capture typecheck"
 	},
 	"dependencies": {
 		"openai": "^7.12.1",

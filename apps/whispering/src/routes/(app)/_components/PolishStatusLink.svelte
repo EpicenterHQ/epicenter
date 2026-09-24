@@ -16,7 +16,7 @@
 {#if status === 'needs-connection'}
 	<Link
 		href={resolve('/settings/processing')}
-		tooltip="Polish needs setup; transcripts currently ship raw"
+		tooltip="Cleanup needs setup; transcriptions currently use original text"
 		class="{triggerClass} text-muted-foreground hover:text-foreground"
 	>
 		<KeyRoundIcon class="size-4 text-warning" />
@@ -25,16 +25,16 @@
 {:else if status === 'on'}
 	<Link
 		href={resolve('/settings/dictation')}
-		tooltip="Polish is on"
+		tooltip="Cleanup is on"
 		class="{triggerClass} text-muted-foreground hover:text-foreground"
 	>
 		<SparklesIcon class="size-4 text-green-500" />
-		Polish on
+		Cleanup on
 	</Link>
 {:else}
 	<Link
 		href={resolve('/settings/dictation')}
-		tooltip="Polish is off"
+		tooltip="Cleanup is off"
 		class="{triggerClass} text-muted-foreground hover:text-foreground"
 	>
 		<SparklesIcon class="size-4" />

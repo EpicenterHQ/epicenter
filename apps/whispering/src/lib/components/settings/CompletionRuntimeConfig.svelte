@@ -26,7 +26,7 @@
 				})}
 		/>
 		<Field.Description>
-			Polish and Recipes use this selection. Connect a provider from the picker,
+			Cleanup uses this selection. Connect a provider from the picker,
 			then choose a model or enter its ID. Connections are shared across apps
 			for this account and profile. Browser sharing is limited to this origin.
 		</Field.Description>
@@ -39,8 +39,7 @@
 		<Alert.Root variant="warning">
 			<TriangleAlertIcon class="size-4" />
 			<Alert.Description>
-				Choose a text connection and model. Until then, transcripts ship raw and
-				Recipes cannot run.
+				Choose a text connection and model. Until then, transcripts ship raw.
 			</Alert.Description>
 		</Alert.Root>
 	{/if}

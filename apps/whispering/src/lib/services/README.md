@@ -97,7 +97,7 @@ to the Tauri namespace on desktop and `null` on web:
 import { tauri } from '#platform/tauri';
 
 if (tauri) {
-	await tauri.mainWindow.focus();
+	await tauri.mainWindow.reveal();
 }
 ```
 

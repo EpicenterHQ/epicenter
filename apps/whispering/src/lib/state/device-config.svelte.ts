@@ -39,8 +39,7 @@ const globalBinding = type({
 //
 // Cancel is the platform cancel chord (Cmd + . on macOS, the system cancel
 // gesture since classic Mac OS; Ctrl + Shift + . elsewhere); it carries a
-// modifier so it is safe to register globally. Recipe gestures ship
-// unbound: opt-in only. Exported so the reset path in platform/system-shortcuts.tauri.ts
+// modifier so it is safe to register globally. Exported so the reset path in platform/system-shortcuts.tauri.ts
 // shares this one source of truth.
 const TOGGLE_MODIFIERS: KeyBinding['modifiers'] = os.isApple
 	? ['meta', 'shift']
@@ -55,8 +54,6 @@ export const DEFAULT_GLOBAL_BINDINGS = {
 	toggleManualRecording: { modifiers: TOGGLE_MODIFIERS, keys: ['space'] },
 	cancelRecording: { modifiers: CANCEL_MODIFIERS, keys: ['dot'] },
 	toggleVadRecording: null,
-	openRecipePicker: null,
-	runRecipeOnClipboard: null,
 	// Focused-reach command (ADR-0052): its reach ceiling clamps any key to the
 	// in-app store, so the router never writes this global slot. It stays here only
 	// so the system backend's all-commands sync keeps one entry per command;
@@ -100,14 +97,6 @@ const DEVICE_DEFINITIONS = {
 	'shortcuts.global.toggleVadRecording': defineEntry(
 		globalBinding,
 		DEFAULT_GLOBAL_BINDINGS.toggleVadRecording,
-	),
-	'shortcuts.global.openRecipePicker': defineEntry(
-		globalBinding,
-		DEFAULT_GLOBAL_BINDINGS.openRecipePicker,
-	),
-	'shortcuts.global.runRecipeOnClipboard': defineEntry(
-		globalBinding,
-		DEFAULT_GLOBAL_BINDINGS.runRecipeOnClipboard,
 	),
 	// Always null: `openSettings` is focused-reach, so the router never routes a
 	// write here. Present only to keep one global slot per command for the system

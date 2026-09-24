@@ -5,7 +5,7 @@ catalog owns inference endpoints and credentials; the picker stores an exact
 connection and model choice for this application and captured account.
 
 `TranscriptionRuntimeConfig` configures the audio stage.
-`CompletionRuntimeConfig` configures Polish and Recipes.
+`CompletionRuntimeConfig` configures speech cleanup.
 Both use the shared inference picker. No provider API keys pass through
 `deviceConfig`.
 

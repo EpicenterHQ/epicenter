@@ -80,7 +80,7 @@
 		<Field.Set>
 			<Field.Legend variant="label">Completion Sounds</Field.Legend>
 			<Field.Description>
-				Configure sounds for transcription and recipe completion.
+				Configure sounds for transcription completion.
 			</Field.Description>
 			<Field.Group>
 				<SettingSwitch
@@ -89,13 +89,6 @@
 					onCheckedChange={(checked) =>
 						local.kv.update({ soundTranscriptionComplete: checked })}
 					label="Play sound after transcription"
-				/>
-				<SettingSwitch
-					checked={local.kv.get('soundRecipeComplete') ??
-						DEVICE_DEFAULTS.soundRecipeComplete}
-					onCheckedChange={(checked) =>
-						local.kv.update({ soundRecipeComplete: checked })}
-					label="Play sound after a recipe runs"
 				/>
 			</Field.Group>
 		</Field.Set>

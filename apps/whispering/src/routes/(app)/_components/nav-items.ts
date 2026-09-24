@@ -1,5 +1,4 @@
 import HomeIcon from '@lucide/svelte/icons/house';
-import LayersIcon from '@lucide/svelte/icons/layers';
 import ListIcon from '@lucide/svelte/icons/list';
 import SettingsIcon from '@lucide/svelte/icons/settings';
 import type { Component } from 'svelte';
@@ -34,12 +33,6 @@ export const NAV_ITEMS = [
 		href: resolve('/recordings'),
 		icon: ListIcon,
 		isActive: matchesRoute(resolve('/recordings')),
-	},
-	{
-		label: 'Recipes',
-		href: resolve('/recipes'),
-		icon: LayersIcon,
-		isActive: matchesRoute(resolve('/recipes')),
 	},
 	{
 		label: 'Settings',

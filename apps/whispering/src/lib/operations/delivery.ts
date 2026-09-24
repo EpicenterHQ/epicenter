@@ -20,45 +20,13 @@ export type {
 } from '$lib/operations/delivery-reach';
 
 /**
- * The output scopes Whispering delivers into. Each has its own
- * clipboard/cursor/enter toggles under `settings.output.<scope>.*`. Keeping the list in
- * one place lets delivery and the auto-paste intent derive from the same source
- * instead of hardcoding the scope names.
- */
-const OUTPUT_SCOPES = ['transcription', 'recipe'] as const;
-type OutputScope = (typeof OUTPUT_SCOPES)[number];
-
-/**
- * Where each scope's three delivery toggles live, as the workspace kv keys
- * that hold them. Written out rather than composed from the scope name: a
- * durable key is not something to compute from an identifier a rename could
- * change.
- */
-const OUTPUT_KEYS = {
-	transcription: {
-		cursor: 'outputTranscriptionCursor',
-		clipboard: 'outputTranscriptionClipboard',
-		enter: 'outputTranscriptionEnter',
-	},
-	recipe: {
-		cursor: 'outputRecipeCursor',
-		clipboard: 'outputRecipeClipboard',
-		enter: 'outputRecipeEnter',
-	},
-} as const;
-
-/**
  * True when any output scope is set to write at the cursor. Cursor delivery is a
  * synthetic Cmd/Ctrl+V, so this is exactly when delivery needs the macOS
  * Accessibility grant, which is the one fact the tap supervisor holds the tap to
  * track. Call inside a reactive scope to stay live as the toggles change.
  */
 export function outputWritesToCursor(): boolean {
-	return OUTPUT_SCOPES.some(
-		(scope) =>
-			local.kv.get(OUTPUT_KEYS[scope].cursor) ??
-			DEVICE_DEFAULTS[OUTPUT_KEYS[scope].cursor],
-	);
+	return local.kv.get('outputTranscriptionCursor') ?? DEVICE_DEFAULTS.outputTranscriptionCursor;
 }
 
 /**
@@ -101,51 +69,22 @@ export async function deliverTranscriptionResult(
 	return deliverToSink({
 		text,
 		successCopy: TRANSCRIPTION_SUCCESS_COPY[source],
-		sink: resolveSettingsSink(app, 'transcription'),
+		sink: resolveSettingsSink(),
 		// A transcription always belongs to a recording, so its history is reachable.
 		linkedRecording: showHistoryAction,
 	});
 }
 
-/**
- * Delivers a Recipe's output to the user according to their text output
- * preferences. Returns the structured outcome plus a human notice. `recordingId`
- * is the run's link to a recording, or null for ad-hoc runs (clipboard,
- * selection): only a recording-anchored run offers a "go to recordings" action,
- * since an ad-hoc run has no history to open.
- */
-export async function deliverRecipeResult(
-	app: WhisperingApp,
-	{
-		text,
-		recordingId,
-	}: {
-		text: string;
-		recordingId: string | null;
-	},
-): Promise<DeliveryResult> {
-	return deliverToSink({
-		text,
-		successCopy: '🔄 Recipe complete',
-		sink: resolveSettingsSink(app, 'recipe'),
-		linkedRecording: recordingId !== null,
-	});
-}
-
-function resolveSettingsSink(
-	app: WhisperingApp,
-	settingsScope: OutputScope,
-): Sink {
-	const keys = OUTPUT_KEYS[settingsScope];
+function resolveSettingsSink(): Sink {
 	const cursorRequested =
-		local.kv.get(keys.cursor) ?? DEVICE_DEFAULTS[keys.cursor];
+		local.kv.get('outputTranscriptionCursor') ?? DEVICE_DEFAULTS.outputTranscriptionCursor;
 	const clipboardRequested =
-		local.kv.get(keys.clipboard) ?? DEVICE_DEFAULTS[keys.clipboard];
+		local.kv.get('outputTranscriptionClipboard') ?? DEVICE_DEFAULTS.outputTranscriptionClipboard;
 
 	return cursorRequested
 		? createCursorSink({
 				keepOnClipboard: clipboardRequested,
-				pressEnter: local.kv.get(keys.enter) ?? DEVICE_DEFAULTS[keys.enter],
+				pressEnter: local.kv.get('outputTranscriptionEnter') ?? DEVICE_DEFAULTS.outputTranscriptionEnter,
 			})
 		: clipboardRequested
 			? clipboardSink

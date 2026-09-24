@@ -1,15 +1,13 @@
-import { trySync } from 'wellcrafted/result';
 import {
 	deliverTranscriptionResult,
 	type TranscriptionSource,
 } from '$lib/operations/delivery';
-import { polishWillRun, runPolish } from '$lib/operations/run-polish';
+import { prepareCleanup } from '$lib/operations/process-cleanup';
 import { playSoundIfEnabled } from '$lib/operations/sound';
 import {
 	type captureTranscription,
 	transcribeAndPersist,
 } from '$lib/operations/transcribe';
-import { saveRecordingHistory } from '$lib/operations/transcription-history';
 import { report } from '$lib/report';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
 import { polishHud } from '$lib/state/polish-hud.svelte';
@@ -96,77 +94,51 @@ export async function processRecordingPipeline(
 	const { text: transcribedText } = transcription;
 	let history = transcription.history;
 
-	// Run Polish over the raw transcript, then deliver the polished text. When
-	// history succeeds, the raw stays on `recordings.transcript` so "show
-	// original" is recoverable. We hold delivery until Polish finishes and
-	// deliver once, with the final text: delivering the raw and then the polished
-	// version would land two copies (a clipboard the user might paste mid-polish,
+	// Run cleanup over the Original, then deliver the chosen text. The result row
+	// retains its Original for later inspection. We hold delivery until cleanup
+	// finishes and deliver once: delivering Original and then Cleaned would land
+	// two copies (a clipboard the user might paste mid-cleanup,
 	// or two cursor pastes), the exact race the deliver-after-polish rule exists to
-	// dodge. Polish is the only thing on the automatic path; there is no
-	// auto-running Recipe. See ADR-0099.
+	// dodge. Cleanup is the only text operation on the automatic path; there is no
+	// another text operation. See ADR-0440.
 	//
-	// The "Polishing…" HUD and its ship-raw control live on the dictation pill, so
+	// The cleanup HUD and its ship-raw control live on the dictation pill, so
 	// the lifecycle's polishing phase and the abort signal are dictation-only: file
 	// import has no pill to cancel from and keeps its own progress toast. The pill
 	// shows the HUD only when an AI pass actually runs (not in speed mode); begin/end
 	// bracket the call so the controller is dropped on success, failure, or abort.
-	let willPolish = polishWillRun(app, transcribedText);
-	const polishReceipt = willPolish
-		? trySync({
-				try: () => app.pendingSaves.reserve('Polished transcript'),
-				catch: () => ({
-					data: null,
-					error: {
-						name: 'Capacity',
-						message: 'Finish pending saves before polishing.',
-					},
-				}),
-			})
-		: null;
-	if (polishReceipt?.error) willPolish = false;
-	const showPolishHud = willPolish && isDictation && ownsFeedback();
+	const cleanup = prepareCleanup(app, local, transcription);
+	const showPolishHud = cleanup.willRun && isDictation && ownsFeedback();
 	let signal: AbortSignal | undefined;
 	if (showPolishHud) {
 		dictationLifecycle.markPolishing();
 		signal = polishHud.begin(ownsFeedback);
 	}
-	const { data: polishedText, error: polishError } = willPolish
-		? await runPolish(app, {
-				input: transcribedText,
-				signal,
-			})
-		: { data: transcribedText, error: null };
-	if (signal) polishHud.end(signal);
-	if (polishError || lifetime.aborted) polishReceipt?.data?.discard();
+	let cleaned: Awaited<ReturnType<typeof cleanup.run>>;
+	try {
+		cleaned = await cleanup.run(signal);
+	} finally {
+		if (signal) polishHud.end(signal);
+	}
+	const {
+		text: deliveredText,
+		history: cleanedHistory,
+		cleanupError,
+	} = cleaned;
 	if (lifetime.aborted || !app.recordingEnabled) return;
-	// Polish is best-effort: a failed AI pass carries the raw transcript in
-	// `fallback`, so a transcript is never lost to a polish error. Surface the
+	// Cleanup is best-effort: a failed AI pass carries the Original in
+	// `fallback`, so a transcript is never lost to a cleanup error. Surface the
 	// failure without blocking delivery.
-	const deliveredText = polishError ? polishError.fallback : polishedText;
-	if (polishError && ownsFeedback()) {
+	if (cleanupError && ownsFeedback()) {
 		report.info({
-			title: 'Polishing skipped',
-			description: polishError.message,
+			title: 'Cleanup skipped',
+			description: cleanupError.message,
 		});
 	}
 
-	// Attempt to persist the polished transcript alongside the raw transcript so
-	// history can show what was actually delivered, with the original one click
-	// away. Only write when a Polish pass actually produced a result: row creation
-	// already left `polishedTranscript` null, so speed mode (no AI call) and a
-	// polish failure (the fallback delivers the raw words) need no second write.
-	if (willPolish && !polishError) {
-		const polishedHistory = await saveRecordingHistory(
-			app,
-			local,
-			recording.id,
-			{
-				polishedTranscript: polishedText,
-			},
-			polishReceipt?.data ?? undefined,
-		);
-		if (polishedHistory.error !== null) history = polishedHistory;
-	}
+	// Persist changed Cleaned text on the exact result that retained its Original.
+	// Speed mode and cleanup failure leave Cleaned null and deliver Original.
+	if (cleanedHistory.error !== null) history = cleanedHistory;
 	if (lifetime.aborted || !app.recordingEnabled) return;
 
 	// The transcript is "ready" once it is polished and about to be delivered, so

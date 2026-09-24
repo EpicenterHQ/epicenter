@@ -46,7 +46,7 @@
 				label="Pause playback while recording"
 				description={pausePlaybackDescription}
 			/>
-			<OutputDeliveryControls scope="transcription" />
+			<OutputDeliveryControls />
 		</div>
 	</Popover.Content>
 </Popover.Root>

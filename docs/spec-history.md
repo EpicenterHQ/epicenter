@@ -113,7 +113,7 @@
 | 2026-06-30 | local-mail-tauri-cdc-mirror.handoff | removed | specs/20260630T150000-local-mail-tauri-cdc-mirror.handoff.md |
 | 2026-06-30 | local-mail-tauri-cdc-mirror | removed | specs/20260630T150000-local-mail-tauri-cdc-mirror.md |
 | 2026-06-30 | capability-plane-greenfield-buildout | removed | specs/20260630T120000-capability-plane-greenfield-buildout.md |
-| 2026-06-28 | voice-cursor-intent-in-context | in tree | apps/whispering/specs/20260628T003033-voice-cursor-intent-in-context.md |
+| 2026-06-28 | voice-cursor-intent-in-context | removed | apps/whispering/specs/20260628T003033-voice-cursor-intent-in-context.md |
 | 2026-06-27 | matter-editable-views | in tree | docs/specs/20260627T231500-matter-editable-views.md |
 | 2026-06-27 | vocab-terms-layer | removed | specs/20260627T221709-vocab-terms-layer.md |
 | 2026-06-27 | extract-recorder-vad-package | removed | specs/20260627T005829-extract-recorder-vad-package.md |

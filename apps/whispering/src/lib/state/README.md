@@ -12,7 +12,7 @@ and establishes context before consumers mount. Operations receive captured hand
 ## Settings and rows
 
 Device settings use the account-independent Local store and do not sync.
-Dictionary, custom instructions, and custom recipes belong to the personal
+Dictionary and custom instructions belong to the personal
 store. Call sites name the store and apply `DEVICE_DEFAULTS` or
 `PERSONAL_DEFAULTS` when a key is absent or unreadable. Signed-out account reads
 use built-in defaults, never device values. Editing account content requires
@@ -27,18 +27,17 @@ local.kv.update({ recordingTrigger: 'vad' });
 // During component initialization beneath PersonalProvider:
 const personal = getPersonal();
 const dictionary = $derived(personal.kv.get('dictionary') ?? []);
-const history = $derived(sortedRecordings(personal));
+const history = $derived(sortedRecordings(local));
 ```
 
-Local and Personal history have explicit routes. Shared views receive their store.
+Recording history is Local. Views receive its store.
 Dictionary is one KV array: concurrent edits replace that field rather than merging
 individual terms. Capture retains the current account's prompt/dictionary acquisition;
 a pending or failed Personal open cannot silently substitute defaults for that account.
 
-`fromData` owns the live row projection. Recordings and recipes have no second
-cache or subscription lifetime. The functions in `whispering/recordings.ts` and
-`whispering/recipes.ts` handle product behavior: recording defaults, audio
-loading, history ordering, and copying a built-in recipe into an editable row.
+`fromData` owns the live row projection. Recordings have no second cache or
+subscription lifetime. `whispering/recordings.ts` handles recording defaults,
+audio loading, and history ordering.
 
 ## Inference choices
 
@@ -81,5 +80,5 @@ is disposed.
 
 Use the query layer for asynchronous capabilities such as downloading audio or
 running transcription. Use a `$derived` read over the adapted store for settings,
-recording rows, and recipe lists. A new state owner needs an event source or a
+and recording rows. A new state owner needs an event source or a
 lifetime that the existing store does not already own.

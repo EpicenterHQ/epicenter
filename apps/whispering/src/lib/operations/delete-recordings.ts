@@ -27,7 +27,21 @@ export function deleteRecordingsWithConfirmation(
 			variant: 'destructive',
 		},
 		onConfirm: async () => {
-			for (const { id } of arr) store.tables.recordings.delete(id);
+			const ids = new Set(arr.map(({ id }) => id));
+			store.transact(() => {
+				const resultIds = new Set(store.tables.transcriptions.rows
+					.filter((result) => ids.has(result.recordingId))
+					.map((result) => result.id));
+				for (const promotion of store.tables.capturePromotions.rows) {
+					if (resultIds.has(promotion.resultId))
+						store.tables.capturePromotions.delete(promotion.id);
+				}
+				for (const result of store.tables.transcriptions.rows) {
+					if (ids.has(result.recordingId))
+						store.tables.transcriptions.delete(result.id);
+				}
+				for (const { id } of arr) store.tables.recordings.delete(id);
+			});
 			report.success({
 				title: `Deleted ${noun}!`,
 				description: `Your ${noun} ${isSingle ? 'has' : 'have'} been deleted.`,

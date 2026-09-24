@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-23
 - **Amends:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at its Whispering `remoteAudio` example only: saving to Personal creates an independent destination recording, rather than attaching a remote fallback to the source row. Fresh destination BlobIds and independent blob retention remain unchanged.
+- **Amended by:** [ADR-0439](0439-whispering-promotes-text-to-capture-instead-of-copying-recordings.md) at the Personal recording copy path: Local capture and store-relative reads remain; the copy path ends and selected text becomes a Capture entry.
 
 ## Context
 

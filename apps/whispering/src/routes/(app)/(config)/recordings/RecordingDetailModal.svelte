@@ -2,7 +2,8 @@
 	import { updateRecording } from '../../../../lib/whispering/recordings.js';
 
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import { InstantString } from '@epicenter/app/field';
+	import { PromotionInspectionRequired } from '@epicenter/capture';
+	import { CAPTURE_PROMOTION_AVAILABLE } from '#platform/capture-window';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { CopyButton } from '@epicenter/ui/copy-button';
@@ -15,12 +16,16 @@
 	import { TimezoneCombobox } from '@epicenter/ui/timezone-combobox';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import { createQuery } from '@tanstack/svelte-query';
-	import type { Snippet } from 'svelte';
+	import { onDestroy, type Snippet } from 'svelte';
 	import AudioBlobPlayer from '$lib/components/AudioBlobPlayer.svelte';
 	import { deleteRecordingsWithConfirmation } from '$lib/operations/delete-recordings';
+	import { addToCapture, inspectCapture, openInCapture, promotionFor } from '$lib/operations/capture-promotion';
 	import { report } from '$lib/report';
+	import { polishWillRun, runPolish } from '$lib/operations/run-polish';
+	import { saveCleanedTranscription } from '$lib/operations/transcription-history';
 	import type { Recording } from '../../../../lib/data.js';
 	import { createCopyFn } from '$lib/utils/createCopyFn';
+	import { transcriptionsForRecording, transcriptionText } from '$lib/whispering/transcriptions';
 	import DownloadRecordingButton from './actions/DownloadRecordingButton.svelte';
 	import TranscribeRecordingButton from './actions/TranscribeRecordingButton.svelte';
 	import {
@@ -52,6 +57,20 @@
 	} = $props();
 
 	let isDialogOpen = $state(false);
+	let previewing = $state(false);
+	let destroyed = false;
+	let pendingPreviewReceipt: ReturnType<typeof app.pendingSaves.reserve> | null = null;
+	let previewController: AbortController | null = null;
+	let previewEpoch = 0;
+	let selectedResultId = $state<string | null>(null);
+	let promoting = $state(false);
+	let cleanupPreview = $state.raw<{
+		resultId: string;
+		rawText: string;
+		previousCleaned: string | null;
+		candidate: string;
+		receipt: ReturnType<typeof app.pendingSaves.reserve>;
+	} | null>(null);
 
 	/**
 	 * A working copy of the recording that we can safely edit.
@@ -77,9 +96,137 @@
 		return false;
 	});
 
-	const deliveredTranscript = $derived(
-		workingCopy.polishedTranscript ?? workingCopy.transcript,
-	);
+	const results = $derived(transcriptionsForRecording(store, recording.id));
+	const result = $derived(results.find((row) => row.id === selectedResultId) ?? results[0]);
+	const displayedTranscript = $derived(transcriptionText(result));
+	const originalPromotion = $derived(result && app.authAccount
+		? promotionFor(store, result.id, result.rawText, app.authAccount) : undefined);
+	const cleanedPromotion = $derived(result?.cleanedText && app.authAccount
+		? promotionFor(store, result.id, result.cleanedText, app.authAccount) : undefined);
+	async function promote(text: string) {
+		if (!result || promoting) return;
+		promoting = true;
+		try {
+			const captureId = await addToCapture(app, store, recording, result.id, text);
+			report.success({ title: 'Added to Capture', action: {
+				label: 'Open in Capture', onClick: () => openInCapture(app, captureId),
+			} });
+		} catch (cause) {
+			report.info({
+				title: cause instanceof PromotionInspectionRequired ? 'Inspect Capture' : 'Capture could not confirm this request',
+				description: extractErrorMessage(cause),
+				...(cause instanceof PromotionInspectionRequired && { action: {
+					label: 'Inspect Capture', onClick: inspectPromotion,
+				} }),
+			});
+		} finally {
+			promoting = false;
+		}
+	}
+	async function openPromotion(captureId: string) {
+		try { await openInCapture(app, captureId); }
+		catch (cause) { report.info({ title: 'Could not open Capture', description: extractErrorMessage(cause) }); }
+	}
+	async function inspectPromotion() {
+		try { await inspectCapture(app); }
+		catch (cause) { report.info({ title: 'Could not open Capture', description: extractErrorMessage(cause) }); }
+	}
+	onDestroy(() => {
+		destroyed = true;
+		previewEpoch++;
+		previewController?.abort();
+		pendingPreviewReceipt?.discard();
+		cleanupPreview?.receipt.discard();
+	});
+	$effect(() => {
+		if (!isDialogOpen) {
+			previewEpoch++;
+			previewController?.abort();
+			if (cleanupPreview) {
+				cleanupPreview.receipt.discard();
+				cleanupPreview = null;
+			}
+		}
+	});
+
+	async function retryCleanup() {
+		const current = result;
+		if (!current || previewing || !polishWillRun(app, current.rawText)) {
+			report.info({
+				title: 'Cleanup is unavailable',
+				description: 'Enable cleanup and choose a text connection first.',
+			});
+			return;
+		}
+		cleanupPreview?.receipt.discard();
+		cleanupPreview = null;
+		const epoch = ++previewEpoch;
+		let receipt: ReturnType<typeof app.pendingSaves.reserve>;
+		try {
+			receipt = app.pendingSaves.reserve('Cleaned transcript');
+		} catch (cause) {
+			report.info({ title: 'Finish pending saves first', description: extractErrorMessage(cause) });
+			return;
+		}
+		const controller = new AbortController();
+		previewController = controller;
+		previewing = true;
+		pendingPreviewReceipt = receipt;
+		try {
+			const cleaned = await runPolish(app, { input: current.rawText, signal: controller.signal });
+			if (destroyed || !isDialogOpen || app.signal.aborted || epoch !== previewEpoch || result?.id !== current.id || cleaned.error) {
+				receipt.discard();
+				if (cleaned.error && isDialogOpen)
+					report.info({ title: 'Cleanup failed', description: cleaned.error.message });
+				return;
+			}
+			if (cleaned.data === (current.cleanedText ?? current.rawText)) {
+				receipt.discard();
+				report.info({ title: 'Cleanup suggested no change' });
+				return;
+			}
+			cleanupPreview = {
+				resultId: current.id,
+				rawText: current.rawText,
+				previousCleaned: current.cleanedText,
+				candidate: cleaned.data,
+				receipt,
+			};
+			pendingPreviewReceipt = null;
+		} catch (cause) {
+			receipt.discard();
+			if (isDialogOpen)
+				report.info({ title: 'Cleanup failed', description: extractErrorMessage(cause) });
+		} finally {
+			if (previewController === controller) previewController = null;
+			if (pendingPreviewReceipt === receipt) pendingPreviewReceipt = null;
+			if (!destroyed) previewing = false;
+		}
+	}
+
+	async function acceptCleanup() {
+		const pending = cleanupPreview;
+		if (!pending) return;
+		if (result?.id !== pending.resultId) {
+			pending.receipt.discard();
+			cleanupPreview = null;
+			report.info({ title: 'A newer transcription is available', description: 'Retry cleanup on the current Original.' });
+			return;
+		}
+		// The save operation owns this receipt even if the modal closes during flush.
+		cleanupPreview = null;
+		const saved = await saveCleanedTranscription(
+			app,
+			store,
+			pending.resultId,
+			{ rawText: pending.rawText, cleanedText: pending.previousCleaned },
+			pending.candidate === pending.rawText ? null : pending.candidate,
+			pending.receipt,
+		);
+		if (saved.error)
+			report.info({ title: 'Cleaned text needs saving', description: saved.error.message });
+		else report.success({ title: 'Cleaned text saved' });
+	}
 
 	function promptUserConfirmLeave() {
 		if (!isWorkingCopyDirty) {
@@ -103,24 +250,10 @@
 
 	function save() {
 		const snapshot = $state.snapshot(workingCopy);
-		if (!InstantString.is(snapshot.recordedAt)) {
-			report.info({
-				title: 'Recorded At is not a valid instant',
-				description: 'Use a UTC ISO timestamp like 2026-06-13T16:20:00.000Z.',
-			});
-			return;
-		}
-
 		try {
 			updateRecording(store, recording.id, {
 				title: snapshot.title,
-				recordedAt: snapshot.recordedAt,
 				recordedAtZone: snapshot.recordedAtZone,
-				transcript: snapshot.transcript,
-				polishedTranscript:
-					snapshot.transcript === recording.transcript
-						? recording.polishedTranscript
-						: null,
 			});
 		} catch (cause) {
 			report.info({
@@ -158,7 +291,7 @@
 		<Modal.Header>
 			<Modal.Title>{recording.title || 'Untitled recording'}</Modal.Title>
 			<Modal.Description>
-				Play it back, edit the transcript, transcribe, or download.
+				Play it back, inspect its transcriptions, or download it.
 			</Modal.Description>
 		</Modal.Header>
 
@@ -169,20 +302,44 @@
 				enabled={isDialogOpen}
 				class="h-9 w-full"
 			/>
+			{#if results.length > 1}
+				<div class="space-y-2">
+					<Label for="transcription-result">Transcription result</Label>
+					<select id="transcription-result" class="w-full rounded-md border bg-background p-2 text-sm" value={result?.id ?? ''} onchange={(event) => {
+						previewEpoch++;
+						previewController?.abort();
+						cleanupPreview?.receipt.discard();
+						cleanupPreview = null;
+						selectedResultId = event.currentTarget.value;
+					}}>
+						{#each results as item, index (item.id)}
+							<option value={item.id}>{index === 0 ? 'Latest: ' : ''}{new Date(item.attemptedAt).toLocaleString()} · {item.rawText.slice(0, 60)}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
 
-			{#if workingCopy.polishedTranscript}
+			{#if result?.cleanedText}
 				<div class="space-y-2">
 					<div class="flex items-center justify-between gap-2">
-						<Label for="delivered-transcript">Delivered transcript</Label>
+						<Label for="cleaned-transcript">Cleaned transcript</Label>
 						<CopyButton
-							text={workingCopy.polishedTranscript}
-							copyFn={createCopyFn('delivered transcript')}
+							text={result.cleanedText}
+							copyFn={createCopyFn('cleaned transcript')}
 							variant="outline"
 						/>
+						{#if CAPTURE_PROMOTION_AVAILABLE && app.authAccount}
+						<Button variant="outline" size="sm" disabled={promoting} onclick={() => cleanedPromotion?.captureId ? openPromotion(cleanedPromotion.captureId) : promote(result!.cleanedText!)}>
+								{cleanedPromotion?.captureId ? 'Open in Capture' : cleanedPromotion ? 'Retry request' : 'Add to Capture'}
+						</Button>
+						{#if cleanedPromotion && !cleanedPromotion.captureId}
+							<Button variant="outline" size="sm" onclick={inspectPromotion}>Inspect Capture</Button>
+						{/if}
+						{/if}
 					</div>
 					<Textarea
-						id="delivered-transcript"
-						value={workingCopy.polishedTranscript}
+						id="cleaned-transcript"
+						value={result.cleanedText}
 						readonly
 						rows={6}
 					/>
@@ -190,24 +347,46 @@
 			{/if}
 
 			<div class="space-y-2">
-				<Label for="transcript">
-					{workingCopy.polishedTranscript
-						? 'Original transcript'
-						: 'Transcript'}
-				</Label>
+				<div class="flex items-center justify-between gap-2">
+					<Label for="transcript">{result?.cleanedText ? 'Original transcript' : 'Transcript'}</Label>
+					{#if result && CAPTURE_PROMOTION_AVAILABLE && app.authAccount}
+						<Button variant="outline" size="sm" disabled={promoting} onclick={() => originalPromotion?.captureId ? openPromotion(originalPromotion.captureId) : promote(result!.rawText)}>
+							{originalPromotion?.captureId ? 'Open in Capture' : originalPromotion ? 'Retry request' : 'Add to Capture'}
+						</Button>
+						{#if originalPromotion && !originalPromotion.captureId}
+							<Button variant="outline" size="sm" onclick={inspectPromotion}>Inspect Capture</Button>
+						{/if}
+					{/if}
+				</div>
 				<Textarea
 					id="transcript"
-					value={workingCopy.transcript}
-					oninput={(e) => {
-						workingCopy = {
-							...workingCopy,
-							transcript: e.currentTarget.value,
-						};
-						isWorkingCopyDirty = true;
-					}}
+					value={result?.rawText ?? ''}
+					readonly
 					rows={12}
 				/>
 			</div>
+
+			{#if result}
+				<div class="space-y-2">
+					<Button variant="outline" size="sm" disabled={previewing} onclick={retryCleanup}>
+						{previewing ? 'Cleaning…' : 'Retry cleanup'}
+					</Button>
+					{#if cleanupPreview}
+						<div class="space-y-3 rounded-md border p-3">
+							<p class="text-sm">Compare this suggestion with the {cleanupPreview.previousCleaned ? 'current Cleaned' : 'Original'} text above. Accept it only if it keeps your meaning.</p>
+							<Label for="cleanup-candidate">Suggested Cleaned text</Label>
+							<Textarea id="cleanup-candidate" value={cleanupPreview.candidate} readonly rows={6} />
+							<div class="flex gap-2">
+								<Button size="sm" onclick={acceptCleanup}>Use Cleaned text</Button>
+								<Button variant="outline" size="sm" onclick={() => {
+									cleanupPreview?.receipt.discard();
+									cleanupPreview = null;
+								}}>Keep current text</Button>
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/if}
 
 			<div class="flex flex-wrap gap-2">
 				<TranscribeRecordingButton
@@ -234,21 +413,6 @@
 						value={workingCopy.title}
 						oninput={(e) => {
 							workingCopy = { ...workingCopy, title: e.currentTarget.value };
-							isWorkingCopyDirty = true;
-						}}
-						class="col-span-3"
-					/>
-				</div>
-				<div class="grid grid-cols-4 items-center gap-4">
-					<Label for="recordedAt" class="text-right">Recorded At</Label>
-					<Input
-						id="recordedAt"
-						value={workingCopy.recordedAt}
-						oninput={(e) => {
-							workingCopy = {
-								...workingCopy,
-								recordedAt: e.currentTarget.value as Recording['recordedAt'],
-							};
 							isWorkingCopyDirty = true;
 						}}
 						class="col-span-3"
@@ -293,11 +457,11 @@
 				Close
 			</Button>
 			<CopyButton
-				text={deliveredTranscript}
+				text={displayedTranscript}
 				copyFn={createCopyFn('transcript')}
 				variant="outline"
 				size="default"
-				disabled={!deliveredTranscript.trim()}
+				disabled={!displayedTranscript.trim()}
 			>
 				Copy
 			</CopyButton>

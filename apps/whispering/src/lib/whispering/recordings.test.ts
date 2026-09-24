@@ -284,9 +284,6 @@ for (const audio of [
 			).toBe(await audio.text());
 			expect(row).toMatchObject({
 				title: '',
-				transcript: '',
-				polishedTranscript: null,
-				transcriptionStatus: 'pending',
 				duration: null,
 			});
 		} finally {

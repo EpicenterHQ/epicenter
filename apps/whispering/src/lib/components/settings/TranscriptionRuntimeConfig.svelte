@@ -84,7 +84,7 @@
 				<PersonalBoundary><PersonalPrompt /></PersonalBoundary>
 				<Field.Description
 					>Names and context can help models that support prompts. Dictionary
-					terms are included. Use Recipes for rewriting or translation.</Field.Description
+					terms are included.</Field.Description
 				>
 			</Field.Field>
 		</Field.Group>

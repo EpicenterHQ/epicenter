@@ -64,14 +64,4 @@ export type TextService = {
 	 */
 	simulateEnterKeystroke: () => Promise<Result<void, TextError>>;
 
-	/**
-	 * Simulates pressing the copy shortcut (Cmd+C on macOS, Ctrl+C elsewhere) to
-	 * copy the active selection in the foreground app to the clipboard. Compose
-	 * with a clipboard save/read/restore to capture a selection without clobbering
-	 * the user's clipboard (see `captureSelection` in `operations/selection`).
-	 *
-	 * Note: This is only supported on desktop (Tauri). Web browsers cannot
-	 * simulate keystrokes for security reasons.
-	 */
-	simulateCopyKeystroke: () => Promise<Result<void, TextError>>;
 };

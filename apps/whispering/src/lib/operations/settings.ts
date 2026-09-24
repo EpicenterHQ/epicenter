@@ -1,18 +1,15 @@
-import type { WhisperingSettingValues } from '../data.js';
-
-export const PERSONAL_DEFAULTS: Pick<
+import type {
+	SpeechProfileSettingValues,
 	WhisperingSettingValues,
-	'dictionary' | 'polishInstructions' | 'transcriptionPrompt'
-> = {
+} from '../data.js';
+
+export const PERSONAL_DEFAULTS: SpeechProfileSettingValues = {
 	dictionary: null,
 	polishInstructions: 'Fix grammar and punctuation. Keep my wording.',
 	transcriptionPrompt: '',
 };
 
-export const DEVICE_DEFAULTS: Omit<
-	WhisperingSettingValues,
-	keyof typeof PERSONAL_DEFAULTS
-> = {
+export const DEVICE_DEFAULTS: WhisperingSettingValues = {
 	soundManualStart: true,
 	soundManualStop: true,
 	soundManualCancel: true,
@@ -20,13 +17,9 @@ export const DEVICE_DEFAULTS: Omit<
 	soundVadCapture: true,
 	soundVadStop: true,
 	soundTranscriptionComplete: true,
-	soundRecipeComplete: true,
 	outputTranscriptionClipboard: true,
 	outputTranscriptionCursor: false,
 	outputTranscriptionEnter: false,
-	outputRecipeClipboard: true,
-	outputRecipeCursor: false,
-	outputRecipeEnter: false,
 	recordingTrigger: 'manual',
 	recordingPausePlayback: false,
 	transcriptionConnection: null,
@@ -44,10 +37,6 @@ export const DEVICE_DEFAULTS: Omit<
 	shortcutCancelRecordingKeys: null,
 	shortcutToggleVadRecordingModifiers: null,
 	shortcutToggleVadRecordingKeys: null,
-	shortcutOpenRecipePickerModifiers: null,
-	shortcutOpenRecipePickerKeys: null,
-	shortcutRunRecipeOnClipboardModifiers: null,
-	shortcutRunRecipeOnClipboardKeys: null,
 	shortcutOpenSettingsModifiers: null,
 	shortcutOpenSettingsKeys: null,
 };

@@ -11,7 +11,7 @@ import { createRecorder } from '@epicenter/app/recorder';
 import type { Account } from '@epicenter/auth';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { whisperingDefinition } from '../data.js';
+import { speechProfileDefinition } from '../data.js';
 import { local, openLocalStore } from './local.js';
 import { createPendingSaves } from './pending-saves.js';
 import type { PersonalStore } from './personal.js';
@@ -27,7 +27,7 @@ export async function openWhisperingResources(
 	await openLocalStore();
 	signal.throwIfAborted();
 	const personalReady: Promise<PersonalStore | undefined> = account
-		? openPersonal(whisperingDefinition, { account }).then((store) => {
+		? openPersonal(speechProfileDefinition, { account }).then((store) => {
 				signal.throwIfAborted();
 				return store;
 			})

@@ -43,8 +43,8 @@ export function polishDestination(app: WhisperingApp): string {
 			? 'Transcribed on this device.'
 			: `Transcription via ${connectionLabel(audioTarget.client.baseURL)}.`;
 	const text = state
-		? `Text transformation via ${completionDestination(state)}.`
-		: 'Polish is not ready; the original transcript is kept.';
+		? `Cleanup via ${completionDestination(state)}.`
+		: 'Cleanup is not ready; the original transcript is kept.';
 	return `${audio} ${text}`;
 }
 

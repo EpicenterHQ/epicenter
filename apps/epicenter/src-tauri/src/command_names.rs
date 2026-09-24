@@ -10,9 +10,9 @@
 
 pub const COMMANDS: &[&str] = &[
     "launch_application",
+    "set_capture_window_visible",
     "write_text",
     "simulate_enter_keystroke",
-    "simulate_copy_keystroke",
     "enumerate_recording_devices",
     "start_recording",
     "stop_recording",

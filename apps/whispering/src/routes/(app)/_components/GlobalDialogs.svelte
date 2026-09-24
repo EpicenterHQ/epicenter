@@ -1,10 +1,7 @@
 <script lang="ts">
-	import { recipePicker } from '$lib/state/recipe-picker.svelte';
-	import PersonalBoundary from '$lib/components/PersonalBoundary.svelte';
 	import DevAccessibilityToggle from '$lib/components/DevAccessibilityToggle.svelte';
 	import MacosAccessibilityGuideDialog from '$lib/components/MacosAccessibilityGuideDialog.svelte';
 	import MoreDetailsDialog from '$lib/components/MoreDetailsDialog.svelte';
-	import RecipePicker from '$lib/components/RecipePicker.svelte';
 </script>
 
 <!--
@@ -19,8 +16,6 @@
 -->
 <MacosAccessibilityGuideDialog />
 <MoreDetailsDialog />
-{#if recipePicker.isOpen}<PersonalBoundary><RecipePicker /></PersonalBoundary
-	>{/if}
 
 {#if import.meta.env.DEV}
 	<DevAccessibilityToggle />

@@ -29,9 +29,25 @@ capture `getPersonal()` during initialization and pass that handle into operatio
 Shared recording views receive a concrete store and own their query client.
 
 Capture and import save Local bytes and a Local recording. Whispering has no
-Personal audio copy path. Local recordings own their audio reads and transcript
-writes. Account-dependent transcription waits for its
-captured Personal prompt and dictionary; Local saving proceeds independently.
+Personal audio copy path. A successful transcription creates a Local result row;
+cleanup changes only that result's accepted Cleaned text. Account-dependent
+transcription waits for its captured Personal speech profile; Local saving
+proceeds independently. Desktop promotion sends selected result text to the
+Capture document, which owns creation in its separate Personal store.
+
+The implemented desktop ownership path is:
+
+```text
+Whispering document                         Capture document
+  Local: recordings, audio, results            Personal: captures, thoughts
+         and promotion receipts      text       and request claims
+                         └───────────────>  creates the root
+  Personal: speech terms and instructions
+```
+
+The proposed browser handoff is unbuilt. The separately hosted browser apps
+cannot use this desktop channel, so browser Whispering does not show Add to
+Capture.
 
 Deliberate account departure fences publication before navigation. Sign-out reloads;
 it does not confirm persistence. UI disposal stops admission, cancels owned capture
@@ -89,7 +105,7 @@ Domain state stays in the reactive stores:
 </script>
 ```
 
-`fromData` preserves table and KV APIs. Personal settings and recipes are read
+`fromData` preserves table and KV APIs. Personal settings are read
 beneath the ready provider. Operations receive concrete stores explicitly.
 Transcription and download mutations use the view's store. Microphone enumeration
 has async loading state; capture state remains in the recording workflow and VAD

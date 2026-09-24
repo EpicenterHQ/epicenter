@@ -21,13 +21,19 @@ const admitted: Array<
 	ReturnType<typeof Promise.withResolvers<ReturnType<typeof Ok<void>>>>
 > = [];
 const allAdmitted = Promise.withResolvers<void>();
-mock.module('$lib/operations/transcribe', () => ({
+mock.module('../operations/transcribe.js', () => ({
 	transcribeAndPersist: () => {
 		const work = Promise.withResolvers<ReturnType<typeof Ok<void>>>();
 		admitted.push(work);
 		if (admitted.length === 3) allAdmitted.resolve();
 		return work.promise;
 	},
+}));
+mock.module('../operations/process-cleanup.js', () => ({
+	prepareCleanup: () => ({
+		willRun: false,
+		run: async () => ({ text: '', history: Ok(undefined), cleanupError: null }),
+	}),
 }));
 const { createTranscriptionQueries } = await import('./transcription');
 

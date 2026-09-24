@@ -57,6 +57,7 @@ import {
 	BOOKS_ROUTE,
 	BOOTSTRAP_ROUTE,
 	BUILT_IN_ROUTES,
+	CAPTURE_ROUTE,
 	HOME_ROUTE,
 	HONEYCRISP_ROUTE,
 	MAIL_CALLBACK_ROUTE,
@@ -762,6 +763,7 @@ describe('createHomeServer', () => {
 				{ id: 'home', pattern: '/apps/home/' },
 				{ id: 'whispering', pattern: '/apps/whispering/' },
 				{ id: 'honeycrisp', pattern: '/apps/honeycrisp/' },
+				{ id: 'capture', pattern: '/apps/capture/' },
 				{ id: 'mail', pattern: '/apps/mail/' },
 				{ id: 'books', pattern: '/apps/books/' },
 			]);
@@ -817,6 +819,22 @@ describe('createHomeServer', () => {
 				applicationPage('Honeycrisp'),
 			);
 
+			const capture = await fetch(CAPTURE_ROUTE.url(server.url.origin), {
+				headers: authenticatedHeaders(server),
+			});
+			const capturePage = await capture.text();
+			expect(capturePage).toContain('id="epicenter-auth-bootstrap"');
+			expect(withoutAuthBootstrap(capturePage)).toBe(
+				applicationPage('Capture'),
+			);
+			const captureRoute = await fetch(
+				`${server.url.origin}/apps/capture/?capture=example`,
+				{ headers: authenticatedHeaders(server) },
+			);
+			expect(withoutAuthBootstrap(await captureRoute.text())).toBe(
+				applicationPage('Capture'),
+			);
+
 			// Mail is a compiled application now, so its route owes the stamped
 			// build rather than a placeholder.
 			const mail = await fetch(MAIL_ROUTE.url(server.url.origin), {
@@ -843,6 +861,8 @@ describe('createHomeServer', () => {
 				clientRoute,
 				honeycrisp,
 				honeycrispRoute,
+				capture,
+				captureRoute,
 				mail,
 				books,
 			]) {

@@ -13,7 +13,6 @@ const soundSettingKeyMap = {
 	'vad-capture': 'soundVadCapture',
 	'vad-stop': 'soundVadStop',
 	transcriptionComplete: 'soundTranscriptionComplete',
-	recipeComplete: 'soundRecipeComplete',
 } as const satisfies Record<WhisperingSoundNames, string>;
 
 export async function playSoundIfEnabled(

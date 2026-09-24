@@ -4,6 +4,7 @@
 	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { sortedRecordings } from '$lib/whispering/recordings';
+	import { latestTranscription, transcriptionText } from '$lib/whispering/transcriptions';
 	import { createPersistedState } from '@epicenter/svelte';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button, buttonVariants } from '@epicenter/ui/button';
@@ -130,7 +131,7 @@
 	);
 
 	function displayTranscript(recording: Recording): string {
-		return recording.polishedTranscript ?? recording.transcript;
+		return transcriptionText(latestTranscription(store, recording.id));
 	}
 
 	const columns = [
@@ -488,7 +489,7 @@
 						>
 							{#if transcribeRecordings.isPending}
 								<EllipsisIcon class="size-4" />
-							{:else if selectedRecordingRows.some((recording) => store.tables.recordings.get(recording.original.id)?.transcriptionStatus === 'completed')}
+							{:else if selectedRecordingRows.some((recording) => latestTranscription(store, recording.original.id))}
 								<RetryTranscriptionIcon class="size-4" />
 							{:else}
 								<StartTranscriptionIcon class="size-4" />

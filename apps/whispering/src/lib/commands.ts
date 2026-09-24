@@ -1,8 +1,6 @@
-import { platformCommands } from '#platform/commands';
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import { pushToTalk } from '$lib/operations/push-to-talk';
-import { runRecipeOnClipboard } from '$lib/operations/recipe-clipboard';
 import { cancelRecording, toggleVadRecording } from '$lib/operations/recording.svelte.js';
 import type { Reach } from '$lib/utils/key-binding';
 import type { WhisperingApp } from '$lib/whispering/app';
@@ -16,10 +14,6 @@ import type { WhisperingApp } from '$lib/whispering/app';
  * functions that can be invoked from anywhere in the UI, not just through this
  * command registry.
  *
- * Platform split: `sharedCommands` exist in every build. Desktop-only commands
- * (the recipe picker, which captures a selection from another app and raises the
- * in-app palette over it) come from the `#platform/commands` seam, so a browser
- * build never imports their Tauri-only code and never offers them as shortcuts.
  */
 
 /**
@@ -106,14 +100,6 @@ const sharedCommands = [
 		run: (app) => toggleVadRecording(app),
 	},
 	{
-		id: 'runRecipeOnClipboard',
-		title: 'Run recipe on clipboard',
-		category: 'Recipe',
-		reach: 'global',
-		on: ['Pressed'],
-		run: () => runRecipeOnClipboard(),
-	},
-	{
 		id: 'openSettings',
 		title: 'Open settings',
 		category: 'Navigation',
@@ -127,10 +113,7 @@ const sharedCommands = [
 	},
 ] as const satisfies SatisfiedCommand[];
 
-export const commands = [
-	...sharedCommands,
-	...platformCommands,
-] as const satisfies SatisfiedCommand[];
+export const commands = sharedCommands;
 
 export type Command = (typeof commands)[number];
 

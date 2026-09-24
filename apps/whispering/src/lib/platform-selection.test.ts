@@ -16,7 +16,6 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { platformCommands } from './commands.browser.js';
 import { createSystemShortcuts } from './platform/system-shortcuts.browser.js';
 import { tauri } from './tauri.browser.js';
 
@@ -41,7 +40,7 @@ describe('platform seams', () => {
 		expect(seams.map(([specifier]) => specifier).sort()).toEqual([
 			'#platform/analytics',
 			'#platform/auth',
-			'#platform/commands',
+			'#platform/capture-window',
 			'#platform/dictation-indicator',
 			'#platform/download',
 			'#platform/manual-recorder-config',
@@ -58,7 +57,6 @@ describe('platform seams', () => {
 	test('browser capabilities do not expose native commands or shortcuts', () => {
 		expect(tauri).toBeNull();
 		expect(createSystemShortcuts).toBeNull();
-		expect(platformCommands).toEqual([]);
 	});
 
 	test('every seam names a host leaf and a default leaf, and nothing else', () => {

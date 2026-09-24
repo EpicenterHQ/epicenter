@@ -252,10 +252,9 @@ starting: a prior session may already have completed it.
   untouched. Ordinary dictation remains predictable when no edit was requested.
 - Grounding: [FluidVoice Write Mode](https://github.com/altic-dev/FluidVoice)
   and [FreeFlow Edit Mode](https://github.com/zachlatta/freeflow) describe this
-  interaction. Whispering's Recipes already reshape a selection with a saved
-  instruction; this item is about speaking the instruction for that selection.
-  The draft [voice-cursor exploration](apps/whispering/specs/20260628T003033-voice-cursor-intent-in-context.md)
-  contains earlier research, not a settled implementation plan.
+  interaction. This item would add a spoken instruction for selected text;
+  [ADR-0440](docs/adr/0440-whispering-cleans-transcriptions-and-does-not-own-general-text-actions.md)
+  keeps that action outside Whispering's current scope.
 - Revisit when: The basic dictation and delivery journey is sound enough to
   judge a second spoken action.
 

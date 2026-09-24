@@ -2,34 +2,14 @@ import { InstantString } from '@epicenter/app/field';
 import {
 	type AnyTaggedError,
 	defineErrors,
-	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
-import { createLogger, type Logger } from 'wellcrafted/logger';
-import {
-	Err,
-	isErr,
-	Ok,
-	type Result,
-	tryAsync,
-	trySync,
-} from 'wellcrafted/result';
-import type { RecordingId } from '$lib/data';
-import type { WhisperingApp } from '$lib/whispering/app';
-import type { Recording } from '../data.js';
-import type { WhisperingData } from '../whispering/app.js';
-import { updateRecording } from '../whispering/recordings.js';
-
-const defaultLog = createLogger('whispering/transcription-history');
+import { Err, isErr, Ok, type Result, tryAsync } from 'wellcrafted/result';
+import type { RecordingId, Transcription } from '../data.js';
+import type { WhisperingApp, WhisperingData } from '../whispering/app.js';
 
 export const RecordingHistoryError = defineErrors({
-	SaveUnconfirmed: ({
-		recordingId,
-		cause,
-	}: {
-		recordingId: RecordingId;
-		cause: unknown;
-	}) => ({
+	SaveUnconfirmed: ({ recordingId, cause }: { recordingId: RecordingId; cause: unknown }) => ({
 		message: 'The transcription may not appear in recording history.',
 		recordingId,
 		cause,
@@ -39,125 +19,95 @@ export type RecordingHistoryError = InferErrors<typeof RecordingHistoryError>;
 
 export type TranscriptionSuccess = {
 	text: string;
+	resultId: string | null;
 	history: Result<void, AnyTaggedError>;
 };
 
-/**
- * Attempt one transcription-related recording patch without letting a refused
- * write escape the operation's Result contract.
- */
-export async function saveRecordingHistory(
-	app: WhisperingApp,
-	store: WhisperingData,
-	recordingId: RecordingId,
-	changes: Partial<Omit<Recording, 'id' | 'audioBlobId'>>,
-	receipt = app.pendingSaves.reserve('Transcript'),
-) {
-	const snapshot = { ...changes };
-	const baseline = trySync({
-		try: () => {
-			const before = store.tables.recordings.get(recordingId);
-			return Object.fromEntries(
-				Object.keys(snapshot).map((key) => [
-					key,
-					before?.[key as keyof Recording],
-				]),
-			);
-		},
-		catch: (cause) =>
-			RecordingHistoryError.SaveUnconfirmed({ recordingId, cause }),
-	});
-	return receipt.run(() =>
-		tryAsync({
-			try: async () => {
-				app.signal.throwIfAborted();
-				if (baseline.error) throw baseline.error;
-				const original = baseline.data;
-				{
-					const current = store.tables.recordings.get(recordingId);
-					if (!current)
-						throw new Error(
-							'The recording is missing or nonconforming. Text remains in this recovery attempt.',
-						);
-					const keys = Object.keys(snapshot) as (keyof typeof snapshot)[];
-					const alreadyWritten = keys.every(
-						(key) => current[key] === snapshot[key],
-					);
-					if (!alreadyWritten) {
-						if (!keys.every((key) => current[key] === original[key]))
-							throw new Error(
-								'Newer recording edits conflict with this retained text. It will not overwrite them.',
-							);
-						updateRecording(store, recordingId, snapshot);
-					}
-				}
-				await store.persistence.flush();
-				app.signal.throwIfAborted();
-				if (store.persistence.get() !== 'saved')
-					throw new Error('Local persistence is blocked.');
-				const persisted = store.tables.recordings.get(recordingId);
-				if (
-					!persisted ||
-					!Object.keys(snapshot).every(
-						(key) =>
-							persisted[key as keyof Recording] ===
-							snapshot[key as keyof typeof snapshot],
-					)
-				)
-					throw new Error(
-						'The retained transcript is no longer present in this recording.',
-					);
-			},
-			catch: (cause) =>
-				RecordingHistoryError.SaveUnconfirmed({ recordingId, cause }),
-		}),
-	);
-}
-
-/** Record a provider outcome without letting secondary history failure replace it. */
+/** One successful inference owns one Original, even if persistence needs a retry. */
 export async function recordTranscriptionOutcome<TError extends AnyTaggedError>(
 	app: WhisperingApp,
 	store: WhisperingData,
 	recordingId: RecordingId,
 	transcription: Result<string, TError>,
 	receipt = app.pendingSaves.reserve('Transcript'),
-	log: Logger = defaultLog,
-) {
-	// The outcome is three columns rather than one nested object: a workspace has no
-	// expression for an inline object, and flattening also lets a failure's
-	// message merge independently of its timestamp (`data.ts`).
+	attemptedAt = InstantString.now(),
+	selection: { connectionId: string; model: string } | null = null,
+): Promise<Result<TranscriptionSuccess, TError>> {
 	if (isErr(transcription)) {
-		const error = transcription.error;
-		const { error: historyError } = await saveRecordingHistory(
-			app,
-			store,
-			recordingId,
-			{
-				transcriptionStatus: 'failed',
-				transcriptionCompletedAt: InstantString.now(),
-				transcriptionError: extractErrorMessage(error),
-			},
-			receipt,
-		);
-		if (historyError !== null) {
-			log.warn(historyError);
-		}
-		return Err(error);
+		receipt.discard();
+		return Err(transcription.error);
 	}
-
 	const text = transcription.data;
-	const history = await saveRecordingHistory(
-		app,
-		store,
+	const values = {
 		recordingId,
-		{
-			transcript: text,
-			polishedTranscript: null,
-			transcriptionStatus: 'completed',
-			transcriptionCompletedAt: InstantString.now(),
-			transcriptionError: null,
-		},
-		receipt,
+		attemptedAt,
+		completedAt: InstantString.now(),
+		rawText: text,
+		cleanedText: null,
+		connectionId: selection?.connectionId ?? null,
+		model: selection?.model ?? null,
+		legacyRecordingId: null,
+	};
+	let created: Transcription | undefined;
+	let attempted = false;
+	const history = await receipt.run(() =>
+		tryAsync({
+			try: async () => {
+				app.signal.throwIfAborted();
+				if (!store.tables.recordings.get(recordingId))
+					throw new Error('The recording is no longer available.');
+				if (!attempted) {
+					attempted = true;
+					created = store.tables.transcriptions.create(values);
+				}
+				if (!created)
+					throw new Error('Creation acceptance is uncertain. Do not create another result.');
+				await store.persistence.flush();
+				app.signal.throwIfAborted();
+				if (store.persistence.get() !== 'saved')
+					throw new Error('Local persistence is blocked.');
+				const saved = store.tables.transcriptions.get(created.id);
+				if (!saved || saved.rawText !== text || saved.recordingId !== recordingId)
+					throw new Error('The retained Original is no longer present.');
+			},
+			catch: (cause) => RecordingHistoryError.SaveUnconfirmed({ recordingId, cause }),
+		}),
 	);
-	return Ok({ text, history });
+	return Ok({ text, resultId: created?.id ?? null, history });
+}
+
+/** Accept one Cleaned value only for the Original and version the caller saw. */
+export async function saveCleanedTranscription(
+	app: WhisperingApp,
+	store: WhisperingData,
+	resultId: string,
+	expected: Pick<Transcription, 'rawText' | 'cleanedText'>,
+	cleanedText: string | null,
+	receipt = app.pendingSaves.reserve('Cleaned transcript'),
+): Promise<Result<void, AnyTaggedError>> {
+	return receipt.run(() =>
+		tryAsync({
+			try: async () => {
+				app.signal.throwIfAborted();
+				const current = store.tables.transcriptions.get(resultId);
+				if (!current || current.rawText !== expected.rawText)
+					throw new Error('The Original changed or is no longer available.');
+				if (current.cleanedText !== cleanedText) {
+					if (current.cleanedText !== expected.cleanedText)
+						throw new Error('The Cleaned version changed after the preview opened.');
+					const written = store.tables.transcriptions.update(resultId, { cleanedText });
+					if (written.error) throw written.error;
+				}
+				await store.persistence.flush();
+				app.signal.throwIfAborted();
+				if (store.persistence.get() !== 'saved' ||
+					store.tables.transcriptions.get(resultId)?.cleanedText !== cleanedText)
+					throw new Error('The Cleaned version was not confirmed.');
+			},
+			catch: (cause) => RecordingHistoryError.SaveUnconfirmed({
+				recordingId: store.tables.transcriptions.get(resultId)?.recordingId ?? 'unknown',
+				cause,
+			}),
+		}),
+	);
 }

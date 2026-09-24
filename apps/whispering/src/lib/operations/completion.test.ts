@@ -129,7 +129,7 @@ async function setup(
 	};
 }
 
-test('Polish and Recipe completion uses the exact connection when model IDs collide', async () => {
+test('speech cleanup uses the exact connection when model IDs collide', async () => {
 	const { connections, requests, run, kv, close } = await setup();
 	for (const path of ['first', 'second']) {
 		const baseUrl = `https://server.example/${path}/v1`;

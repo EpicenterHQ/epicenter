@@ -12,9 +12,9 @@
 			"epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",
 			"default": "./src/lib/platform/auth.browser.ts"
 		},
-		"#platform/commands": {
-			"epicenter-host": "./src/lib/commands.tauri.ts",
-			"default": "./src/lib/commands.browser.ts"
+		"#platform/capture-window": {
+			"epicenter-host": "./src/lib/platform/capture-window.tauri.ts",
+			"default": "./src/lib/platform/capture-window.browser.ts"
 		},
 		"#platform/dictation-indicator": {
 			"epicenter-host": "./src/lib/dictation-indicator/DictationIndicator.tauri.svelte",
@@ -101,6 +101,7 @@
 		"@epicenter/app-shell": "workspace:*",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/blobs": "workspace:*",
+		"@epicenter/capture": "workspace:*",
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
