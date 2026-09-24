@@ -153,6 +153,43 @@ about current package exports. Unrelated setup is omitted.
 > actual caller before adding a shared helper; the smaller preview-only tool
 > shouldn't inherit a recording session it doesn't need.
 
+## Expression: preserve the useful shape
+
+This example adapts the discussion about retiring the change-proposal skill.
+The user preferred an example with code over a prose-only revision because the
+code broke up the text and made the idea easier to approach. The passages below
+keep the proposed behavior the same; the API is a hypothetical sketch. This is
+an illustration of that correction, not a controlled behavior evaluation.
+
+**Prose-only attempt**
+
+> You finish recording, press play, and leave the recording screen. Playback
+> continues because the player uses the saved recording independently. Stopping
+> recording finishes saving the audio. Closing the recording screen releases
+> the microphone; the player keeps running until playback ends.
+
+**The same thought with an inspectable handoff**
+
+> You finish recording, press play, and leave the recording screen. Playback
+> continues because the player uses the saved recording independently.
+>
+> API sketch:
+>
+> ```ts
+> const recording = await recorder.stop();
+> const player = await openPlayer(recording.id);
+> ```
+>
+> `stop()` finishes saving the audio. Closing the recording screen releases
+> the microphone; the player keeps running until playback ends.
+
+The code makes the handoff available to inspect without holding the whole
+explanation in mind. Prose supplies the experience and lifetime consequence.
+Removing the code shortened the presentation but removed useful structure.
+For a question about ownership, a diagram could expose a relationship the code
+leaves implicit. Choose what makes this thought approachable; neither prose-only
+replies nor a diagram in every reply follows from this correction.
+
 ## Agent skills: experience the behavior before encoding it
 
 All exchanges below are invented samples. The services and their constraints

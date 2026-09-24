@@ -1,37 +1,47 @@
 ---
 name: dialectic
-description: Work out an unsettled idea together through concrete attempts to articulate and express it. Use when the user asks for a dialectic, wants to explore what a skill or workflow should do, is finding a direction for writing, wants to think through an uncertain model or decision, or needs help articulating a thought they cannot quite express. Do not use for routine execution of a settled request, a standalone explanation of settled material, or a code review.
+description: Work out an unsettled idea together through concrete attempts to articulate and express it. Use when the user asks for a dialectic, wants to explore what a skill or workflow should do, is finding a direction for writing, wants to judge a proposed change, wants to think through an uncertain model or decision, or needs help articulating a thought they cannot quite express. Do not use for routine execution of a settled request, a standalone explanation of settled material, or a code review.
 ---
 
 # Dialectic
 
-Develop a shared model through articulation and concrete expression. Use this
-method within the ongoing task; its purpose, artifacts, and authorization
-remain in place as our understanding develops. Standalone exploration needs
-no destination artifact.
+Give the thought a useful shape so we can think with it together.
 
-**Articulation of the model** states our current understanding of the idea,
-intent, or arrangement: what we mean, how its parts relate, and what we want
-it to make possible.
+Articulate what we mean and show what it could become. Bring prose, code,
+diagrams, and examples together where they make the idea easier to grasp and
+its consequences easier to judge. A code block can make a handoff inspectable;
+a diagram can reveal ownership; a passage can let someone experience the
+proposed voice.
 
-**Concrete expression** shows what that model could produce: caller code using
-an API, a conversation following a skill, or the actual prose of a piece of
-writing.
+Give each part useful work. Preserve the structure that makes the thought
+approachable, while cutting repetition and premature elaboration. Let the
+question determine the form, sequence, and depth. Show alternatives when their
+differences help resolve something still open.
 
-Usually present them together so the user can judge both the model and the
-choices made in expressing it. Keep the articulation clear enough to correct
-and the expression complete enough to judge. Use reactions to either to revise
-our understanding and the next attempt, working toward “that’s right” to both.
+Use the person’s reaction to develop both the idea and its expression. Carry
+forward what they recognize, reconsider what their correction reveals, and
+make the next coherent attempt.
+
+Use this method within the ongoing task; its purpose, artifacts, and
+authorization remain in place as our understanding develops. Standalone
+exploration needs no destination artifact.
 
 ## Make the model and its consequences judgeable
 
 Offer your best current understanding and a useful attempt without requiring
 the user to diagnose everything first. They may arrive with an idea, an
-existing expression, or a result that raises a new question. These are two
-things to develop together, not mandatory stages or response headings. Keep
-an already clear articulation brief; a settled edit needs no new explanation.
+existing expression, or a result that raises a new question. The idea and its
+expression can share a paragraph, code example, or sketch. Explain separately
+what the expression leaves unclear. A settled edit needs no new explanation.
+
+Before/after prose or code can make a revision visible; a table can compare
+approaches on the tradeoffs the reader needs to weigh. Choose representations
+for what they help the person see, and let them work together.
 
 Check facts you can establish yourself and distinguish evidence from proposals.
+Before showing an exact proposed diff, read the current code and affected
+callers. Identify the file and scope, and include enough context to judge the
+behavior that changes. Label hypothetical code as a sketch.
 Ask when missing information would make the attempt misleading or unhelpful.
 Recommend a direction when you have grounds for one, explaining consequential
 choices. A hypothetical conversation or caller sketch proposes a result; it
@@ -51,20 +61,12 @@ matters, let the user read it. Complete enough means enough for the live
 question, not an entire application or a rewrite of settled work. Economical
 commentary does not require a short expression.
 
-When several meaningful directions remain open, usually show two or three
-distinct concrete expressions so the user can discover which direction fits.
-A correction may clarify what to avoid without settling what to make next.
-Keep what the user has recognized and explore the choices that remain; do not
-automatically turn every correction into one supposedly definitive revision.
-Choose alternatives for the differences they reveal, not to fill a set. A
-settled selection or a straightforward correction needs no new comparison.
-
-Give each alternative a standalone articulation of the thought or approach it
-develops, followed by its concrete expression. The headings should let the user
-understand the directions by skimming, without relying on the introduction or
-a comparison afterward. State what each version says or does, rather than
-using a topic fragment or vague style label. Recommend a direction when useful
-and let the user combine, reject, or redirect the possibilities.
+A correction may clarify what to avoid while leaving meaningful directions
+open. Preserve what the user has recognized and make those remaining
+differences concrete. Explain each direction enough to judge it on its own,
+using headings when they help the comparison. Recommend a direction when you
+have grounds, and leave room to combine, reject, or redirect the possibilities.
+A settled selection or a straightforward correction needs no new comparison.
 
 When comparing revisions, show the relevant original and alternatives together
 so the user need not reconstruct earlier versions from memory. Keep unrelated
