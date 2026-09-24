@@ -31,7 +31,7 @@ import type { PrincipalId } from '@epicenter/principal';
 import type { CloudEnv } from '@epicenter/server';
 import { Autumn, ConnectionError } from 'autumn-js';
 import { Hono } from 'hono';
-import { PLAN_IDS, PLANS } from './catalog.js';
+import { FEATURE_IDS, PLAN_IDS, PLANS } from './catalog.js';
 import {
 	chargeOpenAiCreditsWithAutumn,
 	chargeOpenAiTranscriptionCredits,
@@ -138,6 +138,31 @@ function makeService() {
 		},
 	);
 }
+
+test('top-up checkout requests the catalog credit quantity from Autumn', async () => {
+	const billing = new Autumn({ secretKey: 'sk_probe' }).billing;
+	const attach = spyOn(
+		Object.getPrototypeOf(billing) as typeof billing,
+		'attach',
+	).mockResolvedValue({
+		customerId: 'user_1',
+		paymentUrl: 'https://checkout.stripe.com/test',
+	});
+	const successUrl = 'http://localhost:5178/dashboard';
+	const result = await makeService().checkoutTopUp({ successUrl });
+	expect(attach).toHaveBeenCalledWith({
+		customerId: 'user_1',
+		planId: PLAN_IDS.creditTopUp,
+		featureQuantities: [
+			{
+				featureId: FEATURE_IDS.aiCredits,
+				quantity: PLANS[PLAN_IDS.creditTopUp].creditsPerPurchase,
+			},
+		],
+		successUrl,
+	});
+	expect(result.checkoutUrl).toBe('https://checkout.stripe.com/test');
+});
 
 test('storage allowance defaults to Free and preserves billing identity', async () => {
 	const includedBytes = await makeService().getStorageIncludedBytes();
