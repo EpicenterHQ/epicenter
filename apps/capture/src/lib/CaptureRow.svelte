@@ -14,9 +14,9 @@
 </script>
 
 <button type="button" onclick={() => open(capture.id)}
-  class="w-full border-b border-border px-1 py-4 text-left hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-offset-2">
-  <p class="line-clamp-2 whitespace-pre-wrap text-base">{preview}</p>
-  <time class="mt-2 block text-xs text-muted-foreground" datetime={capture.capturedAt}>
+  class="w-full rounded-sm border-b border-border px-2 py-5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:px-3">
+  <time class="block text-xs font-medium text-muted-foreground" datetime={capture.capturedAt}>
     {new Date(capture.capturedAt).toLocaleString()}
   </time>
+  <p class="mt-2 line-clamp-2 whitespace-pre-wrap text-base leading-relaxed">{preview}</p>
 </button>

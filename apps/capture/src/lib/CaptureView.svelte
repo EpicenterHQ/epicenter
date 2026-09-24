@@ -174,30 +174,34 @@
   }
 </script>
 
-<main class="mx-auto max-w-2xl px-5 py-8 sm:py-12">
-  <header class="mb-8 flex items-center justify-between gap-3">
-    <button type="button" class="text-xl font-semibold" onclick={() => open(null)}>Capture</button>
-    <AccountPopover {auth} syncNoun="captures" />
-  </header>
+<header class="border-b border-border/70">
+  <div class="mx-auto flex h-16 max-w-5xl items-center justify-between gap-4 px-5 sm:px-8">
+    <button type="button" class="-ml-2 flex min-h-10 items-center rounded-sm px-2 text-base font-semibold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" onclick={() => open(null)}>Capture</button>
+    <div class="flex items-center gap-3 sm:gap-5">
+      <span role="status" class="text-xs text-muted-foreground">
+        {saveStatus === 'saved' ? 'Saved on this device' : saveStatus === 'pending' ? 'Saving…' : 'Save blocked'}
+      </span>
+      <AccountPopover {auth} syncNoun="captures" />
+    </div>
+  </div>
+</header>
+<main class="mx-auto w-full max-w-3xl px-5 pb-20 pt-9 sm:px-8 sm:pt-14">
   {#if data.tables.captures.nonconforming.length || data.tables.thoughts.nonconforming.length || data.tables.entries.nonconforming.length}
     <p role="alert" class="mb-5 rounded border border-destructive p-3 text-sm text-destructive">
       Some writing cannot be read by this version of Capture. No unreadable rows are deleted automatically.
     </p>
   {/if}
   <PersistenceNotice persistence={data.persistence} />
-  <p role="status" class="mb-5 text-xs text-muted-foreground">
-    {saveStatus === 'saved' ? 'Saved on this device' : saveStatus === 'pending' ? 'Saving on this device…' : 'Save blocked'}
-  </p>
   {#if error}<p role="alert" class="mb-5 text-sm text-destructive">{error}</p>{/if}
 
   {#if selectedId && !selected}
     <p role="alert" class="mb-5">This capture is not available yet.</p>
     <Button variant="outline" size="sm" onclick={() => open(null)}>Back to timeline</Button>
   {:else if selected}
-    <Button variant="ghost" size="sm" class="mb-5 -ml-3" onclick={() => open(null)}>← Timeline</Button>
-    <div class="mb-5 flex items-start justify-between gap-3">
+    <Button variant="ghost" size="sm" class="mb-9 -ml-3" onclick={() => open(null)}>← Timeline</Button>
+    <div class="mb-7 flex items-start justify-between gap-3">
       <div>
-        <h1 class="mb-1 text-2xl font-semibold">Capture</h1>
+        <h1 class="mb-2 text-3xl font-semibold tracking-tight">Capture</h1>
         <time class="block text-sm text-muted-foreground" datetime={selected.capturedAt}>
           {new Date(selected.capturedAt).toLocaleString()}
         </time>
@@ -205,7 +209,7 @@
       <DropdownMenu.Root>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="ghost" size="icon-sm" aria-label="Capture actions">
+            <Button {...props} variant="ghost" size="icon-sm" aria-label="Capture actions" class="min-h-10 min-w-10">
               <EllipsisIcon class="size-4" />
             </Button>
           {/snippet}
@@ -216,17 +220,19 @@
       </DropdownMenu.Root>
     </div>
     {#if deletion}
-      <section aria-label="Delete preview" class="mb-5 rounded border border-destructive p-4 text-sm">
-        <h2 class="font-semibold">Permanently delete this capture and {deletion.thoughts.length} {deletion.thoughts.length === 1 ? 'thought' : 'thoughts'}?</h2>
+      <section aria-label="Delete preview" class="mb-7 rounded-xl border border-destructive/50 bg-destructive/5 p-4 text-sm sm:p-5">
+        <h2 class="text-base font-semibold">Permanently delete this capture and {deletion.thoughts.length} {deletion.thoughts.length === 1 ? 'thought' : 'thoughts'}?</h2>
         <p class="mt-2 text-muted-foreground">Thoughts added on another offline device after this review may survive in recovery.</p>
-        <p class="mt-3 whitespace-pre-wrap">{deletion.text || 'Empty capture'}</p>
-        <ul class="mt-3 max-h-64 list-disc overflow-auto pl-5">
+        <p class="mt-5 text-xs font-medium text-muted-foreground">Capture text</p>
+        <p class="mt-1 whitespace-pre-wrap break-words">{deletion.text || 'Empty capture'}</p>
+        {#if deletion.thoughts.length}<p class="mt-5 text-xs font-medium text-muted-foreground">Thoughts to delete</p>{/if}
+        <ul class="mt-1 max-h-64 list-disc overflow-auto pl-5">
           {#each deletion.thoughts as thought (thought.id)}
-            <li class="whitespace-pre-wrap py-1">{thought.text || 'Empty thought'}</li>
+            <li class="whitespace-pre-wrap break-words py-1">{thought.text || 'Empty thought'}</li>
           {/each}
         </ul>
         {#if previewChanged}<p role="status" class="mt-3">This capture changed. Review the updated list before deleting.</p>{/if}
-        <div class="mt-4 flex gap-4">
+        <div class="mt-5 flex flex-wrap gap-3">
           {#if previewChanged}
             <Button size="sm" variant="destructive" onclick={() => previewChanged = false}>I reviewed the changes</Button>
           {:else}
@@ -239,42 +245,52 @@
       </section>
     {/if}
     {#if body}{#key selected.id}<TextEditor {body} label="Capture text" />{/key}{/if}
-    <h2 class="mb-2 mt-10 text-lg font-medium">Thoughts</h2>
-    <form onsubmit={add} class="mb-5 flex flex-col gap-3">
-      <label for="new-thought" class="text-sm font-medium">Add a thought</label>
-      <Textarea id="new-thought" bind:value={() => draft, setDraft} rows={3} placeholder="Write a line or paragraph…" />
-      <Button type="submit" size="sm" class="self-end">Add thought</Button>
+    <section class="mt-12 border-t border-border pt-8" aria-label="Capture thoughts">
+      <h2 class="mb-6 text-xl font-semibold tracking-tight">Thoughts</h2>
+      <form onsubmit={add} class="mb-7 flex flex-col gap-3">
+        <label for="new-thought" class="text-sm font-medium">Add a thought</label>
+        <Textarea id="new-thought" bind:value={() => draft, setDraft} rows={3} placeholder="Write a line or paragraph…" />
+        <Button type="submit" size="sm" class="self-end">Add thought</Button>
+      </form>
+      <div aria-label="Thoughts" class="border-t border-border">
+        {#each selectedThoughts as thought, index (thought.id)}
+          <ThoughtItem {store} {thought} captures={view.captures}
+            canMoveUp={index > 0} canMoveDown={index < selectedThoughts.length - 1} />
+        {:else}
+          <p class="py-5 text-sm text-muted-foreground">Thoughts you add will stay with this capture.</p>
+        {/each}
+      </div>
+    </section>
+  {:else}
+    <div class="mb-8">
+      <h1 class="text-3xl font-semibold tracking-tight">Timeline</h1>
+    </div>
+    <form onsubmit={add} class="mb-12 rounded-xl border border-border bg-muted/20 p-4 sm:p-5">
+      <label for="new-capture" class="mb-3 block text-sm font-medium">Add a capture</label>
+      <Textarea id="new-capture" bind:value={() => draft, setDraft} rows={4} class="resize-y bg-background" placeholder="Write or paste something…" />
+      <div class="mt-3 flex justify-end"><Button type="submit" size="sm">Add a capture</Button></div>
     </form>
-    {#if selectedThoughts.length === 0}<p class="py-4 text-sm text-muted-foreground">No thoughts yet.</p>{/if}
-    <div aria-label="Thoughts">
-      {#each selectedThoughts as thought, index (thought.id)}
-        <ThoughtItem {store} {thought} captures={view.captures}
-          canMoveUp={index > 0} canMoveDown={index < selectedThoughts.length - 1} />
+    <div aria-label="Timeline captures" class="border-t border-border">
+      {#each view.captures as capture (capture.id)}
+        <CaptureRow {store} {capture} {open} />
+      {:else}
+        <p class="py-7 text-sm text-muted-foreground">Your captures will appear here.</p>
       {/each}
     </div>
-  {:else}
-    <h1 class="mb-2 text-2xl font-semibold">Timeline</h1>
-    <form onsubmit={add} class="mb-7 flex flex-col gap-3">
-      <label for="new-capture" class="text-sm font-medium">Add a capture</label>
-      <Textarea id="new-capture" bind:value={() => draft, setDraft} rows={3} placeholder="Write or paste something…" />
-      <Button type="submit" size="sm" class="self-end">Add a capture</Button>
-    </form>
-    {#if view.captures.length === 0}<p class="py-4 text-sm text-muted-foreground">No captures yet.</p>{/if}
-    <div aria-label="Timeline captures">
-      {#each view.captures as capture (capture.id)}<CaptureRow {store} {capture} {open} />{/each}
-    </div>
     {#if view.recovery.length}
-      <section aria-label="Thought recovery" class="mt-10">
-        <h2 class="text-lg font-medium">Thoughts needing a capture</h2>
+      <section aria-label="Thought recovery" class="mt-12 border-t border-border pt-8">
+        <h2 class="text-xl font-semibold tracking-tight">Thoughts needing a capture</h2>
         <p class="mt-1 text-sm text-muted-foreground">Their capture is unavailable. You can edit, copy, move, or delete each thought.</p>
-        {#each view.recovery as thought (thought.id)}
-          <ThoughtItem {store} {thought} captures={view.captures} />
-        {/each}
+        <div class="mt-5 border-t border-border">
+          {#each view.recovery as thought (thought.id)}
+            <ThoughtItem {store} {thought} captures={view.captures} />
+          {/each}
+        </div>
       </section>
     {/if}
     {#if data.tables.entries.rows.length}
-      <section aria-label="Earlier entries" class="mt-10">
-        <h2 class="text-lg font-medium">Earlier entries</h2>
+      <section aria-label="Earlier entries" class="mt-12 border-t border-border pt-8">
+        <h2 class="text-xl font-semibold tracking-tight">Earlier entries</h2>
         <p class="mt-1 text-sm text-muted-foreground">Writing from the earlier Capture format stays here. Copy text you want to bring into a new capture or thought.</p>
         {#each [...data.tables.entries.rows].sort((a, b) => a.capturedAt === b.capturedAt ? (a.id < b.id ? -1 : 1) : a.capturedAt > b.capturedAt ? -1 : 1) as entry (entry.id)}
           <LegacyEntry {store} {entry} />

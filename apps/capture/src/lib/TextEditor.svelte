@@ -45,7 +45,7 @@
       attributes: {
         class: compact
           ? 'capture-text-editor min-h-12 w-full rounded-md px-2 py-2 text-base leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring'
-          : 'capture-text-editor min-h-28 w-full rounded-lg border border-border bg-transparent p-4 text-base leading-relaxed outline-none focus:border-foreground',
+          : 'capture-text-editor min-h-32 w-full rounded-xl border border-border bg-background p-5 text-base leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-44 sm:p-6',
         role: 'textbox',
         'aria-label': label,
         'aria-multiline': 'true',

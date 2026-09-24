@@ -69,7 +69,7 @@
   }
 </script>
 
-<article class="border-b border-border py-3">
+<article class="border-b border-border py-2">
   <div class="flex items-start gap-2">
     {#if body}
       <div class="min-w-0 flex-1">{#key body}<TextEditor {body} compact label="Thought text" />{/key}</div>
@@ -79,7 +79,7 @@
     <DropdownMenu.Root onOpenChange={(open) => { if (open) refreshDestinations(); }}>
       <DropdownMenu.Trigger>
         {#snippet child({ props })}
-          <Button {...props} variant="ghost" size="icon-sm" aria-label="Thought actions" class="mt-1">
+          <Button {...props} variant="ghost" size="icon-sm" aria-label="Thought actions" class="mt-1 min-h-10 min-w-10">
             <EllipsisIcon class="size-4" />
           </Button>
         {/snippet}
@@ -111,10 +111,10 @@
   </div>
   {#if error}<p role="alert" class="mt-2 text-sm text-destructive">{error}</p>{/if}
   {#if confirming}
-    <section aria-label="Delete thought preview" class="mt-3 rounded border border-destructive p-3">
-      <p>Permanently delete this thought?</p>
-      <p class="my-2 whitespace-pre-wrap">{reviewedText || 'Empty thought'}</p>
-      <div class="flex gap-3 text-sm">
+    <section aria-label="Delete thought preview" class="mt-3 rounded-lg border border-destructive/50 bg-destructive/5 p-4">
+      <p class="font-semibold">Permanently delete this thought?</p>
+      <p class="my-3 whitespace-pre-wrap break-words text-sm">{reviewedText || 'Empty thought'}</p>
+      <div class="flex flex-wrap gap-3 text-sm">
         <Button size="sm" variant="destructive" disabled={deleting} onclick={remove}>{deleting ? 'Saving deletion…' : 'Permanently delete thought'}</Button>
         <Button size="sm" variant="outline" onclick={() => confirming = false}>Cancel</Button>
       </div>
