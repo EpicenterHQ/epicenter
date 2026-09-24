@@ -698,3 +698,4 @@ When you add an ADR, add its row here.
 | [0444](0444-vocab-stores-finished-session-messages-as-local-rows.md) | Vocab stores finished session messages as local rows | Proposed |
 | [0445](0445-vocab-keeps-one-current-session-on-device-and-syncs-saved-entries.md) | Vocab keeps one current session on device and syncs saved entries | Proposed |
 | [0446](0446-vocab-teaches-english-without-automatic-pronunciation-readings.md) | Vocab teaches English without automatic pronunciation readings | Proposed |
+| [0447](0447-the-bun-self-hosted-server-owns-one-data-root.md) | The Bun self-hosted server owns one data root | Proposed (amends 0066 at S3-only storage; Bun sync and local blobs unbuilt) |

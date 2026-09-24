@@ -28,12 +28,12 @@ The publishing authority allocates a fresh opaque key and returns a complete
 HTTPS URL after the bytes are published. Local development may use an HTTP
 loopback authority. That URL is the durable reference in an application row.
 It contains no credential or temporary presentation grant.
-The object-store endpoint and physical key are deployment details; a Cloudflare
+The storage backend and physical key are deployment details; a Cloudflare
 R2 URL is not saved in the row. There is no second public FileId for the hosted
 object. A new publication, including a copy of identical bytes, gets a new URL.
 The authority never replaces the bytes at an occupied URL or deliberately
 reissues a deleted URL. Keys come from a cryptographically random space, and
-publication uses a create-only object-store write. This gives practical
+publication uses a create-only storage write. This gives practical
 nonreuse without a tombstone catalog. Deleting the object can make a saved URL
 unavailable.
 
@@ -145,7 +145,7 @@ upload again. A lost publication response may leave an object whose URL the
 caller does not know; no exactly-once or cross-storage transaction is claimed.
 
 **Hosted blobs have no user-facing inventory or parent-URL listing.** The
-server's object-store listing remains an internal deployment operation. Rows,
+server's storage enumeration remains an internal deployment operation. Rows,
 documents, and other saved citations are how a person finds a hosted URL. If
 the last citation disappears, the object can remain stored but unreachable
 through the application. No reference-liveness index or automatic reclaim pass
@@ -191,7 +191,8 @@ This does not expose an owner inventory to applications. Until that
 deletion coordinator exists, the platform does not claim complete owner erasure.
 
 The complete URL also fixes the authority origin and route spelling. Moving
-the physical object store behind that origin does not change citations. Moving
+the physical storage behind that origin does not change citations, but requires
+the operator to migrate the stored bytes and metadata first. Moving
 the origin, renaming an owner ID, or changing the route requires keeping the old
 endpoint serving or publishing new objects and updating citations explicitly.
 Private `Account.fetch` does not follow a URL to another origin, and there is

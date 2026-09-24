@@ -69,6 +69,9 @@ No scheduled snapshots, server-kept copies, retention catalog, dedicated backup
 UI, or guarantee of full application-state reconstruction is part of this
 decision. Blob protection can be considered separately later.
 
+The server operator protects authority storage separately from this working
+copy. A future user-level data export is a separate product decision.
+
 ## Consequences
 
 The readable folder remains the one materialization format. A saved copy can
