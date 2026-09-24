@@ -684,7 +684,10 @@ When you add an ADR, add its row here.
 | [0429](0429-store-handles-keep-account-identity-private.md) | Store handles keep account identity private | Accepted (public Personal identity removal unbuilt) |
 | [0430](0430-define-store-declares-data-and-products-compose-resources.md) | Store definitions declare data and products compose resources | Proposed |
 | [0431](0431-rows-return-values-and-own-a-separate-body.md) | Rows return values and own a separate body | Proposed (amends 0295 and 0309 at the row layout and API) |
-| [0432](0432-captures-form-a-timeline-of-recursively-openable-entries.md) | Captures form a timeline of recursively openable entries | Proposed |
+| [0432](0432-captures-hold-ordered-thoughts-beneath-a-dated-timeline.md) | Captures hold ordered thoughts beneath a dated timeline | Proposed |
+| [0433](0433-capture-opens-one-account-backed-inbox.md) | Capture opens one account-backed inbox | Proposed |
+| [0434](0434-capture-keeps-unavailable-thoughts-visible.md) | Capture keeps unavailable thoughts visible | Proposed |
+| [0435](0435-capture-hands-markdown-out-as-an-explicit-snapshot.md) | Capture hands Markdown out as an explicit snapshot | Proposed |
 | [0436](0436-stores-own-local-sqlite-namespaces.md) | Stores own local SQLite namespaces | Accepted (implemented; Local Mail starts fresh) |
 | [0437](0437-sign-out-offers-removal-of-downloaded-account-data.md) | Sign-out offers removal of downloaded account data | Proposed (unbuilt) |
 | [0438](0438-hosted-blobs-have-stable-authority-urls.md) | Hosted blobs have stable authority URLs | Proposed (Personal authority routes and Account client implemented; Shared and row citations unbuilt) |

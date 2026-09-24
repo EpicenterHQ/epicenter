@@ -1,0 +1,568 @@
+{
+  "capturedAt": "2026-09-23T11:28:59.814944+08:00",
+  "head": "d51eddd6b27b5044ecfdfa4d847a4c15426555ca",
+  "branch": "braden-w/app-schema-derive-export-import",
+  "indexDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "files": {
+    ".agents/skills/agent-instructions/SKILL.md": {
+      "status": " M",
+      "sha256": "f0ec42024d2f1fdff71e7b6769717b8586bf0ac90a6310d9021a2d323fed6314"
+    },
+    ".agents/skills/asymmetric-wins/SKILL.md": {
+      "status": " M",
+      "sha256": "89b6ffcceaed692002be29ee24f76c607f3f46545e59a101952b651936275906"
+    },
+    ".agents/skills/auth/SKILL.md": {
+      "status": " M",
+      "sha256": "9ab31c3ff928964e4cdef28ec8f45a36578e3bb9257f400de026af912737f671"
+    },
+    ".agents/skills/platform-seams/SKILL.md": {
+      "status": " M",
+      "sha256": "cc504c1b256f7bc4ee0eff7adcc62e55644f417b786cc42e6d926b3a58070881"
+    },
+    ".agents/skills/pull-request/references/visual-patterns.md": {
+      "status": " M",
+      "sha256": "0db50813297fc9a7808c150e84c50b98a6cda3d38a17ac1c9c32fa0dfd46cd48"
+    },
+    ".agents/skills/typescript/references/testing-patterns.md": {
+      "status": " M",
+      "sha256": "ad92e912b0ee5413c65a9d88b7ff2938b09953ebe2ef364819fa0a65edb958ea"
+    },
+    "README.md": {
+      "status": " M",
+      "sha256": "11cb9d88d08c596c7cb32f4f1ba0b3eb42aa81bcf74a9b8584bc860c82bbb436"
+    },
+    "apps/README.md": {
+      "status": " M",
+      "sha256": "4c8ff2e3cc6ce8966dcd9891a89bab5abbae9ce9b66206b035255e2a6ee4137d"
+    },
+    "apps/epicenter/AGENTS.md": {
+      "status": " M",
+      "sha256": "b5161ca72560cc23108e4a623ded050e340e020ef5d005ae382292f6b95405e3"
+    },
+    "apps/epicenter/evidence/runtime-lifetime/main.ts": {
+      "status": " M",
+      "sha256": "78d72e2935a64db694acac0404520b62bf5b82800e1f223594c7e09e11cc8a7d"
+    },
+    "apps/epicenter/src/account-transport.test.ts": {
+      "status": " M",
+      "sha256": "973fde9417dac87f1877a17340d8d7c801ec5353ca9faca9e2aef20ac754aed9"
+    },
+    "apps/honeycrisp/AGENTS.md": {
+      "status": " M",
+      "sha256": "734184a41e795b9e8629a012219b445fd1acf5be8c25fba76aa09f2a6064fcec"
+    },
+    "apps/honeycrisp/README.md": {
+      "status": " M",
+      "sha256": "dce294c489be38b9196272e760bc7d830eab216d5e7334621f1a898cc232f1c3"
+    },
+    "apps/honeycrisp/scripts/app-retirement.ts": {
+      "status": " M",
+      "sha256": "889f3eb401082355651da9e32b3cfcde8a684abe5ad3c67b95417fb01a022011"
+    },
+    "apps/honeycrisp/src/lib/data.artifact.test.ts": {
+      "status": " M",
+      "sha256": "b258d498f0f9c0b1762591f6a1c5e41414ebe08548fa35e5b3acef18d28cb042"
+    },
+    "apps/honeycrisp/src/lib/data.ts": {
+      "status": " M",
+      "sha256": "9596ce4fa280caa76eefa02e41d1029431f134a128c57669c57135f598bc71da"
+    },
+    "apps/honeycrisp/src/lib/editor/markdown.test.ts": {
+      "status": " M",
+      "sha256": "5f6f5439dc6a969c28b0e8f7eb1dafd5b56d8d93fdf85c57caa3f9d0908a68d1"
+    },
+    "apps/honeycrisp/src/lib/editor/node-text.test.ts": {
+      "status": " M",
+      "sha256": "470d322edb2f986473ec69a3f58ae2b1eca7fcd9ce812d38323950a87b2aabe6"
+    },
+    "apps/honeycrisp/src/lib/notes.test.ts": {
+      "status": " M",
+      "sha256": "efceef4243283ef1eceebe9781f9c06d17ca986dcea5efb767f11af5e4c42b21"
+    },
+    "apps/honeycrisp/src/lib/notes.ts": {
+      "status": " M",
+      "sha256": "44be1d110282a6eec484faf52eb19eb7958586ad93924affc76b7e6595303342"
+    },
+    "apps/local-mail/ui/evidence/browser/application.ts": {
+      "status": " M",
+      "sha256": "3e36bebf5a9913df3001fd9211053ef733e7f7b73fd1d7b6560710989e15e9ec"
+    },
+    "apps/local-mail/ui/evidence/browser/main.ts": {
+      "status": " M",
+      "sha256": "bc84628e700123bcb23d23fb89eece98ea5ce982ef94757fb9ad3e8538676878"
+    },
+    "apps/local-mail/ui/src/lib/data.test.ts": {
+      "status": " M",
+      "sha256": "656dc9ea1a83aebdcd18e05d945d4604ee4018109c8e472613516cd154ed02a8"
+    },
+    "apps/local-mail/ui/src/lib/data.ts": {
+      "status": " M",
+      "sha256": "4c79cf952bbfcd22f6b681ea65264590aa2aa8ddf4bf6ed1c4d269a7e62e93b7"
+    },
+    "apps/skills/README.md": {
+      "status": " M",
+      "sha256": "5ee115a22f33bcee79e894fc6a4aebb642272a1d356fb35f43d20dab7753cb91"
+    },
+    "apps/skills/src/lib/application.test.ts": {
+      "status": " M",
+      "sha256": "0df4735abfa83a3517aa578945157138fb78811f3e9d1f8ab32aecf7473e3002"
+    },
+    "apps/skills/src/lib/components/editor/ExpandedReference.svelte": {
+      "status": " M",
+      "sha256": "73a69f58f960252816e8fade135b743a5e834296e31110da388147787f89f4a1"
+    },
+    "apps/skills/src/lib/components/editor/InstructionsEditor.svelte": {
+      "status": " M",
+      "sha256": "c8326e178bd4a3c590fdd9c04ddf37ca0bcb7ce12bf34068a9ddac076124c4b7"
+    },
+    "apps/sync-lab/ui/main.ts": {
+      "status": " M",
+      "sha256": "19a8d97b6fdc7b15f7c37c3c70245b6fe1008ce3ee3896abd00fcea74c2f515c"
+    },
+    "apps/sync-lab/worker/test-peer.ts": {
+      "status": " M",
+      "sha256": "0592954c48cfca4d24e1ce5eea40a053a8b796dc9f8733f018f52ba4a8b7ed85"
+    },
+    "apps/vocab/README.md": {
+      "status": " M",
+      "sha256": "7eb8f3c2300aa5ba600c674aaa8db63d4488395318db620d6033c48e7495bca6"
+    },
+    "apps/vocab/src/lib/data.ts": {
+      "status": " M",
+      "sha256": "391f184fce383b37c41d81eeafe78c2fab0e7f4d3427c8c978c8a47db08de48c"
+    },
+    "apps/whispering/src/lib/data.ts": {
+      "status": " M",
+      "sha256": "e62683e59da11dfd7aef24b58046a192962ad09076462a98216894a1d7d43d57"
+    },
+    "apps/whispering/src/lib/operations/save-to-personal.test.ts": {
+      "status": " M",
+      "sha256": "481390dbd2fde51c4ea7f10d41ad6c3d3b40801d2fd2605180d5ce41787e6107"
+    },
+    "apps/whispering/src/lib/operations/save-to-personal.ts": {
+      "status": " M",
+      "sha256": "891954b9db12b9cb14765d2933a3a0a2cf587b94b6eccae9def7a558ef4635b3"
+    },
+    "apps/whispering/src/lib/whispering/recordings-markdown-export.ts": {
+      "status": " M",
+      "sha256": "df71c162224f268762e6237cf35847a10381479e9d74789a03d979e39c1bf3ff"
+    },
+    "docs/CONTEXT.md": {
+      "status": " M",
+      "sha256": "ccae8d6ea810cca5a63fcb574c2d50298fd06d8b2eecdd927cc24cfdb1b79322"
+    },
+    "docs/adr/0309-a-field-holds-a-value-or-a-node-and-the-retired-words-fail-the-build.md": {
+      "status": " M",
+      "sha256": "010ebe2efea9b2a7751849dc88b985cc43e4968a9154539560b15baac7a7b11d"
+    },
+    "docs/adr/0376-data-declarations-remain-independent-of-resource-composition.md": {
+      "status": " D",
+      "sha256": null
+    },
+    "docs/adr/0405-one-flat-application-declaration-opens-the-live-app.md": {
+      "status": " M",
+      "sha256": "215837fc33e373231cafd886b5ea47cd4b1dc60ad68256f2f4a7f3b66a58e9e3"
+    },
+    "docs/adr/0407-app-owns-the-declaration-and-data-engine.md": {
+      "status": " M",
+      "sha256": "f3e85baacf7841328f9ad9cdad6fd5c1d83f8c828b94bbf42d7821847eda32a0"
+    },
+    "docs/adr/0421-apps-and-file-tools-compose-around-explicit-stores.md": {
+      "status": " M",
+      "sha256": "5c68444168c47a8c69ec82e575ef935709c9ef296ac7d6e75b3c8ac08041cd8c"
+    },
+    "docs/adr/0423-app-resources-open-as-independent-handles.md": {
+      "status": " M",
+      "sha256": "6248b99db4b28a00cc120af088c94905f188dc1a68ca151caee70c1a185762a3"
+    },
+    "docs/adr/README.md": {
+      "status": " M",
+      "sha256": "022a9c7973acfbc8d92dffce0e1d566b45739e0433883f5e1f54da0e50cf7861"
+    },
+    "docs/architecture.md": {
+      "status": " M",
+      "sha256": "631fd5ed6837f1ca9fde66006d0916f3863a1ceb1eee401862cf670183e43e66"
+    },
+    "docs/the-store-and-what-it-replaced.md": {
+      "status": " M",
+      "sha256": "7e3fb2045ebdbabfa3569d79d3b96d1c39456c1508e182ec55aec3a8dba3bcd3"
+    },
+    "packages/app-shell/smoke/app-boot/application.ts": {
+      "status": " M",
+      "sha256": "c3cee9a24e6ea797b9b9f653c63f295fa02c026d8e23f490c5e90a9cc369932c"
+    },
+    "packages/app-shell/src/agent-chat/agent-chat.svelte.test.ts": {
+      "status": " M",
+      "sha256": "03940053e40d660df6515e5546c6ea223570d3bcd2c2eefa9e82185bb0263497"
+    },
+    "packages/app-shell/src/agent-chat/agent-chat.svelte.ts": {
+      "status": " M",
+      "sha256": "57fced656961146ee6d30e3dfd6fb0181f5187c011ade576adc3ad6fc1392aad"
+    },
+    "packages/app/ARCHITECTURE.md": {
+      "status": " M",
+      "sha256": "dd75ea14e43773d45ee9683f5fd1cb5fdddc4bbcc8b47a7c82a172e1c9abfca9"
+    },
+    "packages/app/README.md": {
+      "status": " M",
+      "sha256": "8cc001b766d4786911319b70abf393e2564edefd0b0c95a5c02865e539d0b4e2"
+    },
+    "packages/app/evidence/data/a-row-is-not-a-value.test.ts": {
+      "status": " D",
+      "sha256": null
+    },
+    "packages/app/evidence/data/app-ownership/device.ts": {
+      "status": " M",
+      "sha256": "5ba805f416303eda6605003cc2f25fe27ac9dc4d505ab37ce22ef55c79f032a5"
+    },
+    "packages/app/evidence/data/app-ownership/page.ts": {
+      "status": " M",
+      "sha256": "f6f63939a16c608c4f9237ab2665c09293e65c7e546eabd800696016ce73ba03"
+    },
+    "packages/app/evidence/data/bench/first-sync.ts": {
+      "status": " M",
+      "sha256": "3a0257adaa704cc15c28cd4b20e31001f6e1e970794d0031b474d64ec3382881"
+    },
+    "packages/app/evidence/data/bench/flat-storage.ts": {
+      "status": " M",
+      "sha256": "1320eb06987954842bf65a8f56e545f002327760bc445e5f1d39180e95f0f51d"
+    },
+    "packages/app/evidence/data/bench/index-rebuild.ts": {
+      "status": " M",
+      "sha256": "220dcabe2309f3d0dbfb9ab90a0a634c78ae35b5250d36ed530f966f338fcabe"
+    },
+    "packages/app/evidence/data/bench/list-per-keystroke.ts": {
+      "status": " M",
+      "sha256": "89686f6104edfd938b3781b68ea7b4c9cbd5714696ee9f438a9385b06ae459bd"
+    },
+    "packages/app/evidence/data/browser/durable-store/main.ts": {
+      "status": " M",
+      "sha256": "60f0d0a2c668c1195d60cac29e5e8639b4650e17d4bf2012db22c8e300544ee0"
+    },
+    "packages/app/evidence/data/rewriting-a-body.test.ts": {
+      "status": " M",
+      "sha256": "f27fa568f496c37c077eafd05e027694ef538405f7e9f6860c39b41e769dc0d1"
+    },
+    "packages/app/evidence/data/workerd/probe.ts": {
+      "status": " M",
+      "sha256": "2a5385d8d670b0ad6420ec235d573b9441b7570db7c39607e84f47793ec5c3bf"
+    },
+    "packages/app/scripts/browser-smoke.ts": {
+      "status": " M",
+      "sha256": "f1a7b21e83301619c845f8b96ce99b75e0484da19b106efc1a17c3893425c1bf"
+    },
+    "packages/app/src/app.test.ts": {
+      "status": " M",
+      "sha256": "0beec0956db877c1acfcfca5e4c24e969c499c92ece8b8fde359c11b42351c7d"
+    },
+    "packages/app/src/blob-copy.test.ts": {
+      "status": " M",
+      "sha256": "9958b47e56f242a9e363a5b903c442d3c5b72856615db32bb67f2077ee2fdca7"
+    },
+    "packages/app/src/data/README.md": {
+      "status": " M",
+      "sha256": "1013585a734682bd8cea5d07c781ee455226dee5626825fb1a1a518f3a29ee21"
+    },
+    "packages/app/src/data/__benchmarks__/checkout.bench.ts": {
+      "status": " M",
+      "sha256": "8ea897e7b28713e0780c3004b585f49bc3d8f42849c4d2a8cd71c70854824744"
+    },
+    "packages/app/src/data/__benchmarks__/root-rotation.fixture.ts": {
+      "status": " M",
+      "sha256": "cf439d4e5d153bcbbace1fc9abeea7c682217a3811cffce5f3d8ba0414cba82b"
+    },
+    "packages/app/src/data/artifact/checkout.test.ts": {
+      "status": " M",
+      "sha256": "a983404f0c571ae0366e57cb851d2c2f057766c42b19e71c7b2e843a6f40f5b4"
+    },
+    "packages/app/src/data/artifact/checkout.ts": {
+      "status": " M",
+      "sha256": "5614058f0704a8c4c537ac548e5df789a56233cde48cdfaeaa863f3f8a705e98"
+    },
+    "packages/app/src/data/artifact/frontmatter.ts": {
+      "status": " M",
+      "sha256": "d17f15388f0f3402346fb73d3cbbbbb2c811cbe0a48053d79a6e2e8acb7221cc"
+    },
+    "packages/app/src/data/artifact/import.test.ts": {
+      "status": " M",
+      "sha256": "beab4b0ca3182f58e10b3e20708f45361bd6b01564e8b6cb48c4260141c7e2a1"
+    },
+    "packages/app/src/data/artifact/import.ts": {
+      "status": " M",
+      "sha256": "012a407dfbc91cfbd0db9927cdae78b5295160f07fb04b6cf3a2a06a5f96d005"
+    },
+    "packages/app/src/data/artifact/optional-content.test.ts": {
+      "status": " D",
+      "sha256": null
+    },
+    "packages/app/src/data/artifact/render.test.ts": {
+      "status": " M",
+      "sha256": "3fe7a810aa3cf12df6531a50a9c002c26cab06bc01e3de2d0ea628e3b6b534b0"
+    },
+    "packages/app/src/data/artifact/render.ts": {
+      "status": " M",
+      "sha256": "4845b14d487df3205da56bd513cfed2be4a54f3349b67d224d51b3f256de561b"
+    },
+    "packages/app/src/data/definition/compile.test.ts": {
+      "status": " M",
+      "sha256": "e8a8c40cb47783b2411df84ab3a52135407d1102e113b304ebf360affeec2ea9"
+    },
+    "packages/app/src/data/definition/compile.ts": {
+      "status": " M",
+      "sha256": "6545fc472c2802c9a726cea232bcdaeacf4da099dfd978c51f6fbcc52236c3e0"
+    },
+    "packages/app/src/data/definition/content.ts": {
+      "status": " D",
+      "sha256": null
+    },
+    "packages/app/src/data/definition/declaration.test-d.ts": {
+      "status": " M",
+      "sha256": "b928edc5c8d9262637ea6f4728ef2c0272a4d40f80faec7b2bce19f3b10d1258"
+    },
+    "packages/app/src/data/definition/declaration.ts": {
+      "status": " M",
+      "sha256": "aa2140977c5ea8e30400a8d5928a038e19087bb8200e8ada9721fb0857ebe965"
+    },
+    "packages/app/src/data/definition/define.test-d.ts": {
+      "status": " M",
+      "sha256": "4879472204192c3a08d4a65297cd2d5fd33e63783e08da31d7f18b403375d3f9"
+    },
+    "packages/app/src/data/definition/define.ts": {
+      "status": " M",
+      "sha256": "e90f8676c6302554fb70c904f48e7a7f42408f000676deeebacdf342094f9443"
+    },
+    "packages/app/src/data/definition/index.ts": {
+      "status": " M",
+      "sha256": "f3065ed8f3f7dc55e30bf024aef00490306b04bf49265013d280faf1f7432ef7"
+    },
+    "packages/app/src/data/open.test.ts": {
+      "status": " M",
+      "sha256": "3dcedd1f7c8faa1066b7af83b366cf1d695d945b24dc27bcca2f780075a966c4"
+    },
+    "packages/app/src/data/store/README.md": {
+      "status": " M",
+      "sha256": "4b5d995a8351ae8ad9c7c7c15097d32facdc738092eca848efe5d07eb110ed74"
+    },
+    "packages/app/src/data/store/browser.test.ts": {
+      "status": " M",
+      "sha256": "b2cab1f0d8d605e66142a02695f7f4ee96b96d975ce40953397496a70481597e"
+    },
+    "packages/app/src/data/store/current-open.test.ts": {
+      "status": " M",
+      "sha256": "2ac812939f7916aca6a8e3ec2181c34d05efa9eedf03a411f7887a8453f5c501"
+    },
+    "packages/app/src/data/store/document.test.ts": {
+      "status": " M",
+      "sha256": "8655ad4b27ff0a1ef82d1dbbc675db039f6f1d65832eb0c0ca8eef381079a2cc"
+    },
+    "packages/app/src/data/store/document.ts": {
+      "status": " M",
+      "sha256": "7708d373030992ee08f8b1e300b0e950541f56a291ce3466d98d9a4c0d04d31e"
+    },
+    "packages/app/src/data/store/handles.ts": {
+      "status": " M",
+      "sha256": "13400f1a178bdaff01a3de7fc6fc8ae5aac4af131c792c6c7c5f3070a1b01752"
+    },
+    "packages/app/src/data/store/idb-runtime.test.ts": {
+      "status": " M",
+      "sha256": "3dd4472ef825df099396e4f975f07f91e0318d548fec19486e0784fb52c2e43b"
+    },
+    "packages/app/src/data/store/persistence.test.ts": {
+      "status": " M",
+      "sha256": "04b1a67f606f169eca95d287704ebabaafc0c2a306c401f89f105a5181534e56"
+    },
+    "packages/app/src/data/store/store-opening.test.ts": {
+      "status": " M",
+      "sha256": "7a3b6c4164f19f0bf545c063964c0d2a9202250b82c1f621d180c6d429c2a87d"
+    },
+    "packages/app/src/data/store/store-retirement.test.ts": {
+      "status": " M",
+      "sha256": "ff65851a8ac0109e55a7a08ca06673a6c40d5135ec065d18c236229ab9177ae1"
+    },
+    "packages/app/src/data/store/store.test.ts": {
+      "status": " M",
+      "sha256": "dcd3c7464291c20b2fe3f348ae4bae5d6b703ee7047e00a8b948be79c1a962a8"
+    },
+    "packages/app/src/data/store/store.ts": {
+      "status": " M",
+      "sha256": "ba4fdc61db171ebedb5eddeb3248d7e2caf4ecf00005e4115c6602ca0882da19"
+    },
+    "packages/app/src/data/store/sync.test.ts": {
+      "status": " M",
+      "sha256": "c58bb3ee1313ad734fe4f3542e2fb5f8ed5849a2e6977db63f9557a4aa841208"
+    },
+    "packages/app/src/data/sync/attach.test.ts": {
+      "status": " M",
+      "sha256": "283770e6a9c4fe3b07c9bcfd66e5fea9b4e0697c2736ded13d3bffd4d572b54d"
+    },
+    "packages/app/src/data/sync/connection.test.ts": {
+      "status": " M",
+      "sha256": "1b171c2c64efe4e0bc083e0db237f8199b8b231971109a9bb873bbd364c549d0"
+    },
+    "packages/app/src/data/sync/persistence-scheduling.test.ts": {
+      "status": " M",
+      "sha256": "952b707248306d14c7f1979bef491f2cb515a53aca2a9adff24fb352225f9beb"
+    },
+    "packages/app/src/data/sync/transport.test.ts": {
+      "status": " M",
+      "sha256": "4646647a98ed99ed27a4c5af345690f2fe29316d26e8fb4099045c0d490a2a03"
+    },
+    "packages/app/src/import-boundaries.test.ts": {
+      "status": " M",
+      "sha256": "4fd5951289601100fa140f75c945de06d7def3f3e88f012328684ed04ed4160c"
+    },
+    "packages/app/src/index.test-d.ts": {
+      "status": " M",
+      "sha256": "e159e5b34b7f6414c5e70d74ea21746f9066c8c8622005c69bd40d7b07d0cbf1"
+    },
+    "packages/app/src/index.test.ts": {
+      "status": " M",
+      "sha256": "2d84a91ffe4454cd4b573ba8102fe64b82870108296049cabecad764b018995d"
+    },
+    "packages/app/src/index.ts": {
+      "status": " M",
+      "sha256": "d616bded931ff6359175fed2ce4ac954a0921c558f57b765379f1214a279256f"
+    },
+    "packages/app/src/open-store.test.ts": {
+      "status": " M",
+      "sha256": "afaa7fad8b65b43c1dbc182ab82c1241fc9391748e27f84224f0d1cdcd68c80d"
+    },
+    "packages/app/src/open-store.ts": {
+      "status": " M",
+      "sha256": "0ae8cf7c2e699b2c96353fd03a213908f97467d85e90c2df24857ad8dde61f51"
+    },
+    "packages/app/src/platform-selection.test.ts": {
+      "status": " M",
+      "sha256": "970f321d402e3d31669000043ea0800d3cf61f9ec001a13f0c2ffec43b0faaee"
+    },
+    "packages/app/src/recording.test.ts": {
+      "status": " M",
+      "sha256": "954af6ef1a96f2268f8293b07ed31f5f8297820936867dbba0f9961210843564"
+    },
+    "packages/app/src/runtime.test.ts": {
+      "status": " M",
+      "sha256": "427e70013919ec91dfe3af2282666687ed9a2d42326d5353f563be7dc75ad60b"
+    },
+    "packages/app/src/store-blobs.test.ts": {
+      "status": " M",
+      "sha256": "ae87533c1cb4b5b607c2015eafd8c593111bce51a5c51f1f134f0112c2e97738"
+    },
+    "packages/app/src/sync-subprotocol.test.ts": {
+      "status": " M",
+      "sha256": "527d6f37c38522ff75f3e84bc63684aa5fe2cb7b96f7ba0e2c4ecbf471208a45"
+    },
+    "packages/chat/src/index.test.ts": {
+      "status": " M",
+      "sha256": "73bb0b7c08033c09be37eeab65cdf45e7ebf129e4f526805b677a76fa67689e5"
+    },
+    "packages/chat/src/index.ts": {
+      "status": " M",
+      "sha256": "4f7554efeb3a710ee533252ca7a10616c3ea007eabaed17eccd064d121551058"
+    },
+    "packages/constants/src/app-id.ts": {
+      "status": " M",
+      "sha256": "5d9b72b1c0b3cd41ee2c22ac001332cc7e8055a9ebe15295127dafc933b85797"
+    },
+    "packages/constants/src/apps.ts": {
+      "status": " M",
+      "sha256": "5e3c9d6f47e9b82b23e0d4bee65142d61aadf2945d0d8d656a211d7bd17cdbc7"
+    },
+    "packages/device/src/browser.ts": {
+      "status": " M",
+      "sha256": "18174482f09604e81e30fa877cc35edbeec33c4bffc537db0808b5d12bc50bd2"
+    },
+    "packages/server/src/principal.ts": {
+      "status": " M",
+      "sha256": "8aa213fe7ec77a70756eeafc4ceb92ba549439da71dec090e83e6a6285f3c957"
+    },
+    "packages/server/src/store-sync/browser-dial.test.ts": {
+      "status": " M",
+      "sha256": "9757c6310fcad14f3c7337f7a914b12c02a67f65b70c8f46ab346fdf4f848ca8"
+    },
+    "packages/server/workers/replica.ts": {
+      "status": " M",
+      "sha256": "5af028834eed40f41905357ab0880266aad679a6c21f9db30488b1fc1c6cdde4"
+    },
+    "packages/skills/README.md": {
+      "status": " M",
+      "sha256": "f94131b06c9eda0b8aa5f64954a6ae2379f988ba15b779e8bd6e6157f827c4e2"
+    },
+    "packages/skills/src/node.ts": {
+      "status": " M",
+      "sha256": "b9efb4d1bd872f3ca4a37979fa7bcab40af91a2afde21e8a5ee8bc2d0198cbb1"
+    },
+    "packages/skills/src/skills.test.ts": {
+      "status": " M",
+      "sha256": "dbfe340ca211606911bc4523246197f58c73a4edb0ad6c799dd69eaaa0b433a7"
+    },
+    "packages/skills/src/workspace.ts": {
+      "status": " M",
+      "sha256": "a9fa53e919fb34d2a6f9cc33cb5d565651b012203ae5cde512bf41a6e3163daf"
+    },
+    "packages/svelte/src/from-data.svelte.test.ts": {
+      "status": " M",
+      "sha256": "fa593bbe3e796b8d7699171ff3b8e7062045b84efc6497d50e022e119e1e3dba"
+    },
+    "packages/svelte/src/from-data.svelte.ts": {
+      "status": " M",
+      "sha256": "d0ef370e6258ad20e27d32426fe07621917ba03c751875ee279a152fcb80998f"
+    },
+    "packages/sync/src/store-route.ts": {
+      "status": " M",
+      "sha256": "2cdda3ed428c4428f4958c655c0ae28d6a66e8a8df3e7c74fac972009d608cc7"
+    },
+    "scripts/epicenter.test.ts": {
+      "status": " M",
+      "sha256": "2b6dc42f355f0135f53b4457c3fa13f94be74659e7bade4c4f6cfc1499de6d2f"
+    },
+    "scripts/whispering-startup.test.ts": {
+      "status": " M",
+      "sha256": "2c6d28b0d3d78f7da535da55e16f2c1e085a9871151cc2934d3de78541194337"
+    },
+    "apps/landing/src/content/blog/you-dont-have-to-be-a-writer-to-judge-writing.md": {
+      "status": "??",
+      "sha256": "f6aca3f7acf0f9a07c595367f2d68d216e03be672f731262fab633274c93daff"
+    },
+    "codex-session-01a0b531-b6c6-7e21-a89c-0db3c3d88683.md": {
+      "status": "??",
+      "sha256": "1444a6548172f32a968d8dc63b9e02c43332569ef44b7aed47e3954229c50368"
+    },
+    "codex-session-01a0b74a-1b65-7023-a484-f68c0587d625.md": {
+      "status": "??",
+      "sha256": "f2a2c53407957eaf9207656f57c692a22ceb89c0b172c7ca5dbbbc472facf571"
+    },
+    "codex-session-01a0c508-7bb7-7673-8148-e12c6bb37a2a.md": {
+      "status": "??",
+      "sha256": "f89abaed2397eef9af7bf9538cd51d35f5d4517efa82964bd882d057bb9a652d"
+    },
+    "docs/adr/0430-define-store-declares-data-and-products-compose-resources.md": {
+      "status": "??",
+      "sha256": "cea3f6f816449614456ccdc538807672b05bec534647b5171d7dbafe301f89d3"
+    },
+    "docs/adr/0431-rows-return-values-and-own-a-separate-body.md": {
+      "status": "??",
+      "sha256": "a77ff1c373be45644d03b6e282b37169cce7a39d5f2dff9168888db5543b203c"
+    },
+    "docs/reports/20260923-row-as-ynode-research-handoff.md": {
+      "status": "??",
+      "sha256": "f0964880d58f69f4c5e8dfbec4a11f31870943137aba1e8e9be10b8941995772"
+    },
+    "packages/app/evidence/data/row-snapshots.test.ts": {
+      "status": "??",
+      "sha256": "114ef0abeafad2c5b96c295fca588b5bea3d34d51c72054630d20fa0249ef5b2"
+    },
+    "packages/app/src/data/artifact/body-boundary.test.ts": {
+      "status": "??",
+      "sha256": "7d87b5db2a53baa0eb14e33a542ccea0b215cf64dd2a4820614a5e6e762cc37e"
+    },
+    "packages/app/src/data/artifact/optional-body.test.ts": {
+      "status": "??",
+      "sha256": "68861d4356e293139fe01a9cdfe44e7e98451bcfaaa40fad174c4897fc48de5c"
+    },
+    "packages/app/src/data/definition/body.ts": {
+      "status": "??",
+      "sha256": "fcd5ba4a51bfe13e23812b144c079d7a3a3b1e92311d1af2d0053ba3d99654cb"
+    }
+  }
+}

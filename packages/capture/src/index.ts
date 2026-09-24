@@ -9,6 +9,26 @@ import { InstantString } from '@epicenter/app/field';
 import type { Data, DeclaredData } from '@epicenter/app/store';
 import * as Y from '@y/y';
 
+const captures = defineTable({
+	fields: { capturedAt: field.instant() },
+	body: plainText(),
+});
+const thoughts = defineTable({
+	fields: {
+		captureId: field.reference('captures'),
+		position: field.integer(),
+	},
+	body: plainText(),
+});
+// A promotion key stays even if its capture is later deleted. Replayed requests
+// must never create a second root capture.
+const promotions = defineTable({
+	fields: {
+		requestId: field.string(),
+		captureId: field.nullable(field.reference('captures')),
+	},
+});
+// Earlier rows remain declared so retained account data can be read and copied.
 const entries = defineTable({
 	fields: {
 		parentId: field.nullable(field.string()),
@@ -17,163 +37,254 @@ const entries = defineTable({
 	body: plainText(),
 });
 
-/** A declaration only. Importing it never opens storage. */
 export const captureDefinition = defineStore({
 	id: 'so.epicenter.capture',
 	title: 'Capture',
 	kv: {},
-	tables: { entries },
+	tables: { captures, thoughts, entries, promotions },
 });
-
 export type CaptureData = DeclaredData<typeof captureDefinition>;
-export type CaptureEntry = RowOf<typeof entries>;
+export type Capture = RowOf<typeof captures>;
+export type Thought = RowOf<typeof thoughts>;
 
-/** Mint one entry and integrate its initial text in the same store transaction. */
-export function createEntry(
-	data: CaptureData,
-	{
-		parentId,
-		text,
-		capturedAt = InstantString.now(),
-	}: {
-		parentId: string | null;
-		text: string;
-		capturedAt?: InstantString;
-	},
-): CaptureEntry {
-	if (parentId !== null && !data.tables.entries.get(parentId))
-		throw new Error('The parent entry is no longer available.');
+export const CAPTURE_PROMOTION_CHANNEL = 'epicenter.capture.promotion.v1';
+export type CapturePromotionRequest = {
+	type: 'add';
+	requestId: string;
+	account: { authorityId: string; principalId: string };
+	text: string;
+	capturedAt: ReturnType<typeof InstantString.now>;
+};
+export type CapturePromotionAcknowledgement = {
+	type: 'added';
+	requestId: string;
+	account: CapturePromotionRequest['account'];
+	captureId: string;
+};
+export type CapturePromotionOpen = {
+	type: 'open';
+	requestId: string;
+	account: CapturePromotionRequest['account'];
+	captureId: string;
+};
+export type CapturePromotionOpened = {
+	type: 'opened';
+	requestId: string;
+	account: CapturePromotionRequest['account'];
+	captureId: string;
+};
+export type CapturePromotionProblem = {
+	type: 'inspection-required' | 'unavailable';
+	requestId: string;
+	account: CapturePromotionRequest['account'];
+	captureId: string | null;
+};
+export type CapturePromotionMessage =
+	| CapturePromotionRequest
+	| CapturePromotionAcknowledgement
+	| CapturePromotionOpen
+	| CapturePromotionOpened
+	| CapturePromotionProblem;
+
+export class PromotionInspectionRequired extends Error {
+	constructor() {
+		super('Capture may have accepted this request. Inspect Capture before creating another.');
+		this.name = 'PromotionInspectionRequired';
+	}
+}
+
+function bodyFrom(text: string): Y.Node {
 	const body = new Y.Node();
-	if (text !== '') body.applyDelta(body.change.insert(text) as never);
-	return data.tables.entries.create({ parentId, capturedAt }, body);
+	if (text) body.applyDelta(body.change.insert(text) as never);
+	return body;
 }
 
-/** Resolve links in memory so every readable entry has one visible place. */
-export function entryForest(rows: readonly CaptureEntry[]) {
-	const byId = new Map(rows.map((row) => [row.id, row]));
-	const parent = new Map<string, string | null>();
-	for (const row of rows) {
-		parent.set(
-			row.id,
-			row.parentId !== row.id && byId.has(row.parentId ?? '')
-				? row.parentId
-				: null,
-		);
-	}
-
-	const visited = new Set<string>();
-	const suppressed = new Set<string>();
-	for (const row of rows) {
-		if (visited.has(row.id)) continue;
-		const path: string[] = [];
-		const position = new Map<string, number>();
-		let id: string | null = row.id;
-		while (id !== null && !visited.has(id) && !position.has(id)) {
-			position.set(id, path.length);
-			path.push(id);
-			id = parent.get(id) ?? null;
-		}
-		const cycleStart = id === null ? undefined : position.get(id);
-		if (cycleStart !== undefined) {
-			const cycle = path.slice(cycleStart);
-			const smallest = cycle.reduce((a, b) => (a < b ? a : b));
-			parent.set(smallest, null);
-			suppressed.add(smallest);
-		}
-		for (const seen of path) visited.add(seen);
-	}
-
-	const children = new Map<string | null, CaptureEntry[]>();
-	for (const row of rows) {
-		const key = parent.get(row.id) ?? null;
-		const group = children.get(key) ?? [];
-		group.push(row);
-		children.set(key, group);
-	}
-	for (const group of children.values())
-		group.sort((a, b) =>
-			a.capturedAt === b.capturedAt
-				? a.id < b.id
-					? -1
-					: a.id > b.id
-						? 1
-						: 0
-				: a.capturedAt > b.capturedAt
-					? -1
-					: 1,
-		);
-	return { byId, parent, children, suppressed };
+export function createCapture(
+	data: CaptureData,
+	text: string,
+	capturedAt = InstantString.now(),
+): Capture {
+	return data.tables.captures.create({ capturedAt }, bodyFrom(text));
 }
 
-/** Move the visible subtree, materializing cycle cuts in the affected components. */
-export function moveEntry(data: CaptureData, id: string, parentId: string | null): void {
-	const forest = entryForest(data.tables.entries.rows);
-	if (!forest.byId.has(id)) throw new Error('The entry is no longer available.');
-	if (parentId !== null && !forest.byId.has(parentId))
-		throw new Error('The destination is no longer available.');
-	for (let current = parentId; current !== null; current = forest.parent.get(current) ?? null) {
-		if (current === id) throw new Error('An entry cannot move beneath itself or its replies.');
+/** Idempotent creation for a request accepted by the owning Capture document. */
+export function createPromotedCapture(
+	data: CaptureData & Pick<Data<typeof captureDefinition>, 'transact'>,
+	request: { requestId: string; text: string; capturedAt: ReturnType<typeof InstantString.now> },
+): string {
+	const existing = data.tables.promotions.rows.find((row) => row.requestId === request.requestId);
+	if (existing) {
+		if (!existing.captureId)
+			throw new PromotionInspectionRequired();
+		return existing.captureId;
 	}
-	const rootOf = (start: string): string => {
-		let current = start;
-		while (forest.parent.get(current) !== null) current = forest.parent.get(current)!;
-		return current;
-	};
-	const roots = new Set([rootOf(id)]);
-	if (parentId !== null) roots.add(rootOf(parentId));
+	let captureId = '';
 	data.transact(() => {
-		for (const cut of roots) {
-			if (cut !== id && forest.suppressed.has(cut)) data.tables.entries.update(cut, { parentId: null });
-		}
-		data.tables.entries.update(id, { parentId });
+		// Transactions do not roll back on throws. Claim the key before creation,
+		// so a partial acceptance can never be replayed into a second root.
+		const marker = data.tables.promotions.create({ requestId: request.requestId, captureId: null });
+		captureId = createCapture(data, request.text, request.capturedAt).id;
+		const written = data.tables.promotions.update(marker.id, { captureId });
+		if (written.error) throw written.error;
+	});
+	return captureId;
+}
+
+export function captureView(data: CaptureData) {
+	const captures = [...data.tables.captures.rows].sort((a, b) =>
+		a.capturedAt === b.capturedAt
+			? a.id < b.id
+				? -1
+				: a.id > b.id
+					? 1
+					: 0
+			: a.capturedAt > b.capturedAt
+				? -1
+				: 1,
+	);
+	const byId = new Map(captures.map((capture) => [capture.id, capture]));
+	const thoughts = new Map<string, Thought[]>();
+	const recovery: Thought[] = [];
+	for (const thought of data.tables.thoughts.rows) {
+		const group = byId.has(thought.captureId)
+			? (thoughts.get(thought.captureId) ?? [])
+			: recovery;
+		group.push(thought);
+		if (group !== recovery) thoughts.set(thought.captureId, group);
+	}
+	const compare = (a: Thought, b: Thought) =>
+		a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+	for (const group of thoughts.values()) group.sort(compare);
+	recovery.sort(compare);
+	return { captures, byId, thoughts, recovery };
+}
+
+function nextPosition(data: CaptureData, captureId: string): number {
+	let next = 0;
+	for (const row of captureView(data).thoughts.get(captureId) ?? [])
+		next = Math.max(next, row.position + 1);
+	return next;
+}
+
+export function createThought(
+	data: CaptureData,
+	captureId: string,
+	text: string,
+): Thought {
+	if (!data.tables.captures.get(captureId))
+		throw new Error('The capture is no longer available.');
+	return data.tables.thoughts.create(
+		{ captureId, position: nextPosition(data, captureId) },
+		bodyFrom(text),
+	);
+}
+
+export function moveThought(
+	data: CaptureData,
+	id: string,
+	captureId: string,
+): void {
+	const thought = data.tables.thoughts.get(id);
+	if (!thought) throw new Error('The thought is no longer available.');
+	if (!data.tables.captures.get(captureId))
+		throw new Error('The destination capture is unavailable.');
+	if (thought.captureId === captureId) return;
+	data.tables.thoughts.update(id, {
+		captureId,
+		position: nextPosition(data, captureId),
 	});
 }
 
-/** A snapshot of exactly the readable entries and bodies offered for deletion. */
-export function previewDeletion(data: CaptureData, id: string) {
-	const table = data.tables.entries;
-	const forest = entryForest(table.rows);
-	if (!forest.byId.has(id)) throw new Error('The entry is no longer available.');
-	const ids: string[] = [];
-	const depth = new Map<string, number>();
-	const visit = (current: string, level: number) => {
-		ids.push(current);
-		depth.set(current, level);
-		for (const child of forest.children.get(current) ?? []) visit(child.id, level + 1);
-	};
-	visit(id, 0);
-	const selected = new Set(ids);
-	for (const row of table.nonconforming) {
-		const parent = row.raw.parentId;
-		if (parent !== null && (typeof parent !== 'string' || selected.has(parent)))
-			throw new Error('Unreadable entries could belong to this subtree.');
+/** Concurrent position writes can mix; the ID tie-breaker keeps every row visible. */
+export function reorderThought(
+	data: CaptureData,
+	id: string,
+	direction: -1 | 1,
+): void {
+	const thought = data.tables.thoughts.get(id);
+	if (!thought) throw new Error('The thought is no longer available.');
+	const group = captureView(data).thoughts.get(thought.captureId) ?? [];
+	const index = group.findIndex((row) => row.id === id);
+	const target = index + direction;
+	if (target < 0 || target >= group.length) return;
+	const ordered = [...group];
+	const current = ordered[index];
+	const other = ordered[target];
+	if (!current || !other) return;
+	ordered[index] = other;
+	ordered[target] = current;
+	data.transact(() => {
+		ordered.forEach((row, position) => {
+			data.tables.thoughts.update(row.id, { position });
+		});
+	});
+}
+
+export function previewCaptureDeletion(data: CaptureData, id: string) {
+	if (!data.tables.captures.get(id))
+		throw new Error('The capture is no longer available.');
+	for (const row of data.tables.thoughts.nonconforming) {
+		const parent = row.raw.captureId;
+		if (typeof parent !== 'string' || parent === id)
+			throw new Error('Unreadable thoughts could belong to this capture.');
 	}
 	return {
-		rootId: id,
-		ids,
-		entries: ids.map((entryId) => ({
-			id: entryId,
-			parentId: forest.parent.get(entryId) ?? null,
-			depth: depth.get(entryId)!,
-			text: table.body(entryId)?.toString() ?? '',
+		captureId: id,
+		text: data.tables.captures.body(id)?.toString() ?? '',
+		thoughts: (captureView(data).thoughts.get(id) ?? []).map((thought) => ({
+			id: thought.id,
+			text: data.tables.thoughts.body(thought.id)?.toString() ?? '',
 		})),
 	};
 }
 
-/** Delete only the IDs the person confirmed after checking the current local preview. */
-export async function deleteConfirmedSubtree(
+export async function deleteConfirmedCapture(
 	data: CaptureData & Pick<Data<typeof captureDefinition>, 'persistence'>,
-	preview: ReturnType<typeof previewDeletion>,
+	preview: ReturnType<typeof previewCaptureDeletion>,
 ): Promise<void> {
-	if (data.tables.entries.get(preview.rootId)) {
-		const current = previewDeletion(data, preview.rootId);
-		if (JSON.stringify(current) !== JSON.stringify(preview))
-			throw new Error('This subtree changed. Review it again before deleting.');
+	if (data.tables.captures.get(preview.captureId)) {
+		if (
+			JSON.stringify(previewCaptureDeletion(data, preview.captureId)) !==
+			JSON.stringify(preview)
+		)
+			throw new Error('This capture changed. Review it again before deleting.');
+	} else {
+		for (const thought of preview.thoughts) {
+			if (
+				data.tables.thoughts.get(thought.id) &&
+				data.tables.thoughts.body(thought.id)?.toString() !== thought.text
+			)
+				throw new Error(
+					'This thought changed. Review it again before deleting.',
+				);
+		}
 	}
 	data.transact(() => {
-		for (const id of preview.ids) data.tables.entries.delete(id);
+		for (const thought of preview.thoughts)
+			data.tables.thoughts.delete(thought.id);
+		data.tables.captures.delete(preview.captureId);
 	});
 	await data.persistence.flush();
 	if (data.persistence.get() !== 'saved')
-		throw new Error('Deletion is pending because local storage could not save it.');
+		throw new Error(
+			'Deletion is pending because local storage could not save it.',
+		);
+}
+
+export async function deleteConfirmedThought(
+	data: CaptureData & Pick<Data<typeof captureDefinition>, 'persistence'>,
+	id: string,
+	text: string,
+): Promise<void> {
+	if (
+		data.tables.thoughts.get(id) &&
+		data.tables.thoughts.body(id)?.toString() !== text
+	)
+		throw new Error('This thought changed. Review it again before deleting.');
+	data.tables.thoughts.delete(id);
+	await data.persistence.flush();
+	if (data.persistence.get() !== 'saved')
+		throw new Error(
+			'Deletion is pending because local storage could not save it.',
+		);
 }

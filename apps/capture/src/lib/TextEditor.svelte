@@ -3,7 +3,12 @@
   import { onMount } from 'svelte';
   import type { CaptureData } from '@epicenter/capture';
 
-  let { store, body }: { store: CaptureData; body: Y.Node } = $props();
+  let { store, body, kind, label }: {
+    store: CaptureData;
+    body: Y.Node;
+    kind: 'captures' | 'thoughts';
+    label: string;
+  } = $props();
   let textarea: HTMLTextAreaElement;
   let composing = false;
 
@@ -35,16 +40,16 @@
       textarea.value = value;
       textarea.setSelectionRange(Math.min(start, value.length), Math.min(end, value.length));
     };
-    const stop = store.tables.entries.watch(body, update);
+    const stop = store.tables[kind].watch(body, update);
     return stop;
   });
 </script>
 
 <textarea
   bind:this={textarea}
-  aria-label="Entry text"
+  aria-label={label}
   placeholder="Write here…"
-  class="min-h-52 w-full resize-y rounded-lg border border-border bg-transparent p-4 text-base leading-relaxed outline-none focus:border-foreground"
+  class="min-h-28 w-full resize-y rounded-lg border border-border bg-transparent p-4 text-base leading-relaxed outline-none focus:border-foreground"
   oninput={applyInput}
   oncompositionstart={() => composing = true}
   oncompositionend={() => { composing = false; applyInput(); }}

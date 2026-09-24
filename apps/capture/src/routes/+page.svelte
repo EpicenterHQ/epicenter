@@ -1,8 +1,9 @@
 <script lang="ts">
   import { AppBoot, SignInScreen } from '@epicenter/app-shell/boot-screens';
-  import { auth } from '$lib/auth.js';
+  import { auth } from '#platform/auth';
   import { openCapture } from '$lib/open.js';
   import CaptureView from '$lib/CaptureView.svelte';
+  import { resolve } from '$app/paths';
 
   const params = new URLSearchParams(location.search);
   const connecting = !params.has('stopped') && (!auth.getState().account || params.has('connect'));
@@ -13,12 +14,12 @@
 </script>
 
 {#if connecting}
-  <SignInScreen {auth} appName="Capture" noun="entries" />
+  <SignInScreen {auth} appName="Capture" noun="captures" />
 {:else}
-  <AppBoot {auth} {open} appName="Capture" noun="entries"
-    signInHref="/?connect" signedOutHref="/">
+  <AppBoot {auth} {open} appName="Capture" noun="captures"
+    signInHref="{resolve('/')}?connect" signedOutHref={resolve('/')}>
     {#snippet children(store)}
-      <CaptureView {store} />
+      <CaptureView {store} account={account!} />
     {/snippet}
   </AppBoot>
 {/if}

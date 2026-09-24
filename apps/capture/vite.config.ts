@@ -1,5 +1,13 @@
 import { APPS } from '@epicenter/constants/apps';
 import { workspaceAppViteConfig } from '@epicenter/vite-config';
-import { defineConfig } from 'vite';
+import { defaultClientConditions, defineConfig, mergeConfig } from 'vite';
 
-export default defineConfig(workspaceAppViteConfig(APPS.CAPTURE));
+export default defineConfig(
+	mergeConfig(workspaceAppViteConfig(APPS.CAPTURE), {
+		resolve: {
+			...(process.env.EPICENTER_HOST === '1' && {
+				conditions: ['epicenter-host', ...defaultClientConditions],
+			}),
+		},
+	}),
+);

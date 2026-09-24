@@ -1,7 +1,7 @@
 <script lang="ts">
   import { isCallbackAuthClient } from '@epicenter/auth';
   import { Loading } from '@epicenter/ui/loading';
-  import { auth } from '$lib/auth.js';
+  import { auth } from '#platform/auth';
   let errorMessage = $state<string | null>(null);
   $effect(() => {
     void (async () => {

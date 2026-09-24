@@ -201,133 +201,238 @@ try {
 	second.on('pageerror', (error) => errors.push(`second: ${error.message}`));
 	await Promise.all([signIn(first), signIn(second)]);
 
-	await first.getByLabel('Capture a thought').fill('Root one');
-	await first.getByRole('button', { name: 'Add entry' }).click();
-	const rootUrl = first.url();
-	const rootId = new URL(rootUrl).searchParams.get('entry');
-	assert(rootId, 'creation must open the minted entry');
-	await first.getByLabel('Entry text').pressSequentially(' typed');
-	await first.getByLabel('Entry text').blur();
-	await second.getByText('Root one typed', { exact: true }).waitFor();
-
-	await first.getByLabel('Add a reply').fill('Level one');
-	await first.getByRole('button', { name: 'Add reply' }).click();
-	await first.getByLabel('Add a reply').fill('Level two');
-	await first.getByRole('button', { name: 'Add reply' }).click();
-	await first.getByLabel('Add a reply').fill('Level three');
-	await first.getByRole('button', { name: 'Add reply' }).click();
-	assert.equal(
-		await first
-			.getByRole('navigation', { name: 'Breadcrumb' })
-			.getByRole('button')
-			.count(),
-		4,
-	);
+	await first
+		.getByLabel('Add a capture')
+		.fill('Dinner with Sebastian\nFriday at seven\nBring the invitation.');
+	await first.getByRole('button', { name: 'Add a capture' }).click();
+	const dinnerUrl = first.url();
+	const dinnerId = new URL(dinnerUrl).searchParams.get('capture');
+	assert(dinnerId);
+	await first
+		.getByLabel('Capture text')
+		.fill(
+			'Dinner with Sebastian\nFriday at seven\nBring the invitation.\nFull pasted details.',
+		);
 	await first.getByRole('status').getByText('Saved on this device').waitFor();
-	await first.reload();
-	await first.getByLabel('Entry text').waitFor();
+	await second
+		.getByLabel('Timeline captures')
+		.getByText('Dinner with Sebastian', { exact: true })
+		.waitFor();
+	await second.goto(dinnerUrl);
+	await second.getByLabel('Capture text').waitFor();
 	assert.equal(
-		await first.getByLabel('Entry text').inputValue(),
-		'Level three',
+		await second.getByLabel('Capture text').inputValue(),
+		'Dinner with Sebastian\nFriday at seven\nBring the invitation.\nFull pasted details.',
 	);
-	await second.goto(rootUrl);
-	await second.getByLabel('Entry text').waitFor();
+
+	for (const thought of [
+		'Owning the outcome',
+		'Moving to Singapore\nA longer thought',
+		'A question for next time',
+	]) {
+		await first.getByLabel('Add a thought').fill(thought);
+		await first.getByRole('button', { name: 'Add thought' }).click();
+	}
+	await second.getByLabel('Thoughts').locator('article').nth(2).waitFor();
+	await first
+		.getByLabel('Thoughts')
+		.locator('article')
+		.nth(2)
+		.getByRole('button', { name: 'Move up' })
+		.click();
+	await first.getByRole('status').getByText('Saved on this device').waitFor();
+	await second.waitForFunction(
+		() =>
+			(
+				document.querySelector(
+					'[aria-label="Thoughts"] article:nth-child(2) textarea',
+				) as HTMLTextAreaElement
+			)?.value === 'A question for next time',
+	);
+	await second.reload();
+	await second.getByLabel('Thoughts').locator('article').nth(2).waitFor();
 	assert.equal(
-		await second.getByLabel('Entry text').inputValue(),
-		'Root one typed',
+		await second
+			.getByLabel('Thoughts')
+			.locator('article')
+			.nth(1)
+			.getByLabel('Thought text')
+			.inputValue(),
+		'A question for next time',
 	);
-	await second.getByText('Level one', { exact: true }).click();
-	await second.getByText('Level two', { exact: true }).click();
-	await second.getByText('Level three', { exact: true }).click();
+	await second
+		.getByLabel('Thoughts')
+		.locator('article')
+		.nth(0)
+		.getByLabel('Thought text')
+		.fill('Owning the outcome, edited independently');
+	await first.waitForFunction(
+		() =>
+			(
+				document.querySelector(
+					'[aria-label="Thoughts"] article:first-child textarea',
+				) as HTMLTextAreaElement
+			)?.value === 'Owning the outcome, edited independently',
+	);
+
+	await second.getByRole('button', { name: 'Capture', exact: true }).click();
+	await second.getByLabel('Add a capture').fill('Second capture');
+	await second.getByRole('button', { name: 'Add a capture' }).click();
+	const secondUrl = second.url();
+	const secondId = new URL(secondUrl).searchParams.get('capture');
+	assert(secondId);
+	await first.getByRole('button', { name: 'Capture', exact: true }).click();
+	await first
+		.getByLabel('Timeline captures')
+		.getByRole('button')
+		.first()
+		.getByText('Second capture')
+		.waitFor();
+	await first
+		.getByLabel('Timeline captures')
+		.getByRole('button')
+		.nth(1)
+		.getByText('Dinner with Sebastian')
+		.waitFor();
+	await first.goto(dinnerUrl);
+	await first
+		.getByLabel('Thoughts')
+		.locator('article')
+		.nth(1)
+		.getByLabel('Move thought to capture')
+		.selectOption(secondId);
+	await first
+		.getByLabel('Thoughts')
+		.locator('article')
+		.nth(1)
+		.getByRole('button', { name: 'Move', exact: true })
+		.click();
+	await second.goto(secondUrl);
+	await second.getByLabel('Thoughts').getByLabel('Thought text').waitFor();
 	assert.equal(
-		await second.getByLabel('Entry text').inputValue(),
-		'Level three',
+		await second.getByLabel('Thoughts').getByLabel('Thought text').inputValue(),
+		'A question for next time',
 	);
-	await second.getByRole('button', { name: 'Capture' }).click();
-	await second.getByLabel('Capture a thought').fill('Root two');
-	await second.getByRole('button', { name: 'Add entry' }).click();
-	const secondRootUrl = second.url();
-	const secondRootId = new URL(secondRootUrl).searchParams.get('entry');
-	assert(secondRootId);
-	await first.getByRole('button', { name: 'Capture' }).click();
-	const timeline = first.getByLabel('Timeline entries').getByRole('button');
-	await timeline.first().getByText('Root two').waitFor();
-	await timeline.nth(1).getByText('Root one typed').waitFor();
-	await first.goto(secondRootUrl);
-	await first.getByRole('button', { name: 'Move', exact: true }).click();
-	await first.getByLabel('Move destination').selectOption(rootId);
-	await first.getByRole('button', { name: 'Move entry' }).click();
-	await second.goto(rootUrl);
-	await second.getByLabel('Replies').getByText('Root two', { exact: true }).waitFor();
-	await first.goto(rootUrl);
-	await first.getByRole('button', { name: 'Delete entry…' }).click();
-	await second.getByLabel('Entry text').pressSequentially('!');
-	await first.getByText('This subtree changed. Review the updated list before deleting.').waitFor();
+
+	await second.goto(dinnerUrl);
+	await first.getByRole('button', { name: 'Delete capture…' }).click();
+	await first
+		.getByRole('region', { name: 'Delete preview' })
+		.getByText('Permanently delete this capture and 2 thoughts?')
+		.waitFor();
+	await second
+		.getByLabel('Thoughts')
+		.locator('article')
+		.first()
+		.getByLabel('Thought text')
+		.fill('Changed during review');
+	await first
+		.getByText('This capture changed. Review the updated list before deleting.')
+		.waitFor();
 	await first.getByRole('button', { name: 'I reviewed the changes' }).click();
 	await first.getByRole('button', { name: 'Cancel' }).click();
-	await second.getByLabel('Entry text').press('Backspace');
 
-	// The second replica creates a child the confirming replica never sees.
+	// An offline replica adds a thought after the deleting replica's preview.
 	await secondContext.setOffline(true);
-	await second.getByLabel('Replies').getByText('Root two', { exact: true }).click();
-	await second.getByLabel('Entry text').pressSequentially(' edited offline');
-	await second.getByLabel('Entry text').blur();
-	await second.getByRole('button', { name: 'Move', exact: true }).click();
-	await second.getByLabel('Move destination').selectOption('');
-	await second.getByRole('button', { name: 'Move entry' }).click();
-	await second.getByRole('button', { name: 'Capture' }).click();
-	await second.getByLabel('Timeline entries').getByText('Root one typed', { exact: true }).click();
-	await second.getByLabel('Add a reply').fill('Unseen reply');
-	await second.getByRole('button', { name: 'Add reply' }).click();
-	await second.getByRole('button', { name: 'Capture' }).click();
-	await first.goto(rootUrl);
-	await first.getByRole('button', { name: 'Delete entry…' }).click();
-	await first.getByRole('region', { name: 'Delete preview' }).getByText('Permanently delete 5 entries?').waitFor();
-	await first.getByRole('button', { name: 'Permanently delete' }).click();
+	await second.getByLabel('Add a thought').fill('Unseen offline thought');
+	await second.getByRole('button', { name: 'Add thought' }).click();
+	await first.getByRole('button', { name: 'Delete capture…' }).click();
+	await first
+		.getByRole('button', { name: 'Permanently delete', exact: true })
+		.click();
 	await first.getByRole('heading', { name: 'Timeline' }).waitFor();
 	await secondContext.setOffline(false);
-	await first.getByLabel('Timeline entries').getByText('Unseen reply', { exact: true }).waitFor({ timeout: 15000 });
+	await first
+		.getByRole('region', { name: 'Thought recovery' })
+		.getByLabel('Thought text')
+		.waitFor({ timeout: 15000 });
+	assert.equal(
+		await first
+			.getByRole('region', { name: 'Thought recovery' })
+			.getByLabel('Thought text')
+			.inputValue(),
+		'Unseen offline thought',
+	);
 	await first.reload();
-	await first.getByLabel('Timeline entries').getByText('Unseen reply', { exact: true }).waitFor();
-	assert.equal(await first.getByLabel('Timeline entries').getByText('Root one typed', { exact: true }).count(), 0);
-	assert.equal(await first.getByLabel('Timeline entries').getByText('Root two edited offline', { exact: true }).count(), 0);
-
-	await first.getByLabel('Capture a thought').fill('Cycle A');
-	await first.getByRole('button', { name: 'Add entry' }).click();
-	const cycleAUrl = first.url();
-	const cycleAId = new URL(cycleAUrl).searchParams.get('entry');
-	assert(cycleAId);
-	await first.getByRole('button', { name: 'Capture' }).click();
-	await first.getByLabel('Capture a thought').fill('Cycle B');
-	await first.getByRole('button', { name: 'Add entry' }).click();
-	const cycleBUrl = first.url();
-	const cycleBId = new URL(cycleBUrl).searchParams.get('entry');
-	assert(cycleBId);
-	await second.getByRole('button', { name: 'Capture' }).click();
-	await second.getByLabel('Timeline entries').getByText('Cycle B', { exact: true }).waitFor();
-	await first.goto(cycleAUrl);
-	await second.goto(cycleBUrl);
+	await first
+		.getByRole('region', { name: 'Thought recovery' })
+		.getByLabel('Thought text')
+		.waitFor();
+	await first
+		.getByRole('region', { name: 'Thought recovery' })
+		.getByLabel('Move thought to capture')
+		.selectOption(secondId);
+	await first
+		.getByRole('region', { name: 'Thought recovery' })
+		.getByRole('button', { name: 'Move', exact: true })
+		.click();
+	await first.getByRole('status').getByText('Saved on this device').waitFor();
+	await first.goto(secondUrl);
+	await first.getByRole('heading', { name: 'Capture' }).waitFor();
+	await first
+		.getByLabel('Thoughts')
+		.getByLabel('Thought text')
+		.nth(1)
+		.waitFor();
+	await first.getByLabel('Add a thought').fill('Third ordered thought');
+	await first.getByRole('button', { name: 'Add thought' }).click();
+	await first.getByRole('status').getByText('Saved on this device').waitFor();
+	await second.goto(secondUrl);
+	await second
+		.getByLabel('Thoughts')
+		.getByLabel('Thought text')
+		.nth(2)
+		.waitFor();
 	await Promise.all([
-		first.getByLabel('Entry text').waitFor(),
-		second.getByLabel('Entry text').waitFor(),
+		firstContext.setOffline(true),
+		secondContext.setOffline(true),
 	]);
-	await Promise.all([firstContext.setOffline(true), secondContext.setOffline(true)]);
-	await first.getByRole('button', { name: 'Move', exact: true }).click();
-	await first.getByLabel('Move destination').selectOption(cycleBId);
-	await first.getByRole('button', { name: 'Move entry' }).click();
-	await second.getByRole('button', { name: 'Move', exact: true }).click();
-	await second.getByLabel('Move destination').selectOption(cycleAId);
-	await second.getByRole('button', { name: 'Move entry' }).click();
-	await Promise.all([firstContext.setOffline(false), secondContext.setOffline(false)]);
-	const visibleRootUrl = cycleAId < cycleBId ? cycleAUrl : cycleBUrl;
-	const visibleChild = cycleAId < cycleBId ? 'Cycle B' : 'Cycle A';
-	await first.goto(visibleRootUrl);
-	await first.getByLabel('Replies').getByText(visibleChild, { exact: true }).waitFor({ timeout: 15000 });
-	await second.goto(visibleRootUrl);
-	await second.getByLabel('Replies').getByText(visibleChild, { exact: true }).waitFor({ timeout: 15000 });
+	await first
+		.getByLabel('Thoughts')
+		.locator('article')
+		.nth(2)
+		.getByRole('button', { name: 'Move up' })
+		.click();
+	await second
+		.getByLabel('Thoughts')
+		.locator('article')
+		.nth(0)
+		.getByRole('button', { name: 'Move down' })
+		.click();
+	await Promise.all([
+		firstContext.setOffline(false),
+		secondContext.setOffline(false),
+	]);
+	await first.getByRole('status').getByText('Saved on this device').waitFor();
+	await second.getByRole('status').getByText('Saved on this device').waitFor();
+	await first.reload();
+	await second.reload();
+	await first
+		.getByLabel('Thoughts')
+		.getByLabel('Thought text')
+		.nth(2)
+		.waitFor();
+	await second
+		.getByLabel('Thoughts')
+		.getByLabel('Thought text')
+		.nth(2)
+		.waitFor();
+	const firstOrder = await first
+		.getByLabel('Thoughts')
+		.getByLabel('Thought text')
+		.evaluateAll((items) =>
+			items.map((item) => (item as HTMLTextAreaElement).value),
+		);
+	await second.waitForFunction((expected) => {
+		const actual = [
+			...document.querySelectorAll('[aria-label="Thoughts"] textarea'),
+		].map((item) => (item as HTMLTextAreaElement).value);
+		return JSON.stringify(actual) === JSON.stringify(expected);
+	}, firstOrder);
+	assert.equal(new Set(firstOrder).size, 3);
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser proof passed: typing, reload, nesting, move, confirmed deletion, unseen child survival, offline cycle, and two signed-in replicas.',
+		'Capture browser proof passed: multiline text, two replicas, ordering and concurrent reorder, independent edits, moves, refreshed deletion, offline survival, and recovery.',
 	);
 } catch (cause) {
 	console.error(cause);

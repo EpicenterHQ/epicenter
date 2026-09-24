@@ -1,135 +1,190 @@
 /**
- * Capture entry contract tests.
- * They verify minted rows, durable body text, timeline order, and a visible forest
- * when independent parent links form a cycle.
+ * Capture store contract tests.
+ * Verifies dated captures, independent thought bodies and order, recovery, exact deletion,
+ * and read access to earlier entries after the two-table cutover.
  */
 import { expect, test } from 'bun:test';
 import { InstantString } from '@epicenter/app/field';
 import { createMemoryRecord, openMemory } from '@epicenter/app/memory';
-import { captureDefinition, createEntry, deleteConfirmedSubtree, entryForest, moveEntry, previewDeletion } from './index.js';
+import {
+	captureDefinition,
+	captureView,
+	createCapture,
+	createPromotedCapture,
+	createThought,
+	deleteConfirmedCapture,
+	deleteConfirmedThought,
+	moveThought,
+	previewCaptureDeletion,
+	reorderThought,
+} from './index.js';
 
-test('entry text survives reopening and nested entries keep capture order', async () => {
+test('promotion replay returns the same capture after reopening', async () => {
 	const record = createMemoryRecord();
+	const capturedAt = InstantString.fromDate(new Date('2026-01-01T00:00:00Z'));
 	const first = await openMemory(captureDefinition, record);
-	const older = createEntry(first, {
-		parentId: null,
-		text: 'older thought',
-		capturedAt: InstantString.fromDate(new Date('2026-01-01T00:00:00.000Z')),
-	});
-	const newer = createEntry(first, {
-		parentId: null,
-		text: 'newer thought',
-		capturedAt: InstantString.fromDate(new Date('2026-01-02T00:00:00.000Z')),
-	});
-	const child = createEntry(first, { parentId: older.id, text: 'child' });
-	const editable = first.tables.entries.body(older.id);
-	if (!editable) throw new Error('Created entry has no body.');
-	editable.applyDelta(editable.change.retain(5).insert(' saved') as never);
-	expect(older.id).not.toBe(newer.id);
-	expect(
-		entryForest(first.tables.entries.rows)
-			.children.get(null)
-			?.map(({ id }) => id),
-	).toEqual([newer.id, older.id]);
-	expect(
-		entryForest(first.tables.entries.rows).children.get(older.id)?.[0]?.id,
-	).toBe(child.id);
-	await first.persistence.flush();
+	const request = { requestId: 'request-1', text: 'Selected cleaned text', capturedAt };
+	const id = createPromotedCapture(first, request);
+	expect(createPromotedCapture(first, request)).toBe(id);
 	await first[Symbol.asyncDispose]();
-	const reopened = await openMemory(captureDefinition, record);
-	expect(reopened.tables.entries.body(older.id)?.toString()).toBe(
-		'older saved thought',
-	);
-	expect(reopened.tables.entries.body(child.id)?.toString()).toBe('child');
-	await reopened[Symbol.asyncDispose]();
-	record.close();
+	await using reopened = await openMemory(captureDefinition, record);
+	expect(createPromotedCapture(reopened, request)).toBe(id);
+	expect(reopened.tables.captures.rows).toHaveLength(1);
+	expect(reopened.tables.captures.body(id)?.toString()).toBe('Selected cleaned text');
 });
 
-test('the visible hierarchy resolves missing parents and cycles', async () => {
+test('an accepted promotion key without an ID never creates another root', async () => {
 	await using data = await openMemory(captureDefinition);
-	const a = createEntry(data, { parentId: null, text: 'A' });
-	const b = createEntry(data, { parentId: a.id, text: 'B' });
-	data.tables.entries.update(a.id, { parentId: b.id });
-	const forest = entryForest(data.tables.entries.rows);
-	const root = a.id < b.id ? a.id : b.id;
-	const child = a.id < b.id ? b.id : a.id;
-	expect(forest.parent.get(root)).toBeNull();
-	expect(forest.parent.get(child)).toBe(root);
-	data.tables.entries.update(root, { parentId: 'missing' });
-	expect(entryForest(data.tables.entries.rows).parent.get(root)).toBeNull();
+	data.tables.promotions.create({ requestId: 'uncertain', captureId: null });
+	expect(() => createPromotedCapture(data, {
+		requestId: 'uncertain', text: 'Do not duplicate', capturedAt: InstantString.now(),
+	})).toThrow('Inspect Capture');
+	expect(data.tables.captures.rows).toHaveLength(0);
 });
 
-test('sequential moves preserve the subtree and materialize a suppressed edge', async () => {
-	await using data = await openMemory(captureDefinition);
-	const a = createEntry(data, { parentId: null, text: 'A' });
-	const b = createEntry(data, { parentId: a.id, text: 'B' });
-	const c = createEntry(data, { parentId: b.id, text: 'C' });
-	const capturedAt = c.capturedAt;
-	moveEntry(data, b.id, null);
-	expect(entryForest(data.tables.entries.rows).parent.get(c.id)).toBe(b.id);
-	moveEntry(data, a.id, c.id);
-	expect(entryForest(data.tables.entries.rows).parent.get(a.id)).toBe(c.id);
-	expect(() => moveEntry(data, b.id, a.id)).toThrow();
-	expect(data.tables.entries.get(c.id)?.capturedAt).toBe(capturedAt);
-	expect(data.tables.entries.body(c.id)?.toString()).toBe('C');
-
-	// Opposing offline moves are represented by the merged raw links.
-	data.tables.entries.update(b.id, { parentId: a.id });
-	data.tables.entries.update(a.id, { parentId: b.id });
-	const before = entryForest(data.tables.entries.rows);
-	const root = a.id < b.id ? a.id : b.id;
-	const child = root === a.id ? b.id : a.id;
-	expect(before.suppressed.has(root)).toBe(true);
-	moveEntry(data, child, null);
-	expect(data.tables.entries.get(root)?.parentId).toBeNull();
-	expect(entryForest(data.tables.entries.rows).parent.get(root)).toBeNull();
-});
-
-test('confirmed deletion refreshes changed content and membership, persists, and is idempotent', async () => {
+test('dated captures, multiline bodies, thoughts, and order survive reopening', async () => {
 	const record = createMemoryRecord();
 	const data = await openMemory(captureDefinition, record);
-	const root = createEntry(data, { parentId: null, text: 'root' });
-	const child = createEntry(data, { parentId: root.id, text: 'child' });
-	const stale = previewDeletion(data, root.id);
-	const body = data.tables.entries.body(child.id)!;
-	body.applyDelta(body.change.insert('edited ') as never);
-	await expect(deleteConfirmedSubtree(data, stale)).rejects.toThrow('changed');
-	const confirmed = previewDeletion(data, root.id);
-	expect(confirmed.ids).toEqual([root.id, child.id]);
-	const unseen = createEntry(data, { parentId: root.id, text: 'later child' });
-	await expect(deleteConfirmedSubtree(data, confirmed)).rejects.toThrow('changed');
-	const final = previewDeletion(data, root.id);
-	await deleteConfirmedSubtree(data, final);
-	await deleteConfirmedSubtree(data, final);
-	expect(data.persistence.get()).toBe('saved');
-	expect(data.tables.entries.get(root.id)).toBeUndefined();
+	const older = createCapture(
+		data,
+		'Dinner\nBring the invitation',
+		InstantString.fromDate(new Date('2026-01-01T00:00:00Z')),
+	);
+	const newer = createCapture(
+		data,
+		'Idea',
+		InstantString.fromDate(new Date('2026-01-02T00:00:00Z')),
+	);
+	const a = createThought(data, older.id, 'first paragraph\nsecond line');
+	const b = createThought(data, older.id, 'another');
+	const originalBody = data.tables.thoughts.body(a.id);
+	reorderThought(data, b.id, -1);
+	expect(captureView(data).captures.map((row) => row.id)).toEqual([
+		newer.id,
+		older.id,
+	]);
+	expect(
+		captureView(data)
+			.thoughts.get(older.id)
+			?.map((row) => row.id),
+	).toEqual([b.id, a.id]);
+	expect(data.tables.thoughts.body(a.id)).toBe(originalBody);
+	await data.persistence.flush();
 	await data[Symbol.asyncDispose]();
 	const reopened = await openMemory(captureDefinition, record);
-	expect(reopened.tables.entries.get(root.id)).toBeUndefined();
-	expect(reopened.tables.entries.get(unseen.id)).toBeUndefined();
+	expect(reopened.tables.captures.body(older.id)?.toString()).toBe(
+		'Dinner\nBring the invitation',
+	);
+	expect(reopened.tables.thoughts.body(a.id)?.toString()).toBe(
+		'first paragraph\nsecond line',
+	);
+	expect(
+		captureView(reopened)
+			.thoughts.get(older.id)
+			?.map((row) => row.id),
+	).toEqual([b.id, a.id]);
 	await reopened[Symbol.asyncDispose]();
 	record.close();
 });
 
-test('overlapping deletion still removes confirmed children after another replica removed the root', async () => {
+test('move preserves thought identity and missing parents place survivors in recovery', async () => {
 	await using data = await openMemory(captureDefinition);
-	const root = createEntry(data, { parentId: null, text: 'root' });
-	const child = createEntry(data, { parentId: root.id, text: 'child' });
-	const confirmed = previewDeletion(data, root.id);
-	data.tables.entries.delete(root.id);
-	await deleteConfirmedSubtree(data, confirmed);
-	expect(data.tables.entries.get(child.id)).toBeUndefined();
-	expect(data.persistence.get()).toBe('saved');
+	const a = createCapture(data, 'A');
+	const b = createCapture(data, 'B');
+	const thought = createThought(data, a.id, 'keep me');
+	const body = data.tables.thoughts.body(thought.id);
+	moveThought(data, thought.id, b.id);
+	expect(data.tables.thoughts.body(thought.id)).toBe(body);
+	expect(captureView(data).thoughts.get(b.id)?.[0]?.id).toBe(thought.id);
+	data.tables.captures.delete(b.id);
+	expect(captureView(data).recovery.map((row) => row.id)).toEqual([thought.id]);
+	expect(data.tables.thoughts.get(thought.id)?.captureId).toBe(b.id);
+	moveThought(data, thought.id, a.id);
+	expect(captureView(data).recovery).toEqual([]);
 });
 
-test('deletion refuses unreadable rows that could hide subtree membership', async () => {
+test('deletion refreshes membership and text, deletes only confirmed IDs, then persists', async () => {
+	const record = createMemoryRecord();
+	const data = await openMemory(captureDefinition, record);
+	const capture = createCapture(data, 'root');
+	const thought = createThought(data, capture.id, 'one');
+	const stale = previewCaptureDeletion(data, capture.id);
+	const body = data.tables.thoughts.body(thought.id);
+	if (!body) throw new Error('Created thought has no body.');
+	body.applyDelta(body.change.insert('changed ') as never);
+	await expect(deleteConfirmedCapture(data, stale)).rejects.toThrow('changed');
+	const reviewed = previewCaptureDeletion(data, capture.id);
+	const unseen = createThought(data, capture.id, 'unseen');
+	await expect(deleteConfirmedCapture(data, reviewed)).rejects.toThrow(
+		'changed',
+	);
+	const final = previewCaptureDeletion(data, capture.id);
+	// An offline replica's row arrives after this local deletion transaction.
+	await deleteConfirmedCapture(data, final);
+	data.tables.thoughts.create({ captureId: capture.id, position: 99 });
+	expect(captureView(data).recovery).toHaveLength(1);
+	expect(data.tables.thoughts.get(unseen.id)).toBeUndefined();
+	await data.persistence.flush();
+	expect(data.persistence.get()).toBe('saved');
+	await data[Symbol.asyncDispose]();
+	record.close();
+});
+
+test('a surviving confirmed thought is rechecked when its capture disappeared', async () => {
 	await using data = await openMemory(captureDefinition);
-	const root = createEntry(data, { parentId: null, text: 'root' });
-	const broken = createEntry(data, { parentId: root.id, text: 'unreadable child' });
-	data.tables.entries.update(broken.id, { capturedAt: 'invalid' } as never);
-	expect(() => previewDeletion(data, root.id)).toThrow('Unreadable entries');
-	data.tables.entries.update(broken.id, { parentId: null });
-	expect(previewDeletion(data, root.id).ids).toEqual([root.id]);
-	data.tables.entries.update(broken.id, { parentId: 42 } as never);
-	expect(() => previewDeletion(data, root.id)).toThrow('Unreadable entries');
+	const capture = createCapture(data, 'root');
+	const thought = createThought(data, capture.id, 'original');
+	const preview = previewCaptureDeletion(data, capture.id);
+	data.tables.captures.delete(capture.id);
+	const body = data.tables.thoughts.body(thought.id);
+	if (!body) throw new Error('Created thought has no body.');
+	body.applyDelta(body.change.insert('edited ') as never);
+	await expect(deleteConfirmedCapture(data, preview)).rejects.toThrow(
+		'changed',
+	);
+	expect(data.tables.thoughts.get(thought.id)).toBeDefined();
+});
+
+test('deleting one thought leaves its capture and siblings saved', async () => {
+	const record = createMemoryRecord();
+	const data = await openMemory(captureDefinition, record);
+	const capture = createCapture(data, 'root');
+	const removed = createThought(data, capture.id, 'remove');
+	const kept = createThought(data, capture.id, 'keep');
+	await deleteConfirmedThought(data, removed.id, 'remove');
+	expect(data.persistence.get()).toBe('saved');
+	await data[Symbol.asyncDispose]();
+	const reopened = await openMemory(captureDefinition, record);
+	expect(reopened.tables.captures.get(capture.id)).toBeDefined();
+	expect(reopened.tables.thoughts.get(removed.id)).toBeUndefined();
+	expect(reopened.tables.thoughts.body(kept.id)?.toString()).toBe('keep');
+	await reopened[Symbol.asyncDispose]();
+	record.close();
+});
+
+test('unreadable thought membership blocks a complete deletion preview', async () => {
+	await using data = await openMemory(captureDefinition);
+	const capture = createCapture(data, 'root');
+	const thought = createThought(data, capture.id, 'text');
+	data.tables.thoughts.update(thought.id, { position: 'broken' } as never);
+	expect(() => previewCaptureDeletion(data, capture.id)).toThrow(
+		'Unreadable thoughts',
+	);
+});
+
+test('earlier entries remain readable after the two-table cutover', async () => {
+	await using data = await openMemory(captureDefinition);
+	const root = data.tables.entries.create({
+		parentId: null,
+		capturedAt: InstantString.now(),
+	});
+	const child = data.tables.entries.create({
+		parentId: root.id,
+		capturedAt: InstantString.now(),
+	});
+	expect(new Set(data.tables.entries.rows.map((row) => row.id))).toEqual(
+		new Set([root.id, child.id]),
+	);
+	expect(captureView(data).captures).toEqual([]);
+	expect(data.tables.entries.get(child.id)?.parentId).toBe(root.id);
 });
