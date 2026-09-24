@@ -2,6 +2,7 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import { Dialog as DialogPrimitive } from 'bits-ui';
 	import type { Snippet } from 'svelte';
+	import { Button } from '../button/index.js';
 	import { cn, type WithoutChildrenOrChild } from '../utils.js';
 	import * as Dialog from './index.js';
 
@@ -32,9 +33,13 @@
 	>
 		{@render children?.()}
 		{#if showCloseButton}
-			<DialogPrimitive.Close class="cn-dialog-close">
-				<XIcon />
-				<span class="sr-only">Close</span>
+			<DialogPrimitive.Close data-slot="dialog-close">
+				{#snippet child({ props })}
+					<Button variant="ghost" class="cn-dialog-close" size="icon-sm" {...props}>
+						<XIcon />
+						<span class="sr-only">Close</span>
+					</Button>
+				{/snippet}
 			</DialogPrimitive.Close>
 		{/if}
 	</DialogPrimitive.Content>

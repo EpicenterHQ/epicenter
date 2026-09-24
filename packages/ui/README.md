@@ -254,6 +254,7 @@ on a re-vendor:
 | `showOnHover` actions overlay | `item/item-actions.svelte` | structural (absolute overlay + gradient) | yes |
 | `tooltip` prop (wraps in `Tooltip`) | `button/button.svelte`, `link/link.svelte` | Epicenter feature; upstream Button and Link have none | yes |
 | Standard loading shell | `loading/loading.svelte` | Epicenter wrapper around `Empty.Root` + `Spinner` for generic pending panes | yes |
+| Portal and available-height limit | `context-menu/context-menu-sub-content.svelte` | lets long folder menus scroll without being clipped by their parent; Bits submenus expose `--bits-menu-content-*` variables | yes |
 | Orientation sizing `data-[orientation=horizontal]:h-px …` | `separator/separator.svelte` | byte-identical to upstream; the size is gated on a Tailwind variant, which only attaches to real utilities. Routing it through `cn-separator-horizontal` (a plain class, not an `@utility`) makes the variant emit nothing, so the divider collapses (a fat bar inside `field-separator`, 0px standalone). Do **not** cn-ify it. | yes |
 
 Correctness wiring (making Vega work, not Epicenter style): `switch` and
@@ -264,6 +265,25 @@ sub-menu buttons emit `data-active` only when active. Keep these.
 
 Components are (mostly) byte-identical to upstream shadcn-svelte Vega markup, so
 updates are a careful copy plus a translation step.
+
+### Upstream comparison baseline
+
+On 2026-09-22, Dialog, Sheet, and Select were compared with shadcn-svelte commit
+[`6b5914a`](https://github.com/huntabyte/shadcn-svelte/tree/6b5914aac9c142a1eff3604995b3cb94eda2f933).
+Dialog and Sheet close controls compose the shared ghost icon Button, and
+Select's popup uses Bits UI's available height and transform origin.
+Other component markup and the preset CSS were not refreshed; their
+original upstream revision is unrecorded.
+
+DropdownMenu also caps its height at Bits UI's available height. Callers that
+set a tighter maximum must combine both limits with `min()`, as Local Mail's
+label menu does, because caller classes replace the default maximum.
+
+For future refreshes, record the source commit and the components updated here.
+Review markup and preset CSS together: upstream can move structural utilities
+between them. In particular, that revision's Drawer moves positioning and size
+constraints from the preset into its markup, so replacing only the preset would
+remove constraints from our current Drawer.
 
 ### Updating or adding a component
 
@@ -353,6 +373,13 @@ directly, or when UI source imports itself through private aliases or
 `@epicenter/ui/...`.
 
 ## Troubleshooting
+
+### Browser regression checks
+
+From the repo root, run `bun scripts/ui-scroll.browser.mjs` with Playwright's
+Chromium installed. The script checks chat listener and observer cleanup,
+streaming updates, preservation of the reading position, and long folder
+submenus. It prints the temporary directory containing screenshots and results.
 
 ### Import Resolution Issues
 

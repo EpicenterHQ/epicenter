@@ -182,7 +182,10 @@
 						</Button>
 					{/snippet}
 				</DropdownMenu.Trigger>
-				<DropdownMenu.Content class="max-h-72 w-52 overflow-y-auto" align="start">
+				<DropdownMenu.Content
+					class="max-h-[min(--spacing(72),var(--bits-dropdown-menu-content-available-height))] w-52"
+					align="start"
+				>
 					<DropdownMenu.Label>Gmail labels</DropdownMenu.Label>
 					<DropdownMenu.Separator />
 					{#each applicableLabels as label (label.id)}
