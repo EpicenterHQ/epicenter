@@ -7,6 +7,10 @@
   import { fromData } from '@epicenter/svelte';
   import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
   import { AccountPopover } from '@epicenter/app-shell/account-popover';
+  import { Button } from '@epicenter/ui/button';
+  import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
+  import { Textarea } from '@epicenter/ui/textarea';
+  import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import { auth } from './auth.svelte.js';
   import { onMount } from 'svelte';
   import type { openCapture } from './open.js';
@@ -187,17 +191,31 @@
 
   {#if selectedId && !selected}
     <p role="alert" class="mb-5">This capture is not available yet.</p>
-    <button type="button" class="underline" onclick={() => open(null)}>Back to timeline</button>
+    <Button variant="outline" size="sm" onclick={() => open(null)}>Back to timeline</Button>
   {:else if selected}
-    <button type="button" class="mb-6 text-sm underline" onclick={() => open(null)}>Timeline</button>
-    <h1 class="mb-2 text-2xl font-semibold">Capture</h1>
-    <time class="mb-5 block text-sm text-muted-foreground" datetime={selected.capturedAt}>
-      {new Date(selected.capturedAt).toLocaleString()}
-    </time>
-    {#if body}{#key selected.id}<TextEditor {body} label="Capture text" />{/key}{/if}
-    <button type="button" class="mt-4 text-sm text-destructive underline" onclick={reviewDeletion}>Delete capture…</button>
+    <Button variant="ghost" size="sm" class="mb-5 -ml-3" onclick={() => open(null)}>← Timeline</Button>
+    <div class="mb-5 flex items-start justify-between gap-3">
+      <div>
+        <h1 class="mb-1 text-2xl font-semibold">Capture</h1>
+        <time class="block text-sm text-muted-foreground" datetime={selected.capturedAt}>
+          {new Date(selected.capturedAt).toLocaleString()}
+        </time>
+      </div>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger>
+          {#snippet child({ props })}
+            <Button {...props} variant="ghost" size="icon-sm" aria-label="Capture actions">
+              <EllipsisIcon class="size-4" />
+            </Button>
+          {/snippet}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content align="end">
+          <DropdownMenu.Item variant="destructive" onclick={reviewDeletion}>Delete capture…</DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
+    </div>
     {#if deletion}
-      <section aria-label="Delete preview" class="mt-5 rounded border border-destructive p-4 text-sm">
+      <section aria-label="Delete preview" class="mb-5 rounded border border-destructive p-4 text-sm">
         <h2 class="font-semibold">Permanently delete this capture and {deletion.thoughts.length} {deletion.thoughts.length === 1 ? 'thought' : 'thoughts'}?</h2>
         <p class="mt-2 text-muted-foreground">Thoughts added on another offline device after this review may survive in recovery.</p>
         <p class="mt-3 whitespace-pre-wrap">{deletion.text || 'Empty capture'}</p>
@@ -209,37 +227,37 @@
         {#if previewChanged}<p role="status" class="mt-3">This capture changed. Review the updated list before deleting.</p>{/if}
         <div class="mt-4 flex gap-4">
           {#if previewChanged}
-            <button type="button" class="underline" onclick={() => previewChanged = false}>I reviewed the changes</button>
+            <Button size="sm" variant="destructive" onclick={() => previewChanged = false}>I reviewed the changes</Button>
           {:else}
-            <button type="button" disabled={deleting} class="text-destructive underline disabled:opacity-50" onclick={confirmDeletion}>
+            <Button size="sm" variant="destructive" disabled={deleting} onclick={confirmDeletion}>
               {deleting ? 'Saving deletion…' : 'Permanently delete'}
-            </button>
+            </Button>
           {/if}
-          <button type="button" class="underline" onclick={() => deletion = null}>Cancel</button>
+          <Button size="sm" variant="outline" onclick={() => deletion = null}>Cancel</Button>
         </div>
       </section>
     {/if}
+    {#if body}{#key selected.id}<TextEditor {body} label="Capture text" />{/key}{/if}
     <h2 class="mb-2 mt-10 text-lg font-medium">Thoughts</h2>
     <form onsubmit={add} class="mb-5 flex flex-col gap-3">
       <label for="new-thought" class="text-sm font-medium">Add a thought</label>
-      <textarea id="new-thought" bind:value={() => draft, setDraft} rows="3" placeholder="Write a line or paragraph…"
-        class="w-full rounded-lg border border-border bg-transparent p-3 outline-none focus:border-foreground"></textarea>
-      <button type="submit" class="self-end rounded-md bg-foreground px-4 py-2 text-sm text-background">Add thought</button>
+      <Textarea id="new-thought" bind:value={() => draft, setDraft} rows={3} placeholder="Write a line or paragraph…" />
+      <Button type="submit" size="sm" class="self-end">Add thought</Button>
     </form>
     {#if selectedThoughts.length === 0}<p class="py-4 text-sm text-muted-foreground">No thoughts yet.</p>{/if}
     <div aria-label="Thoughts">
-      {#each selectedThoughts as thought (thought.id)}
-        <ThoughtItem {store} {thought} captures={view.captures} onError={(message) => error = message} />
+      {#each selectedThoughts as thought, index (thought.id)}
+        <ThoughtItem {store} {thought} captures={view.captures}
+          canMoveUp={index > 0} canMoveDown={index < selectedThoughts.length - 1}
+          onError={(message) => error = message} />
       {/each}
     </div>
   {:else}
     <h1 class="mb-2 text-2xl font-semibold">Timeline</h1>
-    <p class="mb-7 text-sm text-muted-foreground">Recent captures first.</p>
     <form onsubmit={add} class="mb-7 flex flex-col gap-3">
       <label for="new-capture" class="text-sm font-medium">Add a capture</label>
-      <textarea id="new-capture" bind:value={() => draft, setDraft} rows="3" placeholder="Write or paste something…"
-        class="w-full rounded-lg border border-border bg-transparent p-3 outline-none focus:border-foreground"></textarea>
-      <button type="submit" class="self-end rounded-md bg-foreground px-4 py-2 text-sm text-background">Add a capture</button>
+      <Textarea id="new-capture" bind:value={() => draft, setDraft} rows={3} placeholder="Write or paste something…" />
+      <Button type="submit" size="sm" class="self-end">Add a capture</Button>
     </form>
     {#if view.captures.length === 0}<p class="py-4 text-sm text-muted-foreground">No captures yet.</p>{/if}
     <div aria-label="Timeline captures">

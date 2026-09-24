@@ -18,7 +18,7 @@
     marks: {},
   });
 
-  let { body, label }: { body: Y.Node; label: string } = $props();
+  let { body, label, compact = false }: { body: Y.Node; label: string; compact?: boolean } = $props();
   let element: HTMLDivElement;
   const insertNewline: Command = (state, dispatch) => {
     dispatch?.(state.tr.insertText('\n'));
@@ -43,10 +43,13 @@
         ],
       }),
       attributes: {
-        class: 'capture-text-editor min-h-28 w-full rounded-lg border border-border bg-transparent p-4 text-base leading-relaxed outline-none focus:border-foreground',
+        class: compact
+          ? 'capture-text-editor min-h-12 w-full rounded-md px-2 py-2 text-base leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring'
+          : 'capture-text-editor min-h-28 w-full rounded-lg border border-border bg-transparent p-4 text-base leading-relaxed outline-none focus:border-foreground',
         role: 'textbox',
         'aria-label': label,
         'aria-multiline': 'true',
+        'data-placeholder': compact ? 'Write a thought…' : 'Write here…',
       },
     });
     configureYProsemirror({ ytype: body })(view.state, view.dispatch);
@@ -64,5 +67,10 @@
   :global(.capture-text-editor.ProseMirror) {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+  :global(.capture-text-editor.ProseMirror:has(> br:only-child)::before) {
+    color: var(--muted-foreground);
+    content: attr(data-placeholder);
+    pointer-events: none;
   }
 </style>

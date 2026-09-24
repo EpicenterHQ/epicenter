@@ -250,12 +250,16 @@ try {
 		await first.getByRole('button', { name: 'Add thought' }).click();
 	}
 	await second.getByLabel('Thoughts').locator('article').nth(2).waitFor();
+	await first.getByLabel('Thoughts').locator('article').first().getByRole('button', { name: 'Thought actions' }).click();
+	assert(await first.getByRole('menuitem', { name: 'Move up' }).isDisabled());
+	await first.keyboard.press('Escape');
 	await first
 		.getByLabel('Thoughts')
 		.locator('article')
 		.nth(2)
-		.getByRole('button', { name: 'Move up' })
+		.getByRole('button', { name: 'Thought actions' })
 		.click();
+	await first.getByRole('menuitem', { name: 'Move up' }).click();
 	await first.getByRole('status').getByText('Saved on this device').waitFor();
 	await second.waitForFunction(
 		() =>
@@ -315,14 +319,10 @@ try {
 		.getByLabel('Thoughts')
 		.locator('article')
 		.nth(1)
-		.getByLabel('Move thought to capture')
-		.selectOption(secondId);
-	await first
-		.getByLabel('Thoughts')
-		.locator('article')
-		.nth(1)
-		.getByRole('button', { name: 'Move', exact: true })
+		.getByRole('button', { name: 'Thought actions' })
 		.click();
+	await first.getByRole('menuitem', { name: 'Move to capture' }).click();
+	await first.getByRole('menuitem', { name: /Second capture/ }).click();
 	await second.goto(secondUrl);
 	await second.getByLabel('Thoughts').getByLabel('Thought text').waitFor();
 	assert.equal(
@@ -331,7 +331,8 @@ try {
 	);
 
 	await second.goto(dinnerUrl);
-	await first.getByRole('button', { name: 'Delete capture…' }).click();
+	await first.getByRole('button', { name: 'Capture actions' }).click();
+	await first.getByRole('menuitem', { name: 'Delete capture…' }).click();
 	await first
 		.getByRole('region', { name: 'Delete preview' })
 		.getByText('Permanently delete this capture and 2 thoughts?')
@@ -352,7 +353,8 @@ try {
 	await secondContext.setOffline(true);
 	await second.getByLabel('Add a thought').fill('Unseen offline thought');
 	await second.getByRole('button', { name: 'Add thought' }).click();
-	await first.getByRole('button', { name: 'Delete capture…' }).click();
+	await first.getByRole('button', { name: 'Capture actions' }).click();
+	await first.getByRole('menuitem', { name: 'Delete capture…' }).click();
 	await first
 		.getByRole('button', { name: 'Permanently delete', exact: true })
 		.click();
@@ -376,12 +378,10 @@ try {
 		.waitFor();
 	await first
 		.getByRole('region', { name: 'Thought recovery' })
-		.getByLabel('Move thought to capture')
-		.selectOption(secondId);
-	await first
-		.getByRole('region', { name: 'Thought recovery' })
-		.getByRole('button', { name: 'Move', exact: true })
+		.getByRole('button', { name: 'Thought actions' })
 		.click();
+	await first.getByRole('menuitem', { name: 'Move to capture' }).click();
+	await first.getByRole('menuitem', { name: /Second capture/ }).click();
 	await first.getByRole('status').getByText('Saved on this device').waitFor();
 	await first.goto(secondUrl);
 	await first.getByRole('heading', { name: 'Capture' }).waitFor();
@@ -407,14 +407,16 @@ try {
 		.getByLabel('Thoughts')
 		.locator('article')
 		.nth(2)
-		.getByRole('button', { name: 'Move up' })
+		.getByRole('button', { name: 'Thought actions' })
 		.click();
+	await first.getByRole('menuitem', { name: 'Move up' }).click();
 	await second
 		.getByLabel('Thoughts')
 		.locator('article')
 		.nth(0)
-		.getByRole('button', { name: 'Move down' })
+		.getByRole('button', { name: 'Thought actions' })
 		.click();
+	await second.getByRole('menuitem', { name: 'Move down' }).click();
 	await Promise.all([
 		firstContext.setOffline(false),
 		secondContext.setOffline(false),
