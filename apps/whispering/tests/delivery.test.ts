@@ -56,12 +56,14 @@ const { deliverTranscriptionResult } = await import(
 type WhisperingApp = import('../src/lib/whispering/app').WhisperingApp;
 
 const app = {
-	local: { kv: {
-		get(key: string) {
-			return settingsValues.get(key) ?? false;
+	local: {
+		kv: {
+			get(key: string) {
+				return settingsValues.get(key) ?? false;
+			},
 		},
 	},
-}} as unknown as WhisperingApp;
+} as unknown as WhisperingApp;
 
 describe('transcription delivery', () => {
 	beforeEach(() => {

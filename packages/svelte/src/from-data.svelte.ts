@@ -1,4 +1,4 @@
-import { fromKv, type AdaptableKv } from './from-kv.svelte.js';
+import { type AdaptableKv, fromKv } from './from-kv.svelte.js';
 /**
  * A Svelte 5 reactivity adapter over one opened data handle's declared shape.
  *

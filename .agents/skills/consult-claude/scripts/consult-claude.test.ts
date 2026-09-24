@@ -5,7 +5,14 @@
  */
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -19,31 +26,45 @@ function setup() {
 	mkdirSync(source);
 	mkdirSync(bin);
 	const git = spawnSync('git', ['init', '-q', source]);
-	if (git.status !== 0) throw new Error('Fixture repository initialization failed.');
-	writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+	if (git.status !== 0)
+		throw new Error('Fixture repository initialization failed.');
+	writeFileSync(
+		join(bin, 'claude'),
+		`#!${process.execPath}
 const input = await Bun.stdin.text();
 if (process.env.CONSULT_TEST_FAIL) {
   console.error('native failure');
   process.exit(7);
 }
 console.log(JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), input, session_id: '${sessionId}' }));
-`, { mode: 0o755 });
+`,
+		{ mode: 0o755 },
+	);
 	return {
 		source,
 		launch(args: string[] = [], input = 'Review this.', fail = false) {
 			return spawnSync(process.execPath, [launcher, ...args], {
 				cwd: source,
-				env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CONSULT_TEST_FAIL: fail ? '1' : '' },
-				input, encoding: 'utf8', timeout: 10_000,
+				env: {
+					...process.env,
+					PATH: `${bin}:${process.env.PATH}`,
+					CONSULT_TEST_FAIL: fail ? '1' : '',
+				},
+				input,
+				encoding: 'utf8',
+				timeout: 10_000,
 			});
 		},
-		[Symbol.dispose]() { rmSync(root, { recursive: true, force: true }); },
+		[Symbol.dispose]() {
+			rmSync(root, { recursive: true, force: true });
+		},
 	};
 }
 
 test('new and resumed turns preserve the brief and enforce the same access boundary', () => {
 	using fixture = setup();
-	const brief = 'Proposed API:\n```ts\nopen({ value: "$HOME", literal: "`tick`" });\n```\n';
+	const brief =
+		'Proposed API:\n```ts\nopen({ value: "$HOME", literal: "`tick`" });\n```\n';
 	for (const options of [[], ['--resume', sessionId]]) {
 		const result = fixture.launch(options, brief);
 		expect(result.status).toBe(0);
@@ -64,7 +85,8 @@ test('new and resumed turns preserve the brief and enforce the same access bound
 			permissions: { blockReadsOutsideWorkingDirectories: true },
 		});
 		expect(args.includes('--resume')).toBe(options.length > 0);
-		if (options.length) expect(args[args.indexOf('--resume') + 1]).toBe(sessionId);
+		if (options.length)
+			expect(args[args.indexOf('--resume') + 1]).toBe(sessionId);
 		expect(args).not.toContain('--bg');
 	}
 	expect(readdirSync(fixture.source)).toEqual(['.git']);
@@ -72,7 +94,11 @@ test('new and resumed turns preserve the brief and enforce the same access bound
 
 test('passes a selected model and previews without launching Claude', () => {
 	using fixture = setup();
-	const result = fixture.launch(['--model', 'sonnet', '--dry-run'], 'Brief.', true);
+	const result = fixture.launch(
+		['--model', 'sonnet', '--dry-run'],
+		'Brief.',
+		true,
+	);
 	expect(result.status).toBe(0);
 	const preview = JSON.parse(result.stdout);
 	expect(preview.args[preview.args.indexOf('--model') + 1]).toBe('sonnet');
@@ -89,7 +115,14 @@ test('forwards native failures without disguising them as a result', () => {
 
 test('rejects empty briefs, malformed session IDs, and obsolete laboratory options', () => {
 	using fixture = setup();
-	for (const args of [['start'], ['--experiment'], ['--resume', ''], ['--resume', 'short-id'], ['--model', ' '], ['--unknown']]) {
+	for (const args of [
+		['start'],
+		['--experiment'],
+		['--resume', ''],
+		['--resume', 'short-id'],
+		['--model', ' '],
+		['--unknown'],
+	]) {
 		expect(fixture.launch(args).status).not.toBe(0);
 	}
 	expect(fixture.launch([], '  ').status).not.toBe(0);

@@ -42,6 +42,5 @@ export {
 	type PersistedAuthStorage,
 	parsePersistedAuth,
 } from './persisted-auth-storage.js';
-export { createSessionHandoffClient } from './session-handoff-client.js';
-
 export { readApiSession } from './read-api-session.js';
+export { createSessionHandoffClient } from './session-handoff-client.js';

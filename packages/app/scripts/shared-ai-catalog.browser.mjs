@@ -54,7 +54,18 @@ assert.equal(build.success, true, String(build.logs));
 const code = await build.outputs[0].text();
 const page = `<!doctype html><title>Shared AI catalog</title><body><script type="module">${code.replaceAll('</script', '<\\/script')}</script></body>`;
 const requests = [];
-const previewServer = Bun.serve({hostname:'127.0.0.1',port:0,fetch(request){requests.push({url:request.url,key:request.headers.get('authorization'),cookie:request.headers.get('cookie')});return Response.json({data:[{id:'preview'}]});}});
+const previewServer = Bun.serve({
+	hostname: '127.0.0.1',
+	port: 0,
+	fetch(request) {
+		requests.push({
+			url: request.url,
+			key: request.headers.get('authorization'),
+			cookie: request.headers.get('cookie'),
+		});
+		return Response.json({ data: [{ id: 'preview' }] });
+	},
+});
 const secrets = createProcessMemoryAppSecrets();
 const catalog = await createAiCatalog({
 	dataRoot: evidence,
@@ -288,7 +299,10 @@ try {
 	);
 	await whispering.evaluate((id) => window.acceptance.run(id), id);
 	assert.equal(requests.at(-1).key, 'Bearer rotated-key');
-	await vocab.evaluate(baseURL => window.acceptance.preview(baseURL, 'preview-key'),previewServer.url.origin+'/v1');
+	await vocab.evaluate(
+		(baseURL) => window.acceptance.preview(baseURL, 'preview-key'),
+		previewServer.url.origin + '/v1',
+	);
 	assert.equal(requests.at(-1).key, 'Bearer preview-key');
 	await vocab.evaluate((id) => window.acceptance.remove(id), removable);
 	await whispering.waitForFunction(
@@ -392,7 +406,7 @@ try {
 	await browser?.close();
 	await catalog.close();
 	await server.stop(true);
- await previewServer.stop(true);
+	await previewServer.stop(true);
 	auth[Symbol.dispose]();
 	await host[Symbol.asyncDispose]();
 }

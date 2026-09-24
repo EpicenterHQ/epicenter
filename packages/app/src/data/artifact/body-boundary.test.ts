@@ -5,8 +5,8 @@
  */
 import { expect, test } from 'bun:test';
 import { defineStore, defineTable, field, plainText } from '@epicenter/app';
-import { expectOk } from 'wellcrafted/testing';
 import * as Y from '@y/y';
+import { expectOk } from 'wellcrafted/testing';
 import { createMemoryRecord, openMemory } from '../store/memory.js';
 import { syncEngineOf } from '../store/store.js';
 import { replaceBody } from './body-content.js';
@@ -151,7 +151,9 @@ test('a fresh body retains its attributes through sequence replacement, persiste
 		};
 		const row = original.tables.notes.create(fields, fresh);
 		expect(original.tables.notes.body(row.id)).toBe(fresh);
-		original.transact(() => replaceBody(fresh, plainText().decode('Rewritten')));
+		original.transact(() =>
+			replaceBody(fresh, plainText().decode('Rewritten')),
+		);
 		expect(fresh.getAttr('language')).toBe('en');
 		await original[Symbol.asyncDispose]();
 		await using reopened = await openMemory(definition, record);

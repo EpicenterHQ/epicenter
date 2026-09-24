@@ -1,8 +1,8 @@
 /** Desktop snapshot ordering and opening/closing across an asynchronous host boundary. */
 import { expect, test } from 'bun:test';
-import type { AiTransport } from './inference.js';
-import { openConnectionCatalog } from './connection-catalog.js';
 import { createDesktopAiConnections } from './ai-connections.epicenter-host.js';
+import { openConnectionCatalog } from './connection-catalog.js';
+import type { AiTransport } from './inference.js';
 
 function fixture(
 	fetch: AiTransport['fetch'] = async () => {

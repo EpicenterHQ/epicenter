@@ -1,8 +1,8 @@
 import { defineStore, field } from '@epicenter/app';
 import { createMemoryStoreRuntime } from '@epicenter/app/testing';
 import {
-	AuthError,
 	type AuthClient,
+	AuthError,
 	createBrowserRedirectAuth,
 	selfHostedServer,
 } from '@epicenter/auth';

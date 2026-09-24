@@ -110,7 +110,9 @@ describe('renderRow is the unit (ADR-0271)', () => {
 		await using data = await openMemory(store);
 		const made = data.tables.notes.create({ title: 'Groceries' });
 		data.tables.notes.body(made.id)!.setAttr('legacy', 'kept');
-		const refused = expectErr(await renderRow(data, parsed(store), 'notes', made.id));
+		const refused = expectErr(
+			await renderRow(data, parsed(store), 'notes', made.id),
+		);
 		expect(refused.name).toBe('BodyUnwritable');
 	});
 

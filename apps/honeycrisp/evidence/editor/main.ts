@@ -1,21 +1,21 @@
 /** Browser regression for the actual editor components, store, and body codec. */
 import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 import { compileData } from '@epicenter/app/definition';
-import { openIdbBacking } from '../../../../packages/app/src/data/store/browser.js';
+import { ynodeToPmnode } from '@y/prosemirror';
+import * as Y from '@y/y';
+import { mount, unmount } from 'svelte';
+import { expectOk } from 'wellcrafted/testing';
 import { replaceBody } from '../../../../packages/app/src/data/artifact/body-content.js';
+import { openIdbBacking } from '../../../../packages/app/src/data/store/browser.js';
 import {
 	createStoreOverPort,
 	type DeclaredData,
 	syncEngineOf,
 } from '../../../../packages/app/src/data/store/store.js';
-import * as Y from '@y/y';
-import { ynodeToPmnode } from '@y/prosemirror';
-import { mount, unmount } from 'svelte';
-import { expectOk } from 'wellcrafted/testing';
 import CodeMirrorEditor from '../../../skills/src/lib/components/editor/CodeMirrorEditor.svelte';
 import { honeycrispDefinition } from '../../src/lib/data.js';
-import Editor from './EditorHarness.svelte';
 import { noteSchema } from '../../src/lib/editor/schema.js';
+import Editor from './EditorHarness.svelte';
 
 const definition = defineStore({
 	id: 'so.epicenter.editor-rc26-evidence',

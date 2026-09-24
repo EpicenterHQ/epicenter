@@ -209,10 +209,16 @@ try {
 	const dinnerId = new URL(dinnerUrl).searchParams.get('capture');
 	assert(dinnerId);
 	await firstContext.grantPermissions(['clipboard-read', 'clipboard-write']);
-	await first.evaluate(() => navigator.clipboard.write([new ClipboardItem({
-		'text/plain': new Blob(['\nFull pasted details.\n\nKeep blank line.'], { type: 'text/plain' }),
-		'text/html': new Blob(['<b>Different HTML</b>'], { type: 'text/html' }),
-	})]));
+	await first.evaluate(() =>
+		navigator.clipboard.write([
+			new ClipboardItem({
+				'text/plain': new Blob(['\nFull pasted details.\n\nKeep blank line.'], {
+					type: 'text/plain',
+				}),
+				'text/html': new Blob(['<b>Different HTML</b>'], { type: 'text/html' }),
+			}),
+		]),
+	);
 	await first.getByLabel('Capture text').press('End');
 	await first.getByLabel('Capture text').press('ControlOrMeta+V');
 	await first.getByRole('status').getByText('Saved on this device').waitFor();
@@ -229,12 +235,16 @@ try {
 	await first.getByLabel('Capture text').press('ControlOrMeta+A');
 	await first.getByLabel('Capture text').evaluate((element) => {
 		const clipboardData = new DataTransfer();
-		clipboardData.items.add(new File(['image'], 'image.png', { type: 'image/png' }));
-		element.dispatchEvent(new ClipboardEvent('paste', {
-			bubbles: true,
-			cancelable: true,
-			clipboardData,
-		}));
+		clipboardData.items.add(
+			new File(['image'], 'image.png', { type: 'image/png' }),
+		);
+		element.dispatchEvent(
+			new ClipboardEvent('paste', {
+				bubbles: true,
+				cancelable: true,
+				clipboardData,
+			}),
+		);
 	});
 	assert.equal(
 		await first.getByLabel('Capture text').innerText(),
@@ -250,7 +260,12 @@ try {
 		await first.getByRole('button', { name: 'Add thought' }).click();
 	}
 	await second.getByLabel('Thoughts').locator('article').nth(2).waitFor();
-	await first.getByLabel('Thoughts').locator('article').first().getByRole('button', { name: 'Thought actions' }).click();
+	await first
+		.getByLabel('Thoughts')
+		.locator('article')
+		.first()
+		.getByRole('button', { name: 'Thought actions' })
+		.click();
 	assert(await first.getByRole('menuitem', { name: 'Move up' }).isDisabled());
 	await first.keyboard.press('Escape');
 	await first
@@ -294,9 +309,17 @@ try {
 				) as HTMLElement
 			)?.innerText === 'Owning the outcome, edited independently',
 	);
-	await first.getByLabel('Thoughts').locator('article').first().getByRole('button', { name: 'Thought actions' }).click();
+	await first
+		.getByLabel('Thoughts')
+		.locator('article')
+		.first()
+		.getByRole('button', { name: 'Thought actions' })
+		.click();
 	await first.getByRole('menuitem', { name: 'Copy text' }).click();
-	assert.equal(await first.evaluate(() => navigator.clipboard.readText()), 'Owning the outcome, edited independently');
+	assert.equal(
+		await first.evaluate(() => navigator.clipboard.readText()),
+		'Owning the outcome, edited independently',
+	);
 
 	await second.getByRole('button', { name: 'Capture', exact: true }).click();
 	await second.getByLabel('Add a capture').fill('Second capture');
@@ -446,7 +469,9 @@ try {
 		);
 	await second.waitForFunction((expected) => {
 		const actual = [
-			...document.querySelectorAll('[aria-label="Thoughts"] [aria-label="Thought text"]'),
+			...document.querySelectorAll(
+				'[aria-label="Thoughts"] [aria-label="Thought text"]',
+			),
 		].map((item) => (item as HTMLElement).innerText);
 		return JSON.stringify(actual) === JSON.stringify(expected);
 	}, firstOrder);
@@ -455,14 +480,20 @@ try {
 	await first.getByLabel('Capture text').press('Enter');
 	await first.getByLabel('Capture text').pressSequentially('An added line');
 	await second.waitForFunction(
-		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Second capture\nAn added line',
+		() =>
+			document.querySelector('[aria-label="Capture text"]')?.textContent ===
+			'Second capture\nAn added line',
 	);
 	await first.getByLabel('Capture text').press('ControlOrMeta+Z');
 	await first.waitForFunction(
-		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Second capture',
+		() =>
+			document.querySelector('[aria-label="Capture text"]')?.textContent ===
+			'Second capture',
 	);
 	await second.waitForFunction(
-		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Second capture',
+		() =>
+			document.querySelector('[aria-label="Capture text"]')?.textContent ===
+			'Second capture',
 	);
 	await first.getByRole('status').getByText('Saved on this device').waitFor();
 	await first.reload();
@@ -471,31 +502,55 @@ try {
 	await first.getByLabel('Capture text').press('ArrowRight');
 	await first.getByLabel('Capture text').pressSequentially(' local');
 	await second.waitForFunction(
-		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Second capture local',
+		() =>
+			document.querySelector('[aria-label="Capture text"]')?.textContent ===
+			'Second capture local',
 	);
 	await second.getByLabel('Capture text').press('ControlOrMeta+A');
 	await second.getByLabel('Capture text').press('ArrowLeft');
 	await second.getByLabel('Capture text').pressSequentially('Peer ');
 	await first.waitForFunction(
-		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Peer Second capture local',
+		() =>
+			document.querySelector('[aria-label="Capture text"]')?.textContent ===
+			'Peer Second capture local',
 	);
 	await first.getByLabel('Capture text').press('ControlOrMeta+Z');
 	await first.waitForFunction(
-		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Peer Second capture',
+		() =>
+			document.querySelector('[aria-label="Capture text"]')?.textContent ===
+			'Peer Second capture',
 	);
 	await first.getByLabel('Capture text').press('ControlOrMeta+Shift+Z');
 	await first.waitForFunction(
-		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Peer Second capture local',
+		() =>
+			document.querySelector('[aria-label="Capture text"]')?.textContent ===
+			'Peer Second capture local',
 	);
 	await first.getByLabel('Add a thought').fill('Delete this thought only');
 	await first.getByRole('button', { name: 'Add thought' }).click();
-	await second.waitForFunction(() => document.querySelectorAll('[aria-label="Thoughts"] article').length === 4);
-	await first.getByLabel('Thoughts').locator('article').last().getByRole('button', { name: 'Thought actions' }).click();
+	await second.waitForFunction(
+		() =>
+			document.querySelectorAll('[aria-label="Thoughts"] article').length === 4,
+	);
+	await first
+		.getByLabel('Thoughts')
+		.locator('article')
+		.last()
+		.getByRole('button', { name: 'Thought actions' })
+		.click();
 	await first.getByRole('menuitem', { name: 'Delete thought…' }).click();
-	await first.getByRole('region', { name: 'Delete thought preview' }).getByText('Delete this thought only').waitFor();
-	await first.getByRole('button', { name: 'Permanently delete thought' }).click();
+	await first
+		.getByRole('region', { name: 'Delete thought preview' })
+		.getByText('Delete this thought only')
+		.waitFor();
+	await first
+		.getByRole('button', { name: 'Permanently delete thought' })
+		.click();
 	await first.getByRole('status').getByText('Saved on this device').waitFor();
-	await second.waitForFunction(() => document.querySelectorAll('[aria-label="Thoughts"] article').length === 3);
+	await second.waitForFunction(
+		() =>
+			document.querySelectorAll('[aria-label="Thoughts"] article').length === 3,
+	);
 	assert.deepEqual(errors, []);
 	console.log(
 		'Capture browser proof passed: rich clipboard with multiline text, non-text paste, two replicas, local and peer-aware editor undo, ordering and concurrent reorder, independent edits, thought copy and deletion, moves, refreshed capture deletion, offline survival, and recovery.',

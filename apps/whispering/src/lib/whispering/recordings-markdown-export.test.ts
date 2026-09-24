@@ -80,7 +80,9 @@ test('ZIP export retains row descriptions and full audio keys under recordings.z
 		expect(body).toContain('A later attempt.');
 		expect(body).toContain('First line.\nSecond line with **emphasis**.');
 		expect(body).toContain('First line. Second line with emphasis.');
-		expect(body.indexOf('A later attempt.')).toBeLessThan(body.indexOf('First line.'));
+		expect(body.indexOf('A later attempt.')).toBeLessThan(
+			body.indexOf('First line.'),
+		);
 	} finally {
 		download.mockRestore();
 	}

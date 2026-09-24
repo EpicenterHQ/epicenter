@@ -29,7 +29,9 @@ test('publication captures owner and visibility, then validates the returned URL
 			return Response.json({ url }, { status: 201 });
 		}),
 	);
-	const result = await blobs.publishPrivate(new Blob(['audio'], { type: 'audio/webm' }));
+	const result = await blobs.publishPrivate(
+		new Blob(['audio'], { type: 'audio/webm' }),
+	);
 	expect(result.error).toBeNull();
 	expect(result.data).toBe(url);
 	expect(requests[0]!.url).toBe(`${baseURL}/api/blobs/personal/alice/private`);
@@ -62,5 +64,7 @@ test('download accepts a known URL and delete refuses a foreign owner', async ()
 	expect((await blobs.download(url)).data).toBeInstanceOf(Blob);
 	expect((await blobs.delete(url)).error).toBeNull();
 	expect(requests.map((request) => request.method)).toEqual(['GET', 'DELETE']);
-	expect(() => blobs.delete(mintPersonalBlobUrl(baseURL, 'bob', 'public'))).toThrow();
+	expect(() =>
+		blobs.delete(mintPersonalBlobUrl(baseURL, 'bob', 'public')),
+	).toThrow();
 });

@@ -21,14 +21,14 @@
  */
 
 import { TranscribeError } from '@epicenter/client';
+import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
 import {
 	createVadRecorder,
 	type DeviceStreamError,
 	type VadRecorderError,
 } from '@epicenter/recorder';
-import { Err, Ok, tryAsync, type Result } from 'wellcrafted/result';
 import type OpenAI from 'openai';
-import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
+import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { base } from '$app/paths';
 
 /**
@@ -38,7 +38,9 @@ import { base } from '$app/paths';
  */
 export type DictationStatus = 'idle' | 'listening' | 'speaking';
 
-export function createDictation(getClient: () => OpenAI | null | Promise<OpenAI | null>) {
+export function createDictation(
+	getClient: () => OpenAI | null | Promise<OpenAI | null>,
+) {
 	// The VAD model and wasm are fetched at runtime, so their URL has to carry
 	// whatever prefix this build was served under. `base` is empty on Vocab's
 	// own deploy and `/apps/<dataId>` inside Epicenter (ADR-0210), which is
@@ -118,7 +120,7 @@ export function createDictation(getClient: () => OpenAI | null | Promise<OpenAI 
 		> {
 			if (closed || stopping || status !== 'idle') return Ok(undefined);
 			const client = await getClient();
-            if (closed) return Ok(undefined);
+			if (closed) return Ok(undefined);
 			if (!client)
 				return TranscribeError.TransportFailed({
 					cause: new Error('This Account does not supply transcription.'),

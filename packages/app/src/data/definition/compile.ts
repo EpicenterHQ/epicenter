@@ -358,8 +358,7 @@ function fieldNameProblem(
 function isBodyCodec(value: unknown): value is BodyCodec {
 	const codec = value as Partial<BodyCodec> | undefined;
 	return (
-		typeof codec?.encode === 'function' &&
-		typeof codec.decode === 'function'
+		typeof codec?.encode === 'function' && typeof codec.decode === 'function'
 	);
 }
 

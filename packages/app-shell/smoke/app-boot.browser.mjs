@@ -376,8 +376,7 @@ try {
 		);
 		await done(next, scenario);
 	}
-	scenario =
-		'unmount while opening retains page roots without mounting UI';
+	scenario = 'unmount while opening retains page roots without mounting UI';
 	{
 		const next = await page('?local&opening=held');
 		await next.getByText('Opening your changes…').waitFor();
@@ -385,7 +384,7 @@ try {
 		assert.equal(await next.locator('#app').innerHTML(), '');
 		await next.evaluate(() => window.bootProbe.releaseOpening());
 		await next.evaluate(() => window.observedBoot.opening);
-        assert(!(await events(next)).includes('closed'));
+		assert(!(await events(next)).includes('closed'));
 		assert(!(await events(next)).includes('session-mounted'));
 		await done(next, scenario);
 	}

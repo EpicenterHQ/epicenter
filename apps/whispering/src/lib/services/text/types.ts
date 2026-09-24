@@ -63,5 +63,4 @@ export type TextService = {
 	 * for security reasons.
 	 */
 	simulateEnterKeystroke: () => Promise<Result<void, TextError>>;
-
 };

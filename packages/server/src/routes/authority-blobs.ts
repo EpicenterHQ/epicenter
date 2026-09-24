@@ -1,6 +1,6 @@
 import {
-	mintPersonalBlobUrl,
 	MAX_HOSTED_BLOB_BYTES,
+	mintPersonalBlobUrl,
 	PERSONAL_BLOB_COLLECTION,
 	PERSONAL_BLOB_OBJECT,
 	parsePersonalBlobPath,
@@ -130,16 +130,15 @@ export function mountPersonalAuthorityBlobs<E extends Env>(
 			return c.notFound();
 		let collectionPath: string;
 		try {
-			collectionPath = new URL(personalBlobCollectionUrl(
-				c.var.authBaseURL,
-				principalId,
-				visibility,
-			)).pathname;
+			collectionPath = new URL(
+				personalBlobCollectionUrl(c.var.authBaseURL, principalId, visibility),
+			).pathname;
 		} catch {
 			return c.notFound();
 		}
 		const request = new URL(c.req.url);
-		if (request.pathname !== collectionPath || request.search) return c.notFound();
+		if (request.pathname !== collectionPath || request.search)
+			return c.notFound();
 		if (c.var.principal.id !== principalId)
 			return c.text('Blob access refused', 403);
 		const store = resolveDeploymentBlobStore(c.env);

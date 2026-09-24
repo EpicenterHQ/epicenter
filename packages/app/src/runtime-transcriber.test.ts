@@ -2,8 +2,8 @@
  * malformed IPC, absence, cancellation admission, and draining host-owned work. */
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createRuntimeTranscriber } from './runtime-transcriber.js';
 import { openRuntimeTranscriber } from './ai.js';
+import { createRuntimeTranscriber } from './runtime-transcriber.js';
 
 test('browser runtime absence is null', async () => {
 	expect(await openRuntimeTranscriber()).toBeNull();

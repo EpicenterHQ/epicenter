@@ -10,10 +10,7 @@ import { createAiCatalogRoutes } from './ai-catalog-routes.ts';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AgentToolDefinition } from '@epicenter/agent';
 import { CHECKOUT_PATH } from '@epicenter/app/artifact/checkout';
-import {
-	type BlobId,
-	parseBlobId,
-} from '@epicenter/blobs';
+import { type BlobId, parseBlobId } from '@epicenter/blobs';
 import type { BunBlobStore } from '@epicenter/blobs/bun';
 import { isAppId } from '@epicenter/constants/app-id';
 import type { DeviceSqliteOwner } from '@epicenter/device/owner';

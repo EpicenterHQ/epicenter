@@ -4,16 +4,16 @@
  * and retirement never publish partial durable records or advance live state.
  */
 import { expect, test } from 'bun:test';
-import { IDBFactory, IDBKeyRange, IDBObjectStore } from 'fake-indexeddb';
 import * as Y from '@y/y';
+import { IDBFactory, IDBKeyRange, IDBObjectStore } from 'fake-indexeddb';
 import { expectOk } from 'wellcrafted/testing';
 import { openIdbBacking } from './browser.js';
 import { openCurrentCache } from './current-cache.js';
 import {
+	type IdbRealm,
 	idbRequest,
 	idbTransactionDone,
 	openIdbDatabase,
-	type IdbRealm,
 } from './idb-updates.js';
 import { SNAPSHOT_FOLD_THRESHOLD } from './log.js';
 

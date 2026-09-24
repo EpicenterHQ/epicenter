@@ -1,12 +1,13 @@
 /** Bun owns immutable test builds and HTTP listeners; Playwright owns test attempts. */
-import { mkdtemp, rm, cp } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
-import { tmpdir } from 'node:os';
+
 import { createHash } from 'node:crypto';
+import { cp, mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { build } from 'vite';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
+import { build } from 'vite';
 
 const temporary = await mkdtemp(join(tmpdir(), 'local-mail-build-'));
 const port = Number(process.env.LOCAL_MAIL_TEST_PORT ?? 41770);

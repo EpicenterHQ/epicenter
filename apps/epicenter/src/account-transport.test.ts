@@ -10,9 +10,7 @@ import {
 	createSessionAuth,
 } from '@epicenter/auth';
 import { createDesktopBrokerAuth } from '@epicenter/auth/desktop';
-import {
-	generateBlobId,
-} from '@epicenter/blobs';
+import { generateBlobId } from '@epicenter/blobs';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
 import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { Ok } from 'wellcrafted/result';
@@ -20,11 +18,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createHomeHost } from './host.ts';
 import { createHomeServer } from './server.ts';
 
-async function setup({
-	verification,
-}: {
-	verification?: Promise<void>;
-} = {}) {
+async function setup({ verification }: { verification?: Promise<void> } = {}) {
 	const sessionRequests: Request[] = [];
 	const requests: {
 		path: string;

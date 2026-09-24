@@ -343,11 +343,13 @@ export function createDesktopRecording(
 					starting = true;
 					try {
 						if (!registered) {
-							const generation = await call<number>('recording_document_generation');
-                            if (generation.error) return generation;
-                            if (closed) return RecorderError.NoActiveRecording();
-                            registrationAttempted = true;
-                            const result = await call<void>('register_recording_session', {
+							const generation = await call<number>(
+								'recording_document_generation',
+							);
+							if (generation.error) return generation;
+							if (closed) return RecorderError.NoActiveRecording();
+							registrationAttempted = true;
+							const result = await call<void>('register_recording_session', {
 								appId,
 								generation: generation.data,
 								sessionId,

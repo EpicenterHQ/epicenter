@@ -17,5 +17,4 @@ export const TextServiceLive: TextService = {
 		if (error !== null) return TextError.SimulateKeystroke({ cause: error });
 		return Ok(undefined);
 	},
-
 };

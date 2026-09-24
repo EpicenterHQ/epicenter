@@ -1,8 +1,5 @@
 import { expect, test } from 'bun:test';
-import {
-	mintPersonalBlobUrl,
-	parsePersonalBlobUrl,
-} from '@epicenter/blobs';
+import { mintPersonalBlobUrl, parsePersonalBlobUrl } from '@epicenter/blobs';
 
 const authority = 'https://api.test';
 const valid = mintPersonalBlobUrl(authority, 'alice_1', 'public');

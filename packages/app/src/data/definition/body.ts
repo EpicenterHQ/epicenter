@@ -7,6 +7,7 @@ import type { BodyCodec } from './declaration.js';
 export function plainText(): BodyCodec {
 	return {
 		encode: (node) => node.toString(),
-		decode: (text) => text === '' ? delta.create().done() : delta.create().insert(text).done(),
+		decode: (text) =>
+			text === '' ? delta.create().done() : delta.create().insert(text).done(),
 	};
 }

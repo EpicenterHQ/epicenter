@@ -921,7 +921,9 @@ describe('the preview says what a push would do (ADR-0337)', () => {
 					},
 					body: {
 						encode: (node) => node.toString(),
-						decode: () => { throw new Error('not a body'); },
+						decode: () => {
+							throw new Error('not a body');
+						},
 					},
 				}),
 			},
@@ -948,7 +950,9 @@ describe('the preview says what a push would do (ADR-0337)', () => {
 					fields: { title: field.string(), pinned: field.boolean() },
 					body: {
 						encode: () => '',
-						decode: () => { throw new Error('empty refused'); },
+						decode: () => {
+							throw new Error('empty refused');
+						},
 					},
 				}),
 			},
@@ -1432,7 +1436,9 @@ describe('push sends the values back and re-renders', () => {
 		const expected = parseRowFile(host.folder.get(`notes/${noteId}.md`)!)!.body;
 		const pushed = applied(expectOk(await sendBack(host, data)));
 		expect(pushed.bodies).toBe(1);
-		expect((data.rowFile('notes', noteId)?.body as Y.Node).toString()).toBe(expected);
+		expect((data.rowFile('notes', noteId)?.body as Y.Node).toString()).toBe(
+			expected,
+		);
 		expect(host.folder.get(`notes/${noteId}.md`)).toContain('and eggs');
 		await data[Symbol.asyncDispose]();
 	});

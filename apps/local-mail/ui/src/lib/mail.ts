@@ -2,7 +2,6 @@
  * Mailbox reads include this device's undelivered triage.
  */
 
-import type { openMailResources } from './resources.js';
 import {
 	type AccountWorkflow,
 	assertAccountLabel,
@@ -36,6 +35,7 @@ import {
 import { openLocalMailStorage } from '@epicenter/local-mail/storage';
 import { gmailAuthorization } from '#platform/gmail-authorization';
 import { gmailIdentity } from './identity.js';
+import type { openMailResources } from './resources.js';
 
 /** Where Google sends a person back to, on this application's own route. */
 function redirectUri(): string {

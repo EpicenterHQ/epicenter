@@ -386,24 +386,40 @@ function recordingPublicationForTest(
 }
 
 test('uncertain Local byte publication retains its known ID and verifies it without another add', async () => {
- const f = await setup();
- try {
-  const signal = new AbortController().signal;
-  const pendingSaves = createPendingSaves(signal);
-  let additions = 0;
-  let knownId: ReturnType<typeof generateBlobId> | undefined;
-  mock.module('./local.js', () => ({ local: { ...f.app.local, blobs: { ...f.app.localBlobs,
-   async add(audio: Blob) {
-    additions++;
-    knownId = expectOk(await f.app.localBlobs.add(audio));
-    return BlobStoreError.BlobStoreFailed({id:knownId,cause:'Lost durable confirmation'});
-   },
-  } } }));
-  expectErr(await saveAudioRecording({signal,pendingSaves},new Blob(['retained bytes'])));
-  expect(f.data.tables.recordings.rows).toHaveLength(0);
-  await pendingSaves.entries[0]!.retry();
-  expect(additions).toBe(1);
-  expect(f.data.tables.recordings.rows[0]?.audioBlobId).toBe(knownId);
-  expect(pendingSaves.entries).toHaveLength(0);
- } finally { await f.dispose(); }
+	const f = await setup();
+	try {
+		const signal = new AbortController().signal;
+		const pendingSaves = createPendingSaves(signal);
+		let additions = 0;
+		let knownId: ReturnType<typeof generateBlobId> | undefined;
+		mock.module('./local.js', () => ({
+			local: {
+				...f.app.local,
+				blobs: {
+					...f.app.localBlobs,
+					async add(audio: Blob) {
+						additions++;
+						knownId = expectOk(await f.app.localBlobs.add(audio));
+						return BlobStoreError.BlobStoreFailed({
+							id: knownId,
+							cause: 'Lost durable confirmation',
+						});
+					},
+				},
+			},
+		}));
+		expectErr(
+			await saveAudioRecording(
+				{ signal, pendingSaves },
+				new Blob(['retained bytes']),
+			),
+		);
+		expect(f.data.tables.recordings.rows).toHaveLength(0);
+		await pendingSaves.entries[0]!.retry();
+		expect(additions).toBe(1);
+		expect(f.data.tables.recordings.rows[0]?.audioBlobId).toBe(knownId);
+		expect(pendingSaves.entries).toHaveLength(0);
+	} finally {
+		await f.dispose();
+	}
 });

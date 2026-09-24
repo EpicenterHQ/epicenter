@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import {
-	mintPersonalBlobUrl,
 	MAX_HOSTED_BLOB_BYTES,
+	mintPersonalBlobUrl,
 	parsePersonalBlobUrl,
 } from '@epicenter/blobs';
 import { asPrincipalId } from '@epicenter/principal';
@@ -61,7 +61,8 @@ test('publication returns the full URL after a create-only write', async () => {
 });
 
 test('the public authority may sit behind a proxy that rewrites Host', async () => {
-	globalThis.fetch = (async () => new Response('audio')) as unknown as typeof fetch;
+	globalThis.fetch = (async () =>
+		new Response('audio')) as unknown as typeof fetch;
 	const proxied = new URL(object);
 	proxied.host = 'internal.test';
 	const response = await setup(null).request(proxied.href, {}, config);

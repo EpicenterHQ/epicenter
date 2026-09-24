@@ -4,8 +4,8 @@ import { dirname, resolve } from 'node:path';
 import { asPrincipalId } from '@epicenter/principal';
 import {
 	createServerApp,
-	mountPersonalAuthorityBlobs,
 	mountInferenceApp,
+	mountPersonalAuthorityBlobs,
 	mountSessionApp,
 	mountTranscriptionApp,
 	OAuthError,

@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import * as Y from '@y/y';
 
-
 import { honeycrispDefinition } from '../data.js';
 import { parseNoteBody, serializeNoteBody } from './markdown.js';
 import { noteSchema } from './schema.js';
@@ -110,5 +109,4 @@ describe('the note body Markdown codec', () => {
 			document.destroy();
 		}
 	});
-
 });

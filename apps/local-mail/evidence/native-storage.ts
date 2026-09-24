@@ -1,4 +1,3 @@
-import { Ok, unwrap } from 'wellcrafted/result';
 /**
  * Real desktop SQLite transport with synthetic Gmail pages. Uses temporary
  * files, the production native framing/worker, and the desktop WebSocket client.
@@ -8,6 +7,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Ok, unwrap } from 'wellcrafted/result';
 import { createDesktopSqliteOwner } from '../../../packages/device/src/desktop.js';
 import { createDeviceDispatcher } from '../../../packages/device/src/owner.js';
 import {

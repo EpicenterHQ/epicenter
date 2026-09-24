@@ -1,9 +1,7 @@
 {
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
-		"types": [
-			"bun"
-		],
+		"types": ["bun"],
 		"noUnusedLocals": true,
 		"noUnusedParameters": true
 	},
@@ -19,7 +17,5 @@
 		"**/*.test-support.ts",
 		"src/data/__benchmarks__"
 	],
-	"include": [
-		"src/data/**/*.ts"
-	]
+	"include": ["src/data/**/*.ts"]
 }

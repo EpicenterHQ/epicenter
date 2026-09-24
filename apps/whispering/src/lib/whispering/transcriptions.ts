@@ -8,9 +8,10 @@ export function transcriptionsForRecording(
 ): Transcription[] {
 	return store.tables.transcriptions.rows
 		.filter((result) => result.recordingId === recordingId)
-		.toSorted((left, right) =>
-			right.attemptedAt.localeCompare(left.attemptedAt) ||
-			right.id.localeCompare(left.id),
+		.toSorted(
+			(left, right) =>
+				right.attemptedAt.localeCompare(left.attemptedAt) ||
+				right.id.localeCompare(left.id),
 		);
 }
 

@@ -1,11 +1,11 @@
 import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 import { createLogger } from 'wellcrafted/logger';
-import type { AiTransport } from './inference.js';
 import type {
 	AiConnectionSnapshot,
 	AiConnections,
 	CustomConnectionInput,
 } from './ai-connections.js';
+import type { AiTransport } from './inference.js';
 
 const log = createLogger('desktop-ai-connections');
 

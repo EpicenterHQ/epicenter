@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { editField } from '@epicenter/matter-core/serialize';
-import { frontmatter, rowFile, parseRowFile } from './frontmatter.js';
+import { frontmatter, parseRowFile, rowFile } from './frontmatter.js';
 
 describe('frontmatter (ADR-0268)', () => {
 	test('strings that YAML would reinterpret bare stay quoted strings', () => {

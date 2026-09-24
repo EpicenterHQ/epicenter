@@ -1,5 +1,4 @@
 /** Account-bound hosted blob and inference clients. */
-export { createPersonalHostedBlobs, HostedBlobError } from './hosted-blobs.js';
 
 export type {
 	AgentEngine,
@@ -14,6 +13,7 @@ export {
 	type ConnectionPreset,
 	type PresetId,
 } from './connection-presets.js';
+export { createPersonalHostedBlobs, HostedBlobError } from './hosted-blobs.js';
 export {
 	CompleteError,
 	ListModelsError,

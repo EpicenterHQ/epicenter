@@ -23,22 +23,32 @@ test('promotion replay returns the same capture after reopening', async () => {
 	const record = createMemoryRecord();
 	const capturedAt = InstantString.fromDate(new Date('2026-01-01T00:00:00Z'));
 	const first = await openMemory(captureDefinition, record);
-	const request = { requestId: 'request-1', text: 'Selected cleaned text', capturedAt };
+	const request = {
+		requestId: 'request-1',
+		text: 'Selected cleaned text',
+		capturedAt,
+	};
 	const id = createPromotedCapture(first, request);
 	expect(createPromotedCapture(first, request)).toBe(id);
 	await first[Symbol.asyncDispose]();
 	await using reopened = await openMemory(captureDefinition, record);
 	expect(createPromotedCapture(reopened, request)).toBe(id);
 	expect(reopened.tables.captures.rows).toHaveLength(1);
-	expect(reopened.tables.captures.body(id)?.toString()).toBe('Selected cleaned text');
+	expect(reopened.tables.captures.body(id)?.toString()).toBe(
+		'Selected cleaned text',
+	);
 });
 
 test('an accepted promotion key without an ID never creates another root', async () => {
 	await using data = await openMemory(captureDefinition);
 	data.tables.promotions.create({ requestId: 'uncertain', captureId: null });
-	expect(() => createPromotedCapture(data, {
-		requestId: 'uncertain', text: 'Do not duplicate', capturedAt: InstantString.now(),
-	})).toThrow('Inspect Capture');
+	expect(() =>
+		createPromotedCapture(data, {
+			requestId: 'uncertain',
+			text: 'Do not duplicate',
+			capturedAt: InstantString.now(),
+		}),
+	).toThrow('Inspect Capture');
 	expect(data.tables.captures.rows).toHaveLength(0);
 });
 

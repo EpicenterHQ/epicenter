@@ -12,11 +12,11 @@ import { openLocal, openPersonal } from '@epicenter/app/open';
 import type { Account } from '@epicenter/auth';
 import { claimApp } from '@epicenter/device/app-claim';
 import { createMemorySqliteOwner } from '@epicenter/device/memory';
-import { indexedDbStoreRuntime } from '../../platform/documents.js';
 import { installTestLocks } from '@epicenter/device/test-locks';
 import { asPrincipalId } from '@epicenter/principal';
 import { createCurrentDownloadResponse } from '@epicenter/sync/current-download';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { indexedDbStoreRuntime } from '../../platform/documents.js';
 import { acquireStoreData, openIdbBacking } from './browser.js';
 import { idbRequest, idbTransactionDone } from './idb-updates.js';
 

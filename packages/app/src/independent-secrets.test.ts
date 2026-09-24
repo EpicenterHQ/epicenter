@@ -1,7 +1,7 @@
 /** A secret handle retires access without removing committed device credentials. */
 import { expect, test } from 'bun:test';
-import { expectOk } from 'wellcrafted/testing';
 import { secretLabel } from '@epicenter/device';
+import { expectOk } from 'wellcrafted/testing';
 import { openSecrets } from './secrets.js';
 
 test('secret close is terminal and leaves other namespaces and committed values usable', async () => {

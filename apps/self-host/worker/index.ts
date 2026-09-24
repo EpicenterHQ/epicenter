@@ -3,8 +3,8 @@ import { asPrincipalId } from '@epicenter/principal';
 import {
 	createServerApp,
 	GenerationsLedger,
-	mountPersonalAuthorityBlobs,
 	mountInferenceApp,
+	mountPersonalAuthorityBlobs,
 	mountSessionApp,
 	mountStoreSyncApp,
 	mountTranscriptionApp,
