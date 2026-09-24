@@ -34,6 +34,7 @@ export function mountStoreSyncApp<E extends Env = Env>(
 		setup?: MiddlewareHandler<E>;
 		resolveBearerPrincipal: ResolveBearerPrincipal<E>;
 		resolveStore: ResolveStore;
+		upgrade?: (name: string, request: Request) => Response;
 	},
 ): void {
 	const bearer = createMiddleware<E>(async (c, next) => {
@@ -100,6 +101,7 @@ export function mountStoreSyncApp<E extends Env = Env>(
 		);
 		if (offered.length && !offered.includes(MAIN_SUBPROTOCOL))
 			return c.text('Invalid store subprotocol', 400);
+		if (opts.upgrade) return opts.upgrade(name, c.req.raw);
 		const response = await opts
 			.resolveStore(c.env)
 			.authority(name)

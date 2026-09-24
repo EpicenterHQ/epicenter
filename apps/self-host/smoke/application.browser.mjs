@@ -129,7 +129,7 @@ const child = spawn(
 			...process.env,
 			...issuerEnvironment,
 			PORT: String(new URL(origin).port),
-			AUTH_DB_PATH: path,
+			SELF_HOST_DATA_ROOT: directory,
 			WRANGLER_SEND_METRICS: 'false',
 		},
 		stdio: ['ignore', 'pipe', 'pipe'],

@@ -53,10 +53,14 @@ export {
 // composes none of them (ADR-0075).
 export { storeAuthorityName } from './principal.js';
 export { mountAuthRoutes } from './routes/auth.js';
-export { mountPersonalAuthorityBlobs } from './routes/authority-blobs.js';
+export {
+	type HostedBlobStore,
+	mountPersonalAuthorityBlobs,
+} from './routes/authority-blobs.js';
 export { mountInferenceApp } from './routes/inference.js';
 export { mountSessionApp } from './routes/session.js';
 export { mountTranscriptionApp } from './routes/transcription.js';
+export { resolveDeploymentBlobStore } from './s3-blob-store.js';
 // Parent app. Wires the portable per-request lifecycle (origin + trust, CORS,
 // CSRF) and returns the `Hono` every surface mounts onto. It takes one
 // `Identity` (who this deployment is on the web). The cloud's db + Better Auth are

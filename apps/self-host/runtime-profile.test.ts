@@ -98,16 +98,14 @@ const PROFILE: Surface[] = [
 		method: 'GET',
 		url: `${ORIGIN}/api/store/v1/sync`,
 		worker: 'served',
-		bun: 'absent',
-		why: 'The Worker reuses the shared Durable Object backend; no Bun store backend exists.',
+		bun: 'served',
 	},
 	{
 		surface: 'current library',
 		method: 'POST',
 		url: `${ORIGIN}/api/apps/so.epicenter.notes/personal/data/test.notes/current`,
 		worker: 'served',
-		bun: 'absent',
-		why: 'No Bun store backend exists.',
+		bun: 'served',
 	},
 	...['generations', 'generations/initial', 'generations/1'].flatMap((path) =>
 		(['GET', 'POST'] as const).map((method) => ({
@@ -273,7 +271,7 @@ const bunFetcher = once(async () => {
 	const configured = {
 		PORT: '8787',
 		API_PUBLIC_ORIGIN: ORIGIN,
-		AUTH_DB_PATH: join(directory, 'auth.sqlite'),
+		SELF_HOST_DATA_ROOT: directory,
 		SELF_HOST_CALLBACKS: '[]',
 	};
 	const previous = Object.fromEntries(
@@ -339,10 +337,13 @@ test('the Bun entry serves its declared profile', async () => {
 });
 
 test('anonymous public reads and private bearer gate agree on both runtimes', async () => {
-	for (const fetcher of [await workerFetcher(), await bunFetcher()]) {
+	for (const [fetcher, missingStatus] of [
+		[await workerFetcher(), 503],
+		[await bunFetcher(), 404],
+	] as const) {
 		const publicUrl = `${ORIGIN}/api/blobs/personal/probe/public/AAAAAAAAAAAAAAAAAAAAAA`;
 		const privateUrl = `${ORIGIN}/api/blobs/personal/probe/private/AAAAAAAAAAAAAAAAAAAAAA`;
-		expect((await fetcher(new Request(publicUrl))).status).toBe(503);
+		expect((await fetcher(new Request(publicUrl))).status).toBe(missingStatus);
 		expect((await fetcher(new Request(privateUrl))).status).toBe(401);
 	}
 });

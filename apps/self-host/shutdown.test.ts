@@ -20,7 +20,7 @@ test('shutdown drains a suspended auth request before closing its database and s
 	const configuration = {
 		PORT: '8787',
 		API_PUBLIC_ORIGIN: origin,
-		AUTH_DB_PATH: path,
+		SELF_HOST_DATA_ROOT: directory,
 		SELF_HOST_CALLBACKS: '[]',
 	};
 	const previous = Object.fromEntries(

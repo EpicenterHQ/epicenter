@@ -3,8 +3,8 @@ import { asPrincipalId } from '@epicenter/principal';
 import {
 	createServerApp,
 	GenerationsLedger,
-	mountPersonalAuthorityBlobs,
 	mountInferenceApp,
+	mountPersonalAuthorityBlobs,
 	mountSessionApp,
 	mountStoreSyncApp,
 	mountTranscriptionApp,
@@ -12,6 +12,7 @@ import {
 	type ResolveBearerPrincipal,
 	rateLimit,
 	requireBearerPrincipal,
+	resolveDeploymentBlobStore,
 	StoreAuthority,
 	type StoreAuthorityStub,
 } from '@epicenter/server';
@@ -75,7 +76,10 @@ mountTranscriptionApp(app, {
 	auth,
 	policies: [rateLimit({ requests: 120, windowSeconds: 60 })],
 });
-mountPersonalAuthorityBlobs(app, { auth });
+mountPersonalAuthorityBlobs(app, {
+	auth,
+	resolveStore: resolveDeploymentBlobStore,
+});
 export default app;
 export {
 	GenerationsLedger,

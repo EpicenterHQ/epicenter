@@ -12,6 +12,7 @@
  */
 
 import { AwsClient } from 'aws4fetch';
+import type { HostedBlobStore } from './routes/authority-blobs.js';
 import type { ServerBindings } from './server-bindings.js';
 
 /**
@@ -21,7 +22,9 @@ import type { ServerBindings } from './server-bindings.js';
  * Set service and region explicitly so every S3-compatible endpoint uses
  * the configured signature scope without relying on host-name parsing.
  */
-export function resolveDeploymentBlobStore(env: ServerBindings) {
+export function resolveDeploymentBlobStore(
+	env: ServerBindings,
+): HostedBlobStore | null {
 	const endpoint = env.BLOBS_S3_ENDPOINT;
 	const accessKeyId = env.BLOBS_S3_ACCESS_KEY_ID;
 	const secretAccessKey = env.BLOBS_S3_SECRET_ACCESS_KEY;
@@ -58,13 +61,44 @@ export function resolveDeploymentBlobStore(env: ServerBindings) {
 				throw new Error(`S3 PUT failed: ${response.status}`);
 			return 'conflict' as const;
 		},
-		/** Read through the server; no signed URL leaves the storage boundary. */
-		get(
-			key: string,
-			signal?: AbortSignal,
-			options?: { method: 'GET' | 'HEAD'; headers: Headers },
-		) {
-			return client.fetch(objectUrl(key).toString(), { ...options, signal });
+		async head(key, signal) {
+			const response = await client.fetch(objectUrl(key).toString(), {
+				method: 'HEAD',
+				signal,
+			});
+			await response.body?.cancel();
+			if (response.status === 404) return null;
+			if (!response.ok) throw new Error(`S3 HEAD failed: ${response.status}`);
+			const declared = response.headers.get('content-length');
+			const size = Number(declared);
+			if (declared === null || !Number.isSafeInteger(size) || size < 0)
+				throw new Error('S3 HEAD returned an invalid content length');
+			return {
+				size,
+				contentType:
+					response.headers.get('content-type') || 'application/octet-stream',
+				etag: response.headers.get('etag') || '',
+				lastModified: response.headers.get('last-modified') || '',
+			};
+		},
+		async read(key, start, end, etag, signal) {
+			const response = await client.fetch(objectUrl(key).toString(), {
+				method: 'GET',
+				headers: {
+					range: `bytes=${start}-${end}`,
+					...(etag ? { 'if-match': etag } : {}),
+				},
+				signal,
+			});
+			if (response.status === 404) return null;
+			if (response.status !== 206 && response.status !== 200)
+				throw new Error(`S3 GET failed: ${response.status}`);
+			const bytes = new Uint8Array(await response.arrayBuffer());
+			if (bytes.length !== end - start + 1)
+				throw new Error(
+					`S3 GET returned ${bytes.length} bytes for ${start}-${end}`,
+				);
+			return bytes;
 		},
 		/** DeleteObject. Idempotent: a missing key is not an error. */
 		async delete(key: string, signal?: AbortSignal): Promise<void> {

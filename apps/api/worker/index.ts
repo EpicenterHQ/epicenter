@@ -21,12 +21,13 @@ import {
 	createServerApp,
 	GenerationsLedger,
 	mountAuthRoutes,
-	mountPersonalAuthorityBlobs,
 	mountInferenceApp,
+	mountPersonalAuthorityBlobs,
 	mountSessionApp,
 	mountStoreSyncApp,
 	mountTranscriptionApp,
 	requireBearerPrincipal,
+	resolveDeploymentBlobStore,
 	resolveRequestSessionPrincipal,
 	type ServerBindings,
 	StoreAuthority,
@@ -147,7 +148,10 @@ mountStoreSyncApp(app, {
 });
 // Owner-addressed hosted blobs are currently unmetered. Autumn's check()
 // denies by default without a plan, so this route has no billing policy.
-mountPersonalAuthorityBlobs(app, { auth: bearer });
+mountPersonalAuthorityBlobs(app, {
+	auth: bearer,
+	resolveStore: resolveDeploymentBlobStore,
+});
 mountInferenceApp(app, {
 	auth: bearer,
 	policies: [chargeOpenAiCreditsWithAutumn],

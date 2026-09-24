@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from 'bun:test';
 import {
-	mintPersonalBlobUrl,
 	MAX_HOSTED_BLOB_BYTES,
+	mintPersonalBlobUrl,
 	parsePersonalBlobUrl,
 } from '@epicenter/blobs';
 import { asPrincipalId } from '@epicenter/principal';
 import { Hono } from 'hono';
+import { resolveDeploymentBlobStore } from '../s3-blob-store.js';
 import type { Env } from '../types.js';
 import { mountPersonalAuthorityBlobs } from './authority-blobs.js';
 
@@ -30,6 +31,7 @@ function setup(actor: string | null = 'alice') {
 		await next();
 	});
 	mountPersonalAuthorityBlobs(app, {
+		resolveStore: resolveDeploymentBlobStore,
 		auth: async (c, next) => {
 			if (!actor) return c.text('Unauthorized', 401);
 			c.set('principal', { id: asPrincipalId(actor) });
@@ -61,7 +63,10 @@ test('publication returns the full URL after a create-only write', async () => {
 });
 
 test('the public authority may sit behind a proxy that rewrites Host', async () => {
-	globalThis.fetch = (async () => new Response('audio')) as unknown as typeof fetch;
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
+		new Response(new Request(input, init).method === 'HEAD' ? null : 'audio', {
+			headers: { 'content-length': '5' },
+		})) as unknown as typeof fetch;
 	const proxied = new URL(object);
 	proxied.host = 'internal.test';
 	const response = await setup(null).request(proxied.href, {}, config);
@@ -141,9 +146,14 @@ test('public safe media is anonymous; unsafe content attaches; private reads req
 		const request = new Request(input, init);
 		requests.push(request);
 		return new Response(
-			request.url.includes('/private/') ? 'secret' : 'media',
+			request.method === 'HEAD'
+				? null
+				: request.url.includes('/private/')
+					? 'secret'
+					: 'media',
 			{
 				headers: {
+					'content-length': request.url.includes('/private/') ? '6' : '5',
 					'content-type': request.url.includes('/private/')
 						? 'text/html'
 						: 'audio/webm',
@@ -164,16 +174,21 @@ test('public safe media is anonymous; unsafe content attaches; private reads req
 	expect((await setup('bob').request(privateObject, {}, config)).status).toBe(
 		403,
 	);
-	expect(requests).toHaveLength(1);
+	expect(requests).toHaveLength(2);
 	const privateResponse = await setup().request(privateObject, {}, config);
 	expect(privateResponse.headers.get('content-disposition')).toBe('attachment');
 	expect(privateResponse.headers.get('cache-control')).toBe(
 		'private, no-store',
 	);
-	globalThis.fetch = (async () =>
-		new Response('<script>alert(1)</script>', {
-			headers: { 'content-type': 'text/html' },
-		})) as unknown as typeof fetch;
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
+		new Response(
+			new Request(input, init).method === 'HEAD'
+				? null
+				: '<script>alert(1)</script>',
+			{
+				headers: { 'content-type': 'text/html', 'content-length': '25' },
+			},
+		)) as unknown as typeof fetch;
 	const unsafePublic = await setup(null).request(object, {}, config);
 	expect(unsafePublic.headers.get('content-disposition')).toBe('attachment');
 	expect(unsafePublic.headers.get('content-security-policy')).toBe(
@@ -188,7 +203,7 @@ test('HEAD, ranges, and conditional status survive the proxy', async () => {
 		requests.push(request);
 		const headers = {
 			'content-type': 'audio/webm',
-			'content-length': '4',
+			'content-length': '10',
 			'content-range': 'bytes 0-3/10',
 			etag: '"v1"',
 			'accept-ranges': 'bytes',
@@ -198,7 +213,7 @@ test('HEAD, ranges, and conditional status survive the proxy', async () => {
 			: new Response('abcd', { status: 206, headers });
 	}) as typeof fetch;
 	const head = await setup(null).request(object, { method: 'HEAD' }, config);
-	expect(head.headers.get('content-length')).toBe('4');
+	expect(head.headers.get('content-length')).toBe('10');
 	expect(await head.text()).toBe('');
 	const range = await setup(null).request(
 		object,
@@ -226,9 +241,13 @@ test('If-Range serves the full object when its validator does not match', async 
 	globalThis.fetch = (async (input, init) => {
 		const request = new Request(input, init);
 		requests.push(request);
-		const headers = { etag: '"current"', 'content-type': 'text/plain' };
+		const headers = {
+			etag: '"current"',
+			'content-type': 'text/plain',
+			'content-length': '10',
+		};
 		if (request.method === 'HEAD') return new Response(null, { headers });
-		return request.headers.has('range')
+		return request.headers.get('range') === 'bytes=0-2'
 			? new Response('abc', { status: 206, headers })
 			: new Response('abcdefghij', { headers });
 	}) as typeof fetch;
@@ -239,21 +258,32 @@ test('If-Range serves the full object when its validator does not match', async 
 	);
 	expect(response.status).toBe(200);
 	expect(await response.text()).toBe('abcdefghij');
-	expect(requests.at(-1)?.headers.has('range')).toBe(false);
+	expect(requests.at(-1)?.headers.get('range')).toBe('bytes=0-9');
 });
 
-test.each([
-	412, 416,
-] as const)('read preserves storage precondition status %i', async (status) => {
+test('the route owns conditional and unsatisfiable range responses', async () => {
 	globalThis.fetch = (async () =>
 		new Response(null, {
-			status,
-			headers: { 'content-range': 'bytes */10', etag: '"v1"' },
+			headers: {
+				'content-length': '10',
+				'content-type': 'audio/webm',
+				etag: '"v1"',
+			},
 		})) as unknown as typeof fetch;
-	const response = await setup(null).request(object, {}, config);
-	expect(response.status).toBe(status);
-	expect(response.headers.get('content-range')).toBe('bytes */10');
-	expect(response.headers.get('etag')).toBe('"v1"');
+	const precondition = await setup(null).request(
+		object,
+		{ headers: { 'if-match': '"other"' } },
+		config,
+	);
+	expect(precondition.status).toBe(412);
+	const range = await setup(null).request(
+		object,
+		{ headers: { range: 'bytes=20-' } },
+		config,
+	);
+	expect(range.status).toBe(416);
+	expect(range.headers.get('content-range')).toBe('bytes */10');
+	expect(range.headers.get('etag')).toBe('"v1"');
 });
 
 test('delete is exact, freshly authorized, and isolated from other owners and visibility', async () => {

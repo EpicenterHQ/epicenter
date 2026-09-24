@@ -56,12 +56,13 @@ import {
 	createDb,
 	createServerApp,
 	mountAuthRoutes,
-	mountPersonalAuthorityBlobs,
 	mountInferenceApp,
+	mountPersonalAuthorityBlobs,
 	mountSessionApp,
 	mountTranscriptionApp,
 	type ResolveBearerPrincipal,
 	requireBearerPrincipal,
+	resolveDeploymentBlobStore,
 	resolveRequestSessionPrincipal,
 	ServerBindings,
 } from '@epicenter/server/bun';
@@ -179,7 +180,10 @@ export function startBunApiServer(
 	// transcription working against `dev:bun`; the Worker is the only hosted
 	// artifact, and it meters both gateways.
 	mountTranscriptionApp(app, { auth: bearer });
-	mountPersonalAuthorityBlobs(app, { auth: bearer });
+	mountPersonalAuthorityBlobs(app, {
+		auth: bearer,
+		resolveStore: resolveDeploymentBlobStore,
+	});
 
 	const server = Bun.serve({
 		port,

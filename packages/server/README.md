@@ -51,7 +51,7 @@ choice and any deployment policy.
 | Mount | Source | Notes |
 | --- | --- | --- |
 | `mountSessionApp` | `src/routes/session.ts` | Reads the current principal back to a client. |
-| `mountPersonalAuthorityBlobs` | `src/routes/authority-blobs.ts` | Personal owner URLs with private and public reads, backed by the same S3-compatible storage. |
+| `mountPersonalAuthorityBlobs` | `src/routes/authority-blobs.ts` | Personal owner URLs with private and public reads; deployment supplies local SQLite or S3 byte storage. |
 | `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference, with `rateLimit` available as a policy. |
 | `mountTranscriptionApp` | `src/routes/transcription.ts` | Provider-backed speech to text. |
 | `mountAuthRoutes` | `src/routes/auth.ts` | Public auth shells and database-backed auth endpoints. Cloud only. |
@@ -88,7 +88,8 @@ These routes provide no listing or owner-wide erasure operation.
 The URL parser and collection constructor live in `@epicenter/blobs` so the
 Account-bound client validates publication responses against the same grammar.
 The server parses request paths independently of the inbound Host header and
-mints returned URLs on its configured public authority.
+mints returned URLs on its configured public authority. The route owns range,
+conditional, and media response policy; the store provides metadata and bytes.
 
 ## Shared protocol packages
 

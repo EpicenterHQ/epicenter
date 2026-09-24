@@ -1,7 +1,7 @@
 # Self-hosted Bun data root
 
 **Date**: 2026-09-24
-**Status**: Draft
+**Status**: In Progress
 **Owner**: Epicenter server
 
 ## One Sentence

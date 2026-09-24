@@ -1,8 +1,7 @@
 # 0447. The Bun self-hosted server owns one data root
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-24
-- **Unbuilt:** Bun Personal sync, direct local hosted-blob storage, and a unified data-root setting.
 - **Amends:** [ADR-0066](0066-runtime-portability-is-per-concern-injection-not-a-runtime-object.md) at its S3-only blob rule and self-hosting requirement for an S3 endpoint. Its per-concern composition rule remains.
 
 ## Context

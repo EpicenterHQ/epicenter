@@ -400,6 +400,7 @@
       "name": "@epicenter/self-host",
       "version": "0.0.2",
       "dependencies": {
+        "@epicenter/app": "workspace:*",
         "@epicenter/auth": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/principal": "workspace:*",

@@ -1,7 +1,7 @@
 /** Local infrastructure command; never mounted as a public server endpoint. */
 import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
 import { openSelfHostAuth } from '@epicenter/server/self-host-auth/bun';
+import { selfHostDataPaths } from '../data-root.js';
 
 const [operation, id, name] = process.argv.slice(2);
 if (!id || !['admit', 'recover', 'remove'].includes(operation ?? ''))
@@ -11,13 +11,9 @@ if (!id || !['admit', 'recover', 'remove'].includes(operation ?? ''))
 const origin =
 	process.env.API_PUBLIC_ORIGIN ??
 	`http://localhost:${process.env.PORT ?? 8787}`;
-const path = resolve(
-	import.meta.dir,
-	'..',
-	process.env.AUTH_DB_PATH ?? './data/auth.sqlite',
-);
-mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-const opened = openSelfHostAuth({ path, origin, callbacks: [] });
+const paths = selfHostDataPaths();
+mkdirSync(paths.root, { recursive: true, mode: 0o700 });
+const opened = openSelfHostAuth({ path: paths.auth, origin, callbacks: [] });
 try {
 	if (operation === 'remove') {
 		opened.auth.remove(id);

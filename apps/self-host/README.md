@@ -6,13 +6,11 @@ shared credential owner in `@epicenter/server/self-host-auth` stores admission,
 passkeys, sessions, and recovery grants together. Cloud billing remains in
 `apps/api`.
 
-Both runtime entries serve passkey sign-in and named sessions. The Worker
-serves Personal data synchronization; Bun still needs its sync
-backend. Applications fix their issuer per build. Rebuild and redeploy the app to
-change its server. Optional passwords
+Both runtime entries serve passkey sign-in, named sessions, Personal sync, and
+hosted blobs. The Bun reference runs one long-lived process and stores auth,
+sync, and blobs under one persistent data root. Applications fix their issuer
+per build. Rebuild and redeploy an app to change its server. Optional passwords
 remain unbuilt.
-Follow the [execution plan](../../specs/20260909T004225-library-ownership-execution.md)
-for remaining work and verification.
 
 ## Run the Bun issuer locally
 
@@ -22,10 +20,14 @@ From the repository root:
 bun dev:self-host
 ```
 
-The default issuer is `http://localhost:8787`. Auth state lives in
-`apps/self-host/data/auth.sqlite`. `AUTH_DB_PATH` can select another file; relative
-paths are resolved from `apps/self-host` for both the server and operator command.
-Keep the database and its SQLite sidecar files on persistent storage.
+The default issuer is `http://localhost:8787`. Set `SELF_HOST_DATA_ROOT` to a
+persistent directory before running the server or operator commands. Relative
+paths resolve from `apps/self-host`; the default is `apps/self-host/data`.
+The root contains `auth.sqlite`, `blobs.sqlite`, `owner.sqlite`, and a `sync/`
+directory of per-document SQLite databases. SQLite may create `-wal` and `-shm`
+sidecars. Run one active Bun server per root. A second server is refused.
+For a long-lived installation, run `bun apps/self-host/server.ts` under your
+process supervisor; `bun dev:self-host` restarts on source changes.
 
 Enroll a person in that same database:
 
@@ -38,9 +40,29 @@ passkey and signs her in. The page removes the grant from the address bar before
 the ceremony. This enrollment link grants one credential; it is not an
 application bearer token.
 
-Use the same `API_PUBLIC_ORIGIN`, `PORT`, and `AUTH_DB_PATH` environment when
+Use the same `API_PUBLIC_ORIGIN`, `PORT`, and `SELF_HOST_DATA_ROOT` environment when
 running the server and operator command. A non-local issuer requires a stable
 HTTPS origin because passkeys are bound to its host.
+
+Local blobs are the default. To use an S3-compatible service, set
+`BLOBS_BACKEND=s3` along with `BLOBS_S3_ENDPOINT`,
+`BLOBS_S3_ACCESS_KEY_ID`, and `BLOBS_S3_SECRET_ACCESS_KEY`.
+`BLOBS_S3_BUCKET` defaults to `epicenter-blobs`; `BLOBS_S3_REGION` defaults to
+`auto`. The authority URLs stay the same, so switching an existing deployment
+requires an operator-managed byte and metadata migration first. There is no
+automatic backend switch or dual write.
+
+## Protect and restore the data root
+
+Stop the Bun server and wait for it to exit before taking a snapshot. Copy the
+entire data root, including SQLite `-wal` and `-shm` sidecars if present, to a
+protected backup location. Restart the server after the copy completes. To
+restore, stop the server, move the damaged root aside, copy the entire saved
+root into place, and start the server. Check sign-in, Personal current download,
+and a hosted-blob read before admitting writes. Do not copy a live SQLite root
+as a consistency guarantee. If S3 is selected, protect its bucket separately
+and restore it to the same point as the data root. Operator commands share the
+auth file but do not start another server.
 
 ```bash
 bun apps/self-host/scripts/manage-user.ts recover alice
@@ -150,5 +172,6 @@ bun apps/self-host/smoke/application.browser.mjs --worker
 ```
 
 The production Worker credential owner also has real WebAuthn and HTTP handoff
-coverage in `packages/server/evidence/enrollment`. The runtime profile explicitly
-records Bun's missing sync backend so auth parity cannot imply sync parity.
+coverage in `packages/server/evidence/enrollment`. The runtime profile checks
+that both entries mount Personal sync. `local-lifecycle.test.ts` exercises Bun
+enrollment, socket update, local publication, and restart with no S3 service.
