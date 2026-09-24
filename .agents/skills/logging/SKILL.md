@@ -1,6 +1,6 @@
 ---
 name: logging
-description: 'wellcrafted/logger for library diagnostics: 5 levels, typed errors, injected sinks, and host-owned durability. Use for attach primitives, background errors, durable host logs, or replacing console.* in library code.'
+description: 'Use for wellcrafted/logger, logger sinks, library diagnostics, typed logging, background errors, durable host logs, or replacing console.* in library code.'
 metadata:
   author: epicenter
   version: '2.2'
@@ -249,7 +249,6 @@ Custom sinks that serialize for the wire should convert `ts` to ISO-8601 and fla
 
 ## See also
 
-- `error-handling` skill: the `trySync`/`tryAsync` patterns the logger consumes
-- `define-errors` skill: how to mint the typed error variants the logger consumes
+- `error-handling` skill: `trySync`/`tryAsync` patterns and the [error variants reference](../error-handling/references/error-variants.md) for the typed failures the logger consumes
 - `rust-errors` skill: full `tracing` ↔ `Logger` mapping
 - `tapErr` (from `wellcrafted/result`): Result-chain combinator that logs on the Err branch and passes the Result through. Rare in epicenter, since most call sites branch on `result.error` directly to use the data on the Ok branch. Reach for it only when the Result flows out of the function in a `.then(...)` chain.

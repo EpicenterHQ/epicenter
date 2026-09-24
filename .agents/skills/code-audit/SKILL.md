@@ -170,7 +170,7 @@ grep -rn "\.error\.name === '" packages apps --include="*.ts" | grep -v test
 
 **Validated**: a sweep of `workspace`/`sync`/`cli`/`api` found four (`run-handler.ts`, `run.ts`, `list.ts`, `materializer.ts`), all fixed. Re-run after adding variants to a wire or IPC error union.
 
-**The pattern itself lives elsewhere**: the rule, the predicate/guard/fold triage, and the before/after are in the `define-errors` skill ("Consuming a Variant Union"). This entry is only the detection recipe: use it to find hits, use that skill to classify them.
+**The pattern itself lives elsewhere**: the rule, the predicate/guard/fold triage, and the before/after are in `error-handling`'s [error variants reference](../error-handling/references/error-variants.md). This entry is only the detection recipe: use it to find hits, then read that reference to classify them.
 
 ## What This Skill Doesn't Catch (Reject from the Hunt)
 

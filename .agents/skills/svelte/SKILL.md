@@ -31,7 +31,7 @@ Skip DeepWiki for stable basics and repo-local patterns already documented here 
 ## Related Skills
 
 - `query-layer`: TanStack Query integration
-- `error-handling`: `$lib/report`, `extractErrorMessage`, and component error handling
+- `error-handling`: carry Results through operations, then present outcomes at the interaction boundary; includes tagged errors and `$lib/report`
 - `styling`: CSS and Tailwind conventions, including the flex column scroll trap
 - `ui-design`: visual direction plus loading, empty, pending, tooltip, and component selection patterns
 
@@ -49,7 +49,7 @@ Skip DeepWiki for stable basics and repo-local patterns already documented here 
 
 - If a disposable resource identity depends on a prop, let the parent own mount and unmount with `{#key}` or `{#if}`; open the resource synchronously in the child. Read [lifecycle and reactivity](references/lifecycle-and-reactivity.md).
 - If readiness is a stable promise, use `{#await}` in the template instead of a `$state(false)` flag and a cancellation effect.
-- Inline shallow property aliases and single-use script helpers (a `function`, `$derived`, or one-off `const` used once in the template). Keep one extracted only when it computes, narrows, or stabilizes something useful, or when a justifying comment plus a semantic name makes the template read better. Read [component and UI patterns](references/component-ui-patterns.md).
+- Inline shallow property aliases and single-use forwarding helpers. Keep a named function when it owns a complete operation, a meaningful interaction boundary, or a non-obvious decision, even if one template handler calls it. Read [component and UI patterns](references/component-ui-patterns.md).
 - Map finite unions with a `satisfies Record` lookup, not nested ternaries or `$derived.by()` switches.
 - Use `SvelteMap` for ID-keyed collections where `get`, `has`, `size`, or iteration should update reactively. Values inside a `SvelteMap` are not deep-proxied, so store reactive row objects or replace values when nested data changes. Convert maps to stable arrays with `$derived` before passing them to table-like consumers.
 - Use `SvelteSet` for an id set whose membership (`has`, `size`, iteration) is read in a reactive or template context: `add`/`delete` then drive the UI directly, replacing `$state<string[]>` plus spread/filter reassignment. Reach for `SvelteMap` instead the moment the set needs to carry per-key data (a timestamp, a last error). Use a plain `Set`/`Map` (not the reactive class) when the collection is read only in imperative code, such as a subscription's listener bag: a reactive wrapper read outside any effect is cost with no reader (exemplar: the plain `listeners` set in `createPersistedState`).

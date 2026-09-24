@@ -6,13 +6,13 @@ Detailed Svelte guidance for TanStack Query mutation placement, inline template 
 
 ## Core Rule
 
-In `.svelte` files, use `createMutation` for user-triggered async operations when the template observes operation lifecycle state: disabled controls, loading text, spinners, success handling, or error handling.
+In `.svelte` files, use `createMutation` for user-triggered async operations when the template observes operation lifecycle state: disabled controls, loading text, spinners, or mutation-managed success and error state. Presenting one final Result as a toast alone does not require a mutation.
 
 `createMutation` is the component operation lifecycle primitive. It is not reserved for cache invalidation, retry policy, or shared mutation keys.
 
-Use `defineMutation` in `$lib/rpc` when the operation has shared query-layer identity: multiple consumers, cache invalidation, optimistic updates, `useIsMutating`, or a reusable RPC boundary. For a one-off Result-returning component action, keep the operation as a plain function in `$lib/operations`, `$lib/services`, or a focused module, then wrap it locally with `createMutation(() => resultMutationOptions({ mutationKey, mutationFn }))`.
+Use `defineMutation` in `$lib/queries` when the operation has shared query-layer identity: multiple consumers, cache invalidation, optimistic updates, or `useIsMutating`. For a one-off Result-returning component action whose lifecycle the template observes, keep the operation as a plain function in `$lib/operations`, `$lib/services`, or a focused module, then wrap it locally with `createMutation(() => resultMutationOptions({ mutationKey, mutationFn }))`.
 
-Use direct `await` when no template lifecycle state is observed, when the code runs outside component context, or when a sequential workflow would become harder to read as mutation callbacks. Shared Wellcrafted mutations are callable, so imperative RPC mutation usage is `await rpc.thing(input)`.
+Use direct `await` when no template lifecycle state is observed, when the code runs outside component context, or when a sequential workflow would become harder to read as mutation callbacks. Shared Wellcrafted mutations are callable, so imperative query mutation usage is `await queries.thing(input)`.
 
 ## Async Button Pattern
 
@@ -22,10 +22,11 @@ Pass `onSuccess` and `onError` as the second argument to `.mutate()` so the call
 <script lang="ts">
 	import { createMutation } from '@tanstack/svelte-query';
 	import { report } from '$lib/report';
-	import { rpc } from '$lib/rpc';
+	import { getWhisperingQueries } from '$lib/whispering/context';
 
+	const queries = getWhisperingQueries();
 	const downloadRecording = createMutation(
-		() => rpc.download.downloadRecording.options,
+		() => queries.download.downloadRecording.options,
 	);
 </script>
 
@@ -64,13 +65,14 @@ For component-local operation lifecycle, wrap the function locally:
 <script lang="ts">
 	import { createMutation } from '@tanstack/svelte-query';
 	import { resultMutationOptions } from 'wellcrafted/query';
-	import { exportRecordingsMarkdown } from '$lib/recording-markdown-export';
+	import { exportRecordingsMarkdown } from '$lib/whispering/recordings-markdown-export';
+	import { local } from '$lib/whispering/local';
 	import { report } from '$lib/report';
 
 	const exportMarkdown = createMutation(() =>
 		resultMutationOptions({
 			mutationKey: ['recordings', 'exportMarkdown'],
-			mutationFn: exportRecordingsMarkdown,
+			mutationFn: () => exportRecordingsMarkdown(local),
 		}),
 	);
 </script>
@@ -100,50 +102,49 @@ For component-local operation lifecycle, wrap the function locally:
 </Button>
 ```
 
-Do not create an RPC adapter only to get `isPending` for one component. Local `createMutation` gives the component a standard pending/error/success surface without pretending the operation is shared query-layer state.
+Do not create a shared query adapter only to get `isPending` for one component. Local `createMutation` gives the component a standard pending/error/success surface without pretending the operation is shared query-layer state.
 
-## Whispering RPC Pattern
+## Whispering Shared Queries
 
-Read this section when editing Whispering components that use shared RPC
+Read this section when editing Whispering components that use shared query
 adapters or component-local operation lifecycles.
 
-Whispering components consume shared RPC adapters through `.options` inside an
+Whispering components consume shared query adapters through `.options` inside an
 accessor:
 
 ```svelte
 <script lang="ts">
-	import { createMutation, createQuery } from '@tanstack/svelte-query';
-	import { rpc } from '$lib/rpc';
+	import { createMutation } from '@tanstack/svelte-query';
+	import { getWhisperingQueries } from '$lib/whispering/context';
 
-	const playbackUrl = createQuery(() =>
-		rpc.audio.getPlaybackUrl(() => recordingId).options,
-	);
+	const queries = getWhisperingQueries();
 
 	const transcribeRecording = createMutation(
-		() => rpc.transcription.transcribeRecording.options,
+		() => queries.transcription.transcribeRecording.options,
 	);
 </script>
 ```
 
-For a component-local operation lifecycle, do not add a new RPC adapter only to
+For a component-local operation lifecycle, do not add a new shared query adapter only to
 observe `isPending`. Wrap the operation locally:
 
 ```svelte
 <script lang="ts">
 	import { createMutation } from '@tanstack/svelte-query';
 	import { resultMutationOptions } from 'wellcrafted/query';
-	import { startManualRecording } from '$lib/operations/recording';
+	import { exportRecordingsMarkdown } from '$lib/whispering/recordings-markdown-export';
+	import { local } from '$lib/whispering/local';
 
-	const startRecording = createMutation(() =>
+	const exportRecordings = createMutation(() =>
 		resultMutationOptions({
-			mutationKey: ['recording', 'startManual'],
-			mutationFn: startManualRecording,
+			mutationKey: ['recordings', 'export'],
+			mutationFn: () => exportRecordingsMarkdown(local),
 		}),
 	);
 </script>
 ```
 
-Whispering error presentation goes through `$lib/report` at the UI or operation
+Whispering error presentation goes through `$lib/report` at the interaction
 boundary:
 
 ```typescript
@@ -158,8 +159,8 @@ if (error !== null) {
 In `.ts` files, use direct `await` because `createMutation` requires component context. For shared Wellcrafted mutations, call the mutation definition directly:
 
 ```typescript
-// In a .ts file (e.g., load function, utility)
-const { error } = await rpc.download.downloadRecording(recording);
+// In an interaction controller with an injected query namespace
+const { error } = await queries.download.downloadRecording(recording);
 if (error !== null) {
 	// Handle error
 } else {
@@ -170,16 +171,22 @@ if (error !== null) {
 In `.svelte` files, direct `await` is still appropriate when the template does not read pending, success, or error state:
 
 ```svelte
+<script lang="ts">
+	import { clipboard } from '@epicenter/app/clipboard';
+	import { toastOnError } from '@epicenter/ui/sonner';
+</script>
+
 <Button
 	onclick={async () => {
-		await navigator.clipboard.writeText(value);
+		const { error } = await clipboard.writeText(value);
+		if (error !== null) toastOnError(error, 'Could not copy');
 	}}
 >
 	Copy
 </Button>
 ```
 
-If the next edit adds `disabled={isCopying}`, a spinner, loading text, or toast lifecycle, promote the action to `createMutation` instead of adding a one-off `$state` pending flag.
+If the next edit adds `disabled={isCopying}`, a spinner, or loading text, promote the action to `createMutation` instead of adding a one-off `$state` pending flag. A final toast can consume a Result in the handler without a mutation.
 
 For when a single-use handler should be inlined at its call site versus kept as a named function, see "Single-Use Functions And Aliases" in [component and UI patterns](component-ui-patterns.md).
 

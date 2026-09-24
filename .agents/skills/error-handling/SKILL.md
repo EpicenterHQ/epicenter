@@ -1,6 +1,6 @@
 ---
 name: error-handling
-description: Apply Wellcrafted Result patterns to fallible operations and preserve failures at boundaries. Use when replacing try/catch, adding trySync or tryAsync, choosing fallback or propagation, or mapping errors.
+description: 'Use when a task mentions error handling, Wellcrafted Results, result types, defineErrors, trySync, tryAsync, unwrap, thrown exceptions, or deciding whether to propagate, recover from, or present a failure. For recording diagnostics, use logging; for cache lifecycle, use query-layer.'
 metadata:
   author: epicenter
   version: '3.1'
@@ -8,7 +8,7 @@ metadata:
 
 # Error Handling
 
-This skill owns the boundary between thrown exceptions and `Result` values, plus correct `Result` consumption. Compose with `define-errors` for variant design, `logging` for diagnostics, `query-layer` for RPC presentation, and `hono` for response APIs.
+Epicenter uses Wellcrafted Results as its internal contract for ordinary failures. This skill owns the full path: define a tagged failure, adapt a throwing dependency, compose or recover from Results, then consume the outcome at the boundary that serves a person or another API. Use `logging` for diagnostics, `query-layer` for TanStack observation and cache behavior, and `hono` for HTTP response mechanics.
 
 ## Source Of Truth
 
@@ -16,15 +16,25 @@ Ground every Wellcrafted behavior claim in the official [wellcrafted-dev/wellcra
 
 Read the scoped references only when needed:
 
+- Read [error variants](references/error-variants.md) when designing `defineErrors` variants, their fields, messages, or union types, or when translating an entire tagged error union.
 - Read [references/wrapping-boundaries.md](references/wrapping-boundaries.md) when deciding how much work one `trySync` or `tryAsync` should cover, especially around cleanup.
 - Read [references/toast-on-error.md](references/toast-on-error.md) when presenting tagged failures in UI code.
 - Read [references/http-boundaries.md](references/http-boundaries.md) when mapping failures into Hono responses or deciding which exceptions must keep propagating.
+
+## Carry the outcome until a caller settles it
+
+Fallible application work returns `Result<T, E>` while its caller can recover, add context, or choose how to present the outcome. Compose operations by handling or forwarding each possible `Err`. Preserve a lower error unless the current operation owns a meaningful new failure. An intentional fallback can return `Ok`, and a partial success may need success data that records what degraded, so the final caller can respond accurately.
+
+The interaction owner consumes the final outcome into UI state, a toast, an HTTP response, or another host contract. That owner is determined by responsibility and lifetime, not by whether the code lives in an `onclick` attribute or an `operations` directory. A terminal action can return `void` or `Promise<void>` after settling the outcome. Infallible work stays plain, and unexpected bugs must not become routine `Err` values.
+
+Do not treat every consumption boundary as an `unwrap`. Branch on the Result when the caller presents or recovers from an error. Use `unwrap` when the receiving API already communicates failure by throwing.
 
 ## Choose The Contract First
 
 | Required contract | Pattern |
 | --- | --- |
-| Caller receives `Result<T, E>` | Adapt the throwing operation with `trySync` or `tryAsync` |
+| Callee already returns `Result<T, E>` | Inspect or forward its `Err`; do not wrap the call in `trySync` or `tryAsync` |
+| Callee throws but caller needs `Result<T, E>` | Adapt the throwing operation with `trySync` or `tryAsync` |
 | Failure has a valid fallback | Return `Ok(fallback)` from `catch` |
 | Failure must propagate as data | Return a typed `defineErrors` factory result from `catch` |
 | Only known external failures should become `Err` | Map known exceptions and rethrow unknown ones |
@@ -70,6 +80,8 @@ instead when this function must recover, add context, or clean up.
 - Error-only destructuring is correct when success data is irrelevant. The rule is to handle every possible `Err`, not to destructure fields you do not use.
 
 Prefer an immediate guard so the success path stays linear.
+
+When a caller translates every variant of a tagged error union, use an exhaustive `switch (error.name)` with `default: error satisfies never`. A guard for one variant followed by a shared path is different. See [error variants](references/error-variants.md) for both shapes.
 
 ## Own The Promise
 

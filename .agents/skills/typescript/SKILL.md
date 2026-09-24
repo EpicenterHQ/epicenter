@@ -35,7 +35,7 @@ Project-wide TypeScript conventions compose with narrower skills such as `arktyp
 - Use `is`, `has`, or `can` prefixes for booleans that answer a question.
 - Prefer `switch` over `if/else` for repeated equality comparisons against the same value. Use `default: value satisfies never` for exhaustiveness when needed.
 - Prefer `Record` lookup tables over nested ternaries for finite value mappings.
-- Compose typed errors bottom-up. Do not filter a broad upstream error union at the boundary.
+- Compose typed errors bottom-up. Do not filter a broad upstream error union at the boundary. See `error-handling` for Result propagation, recovery, and presentation.
 - Question silent fallbacks that hide invalid state. Preserve round-trip invariants when parsing and serializing.
 
 ## Go-to-Definition Awareness

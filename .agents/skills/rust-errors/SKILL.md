@@ -1,6 +1,6 @@
 ---
 name: rust-errors
-description: Rust to TypeScript error handling for Tauri apps. Use when mentioning Rust errors, Tauri command errors, invoke errors, or defining Rust error types for TS consumption.
+description: Use when working with Rust errors, Tauri command failures, invoke errors, or Rust error types consumed by TypeScript.
 metadata:
   author: epicenter
   version: '1.0'
@@ -63,6 +63,13 @@ enum ArchiveExtractionError {
 
 ### TypeScript Error Handling
 
+The rejected value from `invoke` is `unknown`. Validate a serialized domain
+error before treating it as the Rust enum. A matching error can remain a tagged
+failure in the operation's Result; a malformed payload needs a failure owned by
+the IPC boundary. Neither case decides the UI title or action. The interaction
+owner makes that decision after receiving the Result. See [error-handling](../error-handling/SKILL.md)
+for exception adaptation, propagation, and presentation.
+
 ```typescript
 import { type } from 'arktype';
 
@@ -71,50 +78,13 @@ const TranscriptionErrorType = type({
 	name: "'AudioReadError' | 'GpuError' | 'ModelLoadError' | 'TranscriptionError'",
 	message: 'string',
 });
-
-// Use in error handling
-const result = await tryAsync({
-	try: () => invoke('transcribe_audio_whisper', params),
-	catch: (unknownError) => {
-		const result = TranscriptionErrorType(unknownError);
-		if (result instanceof type.errors) {
-			// Handle unexpected error shape
-			return WhisperingErr({
-				title: 'Unexpected Error',
-				description: extractErrorMessage(unknownError),
-				action: { type: 'more-details', error: unknownError },
-			});
-		}
-
-		const error = result;
-		// Now we have properly typed discriminated union
-		switch (error.name) {
-			case 'ModelLoadError':
-				return WhisperingErr({
-					title: 'Model Loading Error',
-					description: error.message,
-					action: {
-						type: 'more-details',
-						error: new Error(error.message),
-					},
-				});
-
-			case 'GpuError':
-				return WhisperingErr({
-					title: 'GPU Error',
-					description: error.message,
-					action: {
-						type: 'link',
-						label: 'Configure settings',
-						href: '/settings/transcription',
-					},
-				});
-
-			// Handle other cases...
-		}
-	},
-});
 ```
+
+When an operation converts the rejection to a Result, its `tryAsync` catch
+callback returns a typed `Err`: forward a validated domain error with
+`Err(error)`, or return a boundary-owned `defineErrors` variant for an invalid
+payload. If the operation translates every domain variant to a different
+failure, use an exhaustive switch with `default: error satisfies never`.
 
 ### Serialization Format
 
@@ -132,7 +102,7 @@ The Rust enum serializes to this TypeScript-friendly format:
 
 1. **Consistent error structure**: All errors have the same shape with `name` and `message`
 2. **TypeScript type safety**: Use runtime validation with arktype to ensure type safety
-3. **Exhaustive handling**: Switch statements provide compile-time exhaustiveness checking
+3. **Exhaustive handling**: A switch translating every variant needs a `satisfies never` default to make new variants fail typechecking
 4. **Don't use `content` attribute**: Avoid `#[serde(tag = "name", content = "data")]` as it creates nested structures
 5. **Keep enums private when possible**: Only make public if used across modules
 
@@ -143,7 +113,7 @@ For Tauri commands that generate TypeScript bindings:
 - Derive `Serialize`, `Deserialize` when the value crosses the IPC boundary both ways.
 - Derive `specta::Type` for command inputs, outputs, and event payloads that appear in generated bindings.
 - Keep the Rust enum variant name aligned with the TypeScript discriminant unless there is a deliberate `#[serde(rename = "...")]`.
-- Keep user-facing message strings on the error variant with `thiserror`; do not make TypeScript reconstruct Rust context from separate fields unless the UI needs structured handling.
+- Keep a precise failure message and useful fields on the Rust variant; the app decides what a person sees. Do not make TypeScript reconstruct Rust context from separate fields unless the caller needs structured handling.
 - Register events in the Tauri specta builder even if the event type is not returned by a command.
 
 Generated bindings are a contract check, not just output. If a Rust change should alter the TypeScript command or event surface, regenerate bindings and review the generated diff. If the generated diff is large but the public IPC shape did not change, stop and find why before committing it.

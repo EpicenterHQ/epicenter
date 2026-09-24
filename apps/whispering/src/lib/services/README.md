@@ -149,5 +149,5 @@ operation that owns dispatch may import them directly.
   `$lib/report`.
 - Do not manufacture a Result for an infallible method.
 
-See the `services-layer`, `error-handling`, `define-errors`, and `query-layer`
+See the `services-layer`, `error-handling`, and `query-layer`
 skills for agent-facing maintenance guidance.
