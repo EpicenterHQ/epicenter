@@ -31,45 +31,54 @@ const client = new OpenAI({
 		String(input) === 'data:,' ? Promise.resolve(new Response()) : respond(),
 });
 
-test('close releases pending microphone startup without transcribing its final flush', async () => {
-	const started = Promise.withResolvers<void>();
-	const transcribed = Promise.withResolvers<void>();
+test('close before microphone startup prevents acquisition and transcription', async () => {
+	const clientReady = Promise.withResolvers<OpenAI>();
 	const events: string[] = [];
-	let speechEnd: ((blob: Blob) => void) | undefined;
-	start = async (options) => {
+	start = async () => {
 		events.push('start');
-		speechEnd = options.onSpeechEnd;
+		return Ok(undefined);
+	};
+	stop = async () => {
+		events.push('stop');
+		return Ok(undefined);
+	};
+	respond = async () => {
+		events.push('transcribe');
+		return Response.json({ text: 'last phrase' });
+	};
+	const dictation = createDictation(() => clientReady.promise);
+	const options = { onTranscript: () => events.push('delivered') };
+	const starting = dictation.start(options);
+	const closing = dictation.close().then(() => events.push('closed'));
+	clientReady.resolve(client);
+	expectOk(await starting);
+	await closing;
+	expect(events).toEqual(['closed']);
+	await dictation.start(options);
+	expect(events).toEqual(['closed']);
+});
+
+test('close joins a microphone startup already in progress', async () => {
+	const started = Promise.withResolvers<void>();
+	const events: string[] = [];
+	start = async () => {
+		events.push('start');
 		await started.promise;
 		return Ok(undefined);
 	};
 	stop = async () => {
 		events.push('stop');
-		speechEnd?.(new Blob(['last phrase']));
 		return Ok(undefined);
 	};
-	respond = async () => {
-		events.push('transcribe');
-		await transcribed.promise;
-		return Response.json({ text: 'last phrase' });
-	};
 	const dictation = createDictation(() => client);
-	const options = { onTranscript: () => events.push('delivered') };
-	const starting = dictation.start(options);
-	const duplicate = dictation.start(options);
-	const closing = dictation.close().then(() => events.push('closed'));
-	await dictation.start(options);
+	const starting = dictation.start({ onTranscript() {} });
 	await Promise.resolve();
 	expect(events).toEqual(['start']);
+	const closing = dictation.close();
 	started.resolve();
 	expectOk(await starting);
-	expectOk(await duplicate);
-	await Bun.sleep(0);
-	expect(events).toEqual(['start', 'stop', 'closed']);
-	transcribed.resolve();
 	await closing;
-	expect(events).toEqual(['start', 'stop', 'closed']);
-	await dictation.start(options);
-	expect(events.filter((event) => event === 'start')).toHaveLength(1);
+	expect(events).toEqual(['start', 'stop']);
 });
 
 test('a failed recorder release reports its error', async () => {

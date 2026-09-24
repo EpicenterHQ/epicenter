@@ -4,10 +4,12 @@
 	import { InferencePicker } from '@epicenter/app-shell/inference-picker';
 	import { CompleteError } from '@epicenter/client';
 	import { tryAsync } from 'wellcrafted/result';
+	import { extractErrorMessage } from 'wellcrafted/error';
 	import * as Chat from '@epicenter/ui/chat';
 	import { Markdown } from '@epicenter/ui/markdown';
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import { toast } from '@epicenter/ui/sonner';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import SendIcon from '@lucide/svelte/icons/send';
@@ -15,16 +17,19 @@
 	import { onDestroy, untrack } from 'svelte';
 	import type { AgentMessage } from '@epicenter/agent';
 	import {
-		buildEntryCandidatePrompt,
+		ENTRY_CANDIDATE_PROMPT,
 		parseEntryCandidates,
-	} from '$lib/entry-candidates';
+	} from '$lib/chat/candidates.js';
 	import { auth } from '$lib/auth.svelte.js';
-	import { getVocabSurface } from '$lib/surface';
-	import type { createVocabChat } from '$lib/state/chat.svelte';
+	import { createDictation } from '$lib/chat/dictation.svelte.js';
+	import { createVocabChat } from '$lib/chat/session.svelte.js';
+	import type { ChatHistoryData } from '$lib/data.js';
+	import type { createEntriesState } from '$lib/entries.svelte.js';
+	import type { InferenceCatalog } from '@epicenter/app-shell/inference-picker';
+	import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
 	import DictationButton from './DictationButton.svelte';
 
 	const accountManagementUrl = auth.accountManagementUrl;
-	const { entries } = getVocabSurface();
 	const openConnection = getConnectionScreen();
 	// The route keys this whole surface on Account identity, like its inference client.
 	const account = untrack(() => {
@@ -32,9 +37,31 @@
 		return state.status === 'signed-out' ? undefined : state.account;
 	});
 
-	let { chat }: { chat: ReturnType<typeof createVocabChat> } = $props();
+	let {
+		conversationId,
+		messages,
+		accountKey,
+		catalog,
+		selections,
+		entries,
+	}: {
+		conversationId: string;
+		messages: ChatHistoryData['tables']['messages'];
+		accountKey: string;
+		catalog: InferenceCatalog;
+		selections: InferenceSelections;
+		entries: ReturnType<typeof createEntriesState>;
+	} = $props();
 
-	const isGenerating = $derived(chat.isGenerating);
+	// The parent keys this component by conversation ID. Its loop, draft,
+	// suggestion request, and microphone all end when another chat is selected.
+	/* svelte-ignore state_referenced_locally */
+	const chat = createVocabChat({ messages, accountKey, conversationId, catalog, selections });
+	/* svelte-ignore state_referenced_locally */
+	const dictation = createDictation(async () => {
+		await catalog.ready;
+		return catalog.ai.account?.client ?? null;
+	});
 
 	let saveAffordance = $state.raw<{
 		text: string;
@@ -104,7 +131,13 @@
 	/** Aborts the in-flight entry candidate request when the user cancels or starts
 	 * another one. */
 	let entryCandidateAbortController: AbortController | null = null;
-    onDestroy(() => entryCandidateAbortController?.abort());
+	onDestroy(() => {
+		entryCandidateAbortController?.abort();
+		chat[Symbol.dispose]();
+		void dictation.close().catch((cause) =>
+			toast.error('Could not stop dictation', { description: extractErrorMessage(cause) }),
+		);
+	});
 
 	/** Ask the model for the notable spans in one settled message and open the
 	 * tray with them. It is a one-shot completion (`complete`), so it writes no
@@ -135,7 +168,7 @@
 		}
         const { data, error } = await tryAsync({
             try: async () => {
-                const result = await connection.client.chat.completions.create({ model, messages: [{ role: 'system', content: buildEntryCandidatePrompt() }, { role: 'user', content: passage }], stream: false }, { signal: controller.signal });
+                const result = await connection.client.chat.completions.create({ model, messages: [{ role: 'system', content: ENTRY_CANDIDATE_PROMPT }, { role: 'user', content: passage }], stream: false }, { signal: controller.signal });
                 const text = result.choices?.[0]?.message?.content;
                 if (typeof text !== 'string') throw new Error('The response contained no text.');
                 return text;
@@ -180,7 +213,6 @@
 		const draft = chat.inputValue.trim();
 		chat.inputValue = draft ? `${draft} ${text}` : text;
 	}
-	const { catalog } = getVocabSurface();
 	const lastMessage = $derived(chat.messages.at(-1));
 </script>
 
@@ -310,11 +342,11 @@
 				{:else if chat.isThinking}
 					<Chat.Bubble variant="received"><Chat.BubbleMessage typing /></Chat.Bubble>
 				{/if}
-				{#if lastMessage && !chat.isGenerating}
-					<div class="flex justify-start px-2 py-1">
-						<Button variant="ghost" class="text-muted-foreground" disabled={!chat.canServe} onclick={() => chat.retry()}>
-							<RotateCcwIcon class="size-3" />
-							{lastMessage.role === 'user' ? 'Retry answer' : 'Another answer'}
+					{#if lastMessage?.role === 'user' && !chat.isGenerating}
+						<div class="flex justify-start px-2 py-1">
+							<Button variant="ghost" class="text-muted-foreground" disabled={!chat.canServe} onclick={() => chat.retry()}>
+								<RotateCcwIcon class="size-3" />
+								Retry answer
 						</Button>
 					</div>
 				{/if}
@@ -351,7 +383,7 @@
 		<p class="px-3 pb-1 text-xs text-muted-foreground">Choose an available model to chat.</p>
 	{/if}
 	<form class="flex items-end gap-1.5 border-t bg-background px-2 py-1.5" aria-label="Chat message" onsubmit={(event) => { event.preventDefault(); chat.sendMessage(); }}>
-		<DictationButton disabled={isGenerating} onTranscript={appendTranscript} />
+		<DictationButton {dictation} disabled={chat.isGenerating} onTranscript={appendTranscript} />
 		<Textarea
 			class="min-h-0 max-h-32 flex-1 resize-none overflow-y-auto"
 			rows={1}

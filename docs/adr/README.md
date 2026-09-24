@@ -695,8 +695,8 @@ When you add an ADR, add its row here.
 | [0440](0440-whispering-cleans-transcriptions-and-does-not-own-general-text-actions.md) | Whispering cleans transcriptions and does not own general text actions | Proposed (amends 0099 at Polish and Recipes) |
 | [0441](0441-whispering-keeps-speech-evidence-local-and-syncs-only-its-speech-profile.md) | Whispering keeps speech evidence local and syncs only its speech profile | Proposed |
 | [0443](0443-body-file-codecs-return-sequence-content.md) | Body file codecs return sequence content | Proposed (browser checkout evidence unbuilt) |
-| [0444](0444-vocab-stores-finished-session-messages-as-local-rows.md) | Vocab stores finished session messages as local rows | Proposed |
-| [0445](0445-vocab-keeps-one-current-session-on-device-and-syncs-saved-entries.md) | Vocab keeps one current session on device and syncs saved entries | Proposed |
+| [0444](0444-vocab-stores-finished-chat-messages-as-local-rows.md) | Vocab stores finished chat messages as local rows | Accepted |
+| [0445](0445-vocab-saves-local-chats-and-syncs-saved-entries.md) | Vocab saves local chats and syncs saved entries | Accepted |
 | [0446](0446-vocab-teaches-english-without-automatic-pronunciation-readings.md) | Vocab teaches English without automatic pronunciation readings | Proposed |
 | [0447](0447-the-bun-self-hosted-server-owns-one-data-root.md) | The Bun self-hosted server owns one data root | Proposed (amends 0066 at S3-only storage; Bun sync and local blobs unbuilt) |
 | [0448](0448-vocab-stages-are-four-learner-reported-abilities.md) | Vocab stages are four learner-reported abilities | Proposed (amends 0102 at stages) |

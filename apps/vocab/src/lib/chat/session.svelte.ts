@@ -10,19 +10,21 @@ import {
 } from '@epicenter/client';
 import { bindAgentConversation } from '@epicenter/svelte';
 import { createSubscriber } from 'svelte/reactivity';
-import { createChatMessageStore } from '$lib/chat-history.js';
 import type { ChatHistoryData } from '$lib/data.js';
 import { VOCAB_MODEL, VOCAB_SYSTEM_PROMPT } from '$lib/data.js';
+import { createChatMessageStore } from './messages.js';
 
-/** One tutor exchange for the account captured by the mounted Vocab shell. */
+/** One active tutor conversation for the lifetime of its keyed view. */
 export function createVocabChat({
-	data,
+	messages,
 	accountKey,
+	conversationId,
 	catalog,
 	selections,
 }: {
-	data: ChatHistoryData;
+	messages: ChatHistoryData['tables']['messages'];
 	accountKey: string;
+	conversationId: string;
 	catalog: InferenceCatalog;
 	selections: InferenceSelections;
 }) {
@@ -32,7 +34,6 @@ export function createVocabChat({
 	let runTarget: OpenAiTurnContext | null = null;
 	let draft = $state('');
 	let dismissedError = $state<string | null>(null);
-	let revision = $state(0);
 	let disposed = false;
 
 	function target(): InferenceTarget | null {
@@ -56,30 +57,23 @@ export function createVocabChat({
 		return true;
 	}
 
-	function openLoop() {
-		return bindAgentConversation(
-			createConversation({
-				store: createChatMessageStore(data.tables.messages, accountKey),
-				engine: createOpenAiAgentEngine({
-					data: () => {
-						if (!runTarget)
-							throw new Error(
-								'Choose an inference connection before running a turn.',
-							);
-						return runTarget;
-					},
-				}),
-				generateId: () => crypto.randomUUID(),
+	const loop = bindAgentConversation(
+		createConversation({
+			store: createChatMessageStore(messages, accountKey, conversationId),
+			engine: createOpenAiAgentEngine({
+				data: () => {
+					if (!runTarget)
+						throw new Error(
+							'Choose an inference connection before running a turn.',
+						);
+					return runTarget;
+				},
 			}),
-		);
-	}
-
-	let loop = $state.raw(openLoop());
+			generateId: () => crypto.randomUUID(),
+		}),
+	);
 
 	return {
-		get revision() {
-			return revision;
-		},
 		get messages() {
 			return loop.messages;
 		},
@@ -133,7 +127,11 @@ export function createVocabChat({
 			dismissedError = null;
 		},
 		retry() {
-			if (loop.isGenerating || loop.messages.length === 0 || !captureTarget())
+			if (
+				loop.isGenerating ||
+				loop.messages.at(-1)?.role !== 'user' ||
+				!captureTarget()
+			)
 				return;
 			dismissedError = null;
 			loop.retry();
@@ -143,25 +141,6 @@ export function createVocabChat({
 		},
 		dismissError() {
 			dismissedError = loop.error?.message ?? null;
-		},
-		/** Replace only this account's transcript after retiring its old loop. */
-		newExchange() {
-			if (disposed) return;
-			loop[Symbol.dispose]();
-			try {
-				data.transact(() => {
-					for (const row of data.tables.messages.rows) {
-						if (row.accountKey === accountKey)
-							data.tables.messages.delete(row.id);
-					}
-				});
-				runTarget = null;
-				draft = '';
-				dismissedError = null;
-			} finally {
-				loop = openLoop();
-				revision += 1;
-			}
 		},
 		[Symbol.dispose]() {
 			if (disposed) return;

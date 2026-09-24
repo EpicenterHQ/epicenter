@@ -4,7 +4,8 @@
  * segmentation (Silero VAD; assets served from `/vad/`, see vite.config.ts);
  * this controller owns the UI-facing cycle: it mirrors the session into a
  * reactive status and transcribes each spoken phrase through the shared
- * `transcribe` client. One device-wide singleton, because there is one mic.
+ * `transcribe` client. The active chat view owns one controller and closes it
+ * before another chat view mounts.
  *
  * A session is tap-to-open, tap-to-close. Inside it, every pause-delimited
  * phrase becomes one transcription handed to `onTranscript` as a `Result`; the
@@ -68,6 +69,7 @@ export function createDictation(getClient: () => OpenAI | null | Promise<OpenAI 
 
 	function stop(): Promise<Result<void, VadRecorderError>> {
 		if (stopping) return stopping;
+		if (status === 'idle' && !starting) return Promise.resolve(Ok(undefined));
 		stopping = (async () => {
 			// The recorder cannot stop an as-yet unacquired microphone. Join its
 			// admitted start before tearing down the session it may create.

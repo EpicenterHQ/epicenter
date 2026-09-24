@@ -3,7 +3,6 @@ import {
 	defineTable,
 	field,
 	jsonValue,
-	plainText,
 	type RowOf,
 } from '@epicenter/app';
 import type { DeclaredData } from '@epicenter/app/store';
@@ -53,22 +52,22 @@ const entriesTable = defineTable({
 		// back a `Date` that could not round-trip through the projection.
 		createdAt: field.instant(),
 	},
-	body: plainText(),
 });
 
-/** One finished tutor message on this device, scoped to the signed-in account. */
+/** One finished tutor message in an account's device-local conversation. */
 const chatMessagesTable = defineTable({
 	fields: {
 		accountKey: field.string(),
+		conversationId: field.string(),
 		messageId: field.string(),
 		message: field.json(jsonValue),
 	},
 });
 
-/** Device-only current tutor exchange. No archive or presentation settings. */
+/** Device-local conversations, derived from their messages rather than metadata. */
 export const chatHistoryDefinition = defineStore({
 	id: APPS.VOCAB.id,
-	title: 'Vocab chat on this device',
+	title: 'Vocab chats on this device',
 	kv: {},
 	tables: {
 		messages: chatMessagesTable,

@@ -3,11 +3,10 @@
 	import { Input } from '@epicenter/ui/input';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import type { Entry } from '$lib/data';
+	import type { createEntriesState } from '$lib/entries.svelte.js';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TrashIcon from '@lucide/svelte/icons/trash';
-	import { getVocabSurface } from '$lib/surface';
-
-	const { entries } = getVocabSurface();
+	let { entries }: { entries: ReturnType<typeof createEntriesState> } = $props();
 
 	const STAGES = ['new', 'recognized', 'understood', 'usable'] as const;
 	const STAGE_LABELS: Record<Entry['stage'], string> = {
