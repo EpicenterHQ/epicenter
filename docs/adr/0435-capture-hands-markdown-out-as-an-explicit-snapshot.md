@@ -6,7 +6,7 @@
 
 ## Context
 
-Capture holds dated writing and thoughts that a person may later incorporate into Markdown files. Successful transfer cannot establish that they used everything. Live file editing and two-way synchronization would give this inbox a second storage owner.
+Capture holds dated writing and thoughts that a person may later incorporate into Markdown files. Successful transfer cannot establish that they used everything. Live file editing and two-way synchronization would give the same writing a second storage owner.
 
 ## Decision
 

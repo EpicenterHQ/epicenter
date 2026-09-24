@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-23
-- **Implementation:** The signed-in web app and two-table Capture cutover are implemented in the current checkout. Whispering text promotion remains later work.
+- **Implementation:** The signed-in web app, current capture and thought model, retained earlier writing, and explicit Whispering text promotion are implemented.
 
 ## Context
 
@@ -40,20 +40,19 @@ Account departure fences work. A different account opens a fresh application
 document; retained handles never retarget. Add to Capture replaces Whispering's
 Personal recording copy path in a clean break. No migration or legacy read and
 export workflow for Whispering Personal recordings is required. The existing
-Capture `entries` rows need their own cutover decision before the two-table
-definition replaces them.
+Capture `entries` rows remain declared for read-only recovery alongside the
+current captures and thoughts.
 
 ## Consequences
 
-A person must sign in before their first Capture. There is no anonymous inbox,
+A person must sign in before their first Capture. There is no anonymous Capture data,
 Local-to-Personal migration, or account destination picker inside Capture.
 Offline use requires an already acquired cache and a usable captured Account;
 this does not promise fresh offline authentication.
 
 Store opening currently enforces exclusive ownership. A web Capture origin and
 desktop Whispering can have separate replicas; same-origin duplicate owners
-must show an explicit already-open state. The implementation must prove its
-actual origins and claims before shipping promotion. It must not bypass locks.
+must show an explicit already-open state. Promotion must respect these locks.
 
 ## Considered alternatives
 

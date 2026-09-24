@@ -8,7 +8,7 @@
 
 [ADR-0432](0432-captures-hold-ordered-thoughts-beneath-a-dated-timeline.md) gives each thought one `captureId`. A local operation can validate that the destination capture exists. Offline replicas can still disagree about that existence: one device may delete a capture while another adds or moves a thought into it. The store merges their rows without enforcing cross-table referential integrity.
 
-The current recursive entry forest makes a child of a missing parent visible at the root. Removing recursion must not quietly turn surviving writing into an invisible row.
+The earlier recursive entry forest made a child of a missing parent visible at the root. Removing recursion must not quietly turn surviving writing into an invisible row.
 
 ## Decision
 

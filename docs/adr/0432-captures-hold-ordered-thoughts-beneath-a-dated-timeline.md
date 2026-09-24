@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-23
-- **Implementation:** The two-table Capture model, manual thought ordering, and web interface are implemented in the current checkout. Earlier `entries` remain readable in a recovery area; Markdown handoff and Whispering promotion remain later work.
+- **Implementation:** The capture and thought model, manual thought ordering, web interface, legacy recovery, and Whispering promotion are implemented. Markdown handoff remains later work.
 
 ## Context
 
@@ -30,14 +30,16 @@ Dinner with Sebastian
 
 The timeline sorts captures by `capturedAt` descending, then ID ascending. `capturedAt` is when the item was captured, not a date parsed from its text. A pasted invitation may mention a future event date without moving the capture to that date. A recording promoted from Whispering uses the recording's `recordedAt`. Adding or editing a thought does not change the capture's position in the root timeline.
 
-The capture body holds its complete editable text. It may be empty. The interface derives a preview from its first nonblank line and uses a neutral placeholder when empty. There is no required title or description field. A thought also has an editable plain-text body, which can be a line or a paragraph. Thoughts may look like bullets, but they are separate items so a person can edit, reorder, move, or delete one without parsing a list inside the capture body. Thoughts cannot contain other thoughts.
+The capture body holds its complete editable text. It may be empty. The interface derives a bounded multiline excerpt and uses a neutral placeholder when empty. There is no required title or description field. A thought also has an editable plain-text body, which can be a line or a paragraph. Thoughts may look like bullets, but they are separate items so a person can edit, reorder, move, or delete one without parsing a list inside the capture body. Thoughts cannot contain other thoughts.
 
-The logical model is one Personal store, `so.epicenter.capture`, with two tables:
+The timeline is a view of captures, not another record type. Each opened capture shows its text and one manually ordered list of thoughts; that list is not a second timeline. The Personal store, `so.epicenter.capture`, has two tables for current writing:
 
 | Table | Row data | Body |
 | --- | --- | --- |
 | `captures` | Minted ID and immutable `capturedAt` | Editable plain text |
 | `thoughts` | Minted ID, `captureId` reference, and sortable position | Editable plain text |
+
+The same store also declares `entries` to keep earlier recursive writing readable and `promotions` to remember Whispering requests. Neither table adds another level to the current writing model.
 
 The capture stores no child-ID array. The thought's `captureId` determines membership; its position determines manual order, with ID as a deterministic tie-breaker. Reordering preserves the thought's identity and text. Concurrent offline reorders converge to a deterministic order but need not preserve either device's exact full permutation. There is no visible timestamp requirement for thoughts and no processed flag, recording pointer, or stored destination file link.
 
@@ -47,7 +49,7 @@ A thought can move to another capture without changing its identity or text. A c
 
 Whispering keeps Local audio and transcription results separate. An explicit **Add to Capture** action copies the exact selected Original or Cleaned text into a new root capture, using the recording's `recordedAt` as `capturedAt`. It copies no audio and requires no lasting source link. The text becomes independently editable in Capture; later edits do not rewrite Whispering's Local result. One recording is not automatically split into thoughts, and Whispering does not choose a parent capture.
 
-Add to Capture replaces Whispering's Personal recording-copy path. It does not migrate or automatically import old recordings. The first Capture release requires sign-in and one Personal inbox, as described in [ADR-0433](0433-capture-opens-one-account-backed-inbox.md).
+Add to Capture replaces Whispering's Personal recording-copy path. It does not migrate or automatically import old recordings. The first Capture release requires sign-in and one Personal store, as described in [ADR-0433](0433-capture-opens-one-account-backed-inbox.md).
 
 ### Into Markdown
 
@@ -57,7 +59,7 @@ The person may copy or download a capture's text and its thoughts in their chose
 
 The root timeline shows starting points, not every later edit or thought. The one-level relationship makes the common dinner case direct and lets thoughts have independent identities without presenting a nested notebook. Someone who wants to develop a thought into a separate dated context creates a new capture and can move that thought there; the product does not turn every thought into another timeline.
 
-Two tables remove the recursive forest machinery from the current product. The old `entries` declaration remains as a read-only recovery source under the same store ID. The web app displays every readable earlier entry and lets a person copy its text into the new model. It does not automatically convert old rows because independent offline conversion can duplicate them and a repeat conversion can recreate explicitly deleted writing. The first browser proofs used disposable data, but that does not establish every opened replica is disposable.
+Two current writing tables remove the recursive forest machinery from the product. The old `entries` declaration remains as a read-only recovery source under the same store ID. The web app displays every readable earlier entry and lets a person copy its text into the new model. It does not automatically convert old rows because independent offline conversion can duplicate them and a repeat conversion can recreate explicitly deleted writing. The first browser proofs used disposable data, but that does not establish every opened replica is disposable.
 
 ## Considered alternatives
 
