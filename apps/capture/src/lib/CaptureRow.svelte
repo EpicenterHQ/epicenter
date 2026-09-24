@@ -2,15 +2,21 @@
   import type { CaptureData, Capture } from '@epicenter/capture';
   import { fromSubscription } from '@epicenter/svelte';
 
-  let { store, capture, open }: {
-    store: CaptureData; capture: Capture; open: (id: string) => void;
+  let { store, capture, open, thoughtCount }: {
+    store: CaptureData; capture: Capture; open: (id: string) => void; thoughtCount: number;
   } = $props();
   // svelte-ignore state_referenced_locally
   const body = store.tables.captures.body(capture.id);
   const text = body
     ? fromSubscription((update) => store.tables.captures.watch(body, update), () => body.toString())
     : { current: '' };
-  const preview = $derived(text.current.split(/\r?\n/).find((line) => line.trim())?.trim() || 'Empty capture');
+  const preview = $derived.by(() => {
+    const full = text.current.trim();
+    if (!full) return 'Empty capture';
+    // Line clamping alone leaves the full document in the button's accessible name.
+    const excerpt = full.match(/^.{0,240}/su)?.[0] ?? full;
+    return excerpt.length < full.length ? `${excerpt.trimEnd()}…` : excerpt;
+  });
 </script>
 
 <button type="button" onclick={() => open(capture.id)}
@@ -18,5 +24,8 @@
   <time class="block text-xs font-medium text-muted-foreground" datetime={capture.capturedAt}>
     {new Date(capture.capturedAt).toLocaleString()}
   </time>
-  <p class="mt-2 line-clamp-2 whitespace-pre-wrap text-base leading-relaxed">{preview}</p>
+  <p class="mt-2 line-clamp-3 whitespace-pre-wrap break-words text-base leading-relaxed">{preview}</p>
+  {#if thoughtCount > 0}
+    <p class="mt-2 text-xs text-muted-foreground">{thoughtCount} {thoughtCount === 1 ? 'thought' : 'thoughts'}</p>
+  {/if}
 </button>

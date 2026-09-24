@@ -175,7 +175,7 @@
 </script>
 
 <header class="border-b border-border/70">
-  <div class="mx-auto flex h-16 max-w-5xl items-center justify-between gap-4 px-5 sm:px-8">
+  <div class="mx-auto flex h-16 max-w-3xl items-center justify-between gap-4 px-5 sm:px-8">
     <button type="button" class="-ml-2 flex min-h-10 items-center rounded-sm px-2 text-base font-semibold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" onclick={() => open(null)}>Capture</button>
     <div class="flex items-center gap-3 sm:gap-5">
       <span role="status" class="text-xs text-muted-foreground">
@@ -262,9 +262,7 @@
       </div>
     </section>
   {:else}
-    <div class="mb-8">
-      <h1 class="text-3xl font-semibold tracking-tight">Timeline</h1>
-    </div>
+    <h1 class="mb-8 text-3xl font-semibold tracking-tight">Timeline</h1>
     <form onsubmit={add} class="mb-12 rounded-xl border border-border bg-muted/20 p-4 sm:p-5">
       <label for="new-capture" class="mb-3 block text-sm font-medium">Add a capture</label>
       <Textarea id="new-capture" bind:value={() => draft, setDraft} rows={4} class="resize-y bg-background" placeholder="Write or paste something…" />
@@ -272,7 +270,7 @@
     </form>
     <div aria-label="Timeline captures" class="border-t border-border">
       {#each view.captures as capture (capture.id)}
-        <CaptureRow {store} {capture} {open} />
+        <CaptureRow {store} {capture} {open} thoughtCount={view.thoughts.get(capture.id)?.length ?? 0} />
       {:else}
         <p class="py-7 text-sm text-muted-foreground">Your captures will appear here.</p>
       {/each}

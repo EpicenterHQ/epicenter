@@ -1,6 +1,6 @@
 # Capture
 
-Capture is a signed-in web app over one Personal `so.epicenter.capture` store. Its root shows dated captures newest first and offers **Add a capture**. A capture has full editable text and one manually ordered list of independently editable thoughts. The timeline preview comes from the first nonblank line of the capture body. Thought rows can be edited, copied, reordered, moved to another capture, or deleted individually. The URL selects a capture by ID.
+Capture is a signed-in web app over one Personal `so.epicenter.capture` store. Its root shows dated captures newest first and offers **Add a capture**. A capture has full editable text and one manually ordered list of independently editable thoughts. The timeline shows a short multiline excerpt of the capture body and its thought count. Thought rows can be edited, copied, reordered, moved to another capture, or deleted individually. The URL selects a capture by ID.
 
 The capture and thought body editors bind their existing flat Yjs text nodes directly to text-only ProseMirror views. Enter and plain-text paste preserve line breaks. The Add a capture and Add a thought fields remain draft inputs until a row is created.
 

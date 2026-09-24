@@ -216,10 +216,12 @@ try {
 	await first.getByLabel('Capture text').press('End');
 	await first.getByLabel('Capture text').press('ControlOrMeta+V');
 	await first.getByRole('status').getByText('Saved on this device').waitFor();
-	await second
+	const firstTimelineRow = second
 		.getByLabel('Timeline captures')
-		.getByText('Dinner with Sebastian', { exact: true })
-		.waitFor();
+		.getByRole('button')
+		.filter({ hasText: 'Dinner with Sebastian' });
+	await firstTimelineRow.waitFor();
+	assert((await firstTimelineRow.innerText()).includes('Friday at seven'));
 	await second.goto(dinnerUrl);
 	await second.getByLabel('Capture text').waitFor();
 	assert.equal(
@@ -317,6 +319,7 @@ try {
 		.nth(1)
 		.getByText('Dinner with Sebastian')
 		.waitFor();
+	assert((await first.getByLabel('Timeline captures').getByRole('button').nth(1).innerText()).includes('3 thoughts'));
 	await first.goto(dinnerUrl);
 	await first
 		.getByLabel('Thoughts')
@@ -496,9 +499,19 @@ try {
 	await first.getByRole('button', { name: 'Permanently delete thought' }).click();
 	await first.getByRole('status').getByText('Saved on this device').waitFor();
 	await second.waitForFunction(() => document.querySelectorAll('[aria-label="Thoughts"] article').length === 3);
+	await first.getByRole('button', { name: 'Capture', exact: true }).click();
+	await first.getByLabel('Add a capture').fill('X'.repeat(500));
+	await first.getByRole('button', { name: 'Add a capture' }).click();
+	await first.getByRole('button', { name: 'Capture', exact: true }).click();
+	const longPreview = first.getByLabel('Timeline captures').getByRole('button').first();
+	const announced = await longPreview.ariaSnapshot();
+	assert(announced.includes('X'.repeat(100)));
+	assert(!announced.includes('X'.repeat(300)));
+	await first.setViewportSize({ width: 390, height: 844 });
+	assert(await first.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser proof passed: rich clipboard with multiline text, non-text paste, two replicas, local and peer-aware editor undo, ordering and concurrent reorder, independent edits, thought copy and deletion, moves, refreshed capture deletion, offline survival, and recovery.',
+		'Capture browser proof passed: rich clipboard with multiline text, bounded timeline preview, non-text paste, two replicas, local and peer-aware editor undo, ordering and concurrent reorder, independent edits, thought copy and deletion, moves, refreshed capture deletion, offline survival, and recovery.',
 	);
 } catch (cause) {
 	console.error(cause);
