@@ -2,6 +2,8 @@
 
 Capture is a signed-in web app over one Personal `so.epicenter.capture` store. Its root shows dated captures newest first and offers **Add a capture**. A capture has full editable text and one manually ordered list of independently editable thoughts. The timeline preview comes from the first nonblank line of the capture body. Thought rows can be edited, copied, reordered, moved to another capture, or deleted individually. The URL selects a capture by ID.
 
+The capture and thought body editors bind their existing flat Yjs text nodes directly to text-only ProseMirror views. Enter and plain-text paste preserve line breaks. The Add a capture and Add a thought fields remain draft inputs until a row is created.
+
 Thoughts whose capture is unavailable stay visible on the root in **Thoughts needing a capture**. They keep their original reference until the capture arrives or the person moves or deletes them. Deleting a capture shows its text and the exact thoughts selected for deletion, refreshes on local changes, and reports completion after local persistence. A thought added on another offline device can survive and appear in recovery.
 
 The root also shows **Earlier entries** if the account has rows from the previous recursive implementation. Each readable entry shows its full text for copying into the new model. This is an explicit manual recovery path; the app does not convert or erase old rows. Unreadable rows raise an alert.

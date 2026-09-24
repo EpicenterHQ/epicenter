@@ -27,7 +27,12 @@
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
-		"@y/y": "14.0.0-rc.26"
+		"@y/prosemirror": "2.0.0-12",
+		"@y/y": "14.0.0-rc.26",
+		"prosemirror-keymap": "^1.2.0",
+		"prosemirror-model": "^1.25.0",
+		"prosemirror-state": "^1.4.0",
+		"prosemirror-view": "^1.41.0"
 	},
 	"devDependencies": {
 		"@epicenter/vite-config": "workspace:*",

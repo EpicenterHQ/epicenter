@@ -1,56 +1,68 @@
 <script lang="ts">
-  import type * as Y from '@y/y';
+  import { configureYProsemirror, redo, syncPlugin, undo, yUndoPlugin } from '@y/prosemirror';
+  import * as Y from '@y/y';
+  import { keymap } from 'prosemirror-keymap';
+  import { Schema } from 'prosemirror-model';
+  import { EditorState, type Command } from 'prosemirror-state';
+  import { EditorView } from 'prosemirror-view';
+  import 'prosemirror-view/style/prosemirror.css';
   import { onMount } from 'svelte';
-  import type { CaptureData } from '@epicenter/capture';
 
-  let { store, body, kind, label }: {
-    store: CaptureData;
-    body: Y.Node;
-    kind: 'captures' | 'thoughts';
-    label: string;
-  } = $props();
-  let textarea: HTMLTextAreaElement;
-  let composing = false;
+  // Capture bodies are flat Y.Node text. Code semantics make the clipboard
+  // plain text and preserve line breaks without changing the stored shape.
+  const schema = new Schema({
+    nodes: {
+      doc: { content: 'text*', code: true },
+      text: {},
+    },
+    marks: {},
+  });
 
-  function applyInput() {
-    if (composing || !body || !textarea) return;
-    const before = body.toString();
-    const after = textarea.value;
-    if (before === after) return;
-    let start = 0;
-    while (start < before.length && start < after.length && before[start] === after[start]) start++;
-    let oldEnd = before.length;
-    let newEnd = after.length;
-    while (oldEnd > start && newEnd > start && before[oldEnd - 1] === after[newEnd - 1]) {
-      oldEnd--;
-      newEnd--;
-    }
-    // One positional edit preserves text that a peer changed elsewhere.
-    body.applyDelta(body.change.retain(start).delete(oldEnd - start).insert(after.slice(start, newEnd)) as never);
-  }
+  let { body, label }: { body: Y.Node; label: string } = $props();
+  let element: HTMLDivElement;
+  const insertNewline: Command = (state, dispatch) => {
+    dispatch?.(state.tr.insertText('\n'));
+    return true;
+  };
 
   onMount(() => {
-    textarea.value = body.toString();
-    const update = () => {
-      if (!body || !textarea) return;
-      const value = body.toString();
-      if (textarea.value === value) return;
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      textarea.value = value;
-      textarea.setSelectionRange(Math.min(start, value.length), Math.min(end, value.length));
+    const undoManager = new Y.UndoManager(body, { trackedOrigins: new Set() });
+    const view = new EditorView(element, {
+      state: EditorState.create({
+        schema,
+        plugins: [
+          syncPlugin(),
+          yUndoPlugin(undoManager),
+          keymap({
+            'Mod-z': undo,
+            'Mod-y': redo,
+            'Mod-Shift-z': redo,
+            Enter: insertNewline,
+            'Shift-Enter': insertNewline,
+          }),
+        ],
+      }),
+      attributes: {
+        class: 'capture-text-editor min-h-28 w-full rounded-lg border border-border bg-transparent p-4 text-base leading-relaxed outline-none focus:border-foreground',
+        role: 'textbox',
+        'aria-label': label,
+        'aria-multiline': 'true',
+      },
+    });
+    configureYProsemirror({ ytype: body })(view.state, view.dispatch);
+
+    return () => {
+      view.destroy();
+      undoManager.destroy();
     };
-    const stop = store.tables[kind].watch(body, update);
-    return stop;
   });
 </script>
 
-<textarea
-  bind:this={textarea}
-  aria-label={label}
-  placeholder="Write here…"
-  class="min-h-28 w-full resize-y rounded-lg border border-border bg-transparent p-4 text-base leading-relaxed outline-none focus:border-foreground"
-  oninput={applyInput}
-  oncompositionstart={() => composing = true}
-  oncompositionend={() => { composing = false; applyInput(); }}
-></textarea>
+<div bind:this={element}></div>
+
+<style>
+  :global(.capture-text-editor.ProseMirror) {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+</style>

@@ -56,7 +56,7 @@
 
 <article class="border-b border-border py-5">
   {#if body}
-    <TextEditor {store} {body} kind="thoughts" label="Thought text" />
+    <TextEditor {body} label="Thought text" />
   {:else}
     <p role="alert">This thought cannot be read yet.</p>
   {/if}

@@ -194,7 +194,7 @@
     <time class="mb-5 block text-sm text-muted-foreground" datetime={selected.capturedAt}>
       {new Date(selected.capturedAt).toLocaleString()}
     </time>
-    {#if body}{#key selected.id}<TextEditor {store} {body} kind="captures" label="Capture text" />{/key}{/if}
+    {#if body}{#key selected.id}<TextEditor {body} label="Capture text" />{/key}{/if}
     <button type="button" class="mt-4 text-sm text-destructive underline" onclick={reviewDeletion}>Delete capture…</button>
     {#if deletion}
       <section aria-label="Delete preview" class="mt-5 rounded border border-destructive p-4 text-sm">

@@ -208,11 +208,13 @@ try {
 	const dinnerUrl = first.url();
 	const dinnerId = new URL(dinnerUrl).searchParams.get('capture');
 	assert(dinnerId);
-	await first
-		.getByLabel('Capture text')
-		.fill(
-			'Dinner with Sebastian\nFriday at seven\nBring the invitation.\nFull pasted details.',
-		);
+	await firstContext.grantPermissions(['clipboard-read', 'clipboard-write']);
+	await first.evaluate(() => navigator.clipboard.write([new ClipboardItem({
+		'text/plain': new Blob(['\nFull pasted details.\n\nKeep blank line.'], { type: 'text/plain' }),
+		'text/html': new Blob(['<b>Different HTML</b>'], { type: 'text/html' }),
+	})]));
+	await first.getByLabel('Capture text').press('End');
+	await first.getByLabel('Capture text').press('ControlOrMeta+V');
 	await first.getByRole('status').getByText('Saved on this device').waitFor();
 	await second
 		.getByLabel('Timeline captures')
@@ -221,8 +223,22 @@ try {
 	await second.goto(dinnerUrl);
 	await second.getByLabel('Capture text').waitFor();
 	assert.equal(
-		await second.getByLabel('Capture text').inputValue(),
-		'Dinner with Sebastian\nFriday at seven\nBring the invitation.\nFull pasted details.',
+		await second.getByLabel('Capture text').innerText(),
+		'Dinner with Sebastian\nFriday at seven\nBring the invitation.\nFull pasted details.\n\nKeep blank line.',
+	);
+	await first.getByLabel('Capture text').press('ControlOrMeta+A');
+	await first.getByLabel('Capture text').evaluate((element) => {
+		const clipboardData = new DataTransfer();
+		clipboardData.items.add(new File(['image'], 'image.png', { type: 'image/png' }));
+		element.dispatchEvent(new ClipboardEvent('paste', {
+			bubbles: true,
+			cancelable: true,
+			clipboardData,
+		}));
+	});
+	assert.equal(
+		await first.getByLabel('Capture text').innerText(),
+		'Dinner with Sebastian\nFriday at seven\nBring the invitation.\nFull pasted details.\n\nKeep blank line.',
 	);
 
 	for (const thought of [
@@ -245,9 +261,9 @@ try {
 		() =>
 			(
 				document.querySelector(
-					'[aria-label="Thoughts"] article:nth-child(2) textarea',
-				) as HTMLTextAreaElement
-			)?.value === 'A question for next time',
+					'[aria-label="Thoughts"] article:nth-child(2) [aria-label="Thought text"]',
+				) as HTMLElement
+			)?.innerText === 'A question for next time',
 	);
 	await second.reload();
 	await second.getByLabel('Thoughts').locator('article').nth(2).waitFor();
@@ -257,7 +273,7 @@ try {
 			.locator('article')
 			.nth(1)
 			.getByLabel('Thought text')
-			.inputValue(),
+			.innerText(),
 		'A question for next time',
 	);
 	await second
@@ -270,9 +286,9 @@ try {
 		() =>
 			(
 				document.querySelector(
-					'[aria-label="Thoughts"] article:first-child textarea',
-				) as HTMLTextAreaElement
-			)?.value === 'Owning the outcome, edited independently',
+					'[aria-label="Thoughts"] article:first-child [aria-label="Thought text"]',
+				) as HTMLElement
+			)?.innerText === 'Owning the outcome, edited independently',
 	);
 
 	await second.getByRole('button', { name: 'Capture', exact: true }).click();
@@ -310,7 +326,7 @@ try {
 	await second.goto(secondUrl);
 	await second.getByLabel('Thoughts').getByLabel('Thought text').waitFor();
 	assert.equal(
-		await second.getByLabel('Thoughts').getByLabel('Thought text').inputValue(),
+		await second.getByLabel('Thoughts').getByLabel('Thought text').innerText(),
 		'A question for next time',
 	);
 
@@ -350,7 +366,7 @@ try {
 		await first
 			.getByRole('region', { name: 'Thought recovery' })
 			.getByLabel('Thought text')
-			.inputValue(),
+			.innerText(),
 		'Unseen offline thought',
 	);
 	await first.reload();
@@ -421,18 +437,54 @@ try {
 		.getByLabel('Thoughts')
 		.getByLabel('Thought text')
 		.evaluateAll((items) =>
-			items.map((item) => (item as HTMLTextAreaElement).value),
+			items.map((item) => (item as HTMLElement).innerText),
 		);
 	await second.waitForFunction((expected) => {
 		const actual = [
-			...document.querySelectorAll('[aria-label="Thoughts"] textarea'),
-		].map((item) => (item as HTMLTextAreaElement).value);
+			...document.querySelectorAll('[aria-label="Thoughts"] [aria-label="Thought text"]'),
+		].map((item) => (item as HTMLElement).innerText);
 		return JSON.stringify(actual) === JSON.stringify(expected);
 	}, firstOrder);
 	assert.equal(new Set(firstOrder).size, 3);
+	await first.getByLabel('Capture text').press('End');
+	await first.getByLabel('Capture text').press('Enter');
+	await first.getByLabel('Capture text').pressSequentially('An added line');
+	await second.waitForFunction(
+		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Second capture\nAn added line',
+	);
+	await first.getByLabel('Capture text').press('ControlOrMeta+Z');
+	await first.waitForFunction(
+		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Second capture',
+	);
+	await second.waitForFunction(
+		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Second capture',
+	);
+	await first.getByRole('status').getByText('Saved on this device').waitFor();
+	await first.reload();
+	await second.reload();
+	await first.getByLabel('Capture text').press('ControlOrMeta+A');
+	await first.getByLabel('Capture text').press('ArrowRight');
+	await first.getByLabel('Capture text').pressSequentially(' local');
+	await second.waitForFunction(
+		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Second capture local',
+	);
+	await second.getByLabel('Capture text').press('ControlOrMeta+A');
+	await second.getByLabel('Capture text').press('ArrowLeft');
+	await second.getByLabel('Capture text').pressSequentially('Peer ');
+	await first.waitForFunction(
+		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Peer Second capture local',
+	);
+	await first.getByLabel('Capture text').press('ControlOrMeta+Z');
+	await first.waitForFunction(
+		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Peer Second capture',
+	);
+	await first.getByLabel('Capture text').press('ControlOrMeta+Shift+Z');
+	await first.waitForFunction(
+		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Peer Second capture local',
+	);
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser proof passed: multiline text, two replicas, ordering and concurrent reorder, independent edits, moves, refreshed deletion, offline survival, and recovery.',
+		'Capture browser proof passed: rich clipboard with multiline text, non-text paste, two replicas, local and peer-aware editor undo, ordering and concurrent reorder, independent edits, moves, refreshed deletion, offline survival, and recovery.',
 	);
 } catch (cause) {
 	console.error(cause);
