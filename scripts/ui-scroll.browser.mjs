@@ -10,12 +10,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const root = process.cwd(),
-	req = createRequire(`${root}/packages/app/package.json`),
-	appReq = createRequire(`${root}/apps/whispering/package.json`);
+	req = createRequire(`${root}/packages/ui/package.json`);
 const { chromium } = await import(req.resolve('playwright'));
 const { createServer } = await import(req.resolve('vite'));
-const { svelte } = await import(appReq.resolve('@sveltejs/vite-plugin-svelte'));
-const { default: tailwind } = await import(appReq.resolve('@tailwindcss/vite'));
+const { svelte } = await import(req.resolve('@sveltejs/vite-plugin-svelte'));
+const { default: tailwind } = await import(req.resolve('@tailwindcss/vite'));
 const dir = await mkdtemp(`${root}/packages/ui/.browser-scroll-`),
 	out = await mkdtemp(join(tmpdir(), 'epicenter-ui-scroll-'));
 await writeFile(
