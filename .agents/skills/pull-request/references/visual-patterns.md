@@ -2,17 +2,17 @@
 
 ## When To Read This
 
-Read when a PR body needs a diagram: composition or ownership changes, before and after shapes, data or protocol flow, trade-off tables, or a stacked-PR journey. This is the catalog of shapes; for the prose around them, see [body-patterns.md](body-patterns.md).
+Read when a PR body needs a diagram: composition or ownership changes, before and after shapes, data or protocol flow, trade-off tables, or a stacked-PR journey. These illustrative forms are options, not required sections or claims about current APIs. For the prose around them, see [body-patterns.md](body-patterns.md).
 
 ## Default To The Lightest Diagram
 
 Pick the lightest form that carries the relationship: two annotated columns, an indented tree, an arrow chain, or a small before and after block. Reserve full box drawing for genuine multi-box architecture. A heavy box around what is really a two-column mapping costs the reader more than it gives.
 
-Rhythm: context in one to three sentences, then the visual, then one sentence on the subtle part, then the next visual. If you write more than four or five sentences with no visual, you are probably missing a diagram or code block.
+Look for places where the reader would benefit from seeing what you mean. A stretch of dense prose is a cue to consider an example or diagram. Choose the smallest form that carries the idea, and let the surrounding prose move the explanation forward. Give enough context to read the visual, then explain its consequence or a subtle point rather than repeating everything it shows. A short explanation may already be clear in prose; sentence counts do not determine when a visual earns its place.
 
 ## Before And After Code
 
-The highest-value visual for a refactor. When the public API is unchanged but the internals or the call site improved, show both sides.
+Show before and after when the comparison helps explain a decision or its consequence. For an internal refactor, choose the relevant operation rather than reproducing the implementation diff.
 
 ````md
 ```ts
@@ -64,7 +64,7 @@ packages/epicenter/src/
     table-helper.ts       (refactored to compose over the above)
 ```
 
-Use when two to six files move and the new location communicates intent (these belong to the tables subsystem, not shared). Do not use for same-directory renames or moves that are incidental to the real change.
+Use when the new location communicates intent (these belong to the tables subsystem, not shared), and show only the moves needed to explain it. Do not use for same-directory renames or moves that are incidental to the real change.
 
 ## Layered Architecture
 

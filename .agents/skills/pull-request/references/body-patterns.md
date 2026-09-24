@@ -1,308 +1,49 @@
-# PR Body Patterns
+# Composing a PR body
 
-## When To Read This
+Read when deciding how to explain a change. These are choices to make from the reader’s needs, not a sequence or a set of required sections. See [examples.md](examples.md) for complete bodies and [visual-patterns.md](visual-patterns.md) for ways to show relationships.
 
-Read when writing or reviewing a PR body: choosing a shape, opening it, picking headings, deciding what examples are mandatory, and applying the framing patterns that make a body durable. For the diagrams that go inside a body, see [visual-patterns.md](visual-patterns.md). For full worked bodies, see [examples.md](examples.md).
+## Orient the reader
 
-## Core Standard
+Briefly name the change and what prompted it. Either can come first when it makes the explanation easier to follow. A summary sentence gives the reasoning a subject; an inventory of edits leaves the reasoning to the reader.
 
-A PR body is a durable explanation. The reader should understand what changed, why it matters, how to evaluate it, and what breaks without reconstructing the story from commits and file names.
+For example:
 
-Default mental model:
+> This moves ownership of the shared connection from the editor to the workspace. The editor and preview can close independently, so neither view’s lifetime can safely determine when their shared connection closes.
 
-```txt
-Thesis:    What changed, and why does it matter?
-Example:   What does the new shape look like?
-Mechanism: How should the reviewer or user understand it?
-Contrast:  What changed from before?
-Impact:    Breaking changes, migration, scope, review path.
-```
+For a narrow fix, the failure and the reason the fix addresses it may be the whole body. Expand when the reader needs more to judge the choice.
 
-For a small PR that sequence is two paragraphs. For a large one it becomes a heading-led guide. The sequence is constant; only the length changes.
+## Explain why this shape fits
 
-## Open With Why, Not What
+Find the decision that connects the problem to the implementation. A description of the new arrangement alone may leave that decision implicit.
 
-The single most common failure is opening with a list of what changed. The reader already has the Commits and Files Changed tabs. Lead with the motivation, then weave in the change.
+For ownership changes, explain why the chosen owner has the right lifetime or responsibility. For a public API, show a real call site and explain which caller need it serves. For a deletion, explain why the removed behavior or guarantee is no longer needed and what its users do instead.
 
-Bad (changelog disguised as prose):
+Discuss alternatives when they clarify a consequential choice. Name concrete complexity or limitations; let the reader judge them. Avoid manufacturing an argument for an obvious fix or recounting abandoned approaches that no longer explain the result.
 
-```md
-## Summary
-- Add shared auth factory
-- Fix phantom TEncryption generic
-- Remove runtime type checks
-```
+## Show what the reasoning depends on
 
-Good (motivation, then the change):
+Use an example or diagram where the reader would otherwise have to reconstruct behavior or relationships from prose. Choose the smallest representation that supports the claim. Before and after can reveal a changed contract; an ownership tree can explain a lifetime decision; a table can expose a tradeoff.
 
-```md
-Honeycrisp and opensidian both need the same auth: sign-in, sign-out, session, and key handling. Rather than duplicate it, this extracts a shared `createAuthState` factory that both apps consume with app-specific callbacks.
-```
+Public API, CLI, HTTP, config, and type-signature changes need code examples. Show enough input, output, or surrounding use to make the contract clear. Check these against the final implementation. Internal edits need examples only when they help explain the decision.
 
-## Choose A Body Shape
+Use [visual-patterns.md](visual-patterns.md) for possible forms. The prose around a visual should orient the reader and explain its consequence.
 
-Pick the lightest shape the change can survive in:
+## Make consequences explicit
 
-| Shape | Use when | Lead with | Must include | Avoid |
-| --- | --- | --- | --- | --- |
-| Focused fix | Narrow bug, small UI or internal fix | The user-visible failure | The mechanical fix in two or three sentences | Headings, test transcript |
-| API or feature guide | New or changed exported function, type, CLI, HTTP route, config, or workflow | The smallest real call site | Call site, inferred types or output, migration note if call sites move | API prose with no example |
-| Refactor or architecture guide | Ownership, composition, or package boundary changed but behavior is stable | The architectural pressure, in one sentence | Before and after shape, ownership tree, named trade-off | File lists, "cleaned up" with no contrast |
-| Release notes | Versioned release, public surface needing docs, or body linked as migration context | Version number and a one-line theme | Contents list, per-feature example, breaking section with old and new | Process headings disguised as concepts |
+Name meaningful costs, limitations, and changed guarantees alongside the reason for accepting them. Quantify claims when supported by evidence. If behavior stays stable through a refactor, say so when that stability matters to understanding the scope.
 
-### Focused Fix
+Breaking changes need old and new usage, who is affected, and what they must do. A list of removed public names can help migration; a list of changed files repeats the diff.
 
-No headings. Two or three paragraphs that name the user-visible problem and the mechanical fix:
+For example:
 
-```md
-Drawers with long content overflow without scrolling, which makes it impossible to reach content below the fold on mobile.
+> The connection stays open even when the workspace has no open views. That keeps it available when a view reopens; closing the workspace disconnects it.
 
-Wrapping the rendered children in a `flex-1 overflow-y-auto` container fixes the layout. The drag handle keeps its natural height, and only the body becomes scrollable.
-```
+## Organize around understanding
 
-### API Or Feature Guide
+Use paragraphs while the reader can follow the explanation without signposts. Add concept headings when they help readers navigate distinct decisions or features. A release or migration guide may benefit from a contents list when readers need to find their affected API.
 
-Lead each feature with the smallest real example, then show the inferred types, generated output, or old and new usage so the reader can verify the contract without opening the diff. Concept headings are allowed here when they teach:
+Order the material by what the reader needs to understand next. Explain dependencies when one decision relies on another. Implementation chronology belongs only when the history explains the final choice. Secondary improvements need their own rationale if they matter enough to include.
 
-````md
-Type-safe workspace actions are now defined once and mounted by each runtime.
+For stacked PRs, state the dependency and merge order, for example: `Stacks on #1591; merge that first.` Add a review path when a particular reading order helps someone evaluate the change. File and commit counts rarely explain a decision; omit them unless scale itself matters.
 
-## Define Actions
-
-```ts
-const actions = {
-  posts: {
-    create: defineMutation({
-      input: type({ title: "string" }),
-      handler: ({ title }) => client.tables.posts.create({ title }),
-    }),
-  },
-};
-```
-
-The same action map drives CLI commands and HTTP routes:
-
-```ts
-const cli = createCLI(client, { actions });
-const server = createServer(client, { actions });
-```
-````
-
-### Refactor Or Architecture Guide
-
-Open with the architectural pressure, not a file list. Show before and after, then a small ownership tree (see [visual-patterns.md](visual-patterns.md)) when composition changed:
-
-````md
-The workspace encryption layer answered a question we stopped asking: can the relay read this data? The trusted-relay direction answers it at the topology instead of per row, so client-side encryption comes out.
-
-```ts
-// Before: keyring threads from auth into construction
-const workspace = createWorkspace({ id, keyring: signedIn.keyring, tables, kv });
-```
-
-```ts
-// After: plaintext stores, no keyring to thread
-const workspace = createWorkspace({ id, tables, kv });
-```
-````
-
-Add a review path only when reading order genuinely helps:
-
-```md
-1. Start with the public factory signature.
-2. Read the runtime adapter that consumes it.
-3. Skim one migrated caller as proof the shape works.
-```
-
-### Release Notes
-
-A release body reads like documentation. Version heading, a contents list to jump by concept, the smallest example per feature, and a breaking section:
-
-````md
-# 1.2.0
-
-Advancing programmable runtime types.
-
-## Contents
-
-- With Keyword
-- Dependent Types
-- Breaking
-
-## With Keyword
-
-```ts
-const Email = Type.Script(`string with { format: "email" }`);
-```
-
-## Breaking
-
-### Options Generic In Script
-
-```ts
-// Before
-Type.Script("Options<string, { minLength: 10 }>");
-// After
-Type.Script(`string with { minLength: 10 }`);
-```
-````
-
-This is not a loophole for generic process headings. The headings must be durable concepts: feature names, syntax names, migration topics, or breaking changes.
-
-## Headings
-
-Generic process headings are bad because they could appear in any PR:
-
-```txt
-Bad:  Summary | Changes | What Changed | Testing | Test Plan | Verification
-Good: With Keyword | Dependent Types | Why A Flat API? | Migration | Breaking
-```
-
-`## Overview` is acceptable in release notes and public API guides. It is usually noise in ordinary reviewer notes. A `### Why X?` heading earns its place for a genuinely distinct design decision; keep it to one or two per large PR, not one per change.
-
-## Required Examples
-
-Code examples are mandatory for any PR that introduces or modifies new functions, types, or exports; function signatures; CLI commands or flags; HTTP endpoints; configuration; or scripting syntax.
-
-Prefer examples that teach the contract:
-
-```txt
-Input syntax     -> generated schema
-Factory call     -> returned handle
-CLI command      -> effect
-HTTP request     -> response shape
-Before call site -> after call site
-```
-
-If the example does not make the contract clearer, cut it.
-
-## Breaking Changes
-
-Breaking changes need old and new examples. Do not bury them in prose. Name who is affected, what fails, and what to do instead:
-
-````md
-## Breaking
-
-### Enum With Null
-
-`Enum` no longer accepts `null`, because `Enum` is limited to values encodable by TypeScript enums.
-
-```ts
-// Before
-Type.Enum([1, "hello", null]);
-// After
-Type.Enum([1, "hello"]);
-```
-````
-
-## Diagrams
-
-Use a diagram when it removes prose: ownership changes, runtime or data flow, protocol wire formats, module composition, or stacked-PR journeys. Default to the lightest form that carries the relationship, and never let prose run more than a short paragraph without a visual break. The full catalog, with a small example and a "when" for each, is in [visual-patterns.md](visual-patterns.md).
-
-## Framing Patterns
-
-These are thinking tools for finding the angle, not formulas. Use the one that fits.
-
-### Disproportionate Complexity
-
-State the simple question the old system answered, then contrast it with the machinery it required. The reader should think "that is absurd" before you show the fix.
-
-```md
-Good: The old encryption system had five moving parts to answer one question: does this workspace have encryption keys?
-Weak: The encryption system was complex and needed simplification.
-```
-
-### Lead With What Dies
-
-Use when deleting an established API surface is the point of the PR, especially when the change ripples across call sites. Open with the deletion verb naming the dying API, and show before and after in the first hundred words:
-
-```md
-This deletes `defineWorkspace` and the `withExtension` chain that drove every workspace for a year. The terminal API is `attach*` primitives composed inline against a Y.Doc the caller owns.
-```
-
-Two moves make it land:
-
-- List every type or export that died as an explicit inventory. It lets the reader grep, and it forces you to verify the list is exhaustive.
-- Name each survivor with the reason it earned its keep, in the same breath. Without that justification the reader assumes the survivor is leftover scaffolding and tries to delete it later.
-
-Use this only when the deletion is the news. Additive features and refactors that do not touch call sites use the standard motivation-first opener. Counting callers is the test: if call sites do not change, this is the wrong framing.
-
-### Name The One Regression
-
-If a change trades something away, name it and quantify it with the payoff attached, before the reviewer finds it in the diff and reads it as an oversight. A scoped, named regression reads as judgment; an unmentioned one reads as a miss.
-
-```md
-The trade-off is that same-owner key rotation now needs a fresh `createWorkspace` call. That is acceptable because key rotation already rebuilds the authenticated workspace session.
-```
-
-### Bold Topic Sentences
-
-For a PR with three or more distinct concerns, separate them with `---` and a bold topic sentence. These are not section headers; they are scannable anchors that let a reader skim the shape of the PR before reading it.
-
-```md
----
-
-**First, a small correction: SYNC_STATUS was documented as a heartbeat but it is not one.**
-
-Liveness is already handled by text-level ping and pong. What SYNC_STATUS tracks is whether the client has local changes that have not reached the server yet.
-
----
-
-**The message handler needed a cleaner return shape before RPC could be added.**
-
-The old handler returned an optional-fields bag, and the caller had to guess which fields were set.
-```
-
-For simpler PRs, plain paragraphs are better.
-
-### Came Along For The Ride
-
-Use this to subordinate secondary improvements once the main story is done. It tells the reader the main narrative is over and these are bonuses, not side effects they need to trace back into the argument.
-
-```md
-Two follow-up improvements came along for the ride. First, cached session boot now applies persisted keys before the network roundtrip. Second, fingerprint dedup skips repeated HKDF derivation when the key set has not changed.
-```
-
-### Sequential Journey
-
-Use when the work genuinely built on itself in stages. Tell the story in the order it happened so the reader follows the path you walked; each step should motivate the next.
-
-```txt
-End goal:      peer-to-peer RPC over the sync layer
-Prerequisites: message result union
-               status probe cleanup
-               protocol routing
-               typed action contracts
-```
-
-If the concerns are independent rather than sequential, use bold topic sentences instead.
-
-## Stacked And Reviewer-Oriented PRs
-
-When a stack is already split, write for the reviewer deciding where to spend attention. They care about the contract, the shape change, and the shortest honest review path, not a second changelog or a test transcript. Pressure test the body against:
-
-- What contract stayed stable or changed?
-- What one call site teaches the new shape?
-- What ownership boundary should the reviewer grasp before reading files?
-- Is there a best file order for reviewing the diff?
-
-For a cleanup PR where the public surface stays stable, make the stability explicit first (show the unchanged call shape), then a tiny tree of what moved. For a stack, note the dependency: `Stacks on #1591; merge that first.`
-
-## Closing Scope
-
-For large PRs, end with a plain scope line, after the reader understands the story. Numbers mean nothing before the concepts are named.
-
-```md
-23 commits on top of the encryption branch. 61 files changed, +3571/-1048. Stacks on #1591; merge that first.
-```
-
-## What To Avoid
-
-- `## Summary`, `## Changes`, `## Testing`, `## Test Plan`, and `## Verification` unless explicitly requested.
-- Bullet lists that duplicate the Commits or Files Changed tabs.
-- Changed-file inventories.
-- API descriptions without call sites.
-- Breaking changes without old and new examples.
-- Corporate or marketing language.
-- Apologizing for reasonable decisions.
-- Over-explaining small fixes.
+The main [skill](../SKILL.md) owns repository conventions for headings, verification reporting, titles, and changelogs. Apply those conventions without turning them into a body template.
