@@ -43,7 +43,10 @@ export const commands = {
 		typedError<null, RecorderError>(
 			__TAURI_INVOKE('cancel_recording', { audioBlobId, sessionId }),
 		),
-    recordingDocumentGeneration: () => typedError<number, RecorderError>(__TAURI_INVOKE('recording_document_generation')),
+	recordingDocumentGeneration: () =>
+		typedError<number, RecorderError>(
+			__TAURI_INVOKE('recording_document_generation'),
+		),
 	registerRecordingSession: (
 		appId: string,
 		account: {
@@ -51,14 +54,14 @@ export const commands = {
 			principalId: string;
 		} | null,
 		sessionId: string,
-        generation: number,
+		generation: number,
 	) =>
 		typedError<null, RecorderError>(
 			__TAURI_INVOKE('register_recording_session', {
 				appId,
 				account,
 				sessionId,
-                generation,
+				generation,
 			}),
 		),
 	/**  Read only this document's live capture. No file or journal is recovered. */
@@ -385,14 +388,20 @@ export const commands = {
 
 /** Events */
 export const events = {
-	dictationCapabilityEvent: makeEvent<DictationCapabilityEvent>(
-		'dictation-capability-event',
+	dictationCapabilityEvent: makeEvent<
+		DictationCapabilityEvent,
+		DictationCapabilityEvent
+	>('dictation-capability-event'),
+	globalShortcutTriggered: makeEvent<
+		GlobalShortcutTriggered,
+		GlobalShortcutTriggered
+	>('global-shortcut-triggered'),
+	homeSectionPending: makeEvent<HomeSectionPending, HomeSectionPending>(
+		'home-section-pending',
 	),
-	globalShortcutTriggered: makeEvent<GlobalShortcutTriggered>(
-		'global-shortcut-triggered',
+	recordingEndedEvent: makeEvent<RecordingEndedEvent, RecordingEndedEvent>(
+		'recording-ended-event',
 	),
-	homeSectionPending: makeEvent<HomeSectionPending>('home-section-pending'),
-	recordingEndedEvent: makeEvent<RecordingEndedEvent>('recording-ended-event'),
 };
 
 /* Types */
@@ -890,12 +899,12 @@ export type WriteTextOutcome =
 /* Tauri Specta runtime */
 async function typedError<T, E>(
 	result: Promise<T>,
-): Promise<{ status: 'ok'; data: T } | { status: 'error'; error: E }> {
+): Promise<{ data: T; error: null } | { data: null; error: E }> {
 	try {
-		return { status: 'ok', data: await result };
+		return { data: await result, error: null };
 	} catch (e) {
 		if (e instanceof Error) throw e;
-		return { status: 'error', error: e as any };
+		return { data: null, error: e as any };
 	}
 }
 
@@ -903,26 +912,31 @@ type EventEmit<T> = [T] extends [null]
 	? () => Promise<void>
 	: (payload: T) => Promise<void>;
 
-function makeEvent<T>(
+function makeEvent<TListen, TEmit = TListen>(
 	name: string,
-	serialize?: (payload: T) => unknown,
-	deserialize?: (payload: any) => T,
+	serialize?: (payload: TEmit) => unknown,
+	deserialize?: (payload: any) => TListen,
 ) {
 	const mapEvent =
-		(cb: __TAURI_EVENT.EventCallback<T>) => (event: __TAURI_EVENT.Event<any>) =>
+		(cb: __TAURI_EVENT.EventCallback<TListen>) =>
+		(event: __TAURI_EVENT.Event<any>) =>
 			cb({
 				...event,
 				payload: deserialize ? deserialize(event.payload) : event.payload,
 			});
-	const mapPayload = (payload: T) => (serialize ? serialize(payload) : payload);
+	const mapPayload = (payload: TEmit) =>
+		serialize ? serialize(payload) : payload;
 
 	const base = {
-		listen: (cb: __TAURI_EVENT.EventCallback<T>) =>
+		listen: (cb: __TAURI_EVENT.EventCallback<TListen>) =>
 			__TAURI_EVENT.listen(name, mapEvent(cb)),
-		once: (cb: __TAURI_EVENT.EventCallback<T>) =>
+		once: (cb: __TAURI_EVENT.EventCallback<TListen>) =>
 			__TAURI_EVENT.once(name, mapEvent(cb)),
-		emit: ((payload: T) =>
-			__TAURI_EVENT.emit(name, mapPayload(payload)) as unknown) as EventEmit<T>,
+		emit: ((payload: TEmit) =>
+			__TAURI_EVENT.emit(
+				name,
+				mapPayload(payload),
+			) as unknown) as EventEmit<TEmit>,
 	};
 
 	const fn = (
@@ -930,12 +944,12 @@ function makeEvent<T>(
 			| import('@tauri-apps/api/webview').Webview
 			| import('@tauri-apps/api/window').Window,
 	) => ({
-		listen: (cb: __TAURI_EVENT.EventCallback<T>) =>
+		listen: (cb: __TAURI_EVENT.EventCallback<TListen>) =>
 			target.listen(name, mapEvent(cb)),
-		once: (cb: __TAURI_EVENT.EventCallback<T>) =>
+		once: (cb: __TAURI_EVENT.EventCallback<TListen>) =>
 			target.once(name, mapEvent(cb)),
-		emit: ((payload: T) =>
-			target.emit(name, mapPayload(payload)) as unknown) as EventEmit<T>,
+		emit: ((payload: TEmit) =>
+			target.emit(name, mapPayload(payload)) as unknown) as EventEmit<TEmit>,
 	});
 
 	return Object.assign(fn, base);

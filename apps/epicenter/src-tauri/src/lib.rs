@@ -451,7 +451,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             HomeSectionPending,
             recorder::ended::RecordingEndedEvent,
         ])
-        .error_handling(tauri_specta::ErrorHandlingMode::Result)
+        .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }
 
 #[cfg(test)]

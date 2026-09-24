@@ -1,8 +1,8 @@
 /**
- * Type-level smoke tests for the boundary adapter.
+ * Type-level smoke tests for the generated command boundary.
  *
  * These assertions never run at value-level; they exist so a regression in
- * the `Wrap<F>` mapper or in `tauri-specta`'s output surfaces as a
+ * `tauri-specta`'s DataError output surface as a
  * `svelte-check` / `tsc` failure at the type level.
  */
 

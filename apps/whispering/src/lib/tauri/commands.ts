@@ -1,22 +1,15 @@
 /**
- * The boundary adapter between the auto-generated `tauri-specta` bindings
- * and the rest of the app.
+ * The app-owned Tauri command surface.
  *
- * Two responsibilities:
- *
- * 1. Convert tauri-specta's `{ status, data | error }` union to Wellcrafted's
- *    `Result<T, E>` shape, so call sites read like every other Result-based
- *    service in this codebase (`if (error !== null) ...`). Infallible Rust
- *    commands (returning `()`) stay as `Promise<void>`; they are not lied to
- *    by a fake `Ok` wrap.
- *
- * 2. Provide the hand-rolled commands for raw byte traffic
- *    (`encodeRecordingForUpload`). The Rust side returns
- *    `tauri::ipc::Response::new(opus_bytes)` for upload-cost reasons;
- *    tauri-specta cannot generate a typed binding for that shape because
- *    `Response` is not `specta::Type`. The handwritten wrapper here is the
- *    full TS-side contract: future commands that need raw bytes follow the
- *    same pattern.
+ * Specta's DataError mode generates the Wellcrafted-compatible `{ data, error }`
+ * shape for fallible commands. Infallible commands keep their generated return
+ * type. This file provides the hand-rolled command for raw byte traffic
+ * (`encodeRecordingForUpload`). The Rust side returns
+ * `tauri::ipc::Response::new(opus_bytes)` for upload-cost reasons;
+ * tauri-specta cannot generate a typed binding for that shape because
+ * `Response` is not `specta::Type`. The handwritten wrapper here is the
+ * full TS-side contract: future commands that need raw bytes follow the
+ * same pattern.
  *
  * **Import discipline**: this is the only file in `src/lib/**` that imports
  * from `@tauri-apps/api/core` for app-owned commands. Tauri plugin APIs
@@ -27,58 +20,6 @@ import type { BlobDestination } from '@epicenter/blobs/native';
 import { invoke as rawInvoke } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { events, commands as gen } from './bindings.gen';
-
-// Mirrors the runtime shape tauri-specta emits with `ErrorHandlingMode::Result`.
-type SpectaResult<T, E> =
-	| { status: 'ok'; data: T }
-	| { status: 'error'; error: E };
-
-const toResult = <T, E>(r: SpectaResult<T, E>): Result<T, E> =>
-	r.status === 'ok' ? Ok(r.data) : Err(r.error);
-
-const isSpectaResult = (v: unknown): v is SpectaResult<unknown, unknown> =>
-	typeof v === 'object' &&
-	v !== null &&
-	'status' in v &&
-	(v.status === 'ok' || v.status === 'error');
-
-/**
- * Type-level: `Promise<SpectaResult<T, E>>` returns become `Promise<Result<T, E>>`.
- * Any other shape (e.g. infallible `Promise<void>`) passes through unchanged.
- */
-type Wrap<F> = F extends (
-	...args: infer A
-) => Promise<SpectaResult<infer T, infer E>>
-	? (...args: A) => Promise<Result<T, E>>
-	: F;
-
-type WrapAll<C> = { readonly [K in keyof C]: Wrap<C[K]> };
-
-function wrapCommand<F extends (...args: never[]) => Promise<unknown>>(
-	fn: F,
-): Wrap<F> {
-	const wrapped = async (...args: Parameters<F>) => {
-		const result = await fn(...args);
-		return isSpectaResult(result) ? toResult(result) : result;
-	};
-	return wrapped as Wrap<F>;
-}
-
-/**
- * Only wrap function-typed exports from the generated module. The current
- * tauri-specta v2 RC emits the `commands` namespace as all-functions, but
- * the guard future-proofs against the generator gaining a constant export
- * (e.g. a generator version string) that would otherwise blow up at
- * `wrapCommand`.
- */
-const wrappedGen = Object.fromEntries(
-	Object.entries(gen)
-		.filter(([, v]) => typeof v === 'function')
-		.map(([k, v]) => [
-			k,
-			wrapCommand(v as (...args: never[]) => Promise<unknown>),
-		]),
-) as WrapAll<typeof gen>;
 
 /**
  * Hand-rolled raw-byte command outside the generated surface. The Rust
@@ -103,7 +44,7 @@ async function encodeRecordingForUpload(
 }
 
 export const commands = {
-	...wrappedGen,
+	...gen,
 	encodeRecordingForUpload,
 };
 
