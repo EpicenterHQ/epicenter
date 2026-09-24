@@ -4,7 +4,6 @@
   import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
   import { toast } from '@epicenter/ui/sonner';
   import { fromData } from '@epicenter/svelte';
-  import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import type { openCapture } from './open.js';
   import TextEditor from './TextEditor.svelte';
 
@@ -79,9 +78,7 @@
     <DropdownMenu.Root onOpenChange={(open) => { if (open) refreshDestinations(); }}>
       <DropdownMenu.Trigger>
         {#snippet child({ props })}
-          <Button {...props} variant="ghost" size="icon-sm" aria-label="Thought actions" class="mt-1 min-h-10 min-w-10">
-            <EllipsisIcon class="size-4" />
-          </Button>
+          <Button {...props} variant="outline" size="sm" aria-label="Thought actions" class="mt-1 min-h-10">Actions</Button>
         {/snippet}
       </DropdownMenu.Trigger>
       <DropdownMenu.Content align="end" class="w-48">

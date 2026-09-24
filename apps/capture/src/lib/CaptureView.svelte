@@ -8,9 +8,9 @@
   import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
   import { AccountPopover } from '@epicenter/app-shell/account-popover';
   import { Button } from '@epicenter/ui/button';
-  import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
+  import * as Card from '@epicenter/ui/card';
+  import * as Dialog from '@epicenter/ui/dialog';
   import { Textarea } from '@epicenter/ui/textarea';
-  import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import { auth } from './auth.svelte.js';
   import { onMount } from 'svelte';
   import type { openCapture } from './open.js';
@@ -29,9 +29,13 @@
   const selectedThoughts = $derived(selected ? view.thoughts.get(selected.id) ?? [] : []);
   const body = $derived(selected ? data.tables.captures.body(selected.id) : undefined);
   const saveStatus = $derived(data.persistence.get());
-  let drafts = $state<Record<string, string>>({});
-  const draft = $derived(drafts[selectedId ?? ''] ?? '');
-  function setDraft(value: string) { drafts[selectedId ?? ''] = value; }
+  let captureDraft = $state('');
+  let captureDialogOpen = $state(false);
+  let captureError = $state('');
+  let recoveryExpanded = $state(false);
+  let thoughtDrafts = $state<Record<string, string>>({});
+  const thoughtDraft = $derived(selected ? thoughtDrafts[selected.id] ?? '' : '');
+  function setThoughtDraft(value: string) { if (selected) thoughtDrafts[selected.id] = value; }
   let error = $state('');
   let deletion = $state.raw<ReturnType<typeof previewCaptureDeletion> | null>(null);
   let previewChanged = $state(false);
@@ -39,26 +43,35 @@
 
   function open(id: string | null) {
     deletion = null;
+    if (id) captureDialogOpen = false;
     const url = new URL(location.href);
     if (id) url.searchParams.set('capture', id);
     else url.searchParams.delete('capture');
     return goto(url.pathname + url.search);
   }
 
-  function add(event: SubmitEvent) {
+  function addCapture(event: SubmitEvent) {
     event.preventDefault();
     try {
-      if (selected) {
-        createThought(data, selected.id, draft);
-        setDraft('');
-      } else {
-        const id = createCapture(data, draft).id;
-        setDraft('');
-        open(id);
-      }
+      const id = createCapture(data, captureDraft).id;
+      captureDraft = '';
+      captureError = '';
+      void open(id);
       error = '';
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not save this writing.';
+      captureError = cause instanceof Error ? cause.message : 'Could not save this capture.';
+    }
+  }
+
+  function addThought(event: SubmitEvent) {
+    event.preventDefault();
+    if (!selected) return;
+    try {
+      createThought(data, selected.id, thoughtDraft);
+      setThoughtDraft('');
+      error = '';
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : 'Could not save this thought.';
     }
   }
 
@@ -206,18 +219,7 @@
           {new Date(selected.capturedAt).toLocaleString()}
         </time>
       </div>
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger>
-          {#snippet child({ props })}
-            <Button {...props} variant="ghost" size="icon-sm" aria-label="Capture actions" class="min-h-10 min-w-10">
-              <EllipsisIcon class="size-4" />
-            </Button>
-          {/snippet}
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Content align="end">
-          <DropdownMenu.Item variant="destructive" onclick={reviewDeletion}>Delete capture…</DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Root>
+      <Button variant="outline" size="sm" class="min-h-10 shrink-0 text-destructive" onclick={reviewDeletion}>Delete capture…</Button>
     </div>
     {#if deletion}
       <section aria-label="Delete preview" class="mb-7 rounded-xl border border-destructive/50 bg-destructive/5 p-4 text-sm sm:p-5">
@@ -247,9 +249,9 @@
     {#if body}{#key selected.id}<TextEditor {body} label="Capture text" />{/key}{/if}
     <section class="mt-12 border-t border-border pt-8" aria-label="Capture thoughts">
       <h2 class="mb-6 text-xl font-semibold tracking-tight">Thoughts</h2>
-      <form onsubmit={add} class="mb-7 flex flex-col gap-3">
+      <form onsubmit={addThought} class="mb-7 flex flex-col gap-3 rounded-xl border border-border p-4 sm:p-5">
         <label for="new-thought" class="text-sm font-medium">Add a thought</label>
-        <Textarea id="new-thought" bind:value={() => draft, setDraft} rows={3} placeholder="Write a line or paragraph…" />
+        <Textarea id="new-thought" bind:value={() => thoughtDraft, setThoughtDraft} rows={3} placeholder="Write a line or paragraph…" />
         <Button type="submit" size="sm" class="self-end">Add thought</Button>
       </form>
       {#if selectedThoughts.length}
@@ -266,24 +268,50 @@
       {/if}
     </section>
   {:else}
-    <h1 class="mb-8 text-3xl font-semibold tracking-tight">Timeline</h1>
-    <form onsubmit={add} class="mb-12 rounded-xl border border-border bg-muted/20 p-4 sm:p-5">
-      <label for="new-capture" class="mb-3 block text-sm font-medium">Add a capture</label>
-      <Textarea id="new-capture" bind:value={() => draft, setDraft} rows={4} class="resize-y bg-background" placeholder="Write or paste something…" />
-      <div class="mt-3 flex justify-end"><Button type="submit" size="sm">Add a capture</Button></div>
-    </form>
-    <div aria-label="Timeline captures" class="border-t border-border">
+    <div class="mb-8 flex items-center justify-between gap-4">
+      <h1 class="text-3xl font-semibold tracking-tight">Timeline</h1>
+      <Dialog.Root bind:open={captureDialogOpen}>
+        <Dialog.Trigger>
+          {#snippet child({ props })}
+            <Button {...props} size="sm" class="min-h-10">New capture</Button>
+          {/snippet}
+        </Dialog.Trigger>
+        <Dialog.Content class="sm:max-w-xl">
+          <Dialog.Header>
+            <Dialog.Title>New capture</Dialog.Title>
+            <Dialog.Description>Write or paste something to keep. You can edit it after adding the capture.</Dialog.Description>
+          </Dialog.Header>
+          <form onsubmit={addCapture} class="flex flex-col gap-4">
+            <label for="new-capture" class="text-sm font-medium">Capture text</label>
+            <Textarea id="new-capture" bind:value={captureDraft} rows={8} class="min-h-40 resize-y" placeholder="Write or paste something…" />
+            {#if captureError}<p role="alert" class="text-sm text-destructive">{captureError}</p>{/if}
+            <Dialog.Footer class="gap-2">
+              <Button type="button" variant="outline" onclick={() => captureDialogOpen = false}>Cancel</Button>
+              <Button type="submit">Add capture</Button>
+            </Dialog.Footer>
+          </form>
+        </Dialog.Content>
+      </Dialog.Root>
+    </div>
+    <div aria-label="Timeline captures" class="space-y-3">
       {#each view.captures as capture (capture.id)}
         <CaptureRow {store} {capture} {open} thoughtCount={view.thoughts.get(capture.id)?.length ?? 0} />
       {:else}
-        <p class="py-7 text-sm text-muted-foreground">Your captures will appear here.</p>
+        <p class="py-7 text-sm text-muted-foreground">Your captures will appear here. Start with New capture.</p>
       {/each}
     </div>
     {#if view.recovery.length}
-      <section aria-label="Thought recovery" class="mt-12 border-t border-border pt-8">
-        <h2 class="text-xl font-semibold tracking-tight">Thoughts needing a capture</h2>
-        <p class="mt-1 text-sm text-muted-foreground">Their capture is unavailable. You can edit, copy, move, or delete each thought.</p>
-        <div class="mt-5 border-t border-border">
+      <section aria-label="Thought recovery" class="mt-10">
+        <Card.Root class="flex-row items-center justify-between gap-4 p-4 sm:p-5">
+          <div>
+            <h2 class="text-base font-semibold">{view.recovery.length} {view.recovery.length === 1 ? 'thought' : 'thoughts'} without a capture</h2>
+            <p class="mt-1 text-sm text-muted-foreground">The capture {view.recovery.length === 1 ? 'it belongs' : 'they belong'} to is unavailable here.</p>
+          </div>
+          <Button variant="outline" size="sm" class="min-h-10 shrink-0" aria-expanded={recoveryExpanded} aria-controls="recovered-thoughts" onclick={() => recoveryExpanded = !recoveryExpanded}>
+            {recoveryExpanded ? `Hide ${view.recovery.length === 1 ? 'thought' : 'thoughts'}` : `Review ${view.recovery.length === 1 ? 'thought' : 'thoughts'}`}
+          </Button>
+        </Card.Root>
+        <div id="recovered-thoughts" hidden={!recoveryExpanded} class="mt-4 border-t border-border">
           {#each view.recovery as thought (thought.id)}
             <ThoughtItem {store} {thought} captures={view.captures} />
           {/each}

@@ -201,10 +201,15 @@ try {
 	second.on('pageerror', (error) => errors.push(`second: ${error.message}`));
 	await Promise.all([signIn(first), signIn(second)]);
 
-	await first
-		.getByLabel('Add a capture')
-		.fill('Dinner with Sebastian\nFriday at seven\nBring the invitation.');
-	await first.getByRole('button', { name: 'Add a capture' }).click();
+	await first.getByRole('button', { name: 'New capture' }).click();
+	await first.getByLabel('Capture text').fill('Dinner with Sebastian\nFriday at seven\nBring the invitation.');
+	await first.getByLabel('Capture text').press('Escape');
+	await first.getByRole('button', { name: 'New capture' }).click();
+	assert.equal(await first.getByLabel('Capture text').inputValue(), 'Dinner with Sebastian\nFriday at seven\nBring the invitation.');
+	await first.getByRole('button', { name: 'Cancel' }).click();
+	await first.getByRole('button', { name: 'New capture' }).click();
+	assert.equal(await first.getByLabel('Capture text').inputValue(), 'Dinner with Sebastian\nFriday at seven\nBring the invitation.');
+	await first.getByRole('button', { name: 'Add capture' }).click();
 	const dinnerUrl = first.url();
 	const dinnerId = new URL(dinnerUrl).searchParams.get('capture');
 	assert(dinnerId);
@@ -301,8 +306,9 @@ try {
 	assert.equal(await first.evaluate(() => navigator.clipboard.readText()), 'Owning the outcome, edited independently');
 
 	await second.getByRole('button', { name: 'Capture', exact: true }).click();
-	await second.getByLabel('Add a capture').fill('Second capture');
-	await second.getByRole('button', { name: 'Add a capture' }).click();
+	await second.getByRole('button', { name: 'New capture' }).click();
+	await second.getByLabel('Capture text').fill('Second capture');
+	await second.getByRole('button', { name: 'Add capture' }).click();
 	const secondUrl = second.url();
 	const secondId = new URL(secondUrl).searchParams.get('capture');
 	assert(secondId);
@@ -337,8 +343,7 @@ try {
 	);
 
 	await second.goto(dinnerUrl);
-	await first.getByRole('button', { name: 'Capture actions' }).click();
-	await first.getByRole('menuitem', { name: 'Delete capture…' }).click();
+	await first.getByRole('button', { name: 'Delete capture…' }).click();
 	await first
 		.getByRole('region', { name: 'Delete preview' })
 		.getByText('Permanently delete this capture and 2 thoughts?')
@@ -359,8 +364,7 @@ try {
 	await secondContext.setOffline(true);
 	await second.getByLabel('Add a thought').fill('Unseen offline thought');
 	await second.getByRole('button', { name: 'Add thought' }).click();
-	await first.getByRole('button', { name: 'Capture actions' }).click();
-	await first.getByRole('menuitem', { name: 'Delete capture…' }).click();
+	await first.getByRole('button', { name: 'Delete capture…' }).click();
 	await first
 		.getByRole('button', { name: 'Permanently delete', exact: true })
 		.click();
@@ -368,8 +372,9 @@ try {
 	await secondContext.setOffline(false);
 	await first
 		.getByRole('region', { name: 'Thought recovery' })
-		.getByLabel('Thought text')
+		.getByRole('heading', { name: '1 thought without a capture' })
 		.waitFor({ timeout: 15000 });
+	await first.getByRole('button', { name: 'Review thought' }).click();
 	assert.equal(
 		await first
 			.getByRole('region', { name: 'Thought recovery' })
@@ -378,6 +383,7 @@ try {
 		'Unseen offline thought',
 	);
 	await first.reload();
+	await first.getByRole('button', { name: 'Review thought' }).click();
 	await first
 		.getByRole('region', { name: 'Thought recovery' })
 		.getByLabel('Thought text')
@@ -500,8 +506,10 @@ try {
 	await first.getByRole('status').getByText('Saved on this device').waitFor();
 	await second.waitForFunction(() => document.querySelectorAll('[aria-label="Thoughts"] article').length === 3);
 	await first.getByRole('button', { name: 'Capture', exact: true }).click();
-	await first.getByLabel('Add a capture').fill('X'.repeat(500));
-	await first.getByRole('button', { name: 'Add a capture' }).click();
+	await first.getByRole('button', { name: 'New capture' }).click();
+	assert.equal(await first.getByLabel('Capture text').inputValue(), '');
+	await first.getByLabel('Capture text').fill('X'.repeat(500));
+	await first.getByRole('button', { name: 'Add capture' }).click();
 	await first.getByRole('button', { name: 'Capture', exact: true }).click();
 	const longPreview = first.getByLabel('Timeline captures').getByRole('button').first();
 	const announced = await longPreview.ariaSnapshot();
@@ -509,6 +517,16 @@ try {
 	assert(!announced.includes('X'.repeat(300)));
 	await first.setViewportSize({ width: 390, height: 844 });
 	assert(await first.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+	await first.getByRole('button', { name: 'New capture' }).focus();
+	await first.keyboard.press('Enter');
+	await first.getByLabel('Capture text').waitFor();
+	await first.waitForFunction(() => document.activeElement?.id === 'new-capture');
+	await first.getByLabel('Capture text').fill('Draft on a narrow screen');
+	await first.getByRole('button', { name: 'Cancel' }).click();
+	await first.getByRole('dialog').waitFor({ state: 'detached' });
+	await first.getByRole('button', { name: 'New capture' }).click();
+	assert.equal(await first.getByLabel('Capture text').inputValue(), 'Draft on a narrow screen');
+	await first.getByRole('button', { name: 'Cancel' }).click();
 	assert.deepEqual(errors, []);
 	console.log(
 		'Capture browser proof passed: rich clipboard with multiline text, bounded timeline preview, non-text paste, two replicas, local and peer-aware editor undo, ordering and concurrent reorder, independent edits, thought copy and deletion, moves, refreshed capture deletion, offline survival, and recovery.',
