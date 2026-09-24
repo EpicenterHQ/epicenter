@@ -79,56 +79,56 @@ This sample develops the unread-books alternatives discussed with Braden.
 The exchange is an illustration, not a record of work on a saved page. Its
 closing selection and synthesis are hypothetical.
 
-> **Human:** I like having books around even when I haven't read them.
-> Sometimes I see one and remember why I bought it. I don't need every book
-> to become homework.
+**Human:** I like having books around even when I haven't read them. Sometimes
+I see one and remember why I bought it. I don't need every book to become
+homework.
+
+**Agent:** The thought seems to be that an unread book can bring back your
+curiosity without becoming an obligation. One way to say it:
+
+> Sometimes I see a book on my shelf and remember what interested me. Before
+> I've even opened it, it's given me something: that little return of curiosity.
 >
-> **Agent:** The thought seems to be that an unread book can bring back your
-> curiosity without becoming an obligation. One way to say it:
+> I don't need every book to become homework.
+
+**Human:** The return of curiosity is right. But “it's given me something”
+makes it sound like I'm justifying owning the book.
+
+**Agent:** Keep the return of curiosity and leave out the defense of owning
+the book. There are a few different thoughts we could develop from there.
+
+**A: Seeing an unread book reminds me what made me curious about it**
+
+> Sometimes I see a book on my shelf and remember why I bought it. Oh right,
+> I wanted to know about that.
 >
->> Sometimes I see a book on my shelf and remember what interested me. Before
->> I've even opened it, it's given me something: that little return of curiosity.
->>
->> I don't need every book to become homework.
+> I don't need every book to become homework.
+
+**B: I enjoy having books around even when noticing them doesn't lead to reading them**
+
+> I like having books around even when I haven't read them. Every so often,
+> one catches my eye and I remember what interested me.
 >
-> **Human:** The return of curiosity is right. But “it's given me something”
-> makes it sound like I'm justifying owning the book.
+> Sometimes that's as far as it goes.
+
+**C: I can remain interested in a book without making plans to read it**
+
+> There are books on my shelf I still haven't read. I look at one and think,
+> I'm still curious about that.
 >
-> **Agent:** Keep the return of curiosity and leave out the defense of owning
-> the book. There are a few different thoughts we could develop from there.
+> I don't necessarily take it down.
+
+**Agent:** I'd start with A because it keeps your original moment of
+remembering most directly. C leaves more room for the interest to stay open.
+
+**Human:** A's voice, but C's ending. Show me that together.
+
+**Agent:** Keep the remembered thought, then let it end without taking action:
+
+> Sometimes I see a book on my shelf and remember why I bought it. Oh right,
+> I wanted to know about that.
 >
-> **A — Seeing an unread book reminds me what made me curious about it**
->
->> Sometimes I see a book on my shelf and remember why I bought it. Oh right,
->> I wanted to know about that.
->>
->> I don't need every book to become homework.
->
-> **B — I enjoy having books around, even when noticing them doesn't lead to reading them**
->
->> I like having books around even when I haven't read them. Every so often,
->> one catches my eye and I remember what interested me.
->>
->> Sometimes that's as far as it goes.
->
-> **C — I can remain interested in a book without making plans to read it**
->
->> There are books on my shelf I still haven't read. I look at one and think,
->> I'm still curious about that.
->>
->> I don't necessarily take it down.
->
-> **Agent:** I'd start with A because it keeps your original moment of
-> remembering most directly. C leaves more room for the interest to stay open.
->
-> **Human:** A's voice, but C's ending. Show me that together.
->
-> **Agent:** Keep the remembered thought, then let it end without taking action:
->
->> Sometimes I see a book on my shelf and remember why I bought it. Oh right,
->> I wanted to know about that.
->>
->> I don't necessarily take it down.
+> I don't necessarily take it down.
 
 The correction settles something about the model without selecting one
 expression. Each heading articulates a distinct direction in terms the user
@@ -136,7 +136,6 @@ can understand on its own; the passage beneath it shows how that direction
 could read. The later reaction calls for a synthesis rather than another menu.
 The same method can compare complete drafts when their development and endings
 matter; short passages suffice for this local choice.
-
 
 ## API design: make the caller's choices visible
 
@@ -255,82 +254,73 @@ For a question about ownership, a diagram could expose a relationship the code
 leaves implicit. Choose what makes this thought approachable; neither prose-only
 replies nor a diagram in every reply follows from this correction.
 
-## Agent skills: experience the behavior before encoding it
+## Agent skills: compare conversations before encoding behavior
 
-All exchanges below are invented samples. The services and their constraints
-are fictional; the outer reactions illustrate discovery, not recorded preferences.
+The two conversations below are invented outputs of alternative edits to an
+architecture-review skill. They hold the situation constant so the person can
+judge the difference in behavior. The services and constraints are fictional.
 
-> **Human:** The architecture-review skill gives me a huge analysis. It doesn't
-> feel like we're thinking together.
->
-> **Agent:** I'd have it offer a provisional recommendation and ask what could
-> change that judgment. Here's a sample of how the conversation might develop.
->
->> **Human:** I'm thinking about combining these two services.
->>
->> **Agent:** I'd lean toward combining them: they share a database, deploy
->> together, and most changes touch both. I'd preserve billing's write
->> restrictions behind an internal API. What prompted this now?
->>
->> **Human:** Yesterday a tiny change needed two deployments. But billing is
->> about to move to another team.
->>
->> **Agent:** Separate ownership could make independent deployment useful.
->> I'd check whether the new team needs to release billing without coordinating
->> with you before deciding to merge.
->>
->> **Human:** I don't know yet. I'm meeting them tomorrow.
->>
->> **Agent:** Find that out tomorrow, then we can decide whether merging is
->> still the right move.
->
-> **Human:** That starts well, and I like that it changes its mind. But now
-> it's handed the work back to me. I'd want help figuring out tomorrow's
-> conversation. Having an opinion and asking questions isn't quite enough.
->
-> **Agent:** The missing part is helping you act on the uncertainty. The skill
-> needs to carry the work forward even when it can't settle the original
-> decision. Here's that same situation with the consequence carried through.
->
->> **Human:** I'm thinking about combining these two services.
->>
->> **Agent:** I'd lean toward combining them: they share a database, deploy
->> together, and most changes touch both. I'd preserve billing's write
->> restrictions behind an internal API. What prompted this now?
->>
->> **Human:** Yesterday a tiny change needed two deployments. But billing is
->> about to move to another team.
->>
->> **Agent:** That makes me less certain. If the new team needs independent
->> releases, merging could create the coordination you're trying to remove.
->> Do you know what they'll own and release on their own?
->>
->> **Human:** I don't know yet. I'm meeting them tomorrow.
->>
->> **Agent:** I'd bring yesterday's change to that meeting and walk through
->> how it would work after the handoff: who changes the code, who approves it,
->> and who releases it. Ask them for a change they'd expect to ship without
->> you, too. Those two cases should show whether the service boundary helps
->> the teams work independently. If both still require joint releases, I'd
->> revisit merging; if billing can ship independently, I'd first fix the
->> deployment friction while keeping that boundary.
->
-> **Human:** Yes. That's more like thinking together. Update the skill.
->
-> **Agent:** I'll have it offer a grounded provisional judgment, revise that
-> judgment when the situation changes, and help make the next useful move
-> concrete when uncertainty prevents a decision. The meeting suggestion is
-> specific to this example; it doesn't need to become a required step.
+**Sample A: revise the opinion, then hand off the uncertainty**
 
-The later turns reveal something the initial articulation did not name:
-revising a recommendation can still leave the user carrying the unresolved
-work. Experiencing the conversation makes that omission available for judgment.
+> **Human:** I'm thinking about combining these two services.
+>
+> **Agent:** I'd lean toward combining them: they share a database, deploy
+> together, and most changes touch both. I'd preserve billing's write
+> restrictions behind an internal API. What prompted this now?
+>
+> **Human:** Yesterday a tiny change needed two deployments. But billing is
+> about to move to another team.
+>
+> **Agent:** Separate ownership could make independent deployment useful.
+> I'd check whether the new team needs to release billing without coordinating
+> with you before deciding to merge.
+>
+> **Human:** I don't know yet. I'm meeting them tomorrow.
+>
+> **Agent:** Find that out tomorrow, then we can decide whether merging is
+> still the right move.
 
+**Sample B: carry the uncertainty into the next useful move**
+
+> **Human:** I'm thinking about combining these two services.
+>
+> **Agent:** I'd lean toward combining them: they share a database, deploy
+> together, and most changes touch both. I'd preserve billing's write
+> restrictions behind an internal API. What prompted this now?
+>
+> **Human:** Yesterday a tiny change needed two deployments. But billing is
+> about to move to another team.
+>
+> **Agent:** That makes me less certain. If the new team needs independent
+> releases, merging could create the coordination you're trying to remove.
+> Do you know what they'll own and release on their own?
+>
+> **Human:** I don't know yet. I'm meeting them tomorrow.
+>
+> **Agent:** Bring yesterday's change to that meeting and walk through who
+> would change the code, approve it, and release it after the handoff. Ask for
+> a change the new team expects to ship without you. If both still need joint
+> releases, revisit combining the services. If billing can ship independently,
+> fix the deployment friction while keeping the boundary.
+
+The person can now react to the outputs rather than guess what either skill
+instruction would produce. For example, this reaction would give the edit its
+direction:
+
+> **Human:** Keep the direct opening in both. B helps me prepare for the
+> meeting; A leaves that work to me. Don't make every review suggest a meeting.
+>
+> **Agent:** Then the skill should offer a grounded provisional judgment,
+> revise it when the situation changes, and make the next useful move concrete
+> when uncertainty blocks a decision. The meeting is one expression of that
+> behavior, not a required step.
+
+Only after seeing that reaction does the agent encode the behavior in the
+skill. A different reaction could change the model instead of selecting B.
 
 ## Blog writing: compare the rendered openings
 
-This illustrative exchange draws on the blog-opening comparison discussed in
-conversation `01a0c8c6-13fa-7903-9877-946764e5e8d3`. The proposed follow-up
+This illustrative exchange compares three blog openings. The proposed follow-up
 reaction is hypothetical. The italicized actions stand in for screenshots;
 in live work, render and show the actual images.
 

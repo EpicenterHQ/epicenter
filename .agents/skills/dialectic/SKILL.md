@@ -54,8 +54,9 @@ does not establish that an implementation produces it.
 
 Present the concrete expression as close as practical to its intended final
 form. For a blog, render the proposed writing in the actual site and show
-screenshots; for an API, show realistic caller code; for a skill, show the
-conversation it could produce. Use a simpler representation when it is
+screenshots; for an API, show realistic caller code; for an agent skill,
+compare conversations it could produce before deriving instructions from the
+person's reaction. Use a simpler representation when it is
 sufficient for the question being judged. Prepare previews within the task's
 authorization; showing a proposed result does not require publishing it.
 
