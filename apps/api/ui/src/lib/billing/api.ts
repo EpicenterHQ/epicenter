@@ -148,6 +148,9 @@ export function createBillingApi(account: Account) {
 				params,
 			),
 
-		portal: (returnUrl: string) => get<PortalSession>(`/api/billing/portal?${new URLSearchParams({ returnUrl })}`),
+		portal: (returnUrl: string) =>
+			get<PortalSession>(
+				`/api/billing/portal?${new URLSearchParams({ returnUrl })}`,
+			),
 	};
 }

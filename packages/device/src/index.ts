@@ -1,5 +1,7 @@
 import type { QueryOptions, QueryResult } from './query.js';
+
 export type { QueryOptions, QueryResult, QueryValue } from './query.js';
+
 /**
  * Runtime-owned SQLite files and application secrets.
  * SQLite lifetimes and secrets are scoped by application id and captured account. Closing a lifetime releases connections and preserves

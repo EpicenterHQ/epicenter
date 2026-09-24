@@ -5,6 +5,7 @@
 import { tryAsync } from 'wellcrafted/result';
 import { StoreError } from './errors.js';
 import {
+	type BrowserDurableSchema,
 	createIdbUpdates,
 	type IdbRealm,
 	idbRequest,

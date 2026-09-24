@@ -2,10 +2,10 @@
  * Production self-host Worker operator RPC, HTTP ceremonies, and /api/session.
  * Real passkey proofs bind browser cookies, admission and independent client handoff.
  */
-import { env, SELF, evictDurableObject } from 'cloudflare:test';
+import { env, evictDurableObject, SELF } from 'cloudflare:test';
 import { expect, test } from 'vitest';
-import type { SelfHostAuthOwner } from '../../src/self-host-auth/worker.js';
 import type { SelfHostOperator } from '../../../../apps/self-host/worker/operator.js';
+import type { SelfHostAuthOwner } from '../../src/self-host-auth/worker.js';
 import { createAuthenticator } from './authenticator.js';
 
 declare global {
