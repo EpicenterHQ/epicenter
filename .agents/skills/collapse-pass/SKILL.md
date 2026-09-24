@@ -10,7 +10,7 @@ metadata:
 
 A collapse pass is a session-long sequence of small commits that each delete one piece of indirection. Every commit must shrink the public surface, the file count, the call-graph depth, or the first-read effort. If a commit moves none of those needles, revert it and find a deeper smell.
 
-> **Related skills**: [code-audit](../code-audit/SKILL.md) lists the codebase-specific smell categories with grep patterns. [refactoring](../refactoring/SKILL.md) owns the per-change mechanics (caller counting, inlining, surgical commits). [one-sentence-test](../one-sentence-test/SKILL.md) is the cohesion gate for each candidate file. [greenfield-clean-breaks](../greenfield-clean-breaks/SKILL.md) covers the deeper redesigns when a collapse won't fit in one commit. [post-implementation-review](../post-implementation-review/SKILL.md) is the second-read protocol after each commit, and its first-read pass checks the diff from a stranger's perspective.
+> **Related skills**: [code-audit](../code-audit/SKILL.md) lists the codebase-specific smell categories with grep patterns. [refactoring](../refactoring/SKILL.md) owns the per-change mechanics (caller counting, inlining, surgical commits). [one-sentence-test](../one-sentence-test/SKILL.md) is the cohesion gate for each candidate file. [rethink](../rethink/SKILL.md) covers the deeper redesigns when a collapse won't fit in one commit. [post-implementation-review](../post-implementation-review/SKILL.md) is the second-read protocol after each commit, and its first-read pass checks the diff from a stranger's perspective.
 
 ## References
 
