@@ -10,10 +10,10 @@ outcome a durable continuation. A task and an outcome have separate lifecycles:
 one outcome may span several tasks, and one task may contain several outcomes.
 Archiving is reversible; it does not delete the task.
 
-The archive proposal is the unit of work. It must let the user judge the exact
-tasks and any preservation changes without reopening the source conversations.
-Keep supporting evidence in the cleanup checkpoint, where the next pass can
-resume it.
+For each task in an archive proposal, ask: can the user stop paying attention
+to it without losing work they still want? The answer must be clear without
+opening the source conversation. Keep the fuller inventory and supporting
+evidence in the cleanup checkpoint, where the next pass can resume it.
 
 ## Gather evidence in bounded batches
 
@@ -46,7 +46,8 @@ small batch needs no delegation.
 First decide whether work must continue in this task. Keep active implementation
 and conversations the user expects to resume there. A dirty worktree alone does
 not keep a task active; archiving never authorizes discarding its worktree,
-edits, or branch.
+edits, or branch. Git status informs preservation; it does not decide whether
+the conversation still needs attention.
 
 For a task that no longer needs attention, account for every remaining outcome:
 
@@ -76,18 +77,22 @@ close once their results and any remaining integration work are accounted for.
 
 ## Propose a decision the user can make
 
-Lead with the recommended batch. Group exact IDs by reason, then give only
-consequential exceptions their own short explanation. For each preservation
-change, show the proposed outcome and its destination. Explain uncertain cases
-with enough context, consequence, and recommendation that the user can answer
-without reading the source task. Use bullets or a compact diagram when they
-make the choice easier to see; do not hand over an audit table or an unexplained
-label. Ask only questions whose answers change the proposed action.
+Lead with the scope and recommended batch in ordinary language. When confusion
+is possible, say that archiving changes the Codex task list, not the files or
+worktree. For each proposed archive, explain what the task settled and where
+any still-wanted work will continue. For a task that must stay active or has
+unclear intent, explain the specific reason and the decision that would change
+it. Give only the detail needed to test those claims without opening the source
+task. A simple closure may take one sentence; a task with several outcomes may
+need more. Group tasks only when they truly share a reason. Keep inventories,
+counts, and raw evidence in the checkpoint rather than making the user read an
+audit report. Ask only questions whose answers change the proposed action.
 
-Show the exact archive IDs and proposed backlog edits before requesting
-approval when approval is required. An audit request alone is not permission
-to archive. Honor the user's standing approval preferences. Approval for one
-batch does not authorize the next batch.
+After the readable judgments, show the exact archive IDs and proposed backlog
+edits as execution details before requesting approval when approval is
+required. An audit request alone is not permission to archive. Honor the user's
+standing approval preferences. Approval for one batch does not authorize the
+next batch.
 
 ## Execute and close
 
