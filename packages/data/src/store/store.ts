@@ -580,7 +580,10 @@ function createStoreEngine({
 		// per-table `'delta'` attach used to buy: a commit of 2,000 rows in an
 		// application that watches no table should walk nothing and allocate
 		// nothing. `subscribe` prunes its own entry so this stays true.
-		if (tableListeners.size === 0) return deliverTypes(transaction);
+		if (tableListeners.size === 0) {
+			deliverTypes(transaction);
+			return;
+		}
 		const roots = new Set<Y.Type>();
 		for (const type of transaction.changed.keys()) {
 			if (tableListeners.has(type)) {
