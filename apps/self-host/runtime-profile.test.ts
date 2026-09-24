@@ -15,8 +15,8 @@
  * when unconfigured); an unmounted one answers Hono's 404. Every probe carries a
  * bearer so the `/api/*` CSRF gate is skipped, otherwise an unmounted mutating
  * path would 403 before it could 404. Nothing here asserts a status code beyond
- * that: authorization, metering, and payload behavior are each surface's own
- * tests in `packages/server`.
+ * that. A separate test below verifies the instance token and partition at
+ * the store boundary; shared transport tests cover payload and socket behavior.
  */
 
 import { expect, mock, test } from 'bun:test';
@@ -87,6 +87,38 @@ const PROFILE: Surface[] = [
 		url: API_ROUTES.blobs.byId.url(ORIGIN, PROBE_BLOB_ID),
 		worker: 'served',
 		bun: 'served',
+	},
+	{
+		surface: 'store sync',
+		method: 'GET',
+		url: `${ORIGIN}/api/store/v1/sync`,
+		worker: 'served',
+		bun: 'absent',
+		why: 'The Worker reuses the shared Durable Object backend; no Bun store backend exists.',
+	},
+	{
+		surface: 'generations list',
+		method: 'GET',
+		url: `${ORIGIN}/api/data/v1/test.notes/generations`,
+		worker: 'served',
+		bun: 'absent',
+		why: 'The Worker reuses the shared Durable Object backend; no Bun store backend exists.',
+	},
+	{
+		surface: 'generations import',
+		method: 'POST',
+		url: `${ORIGIN}/api/data/v1/test.notes/generations`,
+		worker: 'served',
+		bun: 'absent',
+		why: 'The Worker reuses the shared Durable Object backend; no Bun store backend exists.',
+	},
+	{
+		surface: 'generation bootstrap',
+		method: 'GET',
+		url: `${ORIGIN}/api/data/v1/test.notes/generations/1`,
+		worker: 'served',
+		bun: 'absent',
+		why: 'The Worker reuses the shared Durable Object backend; no Bun store backend exists.',
 	},
 	{
 		surface: 'mountCloudAuth',
@@ -218,4 +250,84 @@ test('an unmounted path reads as absent on both runtimes', async () => {
 		);
 		expect(response.status).toBe(404);
 	}
+});
+
+test('store routes verify the current operator token before addressing the instance backend', async () => {
+	const { default: app } = await import('./worker/index.js');
+	const addressed: string[] = [];
+	const env = {
+		API_PUBLIC_ORIGIN: ORIGIN,
+		INSTANCE_TOKEN,
+		GENERATIONS_LEDGER: {
+			idFromName(name: string) {
+				addressed.push(name);
+				return name;
+			},
+			get() {
+				return { list: () => [1] };
+			},
+		},
+	};
+	const request = (token: string) =>
+		new Request(
+			`${ORIGIN}/api/data/v1/test.notes/generations?principalId=somebody-else`,
+			{ headers: { authorization: `Bearer ${token}` } },
+		);
+	for (const token of ['', 'wrong-token']) {
+		expect((await app.fetch(request(token), env as never)).status).toBe(401);
+	}
+	expect(addressed).toEqual([]);
+	const response = await app.fetch(request(INSTANCE_TOKEN), env as never);
+	expect(response.status).toBe(200);
+	expect(await response.json()).toEqual({ generations: [1] });
+	expect(addressed).toEqual(['principals/instance/data/test.notes']);
+	env.INSTANCE_TOKEN = `rotated-${'x9Qk7Pm2'.repeat(5)}`;
+	expect((await app.fetch(request(INSTANCE_TOKEN), env as never)).status).toBe(
+		401,
+	);
+	expect(addressed).toHaveLength(1);
+	expect(
+		(await app.fetch(request(env.INSTANCE_TOKEN), env as never)).status,
+	).toBe(200);
+});
+
+test('store upgrades use the subprotocol bearer and address only the instance authority', async () => {
+	const { default: app } = await import('./worker/index.js');
+	const addressed: string[] = [];
+	const env = {
+		API_PUBLIC_ORIGIN: ORIGIN,
+		INSTANCE_TOKEN,
+		STORE_AUTHORITY: {
+			idFromName(name: string) {
+				addressed.push(name);
+				return name;
+			},
+			get() {
+				return {
+					fetch: () => new Response('authority reached', { status: 418 }),
+				};
+			},
+		},
+	};
+	for (const [token, status] of [
+		['invalid', 401],
+		[INSTANCE_TOKEN, 418],
+	] as const) {
+		const response = await app.fetch(
+			new Request(
+				`${ORIGIN}/api/store/v1/sync?dataId=test.notes&generation=2&principalId=other`,
+				{
+					headers: {
+						upgrade: 'websocket',
+						'sec-websocket-protocol': `epicenter, bearer.${token}`,
+					},
+				},
+			),
+			env as never,
+		);
+		expect(response.status).toBe(status);
+	}
+	expect(addressed).toEqual([
+		'principals/instance/data/test.notes/generations/2',
+	]);
 });

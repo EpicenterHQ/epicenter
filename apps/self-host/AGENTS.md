@@ -1,10 +1,10 @@
 # apps/self-host
 
-Reference single-partition **instance** (ADR-0075, amended by ADR-0092): one operator-supplied bearer (`INSTANCE_TOKEN`), one literal `instance` principal, one `principals/instance` partition. Composes `@epicenter/server` with `createEnvTokenResolver(token)` and `requireBearerPrincipal`. Two runtimes use one set of library surfaces: an off-Cloudflare Bun entry (`server.ts`, blessed) and a Cloudflare Worker (`worker/index.ts`). They authenticate identically because the operator supplies the secret either way, and `runtime-profile.test.ts` keeps their surfaces in parity. "Solo" vs "shared" is only how many people hold the token, never a mode.
+Reference single-partition **instance** (ADR-0075, amended by ADR-0092): one operator-supplied bearer (`INSTANCE_TOKEN`), one literal `instance` principal, one `principals/instance` partition. Composes `@epicenter/server` with `createEnvTokenResolver(token)` and `requireBearerPrincipal`. The Bun entry and Cloudflare Worker authenticate with the same token. The Worker also mounts Durable Object store sync; `runtime-profile.test.ts` records this difference. "Solo" vs "shared" is only how many people hold the token, never a mode.
 
-Not operated by Epicenter; framed as a community-supported starting point. Keep the worker entry small (~30 lines) so it stays readable as a reference.
+Not operated by Epicenter; framed as a community-supported starting point. Keep the worker entry readable as a reference.
 
-Multi-tenancy (many principals, OAuth, billing) is Epicenter Cloud's only (`apps/api`); an instance never grows a mode, an allowlist, OAuth, sessions, first-boot minting, Better Auth, or a database. The relational-auth substrate (Better Auth + Postgres) is Cloud-only (ADR-0076): the instance composes neither, so it provisions nothing but the token. Named per-person tokens are a deliberately-unbuilt seam (a hashed registry behind the same verifier, resolving to the same `instance` principal); build it only on real offboarding pain, never speculatively.
+Multi-tenancy (many principals, OAuth, billing) is Epicenter Cloud's only (`apps/api`); an instance never grows a mode, an allowlist, OAuth, sessions, first-boot minting, or Better Auth. The relational-auth substrate (Better Auth + Postgres) is Cloud-only (ADR-0076). The Worker provisions its own store authority and generation ledger as Durable Objects. Named per-person tokens are a deliberately-unbuilt seam (a hashed registry behind the same verifier, resolving to the same `instance` principal); build it only on real offboarding pain, never speculatively.
 
 ## Hard constraints
 
@@ -19,4 +19,4 @@ Multi-tenancy (many principals, OAuth, billing) is Epicenter Cloud's only (`apps
 
 - Changes to composition primitives (`mount*`, `mountCloudAuth`, auth resolvers) live in `packages/server`, not here.
 - Updates to the deployment trust model live in `docs/trust-model.md` and `apps/api/README.md`.
-- For deployment configuration, treat the wrangler bindings as user-customized; do not commit a working set of bindings.
+- For deployment configuration, keep the reference Worker bindings in `wrangler.jsonc`; do not commit deployment-specific origins or secrets.

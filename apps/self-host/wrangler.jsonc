@@ -9,7 +9,7 @@
 	// --- Deployment-owned vars ---
 	"vars": {
 		// API_PUBLIC_ORIGIN: this instance's public origin. Self-hosters set
-		// their own domain here; it is the token audience and Better Auth baseURL.
+		// their own domain here; clients use it as their server address.
 		"API_PUBLIC_ORIGIN": "https://instance.example.com",
 		// Comma-separated exact origins of separately hosted browser clients.
 		// Leave empty when clients are same-origin or Tauri.
@@ -35,11 +35,21 @@
 	// omit it and that provider returns 503 ProviderNotConfigured. House-key-only
 	// (ADR-0054): a member who wants their own key points their client at a custom
 	// backend instead.
+	// Class bindings create this deployment's own opaque store backend. No
+	// hosted namespace IDs or external services are needed.
+	"durable_objects": {
+		"bindings": [
+			{ "name": "STORE_AUTHORITY", "class_name": "StoreAuthority" },
+			{ "name": "GENERATIONS_LEDGER", "class_name": "GenerationsLedger" }
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["StoreAuthority", "GenerationsLedger"]
+		}
+	],
 	"secrets": {
 		"required": ["INSTANCE_TOKEN"]
 	}
-
-	// No Hyperdrive or Durable Object bindings: the instance composes no Postgres
-	// and no store sync today. It serves session, inference, transcription, and
-	// blobs; two devices do not converge through this reference Worker.
 }

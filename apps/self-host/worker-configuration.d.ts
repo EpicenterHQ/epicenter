@@ -28,6 +28,12 @@ declare namespace Cloudflare {
 		API_PUBLIC_ORIGIN: string;
 		TRUSTED_BROWSER_ORIGINS: string;
 		INSTANCE_TOKEN: string;
+		STORE_AUTHORITY: DurableObjectNamespace<
+			import('@epicenter/server').StoreAuthority
+		>;
+		GENERATIONS_LEDGER: DurableObjectNamespace<
+			import('@epicenter/server').GenerationsLedger
+		>;
 	}
 }
 
