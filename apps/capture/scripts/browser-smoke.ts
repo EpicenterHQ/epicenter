@@ -267,7 +267,7 @@ try {
 		() =>
 			(
 				document.querySelector(
-					'[aria-label="Thoughts"] article:nth-child(2) [aria-label="Thought text"]',
+					'[aria-label="Thoughts"] li:nth-child(2) [aria-label="Thought text"]',
 				) as HTMLElement
 			)?.innerText === 'A question for next time',
 	);
@@ -292,7 +292,7 @@ try {
 		() =>
 			(
 				document.querySelector(
-					'[aria-label="Thoughts"] article:first-child [aria-label="Thought text"]',
+					'[aria-label="Thoughts"] li:first-child [aria-label="Thought text"]',
 				) as HTMLElement
 			)?.innerText === 'Owning the outcome, edited independently',
 	);

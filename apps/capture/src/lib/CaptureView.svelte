@@ -176,7 +176,7 @@
 
 <header class="border-b border-border/70">
   <div class="mx-auto flex h-16 max-w-3xl items-center justify-between gap-4 px-5 sm:px-8">
-    <button type="button" class="-ml-2 flex min-h-10 items-center rounded-sm px-2 text-base font-semibold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" onclick={() => open(null)}>Capture</button>
+    <Button variant="ghost" size="sm" class="-ml-3 min-h-10 text-base font-semibold tracking-tight" onclick={() => open(null)}>Capture</Button>
     <div class="flex items-center gap-3 sm:gap-5">
       <span role="status" class="text-xs text-muted-foreground">
         {saveStatus === 'saved' ? 'Saved on this device' : saveStatus === 'pending' ? 'Saving…' : 'Save blocked'}
@@ -252,14 +252,18 @@
         <Textarea id="new-thought" bind:value={() => draft, setDraft} rows={3} placeholder="Write a line or paragraph…" />
         <Button type="submit" size="sm" class="self-end">Add thought</Button>
       </form>
-      <div aria-label="Thoughts" class="border-t border-border">
-        {#each selectedThoughts as thought, index (thought.id)}
-          <ThoughtItem {store} {thought} captures={view.captures}
-            canMoveUp={index > 0} canMoveDown={index < selectedThoughts.length - 1} />
-        {:else}
-          <p class="py-5 text-sm text-muted-foreground">Thoughts you add will stay with this capture.</p>
-        {/each}
-      </div>
+      {#if selectedThoughts.length}
+        <ol aria-label="Thoughts" class="list-decimal border-t border-border pl-6 marker:text-sm marker:text-muted-foreground">
+          {#each selectedThoughts as thought, index (thought.id)}
+            <li class="pl-1">
+              <ThoughtItem {store} {thought} captures={view.captures}
+                canMoveUp={index > 0} canMoveDown={index < selectedThoughts.length - 1} />
+            </li>
+          {/each}
+        </ol>
+      {:else}
+        <p class="border-t border-border py-5 text-sm text-muted-foreground">Thoughts you add will stay with this capture.</p>
+      {/if}
     </section>
   {:else}
     <h1 class="mb-8 text-3xl font-semibold tracking-tight">Timeline</h1>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { CaptureData } from '@epicenter/capture';
   import { fromSubscription } from '@epicenter/svelte';
+  import { Button } from '@epicenter/ui/button';
 
   let { store, entry }: {
     store: CaptureData; entry: CaptureData['tables']['entries']['rows'][number];
@@ -27,6 +28,6 @@
   <time class="text-xs text-muted-foreground" datetime={entry.capturedAt}>{new Date(entry.capturedAt).toLocaleString()}</time>
   {#if entry.parentId}<p class="text-xs text-muted-foreground">Earlier parent: {entry.parentId}</p>{/if}
   <p class="my-2 whitespace-pre-wrap">{text.current || 'Empty entry'}</p>
-  <button type="button" class="text-sm underline" onclick={copy}>{copied ? 'Copied' : 'Copy text'}</button>
+  <Button variant="outline" size="sm" class="mt-3" onclick={copy}>{copied ? 'Copied' : 'Copy text'}</Button>
   {#if copyError}<p role="alert" class="text-sm">Copy failed. Select the text above to copy it.</p>{/if}
 </article>
