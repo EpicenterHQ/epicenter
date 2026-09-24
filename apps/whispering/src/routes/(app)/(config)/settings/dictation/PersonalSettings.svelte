@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { getPersonal } from '$lib/whispering/personal.js';
-	const personal = getPersonal();
+	import type { PersonalStore } from '$lib/whispering/personal.js';
+	let { personal }: { personal: PersonalStore } = $props();
 	import { PERSONAL_DEFAULTS } from '$lib/operations/settings.js';
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';

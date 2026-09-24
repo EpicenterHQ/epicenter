@@ -1,16 +1,15 @@
-/**
- * AppBoot owns acquisition beneath the working route. Callback routes and their
- * ancestors never import the bootstrap or acquire an App. WhisperingShell passes the opened App
- * to its UI session and operations.
- */
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const appRoot = fileURLToPath(new URL('../..', import.meta.url));
-const routes = join(appRoot, 'src/routes');
-const callback = join(routes, 'auth/callback/+page.svelte');
+const routes = fileURLToPath(new URL('../routes', import.meta.url));
+const workingLayout = join(routes, '(app)/+layout.svelte');
+const resourceFreePages = [
+	join(routes, 'auth/callback/+page.svelte'),
+	join(routes, 'auth/signout/+page.svelte'),
+	join(routes, 'recovery/+page.svelte'),
+];
 
 function ancestorLayouts(page: string): string[] {
 	const found: string[] = [];
@@ -25,43 +24,25 @@ function ancestorLayouts(page: string): string[] {
 	return found;
 }
 
-describe('the callback opens nothing', () => {
-	test('the callback page exists and has at least one ancestor layout', () => {
-		expect(existsSync(callback)).toBe(true);
-		expect(ancestorLayouts(callback).length).toBeGreaterThan(0);
-	});
-
-	test('callback and ancestor layouts never import the bootstrap or open a library', async () => {
-		for (const file of [callback, ...ancestorLayouts(callback)]) {
-			const source = await Bun.file(file).text();
-			expect(source).not.toMatch(
-				/(?:\$lib\/|\.\/|\.\.\/)(?:application|bootstrap)(?:\.js)?['"]/,
-			);
-			expect(source).not.toMatch(/openApplication\s*\(|<AppBoot\b/);
-			expect(source).not.toMatch(/\bopenApp\s*\(/);
-			expect(source).not.toContain('WhisperingShell.svelte');
-		}
-	});
-
-	test('the page delegates acquisition to its mounted AppBoot', async () => {
-		const bootNode = join(routes, '(app)/+layout.svelte');
-		const source = await Bun.file(bootNode).text();
-		expect(source).toContain(
-			'openWhisperingResources(account, signal)',
-		);
+describe('Whispering page ownership', () => {
+	test('only the working layout opens primary resources', async () => {
+		const source = await Bun.file(workingLayout).text();
+		expect(source).toContain('openWhisperingResources(account, startup.signal)');
 		expect(source).toContain('<WhisperingShell ');
-		expect(source).not.toMatch(/openApplication|createDeparture|attachUi/);
-		expect(source).not.toContain('showing');
-		expect(ancestorLayouts(callback)).not.toContain(bootNode);
+		expect(source).toContain("window.addEventListener('pagehide', stop)");
 	});
 
-	test('the shell consumes the opened library without importing its bootstrap', async () => {
-		const source = await Bun.file(
-			join(routes, '(app)/_components/WhisperingShell.svelte'),
-		).text();
-		expect(source).not.toMatch(/openApplication/);
-		expect(source).not.toMatch(/openApplication\s*\(|<AppBoot\b/);
-		expect(source).not.toMatch(/\bopenApp\s*\(/);
-		expect(source).toContain('= $props()');
+	test('callback, sign-out, and recovery are outside the working layout', async () => {
+		for (const page of resourceFreePages) {
+			expect(existsSync(page)).toBe(true);
+			const files = [page, ...ancestorLayouts(page)];
+			expect(files).not.toContain(workingLayout);
+			for (const file of files) {
+				const source = await Bun.file(file).text();
+				expect(source).not.toContain('openWhisperingResources');
+				expect(source).not.toContain('openLocalStore');
+				expect(source).not.toContain('WhisperingShell.svelte');
+			}
+		}
 	});
 });

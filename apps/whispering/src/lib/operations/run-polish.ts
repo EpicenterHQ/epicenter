@@ -74,7 +74,7 @@ export async function runPolish(
 	if (!polishWillRun(app, input)) return Ok(input);
 
 	const ready = await tryAsync({
-		try: () => app.personalReady,
+		try: async () => await app.personalReady,
 		catch: (cause) =>
 			RunPolishError.PolishFailed({
 				message: extractErrorMessage(cause),

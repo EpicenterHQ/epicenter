@@ -3,195 +3,62 @@
 - **Status:** Proposed
 - **Date:** 2026-09-12
 - **Amends:** [ADR-0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) at one-library opening and [ADR-0355](0355-local-and-account-sessions-share-the-application-data-api.md) at destination selection: products acquire concrete handles while store operations retain their common contract.
-- **Amends:** [ADR-0413](0413-app-boot-owns-the-working-page-lifetime.md) at UI distribution: ready shared handles use typed Svelte context rather than an intact App passed through descendants; the browser/WebView still owns the working lifetime.
-- **Unbuilt:** Independent local readiness, required personal contexts, named get/set accessors, and migration of Whispering consumers away from the optional-personal App facade.
+- **Amends:** [ADR-0413](0413-app-boot-owns-the-working-page-lifetime.md) at UI distribution: a required resource gates its working UI; an independent resource gates only its consumers. Ready handles can pass through props or typed Svelte context. The browser/WebView still owns the working lifetime.
+- **Unbuilt:** Local still reaches routed consumers through a mutable module binding. Moving its ready distribution into a layout context remains open.
 
 ## Context
 
-Whispering's `openWhisperingResources` returns Local, optional Personal, blobs,
-recording, and inference access. `WhisperingShell` supplies a context containing
-the broad App. A dictionary editor still writes through `app.personal?.kv`,
-and unrelated local startup waits for Personal acquisition when signed in.
+Whispering needs its Local recording store before the working shell can create a recorder or read device settings. Its Personal speech profile can open later. Waiting for Personal at the root would stop Local recording when an account store is slow or unavailable. Giving every descendant a pending or optional handle would instead make each editor repeat readiness and sign-in policy.
 
-Exporting a live `app` promise would make acquisition an import side effect.
-Passing required handles through every component would expose dependencies in
-props, but repeat the same types and forwarding through routed UI. The useful
-boundary is readiness: a personal editor can mount only after its store opens.
+Whispering's two Personal editors sit immediately beneath their readiness branches. They receive the ready handle by prop, while Local still reaches many consumers through a once-initialized module binding. Store readiness and distributing a ready handle are separate decisions.
 
 ## Decision
 
-**A mounted product boundary acquires handles and renders each consumer only when its required handles are ready.**
+**The mounted working layout gates only the resources required by the whole working UI.**
 
-Store opening uses `openLocal(definition)` and
-`openPersonal(definition, { account })`. Capability constructors use their own
-required inputs. Each store supplies its required `.blobs` capability; the
-boundary does not open or close blobs separately. The target resource API is described in
-[ADR-0423](0423-app-resources-open-as-independent-handles.md); inference and saved
-catalogs have separate constructors in
-[ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md).
+Whispering opens Local, including its required migration, before mounting the working shell. The shell may publish the ready Local handle through typed context when routed descendants need it. Local opening failure renders the root opening failure; it does not mount a recorder over partially prepared history. The working layout starts acquisition, not an import of a store definition or resource module. Callback, sign-out, recovery, and auxiliary routes do not acquire the primary roots. Browser sign-in can start in the working page because the next Account is installed only in the callback page; departure fences work and replaces the document.
 
-A personal-dependent branch receives a definite Account and awaits
-`openPersonal(definition, { account })` before mounting its ready children.
-Its personal handle is required. Sign-in presentation, loading, and opening
-failure belong to that boundary. A definite Account does not require successful
-fresh network verification; cached offline access remains possible.
+**An independent resource gates the smallest UI branch that needs it.**
 
-The mounted working layout starts acquisition once for its browser/WebView
-lifetime. A product may factor composition into an async function, named for
-the product, such as `openWhispering`. That is an application helper, not a new
-SDK App owner. Neither `export const app = openWhispering()` nor eager exports
-of individual live handles establish the owner. Module imports acquire nothing.
-
-**Shared application handles use typed Svelte context with `get*` and `set*` accessors.**
-
-Name the store handles `local` and `personal`. Name a workflow's concrete selected
-destination `store`. `remote` describes remote blob access, not an account store
-that also works offline. No separate data-selection handle or primitive is introduced.
-This vocabulary change does not rename existing durable keys.
-
-The target context shape is:
-
-```ts
-// Product context module. Types derive from the concrete opened/adapted handles.
-export const [getLocal, setLocal] = createContext<LocalData>();
-export const [getPersonal, setPersonal] = createContext<PersonalData>();
-export const [getStore, setStore] = createContext<RecordingStore>();
-export const [getRecorder, setRecorder] = createContext<Recorder>();
-```
-
-These are target application declarations, not existing exports. Add contexts
-for capabilities actual consumers share; do not mirror every constructor in a
-registry. Do not add `usePersonal` or `providePersonal` aliases.
-
-The ready shell publishes each shared handle synchronously during component
-initialization. Descendants call `getPersonal()` during their own initialization
-and receive the handle, not an optional value, promise, or readiness controller.
-An existing shell can provide context; a separate provider component earns its
-place only when it establishes a needed initialization/readiness boundary.
+Whispering starts Personal opening for the captured Account without making Local wait for it. Its settings page renders Local controls while the Personal section waits. A pending Personal section shows loading; a signed-out section shows sign-in; a failed Personal opening shows failure. A ready section receives a definite reactive handle. Svelte's `{#await}` and `{:then}` express these branches directly. An absent opening may be `undefined`: Svelte renders a non-Promise through `{:then}` immediately. A signed-in opening failure remains a rejected promise, never an empty Personal store.
 
 ```svelte
-<!-- Ready shell: personal is a required, resolved prop. -->
-<script lang="ts">
-  setPersonal(fromData(personal));
-</script>
+<DeviceCleanupSettings />
+
+{#await app.personalReady}
+	<p role="status">Opening your speech profile…</p>
+{:then personal}
+	{#if personal}
+		<PersonalSettings {personal} />
+	{:else}
+		<p>Sign in to use your speech profile.</p>
+	{/if}
+{:catch error}
+	<p role="alert">Your speech profile could not open.</p>
+{/await}
 ```
 
-```svelte
-<!-- A descendant mounted inside that ready branch. -->
-<script lang="ts">
-  const personal = getPersonal();
-  const dictionary = $derived(personal.kv.get('dictionary') ?? []);
-</script>
-```
+The opened store is adapted once for reactive Svelte reads. Workflows capture the same opening promise when they need Personal inputs; a delayed opening delays those inputs, while a rejected opening prevents silent use of signed-out defaults. Account replacement retires the working page rather than retargeting the handle.
 
-The snippets isolate the context calls; imports and prop declarations are
-omitted. `fromData` makes store reads reactive. Context only distributes the
-result. Passing the same adapted handle through a prop would preserve reactivity.
-Props remain appropriate for component-specific values and callbacks, and for
-supplying the required handle to its ready shell.
+**Use context when it removes real forwarding, and props when the ready consumer is nearby.**
 
-Calling a context getter outside its provider is a programming error. Typed
-context does not statically prove component placement. Unlike optional handle
-checks, a missing provider must fail visibly rather than disable a write silently.
-Do not call context getters from ordinary operation modules or event callbacks;
-capture the dependency during component initialization and pass it explicitly.
+The Local working shell can provide a required Local handle to many routed descendants. The two Personal controls can take the definite handle as a prop from their immediate `{:then}` branches. A provider may still earn its place for a later Personal subtree with many consumers and intervening components; it is not required by async readiness itself. Do not add a generic component with loading, ready, and error snippets solely to repeat `{#await}`. A shared boundary earns a component when it owns additional policy that several callers actually need.
 
-**Local readiness and account readiness are independent of the selected recording destination.**
-
-A route that supports Local without sign-in receives Local. A route that works
-with either store receives the concrete selected store. It does not rediscover
-its destination from ambient auth. URL changes, local recording policy, and
-copying into Personal remain product decisions; this record does not prescribe
-new `/local` or `/personal` routes.
-
-A signed-in person can record into Local and use personal dictionary, prompt,
-recipes, and account-backed inference. Do not equate Local selection with being
-signed out. Personal acquisition must not gate local capture or playback.
-Selecting Personal as the recording destination does require its readiness;
-failure must never silently send that recording to Local.
-
-```text
-Working browser/WebView: captured account context and departure fence
-|-- Local (tables, KV, blobs) -> recorder -> local recording readiness
-|-- Account -> Personal (tables, KV, remote blobs) -> personal-dependent ready UI
-`-- Inference -> its own feature readiness
-
-Recording operation -> fixed selected store + blobs + captured inputs + signal
-```
-
-This is a dependency graph, not a component hierarchy. Personal becoming ready
-must not remount an active local recording workflow. Built-in recipes and local
-controls remain available without a Personal store. Missing settings inside a
-ready store still need their ordinary value defaults.
-
-A failed or pending personal open is not an empty dictionary. A workflow that
-needs personal inputs waits for their readiness or reports that feature
-unavailable while preserving saved audio. Do not silently replace account
-customization with defaults. Signed-out built-in behavior remains available.
-
-Account-backed inference remains separate from Personal data and can open
-without a synchronized document. Remote blobs belong to `personal.blobs` and
-require that store to open. Required
-handles eliminate account-presence branches inside consumers, not network
-failures, account retirement, or resource closure.
-
-UI context distributes borrowed capabilities. The product composition owns
-acquisition; a component does not close a shared root merely because it unmounts.
-The browser/WebView ownership policy and operation cancellation remain explicit.
-Context and `{#await}` do not cancel work, close resources, prove a save, or
-invalidate a retained handle. Account replacement retires the existing working
-lifetime rather than replacing a value inside its context.
-
-Account retirement itself fences network authority, not the cached Personal
-store. The product working-lifetime owner closes or replaces Personal on
-departure. An outage or sign-out does not invalidate its document generation
-or delete pending edits. Retained handles never adopt a successor account.
-
-In SvelteKit, acquire these client/Tauri resources in the admitted working
-`+layout.svelte` branch or its mounted owner. Keep callback, overlay, sign-in,
-and stopped/recovery surfaces free of primary resource acquisition. Universal
-`+layout.ts` load can return non-serializable values, but its rerun/preload
-behavior is not the ownership boundary for these handles. Server load and
-request `locals` do not own browser resources. Whispering currently disables
-SSR; enabling it would require an explicit browser-only acquisition boundary.
+Context and await blocks distribute and render handles. They do not cancel operations, close stores, prove persistence, or authorize a new Account. The working page's departure fence and the resource handles retain those responsibilities. A ready Personal editor never switches its write destination to Local if Personal fails.
 
 ## Consequences
 
-Personal editors lose optional-store checks and silent no-op writes. Shared
-components lose repeated handle props and type imports. A workflow retains its
-original handles and cancellation scope rather than resolving a successor from
-global state. Existing product callers require an explicit migration.
+Local controls and recording remain available while Personal opens or fails. Personal editors receive a definite store, so their writes need no optional-store guard. Whispering's two Personal UI call sites use direct await blocks and props in place of the former Personal boundary, provider, and context accessors. This repeats a small amount of loading, sign-in, and error presentation at those sites. If that policy grows or diverges, the callers show whether a shared boundary has earned a place.
 
-The cost is a component-placement contract checked at runtime. Readiness and
-failure presentation still exist at the entrance, and operations still own
-cancellation across awaits. Local availability means independent acquisition;
-it does not promise uninterrupted recording across account replacement.
+An absent Personal opening and a rejected Personal opening remain distinct. Changing the existing always-Promise type to an optional promise requires workflow callers that use `.then()` to handle absence explicitly. The type change is independent of removing the provider and does not justify an eager module opening.
 
 ## Considered alternatives
 
-- Preserve a union or optional account scope everywhere: propagates sign-in
-  policy into components that require an account resource.
-- Silently use Local when Personal is missing: changes the write destination.
-- Put all resources on `device`: recreates an aggregate with unrelated lifetimes.
-- Gate every route on sign-in: removes useful local-only workflows.
-- Export a live application promise: makes imports acquire resources and caches
-  failed or retired access outside the mounted working owner.
-- Require props for every shared handle: repeats forwarding across descendants
-  and does not directly cross SvelteKit's framework-owned route snippet.
-- Resolve every capability before mounting any UI: lets an account feature's
-  failure block independent local recording.
+- Gate the whole working UI on Local and Personal together: makes account profile latency or failure block device recording.
+- Require a provider for every opened store: adds a component and ancestry contract even when the ready consumer is the direct child.
+- Put all loading branches behind a generic snippet component: duplicates Svelte's await control flow without owning additional policy.
+- Export eager live opening promises from an ordinary module: static imports can acquire roots in callback, sign-out, or recovery documents before the working layout mounts.
 
 ## Framework grounding
 
-- [Svelte context](https://svelte.dev/docs/svelte/context) and
-  [createContext](https://svelte.dev/docs/svelte/svelte#createContext) define
-  typed accessors and the missing-provider failure.
-- [SvelteKit state management](https://svelte.dev/docs/kit/state-management)
-  describes tree-scoped context and preserved component instances.
-- [SvelteKit load](https://svelte.dev/docs/kit/load#Rerunning-load-functions)
-  describes reruns without component recreation.
-
-The 2026-09-22 review checked DeepWiki for `sveltejs/svelte` and `sveltejs/kit`,
-then verified context initialization and await-branch behavior against the
-installed Svelte source. A child mounted after a parent's await resolves can
-set context during its own synchronous initialization.
+[Svelte await blocks](https://svelte.dev/docs/svelte/await) render a non-Promise in the `{:then}` branch. [Svelte context](https://svelte.dev/docs/svelte/context) shares a value with descendants when prop forwarding is warranted. Neither feature chooses when a document may acquire a primary resource.

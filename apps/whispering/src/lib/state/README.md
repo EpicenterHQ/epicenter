@@ -6,8 +6,9 @@ existing store API. Do not add a listener set or a copied array to make a table
 reactive.
 
 `WhisperingShell` mounts after Local opens. The module export `local` is reactive.
-Personal opens independently; its ready provider adapts the store with `fromData`
-and establishes context before consumers mount. Operations receive captured handles.
+Personal opens independently and is adapted with `fromData` once during
+acquisition. Its ready UI branches pass the handle to their direct consumers.
+Operations receive captured handles.
 
 ## Settings and rows
 
@@ -20,15 +21,14 @@ sign-in. The general reset button resets device settings only.
 
 ```ts
 import { local } from '$lib/whispering/local';
-import { getPersonal } from '$lib/whispering/personal';
 
 const trigger = $derived(local.kv.get('recordingTrigger') ?? DEVICE_DEFAULTS.recordingTrigger);
 local.kv.update({ recordingTrigger: 'vad' });
-// During component initialization beneath PersonalProvider:
-const personal = getPersonal();
-const dictionary = $derived(personal.kv.get('dictionary') ?? []);
 const history = $derived(sortedRecordings(local));
 ```
+
+The speech-profile editor receives `personal` as a required prop from its
+`{:then}` branch and derives its dictionary from `personal.kv`.
 
 Recording history is Local. Views receive its store.
 Dictionary is one KV array: concurrent edits replace that field rather than merging

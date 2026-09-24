@@ -11,7 +11,7 @@ export function getSignOut(): (() => Promise<void>) | undefined {
 	return getContext(signOut);
 }
 
-/** The boot node owns the warning and document or process replacement. */
+/** The working owner handles the warning and document or process replacement. */
 export function provideConnectionScreen(open: () => void) {
 	setContext(connectionScreen, open);
 }

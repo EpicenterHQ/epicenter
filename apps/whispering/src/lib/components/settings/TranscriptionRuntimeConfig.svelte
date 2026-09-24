@@ -1,13 +1,7 @@
 <script lang="ts">
-	import PersonalBoundary from '../PersonalBoundary.svelte';
-	import PersonalPrompt from './PersonalPrompt.svelte';
+	import { extractErrorMessage } from 'wellcrafted/error';
 	import { local } from '$lib/whispering/local.js';
-	import { getConnectionScreen } from '@epicenter/app-shell/boot-screens';
-	import { Button } from '@epicenter/ui/button';
-	import {
-		DEVICE_DEFAULTS,
-		PERSONAL_DEFAULTS,
-	} from '$lib/operations/settings.js';
+	import { DEVICE_DEFAULTS } from '$lib/operations/settings.js';
 	import * as Field from '@epicenter/ui/field';
 	import * as Select from '@epicenter/ui/select';
 	import { Textarea } from '@epicenter/ui/textarea';
@@ -21,7 +15,6 @@
 	import AdvancedDisclosure from './AdvancedDisclosure.svelte';
 
 	const whispering = getWhisperingApp();
-	const openConnection = getConnectionScreen();
 	const readiness = $derived(getTranscriptionReadiness(whispering));
 </script>
 
@@ -81,7 +74,22 @@
 				<Field.Label for="transcription-prompt"
 					>Transcription prompt</Field.Label
 				>
-				<PersonalBoundary><PersonalPrompt /></PersonalBoundary>
+				{#await whispering.personalReady}
+					<p role="status">Opening your speech profile…</p>
+				{:then personal}
+					{#if personal}
+						<Textarea
+							id="transcription-prompt"
+							value={personal.kv.get('transcriptionPrompt') ?? ''}
+							onblur={(event) =>
+								personal.kv.update({ transcriptionPrompt: event.currentTarget.value })}
+						/>
+					{:else}
+						<p>Sign in to use your speech profile.</p>
+					{/if}
+				{:catch error}
+					<p role="alert">Your speech profile could not open: {extractErrorMessage(error)}</p>
+				{/await}
 				<Field.Description
 					>Names and context can help models that support prompts. Dictionary
 					terms are included.</Field.Description

@@ -35,9 +35,8 @@
 			}
 			// A document replacement rather than `goto`, and it is unconditional
 			// because it is the only thing that leaves the callback URL. Nothing
-			// above this route navigates for it: the reload gate that used to is
-			// deleted (ADR-0350), and the boot node at `/` reads auth reactively,
-			// which is a thing this document cannot become by staying alive.
+			// above this route navigates for it: the working layout must capture
+			// the installed Account in a fresh document.
 			// `resolve`, not a literal '/': the Epicenter build serves this app
 			// under a base path, so the root of THIS app is not the origin's.
 			window.location.replace(resolve('/'));

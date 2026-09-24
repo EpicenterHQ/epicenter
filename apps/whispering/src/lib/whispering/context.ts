@@ -11,9 +11,9 @@ export type WhisperingContext = {
 };
 
 /**
- * Typed context supplied synchronously by `WhisperingShell` inside the `ready`
- * branch of the boot node. The App getter is ready-only by construction. Recording views provide their own
- * concrete-store query context.
+ * Typed context supplied synchronously by `WhisperingShell` after the working
+ * layout opens Local. The App getter is ready-only by construction. Recording
+ * views provide their own concrete-store query context.
  */
 const [getWhisperingContext, setWhisperingContext] =
 	createContext<WhisperingContext>();

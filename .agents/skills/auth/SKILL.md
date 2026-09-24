@@ -190,10 +190,12 @@ signature padding is illegal in raw WebSocket protocol names.
 
 ## Boot selection
 
-The mounted AppBoot instance reads the plain client's `getState()` once and
-passes the captured Account to the product's resource opener. Imports and
-preloads acquire no resources. Keep reactive `.state` reads in UI modules adapted
-with `fromAuth`. Callbacks and sign-in routes acquire no primary stores.
+The mounted working owner reads the plain client's `getState()` once and
+passes the captured Account to product resource opening. Imports and preloads
+acquire no resources. Keep reactive `.state` reads in UI modules adapted with
+`fromAuth`. Callback and sign-out documents acquire no primary stores. Browser
+sign-in may start from a working page because the callback installs the next
+Account in a fresh document.
 
 Honeycrisp and Whispering support signed-out local startup. Vocab requires an
 Account. Honeycrisp's Local and Personal routes select independently opened
@@ -206,10 +208,11 @@ process never installs a successor Account; failed writes or restart keep old
 access fenced, and new pages show restart-required UI.
 
 Browser departures make the UI inert and replace the document without waiting
-for producer or persistence drains. Deliberate sign-out marks departure before
-calling auth: its retirement notification must not navigate before credential
-clearing and bounded revocation finish. Unexpected retirement navigates to
-`?stopped`; check that marker before acquiring resources. Recovery opens no
-resources until explicitly requested. A cancelled navigation or history
-restoration must not reactivate retired resources. Preserve component disposal, acquisition rollback,
-account fences, and independent source-library transfer lifetimes.
+for producer or persistence drains. Deliberate sign-out retires the working
+document before credential clearing: its retirement notification must not race
+the bounded auth operation. Unexpected retirement enters a resource-free
+recovery destination. Recovery opens no resources until explicitly requested.
+A cancelled navigation or history restoration must not reactivate retired
+resources. Preserve component disposal, acquisition rollback, account fences,
+and independent source-library transfer lifetimes. See the Whispering README
+for its working, callback, sign-out, and recovery routes.

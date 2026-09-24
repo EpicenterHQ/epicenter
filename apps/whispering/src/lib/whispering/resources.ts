@@ -9,6 +9,7 @@ import {
 import { openPersonal } from '@epicenter/app/open';
 import { createRecorder } from '@epicenter/app/recorder';
 import type { Account } from '@epicenter/auth';
+import { fromData } from '@epicenter/svelte';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { speechProfileDefinition } from '../data.js';
@@ -26,13 +27,13 @@ export async function openWhisperingResources(
 	signal.throwIfAborted();
 	await openLocalStore();
 	signal.throwIfAborted();
-	const personalReady: Promise<PersonalStore | undefined> = account
+	const personalReady: Promise<PersonalStore> | undefined = account
 		? openPersonal(speechProfileDefinition, { account }).then((store) => {
 				signal.throwIfAborted();
-				return store;
+				return fromData(store);
 			})
-		: Promise.resolve(undefined);
-	void personalReady.catch(() => {});
+		: undefined;
+	void personalReady?.catch(() => {});
 	signal.throwIfAborted();
 	const recorder = createRecorder({ localBlobs: local.blobs });
 	// Navigation can fail or stall. Stop uncertain and pending capture immediately.

@@ -169,7 +169,7 @@ test('exact configured client sends multipart bytes, model, credential, and dict
 
 test('signed-out transcription never falls back to device-authored prompts or dictionary', async () => {
 	const fixture = await setup();
-	const app = { ...fixture.app, personalReady: Promise.resolve(undefined) };
+	const app = { ...fixture.app, personalReady: undefined };
 	expect(expectOk(await transcribeAudio('recording-id', app, app.store))).toBe(
 		'spoken words',
 	);
@@ -431,7 +431,9 @@ test('delayed Personal inputs hold inference while preserving the captured accou
 	const f = await setup();
 	const ready =
 		Promise.withResolvers<
-			ProductApp['personalReady'] extends Promise<infer T> ? T : never
+			NonNullable<ProductApp['personalReady']> extends Promise<infer T>
+				? T
+				: never
 		>();
 	const capturedPersonal = f.app.personal;
 	const app = {

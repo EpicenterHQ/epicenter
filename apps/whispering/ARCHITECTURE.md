@@ -16,16 +16,16 @@ Whispering is one SPA in three layers, served by the Epicenter desktop host. Pla
 
 ## Application composition
 
-The mounted `(app)` layout passes the inert definition and plain auth client to
-`AppBoot`. Admitted boot initializes the reactive module export `local` once per
-document before mounting consumers. Imports, SSR, callbacks and stopped recovery
-documents do not acquire stores. Personal opens independently for the captured
-account; Local capture and import do not wait for it.
+The mounted `(app)` layout captures the Account and opens Local before mounting
+consumers. The reactive module export `local` initializes once per working
+browser or WebView lifetime. Imports, callback, sign-out, and recovery pages do
+not acquire stores. Personal opens independently for the captured Account;
+Local capture and import do not wait for it.
 
 `WhisperingShell` creates the UI session, shell query client and recording workflow.
-Local callers import `local`. A ready Personal boundary mounts `PersonalProvider`,
-which synchronously calls `setPersonal` before rendering descendants. Descendants
-capture `getPersonal()` during initialization and pass that handle into operations.
+Local callers import `local`. Personal controls use `{#await}` and receive the
+ready reactive store by prop. A signed-out branch has no Personal opening;
+a signed-in opening failure stays distinct from signed-out defaults.
 Shared recording views receive a concrete store and own their query client.
 
 Capture and import save Local bytes and a Local recording. Whispering has no
@@ -106,7 +106,7 @@ Domain state stays in the reactive stores:
 ```
 
 `fromData` preserves table and KV APIs. Personal settings are read
-beneath the ready provider. Operations receive concrete stores explicitly.
+under their ready await branches. Operations receive concrete stores explicitly.
 Transcription and download mutations use the view's store. Microphone enumeration
 has async loading state; capture state remains in the recording workflow and VAD
 wrapper. `AudioBlobPlayer` owns source acquisition, loading, failure, reopening and

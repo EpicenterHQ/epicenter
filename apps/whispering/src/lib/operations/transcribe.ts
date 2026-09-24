@@ -81,7 +81,7 @@ export function captureTranscription(
 					.filter(Boolean)
 					.join(' ');
 			// Snapshot ready inputs now; a late store is the captured account's acquisition.
-			const promptReady = app.personalReady.then(promptFrom);
+			const promptReady = (async () => promptFrom(await app.personalReady))();
 			void promptReady.catch(() => {});
 			const selection = getInferenceTarget(local.kv, 'transcription');
 			capturedSelection = selection;

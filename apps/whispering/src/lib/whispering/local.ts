@@ -10,11 +10,11 @@ export type LocalStore = Awaited<
 	ReturnType<typeof openLocal<typeof whisperingDefinition>>
 >;
 
-/** Initialized once by admitted browser boot, before any Local consumer mounts. */
+/** Initialized once by the working layout, before any Local consumer mounts. */
 export let local: LocalStore;
 let opening: Promise<LocalStore> | undefined;
 
-/** Imports are inert, including SSR and stopped boot. Opening failures reach AppBoot. */
+/** Imports are inert. Opening failures reach the working layout. */
 export function openLocalStore() {
 	opening ??= openLocal(whisperingDefinition).then(async (store) => {
 		try {

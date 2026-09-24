@@ -90,12 +90,18 @@ bun run --cwd apps/epicenter desktop:build
 
 ## Data boundary
 
+The `(app)` layout captures one Account and opens Local before mounting the
+recording UI. Browser sign-in starts from that UI; the callback installs the
+next Account in a fresh document. Sign-out and recovery routes open no primary
+stores. Crossing into those routes uses full document navigation because a
+SvelteKit route change would retain the old store handles.
+
 Whispering transcribes through an explicitly selected connection and model. Deepgram, ElevenLabs, and Mistral’s separate provider adapters are not supported. Existing provider keys remain stored but are not read or imported; configure a supported connection in the intended account.
 
 Capture and import always save bytes and a recording in Local. The reactive
-`local` module is initialized once by admitted boot. The separate Personal
-speech profile opens for the captured Account; its provider supplies a non-null
-context only when ready. The profile holds known terms and speech instructions,
+`local` module is initialized once by the working layout. The separate Personal
+speech profile opens for the captured Account; only its ready UI branches pass
+that handle to speech-profile controls. The profile holds known terms and speech instructions,
 while recordings, audio, results, and device settings stay Local. Recording
 detail can select any successful result. In the Epicenter desktop app, a person
 can add its Original or Cleaned text to Capture without moving the recording or
