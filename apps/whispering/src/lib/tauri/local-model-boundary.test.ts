@@ -54,18 +54,4 @@ describe('the local transcription boundary Whispering sits behind', () => {
 		}
 	});
 
-	it('cannot name a model when it asks for a transcription', () => {
-		// The absence of a model argument is the invariant. `TranscriptionHints`
-		// is the whole per-call input, so if it ever grows a model field an
-		// ordinary request could reassign the shared cache again.
-		const hints = readFileSync(
-			fileURLToPath(new URL('./commands.types.ts', import.meta.url)),
-			'utf8',
-		);
-		const block = hints.slice(
-			hints.indexOf('export type TranscriptionHints'),
-			hints.indexOf('};', hints.indexOf('export type TranscriptionHints')),
-		);
-		expect(block).not.toMatch(/model/i);
-	});
 });

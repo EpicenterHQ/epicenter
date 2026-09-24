@@ -1,6 +1,6 @@
 import { onMount } from 'svelte';
 import { tauri } from '#platform/tauri';
-import type { DictationCapability } from '$lib/tauri/commands.types';
+import type { DictationCapability } from '$lib/tauri/bindings.gen';
 
 const OVERRIDABLE_DICTATION_CAPABILITIES = [
 	'inactive',

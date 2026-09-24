@@ -19,7 +19,7 @@ pub enum RecordingError {
 }
 ```
 
-Keep the error non-nullable. Specta's `DataError` mode uses `null` to mean success and rejects nullable command error types during binding export. A success value may itself be nullable. Do not add a parallel ArkType schema or handwritten TypeScript union for a generated Rust error. The narrow browser-safe copies in Whispering's `commands.types.ts` are a platform exception checked against generated bindings by `commands.test-d.ts`.
+Keep the error non-nullable. Specta's `DataError` mode uses `null` to mean success and rejects nullable command error types during binding export. A success value may itself be nullable. Do not add a parallel ArkType schema or handwritten TypeScript union for a generated Rust error. Browser code can use explicit `import type` from the generated bindings without loading the Tauri runtime.
 
 ## Generate the application result shape
 

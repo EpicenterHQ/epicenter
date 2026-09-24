@@ -11,7 +11,6 @@ import type { Result } from 'wellcrafted/result';
 import type {
 	commands,
 	DeviceAcquisition,
-	DictationCapability,
 	EndedReason,
 	HostRecording,
 	IpcRecorderError,
@@ -21,14 +20,6 @@ import type {
 	TranscriptionHints,
 	TranscriptionOutcome,
 } from './commands';
-import type {
-	DictationCapability as SharedDictationCapability,
-	IpcRecorderError as SharedIpcRecorderError,
-	LocalTranscriptionReadiness as SharedLocalTranscriptionReadiness,
-	TranscriptionError as SharedTranscriptionError,
-	TranscriptionHints as SharedTranscriptionHints,
-	TranscriptionOutcome as SharedTranscriptionOutcome,
-} from './commands.types';
 
 /**
  * A failed assertion carries both sides, so the error names what moved.
@@ -52,29 +43,6 @@ type Equal<X, Y> =
 	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
 		? true
 		: { expected: Y; got: X };
-
-// Browser-safe copies of generated contracts must move in lockstep with the
-// native bindings without importing their runtime module into the hosted SPA.
-type _SharedContracts = Expect<
-	Equal<
-		[
-			SharedDictationCapability,
-			SharedIpcRecorderError,
-			SharedLocalTranscriptionReadiness,
-			SharedTranscriptionError,
-			SharedTranscriptionHints,
-			SharedTranscriptionOutcome,
-		],
-		[
-			DictationCapability,
-			IpcRecorderError,
-			LocalTranscriptionReadiness,
-			TranscriptionError,
-			TranscriptionHints,
-			TranscriptionOutcome,
-		]
-	>
->;
 
 // The whole recording surface, pinned.
 //
