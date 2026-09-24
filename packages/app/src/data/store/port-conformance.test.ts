@@ -153,7 +153,7 @@ function chain(count: number): Uint8Array[] {
 }
 
 /** What a chain says once replayed, which is the only thing a caller can see. */
-function valueOf(chain: readonly Uint8Array[]): unknown {
+function readValue(chain: readonly Uint8Array[]): unknown {
 	const doc = replay(chain.map((bytes) => ({ bytes })) as never);
 	const value = readRow(tableRoot(doc, 'marks'), 'only')?.value;
 	doc.destroy();
@@ -178,7 +178,7 @@ for (const engine of ENGINES) {
 			await record.commit([append('one')]);
 
 			const { loaded } = await record.reopen();
-			expect(valueOf(loaded.updates)).toBe('one');
+			expect(readValue(loaded.updates)).toBe('one');
 		});
 
 		test('an append with no position is owed, and one with a position is not', async () => {
@@ -270,7 +270,7 @@ for (const engine of ENGINES) {
 			const { loaded } = await record.reopen();
 			// Only the replayed state is the contract. The two ports may hold
 			// different numbers of rows and both be right.
-			expect(valueOf(loaded.updates)).toBe('v70');
+			expect(readValue(loaded.updates)).toBe('v70');
 			expect(loaded.outbox.map((entry) => entry.id)).toEqual([owed.id]);
 			// The point of the fold: fewer rows than were written.
 			expect(loaded.updates.length).toBeLessThan(71);
@@ -310,7 +310,7 @@ for (const engine of ENGINES) {
 			const { loaded } = await record.reopen();
 			// Same document, and still owed: a merge changes what carries the
 			// bytes, never whether the authority has them.
-			expect(valueOf(loaded.updates)).toBe('v2');
+			expect(readValue(loaded.updates)).toBe('v2');
 			expect(loaded.outbox.map((entry) => entry.id)).toEqual([merged]);
 			expect(loaded.cursor).toBe(0);
 		});
@@ -357,7 +357,7 @@ for (const engine of ENGINES) {
 			// absorbs by idempotence. The failure this refuses is the merged row
 			// being stamped and the third append never being sent at all.
 			expect(loaded.outbox.map((entry) => entry.id)).toEqual([merged]);
-			expect(valueOf(loaded.updates)).toBe('v2');
+			expect(readValue(loaded.updates)).toBe('v2');
 		});
 
 		test("the controller's mirror agrees with the record it mirrors", async () => {
@@ -417,7 +417,7 @@ for (const engine of ENGINES) {
 			// answer must not depend on which one is asked.
 			expect(loaded.updates.length).toBe(70);
 			expect(loaded.outbox.length).toBe(60);
-			expect(valueOf(loaded.updates)).toBe('v69');
+			expect(readValue(loaded.updates)).toBe('v69');
 			expect(loaded.cursor).toBe(1);
 		});
 
@@ -452,7 +452,7 @@ for (const engine of ENGINES) {
 			const { loaded } = await record.reopen();
 			expect(loaded.outbox.map((entry) => entry.id)).toEqual([two.id]);
 			expect(loaded.cursor).toBe(4);
-			expect(valueOf(loaded.updates)).toBe('v1');
+			expect(readValue(loaded.updates)).toBe('v1');
 			expect(loaded.lastId).toBe(two.id);
 		});
 		test('a failed fold rolls back every append in its batch', async () => {

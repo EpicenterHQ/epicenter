@@ -19,7 +19,8 @@ function installPage(): {
 	let visibility = 'visible';
 	const bind = (bag: Record<string, Set<Listener>>) => ({
 		addEventListener: (type: string, listener: Listener) => {
-			(bag[type] ??= new Set()).add(listener);
+			bag[type] ??= new Set();
+			bag[type].add(listener);
 		},
 		removeEventListener: (type: string, listener: Listener) => {
 			bag[type]?.delete(listener);
