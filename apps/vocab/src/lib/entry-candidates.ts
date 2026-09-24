@@ -1,23 +1,16 @@
 /**
  * Entry candidates: propose savable spans from one settled assistant message.
  *
- * The sibling of {@link buildPracticeOpening} on the read side. Where Practice
- * compiles saved entries into a passage, this asks the model to extract notable
- * spans from a passage the user just read, so a whole answer can be triaged into
- * the entry pool without dragging a selection over each phrase. Its reason to
- * exist is spans a local segmenter cannot reach (multi-character phrases,
- * chengyu), which is exactly why ADR-0102 retired tap-capture.
+ * Ask the model to extract notable English spans from a settled answer, so the
+ * learner can save phrases without selecting each one in the rendered text.
  *
  * Nothing here is persisted. The model's output is transient: it becomes a list
  * of candidate strings the user chooses from, and only the chosen `text` flows
  * through the one entry writer (`entriesState.save`). No gloss, no meaning, no
  * provenance, no language, and no candidate metadata is ever stored (ADR-0102).
  *
- * Deliberately language-neutral, like {@link buildPracticeOpening}: it names no
- * target or source language and lets the tutor persona own which language is
- * being taught. In a bilingual passage that means "extract the studied-language
- * spans, not the explanatory glue", which the model resolves from the passage
- * itself, so this path holds no language-specific strings.
+ * Vocab teaches English, so a candidate must be an English expression from the
+ * passage rather than explanatory glue or a translated equivalent.
  */
 
 /**
@@ -33,12 +26,12 @@
  */
 export function buildEntryCandidatePrompt(): string {
 	return [
-		'You extract vocabulary spans a language learner might want to save from a passage they just read.',
+		'You extract English vocabulary spans a learner might want to save from a passage they just read.',
 		'A span is a verbatim stretch worth learning on its own: a single word, a phrase, or an idiom.',
 		'',
 		'Rules:',
 		'- Output one span per line, copied verbatim from the passage.',
-		'- Extract only spans in the language the learner is studying, not the language used to explain them.',
+		'- Extract only English words, phrases, or idioms from the passage.',
 		'- Do not number the lines, do not add bullets, and do not wrap spans in quotes.',
 		'- Do not add a meaning, translation, or reading. Output the spans and nothing else.',
 		'- Skip trivial filler and anything not worth saving as its own entry.',

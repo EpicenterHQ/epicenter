@@ -6,10 +6,10 @@ import {
 	openRuntimeTranscriber,
 } from '@epicenter/app/ai';
 import { openAccountConnectionCatalog } from '@epicenter/app/ai-connections';
-import { vocabDefinition, vocabLocalDefinition } from './data.js';
+import { chatHistoryDefinition, vocabDefinition } from './data.js';
 export async function openVocabResources(account: Account, signal: AbortSignal) {
     signal.throwIfAborted();
-    const local = await openLocal(vocabLocalDefinition);
+    const local = await openLocal(chatHistoryDefinition);
     signal.throwIfAborted();
     const personal = await openPersonal(vocabDefinition, { account });
     signal.throwIfAborted();

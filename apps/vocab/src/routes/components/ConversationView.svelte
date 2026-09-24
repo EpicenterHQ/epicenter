@@ -1,23 +1,27 @@
 <script lang="ts">
 	import { agentMessageText } from '@epicenter/agent';
-	import {
-		AgentChatThread,
-		type ConversationHandle,
-	} from '@epicenter/app-shell/agent-chat';
 	import { getConnectionScreen } from '@epicenter/app-shell/boot-screens';
+	import { InferencePicker } from '@epicenter/app-shell/inference-picker';
 	import { CompleteError } from '@epicenter/client';
- import { tryAsync } from 'wellcrafted/result';
+	import { tryAsync } from 'wellcrafted/result';
+	import * as Chat from '@epicenter/ui/chat';
+	import { Markdown } from '@epicenter/ui/markdown';
 	import { Button } from '@epicenter/ui/button';
+	import { Textarea } from '@epicenter/ui/textarea';
 	import CheckIcon from '@lucide/svelte/icons/check';
+	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
+	import SendIcon from '@lucide/svelte/icons/send';
+	import SquareIcon from '@lucide/svelte/icons/square';
 	import { onDestroy, untrack } from 'svelte';
+	import type { AgentMessage } from '@epicenter/agent';
 	import {
 		buildEntryCandidatePrompt,
 		parseEntryCandidates,
 	} from '$lib/entry-candidates';
 	import { auth } from '$lib/auth.svelte.js';
 	import { getVocabSurface } from '$lib/surface';
+	import type { createVocabChat } from '$lib/state/chat.svelte';
 	import DictationButton from './DictationButton.svelte';
-	import ReadingMarkdown from './ReadingMarkdown.svelte';
 
 	const accountManagementUrl = auth.accountManagementUrl;
 	const { entries } = getVocabSurface();
@@ -28,15 +32,9 @@
 		return state.status === 'signed-out' ? undefined : state.account;
 	});
 
-	let {
-		active,
-		showReadings,
-	}: { active: ConversationHandle | undefined; showReadings: boolean } = $props();
+	let { chat }: { chat: ReturnType<typeof createVocabChat> } = $props();
 
-	// `active` does not narrow inside a snippet closure (a snippet can outlive the
-	// `{#if active}` guard), so the input accessory reads these instead of the
-	// handle directly.
-	const isGenerating = $derived(active?.isLoading ?? false);
+	const isGenerating = $derived(chat.isGenerating);
 
 	let saveAffordance = $state.raw<{
 		text: string;
@@ -46,17 +44,6 @@
 		null,
 	);
 
-	/** The selection's text with ruby annotations stripped: `toString()` would
-	 * include the reading `<rt>`/`<rp>` nodes, so selecting a word with readings
-	 * shown would capture the reading too instead of the verbatim characters. */
-	function selectedEntryText(selection: Selection): string {
-		const fragment = selection.getRangeAt(0).cloneContents();
-		for (const annotation of fragment.querySelectorAll('rt, rp')) {
-			annotation.remove();
-		}
-		return fragment.textContent?.trim() ?? '';
-	}
-
 	function handleSelectionChange() {
 		const selection = document.getSelection();
 		if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
@@ -64,7 +51,7 @@
 			return;
 		}
 
-		const text = selectedEntryText(selection);
+		const text = selection.toString().trim();
 		if (!text) {
 			saveAffordance = null;
 			return;
@@ -127,7 +114,7 @@
 		// Abort any prior request still in flight so it stops consuming the endpoint;
 		// its result is dropped by the stale-message guard below regardless.
 		entryCandidateAbortController?.abort();
-		const model = active?.model;
+		const model = chat.target?.model;
 		if (!model) {
 			entryCandidateAbortController = null;
 			entryCandidateRequest = {
@@ -141,7 +128,7 @@
 		const controller = new AbortController();
 		entryCandidateAbortController = controller;
 		entryCandidateRequest = { messageId, status: 'loading', candidates: [] };
-		const connection = catalog.resolve(active?.target ?? null);
+		const connection = catalog.resolve(chat.target);
 		if (!connection || connection.source === 'runtime') {
 			entryCandidateRequest = { messageId, status: 'error', candidates: [], detail: 'Choose a connection in the model menu before suggesting entries.' };
 			return;
@@ -188,14 +175,13 @@
 		return entries.entries.some((entry) => entry.text === text);
 	}
 
-	/** Land a dictated transcript in the draft for review, appended to whatever is
-	 * already typed. Guarded so it is a no-op if the conversation went away. */
+	/** Land a dictated transcript in the draft for review. */
 	function appendTranscript(text: string) {
-		if (!active) return;
-		const draft = active.inputValue.trim();
-		active.inputValue = draft ? `${draft} ${text}` : text;
+		const draft = chat.inputValue.trim();
+		chat.inputValue = draft ? `${draft} ${text}` : text;
 	}
 	const { catalog } = getVocabSurface();
+	const lastMessage = $derived(chat.messages.at(-1));
 </script>
 
 <svelte:document onselectionchange={handleSelectionChange} />
@@ -212,32 +198,13 @@
 	</button>
 {/if}
 
-{#if active}
-	<AgentChatThread
-		conversation={active}
-		{catalog}
-		placeholder="Ask about a word, phrase, or sentence you're learning..."
-		onSignIn={openConnection}
-		onUpgrade={accountManagementUrl ? () => {
-			if (!account) return;
-			window.open(
-				accountManagementUrl(account).href,
-				'_blank',
-				'noopener',
-			);
-		} : undefined}
-	>
-		{#snippet inputAccessory()}
-			<DictationButton disabled={isGenerating} onTranscript={appendTranscript} />
-		{/snippet}
-		{#snippet message(msg, streaming)}
+{#snippet message(msg: AgentMessage, streaming: boolean)}
 			{#if msg.role === 'user' || streaming}
-				<!-- Raw text while the answer streams (and for the user's own turn): the
-				rich markdown + readings pass runs once the message settles. -->
+					<!-- Render Markdown only after the answer settles. -->
 				<div class="whitespace-pre-wrap">{agentMessageText(msg)}</div>
 			{:else}
 				<div data-entry-source>
-					<ReadingMarkdown passage={agentMessageText(msg)} {showReadings} />
+						<Markdown content={agentMessageText(msg)} />
 				</div>
 
 				{#if entryCandidateRequest?.messageId === msg.id}
@@ -322,15 +289,86 @@
 				{/if}
 			{/if}
 		{/snippet}
-		{#snippet emptyState()}
-			<div
-				class="flex flex-1 items-center justify-center text-muted-foreground"
-			>
-				<p>
-					Ask a question and get an answer in the language you're learning, plus
-					English.
-				</p>
+
+<div class="flex min-h-0 flex-1 flex-col">
+	<div class="min-h-0 flex-1 overflow-y-auto">
+		{#if chat.messages.length === 0 && !chat.streaming}
+			<div class="flex h-full items-center justify-center px-4 text-center text-muted-foreground">
+				<p>Ask about an English word or phrase, then save what you want to remember.</p>
 			</div>
-		{/snippet}
-	</AgentChatThread>
-{/if}
+		{:else}
+			<Chat.List>
+				{#each chat.messages as msg (msg.id)}
+					<Chat.Bubble variant={msg.role === 'user' ? 'sent' : 'received'}>
+						<Chat.BubbleMessage>{@render message(msg, false)}</Chat.BubbleMessage>
+					</Chat.Bubble>
+				{/each}
+				{#if chat.streaming}
+					<Chat.Bubble variant="received">
+						<Chat.BubbleMessage>{@render message(chat.streaming, true)}</Chat.BubbleMessage>
+					</Chat.Bubble>
+				{:else if chat.isThinking}
+					<Chat.Bubble variant="received"><Chat.BubbleMessage typing /></Chat.Bubble>
+				{/if}
+				{#if lastMessage && !chat.isGenerating}
+					<div class="flex justify-start px-2 py-1">
+						<Button variant="ghost" class="text-muted-foreground" disabled={!chat.canServe} onclick={() => chat.retry()}>
+							<RotateCcwIcon class="size-3" />
+							{lastMessage.role === 'user' ? 'Retry answer' : 'Another answer'}
+						</Button>
+					</div>
+				{/if}
+			</Chat.List>
+		{/if}
+	</div>
+
+	{#if chat.error?.code === 'Unauthorized'}
+		<div role="alert" class="flex items-center justify-between border-t px-3 py-2 text-xs text-destructive">
+			<span>Sign in to use Vocab chat</span>
+			<Button variant="ghost" size="sm" onclick={openConnection}>Sign in</Button>
+		</div>
+	{:else if chat.error?.code === 'InsufficientCredits'}
+		<div role="alert" class="flex items-center justify-between border-t px-3 py-2 text-xs text-destructive">
+			<span>You're out of credits</span>
+			{#if account && accountManagementUrl}
+				<Button variant="ghost" size="sm" onclick={() => window.open(accountManagementUrl(account).href, '_blank', 'noopener')}>Upgrade</Button>
+			{/if}
+		</div>
+	{:else if chat.visibleError}
+		<div role="alert" class="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs text-destructive">
+			<span>{chat.visibleError.message}</span>
+			<div class="flex gap-1">
+				<Button variant="ghost" size="sm" disabled={!chat.canServe} onclick={() => chat.retry()}>Retry</Button>
+				<Button variant="ghost" size="sm" onclick={() => chat.dismissError()}>Dismiss</Button>
+			</div>
+		</div>
+	{/if}
+
+	<div class="bg-background px-2 pt-1.5">
+		<InferencePicker value={chat.target} onSelect={(target) => chat.selectTarget(target)} {catalog} disabled={chat.isGenerating} />
+	</div>
+	{#if !chat.canServe}
+		<p class="px-3 pb-1 text-xs text-muted-foreground">Choose an available model to chat.</p>
+	{/if}
+	<form class="flex items-end gap-1.5 border-t bg-background px-2 py-1.5" aria-label="Chat message" onsubmit={(event) => { event.preventDefault(); chat.sendMessage(); }}>
+		<DictationButton disabled={isGenerating} onTranscript={appendTranscript} />
+		<Textarea
+			class="min-h-0 max-h-32 flex-1 resize-none overflow-y-auto"
+			rows={1}
+			placeholder="Ask about an English word or phrase..."
+			aria-label="Message input"
+			bind:value={chat.inputValue}
+			onkeydown={(event: KeyboardEvent) => {
+				if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+					event.preventDefault();
+					chat.sendMessage();
+				}
+			}}
+		/>
+		{#if chat.isGenerating}
+			<Button variant="outline" size="icon-lg" type="button" onclick={() => chat.stop()} aria-label="Stop generating"><SquareIcon /></Button>
+		{:else}
+			<Button type="submit" size="icon-lg" disabled={!chat.canSend} aria-label="Send message"><SendIcon /></Button>
+		{/if}
+	</form>
+</div>

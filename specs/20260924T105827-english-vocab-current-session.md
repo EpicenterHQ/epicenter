@@ -1,7 +1,7 @@
 # English Vocab with one current session
 
 - **Date:** 2026-09-24
-- **Status:** Draft
+- **Status:** In Progress
 - **Owner:** Braden for product decisions; implementation agent for delivery and evidence
 
 ## One sentence
@@ -10,7 +10,7 @@ Vocab helps a learner understand and use English expressions through one locally
 
 ## Read this first
 
-The current app has a multilingual prompt, automatic script readings, three entry stages, a Practice button that opens another chat, and an archive of device-local conversations. The target has an English tutor, no automatic readings, four learner-reported stages, one current local exchange, and the same Personal entry collection. The old Practice action is removed; a separate temporary practice activity will be designed later. The change is done when a learner can ask, follow up, save, rate an entry, refresh, switch account, and open another device with the storage guarantees below, and the superseded package surfaces have no production callers.
+Before this pass, Vocab had a multilingual prompt, automatic script readings, three entry stages, a Practice button that opened another chat, and an archive of device-local conversations. The target has an English tutor, no automatic readings, four learner-reported stages, one current local exchange, and the same Personal entry collection. The old Practice action is removed; a separate temporary practice activity will be designed later. The change is done when a learner can ask, follow up, save, rate an entry, refresh, switch account, and open another device with the storage guarantees below, and the superseded package surfaces have no production callers.
 
 The durable decisions are [ADR-0444](../docs/adr/0444-vocab-stores-finished-session-messages-as-local-rows.md), [ADR-0445](../docs/adr/0445-vocab-keeps-one-current-session-on-device-and-syncs-saved-entries.md), [ADR-0446](../docs/adr/0446-vocab-teaches-english-without-automatic-pronunciation-readings.md), and [ADR-0448](../docs/adr/0448-vocab-stages-are-four-learner-reported-abilities.md). This file plans the change; the implementation and README will eventually replace it as the description of current behavior.
 

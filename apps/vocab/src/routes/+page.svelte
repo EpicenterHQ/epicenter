@@ -16,11 +16,11 @@
 </script>
 
 {#if connecting}
-	<SignInScreen {auth} appName="Vocab" noun="conversations"
+	<SignInScreen {auth} appName="Vocab" noun="entries"
 		onCancel={new URLSearchParams(location.search).has('connect') ? () => location.replace(resolve('/')) : undefined} />
 {:else}
 	<AppBoot {auth} {open}
-		 appName="Vocab" noun="conversations"
+		 appName="Vocab" noun="entries"
 		signInHref={location.pathname + '?connect'}
 		signedOutHref={resolve('/')}
 	>

@@ -53,8 +53,8 @@ wrapper, including calls through `fromData`. Writes pass through unchanged.
 
 ```ts
 const preferences = fromKv(local.kv);
-preferences.get('showReadings');
-preferences.update({ showReadings: true });
+preferences.get('showDetails');
+preferences.update({ showDetails: true });
 ```
 
 ### `fromSubscription`

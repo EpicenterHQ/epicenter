@@ -1,8 +1,7 @@
 <!--
 	One markdown token, rendered as real DOM and recursing into its children.
 	Block tokens render their element and recurse `token.tokens` (or `items` /
-	table cells); inline `text` leaves run the romanizer and emit a `<Ruby>` per
-	segment. Because the tree is real elements (never an HTML string), there is
+	table cells); inline `text` leaves render their text. Because the tree is real elements (never an HTML string), there is
 	no `{@html}` and no sanitize pass; the one place a value reaches an attribute
 	(link href, image src) is scheme-checked below.
 
@@ -14,16 +13,7 @@
 <script lang="ts">
 	import type { Token } from 'marked';
 	import MarkdownNode from './markdown-node.svelte';
-	import type { Romanizer } from './romanizer.js';
-	import Ruby from './ruby.svelte';
-
-	let {
-		token,
-		romanizer,
-	}: {
-		token: Token;
-		romanizer: Romanizer;
-	} = $props();
+	let { token }: { token: Token } = $props();
 
 	// Schemes that execute when followed. The tree itself is inert DOM, so these
 	// attribute values are the only injection surface (an assistant can echo a
@@ -35,7 +25,7 @@
 	const imageSrc = (src: string) => (DANGEROUS_SRC.test(src) ? '' : src);
 </script>
 
-{#snippet children(tokens: Token[])}{#each tokens as child, i (i)}<MarkdownNode token={child} {romanizer} />{/each}{/snippet}
+{#snippet children(tokens: Token[])}{#each tokens as child, i (i)}<MarkdownNode token={child} />{/each}{/snippet}
 
 {#if token.type === 'paragraph'}
 	<p>{@render children(token.tokens ?? [])}</p>
@@ -86,9 +76,7 @@
 	<img src={imageSrc(token.href)} alt={token.text} title={token.title ?? undefined} />
 {:else if token.type === 'escape'}{token.text}
 {:else if token.type === 'text'}
-	<!-- A `text` token is either a container (recurse) or a leaf to romanize.
-	     The each body stays tight so adjacent segments never gain a space. -->
-	{#if token.tokens}{@render children(token.tokens)}{:else}{#each romanizer(token.text) as segment, i (i)}<Ruby {segment} />{/each}{/if}
+	{#if token.tokens}{@render children(token.tokens)}{:else}{token.text}{/if}
 {:else if token.type === 'html' || token.type === 'tag'}
 	<!-- Render raw HTML as visible text, never as live markup. -->
 	{token.text}

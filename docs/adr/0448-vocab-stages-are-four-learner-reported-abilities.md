@@ -3,7 +3,6 @@
 - **Status:** Proposed
 - **Date:** 2026-09-24
 - **Amends:** [ADR-0102](0102-vocab-stores-verbatim-entries-under-a-human-owned-note-and-refuses-glosses-srs-and-provenance.md) (the three-stage acquisition dial)
-- **Unbuilt:** Entries still use `new`, `understood`, and `usable`; the sidebar cycles those three values.
 
 ## Context
 

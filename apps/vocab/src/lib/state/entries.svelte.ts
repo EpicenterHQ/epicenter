@@ -7,9 +7,8 @@
  * re-read after a mutation is something this module hears about rather than
  * something every call site remembers.
  *
- * Bound to ONE document, which is why the surface that chose that document
- * creates it: an account generation edits the account's pool, a signed-out one
- * edits the device's, and there is never a second pool alongside.
+ * Bound to the signed-in account's Personal document. The route creates it
+ * only after capturing that account, and there is one entry pool per account.
  */
 
 import { InstantString } from '@epicenter/app/field';

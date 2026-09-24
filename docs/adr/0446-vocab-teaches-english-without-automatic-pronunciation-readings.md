@@ -3,7 +3,6 @@
 - **Status:** Proposed
 - **Date:** 2026-09-24
 - **Supersedes:** [ADR-0105](0105-vocab-is-a-multilingual-tutor-and-readings-are-a-client-side-derived-view.md) (Vocab's multilingual tutor and automatic reading overlay)
-- **Unbuilt:** Vocab still uses a multilingual system prompt, the reading overlay, and `showReadings`.
 
 ## Context
 
@@ -13,7 +12,7 @@ The product now has a narrower job: help a learner understand unfamiliar English
 
 ## Decision
 
-**Vocab teaches English vocabulary and does not annotate answers with automatic pronunciation readings.** Its tutor prompt, answer copy, entry suggestions, and Practice request speak about English as the studied language. The tutor may explain pronunciation when asked; it does not claim that a reading overlay will supply it. The saved entry remains the learner's chosen text with a human-owned note and stage.
+**Vocab teaches English vocabulary and does not annotate answers with automatic pronunciation readings.** Its tutor prompt, answer copy, and entry suggestions speak about English as the studied language. The tutor may explain pronunciation when asked; it does not claim that a reading overlay will supply it. The saved entry remains the learner's chosen text with a human-owned note and stage.
 
 Vocab removes `showReadings` from its Local definition and UI. It removes its reading registry, providers, wrapper component, script libraries, and ruby-specific selection cleanup. Settled answers use plain Markdown rendering. Shared Markdown's reading seam is assessed against remaining callers and retired if none uses it. Vocab does not add a target-language setting or share its entry pool with a future language-specific app through this change.
 

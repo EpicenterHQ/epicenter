@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/vocab",
-	"description": "Multilingual chat tutor with a deterministic client-side reading overlay",
+	"description": "English vocabulary tutor with device-local chat and account-backed saved entries",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",
@@ -19,7 +19,6 @@
 		"@epicenter/app": "workspace:*",
 		"@epicenter/app-shell": "workspace:*",
 		"@epicenter/auth": "workspace:*",
-		"@epicenter/chat": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/device": "workspace:*",
@@ -29,11 +28,8 @@
 		"@lucide/svelte": "catalog:",
 		"arktype": "catalog:",
 		"mode-watcher": "^1.1.0",
-		"pinyin-pro": "^3.28.0",
 		"svelte-sonner": "catalog:",
-		"transliteration": "^2.6.1",
 		"typebox": "catalog:",
-		"wanakana": "^5.3.1",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {

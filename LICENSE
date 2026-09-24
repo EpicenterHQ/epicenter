@@ -28,7 +28,6 @@ anyone who forks and distributes a modified binary shares the changes back.
     packages/app-shell       @epicenter/app-shell
     packages/auth            @epicenter/auth
     packages/blobs           @epicenter/blobs
-    packages/chat            @epicenter/chat
     packages/client          @epicenter/client
     packages/constants       @epicenter/constants
     packages/app             @epicenter/app

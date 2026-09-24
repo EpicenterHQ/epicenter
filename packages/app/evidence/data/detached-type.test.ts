@@ -42,7 +42,7 @@ describe('a detached type is SAFE for', () => {
 
 	test('repeated attribute writes, which is what a map-shaped codec does', () => {
 		// Not positional, so nothing can be computed against the wrong state.
-		// `packages/chat` writes its message log exactly this way.
+		// Attribute writes are keyed rather than positional.
 		const type = new Y.Node();
 		type.setAttr('k1' as never, 1 as never);
 		type.setAttr('k2' as never, 2 as never);

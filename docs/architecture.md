@@ -65,7 +65,7 @@ refused was a hosted surface that reached a host-owned replica instead.
 | SURFACE                                                                   |
 |                                                                           |
 | @epicenter/ui        @epicenter/app-shell     @epicenter/svelte         |
-| @epicenter/chat      @epicenter/blobs         @epicenter/skills           |
+| @epicenter/client    @epicenter/blobs         @epicenter/skills           |
 +---------------------------------------------------------------------------+
                                      |
                                      v
