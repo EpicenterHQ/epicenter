@@ -6,11 +6,21 @@
  * runs the real runtime, and it mounts the deployed route and the deployed
  * Durable Object with one substitution, the bearer resolver.
  */
+import { createRequire } from 'node:module';
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
 import { kCurrentWorker } from 'miniflare';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+	resolve: {
+		alias: {
+			// The Worker pool loads pg through require; Vite 8 otherwise selects
+			// pg-protocol's import entry and hands ESM to its CommonJS loader.
+			'pg-protocol': createRequire(import.meta.resolve('pg')).resolve(
+				'pg-protocol',
+			),
+		},
+	},
 	plugins: [
 		cloudflareTest({
 			main: './workers/entry.ts',
@@ -36,5 +46,8 @@ export default defineConfig({
 			},
 		}),
 	],
-	test: { include: ['workers/**/*.test.ts'], testTimeout: 30_000 },
+	test: {
+		include: ['workers/**/*.test.ts'],
+		testTimeout: 30_000,
+	},
 });

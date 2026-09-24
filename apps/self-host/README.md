@@ -4,7 +4,7 @@ A self-hosted Epicenter is one instance: a single partition behind one bearer to
 
 "Solo" and "shared" are not settings. They are just how many people you hand the one token to. A homelab box for yourself and a shared box for your family or lab are the same deployment; the only difference is the size of the group that holds the credential.
 
-## Quick start (Bun, the blessed path)
+## Quick start (Bun API features)
 
 The whole box is `bun server.ts`: no database, no Cloudflare account, nothing to provision. Generate a token, supply it as `INSTANCE_TOKEN`, and boot:
 
@@ -18,13 +18,14 @@ INSTANCE_TOKEN=Hq9...kQ \
 bun apps/self-host/server.ts
 ```
 
-Then paste the same token into the client's instance setting (`{ baseURL, token }`), once. Every request from that client arrives as `Authorization: Bearer <token>` and authenticates against `principals/instance`. Hand the token to one person or to your whole group; the command is identical either way.
+A client connects with the server URL and this existing token; the server does not exchange it for another credential. Every request from that client arrives as `Authorization: Bearer <token>` and authenticates against `principals/instance`. Hand the token to one person or to your whole group; the command is identical either way.
 
 Boot fails closed if `INSTANCE_TOKEN` is missing or too weak, and the error names `gen-token`. The box never mints or stores a token: you own the secret, which is exactly what lets the same instance run on Cloudflare too. To rotate, generate a new token, restart with it, and redistribute it; there is no per-person revocation (see [Offboarding](#offboarding-and-rotation)).
 
 `INSTANCE_TOKEN` is the only required variable. The instance needs no external
-database, no auth secret, and no local application data: a client owns its own
-store, and neither entry point constructs a database (ADR-0226, ADR-0227).
+account database or auth secret. Clients own their stores; the Cloudflare Worker
+stores opaque synchronization bytes in Durable Objects. The Bun entry has no
+store synchronization backend.
 
 If a browser app is hosted on a different origin from the instance, set
 `TRUSTED_BROWSER_ORIGINS` to a comma-separated list of exact origins, for
@@ -61,14 +62,18 @@ This is not Epicenter Cloud. There are no billing routes (billing is hosted-only
 
 Community-supported, not Epicenter-operated. Issues filed against this folder are accepted as community contributions.
 
-### Store sync is not mounted here yet
+### Store sync on Cloudflare
 
-The store transport is `mountStoreSyncApp` in
-`packages/server/src/store-sync/`, and only the hosted Worker mounts it today.
-It resolves one authority per (principal, application id, generation) as a
-Cloudflare Durable Object, and no other runtime implements that backend yet. So an instance
-currently serves session, inference, transcription, and blobs. An application
-pointed at it keeps its data locally without converging with a second device.
+The Worker mounts `mountStoreSyncApp` with the same static-token resolver as
+session and blob requests. Its `STORE_AUTHORITY` and `GENERATIONS_LEDGER`
+Durable Object bindings store opaque bytes and generation numbers under
+`principals/instance`. The committed class declarations and initial SQLite
+migration create this deployment's own backend; preserve your existing
+migration history if adapting an already-customized Worker.
+
+The Bun entry still serves session, inference, transcription, and blobs only.
+There is no Bun store backend, so two devices cannot synchronize their stores
+through that entry. `runtime-profile.test.ts` records this runtime difference.
 
 ## Inference and your house key
 
@@ -83,7 +88,7 @@ Two things keep that from becoming a runaway bill:
 
 The whole instance is the same handful of lines on either runtime: build the app
 with `createServerApp`, then mount each surface. No billing, no SPA, no
-`mountCloudAuth`, no `mountCloudDb`. Bun (`server.ts`) reads the token once at
+`createCloudContextMiddleware`. Bun (`server.ts`) reads the token once at
 boot and runs the entropy gate there:
 
 ```ts
@@ -116,7 +121,8 @@ const resolveBearerPrincipal: ResolveBearerPrincipal = (c, bearer) =>
   )(c, bearer);
 const auth = requireBearerPrincipal(resolveBearerPrincipal);
 // ...createServerApp({ resolveOrigin, resolveTrustedOrigins }), then the same
-// session + inference + transcription + blobs mounts, minus attach.
+// session + inference + transcription + blobs mounts.
+// The Worker also mounts store sync with its Durable Object backends.
 ```
 
 `runtime-profile.test.ts` declares that one divergence and holds every other
@@ -125,6 +131,11 @@ surface to parity across both entries.
 Deliberately absent: `mountBillingApi`, any OAuth provider, a launch-time mode selector, an admission allowlist, and first-boot token minting. The shape is the contract.
 
 ## Offboarding and rotation
+
+The static token has no expiration. Each store socket has a fixed 600-second
+authorization lifetime, after which it must reconnect through token verification.
+Rotation blocks new requests immediately; existing sockets can retain access
+until that deadline.
 
 A multi-person instance has one honest cost: removing someone means rotating the token and redistributing it to everyone who stays. There is no per-member revocation and no authenticated attribution; whoever holds the token is the instance owner, and attribution in collaborative presence is self-declared. This is fine for the trusted small group an instance targets (a family, a club, a lab, a small team) and gets painful past roughly six to eight people with involuntary churn.
 
