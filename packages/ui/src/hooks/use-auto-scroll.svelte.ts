@@ -33,44 +33,54 @@ export class UseAutoScroll {
 
 		return this.#scrollY + this.#ref.offsetHeight >= this.#ref.scrollHeight;
 	}
-	// This sets everything up once #ref is bound
-	set ref(ref: HTMLElement | undefined) {
+	// bind:this clears the reference on unmount; rebinding releases the old element too.
+	set ref(ref: HTMLElement | null | undefined) {
+		if (ref === this.#ref) return;
+		this.#cleanup?.();
+		this.#cleanup = undefined;
 		this.#ref = ref;
 
-		if (!this.#ref) return;
+		if (!ref) return;
 
-		this.lastScrollHeight = this.#ref.scrollHeight;
+		let lastScrollHeight = ref.scrollHeight;
 
 		// start from bottom or start position
-		this.#ref.scrollTo(
-			0,
-			this.#scrollY ? this.#scrollY : this.#ref.scrollHeight,
-		);
+		ref.scrollTo({
+			top: this.#scrollY ? this.#scrollY : ref.scrollHeight,
+			behavior: 'instant',
+		});
 
-		this.#ref.addEventListener('scroll', () => {
-			if (!this.#ref) return;
-
-			this.#scrollY = this.#ref.scrollTop;
-
+		const onScroll = () => {
+			this.#scrollY = ref.scrollTop;
 			this.disableAutoScroll();
-		});
+		};
+		ref.addEventListener('scroll', onScroll);
+		onScroll();
 
-		window.addEventListener('resize', () => {
+		const onResize = () => {
 			this.scrollToBottom(true);
-		});
+		};
+		window.addEventListener('resize', onResize);
 
-		// should detect when something changed that effected the scroll height
+		// Follow appended messages and streaming text only while pinned to the bottom.
 		const observer = new MutationObserver(() => {
-			if (!this.#ref) return;
-
-			if (this.#ref.scrollHeight !== this.lastScrollHeight) {
+			if (ref.scrollHeight !== lastScrollHeight) {
 				this.scrollToBottom(true);
 			}
 
-			this.lastScrollHeight = this.#ref.scrollHeight;
+			lastScrollHeight = ref.scrollHeight;
 		});
 
-		observer.observe(this.#ref, { childList: true, subtree: true });
+		observer.observe(ref, {
+			childList: true,
+			characterData: true,
+			subtree: true,
+		});
+		this.#cleanup = () => {
+			ref.removeEventListener('scroll', onScroll);
+			window.removeEventListener('resize', onResize);
+			observer.disconnect();
+		};
 	}
 	get ref() {
 		return this.#ref;
@@ -79,13 +89,12 @@ export class UseAutoScroll {
 		return this.#scrollY;
 	}
 
-	#ref = $state<HTMLElement>();
+	#ref = $state<HTMLElement | null>();
+	#cleanup: (() => void) | undefined;
 
 	#scrollY: number = $state(0);
 
 	#userHasScrolled = $state(false);
-
-	private lastScrollHeight = 0;
 
 	/** Disables auto scrolling until the container is scrolled back to the bottom */
 	disableAutoScroll() {
@@ -103,6 +112,12 @@ export class UseAutoScroll {
 		// don't auto scroll if user has scrolled
 		if (auto && this.#userHasScrolled) return;
 
-		this.#ref.scrollTo(0, this.#ref.scrollHeight);
+		this.#ref.scrollTo({
+			top: this.#ref.scrollHeight,
+			// Intermediate smooth-scroll events otherwise look like reading history.
+			behavior: 'instant',
+		});
+		this.#scrollY = this.#ref.scrollTop;
+		this.disableAutoScroll();
 	}
 }

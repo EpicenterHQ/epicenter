@@ -58,7 +58,8 @@
 		@apply hover:bg-transparent hover:[&,&>svelte-css-wrapper]:[&>th,td]:bg-muted/50;
 	}
 
-	/* Select: keep the dropdown from growing wider than its trigger. */
+	/* Select: constrain the dropdown to min-content width; the preset's minimum
+	   width still applies. This is not a cap at the trigger's width. */
 	.cn-select-content {
 		@apply max-w-min;
 	}
