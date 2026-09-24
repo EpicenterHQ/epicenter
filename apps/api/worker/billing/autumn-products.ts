@@ -89,8 +89,11 @@ function buildCreditsItem(p: SubscriptionPlan): PlanItem {
 }
 
 function buildStorageItem(p: SubscriptionPlan): PlanItem {
-	if (p.storage.includedBytes === 0 && p.storage.overagePerGbUsd === 0) {
-		return item({ featureId: storageBytes.id, included: 0 });
+	if (p.storage.overagePerGbUsd === 0) {
+		return item({
+			featureId: storageBytes.id,
+			included: p.storage.includedBytes,
+		});
 	}
 	return item({
 		featureId: storageBytes.id,
