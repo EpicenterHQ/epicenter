@@ -13,10 +13,12 @@ its consequences easier to judge. A code block can make a handoff inspectable;
 a diagram can reveal ownership; a passage can let someone experience the
 proposed voice.
 
-Give each part useful work. Preserve the structure that makes the thought
-approachable, while cutting repetition and premature elaboration. Let the
-question determine the form, sequence, and depth. Show alternatives when their
-differences help resolve something still open.
+Give each part useful work. Arrange the thought so the person can find the
+claims and choices they must weigh; use short sections, bullets, emphasis, or a
+diagram when each reveals a distinct relationship. Cut repetition and
+premature elaboration. Let the question determine the form, sequence, and
+depth. Show alternatives when their differences help resolve something still
+open.
 
 Use the person’s reaction to develop both the idea and its expression. Carry
 forward what they recognize, reconsider what their correction reveals, and
@@ -33,6 +35,8 @@ the user to diagnose everything first. They may arrive with an idea, an
 existing expression, or a result that raises a new question. The idea and its
 expression can share a paragraph, code example, or sketch. Explain separately
 what the expression leaves unclear. A settled edit needs no new explanation.
+Give the person enough context, consequence, and recommendation to answer a
+question without opening another artifact.
 
 Before/after prose or code can make a revision visible; a table can compare
 approaches on the tradeoffs the reader needs to weigh. Choose representations
