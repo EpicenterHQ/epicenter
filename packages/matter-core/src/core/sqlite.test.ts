@@ -362,3 +362,47 @@ describe('projects a vault into one db whose tables JOIN', () => {
 		]);
 	});
 });
+
+describe('a field named like a mirror column', () => {
+	// SQLite column names are case-insensitive, so a typed field called `body` (or `Stem`, or
+	// `_extra`) collides with the columns every mirror carries. The mirror must still build.
+	const clash = contract({
+		title: { type: 'string' },
+		body: { type: 'string' },
+		Stem: { type: 'string' },
+	});
+	const row: Row = {
+		fileName: 'note-1.md',
+		frontmatter: { title: 'Hello', body: 'a summary', Stem: 'root' },
+		body: 'The prose of the note.',
+	};
+
+	test('projects into a real SQLite table, keeping the clashing values in _extra', () => {
+		const { schema, insert, rows } = projectToSqlite(
+			'notes',
+			clash,
+			classifyRows(clash.fields, [row]),
+		);
+		const db = new Database(':memory:');
+		db.exec(schema);
+		const stmt = db.prepare(insert);
+		for (const r of rows) stmt.run(...r);
+
+		expect(
+			db.query('SELECT "stem", "title", "_extra", "body" FROM notes').all(),
+		).toEqual([
+			{
+				stem: 'note-1',
+				title: 'Hello',
+				_extra: '{"body":"a summary","Stem":"root"}',
+				body: 'The prose of the note.',
+			},
+		]);
+		// The full-text index still covers the prose.
+		expect(
+			db
+				.query(`SELECT rowid FROM notes_fts WHERE notes_fts MATCH 'prose'`)
+				.all(),
+		).toHaveLength(1);
+	});
+});
