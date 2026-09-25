@@ -71,4 +71,20 @@ describe('parseMarkdown', () => {
 		const raw = '---\n- a\n- b\n---\nbody';
 		expect(parseMarkdown(raw).error?.name).toBe('FrontmatterNotMapping');
 	});
+
+	test('the closing fence starts a line: `---` inside a value is not the fence', () => {
+		const { data, error } = parseMarkdown(
+			'---\ntitle: Part 1 --- Introduction\nstatus: draft\n---\n# Body',
+		);
+		expect(error).toBeNull();
+		expect(data).toEqual({
+			frontmatter: { title: 'Part 1 --- Introduction', status: 'draft' },
+			body: '# Body',
+		});
+	});
+
+	test('a closing fence with a CRLF line ending is still the fence', () => {
+		const { data } = parseMarkdown('---\r\ntitle: x\r\n---\r\nbody');
+		expect(data).toEqual({ frontmatter: { title: 'x' }, body: 'body' });
+	});
 });
