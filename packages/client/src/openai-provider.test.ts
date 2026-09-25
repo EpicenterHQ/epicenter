@@ -36,6 +36,24 @@ function openAiSse(chunks: object[]): Response {
 	});
 }
 
+/**
+ * Build an SSE response from raw byte chunks, so a test controls the exact line
+ * endings and where the network splits them.
+ */
+function rawSse(parts: string[]): Response {
+	const encoder = new TextEncoder();
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			for (const part of parts) controller.enqueue(encoder.encode(part));
+			controller.close();
+		},
+	});
+	return new Response(body, {
+		status: 200,
+		headers: { 'content-type': 'text/event-stream' },
+	});
+}
+
 /** A `fetch` that records the last request body and returns a fixed Response. */
 function capturingFetch(response: Response) {
 	const calls: Array<Record<string, unknown>> = [];
@@ -285,6 +303,77 @@ describe('createOpenAiAgentEngine', () => {
 	// complete deltas with NO `index`. A reducer keying everything by `index ?? 0`
 	// would merge them and concatenate their args into invalid JSON. Each must
 	// stay its own call.
+	test('parses a stream framed with CRLF line endings', async () => {
+		// The SSE spec allows CRLF, LF, or CR line endings, and servers built on
+		// sse-starlette (its default separator is `\r\n`) frame every event with
+		// `\r\n\r\n`. The frame boundary here also lands between reads.
+		const frame = (chunk: object) => `data: ${JSON.stringify(chunk)}\r\n\r\n`;
+		const stream = [
+			frame({
+				choices: [{ delta: { content: 'Hello' }, finish_reason: null }],
+			}),
+			frame({
+				choices: [{ delta: { content: ', world' }, finish_reason: null }],
+			}),
+			frame({
+				choices: [
+					{
+						delta: {
+							tool_calls: [
+								{
+									index: 0,
+									id: 'call_1',
+									type: 'function',
+									function: { name: 'lookup', arguments: '{"q":"hi"}' },
+								},
+							],
+						},
+						finish_reason: 'tool_calls',
+					},
+				],
+			}),
+			'data: [DONE]\r\n\r\n',
+		].join('');
+		// Split one read inside the first `\r\n\r\n`, and another mid-JSON.
+		const cut = stream.indexOf('\r\n\r\n') + 3;
+		const { fetch } = capturingFetch(
+			rawSse([
+				stream.slice(0, cut),
+				stream.slice(cut, cut + 20),
+				stream.slice(cut + 20),
+			]),
+		);
+		const engine = createOpenAiAgentEngine({
+			data: () => ({
+				fetch,
+				baseURL: GATEWAY,
+				model: 'local-model',
+				systemPrompts: [],
+			}),
+		});
+
+		const chunks = await drain(
+			engine(
+				{ messages: [{ role: 'user', content: 'hi' }], tools: [] },
+				new AbortController().signal,
+			),
+		);
+		expect(
+			chunks
+				.filter((c) => c.type === 'text-delta')
+				.map((c) => (c as { delta: string }).delta)
+				.join(''),
+		).toBe('Hello, world');
+		expect(toolCalls(chunks)).toEqual([
+			{
+				type: 'tool-call',
+				toolCallId: 'call_1',
+				toolName: 'lookup',
+				input: { q: 'hi' },
+			},
+		]);
+	});
+
 	test('does not merge index-less parallel calls (Gemini compat shape)', async () => {
 		const { fetch } = capturingFetch(
 			openAiSse([
