@@ -176,6 +176,27 @@ const uploadDispatch = (app: WhisperingApp) =>
 				),
 			model: () => deviceConfig.get(PROVIDERS.speaches.modelIdConfigKey),
 		},
+		// A generic OpenAI-compatible endpoint: the stored base URL already
+		// ends in `/v1`, so unlike Speaches' bare host nothing is appended.
+		// The key is optional: an unset secret resolves to undefined, which
+		// sends no Authorization header.
+		'openai-compatible': {
+			kind: 'wire',
+			resolve: () =>
+				resolveConnection(
+					{
+						baseUrl: deviceConfig.get(
+							PROVIDERS['openai-compatible'].endpointConfigKey,
+						),
+						apiKey: secretApiKey(
+							PROVIDERS['openai-compatible'].apiKeyConfigKey,
+						),
+					},
+					customFetch,
+				),
+			model: () =>
+				deviceConfig.get(PROVIDERS['openai-compatible'].modelIdConfigKey),
+		},
 		ElevenLabs: {
 			kind: 'bespoke',
 			transcribe: (audio, { prompt, spokenLanguage }) =>

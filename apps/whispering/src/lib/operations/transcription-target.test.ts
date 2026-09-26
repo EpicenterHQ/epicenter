@@ -94,6 +94,34 @@ describe('describeTranscriptionDestinationFromConfig', () => {
 		});
 	});
 
+	test('compatible endpoint at loopback keeps audio on device', () => {
+		expect(
+			describeTranscriptionDestinationFromConfig({
+				service: 'openai-compatible',
+				getDeviceConfig: config({
+					'providers.openaiCompatible.endpoint': 'http://localhost:8787/v1',
+				}),
+				sessionBaseUrl: REMOTE_SESSION_BASE_URL,
+			}),
+		).toEqual({ onDevice: true, summary: 'Audio stays on this device.' });
+	});
+
+	test('compatible endpoint at a remote host reads as the user own server', () => {
+		expect(
+			describeTranscriptionDestinationFromConfig({
+				service: 'openai-compatible',
+				getDeviceConfig: config({
+					'providers.openaiCompatible.endpoint':
+						'https://gateway.example.com/v1',
+				}),
+				sessionBaseUrl: REMOTE_SESSION_BASE_URL,
+			}),
+		).toEqual({
+			onDevice: false,
+			summary: 'Audio is sent to your OpenAI-compatible server.',
+		});
+	});
+
 	test('session bonded at a loopback base URL keeps audio on device', () => {
 		expect(
 			describeTranscriptionDestinationFromConfig({

@@ -135,6 +135,7 @@ const settingsKv = {
 		'Mistral',
 		'local',
 		'speaches',
+		'openai-compatible',
 	]),
 	transcriptionOpenaiModel: field.string(),
 	transcriptionGroqModel: field.string(),

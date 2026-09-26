@@ -83,6 +83,7 @@ const SECRET_DEFINITIONS = {
 	'providers.mistral.apiKey': defineEntry(type('string'), ''),
 	'providers.openrouter.apiKey': defineEntry(type('string'), ''),
 	'providers.custom.apiKey': defineEntry(type('string'), ''),
+	'providers.openaiCompatible.apiKey': defineEntry(type('string'), ''),
 };
 
 /**
@@ -117,6 +118,18 @@ const DEVICE_DEFINITIONS = {
 		type('string'),
 		'Systran/faster-distil-whisper-small.en',
 	),
+	/**
+	 * Base URL of an OpenAI-compatible transcription server, up to and
+	 * including `/v1` (the client posts to `${baseUrl}/audio/transcriptions`).
+	 * Empty until the user sets one: unlike Speaches there is no conventional
+	 * default host for a generic endpoint.
+	 */
+	'providers.openaiCompatible.endpoint': defineEntry(type('string'), ''),
+	/**
+	 * Free-text model name sent on the wire: the endpoint defines what is
+	 * valid, so no catalog list can name it for the user.
+	 */
+	'providers.openaiCompatible.modelId': defineEntry(type('string'), ''),
 
 	// ── Recording hardware ────────────────────────────────────────────
 	'recording.cpal.deviceId': defineEntry(type('string | null'), null),
