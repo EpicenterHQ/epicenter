@@ -74,6 +74,20 @@ export type StartActiveListeningOptions = {
 	 * live level meter.
 	 */
 	onLevel: (level: number) => void;
+	/**
+	 * Optional Silero tuning knobs forwarded verbatim to `MicVAD`. All values
+	 * are the library's own option names (`redemptionMs`, `minSpeechMs`,
+	 * `positiveSpeechThreshold`, `negativeSpeechThreshold`, `preSpeechPadMs`).
+	 * Omitted keys fall back to vad-web defaults; this wrapper owns the surface,
+	 * not the semantics.
+	 */
+	vadOptions?: {
+		redemptionMs?: number;
+		minSpeechMs?: number;
+		positiveSpeechThreshold?: number;
+		negativeSpeechThreshold?: number;
+		preSpeechPadMs?: number;
+	};
 };
 
 export type VadRecorder = {
@@ -122,6 +136,7 @@ export function createVadRecorder({
 			onSpeechEnd,
 			onVADMisfire,
 			onLevel,
+			vadOptions,
 		}) {
 			if (_session || _starting) return VadRecorderError.AlreadyActive();
 			_starting = true;
@@ -164,6 +179,7 @@ export function createVadRecorder({
 							},
 							model: 'v5',
 							baseAssetPath: assetBaseUrl,
+							...(vadOptions ?? {}),
 							// vad-web sets `ort.env.wasm.wasmPaths` to this base path before
 							// calling ortConfig, so the default onnxruntime-web build resolves
 							// <assetBaseUrl>ort-wasm-simd-threaded.{mjs,wasm} on its own.
