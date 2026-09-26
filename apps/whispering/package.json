@@ -31,7 +31,10 @@
 		"#platform/download": "./src/lib/services/download/index.tauri.ts",
 		"#platform/http": "./src/lib/services/http/index.tauri.ts",
 		"#platform/manual-recorder-config": "./src/lib/state/manual-recorder-config.tauri.ts",
-		"#platform/os": "./src/lib/platform/os.tauri.ts",
+		"#platform/os": {
+			"tauri": "./src/lib/platform/os.tauri.ts",
+			"default": "./src/lib/platform/os.browser.ts"
+		},
 		"#platform/os-notify": "./src/lib/report/os-notify.tauri.ts",
 		"#platform/recorder": "./src/lib/services/recorder/index.tauri.ts",
 		"#platform/recording-mic-level": "./src/lib/recording-overlay/mic-level.tauri.ts",
