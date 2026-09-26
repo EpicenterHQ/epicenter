@@ -9,6 +9,7 @@ import { Ok } from 'wellcrafted/result';
 import type { VadState } from '$lib/constants/audio';
 import { WHISPERING_BASE_PATHNAME } from '$lib/constants/urls';
 import { deviceConfig } from '$lib/state/device-config.svelte';
+import { readVadOptions } from './vad-options';
 
 const VadRecorderError = defineErrors({
 	EnumerateDevicesFailed: ({ cause }: { cause: unknown }) => ({
@@ -93,6 +94,7 @@ function createReactiveVadRecorder() {
 
 			const result = await vad.startActiveListening({
 				deviceId,
+				vadOptions: readVadOptions((key) => deviceConfig.get(key)),
 				onLevel: callbacks.onLevel,
 				// State mutations are gated on an already-armed session (`!== 'IDLE'`)
 				// so a frame that arrives during the start window does not flip state

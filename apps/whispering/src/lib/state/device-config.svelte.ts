@@ -126,6 +126,17 @@ const DEVICE_DEFINITIONS = {
 		DEFAULT_BITRATE_KBPS,
 	),
 
+	// VAD tuning knobs, forwarded to @ricky0123/vad-web (Silero v5) as the
+	// library's own option names. Empty string means unset: vad-web then applies
+	// its defaults (redemptionMs 1400, minSpeechMs 400, positiveSpeechThreshold
+	// 0.3, negativeSpeechThreshold 0.25, preSpeechPadMs 800). Device-local since
+	// mic, room, and voice differ per machine.
+	'recording.vad.redemptionMs': defineEntry(type('string'), ''),
+	'recording.vad.minSpeechMs': defineEntry(type('string'), ''),
+	'recording.vad.positiveSpeechThreshold': defineEntry(type('string'), ''),
+	'recording.vad.negativeSpeechThreshold': defineEntry(type('string'), ''),
+	'recording.vad.preSpeechPadMs': defineEntry(type('string'), ''),
+
 	// Local transcription model selection and unload policy are deliberately
 	// absent: the host owns the one active local model and its lifecycle, and
 	// Epicenter Home administers both (ADR-0180). They are still device-local,
