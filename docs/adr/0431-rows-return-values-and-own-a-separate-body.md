@@ -7,6 +7,10 @@
 
 ## Context
 
+The body layout below belongs to the current Yjs-backed store and its Markdown
+checkout. It does not make a Yjs node authoritative over a migrated data folder's
+saved Markdown or require the future file engine to use the same body API.
+
 A page has structured properties and collaborative writing. Both belong to one
 identity and serialize together as frontmatter plus a file body. Returning the
 live node alongside value snapshots made ordinary row reads unsuitable for
@@ -42,8 +46,12 @@ store integrates it with the new row. Updates cannot replace that node.
 Deleting the row removes its fields and body together.
 
 The file layer preserves all stored value fields as frontmatter and renders
-the body through its codec. Its faithful read returns `{ id, fields, body }`,
+the body through its codec. `storedRow(table, id)` returns a `StoredRow` with
+`{ id, fields, body }`,
 keeping JSON fields separate from the live node through serialization.
+This is current store state, not serialized source bytes or confirmation of a
+durable save. `RowOf<T>` remains the ID and declared value snapshot; it excludes
+the live body.
 File-body rewrites replace the sequence inside the existing node so open
 editors retain their binding. The reactive adapter tracks body existence even
 when metadata fails validation.

@@ -40,6 +40,27 @@ It never retargets. Closing either store leaves the other usable. Both expose
 Personal opens from its cached generation offline, or asks the authority to
 select a generation when no cache exists. No Shared opener is exported.
 
+## Rows and saved files
+
+`RowOf<typeof tableDefinition>` infers a value snapshot: `id` plus the declared
+fields. `CreateRowOf` infers the fields argument to `create`; `KvOf` infers KV
+values. The live body is accessed separately through `table.body(id)`. These
+types do not describe a complete saved file or include an attachment handle.
+
+The current engine's `storedRow(table, id)` returns every stored field and the
+live body without filtering through the definition. Its `StoredRow` result is
+input to file rendering, not serialized Markdown or proof of durable storage.
+`rowFile()` and `parseRowFile()` in the artifact format operate on Markdown text.
+
+The proposed file-first model calls the saved unit a **data folder**, containing
+tables of Markdown rows, root `kv.json`, and row-owned attachments. Say **row**
+for the table member and **row file** when discussing its saved Markdown.
+Source that an app cannot interpret must remain accessible as files; failure to
+produce a typed row does not erase those bytes. See
+[the file-authority direction](../../docs/adr/0450-current-files-own-portable-document-data.md).
+The current stores documented here still use Yjs and own their acquired
+resources. Naming the target does not change their persistence or lifetime.
+
 ## Resource constructors
 
 | Subpath | Constructors | Required destination |

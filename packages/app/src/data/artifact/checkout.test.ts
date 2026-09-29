@@ -1216,7 +1216,7 @@ describe('push sends the values back and re-renders', () => {
 		// Neither text reached the note: not the one they read, and not the one
 		// that replaced it and they declined.
 		expect(
-			(data.rowFile('notes', noteId)?.body as Y.Node).toString(),
+			(data.storedRow('notes', noteId)?.body as Y.Node).toString(),
 		).toContain('buy milk');
 		await data[Symbol.asyncDispose]();
 	});
@@ -1391,7 +1391,7 @@ describe('push sends the values back and re-renders', () => {
 		).toBe(true);
 		expect(plan.some((item) => item.kind === 'body')).toBe(true);
 		expectOk(await sendBack(host, data));
-		expect(data.rowFile('notes', noteId)?.fields).toMatchObject({
+		expect(data.storedRow('notes', noteId)?.fields).toMatchObject({
 			body: 'metadata',
 			content: 'ordinary',
 			'!status': 'draft',
@@ -1436,7 +1436,7 @@ describe('push sends the values back and re-renders', () => {
 		const expected = parseRowFile(host.folder.get(`notes/${noteId}.md`)!)!.body;
 		const pushed = applied(expectOk(await sendBack(host, data)));
 		expect(pushed.bodies).toBe(1);
-		expect((data.rowFile('notes', noteId)?.body as Y.Node).toString()).toBe(
+		expect((data.storedRow('notes', noteId)?.body as Y.Node).toString()).toBe(
 			expected,
 		);
 		expect(host.folder.get(`notes/${noteId}.md`)).toContain('and eggs');

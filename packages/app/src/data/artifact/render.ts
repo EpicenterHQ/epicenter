@@ -27,7 +27,7 @@ import {
 	type DataDefinition,
 	type ParsedDataDefinition,
 } from '../definition/index.js';
-import type { RowFile, StoredData } from '../store/store.js';
+import type { StoredData, StoredRow } from '../store/store.js';
 import { rowFile } from './frontmatter.js';
 import { rowPath } from './layout.js';
 
@@ -103,7 +103,7 @@ export type RenderableData = {
 	 * handle answers what an application can see; these answer what is there.
 	 */
 	stored(): StoredData;
-	rowFile(table: string, rowId: string): RowFile | undefined;
+	storedRow(table: string, rowId: string): StoredRow | undefined;
 };
 
 /**
@@ -143,7 +143,7 @@ export async function renderRow(
 	rowId: string,
 ): Promise<Result<RenderedRow, RenderError>> {
 	const path = rowPath(table, rowId);
-	const row = data.rowFile(table, rowId);
+	const row = data.storedRow(table, rowId);
 	if (row === undefined) {
 		return Ok({ path, contents: undefined });
 	}

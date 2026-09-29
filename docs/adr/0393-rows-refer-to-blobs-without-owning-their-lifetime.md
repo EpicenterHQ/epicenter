@@ -15,7 +15,13 @@ application row cites one yet.
 
 ## Decision
 
-**A row may cite bytes, but its lifetime does not own them.**
+**A row's BlobId or hosted URL is a reference, not ownership of those bytes.**
+
+These rules apply to independently stored blobs in current Yjs-backed stores
+and to hosted URL references. Data folders instead use the owned sibling
+attachments defined by [ADR-0456](0456-a-markdown-row-owns-at-most-one-same-stem-attachment.md).
+Deleting an owning row deletes its attachment; a link to another row's file
+remains a reference and does not acquire that ownership.
 
 Local rows may contain a device-local BlobId. A Personal or Shared row
 that cites hosted bytes contains the complete, credential-free authority URL as
@@ -24,8 +30,8 @@ with a fixed owner; signing into another account cannot reinterpret it. An
 application maps references when it publishes or copies bytes between
 owners. Store opening and Yjs synchronization do not transfer bytes.
 
-No `field.blob()`, `field.attachment()`, one-file-per-row rule, automatic byte
-queue, or server reference-liveness index follows from a cited URL. Temporary
+No `field.blob()`, `field.attachment()`, automatic byte queue, or server
+reference-liveness index follows from a cited URL. Temporary
 download or presentation grants are never durable row values. A URL is an
 address, not a credential: the authority checks personal ownership,
 space membership, or public visibility on each read. Application code

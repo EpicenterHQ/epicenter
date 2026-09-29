@@ -73,7 +73,7 @@ non-empty tuple for the same reason, one step further on: an upgrade offering
 nothing is refused exactly like an upgrade offering only a bearer.
 
 One path (`/api/store/v1/sync`), and the addressing lives in the query: a
-replica says which application `dataId` it is syncing and how far through the
+replica says which dataset `dataId` it is syncing and how far through the
 log it has read. Whose data that is comes from the resolved bearer,
 server-side, so there is no value a client can put in the query that reaches
 another partition (ADR-0092, ADR-0225). `DATA_ID` is the data id

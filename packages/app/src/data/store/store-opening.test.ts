@@ -71,7 +71,7 @@ test('retained reads and writes throw as soon as close starts', async () => {
 	const { kv, transact } = view;
 	const { get, create, update, delete: deleteRow, ids } = notes;
 	const { get: getKv, update: updateKv } = kv;
-	const { stored, rowFile, pressure, stateVector, encodeStateSince } = store;
+	const { stored, storedRow, pressure, stateVector, encodeStateSince } = store;
 	let transactionCalls = 0;
 	const operations = [
 		() => get(row.id),
@@ -86,7 +86,7 @@ test('retained reads and writes throw as soon as close starts', async () => {
 		() => updateKv({ theme: 'must not be written' }),
 		() => transact(() => transactionCalls++),
 		() => stored(),
-		() => rowFile('notes', row.id),
+		() => storedRow('notes', row.id),
 		() => pressure(),
 		() => stateVector(),
 		() => encodeStateSince(),

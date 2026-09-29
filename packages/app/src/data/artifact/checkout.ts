@@ -1556,12 +1556,12 @@ async function planPush(
 				keep('table-undeclared');
 				continue;
 			}
-			// `rowFile` rather than `renderedRow`: what is asked here is whether
+			// `storedRow` rather than `renderedRow`: what is asked here is whether
 			// the row is THERE, and a render also answers `undefined` for a row
 			// that is present and cannot be written (`render.ts`). Under
 			// ADR-0338 an unwritable row is ordinary, and deleting its file
 			// still means delete it.
-			if (data.rowFile(address.table, address.rowId) === undefined) {
+			if (data.storedRow(address.table, address.rowId) === undefined) {
 				// The row went while the file did. Both sides already agree, so
 				// there is nothing to say and nothing to delete.
 				continue;
@@ -1599,10 +1599,10 @@ async function planPush(
 		// identical to its base, which is what keeps this from being the
 		// resurrecting folder ADR-0337 refused.
 		//
-		// `rowFile` rather than the render: a render also answers `undefined`
+		// `storedRow` rather than the render: a render also answers `undefined`
 		// for a row that is present and cannot be written, and that row is
 		// still there to be updated.
-		if (data.rowFile(address.table, address.rowId) === undefined) {
+		if (data.storedRow(address.table, address.rowId) === undefined) {
 			const back = await admission(definition, address.table, path, contents);
 			items.push(
 				back.kind === 'admission' ? { ...back, replaces: address.rowId } : back,
@@ -2095,7 +2095,7 @@ async function applyPush({
 
 				for (const item of plan) {
 					if (item.kind !== 'body') continue;
-					const node = data.rowFile(item.table, item.rowId)?.body;
+					const node = data.storedRow(item.table, item.rowId)?.body;
 					const content = rewrites.get(item.path);
 					// Both are defensive: a row with no live node renders as
 					// `MalformedRow`, so `planPush` already kept it,
@@ -2201,7 +2201,7 @@ async function applyPush({
 		// A row this push wrote and then could not find is an invariant break,
 		// and the folder is not where to report it: rendering nothing would have
 		// the host sweep a file the person edited, so it goes back as it was.
-		if (data.rowFile(address.table, address.rowId) === undefined) {
+		if (data.storedRow(address.table, address.rowId) === undefined) {
 			const path = rowPath(address.table, address.rowId);
 			const contents = held.files.get(path);
 			if (contents !== undefined) {

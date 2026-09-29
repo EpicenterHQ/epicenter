@@ -12,10 +12,10 @@ import { BLOB_ID_ROUTE_REGEX } from '@epicenter/blobs';
 import { APPS } from '@epicenter/constants/apps';
 
 /**
- * Whispering's inert application declaration.
+ * Whispering's inert store definitions.
  *
- * The root schema is inspectable without opening storage. Only `openLocal()`
- * acquires the live App and its resources.
+ * Definitions are inspectable without opening storage. `openLocal()` acquires
+ * the local store; `openPersonal()` opens the speech profile.
  *
  * Three things about this file are decisions rather than transcription of the
  * old contract, and each is load-bearing.
@@ -33,10 +33,8 @@ import { APPS } from '@epicenter/constants/apps';
  * (ADR-0207) and it is deliberate: a note is written by a person a character at
  * a time, a transcript arrives finished.
  *
- * **There are no optional fields.** A field has to be one type through the CRDT
- * attribute, the projection column and the row alike, and "absent" is not a SQL
- * type. What would have been optional is nullable with a `= null` default,
- * which a read applies and a write never stores.
+ * **Empty values are explicit.** Nullable fields accept `null`; the declaration
+ * supplies no read defaults. The application initializes settings and rows.
  */
 
 /** Runtime-minted structural row ids. */
@@ -173,7 +171,7 @@ export const speechProfileDefinition = defineStore({
 	tables: {},
 });
 
-/** The typed view of one store through Whispering's workspace. */
+/** The tables and KV interpreted through Whispering's store definition. */
 export type WhisperingData = DeclaredData<typeof whisperingDefinition>;
 
 export type Recording = RowOf<typeof recordingsTable>;

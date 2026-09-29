@@ -67,9 +67,9 @@ describe('rows are values and bodies are live nodes', () => {
 		expect(phone.tables.notes.body(id)?.toString()).toContain('and eggs');
 	});
 
-	test('rowFile preserves stored values alongside the body', async () => {
+	test('storedRow preserves stored values alongside the body', async () => {
 		const { phone, id } = await convergedPair();
-		const row = phone.rowFile('notes', id);
+		const row = phone.storedRow('notes', id);
 		if (row === undefined) throw new Error('the row is gone');
 		expect(row.id).toBe(id);
 		expect(row.fields).toEqual({ title: 'Groceries' });

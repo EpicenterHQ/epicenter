@@ -376,9 +376,8 @@ describe("a row's body node lives on the row (ADR-0295)", () => {
 	});
 
 	test('body is a live node on the row, never a JSON value', () => {
-		// `get` carries it and `stored()` cannot: the faithful read answers in
-		// JSON, and a nested type is not one. That is the whole reason the
-		// exporter reads through `store.rowFile` rather than through `stored`.
+		// Value snapshots exclude live nodes. The exporter reads the body through
+		// `store.storedRow`; `stored()` returns only JSON values.
 		const made = note();
 		const stored = db.stored().tables.get('notes')?.get(made.id);
 		expect(Object.keys(stored ?? {})).not.toContain('body');

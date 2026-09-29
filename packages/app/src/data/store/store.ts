@@ -65,8 +65,8 @@ import type {
 	DocumentPressure,
 	KvHandle,
 	Row,
-	RowFile,
 	StoredData,
+	StoredRow,
 	SyncCapability,
 	TableListener,
 	UntypedDeclaredData,
@@ -83,8 +83,8 @@ export type {
 	ReplicaData,
 	ReplicaDocument,
 	Row,
-	RowFile,
 	StoredData,
+	StoredRow,
 	SyncCapability,
 	TableHandle,
 	TypedTableHandle,
@@ -884,8 +884,7 @@ export function createStoreOverPort<
 		 *
 		 * A row's body node is not here, and cannot be: a nested `Y.Node` is
 		 * not a JSON value, so no faithful read of stored VALUES can carry one.
-		 * An export reaches it through `body` and the table's own file codec
-		 * (ADR-0296).
+		 * An export reads it through `storedRow` and the table's body codec.
 		 */
 		stored(): StoredData {
 			assertUsable();
@@ -900,12 +899,11 @@ export function createStoreOverPort<
 		 *
 		 * Deliberately not through a table handle. `readRow` returns every
 		 * stored key including ones this release no longer declares, and no
-		 * conformance runs, so a row the lens cannot read still has a file
-		 * (ADR-0267, ADR-0125). The types come from the declaration's names,
-		 * because a type at an undeclared key is unreachable by any codec
-		 * anyway.
+		 * conformance runs, so a row the lens cannot read remains available to
+		 * the artifact layer (ADR-0267, ADR-0125). The body is the existing live
+		 * node; this read neither serializes a file nor confirms persistence.
 		 */
-		rowFile(tableName: string, rowId: string): RowFile | undefined {
+		storedRow(tableName: string, rowId: string): StoredRow | undefined {
 			assertUsable();
 			const root = tableRoot(database, tableName);
 			const fields = readRow(root, rowId);

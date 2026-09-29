@@ -74,10 +74,10 @@ building blocks; combining them into a generic signed-in data workspace still
 requires compatible definitions, content codecs, and replica discovery.
 
 A working folder exported from a synchronized dataset differs from a local
-library whose files are canonical. In the latter, edits to files are edits to
+data folder whose files are canonical. In the latter, edits to files are edits to
 the data, and a SQLite index can be rebuilt from those files. This record does
 not require permanently local data to use Yjs or Markdown. It does not promise
-that file libraries, local databases, and synchronized replicas expose identical
+that data folders, local databases, and synchronized replicas expose identical
 editing capabilities or can be converted by changing an opening function.
 
 Browsing data and working through files are useful workflows to test separately

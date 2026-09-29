@@ -711,3 +711,4 @@ When you add an ADR, add its row here.
 | [0456](0456-a-markdown-row-owns-at-most-one-same-stem-attachment.md) | A Markdown row owns at most one same-stem attachment | Accepted (unbuilt; flat Markdown and attachment pairs) |
 | [0457](0457-a-markdown-row-may-have-a-readable-filename-suffix.md) | A Markdown row may have a readable filename suffix | Proposed (amends 0456 at exact ID filenames; suffix lookup unbuilt) |
 | [0458](0458-markdown-links-may-cross-data-folders-by-relative-path.md) | Markdown links may cross data folders by relative path | Proposed (cross-folder link resolution unbuilt) |
+| [0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) | SQLite is a local capability for derived or transactional state | Proposed (file-backed application stores and derived indexes unbuilt) |

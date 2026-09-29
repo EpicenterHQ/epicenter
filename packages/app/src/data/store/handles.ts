@@ -32,8 +32,8 @@ import type { PersistenceCapability } from './persistence.js';
 /** One row's identity and value snapshot. */
 export type Row = { id: string } & JsonObject;
 
-/** Faithful stored values and the live body, used only by file operations. */
-export type RowFile = {
+/** Current stored values and live body, without the definition's field filtering. Not serialized file bytes. */
+export type StoredRow = {
 	id: string;
 	fields: JsonObject;
 	body: Y.Node | undefined;
@@ -476,7 +476,7 @@ export type DataDocument = {
 	stored(): StoredData;
 	/**
 	 * One row exactly as the exporter needs it: every stored value, and the
-	 * the live body node beside them.
+	 * live body node beside them. This reads current state, not a durability receipt.
 	 *
 	 * The narrow form of `stored()`, and the artifact layer's only per-row read.
 	 * It is on the STORE rather than on a table handle because it is not a
@@ -485,7 +485,7 @@ export type DataDocument = {
 	 * (ADR-0267). A handle answers what an application can see; this answers
 	 * what is there.
 	 */
-	rowFile(table: string, rowId: string): RowFile | undefined;
+	storedRow(table: string, rowId: string): StoredRow | undefined;
 	/**
 	 * Hear when anything committed into this document, whoever authored it.
 	 *
