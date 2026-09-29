@@ -1,7 +1,10 @@
 /** Key binding serialization, capture vocabulary, and realized-reach behavior. */
 import { expect, test } from 'bun:test';
 import {
+	createModifierLatch,
 	domCodeToKey,
+	eventKeyModifier,
+	eventModifiers,
 	isRegistrableChord,
 	keyBindingToAccelerator,
 	realizedReach,
@@ -77,6 +80,36 @@ test('domCodeToKey rejects modifier codes and anything off the chord alphabet', 
 	// Outside the alphabet keyBindingToAccelerator can spell.
 	expect(domCodeToKey('Numpad1')).toBeNull();
 	expect(domCodeToKey('Lang1')).toBeNull();
+});
+
+test('WebKitGTK Super enters the global meta modifier lifecycle', () => {
+	const superEvent = {
+		ctrlKey: false,
+		altKey: false,
+		shiftKey: false,
+		metaKey: false,
+		key: 'Super',
+	};
+	const physicalKeyEvent = { ...superEvent, key: 'd' };
+
+	expect(eventModifiers(superEvent)).toEqual([]);
+	expect(eventKeyModifier(superEvent)).toBe('meta');
+	const latch = createModifierLatch();
+	expect(latch.keydown(superEvent)).toEqual(['meta']);
+	expect(latch.keydown(physicalKeyEvent)).toEqual(['meta']);
+	expect(latch.keyup(superEvent)).toEqual([]);
+});
+
+test('Meta and OS use the same modifier-key fallback as Super', () => {
+	const event = {
+		ctrlKey: false,
+		altKey: false,
+		shiftKey: false,
+		metaKey: false,
+		key: 'Meta',
+	};
+	expect(eventKeyModifier(event)).toBe('meta');
+	expect(eventKeyModifier({ ...event, key: 'OS' })).toBe('meta');
 });
 
 test('domCodeToKey is the inverse of acceleratorKey for every chord key', () => {
