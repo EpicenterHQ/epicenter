@@ -708,3 +708,4 @@ When you add an ADR, add its row here.
 | [0453](0453-vocab-batch-additions-share-one-review.md) | Vocab batch additions share one review | Accepted (amends 0102 at entry sources) |
 | [0454](0454-vocab-saves-expressions-from-chat-by-selection.md) | Vocab saves expressions from chat by selection | Accepted |
 | [0455](0455-epicenter-ui-tracks-distributed-shadcn-svelte-components-with-explicit-deltas.md) | Epicenter UI tracks distributed shadcn-svelte components with explicit deltas | Proposed |
+| [0456](0456-a-markdown-row-owns-at-most-one-same-stem-attachment.md) | A Markdown row owns at most one same-stem attachment | Accepted (unbuilt; flat Markdown and attachment pairs) |
