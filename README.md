@@ -55,10 +55,12 @@ const notesDefinition = defineStore({
 	kv: {},
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			pinned: field.boolean(),
-			folderId: field.nullable(field.string()),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+				pinned: field.boolean(),
+				folderId: field.nullable(field.string()),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -84,8 +86,8 @@ release-local and never migrates your data. A row it cannot read is reported
 beside the rows it can, with the reason and the raw values intact, and an
 ordinary write repairs it.
 
-The node at `content` merges per character. Declare its codec with
-`content: plainText()` and reach it with `data.tables.notes.get(note.id)?.content`;
+The node at `body` merges per character. Declare its codec with
+`body: plainText()` and reach it with `data.tables.notes.body(note.id)`;
 Epicenter never looks inside. The database document's `kv`/`tables:<name>` shape
 is recorded in
 [ADR-0257](docs/adr/0257-the-application-document-has-named-kv-and-table-roots.md)

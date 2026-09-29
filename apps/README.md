@@ -30,7 +30,7 @@ export const notesDefinition = defineStore({
   id: 'com.example.notes',
   title: 'Notes',
   kv: {},
-  tables: { notes: defineTable({ title: field.string() }) },
+  tables: { notes: defineTable({ fields: { title: field.string() } }) },
 });
 ```
 

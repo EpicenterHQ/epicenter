@@ -22,11 +22,14 @@ getters. A retained operation keeps its handles and never resolves another
 account or write destination from a registry. Importing an operation acquires
 no resources.
 
-A copy workflow receives its source and destination blob capabilities, borrowed
-from the opened stores, and a product signal. If it also publishes a row, it
-receives that destination explicitly and checks cancellation after the copy.
-For example, `personal.blobs.copyFrom(local.blobs, id)` preserves the ID; the
-workflow decides whether a Personal row needs that reference or only text.
+A copy workflow receives its source, selected destination, and product signal.
+If it also publishes a row, it receives that store explicitly and checks
+cancellation after publication. Current code borrows blob capabilities from
+opened stores; `personal.blobs.copyFrom(local.blobs, id)` returns a fresh
+destination ID under [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md).
+The hosted URL direction in [ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md)
+instead returns a URL. The workflow decides whether a Personal row needs that
+reference or only text.
 Store lifetime does not establish that the initiating UI or selected workflow
 still exists. Blob creation and row creation remain separate operations;
 failure can leave unreferenced bytes.

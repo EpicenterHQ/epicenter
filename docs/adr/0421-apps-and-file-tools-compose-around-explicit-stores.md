@@ -57,10 +57,12 @@ The composition has the following boundaries:
 describes independent stores for explicit local, personal, and shared owners.
 An app opens only the stores it needs. A definition can be reused across owners
 without making those stores the same data. No mandatory runtime aggregate is
-needed merely to collect their handles. Each opened store owns its blob namespace.
+needed merely to collect their handles. Current stores own blob namespaces;
+hosted blob ownership and ordinary URL references follow
+[ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md).
 Products separately choose SQL, secret, recording, and inference resources under
 [ADR-0423](0423-app-resources-open-as-independent-handles.md). Importing a schema
-opens nothing. Store-owned blobs do not make rows own byte retention or transfer.
+opens nothing. Rows do not own byte retention or transfer.
 
 [ADR-0418](0418-push-translates-file-differences-into-ordinary-edits.md) describes
 Push as permitted field differences against a durable checkout baseline.
@@ -117,8 +119,8 @@ owns its supported import mapping and resulting identities. Push remains bound
 to the originating destination and baseline. Importing into another app neither
 retargets that checkout nor installs the source app's schema and behavior.
 
-Complete transfer requires attachment payloads and relationship handling. A
-private blob ID alone is not a portable recording. These contracts remain open;
+Complete transfer requires audio bytes and relationship handling. A private
+authority URL alone is not a portable recording. These contracts remain open;
 metadata access must not be described as a complete recording export.
 
 ## Consequences

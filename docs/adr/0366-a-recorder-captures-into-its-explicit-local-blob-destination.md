@@ -50,8 +50,10 @@ leave saved bytes without a row. Recording has no authority to create a row or
 upload audio. Temporary VAD/dictation primitives remain separate and do not
 acquire a durable history requirement merely because saved recording does.
 The later workflow may store the returned BlobId in its Local row. A Personal
-workflow may store text without an audio reference, or explicitly copy audio to
-`personal.blobs` before publishing a reference to that placement. These are
+workflow may store text without an audio reference, or explicitly publish audio
+under its Personal owner and save the returned authority URL under
+[ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md). Current code copies
+to `personal.blobs` and saves the returned BlobId. These are
 product schema and mapping choices. Neither makes a row own bytes or creates
 an automatic local-to-remote transfer.
 

@@ -12,7 +12,9 @@
 The earlier proposal partitioned Local by the signed-in account and placed
 Local and Personal inside one App. The current direction opens stores explicitly.
 Local belongs to the device profile across account changes; Personal captures
-one account. Each store owns its blob namespace. Opening another destination
+one account. Current stores own blob namespaces.
+[ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md) proposes
+owner-scoped hosted objects addressed by authority URL. Opening another destination
 does not decide which rows or bytes a product should copy.
 
 ## Decision
@@ -33,19 +35,20 @@ exactly-once batch transfer, or automatic merge.
 
 **Blob copying creates a fresh destination identity independently of row identity.**
 
-When the destination needs audio, the workflow explicitly uses
-`destination.blobs.copyFrom(source.blobs, blobId)` for a supported pair under
-ADR-0372. It preserves exact bytes and returns a fresh destination BlobId under
-ADR-0426. Copying a row reference alone
-does not create a destination placement or grant access. A text-only copy needs
-no byte transfer. If a reference points outside its store's own blob namespace,
-it retains enough credential-free location information under ADR-0426.
+When a Personal destination needs Local audio, the workflow publishes the
+source bytes under the selected Personal owner and receives a new authority
+URL under ADR-0438. Current code uses
+`destination.blobs.copyFrom(source.blobs, blobId)` and returns a fresh
+destination BlobId under ADR-0426. In either shape, copying a row reference
+alone does not create destination bytes or grant access. A text-only copy needs
+no byte transfer.
 
 The workflow captures source and destination before its first asynchronous
-operation. Closing either store cancels and settles its admitted copy without
-closing the other store. A completed blob copy can survive a later row failure;
-retain the copied ID and destination scope so the caller can reconcile that
-outcome. Store ownership does not make row and byte publication atomic.
+operation. Current store-owned copy follows both stores' lifetimes. The target
+publication keeps its selected owner and Account fixed for the operation. A
+completed blob publication can survive a later row failure; retain its URL and
+destination owner so the caller can retry the row. Neither shape makes row and
+byte publication atomic.
 
 A move is a successful copy followed by explicit source deletion. Row deletion
 and blob deletion remain separate decisions. Failure or an uncertain copy result
