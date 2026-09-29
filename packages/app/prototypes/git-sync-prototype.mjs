@@ -1,6 +1,6 @@
 /**
  * PROTOTYPE: compare whole-branch Git integration with conditional record uploads.
- * Run: bun packages/data/prototypes/git-sync-prototype.mjs
+ * Run: bun packages/app/prototypes/git-sync-prototype.mjs
  * Scratch repositories are created under the system temp directory and removed.
  */
 

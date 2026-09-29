@@ -1,6 +1,6 @@
 # Git sync prototype
 
-Run `bun packages/data/prototypes/git-sync-prototype.mjs` from the repository root. The script creates scratch Git repositories under the system temp directory, prints every replica's Markdown bytes and Git head or record revision after each step, checks the decisive outcomes, and removes the repositories when it finishes. It does not use Epicenter's production store.
+Run `bun packages/app/prototypes/git-sync-prototype.mjs` from the repository root. The script creates scratch Git repositories under the system temp directory, prints every replica's Markdown bytes and Git head or record revision after each step, checks the decisive outcomes, and removes the repositories when it finishes. It does not use Epicenter's production store.
 
 The question is whether stable Markdown paths and identical bytes across desktop and browser replicas are better served by device Git branches or by conditional per-record uploads. The Git runs use real commits, a bare remote, two device clones, a fresh clone, and an integrator clone. The record run is an in-memory protocol model. Both use the same generated note bytes and the same field, body, delete, and continued-edit cases.
 

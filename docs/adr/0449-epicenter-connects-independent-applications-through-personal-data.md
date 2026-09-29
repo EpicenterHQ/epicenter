@@ -69,7 +69,7 @@ promising that another device has no newer edits.
 
 Matter's `matter.json` describes fields and views over files. It does not
 discover remote datasets or supply every application's rich-content codec.
-`packages/matter-core` and `packages/data/src/artifact` provide relevant
+`packages/matter-core` and `packages/app/src/data/artifact` provide relevant
 building blocks; combining them into a generic signed-in data workspace still
 requires compatible definitions, content codecs, and replica discovery.
 
@@ -135,7 +135,7 @@ discarding unsaved work requires an explicit choice. Full navigation supplies
 the page boundary, not the durability guarantee. Native operations and late
 callbacks need their own acknowledged termination before handoff.
 
-Current `packages/data/src/store/store.ts` attempts a flush during close and
+Current `packages/app/src/data/store/store.ts` attempts a flush during close and
 then destroys the document. That is not the save barrier promised here.
 Crashes and forced termination remain bounded by the most recent successful
 durable write.
