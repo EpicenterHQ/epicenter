@@ -124,7 +124,7 @@
 </Sidebar.MenuItem>
 
 <Dialog.Root bind:open={isPickingIcon}>
-	<Dialog.Content class="w-auto max-w-fit gap-3 p-3">
+	<Dialog.Content class="w-auto max-w-fit sm:max-w-fit gap-3 p-3">
 		<Dialog.Header class="px-1 text-left">
 			<Dialog.Title class="text-sm">Folder icon</Dialog.Title>
 			<Dialog.Description class="text-xs">

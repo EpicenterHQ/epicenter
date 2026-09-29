@@ -18,7 +18,7 @@
 	bind:this={ref}
 	data-slot="item-actions"
 	class={cn(
-		'cn-item-actions flex items-center',
+		'gap-2 flex items-center',
 		showOnHover && [
 			// Overlay the right side of the item instead of taking flex space, so the
 			// title gets full width when actions are hidden. Solid bg-accent masks the

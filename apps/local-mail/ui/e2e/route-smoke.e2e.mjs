@@ -132,6 +132,7 @@ test('application startup, draft protection and durable reopen', async ({
 		);
 	};
 	const inspectTabs = async (label) => {
+		await page.mouse.move(0, 0);
 		const state = await page.evaluate(async () => {
 			const buttons = [
 				...document.querySelectorAll('[aria-label="Mail views"] button'),
@@ -163,16 +164,15 @@ test('application startup, draft protection and durable reopen', async ({
 					? state.queryVisible
 					: state.queryHidden;
 			assert(
-				button.classes.includes(
-					`cn-button-variant-${selected ? 'secondary' : 'ghost'}`,
-				),
-				`${label}: ${button.text} variant disagrees with the displayed panel`,
-			);
-			assert(
 				button.pressed === String(selected),
 				`${label}: ${button.text} aria-pressed disagrees with the displayed panel`,
 			);
 		}
+		assert.notEqual(
+			state.buttons[0]?.background,
+			state.buttons[1]?.background,
+			`${label}: the selected mail view has no distinct background`,
+		);
 		tabStates.push({ label, ...state });
 		return state;
 	};

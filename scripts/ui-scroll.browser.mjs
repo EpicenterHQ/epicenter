@@ -20,7 +20,7 @@ const dir = await mkdtemp(`${root}/packages/ui/.browser-scroll-`),
 	out = await mkdtemp(join(tmpdir(), 'epicenter-ui-scroll-'));
 await writeFile(
 	`${dir}/index.html`,
-	'<!doctype html><html lang="en" class="style-vega dark"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div><script type="module" src="/main.js"></script></body></html>',
+	'<!doctype html><html lang="en" class="dark"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div><script type="module" src="/main.js"></script></body></html>',
 );
 await writeFile(
 	`${dir}/main.js`,

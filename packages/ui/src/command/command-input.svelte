@@ -16,7 +16,7 @@
 	class={cn('flex h-9 items-center gap-2 border-b ps-3', children ? 'pe-2' : 'pe-8')}
 	data-slot="command-input-wrapper"
 >
-	<SearchIcon class="cn-command-input-icon" />
+	<SearchIcon class="size-4 shrink-0 opacity-50" />
 	<CommandPrimitive.Input
 		data-slot="command-input"
 		class={cn(

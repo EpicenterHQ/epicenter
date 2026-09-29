@@ -14,7 +14,7 @@
 	bind:this={ref}
 	data-slot="empty-content"
 	class={cn(
-		'cn-empty-content flex w-full max-w-sm min-w-0 flex-col items-center text-balance',
+		'gap-4 text-sm flex w-full max-w-sm min-w-0 flex-col items-center text-balance',
 		className,
 	)}
 	{...restProps}

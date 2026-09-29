@@ -53,8 +53,8 @@
 			class={cn(
 				'relative justify-start text-left font-normal transition-colors',
 				isActive
-					? 'text-sidebar-accent-foreground hover:bg-sidebar-accent/50'
-					: 'text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground',
+					? 'text-sidebar-accent-foreground hover:bg-sidebar-accent/50 dark:hover:bg-sidebar-accent/50'
+					: 'text-sidebar-foreground hover:bg-sidebar-accent/50 dark:hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground',
 			)}
 			aria-current={isActive ? 'page' : undefined}
 			data-sveltekit-noscroll

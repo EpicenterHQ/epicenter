@@ -4,7 +4,6 @@
 	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
 	import { Button } from '@epicenter/ui/button';
 	import * as Sidebar from '@epicenter/ui/sidebar';
-	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import { onDestroy, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
@@ -105,29 +104,26 @@
 {/if}
 
 <QueryClientProvider client={session.queryClient}>
-	<!-- Uses UI package defaults (300ms delay, 150ms skip) -->
-	<Tooltip.Provider>
-		<!-- Once, at the session root and outside the responsive nav branch, so
-			     switching between the two navs does not re-run it. -->
-		<AppEffects />
+	<!-- Once, at the session root and outside the responsive nav branch, so
+	     switching between the two navs does not re-run it. -->
+	<AppEffects />
 
-		{#if isNarrow.current}
-			<div class="flex h-full min-h-svh flex-col">
-				<div class="flex-1 pb-14">
-					<ContentShell>{@render children()}</ContentShell>
-				</div>
-				<BottomNav />
+	{#if isNarrow.current}
+		<div class="flex h-full min-h-svh flex-col">
+			<div class="flex-1 pb-14">
+				<ContentShell>{@render children()}</ContentShell>
 			</div>
-		{:else}
-			<Sidebar.Provider bind:open={sidebarOpen}>
-				<VerticalNav />
-				<Sidebar.Inset>
-					<ContentShell>{@render children()}</ContentShell>
-				</Sidebar.Inset>
-			</Sidebar.Provider>
-		{/if}
+			<BottomNav />
+		</div>
+	{:else}
+		<Sidebar.Provider bind:open={sidebarOpen}>
+			<VerticalNav />
+			<Sidebar.Inset>
+				<ContentShell>{@render children()}</ContentShell>
+			</Sidebar.Inset>
+		</Sidebar.Provider>
+	{/if}
 
-		<GlobalDialogs />
-		<DictationIndicator />
-	</Tooltip.Provider>
+	<GlobalDialogs />
+	<DictationIndicator />
 </QueryClientProvider>

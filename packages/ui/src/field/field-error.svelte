@@ -40,7 +40,7 @@
 		bind:this={ref}
 		role="alert"
 		data-slot="field-error"
-		class={cn('cn-field-error font-normal', className)}
+		class={cn('text-destructive text-sm font-normal', className)}
 		{...restProps}
 	>
 		{#if children}

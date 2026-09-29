@@ -1,0 +1,67 @@
+{
+	"$schema": "https://shadcn-svelte.com/schema/registry-item.json",
+	"name": "modal",
+	"title": "Modal",
+	"type": "registry:ui",
+	"description": "A modal component for dialogs, popups, overlays, dialog boxes, modal windows, with backdrop, close functionality, and responsive design.",
+	"devDependencies": [
+		"bits-ui@^2.16.5",
+		"runed@^0.37.1"
+	],
+	"registryDependencies": [
+		"./shadcn-svelte-dialog.json",
+		"./shadcn-svelte-drawer.json"
+	],
+	"files": [
+		{
+			"content": "import Root from './modal.svelte';\nimport Trigger from './modal-trigger.svelte';\nimport Content from './modal-content.svelte';\nimport Footer from './modal-footer.svelte';\nimport Header from './modal-header.svelte';\nimport Title from './modal-title.svelte';\nimport Description from './modal-description.svelte';\nimport NestedRoot from './modal-nested-root.svelte';\n\nexport { Root, Trigger, Content, Footer, Header, Title, Description, NestedRoot };\n",
+			"type": "registry:ui",
+			"target": "modal/index.ts"
+		},
+		{
+			"content": "<script lang=\"ts\">\n\timport { useModalSub } from './modal.svelte.js';\n\timport * as Dialog from '$COMPONENTS$/ui/dialog/index.js';\n\timport * as Drawer from '$COMPONENTS$/ui/drawer/index.js';\n\timport type { DialogContentProps } from 'bits-ui';\n\n\tconst modal = useModalSub();\n\n\tlet {\n\t\tref = $bindable(null),\n\t\tshowCloseButton = true,\n\t\tchildren,\n\t\t...rest\n\t}: DialogContentProps & { showCloseButton?: boolean } = $props();\n</script>\n\n{#if modal.view === 'desktop'}\n\t<Dialog.Content bind:ref {showCloseButton} {...rest}>\n\t\t{@render children?.()}\n\t</Dialog.Content>\n{:else}\n\t<Drawer.Content bind:ref {...rest}>\n\t\t{@render children?.()}\n\t</Drawer.Content>\n{/if}\n",
+			"type": "registry:ui",
+			"target": "modal/modal-content.svelte"
+		},
+		{
+			"content": "<script lang=\"ts\">\n\timport { useModalSub } from './modal.svelte.js';\n\timport * as Dialog from '$COMPONENTS$/ui/dialog/index.js';\n\timport * as Drawer from '$COMPONENTS$/ui/drawer/index.js';\n\timport type { DialogDescriptionProps } from 'bits-ui';\n\n\tconst modal = useModalSub();\n\n\tlet { ref = $bindable(null), ...rest }: DialogDescriptionProps = $props();\n</script>\n\n{#if modal.view === 'desktop'}\n\t<Dialog.Description bind:ref {...rest} />\n{:else}\n\t<Drawer.Description bind:ref {...rest} />\n{/if}\n",
+			"type": "registry:ui",
+			"target": "modal/modal-description.svelte"
+		},
+		{
+			"content": "<script lang=\"ts\">\n\timport { useModalSub } from './modal.svelte.js';\n\timport * as Dialog from '$COMPONENTS$/ui/dialog/index.js';\n\timport * as Drawer from '$COMPONENTS$/ui/drawer/index.js';\n\timport type { WithElementRef } from 'bits-ui';\n\timport type { HTMLAttributes } from 'svelte/elements';\n\n\tconst modal = useModalSub();\n\n\tlet {\n\t\tref = $bindable(null),\n\t\tchildren,\n\t\t...rest\n\t}: WithElementRef<HTMLAttributes<HTMLDivElement>> = $props();\n</script>\n\n{#if modal.view === 'desktop'}\n\t<Dialog.Footer bind:ref {...rest}>\n\t\t{@render children?.()}\n\t</Dialog.Footer>\n{:else}\n\t<Drawer.Footer bind:ref {...rest}>\n\t\t{@render children?.()}\n\t</Drawer.Footer>\n{/if}\n",
+			"type": "registry:ui",
+			"target": "modal/modal-footer.svelte"
+		},
+		{
+			"content": "<script lang=\"ts\">\n\timport { useModalSub } from './modal.svelte.js';\n\timport * as Dialog from '$COMPONENTS$/ui/dialog/index.js';\n\timport * as Drawer from '$COMPONENTS$/ui/drawer/index.js';\n\timport type { WithElementRef } from 'bits-ui';\n\timport type { HTMLAttributes } from 'svelte/elements';\n\n\tconst modal = useModalSub();\n\n\tlet {\n\t\tref = $bindable(null),\n\t\tchildren,\n\t\t...rest\n\t}: WithElementRef<HTMLAttributes<HTMLDivElement>> = $props();\n</script>\n\n{#if modal.view === 'desktop'}\n\t<Dialog.Header bind:ref {...rest}>\n\t\t{@render children?.()}\n\t</Dialog.Header>\n{:else}\n\t<Drawer.Header bind:ref {...rest}>\n\t\t{@render children?.()}\n\t</Drawer.Header>\n{/if}\n",
+			"type": "registry:ui",
+			"target": "modal/modal-header.svelte"
+		},
+		{
+			"content": "<script lang=\"ts\">\n\timport * as Dialog from '$COMPONENTS$/ui/dialog/index.js';\n\timport * as Drawer from '$COMPONENTS$/ui/drawer/index.js';\n\timport type { DialogRootProps } from 'bits-ui';\n\timport { useModal } from '$COMPONENTS$/ui/modal/modal.svelte.js';\n\n\tlet { open = $bindable(false), children, ...rest }: DialogRootProps = $props();\n\n\tconst modal = useModal();\n</script>\n\n{#if modal.view === 'desktop'}\n\t<Dialog.Root bind:open {...rest}>\n\t\t{@render children?.()}\n\t</Dialog.Root>\n{:else}\n\t<Drawer.NestedRoot bind:open {...rest}>\n\t\t{@render children?.()}\n\t</Drawer.NestedRoot>\n{/if}\n",
+			"type": "registry:ui",
+			"target": "modal/modal-nested-root.svelte"
+		},
+		{
+			"content": "<script lang=\"ts\">\n\timport { useModalSub } from './modal.svelte.js';\n\timport * as Dialog from '$COMPONENTS$/ui/dialog/index.js';\n\timport * as Drawer from '$COMPONENTS$/ui/drawer/index.js';\n\timport type { DialogTitleProps } from 'bits-ui';\n\n\tconst modal = useModalSub();\n\n\tlet { ref = $bindable(null), ...rest }: DialogTitleProps = $props();\n</script>\n\n{#if modal.view === 'desktop'}\n\t<Dialog.Title bind:ref {...rest} />\n{:else}\n\t<Drawer.Title bind:ref {...rest} />\n{/if}\n",
+			"type": "registry:ui",
+			"target": "modal/modal-title.svelte"
+		},
+		{
+			"content": "<script lang=\"ts\">\n\timport { useModalSub } from './modal.svelte.js';\n\timport * as Dialog from '$COMPONENTS$/ui/dialog/index.js';\n\timport * as Drawer from '$COMPONENTS$/ui/drawer/index.js';\n\timport type { DialogTriggerProps } from 'bits-ui';\n\n\tconst modal = useModalSub();\n\n\tlet { ref = $bindable(null), children, ...rest }: DialogTriggerProps = $props();\n</script>\n\n{#if modal.view === 'desktop'}\n\t<Dialog.Trigger bind:ref {...rest}>\n\t\t{@render children?.()}\n\t</Dialog.Trigger>\n{:else}\n\t<Drawer.Trigger bind:ref {...rest}>\n\t\t{@render children?.()}\n\t</Drawer.Trigger>\n{/if}\n",
+			"type": "registry:ui",
+			"target": "modal/modal-trigger.svelte"
+		},
+		{
+			"content": "<script lang=\"ts\">\n\timport * as Dialog from '$COMPONENTS$/ui/dialog/index.js';\n\timport * as Drawer from '$COMPONENTS$/ui/drawer/index.js';\n\timport type { DialogRootProps } from 'bits-ui';\n\timport { useModal } from './modal.svelte.js';\n\n\tlet { open = $bindable(false), children, ...rest }: DialogRootProps = $props();\n\n\tconst modal = useModal();\n</script>\n\n{#if modal.view === 'desktop'}\n\t<Dialog.Root bind:open {...rest}>\n\t\t{@render children?.()}\n\t</Dialog.Root>\n{:else}\n\t<Drawer.Root bind:open {...rest}>\n\t\t{@render children?.()}\n\t</Drawer.Root>\n{/if}\n",
+			"type": "registry:ui",
+			"target": "modal/modal.svelte"
+		},
+		{
+			"content": "import { Context } from 'runed';\nimport { MediaQuery } from 'svelte/reactivity';\n\nclass ModalRootState {\n\t#isDesktop = new MediaQuery('(min-width: 768px)');\n\n\tget view() {\n\t\treturn this.#isDesktop.current ? 'desktop' : 'mobile';\n\t}\n}\n\nclass ModalSubState {\n\tconstructor(private root: ModalRootState) {}\n\n\tget view() {\n\t\treturn this.root.view;\n\t}\n}\n\nconst ctx = new Context<ModalRootState>('modal-root-state');\n\nexport function useModal() {\n\treturn ctx.set(new ModalRootState());\n}\n\nexport function useModalSub() {\n\treturn new ModalSubState(ctx.get());\n}\n",
+			"type": "registry:ui",
+			"target": "modal/modal.svelte.ts"
+		}
+	]
+}
