@@ -31,11 +31,6 @@ export function createEntriesState({ data }: { data: VocabData }) {
 		rows.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt)),
 	);
 
-	/** Count of entries marked usable, for the sidebar group label. */
-	const usableCount = $derived(
-		entries.filter((entry) => entry.stage === 'usable').length,
-	);
-
 	/** Apply a change, or throw so the caller's toast can present it. */
 	function update(id: string, changes: Partial<Entry>): void {
 		const { error } = data.tables.entries.update(id, changes);
@@ -45,9 +40,6 @@ export function createEntriesState({ data }: { data: VocabData }) {
 	return {
 		get entries() {
 			return entries;
-		},
-		get usableCount() {
-			return usableCount;
 		},
 
 		/**

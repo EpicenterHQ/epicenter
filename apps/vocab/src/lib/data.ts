@@ -7,6 +7,7 @@ import {
 } from '@epicenter/app';
 import type { DeclaredData } from '@epicenter/app/store';
 import { APPS } from '@epicenter/constants/apps';
+import { Type } from 'typebox';
 /**
  * Vocab's inert local and personal store declarations. Isomorphic: no IndexedDB,
  * WebSockets, Svelte state, or browser APIs.
@@ -39,6 +40,14 @@ Guidelines:
 - Adjust difficulty from the learner's question rather than assuming a proficiency level.
 - Do not claim to measure the learner's mastery or change saved entry stages.`;
 
+/** Focus is model context, not a transcript message. */
+export function tutorPrompt(
+	focus: readonly { text: string }[],
+	opening: boolean,
+): string {
+	return `${VOCAB_SYSTEM_PROMPT}\n\nThis chat focuses on these expressions: ${focus.map((item) => item.text).join(', ')}. ${opening ? 'Open the conversation yourself. Use them naturally and invite the learner to respond.' : 'Keep the focus in mind as you answer the learner.'} Do not ask for a definition quiz.`;
+}
+
 /**
  * Learner-selected English expressions and their self-reported ability stage.
  * Notes and stages have one owner: the learner.
@@ -64,13 +73,27 @@ const chatMessagesTable = defineTable({
 	},
 });
 
-/** Device-local conversations, derived from their messages rather than metadata. */
+const chatsTable = defineTable({
+	fields: {
+		accountKey: field.string(),
+		createdAt: field.instant(),
+		focus: field.json(
+			Type.Array(Type.Object({ entryId: Type.String(), text: Type.String() }), {
+				minItems: 1,
+				maxItems: 3,
+			}),
+		),
+	},
+});
+
+/** Device-local chats own chosen focus; messages own finished turns. */
 export const chatHistoryDefinition = defineStore({
 	id: APPS.VOCAB.id,
 	title: 'Vocab chats on this device',
 	kv: {},
 	tables: {
 		messages: chatMessagesTable,
+		chats: chatsTable,
 	},
 });
 

@@ -1,47 +1,30 @@
 # Vocab
 
-Vocab helps a learner understand English expressions in a tutor chat and save the ones they want to remember. Each saved entry has the learner's note and one self-reported stage: New, Recognize, Understand, or Use. Vocab does not score proficiency or change stages automatically.
+Vocab helps a learner collect English expressions and practice using them in tutor-led conversations. Words is the starting view. Each saved expression has an exact text, a learner-owned note, and one self-reported stage: New, Recognize, Understand, or Use. Only the learner changes the stage.
+
+## Learner flow
+
+Add an expression directly, paste one expression per line, or browse the small built-in starter list. Paste and starter lists use the same review: blanks, repeated exact text, and already-saved text are skipped; eligible expressions are selected by default. Confirmed additions have empty notes and the New stage. Words provides search, stage filtering, note editing, and stage controls.
+
+Choose one to three saved expressions in Words and start a chat. Vocab saves the chosen focus on this device before requesting a tutor opening. The tutor speaks first, and the learner can follow up. A stopped or failed opening leaves the chat available for explicit retry. Selecting text in a finished tutor answer saves that exact expression as one new entry.
+
+Chat history stays on this device. Desktop Chat shows history, conversation, and focus words side by side; narrow Chat offers history and focus controls above the conversation. Returning to Words keeps the selected chat's draft and stream, but closes dictation and discards speech not yet inserted. Switching chats disposes the previous loop and its unsent draft. Focus text stays visible if its saved entry is deleted; its stage control then disappears. Earlier message-only chats remain readable, with their first learner question as the title.
 
 ## Data ownership
 
 ```text
 openLocal(chatHistoryDefinition)              This device
-  messages                                 Account + chat + message ID + complete message
-  chats                                    Derived from messages; no metadata table
+  chats                                    Account key, creation time, fixed focus snapshot
+  messages                                 Account key, conversation ID, finished message
 
 openPersonal(vocabDefinition, { account })    Personal account
   entries                                  Exact text, note, stage, creation time
 ```
 
-`src/lib/resources.ts` opens both stores after `AppBoot` captures the account. The Local document is device-owned across sign-ins, so each message carries an account key. Switching accounts shows only that account's chats. Chats survive refresh on this device but do not follow the account to another device. Entries follow the account.
+The chat row ID is the conversation ID on its messages. A focus item holds the original text and its Personal entry ID. Notes and stages remain in Personal entries and follow the account across devices. Local rows carry an account key so switching accounts shows only that account's device history. Legacy message-only chats are read without fabricating a focus row; this compatibility reader can retire only after those histories have an explicit preservation path.
 
-Sending writes the question locally before generation. The answer streams in page state and is saved once after a clean finish. Stopping, failure, or switching chats leaves the submitted question available for retry. An unsent draft and partial answer are not durable.
+The app runs the UI-free `@epicenter/agent` loop over Local message rows. It writes submitted learner messages before generation and saves an assistant response only after a clean finish. An unsent draft and partial response are not durable. The selected chat owns the only live loop. The inference picker saves one device workflow choice for the account; an unavailable model leaves Words and history usable.
 
-## Learner flow
+## Development
 
-Ask about an English word or phrase, follow up, and select text in a settled answer to save it. New chat selects an empty chat; it writes nothing until the first question is sent. Its sidebar title comes from that question. Older chats remain available in the sidebar, sorted by recent activity. Only the selected chat has a mounted agent loop, draft, microphone, and active answer. Switching chats stops that work.
-
-The sidebar also supports adding an entry directly. Saving trims the selection, deduplicates by exact text, and starts with an empty learner-owned note and the New stage. The learner can select any stage later, including an earlier one. Suggested entries and dictation are optional chat actions; neither changes saved stages.
-
-The former Practice-in-a-new-chat action and automatic pronunciation readings have been removed. A separate Practice activity can be designed later. The tutor can explain pronunciation when asked.
-
-## Runtime
-
-The client runs the UI-free `@epicenter/agent` loop over Vocab's Local message adapter. `src/lib/chat/session.svelte.ts` binds one loop to the active keyed chat view and captures the inference connection and model for each turn. The inference picker persists one device workflow choice for that account. Vocab supplies no tool catalog, so chat has no web search. `src/lib/data.ts` declares the Local and Personal store shapes and English tutor prompt. The app is client-rendered and requires sign-in for account-backed entries and hosted inference.
-
-## Main files
-
-```text
-src/lib/data.ts                         Store definitions and tutor prompt
-src/lib/resources.ts                    Local, Personal, and inference opening
-src/lib/entries.svelte.ts               Personal entry actions
-src/lib/chat/messages.ts                Local message adapter and derived chat list
-src/lib/chat/session.svelte.ts          One active tutor loop
-src/lib/chat/dictation.svelte.ts        Microphone and transcription lifetime
-src/lib/chat/candidates.ts              Optional entry suggestions
-src/routes/components/VocabShell.svelte       Resource and selection lifetime
-src/routes/components/ConversationView.svelte Active chat and selection save
-src/routes/components/VocabSidebar.svelte     Chats and saved entries
-```
-
-Start from the repository root with `bun dev:vocab`. Run focused checks with `bun run --cwd apps/vocab typecheck` and `bun test apps/vocab/src/lib`.
+Start from the repository root with `bun dev:vocab`. Run `bun run --cwd apps/vocab typecheck` and `bun test apps/vocab/src/lib` for focused checks.

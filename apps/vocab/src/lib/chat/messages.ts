@@ -3,6 +3,7 @@ import {
 	type AgentMessageStore,
 	agentMessageText,
 } from '@epicenter/agent';
+import { InstantString } from '@epicenter/app/field';
 import type { ChatHistoryData } from '../data.js';
 
 type MessagesTable = ChatHistoryData['tables']['messages'];
@@ -60,36 +61,82 @@ export function createChatMessageStore(
 	};
 }
 
-/** A chat exists in the sidebar only after its first sent question. */
-export function listChats(rows: MessagesTable['rows'], accountKey: string) {
-	const chats = new Map<
+/** Persist the learner's focus before requesting the tutor opening. */
+export function startChat(
+	chats: ChatHistoryData['tables']['chats'],
+	accountKey: string,
+	focus: { entryId: string; text: string }[],
+) {
+	if (
+		focus.length < 1 ||
+		focus.length > 3 ||
+		focus.some((item) => !item.entryId || !item.text.trim())
+	)
+		throw new Error('Choose one to three saved expressions.');
+	return chats.create({
+		accountKey,
+		focus: focus.map((item) => ({ ...item })),
+		createdAt: InstantString.now(),
+	});
+}
+
+/** Keep pre-redesign, message-only conversations visible without inventing focus for them. */
+export function listChats(
+	chats: ChatHistoryData['tables']['chats']['rows'],
+	messages: MessagesTable['rows'],
+	accountKey: string,
+) {
+	const summaries = new Map<
 		string,
 		{
 			id: string;
 			title: string;
-			firstQuestionAt: number;
+			focus: { entryId: string; text: string }[];
 			updatedAt: number;
+			legacy: boolean;
 		}
 	>();
-	for (const row of rows) {
+	const firstQuestion = new Map<string, { time: number; id: string }>();
+	for (const row of chats) {
+		if (row.accountKey !== accountKey) continue;
+		summaries.set(row.id, {
+			id: row.id,
+			title: row.focus.map((item) => item.text).join(', '),
+			focus: row.focus,
+			updatedAt: Date.parse(row.createdAt),
+			legacy: false,
+		});
+	}
+	for (const row of messages) {
 		if (row.accountKey !== accountKey) continue;
 		const message = row.message as AgentMessage;
-		const chat = chats.get(row.conversationId) ?? {
-			id: row.conversationId,
-			title: 'Chat',
-			firstQuestionAt: Number.POSITIVE_INFINITY,
-			updatedAt: Number.NEGATIVE_INFINITY,
-		};
-		chat.updatedAt = Math.max(chat.updatedAt, message.createdAt);
-		if (message.role === 'user' && message.createdAt < chat.firstQuestionAt) {
-			chat.firstQuestionAt = message.createdAt;
-			chat.title = agentMessageText(message).trim().slice(0, 60) || 'Chat';
+		let chat = summaries.get(row.conversationId);
+		if (!chat) {
+			chat = {
+				id: row.conversationId,
+				title: 'Earlier chat',
+				focus: [],
+				updatedAt: 0,
+				legacy: true,
+			};
+			summaries.set(row.conversationId, chat);
 		}
-		chats.set(row.conversationId, chat);
+		chat.updatedAt = Math.max(chat.updatedAt, message.createdAt);
+		const previous = firstQuestion.get(chat.id);
+		if (
+			chat.legacy &&
+			message.role === 'user' &&
+			(!previous ||
+				message.createdAt < previous.time ||
+				(message.createdAt === previous.time && row.id < previous.id))
+		) {
+			firstQuestion.set(chat.id, { time: message.createdAt, id: row.id });
+			chat.title =
+				agentMessageText(message).trim().slice(0, 60) || 'Earlier chat';
+		}
 	}
-	return [...chats.values()].sort(
-		(left, right) =>
-			right.updatedAt - left.updatedAt || left.id.localeCompare(right.id),
+	return [...summaries.values()].sort(
+		(a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id),
 	);
 }
 

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import type { AgentMessage } from '@epicenter/agent';
 import { createMemoryRecord, openMemory } from '@epicenter/app/memory';
 import { chatHistoryDefinition } from '../data.js';
-import { createChatMessageStore, listChats } from './messages.js';
+import { createChatMessageStore, listChats, startChat } from './messages.js';
 
 const question: AgentMessage = {
 	id: 'question',
@@ -59,9 +59,11 @@ test('saved chats survive reopening and stay within their account and conversati
 				nextQuestion,
 			]);
 			expect(
-				listChats(db.tables.messages.rows, 'account-a').map(
-					({ id, title }) => ({ id, title }),
-				),
+				listChats(
+					db.tables.chats.rows,
+					db.tables.messages.rows,
+					'account-a',
+				).map(({ id, title }) => ({ id, title })),
 			).toEqual([
 				{ id: 'chat-b', title: 'How do I use "subtle"?' },
 				{ id: 'chat-a', title: 'What does "lucid" mean?' },
@@ -81,14 +83,18 @@ test('saved chats survive reopening and stay within their account and conversati
 		);
 		expect([...first.entries()]).toHaveLength(2);
 		expect([...second.entries()]).toHaveLength(1);
-		expect(listChats(db.tables.messages.rows, 'account-b')).toHaveLength(1);
-		expect(listChats(db.tables.messages.rows, 'account-a')).toHaveLength(2);
+		expect(
+			listChats(db.tables.chats.rows, db.tables.messages.rows, 'account-b'),
+		).toHaveLength(1);
+		expect(
+			listChats(db.tables.chats.rows, db.tables.messages.rows, 'account-a'),
+		).toHaveLength(2);
 	} finally {
 		record.close();
 	}
 });
 
-test('an empty new chat has no durable row until its first message', async () => {
+test('a legacy chat appears after its first message', async () => {
 	await using db = await openMemory(chatHistoryDefinition);
 	using chat = createChatMessageStore(
 		db.tables.messages,
@@ -96,11 +102,14 @@ test('an empty new chat has no durable row until its first message', async () =>
 		'new-chat',
 	);
 	expect([...chat.entries()]).toEqual([]);
-	expect(listChats(db.tables.messages.rows, 'account-a')).toEqual([]);
+	expect(
+		listChats(db.tables.chats.rows, db.tables.messages.rows, 'account-a'),
+	).toEqual([]);
 	chat.set(question.id, question);
-	expect(listChats(db.tables.messages.rows, 'account-a')[0]?.id).toBe(
-		'new-chat',
-	);
+	expect(
+		listChats(db.tables.chats.rows, db.tables.messages.rows, 'account-a')[0]
+			?.id,
+	).toBe('new-chat');
 });
 
 test('duplicate message rows present one stable value inside one conversation', async () => {
@@ -119,4 +128,58 @@ test('duplicate message rows present one stable value inside one conversation', 
 		'chat-a',
 	);
 	expect([...chat.entries()]).toEqual([{ key: question.id, val: question }]);
+});
+
+test('a focused chat is listed before an answer, scoped to its account, and retains text after entry deletion', async () => {
+	await using db = await openMemory(chatHistoryDefinition);
+	const chat = startChat(db.tables.chats, 'account-a', [
+		{ entryId: 'deleted-entry', text: 'lucid' },
+	]);
+	expect(
+		listChats(db.tables.chats.rows, db.tables.messages.rows, 'account-a'),
+	).toMatchObject([
+		{
+			id: chat.id,
+			title: 'lucid',
+			focus: [{ entryId: 'deleted-entry', text: 'lucid' }],
+		},
+	]);
+	expect(
+		listChats(db.tables.chats.rows, db.tables.messages.rows, 'account-b'),
+	).toEqual([]);
+});
+
+test('legacy title comes from the earliest question even when rows arrive out of order', async () => {
+	await using db = await openMemory(chatHistoryDefinition);
+	db.tables.messages.create({
+		accountKey: 'account-a',
+		conversationId: 'old-chat',
+		messageId: 'later',
+		message: { ...nextQuestion, createdAt: 20 },
+	});
+	db.tables.messages.create({
+		accountKey: 'account-a',
+		conversationId: 'old-chat',
+		messageId: 'earlier',
+		message: question,
+	});
+	expect(
+		listChats(db.tables.chats.rows, db.tables.messages.rows, 'account-a')[0]
+			?.title,
+	).toBe('What does "lucid" mean?');
+});
+
+test('focus requires one to three expressions', async () => {
+	await using db = await openMemory(chatHistoryDefinition);
+	expect(() => startChat(db.tables.chats, 'account-a', [])).toThrow();
+	expect(() =>
+		startChat(
+			db.tables.chats,
+			'account-a',
+			Array.from({ length: 4 }, (_, index) => ({
+				entryId: String(index),
+				text: 'word',
+			})),
+		),
+	).toThrow();
 });

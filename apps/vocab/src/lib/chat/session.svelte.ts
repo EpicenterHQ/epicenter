@@ -10,21 +10,24 @@ import {
 } from '@epicenter/client';
 import { bindAgentConversation } from '@epicenter/svelte';
 import { createSubscriber } from 'svelte/reactivity';
-import type { ChatHistoryData } from '$lib/data.js';
-import { VOCAB_MODEL, VOCAB_SYSTEM_PROMPT } from '$lib/data.js';
+import type { ChatHistoryData } from '../data.js';
+import { tutorPrompt, VOCAB_MODEL, VOCAB_SYSTEM_PROMPT } from '../data.js';
 import { createChatMessageStore } from './messages.js';
+import { withTutorOpening } from './opening.js';
 
 /** One active tutor conversation for the lifetime of its keyed view. */
 export function createVocabChat({
 	messages,
 	accountKey,
 	conversationId,
+	focus,
 	catalog,
 	selections,
 }: {
 	messages: ChatHistoryData['tables']['messages'];
 	accountKey: string;
 	conversationId: string;
+	focus: readonly { text: string }[];
 	catalog: InferenceCatalog;
 	selections: InferenceSelections;
 }) {
@@ -52,23 +55,28 @@ export function createVocabChat({
 		runTarget = {
 			client: resolved.client,
 			model: resolved.model,
-			systemPrompts: [VOCAB_SYSTEM_PROMPT],
+			systemPrompts: [
+				focus.length
+					? tutorPrompt(focus, loop.messages.length === 0)
+					: VOCAB_SYSTEM_PROMPT,
+			],
 		};
 		return true;
 	}
 
+	const provider = createOpenAiAgentEngine({
+		data: () => {
+			if (!runTarget)
+				throw new Error(
+					'Choose an inference connection before running a turn.',
+				);
+			return runTarget;
+		},
+	});
 	const loop = bindAgentConversation(
 		createConversation({
 			store: createChatMessageStore(messages, accountKey, conversationId),
-			engine: createOpenAiAgentEngine({
-				data: () => {
-					if (!runTarget)
-						throw new Error(
-							'Choose an inference connection before running a turn.',
-						);
-					return runTarget;
-				},
-			}),
+			engine: withTutorOpening(provider),
 			generateId: () => crypto.randomUUID(),
 		}),
 	);
@@ -113,6 +121,7 @@ export function createVocabChat({
 				resolved !== null &&
 				resolved.source !== 'runtime' &&
 				!loop.isGenerating &&
+				loop.messages.length > 0 &&
 				draft.trim().length > 0
 			);
 		},
@@ -121,15 +130,25 @@ export function createVocabChat({
 		},
 		sendMessage() {
 			const text = draft.trim();
-			if (!text || loop.isGenerating || !captureTarget()) return;
+			if (
+				!text ||
+				loop.messages.length === 0 ||
+				loop.isGenerating ||
+				!captureTarget()
+			)
+				return;
 			if (!loop.send(text)) return;
 			draft = '';
 			dismissedError = null;
 		},
-		retry() {
+		async retry() {
+			await catalog.ready;
 			if (
+				disposed ||
 				loop.isGenerating ||
-				loop.messages.at(-1)?.role !== 'user' ||
+				(loop.messages.length === 0
+					? focus.length === 0
+					: loop.messages.at(-1)?.role !== 'user') ||
 				!captureTarget()
 			)
 				return;

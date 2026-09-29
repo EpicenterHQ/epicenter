@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-24
+- **Amended by:** [ADR-0450](0450-vocab-chats-persist-chosen-expressions-before-the-tutor-speaks.md) (Words starts tutor-first chats and retains the selected chat during navigation)
 - **Relates:** [ADR-0046](0046-a-capability-free-agent-persists-finished-messages-not-live-doc-streams.md) (finished turns), [ADR-0444](0444-vocab-stores-finished-chat-messages-as-local-rows.md) (message rows)
 
 ## Context
