@@ -30,7 +30,12 @@ Epicenter/
       so.epicenter.notes/
         kv.json
         notes/n8.md
+      so.epicenter.files/
+        files/f3.md
+        files/f3.jpg
 ```
+
+`Epicenter/` is the portable root. `local/` is one scope; `accounts/` is a container for account scopes such as `braden-cloud/`. Each `so.epicenter.*` directory is a data folder within its scope. The same definition can have a separate data folder in Local and in each account scope. Copying an account scope copies its contained data folders together.
 
 **The directory name is a changeable label, not account identity.** `braden-cloud` is only an example. A person chooses a name or accepts a suggestion. The app checks that the name is portable across its supported filesystems, including length and case-insensitive collisions; it never merges folders because their labels match. Renaming the directory does not change the saved files or their relative links. An app-directed rename updates its private folder selection; a rename made in another tool requires the person to locate the folder again before sync resumes.
 
