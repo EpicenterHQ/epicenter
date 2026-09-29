@@ -20,32 +20,37 @@ the Yjs read contract.
 ## Decision
 
 **`list()` and `get(id)` return the same source-backed entry shape for a readable
-Markdown row, whether or not its declared fields conform.** Every entry carries
-its path, so `list()` keeps both files visible if they claim the same ID.
-`get(id)` returns `undefined` only when no file claims that ID; it refuses an
-ambiguous ID rather than choosing a file. A present file that cannot be fully
-interpreted remains an entry with exact `source` and conformance issues. An
-I/O failure to read the file is an operation failure, not an entry issue.
+Markdown file, whether or not its declared fields conform.** Every entry carries
+its path. An entry has no ID when its filename cannot supply a valid one;
+`list()` still returns it for path-based selection and source repair. If two
+files claim one ID, `list()` returns both and `get(id)` refuses to choose one.
+`get(id)` returns `undefined` only when no file claims that ID. A present file
+that cannot be fully interpreted remains an entry with exact `source` and
+conformance issues. An I/O failure to read the file is an operation failure,
+not an entry issue. The file boundary must still report that path: `list()`
+cannot silently omit it or return an empty table as if no files existed.
 
 **The value of `issues` discriminates the two entry variants; no separate
-`status` field or nested `parsed` result is added.** The valid variant has
-`issues: undefined`, complete `fields`, and a body. The invalid variant has a
-nonempty `issues` array, only independently validated declared fields, and a
-body when its boundary can be identified. Both variants keep the unmodified
-source for repair.
+`status` field or nested `parsed` result is added.** The valid variant has a
+valid ID, `issues: undefined`, complete `fields`, and a body. The invalid
+variant has a nonempty `issues` array, an ID only if its filename yields one,
+only independently validated declared fields, and a body when its boundary can
+be identified. An invalid filename itself contributes an issue. Both variants
+keep the unmodified source for repair.
 
 ```ts
 type Entry<TFields> = {
-  id: string;
   path: string;
   source: string;
 } & (
   | {
+      id: string;
       fields: TFields;
       body: string;
       issues: undefined;
     }
   | {
+      id: string | undefined;
       fields: Partial<TFields>;
       body: string | undefined;
       issues: readonly [Issue, ...Issue[]];
@@ -71,16 +76,21 @@ infer validity from an empty array.
 - A table has one inventory of entries. Applications can derive valid and
   repair-needed groups without a second public `invalid` collection.
 - Duplicate IDs remain distinct entries by path in `list()`. ID-based actions
-  refuse the ambiguity until the files are repaired.
+  refuse the ambiguity until the files are repaired. An invalid filename is
+  selected by path because it has no row ID.
 - An unrelated bad field does not hide independently valid fields. An
   application can use those fields for a limited action while still showing the
   issue and preserving the exact source.
 - Malformed frontmatter may leave no validated fields, and ambiguous
   frontmatter framing may leave no usable body. The entry remains selectable
   and editable through `source`.
-- Structured edits may use only fields the reader actually validated. The
-  entry shape does not authorize an application to overwrite malformed or
-  unknown source from a partial interpretation.
+- An operation may rely only on fields it read and validated. It may replace an
+  invalid old field with a new value that validates, provided the edit preserves
+  unrelated source and conditionally replaces the observed file. Serializing
+  `Partial<TFields>` as the whole document would discard stored facts.
+- Conforming fields do not prove that a rich editor can safely rewrite the
+  Markdown body or preserve YAML formatting. Body interpretation and edit
+  admission belong to the editor; the table keeps the source available.
 
 ## Considered alternatives
 
