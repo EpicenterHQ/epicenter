@@ -12,9 +12,11 @@ can return rows while changing data, as `DELETE ... RETURNING` does. The method
 therefore cannot safely execute SQL supplied by an editor. A read-only file
 also leaves connection operations and access to unintended relations to address.
 
-Local Mail needs reporting over one Gmail account's downloaded facts. A saved
-query is ordinary authored text. Saving it establishes neither permission to
-execute nor evidence that its SQL is valid.
+Local Mail needs bounded inspection of one Gmail account's downloaded facts,
+including the exploratory reads an agent uses to propose a saved mail view.
+Authored SQL or a saved view predicate is untrusted input. Saving it
+establishes neither permission to execute outside the read policy nor evidence
+that it is valid.
 
 ## Decision
 
@@ -109,18 +111,22 @@ failure retires the native port and informs its supervisor.
 
 ## Consequences
 
-Saved and unsaved SQL share one execution boundary. Saving, syncing, selecting,
-or editing a query never runs it. A query can report counts, joins, and JSON
-facts without receiving Gmail credentials or modification methods.
+Exploratory SQL and composed saved-view reads share one execution boundary.
+A person can inspect counts, joins, and JSON facts without giving the read
+operation Gmail credentials or modification methods. A selected saved-view tab
+may execute its read to display current messages; saving a definition does not
+execute a Gmail action.
 
 The backend must maintain authorizer policy, bounds, cancellation, and value
 transport on both engines. Tests must exercise actual browser workers and the
 desktop transport as well as the native adapter. Passing an adapter-only test
 cannot establish that a WebSocket preserves binary values.
 
-The API deliberately offers reporting over approved facts. Cross-account joins,
-actionable message results, row-level grants, persistent results, and automatic
-execution require separate product decisions.
+The operation allows bounded inspection of approved facts. The Local Mail
+product contract in ADR-0378 narrows saved views to message selection and owns
+their effective-label scope and triage behavior; the generic query operation
+does not infer actions from arbitrary result columns. Cross-account joins,
+row-level grants, and persistent query results remain outside this operation.
 
 ## Considered alternatives
 
