@@ -17,7 +17,7 @@
 	// reads auth.state directly and does not re-fetch the profile.
 	const isSignedIn = $derived(auth.state.status === 'signed-in');
 
-	const openConnection = getConnectionScreen();
+	const startSignIn = getConnectionScreen();
 	const signOutApplication = getSignOut();
 
 	const signOut = createMutation(() =>
@@ -71,7 +71,7 @@
 			<Field.Field>
 				<Button
 					class="w-full sm:w-auto sm:self-start"
-					onclick={openConnection}
+					onclick={startSignIn}
 				>
 					{#if auth.state.status === 'reauth-required'}
 						Reconnect
