@@ -713,5 +713,5 @@ When you add an ADR, add its row here.
 | [0458](0458-markdown-links-may-cross-data-folders-by-relative-path.md) | Markdown links may cross data folders by relative path | Proposed (cross-folder link resolution unbuilt) |
 | [0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) | SQLite is a local capability for derived or transactional state | Proposed (file-backed application stores and derived indexes unbuilt) |
 | [0460](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md) | Vocab and Whispering are Braden Wong's apps built on Epicenter | Proposed (personal-domain homes and Whispering ID migration unbuilt) |
-| [0461](0461-portable-data-folders-live-under-named-scopes.md) | Portable data folders live under named scopes | Proposed (file-authoritative root and explicit sync attachment unbuilt) |
+| [0461](0461-portable-data-folders-live-under-local-and-derived-account-scopes.md) | Portable data folders live under Local and derived account scopes | Proposed (file-authoritative root and explicit sync attachment unbuilt) |
 | [0462](0462-file-table-entries-carry-source-and-use-issues-for-conformance.md) | File table entries carry source and use issues for conformance | Proposed (file-backed table reads unbuilt) |
