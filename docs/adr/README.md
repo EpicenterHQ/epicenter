@@ -634,7 +634,7 @@ When you add an ADR, add its row here.
 
 | [0379](0379-reconstruction-is-an-explicit-destructive-library-operation.md) | Storage maintenance preserves document lineage | Proposed |
 
-| [0378](0378-local-mail-saves-sql-definitions-and-queries-cached-gmail-facts.md) | Local Mail saves SQL definitions and queries cached Gmail facts | Proposed |
+| [0378](0378-local-mail-saves-message-rules-as-triage-views.md) | Local Mail saves message rules as triage views | Proposed (current arbitrary report UI remains; view cutover unbuilt) |
 | [0382](0382-session-composition-selects-issuer-identity-and-management-capabilities.md) | Session composition selects issuer identity and management capabilities | Proposed |
 | [0383](0383-self-hosted-sign-in-defaults-to-passkeys-with-optional-passwords.md) | Self-hosted sign-in defaults to passkeys with optional passwords | Proposed |
 | [0362](0362-inference-connections-do-not-require-runtime-management.md) | Inference connections do not require runtime management | Proposed |
@@ -694,9 +694,15 @@ When you add an ADR, add its row here.
 | [0439](0439-whispering-promotes-text-to-capture-instead-of-copying-recordings.md) | Whispering promotes text to Capture instead of copying recordings | Proposed (desktop handoff implemented; hosted browser handoff unbuilt) |
 | [0440](0440-whispering-cleans-transcriptions-and-does-not-own-general-text-actions.md) | Whispering cleans transcriptions and does not own general text actions | Proposed (amends 0099 at Polish and Recipes) |
 | [0441](0441-whispering-keeps-speech-evidence-local-and-syncs-only-its-speech-profile.md) | Whispering keeps speech evidence local and syncs only its speech profile | Proposed |
+| [0442](0442-epicenter-sells-hosted-services-while-whispering-remains-free.md) | Epicenter sells hosted services while Whispering remains free | Proposed (launch offer unbuilt; unlimited allowance undecided) |
 | [0443](0443-body-file-codecs-return-sequence-content.md) | Body file codecs return sequence content | Proposed (browser checkout evidence unbuilt) |
 | [0444](0444-vocab-stores-finished-chat-messages-as-local-rows.md) | Vocab stores finished chat messages as local rows | Accepted |
 | [0445](0445-vocab-saves-local-chats-and-syncs-saved-entries.md) | Vocab saves local chats and syncs saved entries | Accepted |
 | [0446](0446-vocab-teaches-english-without-automatic-pronunciation-readings.md) | Vocab teaches English without automatic pronunciation readings | Proposed |
 | [0447](0447-the-bun-self-hosted-server-owns-one-data-root.md) | The Bun self-hosted server owns one data root | Proposed (amends 0066 at S3-only storage; Bun sync and local blobs unbuilt) |
-| [0448](0448-vocab-stages-are-four-learner-reported-abilities.md) | Vocab stages are four learner-reported abilities | Proposed (amends 0102 at stages) |
+| [0448](0448-vocab-stages-are-four-learner-reported-abilities.md) | Vocab stages are four learner-reported abilities | Accepted (amends 0102 at stages) |
+| [0449](0449-one-cloud-subscription-includes-hosted-inference-across-apps-without-credits.md) | One Cloud subscription includes hosted inference across apps without credits | Proposed (subscriber entitlement and usage policy unbuilt) |
+| [0450](0450-vocab-chats-persist-chosen-expressions-before-the-tutor-speaks.md) | Vocab chats persist chosen expressions before the tutor speaks | Accepted (amends 0444 and 0445) |
+| [0451](0451-vocab-batch-additions-share-one-review.md) | Vocab batch additions share one review | Accepted (amends 0102 at entry sources) |
+| [0452](0452-vocab-saves-expressions-from-chat-by-selection.md) | Vocab saves expressions from chat by selection | Accepted |
+| [0453](0453-epicenter-ui-tracks-distributed-shadcn-svelte-components-with-explicit-deltas.md) | Epicenter UI tracks distributed shadcn-svelte components with explicit deltas | Proposed |
