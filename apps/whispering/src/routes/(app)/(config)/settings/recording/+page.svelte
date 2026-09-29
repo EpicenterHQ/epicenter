@@ -6,7 +6,7 @@
 	import InfoIcon from '@lucide/svelte/icons/info';
 	import { createMutation } from '@tanstack/svelte-query';
 	import { resultMutationOptions } from 'wellcrafted/query';
-	import { SettingSelect, SettingSwitch } from '$lib/components/settings';
+	import { SettingSelect, SettingSwitch, SettingNumberInput, AdvancedDisclosure } from '$lib/components/settings';
 	import { BITRATE_OPTIONS, RECORDING_TRIGGER_OPTIONS } from '$lib/constants/audio';
 	import { report } from '$lib/report';
 	import { asDeviceIdentifier } from '@epicenter/recorder';
@@ -123,6 +123,56 @@
 					(selected) =>
 						deviceConfig.set('recording.navigator.deviceId', selected)}
 			/>
+
+			<AdvancedDisclosure>
+				<SettingNumberInput
+					store={deviceConfig}
+					key="recording.vad.redemptionMs"
+					label="End-of-speech silence (ms)"
+					placeholder="1400"
+					min={100}
+					step={100}
+					description="How long you can pause mid-thought before the capture is closed and sent for transcription. Default 1400; raise toward 2500 to tolerate longer pauses."
+				/>
+				<SettingNumberInput
+					store={deviceConfig}
+					key="recording.vad.minSpeechMs"
+					label="Minimum speech (ms)"
+					placeholder="400"
+					min={0}
+					step={50}
+					description="Shortest sound that counts as speech. Default 400; raise to ~600 to ignore coughs, clicks, and other brief non-speech noises."
+				/>
+				<SettingNumberInput
+					store={deviceConfig}
+					key="recording.vad.positiveSpeechThreshold"
+					label="Speech start sensitivity (0-1)"
+					placeholder="0.3"
+					min={0}
+					max={1}
+					step={0.05}
+					description="Model confidence required to open a speech segment. Default 0.3; raise to reject more non-speech, lower if quiet speech is missed."
+				/>
+				<SettingNumberInput
+					store={deviceConfig}
+					key="recording.vad.negativeSpeechThreshold"
+					label="Speech end sensitivity (0-1)"
+					placeholder="0.25"
+					min={0}
+					max={1}
+					step={0.05}
+					description="Confidence below which speech is considered to have ended. Default 0.25; keep it below the start sensitivity."
+				/>
+				<SettingNumberInput
+					store={deviceConfig}
+					key="recording.vad.preSpeechPadMs"
+					label="Pre-speech padding (ms)"
+					placeholder="800"
+					min={0}
+					step={50}
+					description="Audio kept before the detected speech start, so the first syllable is not clipped. Default 800."
+				/>
+			</AdvancedDisclosure>
 		{/if}
 
 		{#if app.settings.get('recordingTrigger') === 'manual' && !tauri}
