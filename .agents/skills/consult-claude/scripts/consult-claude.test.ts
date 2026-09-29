@@ -88,20 +88,22 @@ test('new and resumed turns preserve the brief and enforce the same access bound
 		if (options.length)
 			expect(args[args.indexOf('--resume') + 1]).toBe(sessionId);
 		expect(args).not.toContain('--bg');
+		expect(args).not.toContain('--effort');
 	}
 	expect(readdirSync(fixture.source)).toEqual(['.git']);
 });
 
-test('passes a selected model and previews without launching Claude', () => {
+test('passes selected model and effort and previews without launching Claude', () => {
 	using fixture = setup();
 	const result = fixture.launch(
-		['--model', 'sonnet', '--dry-run'],
+		['--model', 'sonnet', '--effort', 'high', '--dry-run'],
 		'Brief.',
 		true,
 	);
 	expect(result.status).toBe(0);
 	const preview = JSON.parse(result.stdout);
 	expect(preview.args[preview.args.indexOf('--model') + 1]).toBe('sonnet');
+	expect(preview.args[preview.args.indexOf('--effort') + 1]).toBe('high');
 	expect(preview.cwd).toBe(fixture.source);
 });
 
@@ -121,6 +123,7 @@ test('rejects empty briefs, malformed session IDs, and obsolete laboratory optio
 		['--resume', ''],
 		['--resume', 'short-id'],
 		['--model', ' '],
+		['--effort', ' '],
 		['--unknown'],
 	]) {
 		expect(fixture.launch(args).status).not.toBe(0);

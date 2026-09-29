@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-05
-- **Amended by:** [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md).
+- **Amended by:** [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md). Proposed amendment: [ADR-0449](0449-epicenter-connects-independent-applications-through-personal-data.md) revises separate windows for hosted personal tools.
   Withdrawn: that the raw view can see an application's live rows. A host owns
   no application data, so `openInspection` over the host replica shows nothing
   of an application on the new store. The raw view itself, and every application

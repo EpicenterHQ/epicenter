@@ -8,11 +8,14 @@ async function main() {
 		args: process.argv.slice(2),
 		options: {
 			resume: { type: 'string' },
-			model: { type: 'string', default: 'claude-fable-5-1' },
+			model: { type: 'string', default: 'claude-opus-5-5' },
+			effort: { type: 'string' },
 			'dry-run': { type: 'boolean', default: false },
 		},
 	});
 	if (!values.model.trim()) throw new Error('Model must not be empty.');
+	if (values.effort !== undefined && !values.effort.trim())
+		throw new Error('Effort must not be empty.');
 	if (
 		values.resume !== undefined &&
 		!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(values.resume)
@@ -48,6 +51,7 @@ async function main() {
 		}),
 		'--model',
 		values.model,
+		...(values.effort ? ['--effort', values.effort] : []),
 		'--append-system-prompt',
 		"You are Codex's read-only consultant. Return findings or specific evidence requests in this conversation. Codex owns edits, tests, benchmarks, and integration. If asked to apply adversarial-review, you are already the delegated reviewer: perform it yourself and launch no child agents.",
 		...(values.resume ? ['--resume', values.resume] : []),
