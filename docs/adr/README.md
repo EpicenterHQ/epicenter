@@ -712,3 +712,4 @@ When you add an ADR, add its row here.
 | [0457](0457-a-markdown-row-may-have-a-readable-filename-suffix.md) | A Markdown row may have a readable filename suffix | Proposed (amends 0456 at exact ID filenames; suffix lookup unbuilt) |
 | [0458](0458-markdown-links-may-cross-data-folders-by-relative-path.md) | Markdown links may cross data folders by relative path | Proposed (cross-folder link resolution unbuilt) |
 | [0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) | SQLite is a local capability for derived or transactional state | Proposed (file-backed application stores and derived indexes unbuilt) |
+| [0460](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md) | Vocab and Whispering are Braden Wong's apps built on Epicenter | Proposed (personal-domain homes and Whispering ID migration unbuilt) |
