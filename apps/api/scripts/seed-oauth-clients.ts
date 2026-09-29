@@ -12,6 +12,12 @@
  * origin, a Tauri deep link, an extension id), so the rows are the same for
  * every deployment; only the database this points at differs.
  *
+ * After upserting, the script disables every id in `RETIRED_OAUTH_CLIENT_IDS`
+ * (kept for audit, never deleted). The upsert alone cannot revoke a client
+ * that left the trusted set: `epicenter-cli` was seeded while the deleted CLI
+ * existed and would otherwise survive as valid client metadata at /authorize
+ * and /token. The disable is idempotent, so re-running the seed is safe.
+ *
  *   bun run oauth:seed:local     seed the local dev database
  *   bun run oauth:seed:remote    seed production (wrapped with Infisical)
  *
@@ -32,6 +38,7 @@
  * the committed local default, matching `drizzle.config.ts`.
  */
 import {
+	RETIRED_OAUTH_CLIENT_IDS,
 	buildTrustedOAuthClients,
 	projectTrustedOAuthClientToRow,
 } from '@epicenter/constants/oauth-seed';
@@ -62,6 +69,12 @@ const UPSERT = `
 		require_pkce = EXCLUDED.require_pkce
 `;
 
+const RETIRE = `
+	UPDATE oauth_client
+	SET disabled = true, skip_consent = false, updated_at = NOW()
+	WHERE client_id = ANY($1)
+`;
+
 const client = new pg.Client({ connectionString });
 await client.connect();
 try {
@@ -87,6 +100,8 @@ try {
 		]);
 	}
 	console.log(`Seeded ${clients.length} first-party OAuth client(s)`);
+	const retired = await client.query(RETIRE, [[...RETIRED_OAUTH_CLIENT_IDS]]);
+	console.log(`Disabled ${retired.rowCount ?? 0} retired OAuth client(s)`);
 } finally {
 	await client.end();
 }
