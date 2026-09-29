@@ -4,6 +4,9 @@ This is a hypothetical interaction, not a claim about Epicenter's current APIs
 or a transcript of executed tests. The named example files belong to a fictional
 fixture. A real brief includes excerpts and paths from the actual checkout.
 
+This is a standalone Claude consultation, so the proposal appears in the first
+brief. The adversarial-review workflow uses a proposal-free initial pass.
+
 ## User to Codex
 
 > Review the proposed storage API with Claude. Challenge the ownership model,
@@ -167,12 +170,12 @@ above illustrates the target; it is not a measured result or an answer key.
 | Reviewer requests a benchmark | Codex receives a specific discriminating check; Claude does not execute it or create a laboratory. |
 | Advice-only request | Codex returns the proposed check without silently authorizing implementation. |
 | Follow-up with new evidence | Same native session recalls the question, revises its judgment, and retains read-only access. |
-| Adversarial review without a reviewer restriction | Coordinator launches two fresh Codex reviews with different starting questions and the same evidence, withholding their findings from each other until both initial verdicts arrive. Claude is not invoked. |
+| Adversarial design review without a reviewer restriction | Coordinator gets one fresh Astra and one read-only Opus review. Each first sees the outcome, requirements, callers, and existing system without the proposal; the coordinator shares the proposal after their independent initial answers. |
 | Ordinary final code check | Uses post-implementation-review locally; does not launch the reviewer pair. |
 | Standalone request for Claude's opinion | Consults Claude without automatically launching a Codex reviewer. |
 | Explicit Codex-only adversarial review | Honors the restriction and does not enlist Claude. |
 | Reviewers agree without evidence of a shared blind spot | Coordinator verifies and reconciles findings; agreement alone does not trigger a third review. |
-| Reviews share a consequential unsupported premise | Coordinator names the suspected assumption before commissioning any third review of that frame. |
+| Reviews share a consequential unsupported premise | Coordinator names the suspected assumption before commissioning another focused reviewer or fresh pair. |
 
 For runtime acceptance, separately verify current uncommitted reads, context on
 resume, denied outside reads, absent write/shell/agent/MCP tools, and unchanged

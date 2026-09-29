@@ -7,12 +7,20 @@ import type { Recording, Transcription } from '../data.js';
 import { sortedRecordings } from './recordings.js';
 import { transcriptionsForRecording } from './transcriptions.js';
 
-function recordingToMarkdown(recording: Recording, results: Transcription[]): string {
+function recordingToMarkdown(
+	recording: Recording,
+	results: Transcription[],
+): string {
 	const yamlStr = yaml.dump(recording, { lineWidth: -1 });
-	const history = results.map((result) =>
-		`## Transcription ${result.attemptedAt}\n\nResult ID: ${result.id}\n\n### Original\n\n${result.rawText}\n` +
-		(result.cleanedText === null ? '' : `\n### Cleaned\n\n${result.cleanedText}\n`),
-	).join('\n');
+	const history = results
+		.map(
+			(result) =>
+				`## Transcription ${result.attemptedAt}\n\nResult ID: ${result.id}\n\n### Original\n\n${result.rawText}\n` +
+				(result.cleanedText === null
+					? ''
+					: `\n### Cleaned\n\n${result.cleanedText}\n`),
+		)
+		.join('\n');
 	return `---\n${yamlStr}---\n${history}`;
 }
 

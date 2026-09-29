@@ -1,5 +1,5 @@
-import { blobInputContentType, selectBlobFormat } from '@epicenter/blobs';
 import { InstantString } from '@epicenter/app/field';
+import { blobInputContentType, selectBlobFormat } from '@epicenter/blobs';
 import { APIError } from 'openai';
 import {
 	type AnyTaggedError,
@@ -20,6 +20,7 @@ import {
 
 export type TranscriptionError = AnyTaggedError;
 export type { TranscriptionSuccess } from './transcription-history.js';
+
 type CapturedTranscription = ((
 	recordingId: RecordingId,
 ) => Promise<Result<string, TranscriptionError>>) & {
@@ -139,44 +140,49 @@ export function captureTranscription(
 	const target = prepared.error ? Err(prepared.error) : prepared.data;
 	if (target.error) {
 		const error = target.error;
-		return Object.assign(async () => Err(error), { selection: capturedSelection });
+		return Object.assign(async () => Err(error), {
+			selection: capturedSelection,
+		});
 	}
 	const selected = target.data;
 	if (selected === null) return null;
-	return Object.assign(async (
-		recordingId: RecordingId,
-	): Promise<Result<string, TranscriptionError>> => {
-		const result = await tryAsync({
-			try: async () => {
-				if (app.signal.aborted || !store.tables.recordings.get(recordingId))
-					return TranscriptionOperationError.Closed();
-				const audio = await store.blobs.get(
-					store.tables.recordings.get(recordingId)!.audioBlobId,
-				);
-				if (app.signal.aborted || !store.tables.recordings.get(recordingId))
-					return TranscriptionOperationError.Closed();
-				if (audio.error) return Err(audio.error);
-				const transcription = await selected(audio.data);
-				if (app.signal.aborted || !store.tables.recordings.get(recordingId))
-					return TranscriptionOperationError.Closed();
-				return transcription;
-			},
-			catch: (cause) => {
-				if (cause instanceof APIError && cause.status !== undefined) {
-					if (usesAccount && cause.status === 402)
-						return TranscriptionOperationError.InsufficientCredits();
-					return TranscriptionOperationError.RequestFailed({
-						status: cause.status,
-						detail: cause.message,
-					});
-				}
-				if (cause instanceof SyntaxError)
-					return TranscriptionOperationError.Malformed();
-				return TranscriptionOperationError.TransportFailed({ cause });
-			},
-		});
-		return result.error ? Err(result.error) : result.data;
-	}, { selection: capturedSelection });
+	return Object.assign(
+		async (
+			recordingId: RecordingId,
+		): Promise<Result<string, TranscriptionError>> => {
+			const result = await tryAsync({
+				try: async () => {
+					if (app.signal.aborted || !store.tables.recordings.get(recordingId))
+						return TranscriptionOperationError.Closed();
+					const audio = await store.blobs.get(
+						store.tables.recordings.get(recordingId)!.audioBlobId,
+					);
+					if (app.signal.aborted || !store.tables.recordings.get(recordingId))
+						return TranscriptionOperationError.Closed();
+					if (audio.error) return Err(audio.error);
+					const transcription = await selected(audio.data);
+					if (app.signal.aborted || !store.tables.recordings.get(recordingId))
+						return TranscriptionOperationError.Closed();
+					return transcription;
+				},
+				catch: (cause) => {
+					if (cause instanceof APIError && cause.status !== undefined) {
+						if (usesAccount && cause.status === 402)
+							return TranscriptionOperationError.InsufficientCredits();
+						return TranscriptionOperationError.RequestFailed({
+							status: cause.status,
+							detail: cause.message,
+						});
+					}
+					if (cause instanceof SyntaxError)
+						return TranscriptionOperationError.Malformed();
+					return TranscriptionOperationError.TransportFailed({ cause });
+				},
+			});
+			return result.error ? Err(result.error) : result.data;
+		},
+		{ selection: capturedSelection },
+	);
 }
 
 /** A deliberate transcription captures its selection when invoked. */

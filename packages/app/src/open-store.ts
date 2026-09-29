@@ -60,7 +60,10 @@ export async function openPersonal<const TDefinition extends DataDefinition>(
 const log = createLogger('app/store');
 
 /** The engine owns cleanup; this boundary owns exclusion until cleanup is proven. */
-async function openStore<const TDefinition extends DataDefinition, TBlobs = undefined>(
+async function openStore<
+	const TDefinition extends DataDefinition,
+	TBlobs = undefined,
+>(
 	definition: TDefinition,
 	owner: StoreOwner,
 	runtime: StoreRuntime,
@@ -138,20 +141,22 @@ async function openStore<const TDefinition extends DataDefinition, TBlobs = unde
 		if (!blobs) return;
 		return (blobClosing ??= (async () => blobs.close())());
 	}
-	const blobAcquisition = acquireBlobs && Promise.resolve()
-		.then(() => acquireBlobs(assertUsable))
-		.then(
-			(acquired) => {
-				if (acquired.error) return acquired;
-				blobs = acquired.data;
-				if (closing) void closeBlobs()?.catch(() => {});
-				return acquired;
-			},
-			(cause) => {
-				acquisitionFailures.push(cause);
-				throw cause;
-			},
-		);
+	const blobAcquisition =
+		acquireBlobs &&
+		Promise.resolve()
+			.then(() => acquireBlobs(assertUsable))
+			.then(
+				(acquired) => {
+					if (acquired.error) return acquired;
+					blobs = acquired.data;
+					if (closing) void closeBlobs()?.catch(() => {});
+					return acquired;
+				},
+				(cause) => {
+					acquisitionFailures.push(cause);
+					throw cause;
+				},
+			);
 	void blobAcquisition?.catch(() => {});
 	function close(): Promise<void> {
 		if (closing) return closing;

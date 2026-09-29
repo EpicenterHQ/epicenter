@@ -1,7 +1,7 @@
 import { DeviceError } from '@epicenter/device';
 import type { SqliteLifetime } from '@epicenter/device/owner';
 import { isDatabaseName } from '@epicenter/device/protocol';
-import { tryAsync, type Result } from 'wellcrafted/result';
+import { type Result, tryAsync } from 'wellcrafted/result';
 
 /** Borrowed SQL access; the containing store owns admission and physical close. */
 export function borrowSqlite(

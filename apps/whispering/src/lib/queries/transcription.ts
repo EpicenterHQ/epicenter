@@ -1,10 +1,10 @@
 import { defineKeys } from 'wellcrafted/query';
 import { Ok, partitionResults } from 'wellcrafted/result';
-import { transcribeAndPersist } from '../operations/transcribe.js';
-import { prepareCleanup } from '../operations/process-cleanup.js';
 import type { WhisperingQueryRuntime } from '$lib/queries/client';
 import type { WhisperingApp } from '$lib/whispering/app';
 import type { Recording } from '../data.js';
+import { prepareCleanup } from '../operations/process-cleanup.js';
+import { transcribeAndPersist } from '../operations/transcribe.js';
 import type { RecordingStore } from '../whispering/app.js';
 
 async function retry(
@@ -20,7 +20,9 @@ async function retry(
 	return Ok({
 		...transcription.data,
 		text: cleaned.text,
-		history: cleaned.history.error ? cleaned.history : transcription.data.history,
+		history: cleaned.history.error
+			? cleaned.history
+			: transcription.data.history,
 	});
 }
 

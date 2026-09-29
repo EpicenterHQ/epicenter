@@ -1,13 +1,13 @@
 /** Adapts an SDK Chat Completions stream to the existing agent loop. */
 
-import OpenAI from 'openai';
-import { extractErrorMessage } from 'wellcrafted/error';
-import type { JsonValue } from 'wellcrafted/json';
 import type {
 	AgentEngine,
 	AgentEngineToolDefinition,
 	ModelMessage,
 } from '@epicenter/agent-protocol';
+import OpenAI from 'openai';
+import { extractErrorMessage } from 'wellcrafted/error';
+import type { JsonValue } from 'wellcrafted/json';
 
 /** Captured client and prompts for one turn; the loop remains the tool executor. */
 export type OpenAiTurnContext = {

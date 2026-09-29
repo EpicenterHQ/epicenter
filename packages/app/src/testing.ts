@@ -1,9 +1,9 @@
-import { createMemorySqliteOwner } from '@epicenter/device/memory';
 import {
 	createBrowserBlobSources,
 	createBrowserBlobStore,
 } from '@epicenter/blobs/browser';
 import { AppClaimError } from '@epicenter/device/app-claim';
+import { createMemorySqliteOwner } from '@epicenter/device/memory';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { Ok } from 'wellcrafted/result';
 import { acquireLocalBlobs } from './blob-owner.js';

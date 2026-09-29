@@ -63,8 +63,12 @@ mock.module('$lib/operations/process-cleanup', () => ({
 			if (owner.signal.aborted)
 				return { text, history: Ok(undefined), cleanupError: null };
 			const history = await saveCleanedTranscription(
-				owner, store, resultId, { rawText: text, cleanedText: null },
-				'polished transcript', {},
+				owner,
+				store,
+				resultId,
+				{ rawText: text, cleanedText: null },
+				'polished transcript',
+				{},
 			);
 			return { text: 'polished transcript', history, cleanupError: null };
 		},

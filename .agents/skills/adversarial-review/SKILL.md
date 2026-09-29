@@ -27,19 +27,19 @@ at any cost is the job.
 If you are already the delegated reviewer, perform the review yourself and
 launch no child agents. The following setup belongs to the coordinating agent.
 
-The coordinating agent appoints two fresh read-only `gpt-6-astra` subagents,
-each with `fork_turns: "none"` and `reasoning_effort: "high"`. Explicit user
-choices override this default.
-Use [consult-claude](../consult-claude/SKILL.md) when the user requests a Claude
-review; Claude access is not required for this workflow. Ordinary final checks
-remain local under post-implementation-review.
+The coordinating agent appoints one fresh read-only `gpt-6-astra` subagent with
+`fork_turns: "none"` and `reasoning_effort: "high"`, and one read-only Claude
+Opus reviewer through [consult-claude](../consult-claude/SKILL.md). Explicit
+user choices override this default. Ordinary final checks remain local under
+post-implementation-review.
 
-Give both reviewers the same evidence and whole design, with different starting
-questions. Run them in parallel when possible, and withhold each reviewer's
-findings from the other until both initial verdicts arrive. If either reviewer
-is unavailable, report that limitation and continue with the available review.
-If neither is available, perform the pass locally and state that it was not
-independent.
+Give both reviewers the same evidence and complementary starting questions.
+Run them in parallel when possible, and withhold each reviewer's findings from
+the other until both initial verdicts arrive. Assign the starting questions
+without assuming either model is better at simplification or guarantee tracing.
+If either reviewer is unavailable, report that limitation and continue with the
+available review. If neither is available, perform the pass locally and state
+that it was not independent.
 
 Reviewer one starts with:
 
@@ -60,9 +60,20 @@ Reviewer two examines possible simplifications independently, without waiting
 for reviewer one's proposal. Both can discover a better design or conclude that
 the current boundaries earn their place.
 
+When reviewing a design before implementation, first give each reviewer the
+desired outcome, explicit requirements, actual callers, and existing system,
+without the implementer's proposed design or rationale. Ask each to sketch the
+simplest viable design and name what it deletes. Preserve their independent
+initial answers. Then provide the full proposal and reasoning to each reviewer
+for a challenge against those answers. This ordering tests whether the proposal
+anchored the search. For implemented work, the current checkout may already
+expose the proposal; do not claim that the first pass was blind. Start from the
+outcome and task-start baseline when available, then inspect the cumulative diff.
+
 Give each reviewer raw artifacts, concrete proposals, engineering reasoning, and
-open questions. Distinguish facts, hypotheses, preferences, and accepted
-constraints; the implementer's reasoning is contestable evidence, not the answer:
+open questions in the full-proposal pass. Distinguish facts, hypotheses,
+preferences, and accepted constraints; the implementer's reasoning is
+contestable evidence, not the answer:
 
 - The accepted outcome, explicit constraints, and decision to be examined.
 - The plan and remaining work, including newly discovered facts.
@@ -86,9 +97,11 @@ interval for verification preparation or an independent question outside the sur
 Do not begin work whose shape depends on the verdict.
 
 Neither reviewer edits the live checkout.
-Reviewers beyond this pair need distinct unresolved questions. When both reviews
-appear to accept the same consequential assumption, a third reviewer can examine
-that frame after reading their findings:
+Reviewers beyond this pair need distinct unresolved questions. A second fresh
+pair may be worth the cost when the framing itself is consequential and the
+initial pair may share the same assumption. Do not commission four reviewers
+as a standing panel. For a narrower blind spot, one additional reviewer can
+examine that frame after reading their findings:
 
 > Are we simplifying the right thing? What assumption about the problem, system
 > boundary, or desired outcome are both reviews taking for granted? Trace that
@@ -162,22 +175,28 @@ silently dropping required behavior or data guarantees.
 
 ## Return a decision
 
-Make the opening explicit about whether the recommendation changes the current
-design or leaves it in place. For a change, lead with the strongest grounded
-simplification and the invariant that makes it possible. For retention, name
-the existing behavior or mechanism worth keeping. Explicitly name the deletion
-prize: the machinery or planned work that would disappear. Then explain the cost
-as a concrete consequence, such as losing unsaved work, and what complexity a
-mitigation would retain or introduce. Keep
-precise design terms; make their consequences immediately understandable. Let
-each sentence explain why the next matters, rather than making the user decode
-an abstract category before understanding the loss. Give a recommendation
-calibrated to the evidence. When the opportunity remains
-conditional, name the unresolved fact that decides whether it wins and how
-that fact changes the deletion prize. When recommending retention, briefly show
-the deletion prize considered and why its cost makes the current design worth
-keeping. Include rejected alternatives only when they help the user judge that
-bargain; do not make the user read the search history.
+Lead with the recommended path, whether it changes the current design or keeps
+it. Show the mechanism and why it wins. Name the deletion prize when there is
+one: the machinery or planned work that would disappear, and the replacement
+guarantee. Explain the cost as a concrete consequence, such as losing unsaved
+work, and what complexity a mitigation would retain or introduce. When keeping
+the design, show the strongest deletion prize considered and why its cost makes
+retention worthwhile.
+
+Give each serious alternative enough shape to judge on its own. A compact ASCII
+diagram can expose ownership or lifecycle; a code block can show an API; bullets
+or a small table can distinguish multiple options. Use bold text to expose a
+recommendation or requirement warning when it helps scanning. Do not force a
+fixed number of options or headings. If one path clearly wins, explain it and
+include only alternatives that illuminate the decision. Label any option that
+conflicts with an explicit user requirement as a proposed requirement change,
+and include the strongest compliant path when one is viable.
+
+State downsides, remaining uncertainty, and the next discriminating check where
+they affect the judgment. Give the current best estimate instead of listing
+unknowns without analysis. Codex owns checks it can perform; do not hand the
+user homework. Ask the user only about a product choice that evidence cannot
+settle. Keep precise design terms and make their consequences understandable.
 
 Read [the example workflow](references/example-workflow.md) when calibrating
 how independent findings become a recommendation the user can judge. It shows

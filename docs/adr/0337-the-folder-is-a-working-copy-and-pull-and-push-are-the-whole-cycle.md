@@ -88,7 +88,7 @@ a person chose the moment.** A missing file is a deletion, and no table can say
 where a deletion goes yet, so every one of them is refused in the plan rather
 than guessed at. Where a table names a trash field it will land there as a
 value; Honeycrisp's would be `deletedAt`
-(`apps/honeycrisp/src/lib/data/index.ts`), so a deleted file trashes a note and
+(`apps/honeycrisp/src/lib/data.ts`), so a deleted file trashes a note and
 never removes a row. Removing a row stays the dialog in
 `apps/honeycrisp/src/routes/components/NoteCard.svelte` that reads "This action
 cannot be undone."

@@ -1,6 +1,9 @@
 /** Local blob owners retain recorder and publication lifetimes. */
 import { expect, test } from 'bun:test';
-import { createBrowserBlobSources, createBrowserBlobStore } from '@epicenter/blobs/browser';
+import {
+	createBrowserBlobSources,
+	createBrowserBlobStore,
+} from '@epicenter/blobs/browser';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { expectOk } from 'wellcrafted/testing';
 import { acquireLocalBlobs } from './blob-owner.js';
@@ -8,11 +11,15 @@ import { createRecorder } from './recorder.js';
 import { createBrowserRecording } from './recording/browser.js';
 
 function binding() {
-  const local = createBrowserBlobStore({
-    appId: 'test.source',
-    idb: { factory: new IDBFactory(), keyRange: IDBKeyRange },
-  });
-  return { local, sources: createBrowserBlobSources(local), recording: createBrowserRecording };
+	const local = createBrowserBlobStore({
+		appId: 'test.source',
+		idb: { factory: new IDBFactory(), keyRange: IDBKeyRange },
+	});
+	return {
+		local,
+		sources: createBrowserBlobSources(local),
+		recording: createBrowserRecording,
+	};
 }
 test('closing a recorder leaves its destination usable; closing blobs retires retained recorders', async () => {
 	const local = expectOk(

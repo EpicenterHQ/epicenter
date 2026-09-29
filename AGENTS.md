@@ -146,9 +146,9 @@ Be direct about flawed assumptions, weak designs, and regressions. Do not agree 
 ## Agent collaboration
 
 Codex owns continuity, decisions, live-checkout edits, testing, and integration.
-Claude provides a read-only second opinion when the user requests it or has
-asked to include Claude during design review; complexity alone does not enlist
-Claude. `adversarial-review` owns the default Codex reviewer setup.
+Claude provides a read-only second opinion when the user requests it or a
+workflow the user chose includes it. `adversarial-review` owns the reviewer
+setup for that workflow; complexity alone does not enlist Claude.
 Follow `consult-claude` for briefing and follow-ups and `adversarial-review`
 for the review method. Experimental execution by Claude requires separate user
 authorization. Codex verifies feedback against live state, applies accepted

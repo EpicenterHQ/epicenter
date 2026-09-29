@@ -9,7 +9,13 @@ import type { RecordingId, Transcription } from '../data.js';
 import type { WhisperingApp, WhisperingData } from '../whispering/app.js';
 
 export const RecordingHistoryError = defineErrors({
-	SaveUnconfirmed: ({ recordingId, cause }: { recordingId: RecordingId; cause: unknown }) => ({
+	SaveUnconfirmed: ({
+		recordingId,
+		cause,
+	}: {
+		recordingId: RecordingId;
+		cause: unknown;
+	}) => ({
 		message: 'The transcription may not appear in recording history.',
 		recordingId,
 		cause,
@@ -61,16 +67,23 @@ export async function recordTranscriptionOutcome<TError extends AnyTaggedError>(
 					created = store.tables.transcriptions.create(values);
 				}
 				if (!created)
-					throw new Error('Creation acceptance is uncertain. Do not create another result.');
+					throw new Error(
+						'Creation acceptance is uncertain. Do not create another result.',
+					);
 				await store.persistence.flush();
 				app.signal.throwIfAborted();
 				if (store.persistence.get() !== 'saved')
 					throw new Error('Local persistence is blocked.');
 				const saved = store.tables.transcriptions.get(created.id);
-				if (!saved || saved.rawText !== text || saved.recordingId !== recordingId)
+				if (
+					!saved ||
+					saved.rawText !== text ||
+					saved.recordingId !== recordingId
+				)
 					throw new Error('The retained Original is no longer present.');
 			},
-			catch: (cause) => RecordingHistoryError.SaveUnconfirmed({ recordingId, cause }),
+			catch: (cause) =>
+				RecordingHistoryError.SaveUnconfirmed({ recordingId, cause }),
 		}),
 	);
 	return Ok({ text, resultId: created?.id ?? null, history });
@@ -94,20 +107,28 @@ export async function saveCleanedTranscription(
 					throw new Error('The Original changed or is no longer available.');
 				if (current.cleanedText !== cleanedText) {
 					if (current.cleanedText !== expected.cleanedText)
-						throw new Error('The Cleaned version changed after the preview opened.');
-					const written = store.tables.transcriptions.update(resultId, { cleanedText });
+						throw new Error(
+							'The Cleaned version changed after the preview opened.',
+						);
+					const written = store.tables.transcriptions.update(resultId, {
+						cleanedText,
+					});
 					if (written.error) throw written.error;
 				}
 				await store.persistence.flush();
 				app.signal.throwIfAborted();
-				if (store.persistence.get() !== 'saved' ||
-					store.tables.transcriptions.get(resultId)?.cleanedText !== cleanedText)
+				if (
+					store.persistence.get() !== 'saved' ||
+					store.tables.transcriptions.get(resultId)?.cleanedText !== cleanedText
+				)
 					throw new Error('The Cleaned version was not confirmed.');
 			},
-			catch: (cause) => RecordingHistoryError.SaveUnconfirmed({
-				recordingId: store.tables.transcriptions.get(resultId)?.recordingId ?? 'unknown',
-				cause,
-			}),
+			catch: (cause) =>
+				RecordingHistoryError.SaveUnconfirmed({
+					recordingId:
+						store.tables.transcriptions.get(resultId)?.recordingId ?? 'unknown',
+					cause,
+				}),
 		}),
 	);
 }

@@ -26,7 +26,10 @@ export type {
  * track. Call inside a reactive scope to stay live as the toggles change.
  */
 export function outputWritesToCursor(): boolean {
-	return local.kv.get('outputTranscriptionCursor') ?? DEVICE_DEFAULTS.outputTranscriptionCursor;
+	return (
+		local.kv.get('outputTranscriptionCursor') ??
+		DEVICE_DEFAULTS.outputTranscriptionCursor
+	);
 }
 
 /**
@@ -77,14 +80,18 @@ export async function deliverTranscriptionResult(
 
 function resolveSettingsSink(): Sink {
 	const cursorRequested =
-		local.kv.get('outputTranscriptionCursor') ?? DEVICE_DEFAULTS.outputTranscriptionCursor;
+		local.kv.get('outputTranscriptionCursor') ??
+		DEVICE_DEFAULTS.outputTranscriptionCursor;
 	const clipboardRequested =
-		local.kv.get('outputTranscriptionClipboard') ?? DEVICE_DEFAULTS.outputTranscriptionClipboard;
+		local.kv.get('outputTranscriptionClipboard') ??
+		DEVICE_DEFAULTS.outputTranscriptionClipboard;
 
 	return cursorRequested
 		? createCursorSink({
 				keepOnClipboard: clipboardRequested,
-				pressEnter: local.kv.get('outputTranscriptionEnter') ?? DEVICE_DEFAULTS.outputTranscriptionEnter,
+				pressEnter:
+					local.kv.get('outputTranscriptionEnter') ??
+					DEVICE_DEFAULTS.outputTranscriptionEnter,
 			})
 		: clipboardRequested
 			? clipboardSink

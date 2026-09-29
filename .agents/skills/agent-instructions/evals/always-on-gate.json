@@ -33,7 +33,7 @@
 			"cluster": "gate-owned",
 			"prompt": "Treat this as greenfield and tell me what you would build instead.",
 			"anchors": ["greenfield"],
-			"expect": "greenfield-clean-breaks",
+			"expect": "rethink",
 			"forbid": [],
 			"why": "The gate sends this to post-implementation-review first and escalates second; the description owns 'greenfield' outright. Recording which one wins decides whether the gate's two-hop costs a correct one-hop route."
 		},
@@ -42,9 +42,9 @@
 			"cluster": "gate-owned",
 			"prompt": "We have no users yet. Make a clean break from the old mount API.",
 			"anchors": ["clean break"],
-			"expect": "greenfield-clean-breaks",
+			"expect": "rethink",
 			"forbid": [],
-			"why": "Second gate-owned case. AGENTS.md names 'make a clean break' as a post-implementation-review trigger while greenfield-clean-breaks claims the phrase in its description."
+			"why": "Second gate-owned case. AGENTS.md names 'make a clean break' as a post-implementation-review trigger while rethink claims the phrase in its description."
 		},
 		{
 			"id": "gate-everyday-clean-up-near-miss",

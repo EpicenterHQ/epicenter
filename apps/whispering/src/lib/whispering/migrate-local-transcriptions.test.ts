@@ -58,7 +58,9 @@ test('older Local transcript becomes one result across reopening without changin
 			legacyRecordingId: recording.id,
 		},
 	]);
-	expect(second.tables.recordings.get(recording.id)?.audioBlobId).toBe(audioBlobId);
+	expect(second.tables.recordings.get(recording.id)?.audioBlobId).toBe(
+		audioBlobId,
+	);
 	await second[Symbol.asyncDispose]();
 
 	const third = await openMemory(whisperingDefinition, record);

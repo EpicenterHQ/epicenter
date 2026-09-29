@@ -54,19 +54,26 @@ const fixture = Bun.serve({
 	idleTimeout: 0,
 	async fetch(request) {
 		const path = new URL(request.url).pathname;
-        if (path.startsWith('/unsaved/v1/')) {
-            assert.equal(request.headers.get('authorization'),'Bearer callback-key');
-            assert.equal(request.headers.get('cf-aig-authorization'),'Bearer gateway-key');
-            assert.equal(request.headers.get('cookie'),null);
-            if(path.endsWith('/audio/transcriptions')) {
-                const form=await request.formData();
-                assert.equal(await form.get('file').text(),'exact webview bytes');
-                return Response.json({text:'multipart accepted'});
-            }
-            assert.equal(path,'/unsaved/v1/chat/completions');
-            assert.equal((await request.json()).messages[0].content,'hello');
-            return Response.json({choices:[{message:{role:'assistant',content:'completion accepted'}}]});
-        }
+		if (path.startsWith('/unsaved/v1/')) {
+			assert.equal(request.headers.get('authorization'), 'Bearer callback-key');
+			assert.equal(
+				request.headers.get('cf-aig-authorization'),
+				'Bearer gateway-key',
+			);
+			assert.equal(request.headers.get('cookie'), null);
+			if (path.endsWith('/audio/transcriptions')) {
+				const form = await request.formData();
+				assert.equal(await form.get('file').text(), 'exact webview bytes');
+				return Response.json({ text: 'multipart accepted' });
+			}
+			assert.equal(path, '/unsaved/v1/chat/completions');
+			assert.equal((await request.json()).messages[0].content, 'hello');
+			return Response.json({
+				choices: [
+					{ message: { role: 'assistant', content: 'completion accepted' } },
+				],
+			});
+		}
 
 		if (path.startsWith('/product/v1/')) {
 			assert(
@@ -99,15 +106,26 @@ const fixture = Bun.serve({
 			// This test endpoint exercises network clients using a real native engine.
 			let result;
 			if (path.endsWith('/models')) {
-				result = await nativeInference.transcriber.listModels({ signal: request.signal });
-				if (!result.error) result = { data: { data: result.data }, error: null };
+				result = await nativeInference.transcriber.listModels({
+					signal: request.signal,
+				});
+				if (!result.error)
+					result = { data: { data: result.data }, error: null };
 			} else {
 				assert(path.endsWith('/audio/transcriptions'));
 				const form = await request.formData();
 				const audio = form.get('file');
 				const model = form.get('model');
 				assert(audio instanceof File && typeof model === 'string');
-				result = await nativeInference.transcriber.transcribe({ audio, model, language: form.get('language') ?? undefined, prompt: form.get('prompt') ?? undefined }, { signal: request.signal });
+				result = await nativeInference.transcriber.transcribe(
+					{
+						audio,
+						model,
+						language: form.get('language') ?? undefined,
+						prompt: form.get('prompt') ?? undefined,
+					},
+					{ signal: request.signal },
+				);
 			}
 			if (result.error) throw new Error(JSON.stringify(result.error));
 			const response = Response.json(result.data);
@@ -299,7 +317,9 @@ try {
 			productAudio,
 			'--whispering requires EPICENTER_NATIVE_AUDIO pointing to an existing speech WAV',
 		);
-		const { createRuntimeTranscriberFixture } = await import('./runtime-transcriber-fixture.ts');
+		const { createRuntimeTranscriberFixture } = await import(
+			'./runtime-transcriber-fixture.ts'
+		);
 		nativeInference = await createRuntimeTranscriberFixture({
 			audioPath: productAudio,
 			timeoutMs: 600_000,
@@ -408,16 +428,30 @@ try {
 },`,
 	);
 	await Bun.write(join(desktop, 'src/main.ts'), main);
- const catalogPath = join(desktop, 'src/ai-catalog.ts');
- await Bun.write(catalogPath, (await Bun.file(catalogPath).text()).replace("} catch {\n\t\t\t\t\tthrow new Error('Could not save AI connection credentials.');", "} catch (cause) {\n\t\t\t\t\tthrow new Error('Could not save AI connection credentials.', {cause});"));
+	const catalogPath = join(desktop, 'src/ai-catalog.ts');
+	await Bun.write(
+		catalogPath,
+		(await Bun.file(catalogPath).text()).replace(
+			"} catch {\n\t\t\t\t\tthrow new Error('Could not save AI connection credentials.');",
+			"} catch (cause) {\n\t\t\t\t\tthrow new Error('Could not save AI connection credentials.', {cause});",
+		),
+	);
 
- // Diagnostic belongs only to the disposable host and synthetic credentials.
- const catalogRoutesPath = join(desktop, 'src/ai-catalog-routes.ts');
- const catalogRoutes = await Bun.file(catalogRoutesPath).text();
- await Bun.write(catalogRoutesPath, catalogRoutes.replace(
-  "routes.onError((_error, context) =>",
-  "routes.onError((_error, context) => (console.error('Catalog acceptance route failure', _error),"
- ).replace("context.json({ error: 'AI catalog request failed.' }, 400),", "context.json({ error: 'AI catalog request failed.' }, 400)),"));
+	// Diagnostic belongs only to the disposable host and synthetic credentials.
+	const catalogRoutesPath = join(desktop, 'src/ai-catalog-routes.ts');
+	const catalogRoutes = await Bun.file(catalogRoutesPath).text();
+	await Bun.write(
+		catalogRoutesPath,
+		catalogRoutes
+			.replace(
+				'routes.onError((_error, context) =>',
+				"routes.onError((_error, context) => (console.error('Catalog acceptance route failure', _error),",
+			)
+			.replace(
+				"context.json({ error: 'AI catalog request failed.' }, 400),",
+				"context.json({ error: 'AI catalog request failed.' }, 400)),",
+			),
+	);
 
 	for (const product of [a, b]) {
 		const source = join(evidence, product);
@@ -460,308 +494,353 @@ try {
 		'catalog_acceptance',
 	]);
 	const first = await start();
-    if (process.argv.includes('--endpoint-only')) {
-        assert.deepEqual(await evaluate(a,`return acceptance.unsaved(${JSON.stringify(fixture.url.origin+'/unsaved/v1')});`),{text:'completion accepted',transcript:'multipart accepted'});
-        checks.push('real WebView callback headers, chat completion, exact multipart bytes, no ambient cookies');
-        fixtureHeld=true;
-        assert.equal(await evaluate(a,`return acceptance.holdEndpoint(${JSON.stringify(endpoint)});`),'response-owned');
-        assert.equal(await evaluate(a,'return acceptance.closeEndpoint();'),'closed');
-        await until('unsaved endpoint upstream cancellation',()=>fixtureAborts===1);
-        checks.push('endpoint close cancels an owned response body across the native broker');
-        await evaluate(a,'return acceptance.close();');
-        await evaluate(b,'return acceptance.close();');
-        await stop();
-        await Bun.write(join(evidence,'result.json'),JSON.stringify({passed:true,checks,fixtureAborts,first},null,2));
-        console.log(`Native endpoint acceptance passed: ${evidence}/result.json`);
-    } else {
-
-	assert.deepEqual(await records(a), []);
-	assert.deepEqual(await records(b), []);
-	const legacy = await evaluate(
-		a,
-		`return localStorage.getItem('${a}.app-ai-connections');`,
-	);
-	assert.equal(JSON.parse(legacy).connections[0].id, 'native-legacy');
-	assert.equal(await evaluate(a, 'return acceptance.selected();'), null);
-	assert.equal(await evaluate(b, 'return acceptance.selected();'), null);
-	const id = await evaluate(
-		a,
-		`return acceptance.add(${JSON.stringify({ name: 'Fixture', baseUrl: endpoint, apiKey: fixtureKeys[0], models: ['manual'] })});`,
-	);
-	const original = await observe(b, id);
-	assert.equal(original.hasApiKey, true);
-	assert.equal('apiKey' in original, false);
-	await evaluate(
-		a,
-		`acceptance.select(${JSON.stringify(id)}); acceptance.retain(${JSON.stringify(id)});`,
-	);
-	const removable = await evaluate(
-		b,
-		`return acceptance.add(${JSON.stringify({ name: 'Second fixture', baseUrl: endpoint, models: ['manual'] })});`,
-	);
-	await evaluate(b, `acceptance.select(${JSON.stringify(removable)});`);
-	await evaluate(b, `return acceptance.run(${JSON.stringify(id)});`);
-	assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[0]}`);
-	assert.equal(requests.at(-1).cookie, null);
-	checks.push(
-		'built installed test apps use the default desktop binding and real Rust keychain',
-	);
-	await update(id, { name: 'Renamed' });
-	await observe(a, id, (record) => record.name === 'Renamed');
-	assert.equal(await evaluate(a, 'return acceptance.retained();'), 'sent');
-	await update(id, { apiKey: fixtureKeys[1] });
-	await observe(
-		a,
-		id,
-		(record) => record.accessVersion !== original.accessVersion,
-	);
-	assert.equal(await evaluate(a, 'return acceptance.retained();'), 'rejected');
-	await evaluate(a, `return acceptance.run(${JSON.stringify(id)});`);
-	assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[1]}`);
-	const beforeSameKey = (await records(b)).find((record) => record.id === id);
-	await evaluate(a, `acceptance.retain(${JSON.stringify(id)});`);
-	await update(id, { apiKey: fixtureKeys[1] });
-	await observe(
-		a,
-		id,
-		(record) => record.accessVersion !== beforeSameKey.accessVersion,
-	);
-	assert.equal(await evaluate(a, 'return acceptance.retained();'), 'rejected');
-	const beforeStaleRequest = requests.length;
-	assert.equal(
-		await evaluate(
-			a,
-			`return (await fetch('/_epicenter/ai/no-account/inference/${id}/${original.accessVersion}/models')).status;`,
-		),
-		400,
-	);
-	assert.equal(requests.length, beforeStaleRequest);
-	await update(id, { apiKey: '' });
-	await observe(a, id, (record) => !record.hasApiKey);
-	await evaluate(a, `return acceptance.run(${JSON.stringify(id)});`);
-	assert.equal(requests.at(-1).authorization, null);
-	await update(id, { apiKey: fixtureKeys[1] });
-	const metadataPath = join(profile, 'ai/no-account/connections.json');
-	const saved = (await Bun.file(metadataPath).json()).connections.find(
-		(record) => record.id === id,
-	);
-	await observe(
-		a,
-		id,
-		(record) => record.accessVersion === saved.accessVersion,
-	);
-	await command('delete-key', { label: `ai.${id}.${saved.secretVersion}` });
-	const countBeforeMissing = requests.length;
-	assert.equal(
-		await evaluate(
-			a,
-			`try{await acceptance.run(${JSON.stringify(id)});return 'sent';}catch{return 'failed';}`,
-		),
-		'failed',
-	);
-	assert.equal(requests.length, countBeforeMissing);
-	await update(id, { name: 'Missing key can be renamed' });
-	await update(id, { apiKey: fixtureKeys[2] });
-	const repaired = (await records(b)).find((record) => record.id === id);
-	await observe(
-		a,
-		id,
-		(record) => record.accessVersion === repaired.accessVersion,
-	);
-	await evaluate(a, `return acceptance.run(${JSON.stringify(id)});`);
-	assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[2]}`);
-	await evaluate(a, `acceptance.retain(${JSON.stringify(id)});`);
-	await update(id, { baseUrl: `${fixture.url.origin}/changed/v1` });
-	await observe(a, id, (record) => record.baseUrl.endsWith('/changed/v1'));
-	assert.equal(await evaluate(a, 'return acceptance.retained();'), 'rejected');
-	await evaluate(a, `return acceptance.run(${JSON.stringify(id)});`);
-	assert.equal(requests.at(-1).path, '/changed/v1/models');
-	assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[2]}`);
-	checks.push(
-		'hidden key retention, rotation, removal, missing-key refusal and repair, stale-client retirement',
-	);
-	await evaluate(b, `await acceptance.remove(${JSON.stringify(removable)});`);
-	const selectedA = await evaluate(a, 'return acceptance.selected();');
-	const selectedB = await evaluate(b, 'return acceptance.selected();');
-	assert.notDeepEqual(selectedA, selectedB);
-	for (const key of fixtureKeys)
-		assert.equal((await readFile(metadataPath, 'utf8')).includes(key), false);
-	for (const product of [a, b]) {
-		const snapshot = await records(product);
-		assert(snapshot.every((record) => !('apiKey' in record)));
-		for (const key of fixtureKeys)
-			assert(!JSON.stringify(snapshot).includes(key));
-	}
-	const events = () => Bun.file(join(evidence, 'events.json')).json();
-	await until('two subscriptions', async () => (await events()).active === 2);
-	const beforeCut = await events();
-	const documentId = await evaluate(a, 'return acceptance.documentId;');
-	await writeFile(join(evidence, 'cut-events'), 'cut');
-	await until('SSE interruption', async () => (await events()).active === 0);
-	await update(id, { name: 'Changed while disconnected' });
-	await import('node:fs/promises').then(({ unlink }) =>
-		unlink(join(evidence, 'cut-events')),
-	);
-	await until(
-		'SSE reconnect',
-		async () =>
-			(await events()).active === 2 &&
-			(await events()).opened >= beforeCut.opened + 2,
-	);
-	await observe(
-		a,
-		id,
-		(record) => record.name === 'Changed while disconnected',
-	);
-	assert.equal(await evaluate(a, 'return acceptance.documentId;'), documentId);
-	checks.push(
-		'real WebKit EventSource reconnect receives subsequent catalog updates',
-	);
-	await stop();
-	assert.equal((await events()).active, 0);
-	const second = await start();
-	assert.notEqual(first.nativePid, second.nativePid);
-	assert.notEqual(first.bunPid, second.bunPid);
-	assert.equal(
-		(await records(a)).some((record) => record.id === 'native-legacy'),
-		false,
-	);
-	assert.equal(
-		(await records(a)).some((record) => record.id === removable),
-		false,
-	);
-	assert.equal(
-		await evaluate(
+	if (process.argv.includes('--endpoint-only')) {
+		assert.deepEqual(
+			await evaluate(
+				a,
+				`return acceptance.unsaved(${JSON.stringify(fixture.url.origin + '/unsaved/v1')});`,
+			),
+			{ text: 'completion accepted', transcript: 'multipart accepted' },
+		);
+		checks.push(
+			'real WebView callback headers, chat completion, exact multipart bytes, no ambient cookies',
+		);
+		fixtureHeld = true;
+		assert.equal(
+			await evaluate(
+				a,
+				`return acceptance.holdEndpoint(${JSON.stringify(endpoint)});`,
+			),
+			'response-owned',
+		);
+		assert.equal(
+			await evaluate(a, 'return acceptance.closeEndpoint();'),
+			'closed',
+		);
+		await until(
+			'unsaved endpoint upstream cancellation',
+			() => fixtureAborts === 1,
+		);
+		checks.push(
+			'endpoint close cancels an owned response body across the native broker',
+		);
+		await evaluate(a, 'return acceptance.close();');
+		await evaluate(b, 'return acceptance.close();');
+		await stop();
+		await Bun.write(
+			join(evidence, 'result.json'),
+			JSON.stringify({ passed: true, checks, fixtureAborts, first }, null, 2),
+		);
+		console.log(`Native endpoint acceptance passed: ${evidence}/result.json`);
+	} else {
+		assert.deepEqual(await records(a), []);
+		assert.deepEqual(await records(b), []);
+		const legacy = await evaluate(
 			a,
 			`return localStorage.getItem('${a}.app-ai-connections');`,
-		),
-		legacy,
-	);
-	assert.deepEqual(
-		await evaluate(a, 'return acceptance.selected();'),
-		selectedA,
-	);
-	assert.deepEqual(
-		await evaluate(b, 'return acceptance.selected();'),
-		selectedB,
-	);
-	await evaluate(a, `return acceptance.run(${JSON.stringify(id)});`);
-	assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[2]}`);
-	checks.push(
-		'native and Bun process restart preserves ID, keychain credential, independent selections and legacy bytes without adoption or deleted connection resurrection',
-	);
-	const beforeSqlReload = await evaluate(b, 'return acceptance.documentId;');
-	assert.equal(await evaluate(b, 'return acceptance.leaveSqlOpen();'), 'held');
-	await evaluate(b, 'setTimeout(() => location.reload(), 0); return true;');
-	await until('native SQL document reload', async () => {
-		const current = await evaluate(
+		);
+		assert.equal(JSON.parse(legacy).connections[0].id, 'native-legacy');
+		assert.equal(await evaluate(a, 'return acceptance.selected();'), null);
+		assert.equal(await evaluate(b, 'return acceptance.selected();'), null);
+		const id = await evaluate(
+			a,
+			`return acceptance.add(${JSON.stringify({ name: 'Fixture', baseUrl: endpoint, apiKey: fixtureKeys[0], models: ['manual'] })});`,
+		);
+		const original = await observe(b, id);
+		assert.equal(original.hasApiKey, true);
+		assert.equal('apiKey' in original, false);
+		await evaluate(
+			a,
+			`acceptance.select(${JSON.stringify(id)}); acceptance.retain(${JSON.stringify(id)});`,
+		);
+		const removable = await evaluate(
 			b,
-			'return window.acceptance?.documentId ?? null;',
+			`return acceptance.add(${JSON.stringify({ name: 'Second fixture', baseUrl: endpoint, models: ['manual'] })});`,
 		);
-		return current && current !== beforeSqlReload;
-	});
-	assert.deepEqual(
-		await evaluate(b, 'return acceptance.verifySqlTeardown();'),
-		{ rows: [], temporary: [] },
-	);
-	checks.push(
-		'document reload physically closes native SQL: uncommitted writes rolled back and TEMP state gone',
-	);
-	fixtureHeld = true;
-	const beforeClose = requests.length;
-	await evaluate(a, `acceptance.start(${JSON.stringify(id)});`);
-	await until('held inference', () => requests.length > beforeClose);
-	assert.equal(await evaluate(a, 'return acceptance.close();'), 'rejected');
-	await until(
-		'App close releases SSE',
-		async () => (await events()).active === 1,
-	);
-	await until('App close aborts upstream body', () => fixtureAborts >= 1);
-	await command('destroy', { product: a });
-	await evaluate(b, `acceptance.start(${JSON.stringify(id)});`);
-	await until('second held inference', () => requests.length > beforeClose + 1);
-	assert.equal(await evaluate(b, 'return acceptance.leaveSqlOpen();'), 'held');
-	await command('destroy', { product: b });
-	await until(
-		'window destruction releases SSE',
-		async () => (await events()).active === 0,
-	);
-	await until('window destruction aborts upstream', () => fixtureAborts >= 2);
-	await command('launch', { product: b });
-	await ready(b);
-	assert.deepEqual(
-		await evaluate(b, 'return acceptance.verifySqlTeardown();'),
-		{ rows: [], temporary: [] },
-	);
-	checks.push(
-		'window destruction physically closes native SQL: uncommitted writes rolled back and TEMP state gone',
-	);
-	await evaluate(b, `acceptance.start(${JSON.stringify(id)});`);
-	await until(
-		'shutdown held inference',
-		() => requests.length > beforeClose + 2,
-	);
-	await stop();
-	await until('host shutdown aborts upstream', () => fixtureAborts >= 3);
-	assert.equal((await events()).active, 0);
-	checks.push(
-		'App close, window destruction and native shutdown release SSE and admitted inference bodies',
-	);
-	fixtureHeld = false;
-	await start();
-	let productAcceptance;
-	if (verifyProduct) {
-		const { verifyWhispering } = await import(
-			'./shared-ai-catalog-native/whispering.mjs'
-		);
-		productAcceptance = await verifyWhispering({
-			command,
-			evaluate,
-			until,
-			records,
-			endpoint: `${fixture.url.origin}/product/v1`,
-			apiKey: 'catalog-fixture-product',
-			audioPath: productAudio,
-			model: productModel,
-			requests: productRequests,
-			evidence,
-		});
+		await evaluate(b, `acceptance.select(${JSON.stringify(removable)});`);
+		await evaluate(b, `return acceptance.run(${JSON.stringify(id)});`);
+		assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[0]}`);
+		assert.equal(requests.at(-1).cookie, null);
 		checks.push(
-			'actual Whispering desktop picker, imported audio, real transcription and persisted result after reload',
+			'built installed test apps use the default desktop binding and real Rust keychain',
 		);
+		await update(id, { name: 'Renamed' });
+		await observe(a, id, (record) => record.name === 'Renamed');
+		assert.equal(await evaluate(a, 'return acceptance.retained();'), 'sent');
+		await update(id, { apiKey: fixtureKeys[1] });
+		await observe(
+			a,
+			id,
+			(record) => record.accessVersion !== original.accessVersion,
+		);
+		assert.equal(
+			await evaluate(a, 'return acceptance.retained();'),
+			'rejected',
+		);
+		await evaluate(a, `return acceptance.run(${JSON.stringify(id)});`);
+		assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[1]}`);
+		const beforeSameKey = (await records(b)).find((record) => record.id === id);
+		await evaluate(a, `acceptance.retain(${JSON.stringify(id)});`);
+		await update(id, { apiKey: fixtureKeys[1] });
+		await observe(
+			a,
+			id,
+			(record) => record.accessVersion !== beforeSameKey.accessVersion,
+		);
+		assert.equal(
+			await evaluate(a, 'return acceptance.retained();'),
+			'rejected',
+		);
+		const beforeStaleRequest = requests.length;
+		assert.equal(
+			await evaluate(
+				a,
+				`return (await fetch('/_epicenter/ai/no-account/inference/${id}/${original.accessVersion}/models')).status;`,
+			),
+			400,
+		);
+		assert.equal(requests.length, beforeStaleRequest);
+		await update(id, { apiKey: '' });
+		await observe(a, id, (record) => !record.hasApiKey);
+		await evaluate(a, `return acceptance.run(${JSON.stringify(id)});`);
+		assert.equal(requests.at(-1).authorization, null);
+		await update(id, { apiKey: fixtureKeys[1] });
+		const metadataPath = join(profile, 'ai/no-account/connections.json');
+		const saved = (await Bun.file(metadataPath).json()).connections.find(
+			(record) => record.id === id,
+		);
+		await observe(
+			a,
+			id,
+			(record) => record.accessVersion === saved.accessVersion,
+		);
+		await command('delete-key', { label: `ai.${id}.${saved.secretVersion}` });
+		const countBeforeMissing = requests.length;
+		assert.equal(
+			await evaluate(
+				a,
+				`try{await acceptance.run(${JSON.stringify(id)});return 'sent';}catch{return 'failed';}`,
+			),
+			'failed',
+		);
+		assert.equal(requests.length, countBeforeMissing);
+		await update(id, { name: 'Missing key can be renamed' });
+		await update(id, { apiKey: fixtureKeys[2] });
+		const repaired = (await records(b)).find((record) => record.id === id);
+		await observe(
+			a,
+			id,
+			(record) => record.accessVersion === repaired.accessVersion,
+		);
+		await evaluate(a, `return acceptance.run(${JSON.stringify(id)});`);
+		assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[2]}`);
+		await evaluate(a, `acceptance.retain(${JSON.stringify(id)});`);
+		await update(id, { baseUrl: `${fixture.url.origin}/changed/v1` });
+		await observe(a, id, (record) => record.baseUrl.endsWith('/changed/v1'));
+		assert.equal(
+			await evaluate(a, 'return acceptance.retained();'),
+			'rejected',
+		);
+		await evaluate(a, `return acceptance.run(${JSON.stringify(id)});`);
+		assert.equal(requests.at(-1).path, '/changed/v1/models');
+		assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[2]}`);
+		checks.push(
+			'hidden key retention, rotation, removal, missing-key refusal and repair, stale-client retirement',
+		);
+		await evaluate(b, `await acceptance.remove(${JSON.stringify(removable)});`);
+		const selectedA = await evaluate(a, 'return acceptance.selected();');
+		const selectedB = await evaluate(b, 'return acceptance.selected();');
+		assert.notDeepEqual(selectedA, selectedB);
+		for (const key of fixtureKeys)
+			assert.equal((await readFile(metadataPath, 'utf8')).includes(key), false);
+		for (const product of [a, b]) {
+			const snapshot = await records(product);
+			assert(snapshot.every((record) => !('apiKey' in record)));
+			for (const key of fixtureKeys)
+				assert(!JSON.stringify(snapshot).includes(key));
+		}
+		const events = () => Bun.file(join(evidence, 'events.json')).json();
+		await until('two subscriptions', async () => (await events()).active === 2);
+		const beforeCut = await events();
+		const documentId = await evaluate(a, 'return acceptance.documentId;');
+		await writeFile(join(evidence, 'cut-events'), 'cut');
+		await until('SSE interruption', async () => (await events()).active === 0);
+		await update(id, { name: 'Changed while disconnected' });
+		await import('node:fs/promises').then(({ unlink }) =>
+			unlink(join(evidence, 'cut-events')),
+		);
+		await until(
+			'SSE reconnect',
+			async () =>
+				(await events()).active === 2 &&
+				(await events()).opened >= beforeCut.opened + 2,
+		);
+		await observe(
+			a,
+			id,
+			(record) => record.name === 'Changed while disconnected',
+		);
+		assert.equal(
+			await evaluate(a, 'return acceptance.documentId;'),
+			documentId,
+		);
+		checks.push(
+			'real WebKit EventSource reconnect receives subsequent catalog updates',
+		);
+		await stop();
+		assert.equal((await events()).active, 0);
+		const second = await start();
+		assert.notEqual(first.nativePid, second.nativePid);
+		assert.notEqual(first.bunPid, second.bunPid);
+		assert.equal(
+			(await records(a)).some((record) => record.id === 'native-legacy'),
+			false,
+		);
+		assert.equal(
+			(await records(a)).some((record) => record.id === removable),
+			false,
+		);
+		assert.equal(
+			await evaluate(
+				a,
+				`return localStorage.getItem('${a}.app-ai-connections');`,
+			),
+			legacy,
+		);
+		assert.deepEqual(
+			await evaluate(a, 'return acceptance.selected();'),
+			selectedA,
+		);
+		assert.deepEqual(
+			await evaluate(b, 'return acceptance.selected();'),
+			selectedB,
+		);
+		await evaluate(a, `return acceptance.run(${JSON.stringify(id)});`);
+		assert.equal(requests.at(-1).authorization, `Bearer ${fixtureKeys[2]}`);
+		checks.push(
+			'native and Bun process restart preserves ID, keychain credential, independent selections and legacy bytes without adoption or deleted connection resurrection',
+		);
+		const beforeSqlReload = await evaluate(b, 'return acceptance.documentId;');
+		assert.equal(
+			await evaluate(b, 'return acceptance.leaveSqlOpen();'),
+			'held',
+		);
+		await evaluate(b, 'setTimeout(() => location.reload(), 0); return true;');
+		await until('native SQL document reload', async () => {
+			const current = await evaluate(
+				b,
+				'return window.acceptance?.documentId ?? null;',
+			);
+			return current && current !== beforeSqlReload;
+		});
+		assert.deepEqual(
+			await evaluate(b, 'return acceptance.verifySqlTeardown();'),
+			{ rows: [], temporary: [] },
+		);
+		checks.push(
+			'document reload physically closes native SQL: uncommitted writes rolled back and TEMP state gone',
+		);
+		fixtureHeld = true;
+		const beforeClose = requests.length;
+		await evaluate(a, `acceptance.start(${JSON.stringify(id)});`);
+		await until('held inference', () => requests.length > beforeClose);
+		assert.equal(await evaluate(a, 'return acceptance.close();'), 'rejected');
+		await until(
+			'App close releases SSE',
+			async () => (await events()).active === 1,
+		);
+		await until('App close aborts upstream body', () => fixtureAborts >= 1);
+		await command('destroy', { product: a });
+		await evaluate(b, `acceptance.start(${JSON.stringify(id)});`);
+		await until(
+			'second held inference',
+			() => requests.length > beforeClose + 1,
+		);
+		assert.equal(
+			await evaluate(b, 'return acceptance.leaveSqlOpen();'),
+			'held',
+		);
+		await command('destroy', { product: b });
+		await until(
+			'window destruction releases SSE',
+			async () => (await events()).active === 0,
+		);
+		await until('window destruction aborts upstream', () => fixtureAborts >= 2);
+		await command('launch', { product: b });
+		await ready(b);
+		assert.deepEqual(
+			await evaluate(b, 'return acceptance.verifySqlTeardown();'),
+			{ rows: [], temporary: [] },
+		);
+		checks.push(
+			'window destruction physically closes native SQL: uncommitted writes rolled back and TEMP state gone',
+		);
+		await evaluate(b, `acceptance.start(${JSON.stringify(id)});`);
+		await until(
+			'shutdown held inference',
+			() => requests.length > beforeClose + 2,
+		);
+		await stop();
+		await until('host shutdown aborts upstream', () => fixtureAborts >= 3);
+		assert.equal((await events()).active, 0);
+		checks.push(
+			'App close, window destruction and native shutdown release SSE and admitted inference bodies',
+		);
+		fixtureHeld = false;
+		await start();
+		let productAcceptance;
+		if (verifyProduct) {
+			const { verifyWhispering } = await import(
+				'./shared-ai-catalog-native/whispering.mjs'
+			);
+			productAcceptance = await verifyWhispering({
+				command,
+				evaluate,
+				until,
+				records,
+				endpoint: `${fixture.url.origin}/product/v1`,
+				apiKey: 'catalog-fixture-product',
+				audioPath: productAudio,
+				model: productModel,
+				requests: productRequests,
+				evidence,
+			});
+			checks.push(
+				'actual Whispering desktop picker, imported audio, real transcription and persisted result after reload',
+			);
+		}
+		const cspObservations = [
+			await evaluate(a, 'return acceptance.violations();'),
+			await evaluate(b, 'return acceptance.violations();'),
+		];
+		await evaluate(b, `await acceptance.remove(${JSON.stringify(id)});`);
+		await evaluate(a, 'await acceptance.close();');
+		await evaluate(b, 'await acceptance.close();');
+		await stop();
+		await writeFile(
+			join(evidence, 'result.json'),
+			JSON.stringify(
+				{
+					passed: true,
+					identifier,
+					checks,
+					first,
+					second,
+					cspObservations,
+					...(productAcceptance ? { productAcceptance } : {}),
+					requests: requests.map(({ authorization, ...request }) => ({
+						...request,
+						authenticated: Boolean(authorization),
+					})),
+					fixtureAborts,
+					webviewStoreId: storeId,
+				},
+				null,
+				2,
+			),
+		);
+		console.log(`Native catalog acceptance passed: ${evidence}/result.json`);
 	}
-	const cspObservations = [
-		await evaluate(a, 'return acceptance.violations();'),
-		await evaluate(b, 'return acceptance.violations();'),
-	];
-	await evaluate(b, `await acceptance.remove(${JSON.stringify(id)});`);
-	await evaluate(a, 'await acceptance.close();');
-	await evaluate(b, 'await acceptance.close();');
-	await stop();
-	await writeFile(
-		join(evidence, 'result.json'),
-		JSON.stringify(
-			{
-				passed: true,
-				identifier,
-				checks,
-				first,
-				second,
-				cspObservations,
-				...(productAcceptance ? { productAcceptance } : {}),
-				requests: requests.map(({ authorization, ...request }) => ({
-					...request,
-					authenticated: Boolean(authorization),
-				})),
-				fixtureAborts,
-				webviewStoreId: storeId,
-			},
-			null,
-			2,
-		),
-	);
-	console.log(`Native catalog acceptance passed: ${evidence}/result.json`);
-}
 } catch (error) {
 	if (verifyProduct && nativeProcess?.exitCode === null) {
 		await evaluate(

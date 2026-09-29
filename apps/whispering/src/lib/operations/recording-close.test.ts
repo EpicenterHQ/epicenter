@@ -270,7 +270,7 @@ test('disposal cancels active capture without finalizing a recording', async () 
 	const stop = mock(async () => {
 		throw new Error('Must not save on disposal');
 	});
-		const app = {
+	const app = {
 		signal: new AbortController().signal,
 		recordingEnabled: true,
 		local: { kv: { update: mock() } },
@@ -296,7 +296,7 @@ test('capture acquired after disposal is cancelled without publishing a row', as
 	const acquired = Promise.withResolvers<ReturnType<typeof Ok<Recording>>>();
 	const cancel = mock(async () => Ok(undefined));
 	const create = mock();
-		const app = {
+	const app = {
 		signal: new AbortController().signal,
 		recordingEnabled: true,
 		local: { kv: { update: mock() } },

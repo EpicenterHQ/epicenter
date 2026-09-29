@@ -168,7 +168,9 @@ export async function renderRow(
 		return RenderError.BodyUnwritable({
 			table,
 			rowId,
-			cause: new Error('The body has root attributes this sequence codec cannot represent'),
+			cause: new Error(
+				'The body has root attributes this sequence codec cannot represent',
+			),
 		});
 	}
 

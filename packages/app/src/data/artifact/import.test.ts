@@ -220,7 +220,9 @@ describe('readArtifact (ADR-0267/0268)', () => {
 					},
 					body: {
 						encode: (node) => node.toString(),
-						decode: () => { throw new Error('no title line'); },
+						decode: () => {
+							throw new Error('no title line');
+						},
 					},
 				}),
 			},
@@ -242,7 +244,9 @@ describe('readArtifact (ADR-0267/0268)', () => {
 					fields: { title: field.string() },
 					body: {
 						encode: () => '',
-						decode: () => { throw new Error('empty refused'); },
+						decode: () => {
+							throw new Error('empty refused');
+						},
 					},
 				}),
 			},
@@ -288,7 +292,9 @@ describe('readArtifact (ADR-0267/0268)', () => {
 				}),
 			},
 		});
-		const files = new Map([['notes/aaaa.md', '---\ntitle: "x"\n---\n\nfirst\n']]);
+		const files = new Map([
+			['notes/aaaa.md', '---\ntitle: "x"\n---\n\nfirst\n'],
+		]);
 		const refused = expectErr(readArtifact(files, invalid));
 		expect(refused.message).toContain('may not edit body-root attributes');
 	});

@@ -39,12 +39,19 @@ function authorityOrigin(authority: string): string | undefined {
 }
 
 /** Parse the literal route path without depending on a reverse proxy's Host. */
-export function parsePersonalBlobPath(path: string): PersonalBlobAddress | undefined {
+export function parsePersonalBlobPath(
+	path: string,
+): PersonalBlobAddress | undefined {
 	const match =
 		/^\/api\/blobs\/personal\/([^/]+)\/(private|public)\/([^/]+)$/.exec(path);
 	if (!match) return undefined;
 	const [, principalId, visibility, key] = match;
-	if (!principalId || !ownerPattern.test(principalId) || !key || !keyPattern.test(key))
+	if (
+		!principalId ||
+		!ownerPattern.test(principalId) ||
+		!key ||
+		!keyPattern.test(key)
+	)
 		return undefined;
 	return {
 		principalId,

@@ -1,6 +1,6 @@
 /** Production SavedQueries, App, OPFS and restricted SQL with synthetic mail; no live provider. */
 import assert from 'node:assert/strict';
-import { test, origins } from './fixtures.mjs';
+import { origins, test } from './fixtures.mjs';
 
 test.use({ persistentOrigin: origins.queries });
 test('saved queries, offline storage and failure recovery', async ({

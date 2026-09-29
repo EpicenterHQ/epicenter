@@ -1,8 +1,9 @@
 export {
-	openLocalConnectionCatalog,
-	openAccountConnectionCatalog,
 	type ConnectionCatalog,
+	openAccountConnectionCatalog,
+	openLocalConnectionCatalog,
 } from './connection-catalog.js';
+
 import { nanoid } from 'nanoid';
 import { createLogger } from 'wellcrafted/logger';
 import type { AiTransport } from './inference.js';

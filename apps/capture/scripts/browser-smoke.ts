@@ -202,22 +202,36 @@ try {
 	await Promise.all([signIn(first), signIn(second)]);
 
 	await first.getByRole('button', { name: 'New capture' }).click();
-	await first.getByLabel('Capture text').fill('Dinner with Sebastian\nFriday at seven\nBring the invitation.');
+	await first
+		.getByLabel('Capture text')
+		.fill('Dinner with Sebastian\nFriday at seven\nBring the invitation.');
 	await first.getByLabel('Capture text').press('Escape');
 	await first.getByRole('button', { name: 'New capture' }).click();
-	assert.equal(await first.getByLabel('Capture text').inputValue(), 'Dinner with Sebastian\nFriday at seven\nBring the invitation.');
+	assert.equal(
+		await first.getByLabel('Capture text').inputValue(),
+		'Dinner with Sebastian\nFriday at seven\nBring the invitation.',
+	);
 	await first.getByRole('button', { name: 'Cancel' }).click();
 	await first.getByRole('button', { name: 'New capture' }).click();
-	assert.equal(await first.getByLabel('Capture text').inputValue(), 'Dinner with Sebastian\nFriday at seven\nBring the invitation.');
+	assert.equal(
+		await first.getByLabel('Capture text').inputValue(),
+		'Dinner with Sebastian\nFriday at seven\nBring the invitation.',
+	);
 	await first.getByRole('button', { name: 'Add capture' }).click();
 	const dinnerUrl = first.url();
 	const dinnerId = new URL(dinnerUrl).searchParams.get('capture');
 	assert(dinnerId);
 	await firstContext.grantPermissions(['clipboard-read', 'clipboard-write']);
-	await first.evaluate(() => navigator.clipboard.write([new ClipboardItem({
-		'text/plain': new Blob(['\nFull pasted details.\n\nKeep blank line.'], { type: 'text/plain' }),
-		'text/html': new Blob(['<b>Different HTML</b>'], { type: 'text/html' }),
-	})]));
+	await first.evaluate(() =>
+		navigator.clipboard.write([
+			new ClipboardItem({
+				'text/plain': new Blob(['\nFull pasted details.\n\nKeep blank line.'], {
+					type: 'text/plain',
+				}),
+				'text/html': new Blob(['<b>Different HTML</b>'], { type: 'text/html' }),
+			}),
+		]),
+	);
 	await first.getByLabel('Capture text').press('End');
 	await first.getByLabel('Capture text').press('ControlOrMeta+V');
 	await first.getByRole('status').getByText('Saved on this device').waitFor();
@@ -236,12 +250,16 @@ try {
 	await first.getByLabel('Capture text').press('ControlOrMeta+A');
 	await first.getByLabel('Capture text').evaluate((element) => {
 		const clipboardData = new DataTransfer();
-		clipboardData.items.add(new File(['image'], 'image.png', { type: 'image/png' }));
-		element.dispatchEvent(new ClipboardEvent('paste', {
-			bubbles: true,
-			cancelable: true,
-			clipboardData,
-		}));
+		clipboardData.items.add(
+			new File(['image'], 'image.png', { type: 'image/png' }),
+		);
+		element.dispatchEvent(
+			new ClipboardEvent('paste', {
+				bubbles: true,
+				cancelable: true,
+				clipboardData,
+			}),
+		);
 	});
 	assert.equal(
 		await first.getByLabel('Capture text').innerText(),
@@ -257,7 +275,12 @@ try {
 		await first.getByRole('button', { name: 'Add thought' }).click();
 	}
 	await second.getByLabel('Thoughts').locator('article').nth(2).waitFor();
-	await first.getByLabel('Thoughts').locator('article').first().getByRole('button', { name: 'Thought actions' }).click();
+	await first
+		.getByLabel('Thoughts')
+		.locator('article')
+		.first()
+		.getByRole('button', { name: 'Thought actions' })
+		.click();
 	assert(await first.getByRole('menuitem', { name: 'Move up' }).isDisabled());
 	await first.keyboard.press('Escape');
 	await first
@@ -301,9 +324,17 @@ try {
 				) as HTMLElement
 			)?.innerText === 'Owning the outcome, edited independently',
 	);
-	await first.getByLabel('Thoughts').locator('article').first().getByRole('button', { name: 'Thought actions' }).click();
+	await first
+		.getByLabel('Thoughts')
+		.locator('article')
+		.first()
+		.getByRole('button', { name: 'Thought actions' })
+		.click();
 	await first.getByRole('menuitem', { name: 'Copy text' }).click();
-	assert.equal(await first.evaluate(() => navigator.clipboard.readText()), 'Owning the outcome, edited independently');
+	assert.equal(
+		await first.evaluate(() => navigator.clipboard.readText()),
+		'Owning the outcome, edited independently',
+	);
 
 	await second.getByRole('button', { name: 'Capture', exact: true }).click();
 	await second.getByRole('button', { name: 'New capture' }).click();
@@ -325,7 +356,15 @@ try {
 		.nth(1)
 		.getByText('Dinner with Sebastian')
 		.waitFor();
-	assert((await first.getByLabel('Timeline captures').getByRole('button').nth(1).innerText()).includes('3 thoughts'));
+	assert(
+		(
+			await first
+				.getByLabel('Timeline captures')
+				.getByRole('button')
+				.nth(1)
+				.innerText()
+		).includes('3 thoughts'),
+	);
 	await first.goto(dinnerUrl);
 	await first
 		.getByLabel('Thoughts')
@@ -455,7 +494,9 @@ try {
 		);
 	await second.waitForFunction((expected) => {
 		const actual = [
-			...document.querySelectorAll('[aria-label="Thoughts"] [aria-label="Thought text"]'),
+			...document.querySelectorAll(
+				'[aria-label="Thoughts"] [aria-label="Thought text"]',
+			),
 		].map((item) => (item as HTMLElement).innerText);
 		return JSON.stringify(actual) === JSON.stringify(expected);
 	}, firstOrder);
@@ -464,14 +505,20 @@ try {
 	await first.getByLabel('Capture text').press('Enter');
 	await first.getByLabel('Capture text').pressSequentially('An added line');
 	await second.waitForFunction(
-		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Second capture\nAn added line',
+		() =>
+			document.querySelector('[aria-label="Capture text"]')?.textContent ===
+			'Second capture\nAn added line',
 	);
 	await first.getByLabel('Capture text').press('ControlOrMeta+Z');
 	await first.waitForFunction(
-		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Second capture',
+		() =>
+			document.querySelector('[aria-label="Capture text"]')?.textContent ===
+			'Second capture',
 	);
 	await second.waitForFunction(
-		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Second capture',
+		() =>
+			document.querySelector('[aria-label="Capture text"]')?.textContent ===
+			'Second capture',
 	);
 	await first.getByRole('status').getByText('Saved on this device').waitFor();
 	await first.reload();
@@ -480,52 +527,88 @@ try {
 	await first.getByLabel('Capture text').press('ArrowRight');
 	await first.getByLabel('Capture text').pressSequentially(' local');
 	await second.waitForFunction(
-		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Second capture local',
+		() =>
+			document.querySelector('[aria-label="Capture text"]')?.textContent ===
+			'Second capture local',
 	);
 	await second.getByLabel('Capture text').press('ControlOrMeta+A');
 	await second.getByLabel('Capture text').press('ArrowLeft');
 	await second.getByLabel('Capture text').pressSequentially('Peer ');
 	await first.waitForFunction(
-		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Peer Second capture local',
+		() =>
+			document.querySelector('[aria-label="Capture text"]')?.textContent ===
+			'Peer Second capture local',
 	);
 	await first.getByLabel('Capture text').press('ControlOrMeta+Z');
 	await first.waitForFunction(
-		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Peer Second capture',
+		() =>
+			document.querySelector('[aria-label="Capture text"]')?.textContent ===
+			'Peer Second capture',
 	);
 	await first.getByLabel('Capture text').press('ControlOrMeta+Shift+Z');
 	await first.waitForFunction(
-		() => document.querySelector('[aria-label="Capture text"]')?.textContent === 'Peer Second capture local',
+		() =>
+			document.querySelector('[aria-label="Capture text"]')?.textContent ===
+			'Peer Second capture local',
 	);
 	await first.getByLabel('Add a thought').fill('Delete this thought only');
 	await first.getByRole('button', { name: 'Add thought' }).click();
-	await second.waitForFunction(() => document.querySelectorAll('[aria-label="Thoughts"] article').length === 4);
-	await first.getByLabel('Thoughts').locator('article').last().getByRole('button', { name: 'Thought actions' }).click();
+	await second.waitForFunction(
+		() =>
+			document.querySelectorAll('[aria-label="Thoughts"] article').length === 4,
+	);
+	await first
+		.getByLabel('Thoughts')
+		.locator('article')
+		.last()
+		.getByRole('button', { name: 'Thought actions' })
+		.click();
 	await first.getByRole('menuitem', { name: 'Delete thought…' }).click();
-	await first.getByRole('region', { name: 'Delete thought preview' }).getByText('Delete this thought only').waitFor();
-	await first.getByRole('button', { name: 'Permanently delete thought' }).click();
+	await first
+		.getByRole('region', { name: 'Delete thought preview' })
+		.getByText('Delete this thought only')
+		.waitFor();
+	await first
+		.getByRole('button', { name: 'Permanently delete thought' })
+		.click();
 	await first.getByRole('status').getByText('Saved on this device').waitFor();
-	await second.waitForFunction(() => document.querySelectorAll('[aria-label="Thoughts"] article').length === 3);
+	await second.waitForFunction(
+		() =>
+			document.querySelectorAll('[aria-label="Thoughts"] article').length === 3,
+	);
 	await first.getByRole('button', { name: 'Capture', exact: true }).click();
 	await first.getByRole('button', { name: 'New capture' }).click();
 	assert.equal(await first.getByLabel('Capture text').inputValue(), '');
 	await first.getByLabel('Capture text').fill('X'.repeat(500));
 	await first.getByRole('button', { name: 'Add capture' }).click();
 	await first.getByRole('button', { name: 'Capture', exact: true }).click();
-	const longPreview = first.getByLabel('Timeline captures').getByRole('button').first();
+	const longPreview = first
+		.getByLabel('Timeline captures')
+		.getByRole('button')
+		.first();
 	const announced = await longPreview.ariaSnapshot();
 	assert(announced.includes('X'.repeat(100)));
 	assert(!announced.includes('X'.repeat(300)));
 	await first.setViewportSize({ width: 390, height: 844 });
-	assert(await first.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+	assert(
+		await first.evaluate(
+			() => document.documentElement.scrollWidth <= window.innerWidth,
+		),
+	);
 	await first.getByRole('button', { name: 'New capture' }).focus();
 	await first.keyboard.press('Enter');
 	await first.getByLabel('Capture text').waitFor();
-	await first.waitForFunction(() => document.activeElement?.id === 'new-capture');
+	await first.waitForFunction(
+		() => document.activeElement?.id === 'new-capture',
+	);
 	await first.getByLabel('Capture text').fill('Draft on a narrow screen');
 	await first.getByRole('button', { name: 'Cancel' }).click();
 	await first.getByRole('dialog').waitFor({ state: 'detached' });
 	await first.getByRole('button', { name: 'New capture' }).click();
-	assert.equal(await first.getByLabel('Capture text').inputValue(), 'Draft on a narrow screen');
+	assert.equal(
+		await first.getByLabel('Capture text').inputValue(),
+		'Draft on a narrow screen',
+	);
 	await first.getByRole('button', { name: 'Cancel' }).click();
 	assert.deepEqual(errors, []);
 	console.log(

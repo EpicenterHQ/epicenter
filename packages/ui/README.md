@@ -2,7 +2,7 @@
 
 This guide explains the UI package's shared contract, current styling, and
 component update workflow. The proposed distribution baseline is recorded in
-[ADR-0453](../../docs/adr/0453-epicenter-ui-tracks-distributed-shadcn-svelte-components-with-explicit-deltas.md).
+[ADR-0455](../../docs/adr/0455-epicenter-ui-tracks-distributed-shadcn-svelte-components-with-explicit-deltas.md).
 
 ## Component library overview
 

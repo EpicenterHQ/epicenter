@@ -1,4 +1,4 @@
-# 0451. Vocab batch additions share one review
+# 0453. Vocab batch additions share one review
 
 - **Status:** Accepted
 - **Date:** 2026-09-24

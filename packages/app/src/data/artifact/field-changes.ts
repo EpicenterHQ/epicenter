@@ -1,9 +1,6 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import type {
-	JsonObject,
-	JsonValue,
-} from '../definition/index.js';
+import type { JsonObject, JsonValue } from '../definition/index.js';
 
 export const FileContractError = defineErrors({
 	InvalidChanges: ({

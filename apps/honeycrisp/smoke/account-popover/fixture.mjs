@@ -3,9 +3,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
+import { build } from 'vite';
 
 export async function createAccountPopoverFixture(getConfiguration) {
 	const output = await mkdtemp(join(tmpdir(), 'epicenter-account-menu-'));

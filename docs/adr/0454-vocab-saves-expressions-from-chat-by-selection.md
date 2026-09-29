@@ -1,4 +1,4 @@
-# 0452. Vocab saves expressions from chat by selection
+# 0454. Vocab saves expressions from chat by selection
 
 - **Status:** Accepted
 - **Date:** 2026-09-24

@@ -13,6 +13,7 @@ export {
 	referenceTargetOf,
 } from '../field/index.js';
 export * from './addresses.js';
+export { plainText } from './body.js';
 export {
 	type Conformance,
 	type ConformanceIssue,
@@ -21,7 +22,6 @@ export {
 	type ParsedDataDefinition,
 	type ParsedTable,
 } from './compile.js';
-export { plainText } from './body.js';
 export {
 	type BodyCodec,
 	type CreateRowOf,

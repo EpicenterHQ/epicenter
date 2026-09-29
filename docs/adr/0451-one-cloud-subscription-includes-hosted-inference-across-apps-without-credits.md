@@ -1,4 +1,4 @@
-# 0449. One Cloud subscription includes hosted inference across apps without credits
+# 0451. One Cloud subscription includes hosted inference across apps without credits
 
 - **Status:** Proposed
 - **Date:** 2026-09-24

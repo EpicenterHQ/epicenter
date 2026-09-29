@@ -5,19 +5,26 @@ import type {
 import type { ConnectionCatalog } from '@epicenter/app/ai-connections';
 
 export type InferenceSources = {
-    errors?: string[];
+	errors?: string[];
 	account: Awaited<ReturnType<typeof openEpicenterInference>> | null;
 	runtime: Awaited<ReturnType<typeof openRuntimeTranscriber>>;
 	connections: ConnectionCatalog | null;
 };
+
 import type OpenAI from 'openai';
 
 export type InferenceTarget = { connectionId: string; model: string };
-export type ResolvedInferenceTarget = {
-	client: OpenAI;
-	model: string;
-	source: 'account' | 'custom';
-} | { source: 'runtime'; model: string; transcriber: NonNullable<InferenceSources['runtime']> };
+export type ResolvedInferenceTarget =
+	| {
+			client: OpenAI;
+			model: string;
+			source: 'account' | 'custom';
+	  }
+	| {
+			source: 'runtime';
+			model: string;
+			transcriber: NonNullable<InferenceSources['runtime']>;
+	  };
 
 /** The account source's stable id, from the identity the AI capability carries. */
 export function accountInferenceId(ai: Pick<InferenceSources, 'account'>) {

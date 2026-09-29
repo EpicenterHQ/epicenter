@@ -2,6 +2,7 @@ import type { AuthFetch } from '@epicenter/auth';
 import OpenAI from 'openai';
 
 export type AiTransport = { baseURL: string; fetch: AuthFetch };
+
 import type { EndpointInferenceOptions } from './ai.js';
 
 export function validateInferenceDestination(value: string) {

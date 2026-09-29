@@ -1,13 +1,13 @@
 import type { Account } from '@epicenter/auth';
 import { isTauri } from '@tauri-apps/api/core';
-import { createInference, type Inference } from './inference.js';
+import { createDesktopAiConnections } from './ai-connections.epicenter-host.js';
 import type {
 	AiConnectionSnapshot,
 	AiConnections,
 	CustomConnectionInput,
 } from './ai-connections.js';
 import { createBrowserConnections } from './browser.js';
-import { createDesktopAiConnections } from './ai-connections.epicenter-host.js';
+import { createInference, type Inference } from './inference.js';
 
 /** Saved access owns cached clients and their retirement, independently of data stores. */
 export async function openConnectionCatalog(connections: AiConnections) {

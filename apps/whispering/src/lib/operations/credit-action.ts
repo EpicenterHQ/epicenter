@@ -7,7 +7,8 @@ export function creditAction(
 	error: AnyTaggedError,
 	account: Pick<Account, 'baseURL' | 'principalId'> | undefined,
 ): NoticeAction | undefined {
-	if (error.name !== 'InsufficientCredits' || account === undefined) return undefined;
+	if (error.name !== 'InsufficientCredits' || account === undefined)
+		return undefined;
 	const url = createAccountManagementUrl(account).href;
 	return {
 		label: 'Add credits',

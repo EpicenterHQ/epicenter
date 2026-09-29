@@ -27,7 +27,10 @@
  *     that as an expected, non-fatal outcome.
  */
 
-import { parsePersonalBlobUrl, personalBlobCollectionUrl } from '@epicenter/blobs';
+import {
+	parsePersonalBlobUrl,
+	personalBlobCollectionUrl,
+} from '@epicenter/blobs';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { API_BUN_DEV_PORT } from '@epicenter/constants/apps';
 
@@ -121,7 +124,10 @@ async function main() {
 	} else {
 		const body: unknown = await upload.json();
 		const url =
-			body && typeof body === 'object' && 'url' in body && typeof body.url === 'string'
+			body &&
+			typeof body === 'object' &&
+			'url' in body &&
+			typeof body.url === 'string'
 				? body.url
 				: '';
 		const address = parsePersonalBlobUrl(url, BASE_URL);

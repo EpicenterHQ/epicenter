@@ -6,9 +6,7 @@ import { expect, mock, test } from 'bun:test';
 import { createAiConnections } from '@epicenter/app/ai-connections';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openConnectionCatalog } from '../../../../../packages/app/src/connection-catalog.js';
-import {
-	type AiTransport,
-} from '../../../../../packages/app/src/inference.js';
+import { type AiTransport } from '../../../../../packages/app/src/inference.js';
 import { createInferenceCatalog } from '../../../../../packages/app-shell/src/inference-picker/catalog.svelte.js';
 import type { WhisperingApp } from '../whispering/app.js';
 import { runPolish } from './run-polish.js';

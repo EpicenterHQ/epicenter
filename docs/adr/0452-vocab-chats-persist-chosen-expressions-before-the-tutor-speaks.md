@@ -1,4 +1,4 @@
-# 0450. Vocab chats persist chosen expressions before the tutor speaks
+# 0452. Vocab chats persist chosen expressions before the tutor speaks
 
 - **Status:** Accepted
 - **Date:** 2026-09-24

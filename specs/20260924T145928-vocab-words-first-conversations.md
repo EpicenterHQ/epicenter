@@ -18,7 +18,7 @@ Task-start checks on 2026-09-24: Vocab typecheck reported 0 errors and 0 warning
 
 ## Target Shape
 
-The accepted rules are [ADR-0448](../docs/adr/0448-vocab-stages-are-four-learner-reported-abilities.md), [ADR-0450](../docs/adr/0450-vocab-chats-persist-chosen-expressions-before-the-tutor-speaks.md), [ADR-0451](../docs/adr/0451-vocab-batch-additions-share-one-review.md), and [ADR-0452](../docs/adr/0452-vocab-saves-expressions-from-chat-by-selection.md). This spec tracks execution; those records own the decisions.
+The accepted rules are [ADR-0448](../docs/adr/0448-vocab-stages-are-four-learner-reported-abilities.md), [ADR-0452](../docs/adr/0452-vocab-chats-persist-chosen-expressions-before-the-tutor-speaks.md), [ADR-0453](../docs/adr/0453-vocab-batch-additions-share-one-review.md), and [ADR-0454](../docs/adr/0454-vocab-saves-expressions-from-chat-by-selection.md). This spec tracks execution; those records own the decisions.
 
 ```text
 Local chatHistoryDefinition                one device, account-keyed rows

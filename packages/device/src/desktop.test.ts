@@ -9,14 +9,15 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createDesktopSecrets, createDesktopSqliteOwner } from './desktop.js';
 import { secretLabel } from './index.js';
 import {
+	type AppSqliteRequest,
 	createDeviceDispatcher,
 	createSqliteOwner,
-	type AppSqliteRequest,
 	type DeviceSqliteOwner,
 	type SqliteBackend,
 } from './owner.js';
 
 import { installTestLocks } from './test-locks.js';
+
 installTestLocks();
 
 const appId = 'so.epicenter.test';

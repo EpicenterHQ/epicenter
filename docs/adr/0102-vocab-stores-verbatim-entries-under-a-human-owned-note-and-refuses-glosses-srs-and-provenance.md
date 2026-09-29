@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-02
-- **Amended by:** [ADR-0448](0448-vocab-stages-are-four-learner-reported-abilities.md) (four learner-reported stages replace three); [ADR-0451](0451-vocab-batch-additions-share-one-review.md) (direct addition and reviewed batches extend entry sources)
+- **Amended by:** [ADR-0448](0448-vocab-stages-are-four-learner-reported-abilities.md) (four learner-reported stages replace three); [ADR-0453](0453-vocab-batch-additions-share-one-review.md) (direct addition and reviewed batches extend entry sources)
 
 ## Context
 

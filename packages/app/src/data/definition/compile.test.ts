@@ -6,8 +6,8 @@
 import { expect, test } from 'bun:test';
 import { defineStore } from '@epicenter/app';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { compileData } from './compile.js';
 import { plainText } from './body.js';
+import { compileData } from './compile.js';
 import { field } from './declaration.js';
 import { defineTable } from './define.js';
 

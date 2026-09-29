@@ -13,9 +13,7 @@ import {
 	createBrowserBlobSources,
 	createBrowserBlobStore,
 } from '@epicenter/blobs/browser';
-import {
-	createLocalBlobAccess,
-} from '@epicenter/blobs/owner';
+import { createLocalBlobAccess } from '@epicenter/blobs/owner';
 import { createWebviewBlobs } from '@epicenter/blobs/webview';
 import { isAppId } from '@epicenter/constants/app-id';
 import { isTauri } from '@tauri-apps/api/core';
@@ -91,8 +89,7 @@ export async function acquireLocalBlobs({
 		): Promise<Result<BlobId, BlobStorageError>> {
 			assertOpen();
 			const origin = blobDestinations.get(source);
-			if (!origin)
-				throw new TypeError('Expected a store-owned blob source.');
+			if (!origin) throw new TypeError('Expected a store-owned blob source.');
 			origin.assertOpen();
 			const destinationId = generateBlobId(blobKeyFormat(blobId).extension);
 			const signal = AbortSignal.any([

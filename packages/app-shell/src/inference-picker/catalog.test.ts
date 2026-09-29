@@ -1,19 +1,19 @@
-import { createRuntimeTranscriber } from '../../../app/src/runtime-transcriber.js';
 /**
  * Explicit inference destination tests. Identical model ids cannot redirect a
  * workflow to another connection, and missing selections never use hosted auth.
  * Discovery suggests models but cannot revoke a user's explicit selection.
  */
 import { expect, test } from 'bun:test';
+import { createAiConnections } from '@epicenter/app/ai-connections';
+import { expectOk } from 'wellcrafted/testing';
+import { openConnectionCatalog } from '../../../app/src/connection-catalog.js';
 import {
 	type AiTransport,
 	createInference,
 } from '../../../app/src/inference.js';
-import { openConnectionCatalog } from '../../../app/src/connection-catalog.js';
-import type { InferenceSources } from '../inference-target.js';
-import { createAiConnections } from '@epicenter/app/ai-connections';
-import { expectOk } from 'wellcrafted/testing';
+import { createRuntimeTranscriber } from '../../../app/src/runtime-transcriber.js';
 import { createInferenceSelections } from '../inference-selections.js';
+import type { InferenceSources } from '../inference-target.js';
 import { createInferenceCatalog } from './catalog.svelte.js';
 
 Reflect.set(globalThis, '$state', { raw: <T>(value: T) => value });
@@ -46,7 +46,17 @@ async function setup(
 			>['identity']['principalId'],
 		},
 	};
-	const runtimeHandle = runtime ? createRuntimeTranscriber(async () => { const result = await runtime.fetch(`${runtime.baseURL}/models`); const data = await result.json(); return data.data.map((model: { id: string }) => ({ ...model, active: false, installed: true })); }) : null;
+	const runtimeHandle = runtime
+		? createRuntimeTranscriber(async () => {
+				const result = await runtime.fetch(`${runtime.baseURL}/models`);
+				const data = await result.json();
+				return data.data.map((model: { id: string }) => ({
+					...model,
+					active: false,
+					installed: true,
+				}));
+			})
+		: null;
 	const connections = await openConnectionCatalog(records);
 	const ai = { account, runtime: runtimeHandle, connections };
 	const catalog = createInferenceCatalog({
@@ -107,7 +117,9 @@ test('the same model selects either custom connection or hosted independently', 
 		source: 'custom',
 	});
 	expect(catalog.resolve(selections.get('paid'))?.source).toBe('account');
-	expect(catalog.resolve(selections.get('first'))).toMatchObject({ client: { baseURL: first } });
+	expect(catalog.resolve(selections.get('first'))).toMatchObject({
+		client: { baseURL: first },
+	});
 	expect(catalog.resolve(selections.get('second'))).toMatchObject({
 		client: { baseURL: second },
 	});
@@ -171,7 +183,9 @@ test('manual models resolve even when discovery returns an empty list', async ()
 		});
 		await catalog.refresh(id);
 		expect(catalog.custom[0]?.models).toContain('manual-model');
-		expect(catalog.resolve(selections.get('conversation'))).toMatchObject({ client: { baseURL: baseUrl } });
+		expect(catalog.resolve(selections.get('conversation'))).toMatchObject({
+			client: { baseURL: baseUrl },
+		});
 	} finally {
 		server.stop(true);
 	}
@@ -201,7 +215,8 @@ test('custom requests carry only the custom key instead of using the hosted tran
 			model: 'manual-model',
 		});
 		const transport = catalog.resolve(selections.get('conversation'));
-		if (!transport || transport.source === 'runtime') throw new Error('Expected selected custom connection');
+		if (!transport || transport.source === 'runtime')
+			throw new Error('Expected selected custom connection');
 		await transport.client.models.list();
 		expect(received.authorization).toBe('Bearer custom-key');
 	} finally {
@@ -265,8 +280,9 @@ test('same URL entries retain independent ids and credentials', async () => {
 				model: 'manual',
 			});
 			const target = fixture.catalog.resolve(fixture.selections.get('chat'));
-            if (!target || target.source === 'runtime') throw new Error('Expected network target');
-            await target.client.models.list();
+			if (!target || target.source === 'runtime')
+				throw new Error('Expected network target');
+			await target.client.models.list();
 		}
 		expect(received).toEqual(['Bearer first', 'Bearer second']);
 	} finally {
@@ -296,9 +312,7 @@ test('native inventory suggests models without selecting or redirecting them', a
 	expect(fixture.catalog.resolve(fixture.selections.get('audio'))?.source).toBe(
 		'runtime',
 	);
-	expect(
-		fixture.catalog.runtimeId,
-	).toBe('runtime:native-transcription');
+	expect(fixture.catalog.runtimeId).toBe('runtime:native-transcription');
 	await fixture.close();
 	const absent = await setup(fixture.values);
 	expect(absent.catalog.resolve(absent.selections.get('audio'))).toBeNull();
@@ -358,35 +372,55 @@ test('failed refresh persistence rejects and leaves the saved models unchanged',
 	}
 });
 
-
 test('pending optional inference leaves a usable catalog that reports its acquisition failure', async () => {
-    const pending = Promise.withResolvers<InferenceSources>();
-    const catalog = createInferenceCatalog({ ai: pending.promise, hostedModels: [] });
-    expect(catalog.loading).toBe(true);
-    expect(catalog.custom).toEqual([]);
-    expect(catalog.resolve(null)).toBeNull();
-    pending.resolve({ account: null, runtime: null, connections: null, errors: ['Saved connections could not open.'] });
-    await catalog.ready;
-    expect(catalog.loading).toBe(false);
-    expect(catalog.errors).toEqual(['Saved connections could not open.']);
+	const pending = Promise.withResolvers<InferenceSources>();
+	const catalog = createInferenceCatalog({
+		ai: pending.promise,
+		hostedModels: [],
+	});
+	expect(catalog.loading).toBe(true);
+	expect(catalog.custom).toEqual([]);
+	expect(catalog.resolve(null)).toBeNull();
+	pending.resolve({
+		account: null,
+		runtime: null,
+		connections: null,
+		errors: ['Saved connections could not open.'],
+	});
+	await catalog.ready;
+	expect(catalog.loading).toBe(false);
+	expect(catalog.errors).toEqual(['Saved connections could not open.']);
 });
 
 test('departure cancels model discovery before it can publish saved model suggestions', async () => {
-    const fixture = await setup();
-    const departure = new AbortController();
-    const entered = Promise.withResolvers<AbortSignal>();
-    const catalog = createInferenceCatalog({ ai: fixture.catalog.ai, hostedModels: [], signal: departure.signal });
-    const result = catalog.discover(new (await import('openai')).default({
-        baseURL: 'https://discovery.example/v1', apiKey: 'test', dangerouslyAllowBrowser: true, maxRetries: 0,
-        fetch: async (_input, init) => {
-            const signal = init!.signal!;
-            entered.resolve(signal);
-            return new Promise<Response>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
-        },
-    }));
-    const requestSignal = await entered.promise;
-    departure.abort();
-    expect(requestSignal.aborted).toBe(true);
-    expect((await result).error).not.toBeNull();
-    await fixture.close();
+	const fixture = await setup();
+	const departure = new AbortController();
+	const entered = Promise.withResolvers<AbortSignal>();
+	const catalog = createInferenceCatalog({
+		ai: fixture.catalog.ai,
+		hostedModels: [],
+		signal: departure.signal,
+	});
+	const result = catalog.discover(
+		new (await import('openai')).default({
+			baseURL: 'https://discovery.example/v1',
+			apiKey: 'test',
+			dangerouslyAllowBrowser: true,
+			maxRetries: 0,
+			fetch: async (_input, init) => {
+				const signal = init!.signal!;
+				entered.resolve(signal);
+				return new Promise<Response>((_resolve, reject) =>
+					signal.addEventListener('abort', () => reject(signal.reason), {
+						once: true,
+					}),
+				);
+			},
+		}),
+	);
+	const requestSignal = await entered.promise;
+	departure.abort();
+	expect(requestSignal.aborted).toBe(true);
+	expect((await result).error).not.toBeNull();
+	await fixture.close();
 });

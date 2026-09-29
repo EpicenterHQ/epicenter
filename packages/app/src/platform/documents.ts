@@ -1,7 +1,7 @@
+import { claim } from '@epicenter/device/app-claim';
 import { createBrowserSqliteOwner } from '@epicenter/device/browser';
 import { createDesktopSqliteOwner } from '@epicenter/device/desktop';
 import { isTauri } from '@tauri-apps/api/core';
-import { claim } from '@epicenter/device/app-claim';
 import { acquireLocalBlobs } from '../blob-owner.js';
 import { acquireStoreData } from '../data/store/browser.js';
 import { requestPersistentStorage } from '../data/store/persist.js';

@@ -27,7 +27,9 @@ function ancestorLayouts(page: string): string[] {
 describe('Whispering page ownership', () => {
 	test('only the working layout opens primary resources', async () => {
 		const source = await Bun.file(workingLayout).text();
-		expect(source).toContain('openWhisperingResources(account, startup.signal)');
+		expect(source).toContain(
+			'openWhisperingResources(account, startup.signal)',
+		);
 		expect(source).toContain('<WhisperingShell ');
 		expect(source).toContain("window.addEventListener('pagehide', stop)");
 	});

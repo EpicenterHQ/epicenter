@@ -44,8 +44,8 @@
 			"prompt": "Does the migration UI need to be pixel perfect, or is there an asymmetric win in dropping that promise?",
 			"anchors": ["asymmetric win", "pixel perfect"],
 			"expect": "asymmetric-wins",
-			"forbid": ["radical-options"],
-			"why": "The move owns its phrase. radical-options mentions asymmetric deletions in its body, which is the kind of near-neighbour that over-triggers."
+			"forbid": ["rethink"],
+			"why": "The move owns its phrase. rethink mentions asymmetric deletions in its body, which is the kind of near-neighbour that over-triggers."
 		},
 		{
 			"id": "review-disproportionate-complexity",
@@ -54,16 +54,16 @@
 			"anchors": ["delete disproportionate complexity"],
 			"expect": "asymmetric-wins",
 			"forbid": [],
-			"why": "asymmetric-wins owns the phrase outright. greenfield-clean-breaks used to carry it too and now routes it away, because one named promise to refuse is the move, while greenfield is the whole-design mode around it."
+			"why": "asymmetric-wins owns the phrase outright. rethink covers the whole design, while one named promise to refuse belongs to asymmetric-wins."
 		},
 		{
-			"id": "review-greenfield-clean-break",
+			"id": "review-rethink-clean-break",
 			"cluster": "review",
 			"prompt": "Nothing ships against this yet and we have no users. Take a clean break: what does the design look like if the old path never existed?",
 			"anchors": ["clean break", "no users"],
-			"expect": "greenfield-clean-breaks",
+			"expect": "rethink",
 			"forbid": ["asymmetric-wins"],
-			"why": "Guards the edit that resolved review-disproportionate-complexity. Narrowing greenfield's description must not cost it the prompts it actually owns."
+			"why": "A clean break across the whole design belongs to rethink."
 		},
 		{
 			"id": "review-one-sentence",

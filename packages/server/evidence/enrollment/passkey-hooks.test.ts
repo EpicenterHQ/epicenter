@@ -6,7 +6,7 @@
 import { expect, test } from 'bun:test';
 import { passkey } from '@better-auth/passkey';
 import { betterAuth } from 'better-auth';
-import { memoryAdapter, type MemoryDB } from 'better-auth/adapters/memory';
+import { type MemoryDB, memoryAdapter } from 'better-auth/adapters/memory';
 import { registration } from './authenticator.js';
 
 const origin = 'https://enrollment.example.test';

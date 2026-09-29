@@ -29,7 +29,10 @@ export async function resolveRequestSessionPrincipal(
 		});
 		if (!session || session.session.expiresAt.getTime() <= Date.now())
 			return OAuthError.InvalidToken();
-		return Ok({ id: asPrincipalId(session.user.id), email: session.user.email });
+		return Ok({
+			id: asPrincipalId(session.user.id),
+			email: session.user.email,
+		});
 	} catch (cause) {
 		return cause instanceof APIError && cause.statusCode === 401
 			? OAuthError.InvalidToken()

@@ -1,6 +1,6 @@
 /** Production PKCE and Gmail popup callbacks with synthetic consent; no token exchange or normal-profile permission proof. */
 import assert from 'node:assert/strict';
-import { test, expect, origins } from './fixtures.mjs';
+import { expect, origins, test } from './fixtures.mjs';
 
 test.use({
 	launchOptions: { ignoreDefaultArgs: ['--disable-popup-blocking'] },

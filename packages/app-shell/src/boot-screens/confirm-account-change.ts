@@ -1,4 +1,4 @@
-import { isCallbackAuthClient, type AuthClient } from '@epicenter/auth';
+import { type AuthClient, isCallbackAuthClient } from '@epicenter/auth';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 
 // Desktop Home repeats this copy in apps/epicenter/src/ui/Settings.svelte.

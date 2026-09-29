@@ -1,7 +1,7 @@
-import { test as base, expect } from '@playwright/test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { test as base, expect } from '@playwright/test';
 
 const port = Number(process.env.LOCAL_MAIL_TEST_PORT ?? 41770);
 export const origins = {

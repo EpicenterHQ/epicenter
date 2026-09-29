@@ -1,102 +1,94 @@
 # Example adversarial review workflow
 
-These hypothetical examples capture the response style accepted by the user.
-They are not evidence about Epicenter's implementation, and the verification
-results below are imagined. Real reviews must establish those facts
-from the implementation. The example illustrates judgment and presentation;
-it does not require every review to find a reload, deletion, or agreement.
+This hypothetical example shows a response shape the user can judge. It is not
+evidence about Epicenter's implementation, and its verification result is
+imagined. Real reviews must establish facts from current callers and code. The
+example does not require every review to find a reload, deletion, or multiple
+viable options.
 
 ## The request
 
-> **You:** Review this account-switching design. It keeps the app open while
-> subscriptions, caches, and pending saves move to the new account.
+> **You:** Review this workspace-switching design. People must be able to switch
+> workspaces without a page reload or losing pending edits. The proposal manually
+> rebinds auth, sync, subscriptions, and caches.
 
 ## Independent review
 
-Two fresh Codex reviewers inspect the same evidence independently.
+Codex sends one fresh Astra reviewer and one read-only Opus reviewer the outcome,
+explicit requirements, existing implementation, and actual callers. It withholds
+the proposed rebinding design and its rationale until both have proposed their
+own simplest viable shape. The reviewers have complementary starting questions
+but both must search for the deletion prize and test the guarantees. After their
+independent first answers, Codex shares the proposal with each and asks for a
+challenge against it.
 
-Reviewer one asks:
-
-> Where is the strongest simplification? What stronger invariant, different owner,
-> or smaller promise would let us delete a family of code or planned work? Name
-> the deletion prize and its cost.
-
-It proposes reloading on account change: one page lifetime belongs to one account.
-
-Reviewer two asks:
-
-> What would the simpler design have to preserve to be worth adopting? Trace
-> concrete callers and lifecycle sequences to find the guarantees the current
-> complexity provides. Which guarantees matter to the user, and which are
-> inherited assumptions? Show where simplification would break a necessary
-> guarantee or move the burden onto someone else.
-
-It identifies pending edits as the guarantee that matters. Rebinding every
-subscription may be unnecessary, but preserving someone's work is essential.
+Both find that the manual rebinding procedures compensate for resources having
+no single workspace owner. One proposes a keyed workspace boundary. The other
+asks whether pending edits belong to that boundary or survive its disposal.
+Codex inspects the current code rather than assigning that check to the user.
 
 ## What the user receives
 
-The coordinating agent checks the findings against the code and presents one
-recommendation. The user does not have to reconstruct it from the two reports.
+The coordinating agent checks the findings against the code and gives one
+recommendation. The user does not have to reconstruct it from two reports.
 
-> The strongest simplification is to replace the current account-switching
-> machinery with a page reload. One page lifetime belongs to one account.
+> **1. Replace the workspace boundary (recommended)**
 >
-> The deletion prize is the account-switching machinery: subscription rebinding,
-> cache replacement, and intermediate switching states.
+> ```text
+> switch workspace
+>   |-- dispose old workspace boundary
+>   `-- create new workspace boundary
+>        |-- auth
+>        |-- sync
+>        |-- subscriptions
+>        `-- caches
+> ```
 >
-> The cost is losing unsaved work. Flushing pending saves before reloading could
-> preserve it, but some transition coordination would remain.
+> This preserves switching without a page reload. The deletion prize is the
+> four separate rebinding procedures: one boundary owns their lifetimes.
 >
-> I recommend exploring the reload approach. The deciding question is whether
-> existing persistence already protects pending edits; that determines how much
-> machinery we can actually remove.
-
-## Resolving the deciding question
-
-> **You:** Check the persistence. I like the reload approach if we can preserve
-> edits.
-
-The agent traces persistence and runs a focused recovery check. In this imagined
-case, it establishes that edits survive the reload under the original account.
-
-> **Agent:** Edits are already persisted locally under the original account before
-> entering the upload queue. The recovery check passes after a reload, including
-> offline.
+> **2. Save edits, then reload**
 >
-> That makes the deletion prize larger: we can remove subscription rebinding,
-> cache replacement, and the save-before-switch transition. The remaining cost
-> is that switching accounts reloads the page.
+> ```text
+> switch workspace
+>   |-- persist pending edits
+>   `-- reload into selected workspace
+>        `-- normal startup creates its resources
+> ```
 >
-> I recommend implementing it.
+> This deletes more lifecycle code. **Requirement warning:** it conflicts with
+> the explicit no-reload requirement. It is an option only if you choose to
+> change that requirement.
+>
+> I expect pending edits to live outside the disposable workspace resources,
+> but the current code has not established that. I will trace their owner and
+> run a focused recovery check before implementing the first path.
 
-> **You:** Go ahead.
+The diagrams show the different mechanisms, while prose explains the deletion
+prize and requirement cost. The final paragraph is the agent's own follow-up,
+not homework for the user. A real review can use fewer sections, different
+headings, code, bullets, or a table if those better expose its decision.
 
-This request began as a review, so implementation follows the user's instruction.
-An existing implementation request would already authorize repairs within its
-accepted outcome; this exchange is not a mandatory approval sequence.
+## After the check
 
-No third reviewer is needed here. One would be brought in only if the coordinator
-identified a consequential unresolved question, such as an assumption both
-reviews accepted without establishing it.
+In this imagined case, Codex establishes that pending edits are persisted
+outside the workspace boundary and survive its disposal. The agent can then
+implement the compliant path within an existing implementation request. If the
+request was review-only, it reports the confirmed recommendation and waits for
+an implementation request. The user need only decide whether to change the
+explicit no-reload requirement if they prefer the larger deletion prize.
 
 ## When the current design wins
 
-In this separate hypothetical case, the system already uses deletion markers to
-prevent offline devices from restoring deleted records. Both reviewers examine
-alternatives and recommend retaining that mechanism. The coordinator verifies
-their findings and gives the user the result:
+In a separate hypothetical case, deletion markers prevent offline devices
+from restoring deleted records. Both reviewers examine alternatives and
+recommend keeping the markers. Codex verifies the finding and reports:
 
-> Both reviewers recommend leaving the current design in place, including its
-> deletion markers.
->
-> The deletion prize would be removing marker retention and cleanup, but getting
-> it requires either rejecting old replicas or making you reset devices.
->
-> That's a poor bargain for a system where an offline device should reconnect
-> normally. I'd keep the current design.
+> **Keep the deletion markers.** Removing marker retention and cleanup is the
+> deletion prize, but it would require rejecting old replicas or making people
+> reset devices. Those costs outweigh the removed code for a product that
+> promises an offline device can reconnect normally.
 
-The opening makes retention explicit. The rejected alternatives appear only to
-explain the cost of the deletion prize, so the user can judge why the current
-design wins. Attribute agreement to both reviewers only when they actually agree;
-the coordinator still checks the evidence rather than treating agreement as proof.
+Agreement is not proof. The coordinator still verifies the deciding claims,
+and a further reviewer needs a named unresolved assumption rather than a wish
+for consensus.

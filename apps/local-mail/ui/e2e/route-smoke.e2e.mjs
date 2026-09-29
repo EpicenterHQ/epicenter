@@ -1,7 +1,7 @@
 /** Actual built SvelteKit routes, App and OPFS; synthetic auth, no live Gmail or desktop host. */
 import assert from 'node:assert/strict';
-import { test, origins } from './fixtures.mjs';
 import { currentStoreResponse } from '../evidence/current-store.js';
+import { origins, test } from './fixtures.mjs';
 
 test.use({
 	persistentOrigin: origins.routes,

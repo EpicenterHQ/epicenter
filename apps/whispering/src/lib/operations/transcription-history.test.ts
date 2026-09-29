@@ -8,9 +8,14 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { whisperingDefinition } from '../data.js';
 import type { WhisperingApp, WhisperingData } from '../whispering/app.js';
 import { createPendingSaves } from '../whispering/pending-saves.js';
-import { recordTranscriptionOutcome, saveCleanedTranscription } from './transcription-history.js';
+import {
+	recordTranscriptionOutcome,
+	saveCleanedTranscription,
+} from './transcription-history.js';
 
-const Failure = defineErrors({ Failed: () => ({ message: 'Provider failed' }) });
+const Failure = defineErrors({
+	Failed: () => ({ message: 'Provider failed' }),
+});
 
 async function setup() {
 	const store = await openMemory(whisperingDefinition);
@@ -30,15 +35,44 @@ async function setup() {
 test('separate attempts keep their Originals and cleanup stays with its source', async () => {
 	const { store, app, recording } = await setup();
 	try {
-		const first = expectOk(await recordTranscriptionOutcome(app, store, recording.id, Ok('Original A')));
-		const second = expectOk(await recordTranscriptionOutcome(app, store, recording.id, Ok('Original B')));
+		const first = expectOk(
+			await recordTranscriptionOutcome(
+				app,
+				store,
+				recording.id,
+				Ok('Original A'),
+			),
+		);
+		const second = expectOk(
+			await recordTranscriptionOutcome(
+				app,
+				store,
+				recording.id,
+				Ok('Original B'),
+			),
+		);
 		expect(first.resultId).not.toBe(second.resultId);
-		expectOk(await saveCleanedTranscription(app, store, first.resultId!, {
-			rawText: 'Original A', cleanedText: null,
-		}, 'Cleaned A'));
-		expect(store.tables.transcriptions.get(first.resultId!)?.cleanedText).toBe('Cleaned A');
-		expect(store.tables.transcriptions.get(second.resultId!)?.cleanedText).toBeNull();
-		expect(store.tables.transcriptions.get(second.resultId!)?.rawText).toBe('Original B');
+		expectOk(
+			await saveCleanedTranscription(
+				app,
+				store,
+				first.resultId!,
+				{
+					rawText: 'Original A',
+					cleanedText: null,
+				},
+				'Cleaned A',
+			),
+		);
+		expect(store.tables.transcriptions.get(first.resultId!)?.cleanedText).toBe(
+			'Cleaned A',
+		);
+		expect(
+			store.tables.transcriptions.get(second.resultId!)?.cleanedText,
+		).toBeNull();
+		expect(store.tables.transcriptions.get(second.resultId!)?.rawText).toBe(
+			'Original B',
+		);
 	} finally {
 		await store[Symbol.asyncDispose]();
 	}
@@ -47,8 +81,22 @@ test('separate attempts keep their Originals and cleanup stays with its source',
 test('failed inference retains successful result and writes no failed result', async () => {
 	const { store, app, recording } = await setup();
 	try {
-		expectOk(await recordTranscriptionOutcome(app, store, recording.id, Ok('Usable text')));
-		expectErr(await recordTranscriptionOutcome(app, store, recording.id, Failure.Failed()));
+		expectOk(
+			await recordTranscriptionOutcome(
+				app,
+				store,
+				recording.id,
+				Ok('Usable text'),
+			),
+		);
+		expectErr(
+			await recordTranscriptionOutcome(
+				app,
+				store,
+				recording.id,
+				Failure.Failed(),
+			),
+		);
 		expect(store.tables.transcriptions.rows).toHaveLength(1);
 	} finally {
 		await store[Symbol.asyncDispose]();
@@ -69,7 +117,9 @@ test('finish saving reuses one result identity after an unconfirmed flush', asyn
 				},
 			},
 		} as WhisperingData;
-		const result = expectOk(await recordTranscriptionOutcome(app, data, recording.id, Ok('Retained')));
+		const result = expectOk(
+			await recordTranscriptionOutcome(app, data, recording.id, Ok('Retained')),
+		);
 		expect(result.history.error).not.toBeNull();
 		expect(pendingSaves.entries).toHaveLength(1);
 		await pendingSaves.entries[0]!.retry();
@@ -84,11 +134,36 @@ test('finish saving reuses one result identity after an unconfirmed flush', asyn
 test('stale cleanup preview does not replace a newer accepted version', async () => {
 	const { store, app, recording } = await setup();
 	try {
-		const result = expectOk(await recordTranscriptionOutcome(app, store, recording.id, Ok('Original')));
+		const result = expectOk(
+			await recordTranscriptionOutcome(
+				app,
+				store,
+				recording.id,
+				Ok('Original'),
+			),
+		);
 		const expected = { rawText: 'Original', cleanedText: null };
-		expectOk(await saveCleanedTranscription(app, store, result.resultId!, expected, 'First'));
-		expectErr(await saveCleanedTranscription(app, store, result.resultId!, expected, 'Stale'));
-		expect(store.tables.transcriptions.get(result.resultId!)?.cleanedText).toBe('First');
+		expectOk(
+			await saveCleanedTranscription(
+				app,
+				store,
+				result.resultId!,
+				expected,
+				'First',
+			),
+		);
+		expectErr(
+			await saveCleanedTranscription(
+				app,
+				store,
+				result.resultId!,
+				expected,
+				'Stale',
+			),
+		);
+		expect(store.tables.transcriptions.get(result.resultId!)?.cleanedText).toBe(
+			'First',
+		);
 	} finally {
 		await store[Symbol.asyncDispose]();
 	}

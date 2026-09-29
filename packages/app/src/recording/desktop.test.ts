@@ -58,8 +58,8 @@ function setup(options: Partial<RecordingOptions> = {}) {
 			case 'get_microphone_permission':
 				return 'granted';
 			case 'recording_document_generation':
-                return 1;
-            case 'register_recording_session':
+				return 1;
+			case 'register_recording_session':
 				return;
 			case 'start_recording':
 				active = true;
@@ -172,7 +172,7 @@ test('lost registration reply still closes the exact pending document', async ()
 	expect(expectErr(await owner.value.start({})).name).toBe('RecorderFailed');
 	await owner.close();
 	expect(invoke.mock.calls.map(([name]) => name)).toEqual([
-        'recording_document_generation',
+		'recording_document_generation',
 		'register_recording_session',
 		'close_recording_session',
 	]);

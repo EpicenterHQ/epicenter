@@ -88,7 +88,9 @@ export type CapturePromotionMessage =
 
 export class PromotionInspectionRequired extends Error {
 	constructor() {
-		super('Capture may have accepted this request. Inspect Capture before creating another.');
+		super(
+			'Capture may have accepted this request. Inspect Capture before creating another.',
+		);
 		this.name = 'PromotionInspectionRequired';
 	}
 }
@@ -110,19 +112,27 @@ export function createCapture(
 /** Idempotent creation for a request accepted by the owning Capture document. */
 export function createPromotedCapture(
 	data: CaptureData & Pick<Data<typeof captureDefinition>, 'transact'>,
-	request: { requestId: string; text: string; capturedAt: ReturnType<typeof InstantString.now> },
+	request: {
+		requestId: string;
+		text: string;
+		capturedAt: ReturnType<typeof InstantString.now>;
+	},
 ): string {
-	const existing = data.tables.promotions.rows.find((row) => row.requestId === request.requestId);
+	const existing = data.tables.promotions.rows.find(
+		(row) => row.requestId === request.requestId,
+	);
 	if (existing) {
-		if (!existing.captureId)
-			throw new PromotionInspectionRequired();
+		if (!existing.captureId) throw new PromotionInspectionRequired();
 		return existing.captureId;
 	}
 	let captureId = '';
 	data.transact(() => {
 		// Transactions do not roll back on throws. Claim the key before creation,
 		// so a partial acceptance can never be replayed into a second root.
-		const marker = data.tables.promotions.create({ requestId: request.requestId, captureId: null });
+		const marker = data.tables.promotions.create({
+			requestId: request.requestId,
+			captureId: null,
+		});
 		captureId = createCapture(data, request.text, request.capturedAt).id;
 		const written = data.tables.promotions.update(marker.id, { captureId });
 		if (written.error) throw written.error;

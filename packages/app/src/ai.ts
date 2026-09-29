@@ -1,12 +1,12 @@
 import type { Account } from '@epicenter/auth';
 import { isTauri } from '@tauri-apps/api/core';
+import { endpointFetch } from './endpoint-transport.js';
 import {
+	type AiTransport,
 	createInference,
 	validateInferenceDestination,
-	type AiTransport,
 } from './inference.js';
 import { createRuntimeTranscriber } from './runtime-transcriber.js';
-import { endpointFetch } from './endpoint-transport.js';
 export type EndpointInferenceOptions = {
 	baseURL: string;
 	getAuthHeaders?: (options: {

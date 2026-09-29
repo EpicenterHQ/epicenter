@@ -29,9 +29,11 @@ export function deleteRecordingsWithConfirmation(
 		onConfirm: async () => {
 			const ids = new Set(arr.map(({ id }) => id));
 			store.transact(() => {
-				const resultIds = new Set(store.tables.transcriptions.rows
-					.filter((result) => ids.has(result.recordingId))
-					.map((result) => result.id));
+				const resultIds = new Set(
+					store.tables.transcriptions.rows
+						.filter((result) => ids.has(result.recordingId))
+						.map((result) => result.id),
+				);
 				for (const promotion of store.tables.capturePromotions.rows) {
 					if (resultIds.has(promotion.resultId))
 						store.tables.capturePromotions.delete(promotion.id);

@@ -1,4 +1,4 @@
-# 0453. Epicenter UI tracks distributed shadcn-svelte components with explicit deltas
+# 0455. Epicenter UI tracks distributed shadcn-svelte components with explicit deltas
 
 - **Status:** Proposed
 - **Date:** 2026-09-24

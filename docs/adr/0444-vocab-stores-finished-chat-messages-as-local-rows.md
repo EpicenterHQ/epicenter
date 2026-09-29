@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-24
-- **Amended by:** [ADR-0450](0450-vocab-chats-persist-chosen-expressions-before-the-tutor-speaks.md) (chat existence and titles use saved focus)
+- **Amended by:** [ADR-0452](0452-vocab-chats-persist-chosen-expressions-before-the-tutor-speaks.md) (chat existence and titles use saved focus)
 - **Relates:** [ADR-0046](0046-a-capability-free-agent-persists-finished-messages-not-live-doc-streams.md) (persist on finish), [ADR-0295](0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md) (store rows)
 
 ## Context

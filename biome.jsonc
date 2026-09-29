@@ -27,6 +27,8 @@
 			"!**/node_modules",
 			"!**/build",
 			"!**/dist",
+			// Generated benchmark browser bundles are evidence, not lintable source.
+			"!packages/data/evidence/browser/**/*.html",
 			"!package-lock.json",
 			"!pnpm-lock.yaml",
 			"!yarn.lock",

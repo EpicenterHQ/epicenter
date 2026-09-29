@@ -14,8 +14,12 @@ export async function migrateLocalTranscriptions(
 	if (!legacy) return;
 	const pending = [...legacy].flatMap(([recordingId, values]) => {
 		if (migrated.has(recordingId)) return [];
-		const { transcript, polishedTranscript, recordedAt, transcriptionCompletedAt } =
-			values;
+		const {
+			transcript,
+			polishedTranscript,
+			recordedAt,
+			transcriptionCompletedAt,
+		} = values;
 		if (typeof transcript !== 'string' || !transcript.trim()) return [];
 		const recording = store.tables.recordings.get(recordingId);
 		if (!recording) return [];
@@ -24,20 +28,22 @@ export async function migrateLocalTranscriptions(
 			: InstantString.is(recordedAt)
 				? recordedAt
 				: recording.recordedAt;
-		return [{
-			recordingId,
-			attemptedAt: recording.recordedAt,
-			completedAt,
-			rawText: transcript,
-			cleanedText:
-				typeof polishedTranscript === 'string' &&
-				polishedTranscript !== transcript
-					? polishedTranscript
-					: null,
-			connectionId: null,
-			model: null,
-			legacyRecordingId: recordingId,
-		}];
+		return [
+			{
+				recordingId,
+				attemptedAt: recording.recordedAt,
+				completedAt,
+				rawText: transcript,
+				cleanedText:
+					typeof polishedTranscript === 'string' &&
+					polishedTranscript !== transcript
+						? polishedTranscript
+						: null,
+				connectionId: null,
+				model: null,
+				legacyRecordingId: recordingId,
+			},
+		];
 	});
 	if (pending.length === 0) return;
 	store.transact(() => {

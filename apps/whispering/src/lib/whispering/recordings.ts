@@ -36,9 +36,7 @@ export function updateRecording(
 export function openRecordingAudio(
 	store: Pick<RecordingStore, 'blobs'>,
 	row: Pick<Recording, 'audioBlobId'>,
-): Promise<
-	Result<BlobSource, BlobStoreError | BlobSourceFailed>
-> {
+): Promise<Result<BlobSource, BlobStoreError | BlobSourceFailed>> {
 	return store.blobs.open(row.audioBlobId);
 }
 

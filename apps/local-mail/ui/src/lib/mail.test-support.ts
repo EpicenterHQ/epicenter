@@ -1,10 +1,10 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { openMailResources } from './resources.js';
 import type { ScopedSqlite } from '@epicenter/device/owner';
 import type { AccountWorkflow } from '@epicenter/local-mail/accounts';
 import type { GmailAuthorization } from './platform/types.js';
+import type { openMailResources } from './resources.js';
 
 let compiled: string | undefined;
 

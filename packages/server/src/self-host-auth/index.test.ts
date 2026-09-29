@@ -3,8 +3,8 @@
  * They verify enrollment binding, durable recovery/removal, and independent PKCE sessions.
  */
 import { Database } from 'bun:sqlite';
-import { createLogger, memorySink } from 'wellcrafted/logger';
 import { expect, test } from 'bun:test';
+import { createLogger, memorySink } from 'wellcrafted/logger';
 import { createAuthenticator } from '../../evidence/enrollment/authenticator.js';
 import { createSelfHostAuth, type SelfHostAuthDatabase } from './index.js';
 

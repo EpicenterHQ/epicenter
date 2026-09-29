@@ -1,12 +1,12 @@
 /** Test-only durable commit candidate. Not reachable through a production route. */
 import { DurableObject } from 'cloudflare:workers';
 import {
-	generateRegistrationOptions,
-	generateAuthenticationOptions,
-	verifyAuthenticationResponse,
 	type AuthenticationResponseJSON,
-	verifyRegistrationResponse,
+	generateAuthenticationOptions,
+	generateRegistrationOptions,
 	type RegistrationResponseJSON,
+	verifyAuthenticationResponse,
+	verifyRegistrationResponse,
 } from '@simplewebauthn/server';
 
 const origin = 'https://enrollment.example.test';
