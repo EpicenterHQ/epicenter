@@ -28,7 +28,7 @@ change once data exists.
 Read [references/debugging.md](references/debugging.md) when a document
 converges to unexpected state or grows faster than its content.
 
-> **Related Skills**: See `svelte` for reading store data into a component, and `arktype` for the expression strings a workspace is written in.
+> **Related Skills**: See `svelte` for reading store data into a component, and `typebox` for the schemas behind the `field.*` declaration helpers.
 
 ## Transactions, Origins, And Undo
 

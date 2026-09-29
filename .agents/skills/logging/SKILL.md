@@ -250,5 +250,5 @@ Custom sinks that serialize for the wire should convert `ts` to ISO-8601 and fla
 ## See also
 
 - `error-handling` skill: `trySync`/`tryAsync` patterns and the [error variants reference](../error-handling/references/error-variants.md) for the typed failures the logger consumes
-- `rust-errors` skill: full `tracing` ↔ `Logger` mapping
+- `tauri`'s [Rust command errors reference](../tauri/references/rust-command-errors.md): typed failures that cross IPC
 - `tapErr` (from `wellcrafted/result`): Result-chain combinator that logs on the Err branch and passes the Result through. Rare in epicenter, since most call sites branch on `result.error` directly to use the data on the Ok branch. Reach for it only when the Result flows out of the function in a `.then(...)` chain.

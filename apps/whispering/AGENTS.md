@@ -21,8 +21,8 @@ Svelte 5 speech-to-text SPA served by the Epicenter desktop host, which owns its
 
 Load `tauri` before adding or changing Tauri commands, permissions,
 capabilities, generated bindings, or platform filesystem behavior. Load
-`rust-errors` when a command changes Rust error payloads consumed by
-TypeScript.
+the `tauri` skill's Rust command errors reference when a command changes Rust
+error payloads consumed by TypeScript.
 
 Every command change must keep `make_specta_builder()` in
 `../epicenter/src-tauri/src/lib.rs`, generated bindings, and
