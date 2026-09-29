@@ -492,6 +492,7 @@
         "svelte-sonner": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
+        "yaml": "catalog:",
       },
       "devDependencies": {
         "@epicenter/vite-config": "workspace:*",

@@ -25,6 +25,10 @@ The chat row ID is the conversation ID on its messages. A focus item holds the o
 
 The app runs the UI-free `@epicenter/agent` loop over Local message rows. It writes submitted learner messages before generation and saves an assistant response only after a clean finish. An unsent draft and partial response are not durable. The selected chat owns the only live loop. The inference picker saves one device workflow choice for the account; an unavailable model leaves Words and history usable.
 
+## File chat prototype
+
+The proposed [file chat decision](../../../docs/adr/0463-vocab-saves-each-linear-chat-as-one-markdown-file.md) has a tested codec in `src/lib/chat/file-format.ts`. It reads one Markdown transcript with visible speaker headings, preserves literal headings in message text, and appends a completed turn to readable current source. Run `bun test apps/vocab/src/lib/chat/file-format.test.ts` from the repository root. Vocab still uses the Local rows described above; the codec does not yet open account files or synchronize chats.
+
 ## Development
 
 Start from the repository root with `bun dev:vocab`. Run `bun run --cwd apps/vocab typecheck` and `bun test apps/vocab/src/lib` for focused checks.

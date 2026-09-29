@@ -30,7 +30,8 @@
 		"mode-watcher": "^1.1.0",
 		"svelte-sonner": "catalog:",
 		"typebox": "catalog:",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"yaml": "catalog:"
 	},
 	"devDependencies": {
 		"@epicenter/vite-config": "workspace:*",
