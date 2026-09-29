@@ -100,6 +100,13 @@ type EndpointProvider = {
 	capabilities: Capabilities;
 	endpointConfigKey: DeviceConfigKey;
 	modelIdConfigKey: DeviceConfigKey;
+	/**
+	 * Optional bearer credential for endpoints that want one (a self-host with
+	 * auth in front, a compatible gateway). A secret when present, so it routes
+	 * through the credential facade; `null` for providers like Speaches that
+	 * take no key.
+	 */
+	apiKeyConfigKey: SecretKey | null;
 };
 
 /**
@@ -325,6 +332,18 @@ export const PROVIDERS = {
 		capabilities: { supportsPrompt: true, supportsLanguage: true },
 		endpointConfigKey: 'providers.speaches.endpoint',
 		modelIdConfigKey: 'providers.speaches.modelId',
+		apiKeyConfigKey: null,
+	},
+
+	'openai-compatible': {
+		access: 'endpoint',
+		label: 'OpenAI-compatible',
+		description:
+			'Any server that speaks the OpenAI audio transcriptions API',
+		capabilities: { supportsPrompt: true, supportsLanguage: true },
+		endpointConfigKey: 'providers.openaiCompatible.endpoint',
+		modelIdConfigKey: 'providers.openaiCompatible.modelId',
+		apiKeyConfigKey: 'providers.openaiCompatible.apiKey',
 	},
 } as const satisfies Record<TranscriptionServiceId, TranscriptionProvider>;
 

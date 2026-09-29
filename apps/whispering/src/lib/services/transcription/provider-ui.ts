@@ -13,6 +13,7 @@ import ggmlIcon from '$lib/constants/icons/ggml.svg?raw';
 import groqIcon from '$lib/constants/icons/groq.svg?raw';
 import mistralIcon from '$lib/constants/icons/mistral.svg?raw';
 import openaiIcon from '$lib/constants/icons/openai.svg?raw';
+import serverIcon from '$lib/constants/icons/server.svg?raw';
 import speachesIcon from '$lib/constants/icons/speaches.svg?raw';
 import {
 	PROVIDERS,
@@ -29,6 +30,7 @@ export const PROVIDER_ICONS = {
 	Mistral: { icon: mistralIcon, invertInDarkMode: false },
 	local: { icon: ggmlIcon, invertInDarkMode: true },
 	speaches: { icon: speachesIcon, invertInDarkMode: false },
+	'openai-compatible': { icon: serverIcon, invertInDarkMode: true },
 } as const satisfies Record<
 	TranscriptionServiceId,
 	{ icon: string; invertInDarkMode: boolean }

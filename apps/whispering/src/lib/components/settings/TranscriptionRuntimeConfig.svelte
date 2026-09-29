@@ -29,6 +29,7 @@
 		type ProviderAccess,
 	} from '$lib/services/transcription/providers';
 	import { deviceConfig } from '$lib/state/device-config.svelte';
+	import { secrets } from '$lib/state/secrets.svelte';
 	import { getLocalRouteBlocker } from '$lib/settings/transcription-validation';
 	import { localRoute } from '$lib/state/local-route.svelte';
 	import { recordingActive } from '$lib/state/recording-active.svelte';
@@ -156,6 +157,7 @@
 				</div>
 			{:else if section.access === 'endpoint'}
 				{@render speachesSection()}
+				{@render openaiCompatibleSection()}
 			{/if}
 		</section>
 	{/each}
@@ -462,6 +464,80 @@
 				>
 					Systran/faster-distil-whisper-small.en
 				</CopyButton>
+			</Field.Description>
+		</Field.Field>
+	</div>
+{/snippet}
+
+{#snippet openaiCompatibleSection()}
+	{@const compatibleKeyRead = secrets.get('providers.openaiCompatible.apiKey')}
+	<div class="space-y-4">
+		<Card.Root>
+			<Card.Header>
+				<Card.Title class="text-base">OpenAI-compatible endpoint</Card.Title>
+				<Card.Description>
+					Point Whispering at any server that implements the OpenAI
+					<code>/v1/audio/transcriptions</code> API: a gateway like LiteLLM
+					or an aggregator, a self-hosted server with auth, or a provider that
+					is not listed above.
+				</Card.Description>
+			</Card.Header>
+		</Card.Root>
+
+		<Field.Field>
+			<Field.Label for="compatible-base-url">Base URL</Field.Label>
+			<Input
+				id="compatible-base-url"
+				type="url"
+				placeholder="https://your-server.example.com/v1"
+				autocomplete="off"
+				bind:value={
+					() => deviceConfig.get('providers.openaiCompatible.endpoint'),
+					(value) =>
+						deviceConfig.set('providers.openaiCompatible.endpoint', value)
+				}
+			/>
+			<Field.Description>
+				The API base, up to and including <code>/v1</code>. Whispering posts
+				to <code>{'{base URL}'}/audio/transcriptions</code>.
+			</Field.Description>
+		</Field.Field>
+
+		<Field.Field>
+			<Field.Label for="compatible-model-id">Model</Field.Label>
+			<Input
+				id="compatible-model-id"
+				placeholder="e.g. whisper-1"
+				autocomplete="off"
+				bind:value={
+					() => deviceConfig.get('providers.openaiCompatible.modelId'),
+					(value) =>
+						deviceConfig.set('providers.openaiCompatible.modelId', value)
+				}
+			/>
+			<Field.Description>
+				The exact model name your endpoint expects. It is sent on the wire
+				as-is; check the endpoint's docs for valid values.
+			</Field.Description>
+		</Field.Field>
+
+		<Field.Field>
+			<Field.Label for="compatible-api-key">API Key (optional)</Field.Label>
+			<Input
+				id="compatible-api-key"
+				type="password"
+				placeholder="Leave empty if your endpoint does not require one"
+				autocomplete="off"
+				bind:value={
+					() =>
+						compatibleKeyRead.status === 'available'
+							? compatibleKeyRead.value
+							: '',
+					(value) => secrets.set('providers.openaiCompatible.apiKey', value)
+				}
+			/>
+			<Field.Description>
+				Sent as a bearer token. Local or open endpoints can leave this empty.
 			</Field.Description>
 		</Field.Field>
 	</div>
