@@ -53,5 +53,4 @@ describe('the local transcription boundary Whispering sits behind', () => {
 			expect(transcriptionNamespace).toContain(command);
 		}
 	});
-
 });
