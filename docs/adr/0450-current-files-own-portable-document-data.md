@@ -11,9 +11,13 @@ Today, a Markdown checkout is rendered from a Yjs store. Editing the checkout re
 
 The intended Epicenter data folder lets a person, an application, or an agent work on the same current files. A file should not become a temporary representation that must be imported into a different authoritative document before an edit counts.
 
+In a browser, those paths cannot be ordinary operating-system files. A shell agent needs a filesystem adapter, but a separate scratch tree would restore the import boundary this decision removes. Git history and local byte storage may represent the files differently without becoming another writable copy of their current state.
+
 ## Decision
 
 **For portable document data, its current logical files are the authoritative saved data.** A data folder contains named tables of Markdown rows, root `kv.json`, and row-owned attachment files. The folder is a logical set of relative paths and their contents; a browser adapter may store it differently from a native directory. Where a person or agent can edit a native folder, those files are the live source, not a checkout of another document store.
+
+**The application and its shell agent edit the same current paths through one file boundary per data folder.** In a browser, this boundary lists paths, reads exact bytes, and applies path changes conditionally. It makes related changes visible together when an application operation requires it. A just-bash filesystem adapter uses this boundary, so a successful shell write is a saved local edit without an import step or Git checkpoint. Application edits and sync adoption use the same boundary. On native, ordinary files remain the source; an external edit must be observed before an application replaces that path. The browser's choice between a single inventory record and records keyed by literal path is not part of this contract.
 
 **A row is a table member saved in a Markdown file.** Use "row" for the member and "row file" when discussing its saved bytes. Fields appear in frontmatter; the body follows it. A file remains saved data when its fields or body cannot be interpreted by the current application. An inferred row value is an interpretation of that data, not its complete saved representation. "Row source" does not name another object. Apps can call rows recordings, notes, or other domain names.
 
@@ -28,10 +32,12 @@ This decision applies to data folders deliberately moved to this model. Existing
 ## Consequences
 
 - File-to-Yjs pull and push cease to be the normal editing boundary for a migrated data folder. An independently persisted Yjs row or body cannot override its current files.
-- The application must preserve source outside the edit it intends to make and must account for files changed by another writer. The edit and conflict rules remain to be designed.
+- Browser shell commands need a filesystem adapter for directory operations and metadata, but the adapter does not keep another durable file tree. Readers refresh after a successful path change. A shell command that edits bytes it read must detect an intervening replacement; an explicit overwrite may replace the current bytes.
+- Git checkpoints read a fixed view of current paths. Browser isomorphic-git objects and refs stay private; Git does not check out a second browser working tree or write current paths outside the file boundary. An attachment read or complete copy receives actual bytes, never an LFS pointer in their place.
+- The application must preserve source outside the edit it intends to make and must account for files changed by another writer. Merge choices and conflict presentation remain to be designed.
 - App-level attachment ownership removes the need for a separate application-facing blob lifetime for a recording. Physical byte storage, transfer, historical retention, and reclamation remain separate questions.
 - A complete copy must include media bytes even if storage or sync uses placeholders internally. A partial or interrupted copy cannot claim to recover the saved current state.
-- IDs, save publication, sync, export packaging, and the `defineStore` and `defineTable` APIs are separate decisions. Attachment cardinality and sibling layout follow ADR-0456.
+- IDs, physical save mechanisms, sync transport, export packaging, and the `defineStore` and `defineTable` APIs are separate decisions. Attachment cardinality and sibling layout follow ADR-0456.
 
 ## Execution
 
@@ -41,9 +47,11 @@ Work from authoritative files toward application views:
    Opening must preserve invalid YAML, unknown fields, unsupported Markdown,
    duplicate IDs, and orphaned attachments. Ambiguity remains inspectable by path.
 2. Define source-preserving edits and row/attachment publication with explicit
-   interruption recovery. Typed edits refuse source they cannot safely interpret
-   unless the user explicitly repairs it. Other writers' changes must be detected
-   before replacing source. This does not imply arbitrary multi-file transactions.
+   interruption recovery. Route app edits, browser shell writes, and sync adoption
+   through the same path boundary. Typed edits refuse source they cannot safely
+   interpret unless the user explicitly repairs it. Other writers' changes must
+   be detected before replacing source. This does not imply arbitrary multi-file
+   transactions or choose an IndexedDB schema.
 3. Build typed table/KV views and optional indexes over that file boundary.
    Keep body parsing and collaborative editor state in the editors that need
    them. An editor must handle changed source before saving its own interpretation.
