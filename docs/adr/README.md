@@ -702,4 +702,4 @@ When you add an ADR, add its row here.
 | [0448](0448-vocab-stages-are-four-learner-reported-abilities.md) | Vocab stages are four learner-reported abilities | Proposed (amends 0102 at stages) |
 
 | [0449](0449-epicenter-connects-independent-applications-through-personal-data.md) | Epicenter connects independent applications through personal data | Proposed (unbuilt; independent products, shared data, and personal tools) |
-| [0450](0450-portable-document-data-is-a-folder-of-kv-json-and-markdown-rows.md) | Portable document data is a folder of kv.json and Markdown rows | Proposed (unbuilt; canonical rows and owned files, Git sync, consistent snapshots) |
+| [0450](0450-portable-document-data-is-a-folder-of-kv-json-and-markdown-rows.md) | Portable document data is a folder of kv.json and Markdown rows | Proposed (unbuilt; flat row/file pairs, current-state sync, whole-folder recovery) |

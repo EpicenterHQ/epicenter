@@ -73,6 +73,13 @@ discover remote datasets or supply every application's rich-content codec.
 building blocks; combining them into a generic signed-in data workspace still
 requires compatible definitions, content codecs, and replica discovery.
 
+A working folder exported from a synchronized dataset differs from a local
+library whose files are canonical. In the latter, edits to files are edits to
+the data, and a SQLite index can be rebuilt from those files. This record does
+not require permanently local data to use Yjs or Markdown. It does not promise
+that file libraries, local databases, and synchronized replicas expose identical
+editing capabilities or can be converted by changing an opening function.
+
 Browsing data and working through files are useful workflows to test separately
 from demand for hosted applications. A person can customize their workflow with
 an editor, script, or agent before building an SPA. The personal-tool runner
@@ -144,8 +151,9 @@ the same dataset. Sequential tools inside Epicenter can reopen its local copy;
 two consumers in one session reuse an opened handle rather than competing for
 the same claim.
 
-Every active data consumer retains its live in-memory document. The inspector
-opens an authorized replica in its page using a compatible data definition;
+Every active consumer of a synchronized dataset retains its live in-memory
+replica. The inspector opens an authorized replica in its page using a compatible
+data definition;
 it does not read another product's private database or create a hidden native
 document owner. This requires a definition-discovery and replica-opening path.
 Cross-product changes converge through the account authority. Immediate offline
