@@ -702,7 +702,7 @@ When you add an ADR, add its row here.
 | [0447](0447-the-bun-self-hosted-server-owns-one-data-root.md) | The Bun self-hosted server owns one data root | Proposed (amends 0066 at S3-only storage; Bun sync and local blobs unbuilt) |
 | [0448](0448-vocab-stages-are-four-learner-reported-abilities.md) | Vocab stages are four learner-reported abilities | Accepted (amends 0102 at stages) |
 | [0449](0449-epicenter-connects-independent-applications-through-personal-data.md) | Epicenter connects independent applications through personal data | Proposed (unbuilt; independent products, shared data, and personal tools) |
-| [0450](0450-portable-document-data-is-a-folder-of-kv-json-and-markdown-rows.md) | Portable document data is a folder of kv.json and Markdown rows | Proposed (unbuilt; flat row/file pairs, current-state sync, whole-folder recovery) |
+| [0450](0450-current-files-own-portable-document-data.md) | Current files own portable document data | Proposed (unbuilt; file authority, owned attachments, complete current-state recovery) |
 | [0451](0451-one-cloud-subscription-includes-hosted-inference-across-apps-without-credits.md) | One Cloud subscription includes hosted inference across apps without credits | Proposed (subscriber entitlement and usage policy unbuilt) |
 | [0452](0452-vocab-chats-persist-chosen-expressions-before-the-tutor-speaks.md) | Vocab chats persist chosen expressions before the tutor speaks | Accepted (amends 0444 and 0445) |
 | [0453](0453-vocab-batch-additions-share-one-review.md) | Vocab batch additions share one review | Accepted (amends 0102 at entry sources) |
