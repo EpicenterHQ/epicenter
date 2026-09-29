@@ -465,3 +465,17 @@ starting: a prior session may already have completed it.
   under the same name. Do not unpublish: that permanently burns the version
   number.
 - Revisit when: Before the next npm release from this repository.
+
+## Decide the identity model for a liked-music library
+
+- Desired result: Decide whether an Epicenter music library should show the same
+  liked recording once across streaming services, keep each service link and the
+  source of the like, and group distinct recordings under a song when useful.
+- Grounding: The completed Codex task `01a0e883-3e17-7c80-baea-1b9944748d6d`
+  separated songs, recordings, and platform entries. It suggested external
+  matching services as candidates, but did not establish their coverage or
+  commit Epicenter to building this app. The draft
+  `specs/20260511T111700-item-tagging-schema.md` concerns tags on music and other
+  items; it does not settle cross-service recording identity.
+- Revisit when: Building a music collection or importing likes from more than
+  one service.
