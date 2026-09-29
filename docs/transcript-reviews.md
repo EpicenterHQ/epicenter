@@ -26,7 +26,7 @@ execute from top to bottom.
 | `codex-session-01a0b345-aae0-7a41-89f3-c6fb70ce1877.md` | Deleted: repairs and package collapse completed | App, app-shell, and Whispering package test scripts use `--isolate`. `packages/data` is gone; the App root exports `defineApp`, `defineTable`, and `field`, with the engine under `src/data`. The late proposal is now implemented by [ADR-0407](adr/0407-app-owns-the-declaration-and-data-engine.md) and later opener amendments. Do not restore its earlier claim that the separate data package is necessary. |
 | `codex-session-01a0b36b-572c-7560-92a6-7ca714680133.md` | Deleted: completed SQLite explanation | [SQLite ownership](../packages/device/src/owner.ts) and its tests preserve connection closure, drain, pool release, and failure retention. Later App admission owns cross-context exclusion. The old explanation is not another unfinished redesign. The unused returned `drain` method is separately covered by the retained audit. |
 | `codex-session-01a0b46e-1f3e-72e2-ac68-7cabf6278cda.md` | Deleted: completed runtime verification | [The opener](../packages/app/src/open.ts), [memory runtime tests](../packages/app/src/runtime.test.ts), and [browser admission evidence](../packages/app/evidence/data/app-ownership/browser.ts) preserve the result. `await openApp` returns a ready App; there is no public `app.ready` phase. Its final WebKit rerun supersedes its earlier failed observation. Browser checks were not rerun in this review. |
-| `codex-session-01a0b1dd-1af1-70e0-addd-6299bf4830b4.md` | Deleted after extracting takeaways | Its framework direction is represented by current code and ADRs. Its claims that scopes and platform selection are unbuilt are stale. Preserve the Mail credential race, the unresolved “Zhongwen should be personal GitHub” correction, and hardware acceptance below. Its graceful-departure recommendation is superseded by process/document replacement. |
+| `codex-session-01a0b1dd-1af1-70e0-addd-6299bf4830b4.md` | Deleted after extracting takeaways | Its framework direction is represented by current code and ADRs. Its claims that scopes and platform selection are unbuilt are stale. Preserve the Mail credential race, the “Zhongwen should be personal GitHub” correction later settled as an independent repository, and hardware acceptance below. Its graceful-departure recommendation is superseded by process/document replacement. |
 | `codex-session-01a0b345-8c37-7fe0-82d4-8fc0b9c77f07.md` | Deleted after extracting product direction | The [integration review](reports/20260918-integration-review.md) already records the merge work. The user selected local Gmail reading/search/triage and a broader Chinese study app with saved words and review. Preserve those outcomes below. Its startup blocker is now resolved; its PR counts, mergeability, and clean-checkout claims are historical, not current status. |
 | `codex-session-01a0b531-b6c6-7e21-a89c-0db3c3d88683.md` | Retained: test/API work | Most final deletion candidates still exist. `StoreBacking` still allows replication without `discard`; signed-in opening still waits for Personal. Vocab still truncates candidate phrases. The duplicate Whispering owner lookup is already removed in the dirty checkout. Use the corrections below alongside the [dated test audit](reports/20260918-test-direction-audit.md). |
 | `codex-session-01a0b74a-1b65-7023-a484-f68c0587d625.md` | Retained: Mail execution work | Bounded storage writes exist in the dirty checkout. Account-wide pacing, shared cooldown, page-sized reconciliation, and request cancellation do not. Preserve the user's refusal to remove pending changes or formatted mail. Its early description of runtime replacement as unbuilt is obsolete. |
@@ -68,12 +68,12 @@ durable pending changes, formatted mail, and Undo. Undo belongs to the existing
 per-message assertion model: it is a newer assertion, not cancellation or a
 second history system.
 
-One concrete UI edge case remains actionable. Moving a message that is already
-in `TRASH` to Trash is a no-op, but the current generic Undo path inverts that
-assertion and restores the message. Make the no-op action ineligible for Undo,
-or capture the prior state before offering Undo, and add a regression test. This
-is a focused action-planning fix, not a reason to remove Undo or redesign the
-intent store.
+A later product conversation chose command-level Undo: it writes the opposite
+desired label value, even when the preceding assertion made no visible change.
+The already-trashed example is therefore not a confirmed no-op Undo bug. Gmail
+handles Trash differently from ordinary labels, so verify its restoration
+behavior before claiming that an opposite assertion restores the prior Gmail
+state. This does not require a separate Undo history or cancellation system.
 
 - [The Gmail client](../apps/local-mail/src/gmail-client.ts) retries each
   request independently, has no shared rate gate, passes no cancellation signal
@@ -132,12 +132,13 @@ storage rewrite during transcript cleanup.
 
 The earlier synthesis preserves the user's “Zhongwen should be personal GitHub”
 correction. The later conversation asks for a broader Chinese study app with
-saved words and review; it does not explicitly settle repository placement.
+saved words and review. A subsequent independent-app conversation chose a
+public personal repository; its end-to-end installation proof remains unbuilt.
 Current Vocab has saved text, human notes, acquisition stages, and generated
 practice conversations. It has no demonstrated retrieval/review history loop.
 [The host's compiled-app list](../apps/epicenter/src/applications.ts) excludes
-Vocab. Preserve the product goal without silently choosing in-repo ownership,
-scheduled repetition, automatic glosses, or a desktop integration project.
+Vocab. Preserve the product goal without assuming scheduled repetition,
+automatic glosses, or a Vocab desktop integration project.
 
 The team-notes discussion in `01a0b74a` is also a future product direction.
 Removing server-wide Shared is implemented. Restoring it would not provide

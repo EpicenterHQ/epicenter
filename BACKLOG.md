@@ -29,7 +29,7 @@ instruction to execute every item in file order.
 | Independent | [Repair Vocab candidate extraction](#preserve-verbatim-vocab-candidates) | Legitimate punctuation survives; candidates are validated against their source. |
 | Independent | [Finish the bounded test/API cleanup](#finish-the-bounded-test-and-api-cleanup) | Retire obsolete contracts together with their tests; preserve actual lifecycle and data-isolation evidence. Coordinate any StoreBacking changes with step 4. |
 | Hardware-dependent | [Finish native capture acceptance](#finish-native-capture-interruption-acceptance) | Actual microphone interruption, release, and reacquisition. |
-| Product judgment | [Zhongwen](#define-zhongwens-saved-word-review-loop-and-repository-placement) and [deferred capability choices](#resolve-deferred-capability-purpose-only-when-needed) | Settle the intended product before implementing or deleting capabilities. |
+| Product judgment | [Zhongwen](#define-zhongwens-saved-word-review-loop) and [deferred capability choices](#resolve-deferred-capability-purpose-only-when-needed) | Settle the intended product before implementing or deleting capabilities. |
 
 Use one session per outcome. Recheck current source and dirty work before
 starting: a prior session may already have completed it.
@@ -38,13 +38,14 @@ starting: a prior session may already have completed it.
 
 - Desired result: Desktop sign-in and Gmail consent lead to readable local mail;
   a complete restart retains credentials and cache; offline triage reaches
-  Gmail after reconnecting. Undo preserves the state preceding a real action.
+  Gmail after reconnecting. Undo issues the opposite label assertion without
+  claiming to restore the exact prior Gmail state.
 - Grounding: The [Mail evidence notes](apps/local-mail/evidence/README.md)
   separate synthetic checks from the remaining live journey. The later
   [product-review extraction](docs/transcript-reviews.md#extracted-from-codex-session-01a0ba84)
-  flags Undo after trashing an already-trashed message: verify the current path,
-  then prevent a no-op from offering a destructive inverse. This later finding
-  was not reproduced by the eight-export review.
+  raised an already-trashed message as a possible Undo problem. A subsequent
+  conversation chose command-level Undo even when the original assertion was a
+  no-op. Gmail's provider-specific Trash restoration still needs verification.
 - Revisit when: After the sync changes. Handle the
   [individual-message limit](#resolve-local-mails-oversized-individual-message-limit)
   as its own supported-behavior decision. Select a test message and permitted
@@ -151,19 +152,29 @@ starting: a prior session may already have completed it.
   browser journey; do not work around it by dropping the Account and selecting
   someone else's storage namespace.
 
-## Define Zhongwen's saved-word review loop and repository placement
+## Define Zhongwen's saved-word review loop
 
 - Desired result: A broader Chinese study app where someone saves words,
   returns to them through review, and retains progress.
 - Grounding: The later product conversation explicitly requested saved words
-  and review. The earlier “Zhongwen should be personal GitHub” correction remains
-  unresolved. Vocab implements saved entries and generated practice, but that
-  does not establish a review-history/scheduling product. The
+  and review. Zhongwen is intended as an independent personal repository; Vocab
+  implements saved entries and generated practice, but that does not establish
+  a review-history/scheduling product. The
   [transcript review](docs/transcript-reviews.md#product-choices-and-acceptance-to-preserve)
-  preserves both directions.
+  preserves the product question.
 - Revisit when: Chinese study work becomes the next product milestone. Settle
-  repository ownership and the first retrieval interaction before choosing a
-  scheduler, changing the schema, or adding Vocab to desktop builds.
+  the first retrieval interaction before choosing a scheduler or changing the
+  schema.
+
+## Prove independent Zhongwen installation
+
+- Desired result: A public Zhongwen repository imports published Epicenter
+  packages, publishes a prebuilt release at a URL, installs and launches in
+  Epicenter, and retains Personal data after restart.
+- Grounding: [ADR-0358](docs/adr/0358-installation-admits-a-built-application-release.md)
+  records the local built-release boundary. The independent-app conversation
+  identified URL distribution and the full Zhongwen journey as the missing proof.
+- Revisit when: Building Zhongwen as the first independently maintained app.
 
 ## Establish hosted erasure before external onboarding
 
@@ -194,6 +205,17 @@ starting: a prior session may already have completed it.
 - Grounding: Local Mail already treats Gmail as the source of truth and requires
   human-meaningful state to round-trip through Gmail.
 - Revisit when: Local Mail next expands its triage or agent-assisted workflows.
+
+## Make saved Local Mail views actionable
+
+- Desired result: A person can save a named rule for downloaded Inbox messages,
+  open its matches as a mailbox tab, and triage them through the ordinary
+  Archive, Trash, and Undo actions.
+- Grounding: [ADR-0378](docs/adr/0378-local-mail-saves-message-rules-as-triage-views.md)
+  specifies the view contract. The current saved-query prototype produces
+  separate result tables that cannot act on messages.
+- Revisit when: Local Mail's saved queries or agent-assisted triage are next
+  changed.
 
 ## Add Outlook as a standalone Local Mail provider
 
@@ -275,16 +297,27 @@ starting: a prior session may already have completed it.
 
 ## Show where Whispering keeps audio and transcripts after dictation
 
-- Desired result: After speaking, a person can find the saved audio and text,
-  see whether they are in Local or Personal, and understand whether a chosen
-  transcription or Polish provider received them.
-- Grounding: Whispering saves capture in Local, supports an explicit copy to
-  Personal, and sends audio or text to selected providers when those steps need
-  inference. The [app README](apps/whispering/README.md) describes these data
-  boundaries; the interface should make the relevant outcome clear in the
-  recording journey.
-- Revisit when: Whispering's recording results, history, or Personal save flow
-  is next changed.
+- Desired result: After speaking, a person can find the Local recording and
+  its Original or accepted Cleaned text, understand which provider processed
+  it, and see whether selected text was added to Capture.
+- Grounding: [ADRs 0439](docs/adr/0439-whispering-promotes-text-to-capture-instead-of-copying-recordings.md)
+  and [0440](docs/adr/0440-whispering-cleans-transcriptions-and-does-not-own-general-text-actions.md)
+  keep audio and transcription results Local, replace Personal recording copies
+  with selected-text promotion to Capture, and rename optional Polish to cleanup.
+  Browser promotion and cleanup-preview verification remain unbuilt.
+- Revisit when: Whispering's recording results, history, or Capture handoff is
+  next changed.
+
+## Reconcile Result presentation guidance
+
+- Desired result: Service and application operations preserve typed Results
+  until a user-facing action presents the outcome once. The error-handling,
+  Svelte, query, and service guidance agree on toast and mutation boundaries.
+- Grounding: The Svelte operation-composition discussion settled the direction
+  but changed no guidance. The current `error-handling` skill still teaches
+  `toastOnError` inside a Result chain; decide whether that helper preserves or
+  consumes the Result before updating examples.
+- Revisit when: The next cross-skill error-handling pass is made.
 
 ## Explore Wispr Flow for Whispering onboarding and gamification
 
@@ -357,10 +390,12 @@ starting: a prior session may already have completed it.
     static self-host bearer (`EPICENTER_TOKEN`, or `EPICENTER_TOKEN_FILE` to
     keep the secret out of the process environment) and the persisted OAuth
     cell, so one entry point served both deployment kinds.
-  The blob half is also superseded in shape:
-  [ADR-0173](docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md)
-  makes a blob a row-owned write-once slot addressed by row, not an opaque id,
-  so any replacement addresses a row rather than minting a BlobId.
+  The blob half is also superseded in shape. [ADR-0173](docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md)
+  withdrew its row-owned write-once slot. [ADR-0393](docs/adr/0393-rows-refer-to-blobs-without-owning-their-lifetime.md)
+  lets rows cite independently owned blobs, and
+  [ADR-0438](docs/adr/0438-hosted-blobs-have-stable-authority-urls.md) gives
+  hosted blobs stable authority URLs. A future command should derive its file
+  and URL contract from that current model.
   Authentication is now owned entirely by the apps, and there is no headless
   login workflow. Any future headless tool should be designed around a concrete
   workflow and re-derive its credential story from that, treating the above as
