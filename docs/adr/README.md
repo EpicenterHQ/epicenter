@@ -713,3 +713,5 @@ When you add an ADR, add its row here.
 | [0458](0458-markdown-links-may-cross-data-folders-by-relative-path.md) | Markdown links may cross data folders by relative path | Proposed (cross-folder link resolution unbuilt) |
 | [0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) | SQLite is a local capability for derived or transactional state | Proposed (file-backed application stores and derived indexes unbuilt) |
 | [0460](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md) | Vocab and Whispering are Braden Wong's apps built on Epicenter | Proposed (personal-domain homes and Whispering ID migration unbuilt) |
+| [0463](0463-vocab-saves-each-linear-chat-as-one-markdown-file.md) | Vocab saves each linear chat as one Markdown file | Proposed (file-backed synced chats and migration unbuilt) |
+| [0464](0464-git-sync-commits-visible-text-conflicts.md) | Git sync commits text conflicts and honors file deletion | Proposed (divergent browser and native Git sync unbuilt) |

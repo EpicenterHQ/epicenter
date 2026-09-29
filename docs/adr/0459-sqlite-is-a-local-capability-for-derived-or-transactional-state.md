@@ -32,8 +32,9 @@ borrowed `store.sqlite` access. The file-first application store remains unbuilt
 
 **Epicenter-authored application data uses data folders by default, whether local-only or synchronized.**
 
-Tables contain Markdown rows; `kv.json` contains settings. A row owns zero or one
-same-stem sibling attachment under ADR-0456. For example:
+Tables contain Markdown rows; `kv.json` contains keyed values, including
+settings. A row owns zero or one same-stem sibling attachment under ADR-0456.
+For example:
 
 ```text
 so.epicenter.whispering/

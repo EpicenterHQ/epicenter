@@ -13,7 +13,7 @@ The intended Epicenter data folder lets a person, an application, or an agent wo
 
 ## Decision
 
-**For portable document data, its current logical files are the authoritative saved data.** A data folder contains named tables of Markdown rows, root `kv.json`, and row-owned attachment files. The folder is a logical set of relative paths and their contents; a browser adapter may store it differently from a native directory. Where a person or agent can edit a native folder, those files are the live source, not a checkout of another document store.
+**For portable document data, its current logical files are the authoritative saved data.** A data folder contains named tables of Markdown rows, root `kv.json` for keyed values, and row-owned attachment files. Settings are one use of `kv.json`, not its definition. The folder is a logical set of relative paths and their contents; a browser adapter may store it differently from a native directory. Where a person or agent can edit a native folder, those files are the live source, not a checkout of another document store.
 
 **A row is a table member saved in a Markdown file.** Use "row" for the member and "row file" when discussing its saved bytes. Fields appear in frontmatter; the body follows it. A file remains saved data when its fields or body cannot be interpreted by the current application. An inferred row value is an interpretation of that data, not its complete saved representation. "Row source" does not name another object. Apps can call rows recordings, notes, or other domain names.
 
@@ -23,12 +23,12 @@ Definitions interpret the source for an application. They do not decide whether 
 
 **A complete copy of a data folder's saved current state contains the actual bytes of every file that folder owns.** It can be opened without the original application database, account, service, or history. A media pointer alone is not a complete copy. A link to another data folder remains an external reference; copying both folders preserves the linked bytes and their relative path. This rule does not prescribe a ZIP format, a snapshot procedure, or whether a device keeps every attachment materialized at all times.
 
-This decision applies to data folders deliberately moved to this model. Existing Yjs stores and their checkouts continue under their current rules until migrated. Local-only settings can use a data folder's `kv.json`; file authority does not require synchronization. Credentials and private transactional databases retain their separate storage contracts.
+This decision applies to data folders deliberately moved to this model. Existing Yjs stores and their checkouts continue under their current rules until migrated. Local-only keyed values can use a data folder's `kv.json`; file authority does not require synchronization. Credentials and private transactional databases retain their separate storage contracts.
 
 ## Consequences
 
 - File-to-Yjs pull and push cease to be the normal editing boundary for a migrated data folder. An independently persisted Yjs row or body cannot override its current files.
-- The application must preserve source outside the edit it intends to make and must account for files changed by another writer. The edit and conflict rules remain to be designed.
+- The application must preserve source outside the edit it intends to make and must account for files changed by another writer. The application edit boundary and synchronization implementation remain to be designed.
 - App-level attachment ownership removes the need for a separate application-facing blob lifetime for a recording. Physical byte storage, transfer, historical retention, and reclamation remain separate questions.
 - A complete copy must include media bytes even if storage or sync uses placeholders internally. A partial or interrupted copy cannot claim to recover the saved current state.
 - IDs, save publication, sync, export packaging, and the `defineStore` and `defineTable` APIs are separate decisions. Attachment cardinality and sibling layout follow ADR-0456.
