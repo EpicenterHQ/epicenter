@@ -19,7 +19,7 @@ Definitions interpret the source for an application. They do not decide whether 
 
 **Applications create and delete a document together with the attachments it owns in the current file set.** A reference to another document's file does not transfer ownership. An external edit changes the files directly; a missing document does not authorize an automatic sweep of remaining files. A separate format decision identifies an attachment's owner and addresses ambiguous files during app deletion.
 
-**A complete copy of the saved current state contains the actual bytes of every file in that state.** It can be opened without the original application database, account, service, or history. A media pointer alone is not a complete copy. This rule does not prescribe a ZIP format, a snapshot procedure, or whether a device keeps every attachment materialized at all times.
+**A complete copy of a data folder's saved current state contains the actual bytes of every file that folder owns.** It can be opened without the original application database, account, service, or history. A media pointer alone is not a complete copy. A link to another data folder remains an external reference; copying both folders preserves the linked bytes and their relative path. This rule does not prescribe a ZIP format, a snapshot procedure, or whether a device keeps every attachment materialized at all times.
 
 This decision applies to data folders deliberately moved to this model. Existing Yjs stores and their checkouts continue under their current rules until migrated. Device settings, credentials, operation receipts, and other application databases do not become Markdown documents by implication.
 
