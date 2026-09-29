@@ -1,0 +1,32 @@
+{
+	"name": "@epicenter/file-notebook-demo",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun test --isolate",
+		"dev": "vite --host 127.0.0.1",
+		"desktop": "bun src/desktop.ts",
+		"acceptance": "bun test --isolate src/acceptance.test.ts && bun src/walkthrough.ts"
+	},
+	"dependencies": {
+		"@epicenter/app": "workspace:*",
+		"@epicenter/matter-core": "workspace:*",
+		"just-bash": "^3.4.2",
+		"isomorphic-git": "^1.42.3",
+		"jsonc-parser": "^3.3.1",
+		"@isomorphic-git/lightning-fs": "^4.10.3",
+		"buffer": "^6.0.3",
+		"fflate": "^0.8.2",
+		"yaml": "^2.8.1"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"fake-indexeddb": "^6.2.5",
+		"playwright": "^1.61.1",
+		"typescript": "catalog:",
+		"vite": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

@@ -132,6 +132,8 @@
 		"build": "bun run --filter '*' build",
 		"check": "bun run lint:ci && bun run typecheck && bun run test && bun run check:structure",
 		"dev": "bun run dev:honeycrisp",
+		"dev:file-notebook": "bun run --cwd examples/file-notebook dev",
+		"dev:file-notebook:desktop": "bun run --cwd examples/file-notebook desktop",
 		"dev:api": "bun run --cwd apps/api dev",
 		"dev:capture": "bun run --filter @epicenter/api --filter @epicenter/capture-app dev",
 		"dev:capture:ui": "bun run --cwd apps/capture dev",

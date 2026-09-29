@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Epicenter field notebook</title>
+		<style>
+			:root { font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: #17211e; background: #f4f3ee; }
+			* { box-sizing: border-box; }
+			body { margin: 0; }
+			header { padding: 18px 24px; border-bottom: 1px solid #c8d0c8; display: flex; justify-content: space-between; align-items: baseline; }
+			h1 { font: 600 22px/1.1 system-ui; letter-spacing: -.03em; margin: 0; }
+			main { display: grid; grid-template-columns: 270px minmax(360px, 1fr) minmax(340px, 1fr); min-height: calc(100vh - 74px); }
+			section { padding: 18px 20px; border-right: 1px solid #c8d0c8; min-width: 0; }
+			section:last-child { border-right: 0; }
+			h2 { font: 600 13px/1.2 system-ui; text-transform: uppercase; letter-spacing: .08em; margin: 0 0 16px; color: #466354; }
+			h3 { font-size: 13px; margin: 22px 0 8px; }
+			button, input, textarea { font: inherit; }
+			button { border: 1px solid #426d56; background: #eaf2eb; color: #1e4f36; border-radius: 3px; padding: 5px 9px; cursor: pointer; }
+			button:hover { background: #d7e9da; }
+			input, textarea { border: 1px solid #abbab0; background: #fff; border-radius: 3px; padding: 6px; width: 100%; }
+			label { display: block; margin: 8px 0; }
+			label span { display: block; color: #466354; margin-bottom: 3px; }
+			textarea { min-height: 90px; resize: vertical; }
+			pre { margin: 0; padding: 12px; background: #e8ece5; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 72px; max-height: 36vh; }
+			#tree { list-style: none; padding: 0; margin: 0; }
+			#tree button { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: #254536; padding: 5px 0; overflow-wrap: anywhere; }
+			#tree button:hover { text-decoration: underline; }
+			#source-path, #status { color: #466354; overflow-wrap: anywhere; }
+			#preview { max-width: 100%; max-height: 240px; display: none; margin-top: 12px; }
+			.row { display: flex; gap: 8px; align-items: center; }
+			.row > input { flex: 1; }
+			.bad { color: #a23f2d; }
+			#terminal-output { background: #14221b; color: #d3ead9; min-height: 150px; }
+			@media (max-width: 950px) { main { grid-template-columns: 1fr; } section { border-right: 0; border-bottom: 1px solid #c8d0c8; } }
+		</style>
+	</head>
+	<body>
+		<header><h1>Field notebook</h1><span id="mode">Opening…</span></header>
+		<main>
+			<section><h2>Current files</h2><p id="account-path">Epicenter/accounts/demo</p><div id="account-control"><label><span>Account folder label</span><input id="account-label" /></label><button id="change-account">Use label</button></div><ul id="tree"></ul><h3>Complete copy</h3><button id="export">Download ZIP</button><label><span>Open ZIP when browser files are empty</span><input id="import" type="file" accept=".zip" /></label><h3>Source</h3><p id="source-path">Select a file</p><pre id="source"></pre><img id="preview" alt="Selected photo" /></section>
+			<section><h2>Typed view</h2><p id="note-path"></p><label><span>Title</span><input id="title" /></label><button id="save-title">Save title</button><h3>Markdown body</h3><pre id="body"></pre><h3>Weather setting</h3><div class="row"><input id="weather" /><button id="save-weather">Save</button></div><h3>Create demo files</h3><button id="create-note">Create note</button><label><span>JPEG photo bytes</span><input id="photo" type="file" accept="image/jpeg,.jpg" /></label><button id="create-photo">Create photo row</button><p id="status"></p></section>
+			<section><h2>Terminal</h2><div class="row"><input id="command" value="ls -R ." /><button id="run">Run</button></div><pre id="terminal-output"></pre><h3>Git status</h3><pre id="git-status">Loading…</pre><div class="row"><button id="commit">Commit</button><button id="push">Push</button><button id="pull">Pull</button></div><p id="sync-help"></p></section>
+		</main>
+		<script type="module" src="/src/workbench.ts"></script>
+	</body>
+</html>
