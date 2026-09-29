@@ -23,20 +23,26 @@ the Yjs read contract.
 Markdown file, whether or not its declared fields conform.** Every entry carries
 its path. An entry has no ID when its filename cannot supply a valid one;
 `list()` still returns it for path-based selection and source repair. If two
-files claim one ID, `list()` returns both and `get(id)` refuses to choose one.
+files claim one ID, `list()` returns both with an identity issue on each entry,
+and `get(id)` refuses to choose one.
 `get(id)` returns `undefined` only when no file claims that ID. A present file
 that cannot be fully interpreted remains an entry with exact `source` and
 conformance issues. An I/O failure to read the file is an operation failure,
-not an entry issue. The file boundary must still report that path: `list()`
-cannot silently omit it or return an empty table as if no files existed.
+not an entry issue. After successful path enumeration, the file boundary
+reports an individual failed read by path rather than hiding that path. If
+enumeration itself fails, `list()` refuses the operation instead of returning
+an empty table.
 
 **The value of `issues` discriminates the two entry variants; no separate
 `status` field or nested `parsed` result is added.** The valid variant has a
 valid ID, `issues: undefined`, complete `fields`, and a body. The invalid
 variant has a nonempty `issues` array, an ID only if its filename yields one,
 only independently validated declared fields, and a body when its boundary can
-be identified. An invalid filename itself contributes an issue. Both variants
-keep the unmodified source for repair.
+be identified. Invalid filenames and duplicate IDs contribute issues even
+when every declared field validates. Both variants keep the unmodified source
+for repair. A clean entry describes one observed file set; ID-based writes
+still recheck identity and conditional replacement because another writer may
+change that set.
 
 ```ts
 type Entry<TFields> = {
@@ -73,14 +79,24 @@ infer validity from an empty array.
 
 ## Consequences
 
-- A table has one inventory of entries. Applications can derive valid and
-  repair-needed groups without a second public `invalid` collection.
+- A table has one inventory of source-backed entries for files it can read.
+  Applications can derive valid and repair-needed groups without a second
+  public `invalid` collection. Paths whose bytes cannot be read remain file
+  boundary diagnostics.
 - Duplicate IDs remain distinct entries by path in `list()`. ID-based actions
   refuse the ambiguity until the files are repaired. An invalid filename is
   selected by path because it has no row ID.
+- Callers migrating from the Yjs `get(id)` contract distinguish an absent ID,
+  an operational refusal, and a present entry whose action inputs are unusable.
+  Honeycrisp selection needs a path-based source repair route; Whispering audio
+  and transcription need only their actual validated inputs, not whole-row
+  conformance.
 - An unrelated bad field does not hide independently valid fields. An
   application can use those fields for a limited action while still showing the
   issue and preserving the exact source.
+- An unavailable relation field cannot prove that a file is unrelated to a
+  folder. A folder deletion that promises to reparent every child must refuse
+  while such files remain unresolved, or narrow that promise explicitly.
 - Malformed frontmatter may leave no validated fields, and ambiguous
   frontmatter framing may leave no usable body. The entry remains selectable
   and editable through `source`.
