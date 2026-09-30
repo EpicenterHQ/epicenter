@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-30
-- **Relates:** [Independent applications](0449-epicenter-connects-independent-applications-through-personal-data.md), [file authority](0450-current-files-own-portable-document-data.md), [SQLite storage roles](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md), and [publisher identity](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md).
+- **Relates:** [Independent applications](0449-epicenter-connects-independent-applications-through-personal-data.md), [file authority](0450-current-files-own-portable-document-data.md), [SQLite storage roles](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md), [publisher identity](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md), and [personal app hosting](0473-personal-app-hosting-keeps-addresses-separate-from-data-identity.md).
 - **Unbuilt:** adoption of this positioning in public materials, the file-authoritative application foundation, and access to personal data folders from independently published browser apps.
 
 ## Context
@@ -45,7 +45,28 @@ simply asking an agent to write files into a folder.
 An app's publisher and its user's data owner are distinct. Publishers can offer
 apps at their own domains. Each person uses those apps with their own data;
 publishing software does not publish the user's files. Braden's apps at
-`*.bradenwong.com` demonstrate the same model available to other publishers.
+`*.bradenwong.com` are intended examples of the same model offered to other
+publishers. ADR-0473 records the planned personal addresses and deployment model.
+
+**Epicenter helps people make and publish software of their own. Everyone gets
+their own address. The Discord is a shared place to use those apps, meet their
+makers, and share what they are building.** This describes the intended
+publishing and community relationship; personal hosting remains unbuilt.
+
+People can discover Whispering or Vocab through its app URL, then follow Braden
+for the other software he makes. Other makers can establish the same direct
+relationship with their users. Epicenter supplies the foundation and a shared
+place to meet without becoming the publisher of every app.
+
+A maker can keep an ongoing project thread, ask for a dedicated channel, or
+link their own community. These are alternatives, not tiers or stages in a
+formal app program. Publishing an app does not automatically create a channel,
+require a separate project listing, or make Braden responsible for its support.
+Each maker decides which reports to pursue. Useful conversation can remain in
+Discord; engineering evidence and work worth retaining can move to GitHub,
+including reports supplied by people without a GitHub account. Recording a
+report does not promise acceptance, priority, or a fix. Channel structure remains
+an operational choice rather than a required app registry.
 
 The copy names the available file formats without assigning them identical
 storage roles. Portable document data lives in Markdown rows, `kv.json`, and

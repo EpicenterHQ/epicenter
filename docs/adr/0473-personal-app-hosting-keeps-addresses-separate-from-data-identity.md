@@ -24,19 +24,27 @@ concepts.** A home can link to independently hosted apps. A free address and an
 optional custom domain are ways to reach a deployment. Neither replaces account
 scope or a stable data definition ID.
 
-The intended shape supports a personal home and app subdomains:
+**Epicenter gives each person somewhere to publish.** Each user gets an intended
+personal address at `username.epicenter.so`, with apps deployed at
+`myapp.username.epicenter.so`:
 
 ```text
-braden.<hosting-domain>            personal home
-music.braden.<hosting-domain>      independent music app
-bradenwong.com                     optional custom home
-music.bradenwong.com               optional custom app address
+alice.epicenter.so
+├── reading.alice.epicenter.so
+├── flashcards.alice.epicenter.so
+└── whatever she makes next
 ```
 
-These are examples, not allocated addresses. The hosting suffix remains open.
-Apps may also be published at a publisher's domain and used by multiple people
-with their own data. Serving an app bundle publicly does not publish its users'
-files.
+Alice makes something, deploys it, and shares its URL. People discover and use
+her app, with her identity attached. She can gather feedback in an Epicenter
+thread, ask for a channel, or run her own community. Publishing an app does not
+require joining a formal app program or operating a Discord community.
+
+These are planned addresses, not allocated addresses or an available deployment
+service. Publisher-owned domains are also welcome: `bradenwong.com` can link to
+`whispering.bradenwong.com` and `vocab.bradenwong.com`. Apps may be used by
+multiple people with their own data. Serving an app bundle publicly does not
+publish its users' files.
 
 **App IDs identify software; data definition IDs identify data contracts.**
 They may match by convention. Compatible apps may use the same data definition,
@@ -53,13 +61,16 @@ person's app must never give its origin the visitor's account credential.
 
 The proposed amendment withdraws ADR-0335's mandatory app paths and shared
 browser state. A separate registrable hosting domain is a candidate isolation
-strategy; a particular extension or Public Suffix List entry is not selected
-here. The replacement must establish isolation between people and protect
-vendor authentication before any user code is served.
+strategy. The intended `epicenter.so` addresses do not establish safe browser
+isolation or select a Public Suffix List treatment. The replacement must
+establish isolation between people and protect vendor authentication before any
+user code is served; if that requires a different serving domain, the hosting
+decision must revisit the intended addresses before launch.
 
 ## Consequences
 
-The next hosting design must settle the suffix, username ownership and reuse,
+The next hosting design must establish whether the intended addresses can be
+served safely and settle username ownership and reuse,
 origin isolation, authenticated data access, and custom-domain ownership checks.
 It must also prove certificate provisioning: an ordinary wildcard covers one
 label, so `*.example.com` does not cover `music.braden.example.com`.
