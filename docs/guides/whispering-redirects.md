@@ -26,35 +26,10 @@ Use the product page for old marketing/download links. Use the web app only when
 
 ## Cloudflare Setup
 
-The ops script manages the Cloudflare pieces for zones listed in `ops/cf/apply.ts`. It currently covers:
-
-- `getwhispering.com`
-- `www.getwhispering.com`
-- `whispering.studio`
-- `www.whispering.studio`
-
-Preview the changes:
-
-```bash
-bun run cf:plan:remote
-```
-
-Apply them:
-
-```bash
-bun run cf:apply:remote
-```
-
-The script creates proxied placeholder DNS records for redirect-only hosts, then upserts Cloudflare Single Redirect rules in the `http_request_dynamic_redirect` phase. This is required because Redirect Rules only run when traffic reaches Cloudflare's proxy.
-
-The token behind `CLOUDFLARE_ZONE_TOKEN` needs:
-
-- `Zone:Read`
-- `Zone Settings:Edit`
-- `DNS:Edit`
-- `Single Redirect:Edit`
-
-## Manual Fallback
+Cloudflare stores and runs these redirects. Change them in the dashboard.
+The former repository apply command has been retired; [domain operations](../../ops/README.md)
+documents the shared security baseline and read-only `bun run cf:audit:remote`
+command. The audit does not check or provision redirect rules.
 
 In Cloudflare, configure redirects on the zone that receives the old traffic, not on the destination zone.
 
@@ -79,7 +54,7 @@ For `whispering.studio`:
 (http.host eq "whispering.studio" or http.host eq "www.whispering.studio")
 ```
 
-For old subdomains like `whispering.bradenwong.com` and `whispering.epicenterhq.com`, add redirect rules in the parent zones (`bradenwong.com` and `epicenterhq.com`). If those zones are not in this Cloudflare account, configure the same 301 at their DNS/hosting provider instead. To manage them from `ops/cf/apply.ts`, first add those parent zones to the script's `ZONES` list, then add matching entries to `REDIRECTS`.
+For old subdomains like `whispering.bradenwong.com` and `whispering.epicenterhq.com`, add redirect rules in the parent zones (`bradenwong.com` and `epicenterhq.com`). If those zones are not in this Cloudflare account, configure the same 301 at their DNS/hosting provider instead.
 
 ## Verification
 
@@ -95,3 +70,9 @@ curl -I https://whispering.epicenterhq.com
 ```
 
 Each response should be `301` with a `Location` header pointing at the expected Epicenter URL.
+
+On October 1, 2026, `getwhispering.com` and `whispering.studio`, including
+their `www` hosts, returned 301 to `https://epicenter.so/whispering` over both
+HTTP and HTTPS. A request to `/about?retirement_check=1` also returned that
+fixed destination, discarding the source path and query. These legacy rules
+differ from the product aliases in ADR 0472, which retain paths and queries.

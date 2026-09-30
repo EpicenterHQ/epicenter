@@ -19,9 +19,17 @@ hosting domain.
 ## Decision
 
 **Epicenter's canonical product address is `https://epicenter.so`.**
-`epicenter.software` is a redirect-only alias. Its root and `www` redirect to
-HTTPS on `epicenter.so` with a permanent 301, retaining the path and query string.
-The alias hosts no separate product or account system.
+The following domains are aliases for the canonical product address:
+
+| Domain | Web behavior | Email behavior |
+| --- | --- | --- |
+| `epicenter.software` | Root and `www` redirect to `https://epicenter.so` | Unchanged |
+| `epicenter.md` | Root and `www` redirect to `https://epicenter.so` | Existing email DNS is preserved |
+| `getepicenter.com` | Root and `www` redirect to `https://epicenter.so` | Existing email routing and DNS are preserved |
+
+Each alias returns a permanent 301 over HTTP and HTTPS, retaining the path and
+query string. The aliases host no separate product or account system. A web
+redirect does not retire a domain's email use.
 
 **A separate product domain needs a distinct product identity.** A feature name
 or a possible future app is insufficient. `music.epicenter.so` is a possible
@@ -43,12 +51,21 @@ Links and product metadata use `epicenter.so`. Redirect aliases preserve old or
 alternate entry points without creating another product to maintain. Renewal
 choices follow actual product use rather than speculative feature categories.
 
-As of September 30, 2026, `epicenter.software` is registered and its root and
-`www` redirects have been verified over HTTP and HTTPS. Cloudflare terminates
-TLS and runs the redirect; its proxied DNS records use the documented
-`192.0.2.1` placeholder. Auto-renewal for `epicenter.audio` is disabled; its
-current registration expires July 11, 2027. These are operational observations,
-not promises that every other registration should be retired.
+As of October 1, 2026, all three aliases have verified root and `www` redirects
+over HTTP and HTTPS, including path and query preservation. Cloudflare
+terminates TLS and runs the redirects. The web DNS records are proxied;
+redirect-only A records use the documented `192.0.2.1` placeholder.
+`epicenter.md` retains its existing proxied root CNAME. The redirect setup
+preserved existing email records on `epicenter.md` and `getepicenter.com`.
+
+Cloudflare's dashboard owns the alias rules. The repository's
+[domain audit](../../ops/README.md) checks selected zone settings and public
+email records without changing them. It does not provision redirects or
+promise automatic repair. Operators verify redirects after intentional changes.
+
+Auto-renewal for `epicenter.audio` is disabled; its current registration expires
+July 11, 2027. These are operational observations, not promises that every other
+registration should be retired.
 
 ## Considered alternatives
 

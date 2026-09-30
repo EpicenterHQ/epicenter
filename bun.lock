@@ -590,9 +590,6 @@
     },
     "ops": {
       "name": "@epicenter/ops",
-      "dependencies": {
-        "@epicenter/constants": "workspace:*",
-      },
       "devDependencies": {
         "@types/bun": "catalog:",
         "typescript": "catalog:",

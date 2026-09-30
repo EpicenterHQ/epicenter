@@ -176,8 +176,7 @@
 		"bump-version": "bun run scripts/bump-version.ts",
 		"clean": "bun run scripts/clean.ts",
 		"nuke": "bun run scripts/clean.ts --nuke",
-		"cf:plan:remote": "bun run --cwd ops cf:plan:remote",
-		"cf:apply:remote": "bun run --cwd ops cf:apply:remote",
+		"cf:audit:remote": "bun run --cwd ops cf:audit:remote",
 		"jsrepo:build": "jsrepo build"
 	},
 	"devDependencies": {
