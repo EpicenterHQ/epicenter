@@ -70,6 +70,11 @@ const document = unwrap(await openDocument(id));
 contract, not a sign the failure was unexpected. Guard on `error !== null`
 instead when this function must recover, add context, or clean up.
 
+A conceptual sketch is the one exception: `unwrap` may stand in for Result
+branches that do not change the behavior being explained. Say that the sketch
+throws on failure, and show the branch whenever a failure changes that
+behavior, such as keeping an unsaved draft after a save conflict.
+
 ## Consume Every Possible Err Branch
 
 - If a value can be `Result<T, E>`, inspect or deliberately forward its error branch.
