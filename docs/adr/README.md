@@ -593,7 +593,7 @@ Two habits make the link hard to forget:
 | [0332](0332-sign-in-migration-child-doc-guids-are-derived-from-the-schema.md) | Sign-in migration child-doc guids are derived from the schema | Accepted |
 | [0333](0333-privacy-and-processing-owns-each-pipeline-stages-destination.md) | The Privacy & Processing surface owns each pipeline stage's destination | Accepted |
 | [0334](0334-a-deployed-app-is-a-trusted-app-because-deploying-it-was-the-consent.md) | A deployed app is a trusted app, because deploying it was the consent | Accepted (unbuilt; supersedes 0305; amends 0326 at its third-party clauses) |
-| [0335](0335-a-person-is-an-origin-and-an-app-is-a-path-under-it.md) | A person is an origin, and an app is a path under it | Accepted (unbuilt; amends 0326 at its web deployment line) |
+| [0335](0335-a-person-is-an-origin-and-an-app-is-a-path-under-it.md) | A person is an origin, and an app is a path under it | Accepted (unbuilt; amends 0326; proposed hosting amendment at 0473) |
 | [0336](0336-an-authority-mints-every-generation-so-every-store-has-an-account.md) | An authority mints every generation, so every store has an account | Accepted (supersedes 0233 and 0279; amends 0324, 0293, and 0262) |
 | [0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) | The folder is a working copy, and pull and push are the whole cycle | Accepted (unbuilt; amends 0271, 0289, and 0329: the continuous render and the watcher go, pull and push replace them) |
 | [0342](0342-sign-in-is-the-door-to-keeping-not-to-using.md) | Sign-in is the door to keeping, not to using | Rejected 2026-09-06 (never built; unauthenticated states block interaction rather than offering an ephemeral session) |
@@ -722,5 +722,7 @@ When you add an ADR, add its row here.
 | [0467](0467-interrupted-file-operations-use-operation-specific-recovery-choices.md) | Interrupted file operations use operation-specific recovery choices | Proposed (retained operations and resolution unbuilt) |
 | [0468](0468-every-completed-app-save-has-a-recoverable-git-revision.md) | Every completed app save has a recoverable Git revision | Proposed (automatic history and completion unbuilt) |
 | [0469](0469-generated-commit-messages-describe-known-app-operations.md) | Generated commit messages describe known app operations | Proposed (message generation and metadata unbuilt) |
-| [0470](0470-epicenter-helps-people-make-software-that-is-unmistakably-theirs.md) | Epicenter helps people make software that is unmistakably theirs | Proposed (product articulation; public adoption and independent browser folder access unbuilt) |
+| [0470](0470-epicenter-helps-people-make-software-that-is-unmistakably-theirs.md) | Epicenter helps people make software that is unmistakably theirs | Proposed (product articulation; independent browser folder access unbuilt) |
 | [0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md) | A data folder handle exposes tables, KV, and files | Proposed (file-backed handle and migrated callers unbuilt) |
+| [0472](0472-epicenter-so-is-canonical-and-product-domains-need-a-distinct-identity.md) | Epicenter.so is canonical, and product domains need a distinct identity | Proposed |
+| [0473](0473-personal-app-hosting-keeps-addresses-separate-from-data-identity.md) | Personal app hosting keeps addresses separate from data identity | Proposed |

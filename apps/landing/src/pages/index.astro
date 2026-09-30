@@ -5,56 +5,8 @@ import * as Card from '@epicenter/ui/card';
 import {
 	ArrowRight as ArrowRightIcon,
 	Check as CheckIcon,
-	Code as CodeIcon,
-	FolderOpen as FolderOpenIcon,
-	GitFork as GitForkIcon,
-	HardDrive as HardDriveIcon,
-	Link2 as Link2Icon,
-	Rocket as RocketIcon,
-	Sparkles as SparklesIcon,
-	Zap as ZapIcon,
 } from '@lucide/astro';
-import PrinciplesRotatingHeadline from '../components/PrinciplesRotatingHeadline.svelte';
 import BaseLayout from '../layouts/BaseLayout.astro';
-
-const userPrinciples = [
-	{
-		icon: HardDriveIcon,
-		title: 'Own your data',
-		description:
-			'Everything lives as files on your disk. Delete the app, keep your work.',
-	},
-	{
-		icon: SparklesIcon,
-		title: 'Use any model',
-		description: 'OpenAI, Anthropic, local LLMs. Your choice, your API key.',
-	},
-	{
-		icon: Link2Icon,
-		title: 'Preserve authenticity',
-		description: 'No middleman. Direct connection to your tools and models.',
-	},
-];
-
-const developerPrinciples = [
-	{
-		icon: CodeIcon,
-		title: 'Free and open source',
-		description: 'Audit the code. Fork it. Make it yours.',
-	},
-	{
-		icon: ZapIcon,
-		title: 'Blazing fast',
-		description:
-			'Built with Rust, Svelte 5, and obsessive performance optimization.',
-	},
-	{
-		icon: RocketIcon,
-		title: "Built on tomorrow's stack",
-		description:
-			'CRDTs, local-first architecture, and the bleeding edge of web tech.',
-	},
-];
 
 const tools = [
 	{
@@ -62,7 +14,11 @@ const tools = [
 		name: 'Whispering',
 		description:
 			'Fast, minimal transcription that works with local and cloud models',
-		features: ['Choose your model', 'No subscriptions', 'Plain text output'],
+		features: [
+			'Choose your provider',
+			'Record and transcribe',
+			'Copy your transcript',
+		],
 		githubUrl:
 			'https://github.com/EpicenterHQ/epicenter/tree/main/apps/whispering',
 		tryNowUrl: 'https://whispering.epicenter.so',
@@ -81,51 +37,11 @@ const tools = [
 		tryNowUrl: 'https://epicenter.sh',
 	},
 ];
-
-const ecosystem = [
-	{
-		name: 'Obsidian',
-		icon: '📝',
-		description: 'Edit your notes in your favorite knowledge management tool',
-	},
-	{
-		name: 'grep & ripgrep',
-		icon: '🔍',
-		description: 'Search your entire workspace with blazing fast Unix tools',
-	},
-	{
-		name: 'Git',
-		icon: '🔀',
-		description: 'Version control your ideas, notes, and transcriptions',
-	},
-	{
-		name: 'VS Code',
-		icon: '💻',
-		description: 'Open any file in your preferred code editor',
-	},
-	{
-		name: 'Claude & OpenCode',
-		icon: '🤖',
-		description:
-			'Supercharge your workflow with AI that understands your context',
-	},
-];
-
-const quickstartCodeHtml = `<span class="text-violet-400">import</span> { defineTable, field, plainText } <span class="text-violet-400">from</span> <span class="text-emerald-400">'@epicenter/app/definition'</span>
-
-<span class="text-violet-400">const</span> posts = <span class="text-amber-300">defineTable</span>({
-  title: field.<span class="text-amber-300">string</span>(),
-  published: field.<span class="text-amber-300">boolean</span>(),
-  content: <span class="text-amber-300">plainText</span>(),
-})
-
-<span class="text-violet-400">const</span> row = posts.<span class="text-amber-300">get</span>(id)
-row?.content`;
 ---
 
 <BaseLayout
-	title="Epicenter: Local-First, Open-Source Apps"
-	description="One folder of plain text and SQLite. Every tool shares this memory. Open source, local-first, self-hostable."
+	title="Epicenter: Make software that’s unmistakably yours"
+	description="Keep your data in Markdown and SQLite files you own. Use our apps, someone else’s, or build your own."
 >
 	<main class="bg-background">
 		<!-- Hero Section -->
@@ -141,15 +57,15 @@ row?.content`;
 					<h1
 						class="text-4xl md:text-5xl font-bold text-foreground tracking-tight leading-snug md:leading-snug mb-8"
 					>
-						Local-First, Open-Source Apps
+						Make software that’s unmistakably yours.
 					</h1>
 
 					<!-- Subheadline -->
 					<p
 						class="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed mb-12"
 					>
-						One folder of plain text and SQLite on your machine. Every tool we
-						build shares this memory. It's open, tweakable, and yours.
+						Keep your data in Markdown and SQLite files you own. Use our apps,
+						someone else’s, or build your own.
 					</p>
 
 					<!-- CTAs -->
@@ -184,7 +100,7 @@ row?.content`;
 						</div>
 						<div class="flex items-center gap-2 text-muted-foreground">
 							<CheckIcon class="w-4 h-4 text-success shrink-0" />
-							<span>Plain text & SQLite</span>
+							<span>Personal software</span>
 						</div>
 					</div>
 				</div>
@@ -201,14 +117,13 @@ row?.content`;
 						>Available now</Badge
 					>
 					<h2 class="text-3xl md:text-5xl font-bold text-foreground mb-6">
-						Tools that share your memory
+						Apps built on Epicenter
 					</h2>
 					<p
 						class="text-xl text-muted-foreground max-w-3xl mx-auto leading-relaxed"
 					>
-						Record a meeting in Whispering. Edit the transcript in Obsidian.
-						Query it with your AI. No copy-pasting, no exports. Your tools share
-						one memory.
+						Start with an app that does something useful for you. Explore its
+						source, change how it works, and make it fit your workflow.
 					</p>
 				</div>
 
@@ -279,378 +194,45 @@ row?.content`;
 						size="lg"
 						class="shadow-sm hover:shadow-md transition-all"
 					>
-						Get early access
+						Join the community
 						<ArrowRightIcon class="w-4 h-4" />
 					</Button>
 				</div>
 			</div>
 		</section>
 
-		<!-- Quick Start -->
+		<!-- Product direction -->
 		<section class="py-24 md:py-32">
 			<div class="max-w-4xl mx-auto px-6">
-				<div class="text-center mb-16">
-					<Badge variant="secondary" class="mb-6 px-4 py-1 text-sm"
-						>Quick Start</Badge
-					>
-					<h2 class="text-3xl md:text-5xl font-bold text-foreground mb-6">
-						From zero to workspace in 30 seconds
-					</h2>
-				</div>
-
-				<div class="space-y-4">
-					<div
-						class="rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden"
-					>
-						<div
-							class="flex items-center gap-2 px-4 py-3 border-b border-zinc-800"
-						>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<span class="ml-2 text-xs text-zinc-500 font-mono">terminal</span>
-						</div>
-						<pre
-							class="p-6 overflow-x-auto"
-						><code class="text-sm font-mono text-zinc-100"><span class="text-zinc-500">$</span> bun add @epicenter/app/store</code></pre>
-					</div>
-
-					<div
-						class="rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden"
-					>
-						<div
-							class="flex items-center gap-2 px-4 py-3 border-b border-zinc-800"
-						>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<span class="ml-2 text-xs text-zinc-500 font-mono">app.ts</span>
-						</div>
-						<pre
-							class="p-6 overflow-x-auto"
-						><code class="text-sm font-mono text-zinc-100" set:html={quickstartCodeHtml} /></pre>
-					</div>
-				</div>
-			</div>
-		</section>
-
-		<!-- Core Principles -->
-		<section class="py-24 md:py-32">
-			<div class="max-w-5xl mx-auto px-6">
-				<div class="text-center mb-20">
-					<Badge variant="outline" class="mb-6">Core Philosophy</Badge>
-					<PrinciplesRotatingHeadline client:load />
-					<p class="text-xl text-muted-foreground max-w-2xl mx-auto">
-						We believe your tools should amplify your thinking, not fragment it.
-					</p>
-				</div>
-
-				<div class="grid lg:grid-cols-2 gap-12">
-					<!-- User Principles -->
-					<div
-						class="group p-8 rounded-2xl bg-card border border-muted/50 hover:border-primary/20 hover:shadow-lg transition-all duration-300"
-					>
-						<h3
-							class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-8"
-						>
-							For you
-						</h3>
-						<div class="space-y-6">
-							{userPrinciples.map((principle) => (
-									<div class="flex items-start gap-4">
-									<div class="shrink-0 rounded-xl bg-primary/10 p-3 text-primary transition-colors group-hover:bg-primary/15">
-										<principle.icon class="h-5 w-5" />
-									</div>
-										<div>
-											<h4 class="mb-2 font-semibold text-lg transition-colors group-hover:text-primary">
-												{principle.title}
-											</h4>
-											<p class="text-muted-foreground text-sm leading-relaxed">
-												{principle.description}
-											</p>
-										</div>
-									</div>
-								))}
-						</div>
-					</div>
-
-					<!-- Developer Principles -->
-					<div
-						class="group p-8 rounded-2xl bg-card border border-muted/50 hover:border-primary/20 hover:shadow-lg transition-all duration-300"
-					>
-						<h3
-							class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-8"
-						>
-							For developers
-						</h3>
-						<div class="space-y-6">
-							{developerPrinciples.map((principle) => (
-									<div class="flex items-start gap-4">
-									<div class="shrink-0 rounded-xl bg-primary/10 p-3 text-primary transition-colors group-hover:bg-primary/15">
-										<principle.icon class="h-5 w-5" />
-									</div>
-										<div>
-											<h4 class="mb-2 font-semibold text-lg transition-colors group-hover:text-primary">
-												{principle.title}
-											</h4>
-											<p class="text-muted-foreground text-sm leading-relaxed">
-												{principle.description}
-											</p>
-										</div>
-									</div>
-								))}
-						</div>
-					</div>
-				</div>
-			</div>
-		</section>
-
-		<!-- Architecture -->
-		<section class="py-24 relative">
-			<div class="max-w-7xl mx-auto px-6">
-				<div class="text-center mb-12">
-					<h2 class="text-3xl md:text-5xl font-bold text-foreground mb-6">
-						Built different from the ground up
-					</h2>
-					<p class="text-xl text-muted-foreground max-w-2xl mx-auto">
-						One architecture, endless possibilities
-					</p>
-				</div>
-
-				<div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
-					<!-- One Folder Card -->
-					<div
-						class="group p-8 rounded-2xl bg-card border border-muted/50 hover:border-primary/20 hover:shadow-lg transition-all duration-300"
-					>
-						<div class="flex items-start gap-4">
-							<div
-								class="shrink-0 rounded-xl bg-primary/10 p-3 text-primary transition-colors group-hover:bg-primary/15"
-							>
-								<FolderOpenIcon class="h-6 w-6" />
-							</div>
-							<div>
-								<h3 class="text-xl font-bold text-foreground mb-3">
-									One folder. All your data.
-								</h3>
-								<p class="text-muted-foreground leading-relaxed">
-									Everything lives in a single directory on your machine. Plain
-									text files and SQLite databases you actually own.
-								</p>
-							</div>
-						</div>
-					</div>
-
-					<!-- Local-first Card -->
-					<div
-						class="group p-8 rounded-2xl bg-card border border-muted/50 hover:border-primary/20 hover:shadow-lg transition-all duration-300"
-					>
-						<div class="flex items-start gap-4">
-							<div
-								class="p-3 rounded-xl bg-primary/10 text-primary group-hover:bg-primary/15 transition-colors shrink-0"
-							>
-								<HardDriveIcon class="w-6 h-6" />
-							</div>
-							<div>
-								<h3 class="text-xl font-bold text-foreground mb-3">
-									Local-first by default
-								</h3>
-								<p class="text-muted-foreground leading-relaxed">
-									Your transcripts, notes, and ideas never leave your machine
-									unless you want them to. No cloud lock-in.
-								</p>
-							</div>
-						</div>
-					</div>
-
-					<!-- Works with Everything Card -->
-					<div
-						class="group p-8 rounded-2xl bg-card border border-muted/50 hover:border-primary/20 hover:shadow-lg transition-all duration-300 md:col-span-2 lg:col-span-1"
-					>
-						<div class="flex items-start gap-4">
-							<div
-								class="p-3 rounded-xl bg-primary/10 text-primary group-hover:bg-primary/15 transition-colors shrink-0"
-							>
-								<GitForkIcon class="w-6 h-6" />
-							</div>
-							<div>
-								<h3 class="text-xl font-bold text-foreground mb-3">
-									Works with tools you already use
-								</h3>
-								<p class="text-muted-foreground leading-relaxed">
-									Because everything is plain text and SQLite, your entire
-									workspace is compatible with the tools you already love.
-								</p>
-							</div>
-						</div>
-					</div>
-				</div>
-			</div>
-		</section>
-
-		<!-- Ecosystem Section -->
-		<section
-			class="py-24 bg-gradient-to-b from-muted/5 via-background to-muted/5"
-		>
-			<div class="max-w-7xl mx-auto px-6">
-				<div class="text-center mb-16">
-					<Badge variant="outline" class="mb-6">Ecosystem</Badge>
-					<h2 class="text-3xl md:text-5xl font-bold text-foreground mb-6">
-						Infinite workflows, zero lock-in
-					</h2>
-					<p class="text-xl text-muted-foreground max-w-3xl mx-auto">
-						Your workspace plays nicely with the tools you already love. Edit in
-						VS Code, search with grep, version control with Git.
-					</p>
-				</div>
-
-				<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
-					{ecosystem.map((tool) => (
-							<div class="group cursor-default rounded-xl border border-muted/50 bg-card p-6 transition-all duration-300 hover:shadow-lg">
-								<div class="flex items-start gap-4">
-									<div class="shrink-0 text-4xl transition-transform duration-300 group-hover:scale-110">
-										{tool.icon}
-									</div>
-									<div>
-										<h3 class="mb-2 font-semibold text-foreground text-lg transition-colors group-hover:text-primary">
-											{tool.name}
-										</h3>
-										<p class="text-muted-foreground text-sm leading-relaxed">
-											{tool.description}
-										</p>
-									</div>
-								</div>
-							</div>
-						))}
-
-					<!-- Custom Tool Card -->
-					<div
-						class="group p-6 rounded-xl bg-card border border-muted/50 hover:shadow-lg transition-all duration-300 cursor-default"
-					>
-						<div class="flex items-start gap-4">
-							<div
-								class="text-4xl group-hover:scale-110 transition-transform duration-300 shrink-0"
-							>
-								✨
-							</div>
-							<div>
-								<h3
-									class="text-lg font-semibold text-foreground mb-2 group-hover:text-primary transition-colors"
-								>
-									Your favorite tool
-								</h3>
-								<p class="text-sm text-muted-foreground leading-relaxed">
-									Plain text and SQLite mean your tools work too. No proprietary
-									formats.
-								</p>
-							</div>
-						</div>
-					</div>
-				</div>
-			</div>
-		</section>
-
-		<!-- FAQ -->
-		<section class="py-24 md:py-32">
-			<div class="max-w-4xl mx-auto px-6">
-				<div class="text-center mb-16">
-					<h2 class="text-3xl md:text-5xl font-bold text-foreground mb-6">
-						Frequently asked questions
-					</h2>
-				</div>
-
-				<div class="space-y-6">
-					<div class="p-8 rounded-2xl bg-card border border-muted/50">
-						<h3 class="text-lg font-semibold text-foreground mb-3">
-							How is this different from Obsidian?
-						</h3>
-						<p class="text-muted-foreground leading-relaxed">
-							Obsidian is a Markdown editor with sync. Epicenter is a
-							local-first storage substrate: multiple apps share the same
-							CRDT-backed data folder. Your notes, transcripts, and chat
-							histories all live together and sync conflict-free.
-						</p>
-					</div>
-
-					<div class="p-8 rounded-2xl bg-card border border-muted/50">
-						<h3 class="text-lg font-semibold text-foreground mb-3">
-							Is my data encrypted?
-						</h3>
-						<p class="text-muted-foreground leading-relaxed">
-							Epicenter Cloud doesn't encrypt your workspace data. The sync
-							server is a trusted relay that reads plaintext, which is what
-							makes server-side search and AI work. If you want a server that
-							can't read your data, self-host it: then the only machine holding
-							it is yours. You can also run entirely offline.
-						</p>
-					</div>
-
-					<div class="p-8 rounded-2xl bg-card border border-muted/50">
-						<h3 class="text-lg font-semibold text-foreground mb-3">
-							Can I self-host?
-						</h3>
-						<p class="text-muted-foreground leading-relaxed">
-							Yes. The sync server is open source and runs on Cloudflare Workers
-							or any WebSocket-compatible host. You can also run entirely
-							offline; sync is optional.
-						</p>
-					</div>
-
-					<div class="p-8 rounded-2xl bg-card border border-muted/50">
-						<h3 class="text-lg font-semibold text-foreground mb-3">
-							What happens if I stop using Epicenter?
-						</h3>
-						<p class="text-muted-foreground leading-relaxed">
-							Your data is plain text and SQLite files on your disk. Open them
-							with any text editor, query them with any SQLite tool. No export
-							needed; the files are the product.
-						</p>
-					</div>
-				</div>
-			</div>
-		</section>
-
-		<!-- Vision -->
-		<section
-			class="py-24 md:py-32 bg-gradient-to-b from-background via-muted/10 to-background"
-		>
-			<div class="max-w-4xl mx-auto px-6 text-center">
-				<h2 class="text-3xl md:text-5xl font-bold text-foreground mb-12">
-					Software for people who think
+				<Badge variant="secondary" class="mb-6">What we're building</Badge>
+				<h2 class="text-3xl md:text-5xl font-bold text-foreground mb-6">
+					Change your apps. Keep your data.
 				</h2>
 				<div class="space-y-6 text-lg text-muted-foreground leading-relaxed">
 					<p>
-						We're building an alternative to apps that fragment your thinking
-						across a dozen cloud services. Epicenter is for people who read
-						deeply, write to think, and build to understand.
+						A coding agent can help you make a tool for your own workflow. We’re
+						building the foundation that lets you redesign or replace that tool
+						while keeping the files you’ve saved.
 					</p>
 					<p>
-						Every tool is open source. Your data stays in plain files you
-						control. Choose your own models, host your own services, or run
-						everything locally.
+						Compatible apps will be able to work with the same data folder.
+						Publishing an app will let other people use it with their own data.
+						Your files stay yours when you change the software around them.
 					</p>
-					<p class="text-xl text-foreground font-semibold mt-12">
-						Join us in building tools that amplify human agency.
+					<p>
+						Hosted personal homes, free app addresses, and custom domains are
+						planned. They aren’t available yet. Publishing an app won’t make its
+						users’ data public.
 					</p>
 				</div>
-
-				<div class="mt-16 flex flex-col sm:flex-row gap-4 justify-center">
-					<Button
-						href="https://github.com/EpicenterHQ/epicenter"
-						size="lg"
-						class="shadow-sm hover:shadow-md transition-all"
-					>
-						Contribute on GitHub
-						<ArrowRightIcon class="w-4 h-4" />
-					</Button>
-					<Button
-						href="https://go.epicenter.so/discord"
-						variant="outline"
-						size="lg"
-						class="hover:bg-muted/50 transition-all"
-					>
-						Join our Discord
-					</Button>
-				</div>
+				<Button
+					href="https://github.com/EpicenterHQ/epicenter"
+					variant="outline"
+					class="mt-8"
+				>
+					Follow the development
+					<ArrowRightIcon class="w-4 h-4" />
+				</Button>
 			</div>
 		</section>
 

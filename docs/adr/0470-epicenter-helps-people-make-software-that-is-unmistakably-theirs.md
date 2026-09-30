@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-30
 - **Relates:** [Independent applications](0449-epicenter-connects-independent-applications-through-personal-data.md), [file authority](0450-current-files-own-portable-document-data.md), [SQLite storage roles](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md), and [publisher identity](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md).
-- **Unbuilt:** adoption of this positioning in public materials, the file-authoritative application foundation, and access to personal data folders from independently published browser apps.
+- **Unbuilt:** the file-authoritative application foundation and access to personal data folders from independently published browser apps.
 
 ## Context
 
@@ -58,6 +58,11 @@ permissions, and deployment mechanisms need their own contracts and evidence
 before public materials describe them as available features.
 
 ## Consequences
+
+The landing page adopts this headline and supporting copy. Its development
+section labels shared data folders, hosted personal homes, free app addresses,
+and custom domains as planned. Available application links remain separate
+from those promises.
 
 Public explanations connect the ease of creating software to the need for its
 data to last. The first product proof follows a person building an app with a
