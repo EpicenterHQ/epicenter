@@ -722,7 +722,7 @@ When you add an ADR, add its row here.
 | [0467](0467-interrupted-file-operations-use-operation-specific-recovery-choices.md) | Interrupted file operations use operation-specific recovery choices | Proposed (retained operations and resolution unbuilt) |
 | [0468](0468-every-completed-app-save-has-a-recoverable-git-revision.md) | Every completed app save has a recoverable Git revision | Proposed (automatic history and completion unbuilt) |
 | [0469](0469-generated-commit-messages-describe-known-app-operations.md) | Generated commit messages describe known app operations | Proposed (message generation and metadata unbuilt) |
-| [0470](0470-epicenter-helps-people-make-software-that-is-unmistakably-theirs.md) | Epicenter helps people make software that is unmistakably theirs | Proposed (product articulation; independent browser folder access unbuilt) |
+| [0470](0470-epicenter-helps-people-make-software-that-is-unmistakably-theirs.md) | Epicenter helps people make software that is unmistakably theirs | Proposed (product articulation; public adoption and independent browser folder access unbuilt) |
 | [0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md) | A data folder handle exposes tables, KV, and files | Proposed (file-backed handle and migrated callers unbuilt) |
 | [0472](0472-epicenter-so-is-canonical-and-product-domains-need-a-distinct-identity.md) | Epicenter.so is canonical, and product domains need a distinct identity | Proposed |
 | [0473](0473-personal-app-hosting-keeps-addresses-separate-from-data-identity.md) | Personal app hosting keeps addresses separate from data identity | Proposed |
