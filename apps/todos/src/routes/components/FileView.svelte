@@ -7,7 +7,7 @@
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import FileIcon from '@lucide/svelte/icons/file';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { basename, dirname, fileKind, formatSize, withFileNewlines } from '$lib/files.js';
+	import { basename, dirname, withFileNewlines } from '$lib/files.js';
 	import type { OpenFile, Todos } from '$lib/todos.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 	import FileNameBar from './FileNameBar.svelte';
@@ -26,7 +26,17 @@
 		onBack?: () => void;
 	} = $props();
 
+	const name = $derived(basename(path));
 	const directory = $derived(dirname(path));
+
+	/** A file shown as details: its extension names the type, then its size. */
+	function details(size: number) {
+		const dot = name.lastIndexOf('.');
+		const kind = dot > 0 ? `${name.slice(dot + 1).toUpperCase()} file` : 'File';
+		if (size < 1024) return `${kind} · ${size} ${size === 1 ? 'byte' : 'bytes'}`;
+		if (size < 1024 * 1024) return `${kind} · ${(size / 1024).toFixed(1)} KB`;
+		return `${kind} · ${(size / (1024 * 1024)).toFixed(1)} MB`;
+	}
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="File">
@@ -38,7 +48,7 @@
 		{/if}
 		<FileIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
 		<div class="min-w-0 flex-1">
-			<h2 class="truncate text-sm font-medium">{basename(path)}</h2>
+			<h2 class="truncate text-sm font-medium">{name}</h2>
 			<p class="truncate font-mono text-xs text-muted-foreground">{path}</p>
 		</div>
 		<Button variant="ghost" size="icon-sm" tooltip="Copy path" aria-label="Copy path" onclick={() => void copyPath(path)}>
@@ -47,7 +57,7 @@
 	</div>
 
 	{#if file.kind === 'loading'}
-		<Loading class="flex-1" label="Opening {basename(path)}…" />
+		<Loading class="flex-1" label="Opening {name}…" />
 	{:else if file.kind === 'failed'}
 		<Empty.Root class="flex-1">
 			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
@@ -62,7 +72,7 @@
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
 				value={editor.buffer}
-				aria-label="Contents of {basename(path)}"
+				aria-label="Contents of {name}"
 				spellcheck={false}
 				oninput={(event) => editor.input(withFileNewlines(event.currentTarget.value, editor.buffer))}
 			/>
@@ -70,7 +80,7 @@
 	{:else}
 		<Empty.Root class="flex-1">
 			<Empty.Media><FileIcon class="size-8 text-muted-foreground" /></Empty.Media>
-			<Empty.Title>{fileKind(path)} · {formatSize(file.size)}</Empty.Title>
+			<Empty.Title>{details(file.size)}</Empty.Title>
 			<Empty.Description>
 				{file.kind === 'binary'
 					? 'This file is not text, so it is listed here but not opened for editing.'
@@ -82,8 +92,8 @@
 
 	<FileNameBar
 		prefix={directory === '' ? '' : `${directory}/`}
-		name={basename(path)}
-		onRename={(name) => todos.rename(path, name)}
+		{name}
+		onRename={(next) => todos.rename(path, next)}
 		onDelete={() => void confirmDelete(todos, path)}
 	/>
 </section>

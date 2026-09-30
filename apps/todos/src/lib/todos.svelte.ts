@@ -99,6 +99,18 @@ export function createTodos(folder: TodosFolder) {
 	const todoEditors = new SvelteMap<string, TodoEditor>();
 	const openFiles = new SvelteMap<string, OpenFile>();
 	const rowPaths = $derived(new Set(entries.map((entry) => entry.path)));
+	const selection = $derived.by((): Selection | undefined => {
+		if (selectedPath === undefined) return undefined;
+		const editor = todoEditors.get(selectedPath);
+		if (editor !== undefined)
+			return {
+				kind: 'todo',
+				editor,
+				entry: entries.find((entry) => entry.path === selectedPath),
+			};
+		const file = openFiles.get(selectedPath);
+		return file && { kind: 'file', path: selectedPath, file };
+	});
 	const terminal = createTerminalSession(
 		createFolderTerminal(folder),
 		refreshAll,
@@ -325,17 +337,8 @@ export function createTodos(folder: TodosFolder) {
 		get selectedPath() {
 			return selectedPath;
 		},
-		get selection(): Selection | undefined {
-			if (selectedPath === undefined) return undefined;
-			const editor = todoEditors.get(selectedPath);
-			if (editor !== undefined)
-				return {
-					kind: 'todo',
-					editor,
-					entry: entries.find((entry) => entry.path === selectedPath),
-				};
-			const file = openFiles.get(selectedPath);
-			return file && { kind: 'file', path: selectedPath, file };
+		get selection() {
+			return selection;
 		},
 		isTodo(path: string) {
 			return rowPaths.has(path);

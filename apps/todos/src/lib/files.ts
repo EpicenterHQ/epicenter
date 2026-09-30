@@ -169,35 +169,3 @@ export async function readTextFile(
 export function withFileNewlines(text: string, reference: string): string {
 	return reference.includes('\r\n') ? text.replace(/\r?\n/g, '\r\n') : text;
 }
-
-const KINDS: Record<string, string> = {
-	md: 'Markdown',
-	txt: 'Plain text',
-	json: 'JSON',
-	yaml: 'YAML',
-	yml: 'YAML',
-	csv: 'CSV',
-	png: 'PNG image',
-	jpg: 'JPEG image',
-	jpeg: 'JPEG image',
-	gif: 'GIF image',
-	webp: 'WebP image',
-	svg: 'SVG image',
-	pdf: 'PDF document',
-	zip: 'ZIP archive',
-};
-
-/** A short, human file type from the name alone. */
-export function fileKind(path: string): string {
-	const name = basename(path);
-	const dot = name.lastIndexOf('.');
-	if (dot <= 0) return name.startsWith('.') ? 'Settings file' : 'File';
-	const extension = name.slice(dot + 1).toLowerCase();
-	return KINDS[extension] ?? `${extension.toUpperCase()} file`;
-}
-
-export function formatSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} ${bytes === 1 ? 'byte' : 'bytes'}`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
