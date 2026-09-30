@@ -27,7 +27,7 @@ at any cost is the job.
 If you are already the delegated reviewer, perform the review yourself and
 launch no child agents. The following setup belongs to the coordinating agent.
 
-The coordinating agent appoints one fresh read-only `gpt-6-astra` subagent with
+The coordinating agent appoints one fresh read-only `gpt-6.1-sol` subagent with
 `fork_turns: "none"` and `reasoning_effort: "high"`, and one read-only Claude
 Opus reviewer through [consult-claude](../consult-claude/SKILL.md). Explicit
 user choices override this default. Ordinary final checks remain local under
