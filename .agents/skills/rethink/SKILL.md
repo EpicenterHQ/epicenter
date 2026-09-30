@@ -1,6 +1,13 @@
 ---
 name: rethink
-description: Pursue the best possible version of a system, API, or abstraction, develop the vision through dialectic, and work backward to make it real. Use when the user asks for greenfield thinking, radical options, a clean break, first-principles design, or says the current abstraction feels wrong.
+description: >
+  Use when the user asks whether there is a better or simpler way,
+  wants to zoom out, questions why existing concepts or boundaries
+  exist, or asks for rethink, redesign, greenfield thinking, first
+  principles, radical alternatives, or a clean break. Also use when
+  repeated complexity suggests the current ownership, lifecycle,
+  representation, or API contract should be reconsidered. Skip routine
+  fixes and local changes within a settled design.
 ---
 
 # Rethink
