@@ -37,6 +37,24 @@ notes/
   attachment-ownership.md
 ```
 
+**Table lookup uses the complete file stem without `.md`; raw file access uses
+the literal folder-relative path.** A file stem is the filename without its
+final extension: `interview.take.md` has stem `interview.take`. The `id` in a
+table entry is that derived stem, not a separately stored identifier or lookup
+registry. The table supplies its directory and the fixed `.md` extension.
+
+```ts
+// File-backed folder handle; implementation remains unbuilt.
+await folder.tables.recordings.get('interview');
+await folder.files.read('recordings/interview.md');
+```
+
+`get` does not strip a supplied extension or accept a path as an alias. A stem
+spelled `interview.md` addresses `interview.md.md`, not `interview.md`. Links and
+raw file operations retain exact paths including extensions. Table selection
+and reference fields scoped to a table use stems. [ADR-0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md)
+places both views under the same folder handle.
+
 **A title is an editable field and changing it does not change the ID.** Apps
 can show titles in lists, search results, and file pickers while retaining exact
 paths underneath. Whether an application allows a readable ID at creation is

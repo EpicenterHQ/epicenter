@@ -723,3 +723,4 @@ When you add an ADR, add its row here.
 | [0468](0468-every-completed-app-save-has-a-recoverable-git-revision.md) | Every completed app save has a recoverable Git revision | Proposed (automatic history and completion unbuilt) |
 | [0469](0469-generated-commit-messages-describe-known-app-operations.md) | Generated commit messages describe known app operations | Proposed (message generation and metadata unbuilt) |
 | [0470](0470-epicenter-helps-people-make-software-that-is-unmistakably-theirs.md) | Epicenter helps people make software that is unmistakably theirs | Proposed (product articulation; public adoption and independent browser folder access unbuilt) |
+| [0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md) | A data folder handle exposes tables, KV, and files | Proposed (file-backed handle and migrated callers unbuilt) |

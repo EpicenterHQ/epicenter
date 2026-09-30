@@ -19,12 +19,27 @@ the Yjs read contract.
 
 ## Decision
 
+Table methods live under `folder.tables.<table>` alongside literal-path access
+through `folder.files`, as specified in
+[ADR-0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md).
+`get(id)` takes the filename stem under
+[ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md):
+`folder.tables.recordings.get('interview')` reads `recordings/interview.md`.
+An entry's `id` is derived from that filename, while its `path` includes the
+table directory and `.md`. Neither is an authored frontmatter field.
+
 **`list()` and `get(id)` return the same source-backed entry shape for a readable
 Markdown file, whether or not its declared fields conform.** Every entry carries
 its path. An entry has no ID when its filename cannot supply a valid one;
-`list()` still returns it for path-based selection and source repair. If two
-files claim one ID, `list()` returns both with an identity issue on each entry,
-and `get(id)` refuses to choose one.
+`list()` still returns it for path-based selection and source repair. Removing
+the exact lowercase `.md` suffix yields the complete literal stem. No case
+folding, Unicode normalization, or filename alias maps distinct files to one
+ID. Exact stems therefore need no duplicate-ID inventory or resolution API.
+Case-sensitive filesystems can contain `Interview.md` and `interview.md` as
+distinct rows; a destination that cannot represent both refuses the collision.
+Lookup verifies literal directory-entry spelling rather than inheriting a
+case-insensitive filesystem's aliases. A file ending in `.MD` is preserved by
+raw file access, but is neither a `.md` row nor an owned attachment.
 `get(id)` returns `undefined` only when no file claims that ID. A present file
 that cannot be fully interpreted remains an entry with exact `source` and
 conformance issues. An I/O failure to read the file is an operation failure,
@@ -38,9 +53,14 @@ an empty table.
 valid ID, `issues: undefined`, complete `fields`, and a body. The invalid
 variant has a nonempty `issues` array, an ID only if its filename yields one,
 only independently validated declared fields, and a body when its boundary can
-be identified. Invalid filenames and duplicate IDs contribute issues even
+be identified. Invalid filenames and ambiguous attachments contribute issues even
 when every declared field validates. Both variants keep the unmodified source
 for repair.
+
+Unknown frontmatter keys are preserved in `source` and do not contribute
+conformance issues merely because the current declaration omits them. Several
+same-stem attachment candidates contribute an attachment issue and leave
+`attachment` undefined; the entry does not choose one.
 
 **An entry is one immutable observation of its row file.** Its `source` and
 `version` come from the same captured bytes. `version` is content identity:
@@ -51,8 +71,11 @@ checks the current file because another writer may have changed it.
 An entry is already a snapshot. An editor calls the entry it last accepted its
 baseline; that role adds no wrapper or second value type. `fields` and `body`
 are interpretations of `source`, not independently saved data. The optional
-`attachment` is a captured path and version for the one unambiguous owned
-sibling; it does not promise that those bytes remain current or available.
+`attachment` is the folder-relative path of the one unambiguous owned sibling.
+Listing or reading a row does not hash its media. The path does not promise
+that its bytes remain current or available. `files.open(path)` captures media
+bytes and their version together under ADR-0466; a workflow retains that opened
+reference for input admission or a later conditional `files.open(ref)`.
 
 ```ts
 type FileRef = {
@@ -64,7 +87,7 @@ type Entry<TFields> = {
   readonly path: string;
   readonly version: FileRef['version'];
   readonly source: string;
-  readonly attachment: FileRef | undefined;
+  readonly attachment: string | undefined;
 } & (
   | {
       readonly id: string;
@@ -91,10 +114,20 @@ if (entry.issues !== undefined) {
 }
 ```
 
+`get` returns `Promise<Result<Entry<TFields> | undefined, ReadError>>`; the
+operation error variants remain unbuilt. Absence is the successful result's
+`undefined`, not a validation failure. `list` reads the same entry variants;
+the carrier for individually unreadable paths remains an implementation gate.
+
+`issues` is `undefined` or a nonempty array, never `null` or `[]`.
 `issues: undefined` means the property value is the discriminant. It does not
 promise that the key is absent from the JavaScript object. The producer returns
 a nonempty issue list whenever the entry is invalid, so callers never have to
 infer validity from an empty array.
+Serialization may omit an undefined key; callers check its value rather than
+the physical presence of the key. Entries and file references are plain captured
+data, not resource handles. Their source and diagnostics remain readable after
+the folder closes; further operations through that folder refuse.
 
 Exact UTF-8 source includes a leading byte-order mark when one was present.
 Decoding and re-encoding an unchanged `source` must reproduce the captured
@@ -111,9 +144,9 @@ access preserves the bytes. It must never become an editable empty string.
 - Callers retain one entry as the baseline and replace it only with an
   accepted save result or a deliberately adopted read. A newer read cannot
   silently authorize overwriting source while the editor has unsaved input.
-- Duplicate IDs remain distinct entries by path in `list()`. ID-based actions
-  refuse the ambiguity until the files are repaired. An invalid filename is
-  selected by path because it has no row ID.
+- Literal stems give each row one address without ID normalization or duplicate
+  identity repair. An invalid filename is selected by path because it has no
+  usable row ID. Destination filesystem collisions remain publication checks.
 - Callers migrating from the Yjs `get(id)` contract distinguish an absent ID,
   an operational refusal, and a present entry whose action inputs are unusable.
   Honeycrisp selection needs a path-based source repair route; Whispering audio

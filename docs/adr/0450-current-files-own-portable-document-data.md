@@ -45,7 +45,7 @@ Work from authoritative files toward application views:
 
 1. Establish path-based reading and enumeration independently of definitions.
    Opening must preserve invalid YAML, unknown fields, unsupported Markdown,
-   duplicate IDs, and orphaned attachments. Ambiguity remains inspectable by path.
+   invalid filename spellings, and orphaned attachments. Ambiguity remains inspectable by path.
 2. Define source-preserving edits and row/attachment publication with explicit
    interruption recovery. Route app edits, browser shell writes, and sync adoption
    through the same path boundary. Typed edits refuse source they cannot safely
