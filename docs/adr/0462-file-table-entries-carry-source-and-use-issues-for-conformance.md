@@ -73,19 +73,14 @@ baseline; that role adds no wrapper or second value type. `fields` and `body`
 are interpretations of `source`, not independently saved data. The optional
 `attachment` is the folder-relative path of the one unambiguous owned sibling.
 Listing or reading a row does not hash its media. The path does not promise
-that its bytes remain current or available. `files.open(path)` captures media
-bytes and their version together under ADR-0466; a workflow retains that opened
-reference for input admission or a later conditional `files.open(ref)`.
+that its bytes remain current or available. `files.open(path)` supplies stable
+media bytes under ADR-0466 without requiring a hash or returning a media version.
+The workflow consumes those bytes independently of later changes to the row.
 
 ```ts
-type FileRef = {
-  readonly path: string;
-  readonly version: { readonly sha256: string; readonly size: number };
-};
-
 type Entry<TFields> = {
   readonly path: string;
-  readonly version: FileRef['version'];
+  readonly version: { readonly sha256: string; readonly size: number };
   readonly source: string;
   readonly attachment: string | undefined;
 } & (

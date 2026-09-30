@@ -31,7 +31,7 @@ const audioResult = await folder.files.open('recordings/interview.opus');
 | --- | --- |
 | `tables.<name>` | Interpret that table's Markdown rows. `list` and `get` return captured entries; `update` and `writeSource` submit edits against an entry. |
 | `kv` | Interpret declared root settings saved in `kv.json`. |
-| `files` | Enumerate literal paths and read bytes, including uninterpreted files and attachments. `open` captures version-matched media under ADR-0466. Managed writes use the same file boundary as table and KV edits. |
+| `files` | Enumerate literal paths and read bytes, including uninterpreted files and attachments. `open(path)` supplies stable media bytes without a media version under ADR-0466. Managed writes use the same file boundary as table and KV edits. |
 | `git` | Observe history and outgoing synchronization status; explicitly refresh it and request commit-and-push attempts. |
 | `signal`, `close()` | Expose the folder owner's lifetime. Closing fences its borrowed views and preserves saved files. |
 
@@ -106,8 +106,8 @@ Definitions, owners, entries, and opened content have different roles:
 | --- | --- |
 | `defineStore(...)` / `defineTable(...)` | Inert schema declarations; acquire no resources and need no close. |
 | Opened folder | Owns acquired file access, borrowed table/KV/file views, and Git attempt/status coordination; exposes `signal` and `close`. |
-| Table entry / `FileRef` | Captured source or address/version data; no methods, signal, or close. |
-| Opened media | Bytes and version captured together. A temporary native capture needs a consumption and cleanup boundary under ADR-0466. |
+| Table entry | Captured Markdown source, interpretation, and version for conditional writes; no methods, signal, or close. |
+| Opened media | Stable bytes for consumption, with no required content hash or media version. A temporary native capture needs a consumption and cleanup boundary under ADR-0466. |
 
 `table.get` and `table.list` return observations, not live documents.
 `table.update` and `table.writeSource` receive an observation and return the

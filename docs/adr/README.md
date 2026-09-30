@@ -718,7 +718,7 @@ When you add an ADR, add its row here.
 | [0463](0463-a-data-folder-exposes-a-generated-root-sqlite-index.md) | A data folder exposes a generated root SQLite index | Proposed (query generator and public folder publication unbuilt) |
 | [0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) | File table updates conditionally replace the captured whole file | Proposed (file-backed table saves unbuilt) |
 | [0465](0465-editors-keep-unsaved-source-separate-from-the-saved-baseline.md) | Editors keep unsaved source separate from the saved baseline | Proposed (file-backed editor lifecycle unbuilt) |
-| [0466](0466-opened-file-content-matches-its-captured-version.md) | Opened file content matches its captured version | Proposed (pinned file reads unbuilt) |
+| [0466](0466-opened-media-provides-stable-input-bytes.md) | Opened media provides stable input bytes | Proposed (stable media reads and transcription migration unbuilt) |
 | [0467](0467-interrupted-file-operations-report-partial-results.md) | Interrupted file operations report partial results | Proposed (retained operations and resolution unbuilt) |
 | [0468](0468-file-saves-succeed-independently-of-automatic-commits.md) | File saves succeed independently of automatic commits | Proposed (best-effort commits and sync UX unbuilt) |
 | [0469](0469-generated-commit-messages-describe-known-app-operations.md) | Generated commit messages describe known app operations | Proposed (message generation and metadata unbuilt) |
