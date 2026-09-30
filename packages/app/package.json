@@ -23,7 +23,10 @@
 		"./data": "./src/data/open.ts",
 		"./testing": "./src/testing.ts",
 		"./blobs": "./src/blobs.ts",
-		"./secrets": "./src/secrets.ts"
+		"./secrets": "./src/secrets.ts",
+		"./files": "./src/files/index.ts",
+		"./files/native": "./src/files/native.ts",
+		"./files/terminal": "./src/files/terminal.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.data.json && tsc --noEmit -p tsconfig.data.dom.json && tsc --noEmit -p evidence/data/browser/durable-store/tsconfig.json && tsc --noEmit -p evidence/data/browser/write-cost/tsconfig.json && tsc --noEmit -p evidence/data/browser/port-cost/tsconfig.json && tsc --noEmit -p evidence/data/app-ownership/tsconfig.json",
@@ -50,7 +53,13 @@
 		"@epicenter/sync": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",
 		"@y/y": "14.0.0-rc.26",
-		"typebox": "catalog:"
+		"typebox": "catalog:",
+		"buffer": "^6.0.3",
+		"diff": "^8.0.4",
+		"ignore": "^7.0.5",
+		"isomorphic-git": "1.38.5",
+		"just-bash": "3.4.2",
+		"yaml": "catalog:"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",

@@ -60,6 +60,143 @@ produce a typed row does not erase those bytes. See
 [the file-authority direction](../../docs/adr/0450-current-files-own-portable-document-data.md).
 The current stores documented here still use Yjs and own their acquired
 resources. Naming the target does not change their persistence or lifetime.
+[File folders](#file-folders) are a separate, explicit entry for data moved to
+the file-first model; they do not change these stores.
+
+## File folders
+
+`@epicenter/app/files` opens a folder whose current files are the saved data.
+There is no Yjs document behind it. The same `defineStore` declaration supplies
+table fields. Declarations the file implementation cannot honor are refused at
+open rather than ignored: a Yjs body codec (the body is Markdown text) and
+reference fields (rename repairs no references). `openBrowserFolder` stores files, empty directories, and
+private Git state in one IndexedDB database; `openNativeFolder` from
+`@epicenter/app/files/native` opens an explicit directory and its `.git`. The
+browser entry imports no Node or Bun module.
+
+```ts
+import { openBrowserFolder } from '@epicenter/app/files';
+
+const folder = await openBrowserFolder({
+  id: 'so.epicenter.todos',
+  definition,
+  git: {
+    author: { name: 'Todos', email: 'todos@localhost' },
+    remote: { url: `${location.origin}/git/todos.git`, branch: 'main' },
+    // commitOnEdit: false for manual history; the default is true.
+  },
+});
+
+const listed = await folder.tables.todos.list(); // { entries, unreadable }
+const created = await folder.tables.todos.create({ fields: { title: 'Milk', done: false } });
+const done = await folder.tables.todos.update(created.data!, { fields: { done: true } });
+await folder.tables.todos.writeSource(done.data!, repairedMarkdown);
+folder.git.subscribe((snapshot) => render(snapshot));
+await folder.git.commitAndPush();
+await folder.close();
+```
+
+| Member | Contract |
+| --- | --- |
+| `tables.<name>` | Rows at `<name>/<stem>.md`. An entry carries its path, exact `source`, `version` (SHA-256 and size of those bytes), fields, body, `issues`, and zero or one owned same-stem `attachment`. `get(stem)` returns `undefined` only for absence. `list()` keeps invalid readable rows as entries and reports undecodable files in `unreadable`. `create` is exclusive. `update`, `writeSource`, `rename`, and `delete` receive a captured entry and refuse if the file changed. |
+| `kv` | Root `kv.json`, read and conditionally replaced like an entry. |
+| `files` | Literal paths. `write(path, bytes, { expected })` takes a version, `'absent'`, or `'any'` (a deliberate overwrite) and copies the bytes before it returns to the caller. `open(path)` returns stable bytes. Raw writes never request commits. |
+| `git` | A shared status snapshot, `status()`, `commit()`, `commitAndPush()`, `push()`, `fetch()`, `pullFastForward()`, and terminal-level `paths()`, `stage()`, `commitStaged(message)`, `diff()`, `log()`. |
+| `signal`, `close()` | Closing fences new work and immediately cancels queued pushes and fetches and aborts the active transport. It then waits for admitted file operations, local commit passes, explicit Git operations (status, staging, a staged commit and its refresh, diff, log), and the cancelled transport to settle before releasing storage. |
+
+`update` patches the captured source: it replaces only the touched frontmatter
+value spans or appends new keys, and refuses rather than rewriting YAML it
+cannot patch safely. Comments, quoting, key order, a byte-order mark, and CRLF
+line endings survive. `writeSource` writes the supplied text exactly, so
+invalid frontmatter can be saved and repaired. Frontmatter that parses but
+cannot be converted (an unresolved or circular alias, or alias expansion past
+the limit) is a frontmatter issue on a readable entry, and `update` refuses it.
+`patchSource` and `readSource`
+are exported for editors that keep their own buffer (ADR-0465).
+
+A save returns once its files are published. With `commitOnEdit`, a table or
+KV save then requests a background commit: one active pass and one pending
+pass, no timer. Inside the Git lock, a pass pins the branch head, then captures
+every source file, writes blobs and trees, writes a commit on that head with a
+subject derived from the tree difference (ADR-0469), and moves the branch only
+with a compare-and-swap. A pass that waited while a pull changed files and the
+branch therefore captures the pulled files; it cannot commit an older capture
+over them. A moved branch is reported and not retried.
+
+Only a pass that a managed save requested pushes afterward, through an
+independent runner that pushes the exact commit it pinned. `commit()` stays
+local. `commitAndPush()` always commits and then pushes, awaiting the push its
+pass started when requests coalesced. Commit and push failures never undo a
+save.
+
+Source files are tracked files plus untracked files that `.gitignore` does not
+exclude; the root generated `index.sqlite3` and private Git state never are.
+Status, commits, and incoming fast-forwards share this rule. The browser reads
+`.gitignore` files from the folder; a native folder asks `git check-ignore`,
+which also applies `.git/info/exclude` and the user's excludes file.
+
+The shared index is not used to build a commit. Afterward, every index entry
+that differs from the head is reset to it with real Git index commands,
+including staged-only additions and deletions: a whole-folder checkpoint
+supersedes staged-only intent. A pass with nothing new to commit still repairs
+the index. If the index is locked after the branch moved, the outcome keeps the
+commit and reports `indexWarning`; the next pass, such as an explicit commit
+and push, retries. The saved-files observation is refreshed only when the
+branch still names the committed head; otherwise it is marked stale and a scan
+runs.
+
+A caller `signal` on `commitAndPush`, `push`, or `fetch` only stops that
+caller waiting (`stoppedWaiting`). Passes are shared, so the transport keeps
+running; closing the folder is what aborts it.
+
+Incoming changes are explicit: `fetch()` records the remote head, and
+`pullFastForward()` applies it only when the whole folder, including staged
+changes, is clean and the update is a fast-forward. Ignored and untracked files
+are left alone; an incoming path that would overwrite one is refused as a
+`Collision` before anything is written. The browser publishes the
+files, index, and branch in one IndexedDB transaction. A native folder applies
+ordered file steps, updates the index with `git reset`, and moves the branch
+last; a failure reports the steps that completed.
+
+A pull whose files landed but whose index or branch step failed
+(`Partial`, `IndexFailed`, or `BranchMoved` with files applied) marks the
+saved-files observation stale and requests a fresh scan; it requests no commit.
+
+Native index and ref mutations use the `git` CLI, whose lock files other Git
+processes respect; isomorphic-git writes only immutable objects there. Native
+version checks are best effort against other programs. Multi-file native
+operations report `Partial` results instead of rolling back, including a move
+whose destination landed but whose source could not be removed. A partial
+table rename or delete marks observations stale without requesting a commit.
+
+A native whole-folder commit or fast-forward writes every file as plain
+`100644` bytes without attribute filters, so it is refused, before any branch
+or index change, in a repository it would misrepresent: tracked or untracked
+(not ignored) symbolic links, executables, or other special files; submodules;
+nested `.git` data; `core.autocrlf`; or `text`, `eol`, `crlf`, `filter`,
+`ident`, or `working-tree-encoding` attributes on a source file. Reads, raw file
+writes, and explicit native Git through `stage` and `commitStaged` still work.
+Git LFS is not supported.
+
+Table rows are files directly in the table directory. `get` refuses a stem
+containing a path separator, and entry operations refuse a nested path such as
+`todos/a/b.md`. A row whose external filename violates the stem rules stays
+listable and editable. Rename and delete refuse when the current same-stem
+attachments differ from the one the entry captured.
+
+`@epicenter/app/files/terminal` runs a just-bash shell over a folder. The shell
+reads and writes the same files, and its `git` command supports `status`,
+`diff [--cached]`, `log`, `add`, `commit -m`, `push`, `fetch`, and
+`pull --ff-only`. Its browser bundle references `node:zlib` for gzip commands
+the terminal does not enable; the application aliases that module (see
+`apps/todos/vite.config.ts`). The browser entry installs a `Buffer` global from
+the `buffer` package for isomorphic-git; bundlers should alias `buffer` to the
+same package for its dependencies.
+
+Current limits: rename moves the row and attachment but repairs no references
+(so reference fields are refused); `kv.update` rewrites `kv.json` whitespace;
+browser bytes are stored as `Uint8Array` records, and every commit or status
+check reads the whole folder.
 
 ## Resource constructors
 

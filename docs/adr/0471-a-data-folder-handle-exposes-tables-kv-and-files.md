@@ -3,7 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-09-30
 - **Relates:** [ADR-0450](0450-current-files-own-portable-document-data.md) defines authoritative current files; [ADR-0456](0456-a-markdown-row-owns-at-most-one-same-stem-attachment.md) defines attachment ownership; [ADR-0430](0430-define-store-declares-data-and-products-compose-resources.md) separates stores from product composition.
-- **Unbuilt:** the file-backed folder handle, raw file access, Git status and commands, and migrated table/KV callers.
+- **Implementation:** browser/native folder handles, tables, KV, raw files, shared Git status and commands, and the Todos caller.
+- **Unbuilt:** migration of released table/KV callers, generated query indexes, and media/LFS integration.
 
 ## Context
 
@@ -35,19 +36,19 @@ const audioResult = await folder.files.open('recordings/interview.opus');
 | `git` | Observe history and outgoing synchronization status; explicitly refresh it and request commit-and-push attempts. |
 | `signal`, `close()` | Expose the folder owner's lifetime. Closing fences its borrowed views and preserves saved files. |
 
-The proposed open options may include `git: { commitOnEdit: false }` under
+The open options include `git: { commitOnEdit: false }` under
 ADR-0468; omission defaults to automatic attempts. This immutable runtime policy
 belongs to the opened owner and is not saved in the folder. It controls implicit
-requests from that handle, not other writers. No commit debounce duration or
-constructor name is settled. The opt-out remains unbuilt until its first manual
-workflow needs it.
+requests from that handle, not other writers. No commit debounce duration is
+introduced. The experimental constructors are `openBrowserFolder` and
+`openNativeFolder`; the native Todos CLI exercises the manual policy.
 
 **The folder owns one observed Git status snapshot and delivers it to every
 subscriber.** Files and Git hold durable facts; this snapshot caches the latest
 observations and current attempt activity. It is not another durable store.
 
 ```ts
-// Target API. Exact result types remain unbuilt.
+// Current API. See the package README for constructors and result types.
 const unsubscribe = folder.git.subscribe(snapshot => {
   gitState = snapshot;
 });
@@ -89,9 +90,9 @@ committing.
 
 `commitAndPush()` awaits the outgoing attempt and reports its separate commit
 and upload/push outcomes under ADR-0468. It does not save editor drafts or adopt
-incoming changes. An explicit incoming Sync action belongs in this namespace
-when its merge and adoption contract is settled; this record does not introduce
-an implemented `sync()` method or permission to merge automatically.
+incoming changes. `git.fetch()` and `git.pullFastForward()` implement the
+explicit clean fast-forward contract in ADR-0474. There is no `sync()` method
+or permission to merge automatically.
 
 **Closing aborts the owner's signal and fences new operations immediately, then
 settles admitted storage work and cleans acquired resources asynchronously.**

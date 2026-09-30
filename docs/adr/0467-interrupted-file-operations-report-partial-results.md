@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-30
-- **Unbuilt:** released file-backed operation results and partial-operation presentation.
+- **Implementation:** ordered native partial results, including interrupted moves, in the experimental file folder.
+- **Unbuilt:** released application presentation and recovery for multi-file failures.
 
 ## Context
 

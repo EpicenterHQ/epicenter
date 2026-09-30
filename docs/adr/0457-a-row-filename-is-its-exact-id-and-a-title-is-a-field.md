@@ -3,7 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-09-30
 - **Relates:** [ADR-0456](0456-a-markdown-row-owns-at-most-one-same-stem-attachment.md) defines the same-stem row and attachment pair.
-- **Unbuilt:** filename interpretation, creation policy, and scoped rename in file-authoritative application tables.
+- **Implementation:** filename-based rows and byte-preserving row/attachment rename in the experimental file folder and Todos demo.
+- **Unbuilt:** scoped reference repair and migration of released application tables.
 
 ## Context
 
@@ -53,7 +54,7 @@ extension, and `path` for the location including its directories:
 | Folder-relative path | `recordings/interview.take.md` |
 
 ```ts
-// File-backed folder handle; implementation remains unbuilt.
+// File-backed folder handle; see @epicenter/app/files.
 await folder.tables.recordings.get('interview');
 await folder.files.read('recordings/interview.md');
 ```
@@ -126,8 +127,9 @@ and [isomorphic-git statusMatrix](https://isomorphic-git.org/docs/en/statusMatri
 
 A direct filesystem rename is observed as the disappearance of the old stem and
 appearance of the new stem. It does not invoke automatic reference repair, and
-an attachment left at the old stem remains preserved source. The public API
-name and implementation of rename remain unbuilt.
+an attachment left at the old stem remains preserved source. The experimental
+API exposes `table.rename(entry, nextStem)`. Declared reference fields are
+refused when opening a folder until scoped reference repair is supported.
 
 Externally written files remain inspectable when their names violate the
 convention. Invalid names do not authorize rewriting or deletion. Source and

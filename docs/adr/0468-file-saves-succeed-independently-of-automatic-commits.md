@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-30
-- **Unbuilt:** automatic commit attempts, actionable history status, and production Git LFS storage in Cloudflare R2.
+- **Implementation:** independent saves, eager automatic commit attempts, independent pushes, and actionable history status in Todos.
+- **Unbuilt:** released application integration and production Git LFS storage in Cloudflare R2.
 
 ## Context
 
@@ -58,8 +59,10 @@ still work; explicit `git.commitAndPush()` remains available. An importer or CLI
 can save several files and then request one explicit attempt. The option is
 runtime configuration, not authored folder data or a global editing mode.
 Another enabled handle or external Git tool can still commit those files.
-No mutable toggle, scoped suspension, or timing option is introduced. Implement
-the opt-out with its first manual workflow; the constructor remains unbuilt.
+No mutable toggle, scoped suspension, or timing option is introduced. The native
+Todos CLI opens with automatic commits disabled and explicitly commits and
+pushes its completed changes. `git.commit()` attempts only the local commit;
+`git.commitAndPush()` explicitly requests both stages.
 
 Outgoing work has an independent runner with one active attempt and one pending
 request. Each attempt captures the commit it will push; a later pass reads the

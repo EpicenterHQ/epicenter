@@ -726,3 +726,4 @@ When you add an ADR, add its row here.
 | [0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md) | A data folder handle exposes tables, KV, files, and Git | Proposed (file-backed handle, Git status/commands, and migrated callers unbuilt) |
 | [0472](0472-epicenter-so-is-canonical-and-product-domains-need-a-distinct-identity.md) | Epicenter.so is canonical, and product domains need a distinct identity | Proposed |
 | [0473](0473-personal-app-hosting-keeps-addresses-separate-from-data-identity.md) | Personal app hosting keeps addresses separate from data identity | Proposed |
+| [0474](0474-incoming-file-folder-sync-is-an-explicit-clean-fast-forward.md) | Incoming file-folder sync is an explicit clean fast-forward | Proposed (Todos implementation in progress) |

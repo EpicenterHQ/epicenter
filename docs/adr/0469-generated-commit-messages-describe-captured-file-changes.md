@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-30
-- **Unbuilt:** deterministic message generation from captured Git trees for file-backed history.
+- **Implementation:** tree-derived subjects for real browser and native commits in the file-folder demo.
+- **Unbuilt:** released application adoption of the generated-message policy.
 
 ## Context
 

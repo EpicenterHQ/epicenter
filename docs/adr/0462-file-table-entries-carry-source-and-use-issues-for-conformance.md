@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-29
-- **Unbuilt:** the file-backed table read API, captured file versions, and its application callers.
+- **Implementation:** source-backed entries, captured versions, readable malformed rows, and issue reporting in `@epicenter/app/files` and Todos.
+- **Unbuilt:** migration of released applications to file-backed table reads.
 
 ## Context
 
@@ -109,10 +110,11 @@ if (entry.issues !== undefined) {
 }
 ```
 
-`get` returns `Promise<Result<Entry<TFields> | undefined, ReadError>>`; the
-operation error variants remain unbuilt. Absence is the successful result's
-`undefined`, not a validation failure. `list` reads the same entry variants;
-the carrier for individually unreadable paths remains an implementation gate.
+`get` returns a Result containing an entry or `undefined`, with typed file and
+table read failures. Absence is the successful result's `undefined`, not a
+validation failure. `list` returns `{ entries, unreadable }`; individually
+unreadable paths carry their read failure and do not hide readable entries.
+The package README and `FileTable` type name the current error variants.
 
 `issues` is `undefined` or a nonempty array, never `null` or `[]`.
 `issues: undefined` means the property value is the discriminant. It does not

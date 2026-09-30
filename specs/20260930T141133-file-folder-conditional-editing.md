@@ -1,7 +1,7 @@
 # File-folder editing and best-effort Git history
 
 **Date:** 2026-09-30
-**Status:** Draft
+**Status:** In Progress
 **Owner:** Braden Wong
 
 ## One sentence
@@ -11,8 +11,9 @@ uncommitted changes independently of file-save success.
 
 ## Current state and evidence
 
-Release applications still use Yjs-backed `@epicenter/app` stores. Target table
-methods are proposed, not current exports. The retained `codex/file-foundation`
+Release applications still use Yjs-backed `@epicenter/app` stores. The Todos
+demo uses the experimental `@epicenter/app/files` exports described below.
+Recording integration remains unbuilt. The retained `codex/file-foundation`
 prototype at `60dd4e8f92` demonstrates file editing, Git/LFS, browser/native
 interruption handling, and independent recovery exports. Its evidence lives in
 `packages/data/evidence/file-foundation/` in that checkout. These are inspected
@@ -34,7 +35,32 @@ contract. Port only mechanisms needed by the chosen outcome.
 | Tree-derived automatic subjects | [Messages](../docs/adr/0469-generated-commit-messages-describe-captured-file-changes.md) |
 | One folder handle and shared Git status | [Folder API](../docs/adr/0471-a-data-folder-handle-exposes-tables-kv-and-files.md) |
 
-## First note
+## Todos end-to-end implementation
+
+Build the file-backed API in `packages/app` under explicit `/files`,
+`/files/native`, and `/files/terminal` exports. Keep current Yjs callers working.
+Build `apps/todos` with `@epicenter/ui`, source editing, honest Git status, a
+Commit and push action, and a bottom just-bash terminal on the same files.
+
+Automatic commits capture portable current files, construct immutable Git
+objects, and advance the branch through a backend compare-and-swap. They do not
+need to mutate the shared staging index. Native terminal staging commands use
+native Git's index locking. Source updates preserve untouched Markdown bytes.
+
+Incoming adoption follows [the explicit clean fast-forward decision](../docs/adr/0474-incoming-file-folder-sync-is-an-explicit-clean-fast-forward.md).
+The loopback demo uses a real Git HTTP backend, bare remote, and native checkout.
+The demo does not require media/LFS or a generated SQLite query index.
+
+- [x] Create, edit, toggle, rename, delete, and repair malformed Todo source.
+- [x] Verify automatic commits and durable browser reload.
+- [x] Verify shell writes refresh the app and manual Git staging/commit works.
+- [x] Push browser commits to the real native checkout.
+- [x] Push a native commit and explicitly adopt it in the browser.
+- [x] Verify offline local saves/commits and honest outgoing failure.
+- [x] Verify stale-write and dirty/divergent incoming refusal preserves files.
+- [x] Run computer-use acceptance and align the public API documentation.
+
+## First file-backed note
 
 - [ ] Port the minimal browser/native file boundary into `packages/app` without
   recreating `packages/data`. Preserve malformed and unknown authored source.

@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-30
-- **Unbuilt:** the file-backed editor controller, shared source preparation, and conflict/disposal integration.
+- **Implementation:** the Todos editor buffer, saved baseline, source preparation, and explicit stale-write choices.
+- **Unbuilt:** migration of released application editors and recovery after tab or process loss.
 
 ## Context
 

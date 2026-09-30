@@ -89,6 +89,75 @@ for (const entrypoint of [
 	});
 }
 
+for (const entrypoint of ['files', 'files/terminal']) {
+	test(`${entrypoint} bundles for the browser without the native folder graph`, async () => {
+		const process = Bun.spawn(
+			[
+				Bun.which('bun')!,
+				'--eval',
+				`
+			const importers = new Set();
+			const imports = new Set();
+			const result = await Bun.build({
+				entrypoints: [Bun.resolveSync('@epicenter/app/${entrypoint}', process.cwd())],
+				target: 'browser',
+				plugins: [{
+					name: 'record-graph',
+					setup(build) {
+						build.onResolve({ filter: /^node:zlib$/ }, (args) => {
+							imports.add(args.path);
+							return { path: args.path, external: true };
+						});
+						build.onResolve({ filter: /.*/ }, (args) => {
+							importers.add(args.importer);
+							imports.add(args.path);
+							return undefined;
+						});
+					},
+				}],
+			});
+			if (!result.success) throw new AggregateError(result.logs);
+			console.log(JSON.stringify({ inputs: [...importers], imports: [...imports] }));
+			`,
+			],
+			{ cwd: packageRoot, stdout: 'pipe', stderr: 'pipe' },
+		);
+		const [code, stdout, stderr] = await Promise.all([
+			process.exited,
+			new Response(process.stdout).text(),
+			new Response(process.stderr).text(),
+		]);
+		expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
+		const { inputs, imports } = JSON.parse(stdout) as {
+			inputs: string[];
+			imports: string[];
+		};
+		expect(inputs.some((path) => path.includes('/src/files/'))).toBe(true);
+		expect(
+			inputs.filter((path) =>
+				/\/src\/files\/(?:native|native-store|git\/native-backend)\.ts$/.test(
+					path,
+				),
+			),
+		).toEqual([]);
+		// just-bash's browser bundle references node:zlib only for gzip commands the
+		// terminal does not enable; applications alias it (see apps/todos).
+		const allowed = entrypoint === 'files/terminal' ? ['node:zlib'] : [];
+		expect(
+			[
+				...new Set(
+					imports.filter(
+						(path) =>
+							path.startsWith('node:') ||
+							path === 'bun' ||
+							path.startsWith('bun:'),
+					),
+				),
+			].filter((path) => !allowed.includes(path)),
+		).toEqual([]);
+	});
+}
+
 for (const host of [false, true]) {
 	test(`explicit memory runtime opens without ${host ? 'host' : 'browser'} platform globals`, async () => {
 		const child = Bun.spawn(

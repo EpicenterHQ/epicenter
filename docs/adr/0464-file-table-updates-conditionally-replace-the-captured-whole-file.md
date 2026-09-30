@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-30
-- **Unbuilt:** the file-backed `update` and `writeSource` methods and their shared conditional publisher.
+- **Implementation:** conditional `update` and exact `writeSource` through the shared browser/native file boundary.
+- **Unbuilt:** migration of released editors and native integration beyond the demo.
 
 ## Context
 

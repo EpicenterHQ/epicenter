@@ -107,6 +107,10 @@ bindings that resource needs.
 5. If the app needs the hosted API in development, add a `dev:<app>` script at
    the repo root.
 
+[Todos](todos/README.md) is a development demo of file-first folders
+(`@epicenter/app/files`) rather than a Yjs store. `bun dev:todos` starts its UI
+with a loopback Git backend and needs no hosted API.
+
 Honeycrisp's [README](honeycrisp/README.md) is the notes application's worked
 example; [Local Mail's README](local-mail/README.md) explains its saved queries
 and Gmail cache. Epicenter owns the desktop host and Home session, not these
