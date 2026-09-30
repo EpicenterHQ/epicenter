@@ -17,9 +17,9 @@ versions, and checkpoints of partial external workflows are accepted costs.
 
 ## Decision
 
-**Files are saved data. After the file operation completes, a mutation requests
-an eager background Git commit and returns its accepted file result without
-waiting for history or network work.**
+**Files are saved data. By default, after the file operation completes, a
+mutation requests an eager background Git commit and returns its accepted file
+result without waiting for history or network work.**
 Commit failure does not turn that save into failure or restore the previous
 files. Typing remains in the editor until its save boundary; a keystroke does
 not itself require a commit.
@@ -40,6 +40,26 @@ that next pass rather than creating a job for every save. This coordination
 serializes this owner's Git attempts; it does not block file edits or serialize
 other processes. Coalescing can omit intermediate saves from history. Messages
 describe the source actually captured, not a list of supposedly isolated saves.
+
+**Coalescing is not a timed debounce.** If the runner is idle, a request starts
+work without waiting for a quiet period. If it is busy, requests share the next
+pass. This bounds the backlog, not commit frequency: fast Git can create one
+commit per save, while expensive discovery can run almost continuously during
+sustained editing. The history layer introduces no debounce duration or timer.
+Editors own their save boundaries and typing batches. Do not delay file saving
+solely to reduce Git work, because that enlarges the unsaved-input window.
+Production measurements must establish whether discovery or history volume
+needs further work; the scratch adapter does not establish a suitable cadence.
+
+**A proposed `git.commitOnEdit` open option defaults to `true` and is fixed for
+the opened owner's lifetime.** Setting it to `false` suppresses that handle's
+implicit commit and outgoing requests. File results and status invalidation
+still work; explicit `git.commitAndPush()` remains available. An importer or CLI
+can save several files and then request one explicit attempt. The option is
+runtime configuration, not authored folder data or a global editing mode.
+Another enabled handle or external Git tool can still commit those files.
+No mutable toggle, scoped suspension, or timing option is introduced. Implement
+the opt-out with its first manual workflow; the constructor remains unbuilt.
 
 Outgoing work has an independent runner with one active attempt and one pending
 request. Each attempt captures the commit it will push; a later pass reads the
@@ -85,9 +105,16 @@ A caller timing out does not prove the underlying work stopped. A running slot
 stays occupied until its work settles; a timeout cannot admit overlapping Git
 work. File storage, hooks, signing, and transports can delay completion. This
 decision promises neither a universal commit deadline nor that every backend
-can cancel an in-flight commit. Closing fences new requests and settles owned
-work under the folder's lifecycle; it cannot claim completion while work still
-uses acquired resources.
+can cancel an in-flight commit.
+
+Closing fences new requests and settles admitted local commit passes. It cancels
+all outgoing attempts that have not started, including already pending ones;
+commits finishing during close do not start automatic uploads or pushes. Active
+network work receives cancellation through the owner's signal and stays owned
+until it actually settles. An explicit command reports its local commit outcome
+and skipped or cancelled outgoing work separately. Close cannot claim completion
+while work still uses acquired resources, and has no universal duration bound.
+Saved files and local commits remain available for a later owner's attempt.
 
 The action does not save editor drafts or apply incoming remote changes.
 Remote adoption and merge semantics require their own explicit design. Saved,
@@ -117,6 +144,9 @@ keep their current implementation until deliberately migrated.
   attempt. Concurrent edits or failures can leave changes; an attempted push
   does not establish remote synchronization.
 - Ordinary saves need no pending-ref journal solely to complete history.
+- With automatic commits disabled, uncommitted source is an expected state;
+  local history and outgoing backup depend on an explicit action or another
+  writer. The shared snapshot exposes the immutable policy to consumers.
 - Agents need not commit before another writer can checkpoint their saved files.
   Uncommitted source is not a protected draft area.
 - Commits and their messages cannot promise that reverting a commit undoes only
@@ -156,6 +186,12 @@ concurrency, power-loss durability, or transport cancellation.
   delays would hold the file result even after the edit was accepted.
 - Watch arbitrary writers and schedule catch-up commits. Explicit app save and
   user action boundaries remove the need to infer when another writer finished.
+- Add a configurable trailing commit debounce. It introduces pending timers,
+  explicit bypass, close behavior, and a maximum wait to prevent continuous
+  editing from postponing history indefinitely. Eager coalescing keeps the
+  initial design free of that scheduling machinery.
+- Make every caller commit manually. It removes automatic runners but makes
+  ordinary users responsible for remembering history and outgoing backup.
 - Commit only app-attributed changes. It requires attribution and does not
   isolate edits when several writers change the same file.
 - Roll back saved files after commit failure. It discards a successful edit and

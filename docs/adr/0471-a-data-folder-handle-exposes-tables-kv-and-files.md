@@ -35,6 +35,13 @@ const audioResult = await folder.files.open('recordings/interview.opus');
 | `git` | Observe history and outgoing synchronization status; explicitly refresh it and request commit-and-push attempts. |
 | `signal`, `close()` | Expose the folder owner's lifetime. Closing fences its borrowed views and preserves saved files. |
 
+The proposed open options may include `git: { commitOnEdit: false }` under
+ADR-0468; omission defaults to automatic attempts. This immutable runtime policy
+belongs to the opened owner and is not saved in the folder. It controls implicit
+requests from that handle, not other writers. No commit debounce duration or
+constructor name is settled. The opt-out remains unbuilt until its first manual
+workflow needs it.
+
 **The folder owns one observed Git status snapshot and delivers it to every
 subscriber.** Files and Git hold durable facts; this snapshot caches the latest
 observations and current attempt activity. It is not another durable store.
@@ -65,7 +72,9 @@ false clean result. Failed inspection preserves prior observations, marks them
 stale, and exposes the failure.
 
 The snapshot distinguishes observed uncommitted changes, local and remote commit
-information, current activity, and last attempt outcomes. Observations carry
+information, current activity, last attempt outcomes, and immutable
+`commitOnEdit` policy. Consumers can distinguish manual mode from automatic
+history failure. Observations carry
 check times and freshness independently of activity. Starting a push does not
 refresh an old remote observation. Finishing a scan does not itself request
 another scan. Notifications can therefore update progress without repeatedly
@@ -97,8 +106,9 @@ The product owns workflow cancellation across independent resources. It can
 use the folder's signal to stop inference that depends on that folder; passing
 the signal does not make arbitrary external inference folder-owned work that
 `close()` must await. A separate caller signal can cancel one operation without
-closing the folder. Network push and commit cancellation remain part of their
-own lifecycle contract.
+closing the folder. ADR-0468 defines settlement of admitted local Git work,
+cancellation of outgoing attempts, and skipped pushes during close. Cancellation
+does not prove the underlying work has stopped or establish a close deadline.
 
 Definitions, owners, entries, and opened content have different roles:
 

@@ -721,7 +721,7 @@ When you add an ADR, add its row here.
 | [0466](0466-opened-media-provides-stable-input-bytes.md) | Opened media provides stable input bytes | Proposed (stable media reads and transcription migration unbuilt) |
 | [0467](0467-interrupted-file-operations-report-partial-results.md) | Interrupted file operations report partial results | Proposed (retained operations and resolution unbuilt) |
 | [0468](0468-file-saves-succeed-independently-of-automatic-commits.md) | File saves succeed independently of automatic commits | Proposed (best-effort commits and sync UX unbuilt) |
-| [0469](0469-generated-commit-messages-describe-known-app-operations.md) | Generated commit messages describe known app operations | Proposed (message generation and metadata unbuilt) |
+| [0469](0469-generated-commit-messages-describe-captured-file-changes.md) | Generated commit messages describe captured file changes | Proposed (tree-derived message generation unbuilt) |
 | [0470](0470-epicenter-helps-people-make-software-that-is-unmistakably-theirs.md) | Epicenter helps people make software that is unmistakably theirs | Proposed (product articulation; public adoption and independent browser folder access unbuilt) |
 | [0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md) | A data folder handle exposes tables, KV, files, and Git | Proposed (file-backed handle, Git status/commands, and migrated callers unbuilt) |
 | [0472](0472-epicenter-so-is-canonical-and-product-domains-need-a-distinct-identity.md) | Epicenter.so is canonical, and product domains need a distinct identity | Proposed |
