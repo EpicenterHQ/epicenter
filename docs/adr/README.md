@@ -719,10 +719,10 @@ When you add an ADR, add its row here.
 | [0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) | File table updates conditionally replace the captured whole file | Proposed (file-backed table saves unbuilt) |
 | [0465](0465-editors-keep-unsaved-source-separate-from-the-saved-baseline.md) | Editors keep unsaved source separate from the saved baseline | Proposed (file-backed editor lifecycle unbuilt) |
 | [0466](0466-opened-file-content-matches-its-captured-version.md) | Opened file content matches its captured version | Proposed (pinned file reads unbuilt) |
-| [0467](0467-interrupted-file-operations-use-operation-specific-recovery-choices.md) | Interrupted file operations use operation-specific recovery choices | Proposed (retained operations and resolution unbuilt) |
-| [0468](0468-every-completed-app-save-has-a-recoverable-git-revision.md) | Every completed app save has a recoverable Git revision | Proposed (automatic history and completion unbuilt) |
+| [0467](0467-interrupted-file-operations-report-partial-results.md) | Interrupted file operations report partial results | Proposed (retained operations and resolution unbuilt) |
+| [0468](0468-file-saves-succeed-independently-of-automatic-commits.md) | File saves succeed independently of automatic commits | Proposed (best-effort commits and sync UX unbuilt) |
 | [0469](0469-generated-commit-messages-describe-known-app-operations.md) | Generated commit messages describe known app operations | Proposed (message generation and metadata unbuilt) |
 | [0470](0470-epicenter-helps-people-make-software-that-is-unmistakably-theirs.md) | Epicenter helps people make software that is unmistakably theirs | Proposed (product articulation; public adoption and independent browser folder access unbuilt) |
-| [0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md) | A data folder handle exposes tables, KV, and files | Proposed (file-backed handle and migrated callers unbuilt) |
+| [0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md) | A data folder handle exposes tables, KV, files, and Git | Proposed (file-backed handle, Git status/commands, and migrated callers unbuilt) |
 | [0472](0472-epicenter-so-is-canonical-and-product-domains-need-a-distinct-identity.md) | Epicenter.so is canonical, and product domains need a distinct identity | Proposed |
 | [0473](0473-personal-app-hosting-keeps-addresses-separate-from-data-identity.md) | Personal app hosting keeps addresses separate from data identity | Proposed |

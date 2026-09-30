@@ -39,8 +39,9 @@ uses explicit byte repair rather than a text buffer.
 the returned entry advances the baseline, while input that arrived during the
 save stays in the editor and remains dirty. On conflict, the controller retains
 the baseline and input, pauses automatic saving, and offers the saved state for
-an explicit choice. An incomplete published save also retains input and pauses
-affected autosave until its operation is reconciled. A renewed save uses the
+an explicit choice. An uncertain file publication retains input for review.
+A failed Git commit does not pause autosave or prevent the file-save result
+from advancing the baseline. A renewed save uses the
 version actually reviewed and can conflict again. Reloading saved text is an
 explicit discard when input is dirty.
 
@@ -61,7 +62,8 @@ document registry, public `notes.open`, or universal `flushAll`. Git, shell,
 sync, and saved-file export do not flush arbitrary buffers. The editor batches
 typing before saving; there is no second Git checkpoint schedule. Explicit Save
 requests a captured generation through the same publisher as autosave. Success
-includes completed history. UI history grouping preserves the underlying commits.
+means file publication, independently of commit or push success. History status
+and the commit-and-push action operate on saved files and do not flush drafts.
 
 ## Consequences
 

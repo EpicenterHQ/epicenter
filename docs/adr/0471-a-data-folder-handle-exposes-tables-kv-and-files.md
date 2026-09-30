@@ -1,9 +1,9 @@
-# 0471. A data folder handle exposes tables, KV, and files
+# 0471. A data folder handle exposes tables, KV, files, and Git
 
 - **Status:** Proposed
 - **Date:** 2026-09-30
 - **Relates:** [ADR-0450](0450-current-files-own-portable-document-data.md) defines authoritative current files; [ADR-0456](0456-a-markdown-row-owns-at-most-one-same-stem-attachment.md) defines attachment ownership; [ADR-0430](0430-define-store-declares-data-and-products-compose-resources.md) separates stores from product composition.
-- **Unbuilt:** the file-backed folder handle, raw file access, and migrated table/KV callers.
+- **Unbuilt:** the file-backed folder handle, raw file access, Git status and commands, and migrated table/KV callers.
 
 ## Context
 
@@ -16,8 +16,8 @@ secrets despite those resources having independent owners.
 
 ## Decision
 
-**One opened data folder exposes `tables`, `kv`, and `files` over the same current
-logical file set.** `folder` below is a caller's variable, not a new constructor
+**One opened data folder exposes `tables`, `kv`, `files`, and `git` over the same
+current logical file set.** `folder` below is a caller's variable, not a new constructor
 or an aggregate application handle.
 
 ```ts
@@ -32,14 +32,64 @@ const audioResult = await folder.files.open('recordings/interview.opus');
 | `tables.<name>` | Interpret that table's Markdown rows. `list` and `get` return captured entries; `update` and `writeSource` submit edits against an entry. |
 | `kv` | Interpret declared root settings saved in `kv.json`. |
 | `files` | Enumerate literal paths and read bytes, including uninterpreted files and attachments. `open` captures version-matched media under ADR-0466. Managed writes use the same file boundary as table and KV edits. |
+| `git` | Observe history and outgoing synchronization status; explicitly refresh it and request commit-and-push attempts. |
 | `signal`, `close()` | Expose the folder owner's lifetime. Closing fences its borrowed views and preserves saved files. |
+
+**The folder owns one observed Git status snapshot and delivers it to every
+subscriber.** Files and Git hold durable facts; this snapshot caches the latest
+observations and current attempt activity. It is not another durable store.
+
+```ts
+// Target API. Exact result types remain unbuilt.
+const unsubscribe = folder.git.subscribe(snapshot => {
+  gitState = snapshot;
+});
+const statusResult = await folder.git.status();
+const attemptResult = await folder.git.commitAndPush({ signal });
+```
+
+`subscribe(callback)` calls the callback synchronously with the latest snapshot
+before returning an unsubscribe function, then delivers changed snapshots.
+Before the first successful check, observations are unknown, not clean or
+synchronized. A consumer can assign delivered snapshots to plain JavaScript
+state or Svelte state. No separate `.current` getter or consumer-owned refresh
+cache is required. Subscription does not itself request a scan or promise
+continuous detection of external edits.
+
+`status()` requests a fresh inspection, updates the shared snapshot, and returns
+the inspection result. The folder owns one active scan and one pending scan;
+requests during an active scan share the next scan so callers do not receive an
+observation taken before their request. Known changes invalidate affected
+observations. A superseded scan cannot overwrite newer observations with a
+false clean result. Failed inspection preserves prior observations, marks them
+stale, and exposes the failure.
+
+The snapshot distinguishes observed uncommitted changes, local and remote commit
+information, current activity, and last attempt outcomes. Observations carry
+check times and freshness independently of activity. Starting a push does not
+refresh an old remote observation. Finishing a scan does not itself request
+another scan. Notifications can therefore update progress without repeatedly
+walking every file or accessing the network.
+
+Open, focus, and explicit actions are refresh boundaries. Known saves and Git
+changes mark observations stale or update them from evidence the operation
+already obtained. External filesystem edits become visible on a later check;
+no mandatory watcher or periodic polling is introduced. Raw Git staging state
+is not an app editing draft: status uses the portable-source scope shared with
+committing.
+
+`commitAndPush()` awaits the outgoing attempt and reports its separate commit
+and upload/push outcomes under ADR-0468. It does not save editor drafts or adopt
+incoming changes. An explicit incoming Sync action belongs in this namespace
+when its merge and adoption contract is settled; this record does not introduce
+an implemented `sync()` method or permission to merge automatically.
 
 **Closing aborts the owner's signal and fences new operations immediately, then
 settles admitted storage work and cleans acquired resources asynchronously.**
 `signal` is a readonly `AbortSignal`; it reports retirement, not file changes,
 save success, or synchronization. `close(): Promise<void>` is terminal and
 idempotent: repeated calls share the same completion or cleanup failure.
-Retained table, KV, and file methods refuse new work once closing starts.
+Retained table, KV, file, and Git methods refuse new work once closing starts.
 Closing does not delete files, roll back published changes, or acquire a global
 writer lock. It reports the actual progress of admitted file operations.
 
@@ -55,7 +105,7 @@ Definitions, owners, entries, and opened content have different roles:
 | Object | Acquisition and lifetime |
 | --- | --- |
 | `defineStore(...)` / `defineTable(...)` | Inert schema declarations; acquire no resources and need no close. |
-| Opened folder | Owns the acquired file access and its borrowed table/KV views; exposes `signal` and `close`. |
+| Opened folder | Owns acquired file access, borrowed table/KV/file views, and Git attempt/status coordination; exposes `signal` and `close`. |
 | Table entry / `FileRef` | Captured source or address/version data; no methods, signal, or close. |
 | Opened media | Bytes and version captured together. A temporary native capture needs a consumption and cleanup boundary under ADR-0466. |
 
@@ -104,9 +154,9 @@ Recording, inference, secrets, and account transport remain independently
 composed product resources. This namespace decision does not replace current
 store-owned SQLite under ADR-0436 or settle its migration. The generated root
 `index.sqlite3` under ADR-0463 remains derived data. Constructor names, raw write
-signatures, creation and rename signatures, partial-result reporting, and the history
-namespace remain implementation decisions. Save and Git completion follow their
-own decisions, not the spelling of a path or the shape of this handle.
+signatures, creation and rename signatures, partial-result reporting, and exact
+Git result types remain implementation decisions. Save and Git completion follow
+their own decisions, not the spelling of a path or the shape of this handle.
 
 Opening validates acquisition, not every future file state. Each operation
 observes current source; there is no mandatory watcher or synchronous row cache.
@@ -116,7 +166,7 @@ files; portability and history inclusion are separate filters.
 
 The remaining method contracts are bounded work, not implied APIs: table
 creation/deletion/rename; raw enumeration and mutations; KV source, version,
-issue and repair results; media consumption cleanup; and history/sync status.
+issue and repair results; media consumption cleanup; and incoming synchronization.
 Yjs `body`, `watch`, and `transact` methods are not carried over by symmetry.
 The saved body is entry text, and native related-file operations may report
 partial progress.
@@ -132,6 +182,9 @@ partial progress.
 - External edits can leave ambiguous attachments or stale links. The folder
   preserves those files; supported app operations enforce their own admission
   checks and report partial results.
+- One shared status owner removes per-consumer scan coordination and stale
+  response guards. Cached status can be unknown or stale; subscription is not
+  proof that every external edit has been observed.
 
 ## Considered alternatives
 
@@ -145,3 +198,9 @@ partial progress.
 - Give every row an asset directory: supports arbitrary attachment names and
   cardinality, but adds a directory and asset-selection rules for the selected
   zero-or-one attachment contract.
+- Expose only three status flags. They cannot distinguish unknown observations,
+  stale checks, concurrent newer edits, and the commit a push actually attempted.
+- Poll Git status every few seconds. Full discovery can be expensive and adds
+  repeated work when nothing requested a fresh observation.
+- Give each UI consumer a refresh cache. It duplicates scan coordination and
+  makes stale-response handling every caller's responsibility.

@@ -34,7 +34,7 @@ captured version and replaces it only when they match. It checks any admitted
 domain requirements at that publication point. Success returns an entry for
 the exact accepted bytes, not a later reread. A pre-publication conflict writes
 nothing and does not mutate the supplied entry or discard caller input. A
-failure after publication starts retains an incomplete operation; it cannot be
+failure after publication starts reports known file progress; it cannot be
 reported as that same no-write conflict or silently retried.
 
 The publisher never substitutes a freshly read baseline, merges selected
@@ -51,16 +51,16 @@ owns any necessary mapping from its widget to that text.
 
 **The file boundary enforces the same byte-version condition for raw writes.**
 Browser managed writers compare and publish transactionally. A native host
-serializes participating writers and detects other writers on a best-effort
-basis. A hash check followed by rename is not an operating-system-wide
+checks versions against concurrent writers on a best-effort basis without an
+application-wide lock. A hash check followed by rename is not an operating-system-wide
 compare-and-swap against arbitrary external programs.
 
-The folder publisher records the accepted bytes in completed Git history before
-acknowledging a save. Callers do not stage or commit separately. Changed saves
-append one revision; unchanged saves still check their conditions and retain
-the accepted bytes. The publisher retains pending evidence for ordinary native
-saves as well as row/attachment operations. Remote sync is separate from local
-completion. This does not introduce a public general transaction API.
+File-save success is independent of Git history. After a completed save, the app
+attempts a commit of saved folder contents, then attempts upload and push when a
+remote is configured. Commit or push failure does not undo the file save. The
+history action rereads current source rather than replaying the old edit.
+Unchanged writes still check their conditions; no empty commit is needed.
+Ordinary saves require no pending-ref journal solely to complete history.
 
 ## Consequences
 
