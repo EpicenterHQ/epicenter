@@ -1,0 +1,90 @@
+---
+// Two content arrangements of the selected direction; images are archival references.
+import '@epicenter/ui/app.css';
+import whisperingReference from './whispering-reference.png';
+export function getStaticPaths() {
+	return import.meta.env.DEV ? ['feature', 'collection'].map(story => ({ params: { story } })) : [];
+}
+const collection = Astro.params.story === 'collection';
+const repo = 'https://github.com/EpicenterHQ/epicenter';
+---
+<!doctype html>
+<html lang="en">
+	<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="robots" content="noindex, nofollow" /><title>Epicenter: apps and their makers</title></head>
+	<body class:list={{collection}}>
+		<div class="review"><p>Design study: {collection ? 'a collection of independent apps' : 'one useful app, then the wider idea'}</p><nav aria-label="Compare page arrangements"><a href="/prototype/story/feature" aria-current={!collection ? 'page' : undefined}>App feature</a><a href="/prototype/story/collection" aria-current={collection ? 'page' : undefined}>App collection</a><a href="/prototype/typography/board">Typography comparison</a></nav></div>
+		<div class="paper">
+			<header class="site-nav"><a class="wordmark" href="https://epicenter.so">epicenter.</a><a href={repo}>GitHub</a></header>
+			<main>
+				<header class="hero"><h1>Make software that’s<br class="wide" /> unmistakably yours.</h1><p class="promise">Keep your data in Markdown and SQLite files you own. Use our apps, someone else’s, or build your own.</p><p class="status">Epicenter is early. We’re building the file foundation in the open.</p><a class="action" href={repo}>Read the code</a></header>
+				<section class="made-with" aria-labelledby="made-with-heading">
+					<h2 id="made-with-heading">Made with Epicenter.</h2>
+					<div class="app-layout">
+						<article class="whispering">
+							<div class="app-copy"><h3>Whispering</h3><p class="app-promise">Press a shortcut. Speak. Get text.</p><p class="byline">By <a href="https://bradenwong.com">Braden Wong</a>. Built on <a href="https://epicenter.so">Epicenter</a>.</p><p class="availability">Runs today as a desktop app inside Epicenter.</p><a href={`${repo}/tree/main/apps/whispering`}>Build instructions</a></div>
+							<figure><img src={whisperingReference.src} width="1280" height="720" alt="Older Whispering interface with microphone controls and a transcription area" /><figcaption>Earlier Whispering interface from Braden’s blog. Layout reference; a current capture is needed.</figcaption></figure>
+						</article>
+						<article class="vocab"><h3>Vocab</h3><p class="app-promise">Practice expressions you want to use.</p><p class="byline">By <a href="https://bradenwong.com">Braden Wong</a>. Built on <a href="https://epicenter.so">Epicenter</a>.</p><p class="availability">A browser app. Its personal-domain move is planned.</p><a href={`${repo}/tree/main/apps/vocab`}>Source</a></article>
+					</div>
+				</section>
+				<section class="closing"><h2>Your data outlives the app that wrote it.</h2><a href={repo}>Follow the work on GitHub</a></section>
+			</main>
+			<footer>epicenter.</footer>
+		</div>
+		<p class="review-end">Draft for discussion. Status copy and Vocab’s tagline remain proposed. Personal-domain links for the apps await their independent releases.</p>
+	</body>
+</html>
+<style>
+	:global(html) { background: #eae6df; }
+	body { color: #302a25; padding: 1.5rem; }
+	a { color: #9b4938; text-underline-offset: .25em; }
+	a:hover, a[aria-current='page'] { text-decoration: underline; }
+	a:focus-visible { outline: 2px solid currentColor; outline-offset: 5px; }
+	.review, .review-end { max-width: 76rem; margin: 0 auto; font-size: .8rem; line-height: 1.6; }
+	.review { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+	.review nav { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+	.paper { background: #faf7f0; max-width: 76rem; margin: auto; padding: 2.5rem 4rem; }
+	.site-nav { display: flex; justify-content: space-between; align-items: center; font-size: .85rem; }
+	.wordmark { font-size: 1.35rem; font-weight: 500; color: #302a25; }
+	.hero { padding: 5rem 0 4rem; }
+	h1 { font: 400 clamp(2.8rem, 5.4vw, 4.6rem)/1.12 Georgia, serif; letter-spacing: -.015em; }
+	.promise { max-width: 40rem; font-size: 1.1rem; line-height: 1.7; margin-top: 2rem; }
+	.status { font-size: .85rem; line-height: 1.7; margin-top: 1rem; }
+	.action { display: inline-block; margin-top: 1.5rem; }
+	.made-with > h2 { font-size: .85rem; font-weight: 500; padding-bottom: 1.25rem; border-bottom: 1px solid #dcd2c5; }
+	.whispering { display: grid; grid-template-columns: 1fr 1.65fr; gap: 3rem; align-items: center; padding: 2rem 0; }
+	h3 { font-size: 1.5rem; font-weight: 500; }
+	.app-promise { font-size: 1rem; line-height: 1.6; margin-top: .75rem; }
+	.byline, .availability { font-size: .8rem; line-height: 1.7; margin-top: 1rem; }
+	.app-copy > a, .vocab > a { display: inline-block; margin-top: .75rem; font-size: .85rem; }
+	figure img { width: 100%; height: auto; border-radius: .25rem; }
+	figcaption { font-size: .7rem; line-height: 1.6; margin-top: .75rem; color: #685e54; }
+	.vocab { border-top: 1px solid #dcd2c5; padding: 2rem 0; }
+	.closing { padding: 4rem 0; border-top: 1px solid #dcd2c5; }
+	.closing h2 { font: 400 clamp(1.8rem, 3vw, 2.6rem)/1.25 Georgia, serif; max-width: 23ch; }
+	.closing a { display: inline-block; margin-top: 1.5rem; font-size: .9rem; }
+	.paper > footer { font-size: .85rem; padding-bottom: 1rem; }
+	.review-end { margin-top: 1.5rem; }
+	.collection .hero { display: grid; grid-template-columns: 1.25fr 1fr; gap: 1.5rem 3rem; align-items: start; }
+	.collection h1 { grid-row: 1 / 4; font-size: clamp(2.8rem, 4.4vw, 3.6rem); }
+	.collection .wide { display: none; }
+	.collection .promise, .collection .status, .collection .action { margin-top: 0; }
+	.collection .app-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 3rem; }
+	.collection .whispering { display: flex; flex-direction: column-reverse; align-items: stretch; gap: 1.5rem; }
+	.collection .vocab { border-top: 0; }
+	@media (max-width: 800px) {
+		body { padding: 1rem; }
+		.review { display: block; }
+		.review nav { margin-top: .5rem; gap: 1rem; }
+		.paper { padding: 1.5rem; }
+		.hero { padding: 3.5rem 0; }
+		.wide { display: none; }
+		.whispering, .collection .hero, .collection .app-layout { display: block; }
+		figure { margin-top: 1.5rem; }
+		.collection .promise { margin-top: 1.5rem; }
+		.collection .status, .collection .action { margin-top: 1rem; }
+		.collection .whispering { display: flex; }
+		.collection .vocab { border-top: 1px solid #dcd2c5; }
+		.closing { padding: 3rem 0; }
+	}
+</style>

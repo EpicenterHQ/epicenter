@@ -1,0 +1,1612 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Epicenter: make software that’s unmistakably yours</title>
+<meta name="description" content="Epicenter is an early, open-source foundation for personal software. The direction: your data in Markdown and SQLite files you own, with independent apps built on top.">
+<meta name="color-scheme" content="light">
+<style>
+:root {
+  --paper: #f3ece0;
+  --paper-deep: #e9dfcd;
+  --paper-edge: #dccfb8;
+  --ink: #1e1a16;
+  --ink-2: #4b433a;
+  --ink-3: #6b6054;
+  --rule: rgba(30, 26, 22, 0.16);
+  --rule-strong: rgba(30, 26, 22, 0.42);
+  --accent: #c4431f;
+  --accent-ink: #a5361a;
+  --night: #1b1815;
+  --night-2: #26221d;
+  --night-rule: rgba(243, 236, 224, 0.14);
+  --night-text: #efe7da;
+  --night-dim: #b8ad9d;
+  --night-accent: #f08a62;
+
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Charter, "Bitstream Charter", Georgia, serif;
+  --sans: "Avenir Next", Avenir, "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+
+  --pad: clamp(20px, 4.4vw, 64px);
+  --gap: clamp(14px, 1.7vw, 28px);
+  --display: clamp(2.9rem, 7.9vw, 8.25rem);
+  --ease: cubic-bezier(.2, .7, .1, 1);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--paper); scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: clamp(17px, 0.55vw + 12.5px, 20px);
+  line-height: 1.55;
+  font-feature-settings: "kern", "liga", "onum";
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  hanging-punctuation: first last;
+  overflow-x: hidden;
+}
+/* Paper grain: an inline SVG noise field, nothing fetched. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  opacity: .28;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .28 0 0 0 0 .2 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: .18em; }
+a:hover { text-decoration-color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+p { margin: 0; text-wrap: pretty; }
+h1, h2, h3 { margin: 0; font-weight: 400; text-wrap: balance; }
+button { font: inherit; color: inherit; }
+.sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+.skip {
+  position: absolute; left: var(--pad); top: -60px; z-index: 200;
+  background: var(--ink); color: var(--paper); padding: 10px 16px;
+  font-family: var(--sans); font-size: 14px; text-decoration: none;
+}
+.skip:focus { top: 12px; }
+
+/* Label voice: the sans, small, tracked. Used for metadata only. */
+.label {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  line-height: 1.3;
+  font-feature-settings: "kern", "tnum";
+}
+
+.wrap { padding-inline: var(--pad); }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--gap);
+}
+
+/* ---------- Masthead ---------- */
+.notice {
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--sans);
+  font-size: 13.5px;
+  color: var(--ink-2);
+  padding-block: 9px;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  justify-content: center;
+  text-align: center;
+}
+.notice b { font-weight: 600; color: var(--accent-ink); }
+
+.masthead { position: relative; z-index: 5; }
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding-block: 22px;
+}
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  text-decoration: none;
+  font-size: 23px;
+  letter-spacing: -.01em;
+  line-height: 1;
+}
+.wordmark svg { width: 26px; height: 26px; flex: none; }
+.nav { display: flex; align-items: center; gap: clamp(18px, 2.4vw, 38px); }
+.nav a {
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+  color: var(--ink-2);
+  padding-block: 6px;
+  background: linear-gradient(var(--accent), var(--accent)) 0 100% / 0 1.5px no-repeat;
+  transition: background-size .35s var(--ease), color .2s;
+}
+.nav a:hover { color: var(--ink); background-size: 100% 1.5px; }
+.nav .gh {
+  color: var(--ink);
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  padding: 7px 15px 7px 14px;
+  background: none;
+  transition: background-color .2s, color .2s, border-color .2s;
+}
+.nav .gh:hover { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.menu-btn { display: none; }
+
+/* ---------- Hero ---------- */
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding-top: clamp(40px, 8vh, 96px);
+  padding-bottom: clamp(260px, 36vw, 520px);
+  isolation: isolate;
+}
+.rings {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+  overflow: visible;
+}
+.rings circle { fill: none; vector-effect: non-scaling-stroke; }
+.rings text {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  fill: var(--ink-3);
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 6px;
+  stroke-linejoin: round;
+}
+.rings text .hot { fill: var(--accent-ink); }
+
+.hero-kicker {
+  grid-column: 1 / span 4;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  color: var(--ink-2);
+  margin-bottom: clamp(22px, 3.2vw, 44px);
+}
+.hero-kicker::before {
+  content: "";
+  width: 44px;
+  height: 1px;
+  background: var(--ink);
+}
+
+.headline {
+  grid-column: 1 / -1;
+  font-size: var(--display);
+  line-height: .93;
+  letter-spacing: -.028em;
+  font-weight: 400;
+  text-wrap: initial;
+}
+.headline .ln { display: block; }
+.headline .l2 { padding-left: 1.05em; }
+.headline .l3 {
+  font-style: italic;
+  letter-spacing: -.035em;
+  padding-left: .02em;
+}
+.headline .stop {
+  display: inline-block;
+  width: .15em;
+  height: .15em;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: .045em;
+  vertical-align: baseline;
+  position: relative;
+  top: .005em;
+}
+
+.hero-copy {
+  grid-column: 7 / span 5;
+  margin-top: calc(var(--display) * -0.7);
+  position: relative;
+}
+.lede {
+  font-size: clamp(20px, 1.05vw + 10px, 26px);
+  line-height: 1.38;
+  letter-spacing: -.004em;
+  max-width: 30ch;
+}
+.state {
+  margin-top: 20px;
+  max-width: 44ch;
+  font-size: 16.5px;
+  color: var(--ink-2);
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+.pill {
+  flex: none;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 3px 9px 2px;
+  position: relative;
+  top: -2px;
+  white-space: nowrap;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 22px;
+  align-items: center;
+  margin-top: 30px;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--sans);
+  font-size: 15.5px;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 999px;
+  padding: 13px 20px 13px 22px;
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color .2s, color .2s, transform .2s var(--ease);
+}
+.btn:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
+.btn:active { transform: translateY(1px); }
+.btn .arr { transition: transform .3s var(--ease); }
+.btn:hover .arr { transform: translate(2px, -2px); }
+.link-quiet {
+  font-family: var(--sans);
+  font-size: 15.5px;
+  font-weight: 500;
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+}
+.link-quiet:hover { text-decoration-color: var(--accent); }
+
+/* ---------- Section frame: sticky margin folio ---------- */
+.chapter { position: relative; }
+.folio {
+  grid-column: 1 / span 2;
+  align-self: start;
+  grid-row: 1 / span 6;
+  position: sticky;
+  top: 28px;
+  padding-top: 6px;
+}
+.folio .num {
+  display: block;
+  font-size: 44px;
+  line-height: 1;
+  font-style: italic;
+  color: var(--accent);
+  margin-bottom: 10px;
+  font-feature-settings: "kern", "onum";
+}
+.folio .label { color: var(--ink-2); }
+
+/* ---------- Foundation ---------- */
+.foundation {
+  border-top: 1px solid var(--rule-strong);
+  padding-block: clamp(72px, 9vw, 140px) clamp(80px, 10vw, 150px);
+}
+.foundation .statement {
+  grid-column: 3 / span 9;
+  font-size: clamp(2.2rem, 4.6vw, 4.9rem);
+  line-height: 1.02;
+  letter-spacing: -.022em;
+}
+.statement em { color: var(--accent-ink); }
+.foundation .intro {
+  grid-column: 3 / span 5;
+  margin-top: clamp(26px, 3vw, 40px);
+  font-size: clamp(18px, .5vw + 13px, 21px);
+  color: var(--ink-2);
+  max-width: 40ch;
+}
+
+.principles {
+  grid-column: 3 / span 4;
+  list-style: none;
+  margin: clamp(56px, 6vw, 90px) 0 0;
+  padding: 0;
+  counter-reset: p;
+}
+.principles li {
+  counter-increment: p;
+  position: relative;
+  padding: 22px 0 24px;
+  border-top: 1px solid var(--rule);
+}
+.principles li::before {
+  content: counter(p, lower-roman) ".";
+  position: absolute;
+  left: -2.4em;
+  top: 22px;
+  width: 2em;
+  text-align: right;
+  font-style: italic;
+  color: var(--accent-ink);
+}
+.principles h3 {
+  font-size: clamp(21px, .6vw + 15px, 26px);
+  line-height: 1.2;
+  letter-spacing: -.01em;
+  margin-bottom: 8px;
+}
+.principles p { color: var(--ink-2); font-size: 17px; }
+
+/* Folder specimen */
+.specimen {
+  grid-column: 8 / span 5;
+  margin-top: clamp(56px, 6vw, 90px);
+  align-self: start;
+  position: relative;
+}
+.specimen-card {
+  background: #fbf7f0;
+  border: 1px solid var(--paper-edge);
+  border-radius: 6px;
+  box-shadow: 0 1px 0 rgba(255,255,255,.7) inset, 0 30px 60px -30px rgba(60, 40, 20, .35), 0 2px 6px -2px rgba(60, 40, 20, .12);
+  overflow: hidden;
+  transform: rotate(.6deg);
+  transform-origin: 20% 0;
+}
+.specimen-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--paper-edge);
+  background: var(--paper-deep);
+}
+.specimen-head .path { font-family: var(--mono); font-size: 13px; color: var(--ink-2); }
+.tag-ill {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  white-space: nowrap;
+}
+.specimen-body { display: grid; grid-template-columns: minmax(150px, 38%) 1fr; min-height: 360px; }
+.files {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--paper-edge);
+  padding: 10px 0;
+}
+.files .grp {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-3);
+  padding: 10px 16px 4px;
+}
+.file {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 16px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+  position: relative;
+}
+.file:hover { background: rgba(30,26,22,.04); color: var(--ink); }
+.file[aria-selected="true"] { background: rgba(196, 67, 31, .09); color: var(--ink); }
+.file[aria-selected="true"]::before {
+  content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; background: var(--accent);
+}
+.file:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.file .ico { width: 13px; height: 15px; flex: none; }
+.preview { padding: 20px 22px 24px; min-width: 0; }
+.preview[hidden] { display: none; }
+.preview pre {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.md-fm { color: var(--ink-3); }
+.md-h { color: var(--accent-ink); font-weight: 600; }
+.md-q { color: var(--ink-2); font-style: italic; }
+.preview .meta { font-family: var(--sans); font-size: 12px; color: var(--ink-3); margin-bottom: 12px; }
+.sql { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12.5px; }
+.sql th { text-align: left; font-weight: 600; color: var(--ink-3); border-bottom: 1px solid var(--paper-edge); padding: 6px 8px 6px 0; }
+.sql td { border-bottom: 1px dashed var(--paper-edge); padding: 7px 8px 7px 0; vertical-align: top; }
+.sql td:first-child { color: var(--ink-3); }
+.specimen-note {
+  margin-top: 22px;
+  padding-left: 18px;
+  border-left: 2px solid var(--accent);
+  font-size: 15.5px;
+  color: var(--ink-2);
+  max-width: 44ch;
+}
+
+/* ---------- Apps ---------- */
+.apps-head {
+  padding-block: clamp(80px, 9vw, 140px) clamp(36px, 4vw, 60px);
+  border-top: 1px solid var(--rule-strong);
+}
+.apps-head h2 {
+  grid-column: 3 / span 8;
+  font-size: clamp(2.2rem, 4.6vw, 4.9rem);
+  line-height: 1.02;
+  letter-spacing: -.022em;
+}
+.apps-head p {
+  grid-column: 3 / span 5;
+  margin-top: 22px;
+  color: var(--ink-2);
+  max-width: 42ch;
+}
+
+.app-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  align-items: center;
+  font-family: var(--sans);
+  font-size: 14px;
+}
+.app-meta .dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .5; }
+.built {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.built svg { width: 15px; height: 15px; }
+
+/* Whispering: the night band */
+.whispering {
+  background: var(--night);
+  color: var(--night-text);
+  padding-block: clamp(72px, 8vw, 130px);
+  position: relative;
+  overflow: hidden;
+}
+.whispering::after {
+  content: "";
+  position: absolute;
+  right: -18vw;
+  top: -30vw;
+  width: 70vw;
+  height: 70vw;
+  border-radius: 50%;
+  border: 1px solid var(--night-rule);
+  box-shadow: 0 0 0 7vw var(--night), 0 0 0 calc(7vw + 1px) var(--night-rule), 0 0 0 16vw var(--night), 0 0 0 calc(16vw + 1px) var(--night-rule);
+  pointer-events: none;
+}
+.whispering > .grid { position: relative; z-index: 1; }
+.whispering .folio .label { color: var(--night-dim); }
+.whispering .folio .num { color: var(--night-accent); }
+.app-name {
+  font-size: clamp(1.1rem, .6vw + .9rem, 1.4rem);
+  font-family: var(--sans);
+  font-weight: 600;
+  letter-spacing: .01em;
+  margin-bottom: 18px;
+}
+.w-text { grid-column: 3 / span 5; }
+.stair {
+  font-size: clamp(2.4rem, 4.2vw, 4.6rem);
+  line-height: .98;
+  letter-spacing: -.026em;
+  margin: 8px 0 34px;
+}
+.stair span { display: block; }
+.stair span:nth-child(2) { padding-left: .9em; }
+.stair span:nth-child(3) { padding-left: 1.8em; font-style: italic; color: var(--night-accent); }
+.whispering .app-meta { color: var(--night-dim); }
+.whispering .app-meta a { color: var(--night-text); }
+.w-status {
+  margin-top: 26px;
+  max-width: 40ch;
+  color: var(--night-text);
+  font-size: 17.5px;
+}
+.w-status + .w-status { color: var(--night-dim); margin-top: 12px; }
+.btn.on-night { background: var(--night-text); color: var(--night); border-color: var(--night-text); }
+.btn.on-night:hover { background: var(--night-accent); border-color: var(--night-accent); color: var(--night); }
+.whispering .actions { margin-top: 34px; }
+
+.w-demo {
+  grid-column: 8 / span 5;
+  align-self: center;
+  background: var(--night-2);
+  border: 1px solid var(--night-rule);
+  border-radius: 10px;
+  padding: 22px 24px 26px;
+  box-shadow: 0 40px 80px -40px rgba(0,0,0,.6);
+}
+.demo-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 14px;
+  color: var(--night-dim);
+  margin-bottom: 26px;
+}
+.demo-top .tag-ill { color: var(--night-accent); }
+.keycap {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  width: 100%;
+  height: 84px;
+  padding: 0 20px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+  background: linear-gradient(#f6efe3, #e6dccb);
+  color: var(--night);
+  box-shadow: 0 7px 0 #b3a58f, 0 9px 0 #7e7160, 0 18px 30px -10px rgba(0,0,0,.6);
+  transform: translateY(0);
+  transition: transform .09s ease, box-shadow .09s ease;
+  font-family: var(--sans);
+  -webkit-tap-highlight-color: transparent;
+}
+.keycap .k-main { font-size: 17px; font-weight: 600; letter-spacing: .01em; }
+.keycap .k-hint { font-size: 12px; font-weight: 500; color: #6b6054; }
+.keycap:hover { background: linear-gradient(#fbf5eb, #ebe1d0); }
+.keycap:active, .keycap.is-down {
+  transform: translateY(6px);
+  box-shadow: 0 1px 0 #b3a58f, 0 3px 0 #7e7160, 0 8px 16px -8px rgba(0,0,0,.6);
+}
+.keycap:focus-visible { outline: 2px solid var(--night-accent); outline-offset: 6px; }
+.keycap[aria-disabled="true"] { cursor: progress; }
+.wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 64px;
+  margin: 34px 0 18px;
+}
+.wave i {
+  flex: 1;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--night-dim);
+  opacity: .5;
+  transition: height .12s linear, background-color .3s, opacity .3s;
+}
+.w-demo[data-state="listening"] .wave i { background: var(--night-accent); opacity: 1; }
+.transcript {
+  min-height: 5.6em;
+  font-size: clamp(19px, .6vw + 13px, 23px);
+  line-height: 1.4;
+  color: var(--night-text);
+  border-top: 1px solid var(--night-rule);
+  padding-top: 18px;
+}
+.transcript .ph { color: var(--night-dim); font-style: italic; }
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  background: var(--night-accent);
+  vertical-align: -0.16em;
+  margin-left: 2px;
+  animation: blink 1s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+.w-live {
+  margin-top: 16px;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--night-dim);
+  min-height: 1.4em;
+}
+
+/* Vocab: index cards on paper */
+.vocab {
+  padding-block: clamp(80px, 9vw, 140px);
+  background:
+    linear-gradient(var(--paper), var(--paper-deep));
+  border-bottom: 1px solid var(--rule);
+}
+.v-demo { grid-column: 2 / span 6; position: relative; padding: 24px 20px 10px 10px; }
+.v-stack { position: relative; max-width: 560px; margin-inline: auto; }
+.v-stack::before, .v-stack::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #fbf7f0;
+  border: 1px solid var(--paper-edge);
+  border-radius: 4px;
+  box-shadow: 0 10px 30px -18px rgba(60,40,20,.4);
+}
+.v-stack::before { transform: rotate(-4.2deg) translate(-10px, 8px); }
+.v-stack::after { transform: rotate(2.6deg) translate(12px, 4px); }
+.v-card {
+  position: relative;
+  z-index: 1;
+  background: #fffcf6;
+  border: 1px solid var(--paper-edge);
+  border-radius: 4px;
+  box-shadow: 0 30px 60px -34px rgba(60,40,20,.5);
+  padding: 22px 28px 26px;
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+  /* ruled index-card lines */
+  background-image:
+    linear-gradient(to bottom, transparent 71px, rgba(196,67,31,.35) 71px, rgba(196,67,31,.35) 72px, transparent 72px),
+    repeating-linear-gradient(to bottom, transparent 0 31px, rgba(60,90,140,.13) 31px 32px);
+  background-position: 0 0, 0 72px;
+  background-size: 100% 100%, 100% calc(100% - 72px);
+  background-repeat: no-repeat;
+}
+.v-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  height: 36px;
+  color: var(--ink-3);
+}
+.v-phrase {
+  margin-top: 30px;
+  font-size: clamp(28px, 1.6vw + 16px, 40px);
+  line-height: 1.12;
+  letter-spacing: -.015em;
+}
+.v-back { margin-top: 16px; }
+.v-back[hidden] { display: none; }
+.v-back .mean { font-size: 19px; line-height: 1.5; }
+.v-back .ex { margin-top: 10px; font-size: 17px; font-style: italic; color: var(--ink-2); }
+.v-actions { margin-top: auto; padding-top: 24px; display: flex; gap: 10px; flex-wrap: wrap; }
+.chip {
+  font-family: var(--sans);
+  font-size: 14.5px;
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--rule-strong);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color .2s, color .2s, border-color .2s;
+}
+.chip:hover { border-color: var(--ink); }
+.chip.solid { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.chip.solid:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
+.v-tally {
+  margin-top: 26px;
+  text-align: center;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.v-text { grid-column: 9 / span 4; align-self: center; }
+.v-text h3 {
+  font-size: clamp(2.6rem, 5.6vw, 6rem);
+  line-height: .95;
+  letter-spacing: -.03em;
+  margin: 6px 0 26px;
+}
+.v-text h3 em { color: var(--accent-ink); }
+.v-text .app-meta { color: var(--ink-2); }
+.v-text p.desc { margin-top: 22px; font-size: clamp(19px, .5vw + 14px, 22px); line-height: 1.4; max-width: 26ch; }
+.v-text p.note { margin-top: 14px; color: var(--ink-2); font-size: 17px; max-width: 34ch; }
+.v-text .actions { margin-top: 28px; }
+
+/* Yours: the empty slot */
+.yours {
+  padding-block: clamp(90px, 10vw, 160px);
+  position: relative;
+  overflow: hidden;
+}
+.slot-ring {
+  grid-column: 2 / span 5;
+  aspect-ratio: 1;
+  max-width: 470px;
+  width: 100%;
+  justify-self: center;
+  position: relative;
+}
+.slot-ring svg { width: 100%; height: 100%; overflow: visible; }
+.slot-ring .slot-dot { transform-box: fill-box; transform-origin: center; }
+.slot-ring:hover .slot-dot { animation: nudge .9s var(--ease); }
+@keyframes nudge { 40% { transform: scale(1.6); } }
+.yours-text { grid-column: 7 / span 5; align-self: center; }
+.yours-text h2 {
+  font-size: clamp(2.4rem, 4.2vw, 4.6rem);
+  line-height: 1;
+  letter-spacing: -.025em;
+}
+.yours-text h2 em { color: var(--accent-ink); }
+.yours-text p { margin-top: 24px; color: var(--ink-2); max-width: 38ch; }
+.yours-text .actions { margin-top: 30px; }
+
+/* ---------- Status ledger ---------- */
+.status {
+  border-top: 1px solid var(--rule-strong);
+  padding-block: clamp(80px, 9vw, 140px);
+}
+.status h2 {
+  grid-column: 3 / span 7;
+  font-size: clamp(2.2rem, 4.6vw, 4.9rem);
+  line-height: 1.02;
+  letter-spacing: -.022em;
+}
+.status .intro {
+  grid-column: 3 / span 6;
+  margin-top: 20px;
+  color: var(--ink-2);
+  max-width: 46ch;
+}
+.ledger {
+  grid-column: 3 / span 10;
+  margin-top: clamp(40px, 5vw, 70px);
+  border-collapse: collapse;
+  width: 100%;
+}
+.ledger caption { text-align: left; }
+.ledger th, .ledger td { text-align: left; vertical-align: top; padding: 22px 24px 24px 0; }
+.ledger thead th {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ink);
+}
+.ledger tbody tr { border-bottom: 1px solid var(--rule); }
+.ledger tbody th { font-weight: 400; font-size: clamp(22px, .8vw + 14px, 28px); line-height: 1.15; width: 28%; letter-spacing: -.01em; }
+.ledger tbody th small {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink-3);
+  letter-spacing: 0;
+}
+.ledger td { font-size: 17px; color: var(--ink-2); width: 36%; }
+.ledger td.today { color: var(--ink); }
+.mark {
+  display: inline-block;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  padding: 3px 8px 2px;
+  border-radius: 3px;
+  margin-bottom: 8px;
+}
+.mark.ok { background: var(--ink); color: var(--paper); }
+.mark.dev { background: transparent; color: var(--accent-ink); border: 1px solid currentColor; }
+.mark.plan { background: transparent; color: var(--ink-3); border: 1px dashed currentColor; }
+.ledger td .mark { display: table; }
+.rule-note {
+  grid-column: 3 / span 7;
+  margin-top: 30px;
+  font-style: italic;
+  color: var(--ink-2);
+}
+
+/* ---------- Footer ---------- */
+.foot {
+  background: var(--ink);
+  color: var(--paper);
+  padding-top: clamp(60px, 7vw, 100px);
+  overflow: hidden;
+  position: relative;
+}
+.foot a { color: var(--paper); text-decoration-color: rgba(243,236,224,.35); }
+.foot a:hover { text-decoration-color: var(--night-accent); }
+.foot-cols { row-gap: 40px; }
+.foot-lead { grid-column: 1 / span 5; font-size: clamp(24px, 1.4vw + 12px, 34px); line-height: 1.2; letter-spacing: -.01em; }
+.foot-lead em { color: var(--night-accent); }
+.foot-list { list-style: none; margin: 0; padding: 0; }
+.foot-list li + li { margin-top: 10px; }
+.foot-list a { font-size: 17px; }
+.foot-col .label { color: var(--night-dim); margin-bottom: 16px; display: block; }
+.foot-col:nth-of-type(1) { grid-column: 7 / span 3; }
+.foot-col:nth-of-type(2) { grid-column: 10 / span 3; }
+.colophon {
+  grid-column: 1 / -1;
+  margin-top: 30px;
+  padding-top: 18px;
+  border-top: 1px solid var(--night-rule);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 30px;
+  justify-content: space-between;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--night-dim);
+}
+.giant {
+  display: block;
+  font-size: clamp(5rem, 23.5vw, 26rem);
+  line-height: .74;
+  letter-spacing: -.055em;
+  margin: clamp(30px, 4vw, 60px) 0 0 -0.05em;
+  white-space: nowrap;
+  color: var(--paper);
+  transform: translateY(.14em);
+  user-select: none;
+}
+.giant-fit { display: inline-block; }
+.giant .stop { color: var(--night-accent); }
+
+/* ---------- Motion on entry ---------- */
+.rise { opacity: 0; transform: translateY(18px); }
+.rise.in { opacity: 1; transform: none; transition: opacity .9s var(--ease), transform .9s var(--ease); }
+.no-js .rise { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .rise { opacity: 1; transform: none; }
+  .caret { animation: none; }
+  .slot-ring:hover .slot-dot { animation: none; }
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1100px) {
+  .hero-copy { grid-column: 6 / span 7; }
+  .foundation .statement, .apps-head h2, .status h2 { grid-column: 3 / -1; }
+  .principles { grid-column: 3 / span 10; }
+  .specimen { grid-column: 3 / span 10; }
+  .foundation .intro { grid-column: 3 / span 8; }
+  .w-text { grid-column: 3 / -1; }
+  .w-demo { grid-column: 3 / -1; margin-top: 56px; max-width: 620px; }
+  .v-demo { grid-column: 1 / span 7; }
+  .v-text { grid-column: 8 / span 5; }
+  .yours-text { grid-column: 7 / span 6; }
+  .slot-ring { grid-column: 1 / span 6; }
+  .ledger { grid-column: 3 / -1; }
+}
+
+@media (max-width: 860px) {
+  .grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .hero-kicker { grid-column: 1 / -1; }
+  .hero { padding-bottom: clamp(120px, 30vw, 240px); }
+  .hero-copy { grid-column: 1 / -1; margin-top: clamp(28px, 6vw, 44px); max-width: 560px; }
+  .headline .l2 { padding-left: .6em; }
+  .folio { grid-column: 1 / -1; grid-row: auto; position: static; display: flex; align-items: baseline; gap: 14px; margin-bottom: 26px; padding-top: 0; }
+  .folio .num { font-size: 34px; margin: 0; }
+  .foundation .statement, .apps-head h2, .status h2, .foundation .intro, .apps-head p,
+  .principles, .specimen, .w-text, .w-demo, .v-demo, .v-text, .yours-text, .slot-ring,
+  .ledger, .status .intro, .rule-note { grid-column: 1 / -1; }
+  .principles { padding-left: 2.2em; }
+  .v-demo { order: 2; margin-top: 48px; padding-inline: 8px; }
+  .v-text { order: 1; }
+  .slot-ring { max-width: 300px; margin-bottom: 40px; justify-self: start; }
+  .foot-lead { grid-column: 1 / -1; }
+  .foot-col:nth-of-type(1) { grid-column: 1 / span 3; }
+  .foot-col:nth-of-type(2) { grid-column: 4 / span 3; }
+}
+
+@media (max-width: 760px) {
+  .nav { display: none; }
+  .nav.open {
+    display: flex;
+    position: absolute;
+    top: 100%;
+    left: var(--pad);
+    right: var(--pad);
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    background: #fbf7f0;
+    border: 1px solid var(--paper-edge);
+    border-radius: 8px;
+    padding: 8px 18px;
+    box-shadow: 0 30px 50px -30px rgba(60,40,20,.5);
+  }
+  .nav.open a { padding: 14px 0; font-size: 17px; border-bottom: 1px solid var(--rule); background: none; }
+  .nav.open a:last-child { border-bottom: 0; }
+  .nav.open .gh { border: 0; border-radius: 0; padding: 14px 0; }
+  .nav.open .gh:hover { background: none; color: var(--accent-ink); }
+  .masthead .bar { position: relative; }
+  .menu-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: none;
+    border: 1px solid var(--rule-strong);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-family: var(--sans);
+    font-size: 14.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .menu-btn .bars { width: 14px; height: 8px; position: relative; }
+  .menu-btn .bars::before, .menu-btn .bars::after { content: ""; position: absolute; left: 0; right: 0; height: 1.5px; background: currentColor; transition: transform .25s var(--ease); }
+  .menu-btn .bars::before { top: 0; }
+  .menu-btn .bars::after { bottom: 0; }
+  .menu-btn[aria-expanded="true"] .bars::before { transform: translateY(3.25px) rotate(45deg); }
+  .menu-btn[aria-expanded="true"] .bars::after { transform: translateY(-3.25px) rotate(-45deg); }
+  .notice { justify-content: flex-start; text-align: left; font-size: 13px; }
+}
+
+@media (max-width: 560px) {
+  .specimen-body { grid-template-columns: 1fr; min-height: 0; }
+  .files { border-right: 0; border-bottom: 1px solid var(--paper-edge); flex-direction: row; flex-wrap: wrap; padding: 8px; gap: 2px; }
+  .files .grp { display: none; }
+  .file { padding: 8px 10px; border-radius: 4px; }
+  .file[aria-selected="true"]::before { display: none; }
+  .specimen-card { transform: none; }
+  .stair span:nth-child(2) { padding-left: .5em; }
+  .stair span:nth-child(3) { padding-left: 1em; }
+  .w-demo { padding: 18px 16px 20px; }
+  .v-card { padding: 18px 20px 22px; min-height: 380px; }
+  .ledger thead { display: none; }
+  .ledger, .ledger tbody, .ledger tr, .ledger th, .ledger td { display: block; width: 100%; }
+  .ledger tbody tr { padding: 20px 0 16px; }
+  .ledger th, .ledger td { padding: 0; }
+  .ledger tbody th { margin-bottom: 14px; }
+  .ledger td { margin-top: 12px; }
+  .ledger td::before { content: attr(data-h); display: block; font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 4px; }
+  .foot-col:nth-of-type(1), .foot-col:nth-of-type(2) { grid-column: 1 / -1; }
+  .actions .btn { width: 100%; justify-content: center; }
+}
+</style>
+</head>
+<body class="no-js">
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+  <p class="notice wrap"><b>Early</b> <span>Epicenter is open source and in development. The file foundation is still being built.</span></p>
+  <div class="bar wrap">
+    <a class="wordmark" href="#top" aria-label="Epicenter, back to top">
+      <svg viewBox="0 0 26 26" aria-hidden="true">
+        <circle cx="13" cy="13" r="12.2" fill="none" stroke="currentColor" stroke-width="1"/>
+        <circle cx="13" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="1"/>
+        <circle cx="13" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="1"/>
+        <circle cx="13" cy="13" r="1.9" fill="#c4431f"/>
+      </svg>
+      Epicenter
+    </a>
+    <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav"><span class="bars" aria-hidden="true"></span>Menu</button>
+    <nav class="nav" id="site-nav" aria-label="Primary">
+      <a href="#foundation">Foundation</a>
+      <a href="#apps">Apps</a>
+      <a href="#status">Status</a>
+      <a class="gh" href="https://github.com/EpicenterHQ/epicenter" rel="noopener">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero wrap" id="top" aria-labelledby="headline">
+  <svg class="rings" aria-hidden="true" focusable="false"></svg>
+  <div class="grid">
+    <p class="hero-kicker label rise">Open-source foundation for personal software</p>
+    <h1 class="headline" id="headline">
+      <span class="ln l1 rise">Make software</span>
+      <span class="ln l2 rise">that’s unmistakably</span>
+      <span class="ln l3 rise">yours<span class="stop" aria-hidden="true"></span><span class="sr">.</span></span>
+    </h1>
+    <div class="hero-copy rise">
+      <p class="lede">Keep your data in Markdown and SQLite files you own. Use apps built on Epicenter, or build your own.</p>
+      <p class="state"><span class="pill">In development</span><span>That’s the direction. Epicenter is early, and the file foundation is still being built.</span></p>
+      <div class="actions">
+        <a class="btn" href="https://github.com/EpicenterHQ/epicenter" rel="noopener">Read the source <span class="arr" aria-hidden="true">↗</span></a>
+        <a class="link-quiet" href="#apps">See the apps</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="foundation chapter wrap" id="foundation" aria-labelledby="foundation-title">
+  <div class="grid">
+    <div class="folio" aria-hidden="true"><span class="num">i</span><span class="label">The foundation</span></div>
+    <h2 class="statement rise" id="foundation-title">Your files in the middle. <em>Apps</em> around them.</h2>
+    <p class="intro rise">Epicenter is heading toward a simple arrangement: your things live in ordinary files on your side, and independent apps read and write them. We’re building that layer now, in the open.</p>
+
+    <ol class="principles">
+      <li class="rise">
+        <h3>Files you can open without us.</h3>
+        <p>Markdown opens in any text editor. SQLite opens in a long list of existing tools. Neither needs Epicenter to be read.</p>
+      </li>
+      <li class="rise">
+        <h3>Apps that stand on their own.</h3>
+        <p>Each app is independent. Use one, use several, or use none and keep the files.</p>
+      </li>
+      <li class="rise">
+        <h3>Room for the one you make.</h3>
+        <p>The same foundation is open to anyone who wants to build a small, specific app for themselves.</p>
+      </li>
+    </ol>
+
+    <figure class="specimen rise" aria-labelledby="specimen-cap">
+      <div class="specimen-card">
+        <div class="specimen-head">
+          <span class="path">~/Epicenter/</span>
+          <span class="tag-ill">Illustrative folder</span>
+        </div>
+        <div class="specimen-body">
+          <div class="files" role="tablist" aria-label="Files in the illustrative folder" aria-orientation="vertical">
+            <span class="grp" aria-hidden="true">notes/</span>
+            <button class="file" role="tab" id="tab-fern" aria-controls="pv-fern" aria-selected="true" tabindex="0">
+              <svg class="ico" viewBox="0 0 13 15" aria-hidden="true"><path d="M1 .5h7.5L12.5 4.5V14.5H1z" fill="none" stroke="currentColor"/><path d="M3.5 8h6M3.5 10.5h4" stroke="currentColor"/></svg>fern.md
+            </button>
+            <button class="file" role="tab" id="tab-soup" aria-controls="pv-soup" aria-selected="false" tabindex="-1">
+              <svg class="ico" viewBox="0 0 13 15" aria-hidden="true"><path d="M1 .5h7.5L12.5 4.5V14.5H1z" fill="none" stroke="currentColor"/><path d="M3.5 8h6M3.5 10.5h4" stroke="currentColor"/></svg>lentil-soup.md
+            </button>
+            <span class="grp" aria-hidden="true">practice/</span>
+            <button class="file" role="tab" id="tab-exp" aria-controls="pv-exp" aria-selected="false" tabindex="-1">
+              <svg class="ico" viewBox="0 0 13 15" aria-hidden="true"><ellipse cx="6.5" cy="3" rx="5.5" ry="2.2" fill="none" stroke="currentColor"/><path d="M1 3v9c0 1.2 2.5 2.2 5.5 2.2S12 13.2 12 12V3M1 7.5c0 1.2 2.5 2.2 5.5 2.2S12 8.7 12 7.5" fill="none" stroke="currentColor"/></svg>expressions.sqlite
+            </button>
+          </div>
+
+          <div class="preview" role="tabpanel" id="pv-fern" aria-labelledby="tab-fern" tabindex="0">
+<pre><span class="md-fm">---
+kind: note
+---</span>
+<span class="md-h"># The fern</span>
+
+Water on Sundays, not Mondays.
+Keep it out of the afternoon sun.
+
+<span class="md-q">&gt; It sulks for a week after moving.
+&gt; This is normal.</span></pre>
+          </div>
+          <div class="preview" role="tabpanel" id="pv-soup" aria-labelledby="tab-soup" tabindex="0" hidden>
+<pre><span class="md-h"># Lentil soup</span>
+
+- 1 cup red lentils
+- 1 onion, 2 carrots
+- cumin, a lot of lemon
+
+Simmer 25 minutes.
+Better the next day.</pre>
+          </div>
+          <div class="preview" role="tabpanel" id="pv-exp" aria-labelledby="tab-exp" tabindex="0" hidden>
+            <p class="meta">table: expressions</p>
+            <table class="sql">
+              <thead><tr><th scope="col">id</th><th scope="col">phrase</th><th scope="col">seen</th></tr></thead>
+              <tbody>
+                <tr><td>1</td><td>play it by ear</td><td>3</td></tr>
+                <tr><td>2</td><td>a blessing in disguise</td><td>1</td></tr>
+                <tr><td>3</td><td>cut corners</td><td>0</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <figcaption class="specimen-note" id="specimen-cap">A sketch of the idea, not a file format. The foundation is in development, and this page reads and writes nothing.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="apps" aria-labelledby="apps-title">
+  <div class="apps-head chapter wrap">
+    <div class="grid">
+      <div class="folio" aria-hidden="true"><span class="num">ii</span><span class="label">The apps</span></div>
+      <h2 class="rise" id="apps-title">Two small apps, built on Epicenter. A third space left open.</h2>
+      <p class="rise">Both are published by Braden Wong. Each does one thing, and each is headed for its own address on the web.</p>
+    </div>
+  </div>
+
+  <article class="whispering wrap" aria-labelledby="w-title">
+    <div class="grid">
+      <div class="w-text">
+        <h3 class="app-name" id="w-title">Whispering</h3>
+        <p class="stair rise" aria-label="Press a shortcut. Speak. Get text."><span aria-hidden="true">Press a shortcut.</span><span aria-hidden="true">Speak.</span><span aria-hidden="true">Get text.</span></p>
+        <div class="app-meta">
+          <span>by <a href="https://bradenwong.com" rel="noopener">Braden Wong</a></span>
+          <span class="dot" aria-hidden="true"></span>
+          <span class="built"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7.3" fill="none" stroke="currentColor"/><circle cx="8" cy="8" r="4.3" fill="none" stroke="currentColor"/><circle cx="8" cy="8" r="1.6" fill="#f08a62"/></svg>Built on Epicenter</span>
+        </div>
+        <p class="w-status">Today, its desktop capabilities run inside the Epicenter host.</p>
+        <p class="w-status">Standalone releases on its publisher’s own domain are planned. They haven’t launched.</p>
+        <div class="actions">
+          <a class="btn on-night" href="https://github.com/EpicenterHQ/epicenter/tree/main/apps/whispering" rel="noopener">Build information <span class="arr" aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+
+      <div class="w-demo" data-state="idle" role="group" aria-labelledby="w-demo-label">
+        <div class="demo-top">
+          <span class="label" id="w-demo-label">Try the gesture</span>
+          <span class="tag-ill">Illustrative sample</span>
+        </div>
+        <button class="keycap" type="button" id="w-key" aria-describedby="w-live">
+          <span class="k-main">your shortcut</span>
+          <span class="k-hint">press</span>
+        </button>
+        <div class="wave" id="w-wave" aria-hidden="true"></div>
+        <p class="transcript" id="w-out"><span class="ph">Text appears here.</span></p>
+        <p class="w-live" id="w-live" aria-live="polite">No microphone is used. The words are pre-written.</p>
+      </div>
+    </div>
+  </article>
+
+  <article class="vocab wrap" aria-labelledby="v-title">
+    <div class="grid">
+      <div class="v-demo rise" role="group" aria-labelledby="v-demo-label">
+        <div class="v-stack">
+          <div class="v-card" id="v-card">
+            <div class="v-card-top">
+              <span class="label" id="v-demo-label">Practice</span>
+              <span class="tag-ill">Illustrative sample</span>
+            </div>
+            <p class="v-phrase" id="v-phrase" aria-live="polite">play it by ear</p>
+            <div class="v-back" id="v-back" hidden>
+              <p class="mean" id="v-mean"></p>
+              <p class="ex" id="v-ex"></p>
+            </div>
+            <div class="v-actions" id="v-actions"></div>
+          </div>
+        </div>
+        <p class="v-tally" id="v-tally"></p>
+      </div>
+
+      <div class="v-text">
+        <h3 id="v-title" class="rise">Vocab<em>.</em></h3>
+        <div class="app-meta">
+          <span>by <a href="https://bradenwong.com" rel="noopener">Braden Wong</a></span>
+          <span class="dot" aria-hidden="true"></span>
+          <span class="built"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7.3" fill="none" stroke="currentColor"/><circle cx="8" cy="8" r="4.3" fill="none" stroke="currentColor"/><circle cx="8" cy="8" r="1.6" fill="#c4431f"/></svg>Built on Epicenter</span>
+        </div>
+        <p class="desc">A browser app for practicing expressions.</p>
+        <p class="note">A move to its publisher’s own domain is planned. The card on the left is a stand-in, not the real interface.</p>
+        <div class="actions">
+          <a class="btn" href="https://github.com/EpicenterHQ/epicenter/tree/main/apps/vocab" rel="noopener">Vocab source <span class="arr" aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <article class="yours wrap" aria-labelledby="y-title">
+    <div class="grid">
+      <div class="slot-ring" aria-hidden="true">
+        <svg viewBox="0 0 400 400">
+          <circle cx="200" cy="200" r="196" fill="none" stroke="rgba(30,26,22,.42)" stroke-width="1" stroke-dasharray="2 7" stroke-linecap="round"/>
+          <circle cx="200" cy="200" r="150" fill="none" stroke="rgba(30,26,22,.22)" stroke-width="1"/>
+          <circle cx="200" cy="200" r="104" fill="none" stroke="rgba(30,26,22,.16)" stroke-width="1"/>
+          <path id="slot-arc" d="M 62 200 A 138 138 0 0 1 338 200" fill="none"/>
+          <text font-family="Avenir Next, Avenir, Segoe UI, system-ui, sans-serif" font-size="12" font-weight="600" letter-spacing="3.4" fill="#6b6054"><textPath href="#slot-arc" startOffset="50%" text-anchor="middle">RESERVED FOR SOMETHING YOU MAKE</textPath></text>
+          <circle class="slot-dot" cx="200" cy="200" r="9" fill="#c4431f"/>
+        </svg>
+      </div>
+      <div class="yours-text">
+        <h2 class="rise" id="y-title">The next app on this shelf is <em>yours</em>.</h2>
+        <p class="rise">Epicenter is for people who make and personalize their own software. It’s early, so building on it today means reading the source and expecting things to move.</p>
+        <div class="actions rise">
+          <a class="btn" href="https://github.com/EpicenterHQ/epicenter" rel="noopener">Start with the source <span class="arr" aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+    </div>
+  </article>
+</section>
+
+<section class="status chapter wrap" id="status" aria-labelledby="status-title">
+  <div class="grid">
+    <div class="folio" aria-hidden="true"><span class="num">iii</span><span class="label">Where things stand</span></div>
+    <h2 class="rise" id="status-title">What exists, and what’s still a plan.</h2>
+    <p class="intro rise">If something isn’t in the “Today” column, it isn’t available yet.</p>
+    <table class="ledger">
+      <caption class="sr">Status of Epicenter and the apps built on it</caption>
+      <thead>
+        <tr><th scope="col">Part</th><th scope="col">Today</th><th scope="col">Planned</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">Epicenter</th>
+          <td class="today" data-h="Today"><span class="mark ok">Open source</span>Early. The code is public on <a href="https://github.com/EpicenterHQ/epicenter" rel="noopener">GitHub</a>.</td>
+          <td data-h="Planned">Keeps growing in the open.</td>
+        </tr>
+        <tr>
+          <th scope="row">The file foundation<small>Markdown and SQLite files you own</small></th>
+          <td class="today" data-h="Today"><span class="mark dev">In development</span>Being built. Not available yet.</td>
+          <td data-h="Planned">The layer apps build on, with your data in files on your side.</td>
+        </tr>
+        <tr>
+          <th scope="row">Whispering<small>by Braden Wong</small></th>
+          <td class="today" data-h="Today"><span class="mark ok">Runs today</span>Desktop capabilities run inside the Epicenter host.</td>
+          <td data-h="Planned"><span class="mark plan">Planned</span>Standalone releases on its publisher’s personal domain.</td>
+        </tr>
+        <tr>
+          <th scope="row">Vocab<small>by Braden Wong</small></th>
+          <td class="today" data-h="Today"><span class="mark ok">Runs today</span>A browser app for practicing expressions.</td>
+          <td data-h="Planned"><span class="mark plan">Planned</span>A move to its publisher’s personal domain.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot wrap">
+  <div class="grid foot-cols">
+    <p class="foot-lead">Small software, kept close. <em>Early,</em> open, and built where you can watch.</p>
+    <div class="foot-col">
+      <span class="label">Source</span>
+      <ul class="foot-list">
+        <li><a href="https://github.com/EpicenterHQ/epicenter" rel="noopener">Epicenter on GitHub</a></li>
+        <li><a href="https://github.com/EpicenterHQ/epicenter/tree/main/apps/whispering" rel="noopener">Whispering build information</a></li>
+        <li><a href="https://github.com/EpicenterHQ/epicenter/tree/main/apps/vocab" rel="noopener">Vocab source</a></li>
+      </ul>
+    </div>
+    <div class="foot-col">
+      <span class="label">Publisher</span>
+      <ul class="foot-list">
+        <li><a href="https://bradenwong.com" rel="noopener">Braden Wong</a></li>
+        <li><a href="#top">Back to top</a></li>
+      </ul>
+    </div>
+    <p class="colophon"><span>Set in typefaces already on your device. This page loads nothing else.</span><span>Samples on this page are illustrative and keep nothing.</span></p>
+  </div>
+  <span class="giant" aria-hidden="true"><span class="giant-fit">Epicenter<span class="stop">.</span></span></span>
+</footer>
+
+<script>
+(() => {
+  document.body.classList.remove("no-js");
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+
+  /* ---------- Mobile menu ---------- */
+  const menuBtn = $(".menu-btn");
+  const nav = $("#site-nav");
+  const setMenu = (open) => {
+    menuBtn.setAttribute("aria-expanded", String(open));
+    nav.classList.toggle("open", open);
+  };
+  menuBtn.addEventListener("click", () => setMenu(menuBtn.getAttribute("aria-expanded") !== "true"));
+  nav.addEventListener("click", (e) => { if (e.target.closest("a")) setMenu(false); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && nav.classList.contains("open")) { setMenu(false); menuBtn.focus(); }
+  });
+  document.addEventListener("click", (e) => {
+    if (nav.classList.contains("open") && !e.target.closest(".bar")) setMenu(false);
+  });
+
+  /* ---------- Entry motion ---------- */
+  const rises = $$(".rise");
+  if ("IntersectionObserver" in window && !reduce.matches) {
+    const io = new IntersectionObserver((entries) => {
+      for (const en of entries) {
+        if (!en.isIntersecting) continue;
+        en.target.classList.add("in");
+        io.unobserve(en.target);
+      }
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.05 });
+    rises.forEach((el, i) => {
+      if (el.closest(".hero")) el.style.transitionDelay = (i * 90) + "ms";
+      io.observe(el);
+    });
+  } else {
+    rises.forEach((el) => el.classList.add("in"));
+  }
+
+  /* ---------- Hero rings: centered on the full stop of "yours." ---------- */
+  const NS = "http://www.w3.org/2000/svg";
+  const hero = $(".hero");
+  const svg = $(".rings");
+  const stop = $(".headline .stop");
+  const LABELS = [
+    { at: 2.25, lean: 0.05, parts: [["your files", true], [" · markdown · sqlite", false]] },
+    { at: 4.05, lean: 0.18, parts: [["epicenter", true], [" · the foundation · in development", false]] },
+    { at: 6.0, lean: 0.3, parts: [["apps", true], [" · whispering · vocab · yours", false]] },
+  ];
+  const RADII = [0.5, 1.1, 1.65, 2.25, 3.1, 4.05, 5.0, 6.0, 7.2, 8.6, 10.2, 12];
+
+  function el(name, attrs) {
+    const n = document.createElementNS(NS, name);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+  // Arc path centered on `deg` (0 = right, 90 = down). Lower arcs run counterclockwise so text stays upright.
+  function arc(cx, cy, r, deg, spanDeg) {
+    const lower = Math.sin(deg * Math.PI / 180) > 0;
+    const a0 = (deg + (lower ? spanDeg : -spanDeg)) * Math.PI / 180;
+    const a1 = (deg + (lower ? -spanDeg : spanDeg)) * Math.PI / 180;
+    const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+    const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+    return `M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 0 ${lower ? 0 : 1} ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+  }
+
+  function drawRings() {
+    const hr = hero.getBoundingClientRect();
+    const sr = stop.getBoundingClientRect();
+    const w = hr.width, h = hr.height;
+    const cx = sr.left - hr.left + sr.width / 2;
+    const cy = sr.top - hr.top + sr.height / 2;
+    const em = parseFloat(getComputedStyle($(".headline")).fontSize);
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    svg.replaceChildren();
+
+    const defs = el("defs", {});
+    svg.append(defs);
+
+    RADII.forEach((k, i) => {
+      const r = k * em;
+      const labeled = LABELS.some((l) => l.at === k);
+      const alpha = labeled ? 0.34 : Math.max(0.07, 0.2 - i * 0.012);
+      svg.append(el("circle", {
+        cx, cy, r,
+        stroke: `rgba(30,26,22,${alpha})`,
+        "stroke-width": labeled ? 1 : 0.8,
+        ...(i % 3 === 2 && !labeled ? { "stroke-dasharray": "1 6", "stroke-linecap": "round", stroke: "rgba(30,26,22,.3)" } : {}),
+      }));
+    });
+
+    // Labels only when the copy sits beside the headline, leaving the lower-left field open.
+    if (innerWidth > 860) {
+      const copy = $(".hero-copy").getBoundingClientRect();
+      const minX = parseFloat(getComputedStyle(hero).paddingLeft);
+      const maxX = copy.left - hr.left - 28;
+      LABELS.forEach((l, i) => {
+        const r = l.at * em;
+        const id = "ring-arc-" + i;
+        const path = el("path", { id, d: arc(cx, cy, r, 90, 70) });
+        defs.append(path);
+        const t = el("text", { dy: "-7" });
+        const tp = el("textPath", { href: "#" + id, startOffset: "50%", "text-anchor": "middle" });
+        for (const [s, hot] of l.parts) {
+          const span = el("tspan", hot ? { class: "hot" } : {});
+          span.textContent = s;
+          tp.append(span);
+        }
+        t.append(tp);
+        svg.append(t);
+        // Slide each label around its ring so it stays between the page margin and the copy.
+        const half = t.getComputedTextLength() / 2 + 8;
+        const lo = minX + half, hi = maxX - half;
+        const x = lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, cx - r * l.lean));
+        const cos = Math.min(0.9, Math.max(-0.9, (x - cx) / r));
+        path.setAttribute("d", arc(cx, cy, r, Math.acos(cos) * 180 / Math.PI, 70));
+      });
+    }
+
+    return { cx, cy, w, h };
+  }
+  // Three rings leave the full stop once, after the headline settles. No loop.
+  function ripple({ cx, cy, w, h }) {
+    if (reduce.matches || !svg.animate) return;
+    const far = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy));
+    [0, 1100, 2200].forEach((delay) => {
+      const c = el("circle", { cx, cy, r: 4, stroke: "#c4431f", "stroke-width": 1.2, opacity: 0 });
+      svg.append(c);
+      const anim = c.animate(
+        [{ r: "4px", opacity: 0.9 }, { r: far + "px", opacity: 0 }],
+        { duration: 4600, delay, easing: "cubic-bezier(.25,.6,.3,1)", fill: "both" }
+      );
+      anim.onfinish = () => c.remove();
+    });
+  }
+  let raf = 0;
+  const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(drawRings); };
+  drawRings();
+  (document.fonts ? document.fonts.ready : Promise.resolve()).then(schedule);
+  // The headline rises into place; redraw once it settles so the center tracks the dot.
+  setTimeout(() => ripple(drawRings()), 1400);
+  new ResizeObserver(schedule).observe(hero);
+
+  /* ---------- Footer wordmark: fit to the measure ---------- */
+  const giant = $(".giant"), fit = $(".giant-fit");
+  function fitGiant() {
+    const avail = giant.clientWidth;
+    const size = parseFloat(getComputedStyle(giant).fontSize);
+    const wide = fit.getBoundingClientRect().width;
+    if (avail && wide) giant.style.fontSize = (size * avail * 0.99 / wide).toFixed(2) + "px";
+  }
+  (document.fonts ? document.fonts.ready : Promise.resolve()).then(fitGiant);
+  addEventListener("resize", () => { giant.style.fontSize = ""; fitGiant(); });
+  fitGiant();
+
+  /* ---------- Folder specimen tabs ---------- */
+  const tabs = $$(".files [role=tab]");
+  function selectTab(tab, focus) {
+    for (const t of tabs) {
+      const on = t === tab;
+      t.setAttribute("aria-selected", String(on));
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+    }
+    if (focus) tab.focus();
+  }
+  tabs.forEach((t, i) => {
+    t.addEventListener("click", () => selectTab(t, false));
+    t.addEventListener("keydown", (e) => {
+      const keys = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+      if (e.key in keys) { e.preventDefault(); selectTab(tabs[(i + keys[e.key] + tabs.length) % tabs.length], true); }
+      if (e.key === "Home") { e.preventDefault(); selectTab(tabs[0], true); }
+      if (e.key === "End") { e.preventDefault(); selectTab(tabs[tabs.length - 1], true); }
+    });
+  });
+
+  /* ---------- Whispering: illustrative gesture (no microphone, no network) ---------- */
+  const demo = $(".w-demo");
+  const key = $("#w-key");
+  const wave = $("#w-wave");
+  const out = $("#w-out");
+  const live = $("#w-live");
+  const BARS = 44;
+  const bars = Array.from({ length: BARS }, () => wave.appendChild(document.createElement("i")));
+  const LINES = [
+    "Pick up oat milk on the way home, and move the dentist to Thursday.",
+    "The second paragraph is doing too much. Split it after the example.",
+    "Note to self: the fern wants water on Sundays, not Mondays.",
+  ];
+  let lineIx = 0, state = "idle", waveRaf = 0, timers = [];
+  const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+  const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
+
+  function setState(s, msg) {
+    state = s;
+    demo.dataset.state = s;
+    key.setAttribute("aria-disabled", String(s === "transcribing"));
+    $(".k-hint", key).textContent = s === "listening" ? "press to stop" : s === "transcribing" ? "…" : "press";
+    if (msg) live.textContent = msg;
+  }
+  function flatWave() { bars.forEach((b) => (b.style.height = "2px")); }
+  function animateWave() {
+    const t0 = performance.now();
+    const step = (now) => {
+      const t = (now - t0) / 1000;
+      bars.forEach((b, i) => {
+        const env = Math.sin((i / (BARS - 1)) * Math.PI);
+        const v = Math.abs(Math.sin(t * 6.1 + i * 0.55) * 0.55 + Math.sin(t * 3.3 + i * 1.7) * 0.35 + Math.sin(t * 11 + i) * 0.1);
+        b.style.height = (3 + env * v * 58).toFixed(1) + "px";
+      });
+      waveRaf = requestAnimationFrame(step);
+    };
+    if (reduce.matches) {
+      bars.forEach((b, i) => (b.style.height = (4 + Math.sin((i / (BARS - 1)) * Math.PI) * (18 + (i * 37 % 23))) + "px"));
+    } else {
+      waveRaf = requestAnimationFrame(step);
+    }
+  }
+  function startListening() {
+    clearTimers();
+    out.innerHTML = '<span class="ph">Listening…</span>';
+    setState("listening", "Pretending to listen. Nothing is being recorded.");
+    animateWave();
+    later(stopListening, 2600);
+  }
+  function stopListening() {
+    if (state !== "listening") return;
+    clearTimers();
+    cancelAnimationFrame(waveRaf);
+    flatWave();
+    setState("transcribing", "Placing the pre-written text.");
+    const text = LINES[lineIx++ % LINES.length];
+    out.textContent = "";
+    const span = document.createElement("span");
+    const caret = document.createElement("span");
+    caret.className = "caret";
+    out.append(span, caret);
+    if (reduce.matches) {
+      span.textContent = text;
+      finish(text, caret);
+      return;
+    }
+    let i = 0;
+    const type = () => {
+      i = Math.min(text.length, i + 1 + (Math.random() < 0.3 ? 1 : 0));
+      span.textContent = text.slice(0, i);
+      if (i < text.length) later(type, 26 + Math.random() * 30);
+      else finish(text, caret);
+    };
+    later(type, 380);
+  }
+  function finish(text, caret) {
+    later(() => caret.remove(), 1600);
+    setState("done", "Done. Press again for another illustrative line.");
+  }
+  key.addEventListener("click", () => {
+    if (state === "transcribing") return;
+    if (state === "listening") stopListening();
+    else startListening();
+  });
+  flatWave();
+
+  /* ---------- Vocab: illustrative practice deck, in memory only ---------- */
+  const DECK = [
+    { p: "play it by ear", m: "To decide as things happen, without a fixed plan.", e: "“Let’s play it by ear once we see the weather.”" },
+    { p: "a blessing in disguise", m: "Something that seems bad at first and turns out well.", e: "“Missing that train was a blessing in disguise.”" },
+    { p: "cut corners", m: "To do something the cheap or fast way, skipping care.", e: "“We cut corners on the shelves, and now they wobble.”" },
+    { p: "the ball is in your court", m: "It’s your turn to decide or act.", e: "“I sent the offer. The ball is in your court.”" },
+    { p: "bite off more than you can chew", m: "To take on more than you can manage.", e: "“Three side projects? I bit off more than I could chew.”" },
+  ];
+  const vPhrase = $("#v-phrase"), vBack = $("#v-back"), vMean = $("#v-mean"), vEx = $("#v-ex");
+  const vActions = $("#v-actions"), vTally = $("#v-tally"), vCard = $("#v-card");
+  let queue, known, again;
+  function resetDeck() { queue = DECK.map((_, i) => i); known = 0; again = 0; }
+  function button(label, cls, fn) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip" + (cls ? " " + cls : "");
+    b.textContent = label;
+    b.addEventListener("click", fn);
+    return b;
+  }
+  function tally() {
+    vTally.textContent = queue.length
+      ? `${queue.length} left in this illustrative deck · ${known} got · ${again} coming back`
+      : "Nothing is saved. Reload and it starts over.";
+  }
+  function bump() {
+    if (reduce.matches || !vCard.animate) return;
+    vCard.animate([{ transform: "rotate(-1.2deg) translateY(4px)", opacity: 0.6 }, { transform: "none", opacity: 1 }], { duration: 380, easing: "cubic-bezier(.2,.7,.1,1)" });
+  }
+  function showFront(focusAction) {
+    vBack.hidden = true;
+    vActions.replaceChildren();
+    if (!queue.length) {
+      vPhrase.textContent = "That’s the whole deck.";
+      const b = button("Shuffle again", "solid", () => { resetDeck(); showFront(true); bump(); });
+      vActions.append(b);
+      tally();
+      if (focusAction) b.focus();
+      return;
+    }
+    const c = DECK[queue[0]];
+    vPhrase.textContent = c.p;
+    const b = button("Show meaning", "solid", showBack);
+    vActions.append(b);
+    tally();
+    if (focusAction) b.focus();
+  }
+  function showBack() {
+    const c = DECK[queue[0]];
+    vMean.textContent = c.m;
+    vEx.textContent = c.e;
+    vBack.hidden = false;
+    vActions.replaceChildren(
+      button("Got it", "solid", () => { queue.shift(); known++; showFront(true); bump(); }),
+      button("Again later", "", () => { queue.push(queue.shift()); again++; showFront(true); bump(); })
+    );
+    vActions.firstChild.focus();
+  }
+  resetDeck();
+  showFront(false);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1890 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Epicenter: make software that’s unmistakably yours</title>
+<meta name="description" content="Epicenter is an early, open-source foundation for personal software. Keep your data in Markdown and SQLite files you own. Use apps built on Epicenter, or build your own.">
+<meta name="theme-color" content="#f3f2ec">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='17' fill='none' stroke='%23111016' stroke-width='3'/%3E%3Ccircle cx='20' cy='20' r='9' fill='%23ff3d9a'/%3E%3C/svg%3E">
+<style>
+:root {
+  --paper: #f3f2ec;
+  --white: #fffefa;
+  --ink: #111016;
+  --pink: #ff3d9a;
+  --blue: #2338f0;
+  --yellow: #ffd31a;
+  --muted: #55535c;
+
+  --display: "Avenir Next Condensed", "Arial Narrow", "Roboto Condensed", "Helvetica Neue", system-ui, sans-serif;
+  --sans: "Avenir Next", Avenir, "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --gutter: clamp(20px, 3.4vw, 56px);
+  --nav-h: 68px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: calc(var(--nav-h) + 12px);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Risograph paper grain, printed over everything. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  pointer-events: none;
+  opacity: .11;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .7 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+a { color: inherit; }
+img, svg { display: block; }
+button, input, textarea { font: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 3px solid var(--pink);
+  outline-offset: 3px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip {
+  position: absolute;
+  left: 12px;
+  top: -80px;
+  z-index: 300;
+  padding: 10px 16px;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 700;
+  text-decoration: none;
+}
+.skip:focus { top: 12px; }
+
+/* ------------------------------------------------------------------ */
+/* Shared pieces                                                       */
+/* ------------------------------------------------------------------ */
+
+.folio {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.folio b {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.3em;
+  height: 2.3em;
+  margin-right: .7em;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.illus {
+  display: inline-block;
+  margin: 0;
+  padding: 5px 9px;
+  border: 1.5px dashed currentColor;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .55em;
+  min-height: 52px;
+  padding: 0 22px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 16px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease, background-color .15s ease, color .15s ease;
+}
+.btn-ink {
+  background: var(--ink);
+  color: var(--paper);
+  box-shadow: 4px 4px 0 var(--pink);
+}
+.btn-ink:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 var(--pink); }
+.btn-ink:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--pink); }
+.btn-line {
+  background: transparent;
+  color: var(--ink);
+}
+.btn-line:hover { background: var(--ink); color: var(--paper); }
+.btn[disabled] {
+  cursor: not-allowed;
+  opacity: .45;
+  transform: none;
+  box-shadow: none;
+}
+.btn-sm { min-height: 44px; padding: 0 18px; font-size: 15px; }
+
+.arrow { font-family: var(--sans); font-weight: 700; }
+
+/* ------------------------------------------------------------------ */
+/* Navigation                                                          */
+/* ------------------------------------------------------------------ */
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-height: var(--nav-h);
+  padding: 0 var(--gutter);
+  background: var(--paper);
+  border-bottom: 2px solid var(--ink);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 27px;
+  letter-spacing: -.01em;
+  line-height: 1;
+}
+.brand .mark { width: 34px; height: 34px; }
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.nav-links a {
+  padding: 9px 15px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 15px;
+  text-decoration: none;
+  transition: background-color .15s ease, color .15s ease;
+}
+.nav-links a:hover { background: var(--ink); color: var(--paper); }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px 7px 11px;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  background: var(--yellow);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.chip i {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--pink);
+  box-shadow: 0 0 0 1.5px var(--ink);
+}
+
+.menu-btn {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper);
+  font-weight: 700;
+  cursor: pointer;
+}
+.menu-btn .bars {
+  width: 16px; height: 10px;
+  border-top: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+}
+.nav[data-open] .menu-btn { background: var(--ink); color: var(--paper); }
+
+/* ------------------------------------------------------------------ */
+/* Hero                                                                */
+/* ------------------------------------------------------------------ */
+
+.hero {
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+  padding: 0 var(--gutter) clamp(56px, 7vw, 104px);
+}
+
+.mast {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.mast .mast-status { display: inline-flex; align-items: center; gap: 8px; }
+.mast .mast-status::before {
+  content: "";
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--pink);
+  box-shadow: 0 0 0 1.5px var(--ink);
+}
+
+.hero-title {
+  position: relative;
+  z-index: 2;
+  margin: clamp(30px, 4.4vw, 64px) 0 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(3.05rem, 10vw, 10.2rem);
+  line-height: .86;
+  letter-spacing: -.02em;
+  font-kerning: normal;
+}
+.hero-title .l { display: block; }
+.hero-title .l-2 { padding-left: .52em; }
+
+/* The headline's final period is the epicenter. The glyph stays in the
+   text for readers; a round dot sits on the baseline in its place. */
+.epi {
+  display: inline-block;
+  width: .2em;
+  height: .2em;
+  margin-left: .05em;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--pink);
+  color: transparent;
+  vertical-align: baseline;
+  box-shadow: .035em .025em 0 var(--blue);
+}
+
+.quake {
+  position: absolute;
+  z-index: 1;
+  left: calc(var(--cx, 30vw) - 1300px);
+  top: calc(var(--cy, 480px) - 1300px);
+  width: 2600px;
+  height: 2600px;
+  pointer-events: none;
+}
+.quake svg { width: 100%; height: 100%; overflow: visible; }
+.quake circle { fill: none; }
+.quake .r-faint { stroke: var(--ink); stroke-width: 1; opacity: .17; }
+.quake .r-pink { stroke: var(--pink); stroke-width: 2.5; }
+.quake .r-blue { stroke: var(--blue); stroke-width: 2.5; mix-blend-mode: multiply; }
+.quake circle {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.js .quake circle { animation: quake 1.5s cubic-bezier(.15, .75, .2, 1) both; animation-delay: calc(var(--i) * 75ms + 120ms); }
+@keyframes quake {
+  from { transform: scale(.08); opacity: 0; }
+  40% { opacity: 1; }
+}
+
+.quake-axis {
+  position: absolute;
+  z-index: 1;
+  left: var(--cx, 30vw);
+  right: 0;
+  top: var(--cy, 480px);
+  border-top: 1.5px dashed var(--ink);
+  opacity: .55;
+  pointer-events: none;
+}
+
+.quake-tags { margin: 0; padding: 0; list-style: none; }
+.qtag {
+  position: absolute;
+  z-index: 3;
+  left: calc(var(--cx, 30vw) + var(--r) * 1px);
+  top: var(--cy, 480px);
+  transform: translate(-50%, -50%);
+  padding: 6px 11px 7px;
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 3px 3px 0 var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.3;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.qtag b {
+  display: block;
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.qtag[data-tone="pink"] { background: var(--pink); }
+.qtag[data-tone="yellow"] { background: var(--yellow); }
+.qtag[data-tone="ink"] { background: var(--ink); color: var(--paper); box-shadow: 3px 3px 0 var(--pink); }
+.qtag.is-off { display: none; }
+.js .qtag { animation: tagin .5s ease both; animation-delay: calc(var(--i) * 120ms + 700ms); }
+@keyframes tagin { from { opacity: 0; transform: translate(-50%, -30%); } }
+
+.hero-foot {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 28px;
+  align-items: end;
+  margin-top: clamp(64px, 7vw, 112px);
+}
+.lede {
+  grid-column: 1 / 7;
+  margin: 0;
+  max-width: 21em;
+  font-size: clamp(1.3rem, 2.05vw, 1.85rem);
+  font-weight: 500;
+  line-height: 1.28;
+  letter-spacing: -.005em;
+}
+.lede em {
+  font-style: normal;
+  background: linear-gradient(transparent 58%, var(--yellow) 58%, var(--yellow) 92%, transparent 92%);
+}
+.hero-side { grid-column: 8 / 13; }
+.status {
+  margin: 0 0 22px;
+  padding: 16px 18px;
+  border: 2px solid var(--ink);
+  border-left-width: 10px;
+  background: var(--paper);
+  font-size: 15.5px;
+  line-height: 1.45;
+}
+.status strong { display: block; margin-bottom: 2px; font-size: 13px; font-family: var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.ctas { display: flex; flex-wrap: wrap; gap: 12px; }
+
+/* ------------------------------------------------------------------ */
+/* Seismogram edge                                                     */
+/* ------------------------------------------------------------------ */
+
+.seismo {
+  width: 100%;
+  height: clamp(56px, 6.5vw, 96px);
+  margin-bottom: -1px;
+}
+.seismo path { fill: var(--blue); }
+
+/* ------------------------------------------------------------------ */
+/* Foundation                                                          */
+/* ------------------------------------------------------------------ */
+
+.foundation {
+  position: relative;
+  overflow: clip;
+  padding: clamp(32px, 4vw, 64px) var(--gutter) clamp(72px, 9vw, 140px);
+  background: var(--blue);
+  color: var(--white);
+}
+
+.fnd-head {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 20px 28px;
+  align-items: end;
+}
+.fnd-head .folio { grid-column: 1 / -1; }
+.fnd-head h2 {
+  grid-column: 1 / 9;
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(2.7rem, 7.2vw, 7.4rem);
+  line-height: .88;
+  letter-spacing: -.018em;
+}
+.fnd-copy {
+  grid-column: 9 / 13;
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.kinds {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  margin-top: clamp(48px, 6vw, 88px);
+  padding-top: 20px;
+  border-top: 2px solid var(--white);
+}
+.kind h3 {
+  margin: 18px 0 6px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -.005em;
+}
+.kind p { margin: 0; max-width: 30em; font-size: 16.5px; color: #e8e9ff; }
+.kind-ext {
+  display: block;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(4.6rem, 14.5vw, 15rem);
+  line-height: .8;
+  letter-spacing: -.035em;
+  color: var(--white);
+  text-shadow: .045em .035em 0 var(--pink);
+}
+
+.fnd-copy p { margin: 0; }
+.fnd-copy .stamp {
+  width: min(310px, 100%);
+  margin: 30px 0 0 4px;
+  padding: 16px 18px 18px;
+  border: 3px solid var(--ink);
+  background: var(--pink);
+  color: var(--ink);
+  transform: rotate(-4deg);
+  box-shadow: 8px 8px 0 var(--ink);
+}
+.stamp b {
+  display: block;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 40px;
+  line-height: .9;
+  letter-spacing: -.01em;
+  text-transform: uppercase;
+}
+.stamp span { display: block; margin-top: 8px; font-size: 15px; font-weight: 600; line-height: 1.35; }
+
+/* Proof sheet: the illustrative sample */
+.proof {
+  margin-top: clamp(64px, 8vw, 120px);
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 12px 12px 0 var(--ink);
+}
+.proof-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 20px;
+  padding: 14px 22px;
+  border-bottom: 2px solid var(--ink);
+  background: var(--yellow);
+}
+.proof-bar h3 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 30px;
+  line-height: 1;
+}
+.proof-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 4fr) minmax(0, 8fr);
+}
+.proof-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 26px 24px 24px;
+  border-right: 2px solid var(--ink);
+}
+.proof-form > p { margin: 0; font-size: 15.5px; color: var(--muted); }
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field > span {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.field input, .field textarea {
+  width: 100%;
+  padding: 11px 13px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--white);
+  font-size: 16px;
+  line-height: 1.35;
+  resize: vertical;
+}
+.field input:focus-visible, .field textarea:focus-visible { outline-offset: 0; }
+.field input::placeholder, .field textarea::placeholder { color: #8b8993; }
+.form-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.form-msg { min-height: 1.4em; margin: 0; font-size: 14px; font-weight: 600; }
+
+.sheets {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
+  gap: 28px;
+  padding: 34px 32px 38px;
+  background-color: #e9e8e1;
+  background-image: radial-gradient(rgba(17, 16, 22, .22) 1px, transparent 1.4px);
+  background-size: 16px 16px;
+}
+.sheet {
+  align-self: start;
+  border: 2px solid var(--ink);
+  background: var(--white);
+  box-shadow: 6px 6px 0 rgba(17, 16, 22, .9);
+  min-width: 0;
+}
+.sheet-md { transform: rotate(-1.1deg); }
+.sheet-db { transform: rotate(.9deg); margin-top: 18px; }
+.sheet header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 2px solid var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.sheet header .fname { font-weight: 700; }
+.sheet header .kindtag {
+  padding: 2px 7px;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.sheet-md header .kindtag { background: var(--pink); }
+.sheet-db header .kindtag { background: var(--blue); color: var(--white); border-color: var(--blue); }
+
+.md-out {
+  margin: 0;
+  padding: 14px 14px 18px;
+  max-height: 360px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.md-out .ln { display: block; min-height: 1.6em; }
+.md-out .h1 { font-weight: 700; }
+.md-out .h2 { font-weight: 700; color: var(--blue); }
+.md-out .mk { color: var(--pink); font-weight: 700; }
+.md-out .q { color: var(--muted); }
+.md-block { display: block; }
+.md-block.draft, .db-row.draft { opacity: .5; }
+.md-block.fresh, .db-row.fresh { animation: fresh 1.6s ease-out; }
+@keyframes fresh { from { background: var(--yellow); } to { background: transparent; } }
+
+.db-query {
+  padding: 10px 12px;
+  border-bottom: 1px dashed rgba(17, 16, 22, .4);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.db-query b { color: var(--blue); font-weight: 700; }
+.db-scroll { max-height: 300px; overflow: auto; }
+.db {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.db th, .db td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(17, 16, 22, .18);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.db th {
+  position: sticky;
+  top: 0;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.db td:first-child, .db th:first-child { width: 3.2em; color: var(--muted); }
+.db th:first-child { color: var(--paper); }
+.db .empty td { padding: 22px 10px; color: var(--muted); text-align: center; }
+.db-foot {
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 2px solid var(--ink);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.proof-note {
+  margin: 0;
+  padding: 14px 22px;
+  border-top: 2px solid var(--ink);
+  font-size: 14.5px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Apps                                                                */
+/* ------------------------------------------------------------------ */
+
+.apps {
+  padding: clamp(80px, 10vw, 160px) var(--gutter) clamp(88px, 10vw, 160px);
+}
+.apps-head {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 20px 28px;
+  align-items: end;
+}
+.apps-head .folio { grid-column: 1 / -1; }
+.apps-head h2 {
+  grid-column: 1 / 8;
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(2.7rem, 7.2vw, 7.4rem);
+  line-height: .88;
+  letter-spacing: -.018em;
+}
+.apps-head p {
+  grid-column: 8 / 13;
+  margin: 0;
+  font-size: 18px;
+}
+
+.shelf {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 0 clamp(28px, 3.4vw, 56px);
+  margin-top: clamp(56px, 6vw, 96px);
+  align-items: start;
+}
+.edition { min-width: 0; }
+.edition-w { grid-column: 1 / 8; }
+.edition-v { grid-column: 8 / 13; margin-top: clamp(0px, 13vw, 200px); }
+
+.cover {
+  position: relative;
+  overflow: hidden;
+  margin: 0;
+  padding: clamp(20px, 2.4vw, 34px);
+  border: 2px solid var(--ink);
+  box-shadow: 10px 10px 0 var(--ink);
+}
+.cover-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.cover-title {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(2rem, 3.2vw, 3rem);
+  line-height: .9;
+  letter-spacing: -.01em;
+}
+.kicker {
+  flex: none;
+  padding: 5px 10px;
+  border: 1.5px solid currentColor;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Whispering */
+.cover-whisper { background: var(--pink); }
+.w-steps {
+  margin: clamp(28px, 4vw, 56px) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.w-steps li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 20px;
+  min-height: clamp(96px, 9vw, 136px);
+  padding: 10px 0;
+  border-top: 2px solid var(--ink);
+}
+.w-steps li:last-child { border-bottom: 2px solid var(--ink); }
+.w-text {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(2.2rem, 4vw, 4rem);
+  line-height: .9;
+  letter-spacing: -.02em;
+}
+.keys { display: flex; gap: 10px; padding-bottom: 6px; }
+.key {
+  width: 54px;
+  height: 52px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: var(--paper);
+  box-shadow: 0 7px 0 var(--ink);
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.key-wide { width: 128px; }
+.cover-whisper:hover .key { transform: translateY(5px); box-shadow: 0 2px 0 var(--ink); }
+.cover-whisper:hover .key-wide { transition-delay: .06s; }
+.wave { width: clamp(150px, 17vw, 250px); height: 72px; }
+.wave rect { fill: var(--blue); mix-blend-mode: multiply; transform-box: fill-box; transform-origin: center; }
+.cover-whisper:hover .wave rect { animation: wave .9s ease-in-out infinite alternate; animation-delay: calc(var(--i) * -70ms); }
+@keyframes wave { to { transform: scaleY(.35); } }
+.out-line {
+  display: inline-flex;
+  align-items: center;
+  max-width: 260px;
+  padding: 9px 12px;
+  border: 2px solid var(--ink);
+  background: var(--white);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.3;
+}
+.out-line i {
+  width: 2px;
+  height: 1.2em;
+  margin-left: 2px;
+  background: var(--ink);
+}
+.cover-foot {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 18px 0 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: .04em;
+}
+
+/* Vocab */
+.cover-vocab {
+  background: var(--yellow);
+  min-height: clamp(520px, 44vw, 620px);
+  display: flex;
+  flex-direction: column;
+}
+.deck {
+  position: relative;
+  flex: 1;
+  display: grid;
+  place-items: center;
+  min-height: 330px;
+  margin: 18px 0;
+}
+.deck-back {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(78%, 330px);
+  aspect-ratio: 1.45;
+  border: 2px solid var(--ink);
+  background: var(--white);
+}
+.deck-back.b1 { transform: translate(-50%, -50%) rotate(-9deg) translate(-18px, 8px); background: var(--blue); }
+.deck-back.b2 { transform: translate(-50%, -50%) rotate(6deg) translate(16px, -4px); background: var(--pink); }
+.flash {
+  position: relative;
+  width: min(78%, 330px);
+  aspect-ratio: 1.45;
+  padding: 0;
+  border: 0;
+  background: none;
+  perspective: 900px;
+  cursor: pointer;
+  transform: rotate(-1.5deg);
+}
+.flash-inner {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transition: transform .55s cubic-bezier(.3, .7, .2, 1);
+}
+.flash[aria-pressed="true"] .flash-inner { transform: rotateY(180deg); }
+.face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border: 2px solid var(--ink);
+  background: var(--white);
+  box-shadow: 6px 6px 0 var(--ink);
+  backface-visibility: hidden;
+  text-align: left;
+}
+.face-back { transform: rotateY(180deg); background: var(--ink); color: var(--paper); box-shadow: 6px 6px 0 var(--blue); }
+.face small {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.face strong {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(2rem, 3.2vw, 2.9rem);
+  line-height: .95;
+  letter-spacing: -.01em;
+}
+.face-back strong { font-family: var(--sans); font-weight: 600; font-size: 20px; line-height: 1.25; letter-spacing: 0; }
+.face em { font-style: normal; font-size: 14px; font-weight: 600; }
+.vocab-line {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(1.9rem, 2.9vw, 2.7rem);
+  line-height: .95;
+  letter-spacing: -.01em;
+}
+
+/* Colophons */
+.colophon {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  margin: 30px 0 0;
+  border-top: 2px solid var(--ink);
+  font-size: 15px;
+}
+.colophon dt, .colophon dd {
+  margin: 0;
+  padding: 11px 0;
+  border-bottom: 1px solid rgba(17, 16, 22, .22);
+}
+.colophon dt {
+  padding-right: 22px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 2;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.colophon a { font-weight: 700; text-underline-offset: 3px; }
+.colophon a:hover { background: var(--yellow); }
+.tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 7px;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  vertical-align: 2px;
+}
+.tag-now { background: var(--ink); color: var(--paper); }
+.tag-planned { background: var(--white); border-style: dashed; }
+.edition-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  padding-bottom: 3px;
+  border-bottom: 3px solid var(--pink);
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 26px;
+  line-height: 1.1;
+  text-decoration: none;
+}
+.edition-link:hover { border-bottom-color: var(--blue); }
+
+/* ------------------------------------------------------------------ */
+/* Build                                                               */
+/* ------------------------------------------------------------------ */
+
+.build {
+  position: relative;
+  overflow: clip;
+  padding: clamp(80px, 10vw, 160px) var(--gutter) clamp(80px, 9vw, 140px);
+  background: var(--ink);
+  color: var(--paper);
+}
+.build :focus-visible { outline-color: var(--yellow); }
+.build-head {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 20px 28px;
+  align-items: end;
+}
+.build-head .folio { grid-column: 1 / -1; }
+.build-head h2 {
+  grid-column: 1 / 9;
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(2.7rem, 7.2vw, 7.4rem);
+  line-height: .88;
+  letter-spacing: -.018em;
+}
+.build-head h2 .hl { color: var(--ink); background: var(--yellow); padding: 0 .08em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.build-head p { grid-column: 9 / 13; margin: 0; font-size: 18px; color: #d9d8d2; }
+
+.maker {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: clamp(32px, 5vw, 80px);
+  margin-top: clamp(56px, 6vw, 96px);
+  align-items: start;
+}
+.maker-form { display: flex; flex-direction: column; gap: 18px; }
+.maker-form .illus { align-self: flex-start; color: var(--yellow); }
+.maker-form .field input {
+  border-color: var(--paper);
+  background: transparent;
+  color: var(--paper);
+}
+.maker-form .field input::placeholder { color: #8e8c95; }
+.choice { margin: 0; padding: 0; border: 0; }
+.choice legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.choice-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.choice label { position: relative; cursor: pointer; }
+.choice input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.choice label span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 14px 0 10px;
+  border: 2px solid #5a5862;
+  border-radius: 999px;
+  font-size: 14.5px;
+  font-weight: 600;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+.choice label span::before {
+  content: "";
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--paper);
+  background: var(--sw, transparent);
+}
+.choice-pattern label span::before { display: none; }
+.choice-pattern label span { padding: 0 14px; }
+.choice input:checked + span { border-color: var(--paper); background: #2a2930; }
+.choice input:focus-visible + span { outline: 3px solid var(--yellow); outline-offset: 2px; }
+.choice label:hover span { border-color: var(--paper); }
+.btn-ghost-light {
+  align-self: flex-start;
+  background: transparent;
+  color: var(--paper);
+  border-color: var(--paper);
+}
+.btn-ghost-light:hover { background: var(--paper); color: var(--ink); }
+
+.cover-yours {
+  --c-bg: var(--pink);
+  --c-fg: var(--ink);
+  --c-art: var(--blue);
+  display: flex;
+  flex-direction: column;
+  min-height: 560px;
+  background: var(--c-bg);
+  color: var(--c-fg);
+  border-color: var(--paper);
+  box-shadow: 10px 10px 0 var(--pink);
+  transition: background-color .3s ease, color .3s ease;
+}
+.cover-yours[data-ink="pink"] { box-shadow: 10px 10px 0 var(--yellow); }
+.cover-yours[data-ink="blue"] { --c-bg: var(--blue); --c-fg: var(--white); --c-art: var(--pink); }
+.cover-yours[data-ink="yellow"] { --c-bg: var(--yellow); --c-fg: var(--ink); --c-art: var(--pink); }
+.cover-yours[data-ink="paper"] { --c-bg: var(--paper); --c-fg: var(--ink); --c-art: var(--blue); }
+.cover-yours .cover-title {
+  max-width: 80%;
+  font-size: clamp(2.6rem, 5.4vw, 5.2rem);
+  overflow-wrap: anywhere;
+}
+.cover-yours .cover-title.is-empty, .mc-line.is-empty, .mc-pub.is-empty { opacity: .55; }
+.mc-art {
+  position: relative;
+  flex: 1;
+  min-height: 190px;
+  margin: 22px 0;
+  border: 2px solid currentColor;
+  color: var(--c-art);
+  mix-blend-mode: multiply;
+}
+.cover-yours[data-ink="blue"] .mc-art { mix-blend-mode: normal; }
+.mc-art::after {
+  content: "";
+  position: absolute;
+  left: 22%;
+  top: 58%;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 5px var(--c-bg);
+}
+.cover-yours[data-pattern="rings"] .mc-art {
+  background: repeating-radial-gradient(circle at 22% 58%, transparent 0 18px, currentColor 18px 21px);
+}
+.cover-yours[data-pattern="lines"] .mc-art {
+  background: repeating-linear-gradient(-32deg, currentColor 0 4px, transparent 4px 18px);
+}
+.cover-yours[data-pattern="dots"] .mc-art {
+  background: radial-gradient(currentColor 30%, transparent 33%) 0 0 / 20px 20px;
+}
+.mc-line {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(1.6rem, 2.5vw, 2.3rem);
+  line-height: 1;
+  overflow-wrap: anywhere;
+}
+.cover-yours .colophon { border-top-color: currentColor; font-size: 14px; }
+.cover-yours .colophon dt { color: inherit; opacity: .75; }
+.cover-yours .colophon dt, .cover-yours .colophon dd { border-bottom-color: color-mix(in srgb, currentColor 30%, transparent); overflow-wrap: anywhere; }
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 clamp(24px, 3vw, 48px);
+  margin: clamp(80px, 9vw, 140px) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.step {
+  padding-top: 18px;
+  border-top: 2px solid var(--paper);
+}
+.step-n {
+  display: block;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(4rem, 7vw, 6.5rem);
+  line-height: .8;
+  color: var(--ink);
+  -webkit-text-stroke: 2px var(--yellow);
+  text-shadow: 5px 4px 0 var(--pink);
+}
+.step h3 {
+  margin: 22px 0 8px;
+  font-size: 24px;
+  line-height: 1.15;
+}
+.step p { margin: 0; color: #d9d8d2; max-width: 26em; }
+.step-links { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
+.step-links a {
+  align-self: flex-start;
+  font-weight: 700;
+  text-underline-offset: 4px;
+  text-decoration-color: var(--pink);
+  text-decoration-thickness: 2px;
+}
+.step-links a:hover { color: var(--yellow); }
+
+/* ------------------------------------------------------------------ */
+/* Footer                                                              */
+/* ------------------------------------------------------------------ */
+
+.foot {
+  position: relative;
+  overflow: clip;
+  padding: clamp(56px, 7vw, 96px) var(--gutter) 0;
+  background: var(--pink);
+  color: var(--ink);
+}
+.foot-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 32px 28px;
+}
+.foot-say {
+  grid-column: 1 / 6;
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(2rem, 3.4vw, 3.2rem);
+  line-height: .95;
+  letter-spacing: -.01em;
+}
+.foot-col { grid-column: span 2; }
+.foot-col:first-of-type { grid-column: 7 / 9; }
+.foot-col h3 {
+  margin: 0 0 12px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.foot-col ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.foot-col a { font-weight: 600; text-underline-offset: 3px; }
+.foot-col a:hover { background: var(--ink); color: var(--pink); text-decoration: none; }
+.foot-fine {
+  margin: clamp(40px, 5vw, 72px) 0 0;
+  padding: 16px 0;
+  border-top: 2px solid var(--ink);
+  font-size: 14.5px;
+  font-weight: 500;
+}
+.foot-word {
+  margin: 0 calc(var(--gutter) * -1);
+  padding: 0 var(--gutter);
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 25vw;
+  line-height: .74;
+  letter-spacing: -.045em;
+  color: var(--blue);
+  text-shadow: .025em .02em 0 var(--ink);
+  white-space: nowrap;
+  transform: translateY(.1em);
+  user-select: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Responsive                                                          */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 1100px) {
+  .lede { grid-column: 1 / -1; }
+  .hero-side { grid-column: 1 / 10; }
+  .fnd-head h2, .apps-head h2, .build-head h2 { grid-column: 1 / -1; }
+  .fnd-copy, .apps-head p, .build-head p { grid-column: 1 / 9; }
+  .proof-grid { grid-template-columns: 1fr; }
+  .proof-form { border-right: 0; border-bottom: 2px solid var(--ink); }
+  .edition-w { grid-column: 1 / -1; }
+  .edition-v { grid-column: 1 / 9; margin-top: 88px; }
+  .maker { grid-template-columns: 1fr; }
+  .maker-form { max-width: 620px; }
+  .foot-say { grid-column: 1 / -1; }
+  .foot-col, .foot-col:first-of-type { grid-column: span 4; }
+}
+
+@media (max-width: 860px) {
+  .nav { gap: 12px; }
+  .nav-links {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    margin: 0;
+    padding: 6px var(--gutter) 22px;
+    background: var(--paper);
+    border-bottom: 2px solid var(--ink);
+    box-shadow: 0 12px 0 rgba(17, 16, 22, .12);
+  }
+  .nav[data-open] .nav-links { display: flex; }
+  .nav-links a {
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(17, 16, 22, .2);
+    border-radius: 0;
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 34px;
+    line-height: 1;
+  }
+  .nav-links a:hover { background: none; color: var(--blue); }
+  .chip { margin-left: auto; }
+  .menu-btn { display: inline-flex; }
+
+  .kinds { grid-template-columns: 1fr; gap: 40px; }
+  .sheets { grid-template-columns: 1fr; padding: 26px 18px 30px; }
+  .sheet-db { margin-top: 0; }
+  .edition-v { grid-column: 1 / -1; }
+  .steps { grid-template-columns: 1fr; gap: 44px; }
+  .foot-col, .foot-col:first-of-type { grid-column: span 6; }
+}
+
+@media (max-width: 560px) {
+  body { font-size: 16px; }
+  .brand { font-size: 24px; }
+  .chip { display: none; }
+  .menu-btn { margin-left: auto; }
+  .mast { flex-direction: column; }
+  .hero-title .l-2 { padding-left: 0; }
+  .hero-side { grid-column: 1 / -1; }
+  .fnd-copy, .apps-head p, .build-head p { grid-column: 1 / -1; }
+  .ctas .btn { flex: 1 1 100%; }
+  .proof { box-shadow: 6px 6px 0 var(--ink); }
+  .proof-form { padding: 20px 16px; }
+  .proof-bar { padding: 12px 16px; }
+  .proof-note { padding: 12px 16px; }
+  .cover { box-shadow: 6px 6px 0 var(--ink); }
+  .cover-head { flex-direction: column; gap: 10px; }
+  .w-steps li { grid-template-columns: 1fr; gap: 12px; padding: 16px 0; }
+  .key { width: 48px; height: 44px; }
+  .key-wide { width: 116px; }
+  .wave { width: 100%; max-width: 260px; }
+  .colophon { grid-template-columns: 1fr; }
+  .colophon dt { padding: 10px 0 0; border-bottom: 0; }
+  .colophon dd { padding-top: 2px; }
+  .cover-yours { min-height: 480px; box-shadow: 6px 6px 0 var(--yellow); }
+  .foot-col, .foot-col:first-of-type { grid-column: 1 / -1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <a class="brand" href="#top" aria-label="Epicenter, back to top">
+    <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+      <circle cx="21.5" cy="21.2" r="8" fill="#2338f0"/>
+      <circle cx="20" cy="20" r="8" fill="#ff3d9a" style="mix-blend-mode:multiply"/>
+      <circle cx="20" cy="20" r="13.2" fill="none" stroke="#111016" stroke-width="2"/>
+      <circle cx="20" cy="20" r="18.2" fill="none" stroke="#111016" stroke-width="1.4" stroke-dasharray="2.4 3"/>
+    </svg>
+    <span>Epicenter</span>
+  </a>
+  <nav class="nav-links" id="nav-links" aria-label="Primary">
+    <a href="#foundation">Foundation</a>
+    <a href="#apps">Apps</a>
+    <a href="#build">Build</a>
+    <a href="https://github.com/EpicenterHQ/epicenter">GitHub <span class="arrow" aria-hidden="true">↗</span></a>
+  </nav>
+  <span class="chip"><i aria-hidden="true"></i>In development</span>
+  <button class="menu-btn" type="button" aria-expanded="false" aria-controls="nav-links"><span class="bars" aria-hidden="true"></span>Menu</button>
+</header>
+
+<main id="main">
+
+  <!-- ============================================================ -->
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="quake" aria-hidden="true">
+      <svg viewBox="0 0 2600 2600" id="quake-svg"></svg>
+    </div>
+    <div class="quake-axis" aria-hidden="true"></div>
+    <ul class="quake-tags" aria-hidden="true">
+      <li class="qtag" style="--r:150; --i:0" data-tone="pink"><b>your files</b>.md + .sqlite</li>
+      <li class="qtag" style="--r:340; --i:1"><b>Epicenter</b>in development</li>
+      <li class="qtag" style="--r:560; --i:2" data-tone="yellow"><b>apps</b>Whispering, Vocab</li>
+      <li class="qtag" style="--r:830; --i:3" data-tone="ink"><b>and yours</b>build your own</li>
+    </ul>
+
+    <div class="mast">
+      <span>Open-source foundation for personal software</span>
+      <span class="mast-status">Early edition: in development</span>
+    </div>
+
+    <h1 class="hero-title" id="hero-title"><span class="l l-1">Make software</span> <span class="l l-2">that’s unmistakably</span> <span class="l l-3">yours<span class="epi">.</span></span></h1>
+
+    <div class="hero-foot">
+      <p class="lede">Keep your data in <em>Markdown and SQLite files you own.</em> Use apps built on Epicenter, or build your own.</p>
+      <div class="hero-side">
+        <p class="status"><strong>Early and in development</strong>Epicenter and its file foundation are still being built. This page shows where it is heading and the two apps built on it so far.</p>
+        <div class="ctas">
+          <a class="btn btn-ink" href="https://github.com/EpicenterHQ/epicenter">Read the source on GitHub <span class="arrow" aria-hidden="true">↗</span></a>
+          <a class="btn btn-line" href="#apps">See the apps <span class="arrow" aria-hidden="true">↓</span></a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <svg class="seismo" viewBox="0 0 1440 90" preserveAspectRatio="none" aria-hidden="true"><path d="M0 90 L0 62 L1440 62 L1440 90 Z"/></svg>
+
+  <!-- ============================================================ -->
+  <section class="foundation" id="foundation" aria-labelledby="foundation-title">
+    <div class="fnd-head">
+      <p class="folio"><b>01</b> Foundation</p>
+      <h2 id="foundation-title">Everything radiates from your files.</h2>
+      <div class="fnd-copy">
+        <p>The plan is plain: your data lives in two kinds of files that you keep, and apps built on Epicenter read and write them. Switch apps and the files stay put.</p>
+        <p class="stamp"><b>In development</b><span>The file foundation is still being built. Read this section as direction, not a feature list.</span></p>
+      </div>
+    </div>
+
+    <div class="kinds">
+      <div class="kind">
+        <span class="kind-ext" aria-hidden="true">.md</span>
+        <h3>Markdown for words</h3>
+        <p>Notes, drafts and lists as plain text. You can read them in any editor, compare versions line by line, and back them up like any other file.</p>
+      </div>
+      <div class="kind">
+        <span class="kind-ext" aria-hidden="true">.sqlite</span>
+        <h3>SQLite for records</h3>
+        <p>Structured data in a single database file. SQLite is public domain and widely supported, so plenty of other tools can already open it.</p>
+      </div>
+    </div>
+
+    <div class="proof" aria-labelledby="proof-title">
+      <div class="proof-bar">
+        <h3 id="proof-title">One entry, two files</h3>
+        <p class="illus">Illustrative sample: runs in this page only, nothing is saved</p>
+      </div>
+      <div class="proof-grid">
+        <form class="proof-form" id="entry-form" novalidate>
+          <p>Type an expression. Watch the same entry appear as Markdown you can read and as a row in a SQLite table.</p>
+          <label class="field"><span>Expression</span><input id="f-expr" name="expr" maxlength="40" autocomplete="off" placeholder="e.g. cut to the chase"></label>
+          <label class="field"><span>Meaning</span><input id="f-meaning" name="meaning" maxlength="80" autocomplete="off" placeholder="What it means"></label>
+          <label class="field"><span>Example</span><textarea id="f-example" name="example" maxlength="120" rows="2" placeholder="A sentence that uses it"></textarea></label>
+          <div class="form-row">
+            <button class="btn btn-ink btn-sm" type="submit" id="add-entry" disabled>Add entry</button>
+            <button class="btn btn-line btn-sm" type="button" id="reset-entries">Reset sample</button>
+          </div>
+          <p class="form-msg" id="entry-msg" role="status" aria-live="polite"></p>
+        </form>
+
+        <div class="sheets">
+          <article class="sheet sheet-md" aria-label="Sample Markdown file">
+            <header><span class="fname">expressions.md</span><span class="kindtag">Markdown</span></header>
+            <pre class="md-out" id="md-out"></pre>
+          </article>
+          <article class="sheet sheet-db" aria-label="Sample SQLite table">
+            <header><span class="fname">expressions.sqlite</span><span class="kindtag">SQLite</span></header>
+            <div class="db-query"><b>SELECT</b> * <b>FROM</b> expressions;</div>
+            <div class="db-scroll">
+              <table class="db">
+                <thead><tr><th scope="col">id</th><th scope="col">expression</th><th scope="col">meaning</th></tr></thead>
+                <tbody id="db-out"></tbody>
+              </table>
+            </div>
+            <p class="db-foot" id="db-foot"></p>
+          </article>
+        </div>
+      </div>
+      <p class="proof-note">A sketch of the direction, not a working Epicenter feature. No file is created and nothing leaves this tab.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="apps" id="apps" aria-labelledby="apps-title">
+    <div class="apps-head">
+      <p class="folio"><b>02</b> Apps</p>
+      <h2 id="apps-title">Apps built on Epicenter.</h2>
+      <p>Two so far, both published by Braden Wong. Each has a publisher, a source, and a plan to live on the publisher’s own domain. Neither has made that move yet.</p>
+    </div>
+
+    <div class="shelf">
+      <!-- Whispering -->
+      <article class="edition edition-w" aria-labelledby="w-title">
+        <figure class="cover cover-whisper">
+          <div class="cover-head">
+            <h3 class="cover-title" id="w-title">Whispering</h3>
+            <span class="kicker">Built on Epicenter</span>
+          </div>
+          <ol class="w-steps">
+            <li>
+              <span class="w-text">Press a shortcut.</span>
+              <span class="keys" aria-hidden="true"><span class="key"></span><span class="key key-wide"></span></span>
+            </li>
+            <li>
+              <span class="w-text">Speak.</span>
+              <svg class="wave" id="wave" viewBox="0 0 250 72" preserveAspectRatio="none" aria-hidden="true"></svg>
+            </li>
+            <li>
+              <span class="w-text">Get text.</span>
+              <span class="out-line" aria-hidden="true">meet at the north door<i></i></span>
+            </li>
+          </ol>
+          <figcaption class="cover-foot"><span>Desktop</span><span>Illustration, not a recording</span></figcaption>
+        </figure>
+        <dl class="colophon">
+          <dt>Publisher</dt>
+          <dd><a href="https://bradenwong.com">Braden Wong</a></dd>
+          <dt>Built on</dt>
+          <dd>Epicenter</dd>
+          <dt>Today</dt>
+          <dd><span class="tag tag-now">Now</span>Desktop capabilities run inside the Epicenter host.</dd>
+          <dt>Next</dt>
+          <dd><span class="tag tag-planned">Planned</span>Standalone releases on a personal domain. Not launched.</dd>
+        </dl>
+        <a class="edition-link" href="https://github.com/EpicenterHQ/epicenter/tree/main/apps/whispering">Whispering build information <span class="arrow" aria-hidden="true">↗</span></a>
+      </article>
+
+      <!-- Vocab -->
+      <article class="edition edition-v" aria-labelledby="v-title">
+        <figure class="cover cover-vocab">
+          <div class="cover-head">
+            <h3 class="cover-title" id="v-title">Vocab</h3>
+            <span class="kicker">Built on Epicenter</span>
+          </div>
+          <div class="deck">
+            <span class="deck-back b1" aria-hidden="true"></span>
+            <span class="deck-back b2" aria-hidden="true"></span>
+            <button class="flash" type="button" aria-pressed="false" id="flash">
+              <span class="sr-only">Sample card: break the ice. Press to flip.</span>
+              <span class="flash-inner" aria-hidden="true">
+                <span class="face face-front"><small>Sample card</small><strong>break the ice</strong><em>Tap to flip</em></span>
+                <span class="face face-back"><small>Meaning</small><strong>Ease the first awkward moment between people.</strong><em>Tap to flip back</em></span>
+              </span>
+            </button>
+          </div>
+          <figcaption class="vocab-line">A browser app for practicing expressions.</figcaption>
+        </figure>
+        <dl class="colophon">
+          <dt>Publisher</dt>
+          <dd><a href="https://bradenwong.com">Braden Wong</a></dd>
+          <dt>Built on</dt>
+          <dd>Epicenter</dd>
+          <dt>Today</dt>
+          <dd><span class="tag tag-now">Now</span>Runs in the browser.</dd>
+          <dt>Next</dt>
+          <dd><span class="tag tag-planned">Planned</span>A move to a personal domain.</dd>
+        </dl>
+        <a class="edition-link" href="https://github.com/EpicenterHQ/epicenter/tree/main/apps/vocab">Vocab source <span class="arrow" aria-hidden="true">↗</span></a>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="build" id="build" aria-labelledby="build-title">
+    <div class="build-head">
+      <p class="folio"><b>03</b> Build</p>
+      <h2 id="build-title">The next cover has <span class="hl">your name</span> on it.</h2>
+      <p>Epicenter is open source, and it is early. Read the code, see how Whispering and Vocab sit on it, then start the app you keep wishing existed. Expect rough edges and things that change.</p>
+    </div>
+
+    <div class="maker">
+      <form class="maker-form" id="maker" novalidate>
+        <p class="illus">Illustrative: kept in this page’s memory, nothing is sent or saved</p>
+        <label class="field"><span>App name</span><input id="m-name" maxlength="22" autocomplete="off" placeholder="Untitled app"></label>
+        <label class="field"><span>What it does</span><input id="m-line" maxlength="64" autocomplete="off" placeholder="One line about what it does"></label>
+        <label class="field"><span>Publisher</span><input id="m-pub" maxlength="32" autocomplete="off" placeholder="Your name"></label>
+        <fieldset class="choice">
+          <legend>Ink</legend>
+          <div class="choice-row">
+            <label><input type="radio" name="ink" value="pink" checked><span style="--sw:#ff3d9a">Pink</span></label>
+            <label><input type="radio" name="ink" value="blue"><span style="--sw:#2338f0">Blue</span></label>
+            <label><input type="radio" name="ink" value="yellow"><span style="--sw:#ffd31a">Yellow</span></label>
+            <label><input type="radio" name="ink" value="paper"><span style="--sw:#f3f2ec">Paper</span></label>
+          </div>
+        </fieldset>
+        <fieldset class="choice choice-pattern">
+          <legend>Pattern</legend>
+          <div class="choice-row">
+            <label><input type="radio" name="pattern" value="rings" checked><span>Rings</span></label>
+            <label><input type="radio" name="pattern" value="lines"><span>Lines</span></label>
+            <label><input type="radio" name="pattern" value="dots"><span>Dots</span></label>
+          </div>
+        </fieldset>
+        <button class="btn btn-ghost-light btn-sm" type="button" id="m-reset">Reset cover</button>
+      </form>
+
+      <figure class="cover cover-yours" id="m-cover" data-ink="pink" data-pattern="rings" aria-label="Preview of your app cover">
+        <div class="cover-head">
+          <p class="cover-title is-empty" id="mc-name">Untitled app</p>
+          <span class="kicker">Built on Epicenter</span>
+        </div>
+        <div class="mc-art" aria-hidden="true"></div>
+        <p class="mc-line is-empty" id="mc-line">One line about what it does.</p>
+        <dl class="colophon">
+          <dt>Publisher</dt>
+          <dd class="mc-pub is-empty" id="mc-pub">Your name</dd>
+          <dt>Built on</dt>
+          <dd>Epicenter</dd>
+          <dt>Status</dt>
+          <dd>An idea on this page</dd>
+        </dl>
+      </figure>
+    </div>
+
+    <ol class="steps">
+      <li class="step">
+        <span class="step-n" aria-hidden="true">1</span>
+        <h3>Read the source.</h3>
+        <p>The Epicenter repository holds the foundation and both apps, in the open.</p>
+        <div class="step-links"><a href="https://github.com/EpicenterHQ/epicenter">EpicenterHQ/epicenter on GitHub <span class="arrow" aria-hidden="true">↗</span></a></div>
+      </li>
+      <li class="step">
+        <span class="step-n" aria-hidden="true">2</span>
+        <h3>Study an app.</h3>
+        <p>Whispering and Vocab show how a real app sits on top of Epicenter.</p>
+        <div class="step-links">
+          <a href="https://github.com/EpicenterHQ/epicenter/tree/main/apps/whispering">Whispering build information <span class="arrow" aria-hidden="true">↗</span></a>
+          <a href="https://github.com/EpicenterHQ/epicenter/tree/main/apps/vocab">Vocab source <span class="arrow" aria-hidden="true">↗</span></a>
+        </div>
+      </li>
+      <li class="step">
+        <span class="step-n" aria-hidden="true">3</span>
+        <h3>Make it yours.</h3>
+        <p>Change what doesn’t fit the way you work, and put your name on what you make. The foundation is early, so building now means building alongside it.</p>
+      </li>
+    </ol>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="foot-grid">
+    <p class="foot-say">Your files at the center. Apps around them.</p>
+    <div class="foot-col">
+      <h3>Project</h3>
+      <ul>
+        <li><a href="https://github.com/EpicenterHQ/epicenter">Source on GitHub</a></li>
+        <li><a href="#foundation">Foundation</a></li>
+        <li><a href="#build">Build your own</a></li>
+      </ul>
+    </div>
+    <div class="foot-col">
+      <h3>Apps</h3>
+      <ul>
+        <li><a href="https://github.com/EpicenterHQ/epicenter/tree/main/apps/whispering">Whispering build information</a></li>
+        <li><a href="https://github.com/EpicenterHQ/epicenter/tree/main/apps/vocab">Vocab source</a></li>
+      </ul>
+    </div>
+    <div class="foot-col">
+      <h3>Publisher</h3>
+      <ul>
+        <li><a href="https://bradenwong.com">Braden Wong</a></li>
+      </ul>
+    </div>
+  </div>
+  <p class="foot-fine">Epicenter is early, open-source software in development. This page does not record audio, sign you in, call any service, or save anything.</p>
+  <p class="foot-word" aria-hidden="true">Epicenter</p>
+</footer>
+
+<script>
+(() => {
+  "use strict";
+  document.documentElement.classList.add("js");
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+  const SVG = "http://www.w3.org/2000/svg";
+
+  /* Navigation ------------------------------------------------------- */
+  const nav = $(".nav");
+  const menuBtn = $(".menu-btn");
+  const setMenu = (open) => {
+    nav.toggleAttribute("data-open", open);
+    menuBtn.setAttribute("aria-expanded", String(open));
+  };
+  menuBtn.addEventListener("click", () => setMenu(!nav.hasAttribute("data-open")));
+  $$(".nav-links a").forEach((a) => a.addEventListener("click", () => setMenu(false)));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && nav.hasAttribute("data-open")) {
+      setMenu(false);
+      menuBtn.focus();
+    }
+  });
+  matchMedia("(min-width: 861px)").addEventListener("change", (e) => { if (e.matches) setMenu(false); });
+
+  /* Hero: rings radiate from the headline's final period ------------- */
+  const hero = $(".hero");
+  const quakeSvg = $("#quake-svg");
+  const C = 1300;
+  const labelled = [150, 340, 560, 830];
+  const faint = [70, 245, 450, 695, 985, 1150, 1290];
+  const rings = [...labelled.map((r) => ({ r, strong: true })), ...faint.map((r) => ({ r, strong: false }))]
+    .sort((a, b) => a.r - b.r);
+
+  const blueGroup = document.createElementNS(SVG, "g");
+  blueGroup.setAttribute("transform", "translate(5 4)");
+  const mainGroup = document.createElementNS(SVG, "g");
+  rings.forEach(({ r, strong }, i) => {
+    const make = (cls) => {
+      const c = document.createElementNS(SVG, "circle");
+      c.setAttribute("cx", C);
+      c.setAttribute("cy", C);
+      c.setAttribute("r", r);
+      c.setAttribute("class", cls);
+      c.style.setProperty("--i", i);
+      return c;
+    };
+    if (strong) {
+      mainGroup.appendChild(make("r-pink"));
+      blueGroup.appendChild(make("r-blue"));
+    } else {
+      mainGroup.appendChild(make("r-faint"));
+    }
+  });
+  quakeSvg.append(mainGroup, blueGroup);
+
+  const tags = $$(".qtag");
+  const seismoPath = $(".seismo path");
+
+  function drawSeismo(centerRatio) {
+    const W = 1440, H = 90, base = 62;
+    let seed = 11;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const cx = W * centerRatio;
+    let d = `M0 ${H} L0 ${base}`;
+    for (let x = 0; x <= W; x += 4) {
+      const a = (x - cx) / 60;
+      const b = (x - cx - 120) / 170;
+      const env = Math.exp(-a * a) * 58 + Math.exp(-b * b) * 16 + 1.2;
+      const y = base + (rnd() * 2 - 1) * env;
+      d += ` L${x} ${Math.max(1, Math.min(H, y)).toFixed(1)}`;
+    }
+    d += ` L${W} ${H} Z`;
+    seismoPath.setAttribute("d", d);
+  }
+
+  function placeQuake() {
+    const dot = $(".epi");
+    const hr = hero.getBoundingClientRect();
+    const dr = dot.getBoundingClientRect();
+    const cx = dr.left - hr.left + dr.width / 2;
+    const cy = dr.top - hr.top + dr.height / 2;
+    hero.style.setProperty("--cx", `${cx}px`);
+    hero.style.setProperty("--cy", `${cy}px`);
+    const limit = hr.width - 12;
+    tags.forEach((tag) => {
+      tag.classList.remove("is-off");
+      const r = parseFloat(tag.style.getPropertyValue("--r"));
+      const half = tag.offsetWidth / 2;
+      tag.classList.toggle("is-off", cx + r + half > limit || cx + r - half < cx + 24);
+    });
+    drawSeismo(Math.min(.85, Math.max(.15, (dr.left + dr.width / 2) / window.innerWidth)));
+  }
+
+  placeQuake();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(placeQuake);
+  new ResizeObserver(placeQuake).observe(hero);
+
+  /* Foundation sample: one entry, two files -------------------------- */
+  const MAX = 6;
+  const seedEntries = () => [
+    { expr: "break the ice", meaning: "Ease the first awkward moment between people.", example: "She asked about the playlist to break the ice." },
+    { expr: "on the fence", meaning: "Not decided yet.", example: "I'm still on the fence about the trip." },
+  ];
+  let entries = seedEntries();
+  let freshIndex = -1;
+
+  const form = $("#entry-form");
+  const fExpr = $("#f-expr");
+  const fMeaning = $("#f-meaning");
+  const fExample = $("#f-example");
+  const addBtn = $("#add-entry");
+  const msg = $("#entry-msg");
+  const mdOut = $("#md-out");
+  const dbOut = $("#db-out");
+  const dbFoot = $("#db-foot");
+
+  const clean = (s) => s.replace(/\s+/g, " ").trim();
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  };
+  const mdLine = (parts) => {
+    const ln = el("span", "ln");
+    parts.forEach(([cls, text]) => ln.appendChild(cls ? el("span", cls, text) : document.createTextNode(text)));
+    return ln;
+  };
+
+  function draft() {
+    const expr = clean(fExpr.value);
+    if (!expr) return null;
+    return { expr, meaning: clean(fMeaning.value), example: clean(fExample.value) };
+  }
+
+  function renderSample() {
+    const d = draft();
+    const list = d && entries.length < MAX ? [...entries, d] : entries;
+    const draftIndex = d && entries.length < MAX ? entries.length : -1;
+
+    mdOut.replaceChildren();
+    mdOut.appendChild(mdLine([["mk", "# "], ["h1", "Expressions"]]));
+    if (!list.length) {
+      mdOut.appendChild(mdLine([[null, ""]]));
+      mdOut.appendChild(mdLine([["q", "No entries yet. Add one to see it here."]]));
+    }
+    list.forEach((e, i) => {
+      const block = el("span", "md-block");
+      if (i === draftIndex) block.classList.add("draft");
+      if (i === freshIndex) block.classList.add("fresh");
+      block.appendChild(mdLine([[null, ""]]));
+      block.appendChild(mdLine([["mk", "## "], ["h2", e.expr]]));
+      if (e.meaning) block.appendChild(mdLine([[null, e.meaning]]));
+      if (e.example) {
+        block.appendChild(mdLine([[null, ""]]));
+        block.appendChild(mdLine([["mk", "> "], ["q", e.example]]));
+      }
+      mdOut.appendChild(block);
+    });
+
+    dbOut.replaceChildren();
+    if (!list.length) {
+      const tr = el("tr", "empty");
+      const td = el("td", null, "0 rows. Add an entry to insert one.");
+      td.colSpan = 3;
+      tr.appendChild(td);
+      dbOut.appendChild(tr);
+    }
+    list.forEach((e, i) => {
+      const tr = el("tr", "db-row");
+      if (i === draftIndex) tr.classList.add("draft");
+      if (i === freshIndex) tr.classList.add("fresh");
+      tr.append(el("td", null, i === draftIndex ? "…" : String(i + 1)), el("td", null, e.expr), el("td", null, e.meaning || "NULL"));
+      dbOut.appendChild(tr);
+    });
+    const n = entries.length;
+    dbFoot.textContent = `${n} row${n === 1 ? "" : "s"}${draftIndex >= 0 ? " + 1 draft" : ""} in expressions`;
+
+    const full = n >= MAX;
+    addBtn.disabled = !d || full;
+    if (full && !msg.dataset.full) {
+      msg.textContent = `The sample holds ${MAX} entries. Reset it to start over.`;
+      msg.dataset.full = "1";
+    }
+    freshIndex = -1;
+  }
+
+  [fExpr, fMeaning, fExample].forEach((f) => f.addEventListener("input", () => {
+    if (!msg.dataset.full) msg.textContent = "";
+    renderSample();
+  }));
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const d = draft();
+    if (!d) {
+      msg.textContent = "Add an expression first.";
+      fExpr.focus();
+      return;
+    }
+    if (entries.length >= MAX) return;
+    entries.push(d);
+    freshIndex = entries.length - 1;
+    form.reset();
+    msg.textContent = `Added “${d.expr}” to both files.`;
+    renderSample();
+    fExpr.focus();
+  });
+
+  $("#reset-entries").addEventListener("click", () => {
+    entries = seedEntries();
+    form.reset();
+    delete msg.dataset.full;
+    msg.textContent = "Sample reset to its two starting entries.";
+    renderSample();
+  });
+
+  renderSample();
+
+  /* Whispering wave -------------------------------------------------- */
+  const wave = $("#wave");
+  const heights = [10, 18, 28, 16, 38, 52, 30, 60, 70, 44, 66, 56, 36, 62, 72, 50, 30, 64, 54, 40, 68, 46, 26, 48, 34, 20, 40, 28, 16, 24, 12, 18, 8];
+  const step = 250 / heights.length;
+  heights.forEach((h, i) => {
+    const r = document.createElementNS(SVG, "rect");
+    r.setAttribute("x", (i * step).toFixed(2));
+    r.setAttribute("y", ((72 - h) / 2).toFixed(1));
+    r.setAttribute("width", (step * .58).toFixed(2));
+    r.setAttribute("height", h);
+    r.style.setProperty("--i", i);
+    wave.appendChild(r);
+  });
+
+  /* Vocab sample card ------------------------------------------------ */
+  const flash = $("#flash");
+  flash.addEventListener("click", () => {
+    const on = flash.getAttribute("aria-pressed") !== "true";
+    flash.setAttribute("aria-pressed", String(on));
+  });
+
+  /* Cover maker ------------------------------------------------------ */
+  const maker = $("#maker");
+  const cover = $("#m-cover");
+  const bind = (input, out, fallback) => {
+    const update = () => {
+      const v = clean(input.value);
+      out.textContent = v || fallback;
+      out.classList.toggle("is-empty", !v);
+    };
+    input.addEventListener("input", update);
+    return update;
+  };
+  const updaters = [
+    bind($("#m-name"), $("#mc-name"), "Untitled app"),
+    bind($("#m-line"), $("#mc-line"), "One line about what it does."),
+    bind($("#m-pub"), $("#mc-pub"), "Your name"),
+  ];
+  maker.addEventListener("change", (e) => {
+    if (e.target.name === "ink") cover.dataset.ink = e.target.value;
+    if (e.target.name === "pattern") cover.dataset.pattern = e.target.value;
+  });
+  maker.addEventListener("submit", (e) => e.preventDefault());
+  $("#m-reset").addEventListener("click", () => {
+    maker.reset();
+    cover.dataset.ink = "pink";
+    cover.dataset.pattern = "rings";
+    updaters.forEach((u) => u());
+  });
+})();
+</script>
+</body>
+</html>

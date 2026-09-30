@@ -1,0 +1,99 @@
+---
+import '@epicenter/ui/app.css';
+
+export function getStaticPaths() {
+	return import.meta.env.DEV
+		? ['board', 'serif', 'sans'].map(face => ({ params: { face } }))
+		: [];
+}
+
+const board = Astro.params.face === 'board';
+const faces = [
+	{ id: 'serif', name: 'A + C, restrained serif', note: 'Georgia in the headline. Roman type, open spacing, no italic emphasis.' },
+	{ id: 'sans', name: 'A + C, warm sans', note: 'Geist in the headline. The same paper, brick links, layout and words.' },
+].filter(face => board || face.id === Astro.params.face);
+const repo = 'https://github.com/EpicenterHQ/epicenter';
+const Heading = board ? 'h3' : 'h1';
+const SectionHeading = board ? 'h4' : 'h2';
+const AppHeading = board ? 'h5' : 'h3';
+---
+
+<!doctype html>
+<html lang="en">
+	<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="robots" content="noindex, nofollow" /><title>Epicenter: a quieter A + C</title></head>
+	<body>
+		<header class="review-header">
+			<a href="/prototype/brand/board">Back to A, B and C</a>
+			{board ? <><h1>Does warmth need a serif?</h1><p>A’s paper and brick, C’s alignment and clear attribution. Two versions of the same page, changing only the headline font.</p></> : <a href="/prototype/typography/board">Compare both fonts</a>}
+		</header>
+		<main class:list={['studies', { single: !board }]}>
+			{faces.map(face => <article>
+				{board && <header class="label"><h2>{face.name}</h2><a href={`/prototype/typography/${face.id}`}>Open full size</a></header>}
+				<div class:list={['page', face.id]}>
+					<nav aria-label={`${face.name} navigation`}><a href="https://epicenter.so" class="wordmark">epicenter.</a><a href={repo}>GitHub</a></nav>
+					<header class="hero">
+						<Heading>Make software that’s unmistakably yours.</Heading>
+						<p class="promise">Keep your data in Markdown and SQLite files you own. Use our apps, someone else’s, or build your own.</p>
+						<p class="status">Epicenter is early. We’re building the file foundation in the open.</p>
+						<a class="action" href={repo}>Read the code</a>
+					</header>
+					<section class="apps">
+						<SectionHeading>Made with Epicenter.</SectionHeading>
+						<article class="app"><AppHeading>Whispering</AppHeading><p class="app-promise">Press a shortcut. Speak. Get text.</p><p class="byline">By Braden Wong. Built on <a href="https://epicenter.so">Epicenter</a>.</p><p class="availability">Runs today as a desktop app inside Epicenter.</p><a href={`${repo}/tree/main/apps/whispering`}>Build instructions</a></article>
+						<article class="app"><AppHeading>Vocab</AppHeading><p class="app-promise">Practice expressions you want to use.</p><p class="byline">By Braden Wong. Built on <a href="https://epicenter.so">Epicenter</a>.</p><p class="availability">A browser app. Its personal-domain move is planned.</p><a href={`${repo}/tree/main/apps/vocab`}>Source</a></article>
+					</section>
+					<footer>Your data outlives the app that wrote it.</footer>
+				</div>
+				{board && <p class="note">{face.note}</p>}
+			</article>)}
+		</main>
+		<p class="review-footer">Typography studies for discussion. The status sentence and Vocab tagline remain proposed copy.</p>
+	</body>
+</html>
+
+<style>
+	:global(html) { background: #eae6df; }
+	body { padding: 2rem; color: #302a25; }
+	a { text-underline-offset: .25em; }
+	a:hover { text-decoration: underline; }
+	a:focus-visible { outline: 2px solid currentColor; outline-offset: 5px; }
+	.review-header, .review-footer { max-width: 90rem; margin: 0 auto; }
+	.review-header > a { display: inline-block; font-size: .875rem; margin-bottom: 1rem; }
+	.review-header h1 { font-size: 1.8rem; font-weight: 500; margin-bottom: .75rem; }
+	.review-header p { max-width: 48rem; line-height: 1.6; }
+	.studies { max-width: 90rem; margin: 2rem auto; display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+	.label { display: flex; gap: 1rem; justify-content: space-between; align-items: baseline; margin-bottom: 1rem; }
+	.label h2 { font-size: 1rem; font-weight: 500; }
+	.label a { font-size: .8rem; }
+	.page { background: #faf7f0; padding: 2.5rem; }
+	.page a { color: #9b4938; }
+	nav { display: flex; justify-content: space-between; align-items: center; font-size: .8rem; }
+	.wordmark { font-size: 1.25rem; font-weight: 500; color: #302a25 !important; }
+	.hero { padding-top: 4rem; }
+	.hero :is(h1, h3) { font-size: clamp(2.4rem, 3.6vw, 3.8rem); line-height: 1.15; font-weight: 400; letter-spacing: -.015em; max-width: 19ch; }
+	.serif .hero :is(h1, h3) { font-family: Georgia, 'Times New Roman', serif; }
+	.sans .hero :is(h1, h3) { font-family: 'Geist Variable', sans-serif; }
+	.promise { margin-top: 1.75rem; font-size: 1rem; line-height: 1.7; max-width: 34rem; }
+	.status { margin-top: 1rem; line-height: 1.7; font-size: .85rem; }
+	.action { display: inline-block; margin-top: 1.25rem; font-size: .95rem; }
+	.apps { margin-top: 3.5rem; }
+	.apps > :is(h2, h4) { font-size: .8rem; font-weight: 500; margin-bottom: 1.5rem; }
+	.app { padding: 1.5rem 0; border-top: 1px solid #dcd2c5; }
+	.app :is(h3, h5) { font-size: 1.3rem; font-weight: 500; }
+	.app-promise { margin-top: .65rem; line-height: 1.6; }
+	.byline, .availability { font-size: .8rem; line-height: 1.6; margin-top: .8rem; }
+	.app > a { display: inline-block; margin-top: .5rem; font-size: .8rem; }
+	.page footer { margin-top: 2rem; font-size: .85rem; line-height: 1.6; }
+	.note, .review-footer { font-size: .85rem; line-height: 1.6; }
+	.note { margin-top: 1rem; }
+	.single { display: block; max-width: 65rem; }
+	.single .page { padding: 3rem 5rem; }
+	.single .hero :is(h1, h3) { font-size: clamp(2.5rem, 5vw, 4.5rem); }
+	@media (max-width: 850px) {
+		body { padding: 1.25rem; }
+		.studies { grid-template-columns: 1fr; max-width: 42rem; }
+		.page, .single .page { padding: 1.5rem; }
+		.hero { padding-top: 3rem; }
+		.hero :is(h1, h3) { font-size: 2.75rem; }
+	}
+</style>

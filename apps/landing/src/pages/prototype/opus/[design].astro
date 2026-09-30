@@ -1,0 +1,55 @@
+---
+// Independent Opus pages are kept intact for judgment; this route only presents them.
+import { readFileSync } from 'node:fs';
+export function getStaticPaths() {
+	return import.meta.env.DEV ? ['board', 'atelier', 'instrument', 'journal', 'refined', 'refinement'].map(design => ({ params: { design } })) : [];
+}
+const designs = [
+	{ id: 'atelier', title: 'A. Independent software studio' },
+	{ id: 'instrument', title: 'B. Builder’s instrument' },
+	{ id: 'journal', title: 'C. Bold graphic identity' },
+	{ id: 'refined', title: 'A, refined with both design skills' },
+];
+const comparison = Astro.params.design === 'refinement';
+const shown = designs.filter(design => comparison ? ['atelier', 'refined'].includes(design.id) : design.id !== 'refined');
+const selected = designs.find(design => design.id === Astro.params.design);
+const html = selected
+	? readFileSync(new URL(`../../../prototypes/opus/${selected.id}/index.html`, import.meta.url), 'utf8').replace(/<head(?:\s[^>]*)?>/i, '$&<meta name="robots" content="noindex, nofollow">')
+	: undefined;
+---
+{selected ? <Fragment set:html={html} /> : <html lang="en">
+	<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="robots" content="noindex, nofollow" /><title>Epicenter: three independent Opus designs</title></head>
+	<body>
+		<header><h1>{comparison ? 'A, before and after.' : 'Three fresh takes on Epicenter.'}</h1><p>{comparison ? 'The original studio study and a refinement using frontend-design and Impeccable. Both complete pages, at full width.' : 'Three separate Opus 5.5 sessions. No previous designs or conversation history. Each received its own creative brief and the same product facts.'}</p><nav aria-label="Jump to a design">{shown.map(design => <a href={`#${design.id}`}>{design.title}</a>)}</nav></header>
+		<main>{shown.map(design => <section id={design.id}><div class="label"><h2>{design.title}</h2><a href={`/prototype/opus/${design.id}`}>Open full page</a></div><iframe src={`/prototype/opus/${design.id}`} title={design.title} /></section>)}</main>
+		<footer>Independent design studies for discussion. No production pages changed.</footer>
+	</body>
+</html>}
+<script>
+	const frames = document.querySelectorAll<HTMLIFrameElement>('iframe');
+	const resize = (frame: HTMLIFrameElement) => {
+		if (!frame.contentDocument?.body) return;
+		frame.style.height = '1px';
+		frame.style.height = `${Math.ceil(frame.contentDocument.documentElement.scrollHeight)}px`;
+	};
+	frames.forEach(frame => {
+		frame.addEventListener('load', () => resize(frame));
+		if (frame.contentDocument?.readyState === 'complete') resize(frame);
+	});
+	window.addEventListener('resize', () => frames.forEach(resize));
+</script>
+<style>
+	body { background: #eae6df; margin: 0; padding: 2rem 1.25rem; color: #302a25; font: 15px/1.6 system-ui, sans-serif; }
+	header { margin-bottom: 3rem; }
+	h1 { font-size: 2rem; font-weight: 500; margin: 0 0 1rem; }
+	header > p { max-width: 52rem; }
+	nav { display: flex; gap: 2rem; flex-wrap: wrap; margin-top: 1.5rem; }
+	a { color: inherit; text-underline-offset: .25em; }
+	a:focus-visible { outline: 2px solid currentColor; outline-offset: 5px; }
+	section { margin-bottom: 4rem; scroll-margin-top: 1rem; }
+	.label { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-bottom: 1rem; }
+	h2 { font-size: 1.1rem; font-weight: 500; }
+	iframe { display: block; border: 0; width: 100%; height: 1600px; background: #fff; }
+	footer { font-size: .8rem; }
+	@media (max-width: 600px) { body { padding: 1rem .5rem; } nav { gap: 1rem; } iframe { height: 2800px; } }
+</style>

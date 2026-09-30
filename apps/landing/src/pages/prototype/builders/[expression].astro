@@ -1,0 +1,160 @@
+---
+import '@epicenter/ui/app.css';
+export function getStaticPaths() {
+	return import.meta.env.DEV ? ['workshop', 'wide'].map(expression => ({ params: { expression } })) : [];
+}
+const wide = Astro.params.expression === 'wide';
+const repo = 'https://github.com/EpicenterHQ/epicenter';
+const examples = [
+	{ title: 'A. The workshop', note: 'A new builder direction. Edit the little workspace and change its accent.', url: '/prototype/builders/workshop' },
+	{ title: 'B. The working collection', note: 'The previous practical direction, at full width.', url: '/prototype/places/workbench' },
+	{ title: 'C. The shared place', note: 'The previous editorial direction, at full width.', url: '/prototype/places/commons' },
+];
+---
+<!doctype html>
+<html lang="en">
+	<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="robots" content="noindex, nofollow" /><title>Epicenter: {wide ? 'wide design examples' : 'the workshop'}</title></head>
+	<body class:list={{ wide }}>
+		{wide ? <main class="wide-board"><header><h1>Give each direction room.</h1><p>Three wide previews, stacked instead of squeezed into columns. The first is the new builder direction.</p></header>{examples.map(example => <section class="wide-example"><div class="example-label"><h2>{example.title}</h2><p>{example.note}</p><a href={example.url}>Open on its own</a></div><iframe src={example.url} title={example.title} loading="lazy" /></section>)}</main> : <>
+			<div class="review">Builder direction · interactive illustration<a href="/prototype/builders/wide">Compare the wide examples</a></div>
+			<header class="nav wrap"><a class="wordmark" href="https://epicenter.so">epicenter.</a><nav aria-label="Main navigation"><a href="#apps">Built with it</a><a href={repo}>Read the code</a></nav></header>
+			<main>
+				<section class="hero wrap"><div class="hero-copy"><p class="eyebrow">For people who make things.</p><h1>Make software that’s unmistakably yours.</h1><p class="promise">Keep your data in Markdown and SQLite files you own. Use apps built on Epicenter, or build your own.</p><div class="hero-links"><a href="#workspace">Make a small change <span aria-hidden="true">↓</span></a><a href={repo}>Read the code</a></div><p class="status">Epicenter is early. We’re building the file foundation in the open.</p></div>
+					<div class="workspace" id="workspace"><div class="work-top"><span>Your little corner</span><span class="live-label">Editable example</span></div><div class="work-body"><div class="note"><label for="note-title">Workspace name</label><input id="note-title" value="Things I’m making" maxlength="50" /><label for="note-text" class="sr-only">Your note</label><textarea id="note-text" spellcheck="false">A voice note before I forget.
+
+A word I want to remember.
+
+A small app that works my way.</textarea><span class="note-footer">Make this sound like you.</span></div><div class="settings"><fieldset><legend>Pick an accent</legend><button type="button" data-accent="brick" class="swatch brick" aria-label="Brick accent" aria-pressed="true"></button><button type="button" data-accent="forest" class="swatch forest" aria-label="Forest accent" aria-pressed="false"></button><button type="button" data-accent="blue" class="swatch blue" aria-label="Blue accent" aria-pressed="false"></button></fieldset><p>Try a different name.<br />Write something of your own.</p><button type="button" id="reset-example">Start over</button></div></div><div class="work-bottom"><span class="example-state" aria-live="polite">Ready for your changes.</span><span>Illustration only · nothing is saved</span></div></div>
+				</section>
+				<section class="apps wrap" id="apps"><div class="apps-intro"><p class="eyebrow">Start with something useful.</p><h2>Small apps.<br />Specific jobs.</h2><p>Made by Braden Wong.<br />Built on Epicenter.</p></div><article><span class="app-kind">Speech → text</span><h3>Whispering</h3><p>Press a shortcut. Speak. Get text.</p><div class="app-links"><a href={`${repo}/tree/main/apps/whispering`}>Build instructions</a><a href="https://bradenwong.com">Braden Wong</a></div><p class="availability">Runs today as a desktop app inside Epicenter.</p></article><article><span class="app-kind">Words → practice</span><h3>Vocab</h3><p>Practice expressions you want to use.</p><div class="app-links"><a href={`${repo}/tree/main/apps/vocab`}>Source</a><a href="https://bradenwong.com">Braden Wong</a></div><p class="availability">A browser app. Its personal-domain move is planned.</p></article></section>
+				<section class="next wrap"><p class="eyebrow">Build alongside us.</p><h2>Your data outlives<br />the app that wrote it.</h2><div><p>Read the code, explore the apps, and follow the file foundation as it takes shape.</p><a href={repo}>Open Epicenter on GitHub <span aria-hidden="true">↗</span></a></div></section>
+			</main><footer class="footer wrap"><span class="wordmark">epicenter.</span><p>Design study. Supporting copy and the example are proposed.</p></footer>
+		</>}
+	</body>
+</html>
+<script>
+	const frames = document.querySelectorAll<HTMLIFrameElement>('.wide-example iframe');
+	const resizeFrame = (frame: HTMLIFrameElement) => {
+		if (!frame.contentDocument?.body) return;
+		frame.style.height = '1px';
+		frame.style.height = `${Math.ceil(frame.contentDocument.documentElement.scrollHeight)}px`;
+	};
+	frames.forEach(frame => {
+		frame.addEventListener('load', () => resizeFrame(frame));
+		if (frame.contentDocument?.readyState === 'complete') resizeFrame(frame);
+	});
+	window.addEventListener('resize', () => frames.forEach(resizeFrame));
+	const workspace = document.querySelector<HTMLElement>('.workspace');
+	const title = document.querySelector<HTMLInputElement>('#note-title');
+	const text = document.querySelector<HTMLTextAreaElement>('#note-text');
+	const state = document.querySelector<HTMLElement>('.example-state');
+	const swatches = document.querySelectorAll<HTMLButtonElement>('[data-accent]');
+	if (workspace && title && text && state) {
+		const initialTitle = title.value;
+		const initialText = text.value;
+		const colors: Record<string, string> = { brick: '#9b4938', forest: '#426247', blue: '#3d5a8e' };
+		const setAccent = (accent: string) => {
+			workspace.style.setProperty('--accent', colors[accent] ?? colors.brick!);
+			swatches.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.accent === accent)));
+		};
+		swatches.forEach(button => button.addEventListener('click', () => {
+			setAccent(button.dataset.accent ?? 'brick');
+			state.textContent = `${button.dataset.accent} accent selected.`;
+		}));
+		[title, text].forEach(field => field.addEventListener('input', () => { state.textContent = 'You changed the example. Nothing is saved.'; }));
+		document.querySelector('#reset-example')?.addEventListener('click', () => {
+			title.value = initialTitle;
+			text.value = initialText;
+			setAccent('brick');
+			state.textContent = 'Example reset.';
+		});
+	}
+</script>
+<style>
+	:global(html) { background: #faf7f0; scroll-behavior: smooth; }
+	body { background: #faf7f0; color: #302a25; }
+	.wrap { width: min(92%, 1440px); margin-inline: auto; }
+	a { text-underline-offset: .3em; }
+	a:hover { text-decoration: underline; }
+	a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid #9b4938; outline-offset: 5px; }
+	.review { background: #eae6df; display: flex; justify-content: space-between; gap: 1rem; padding: .75rem 4%; font-size: .75rem; }
+	.nav { display: flex; justify-content: space-between; align-items: baseline; padding-block: 2rem; }
+	.wordmark { font-size: 1.5rem; font-weight: 500; letter-spacing: -.03em; }
+	.nav nav { display: flex; gap: 2rem; font-size: .85rem; }
+	.hero { display: grid; grid-template-columns: 1fr 1fr; gap: 4.5rem; align-items: center; padding-block: 4rem 5rem; }
+	.eyebrow { font-size: .75rem; letter-spacing: .015em; }
+	h1 { font: 400 clamp(2.8rem, 4.8vw, 4.8rem)/1.1 Georgia, serif; letter-spacing: -.025em; max-width: 17ch; margin-top: 1.25rem; }
+	.promise { font-size: 1.05rem; line-height: 1.7; max-width: 34rem; margin-top: 1.75rem; }
+	.hero-links { display: flex; gap: 1.75rem; margin-top: 1.5rem; font-size: .9rem; }
+	.hero-links a:first-child { color: #9b4938; border-bottom: 1px solid #9b4938; padding-bottom: .4rem; }
+	.hero-links span { margin-left: .75rem; }
+	.status { font-size: .8rem; line-height: 1.7; margin-top: 1.5rem; max-width: 30rem; }
+	.workspace { --accent: #9b4938; background: #eee7db; border: 1px solid #d9cfc1; box-shadow: 0 14px 30px -22px #302a2570; scroll-margin-top: 2rem; }
+	.work-top, .work-bottom { padding: 1rem 1.25rem; display: flex; justify-content: space-between; gap: 1rem; font-size: .7rem; line-height: 1.6; }
+	.work-top { border-bottom: 1px solid #d9cfc1; }
+	.live-label { color: var(--accent); }
+	.work-body { display: grid; grid-template-columns: 1fr 8rem; }
+	.note { background: #fffdf8; padding: 1.5rem; border-top: 3px solid var(--accent); }
+	.note label { font-size: .65rem; color: var(--accent); display: block; }
+	.note input { display: block; width: 100%; font: 400 1.7rem/1.3 Georgia, serif; margin-top: .6rem; background: transparent; border: 0; border-bottom: 1px solid #eae2d6; padding-bottom: 1rem; border-radius: 0; }
+	.note textarea { width: 100%; resize: vertical; min-height: 14rem; display: block; font: 400 1rem/1.65 Georgia, serif; background: transparent; border: 0; padding: 1.25rem 0; }
+	.note-footer { font-size: .65rem; color: #786955; }
+	.settings { padding: 1.5rem 1rem; }
+	.settings legend { font-size: .65rem; margin-bottom: .75rem; }
+	.swatch { width: 20px; height: 20px; border-radius: 50%; margin-right: 4px; cursor: pointer; border: 3px solid #eee7db; outline: 1px solid transparent; }
+	.swatch[aria-pressed='true'] { outline-color: #786955; }
+	.brick { background: #9b4938; }.forest { background: #426247; }.blue { background: #3d5a8e; }
+	.settings p { font-size: .7rem; line-height: 1.7; margin-top: 1.5rem; }
+	.settings > button { font-size: .65rem; margin-top: 2rem; text-decoration: underline; text-underline-offset: .25em; cursor: pointer; }
+	.work-bottom { border-top: 1px solid #d9cfc1; flex-wrap: wrap; font-size: .6rem; }
+	.apps { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 3rem; padding-block: 3rem 4rem; border-top: 1px solid #d9cfc1; }
+	.apps-intro h2 { font: 400 2.4rem/1.15 Georgia, serif; margin-top: 1rem; }
+	.apps-intro > p:last-child { font-size: .8rem; line-height: 1.7; margin-top: 1rem; }
+	.apps article { border-left: 1px solid #d9cfc1; padding-left: 2rem; }
+	.app-kind { font-size: .7rem; color: #786955; }
+	.apps h3 { font: 400 2.3rem/1.2 Georgia, serif; margin-top: 1.25rem; }
+	.apps h3 + p { font-size: .95rem; line-height: 1.6; margin-top: .75rem; }
+	.app-links { display: flex; flex-wrap: wrap; gap: 1rem; font-size: .75rem; margin-top: 1.5rem; color: #9b4938; }
+	.availability { font-size: .75rem; line-height: 1.7; margin-top: 1rem; }
+	.next { background: #e8eddf; padding: 3rem; display: grid; grid-template-columns: 1.35fr 1fr; gap: 1.5rem 3rem; align-items: end; }
+	.next .eyebrow { grid-column: 1 / -1; }
+	.next h2 { font: 400 clamp(2rem, 3.2vw, 3rem)/1.15 Georgia, serif; }
+	.next > div p { font-size: .9rem; line-height: 1.7; max-width: 26rem; }
+	.next a { display: inline-block; margin-top: 1rem; font-size: .9rem; color: #426247; }
+	.footer { display: flex; align-items: center; justify-content: space-between; gap: 2rem; padding-block: 2rem; }
+	.footer p { font-size: .7rem; line-height: 1.6; }
+	.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+	.wide { background: #eae6df; }
+	.wide-board { padding: 2rem 1.25rem; }
+	.wide-board > header { margin-bottom: 3rem; }
+	.wide-board h1 { font: 500 2rem/1.2 'Geist Variable', sans-serif; max-width: none; }
+	.wide-board > header p { margin-top: 1rem; line-height: 1.6; }
+	.wide-example { margin-bottom: 4rem; }
+	.example-label { display: flex; gap: 2rem; justify-content: space-between; align-items: baseline; margin-bottom: 1rem; }
+	.example-label h2 { font-size: 1.1rem; font-weight: 500; }
+	.example-label p, .example-label a { font-size: .8rem; line-height: 1.6; }
+	.wide-example iframe { width: 100%; height: 1400px; border: 0; background: #faf7f0; display: block; }
+	@media (max-width: 950px) {
+		.hero { grid-template-columns: 1fr; gap: 3rem; padding-top: 2rem; }
+		h1 { max-width: 23ch; }
+		.apps { grid-template-columns: 1fr 1fr; gap: 2rem; }
+		.apps-intro { grid-column: 1 / -1; }
+		.apps article { padding-left: 0; border-left: 0; }
+		.next { padding: 2rem; }
+		.example-label { flex-wrap: wrap; gap: .5rem 1.5rem; }
+		.wide-example iframe { height: 1800px; }
+	}
+	@media (max-width: 550px) {
+		.nav nav { gap: 1rem; }
+		.work-body { grid-template-columns: 1fr; }
+		.settings { display: flex; gap: 1.5rem; align-items: start; }
+		.settings p { margin-top: 0; }
+		.settings > button { margin-top: 0; }
+		.apps, .next { grid-template-columns: 1fr; }
+		.apps article { border-top: 1px solid #d9cfc1; padding-top: 1.5rem; }
+		.footer { align-items: start; }
+		.wide-board { padding: 1rem .5rem; }
+		.wide-example iframe { height: 2400px; }
+	}
+	@media (prefers-reduced-motion: reduce) { :global(html) { scroll-behavior: auto; } }
+</style>

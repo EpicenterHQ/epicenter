@@ -1,0 +1,152 @@
+---
+// Throwaway preview: compare three entrances to Epicenter without replacing the homepage.
+import '@epicenter/ui/app.css';
+import { Button } from '@epicenter/ui/button';
+
+export function getStaticPaths() {
+	return import.meta.env.DEV
+		? [{ params: { preview: 'personal-software' } }]
+		: [];
+}
+
+const repo = 'https://github.com/EpicenterHQ/epicenter';
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="robots" content="noindex, nofollow" />
+		<title>Epicenter: personal software preview</title>
+	</head>
+	<body class="bg-background text-foreground">
+		<a class="skip" href="#main">Skip to content</a>
+		<header class="site-header">
+			<a href="#main" class="wordmark">epicenter</a>
+			<nav aria-label="Page navigation"><a href="#foundation">The foundation</a><a href="#apps">The apps</a><a href={repo}>GitHub ↗</a></nav>
+		</header>
+		<main id="main">
+			<section data-variant="editorial" class="hero editorial">
+				<p class="eyebrow">Personal software, built around you</p>
+				<h1>Make software that’s unmistakably yours.</h1>
+				<p class="lead">Keep your data in Markdown and SQLite files you own. Use our apps, someone else’s, or build your own.</p>
+				<Button href={repo} size="lg">Explore the code ↗</Button>
+				<p class="availability">We’re building the foundation for this. The file-based app migration and independent releases are still in progress.</p>
+				<p class="margin-note">Your data outlives the app that wrote it.</p>
+			</section>
+			<section data-variant="proof" class="hero proof" hidden>
+				<div><p class="eyebrow">Personal software, built around you</p><h1>Make software that’s unmistakably yours.</h1><p class="lead">Keep your data in Markdown and SQLite files you own. Use our apps, someone else’s, or build your own.</p><Button href={repo} size="lg">Explore the code ↗</Button><p class="availability">We’re building the foundation for this. The file-based app migration and independent releases are still in progress.</p></div>
+				<aside class="example" aria-label="Illustrative target workflow"><p class="eyebrow">The experience we’re working toward</p><ol><li><strong>Make a tool for yourself.</strong><span>Ask your coding agent for a vocabulary app.</span></li><li><strong>Put it to use.</strong><span>Save expressions you want to remember.</span></li><li><strong>Change your mind.</strong><span>Redesign the app. Keep your saved expressions.</span></li></ol><p>Illustrative workflow. This is the target, not a working demo.</p></aside>
+			</section>
+			<section data-variant="apps" class="hero app-first" hidden>
+				<p class="eyebrow">Independent apps. A shared foundation.</p>
+				<h1>Make software that’s unmistakably yours.</h1>
+				<div class="app-first-grid"><div><p class="lead">Keep your data in Markdown and SQLite files you own. Use our apps, someone else’s, or build your own.</p><Button href={repo} size="lg">Explore the code ↗</Button><p class="availability">We’re building the foundation for this. The file-based app migration and independent releases are still in progress.</p></div><aside class="featured-app"><h2>Whispering</h2><p class="app-promise">Press a shortcut.<br />Speak.<br />Get text.</p><p>By Braden Wong.<br />Built on <a href="https://epicenter.so">Epicenter</a>.</p><a href={`${repo}/tree/main/apps/whispering`}>Explore Whispering’s source ↗</a><p class="availability">The current desktop build runs through Epicenter. Standalone packaging is the next step.</p></aside></div>
+			</section>
+			<section id="foundation" class="foundation">
+				<p class="eyebrow">What the foundation has to earn</p>
+				<h2>Changing the app shouldn’t mean starting over.</h2>
+				<p class="section-intro">A coding agent can already write files. Epicenter has to make saved work dependable and reusable across compatible apps.</p>
+				<dl class="principles"><div><dt>Files you can inspect</dt><dd>The target is saved data you can read, copy, and recover without the original app.</dd></div><div><dt>Saves you can trust</dt><dd>App edits must preserve existing source and leave a recoverable saved revision.</dd></div><div><dt>Room to change the software</dt><dd>Compatible apps can reuse data. A different format needs an explicit migration.</dd></div></dl>
+				<p class="availability">These are the foundation’s design commitments. The live apps have not yet completed the file-authoritative migration.</p>
+			</section>
+			<section id="apps" class="apps-section"><div><p class="eyebrow">Apps built on Epicenter</p><h2>Start with someone’s app.<br />Make room for your own.</h2><p>Braden’s apps show the workflows he wants to use. Other publishers can bring their own ideas and identity.</p></div><div class="app-list"><article><h3>Whispering</h3><p>Press a shortcut. Speak. Get text.</p><p>By Braden Wong. Built on <a href="https://epicenter.so">Epicenter</a>.</p><a href={`${repo}/tree/main/apps/whispering`}>Explore the app source ↗</a><p class="availability">Current desktop build: Epicenter host.<br />Planned product home: whispering.bradenwong.com.</p></article><article><h3>Vocab</h3><p>Practice expressions you want to use.</p><p>By Braden Wong. Built on <a href="https://epicenter.so">Epicenter</a>.</p><a href={`${repo}/tree/main/apps/vocab`}>Explore the app source ↗</a><p class="availability">The move to vocab.bradenwong.com is planned. Existing device-local data needs a preservation path.</p></article></div></section>
+			<footer><p>epicenter</p><a href={repo}>Follow the implementation ↗</a></footer>
+		</main>
+		{import.meta.env.DEV && <nav class="prototype-switcher" aria-label="Prototype variants"><button type="button" id="previous" aria-label="Previous variant">←</button><span id="variant-label" aria-live="polite">A: Quiet editorial</span><button type="button" id="next" aria-label="Next variant">→</button><span class="draft-label">Draft for review</span></nav>}
+		<script>
+			const variants = ['editorial', 'proof', 'apps'];
+			const labels = ['A: Quiet editorial', 'B: Workflow first', 'C: Apps first'];
+			function selectVariant(index: number) {
+				const chosen = variants[(index + variants.length) % variants.length] ?? 'editorial';
+				document.querySelectorAll<HTMLElement>('[data-variant]').forEach(section => {
+					section.hidden = section.dataset.variant !== chosen;
+				});
+				const label = document.getElementById('variant-label');
+				if (label) label.textContent = labels[variants.indexOf(chosen)] ?? 'A: Quiet editorial';
+				const url = new URL(window.location.href);
+				url.searchParams.set('variant', chosen);
+				window.history.replaceState(null, '', url);
+			}
+			function cycle(offset: number) {
+				const current = new URL(window.location.href).searchParams.get('variant') ?? 'editorial';
+				selectVariant(variants.indexOf(current) + offset);
+			}
+			const initial = new URL(window.location.href).searchParams.get('variant') ?? 'editorial';
+			selectVariant(Math.max(0, variants.indexOf(initial)));
+			document.getElementById('previous')?.addEventListener('click', () => cycle(-1));
+			document.getElementById('next')?.addEventListener('click', () => cycle(1));
+			document.addEventListener('keydown', event => {
+				if (event.target instanceof HTMLElement && (event.target.closest('input, textarea, select, button, a') || event.target.isContentEditable)) return;
+				if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+					event.preventDefault();
+					cycle(event.key === 'ArrowLeft' ? -1 : 1);
+				}
+			});
+		</script>
+	</body>
+</html>
+
+<style>
+	/* App-local typography and composition distinguish an editorial marketing preview. */
+	:global(html) { scroll-padding-top: 2rem; }
+	:global([hidden]) { display: none !important; }
+	a { text-underline-offset: .25em; }
+	a:hover { text-decoration: underline; }
+	a:focus-visible, button:focus-visible { outline: 2px solid currentColor; outline-offset: 5px; }
+	.skip { position: absolute; left: 1rem; top: -4rem; }
+	.skip:focus { top: 1rem; z-index: 10; background: var(--background); }
+	.site-header, main { max-width: 76rem; margin: 0 auto; padding: 0 3rem; }
+	.site-header { display: flex; justify-content: space-between; align-items: center; padding-top: 2rem; padding-bottom: 2rem; }
+	.wordmark { font-size: 1.5rem; font-weight: 650; letter-spacing: -.06em; }
+	.site-header nav { display: flex; gap: 2rem; font-size: .875rem; }
+	.hero { padding: 5rem 0 4rem; border-bottom: 1px solid var(--border); }
+	.eyebrow { font-size: .75rem; text-transform: uppercase; letter-spacing: .13em; margin-bottom: 1.5rem; color: var(--muted-foreground); }
+	h1 { font-size: clamp(2.75rem, 6vw, 5.5rem); line-height: 1.04; letter-spacing: -.065em; font-weight: 550; max-width: 14ch; margin-bottom: 2rem; }
+	.lead { font-size: 1.25rem; line-height: 1.6; max-width: 36rem; margin-bottom: 2rem; }
+	.availability { color: var(--muted-foreground); font-size: .875rem; line-height: 1.65; max-width: 36rem; margin-top: 1.5rem; }
+	.margin-note { margin-top: 4rem; font-size: 1.125rem; font-family: var(--font-mono); }
+	.proof { display: grid; grid-template-columns: 1.25fr 1fr; gap: 4rem; align-items: center; }
+	.proof h1 { font-size: clamp(2.75rem, 4.5vw, 4.5rem); }
+	.example { border-left: 1px solid var(--border); padding-left: 2.5rem; }
+	.example ol { list-style: decimal; padding-left: 1.25rem; }
+	.example li { padding: 0 0 2rem .5rem; }
+	.example strong, .example span { display: block; }
+	.example span { color: var(--muted-foreground); margin-top: .5rem; line-height: 1.6; }
+	.example > p:last-child { font-size: .8rem; color: var(--muted-foreground); }
+	.app-first h1 { max-width: 20ch; }
+	.app-first-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5rem; }
+	.featured-app { border-left: 1px solid var(--border); padding-left: 3rem; }
+	.featured-app h2 { font-size: 1.1rem; letter-spacing: 0; }
+	.app-promise { font-size: 2.25rem; line-height: 1.2; letter-spacing: -.04em; margin: 1rem 0; }
+	.featured-app > a { display: inline-block; margin-top: 1rem; }
+	.foundation, .apps-section, .cloud { padding: 5rem 0; border-bottom: 1px solid var(--border); }
+	h2 { font-size: clamp(1.9rem, 3vw, 2.75rem); line-height: 1.15; letter-spacing: -.045em; font-weight: 550; max-width: 24ch; }
+	.section-intro { max-width: 40rem; font-size: 1.1rem; line-height: 1.7; margin: 1.5rem 0 2rem; }
+	.principles > div { display: grid; grid-template-columns: 1fr 2fr; gap: 2rem; padding: 1.5rem 0; border-top: 1px solid var(--border); }
+	dt { font-weight: 600; }
+	dd { line-height: 1.7; max-width: 38rem; color: var(--muted-foreground); }
+	.apps-section { display: grid; grid-template-columns: 1fr 1fr; gap: 5rem; }
+	.apps-section > div > p:last-child { line-height: 1.7; margin-top: 1.5rem; max-width: 28rem; }
+	.app-list article + article { margin-top: 2.5rem; padding-top: 2rem; border-top: 1px solid var(--border); }
+	h3 { font-size: 1.5rem; font-weight: 550; margin-bottom: .75rem; }
+	.app-list p { margin-bottom: .75rem; line-height: 1.6; }
+	.cloud p { max-width: 45rem; line-height: 1.8; margin-top: 1.5rem; }
+	footer { display: flex; justify-content: space-between; padding: 2rem 0 7rem; font-size: .875rem; }
+	.prototype-switcher { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); background: var(--foreground); color: var(--background); display: flex; gap: 1rem; align-items: center; padding: .6rem 1rem; border-radius: .5rem; font-size: .875rem; white-space: nowrap; box-shadow: 0 3px 12px #0002; }
+	.prototype-switcher button { padding: .5rem; cursor: pointer; }
+	.draft-label { border-left: 1px solid currentColor; padding-left: 1rem; font-size: .75rem; }
+	@media (max-width: 700px) {
+		.site-header, main { padding-left: 1.5rem; padding-right: 1.5rem; }
+		.site-header nav { gap: 1rem; }
+		.site-header nav a:first-child { display: none; }
+		.hero { padding-top: 3rem; }
+		.proof, .app-first-grid, .apps-section { grid-template-columns: 1fr; gap: 2.5rem; }
+		.example, .featured-app { padding-left: 1.5rem; }
+		.principles > div { grid-template-columns: 1fr; gap: .75rem; }
+		.foundation, .apps-section, .cloud { padding: 3rem 0; }
+		.draft-label { display: none; }
+		footer { gap: 1rem; }
+	}
+</style>

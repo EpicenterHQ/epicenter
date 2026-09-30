@@ -1,0 +1,164 @@
+---
+// Opus art-direction study: paper, ink and a voice. No real recording or persistence.
+import '@epicenter/ui/app.css';
+import microphone from '../../../../../whispering/src/lib/assets/studio-microphone.png';
+export function getStaticPaths() {
+	return import.meta.env.DEV ? [{ params: { expression: 'voice' } }] : [];
+}
+const repo = 'https://github.com/EpicenterHQ/epicenter';
+---
+<!doctype html>
+<html lang="en">
+	<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="robots" content="noindex, nofollow" /><title>Epicenter: paper, ink and a voice</title></head>
+	<body>
+		<div class="review">A new design study <span>Opus art direction · Codex implementation</span><a href="/prototype/story/feature">Previous draft</a></div>
+		<header class="nav wrap"><a href="https://epicenter.so" class="wordmark">epicenter<span>.</span></a><nav aria-label="Main navigation"><a href="#apps">Apps</a><a href={repo}>GitHub</a></nav></header>
+		<main>
+			<section class="hero wrap" aria-labelledby="headline">
+				<p class="eyebrow">Personal software. Built in the open.</p>
+				<h1 id="headline">Make software that’s<br class="desktop-break" /> unmistakably <span class="marked">yours.<svg viewBox="0 0 370 145" aria-hidden="true"><path d="M 334 31 C 261 -2 101 3 38 42 C -8 72 14 115 102 129 C 220 150 363 116 357 67 C 353 41 323 24 285 18" /></svg></span></h1>
+				<div class="hero-bottom"><div><p class="promise">Keep your data in Markdown and SQLite files you own. Use apps built on Epicenter, or build your own.</p><p class="status">Epicenter is early. We’re building the file foundation in the open.</p></div><div class="hero-actions"><a class="primary" href="#apps">Meet the apps <span aria-hidden="true">↓</span></a><a href={repo}>Read the code</a></div></div>
+			</section>
+			<section id="apps" class="voice-band" aria-labelledby="whispering-heading">
+				<div class="wrap">
+					<div class="section-intro"><p class="eyebrow">Made with Epicenter</p><p>One useful app is a good place to start.</p></div>
+					<div class="sample-paper">
+						<div class="recording"><img src={microphone.src} width="120" height="120" alt="Whispering’s chrome microphone" /><button id="play-sample" type="button" hidden><span class="key">Play a sample</span></button><p class="sample-input">A thought, spoken aloud.</p></div>
+						<div class="writing"><div class="writing-label"><span>A sample transcript</span><div class="wave" aria-hidden="true">{[1,2,3,4,5,6,7].map(n => <i style={`--bar:${n}`} />)}</div></div><div class="ruled"><p id="sample-text">Move the design review to Thursday and send Sam the notes.</p></div><p id="sample-announcement" class="sr-only" aria-live="polite"></p><p class="illustration">Illustration only. Nothing is recorded.</p></div>
+					</div>
+					<div class="app-credit"><div><h2 id="whispering-heading">Whispering</h2><p class="app-promise">Press a shortcut. Speak. Get text.</p></div><div class="publisher"><p>By <a href="https://bradenwong.com">Braden Wong</a>.<br />Built on <a href="https://epicenter.so">Epicenter</a>.</p><p class="availability">Runs today as a desktop app inside Epicenter.<br /><a href={`${repo}/tree/main/apps/whispering`}>Build instructions</a></p></div></div>
+				</div>
+			</section>
+			<section class="more-apps wrap" aria-labelledby="vocab-heading"><div class="vocab-symbol" aria-hidden="true">Aa<span>あ</span></div><div><p class="eyebrow">Also built on Epicenter</p><h2 id="vocab-heading">Vocab</h2><p>Practice expressions you want to use.</p><p class="byline">By <a href="https://bradenwong.com">Braden Wong</a>. Built on Epicenter.</p></div><div class="vocab-action"><p>A browser app.<br />Its personal-domain move is planned.</p><a href={`${repo}/tree/main/apps/vocab`}>Explore the source</a></div></section>
+			<section class="closing wrap"><span class="ink-rule" aria-hidden="true"></span><h2>Your data outlives<br />the app that wrote it.</h2><div><p>Epicenter is early. You can follow its development and read the code today.</p><a class="primary" href={repo}>Follow the work on GitHub <span aria-hidden="true">↗</span></a></div></section>
+		</main>
+		<footer class="footer wrap"><a href="https://epicenter.so" class="wordmark">epicenter<span>.</span></a><a href={repo}>Built in the open</a></footer>
+		<p class="review-end wrap">Preview only. Supporting copy is proposed. The sample illustrates Whispering’s job; it is not a live transcription demo or a preview of the unfinished file foundation.</p>
+	</body>
+</html>
+
+<script>
+	const button = document.querySelector<HTMLButtonElement>('#play-sample');
+	const output = document.querySelector<HTMLElement>('#sample-text');
+	const announcement = document.querySelector<HTMLElement>('#sample-announcement');
+	const paper = document.querySelector<HTMLElement>('.sample-paper');
+	if (button && output && announcement && paper) {
+		button.hidden = false;
+		const sentence = output.textContent ?? '';
+		button.addEventListener('click', async () => {
+			button.disabled = true;
+			announcement.textContent = 'Playing an illustrative sample. Nothing is recorded.';
+			if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+				paper.classList.add('playing');
+				output.textContent = '';
+				await new Promise(resolve => setTimeout(resolve, 900));
+				paper.classList.remove('playing');
+				for (let length = 1; length <= sentence.length; length++) {
+					output.textContent = sentence.slice(0, length);
+					await new Promise(resolve => setTimeout(resolve, 22));
+				}
+			}
+			output.textContent = sentence;
+			announcement.textContent = `Sample complete: ${sentence}`;
+			const key = button.querySelector('.key');
+			if (key) key.textContent = 'Play again';
+			button.disabled = false;
+		});
+	}
+</script>
+
+<style>
+	:global(html) { background: #faf7f0; scroll-behavior: smooth; }
+	body { background: #faf7f0; color: #2a231e; font-size: 17px; }
+	.wrap { width: min(88%, 1240px); margin-inline: auto; }
+	a { text-underline-offset: .3em; }
+	a:hover { text-decoration: underline; }
+	a:focus-visible, button:focus-visible { outline: 2px solid #9b4938; outline-offset: 6px; }
+	.review { background: #2a231e; color: #faf7f0; display: flex; align-items: center; gap: 1.5rem; padding: .65rem 6%; font-size: .75rem; }
+	.review span { opacity: .75; }
+	.review a { margin-left: auto; }
+	.nav { display: flex; justify-content: space-between; align-items: center; padding-block: 2rem; }
+	.wordmark { font-size: 1.6rem; font-weight: 500; letter-spacing: -.04em; }
+	.wordmark span { color: #9b4938; }
+	.nav nav { display: flex; gap: 2.25rem; font-size: .85rem; }
+	.hero { padding-top: 3rem; padding-bottom: 5rem; }
+	.eyebrow { font-size: .75rem; letter-spacing: .025em; }
+	h1 { font: 400 clamp(3.25rem, 7.7vw, 7rem)/1.04 Georgia, serif; letter-spacing: -.035em; margin-top: 1.5rem; }
+	.marked { display: inline-block; position: relative; z-index: 0; white-space: nowrap; }
+	.marked svg { position: absolute; width: 122%; height: 138%; left: -12%; top: -9%; z-index: -1; overflow: visible; }
+	.marked path { fill: none; stroke: #9b4938; stroke-width: 2.2; stroke-linecap: round; }
+	.hero-bottom { display: grid; grid-template-columns: 1.4fr 1fr; gap: 4rem; margin-top: 3rem; align-items: end; }
+	.promise { max-width: 39rem; font-size: 1.1rem; line-height: 1.7; color: #4a4038; }
+	.status { max-width: 39rem; font-size: .85rem; line-height: 1.7; margin-top: 1rem; }
+	.hero-actions { display: flex; gap: 1.5rem; align-items: center; justify-content: end; font-size: .9rem; }
+	.primary { display: inline-flex; align-items: center; gap: 1.5rem; color: #faf7f0; background: #9b4938; padding: .9rem 1.3rem; border-radius: 2px; font-size: .9rem; }
+	.primary:hover { background: #803d2f; text-decoration: none; }
+	.voice-band { background: #eee6da; padding-block: 2.5rem 3.5rem; scroll-margin-top: 1rem; }
+	.section-intro { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+	.section-intro > p:last-child { font: 400 1.3rem/1.4 Georgia, serif; }
+	.sample-paper { background: #fffdf8; display: grid; grid-template-columns: 1fr 2fr; padding: 3.5rem; gap: 4rem; box-shadow: 0 1px 0 #e2d8ca, 0 20px 40px -25px #5a3a2455; border-radius: 2px; }
+	.recording { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+	.recording img { width: 120px; height: 120px; object-fit: contain; filter: drop-shadow(0 12px 7px #2a231e18); }
+	.recording button { margin-top: 1.5rem; cursor: pointer; }
+	.key { display: block; background: #faf7f0; border: 1px solid #d7cbbd; border-radius: 5px; box-shadow: 0 3px 0 #d7cbbd; padding: .7rem 1.1rem; font-size: .8rem; }
+	.recording button:active .key, .recording button:disabled .key { transform: translateY(2px); box-shadow: 0 1px 0 #d7cbbd; }
+	.sample-input { font-size: .8rem; margin-top: 1rem; color: #6c5d50; }
+	.writing-label { display: flex; justify-content: space-between; align-items: center; font-size: .75rem; color: #6c5d50; margin-bottom: 1.5rem; }
+	.wave { display: flex; gap: 3px; align-items: center; height: 22px; }
+	.wave i { width: 3px; height: 5px; background: #9b4938; border-radius: 2px; }
+	.playing .wave i { animation: pulse .65s steps(3) infinite alternate; animation-delay: calc(var(--bar) * -.09s); }
+	@keyframes pulse { to { height: 20px; } }
+	.ruled { background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(3rem - 1px), #e2d8ca calc(3rem - 1px), #e2d8ca 3rem); min-height: 9rem; }
+	.ruled p { font: 400 clamp(1.4rem, 2.1vw, 1.9rem)/3rem Georgia, serif; }
+	.illustration { font-size: .75rem; color: #6c5d50; margin-top: 1.25rem; }
+	.app-credit { display: flex; justify-content: space-between; gap: 3rem; margin-top: 2.5rem; }
+	.app-credit h2, .more-apps h2 { font: 400 2.5rem/1.2 Georgia, serif; }
+	.app-promise { margin-top: .6rem; font-size: 1.1rem; }
+	.publisher { display: grid; grid-template-columns: 1fr 1.8fr; gap: 2.5rem; font-size: .8rem; line-height: 1.7; align-items: start; }
+	.publisher a, .more-apps a { color: #9b4938; }
+	.more-apps { display: grid; grid-template-columns: .65fr 2fr 1.3fr; gap: 3rem; align-items: center; padding-block: 4.5rem; }
+	.vocab-symbol { font: 400 3rem/1 Georgia, serif; color: #394d3a; border-left: 1px solid #d7cbbd; padding-left: 1.5rem; }
+	.vocab-symbol span { display: block; font-size: 2rem; margin-top: .5rem; }
+	.more-apps h2 { margin-top: .5rem; }
+	.more-apps h2 + p { margin-top: .5rem; }
+	.byline { font-size: .8rem; margin-top: 1rem; }
+	.vocab-action { font-size: .8rem; line-height: 1.7; }
+	.vocab-action a { display: inline-block; margin-top: .75rem; }
+	.closing { border-top: 1px solid #e2d8ca; padding-block: 5rem; display: grid; grid-template-columns: 1.5fr 1fr; column-gap: 5rem; align-items: end; }
+	.ink-rule { display: block; height: 2px; width: 64px; background: #9b4938; grid-column: 1 / -1; margin-bottom: 2rem; transform: rotate(-2deg); }
+	.closing h2 { font: 400 clamp(2.5rem, 4.5vw, 4rem)/1.1 Georgia, serif; letter-spacing: -.025em; }
+	.closing p { font-size: .9rem; line-height: 1.7; margin-bottom: 1.5rem; max-width: 25rem; }
+	.footer { display: flex; justify-content: space-between; align-items: center; padding-block: 2rem; border-top: 1px solid #e2d8ca; font-size: .8rem; }
+	.review-end { font-size: .75rem; line-height: 1.7; color: #6c5d50; padding-block: 1rem 2rem; }
+	.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+	@media (max-width: 900px) {
+		.wrap { width: 88%; }
+		.desktop-break { display: none; }
+		.hero { padding-top: 2rem; padding-bottom: 3rem; }
+		.hero-bottom { grid-template-columns: 1fr; gap: 1.5rem; }
+		.hero-actions { justify-content: start; }
+		.sample-paper { padding: 2rem; gap: 2rem; }
+		.app-credit { display: block; }
+		.publisher { margin-top: 1.5rem; }
+		.more-apps { gap: 1.5rem; }
+		.closing { gap: 2rem; }
+	}
+	@media (max-width: 600px) {
+		.review span { display: none; }
+		.nav { padding-block: 1.5rem; }
+		.nav nav { gap: 1.5rem; }
+		h1 { font-size: 3.15rem; line-height: 1.07; }
+		.promise { font-size: 1rem; }
+		.section-intro { display: block; }
+		.section-intro > p:last-child { margin-top: .5rem; }
+		.sample-paper { grid-template-columns: 1fr; padding: 1.5rem; gap: 2rem; }
+		.recording img { width: 90px; height: 90px; }
+		.ruled { min-height: 12rem; }
+		.publisher { grid-template-columns: 1fr; gap: 1rem; }
+		.more-apps { grid-template-columns: auto 1fr; padding-block: 3rem; }
+		.vocab-action { grid-column: 2; }
+		.closing { grid-template-columns: 1fr; padding-block: 3rem; }
+		.ink-rule { margin-bottom: 0; }
+	}
+	@media (prefers-reduced-motion: reduce) { :global(html) { scroll-behavior: auto; } .wave i { animation: none !important; } }
+</style>

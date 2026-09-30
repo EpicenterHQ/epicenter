@@ -1,0 +1,1567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Epicenter · Make software that’s unmistakably yours</title>
+<meta name="description" content="Epicenter is an early, open-source foundation for personal software. Keep your data in Markdown and SQLite files you own. Use apps built on Epicenter, or build your own.">
+<meta name="color-scheme" content="light">
+<style>
+:root {
+  --paper: #eeebe3;
+  --paper-hi: #f8f6f1;
+  --paper-lo: #e2ded3;
+  --ink: #131313;
+  --ink-2: #34322e;
+  --muted: #625e55;
+  --rule: rgba(19, 19, 19, 0.13);
+  --rule-2: rgba(19, 19, 19, 0.3);
+  --blue: #2433d6;
+  --blue-wash: rgba(36, 51, 214, 0.08);
+  --mat: #17181b;
+  --mat-2: #202125;
+  --mat-3: #2a2b30;
+  --mat-line: rgba(236, 233, 225, 0.06);
+  --mat-rule: rgba(236, 233, 225, 0.14);
+  --mat-text: #ebe8e0;
+  --mat-muted: #a4a198;
+  --blue-lit: #9aa2ff;
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --pad: clamp(20px, 3.4vw, 48px);
+  --max: 1440px;
+  --nav-h: 64px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: calc(var(--nav-h) + 12px); -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+a { color: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 2px; }
+.bench :focus-visible { outline-color: var(--blue-lit); }
+.build :focus-visible { outline-color: var(--paper-hi); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.mono { font-family: var(--mono); }
+.wrap { width: 100%; max-width: var(--max); margin: 0 auto; padding: 0 var(--pad); }
+.skip { position: absolute; left: 12px; top: -60px; z-index: 100; background: var(--ink); color: var(--paper); padding: 10px 14px; text-decoration: none; }
+.skip:focus { top: 12px; }
+
+/* Line specimens: the page's legend */
+.spec { display: inline-block; width: 44px; height: 8px; flex: none; vertical-align: middle; }
+.spec line { stroke: currentColor; stroke-width: 2; }
+.spec.dashed line { stroke-dasharray: 6 4; }
+.spec.phantom line { stroke-dasharray: 14 3 2 3 2 3; }
+.spec.blue { color: var(--blue); }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  height: 48px; padding: 0 20px;
+  border: 1px solid var(--ink); border-radius: 2px;
+  font-weight: 600; font-size: 15px; letter-spacing: -0.005em;
+  text-decoration: none; cursor: pointer; white-space: nowrap;
+  transition: background-color .15s, color .15s, transform .15s;
+}
+.btn svg { width: 14px; height: 14px; flex: none; }
+.btn-ink { background: var(--ink); color: var(--paper-hi); }
+.btn-ink:hover { background: var(--blue); border-color: var(--blue); }
+.btn-line { background: transparent; }
+.btn-line:hover { background: var(--ink); color: var(--paper-hi); }
+.btn:active { transform: translateY(1px); }
+
+/* Navigation */
+.nav {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(238, 235, 227, 0.92);
+  backdrop-filter: saturate(1.2) blur(10px);
+  -webkit-backdrop-filter: saturate(1.2) blur(10px);
+  border-bottom: 1px solid var(--rule);
+}
+.nav-in { height: var(--nav-h); display: flex; align-items: center; gap: 20px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 700; font-size: 18px; letter-spacing: -0.02em; }
+.mark { width: 26px; height: 26px; flex: none; }
+.chip-dev {
+  display: inline-flex; align-items: center; gap: 8px;
+  font: 500 11px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-2); padding: 7px 10px;
+  border: 1px dashed var(--rule-2); border-radius: 2px;
+}
+.links { display: flex; gap: 4px; margin-left: auto; }
+.links a {
+  position: relative; text-decoration: none; font-size: 14px; font-weight: 500;
+  padding: 8px 12px; color: var(--ink-2); border-radius: 2px;
+}
+.links a:hover { color: var(--ink); background: rgba(19,19,19,.05); }
+.links a.active { color: var(--ink); }
+.links a.active::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 2px; height: 2px; background: var(--blue); }
+.links a .n { font: 500 10px var(--mono); color: var(--muted); margin-right: 6px; }
+.nav-cta { height: 38px; padding: 0 14px; font-size: 14px; }
+.menu { display: none; margin-left: auto; height: 38px; padding: 0 12px; background: none; border: 1px solid var(--ink); border-radius: 2px; font-weight: 600; font-size: 14px; cursor: pointer; align-items: center; gap: 8px; }
+.menu i { display: block; width: 14px; height: 1.5px; background: currentColor; position: relative; }
+.menu i::before, .menu i::after { content: ""; position: absolute; left: 0; width: 14px; height: 1.5px; background: currentColor; transition: transform .2s; }
+.menu i::before { top: -4.5px; } .menu i::after { top: 4.5px; }
+.menu[aria-expanded="true"] i { background: transparent; }
+.menu[aria-expanded="true"] i::before { transform: translateY(4.5px) rotate(45deg); }
+.menu[aria-expanded="true"] i::after { transform: translateY(-4.5px) rotate(-45deg); }
+
+/* Hero */
+.hero { padding-top: clamp(40px, 6vw, 84px); padding-bottom: clamp(56px, 7vw, 104px); }
+.h1 {
+  position: relative; margin: 0;
+  font-weight: 700; font-size: clamp(44px, 8.85vw, 132px); line-height: .94; letter-spacing: -0.052em;
+  color: var(--ink);
+}
+.h1 .ln { display: block; }
+.h1 .yours { color: var(--blue); position: relative; white-space: nowrap; }
+.cloud { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.cloud path { fill: none; stroke: var(--blue); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.cloud .tri { stroke-width: 1.6; fill: var(--paper); }
+.cloud text { fill: var(--blue); font: 600 13px var(--mono); letter-spacing: 0; }
+.cloud.anim path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1.1s cubic-bezier(.6,.1,.3,1) .45s forwards; }
+.cloud.anim .tri { animation-delay: 1.35s; animation-duration: .5s; }
+.cloud.anim text { opacity: 0; animation: fade .3s 1.7s forwards; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes fade { to { opacity: 1; } }
+
+.hero-body { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 24px; margin-top: clamp(36px, 4.4vw, 64px); align-items: start; }
+.hero-copy { grid-column: 1 / span 4; display: flex; flex-direction: column; gap: 28px; padding-top: 6px; }
+.lede { margin: 0; font-size: clamp(19px, 1.6vw, 23px); line-height: 1.42; letter-spacing: -0.012em; color: var(--ink); max-width: 30ch; }
+.early {
+  margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start;
+  font-size: 15px; line-height: 1.5; color: var(--ink-2);
+  padding: 14px 16px; border: 1px dashed var(--rule-2); background: rgba(248,246,241,.55);
+}
+.early strong { color: var(--ink); }
+.early .spec { margin-top: 7px; }
+.ctas { display: flex; flex-wrap: wrap; gap: 12px; }
+.key { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--rule); }
+.key-t { font: 500 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+.key li { display: flex; align-items: center; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 14px; color: var(--ink-2); }
+.key li b { font-weight: 600; color: var(--ink); min-width: 64px; }
+
+/* Plate: a drawing sheet */
+.plate { position: relative; background: var(--paper-hi); border: 1px solid var(--ink); }
+.reg::after {
+  content: ""; position: absolute; inset: -9px; pointer-events: none;
+  --c: var(--ink);
+  background:
+    linear-gradient(var(--c), var(--c)) 0 0 / 7px 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) 0 0 / 1px 7px no-repeat,
+    linear-gradient(var(--c), var(--c)) 100% 0 / 7px 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) 100% 0 / 1px 7px no-repeat,
+    linear-gradient(var(--c), var(--c)) 0 100% / 7px 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) 0 100% / 1px 7px no-repeat,
+    linear-gradient(var(--c), var(--c)) 100% 100% / 7px 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) 100% 100% / 1px 7px no-repeat;
+}
+.hero-plate { grid-column: 5 / span 8; }
+.plate-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding: 12px 16px; border-bottom: 1px solid var(--ink);
+}
+.fig { margin: 0; font: 500 11.5px/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fig b { color: var(--ink); font-weight: 600; }
+.tag { font: 600 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 5px 7px; border: 1px solid currentColor; border-radius: 2px; }
+.explode { display: flex; align-items: center; gap: 12px; font: 500 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.explode label { cursor: pointer; }
+.range {
+  -webkit-appearance: none; appearance: none; width: 180px; height: 22px; background: transparent; cursor: ew-resize; margin: 0;
+}
+.range::-webkit-slider-runnable-track {
+  height: 22px;
+  background:
+    linear-gradient(var(--ink), var(--ink)) 0 50% / 100% 1px no-repeat,
+    repeating-linear-gradient(90deg, var(--ink) 0 1px, transparent 1px 9px) 0 100% / 100% 6px no-repeat,
+    repeating-linear-gradient(90deg, var(--ink) 0 1px, transparent 1px 45px) 0 100% / 100% 10px no-repeat;
+}
+.range::-moz-range-track {
+  height: 22px;
+  background:
+    linear-gradient(var(--ink), var(--ink)) 0 50% / 100% 1px no-repeat,
+    repeating-linear-gradient(90deg, var(--ink) 0 1px, transparent 1px 9px) 0 100% / 100% 6px no-repeat,
+    repeating-linear-gradient(90deg, var(--ink) 0 1px, transparent 1px 45px) 0 100% / 100% 10px no-repeat;
+}
+.range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 22px; background: var(--blue); border: 0; border-radius: 1px; box-shadow: 0 0 0 3px var(--paper-hi); }
+.range::-moz-range-thumb { width: 14px; height: 22px; background: var(--blue); border: 0; border-radius: 1px; box-shadow: 0 0 0 3px var(--paper-hi); }
+.range:focus-visible { outline-offset: 6px; }
+.explode output { color: var(--ink); min-width: 3.5ch; text-align: right; }
+
+.plate-body { display: grid; grid-template-columns: minmax(0, 1.28fr) minmax(0, 1fr); }
+.drawing {
+  position: relative; border-right: 1px solid var(--ink);
+  background-color: var(--paper-hi);
+  background-image:
+    linear-gradient(rgba(19,19,19,.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(19,19,19,.045) 1px, transparent 1px);
+  background-size: 18px 18px; background-position: -1px -1px;
+  padding: 10px 6px 4px;
+}
+#asmSvg { display: block; width: 100%; height: auto; }
+.asm .edge { stroke: var(--ink); stroke-width: 1.15; stroke-linejoin: round; }
+.asm .ft { fill: var(--paper-hi); }
+.asm .fl { fill: #e7e3d9; }
+.asm .fr { fill: #d9d4c8; }
+.asm .dash .edge { stroke-dasharray: 5 3.5; }
+.asm .dash .ft { fill: #f3f0e9; }
+.asm .detail { fill: none; stroke: var(--ink); stroke-width: 1; }
+.asm .dash .detail { stroke-dasharray: 4 3; }
+.asm .soft { stroke: rgba(19,19,19,.45); }
+.asm .yours .edge, .asm .yours .detail { stroke: var(--blue); stroke-width: 1.5; }
+.asm .yours .ft { fill: #eef0fb; }
+.asm .yours .fl { fill: #e1e4f6; }
+.asm .yours .fr { fill: #d3d7f0; }
+.asm text { font-family: var(--mono); fill: var(--ink); }
+.asm .yours text { fill: var(--blue); }
+.asm .axis { stroke: rgba(19,19,19,.35); stroke-width: 1; stroke-dasharray: 16 4 3 4; }
+.asm .hot .ft { fill: url(#hatch); }
+.asm .yours.hot .ft { fill: url(#hatchBlue); }
+.asm .ball circle { fill: var(--paper-hi); stroke: var(--ink); stroke-width: 1.15; }
+.asm .ball line { stroke: var(--ink); stroke-width: 1; }
+.asm .ball .dot { fill: var(--ink); stroke: none; }
+.asm .ball text { font-size: 12px; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
+.asm .ball.hot circle { fill: var(--ink); }
+.asm .ball.hot text { fill: var(--paper-hi); }
+.asm .ball.b5 circle { stroke: var(--blue); } .asm .ball.b5 line { stroke: var(--blue); } .asm .ball.b5 .dot { fill: var(--blue); } .asm .ball.b5 text { fill: var(--blue); }
+.asm .ball.b5.hot circle { fill: var(--blue); } .asm .ball.b5.hot text { fill: var(--paper-hi); }
+.asm [data-part] { cursor: default; }
+#yoursDraw.anim .edge, #yoursDraw.anim .detail[pathLength] { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .9s ease-out .1s forwards; }
+#yoursDraw.anim .ft, #yoursDraw.anim .fl, #yoursDraw.anim .fr { fill-opacity: 0; animation: fillIn .5s ease-out .8s forwards; }
+#yoursDraw.anim text { opacity: 0; animation: fade .3s .9s forwards; }
+@keyframes fillIn { to { fill-opacity: 1; } }
+
+.bom-wrap { display: flex; flex-direction: column; }
+.bom { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.bom th { text-align: left; font: 500 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 12px 12px 10px; border-bottom: 1px solid var(--ink); }
+.bom td { padding: 12px; border-bottom: 1px solid var(--rule); vertical-align: top; line-height: 1.35; }
+.bom tr { transition: background-color .15s; }
+.bom tbody tr.hot { background: rgba(19,19,19,.05); }
+.bom tbody tr.hot .no { background: var(--ink); color: var(--paper-hi); }
+.bom tbody tr.r5.hot .no { background: var(--blue); border-color: var(--blue); }
+.bom .no { display: inline-grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--ink); border-radius: 50%; font: 600 11px var(--mono); }
+.bom .r5 .no { border-color: var(--blue); color: var(--blue); }
+.bom .pn { font-weight: 600; color: var(--ink); display: block; }
+.bom .pd { color: var(--muted); font-size: 12.5px; display: block; margin-top: 2px; }
+.bom .st { display: flex; flex-direction: column; gap: 6px; color: var(--ink-2); font-size: 12.5px; }
+.bom .st .spec { width: 36px; }
+.bom-note { margin: auto 0 0; padding: 14px 12px; font-size: 13px; color: var(--muted); line-height: 1.45; border-top: 1px solid var(--rule); }
+.caption { margin: 0; padding: 12px 16px; border-top: 1px solid var(--ink); font-size: 13.5px; color: var(--ink-2); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.caption .mono { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+
+/* Section scaffolding */
+.sec-label { margin: 0 0 20px; }
+.h2 { margin: 0; font-weight: 700; font-size: clamp(36px, 5vw, 72px); line-height: .98; letter-spacing: -0.045em; }
+.sub { margin: 18px 0 0; font-size: 18px; line-height: 1.5; color: var(--ink-2); max-width: 46ch; }
+
+/* Bench */
+.bench {
+  background-color: var(--mat); color: var(--mat-text);
+  background-image:
+    linear-gradient(var(--mat-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--mat-line) 1px, transparent 1px),
+    linear-gradient(rgba(236,233,225,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(236,233,225,.035) 1px, transparent 1px);
+  background-size: 120px 120px, 120px 120px, 24px 24px, 24px 24px;
+  padding: clamp(64px, 8vw, 120px) 0;
+}
+.bench .fig { color: var(--mat-muted); }
+.bench .fig b { color: var(--mat-text); }
+.bench .tag { color: var(--blue-lit); }
+.bench-head { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 24px; align-items: end; margin-bottom: 44px; }
+.bench-head > div:first-child { grid-column: 1 / span 6; }
+.bench-head .h2 { color: var(--mat-text); }
+.bench-head .h2 em { font-style: normal; color: var(--blue-lit); }
+.bench-intro { grid-column: 8 / span 5; margin: 0; font-size: 17px; line-height: 1.55; color: var(--mat-muted); }
+.bench-intro strong { color: var(--mat-text); font-weight: 600; }
+
+.bench-grid {
+  display: grid; gap: 20px;
+  grid-template-columns: minmax(0, 4.3fr) minmax(0, 5.4fr) minmax(0, 3.1fr);
+  grid-template-areas: "file app ctl" "revs revs ctl";
+}
+.pane { border-radius: 3px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.file { grid-area: file; background: var(--paper-hi); color: var(--ink); height: 540px; position: relative; overflow: visible; }
+.file .editor { overflow: hidden; }
+.pane-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 14px; height: 44px; border-bottom: 1px solid var(--rule); flex: none; }
+.filetab { display: inline-flex; align-items: center; gap: 8px; font: 600 13px var(--mono); }
+.filetab svg { width: 14px; height: 16px; }
+.fstate { font: 500 11px var(--mono); letter-spacing: .04em; color: var(--muted); display: inline-flex; align-items: center; gap: 7px; }
+.fstate i { width: 7px; height: 7px; border-radius: 50%; background: #2c8a5a; display: inline-block; }
+.fstate.edited i { background: var(--blue); }
+.editor { position: relative; flex: 1; min-height: 0; display: flex; background: var(--paper-hi); }
+.gutter {
+  margin: 0; padding: 14px 10px 14px 14px; text-align: right; user-select: none;
+  font: 13px/1.6 var(--mono); color: #aaa598; border-right: 1px solid var(--rule); overflow: hidden; flex: none; min-width: 44px;
+}
+#md {
+  flex: 1; min-width: 0; resize: none; border: 0; outline: 0; margin: 0;
+  padding: 14px 14px 14px 12px; background: transparent; color: var(--ink);
+  font: 13px/1.6 var(--mono); white-space: pre; overflow: auto; tab-size: 2;
+  caret-color: var(--blue);
+}
+#md::selection { background: rgba(36,51,214,.18); }
+.editor:focus-within { box-shadow: inset 0 0 0 2px var(--blue); }
+.pane-foot { flex: none; display: flex; justify-content: space-between; gap: 10px; padding: 9px 14px; border-top: 1px solid var(--rule); font: 500 11px var(--mono); color: var(--muted); letter-spacing: .03em; }
+
+.reads {
+  position: absolute; right: -20px; top: 50%; width: 20px; height: 60px; transform: translateY(-50%);
+  display: grid; place-items: center; z-index: 2; color: var(--blue-lit);
+}
+.reads svg { width: 20px; height: 20px; }
+
+.app { grid-area: app; background: #fbfaf7; color: #1b1b1b; height: 540px; --acc: #2433d6; box-shadow: 0 0 0 1px rgba(0,0,0,.2), 0 24px 60px -30px rgba(0,0,0,.6); }
+.app-bar { display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px; border-bottom: 1px solid #e6e3dc; flex: none; }
+.app-glyph { width: 22px; height: 22px; border-radius: 6px; background: var(--acc); display: grid; place-items: center; flex: none; transition: background-color .25s; }
+.app-glyph::after { content: ""; width: 8px; height: 8px; border-radius: 50%; border: 2px solid #fff; }
+.app-name { font-weight: 700; font-size: 16px; letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-src { margin-left: auto; font: 500 11px var(--mono); color: #77736a; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.app-src::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--acc); }
+.app-body { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+.app-body.tablev { padding-top: 0; }
+.app-body.tablev .app-count { padding-top: 16px; }
+.app-count { font: 500 11px var(--mono); color: #77736a; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 12px; display: flex; justify-content: space-between; }
+
+.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.entry { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 14px; padding: 14px; background: #fff; border: 1px solid #e8e5de; border-radius: 6px; border-left: 3px solid var(--acc); transition: border-color .25s; }
+.e-date { font: 600 12px/1.3 var(--mono); color: var(--acc); padding-top: 2px; transition: color .25s; }
+.e-name { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
+.e-fields { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 8px 0 0; }
+.e-fields div { display: grid; gap: 3px; min-width: 70px; }
+.e-fields dt { font: 500 10px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: #86827a; }
+.e-fields dd { margin: 0; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.meter { display: block; margin-top: 4px; height: 3px; background: #ece9e2; border-radius: 2px; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--acc); transition: width .3s, background-color .25s; }
+.e-note { margin: 9px 0 0; font-size: 14px; color: #4b4943; line-height: 1.45; }
+
+.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.tbl th { position: sticky; top: 0; background: #fbfaf7; text-align: left; font: 500 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: #86827a; padding: 8px 10px; border-bottom: 2px solid var(--acc); }
+.tbl td { padding: 10px; border-bottom: 1px solid #ebe8e1; vertical-align: top; }
+.tbl .num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.tbl .dt { font-family: var(--mono); font-size: 12px; color: var(--acc); white-space: nowrap; }
+.tbl .note { color: #57544d; min-width: 160px; }
+
+.plot svg { display: block; width: 100%; height: auto; }
+.plot .gridl { stroke: #e5e2da; }
+.plot .axl { stroke: #1b1b1b; }
+.plot text { font: 500 10.5px var(--mono); fill: #77736a; }
+.plot .lbl { fill: #1b1b1b; font: 600 11px var(--sans); }
+.plot .pt { fill: var(--acc); stroke: #fff; stroke-width: 2; transition: fill .25s; }
+.plot .trail { fill: none; stroke: var(--acc); stroke-width: 1.2; stroke-dasharray: 3 3; opacity: .55; }
+.plot-note { margin: 8px 0 0; font: 500 11px var(--mono); color: #86827a; }
+
+.empty { display: grid; gap: 8px; place-content: center; text-align: center; height: 100%; padding: 24px; color: #57544d; }
+.empty b { color: #1b1b1b; font-size: 16px; }
+.empty code { font-family: var(--mono); background: #efece5; padding: 1px 5px; border-radius: 3px; }
+
+.controls { grid-area: ctl; margin: 0; padding: 18px; border: 1px solid var(--mat-rule); border-radius: 3px; background: rgba(32,33,37,.85); display: flex; flex-direction: column; gap: 18px; align-self: start; }
+.ctl-title { margin: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.ctl-title b { font-size: 17px; letter-spacing: -0.015em; }
+.ctl-title span { font: 500 10px var(--mono); color: var(--blue-lit); letter-spacing: .08em; text-transform: uppercase; }
+.ctl { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 8px; }
+.ctl-k { padding: 0; font: 500 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--mat-muted); }
+.ctl input[type="text"], .ctl select {
+  width: 100%; height: 38px; padding: 0 10px; background: var(--mat); border: 1px solid var(--mat-rule); border-radius: 2px; color: var(--mat-text);
+}
+.ctl input[type="text"]:focus, .ctl select:focus { border-color: var(--blue-lit); outline: none; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--mat-rule); border-radius: 2px; overflow: hidden; }
+.seg label { position: relative; }
+.seg input, .chips input, .swatches input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.seg span { display: grid; place-items: center; height: 36px; font-size: 13.5px; font-weight: 500; color: var(--mat-muted); cursor: pointer; transition: background-color .15s, color .15s; border-right: 1px solid var(--mat-rule); }
+.seg label:last-child span { border-right: 0; }
+.seg span:hover { color: var(--mat-text); }
+.seg input:checked + span { background: var(--mat-text); color: var(--mat); font-weight: 600; }
+.seg input:focus-visible + span, .chips input:focus-visible + span, .swatches input:focus-visible + span { outline: 2px solid var(--blue-lit); outline-offset: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips label { position: relative; }
+.chips span { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 1px solid var(--mat-rule); border-radius: 15px; font: 500 12px var(--mono); color: var(--mat-muted); cursor: pointer; transition: all .15s; }
+.chips span::before { content: ""; width: 7px; height: 7px; border-radius: 50%; border: 1px solid currentColor; }
+.chips input:checked + span { color: var(--mat-text); border-color: rgba(236,233,225,.45); }
+.chips input:checked + span::before { background: var(--blue-lit); border-color: var(--blue-lit); }
+.axes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.axes label { display: grid; gap: 4px; font: 500 10px var(--mono); color: var(--mat-muted); letter-spacing: .06em; text-transform: uppercase; }
+.swatches { display: flex; gap: 8px; }
+.swatches label { position: relative; }
+.swatches span { display: block; width: 34px; height: 34px; border-radius: 50%; background: var(--sw); cursor: pointer; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); transition: transform .15s; }
+.swatches span:hover { transform: scale(1.06); }
+.swatches input:checked + span { box-shadow: 0 0 0 2px var(--mat-2), 0 0 0 4px var(--mat-text); }
+.ctl-hint { margin: 0; font-size: 13px; line-height: 1.45; color: var(--mat-muted); }
+.ctl-hint code { font-family: var(--mono); color: var(--mat-text); font-size: 12px; }
+
+.revs { grid-area: revs; border: 1px solid var(--mat-rule); border-radius: 3px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.55fr); overflow: hidden; }
+.revs-sum { padding: 18px; border-right: 1px solid var(--mat-rule); display: flex; flex-direction: column; gap: 14px; }
+.tally { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--mat-rule); }
+.tally div { padding: 12px; display: grid; gap: 4px; }
+.tally div + div { border-left: 1px solid var(--mat-rule); }
+.tally dt { font: 500 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--mat-muted); }
+.tally dd { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.tally .app-n { color: var(--blue-lit); }
+.moral { margin: 0; font-size: 15px; line-height: 1.45; color: var(--mat-text); min-height: 2.9em; }
+.reset { align-self: flex-start; background: none; border: 1px solid var(--mat-rule); color: var(--mat-text); height: 34px; padding: 0 12px; border-radius: 2px; font-size: 13px; font-weight: 500; cursor: pointer; }
+.reset:hover { border-color: var(--mat-text); }
+.revtab { display: flex; flex-direction: column; min-height: 0; }
+.revtab-h, .rev { display: grid; grid-template-columns: 48px minmax(0, 1fr) 76px; gap: 12px; padding: 0 16px; align-items: center; }
+.revtab-h { height: 38px; border-bottom: 1px solid var(--mat-rule); font: 500 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--mat-muted); }
+.revlist { list-style: none; margin: 0; padding: 0; max-height: 176px; overflow: auto; }
+.rev { min-height: 40px; border-bottom: 1px solid var(--mat-line); font-size: 14px; }
+.rev .tri { width: 26px; height: 22px; }
+.rev .tri path { fill: none; stroke: var(--blue-lit); stroke-width: 1.4; stroke-linejoin: round; }
+.rev .tri text { fill: var(--blue-lit); font: 600 9.5px var(--mono); text-anchor: middle; }
+.rev time { font: 500 11px var(--mono); color: var(--mat-muted); text-align: right; }
+.rev.new { animation: revIn .5s ease-out; }
+@keyframes revIn { from { background: rgba(154,162,255,.16); } to { background: transparent; } }
+.rev-empty { padding: 18px 16px; font-size: 14px; color: var(--mat-muted); }
+
+/* Apps */
+.apps { padding: clamp(72px, 9vw, 136px) 0; }
+.apps-head { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 24px; align-items: end; margin-bottom: 48px; }
+.apps-head > div { grid-column: 1 / span 7; }
+.apps-head p.aside { grid-column: 9 / span 4; margin: 0; font-size: 16px; color: var(--ink-2); }
+.app-plates { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.aplate { display: flex; flex-direction: column; }
+.stage {
+  position: relative; height: 300px; border-bottom: 1px solid var(--ink);
+  background-color: var(--paper-hi);
+  background-image: linear-gradient(rgba(19,19,19,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(19,19,19,.045) 1px, transparent 1px);
+  background-size: 18px 18px;
+  display: flex; flex-direction: column;
+}
+.stage-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 16px; }
+.stage-top .tag { color: var(--ink-2); }
+.stage-foot { margin-top: auto; padding: 10px 16px 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.stage-foot small { font-size: 12.5px; color: var(--muted); max-width: 38ch; line-height: 1.4; }
+.mini-btn { height: 34px; padding: 0 12px; border: 1px solid var(--ink); background: var(--paper-hi); border-radius: 2px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+.mini-btn:hover:not(:disabled) { background: var(--ink); color: var(--paper-hi); }
+.mini-btn:disabled { opacity: .55; cursor: default; }
+.mini-btn svg { width: 11px; height: 11px; }
+
+.whisper-row { flex: 1; display: grid; grid-template-columns: auto 28px minmax(0, 1fr) 28px minmax(0, 1.25fr); align-items: center; gap: 10px; padding: 0 20px; }
+.station { display: grid; gap: 10px; justify-items: center; min-width: 0; }
+.station > small { font: 500 10px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.keycap {
+  width: 92px; height: 70px; border-radius: 10px; background: var(--paper-hi); border: 1.5px solid var(--ink);
+  box-shadow: 0 6px 0 -1px var(--paper-hi), 0 6px 0 0 var(--ink);
+  display: grid; place-items: center; font: 600 11px var(--mono); letter-spacing: .06em; text-transform: uppercase;
+  transition: transform .12s, box-shadow .12s;
+}
+.keycap.down { transform: translateY(5px); box-shadow: 0 1px 0 -1px var(--paper-hi), 0 1px 0 0 var(--ink); }
+.arrow { width: 28px; height: 10px; color: var(--ink); }
+.wave { width: 100%; height: 70px; }
+.wave rect { fill: var(--ink); }
+.textout {
+  width: 100%; min-height: 70px; padding: 10px 12px; border: 1.5px solid var(--ink); background: var(--paper-hi); border-radius: 4px;
+  font-size: 14px; line-height: 1.4; font-weight: 500; display: flex; align-items: center;
+}
+.textout .ph { color: var(--muted); font-weight: 400; font-size: 13px; }
+.caret { display: inline-block; width: 2px; height: 1.1em; background: var(--blue); margin-left: 1px; vertical-align: text-bottom; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.vocab-row { flex: 1; display: grid; place-items: center; padding: 0 20px; perspective: 900px; }
+.card { width: min(340px, 100%); height: 170px; border: 0; padding: 0; background: none; cursor: pointer; position: relative; transform-style: preserve-3d; transition: transform .6s cubic-bezier(.3,.1,.2,1); border-radius: 8px; }
+.card.flipped { transform: rotateY(180deg); }
+.card-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; border: 1.5px solid var(--ink); border-radius: 8px; background: var(--paper-hi); display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 18px 22px; text-align: left; box-shadow: 6px 6px 0 -1.5px var(--paper-hi), 6px 6px 0 0 var(--ink); }
+.card-face small { font: 500 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.card-face .expr { font-size: 27px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; }
+.card-face .mean { font-size: 17px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; }
+.card-face .ex { font-size: 14px; color: var(--ink-2); font-style: italic; }
+.card-back { transform: rotateY(180deg); }
+.card-count { font: 500 11px var(--mono); color: var(--muted); }
+
+.aplate-body { padding: 24px 24px 26px; display: flex; flex-direction: column; gap: 20px; flex: 1; }
+.aplate-name { margin: 0; font-size: clamp(38px, 4vw, 56px); font-weight: 700; letter-spacing: -0.045em; line-height: 1; }
+.aplate-line { margin: -6px 0 0; font-size: 20px; letter-spacing: -0.015em; color: var(--ink); font-weight: 500; }
+.specs { margin: 0; border-top: 1px solid var(--ink); }
+.specs div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; padding: 11px 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
+.specs dt { font: 500 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.specs dd { margin: 0; font-size: 15px; display: flex; gap: 12px; align-items: baseline; }
+.specs dd .spec { width: 36px; transform: translateY(-2px); }
+.specs a { text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.specs a:hover { color: var(--blue); }
+.plate-links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: auto; }
+.plate-links .btn { height: 42px; font-size: 14px; }
+
+/* Status */
+.status { padding: clamp(72px, 9vw, 136px) 0; border-top: 1px solid var(--ink); background: var(--paper-hi); }
+.status-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 24px; }
+.status-head { grid-column: 1 / span 4; }
+.status-head > div { position: sticky; top: calc(var(--nav-h) + 32px); }
+.bands { grid-column: 6 / span 7; display: grid; gap: 48px; }
+.band-rule { display: block; width: 100%; height: 3px; background: var(--ink); }
+.band.dashed .band-rule { background: repeating-linear-gradient(90deg, var(--ink) 0 16px, transparent 16px 25px); }
+.band.phantom .band-rule { background: repeating-linear-gradient(90deg, var(--ink) 0 36px, transparent 36px 43px, var(--ink) 43px 48px, transparent 48px 55px, var(--ink) 55px 60px, transparent 60px 67px); }
+.band-h { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin: 14px 0 6px; }
+.band-h h3 { margin: 0; font-size: 26px; letter-spacing: -0.03em; }
+.band-h span { font: 500 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.band ol { list-style: none; margin: 0; padding: 0; }
+.band li { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--rule); font-size: 17px; line-height: 1.45; }
+.band li .ix { font: 500 12px/1.9 var(--mono); color: var(--muted); }
+.band li strong { font-weight: 650; }
+
+/* Build */
+.build { background: var(--blue); color: var(--paper-hi); padding: clamp(72px, 9vw, 136px) 0; position: relative; overflow: hidden; }
+.build-mark { position: absolute; right: -140px; top: 50%; width: 620px; height: 620px; transform: translateY(-50%); color: rgba(248,246,241,.16); pointer-events: none; }
+.build-grid { position: relative; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 24px; align-items: end; }
+.build-copy { grid-column: 1 / span 6; }
+.build .fig { color: rgba(248,246,241,.75); }
+.build .fig b { color: var(--paper-hi); }
+.build .h2 { font-size: clamp(44px, 7vw, 104px); }
+.build .sub { color: rgba(248,246,241,.86); max-width: 44ch; }
+.build-act { grid-column: 8 / span 5; display: grid; gap: 18px; }
+.clone { display: flex; align-items: stretch; background: var(--paper-hi); color: var(--ink); border-radius: 2px; overflow: hidden; }
+.clone code { flex: 1; min-width: 0; padding: 16px; font: 13px/1.4 var(--mono); overflow-x: auto; white-space: nowrap; }
+.clone code::before { content: "$ "; color: var(--muted); }
+.copy { flex: none; border: 0; border-left: 1px solid var(--rule-2); background: var(--paper-hi); padding: 0 16px; font-weight: 600; font-size: 14px; cursor: pointer; min-width: 88px; }
+.copy:hover { background: var(--ink); color: var(--paper-hi); }
+.build-links { list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(248,246,241,.4); }
+.build-links a { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 15px 0; border-bottom: 1px solid rgba(248,246,241,.4); text-decoration: none; font-size: 17px; font-weight: 500; }
+.build-links a span { font: 500 12px var(--mono); color: rgba(248,246,241,.72); }
+.build-links a:hover { padding-left: 8px; transition: padding .15s; }
+.build-links a svg { width: 14px; height: 14px; flex: none; }
+
+/* Footer title block */
+.foot { padding: 40px 0 48px; }
+.tblock { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1.2fr 1fr; border: 1px solid var(--ink); }
+.tblock > div { padding: 14px 16px; border-right: 1px solid var(--ink); display: grid; gap: 6px; align-content: start; min-width: 0; }
+.tblock > div:last-child { border-right: 0; }
+.tblock dt, .tblock .k { font: 500 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.tblock .v { font-size: 14.5px; font-weight: 500; overflow-wrap: anywhere; }
+.tblock .v a { text-underline-offset: 3px; }
+.tblock .v a:hover { color: var(--blue); }
+.tblock .brand { font-size: 22px; }
+.tblock .blue { color: var(--blue); }
+.foot-note { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 14px; font-size: 13px; color: var(--muted); }
+.foot-note a { color: var(--ink-2); text-underline-offset: 3px; }
+
+/* Responsive */
+@media (max-width: 1180px) {
+  .links a .n { display: none; }
+  .hero-copy { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 24px 40px; }
+  .hero-copy .lede { max-width: none; }
+  .hero-plate { grid-column: 1 / -1; margin-top: 16px; }
+  .bench-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); grid-template-areas: "file app" "ctl revs"; }
+  .revs { grid-template-columns: 1fr; }
+  .revs-sum { border-right: 0; border-bottom: 1px solid var(--mat-rule); }
+  .reads { display: none; }
+  .tblock { grid-template-columns: 1fr 1fr 1fr; }
+  .tblock > div:nth-child(3) { border-right: 0; }
+  .tblock > div:nth-child(n+4) { border-top: 1px solid var(--ink); }
+}
+@media (max-width: 960px) {
+  .links, .nav-cta { display: none; }
+  .menu { display: inline-flex; }
+  .nav.open .links {
+    display: flex; flex-direction: column; gap: 0; position: absolute; left: 0; right: 0; top: var(--nav-h);
+    background: var(--paper); border-bottom: 1px solid var(--ink); padding: 8px var(--pad) 16px;
+  }
+  .nav.open .links a { padding: 14px 0; border-bottom: 1px solid var(--rule); font-size: 17px; }
+  .nav.open .links a.active::after { left: auto; right: 0; top: 50%; bottom: auto; width: 16px; height: 2px; }
+  .nav.open .links .m-gh { display: block; }
+  .plate-body { grid-template-columns: 1fr; }
+  .drawing { border-right: 0; border-bottom: 1px solid var(--ink); }
+  .bench-head, .apps-head, .status-grid, .build-grid { grid-template-columns: 1fr; }
+  .bench-head > div:first-child, .bench-intro, .apps-head > div, .apps-head p.aside, .status-head, .bands, .build-copy, .build-act { grid-column: 1 / -1; }
+  .status-head > div { position: static; }
+  .app-plates { grid-template-columns: 1fr; }
+  .bench-grid { grid-template-columns: 1fr; grid-template-areas: "file" "app" "ctl" "revs"; }
+  .file { height: 420px; }
+  .app { height: 480px; }
+}
+.links .m-gh { display: none; }
+@media (max-width: 640px) {
+  :root { --nav-h: 58px; }
+  .chip-dev { display: none; }
+  .hero-copy { grid-template-columns: 1fr; }
+  .ctas .btn { flex: 1 1 auto; justify-content: center; }
+  .plate-bar { padding: 10px 12px; }
+  .explode { width: 100%; justify-content: space-between; }
+  .range { flex: 1; width: auto; min-width: 0; }
+  .bom th:nth-child(3), .bom td:nth-child(3) { display: none; }
+  .bom td, .bom th { padding-left: 10px; padding-right: 10px; }
+  .caption { padding: 12px; }
+  .whisper-row { grid-template-columns: 1fr; gap: 14px; padding: 4px 16px 0; justify-items: center; }
+  .whisper-row .arrow { transform: rotate(90deg); width: 20px; }
+  .station { width: 100%; }
+  .wave { height: 48px; }
+  .keycap { width: 84px; height: 54px; }
+  .stage { height: auto; min-height: 300px; }
+  .stage.w-stage { min-height: 460px; }
+  .vocab-row { padding: 12px 16px; }
+  .aplate-body { padding: 20px 16px 22px; }
+  .specs div { grid-template-columns: 1fr; gap: 4px; }
+  .entry { grid-template-columns: 1fr; gap: 6px; }
+  .revtab-h, .rev { grid-template-columns: 36px minmax(0, 1fr) 64px; padding: 0 12px; gap: 8px; }
+  .tblock { grid-template-columns: 1fr 1fr; }
+  .tblock > div { border-right: 1px solid var(--ink) !important; border-top: 1px solid var(--ink); }
+  .tblock > div:nth-child(1) { grid-column: 1 / -1; border-top: 0; border-right: 0 !important; }
+  .tblock > div:nth-child(odd):not(:first-child) { border-right: 0 !important; }
+  .band li { grid-template-columns: 36px minmax(0, 1fr); font-size: 16px; }
+  .build-mark { width: 420px; height: 420px; right: -180px; top: 30%; }
+  .clone code { font-size: 12px; padding: 14px 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .001ms !important; animation-delay: 0s !important; transition-duration: .001ms !important; }
+  .caret { animation: none; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-arrow" viewBox="0 0 14 14"><path d="M3 11 11 3M5 3h6v6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"/></symbol>
+    <symbol id="i-down" viewBox="0 0 14 14"><path d="M7 2v10M3 8l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"/></symbol>
+    <symbol id="i-mark" viewBox="0 0 32 32">
+      <circle cx="16" cy="16" r="12.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <circle cx="16" cy="16" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2.2"/>
+      <path d="M16 1v8M16 23v8M1 16h8M23 16h8" stroke="currentColor" stroke-width="1.6"/>
+      <circle cx="16" cy="16" r="2" fill="currentColor"/>
+    </symbol>
+    <symbol id="s-solid" viewBox="0 0 44 8"><line x1="0" y1="4" x2="44" y2="4"/></symbol>
+  </defs>
+</svg>
+
+<header class="nav" id="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top" aria-label="Epicenter, back to top">
+      <svg class="mark" aria-hidden="true"><use href="#i-mark"/></svg>
+      <span>Epicenter</span>
+    </a>
+    <span class="chip-dev"><svg class="spec dashed" viewBox="0 0 44 8" style="width:22px" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg>Early · in development</span>
+    <nav class="links" id="links" aria-label="Primary">
+      <a href="#assembly"><span class="n">01</span>Assembly</a>
+      <a href="#bench"><span class="n">02</span>Bench</a>
+      <a href="#apps"><span class="n">03</span>Apps</a>
+      <a href="#status"><span class="n">04</span>Status</a>
+      <a href="#build"><span class="n">05</span>Build</a>
+      <a class="m-gh" href="https://github.com/EpicenterHQ/epicenter">Epicenter on GitHub ↗</a>
+    </nav>
+    <a class="btn btn-ink nav-cta" href="https://github.com/EpicenterHQ/epicenter">GitHub <svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
+    <button class="menu" id="menuBtn" type="button" aria-expanded="false" aria-controls="links"><i aria-hidden="true"></i>Menu</button>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- Hero -->
+<section class="hero wrap" id="top" aria-labelledby="h1">
+  <h1 class="h1" id="h1">
+    <span class="ln">Make software that’s</span>
+    <span class="ln">unmistakably <span class="yours" id="yours">yours.</span></span>
+    <svg class="cloud" id="cloud" aria-hidden="true" focusable="false"></svg>
+  </h1>
+
+  <div class="hero-body">
+    <div class="hero-copy">
+      <p class="lede">Keep your data in Markdown and SQLite files you own. Use apps built on Epicenter, or build your own.</p>
+      <p class="early">
+        <svg class="spec dashed" viewBox="0 0 44 8" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg>
+        <span><strong>Early and in development.</strong> Epicenter is open source today. The file foundation underneath it is still being built, so this page draws it in dashed lines.</span>
+      </p>
+      <div class="ctas">
+        <a class="btn btn-ink" href="https://github.com/EpicenterHQ/epicenter">Read the source <svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
+        <a class="btn btn-line" href="#bench">Open the bench <svg aria-hidden="true"><use href="#i-down"/></svg></a>
+      </div>
+      <div>
+        <p class="key-t">How to read this page</p>
+        <ul class="key">
+          <li><svg class="spec" viewBox="0 0 44 8" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg><b>Solid</b>Exists today, even if early</li>
+          <li><svg class="spec dashed" viewBox="0 0 44 8" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg><b>Dashed</b>Being built</li>
+          <li><svg class="spec phantom" viewBox="0 0 44 8" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg><b>Phantom</b>Planned</li>
+          <li><svg class="spec blue" viewBox="0 0 44 8" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg><b style="color:var(--blue)">Blue</b>Yours: your changes, your app</li>
+        </ul>
+      </div>
+    </div>
+
+    <figure class="plate reg hero-plate" id="assembly" aria-labelledby="asmCap" style="margin:0">
+      <div class="plate-bar">
+        <p class="fig"><b>Fig. 1</b> Assembly</p>
+        <div class="explode">
+          <label for="explode">Assembled</label>
+          <input class="range" id="explode" type="range" min="0" max="100" value="70" aria-label="Explode the assembly drawing" aria-describedby="asmCap">
+          <span aria-hidden="true">Exploded</span>
+          <output id="explodeOut" for="explode">70%</output>
+        </div>
+      </div>
+      <div class="plate-body">
+        <div class="drawing">
+          <svg id="asmSvg" class="asm" viewBox="0 0 620 690" role="img" aria-labelledby="asmTitle asmDesc">
+            <title id="asmTitle">Exploded drawing of personal software on Epicenter</title>
+            <desc id="asmDesc">Three layers. At the bottom, your files in Markdown and SQLite, drawn dashed because they are still being built. In the middle, Epicenter. On top, Whispering, Vocab, and a block drawn in blue for an app of your own.</desc>
+            <defs>
+              <pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <rect width="7" height="7" fill="#f8f6f1"/><line x1="0" y1="0" x2="0" y2="7" stroke="#131313" stroke-width="1.1" stroke-opacity=".45"/>
+              </pattern>
+              <pattern id="hatchBlue" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <rect width="7" height="7" fill="#eef0fb"/><line x1="0" y1="0" x2="0" y2="7" stroke="#2433d6" stroke-width="1.1" stroke-opacity=".6"/>
+              </pattern>
+            </defs>
+            <g id="asm"></g>
+          </svg>
+        </div>
+        <div class="bom-wrap">
+          <table class="bom" id="bom">
+            <caption class="sr">Parts list for Fig. 1</caption>
+            <thead><tr><th scope="col">No.</th><th scope="col">Part</th><th scope="col">From</th><th scope="col">Status</th></tr></thead>
+            <tbody>
+              <tr data-part="5" class="r5">
+                <td><span class="no">5</span></td>
+                <td><span class="pn" style="color:var(--blue)">Your app</span><span class="pd">Whatever you need</span></td>
+                <td>You</td>
+                <td><span class="st"><svg class="spec blue" viewBox="0 0 44 8" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg>Yours to build</span></td>
+              </tr>
+              <tr data-part="4">
+                <td><span class="no">4</span></td>
+                <td><span class="pn">Vocab</span><span class="pd">Practice expressions</span></td>
+                <td>Braden Wong</td>
+                <td><span class="st"><svg class="spec" viewBox="0 0 44 8" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg>In the browser</span></td>
+              </tr>
+              <tr data-part="3">
+                <td><span class="no">3</span></td>
+                <td><span class="pn">Whispering</span><span class="pd">Press a shortcut. Speak. Get text.</span></td>
+                <td>Braden Wong</td>
+                <td><span class="st"><svg class="spec" viewBox="0 0 44 8" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg>Desktop, inside the Epicenter host</span></td>
+              </tr>
+              <tr data-part="2">
+                <td><span class="no">2</span></td>
+                <td><span class="pn">Epicenter</span><span class="pd">The open-source foundation</span></td>
+                <td>Open source</td>
+                <td><span class="st"><svg class="spec" viewBox="0 0 44 8" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg>Early, in development</span></td>
+              </tr>
+              <tr data-part="1">
+                <td><span class="no">1</span></td>
+                <td><span class="pn">Your files</span><span class="pd">Markdown and SQLite</span></td>
+                <td>You</td>
+                <td><span class="st"><svg class="spec dashed" viewBox="0 0 44 8" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg>Being built</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="bom-note">Apps sit on top. Your files sit underneath, where no single app owns them. Point at a part to find it in the drawing.</p>
+        </div>
+      </div>
+      <figcaption class="caption" id="asmCap"><span>Drag the scale to pull the layers apart.</span><span class="mono">Not to scale · drawn in this page</span></figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- Bench -->
+<section class="bench" id="bench" aria-labelledby="benchH">
+  <div class="wrap">
+    <div class="bench-head">
+      <div>
+        <p class="fig sec-label"><b>Fig. 2</b> The bench <span class="tag">Illustrative</span></p>
+        <h2 class="h2" id="benchH">Change the app.<br><em>Keep the file.</em></h2>
+      </div>
+      <p class="bench-intro">A sketch of the idea, running only in this page. On the left is an ordinary Markdown file. In the middle, a small app reads it. <strong>Revise the app as much as you like, and the file stays the same. Edit the file, and the app follows.</strong> Nothing is saved or sent anywhere, and Epicenter doesn’t ship this bread log. It’s here to show the shape.</p>
+    </div>
+
+    <div class="bench-grid">
+      <div class="pane file">
+        <div class="pane-bar">
+          <span class="filetab"><svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1.5 1.5h7l4 4v9h-11z M8.5 1.5v4h4" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>bread.md</span>
+          <span class="fstate" id="fileState" aria-live="polite"><i aria-hidden="true"></i><span>as written</span></span>
+        </div>
+        <div class="editor">
+          <pre class="gutter" id="gutter" aria-hidden="true"></pre>
+          <textarea id="md" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off" aria-label="bread.md, an editable Markdown file"></textarea>
+        </div>
+        <div class="pane-foot"><span>Markdown · <span id="lineCount">0 lines</span></span><span>in memory only</span></div>
+        <div class="reads" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M2 10h14M11 5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></div>
+      </div>
+
+      <div class="pane app" id="app" aria-label="Illustrative app that reads bread.md">
+        <div class="app-bar">
+          <span class="app-glyph" aria-hidden="true"></span>
+          <span class="app-name" id="appName">Bread log</span>
+          <span class="app-src">reads bread.md</span>
+        </div>
+        <div class="app-body" id="appBody" aria-live="polite"></div>
+      </div>
+
+      <form class="controls" id="controls" aria-labelledby="ctlTitle">
+        <p class="ctl-title" id="ctlTitle"><b>Revise the app</b><span>Your marks</span></p>
+        <label class="ctl"><span class="ctl-k">Name</span><input type="text" id="cName" value="Bread log" maxlength="28" autocomplete="off"></label>
+        <fieldset class="ctl">
+          <legend class="ctl-k">View</legend>
+          <div class="seg">
+            <label><input type="radio" name="view" value="log" checked><span>Log</span></label>
+            <label><input type="radio" name="view" value="table"><span>Table</span></label>
+            <label><input type="radio" name="view" value="plot"><span>Plot</span></label>
+          </div>
+        </fieldset>
+        <fieldset class="ctl" id="fieldsCtl">
+          <legend class="ctl-k">Show fields</legend>
+          <div class="chips" id="cFields"></div>
+        </fieldset>
+        <fieldset class="ctl" id="axesCtl" hidden>
+          <legend class="ctl-k">Plot axes</legend>
+          <div class="axes">
+            <label>Across<select id="cX"></select></label>
+            <label>Up<select id="cY"></select></label>
+          </div>
+        </fieldset>
+        <fieldset class="ctl">
+          <legend class="ctl-k">Order</legend>
+          <div class="seg">
+            <label><input type="radio" name="order" value="old" checked><span>Oldest first</span></label>
+            <label><input type="radio" name="order" value="new"><span>Newest first</span></label>
+          </div>
+        </fieldset>
+        <fieldset class="ctl">
+          <legend class="ctl-k">Accent</legend>
+          <div class="swatches">
+            <label title="Ultramarine"><input type="radio" name="accent" value="ultramarine" checked aria-label="Ultramarine"><span style="--sw:#2433d6"></span></label>
+            <label title="Vermilion"><input type="radio" name="accent" value="vermilion" aria-label="Vermilion"><span style="--sw:#d9442a"></span></label>
+            <label title="Moss"><input type="radio" name="accent" value="moss" aria-label="Moss"><span style="--sw:#2f7a4f"></span></label>
+            <label title="Ochre"><input type="radio" name="accent" value="ochre" aria-label="Ochre"><span style="--sw:#b8841a"></span></label>
+            <label title="Graphite"><input type="radio" name="accent" value="graphite" aria-label="Graphite"><span style="--sw:#3a3a3a"></span></label>
+          </div>
+        </fieldset>
+        <p class="ctl-hint">Try adding <code>- flour: rye</code> under an entry in bread.md. The app picks up the new field.</p>
+      </form>
+
+      <div class="revs">
+        <div class="revs-sum">
+          <dl class="tally">
+            <div><dt>App revisions</dt><dd class="app-n" id="nApp">0</dd></div>
+            <div><dt>bread.md edits</dt><dd id="nFile">0</dd></div>
+          </dl>
+          <p class="moral" id="moral" aria-live="polite">Change anything on the right. Each change is logged as a revision.</p>
+          <button class="reset" type="button" id="reset">Reset the bench</button>
+        </div>
+        <div class="revtab">
+          <div class="revtab-h"><span>Rev</span><span>Change</span><span style="text-align:right">Time</span></div>
+          <ol class="revlist" id="revlist" aria-label="Revision log"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Apps -->
+<section class="apps" id="apps" aria-labelledby="appsH">
+  <div class="wrap">
+    <div class="apps-head">
+      <div>
+        <p class="fig sec-label"><b>Fig. 3</b> Built on Epicenter</p>
+        <h2 class="h2" id="appsH">Two apps on the foundation so far.</h2>
+      </div>
+      <p class="aside">Both are independent apps by Braden Wong, each with its own name and its own publisher. Epicenter is what they’re built on.</p>
+    </div>
+
+    <div class="app-plates">
+      <article class="plate reg aplate" aria-labelledby="wName">
+        <div class="stage w-stage">
+          <div class="stage-top"><p class="fig"><b>3.1</b> Mechanism</p><span class="tag">Illustration</span></div>
+          <div class="whisper-row">
+            <div class="station"><div class="keycap" id="wKey">Shortcut</div><small>01 Press</small></div>
+            <svg class="arrow" viewBox="0 0 28 10" aria-hidden="true"><path d="M0 5h26M21 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+            <div class="station" style="width:100%"><svg class="wave" id="wave" viewBox="0 0 160 70" preserveAspectRatio="none" aria-hidden="true"></svg><small>02 Speak</small></div>
+            <svg class="arrow" viewBox="0 0 28 10" aria-hidden="true"><path d="M0 5h26M21 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+            <div class="station" style="width:100%"><div class="textout" id="wText" aria-live="polite"><span class="ph">Text lands here</span></div><small>03 Get text</small></div>
+          </div>
+          <div class="stage-foot">
+            <small>A drawing of how it works. No microphone, no audio, no transcription: the sentence is written into this page.</small>
+            <button class="mini-btn" type="button" id="wPlay"><svg viewBox="0 0 11 11" aria-hidden="true"><path d="M2 1l8 4.5L2 10z" fill="currentColor"/></svg><span>Play illustration</span></button>
+          </div>
+        </div>
+        <div class="aplate-body">
+          <h3 class="aplate-name" id="wName">Whispering</h3>
+          <p class="aplate-line">Press a shortcut. Speak. Get text.</p>
+          <dl class="specs">
+            <div><dt>Publisher</dt><dd><a href="https://bradenwong.com">Braden Wong</a></dd></div>
+            <div><dt>Built on</dt><dd>Epicenter</dd></div>
+            <div><dt>Today</dt><dd><svg class="spec" viewBox="0 0 44 8" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg>Its desktop capabilities run inside the Epicenter host.</dd></div>
+            <div><dt>Planned</dt><dd><svg class="spec phantom" viewBox="0 0 44 8" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg>Standalone releases on a personal domain. Not launched.</dd></div>
+          </dl>
+          <div class="plate-links">
+            <a class="btn btn-ink" href="https://github.com/EpicenterHQ/epicenter/tree/main/apps/whispering">Build information <svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
+          </div>
+        </div>
+      </article>
+
+      <article class="plate reg aplate" aria-labelledby="vName">
+        <div class="stage">
+          <div class="stage-top"><p class="fig"><b>3.2</b> Practice card</p><span class="tag">Illustration</span></div>
+          <div class="vocab-row">
+            <button class="card" id="vCard" type="button" aria-label="Practice card. Press to flip.">
+              <span class="card-face card-front"><small>Expression</small><span class="expr" id="vExpr"></span></span>
+              <span class="card-face card-back"><small>Meaning</small><span class="mean" id="vMean"></span><span class="ex" id="vEx"></span></span>
+            </button>
+          </div>
+          <div class="stage-foot">
+            <small>Sample expressions written for this page. <span class="card-count" id="vCount"></span></small>
+            <span style="display:flex;gap:8px">
+              <button class="mini-btn" type="button" id="vFlip">Flip</button>
+              <button class="mini-btn" type="button" id="vNext">Next</button>
+            </span>
+          </div>
+        </div>
+        <div class="aplate-body">
+          <h3 class="aplate-name" id="vName">Vocab</h3>
+          <p class="aplate-line">A browser app for practicing expressions.</p>
+          <dl class="specs">
+            <div><dt>Publisher</dt><dd><a href="https://bradenwong.com">Braden Wong</a></dd></div>
+            <div><dt>Built on</dt><dd>Epicenter</dd></div>
+            <div><dt>Today</dt><dd><svg class="spec" viewBox="0 0 44 8" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg>Runs in the browser.</dd></div>
+            <div><dt>Planned</dt><dd><svg class="spec phantom" viewBox="0 0 44 8" aria-hidden="true"><line x1="0" y1="4" x2="44" y2="4"/></svg>A move to a personal domain.</dd></div>
+          </dl>
+          <div class="plate-links">
+            <a class="btn btn-ink" href="https://github.com/EpicenterHQ/epicenter/tree/main/apps/vocab">Vocab source <svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
+          </div>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- Status -->
+<section class="status" id="status" aria-labelledby="statusH">
+  <div class="wrap status-grid">
+    <div class="status-head">
+      <div>
+        <p class="fig sec-label"><b>Fig. 4</b> Status</p>
+        <h2 class="h2" id="statusH">What works today, and what’s still being drawn.</h2>
+        <p class="sub">Epicenter is early. A drawing tells you which lines are built and which are proposed. This page keeps the same rule.</p>
+      </div>
+    </div>
+    <div class="bands">
+      <div class="band">
+        <span class="band-rule" aria-hidden="true"></span>
+        <div class="band-h"><h3>Exists today</h3><span>Solid line</span></div>
+        <ol>
+          <li><span class="ix">S.1</span><span><strong>Epicenter’s source is open.</strong> The code is on GitHub to read, clone, and pull apart.</span></li>
+          <li><span class="ix">S.2</span><span><strong>Whispering</strong> runs its desktop capabilities inside the Epicenter host.</span></li>
+          <li><span class="ix">S.3</span><span><strong>Vocab</strong> runs in the browser.</span></li>
+        </ol>
+      </div>
+      <div class="band dashed">
+        <span class="band-rule" aria-hidden="true"></span>
+        <div class="band-h"><h3>Being built</h3><span>Dashed line</span></div>
+        <ol>
+          <li><span class="ix">D.1</span><span><strong>The file foundation.</strong> Your data in Markdown and SQLite files you own. It isn’t available yet.</span></li>
+          <li><span class="ix">D.2</span><span><strong>Epicenter itself.</strong> It’s early, and things will move.</span></li>
+        </ol>
+      </div>
+      <div class="band phantom">
+        <span class="band-rule" aria-hidden="true"></span>
+        <div class="band-h"><h3>Planned</h3><span>Phantom line</span></div>
+        <ol>
+          <li><span class="ix">P.1</span><span><strong>Whispering</strong> standalone releases on a personal domain.</span></li>
+          <li><span class="ix">P.2</span><span><strong>Vocab</strong> moving to a personal domain.</span></li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Build -->
+<section class="build" id="build" aria-labelledby="buildH">
+  <svg class="build-mark" aria-hidden="true"><use href="#i-mark"/></svg>
+  <div class="wrap build-grid">
+    <div class="build-copy">
+      <p class="fig sec-label"><b>Fig. 5</b> Build</p>
+      <h2 class="h2" id="buildH">Start from the source.</h2>
+      <p class="sub">The code is open and the foundation is early, so the best way in is to read it. Whispering and Vocab show how an app on Epicenter is put together. Take what you need.</p>
+    </div>
+    <div class="build-act">
+      <div class="clone">
+        <code id="cloneCmd">git clone https://github.com/EpicenterHQ/epicenter.git</code>
+        <button class="copy" type="button" id="copyBtn" aria-live="polite">Copy</button>
+      </div>
+      <ul class="build-links">
+        <li><a href="https://github.com/EpicenterHQ/epicenter">Epicenter on GitHub <span>EpicenterHQ/epicenter <svg aria-hidden="true"><use href="#i-arrow"/></svg></span></a></li>
+        <li><a href="https://github.com/EpicenterHQ/epicenter/tree/main/apps/whispering">Whispering build information <span>apps/whispering <svg aria-hidden="true"><use href="#i-arrow"/></svg></span></a></li>
+        <li><a href="https://github.com/EpicenterHQ/epicenter/tree/main/apps/vocab">Vocab source <span>apps/vocab <svg aria-hidden="true"><use href="#i-arrow"/></svg></span></a></li>
+        <li><a href="https://bradenwong.com">Braden Wong <span>bradenwong.com <svg aria-hidden="true"><use href="#i-arrow"/></svg></span></a></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot wrap" aria-label="Title block">
+  <div class="tblock">
+    <div><span class="k">Project</span><a class="brand v" href="#top"><svg class="mark" aria-hidden="true"><use href="#i-mark"/></svg>Epicenter</a></div>
+    <div><span class="k">Status</span><span class="v">Early · in development</span></div>
+    <div><span class="k">Source</span><span class="v"><a href="https://github.com/EpicenterHQ/epicenter">github.com/EpicenterHQ</a></span></div>
+    <div><span class="k">Revised by</span><span class="v blue">You · <span id="footRevs">0 revisions</span></span></div>
+    <div><span class="k">Kept</span><span class="v">In memory. Gone on reload.</span></div>
+  </div>
+  <div class="foot-note">
+    <span>Whispering and Vocab are published by <a href="https://bradenwong.com">Braden Wong</a>.</span>
+    <span>Illustrations on this page run in your browser and nowhere else.</span>
+  </div>
+</footer>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+  /* ---------- Navigation ---------- */
+  const nav = $("#nav"), menuBtn = $("#menuBtn");
+  menuBtn.addEventListener("click", () => {
+    const open = !nav.classList.contains("open");
+    nav.classList.toggle("open", open);
+    menuBtn.setAttribute("aria-expanded", String(open));
+  });
+  $$("#links a").forEach((a) => a.addEventListener("click", () => {
+    nav.classList.remove("open");
+    menuBtn.setAttribute("aria-expanded", "false");
+  }));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && nav.classList.contains("open")) {
+      nav.classList.remove("open"); menuBtn.setAttribute("aria-expanded", "false"); menuBtn.focus();
+    }
+  });
+  const spyLinks = $$('#links a[href^="#"]');
+  const spyTargets = spyLinks.map((a) => document.getElementById(a.getAttribute("href").slice(1)));
+  const spy = () => {
+    const y = window.innerHeight * 0.35;
+    let cur = -1;
+    spyTargets.forEach((el, i) => { if (el && el.getBoundingClientRect().top <= y) cur = i; });
+    spyLinks.forEach((a, i) => a.classList.toggle("active", i === cur));
+  };
+  window.addEventListener("scroll", spy, { passive: true });
+  spy();
+
+  /* ---------- Revision cloud around "yours." ---------- */
+  const h1 = $("#h1"), yours = $("#yours"), cloud = $("#cloud");
+  // Nodes are created once so a later redraw (resize, font load) reshapes them without restarting the draw-in.
+  cloud.innerHTML = `<path class="scallop" pathLength="1"/><path class="tri" pathLength="1"/><text text-anchor="middle">A</text>`;
+  if (!reduce) cloud.classList.add("anim");
+  const [cloudPath, cloudTri, cloudTxt] = cloud.children;
+  function drawCloud() {
+    const hb = h1.getBoundingClientRect(), wb = yours.getBoundingClientRect();
+    if (!wb.width) return;
+    const fs = parseFloat(getComputedStyle(h1).fontSize);
+    const x0 = wb.left - hb.left - fs * 0.1, x1 = wb.right - hb.left + fs * 0.06;
+    const y0 = wb.top - hb.top + fs * 0.26, y1 = wb.bottom - hb.top + fs * 0.02;
+    const w = x1 - x0, h = y1 - y0, per = 2 * (w + h);
+    const n = Math.max(14, Math.round(per / Math.max(16, fs * 0.2)));
+    const step = per / n;
+    const at = (d) => {
+      d = ((d % per) + per) % per;
+      if (d < w) return [x0 + d, y0];
+      d -= w; if (d < h) return [x1, y0 + d];
+      d -= h; if (d < w) return [x1 - d, y1];
+      d -= w; return [x0, y1 - d];
+    };
+    const start = step * 0.35;
+    let p = at(start), d = `M${p[0].toFixed(1)} ${p[1].toFixed(1)}`;
+    for (let i = 1; i <= n; i++) {
+      const q = at(start + i * step);
+      const r = step * (0.6 + 0.07 * Math.sin(i * 2.3));
+      d += ` A${r.toFixed(1)} ${r.toFixed(1)} 0 0 1 ${q[0].toFixed(1)} ${q[1].toFixed(1)}`;
+    }
+    const s = Math.max(22, fs * 0.25), tx = x1 + s * 0.3, ty = y0 - s * 0.35;
+    const tri = `M${tx.toFixed(1)} ${(ty - s * 0.5).toFixed(1)} L${(tx + s * 0.58).toFixed(1)} ${(ty + s * 0.5).toFixed(1)} L${(tx - s * 0.58).toFixed(1)} ${(ty + s * 0.5).toFixed(1)} Z`;
+    cloud.setAttribute("width", hb.width);
+    cloud.setAttribute("height", hb.height);
+    cloudPath.setAttribute("d", d);
+    cloudTri.setAttribute("d", tri);
+    cloudTxt.setAttribute("x", tx.toFixed(1));
+    cloudTxt.setAttribute("y", (ty + s * 0.26).toFixed(1));
+    cloudTxt.style.fontSize = (s * 0.45).toFixed(1) + "px";
+  }
+
+  /* ---------- Fig. 1 assembly drawing ---------- */
+  const C = Math.cos(Math.PI / 6), S = 0.5, OX = 312, OY = 348;
+  const P = (x, y, z) => [OX + (x - y) * C, OY + (x + y) * S - z];
+  const f = (a) => "M" + a.map((p) => p[0].toFixed(1) + " " + p[1].toFixed(1)).join("L") + "Z";
+  function box(x, y, z, w, d, h) {
+    return {
+      top: f([P(x, y, z + h), P(x + w, y, z + h), P(x + w, y + d, z + h), P(x, y + d, z + h)]),
+      right: f([P(x + w, y, z + h), P(x + w, y + d, z + h), P(x + w, y + d, z), P(x + w, y, z)]),
+      left: f([P(x, y + d, z + h), P(x + w, y + d, z + h), P(x + w, y + d, z), P(x, y + d, z)]),
+    };
+  }
+  const faces = (b, pl = "") => `<path class="fr edge"${pl} d="${b.right}"/><path class="fl edge"${pl} d="${b.left}"/><path class="ft edge"${pl} d="${b.top}"/>`;
+  const onTop = (x, y, z) => { const p = P(x, y, z); return `matrix(${C.toFixed(4)} ${S} ${(-C).toFixed(4)} ${S} ${p[0].toFixed(1)} ${p[1].toFixed(1)})`; };
+  const onLeft = (x, y, z) => { const p = P(x, y, z); return `matrix(${C.toFixed(4)} ${S} 0 1 ${p[0].toFixed(1)} ${p[1].toFixed(1)})`; };
+  const ellipse = (cx, cy, z, r, n = 48) => {
+    const pts = [];
+    for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; pts.push(P(cx + r * Math.cos(a), cy + r * Math.sin(a), z)); }
+    return f(pts);
+  };
+  const seg = (a, b) => `M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${b[0].toFixed(1)} ${b[1].toFixed(1)}`;
+
+  const asm = $("#asm"), explode = $("#explode"), explodeOut = $("#explodeOut");
+  let hotPart = null;
+  function renderAsm(t, opts = {}) {
+    const hideYours = !!opts.hideYours, drawIn = !!opts.drawIn;
+    const gap = 12 + t * 104;
+    const BH = 22, EH = 26, MH = 34;
+    const zE = BH + gap, zM = zE + EH + gap;
+    let out = "";
+    // assembly axis (centre line)
+    out += `<path class="axis" d="${seg(P(150, 150, -26), P(150, 150, zM + MH + 26))}"/>`;
+
+    // 1 files: dashed, being built
+    const b = box(0, 0, 0, 300, 300, BH);
+    const zt = BH;
+    let files = faces(b);
+    // Markdown tile
+    files += `<path class="detail" d="${f([P(186, 36, zt), P(286, 36, zt), P(286, 150, zt), P(186, 150, zt)])}"/>`;
+    files += `<text transform="${onTop(196, 58, zt)}" font-size="14" font-weight="700">#</text>`;
+    [0, 1, 2, 3].forEach((i) => {
+      const v = 76 + i * 16, len = [70, 52, 62, 40][i];
+      files += `<path class="detail soft" d="${seg(P(198, v, zt), P(198 + len, v, zt))}"/>`;
+    });
+    files += `<text transform="${onTop(196, 144, zt)}" font-size="10.5" letter-spacing="1">MARKDOWN</text>`;
+    // SQLite tile
+    files += `<path class="detail" d="${f([P(36, 186, zt), P(150, 186, zt), P(150, 286, zt), P(36, 286, zt)])}"/>`;
+    [0, 1, 2].forEach((i) => { files += `<path class="detail soft" d="${seg(P(36, 206 + i * 20, zt), P(150, 206 + i * 20, zt))}"/>`; });
+    [0, 1].forEach((i) => { files += `<path class="detail soft" d="${seg(P(74 + i * 38, 186, zt), P(74 + i * 38, 266, zt))}"/>`; });
+    files += `<text transform="${onTop(44, 282, zt)}" font-size="10.5" letter-spacing="1">SQLITE</text>`;
+    files += `<text transform="${onLeft(14, 300, 7.5)}" font-size="10" letter-spacing="1.2">YOUR FILES · BEING BUILT</text>`;
+    out += `<g class="part dash" data-part="1">${files}</g>`;
+
+    // 2 Epicenter plate
+    const e = box(20, 20, zE, 260, 260, EH);
+    const ze = zE + EH;
+    let epi = faces(e);
+    epi += `<path class="detail" d="${ellipse(186, 186, ze, 58)}"/>`;
+    epi += `<path class="detail" stroke-dasharray="5 4" d="${ellipse(186, 186, ze, 30)}"/>`;
+    epi += `<path class="detail" d="${seg(P(186, 110, ze), P(186, 146, ze))}${seg(P(186, 226, ze), P(186, 262, ze))}${seg(P(110, 186, ze), P(146, 186, ze))}${seg(P(226, 186, ze), P(262, 186, ze))}"/>`;
+    const c0 = P(186, 186, ze);
+    epi += `<ellipse cx="${c0[0].toFixed(1)}" cy="${c0[1].toFixed(1)}" rx="4.3" ry="2.5" fill="#131313"/>`;
+    epi += `<text transform="${onLeft(32, 280, zE + 9)}" font-size="10.5" font-weight="600" letter-spacing="1">EPICENTER · OPEN SOURCE · EARLY</text>`;
+    out += `<g class="part" data-part="2">${epi}</g>`;
+
+    // modules
+    const mods = [
+      { id: 3, x: 34, name: "WHISPERING" },
+      { id: 4, x: 116, name: "VOCAB" },
+      { id: 5, x: 198, name: "YOURS" },
+    ];
+    const y0 = 34, W = 68, D = 68;
+    mods.forEach((m) => {
+      const mb = box(m.x, y0, zM, W, D, MH);
+      const zt2 = zM + MH;
+      const mine = m.id === 5;
+      if (mine && hideYours) return;
+      let g = faces(mb, mine ? ' pathLength="1"' : "");
+      if (m.id === 3) {
+        const bars = [8, 16, 26, 12, 30, 20, 10, 22, 14, 6];
+        bars.forEach((hgt, i) => {
+          const u = m.x + 12 + i * 4.8, v = y0 + D / 2;
+          g += `<path class="detail" stroke-linecap="round" d="${seg(P(u, v - hgt / 2, zt2), P(u, v + hgt / 2, zt2))}"/>`;
+        });
+      } else if (m.id === 4) {
+        g += `<text transform="${onTop(m.x + 16, y0 + 44, zt2)}" font-size="22" font-weight="700" font-family="ui-sans-serif, -apple-system, Helvetica, Arial, sans-serif">Aa</text>`;
+      } else {
+        g += `<path class="detail" pathLength="1" stroke-linecap="round" d="${seg(P(m.x + 34, y0 + 16, zt2), P(m.x + 34, y0 + 52, zt2))}${seg(P(m.x + 16, y0 + 34, zt2), P(m.x + 52, y0 + 34, zt2))}"/>`;
+      }
+      g += `<text transform="${onLeft(m.x + 5, y0 + D, zM + 13)}" font-size="8.5" font-weight="600" letter-spacing=".8">${m.name}</text>`;
+      out += `<g class="part${mine ? " yours" : ""}${mine && drawIn ? " anim" : ""}" data-part="${m.id}"${mine ? ' id="yoursDraw"' : ""}>${g}</g>`;
+    });
+
+    // balloons
+    const balls = [
+      { id: 1, a: P(44, 300, BH / 2), dx: -44, dy: 40 },
+      { id: 2, a: P(44, 280, zE + EH / 2), dx: -50, dy: 18 },
+      { id: 3, a: P(34 + 34, y0 + 34, zM + MH), dx: -26, dy: -52 },
+      { id: 4, a: P(116 + 34, y0 + 34, zM + MH), dx: 0, dy: -56 },
+      { id: 5, a: P(198 + 34, y0 + 34, zM + MH), dx: 30, dy: -52 },
+    ];
+    balls.forEach((bl) => {
+      if (bl.id === 5 && hideYours) return;
+      const bx = bl.a[0] + bl.dx, by = bl.a[1] + bl.dy, r = 12;
+      const len = Math.hypot(bl.dx, bl.dy), ux = bl.dx / len, uy = bl.dy / len;
+      out += `<g class="ball b${bl.id}${hotPart === bl.id ? " hot" : ""}" data-part="${bl.id}">` +
+        `<line x1="${bl.a[0].toFixed(1)}" y1="${bl.a[1].toFixed(1)}" x2="${(bx - ux * r).toFixed(1)}" y2="${(by - uy * r).toFixed(1)}"/>` +
+        `<circle class="dot" cx="${bl.a[0].toFixed(1)}" cy="${bl.a[1].toFixed(1)}" r="2.4"/>` +
+        `<circle cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="${r}"/>` +
+        `<text x="${bx.toFixed(1)}" y="${(by + 0.5).toFixed(1)}">${bl.id}</text></g>`;
+    });
+    asm.innerHTML = out;
+    if (hotPart) setHot(hotPart);
+  }
+  function setHot(id) {
+    hotPart = id;
+    $$("[data-part]", asm).forEach((el) => el.classList.toggle("hot", String(id) === el.dataset.part));
+    $$("#bom tbody tr").forEach((tr) => tr.classList.toggle("hot", String(id) === tr.dataset.part));
+  }
+  asm.addEventListener("pointerover", (e) => { const g = e.target.closest("[data-part]"); if (g) setHot(+g.dataset.part); });
+  $("#asmSvg").addEventListener("pointerleave", () => setHot(null));
+  $$("#bom tbody tr").forEach((tr) => {
+    tr.addEventListener("pointerenter", () => setHot(+tr.dataset.part));
+    tr.addEventListener("pointerleave", () => setHot(null));
+  });
+  let introRunning = false;
+  explode.addEventListener("input", () => {
+    introRunning = false;
+    explodeOut.textContent = explode.value + "%";
+    renderAsm(explode.value / 100);
+  });
+  function introAsm() {
+    const target = explode.value / 100;
+    if (reduce) { renderAsm(target); return; }
+    const from = 0.04, dur = 1300, t0 = performance.now();
+    const ease = (x) => 1 - Math.pow(1 - x, 3);
+    // The layers separate first; then the blue block of your own is drawn in.
+    introRunning = true;
+    const tick = (now) => {
+      if (!introRunning) return;
+      const k = Math.min(1, (now - t0) / dur);
+      if (k < 1) { renderAsm(from + (target - from) * ease(k), { hideYours: true }); requestAnimationFrame(tick); }
+      else { introRunning = false; renderAsm(target, { drawIn: true }); }
+    };
+    renderAsm(from, { hideYours: true });
+    requestAnimationFrame(tick);
+  }
+
+  /* ---------- Fig. 2 bench ---------- */
+  const DEFAULT_MD = `# Bread log
+
+## Sep 06 · Country loaf
+- hydration: 72
+- proof: 14
+- score: 4
+Open crumb. Ends a little tight.
+
+## Sep 13 · Rye, thirty percent
+- hydration: 80
+- proof: 10
+- score: 3
+Sticky dough. The flavor was worth it.
+
+## Sep 20 · Country loaf
+- hydration: 75
+- proof: 16
+- score: 5
+Best ear so far. Keep this schedule.
+
+## Sep 27 · Seeded
+- hydration: 70
+- proof: 12
+- score: 4
+Toast the seeds first next time.
+`;
+  const ACCENTS = { ultramarine: "#2433d6", vermilion: "#d9442a", moss: "#2f7a4f", ochre: "#b8841a", graphite: "#3a3a3a" };
+  const VIEW_NAMES = { log: "Log", table: "Table", plot: "Plot" };
+  const md = $("#md"), gutter = $("#gutter"), appBody = $("#appBody"), appEl = $("#app");
+  const cName = $("#cName"), cFields = $("#cFields"), cX = $("#cX"), cY = $("#cY"), axesCtl = $("#axesCtl");
+  const initial = () => ({ name: "Bread log", view: "log", order: "old", accent: "ultramarine", hidden: new Set(), x: "hydration", y: "score", revs: [], fileEdits: 0 });
+  let st = initial();
+  let doc = null, lastSeenText = DEFAULT_MD, editTimer = 0;
+
+  function parse(text) {
+    const out = { title: "", entries: [], keys: [] };
+    let cur = null;
+    text.split(/\r?\n/).forEach((raw) => {
+      const line = raw.trim();
+      if (!line) return;
+      let m;
+      if ((m = /^#\s+(.+)$/.exec(line))) { out.title = m[1]; return; }
+      if ((m = /^##\s+(.+)$/.exec(line))) {
+        const parts = m[1].split(/\s+·\s+|\s+\|\s+/);
+        cur = parts.length > 1 ? { date: parts[0], name: parts.slice(1).join(" · "), fields: {}, note: "" } : { date: "", name: m[1], fields: {}, note: "" };
+        out.entries.push(cur); return;
+      }
+      if (!cur) return;
+      if ((m = /^[-*]\s+([A-Za-z][\w ]{0,23}?)\s*:\s*(.*)$/.exec(line))) {
+        const k = m[1].trim().toLowerCase();
+        cur.fields[k] = m[2].trim();
+        if (!out.keys.includes(k)) out.keys.push(k);
+        return;
+      }
+      cur.note = cur.note ? cur.note + " " + line : line;
+    });
+    out.numeric = out.keys.filter((k) => {
+      const vals = out.entries.map((e) => e.fields[k]).filter((v) => v !== undefined && v !== "");
+      return vals.length > 0 && vals.every((v) => isFinite(parseFloat(v)) && /^-?\d*\.?\d+\s*%?$/.test(v));
+    });
+    return out;
+  }
+  const num = (v) => parseFloat(v);
+
+  function syncGutter() {
+    const n = md.value.split("\n").length;
+    let s = ""; for (let i = 1; i <= n; i++) s += i + "\n";
+    gutter.textContent = s;
+    gutter.scrollTop = md.scrollTop;
+    $("#lineCount").textContent = n + (n === 1 ? " line" : " lines");
+  }
+  md.addEventListener("scroll", () => { gutter.scrollTop = md.scrollTop; });
+
+  function buildFieldChips() {
+    const keys = [...doc.keys, "note"];
+    const existing = $$("input", cFields).map((i) => i.value).join("|");
+    if (existing === keys.join("|")) {
+      $$("input", cFields).forEach((i) => { i.checked = !st.hidden.has(i.value); });
+    } else {
+      cFields.innerHTML = keys.map((k) => `<label><input type="checkbox" value="${esc(k)}"${st.hidden.has(k) ? "" : " checked"}><span>${esc(k)}</span></label>`).join("");
+    }
+    const opts = (sel) => doc.numeric.map((k) => `<option value="${esc(k)}"${k === sel ? " selected" : ""}>${esc(k)}</option>`).join("");
+    if (!doc.numeric.includes(st.x)) st.x = doc.numeric[0] || "";
+    if (!doc.numeric.includes(st.y)) st.y = doc.numeric[doc.numeric.length - 1] || "";
+    cX.innerHTML = opts(st.x); cY.innerHTML = opts(st.y);
+    cX.disabled = cY.disabled = doc.numeric.length === 0;
+  }
+
+  function entriesInOrder() {
+    const list = doc.entries.slice();
+    return st.order === "new" ? list.reverse() : list;
+  }
+  function maxOf(k) { return Math.max(...doc.entries.map((e) => num(e.fields[k])).filter(isFinite), 0); }
+
+  function renderApp() {
+    appEl.style.setProperty("--acc", ACCENTS[st.accent]);
+    $("#appName").textContent = st.name.trim() || "Untitled app";
+    axesCtl.hidden = st.view !== "plot";
+    const list = entriesInOrder();
+    if (!list.length) {
+      appBody.innerHTML = `<div class="empty"><b>bread.md has no entries.</b><span>Add a line that starts with <code>##</code> and the app will show it.</span></div>`;
+      return;
+    }
+    const shown = doc.keys.filter((k) => !st.hidden.has(k));
+    const showNote = !st.hidden.has("note");
+    appBody.classList.toggle("tablev", st.view === "table");
+    const count = `<p class="app-count"><span>${list.length} ${list.length === 1 ? "entry" : "entries"}</span><span>${VIEW_NAMES[st.view]}</span></p>`;
+    if (st.view === "log") {
+      appBody.innerHTML = count + `<ol class="log">` + list.map((e) => {
+        const fl = shown.filter((k) => e.fields[k] !== undefined).map((k) => {
+          const v = e.fields[k], isNum = doc.numeric.includes(k), mx = isNum ? maxOf(k) : 0;
+          const meter = isNum && mx > 0 ? `<span class="meter" aria-hidden="true"><i style="width:${Math.max(4, (num(v) / mx) * 100).toFixed(0)}%"></i></span>` : "";
+          return `<div><dt>${esc(k)}</dt><dd>${esc(v)}${meter}</dd></div>`;
+        }).join("");
+        return `<li class="entry"><div class="e-date">${esc(e.date || "·")}</div><div><h3 class="e-name">${esc(e.name)}</h3>${fl ? `<dl class="e-fields">${fl}</dl>` : ""}${showNote && e.note ? `<p class="e-note">${esc(e.note)}</p>` : ""}</div></li>`;
+      }).join("") + `</ol>`;
+    } else if (st.view === "table") {
+      const head = `<tr><th>Date</th><th>Bake</th>${shown.map((k) => `<th${doc.numeric.includes(k) ? ' style="text-align:right"' : ""}>${esc(k)}</th>`).join("")}${showNote ? "<th>Note</th>" : ""}</tr>`;
+      const rows = list.map((e) => `<tr><td class="dt">${esc(e.date)}</td><td>${esc(e.name)}</td>${shown.map((k) => `<td class="${doc.numeric.includes(k) ? "num" : ""}">${esc(e.fields[k] ?? "")}</td>`).join("")}${showNote ? `<td class="note">${esc(e.note)}</td>` : ""}</tr>`).join("");
+      appBody.innerHTML = count + `<table class="tbl"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+    } else {
+      appBody.innerHTML = count + renderPlot(list);
+    }
+  }
+
+  function renderPlot(list) {
+    if (!doc.numeric.length) {
+      return `<div class="empty" style="height:auto;padding-top:60px"><b>Nothing to plot yet.</b><span>A plot needs a field with numbers, like <code>- hydration: 72</code>.</span></div>`;
+    }
+    const X = st.x, Y = st.y;
+    const pts = doc.entries.map((e, i) => ({ e, i, x: num(e.fields[X]), y: num(e.fields[Y]) }));
+    const ok = pts.filter((p) => isFinite(p.x) && isFinite(p.y));
+    const skipped = pts.length - ok.length;
+    const W = 520, H = 340, L = 44, R = 20, T = 18, B = 40;
+    const ext = (arr) => {
+      let lo = Math.min(...arr), hi = Math.max(...arr);
+      if (!arr.length) { lo = 0; hi = 1; }
+      if (lo === hi) { lo -= 1; hi += 1; }
+      const pad = (hi - lo) * 0.18; return [lo - pad, hi + pad];
+    };
+    const [x0, x1] = ext(ok.map((p) => p.x)), [y0, y1] = ext(ok.map((p) => p.y));
+    const sx = (v) => L + ((v - x0) / (x1 - x0)) * (W - L - R);
+    const sy = (v) => H - B - ((v - y0) / (y1 - y0)) * (H - T - B);
+    const ticks = (lo, hi) => { const out = []; for (let i = 0; i <= 4; i++) out.push(lo + ((hi - lo) * i) / 4); return out; };
+    const fmt = (v) => (Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(1));
+    let g = "";
+    ticks(x0, x1).forEach((v) => { const x = sx(v); g += `<line class="gridl" x1="${x}" y1="${T}" x2="${x}" y2="${H - B}"/><text x="${x}" y="${H - B + 16}" text-anchor="middle">${fmt(v)}</text>`; });
+    ticks(y0, y1).forEach((v) => { const y = sy(v); g += `<line class="gridl" x1="${L}" y1="${y}" x2="${W - R}" y2="${y}"/><text x="${L - 8}" y="${y + 3.5}" text-anchor="end">${fmt(v)}</text>`; });
+    g += `<line class="axl" x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}"/><line class="axl" x1="${L}" y1="${T}" x2="${L}" y2="${H - B}"/>`;
+    g += `<text x="${W - R}" y="${H - 6}" text-anchor="end">${esc(X)} →</text><text x="${L}" y="${T - 6}" text-anchor="start">↑ ${esc(Y)}</text>`;
+    const ordered = st.order === "new" ? ok.slice().reverse() : ok;
+    if (ordered.length > 1) g += `<path class="trail" d="M${ordered.map((p) => sx(p.x).toFixed(1) + " " + sy(p.y).toFixed(1)).join("L")}"/>`;
+    ok.forEach((p) => {
+      const cx = sx(p.x), cy = sy(p.y), right = cx < W - 150;
+      g += `<circle class="pt" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="7"><title>${esc(p.e.name)}: ${esc(X)} ${p.x}, ${esc(Y)} ${p.y}</title></circle>`;
+      g += `<text class="lbl" x="${(cx + (right ? 12 : -12)).toFixed(1)}" y="${(cy - 9).toFixed(1)}" text-anchor="${right ? "start" : "end"}">${esc(p.e.name)}</text>`;
+      g += `<text x="${(cx + (right ? 12 : -12)).toFixed(1)}" y="${(cy + 5).toFixed(1)}" text-anchor="${right ? "start" : "end"}">${esc(p.e.date)}</text>`;
+    });
+    const note = skipped ? `<p class="plot-note">${skipped} ${skipped === 1 ? "entry is" : "entries are"} missing ${esc(X)} or ${esc(Y)} and not plotted.</p>` : `<p class="plot-note">The dashed line follows the order of bakes.</p>`;
+    return `<div class="plot"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Plot of ${esc(Y)} against ${esc(X)}">${g}</svg>${note}</div>`;
+  }
+
+  const revLetter = (i) => { let s = ""; i += 1; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
+  function logRev(text) {
+    st.revs.push({ text, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) });
+    renderRevs(true);
+  }
+  function renderRevs(fresh) {
+    const list = $("#revlist");
+    if (!st.revs.length) {
+      list.innerHTML = `<li class="rev-empty">No revisions yet. The app is exactly as drawn.</li>`;
+    } else {
+      list.innerHTML = st.revs.map((r, i) => ({ r, i })).reverse().map(({ r, i }, j) => {
+        const L = revLetter(i);
+        return `<li class="rev${fresh && j === 0 ? " new" : ""}"><svg class="tri" viewBox="0 0 26 22" aria-hidden="true"><path d="M13 2 24 20H2Z"/><text x="13" y="17">${L}</text></svg><span><span class="sr">Revision ${L}: </span>${esc(r.text)}</span><time>${r.time}</time></li>`;
+      }).join("");
+    }
+    const n = st.revs.length, fileSame = md.value === DEFAULT_MD;
+    $("#nApp").textContent = n;
+    $("#nFile").textContent = st.fileEdits;
+    $("#footRevs").textContent = n + (n === 1 ? " revision" : " revisions");
+    const fs = $("#fileState");
+    fs.classList.toggle("edited", !fileSame);
+    fs.lastElementChild.textContent = fileSame ? "as written" : "edited by you";
+    let moral;
+    if (!n && !st.fileEdits) moral = "Change anything on the right. Each change is logged as a revision.";
+    else if (n && fileSame) moral = `${n === 1 ? "One revision" : n + " revisions"} to the app. bread.md hasn’t changed by a single character.`;
+    else if (!n) moral = "You edited the file. The app reread it and kept its own settings.";
+    else moral = "The app has your revisions. The notes have your edits. Each kept its own changes.";
+    $("#moral").textContent = moral;
+  }
+
+  function fileChanged() {
+    doc = parse(md.value);
+    syncGutter();
+    buildFieldChips();
+    renderApp();
+    renderRevs(false);
+  }
+  md.addEventListener("input", () => {
+    doc = parse(md.value);
+    syncGutter();
+    buildFieldChips();
+    renderApp();
+    clearTimeout(editTimer);
+    editTimer = setTimeout(() => {
+      if (md.value !== lastSeenText) { st.fileEdits += 1; lastSeenText = md.value; }
+      renderRevs(false);
+    }, 600);
+  });
+
+  let nameBefore = st.name;
+  cName.addEventListener("input", () => { st.name = cName.value; renderApp(); });
+  cName.addEventListener("change", () => {
+    const v = cName.value.trim();
+    if (v !== nameBefore.trim()) { logRev(v ? `Renamed the app to “${v}”` : "Cleared the app’s name"); nameBefore = cName.value; }
+  });
+  $("#controls").addEventListener("submit", (e) => { e.preventDefault(); cName.blur(); });
+  $("#controls").addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.name === "view") { st.view = t.value; renderApp(); logRev(`Switched the view to ${VIEW_NAMES[t.value]}`); }
+    else if (t.name === "order") { st.order = t.value; renderApp(); logRev(t.value === "new" ? "Put the newest bakes first" : "Put the oldest bakes first"); }
+    else if (t.name === "accent") { st.accent = t.value; renderApp(); logRev(`Set the accent to ${t.value}`); }
+    else if (t.type === "checkbox" && t.closest("#cFields")) {
+      if (t.checked) st.hidden.delete(t.value); else st.hidden.add(t.value);
+      renderApp(); logRev(`${t.checked ? "Showed" : "Hid"} the ${t.value} field`);
+    } else if (t === cX || t === cY) {
+      st.x = cX.value; st.y = cY.value; renderApp(); logRev(`Plotted ${st.y} against ${st.x}`);
+    }
+  });
+  $("#reset").addEventListener("click", () => {
+    st = initial(); nameBefore = st.name; lastSeenText = DEFAULT_MD; clearTimeout(editTimer);
+    md.value = DEFAULT_MD; cName.value = st.name;
+    $$('#controls input[type="radio"]').forEach((r) => { r.checked = (r.name === "view" && r.value === "log") || (r.name === "order" && r.value === "old") || (r.name === "accent" && r.value === "ultramarine"); });
+    cFields.innerHTML = "";
+    fileChanged();
+  });
+  md.value = DEFAULT_MD;
+  fileChanged();
+
+  /* ---------- Fig. 3.1 Whispering illustration ---------- */
+  const wave = $("#wave"), wText = $("#wText"), wKey = $("#wKey"), wPlay = $("#wPlay");
+  const NB = 32, bw = 160 / NB;
+  wave.innerHTML = Array.from({ length: NB }, (_, i) => `<rect x="${(i * bw + bw * 0.22).toFixed(2)}" y="34" width="${(bw * 0.56).toFixed(2)}" height="2" rx="1"/>`).join("");
+  const rects = $$("rect", wave);
+  const setBars = (amp, t) => rects.forEach((r, i) => {
+    const env = Math.sin((i / (NB - 1)) * Math.PI);
+    const v = amp * env * (0.35 + 0.65 * Math.abs(Math.sin(i * 1.7 + t * 9) * Math.cos(i * 0.6 - t * 5)));
+    const h = Math.max(2, v * 64);
+    r.setAttribute("y", (35 - h / 2).toFixed(2)); r.setAttribute("height", h.toFixed(2));
+  });
+  const SENTENCE = "Meet me at the bakery at nine.";
+  let wBusy = false;
+  wPlay.addEventListener("click", () => {
+    if (wBusy) return;
+    wBusy = true; wPlay.disabled = true; wPlay.lastElementChild.textContent = "Playing…";
+    wText.innerHTML = `<span class="ph">Listening…</span>`;
+    const done = () => {
+      wText.textContent = SENTENCE; wBusy = false; wPlay.disabled = false; wPlay.lastElementChild.textContent = "Play again";
+      setBars(0, 0); wKey.classList.remove("down");
+    };
+    if (reduce) { done(); return; }
+    wKey.classList.add("down");
+    setTimeout(() => wKey.classList.remove("down"), 260);
+    const t0 = performance.now(), speak = 1700;
+    const tick = (now) => {
+      const t = (now - t0) / 1000, k = (now - t0) / speak;
+      if (k < 1) {
+        setBars(Math.min(1, k * 4) * Math.min(1, (1 - k) * 4), t);
+        requestAnimationFrame(tick);
+      } else {
+        setBars(0, 0);
+        let i = 0;
+        const type = () => {
+          i++;
+          wText.innerHTML = esc(SENTENCE.slice(0, i)) + '<span class="caret"></span>';
+          if (i < SENTENCE.length) setTimeout(type, 26);
+          else setTimeout(done, 350);
+        };
+        type();
+      }
+    };
+    requestAnimationFrame(tick);
+  });
+
+  /* ---------- Fig. 3.2 Vocab illustration ---------- */
+  const CARDS = [
+    { e: "to bite the bullet", m: "To do the hard thing you’ve been putting off.", x: "I bit the bullet and called the landlord." },
+    { e: "a blessing in disguise", m: "Something that seemed bad and turned out well.", x: "Missing the bus was a blessing in disguise." },
+    { e: "on the same page", m: "Agreeing about what’s going on.", x: "Before we start, are we on the same page?" },
+  ];
+  let ci = 0;
+  const vCard = $("#vCard");
+  const showCard = () => {
+    const c = CARDS[ci];
+    $("#vExpr").textContent = c.e; $("#vMean").textContent = c.m; $("#vEx").textContent = "“" + c.x + "”";
+    $("#vCount").textContent = `${ci + 1} of ${CARDS.length}`;
+  };
+  const flip = () => {
+    const on = !vCard.classList.contains("flipped");
+    vCard.classList.toggle("flipped", on);
+    vCard.setAttribute("aria-label", on ? `Meaning of ${CARDS[ci].e}: ${CARDS[ci].m} Press to flip back.` : `Expression: ${CARDS[ci].e}. Press to flip.`);
+  };
+  vCard.addEventListener("click", flip);
+  $("#vFlip").addEventListener("click", flip);
+  $("#vNext").addEventListener("click", () => {
+    const go = () => { ci = (ci + 1) % CARDS.length; showCard(); vCard.setAttribute("aria-label", `Expression: ${CARDS[ci].e}. Press to flip.`); };
+    if (vCard.classList.contains("flipped")) {
+      vCard.classList.remove("flipped");
+      setTimeout(go, reduce ? 0 : 280);
+    } else go();
+  });
+  showCard();
+  vCard.setAttribute("aria-label", `Expression: ${CARDS[0].e}. Press to flip.`);
+
+  /* ---------- Copy clone command ---------- */
+  const copyBtn = $("#copyBtn");
+  copyBtn.addEventListener("click", async () => {
+    const text = $("#cloneCmd").textContent;
+    let ok = false;
+    try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); ok = true; } } catch (_) { ok = false; }
+    if (!ok) {
+      const range = document.createRange(); range.selectNodeContents($("#cloneCmd"));
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
+    }
+    copyBtn.textContent = ok ? "Copied" : "Selected";
+    setTimeout(() => { copyBtn.textContent = "Copy"; }, 1800);
+  });
+
+  /* ---------- Boot ---------- */
+  introAsm();
+  drawCloud();
+  let rz = 0;
+  window.addEventListener("resize", () => { cancelAnimationFrame(rz); rz = requestAnimationFrame(drawCloud); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawCloud);
+})();
+</script>
+</body>
+</html>

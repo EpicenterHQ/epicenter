@@ -1,0 +1,164 @@
+---
+// Throwaway dialectic board, following Opus 5.5's three art-direction briefs.
+import '@epicenter/ui/app.css';
+
+export function getStaticPaths() {
+	return import.meta.env.DEV
+		? ['board', 'invitation', 'studio', 'guide'].map(expression => ({ params: { expression } }))
+		: [];
+}
+
+const selected = Astro.params.expression ?? 'board';
+const board = selected === 'board';
+const directions = [
+	{ id: 'invitation', title: 'The invitation', relationship: 'A warm place to begin.', note: 'Paper, brick links, a Georgia headline. The quietest expression; the words and spacing carry it.' },
+	{ id: 'studio', title: 'The studio', relationship: 'A place to make something.', note: 'Apricot, terracotta, strong type and pinned app cards. More playful; the risk is becoming decorative.' },
+	{ id: 'guide', title: 'The field guide', relationship: 'A place for independent makers.', note: 'Cream, forest ink and app entries. Clear publisher identity; the risk is feeling like a catalogue.' },
+];
+const visible = board ? directions : directions.filter(direction => direction.id === selected);
+const repo = 'https://github.com/EpicenterHQ/epicenter';
+const apps = [
+	{ name: 'Whispering', promise: 'Press a shortcut. Speak. Get text.', path: 'whispering', availability: 'Runs today as a desktop app inside Epicenter.' },
+	{ name: 'Vocab', promise: 'Practice expressions you want to use.', path: 'vocab', availability: 'A browser app. Its personal-domain move is planned.' },
+];
+const HeroHeading = board ? 'h3' : 'h1';
+const SectionHeading = board ? 'h4' : 'h2';
+const AppHeading = board ? 'h5' : 'h3';
+---
+
+<!doctype html>
+<html lang="en">
+	<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="robots" content="noindex, nofollow" /><title>Epicenter: three warm expressions</title></head>
+	<body class:list={['expression-page', { board }]}>
+		<a class="skip" href="#studies">Skip to the studies</a>
+		<header class="review-header">
+			{board ? <><p class="review-kicker">Epicenter · a design conversation</p><h1>What kind of place should this feel like?</h1><p>The same idea, expressed three ways. These are studies to react to, not finished websites.</p></> : <a href="/prototype/brand/board">← Compare all three expressions</a>}
+		</header>
+		<main id="studies" class:list={['studies', { 'single-study': !board }]}>
+			{visible.map(direction => (
+				<article class="study" aria-label={direction.title}>
+					{board && <header class="study-label"><h2>{direction.title}</h2><a href={`/prototype/brand/${direction.id}`}>Open full size ↗</a><p>{direction.relationship}</p></header>}
+					<div class:list={['miniature', direction.id]}>
+						<nav class="site-nav" aria-label={`${direction.title} navigation`}><a href="https://epicenter.so" class="wordmark">epicenter<span aria-hidden="true">.</span></a><a href={repo}>GitHub ↗</a></nav>
+						<div class="page-content">
+							<header class="hero">
+								<HeroHeading class="headline"><span>Make software that’s</span><em>unmistakably yours.</em></HeroHeading>
+								<div class="hero-prose"><p class="promise">Keep your data in Markdown and SQLite files you own. Use our apps, someone else’s, or build your own.</p><p class="status">Epicenter is early. We’re building the file foundation in the open.</p><a class="project-link" href={repo}>Read the code ↗</a></div>
+							</header>
+							<section class="made-with" aria-label="Apps built on Epicenter">
+								<SectionHeading>{direction.id === 'guide' ? 'Made with Epicenter so far.' : 'Made with Epicenter.'}</SectionHeading>
+								<div class="app-entries">{apps.map((app, index) => (
+									<article class="app-entry">
+										{direction.id === 'guide' && <p class="entry-number">No. {index + 1}</p>}
+										<AppHeading>{app.name}</AppHeading><p class="app-promise">{app.promise}</p>
+										{direction.id === 'guide' ? <dl><div><dt>Made by</dt><dd>Braden Wong</dd></div><div><dt>Built on</dt><dd><a href="https://epicenter.so">Epicenter</a></dd></div></dl> : <p class="byline">By Braden Wong.<br />Built on <a href="https://epicenter.so">Epicenter</a>.</p>}
+										<p class="app-status">{app.availability}</p><a class="source-link" href={`${repo}/tree/main/apps/${app.path}`}>{app.path === 'whispering' ? 'Build instructions ↗' : 'Source ↗'}</a>
+									</article>
+								))}{direction.id === 'studio' && <div class="your-entry"><p>Yours.</p><a href={repo}>Read the code ↗</a></div>}</div>
+							</section>
+						</div>
+						<footer class="page-footer">Your data outlives the app that wrote it.</footer>
+					</div>
+					{board && <p class="direction-note">{direction.note}</p>}
+				</article>
+			))}
+		</main>
+		{board && <footer class="review-footer"><p>Draft copy and art direction for review. No homepage, README, publisher domain, or app theme has changed.</p><p>Opus 5.5 supplied the art-direction briefs. Codex composed this Astro board. Vocab’s tagline and the development-status sentence are proposed copy.</p></footer>}
+	</body>
+</html>
+
+<style>
+	/* Local palettes are deliberate brand studies; shared product tokens remain untouched. */
+	:global(html) { background: #eae6df; }
+	.expression-page { color: #302a25; padding: 2rem; }
+	a { text-underline-offset: .25em; }
+	a:hover { text-decoration: underline; }
+	a:focus-visible { outline: 2px solid currentColor; outline-offset: 5px; }
+	.skip { position: absolute; top: -5rem; }
+	.skip:focus { top: .5rem; background: #fff; }
+	.review-header { max-width: 100rem; margin: 0 auto 2.5rem; }
+	.review-kicker { font-size: .8rem; margin-bottom: .75rem; }
+	.review-header h1 { font-family: Georgia, serif; font-size: clamp(1.75rem, 3vw, 2.5rem); font-weight: 400; margin-bottom: .75rem; }
+	.review-header > p:last-child { max-width: 48rem; line-height: 1.7; }
+	.studies { max-width: 100rem; margin: 0 auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5rem; align-items: start; }
+	.study-label { display: grid; grid-template-columns: 1fr auto; gap: .4rem; margin-bottom: 1rem; }
+	.study-label h2 { font-size: 1rem; font-weight: 600; }
+	.study-label a { font-size: .75rem; align-self: center; }
+	.study-label p { grid-column: 1 / -1; font-size: .875rem; }
+	.miniature { --paper: #faf7f0; --ink: #302a25; --accent: #9b4938; background: var(--paper); color: var(--ink); padding: 1.5rem; min-height: 62rem; box-shadow: 0 2px 8px #302a250c; }
+	.miniature a { color: var(--accent); }
+	.site-nav { display: flex; justify-content: space-between; align-items: center; font-size: .75rem; }
+	.wordmark { font-family: Georgia, serif; font-size: 1.4rem; color: var(--ink) !important; }
+	.wordmark span { color: var(--accent); }
+	.hero { padding-top: 3rem; }
+	.headline { font-size: clamp(2rem, 3.1vw, 3.5rem); line-height: 1.12; font-family: Georgia, 'Times New Roman', serif; font-weight: 400; letter-spacing: -.025em; }
+	.headline span, .headline em { display: block; }
+	.promise, .status { font-size: .94rem; line-height: 1.7; margin-top: 1.5rem; }
+	.status { margin-top: 1rem; }
+	.project-link { display: inline-block; margin-top: 1.5rem; font-size: .94rem; }
+	.made-with { margin-top: 3rem; }
+	.made-with > :is(h2, h4) { font-family: Georgia, serif; font-style: italic; font-size: 1.15rem; font-weight: 400; margin-bottom: 1.5rem; }
+	.app-entry :is(h3, h5) { font-size: 1.4rem; font-family: Georgia, serif; font-weight: 400; }
+	.app-promise { line-height: 1.6; font-size: .94rem; margin-top: .75rem; }
+	.byline { line-height: 1.6; font-size: .8rem; margin-top: 1rem; }
+	.app-status { font-size: .8rem; line-height: 1.6; margin-top: 1rem; }
+	.source-link { display: inline-block; font-size: .8rem; margin-top: .5rem; }
+	.page-footer { font-family: Georgia, serif; font-size: .95rem; line-height: 1.6; margin-top: 3rem; }
+	.direction-note { font-size: .875rem; line-height: 1.7; margin-top: 1rem; }
+	.invitation .hero { text-align: center; }
+	.invitation .headline { margin: 0 auto; max-width: 18ch; }
+	.invitation .hero-prose { max-width: 33rem; margin: 0 auto; }
+	.invitation .made-with { border-top: 1px solid #dcd2c5; padding-top: 2rem; }
+	.invitation .app-entries { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+	.invitation .page-footer { text-align: center; }
+	.studio { --paper: #f5dec8; --ink: #422d23; --accent: #a3462f; }
+	.studio .headline span { font-family: 'Geist Variable', sans-serif; font-weight: 700; line-height: 1.02; letter-spacing: -.05em; }
+	.studio .headline em { margin-top: .25rem; color: var(--accent); }
+	.studio .app-entries { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+	.studio .app-entry { position: relative; background: #fff8ee; padding: 1rem; transform: rotate(-1deg); }
+	.studio .app-entry:nth-child(2) { transform: rotate(1deg); }
+	.studio .app-entry::before { content: ''; position: absolute; width: 3.5rem; height: .9rem; background: #a3462f25; top: -.4rem; left: 30%; }
+	.studio .byline { font-family: Georgia, serif; font-style: italic; }
+	.your-entry { border: 1px dashed #a3462f85; padding: 1rem; grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; }
+	.your-entry p { font-family: Georgia, serif; font-style: italic; font-size: 1.5rem; }
+	.your-entry a { font-size: .8rem; }
+	.guide { --paper: #f4f0e6; --ink: #292c27; --accent: #394d3a; }
+	.guide .headline em { font-style: normal; }
+	.guide .made-with > :is(h2, h4) { font-style: normal; }
+	.guide .app-entry { border-top: 3px double #b6bba6; padding: 1rem 0; }
+	.entry-number { font-family: Georgia, serif; font-size: .8rem; margin-bottom: .5rem; }
+	.guide dl { font-size: .8rem; margin-top: 1rem; }
+	.guide dl > div { display: grid; grid-template-columns: 5rem 1fr; gap: .5rem; padding: .25rem 0; }
+	.guide dt { color: var(--accent); }
+	.review-footer { max-width: 100rem; margin: 2.5rem auto 0; font-size: .875rem; line-height: 1.7; }
+	.single-study { display: block; max-width: 76rem; }
+	.single-study .miniature { padding: 2.5rem 4rem; min-height: auto; }
+	.single-study .headline { font-size: clamp(3rem, 6vw, 5rem); }
+	.single-study .promise, .single-study .status { font-size: 1.1rem; }
+	.single-study .invitation .made-with { max-width: 48rem; margin: 4rem auto 0; }
+	.single-study .page-footer { margin-bottom: 2rem; }
+	.single-study .studio .hero { display: grid; grid-template-columns: 1.6fr 1fr; gap: 3rem; align-items: end; }
+	.single-study .studio .app-entries { grid-template-columns: repeat(3, 1fr); margin-top: 2rem; }
+	.single-study .studio .your-entry { grid-column: auto; display: block; }
+	.single-study .guide .page-content { display: grid; grid-template-columns: 1fr 1fr; gap: 5rem; align-items: start; padding-top: 3rem; }
+	.single-study .guide .hero { padding-top: 0; }
+	.single-study .guide .made-with { margin-top: 0; }
+	.single-study .guide .headline { font-size: clamp(2.5rem, 4vw, 3.75rem); }
+	@media (max-width: 1000px) {
+		.expression-page { padding: 1.25rem; }
+		.studies { grid-template-columns: 1fr; max-width: 42rem; }
+		.miniature { min-height: auto; }
+		.headline { font-size: 2.75rem; }
+		.single-study .miniature { padding: 2rem; }
+		.single-study .studio .hero, .single-study .guide .page-content { grid-template-columns: 1fr; gap: 2rem; }
+		.single-study .studio .app-entries { grid-template-columns: 1fr 1fr; }
+		.single-study .studio .your-entry { grid-column: 1 / -1; }
+	}
+	@media (max-width: 450px) {
+		.single-study .miniature { padding: 1.25rem; }
+		.single-study .headline { font-size: 2.5rem; }
+		.invitation .app-entries, .studio .app-entries, .single-study .studio .app-entries { grid-template-columns: 1fr; }
+		.app-entry + .app-entry { margin-top: 1.5rem; }
+		.site-nav { font-size: .75rem; }
+	}
+</style>
