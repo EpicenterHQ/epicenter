@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-29
-- **Unbuilt:** the file-backed table read API and its application callers.
+- **Unbuilt:** the file-backed table read API, captured file versions, and its application callers.
 
 ## Context
 
@@ -40,30 +40,49 @@ variant has a nonempty `issues` array, an ID only if its filename yields one,
 only independently validated declared fields, and a body when its boundary can
 be identified. Invalid filenames and duplicate IDs contribute issues even
 when every declared field validates. Both variants keep the unmodified source
-for repair. A clean entry describes one observed file set; ID-based writes
-still recheck identity and conditional replacement because another writer may
-change that set.
+for repair.
+
+**An entry is one immutable observation of its row file.** Its `source` and
+`version` come from the same captured bytes. `version` is content identity:
+SHA-256 plus byte length. A table write receives the whole entry; UI callers
+do not separately fetch or assemble a version token. The publisher still
+checks the current file because another writer may have changed it.
+
+An entry is already a snapshot. An editor calls the entry it last accepted its
+baseline; that role adds no wrapper or second value type. `fields` and `body`
+are interpretations of `source`, not independently saved data. The optional
+`attachment` is a captured path and version for the one unambiguous owned
+sibling; it does not promise that those bytes remain current or available.
 
 ```ts
+type FileRef = {
+  readonly path: string;
+  readonly version: { readonly sha256: string; readonly size: number };
+};
+
 type Entry<TFields> = {
-  path: string;
-  source: string;
+  readonly path: string;
+  readonly version: FileRef['version'];
+  readonly source: string;
+  readonly attachment: FileRef | undefined;
 } & (
   | {
-      id: string;
-      fields: TFields;
-      body: string;
-      issues: undefined;
+      readonly id: string;
+      readonly fields: Readonly<TFields>;
+      readonly body: string;
+      readonly issues: undefined;
     }
   | {
-      id: string | undefined;
-      fields: Partial<TFields>;
-      body: string | undefined;
-      issues: readonly [Issue, ...Issue[]];
+      readonly id: string | undefined;
+      readonly fields: Readonly<Partial<TFields>>;
+      readonly body: string | undefined;
+      readonly issues: readonly [Issue, ...Issue[]];
     }
 );
 
-const entry = await table.get(id);
+const result = await table.get(id);
+if (result.error) return showReadFailure(result.error);
+const entry = result.data;
 if (entry === undefined) return;
 if (entry.issues !== undefined) {
   showRepairView(entry.source, entry.issues, entry.fields);
@@ -77,12 +96,21 @@ promise that the key is absent from the JavaScript object. The producer returns
 a nonempty issue list whenever the entry is invalid, so callers never have to
 infer validity from an empty array.
 
+Exact UTF-8 source includes a leading byte-order mark when one was present.
+Decoding and re-encoding an unchanged `source` must reproduce the captured
+bytes. A file that is not valid UTF-8 has no source-backed entry; enumeration
+reports its path as unreadable by the text interpretation, while raw file
+access preserves the bytes. It must never become an editable empty string.
+
 ## Consequences
 
 - A table has one inventory of source-backed entries for files it can read.
   Applications can derive valid and repair-needed groups without a second
   public `invalid` collection. Paths whose bytes cannot be read remain file
   boundary diagnostics.
+- Callers retain one entry as the baseline and replace it only with an
+  accepted save result or a deliberately adopted read. A newer read cannot
+  silently authorize overwriting source while the editor has unsaved input.
 - Duplicate IDs remain distinct entries by path in `list()`. ID-based actions
   refuse the ambiguity until the files are repaired. An invalid filename is
   selected by path because it has no row ID.

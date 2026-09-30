@@ -69,13 +69,20 @@ is insufficient. The application also defines retention, migrations, recovery,
 and explicit deletion for those durable bytes. A search index may use SQL
 transactions internally without becoming authoritative.
 
-**SQLite databases stay device-local and do not participate in Epicenter data folder synchronization.**
+**Private application databases stay device-local, and SQLite files do not participate in Epicenter data folder synchronization.**
 
 Account scoping selects local ownership; it does not synchronize the database.
 Neither database files nor their WAL/journal companions enter data folder sync.
 Private databases remain in runtime-managed storage outside data folder contents;
 this includes browser-managed storage on browser targets. A `.gitignore` entry
 does not establish this boundary.
+
+A generated external query snapshot may instead appear as root `index.sqlite3`
+under [ADR-0463](0463-a-data-folder-exposes-a-generated-root-sqlite-index.md).
+It is derived from the enclosing folder and excluded from authoritative folder
+sync. It does not move private transactional databases or runtime-managed
+caches into portable source. A public index is generated from selected public
+files after private material is removed.
 
 This is Epicenter's contract, not a claim that SQLite can never be replicated.
 A local transaction supplies no cross-device commit or ordering guarantee.

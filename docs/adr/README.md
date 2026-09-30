@@ -709,9 +709,16 @@ When you add an ADR, add its row here.
 | [0454](0454-vocab-saves-expressions-from-chat-by-selection.md) | Vocab saves expressions from chat by selection | Accepted |
 | [0455](0455-epicenter-ui-tracks-distributed-shadcn-svelte-components-with-explicit-deltas.md) | Epicenter UI tracks distributed shadcn-svelte components with explicit deltas | Proposed |
 | [0456](0456-a-markdown-row-owns-at-most-one-same-stem-attachment.md) | A Markdown row owns at most one same-stem attachment | Accepted (unbuilt; flat Markdown and attachment pairs) |
-| [0457](0457-a-markdown-row-may-have-a-readable-filename-suffix.md) | A Markdown row may have a readable filename suffix | Proposed (amends 0456 at exact ID filenames; suffix lookup unbuilt) |
+| [0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) | A row filename is its exact ID, and a title is a field | Proposed (exact paths and readable-ID policy; file-authoritative creation unbuilt) |
 | [0458](0458-markdown-links-may-cross-data-folders-by-relative-path.md) | Markdown links may cross data folders by relative path | Proposed (cross-folder link resolution unbuilt) |
 | [0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) | SQLite is a local capability for derived or transactional state | Proposed (file-backed application stores and derived indexes unbuilt) |
 | [0460](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md) | Vocab and Whispering are Braden Wong's apps built on Epicenter | Proposed (personal-domain homes and Whispering ID migration unbuilt) |
 | [0461](0461-portable-data-folders-live-under-local-and-derived-account-scopes.md) | Portable data folders live under Local and derived account scopes | Proposed (file-authoritative root and explicit sync attachment unbuilt) |
 | [0462](0462-file-table-entries-carry-source-and-use-issues-for-conformance.md) | File table entries carry source and use issues for conformance | Proposed (file-backed table reads unbuilt) |
+| [0463](0463-a-data-folder-exposes-a-generated-root-sqlite-index.md) | A data folder exposes a generated root SQLite index | Proposed (query generator and public folder publication unbuilt) |
+| [0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) | File table updates conditionally replace the captured whole file | Proposed (file-backed table saves unbuilt) |
+| [0465](0465-editors-keep-unsaved-source-separate-from-the-saved-baseline.md) | Editors keep unsaved source separate from the saved baseline | Proposed (file-backed editor lifecycle unbuilt) |
+| [0466](0466-opened-file-content-matches-its-captured-version.md) | Opened file content matches its captured version | Proposed (pinned file reads unbuilt) |
+| [0467](0467-interrupted-file-operations-use-operation-specific-recovery-choices.md) | Interrupted file operations use operation-specific recovery choices | Proposed (retained operations and resolution unbuilt) |
+| [0468](0468-every-completed-app-save-has-a-recoverable-git-revision.md) | Every completed app save has a recoverable Git revision | Proposed (automatic history and completion unbuilt) |
+| [0469](0469-generated-commit-messages-describe-known-app-operations.md) | Generated commit messages describe known app operations | Proposed (message generation and metadata unbuilt) |

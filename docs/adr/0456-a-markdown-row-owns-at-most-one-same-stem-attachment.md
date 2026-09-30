@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-29
-- **Amended by:** [ADR-0457](0457-a-markdown-row-may-have-a-readable-filename-suffix.md) proposes an optional readable suffix while preserving same-stem attachment ownership.
+- **Relates:** [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) retains exact-ID paths and separates editable titles from filenames.
 - **Unbuilt:** flat Markdown and attachment pairs as authoritative files in browser and native applications.
 
 ## Context

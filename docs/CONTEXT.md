@@ -124,6 +124,13 @@ shapes, see `docs/adr/`.
 
 ## Data API
 
+- **Data folder** (file-first proposal, unbuilt): one definition's current
+  Markdown rows, `kv.json`, and owned attachments within a Local or account scope.
+- **Owned attachment** (ADR-0456): zero or one `<id>.<extension>` sibling of
+  `<table>/<id>.md`, created and deleted with its row; links do not acquire ownership.
+- **Query index** (ADR-0463, unbuilt): optional root `index.sqlite3`, generated
+  from a data folder for external reads and excluded from source synchronization.
+
 - **Store**: one replica with tables, KV, and a blob namespace. Opening acquires
   documents and blobs before returning the handle. Row and KV access is
   synchronous; persistence and blob operations remain asynchronous.

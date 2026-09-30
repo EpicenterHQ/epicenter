@@ -17,7 +17,7 @@ In a browser, those paths cannot be ordinary operating-system files. A shell age
 
 **For portable document data, its current logical files are the authoritative saved data.** A data folder contains named tables of Markdown rows, root `kv.json`, and row-owned attachment files. The folder is a logical set of relative paths and their contents; a browser adapter may store it differently from a native directory. Where a person or agent can edit a native folder, those files are the live source, not a checkout of another document store.
 
-**The application and its shell agent edit the same current paths through one file boundary per data folder.** In a browser, this boundary lists paths, reads exact bytes, and applies path changes conditionally. It makes related changes visible together when an application operation requires it. A just-bash filesystem adapter uses this boundary, so a successful shell write is a saved local edit without an import step or Git checkpoint. Application edits and sync adoption use the same boundary. On native, ordinary files remain the source; an external edit must be observed before an application replaces that path. The browser's choice between a single inventory record and records keyed by literal path is not part of this contract.
+**The application and its shell agent edit the same current paths through one file boundary per data folder.** In a browser, this boundary lists paths, reads exact bytes, and applies path changes conditionally. It makes related changes visible together when an application operation requires it. A just-bash filesystem adapter uses this boundary, so a successful managed shell write is a saved local edit with its automatic Git revision and no import or manual checkpoint step. Application edits and sync adoption use the same boundary. On native, ordinary files remain the source. The host checks the observed byte version before replacement and serializes participating writers. An arbitrary external program can race that check; the boundary does not promise an operating-system-wide compare-and-swap. The browser's choice between a single inventory record and records keyed by literal path is not part of this contract.
 
 **A row is a table member saved in a Markdown file.** Use "row" for the member and "row file" when discussing its saved bytes. Fields appear in frontmatter; the body follows it. A file remains saved data when its fields or body cannot be interpreted by the current application. An inferred row value is an interpretation of that data, not its complete saved representation. "Row source" does not name another object. Apps can call rows recordings, notes, or other domain names.
 
@@ -33,7 +33,7 @@ This decision applies to data folders deliberately moved to this model. Existing
 
 - File-to-Yjs pull and push cease to be the normal editing boundary for a migrated data folder. An independently persisted Yjs row or body cannot override its current files.
 - Browser shell commands need a filesystem adapter for directory operations and metadata, but the adapter does not keep another durable file tree. Readers refresh after a successful path change. A shell command that edits bytes it read must detect an intervening replacement; an explicit overwrite may replace the current bytes.
-- Git checkpoints read a fixed view of current paths. Browser isomorphic-git objects and refs stay private; Git does not check out a second browser working tree or write current paths outside the file boundary. An attachment read or complete copy receives actual bytes, never an LFS pointer in their place.
+- Automatic Git revisions retain accepted changes over a fixed known snapshot. Browser isomorphic-git objects and refs stay private; Git does not check out a second browser working tree or write current paths outside the file boundary. An attachment read or complete copy receives actual bytes, never an LFS pointer in their place.
 - The application must preserve source outside the edit it intends to make and must account for files changed by another writer. Merge choices and conflict presentation remain to be designed.
 - App-level attachment ownership removes the need for a separate application-facing blob lifetime for a recording. Physical byte storage, transfer, historical retention, and reclamation remain separate questions.
 - A complete copy must include media bytes even if storage or sync uses placeholders internally. A partial or interrupted copy cannot claim to recover the saved current state.
@@ -49,8 +49,9 @@ Work from authoritative files toward application views:
 2. Define source-preserving edits and row/attachment publication with explicit
    interruption recovery. Route app edits, browser shell writes, and sync adoption
    through the same path boundary. Typed edits refuse source they cannot safely
-   interpret unless the user explicitly repairs it. Other writers' changes must
-   be detected before replacing source. This does not imply arbitrary multi-file
+   interpret unless the user explicitly repairs it. Participating writers cannot
+   interleave a change between checking and publication; external native changes
+   are detected on a best-effort basis. This does not imply arbitrary multi-file
    transactions or choose an IndexedDB schema.
 3. Build typed table/KV views and optional indexes over that file boundary.
    Keep body parsing and collaborative editor state in the editors that need
