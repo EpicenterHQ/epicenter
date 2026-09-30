@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-29
-- **Relates:** [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) retains exact-ID paths and separates editable titles from filenames.
+- **Relates:** [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) uses exact stems for row paths and separates editable titles from filenames.
 - **Unbuilt:** flat Markdown and attachment pairs as authoritative files in browser and native applications.
 
 ## Context
@@ -13,7 +13,7 @@ Documents with several images create a real cost for this simpler relationship. 
 
 ## Decision
 
-**A Markdown row owns zero or one sibling attachment with the same file stem.** Within a table directory, `<id>.md` is the row. If it has an attachment, that file is `<id>.<extension>` beside it, where the extension is one nonempty ASCII alphanumeric segment other than `md`, ignoring case. Split at the final dot: `r1.take.opus` belongs to `r1.take.md`, not `r1.md`.
+**A Markdown row owns zero or one sibling attachment with the same file stem.** Within a table directory, `<stem>.md` is the row. If it has an attachment, that file is `<stem>.<extension>` beside it, where the extension is one nonempty ASCII alphanumeric segment other than `md`, ignoring case. Split at the final dot: `r1.take.opus` belongs to `r1.take.md`, not `r1.md`.
 
 ```text
 so.epicenter.whispering/
@@ -38,7 +38,7 @@ This decision does not prescribe the browser's physical byte storage, save publi
 
 - A recording's audio is discoverable from the recording path. The app no longer needs a separate application-facing blob ID or attachment inventory for that relationship.
 - One row cannot own two audio formats, two images, or an attachment named `*.md`. Apps that need several assets create and link separate owning rows.
-- Preserving a supplied attachment basename may require storing it as descriptive metadata. The stored sibling basename follows the row ID.
+- Preserving a supplied attachment basename may require storing it as descriptive metadata. The stored sibling basename follows the row stem.
 - Direct filesystem edits can leave missing or extra files. The app reports them without rewriting or sweeping source.
 
 ## Considered alternatives

@@ -22,25 +22,25 @@ the Yjs read contract.
 Table methods live under `folder.tables.<table>` alongside literal-path access
 through `folder.files`, as specified in
 [ADR-0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md).
-`get(id)` takes the filename stem under
+`get(stem)` takes the file stem under
 [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md):
 `folder.tables.recordings.get('interview')` reads `recordings/interview.md`.
-An entry's `id` is derived from that filename, while its `path` includes the
+An entry's `stem` is derived from that filename, while its `path` includes the
 table directory and `.md`. Neither is an authored frontmatter field.
 
-**`list()` and `get(id)` return the same source-backed entry shape for a readable
+**`list()` and `get(stem)` return the same source-backed entry shape for a readable
 Markdown file, whether or not its declared fields conform.** Every entry carries
-its path. An entry has no ID when its filename cannot supply a valid one;
+its path. An entry has no usable stem when its filename cannot supply a valid one;
 `list()` still returns it for path-based selection and source repair. Removing
 the exact lowercase `.md` suffix yields the complete literal stem. No case
 folding, Unicode normalization, or filename alias maps distinct files to one
-ID. Exact stems therefore need no duplicate-ID inventory or resolution API.
+stem. Exact stems therefore need no duplicate-ID inventory or resolution API.
 Case-sensitive filesystems can contain `Interview.md` and `interview.md` as
 distinct rows; a destination that cannot represent both refuses the collision.
 Lookup verifies literal directory-entry spelling rather than inheriting a
 case-insensitive filesystem's aliases. A file ending in `.MD` is preserved by
 raw file access, but is neither a `.md` row nor an owned attachment.
-`get(id)` returns `undefined` only when no file claims that ID. A present file
+`get(stem)` returns `undefined` only when no row has that literal stem. A present file
 that cannot be fully interpreted remains an entry with exact `source` and
 conformance issues. An I/O failure to read the file is an operation failure,
 not an entry issue. After successful path enumeration, the file boundary
@@ -50,8 +50,8 @@ an empty table.
 
 **The value of `issues` discriminates the two entry variants; no separate
 `status` field or nested `parsed` result is added.** The valid variant has a
-valid ID, `issues: undefined`, complete `fields`, and a body. The invalid
-variant has a nonempty `issues` array, an ID only if its filename yields one,
+valid stem, `issues: undefined`, complete `fields`, and a body. The invalid
+variant has a nonempty `issues` array, a usable stem only if its filename yields one,
 only independently validated declared fields, and a body when its boundary can
 be identified. Invalid filenames and ambiguous attachments contribute issues even
 when every declared field validates. Both variants keep the unmodified source
@@ -90,20 +90,20 @@ type Entry<TFields> = {
   readonly attachment: string | undefined;
 } & (
   | {
-      readonly id: string;
+      readonly stem: string;
       readonly fields: Readonly<TFields>;
       readonly body: string;
       readonly issues: undefined;
     }
   | {
-      readonly id: string | undefined;
+      readonly stem: string | undefined;
       readonly fields: Readonly<Partial<TFields>>;
       readonly body: string | undefined;
       readonly issues: readonly [Issue, ...Issue[]];
     }
 );
 
-const result = await table.get(id);
+const result = await table.get(stem);
 if (result.error) return showReadFailure(result.error);
 const entry = result.data;
 if (entry === undefined) return;
@@ -146,8 +146,8 @@ access preserves the bytes. It must never become an editable empty string.
   silently authorize overwriting source while the editor has unsaved input.
 - Literal stems give each row one address without ID normalization or duplicate
   identity repair. An invalid filename is selected by path because it has no
-  usable row ID. Destination filesystem collisions remain publication checks.
-- Callers migrating from the Yjs `get(id)` contract distinguish an absent ID,
+  usable stem. Destination filesystem collisions remain publication checks.
+- Callers migrating from the Yjs `get(id)` contract distinguish an absent stem,
   an operational refusal, and a present entry whose action inputs are unusable.
   Honeycrisp selection needs a path-based source repair route; Whispering audio
   and transcription need only their actual validated inputs, not whole-row

@@ -26,6 +26,32 @@ it does not promise retrieval of overwritten, uncommitted history.
 `files.open(ref)` additionally requires the current path to match `ref.version`.
 Neither may return a lazy mutable file view under a previously computed version.
 
+**Current media paths contain actual media bytes, not Git LFS pointers.**
+Opening `recordings/interview.opus` reads the current audio at that path. It
+does not require a commit, upload, network fetch, or an LFS lookup when those
+bytes are already present. Git history may store an LFS pointer containing a
+SHA-256 object ID and byte size; that pointer describes the recorded object,
+not a guarantee that an externally edited working file still matches it.
+
+Hashing reads bytes to compute their SHA-256 fingerprint. The fingerprint
+identifies content, not the row's stem or path. A rename preserves the
+fingerprint when bytes are unchanged; replacing audio at the same path changes
+its fingerprint. Equal fingerprints cannot distinguish a move from a copy or
+two independently created files with identical bytes. The explicit rename
+operation knows its source and destination without hashing. This distinction
+lets a workflow record which audio produced its output. Table listing discovers attachment paths without hashing media.
+
+**Share content fingerprints with LFS when they describe the same verified
+bytes; do not introduce a second media identity scheme.** An already verified
+immutable LFS object can supply its SHA-256 and size. Opening current uncommitted
+or externally modified media captures those current bytes and their version;
+an older pointer cannot supply that proof. Compute the fingerprint while
+capturing or consuming the bytes where possible, rather than adding a separate
+hash pass. A verified capture can supply the same fingerprint when those exact
+bytes later enter LFS history. This reuse is an implementation optimization,
+not permission to skip verification or a requirement to move every open through
+the LFS object store. See the [Git LFS specification](https://github.com/git-lfs/git-lfs/blob/main/docs/spec.md).
+
 Browser immutable objects can provide this observation. Native reads use
 immutable memory, an operation-scoped temporary capture, an immutable Git/LFS
 object, or a consumption protocol that verifies the actual delivered bytes and
@@ -39,8 +65,8 @@ merely because its original path changed. This rule does not require a permanent
 second copy of every current file.
 
 A generated-output publication also checks its captured input requirement at
-publication. That check includes the owner row's existence and identity, exact
-attachment version, and complete same-stem candidate set. It does not substitute
+publication. That check includes the owner row's existence at the captured table
+and stem, exact attachment version, and complete same-stem candidate set. It does not substitute
 for verifying the bytes actually supplied to the provider. A title-only change
 need not reject a separate result-row creation.
 

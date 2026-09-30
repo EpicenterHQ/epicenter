@@ -709,7 +709,7 @@ When you add an ADR, add its row here.
 | [0454](0454-vocab-saves-expressions-from-chat-by-selection.md) | Vocab saves expressions from chat by selection | Accepted |
 | [0455](0455-epicenter-ui-tracks-distributed-shadcn-svelte-components-with-explicit-deltas.md) | Epicenter UI tracks distributed shadcn-svelte components with explicit deltas | Proposed |
 | [0456](0456-a-markdown-row-owns-at-most-one-same-stem-attachment.md) | A Markdown row owns at most one same-stem attachment | Accepted (unbuilt; flat Markdown and attachment pairs) |
-| [0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) | A row filename is its exact ID, and a title is a field | Proposed (exact paths and readable-ID policy; file-authoritative creation unbuilt) |
+| [0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) | A table and file stem address a row, and a title is a field | Proposed (exact paths and readable-stem policy; file-authoritative creation unbuilt) |
 | [0458](0458-markdown-links-may-cross-data-folders-by-relative-path.md) | Markdown links may cross data folders by relative path | Proposed (cross-folder link resolution unbuilt) |
 | [0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) | SQLite is a local capability for derived or transactional state | Proposed (file-backed application stores and derived indexes unbuilt) |
 | [0460](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md) | Vocab and Whispering are Braden Wong's apps built on Epicenter | Proposed (personal-domain homes and Whispering ID migration unbuilt) |

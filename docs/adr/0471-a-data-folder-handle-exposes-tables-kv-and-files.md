@@ -68,7 +68,7 @@ notification. No per-row resource handle is introduced to solve that problem.
 
 **Table lookup takes a file stem; file access takes a literal path.**
 `folder.tables.recordings.get('interview')` resolves `recordings/interview.md`.
-The complete stem is the derived row ID, with no separate identity registry.
+An entry exposes this value as `stem`, with no separate identity registry.
 Raw access includes directory and extension. The two forms are not aliases on
 one overloaded lookup. A table named `files` lives at `folder.tables.files`
 and does not collide with `folder.files`.

@@ -22,7 +22,7 @@ splicing YAML, encoding text, or pairing a source read with a later version.
 **`table.update(entry, change)` and `table.writeSource(entry, source)` use one
 strict whole-file conditional publication rule.** The entry contains its
 literal path, exact source, and the content version captured from the same
-bytes. Neither operation changes the row ID or moves its filename.
+bytes. Neither operation changes the row stem or moves its file.
 
 | Method | Preparation before publication |
 | --- | --- |
