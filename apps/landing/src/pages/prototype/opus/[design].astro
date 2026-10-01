@@ -2,16 +2,17 @@
 // Independent Opus pages are kept intact for judgment; this route only presents them.
 import { readFileSync } from 'node:fs';
 export function getStaticPaths() {
-	return import.meta.env.DEV ? ['board', 'atelier', 'instrument', 'journal', 'refined', 'refinement'].map(design => ({ params: { design } })) : [];
+	return import.meta.env.DEV ? ['board', 'atelier', 'instrument', 'journal', 'refined', 'refinement', 'publishing'].map(design => ({ params: { design } })) : [];
 }
 const designs = [
 	{ id: 'atelier', title: 'A. Independent software studio' },
 	{ id: 'instrument', title: 'B. Builder’s instrument' },
 	{ id: 'journal', title: 'C. Bold graphic identity' },
 	{ id: 'refined', title: 'A, refined with both design skills' },
+	{ id: 'publishing', title: 'A, with personal publishing' },
 ];
 const comparison = Astro.params.design === 'refinement';
-const shown = designs.filter(design => comparison ? ['atelier', 'refined'].includes(design.id) : design.id !== 'refined');
+const shown = designs.filter(design => comparison ? ['atelier', 'refined'].includes(design.id) : ['atelier', 'instrument', 'journal'].includes(design.id));
 const selected = designs.find(design => design.id === Astro.params.design);
 const html = selected
 	? readFileSync(new URL(`../../../prototypes/opus/${selected.id}/index.html`, import.meta.url), 'utf8').replace(/<head(?:\s[^>]*)?>/i, '$&<meta name="robots" content="noindex, nofollow">')
