@@ -42,6 +42,31 @@ The current [application guide](../apps/README.md) and [application package](../
 
 The absorbed README draft is retired. Its previous requirement to supply a tested starter before adopting the target copy is superseded: the README establishes the destination, and the design guide records the proof still required. Executable instructions need actual tested code; ADR acceptance alone does not establish implementation.
 
+## Reader journey
+
+Follow the reader’s purpose rather than sending every visitor through the same sequence.
+
+| Entry | Next destination | Handoff |
+| --- | --- | --- |
+| Root README: understand the foundation | [Target developer guide](../docs/guides/personal-apps.md) | Explore file-model stages and the evidence each requires |
+| Root README: work in this checkout | [Application composition](../apps/README.md), then [package contract](../packages/app/README.md) | Use the current Yjs APIs without mistaking them for file-source APIs |
+| Whispering README: understand the product | Workflow and audio/files sections in the [app README](../apps/whispering/README.md) | Explain the app without routing a visitor into internal copy drafts |
+| Whispering README: contribute | [Whispering development](../apps/whispering/docs/development.md) | Run the actual monorepo builds and native host integration |
+| Personal app page: install | Independent release destination, unresolved | Verify repository, assets, supported platforms, and installation before linking a download |
+| Builder: release another app | Stage 7 of the target developer guide | Distribute software separately from the files of each person using it |
+
+Current application and package READMEs remain engineering references. Their Yjs contracts are not contradictory target copy; they document a different implementation stage. Whispering’s current host, storage, and build mechanics now live in its development guide. The product README describes the finished independent app without supplying fictional standalone commands.
+
+The remaining public-copy conflicts are in the Astro pages, shared page metadata, and contributor orientation. The current Whispering page uses the old domain and Epicenter source repository, and contains provider, pricing, and privacy claims that must be checked or removed. `BaseLayout.astro` hardcodes the Epicenter root canonical and Open Graph URL. `CONTRIBUTING.md` describes Whispering as the main contribution destination and contains version-specific setup advice; reconcile it with actual tooling before release. Do not rewrite code-facing package descriptions to claim a standalone runtime before that runtime exists.
+
+## Whispering README revision
+
+Keep the selected identity and opening. The README now uses a compact navigation row, capability list, setup summary, numbered workflow, processing-destination table, and short file explanation. Index mechanics, cross-app compatibility, and software-publishing semantics stay in Epicenter’s documentation. The internal product-page draft is no longer a public README destination.
+
+The personal website link is the selected target destination, not a verified deployment. Before publication, verify it and add the independent installation destination plus a real demo. Do not fabricate release links or reuse Epicenter desktop assets. The first-run default, account requirements, supported platforms, and any pricing remain product decisions. The setup summary does not prescribe a default model or exact UI sequence.
+
+The development guide retains current build mechanics and provides the current repository’s bug-report destination. When extracting `braden-w/whispering`, move support there and resolve documentation and asset paths. The app README should not force a reader through the foundation design guide to get help.
+
 ## Remaining work
 
 - [x] Install and commit project-level design skills.
@@ -49,11 +74,17 @@ The absorbed README draft is retired. Its previous requirement to supply a teste
 - [x] Explore personal publishing in a separate prototype.
 - [x] Apply the approved general technical opening to the root README.
 - [x] Add and review the target developer guide without inventing API signatures.
-- [ ] Apply the approved visual direction to the Astro landing page as a target design. Preserve current prototype comparisons until review is complete.
-- [ ] Align landing metadata with each page’s purpose and public URL.
-- [ ] Draft Whispering’s independent-product README and personal-domain product page, keeping build mechanics unresolved where necessary.
-- [ ] Reconcile `docs/positioning.md` with the approved articulation; do not revive superseded one-way projection or mandatory-host rules.
-- [ ] Reconcile and retire the conflicting [earlier landing plan](20260612T063520-landing-page-public-realignment.md) when its remaining useful requirements are incorporated.
+- [x] Draft Whispering’s independent-product README and personal-domain product-page copy.
+- [x] Preserve current Whispering build and data mechanics in a development guide.
+- [x] Reconcile `docs/positioning.md` with the approved articulation.
+- [x] Walk the reader journey and record unresolved destinations and contradictory copy.
+- [x] Retire the conflicting earlier landing plan after incorporating its useful requirements.
+- [ ] Reconcile contributor orientation and verify actual setup prerequisites.
+- [ ] Establish independent app build, repository, release, and installation destinations. Record implementation evidence in the developer guide.
+- [ ] Last: apply the approved visual direction and reconciled messaging to the Astro pages. Preserve prototype comparisons until review is complete.
+- [ ] Last: align canonical URLs, social metadata, app attribution, and installation/source links with each page’s purpose.
+
+The retired June landing plan prescribed a Whispering-led homepage based on the earlier positioning. Its required download CTA and separation of shipped copy from vision copy conflict with this finished-product design exercise. Retain its useful acceptance requirements for the final page pass: readable static content without JavaScript, a real demonstration of the claimed workflow, an explicit label for any simulated demonstration, verified download links, page-specific metadata, and an Astro build check. No founder letter, five-screen structure, export-button joke, or mandatory Whispering download is carried forward.
 
 ## Decisions and open edges
 

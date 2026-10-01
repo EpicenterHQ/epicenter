@@ -1,132 +1,63 @@
 <p align="center">
   <img width="180" src="./src/lib/assets/studio-microphone.png" alt="Whispering">
-  <h1 align="center">Whispering</h1>
-  <p align="center">Press shortcut → speak → get text.</p>
 </p>
 
-Whispering is a free and open source speech-to-text app. It records speech, transcribes it with a provider you choose, optionally cleans the transcript, and delivers the text.
+# Whispering
 
-There is one shipped build. Epicenter serves it under `/apps/whispering`, and every native capability comes from that host. Whispering does not own a native shell: Epicenter owns the only Tauri runtime, at `apps/epicenter/src-tauri`.
+**Press a shortcut. Speak. Get text.**
 
-## Host boundary
+Free and open source ❤️
 
-```text
-apps/whispering/src
-  |
-  |-- bun dev:whispering ------> vite dev on http://localhost:1420
-  |                              browser leaves for auth, capture, and delivery
-  |
-  `-- bun run build:epicenter -> apps/epicenter/dist/whispering
-                                 |
-                                 `--> apps/epicenter/src-tauri
-                                      native commands and windows
-```
+By [Braden Wong](https://bradenwong.com). Built on [Epicenter](https://epicenter.so).
 
-`bun dev:whispering` runs the SPA in a browser tab. Browser capture uses
-MediaRecorder and browser storage. Native recording, on-device inference, system
-global shortcuts, and cursor delivery require Epicenter. Use `bun dev:epicenter`
-to exercise those host capabilities.
+Whispering is a speech-to-text app that turns your voice into text for the application you’re using.
 
-Selection happens at build time through `#platform/*` conditions in
-`package.json`. Browser leaves implement supported behavior or explicit absence;
-`epicenter-host` leaves use host capabilities. `svelte.config.js` supplies the host
-base path, and routes use `resolve` from `$app/paths`.
+[Website](https://whispering.bradenwong.com) · [Getting started](#getting-started) · [Development](docs/development.md) · [Help](#help)
 
-Epicenter's asset build sets `EPICENTER_HOST=1`, which activates the `epicenter-host` module condition and the `/apps/whispering` asset base. No other build signal selects Whispering's host leaves.
+- Record with a keyboard shortcut.
+- Transcribe on your device or through a selected service.
+- Clean up a transcript while retaining the original.
 
-## Run locally
+## Why I built Whispering
 
-Start apps from the repository root.
+I really like hands-free voice dictation. For years, I relied on transcription tools that were _almost_ good, but they were all closed-source. Even those claiming to be "local" or "on-device" were still black boxes that left me wondering where my audio really went.
 
-```bash
-# SPA in a browser tab plus its local API
-bun dev:whispering
+So I built Whispering. I wanted an open-source tool I could inspect without giving up the usability of the paid apps I was using.
 
-# The SPA alone
-bun dev:whispering:ui
+## Getting started
 
-# Epicenter desktop with Whispering as a native app window
-bun dev:epicenter
-```
+Choose an on-device model or configure a transcription connection. Allow microphone access and set your recording shortcut. Text delivery may also require system permissions; you can copy a transcript from Whispering.
 
-The dev tab runs on `http://localhost:1420`. Epicenter opens Whispering at `epicenter://app/whispering`.
+## How it works
 
-## Build and verify
+1. Press your recording shortcut and speak.
+2. Stop recording to transcribe the audio.
+3. Insert the transcript at your cursor, or copy it from Whispering and paste it where you need it.
 
-```bash
-# Unhosted artifact: apps/whispering/build
-bun run --cwd apps/whispering build
+Whispering keeps the recording and its results. You can listen again, transcribe with another model, or clean up grammar and punctuation without replacing the original.
 
-# Epicenter assets, including apps/epicenter/dist/whispering
-bun run --cwd apps/epicenter build
+## Audio and files
 
-# Default and host type resolution
-bun run --cwd apps/whispering typecheck
-
-# App tests
-bun test --isolate apps/whispering/src/lib/operations apps/whispering/src/lib/whispering apps/whispering/src/lib/queries
-
-```
-
-Run the two asset builds sequentially in one checkout. SvelteKit owns a shared `.svelte-kit` directory, so concurrent default and Epicenter builds can race over generated configuration.
-
-For the complete desktop artifact:
-
-```bash
-bun run --cwd apps/epicenter desktop:build
-```
-
-## What the Epicenter host provides
-
-| Capability | How it works under Epicenter |
+| Processing | Where it happens |
 | --- | --- |
-| Microphone recording | Native recorder |
-| Cloud and self-hosted transcription | Direct provider, hosted gateway, or self-hosted endpoint |
-| On-device GGUF transcription | Native model runtime |
-| In-app and system-global shortcuts | Both, registered by the host |
-| Paste at the active cursor | Native delivery when permitted, clipboard otherwise |
-| Recording storage | Epicenter app-data files |
-| Floating recording overlay | Native auxiliary window |
+| On-device transcription | Audio is processed locally |
+| Remote transcription | Audio is sent to the selected endpoint |
+| Optional transcript cleanup | Transcript text is sent to its configured processing endpoint |
 
-## Data boundary
+Remote services may charge for transcription or cleanup.
 
-The `(app)` layout captures one Account and opens Local before mounting the
-recording UI. Browser sign-in starts from that UI; the callback installs the
-next Account in a fresh document. Sign-out and recovery routes open no primary
-stores. Crossing into those routes uses full document navigation because a
-SvelteKit route change would retain the old store handles.
+Whispering saves recordings and transcripts as audio and Markdown files in a data folder. Open the recordings in an audio player, read the transcripts in an editor, or work with them in a script. A complete copy of the folder includes the audio files themselves.
 
-Whispering transcribes through an explicitly selected connection and model. Deepgram, ElevenLabs, and Mistral’s separate provider adapters are not supported. Existing provider keys remain stored but are not read or imported; configure a supported connection in the intended account.
+## Development
 
-Capture and import always save bytes and a recording in Local. The reactive
-`local` module is initialized once by the working layout. The separate Personal
-speech profile opens for the captured Account; only its ready UI branches pass
-that handle to speech-profile controls. The profile holds known terms and speech instructions,
-while recordings, audio, results, and device settings stay Local. Recording
-detail can select any successful result. In the Epicenter desktop app, a person
-can add its Original or Cleaned text to Capture without moving the recording or
-revealing Capture. The browser build has no background promotion transport, so
-it does not offer that action. Row deletion keeps audio bytes; it is not an
-erasure operation.
+See [development and verification](docs/development.md) for build commands and native integration. Epicenter’s [data model](../../README.md#data-model) explains the shared foundation.
 
-Success requires local durable row persistence. Partial saves and transcript
-writes retain page-lifetime Finish saving actions across route changes without
-another row creation or inference request.
-Reload ends those recovery actions. Signing out fences old attempts before navigation.
+## Help
 
-Audio leaves the device when the selected transcription provider requires an
-upload. Transcription can go to a direct provider connection, the hosted Epicenter gateway, or a self-hosted endpoint.
+For recording problems, check microphone access and the selected input device. For transcription failures, check the connection, model, and credentials.
 
-See the repository [trust model](../../docs/trust-model.md) for hosted sync and account boundaries.
+[Report a bug](https://github.com/EpicenterHQ/epicenter/issues) with your app version, operating system, reproduction steps, and error message. Leave out credentials and private recordings.
 
-## There is no hosted browser deploy
+## License
 
-`wrangler.jsonc` published the static SPA to `whispering.epicenter.so`. ADR-0227 refused that runtime: a browser tab is not a target, so the config and its deploy step are gone. Whatever Cloudflare last published keeps serving until somebody deletes the Worker, because removing the config stops republishing rather than taking anything down.
-
-ADR-0227 says what would reopen this, which is trying-before-installing turning out to matter more than the capability seams cost.
-
-## Recording verification
-
-[Store-relative recording evidence](docs/store-relative-recordings-verification.md)
-records the earlier product flow, review findings, and limits. Its Personal audio
-copy verification is historical; that path has been retired.
+Whispering is AGPL-3.0-or-later. Previously published MIT versions retain their original license. See the [licensing strategy](../../docs/licensing/licensing-strategy.md).

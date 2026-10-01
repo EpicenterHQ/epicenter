@@ -186,7 +186,7 @@
 | 2026-06-13 | vault-of-apps-and-jsrepo-distribution | removed | specs/20260613T210000-vault-of-apps-and-jsrepo-distribution.md |
 | 2026-06-13 | action-first-daemon-runtime | removed | specs/20260613T100235-action-first-daemon-runtime.md |
 | 2026-06-13 | projection-read-only-hardening | removed | specs/20260613T030000-projection-read-only-hardening.md |
-| 2026-06-12 | landing-page-public-realignment | in tree | specs/20260612T063520-landing-page-public-realignment.md |
+| 2026-06-12 | landing-page-public-realignment | Retired 2026-10-01: superseded by the personal-software direction; useful page checks retained | specs/20260930T210607-personal-software-public-materials.md |
 | 2026-06-12 | whispering-custom-backend-profiles | in tree | specs/20260612T091000-whispering-custom-backend-profiles.md |
 | 2026-06-12 | whispering-pipelines-workspace-boundary | in tree | specs/20260612T110000-whispering-pipelines-workspace-boundary.md |
 | 2026-06-12 | local-model-recommended-defaults-rebuild | in tree | specs/20260612T164300-local-model-recommended-defaults-rebuild.md |
