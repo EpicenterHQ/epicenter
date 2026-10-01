@@ -21,8 +21,6 @@ export type FileVersion = {
  */
 export type FileExpectation = FileVersion | 'absent' | 'any';
 
-const encoder = new TextEncoder();
-
 /** Hash bytes before any storage transaction starts; a transaction cannot await crypto. */
 export async function captureVersion(bytes: Uint8Array): Promise<FileVersion> {
 	const digest = await crypto.subtle.digest(
@@ -48,10 +46,6 @@ export function satisfies(
 	if (expected === 'any') return true;
 	if (expected === 'absent') return current === undefined;
 	return sameVersion(current, expected);
-}
-
-export function encodeText(text: string): Uint8Array {
-	return encoder.encode(text);
 }
 
 function toHex(buffer: ArrayBuffer): string {

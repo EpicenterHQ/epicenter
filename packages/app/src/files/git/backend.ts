@@ -79,8 +79,6 @@ export type GitBackend = {
 	 * silently rewritten. Explicit staging and staged commits are unaffected.
 	 */
 	checkpointProblem(): Promise<string | undefined>;
-	/** Reset index entries for `paths` to their state in `commit`. */
-	syncIndex(commit: string, paths: readonly string[]): Promise<void>;
 	/**
 	 * Make every index entry match `commit`'s tree, including staged-only
 	 * additions and deletions. Returns the paths it reset.

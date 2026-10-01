@@ -245,18 +245,6 @@ export async function createBrowserGitBackend({
 			// Browser files are plain bytes with no modes, links, or filters.
 			return undefined;
 		},
-		async syncIndex(commit, paths) {
-			if (paths.length === 0) return;
-			await withObjects(async (access) => {
-				for (const filepath of paths)
-					await git.resetIndex({
-						...access,
-						dir: WORKDIR,
-						filepath,
-						ref: commit,
-					});
-			});
-		},
 		async reconcileIndex(commit) {
 			return withObjects(async (access) => {
 				const mismatched: string[] = [];

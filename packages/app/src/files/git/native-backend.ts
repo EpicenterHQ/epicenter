@@ -145,6 +145,22 @@ export async function createNativeGitBackend({
 
 	const literal = ['--literal-pathspecs'];
 
+	/** Reset the named index entries without changing working files. */
+	async function syncIndex(commit: string, paths: readonly string[]) {
+		if (paths.length === 0) return;
+		await run(
+			[
+				...literal,
+				'reset',
+				'--quiet',
+				commit,
+				'--pathspec-from-file=-',
+				'--pathspec-file-nul',
+			],
+			{ input: `${paths.join('\0')}\0` },
+		);
+	}
+
 	function parsePorcelain(output: Uint8Array): PathStatus[] {
 		const tokens = text(output).split('\0');
 		const result: PathStatus[] = [];
@@ -217,20 +233,6 @@ export async function createNativeGitBackend({
 				ignored: (paths) => backend.ignoredPaths(paths, new Map()),
 			});
 		},
-		async syncIndex(commit, paths) {
-			if (paths.length === 0) return;
-			await run(
-				[
-					...literal,
-					'reset',
-					'--quiet',
-					commit,
-					'--pathspec-from-file=-',
-					'--pathspec-file-nul',
-				],
-				{ input: `${paths.join('\0')}\0` },
-			);
-		},
 		async reconcileIndex(commit) {
 			// `diff-index --cached` lists every index entry that differs from the
 			// tree, including staged-only additions and deletions.
@@ -243,7 +245,7 @@ export async function createNativeGitBackend({
 				commit,
 			]);
 			const paths = text(differing.stdout).split('\0').filter(Boolean);
-			await backend.syncIndex(commit, paths);
+			await syncIndex(commit, paths);
 			return paths;
 		},
 		async ignoredPaths(candidates) {
@@ -392,7 +394,7 @@ export async function createNativeGitBackend({
 				return { status: 'refused', error: applied.error };
 			}
 			try {
-				await backend.syncIndex(plan.nextHead, plan.paths);
+				await syncIndex(plan.nextHead, plan.paths);
 			} catch (cause) {
 				return {
 					status: 'indexFailed',
