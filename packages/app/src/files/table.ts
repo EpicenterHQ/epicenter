@@ -13,7 +13,7 @@ import type { Static, TSchema } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { ParsedTable } from '../data/definition/compile.js';
 import type { TableDeclaration } from '../data/definition/declaration.js';
-import type { FileBoundary, FileChange, FileRead } from './boundary.js';
+import type { FileBoundary, FileChange } from './boundary.js';
 import {
 	FileError,
 	TableError,
@@ -128,14 +128,11 @@ export type TableContext = {
 	admit<T, E>(
 		work: () => Promise<Result<T, E>>,
 	): Promise<Result<T, E | FileError>>;
-	/** Called after a managed write reached the folder. */
-	saved(): void;
 	/**
-	 * Called when some steps of a managed operation reached the folder but the
-	 * operation did not complete: observations become stale, no commit is
-	 * requested.
+	 * Publish a managed operation and invalidate observations for any landed
+	 * changes. Only a complete operation requests an automatic commit.
 	 */
-	touched(): void;
+	publish: FileBoundary['apply'];
 };
 
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -179,7 +176,7 @@ export function createFileTable<TTable extends TableDeclaration>(
 
 	function interpret(
 		path: string,
-		read: FileRead,
+		version: FileVersion,
 		source: string,
 		candidates: readonly string[],
 	): Entry<TFields> {
@@ -220,7 +217,7 @@ export function createFileTable<TTable extends TableDeclaration>(
 					});
 			}
 		}
-		const base = { path, version: read.version, source, attachment };
+		const base = { path, version, source, attachment };
 		if (issues.length === 0 && reading.body !== undefined)
 			return Object.freeze({
 				...base,
@@ -299,29 +296,13 @@ export function createFileTable<TTable extends TableDeclaration>(
 		return Ok(undefined);
 	}
 
-	async function accepted(
-		path: string,
-		source: string,
-		attachment: string | undefined,
-		candidates: readonly string[],
-	): Promise<Entry<TFields>> {
-		const bytes = encoder.encode(source);
-		const version = await captureVersion(bytes);
-		return interpret(
-			path,
-			{ bytes, version },
-			source,
-			attachment === undefined ? candidates : [attachment],
-		);
-	}
-
 	async function publishSource(
 		entry: Entry<TFields>,
 		source: string,
 	): Promise<Result<Entry<TFields>, TableWriteError>> {
 		const bytes = encoder.encode(source);
 		const version = await captureVersion(bytes);
-		const applied = await boundary.apply([
+		const applied = await context.publish([
 			{
 				kind: 'write',
 				path: entry.path,
@@ -331,11 +312,17 @@ export function createFileTable<TTable extends TableDeclaration>(
 			},
 		]);
 		if (applied.error) return Err(applied.error);
-		context.saved();
 		const candidates =
 			entry.issues?.find((issue) => issue.kind === 'attachment')?.candidates ??
 			[];
-		return Ok(await accepted(entry.path, source, entry.attachment, candidates));
+		return Ok(
+			interpret(
+				entry.path,
+				version,
+				source,
+				entry.attachment === undefined ? candidates : [entry.attachment],
+			),
+		);
 	}
 
 	/**
@@ -356,7 +343,8 @@ export function createFileTable<TTable extends TableDeclaration>(
 	/**
 	 * Refuse an app operation that moves or removes a row with its attachment
 	 * unless the current same-stem candidates are exactly the one the entry
-	 * owned when captured: no new, missing, replaced, or ambiguous attachment.
+	 * owned when captured: no new, missing, renamed, or ambiguous attachment.
+	 * Ownership is by path; this check does not compare attachment bytes.
 	 */
 	function checkOwnership(
 		entry: Entry<TFields>,
@@ -418,7 +406,7 @@ export function createFileTable<TTable extends TableDeclaration>(
 						entries.push(
 							interpret(
 								path,
-								read.data,
+								read.data.version,
 								source,
 								found.data.candidates.get(stem) ?? [],
 							),
@@ -455,7 +443,7 @@ export function createFileTable<TTable extends TableDeclaration>(
 					return Ok(
 						interpret(
 							path,
-							read.data,
+							read.data.version,
 							source,
 							found.data.candidates.get(stem) ?? [],
 						),
@@ -527,17 +515,24 @@ export function createFileTable<TTable extends TableDeclaration>(
 						});
 					}
 					// The row is written last, so it appears only once its attachment exists.
+					const version = await captureVersion(bytes);
 					changes.push({
 						kind: 'write',
 						path,
 						bytes,
-						version: await captureVersion(bytes),
+						version,
 						expected: 'absent',
 					});
-					const applied = await boundary.apply(changes);
+					const applied = await context.publish(changes);
 					if (applied.error) return Err(applied.error);
-					context.saved();
-					return Ok(await accepted(path, source, attachment, []));
+					return Ok(
+						interpret(
+							path,
+							version,
+							source,
+							attachment === undefined ? [] : [attachment],
+						),
+					);
 				},
 			);
 		},
@@ -630,15 +625,16 @@ export function createFileTable<TTable extends TableDeclaration>(
 							expected: 'any',
 						});
 					}
-					const applied = await boundary.apply(changes);
-					if (applied.error) {
-						// Steps that landed are reported, not undone; observations become
-						// stale, but a half-finished rename requests no automatic commit.
-						if (applied.error.name === 'Partial') context.touched();
-						return Err(applied.error);
-					}
-					context.saved();
-					return Ok(await accepted(path, entry.source, attachment, []));
+					const applied = await context.publish(changes);
+					if (applied.error) return Err(applied.error);
+					return Ok(
+						interpret(
+							path,
+							entry.version,
+							entry.source,
+							attachment === undefined ? [] : [attachment],
+						),
+					);
 				},
 			);
 		},
@@ -657,7 +653,7 @@ export function createFileTable<TTable extends TableDeclaration>(
 						found.data.candidates,
 					);
 					if (ownership.error) return ownership;
-					const changes: FileChange[] = [
+					const changes: Extract<FileChange, { kind: 'remove' }>[] = [
 						{ kind: 'remove', path: entry.path, expected: entry.version },
 					];
 					if (entry.attachment !== undefined)
@@ -666,16 +662,10 @@ export function createFileTable<TTable extends TableDeclaration>(
 							path: entry.attachment,
 							expected: 'any',
 						});
-					const applied = await boundary.apply(changes);
-					if (applied.error) {
-						if (applied.error.name === 'Partial') context.touched();
-						return Err(applied.error);
-					}
-					context.saved();
+					const applied = await context.publish(changes);
+					if (applied.error) return Err(applied.error);
 					return Ok({
-						removed: changes.map((change) =>
-							change.kind === 'move' ? change.from : change.path,
-						),
+						removed: changes.map((change) => change.path),
 					});
 				},
 			);

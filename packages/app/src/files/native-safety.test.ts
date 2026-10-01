@@ -70,6 +70,31 @@ async function writeChange(path: string, text: string) {
 	};
 }
 
+test('a partially created row invalidates Git observation without requesting a commit', async () => {
+	const root = await scratch('native-create-');
+	const folder = await openNativeFolder({ root, definition, git: { author } });
+	try {
+		await mkdir(join(root, 'todos/blocked.md'), { recursive: true });
+		await folder.git.status();
+		const created = await folder.tables.todos.create({
+			stem: 'blocked',
+			fields: { title: 'Blocked', done: false },
+			attachment: { extension: 'png', bytes: new Uint8Array([1]) },
+		});
+		expect(created.error?.name).toBe('Partial');
+		expect(await readFile(join(root, 'todos/blocked.png'))).toEqual(
+			Buffer.from([1]),
+		);
+		const observation = folder.git.snapshot.files;
+		expect(observation.state === 'observed' && observation.stale).toBe(true);
+		await folder.close();
+		expect(folder.git.snapshot.lastCommit).toBeUndefined();
+	} finally {
+		await folder.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 describe('native partial moves', () => {
 	test.skipIf(!canDenyWrites)(
 		'a move that cannot retire its source reports the landed destination',

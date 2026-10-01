@@ -109,7 +109,7 @@ export function createFileKv<TValues>(
 	): Promise<Result<KvSnapshot<TValues>, TableWriteError>> {
 		const bytes = encoder.encode(source);
 		const version = await captureVersion(bytes);
-		const applied = await boundary.apply([
+		const applied = await context.publish([
 			{
 				kind: 'write',
 				path: KV_PATH,
@@ -119,7 +119,6 @@ export function createFileKv<TValues>(
 			},
 		]);
 		if (applied.error) return Err(applied.error);
-		context.saved();
 		return Ok(interpret(source, version));
 	}
 
