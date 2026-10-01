@@ -203,7 +203,7 @@ pub async fn transcribe_recording(
         read_blob_samples(&app_handle, &audio_blob_id)
     })
     .map_err(|e| TranscriptionError::AudioReadError {
-        message: e.to_string(),
+        message: error::format_error_chain(&e),
     })?;
 
     let cache = model_cache.inner().clone();
