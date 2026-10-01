@@ -51,12 +51,11 @@
 	</div>
 	<div class="flex-1 min-w-0">
 		<div class="font-medium text-sm truncate">{transcriber.title}</div>
-		<!-- Preserve the exact model confirmation from #2337 in the expanded row;
-		the compact trigger only needs the transcriber identity. -->
+		<!-- Self-hosted / keyed routes surface the selected model id (#2337). -->
 		{#if transcriber.modelId}
 			<div class="text-xs text-muted-foreground truncate">
 				{#if transcriber.endpointHost}
-					{transcriber.modelId} · {transcriber.endpointHost}
+					{transcriber.endpointHost} · {transcriber.modelId}
 				{:else}
 					{transcriber.modelId}
 				{/if}
