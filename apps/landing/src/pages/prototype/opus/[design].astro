@@ -2,7 +2,7 @@
 // Independent Opus pages are kept intact for judgment; this route only presents them.
 import { readFileSync } from 'node:fs';
 export function getStaticPaths() {
-	return import.meta.env.DEV ? ['board', 'atelier', 'instrument', 'journal', 'refined', 'refinement', 'publishing'].map(design => ({ params: { design } })) : [];
+	return import.meta.env.DEV ? ['board', 'atelier', 'instrument', 'journal', 'refined', 'refinement', 'publishing', 'journey'].map(design => ({ params: { design } })) : [];
 }
 const designs = [
 	{ id: 'atelier', title: 'A. Independent software studio' },
@@ -10,6 +10,7 @@ const designs = [
 	{ id: 'journal', title: 'C. Bold graphic identity' },
 	{ id: 'refined', title: 'A, refined with both design skills' },
 	{ id: 'publishing', title: 'A, with personal publishing' },
+	{ id: 'journey', title: 'A, with the revised reader journey' },
 ];
 const comparison = Astro.params.design === 'refinement';
 const shown = designs.filter(design => comparison ? ['atelier', 'refined'].includes(design.id) : ['atelier', 'instrument', 'journal'].includes(design.id));
