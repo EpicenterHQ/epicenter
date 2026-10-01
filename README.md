@@ -46,6 +46,7 @@ Start an application with `bun dev:<app>`. App READMEs document their prerequisi
 
 Run `bun run check` for the repository’s lint, typecheck, test, and structural checks.
 
+- [Building a personal app: target design guide](docs/guides/personal-apps.md)
 - [Application composition](apps/README.md)
 - [Application package](packages/app/README.md)
 - [Hosted API setup](apps/api/README.md)

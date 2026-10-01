@@ -4,6 +4,7 @@ This directory contains knowledge articles, guides, and reference materials for 
 
 ## Start Here
 
+- [Building a personal app: design guide](guides/personal-apps.md): the target developer journey, unresolved interfaces, and evidence required before it becomes an executable guide.
 - [Decisions (ADRs)](adr/README.md): the authoritative record of durable architecture decisions and why. Trust this over any spec.
 - [Context](CONTEXT.md): shared vocabulary for the platform's concepts.
 - [Positioning](positioning.md): canonical public claims and vocabulary rules.
@@ -23,7 +24,7 @@ High-level architectural documentation and system diagrams.
 Blog posts and longer-form content.
 
 ### `/guides`
-How-to guides for specific tasks or integrations.
+How-to guides for specific tasks or integrations, and explicitly labeled design guides for workflows under development.
 
 ### `/patterns`
 Documented coding patterns and best practices used in the codebase.
