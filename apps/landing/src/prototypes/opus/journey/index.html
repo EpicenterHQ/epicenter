@@ -1079,7 +1079,7 @@ html { scrollbar-color: var(--ink-3) var(--paper); }
             <button class="file" role="tab" id="tab-soup" aria-controls="pv-soup" aria-selected="false" tabindex="-1">
               <svg class="ico" viewBox="0 0 13 15" aria-hidden="true"><path d="M1 .5h7.5L12.5 4.5V14.5H1z" fill="none" stroke="currentColor"/><path d="M3.5 8h6M3.5 10.5h4" stroke="currentColor"/></svg>lentil-soup.md
             </button>
-            <span class="grp" aria-hidden="true">practice/</span>
+            <span class="grp" aria-hidden="true">query snapshot</span>
             <button class="file" role="tab" id="tab-exp" aria-controls="pv-exp" aria-selected="false" tabindex="-1">
               <svg class="ico" viewBox="0 0 13 15" aria-hidden="true"><ellipse cx="6.5" cy="3" rx="5.5" ry="2.2" fill="none" stroke="currentColor"/><path d="M1 3v9c0 1.2 2.5 2.2 5.5 2.2S12 13.2 12 12V3M1 7.5c0 1.2 2.5 2.2 5.5 2.2S12 8.7 12 7.5" fill="none" stroke="currentColor"/></svg>index.sqlite3
             </button>
@@ -1289,7 +1289,7 @@ Better the next day.</pre>
   <div class="grid foot-cols">
     <p class="foot-lead">Personal software, built on files you own.</p>
     <div class="foot-col">
-      <span class="label">Source</span>
+      <span class="label">Explore</span>
       <ul class="foot-list">
         <li><a href="https://github.com/EpicenterHQ/epicenter" rel="noopener">Epicenter on GitHub</a></li>
         <li><a href="https://whispering.bradenwong.com" rel="noopener">Whispering</a></li>
@@ -1338,7 +1338,7 @@ Better the next day.</pre>
   const stop = $(".headline .stop");
   const LABELS = [
     { at: 2.25, lean: 0.05, parts: [["your files", true], [" · markdown · sqlite", false]] },
-    { at: 4.05, lean: 0.18, parts: [["epicenter", true], [" · the foundation · in development", false]] },
+    { at: 4.05, lean: 0.18, parts: [["epicenter", true], [" · the foundation", false]] },
     { at: 6.0, lean: 0.3, parts: [["apps", true], [" · whispering · vocab · yours", false]] },
   ];
   const RADII = [0.5, 1.1, 1.65, 2.25, 3.1, 4.05, 5.0, 6.0, 7.2, 8.6, 10.2, 12];
@@ -1455,6 +1455,10 @@ Better the next day.</pre>
 
   /* ---------- Folder specimen tabs ---------- */
   const tabs = $$(".files [role=tab]");
+  const tabLayout = matchMedia("(max-width: 560px)");
+  const setTabOrientation = () => $(".files").setAttribute("aria-orientation", tabLayout.matches ? "horizontal" : "vertical");
+  setTabOrientation();
+  tabLayout.addEventListener("change", setTabOrientation);
   function selectTab(tab, focus) {
     for (const t of tabs) {
       const on = t === tab;
@@ -1594,7 +1598,7 @@ Better the next day.</pre>
     vActions.replaceChildren();
     if (!queue.length) {
       vPhrase.textContent = "That’s the whole deck.";
-      const b = button("Shuffle again", "solid", () => { resetDeck(); showFront(true); bump(); });
+      const b = button("Practice again", "solid", () => { resetDeck(); showFront(true); bump(); });
       vActions.append(b);
       tally();
       if (focusAction) b.focus();
@@ -1616,6 +1620,7 @@ Better the next day.</pre>
       button("Got it", "solid", () => { queue.shift(); known++; showFront(true); bump(); }),
       button("Again later", "", () => { queue.push(queue.shift()); again++; showFront(true); bump(); })
     );
+    vActions.firstChild.setAttribute("aria-describedby", "v-mean v-ex");
     vActions.firstChild.focus();
   }
   resetDeck();
