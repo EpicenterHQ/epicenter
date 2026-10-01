@@ -71,7 +71,7 @@ its `lib`/`module` win where they must. Never hand-edit a generated config.
 The two canonical library shapes in full:
 
 ```jsonc
-// bun library: packages/data, workspace, field, sqlite, sync, identity, ...
+// Bun library: packages/sqlite, packages/sync, packages/principal, ...
 {
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {

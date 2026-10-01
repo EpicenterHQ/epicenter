@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 include!("src/command_names.rs");
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=EPICENTER_SERVER_ORIGIN");
     bake_transcribe_rpath();
     stage_transcribe_runtime();
 

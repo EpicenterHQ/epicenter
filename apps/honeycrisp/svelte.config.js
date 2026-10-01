@@ -17,9 +17,6 @@ const config = {
 			fallback: 'index.html',
 		}),
 		...(isEpicenterHost && { paths: { base: '/apps/honeycrisp' } }),
-		alias: {
-			$routes: './src/routes',
-		},
 	},
 	preprocess: vitePreprocess(),
 };

@@ -1,8 +1,9 @@
 # Skills Editor
 
-A local browser editor for Epicenter agent skills. Records live in the Browser
-workspace runtime's canonical OPFS store. Instructions and reference bodies are
-the `content` nodes on their owning rows in the workspace document. CodeMirror
+An editor for Epicenter agent skills. Its route currently refuses startup
+pending a product and authentication decision. The Account-taking adapter
+opens the Personal store through `openPersonal` and IndexedDB. Instructions and reference bodies are
+the body nodes on their owning rows in the workspace document. CodeMirror
 binds directly to those live nodes.
 
 Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo.
@@ -10,23 +11,24 @@ AGPL-3.0 licensed.
 
 ## Workspace composition
 
-The mounted root layout calls `openSkillsApplication()`, renders its stable boot
-promise with Svelte's `{#await}` block, and provides only the fully opened and
-hydrated application to descendants. Importing Skills modules does not open
-storage. The workspace declaration validates canonical JSON when it is read. Rows that do not
+`openSkillsRuntime({ account })` awaits `openPersonal(skillsDefinition, { account })`
+and constructs UI state over the ready store. Its disposal stops UI state before
+closing the store. The mounted layout renders its
+current authentication refusal through Svelte's `{#await}` failure branch.
+Importing Skills modules opens no storage. The declaration validates row data. Rows that do not
 conform stay stored and appear in the UI's invalid-record count rather than
 being silently deleted or migrated.
 
 The app uses runtime-owned structural record IDs. Each valid skill and reference
 also carries a stable `sourceId` in its JSON payload for domain-level references.
 Deleting a skill explicitly deletes its currently conforming reference records.
-Deleting a row also removes its content node, which is nested under it.
+Deleting a row also removes its body node, which is nested under it.
 
-Instructions and reference bodies are rich fields on their owning rows:
+Instructions and reference bodies are collaborative nodes on their owning rows:
 
 ```ts
-skills.data.tables.skills.get(skillId)?.content;
-skills.data.tables.skillReferences.get(referenceId)?.content;
+skills.data.tables.skills.body(skillId);
+skills.data.tables.skillReferences.body(referenceId);
 ```
 
 Application code never constructs addresses, authority identities, or providers.
@@ -36,13 +38,13 @@ There is one document, and the runtime owns it.
 
 The single route renders a resizable split view with a searchable skill list,
 metadata editor, Markdown instructions editor, references panel, and command
-palette. CodeMirror binds directly to the row's `content` field.
+palette. CodeMirror binds directly to the row's body node.
 
 ## Development
 
-The Browser OPFS runtime requires a cross-origin isolated page. The SvelteKit
-server hook and Vite dev and preview servers set the required COOP and COEP
-headers. Production proxies must preserve those headers.
+The SvelteKit server hook and Vite dev and preview servers set COOP and COEP
+headers. Document persistence uses IndexedDB. Opening the Skills store also acquires its local SQLite namespace; named
+databases remain unopened until `store.sqlite.open(name)`.
 
 From the repository root:
 

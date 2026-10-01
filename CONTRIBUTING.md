@@ -72,7 +72,7 @@ Currently, **Whispering** (`apps/whispering`) is the most mature application and
 
 ### Working without Infisical access
 
-Most of the repo does not need Infisical. Whispering, the Tab Manager extension, and every shared package (`@epicenter/data`, `@epicenter/ui`, and the rest) build and run from a fresh clone with nothing more than `bun install`.
+Most of the repo does not need Infisical. Whispering, the Tab Manager extension, and every shared package (`@epicenter/app/store`, `@epicenter/ui`, and the rest) build and run from a fresh clone with nothing more than `bun install`.
 
 The only app that requires Infisical is `apps/api` (the hosted hub). Running it (`bun run dev:api` from the repo root, or `bun run dev` from `apps/api/`) needs real API keys and the auth secret, so the dev script refuses to start without an `infisical login`.
 

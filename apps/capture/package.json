@@ -1,0 +1,52 @@
+{
+	"name": "@epicenter/capture-app",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"imports": {
+		"#platform/auth": {
+			"epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",
+			"default": "./src/lib/platform/auth.browser.ts"
+		}
+	},
+	"scripts": {
+		"dev": "vite dev",
+		"build": "NODE_ENV=production vite build",
+		"build:epicenter": "EPICENTER_HOST=1 bun run build",
+		"preview": "vite preview",
+		"smoke:browser": "bun scripts/browser-smoke.ts",
+		"prepare": "svelte-kit sync || echo ''",
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@epicenter/app": "workspace:*",
+		"@epicenter/app-shell": "workspace:*",
+		"@epicenter/auth": "workspace:*",
+		"@epicenter/capture": "workspace:*",
+		"@epicenter/constants": "workspace:*",
+		"@epicenter/svelte": "workspace:*",
+		"@epicenter/ui": "workspace:*",
+		"@lucide/svelte": "catalog:",
+		"@y/prosemirror": "2.0.0-12",
+		"@y/y": "14.0.0-rc.26",
+		"prosemirror-keymap": "^1.2.0",
+		"prosemirror-model": "^1.25.0",
+		"prosemirror-state": "^1.4.0",
+		"prosemirror-view": "^1.41.0"
+	},
+	"devDependencies": {
+		"@epicenter/vite-config": "workspace:*",
+		"@sveltejs/adapter-static": "catalog:",
+		"@sveltejs/kit": "catalog:",
+		"@sveltejs/vite-plugin-svelte": "catalog:",
+		"@types/bun": "catalog:",
+		"playwright": "^1.61.1",
+		"svelte": "catalog:",
+		"svelte-check": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"wrangler": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

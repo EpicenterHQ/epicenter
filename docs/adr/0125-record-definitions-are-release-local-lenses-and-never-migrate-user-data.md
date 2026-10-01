@@ -2,6 +2,7 @@
 
 - **Status:** Accepted, amended 2026-08-30 at where a nonconforming row surfaces
 - **Date:** 2026-07-15
+- **Amended by:** [ADR-0420](0420-epicenter-working-copies-use-the-matter-file-contract.md) at runtime write admission: ordinary JSON assignments, including owner-permitted working-copy edits, do not require conformance. Static patch types do not imply runtime schema validation.
 - **Supersedes:** [ADR-0006](0006-schema-evolution-keeps-the-version-tuple-and-refuses-repair-apis.md)
 - **Relates:** [ADR-0119](0119-complete-record-maps-sync-through-schema-blind-server-ordered-patches.md), [ADR-0120](0120-fields-validate-present-values-and-table-lenses-own-presence.md), [ADR-0122](0122-logical-records-are-portable-sqlite-files-and-views-are-runtime-state.md)
 

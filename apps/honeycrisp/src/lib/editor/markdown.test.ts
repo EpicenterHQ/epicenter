@@ -1,8 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import * as Y from '@y/y';
 
-import { expectOk } from 'wellcrafted/testing';
-
 import { honeycrispDefinition } from '../data.js';
 import { parseNoteBody, serializeNoteBody } from './markdown.js';
 import { noteSchema } from './schema.js';
@@ -80,7 +78,7 @@ describe('the note body Markdown codec', () => {
 	});
 
 	test('the declared codec round-trips a body through an attached node', () => {
-		const codec = honeycrispDefinition.tables.notes.content;
+		const codec = honeycrispDefinition.tables.notes.body;
 		const markdown = [
 			'# Title',
 			'',
@@ -89,9 +87,9 @@ describe('the note body Markdown codec', () => {
 			'- [x] done',
 		].join('\n');
 
-		// The codec builds its own node and hands it back (ADR-0296, amended), so
-		// nothing here mints or attaches one first.
-		const built = expectOk(codec.decode(markdown));
+		const content = codec.decode(markdown);
+		const built = new Y.Node();
+		built.applyDelta(content);
 		// Integrated before it is read, the way `create` does it. A detached node
 		// accumulates its writes in a prelim delta and READS AS EMPTY until
 		// `_integrate` replays them, so encoding one straight out of the codec
@@ -102,7 +100,7 @@ describe('the note body Markdown codec', () => {
 			document.transact(() => {
 				row.setAttr('content' as never, built as never);
 			});
-			const node = row.getAttr('content' as never) as Y.Type;
+			const node = row.getAttr('content' as never) as Y.Node;
 			// What `decode` produced is what `encode` reads back: the pair is the
 			// identity on the text.
 			expect(codec.encode(node)).toBe(markdown);
@@ -110,16 +108,5 @@ describe('the note body Markdown codec', () => {
 		} finally {
 			document.destroy();
 		}
-	});
-
-	test('the node it returns is fresh, so two rows never share one', () => {
-		const codec = honeycrispDefinition.tables.notes.content;
-		const one = expectOk(codec.decode('# One'));
-		const two = expectOk(codec.decode('# Two'));
-		expect(one).not.toBe(two);
-		// Detached until `create` integrates it. A node that already belongs to a
-		// document is what `createRow` refuses, because two rows given one node
-		// would share one body.
-		expect(one.doc).toBeNull();
 	});
 });

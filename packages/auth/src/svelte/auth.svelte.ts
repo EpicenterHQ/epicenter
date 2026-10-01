@@ -1,35 +1,33 @@
 import { createSubscriber } from 'svelte/reactivity';
 import type { Brand } from 'wellcrafted/brand';
-import type { AuthClient } from '../index.js';
-
-// The one composition shape (ADR-0088): the app reads `auth.state` once at
-// boot, and a change of auth generation reloads the page so the next boot
-// composes from scratch.
-export { reloadOnAuthChange } from './reload-on-auth-change.js';
+import type { AuthClient, AuthState } from '../index.js';
 
 /**
- * An auth client whose `state` and `connection.status` track in Svelte.
+ * An auth client whose `state` tracks in Svelte.
  *
- * The brand exists because the same reads are correct two opposite ways and
- * the unbranded type cannot tell you which you are holding. A route reads
- * `auth.state` once at boot and must NOT track (ADR-0088: a page lifetime is
- * one auth generation, and `reloadOnAuthChange` replaces the document rather
- * than swapping state under it). A component that renders the reconnect
- * affordance must track, because `signed-in` degrading to `reauth-required` is
- * the one transition the gate deliberately refuses to reload.
+ * The brand marks the reads that track, and handing a raw core client to a
+ * surface that needs them is a type error rather than a silently frozen
+ * popover. Since the brand is a subtype, code that only reads once needs no
+ * change.
  *
- * So a component that tracks asks for `ReactiveAuthClient`, and a boot reader
- * keeps asking for `AuthClient`: the brand is a subtype, so nothing that reads
- * once has to change, and handing a raw core client to a surface that tracks
- * is a type error rather than a silently frozen popover.
+ * Application bootstrap reads the plain client once. This adapter belongs to
+ * UI consumers that display changing identity or credential refusal; it does not
+ * own application lifetime or select a replacement store.
+ *
+ * The parameter carries the wrapped client's own type through, because a
+ * `CallbackAuthClient` that came out of here as a bare `AuthClient` would lose
+ * `completeSignIn` in the type while keeping it at runtime, and the callback
+ * route reads that member. It defaults to `AuthClient`, so every existing
+ * annotation still means what it meant.
  */
-export type ReactiveAuthClient = AuthClient & Brand<'ReactiveAuthClient'>;
+export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> =
+	TClient & { readonly state: AuthState } & Brand<'ReactiveAuthClient'>;
 
 /**
- * Bridge an auth client's two external facts into Svelte's graph.
+ * Bridge an auth client's state into Svelte's graph.
  *
  * `from*` because that is what every Svelte adapter in this repository is
- * called: `fromData` wraps a store and `fromEpicenter` wraps a handle. It was
+ * called: `fromData` wraps a store. It was
  * `reactive` while it was the only one, which read as a property of the thing
  * rather than as the verb that builds one.
  *
@@ -43,46 +41,29 @@ export type ReactiveAuthClient = AuthClient & Brand<'ReactiveAuthClient'>;
  * wrap a client this module had not anticipated. One function takes any of
  * them.
  *
- * It spreads the client once and re-declares two getters, so a client whose
- * OTHER members are live getters loses them. Every client in this package
- * states the rest as values, which is what makes the spread safe.
+ * Core clients expose `getState()` for explicit reads. This adapter adds the
+ * reactive `state` property and copies the client's methods and values.
  *
  * `createSubscriber` rather than a `$state.raw` shadow, and the difference is
  * not style. It is lazy: the subscription starts only while something is
  * actively reading inside a tracking context, and stops when the last reader
  * is destroyed. That is what lets one wrapped client serve both contracts at
  * once, because a boot-time read outside any effect subscribes to nothing and
- * simply falls through to the live getter. A shadow would subscribe eagerly,
+ * simply calls `getState()`. A shadow would subscribe eagerly,
  * once per component instance, for that component's whole life.
  *
- * Both facts are wrapped uniformly even though not every client can change
- * either one. The hosted OAuth and same-origin cookie clients report a
- * constant `connected` with an `onChange` that never fires, and the desktop
- * broker's identity is immutable for its process generation, so their
- * subscribers simply never invalidate. Uniformity is the point: the brand
- * promises that reads track IF the underlying client ever changes, which is a
- * promise every client can keep.
  */
-export function fromAuth(authClient: AuthClient): ReactiveAuthClient {
+export function fromAuth<TClient extends AuthClient>(
+	authClient: TClient,
+): ReactiveAuthClient<TClient> {
 	const subscribeState = createSubscriber((update) =>
 		authClient.onStateChange(update),
-	);
-	const connection = authClient.connection;
-	const subscribeConnection = createSubscriber((update) =>
-		connection.onChange(update),
 	);
 	return {
 		...authClient,
 		get state() {
 			subscribeState();
-			return authClient.state;
+			return authClient.getState();
 		},
-		connection: {
-			...connection,
-			get status() {
-				subscribeConnection();
-				return connection.status;
-			},
-		},
-	} as ReactiveAuthClient;
+	} as ReactiveAuthClient<TClient>;
 }

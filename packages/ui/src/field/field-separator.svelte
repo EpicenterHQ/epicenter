@@ -21,7 +21,7 @@
 	data-slot="field-separator"
 	data-content={hasContent}
 	class={cn(
-		'cn-field-separator relative',
+		'-my-2 h-5 text-sm group-data-[variant=outline]/field-group:-mb-2 relative',
 		className,
 	)}
 	{...restProps}
@@ -29,7 +29,7 @@
 	<Separator class="absolute inset-0 top-1/2" />
 	{#if children}
 		<span
-			class="cn-field-separator-content bg-background relative mx-auto block w-fit"
+			class="text-muted-foreground px-2 bg-background relative mx-auto block w-fit"
 			data-slot="field-separator-content"
 		>
 			{@render children()}

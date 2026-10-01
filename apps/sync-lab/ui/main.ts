@@ -1,4 +1,4 @@
-import { field, plainText } from '@epicenter/data/definition';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 
 /**
  * THROWAWAY. One page, two devices, one row crossing between them.
@@ -9,22 +9,23 @@ import { field, plainText } from '@epicenter/data/definition';
  * thing no test in this repository can establish.
  */
 
-import { defineData, defineTable } from '@epicenter/data/definition';
-import { createAccountStore } from '@epicenter/data/direct';
-import { createSyncConnection } from '@epicenter/data/sync';
+import { openData } from '@epicenter/app/data';
+import { createSyncConnection } from '@epicenter/app/sync';
 import { createBrowserSqliteAdapter } from '@epicenter/sqlite/browser';
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 
-const labDatabase = defineData({
+const labDatabase = defineStore({
 	id: 'so.epicenter.synclab',
 	kv: {},
 	tables: {
 		notes: defineTable({
-			title: field.string(),
-			device: field.string(),
-			at: field.string(),
-			body: field.string(),
-			content: plainText(),
+			fields: {
+				title: field.string(),
+				device: field.string(),
+				at: field.string(),
+				content: field.string(),
+			},
+			body: plainText(),
 		}),
 	},
 });
@@ -38,10 +39,10 @@ const device =
 	})();
 
 const sqlite3 = await sqlite3InitModule();
-const db = createAccountStore({
-	definition: labDatabase,
-	sqlite: createBrowserSqliteAdapter(new sqlite3.oo1.DB(':memory:')),
-});
+const db = await openData(
+	labDatabase,
+	createBrowserSqliteAdapter(new sqlite3.oo1.DB(':memory:')),
+);
 const store = db;
 
 /**
@@ -54,6 +55,9 @@ const store = db;
  * two of the four.
  */
 const connection = createSyncConnection({
+	onRetired() {
+		throw new Error('This sync laboratory does not restore generations');
+	},
 	store,
 	dial: ({ cursor, opened, received, closed }) => {
 		const url = new URL('/sync', location.href);
@@ -110,7 +114,7 @@ function render(): void {
 	status.textContent = [
 		`device ${device}`,
 		`cursor ${state.cursor}`,
-		state.connected ? 'connected' : `dialling (attempt ${state.attempts})`,
+		state.connected ? 'connected' : `dialling (failures ${state.failures})`,
 		state.inFlight ? `in flight (${state.owed} B)` : 'idle',
 		state.lastError === undefined
 			? 'no errors'
@@ -130,7 +134,7 @@ function write(fields: { title: string }): void {
 		title: fields.title,
 		device,
 		at: new Date().toISOString(),
-		body: '',
+		content: '',
 	});
 	// Nothing nudges. The store announces the work it authored and the driver
 	// starts the idle timer, which is what turns a burst of transactions into
@@ -154,7 +158,7 @@ paste.addEventListener('click', () => {
 		title: 'a 3 MB paste',
 		device,
 		at: new Date().toISOString(),
-		body: 'x'.repeat(3_000_000),
+		content: 'x'.repeat(3_000_000),
 	});
 	render();
 });

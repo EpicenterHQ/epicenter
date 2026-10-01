@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This directory holds immutable, cross-cutting values that more than one part of the app needs and that have no single obvious owner: the language list, sound names, provider registries, and the setting-value enums the workspace schema validates against.
+This directory holds immutable values shared across the app, including the language list, sound names, recording settings, and import formats. Inference connection presets belong to `@epicenter/client`; Whispering has no provider registry.
 
 ## What belongs here (and what does not)
 
@@ -10,7 +10,7 @@ A constant lives with the code that owns its meaning. Only put something here wh
 
 - **Logic and functions** (formatters, guards, validators, normalizers) live in `$lib/utils` or `$lib/services`, never here. Example: shortcut parsing, labeling, and matching live in `$lib/utils/key-binding.ts`.
 - **Types owned by one module** live in that module. Example: `DeviceAcquisitionOutcome` lives in the `@epicenter/recorder` package, which owns browser microphone device vocabulary.
-- **Registries with behavior** live next to their service. The transcription and inference registries stay here only because their service-ID enums are shared vocabulary the workspace schema validates against.
+- **Registries with behavior** live next to their service.
 - **Build-target values** (platform identity) live behind the `#platform/*` seam (see below).
 
 Rule of thumb: no computed behavior, no functions, no runtime schema objects. If you reach for `arktype` or write a function, it does not belong here.
@@ -21,12 +21,9 @@ Rule of thumb: no computed behavior, no functions, no runtime schema objects. If
 constants/
 ├── audio/                  # Recording settings: bitrate, triggers, button icons (folder + barrel)
 ├── icons/                  # Provider brand SVG assets
-├── inference.ts            # Text-completion provider/model registry
+├── import-formats.ts       # Supported recording import formats
 ├── languages.ts            # Supported transcription languages
-├── local-model-unload-policy.ts  # Memory unload-policy setting (mirrored in Rust)
-├── sounds.ts               # Sound effect names
-├── transcription.ts        # Transcription service registry
-└── urls.ts                 # App route pathnames
+└── sounds.ts               # Sound effect names
 ```
 
 Domains with several files keep a folder and a barrel `index.ts` (`audio/`). A single-file domain is just a flat file: a one-line barrel re-exporting one file earns nothing.
@@ -51,7 +48,6 @@ import { RECORDING_TRIGGER_OPTIONS } from '$lib/constants/audio';
 
 // Flat domains are imported directly
 import { SUPPORTED_LANGUAGES_OPTIONS } from '$lib/constants/languages';
-import { TRANSCRIPTION } from '$lib/constants/transcription';
 ```
 
 Barrels use **explicit** exports (not `export *`) so bundlers can analyze them:

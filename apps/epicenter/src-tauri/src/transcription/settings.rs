@@ -293,7 +293,9 @@ mod tests {
         for id in &ids {
             settings.set_active_model_id(Some(id.clone())).unwrap();
         }
-        settings.set_unload_policy(UnloadPolicy::Immediately).unwrap();
+        settings
+            .set_unload_policy(UnloadPolicy::Immediately)
+            .unwrap();
         settings.set_unload_policy(UnloadPolicy::Never).unwrap();
 
         let reloaded = LocalTranscriptionSettings::load(path.clone());
@@ -307,7 +309,10 @@ mod tests {
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .filter(|name| name.ends_with(".tmp"))
             .collect();
-        assert!(leftovers.is_empty(), "temp files left behind: {leftovers:?}");
+        assert!(
+            leftovers.is_empty(),
+            "temp files left behind: {leftovers:?}"
+        );
 
         std::fs::remove_dir_all(dir).ok();
     }

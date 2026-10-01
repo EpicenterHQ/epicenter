@@ -15,7 +15,7 @@ survive a reload. In a browser the only durable backing for SQLite is the origin
 private file system, and taking a synchronous access handle to it is available
 only in a dedicated worker. Re-measured on 2026-08-31 in real Chromium, with the
 worker arm as the control that must succeed
-(`packages/data/evidence/browser/sync-access-handle.ts`):
+(`packages/app/evidence/data/browser/sync-access-handle.ts`):
 
 ```txt
 context           available  detail

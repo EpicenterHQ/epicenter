@@ -26,10 +26,10 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@epicenter/data": "workspace:*",
-		"@y/y": "14.0.0-rc.24",
+		"@y/y": "14.0.0-rc.26",
 		"wellcrafted": "catalog:",
-		"yaml": "^2.8.0"
+		"yaml": "^2.8.0",
+		"@epicenter/app": "workspace:*"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",

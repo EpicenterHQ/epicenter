@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-01
+- **Amended by:** [ADR-0368](0368-local-mail-preserves-known-cache-schemas-during-upgrades.md), preserving known cache schemas during upgrades.
 - **Built.** The subject is the partition key, the two lifetimes are two kinds
   of file, `user_version` carries the shape, and `TRUSTED_DEFINITIONS` is empty.
   What this replaced: a minted `accountId` row in Epicenter Data, one shared

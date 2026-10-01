@@ -78,7 +78,7 @@ AGENTS.md
 .agents/skills/code-audit/SKILL.md
 .agents/skills/typescript/SKILL.md
 .agents/skills/refactoring/SKILL.md
-.agents/skills/method-shorthand-jsdoc/SKILL.md
+.agents/skills/factory-function-composition/SKILL.md
 .agents/skills/one-sentence-test/SKILL.md
 .agents/skills/post-implementation-review/SKILL.md
 .agents/skills/collapse-pass/references/never-touch.md

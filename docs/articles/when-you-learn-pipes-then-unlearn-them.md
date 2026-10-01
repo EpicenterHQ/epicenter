@@ -53,7 +53,7 @@ This is where the pipe dream starts to crack. You wanted to remove boilerplate, 
 Then you look at Rust. No pipe operator. No `andThen` chains. Just this:
 
 ```rust
-fn process_user(id: UserId) -> Result<Profile, AppError> {
+fn process_user(id: UserId) -> Result<Profile, DeviceError> {
     let user = get_user(id)?;
     let dashboard = if user.is_admin {
         get_admin_dashboard(&user)?

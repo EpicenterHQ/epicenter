@@ -1,119 +1,82 @@
 <script lang="ts">
-	import { createAgentChatState } from '@epicenter/app-shell/agent-chat';
+	import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference-selections';
+	import { createInferenceCatalog } from '@epicenter/app-shell/inference-picker';
+	import { PersistenceNotice } from '@epicenter/app-shell/persistence-notice';
+	import { AccountPopover } from '@epicenter/app-shell/account-popover';
+	import { toHostedCatalog } from '@epicenter/constants/ai-providers';
+	import { fromData } from '@epicenter/svelte';
 	import { Button } from '@epicenter/ui/button';
-	import * as Sidebar from '@epicenter/ui/sidebar';
-	import { VOCAB_MODEL, VOCAB_SYSTEM_PROMPT } from '$lib/data';
-	import type { ReactiveData } from '@epicenter/svelte';
-	import type { vocabDefinition } from '$lib/data';
-	import type { ReplicaData } from '@epicenter/data';
+	import { LightSwitch } from '@epicenter/ui/light-switch';
 	import { onDestroy } from 'svelte';
-	import { runVocabMutation } from '$lib/mutation';
-	import { buildPracticeOpening } from '$lib/practice';
-	import { reportBackgroundError } from '$lib/report';
-	import { createEntriesState } from '$lib/state/entries.svelte';
-	import { inferenceConnections } from '$lib/state/inference-connections.svelte';
-	import { createSettingsState } from '$lib/state/settings.svelte';
-	import { setVocabSurface } from '$lib/surface';
+	import { auth } from '$lib/auth.svelte.js';
+	import { listChats, startChat } from '$lib/chat/messages.js';
+	import { VOCAB_MODEL } from '$lib/data.js';
+	import { createEntriesState } from '$lib/entries.svelte.js';
+	import type { openVocabResources } from '$lib/resources.js';
 	import ConversationView from './ConversationView.svelte';
-	import VocabSidebar from './VocabSidebar.svelte';
+	import FocusWords from './FocusWords.svelte';
+	import WordsView from './WordsView.svelte';
 
-	// The opened store, awake, and adapted before it was handed over. It arrives
-	// as a prop rather than through a context provider, because there is one
-	// route and this component only mounts under `ready`: the type carries "the
-	// store is open" without a second object to own and dispose.
-	//
-	// One document, because an account is required. Everything below reads
-	// `data` and never asks which one it is.
-	let {
-		data,
-	}: { data: ReactiveData<ReplicaData<typeof vocabDefinition>> } = $props();
-
-	// Read once, not `$derived`: the route mounts this exactly once per opened
-	// store, so `data` never changes while this component lives.
+	let { data: opened }: { data: Awaited<ReturnType<typeof openVocabResources>> } = $props();
 	/* svelte-ignore state_referenced_locally */
-	const entries = createEntriesState({ data });
-	setVocabSurface({ entries });
-
-	// The shared chat registry (ADR-0047/0059) with Vocab's variation injected:
-	// capability-free (no tools, no approval), one general multilingual system
-	// prompt, and the hosted VOCAB_MODEL as the default a new conversation starts
-	// on. The active conversation lives in internal state (Vocab has no URL seam).
+	const personal = fromData(opened.personal);
 	/* svelte-ignore state_referenced_locally */
-	const chat = createAgentChatState({
-		table: data.tables.conversations,
-		reportBackgroundError,
-		connections: inferenceConnections,
-		agent: {
-			buildSystemPrompts: () => [VOCAB_SYSTEM_PROMPT],
-			defaultModel: VOCAB_MODEL,
-		},
-	});
-
+	const local = fromData(opened.local);
 	/* svelte-ignore state_referenced_locally */
-	const settings = createSettingsState({ data });
+	const entries = createEntriesState({ data: personal });
+	/* svelte-ignore state_referenced_locally */
+	const catalog = createInferenceCatalog({ ai: opened.inference, signal: opened.signal, hostedModels: toHostedCatalog([VOCAB_MODEL]) });
+	/* svelte-ignore state_referenced_locally */
+	const selections = createBrowserInferenceSelections('vocab', opened.account);
+	/* svelte-ignore state_referenced_locally */
+	const accountKey = JSON.stringify([opened.account.authorityId, opened.account.principalId]);
+	const chats = $derived(listChats(local.tables.chats.rows, local.tables.messages.rows, accountKey));
+	let selectedChatId = $state<string | null>(null);
+	let view = $state<'words' | 'chat'>('words');
+	let historyOpen = $state(false);
+	let focusOpen = $state(false);
+	let openingId = $state<string | null>(null);
+	const selectedChat = $derived(chats.find((chat) => chat.id === selectedChatId));
 
-	onDestroy(() => {
-		chat[Symbol.dispose]();
-		entries[Symbol.dispose]();
-		settings[Symbol.dispose]();
-	});
-
-	/**
-	 * Practice opens its own conversation, titled after the chosen entries, and
-	 * the compiled turn is that conversation's first message. Whatever thread was
-	 * open is left exactly as it was and stays there to return to. The passage
-	 * comes back under the tutor system prompt; nothing is written to the
-	 * entries.
-	 */
-	function practice(entryTexts: string[]) {
-		if (entryTexts.length === 0) return;
-		runVocabMutation(
-			() => chat.createConversation(buildPracticeOpening(entryTexts)),
-			'Could not start a practice session',
-		);
+	function begin(focus: { entryId: string; text: string }[]) {
+		const chat = startChat(local.tables.chats, accountKey, focus);
+		selectedChatId = chat.id;
+		openingId = chat.id;
+		view = 'chat';
 	}
+	function openChat(id: string) {
+		selectedChatId = id;
+		openingId = null;
+		historyOpen = false;
+		view = 'chat';
+	}
+	onDestroy(() => { entries[Symbol.dispose](); selections[Symbol.dispose](); });
 </script>
 
-<Sidebar.Provider>
-	<VocabSidebar
-		conversations={chat.conversations}
-		activeConversationId={chat.activeConversationId}
-		onCreate={() =>
-			runVocabMutation(
-				() => chat.createConversation(),
-				'Could not start a conversation',
-			)}
-		onSwitch={(conversationId) => chat.switchTo(conversationId)}
-		onPractice={practice}
-	/>
-
-	<main class="flex h-dvh flex-1 flex-col">
-		<header class="flex items-center justify-between border-b px-4 py-3">
-			<div class="flex items-center gap-3">
-				<Sidebar.Trigger />
-				<h1 class="text-lg font-semibold">Vocab</h1>
-			</div>
-
-			<div class="flex items-center gap-2">
-				<Button
-					variant={settings.showReadings ? 'default' : 'outline'}
-					size="sm"
-					onclick={() =>
-						runVocabMutation(
-							() => settings.toggleReadings(),
-							'Could not save your reading preference',
-						)}
-					aria-pressed={settings.showReadings}
-					aria-label="Toggle pronunciation readings"
-				>
-					{settings.showReadings ? 'Hide readings' : 'Show readings'}
-				</Button>
-			</div>
-		</header>
-
-		<ConversationView
-			active={chat.active}
-			showReadings={settings.showReadings}
-		/>
-	</main>
-</Sidebar.Provider>
+<PersistenceNotice persistence={personal.persistence} />
+<PersistenceNotice persistence={local.persistence} />
+<div class="flex h-dvh min-w-0 flex-col">
+	<header class="flex items-center justify-between border-b px-4 py-2">
+		<div class="flex items-center gap-2"><h1 class="text-lg font-semibold">Vocab</h1><Button size="sm" variant={view === 'words' ? 'default' : 'ghost'} onclick={() => view = 'words'}>Words</Button><Button size="sm" variant={view === 'chat' ? 'default' : 'ghost'} disabled={chats.length === 0} onclick={() => { view = 'chat'; historyOpen = true; }}>Chat</Button></div>
+		<div class="flex items-center gap-1"><LightSwitch variant="ghost" /><AccountPopover {auth} syncNoun="entries" /></div>
+	</header>
+	<div class="min-h-0 flex-1" class:hidden={view !== 'words'}><WordsView {entries} onStart={begin} /></div>
+	<div class="flex min-h-0 flex-1" class:hidden={view !== 'chat'}>
+		<aside class="hidden w-56 shrink-0 overflow-y-auto border-r p-3 md:block" aria-label="Chat history">
+			<h2 class="mb-2 text-sm font-semibold">Chats on this device</h2>
+			{#each chats as chat (chat.id)}<Button class="mb-1 w-full justify-start truncate" variant={chat.id === selectedChatId ? 'secondary' : 'ghost'} onclick={() => openChat(chat.id)}>{chat.title}</Button>{/each}
+		</aside>
+		<div class="flex min-w-0 flex-1 flex-col">
+			<div class="flex items-center gap-2 border-b px-3 py-2 md:hidden"><Button size="sm" variant="outline" onclick={() => historyOpen = !historyOpen}>History</Button><Button size="sm" variant="outline" onclick={() => focusOpen = !focusOpen}>Focus</Button></div>
+			{#if historyOpen || !selectedChatId}<nav class="max-h-44 overflow-y-auto border-b p-2 md:hidden" aria-label="Chat history">{#each chats as chat (chat.id)}<Button class="w-full justify-start" variant="ghost" onclick={() => openChat(chat.id)}>{chat.title}</Button>{/each}</nav>{/if}
+			{#if focusOpen && selectedChat}<div class="border-b p-3 md:hidden"><FocusWords focus={selectedChat.focus} {entries} /></div>{/if}
+			{#if !selectedChatId}<p class="m-auto text-center text-muted-foreground">Choose a chat from history.</p>{/if}
+			{#if selectedChatId && selectedChat}
+				{#key selectedChatId}<ConversationView conversationId={selectedChatId} messages={local.tables.messages} {accountKey} {catalog} {selections} {entries} focus={selectedChat.focus} visible={view === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
+			{/if}
+		</div>
+		<aside class="hidden w-60 shrink-0 overflow-y-auto border-l p-3 md:block" aria-label="Focus words">
+			{#if selectedChat}<FocusWords focus={selectedChat.focus} {entries} />{/if}
+		</aside>
+	</div>
+</div>

@@ -18,8 +18,8 @@
  * token can be minted and validated without the server graph.
  *
  * It is a credential SOURCE, not a new auth mode: it feeds the one total gate
- * exactly like `resolveRequestOAuthPrincipal`. There is no OAuth on an instance;
- * OAuth stays the hosted star's only (ADR-0071).
+ * exactly like the cloud's `resolveRequestSessionPrincipal`. An instance
+ * composes no Better Auth or social sign-in.
  *
  * The seam is {@link ResolveBearerPrincipal}, not a sub-seam beneath it. v1 is one
  * constant-time env-token compare. Future named instance tokens, if earned, must
@@ -68,8 +68,8 @@ async function constantTimeEqual(a: string, b: string): Promise<boolean> {
  * The instance's `ResolveBearerPrincipal` (self-host v1): a constant-time compare
  * of the presented bearer against the operator-supplied secret, resolving an
  * exact match to `{ id: INSTANCE_PRINCIPAL_ID }` and a wrong token to
- * `InvalidToken`, the same `Result` arm the OAuth resolver returns, so the
- * surface wrappers reject it unchanged (HTTP 401 with the OAuth
+ * `InvalidToken`, the same `Result` arm the session resolver returns, so the
+ * surface wrappers reject it unchanged (HTTP 401 with the Bearer
  * `WWW-Authenticate` challenge, or the relay's 4401 close). The wrapper owns
  * extraction, so a missing or non-bearer credential never reaches this compare.
  * Nobody fabricates an email for the instance principal.

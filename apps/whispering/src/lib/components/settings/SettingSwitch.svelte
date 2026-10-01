@@ -1,27 +1,19 @@
 <script lang="ts">
 	import * as Field from '@epicenter/ui/field';
 	import { Switch } from '@epicenter/ui/switch';
-	import type { BooleanSettingKey } from '$lib/state/settings.svelte';
-	import { getWhisperingApp } from '$lib/whispering/context';
-
-	const app = getWhisperingApp();
 
 	let {
-		key,
+		checked,
 		label,
 		description,
 		onCheckedChange,
 	}: {
-		key: BooleanSettingKey;
+		checked: boolean;
 		label: string;
 		description?: string;
-		/** Runs after the setting is written, e.g. to log the change. */
-		onCheckedChange?: (checked: boolean) => void;
+		onCheckedChange: (checked: boolean) => void;
 	} = $props();
 
-	// Opaque, generated id wired into both `for` and `id` from one source. The
-	// id has no external consumer, so it carries no meaning by design: there is
-	// nothing to keep in sync with the setting key, and nothing to drift.
 	const id = $props.id();
 </script>
 
@@ -34,12 +26,7 @@
 	</Field.Content>
 	<Switch
 		{id}
-		bind:checked={
-			() => app.settings.get(key),
-			(checked) => {
-				app.settings.set(key, checked);
-				onCheckedChange?.(checked);
-			}
-		}
+		{checked}
+		{onCheckedChange}
 	/>
 </Field.Field>

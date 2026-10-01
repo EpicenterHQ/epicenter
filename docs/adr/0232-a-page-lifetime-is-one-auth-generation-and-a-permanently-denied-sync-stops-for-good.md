@@ -1,7 +1,8 @@
 # 0232. A page lifetime is one auth generation, and a permanently denied sync stops for good
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-08-10
+- **Superseded by:** [ADR-0350](0350-a-data-session-is-a-value-the-tree-owns-and-sync-runs-for-the-life-of-the-store.md): a credential refusal is decided locally with nothing on the wire, so the driver reports it as data and keeps dialling instead of stopping, and once it never stops there is nothing for a reload on auth change to restart.
 - **Supersedes:** [ADR-0094](0094-the-connection-is-the-boot-decision-one-connect-call.md) (the connection is the boot decision: one connect call): its mechanism (`model.connect(toConnection(auth, nodeId))`) died with the workspace stack in ADR-0227, and `toConnection` survived as an orphan. Its principle, that the boot-time auth snapshot is the one connection decision, is carried forward here in store terms.
 - **Amends:** [ADR-0230](0230-an-auth-client-always-offers-openwebsocket-and-a-model-that-cannot-sync-denies-permanently.md): its final consequence said parking and resuming properly needs a signal in the `SyncDial` contract. Half of that stands: the contract gains a signal (`denied`). The other half is refused: there is no parked state and no resume, because resuming is a reload.
 - **Relates:** [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md) (sign-in is an enhancement, never a door), [ADR-0155](0155-epicenter-desktop-auth-is-one-credential-free-window-bun-authority.md) (desktop identity is immutable per process generation; account changes relaunch), [ADR-0222](0222-a-host-owns-how-to-make-a-socket-and-the-library-owns-everything-done-with-one.md) (the host says how to make a socket, the library says what to do with one)

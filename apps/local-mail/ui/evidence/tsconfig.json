@@ -1,0 +1,10 @@
+{
+	"extends": "../tsconfig.json",
+	"include": [
+		"browser/**/*.ts",
+		"browser/**/*.svelte",
+		"gmail-authorization/**/*.ts",
+		"../src/app.d.ts",
+		"../.svelte-kit/ambient.d.ts"
+	]
+}

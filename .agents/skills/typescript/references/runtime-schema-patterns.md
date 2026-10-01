@@ -46,47 +46,22 @@ Both behave similarly in TypeScript, but only the `?` syntax converts correctly 
 
 Two shapes coexist in the codebase, picked by what owns the brand at runtime:
 
-- **Workspace table IDs**: pure type alias + `generate*` factory. The brand lives only in the type system; `field.string<Id>()` carries it through the TypeBox schema. No runtime validator object.
+- **Branded table field values**: `field.string<Id>()` carries a capability's branded string type through the TypeBox schema. The store owns row IDs.
 - **Arktype-validated IDs** (auth user IDs, persisted-state schemas, HTTP route inputs): type-first + validator + `as*` helper. The branded type and the arktype `Type` share one PascalCase name.
 
-## Workspace Table IDs: Pure Type Alias + Generator
+## Branded values in table fields
 
-For any ID that lives in a `defineTable` schema, declare the brand as a **type alias** and pair it with a `generate*` factory that wraps `generateId<T>()`. The brand is never a runtime value; `field.string<T>()` propagates it through the TypeBox schema.
+The store mints row IDs. Do not declare a reserved `id` field or provide a row-ID generator. For references to another capability's identifiers, import its type and carry the brand through `field.string<T>()`.
 
 ```typescript
-import type { Brand } from 'wellcrafted/brand';
-import { field } from '@epicenter/data/field';
-import { defineTable, generateId, nullable } from '@epicenter/workspace';
+import { defineTable, field } from '@epicenter/app';
+import type { BlobId } from '@epicenter/blobs';
 
-// 1. Type alias: brand-only, no runtime symbol
-export type SavedTabId = string & Brand<'SavedTabId'>;
-
-// 2. Generator: wraps generateId<T>() so the cast lives in one place
-export const generateSavedTabId = (): SavedTabId => generateId<SavedTabId>();
-
-// 3. Use in defineTable via field.string<>()
-const savedTabsTable = defineTable({
-	id: field.string<SavedTabId>(),
-	url: field.string(),
-	parentId: nullable(field.string<SavedTabId>()),
+const recordings = defineTable({
+	title: field.string(),
+	blobId: field.nullable(field.string<BlobId>()),
 });
 ```
-
-At call sites, mint with the generator; never scatter raw casts:
-
-```typescript
-// Good
-const id = generateSavedTabId();
-
-// Bad: scattered double-cast
-const id = generateId() as string as SavedTabId;
-```
-
-The `generate*` prefix means "new ID from scratch." The `create*` prefix means "assemble from inputs" (e.g., `createTabCompositeId(deviceId, tabId)`).
-
-See the `arktype` skill for the expression strings a workspace declares fields with. A
-workspace is release-local and never migrates user data, so there are no migration
-rules to follow.
 
 ## Arktype-Validated IDs: Type First, Validator Annotated, Optional `as*` Helper
 

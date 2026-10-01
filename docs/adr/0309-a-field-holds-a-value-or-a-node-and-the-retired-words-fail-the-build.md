@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-31
+- **Amended by:** [ADR-0431](0431-rows-return-values-and-own-a-separate-body.md) separates body access from value snapshots and stores the body as the row's sole sequence child, removing the reserved field name.
 - **Supersedes:** [ADR-0299](0299-a-row-is-its-scalars-and-one-content-node.md). The shape it decided is unchanged and restated here in the settled words. Its context, its four refusals, and its per-row byte measurements stand and are not repeated.
 - **Relates:** [ADR-0228](0228-a-field-is-one-value-and-a-collection-several-devices-append-to-is-a-table.md) (the merge law this names), [ADR-0244](0244-epicenter-speaks-of-apps-and-windows-not-surfaces.md) (the prior vocabulary decision, and the one this record fixes a gap in), [ADR-0296](0296-rich-content-is-a-declared-field-and-a-table-owns-its-file-codec.md) (settled "rich fields" the same way and swept only itself)
 

@@ -4,11 +4,14 @@ import {
 	IMPORTABLE_VIDEO_EXTENSIONS,
 	MAX_IMPORT_FILE_SIZE,
 	MAX_IMPORT_FILES,
-} from '$lib/constants/import-formats';
-import { logAnalyticsEvent } from '$lib/operations/analytics';
-import { processRecordingPipeline } from '$lib/operations/pipeline';
-import { report } from '$lib/report';
-import type { WhisperingApp } from '$lib/whispering/app';
+} from '../constants/import-formats.js';
+import { report } from '../report/index.js';
+import type { WhisperingApp } from '../whispering/app.js';
+import { local } from '../whispering/local.js';
+import { logAnalyticsEvent } from './analytics.js';
+import { processRecordingPipeline } from './pipeline.js';
+import { saveAudioRecording } from './save-audio-recording.js';
+import { captureTranscription } from './transcribe.js';
 
 type RejectedImportFile = { file: File; reason: string };
 
@@ -89,6 +92,7 @@ export async function importFiles(
 	app: WhisperingApp,
 	{ files }: { files: File[] },
 ): Promise<void> {
+	if (!app.recordingEnabled) throw new Error('Whispering is closing.');
 	const { valid, rejected } = partitionByImportPolicy(files);
 
 	if (rejected.length > 0) {
@@ -104,23 +108,18 @@ export async function importFiles(
 
 	await Promise.all(
 		valid.map(async (file) => {
-			const finalized = await app.recordings.storeAudio(file);
-			if (finalized.error !== null) {
-				report.error({
-					title: 'Failed to save imported audio',
-					cause: finalized.error,
-				});
-				return;
-			}
-
-			void logAnalyticsEvent(app, {
+			void logAnalyticsEvent({
 				type: 'file_import_completed',
 				blob_size: file.size,
 			});
 
+			const transcribe = captureTranscription(app, local);
+			const { data: recording, error } = await saveAudioRecording(app, file);
+			if (error !== null) throw error;
+			if (recording === null) return;
 			await processRecordingPipeline(app, {
-				audioBlobId: finalized.data.audioBlobId,
-				durationMs: null,
+				recordingId: recording.id,
+				transcribe,
 				deliverySource: 'import',
 			});
 		}),

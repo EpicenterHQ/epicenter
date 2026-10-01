@@ -1,39 +1,32 @@
 <script lang="ts">
-	import type { NoteId } from '$lib/data';
+	import { onDestroy } from 'svelte';
+	import type { HoneycrispData, NoteId } from '$lib/data.js';
 	import HoneycrispEditor from '$lib/editor/Editor.svelte';
-	import { getHoneycrisp } from '$lib/app.svelte.js';
+	import { openContent } from '$lib/notes.js';
 
-	const honeycrisp = getHoneycrisp();
+	let props: {
+		data: HoneycrispData;
+		noteId: NoteId;
+		focusRequest: number;
+	} = $props();
 
-	let { noteId, focusRequest }: { noteId: NoteId; focusRequest: number } =
-		$props();
-
-	type Opened = ReturnType<typeof honeycrisp.tables.notes.openContent>;
-
-	// The note's node, per note. Nothing is loaded: the node is a nested type
-	// on the row in the document this store already holds (ADR-0295), so there
-	// is no half-hydrated state an editor could merge keystrokes into, and
-	// edits from every device reach it live through the one store connection.
-	// What the pane still owns is the write the open starts: `close` stops the
-	// title and `updatedAt` writes that follow this note's body.
-	let opened = $state.raw<Opened>(undefined);
-	$effect(() => {
-		const handle = honeycrisp.tables.notes.openContent(noteId);
-		opened = handle;
-		return () => handle?.close();
-	});
+	// Notes fixes the data for this mount and keys the pane by note id.
+	// svelte-ignore state_referenced_locally
+	const opened = openContent(props.data, props.noteId);
+	onDestroy(() => opened?.close());
 </script>
 
-{#if opened === undefined}
-	<div class="flex h-full items-center justify-center p-6 text-center">
-		<p class="text-sm text-muted-foreground">This note is no longer here.</p>
-	</div>
-{:else}
+{#if opened}
 	<div class="flex h-full flex-col">
 		<div class="min-h-0 flex-1">
-			{#key noteId}
-				<HoneycrispEditor yxmlfragment={opened.content} {focusRequest} />
-			{/key}
+			<HoneycrispEditor
+				yxmlfragment={opened.content}
+				focusRequest={props.focusRequest}
+			/>
 		</div>
+	</div>
+{:else}
+	<div class="flex h-full items-center justify-center p-6 text-center">
+		<p class="text-sm text-muted-foreground">This note is no longer here.</p>
 	</div>
 {/if}

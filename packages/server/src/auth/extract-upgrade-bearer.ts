@@ -10,7 +10,7 @@
  * entry.
  *
  * The extracted token feeds the deployment's `ResolveBearerPrincipal` (the
- * cloud's OAuth resolver, an instance's env-token resolver). The ambient
+ * cloud's session resolver, an instance's env-token resolver). The ambient
  * browser cookie is never consulted here, so it can never authenticate a
  * WebSocket surface.
  */
@@ -33,5 +33,9 @@ export function extractUpgradeBearer(headers: Headers): string | null {
 		.filter((protocol) => protocol.startsWith(BEARER_SUBPROTOCOL_PREFIX))
 		.map((protocol) => protocol.slice(BEARER_SUBPROTOCOL_PREFIX.length));
 	if (bearers.length !== 1) return null;
-	return bearers[0] || null;
+	try {
+		return decodeURIComponent(bearers[0]!) || null;
+	} catch {
+		return null;
+	}
 }

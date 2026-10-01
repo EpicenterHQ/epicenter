@@ -2,7 +2,7 @@
  * Local Mail's own configuration: Gmail's endpoints and its polling shape.
  *
  * There is no `dataDir` here any more, and no path, file, or environment read
- * that resolves one. Storage is `epicenter.sqlite` and `epicenter.secrets`;
+ * that resolves one. Storage is `app.sqlite` and `app.secrets`;
  * where either of those lands is the runtime's business
  * and the application never learns it.
  *
@@ -18,16 +18,6 @@ export type MailConfig = {
 	authorizeUrl: string;
 	/** Google OAuth2 token endpoint. */
 	tokenUrl: string;
-	/**
-	 * Force a full pull once the time since the last successful sync exceeds
-	 * this many days. Gmail's `historyId` retention is "at least a week, often
-	 * longer" rather than a fixed window, so this measures wall-clock staleness
-	 * of our own last poll rather than trying to read an age out of the opaque
-	 * cursor.
-	 */
-	historySafeWindowDays: number;
-	/** Force a full pull this many days after the last one, as a backstop. */
-	fullBackstopDays: number;
 	/** `messages.list` and `history.list` page size; Gmail caps at 500. */
 	pageSize: number;
 };
@@ -41,8 +31,6 @@ export const DEFAULT_MAIL_CONFIG: MailConfig = {
 	apiBase: GMAIL_API_BASE,
 	authorizeUrl: GOOGLE_AUTHORIZE_URL,
 	tokenUrl: GOOGLE_TOKEN_URL,
-	historySafeWindowDays: 5,
-	fullBackstopDays: 30,
 	pageSize: 100,
 };
 
@@ -51,7 +39,7 @@ export const DEFAULT_MAIL_CONFIG: MailConfig = {
  *
  * Application-owned configuration, not an account secret: it identifies Local
  * Mail to Google and is the same for every account a person connects, while
- * `epicenter.secrets` holds the per-account refresh token and nothing else
+ * `app.secrets` holds the per-account refresh token and nothing else
  * (ADR-0310). A packaged release compiles in its own identity; a source build
  * supplies one.
  *

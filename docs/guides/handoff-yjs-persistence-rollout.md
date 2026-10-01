@@ -5,7 +5,7 @@
 > **Historical.** This document describes the October 2025 `createWorkspace({ setupYDoc })` + `defineEpicenter({ workspaces: [...] })` flow. Both of those APIs are gone. Persistence today is a single `attachSqlite(ydoc, { filePath })` (or `attachIndexedDb(ydoc)` in the browser) call inside a `defineDocument((id) => { ... })` builder: see `apps/whispering/src/lib/client.ts` and `playground/opensidian-e2e/epicenter.config.ts` for the current pattern. Preserved for history.
 
 **Date**: October 14, 2025
-**Status**: Ready for Implementation
+**Status**: Historical record
 **Reference Implementation**: `examples/basic-workspace`
 
 ## Executive Summary

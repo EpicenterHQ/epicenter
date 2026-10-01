@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-06-17
 - **Amended by:** [ADR-0180](0180-epicenter-has-one-host-owned-active-local-transcription-model.md) at the model-identity boundary only. The local model name is host state rather than an application-owned value carried in `TranscriptionSpec`; read-at-use delivery and the refusal to mirror config into Rust stand.
+- **Amended by:** [ADR-0397](0397-native-inference-selects-an-installed-model-explicitly.md) at the same boundary, restoring it: the model name is again a per-call value read at use, alongside the language and the prompt.
 
 ## Context
 

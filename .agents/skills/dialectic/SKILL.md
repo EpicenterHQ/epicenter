@@ -5,17 +5,20 @@ description: Work out an unsettled idea together through concrete attempts to ar
 
 # Dialectic
 
-Give the thought a useful shape so we can think with it together.
+Put an object of judgment in front of the person: the smallest faithful
+instance of the proposed experience, relationship, design, or passage. Show it
+in a form they can inspect as they would encounter it, including the consequence
+that could change their judgment. Mark assumptions and open edges instead of
+drawing them as settled facts. Do not make the person reconstruct the proposal
+from an inventory of evidence and questions.
 
-Articulate what we mean and show what it could become. Bring prose, code,
-diagrams, and examples together where they make the idea easier to grasp and
-its consequences easier to judge. A code block can make a handoff inspectable;
-a diagram can reveal ownership; a passage can let someone experience the
-proposed voice.
+Explain the choice the attempt exposes. Ask when an answer would change the
+next move; when a direction has settled, revise the expression or carry out
+the authorized work. Combine forms when each reveals something the other
+cannot. No one form is required for every dialectic.
 
-Give each part useful work. Preserve the structure that makes the thought
-approachable, while cutting repetition and premature elaboration. Let the
-question determine the form, sequence, and depth. Show alternatives when their
+Arrange the thought so the person can find the claim and choice they must
+weigh. Cut repetition and premature elaboration. Show alternatives when their
 differences help resolve something still open.
 
 Use the person’s reaction to develop both the idea and its expression. Carry
@@ -28,15 +31,17 @@ exploration needs no destination artifact.
 
 ## Make the model and its consequences judgeable
 
-Offer your best current understanding and a useful attempt without requiring
+Offer your best current understanding and a concrete attempt without requiring
 the user to diagnose everything first. They may arrive with an idea, an
-existing expression, or a result that raises a new question. The idea and its
-expression can share a paragraph, code example, or sketch. Explain separately
-what the expression leaves unclear. A settled edit needs no new explanation.
+existing expression, or a result that raises a new question. Show the proposed
+thing, or the consequential part of it, as directly as the medium permits.
+Explain what it leaves unclear. A settled edit needs no new explanation. Give
+the person enough context, consequence, and recommendation to answer a question
+without opening another artifact.
 
-Before/after prose or code can make a revision visible; a table can compare
-approaches on the tradeoffs the reader needs to weigh. Choose representations
-for what they help the person see, and let them work together.
+When several people, views, resources, or moments interact, make that
+relationship visible before summarizing its machinery. A focused question
+must not assume a solution the conversation has yet to establish.
 
 Check facts you can establish yourself and distinguish evidence from proposals.
 Before showing an exact proposed diff, read the current code and affected
@@ -49,8 +54,9 @@ does not establish that an implementation produces it.
 
 Present the concrete expression as close as practical to its intended final
 form. For a blog, render the proposed writing in the actual site and show
-screenshots; for an API, show realistic caller code; for a skill, show the
-conversation it could produce. Use a simpler representation when it is
+screenshots; for an API, show realistic caller code; for an agent skill,
+compare conversations it could produce before deriving instructions from the
+person's reaction. Use a simpler representation when it is
 sufficient for the question being judged. Prepare previews within the task's
 authorization; showing a proposed result does not require publishing it.
 
@@ -101,10 +107,10 @@ question. Recognition alone supplies no authorization for side effects.
 
 ## References
 
-Read [the example conversations](references/conversations.md) when developing
-writing, an API, a skill, or a website, or calibrating how to show an attempt.
-They demonstrate the relationship between articulation and concrete expression
-without prescribing a format, number of versions, or sequence.
+Read [the examples](references/conversations.md) when choosing how to show an
+unsettled experience or design, or when developing writing, an API, a skill, or
+a website. They show different objects of judgment and how a later correction
+can change the model; they do not prescribe a format or turn count.
 
 For substantial prose work, use [writing-voice](../writing-voice/SKILL.md) for
 language, rhythm, and fidelity to the author's words and particulars. Trying

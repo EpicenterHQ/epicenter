@@ -1,5 +1,4 @@
 import { AnalyticsServiceLive } from '#platform/analytics';
-import { BlobSourcesLive, BlobsLive } from '#platform/blobs';
 import { DownloadServiceLive } from '#platform/download';
 import { TextServiceLive } from '#platform/text';
 import { LocalShortcutManagerLive } from './local-shortcut-manager';
@@ -8,12 +7,13 @@ import { PlaySoundServiceLive } from './sound';
 /**
  * Cross-platform services.
  * These are available on both web and desktop.
+ *
+ * Each recording store owns its audio bytes. Recording consumers read them
+ * through the recordings domain, never through a module-level blob service.
  */
 export const services = {
 	analytics: AnalyticsServiceLive,
 	text: TextServiceLive,
-	blobs: BlobsLive,
-	blobSources: BlobSourcesLive,
 	download: DownloadServiceLive,
 	localShortcutManager: LocalShortcutManagerLive,
 	sound: PlaySoundServiceLive,

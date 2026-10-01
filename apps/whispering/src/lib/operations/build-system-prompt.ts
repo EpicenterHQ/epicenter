@@ -1,9 +1,9 @@
 /**
- * Compose the system prompt shared by Polish and every Recipe: the caller's
+ * Compose the system prompt for speech cleanup: the caller's
  * `instructions` plus a tagged Dictionary block when the dictionary is non-empty.
  *
  * Pure by construction: it reads no settings and touches no I/O. The runners
- * (`runPolish`, `runRecipe`) read `dictionary` at use (ADR 0012) and pass it in,
+ * (`runPolish`) reads `dictionary` at use (ADR 0012) and passes it in,
  * so the term block rides on top of whatever directive the caller supplies. When
  * the dictionary is empty this returns `instructions` verbatim, so a user with no
  * known terms pays nothing for the feature.
@@ -40,10 +40,7 @@ ${terms}
  * make Polish safe to run on every transcript. Editing the directive cannot delete
  * the guard. This is Voicebox's "text filter, not an assistant" approach.
  *
- * Polish-only by design. The shared {@link buildSystemPrompt} stays a pure
- * Dictionary injector because Recipes call it too, and a reshape (an Email recipe
- * adding a greeting) legitimately adds and rewords text. This composer reuses it
- * to append the Dictionary block after the scaffold. See ADR-0099.
+ * This composer appends the known-term block after the scaffold.
  */
 export function buildPolishSystemPrompt(
 	instructions: string,

@@ -1,18 +1,11 @@
-// The shared triage-action seam. One place turns a triage intent plus a
-// message's current Gmail labels into the concrete `{addLabels, removeLabels}`
-// assertion the `/api/accounts/:account/messages/assert` route records, and its
-// inverse. Both the MessageDetail toolbar and the page-level keyboard handler
-// plan actions here, so buttons and keys fire the exact same act; the undo
-// affordance is just the inverse of what was fired.
-//
-// Pure and Svelte-free on purpose: the mutation, the read-only gate, and the
-// toast live at the page (their single owner), and this stays unit-testable.
+// Toolbar and keyboard share label-choice planning. The page owns recording,
+// reconciliation, and Undo; the outbox uses the same label vocabulary.
 
 export type TriageAction = {
 	/** Past-tense verb for the toast, e.g. "Archived". */
 	label: string;
-	addLabels: string[];
-	removeLabels: string[];
+	labelId: string;
+	want: boolean;
 };
 
 /** The reversible core verbs, shared by the toolbar and the keyboard. Each is a
@@ -25,16 +18,16 @@ export function planToggle(labelIds: string[], verb: ToggleVerb): TriageAction {
 	switch (verb) {
 		case 'inbox':
 			return has('INBOX')
-				? { label: 'Archived', addLabels: [], removeLabels: ['INBOX'] }
-				: { label: 'Moved to inbox', addLabels: ['INBOX'], removeLabels: [] };
+				? { label: 'Archived', labelId: 'INBOX', want: false }
+				: { label: 'Moved to inbox', labelId: 'INBOX', want: true };
 		case 'read':
 			return has('UNREAD')
-				? { label: 'Marked read', addLabels: [], removeLabels: ['UNREAD'] }
-				: { label: 'Marked unread', addLabels: ['UNREAD'], removeLabels: [] };
+				? { label: 'Marked read', labelId: 'UNREAD', want: false }
+				: { label: 'Marked unread', labelId: 'UNREAD', want: true };
 		case 'star':
 			return has('STARRED')
-				? { label: 'Unstarred', addLabels: [], removeLabels: ['STARRED'] }
-				: { label: 'Starred', addLabels: ['STARRED'], removeLabels: [] };
+				? { label: 'Unstarred', labelId: 'STARRED', want: false }
+				: { label: 'Starred', labelId: 'STARRED', want: true };
 	}
 }
 
@@ -44,8 +37,8 @@ export function planToggle(labelIds: string[], verb: ToggleVerb): TriageAction {
  * points one way; restoring happens from the Trash view's own labels. */
 export const MOVE_TO_TRASH: TriageAction = {
 	label: 'Moved to trash',
-	addLabels: ['TRASH'],
-	removeLabels: [],
+	labelId: 'TRASH',
+	want: true,
 };
 
 /** Add or remove one Gmail label by id. `name` is the already-resolved display
@@ -56,24 +49,36 @@ export function planLabel(
 	present: boolean,
 ): TriageAction {
 	return present
-		? { label: `Removed ${name}`, addLabels: [], removeLabels: [labelId] }
-		: { label: `Added ${name}`, addLabels: [labelId], removeLabels: [] };
+		? { label: `Removed ${name}`, labelId, want: false }
+		: { label: `Added ${name}`, labelId, want: true };
 }
 
-/** The inverse action, for Undo: swap add and remove. The write core is
- * symmetric, so the inverse of `{addLabels:['INBOX']}` is
- * `{removeLabels:['INBOX']}`; the label is carried through unchanged (the undo
- * path fires silently, so it is never shown). */
+/** Undo records the opposite choice on the captured message and account. */
 export function invert(action: TriageAction): TriageAction {
-	return {
-		label: action.label,
-		addLabels: action.removeLabels,
-		removeLabels: action.addLabels,
-	};
+	return { ...action, want: !action.want };
 }
 
-/** Whether an action touches any label, i.e. has a meaningful inverse. A plan
- * that adds and removes nothing is a no-op and earns no Undo toast. */
-export function isReversible(action: TriageAction): boolean {
-	return action.addLabels.length > 0 || action.removeLabels.length > 0;
+/**
+ * The other direction: name an assertion already recorded, the way the person
+ * who made it would.
+ *
+ * `planToggle` turns a verb into a label choice, and this turns one back into a
+ * verb, which is what the outbox lists. Both are here so the two vocabularies
+ * cannot drift: "Archive" has to mean removing `INBOX` in both directions or a
+ * person is told their archive is a different act than the one they made.
+ *
+ * Present tense, because an outbox row is work that has not happened yet.
+ * `planToggle`'s labels are past tense for the opposite reason.
+ */
+export function describeAssertion(
+	labelId: string,
+	want: boolean,
+	/** The label's display name, when the caller has the label list. */
+	name = labelId,
+): string {
+	if (labelId === 'INBOX') return want ? 'Move to inbox' : 'Archive';
+	if (labelId === 'TRASH') return want ? 'Move to trash' : 'Restore from trash';
+	if (labelId === 'UNREAD') return want ? 'Mark unread' : 'Mark read';
+	if (labelId === 'STARRED') return want ? 'Star' : 'Unstar';
+	return want ? `Add ${name}` : `Remove ${name}`;
 }

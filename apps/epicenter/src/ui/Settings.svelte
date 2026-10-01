@@ -1,6 +1,14 @@
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
+	import { ConfirmationDialog, confirmationDialog } from '@epicenter/ui/confirmation-dialog';
+	import {
+		ACCOUNT_CANCEL_CONNECTION_ROUTE,
+		ACCOUNT_SIGN_IN_ROUTE,
+		ACCOUNT_SIGN_OUT_ROUTE,
+	} from '../routes.ts';
+	import { auth, bootstrap } from './auth.js';
+	import { isDesktopHost } from './runtime.ts';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Item from '@epicenter/ui/item';
 	import { WHISPERING_APPLICATION } from '../applications.ts';
@@ -9,7 +17,7 @@
 	import { localModels } from './local-models.svelte';
 
 	/**
-	 * Host-level administration (ADR-0189). Today that is the one active local
+	 * Host-level administration (ADR-0189) includes the cloud connection and local
 	 * transcription model (ADR-0180), which lives here rather than in the shell
 	 * header: choosing what every application on this device transcribes with is
 	 * a settings act, not a conversation control.
@@ -20,6 +28,54 @@
 	 */
 
 	const launcher = createLaunch();
+	let connecting = $state(false);
+	let signingIn = $state(false);
+	let connectionError = $state('');
+	let operation = 0;
+	async function connect(path: string, body: object = {}) {
+		if (path !== ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern) {
+			if (connecting) return;
+			connecting = true;
+			const confirmed = await new Promise<boolean>((resolve) => {
+				confirmationDialog.open({
+					// Keep copy aligned with app-shell/boot-screens/confirm-account-change.ts.
+					title: 'Change account?',
+					description: 'Epicenter will restart when this account change completes. Active recordings and unsaved work, including work started while sign-in is pending, will be discarded.',
+					confirm: { text: 'Continue', variant: 'destructive' },
+					onConfirm: () => resolve(true),
+					onCancel: () => resolve(false),
+				});
+			});
+			if (!confirmed) {
+				connecting = false;
+				return;
+			}
+		}
+		const current = ++operation;
+		connecting = true;
+		signingIn = path === ACCOUNT_SIGN_IN_ROUTE.pattern;
+		connectionError = '';
+		try {
+			const response = await fetch(path, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(body),
+			});
+			if (current !== operation) return;
+			if (!response.ok) throw new Error(await response.text());
+			if (path === ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern || path === ACCOUNT_SIGN_IN_ROUTE.pattern) {
+				connecting = false;
+				signingIn = false;
+			}
+			// Sign-out stays pending until native replaces this process.
+		} catch (cause) {
+			if (current !== operation) return;
+			connectionError =
+				cause instanceof Error ? cause.message : 'Could not connect.';
+			connecting = false;
+			signingIn = false;
+		}
+	}
 
 	/**
 	 * Whether local transcription can actually run now: a model is chosen and its
@@ -34,6 +90,29 @@
 		localModels.active !== null && localModels.active.installed,
 	);
 </script>
+
+{#if isDesktopHost()}
+	<div class="grid gap-3 border-b p-3">
+		<h2 class="font-medium">Account</h2>
+		{#if bootstrap.credentialUnreadable}
+			<p role="alert">Your saved sign-in could not be used. Sign in again. Your local data is still on this device.</p>
+		{:else}
+			<p>{new URL(bootstrap.server.baseURL).host}: {auth.getState().status === 'signed-out' ? 'Signed out' : 'Signed in'}</p>
+		{/if}
+		<p class="text-muted-foreground">Changing accounts closes your applications and restarts Epicenter. Your existing local data stays with its original server.</p>
+		<Button disabled={connecting} onclick={() => void connect(ACCOUNT_SIGN_IN_ROUTE.pattern)}>
+			Sign in
+		</Button>
+		{#if signingIn}
+			<p role="status">Finish signing in in your browser, then return here.</p>
+			<Button variant="outline" onclick={() => void connect(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern)}>Cancel sign-in</Button>
+		{/if}
+		{#if auth.getState().status !== 'signed-out'}
+			<Button variant="outline" disabled={connecting} onclick={() => void connect(ACCOUNT_SIGN_OUT_ROUTE.pattern)}>Sign out</Button>
+		{/if}
+		{#if connectionError}<p role="alert" class="text-destructive">{connectionError}</p>{/if}
+	</div>
+{/if}
 
 {#if localModels.available}
 	<div class="grid gap-3 p-3">
@@ -79,3 +158,5 @@
 		</Empty.Header>
 	</Empty.Root>
 {/if}
+
+<ConfirmationDialog />

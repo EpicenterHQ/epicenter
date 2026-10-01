@@ -2,7 +2,7 @@
  * Wire URL paths and Hono route patterns for the Epicenter API.
  *
  * The shared home for API route contracts whose domain has no dedicated shared
- * package of its own: the session projection, the blob HTTP surface,
+ * package of its own: the session projection
  * and the OpenAI-compatible `/v1` inference gateways. This is not a registry of
  * every route in the repo. A route whose domain already owns a shared package
  * lives there instead, beside the protocol it belongs to.
@@ -40,33 +40,12 @@
  * ```
  */
 
-import { BLOB_ID_ROUTE_REGEX, type BlobId } from '@epicenter/blobs';
-
 const stripTrailing = (s: string) => s.replace(/\/+$/, '');
 
 export const API_ROUTES = {
 	session: {
 		pattern: '/api/session',
 		url: (baseURL: string) => `${stripTrailing(baseURL)}/api/session`,
-	},
-	/**
-	 * Opaque-id blob store. POST on the collection mints an upload ticket
-	 * (presigned S3 PUT); GET/DELETE by `:blobId` read/remove a blob. The
-	 * surface is address-only: callers act on BlobIds their own data already
-	 * knows, and there is no enumeration route. See ADR-0089 (presigned S3
-	 * kernel) as amended by ADR-0148 (opaque BlobId) and ADR-0154
-	 * (address-only access).
-	 */
-	blobs: {
-		collection: {
-			pattern: '/api/blobs',
-			url: (baseURL: string) => `${stripTrailing(baseURL)}/api/blobs`,
-		},
-		byId: {
-			pattern: `/api/blobs/:blobId{${BLOB_ID_ROUTE_REGEX}}`,
-			url: (baseURL: string, blobId: BlobId) =>
-				`${stripTrailing(baseURL)}/api/blobs/${encodeURIComponent(blobId)}`,
-		},
 	},
 	ai: {
 		/**

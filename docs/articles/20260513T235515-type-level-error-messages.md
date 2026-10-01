@@ -1,8 +1,8 @@
 # Make TypeScript Errors Read Like English
 
-TypeScript can tell you exactly what's wrong with a value at compile time. The trick is to brand the constraint-violation type as a template literal whose contents are the error message itself, suffixed with a U+200B zero-width space. When the assignment fails, the error tooltip reads as a sentence pointing at the bad value.
+TypeScript can tell you exactly what's wrong with a value at compile time. Make the expected type for an invalid literal a sentence that names the value. When assignment fails, the error tooltip points at the bad key and says what shape it needs.
 
-This is the pattern `arktype` uses internally. Here it is, generalized.
+Arktype uses message-shaped types internally. Here is the pattern applied to an action registry.
 
 ## The problem
 
@@ -23,7 +23,7 @@ That catches the bad key at runtime. But the author wrote `'tabs.close'` an hour
 
 You want this to fail in the IDE, with a message that names the bad key.
 
-## What doesn't work
+## The rejected type decides what the error says
 
 `never` as the rejected type:
 
@@ -50,22 +50,22 @@ type Invalid<S extends string> = `Invalid action key "${S}"`;
 type Validated<S extends string> = IsSnakeCase<S> extends true ? S : Invalid<S>;
 ```
 
-This works, but TypeScript will also happily accept `'Invalid action key "tabs.close"'` as a value of type `Invalid<...>` anywhere else, and autocomplete may suggest the literal in contextual positions. Not catastrophic, but messy.
+This works when the registry's value type, `Action`, cannot be the message string. A string-valued registry needs a different rejected type or another constraint: someone could otherwise supply the exact message as a value.
 
-## What works: branded template literal
+## Use the message as the expected type
 
 ```ts
 type InvalidKey<S extends string> =
-  `Invalid action key "${S}", must be snake_case ASCII matching /^[a-z][a-z0-9_]*$/​`;
+  `Invalid action key "${S}": use snake_case ASCII`;
 ```
 
-Note the trailing `​`: that's U+200B, a Unicode zero-width space. It's invisible in IDE error tooltips and editor windows, but it brands the literal: no user types it, so the type isn't structurally reachable from any normal string.
+The message is a string literal type. The failed assignment makes TypeScript print it as the type it expected.
 
 The error tooltip reads as a sentence:
 
 ```
 Type 'Action' is not assignable to type
-'Invalid action key "tabs.close", must be snake_case ASCII matching /^[a-z][a-z0-9_]*$/'.
+'Invalid action key "tabs.close": use snake_case ASCII'.
 ```
 
 ## The full helper
@@ -90,7 +90,7 @@ type IsSnakeCase<S extends string> = S extends `${Lower}${infer Rest}`
   : false;
 
 type InvalidKey<S extends string> =
-  `Invalid action key "${S}", must be snake_case ASCII matching /^[a-z][a-z0-9_]*$/​`;
+  `Invalid action key "${S}": use snake_case ASCII`;
 
 export function defineActions<T extends Record<string, Action>>(
   actions: {
@@ -98,7 +98,7 @@ export function defineActions<T extends Record<string, Action>>(
   },
 ): T {
   for (const k of Object.keys(actions)) {
-    if (!/^[a-z][a-z0-9_]{0,63}$/.test(k)) {
+    if (!/^[a-z][a-z0-9_]*$/.test(k)) {
       throw new Error(`Invalid action key "${k}"`);
     }
   }
@@ -117,15 +117,9 @@ defineActions({
 });
 ```
 
-## Why U+200B specifically
+## The invisible suffix is optional
 
-The U+200B character is structurally distinct from any string a user could type. Two reasons that matters:
-
-1. **Autocomplete hygiene.** If `Invalid action key "tabs.close"` is ever the inferred type at a position where TypeScript suggests string literals, the editor would propose the message as a valid value. Adding U+200B makes the type non-typeable.
-
-2. **Predicate hygiene.** Other type machinery in your codebase may narrow against arbitrary string subtypes. The brand keeps the error type from accidentally matching those narrows.
-
-You'll find this exact pattern in `@ark/util`:
+`@ark/util` appends U+200B to its internal `ErrorMessage` type:
 
 ```ts
 // node_modules/@ark/util/out/errors.d.ts
@@ -133,7 +127,7 @@ export type ErrorMessage<message extends string = string> =
   `${message}${ZeroWidthSpace}`;
 ```
 
-We could import it, but `@ark/util` isn't part of arktype's public surface. Inlining the trick is two lines.
+That changes exact string assignability, but it is still a string subtype. It does not create a nominal brand or make this diagnostic work. Add the suffix only if a concrete completion or assignability problem calls for it; this example needs none. `@ark/util` has a separate `noSuggest` type for completion behavior.
 
 ## The pitfall: checking the wrong thing
 
@@ -161,27 +155,26 @@ Check the **predicate** directly:
 
 `arkregex` parses regex strings at the type level and infers template literal types. `regex('^ok$', 'i')` infers as `'ok' | 'oK' | 'Ok' | 'OK'`. Cool.
 
-For character classes like `[a-z]`, it intentionally widens to `string` to avoid combinatorial explosion. Verified locally:
+In the installed 0.0.5 types, a nondigit range like `[a-z]` widens to `string`. This pattern therefore cannot prove our key shape:
 
 ```ts
 import { regex } from 'arkregex';
 const snake = regex('^[a-z][a-z0-9_]*$');
 //    ^? Regex<string, ...>          <- not narrowed
 
-snake.test('tabs.close');  // compiles fine, runtime would throw
+snake.test('tabs.close');  // compiles fine, returns false
 ```
 
-So the regex-derived type idea is dead for shape constraints. Write the recursive template literal by hand.
+Other regex patterns can retain useful type information. For this character-range constraint, write the recursive template literal by hand.
 
 ## Keep the runtime check
 
-The type check catches authoring inside the helper's parameter context. It does not catch:
+The type check catches authoring inside the helper's parameter context. A widened `Record<string, Action>` is rejected by this signature, not silently accepted. Runtime validation still protects calls that bypass the type check:
 
-- `Object.fromEntries(somethingDynamic)`: TS widens to `Record<string, V>`, predicate becomes vacuous
 - `as` casts: explicit bypass
 - Helper called from `.js` files in mixed codebases
 
-So pair the type-level check with a runtime check inside the helper. Two sources of truth for the same rule, sitting next to each other in the file. TypeScript cannot derive a runtime value from a type, and arkregex doesn't narrow ranges. Pay the cost.
+So pair the type-level check with a runtime check inside the helper. Keep the predicate and regex next to each other and describe the same rule. TypeScript cannot derive the runtime check from the type, so both definitions need to stay aligned.
 
 ## When to reach for this
 

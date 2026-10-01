@@ -41,10 +41,6 @@ for (const root of ROOTS) {
 		const lines = stripComments(readFileSync(path, 'utf8')).split('\n');
 		let depth = 0;
 		lines.forEach((line, index) => {
-			if (/\bawait\s+loadPersistedAuthStorage\s*\(/.test(line)) {
-				findings.push(`${path}:${index + 1}  ${line.trim()}`);
-				return;
-			}
 			const atModuleScope = depth === 0;
 			for (const character of line) {
 				if (character === '{' || character === '(') depth += 1;

@@ -74,10 +74,8 @@
 			"@standard-schema/spec": "^1.1.0",
 			"hono": "^4.12.25",
 			"mime": "^4.0.6",
-			"yjs": "^13.6.31",
 			"typebox": "^1.0.0",
 			"better-auth": "^1.6.23",
-			"@better-auth/oauth-provider": "^1.6.23",
 			"@better-auth/drizzle-adapter": "^1.6.23",
 			"@better-auth/passkey": "^1.6.23",
 			"jose": "^6.2.2",
@@ -98,11 +96,14 @@
 			"marked": "^17.0.3",
 			"virtua": "^0.48.5",
 			"oauth4webapi": "^3.8.6",
-			"@modelcontextprotocol/sdk": "^1.29.0"
+			"@modelcontextprotocol/sdk": "^1.29.0",
+			"yaml": "^2.9.0"
 		}
 	},
 	"packageManager": "bun@1.4.2",
 	"overrides": {
+		"@y/y": "14.0.0-rc.26",
+		"lib0": "1.0.0-rc.32",
 		"@protobufjs/utf8": "^1.1.1",
 		"axios": "^1.18.0",
 		"brace-expansion": "^5.0.6",
@@ -124,25 +125,33 @@
 		"ws": "^8.21.0",
 		"yaml": "^2.9.0"
 	},
+	"bin": {
+		"epicenter": "./scripts/epicenter.ts"
+	},
 	"scripts": {
+		"epicenter": "bun --no-install scripts/epicenter.ts",
 		"build": "bun run --filter '*' build",
 		"check": "bun run lint:ci && bun run typecheck && bun run test && bun run check:structure",
 		"dev": "bun run dev:honeycrisp",
 		"dev:api": "bun run --cwd apps/api dev",
-		"dev:api-dashboard": "bun run --filter @epicenter/api --filter @epicenter/api-ui dev",
+		"dev:capture": "bun run --filter @epicenter/api --filter @epicenter/capture-app dev",
+		"dev:capture:ui": "bun run --cwd apps/capture dev",
+		"dev:api-dashboard": "API_PUBLIC_ORIGIN=http://localhost:5178 bun run --filter @epicenter/api --filter @epicenter/api-ui dev",
 		"dev:api-dashboard:ui": "bun run --cwd apps/api/ui dev",
-		"dev:epicenter": "bun run --cwd apps/epicenter dev",
+		"dev:epicenter": "EPICENTER_API_URL=http://localhost:8787 bun run --filter @epicenter/api --filter @epicenter/epicenter dev",
 		"dev:epicenter:mail": "infisical run --silent --env=dev --path=/apps/local-mail --project-config-dir=apps/api -- bun dev:epicenter",
-		"install:vocab": "bun run --cwd apps/vocab build:epicenter",
 		"dev:honeycrisp": "bun run --filter @epicenter/api --filter @epicenter/honeycrisp dev",
-		"dev:honeycrisp:ui": "bun run --cwd apps/honeycrisp dev:web",
+		"dev:honeycrisp:ui": "bun run --cwd apps/honeycrisp dev",
 		"dev:landing": "bun run --cwd apps/landing dev",
-		"dev:local-mail": "bun run --cwd apps/local-mail/ui dev",
+		"dev:local-mail": "bun run --filter @epicenter/api --filter @epicenter/local-mail-ui dev",
+		"dev:local-mail:ui": "bun run --cwd apps/local-mail/ui dev",
 		"dev:matter": "bun run --cwd apps/matter dev",
 		"dev:matter:ui": "bun run --cwd apps/matter dev:web",
 		"dev:posthog-reverse-proxy": "bun run --cwd apps/posthog-reverse-proxy dev",
 		"dev:self-host": "bun run --cwd apps/self-host dev",
 		"dev:skills": "bun run --cwd apps/skills dev",
+		"dev:todos": "bun run --cwd apps/todos dev",
+		"dev:todos:ui": "bun run --cwd apps/todos dev:ui",
 		"dev:vocab": "bun run --filter @epicenter/api --filter @epicenter/vocab dev",
 		"dev:vocab:ui": "bun run --cwd apps/vocab dev",
 		"dev:whispering": "bun run --filter @epicenter/api --filter @epicenter/whispering dev",
@@ -170,11 +179,11 @@
 		"bump-version": "bun run scripts/bump-version.ts",
 		"clean": "bun run scripts/clean.ts",
 		"nuke": "bun run scripts/clean.ts --nuke",
-		"cf:plan:remote": "bun run --cwd ops cf:plan:remote",
-		"cf:apply:remote": "bun run --cwd ops cf:apply:remote",
+		"cf:audit:remote": "bun run --cwd ops cf:audit:remote",
 		"jsrepo:build": "jsrepo build"
 	},
 	"devDependencies": {
+		"@y/y": "14.0.0-rc.26",
 		"@biomejs/biome": "catalog:",
 		"@changesets/cli": "^2.31.0",
 		"@types/bun": "catalog:",
@@ -186,7 +195,6 @@
 		"tinyexec": "^1.0.4"
 	},
 	"patchedDependencies": {
-		"@y/prosemirror@2.0.0-6": "patches/@y%2Fprosemirror@2.0.0-6.patch",
-		"@y/y@14.0.0-rc.24": "patches/@y%2Fy@14.0.0-rc.24.patch"
+		"@y/prosemirror@2.0.0-12": "patches/@y%2Fprosemirror@2.0.0-12.patch"
 	}
 }

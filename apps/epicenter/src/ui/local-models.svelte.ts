@@ -82,7 +82,7 @@ function createLocalModels() {
 	 */
 	async function activate(model: ModelInfo) {
 		const result = await commands.setActiveModel(model.id);
-		if (result.status === 'error') {
+		if (result.error !== null) {
 			error = result.error.message;
 			return;
 		}
@@ -127,7 +127,7 @@ function createLocalModels() {
 		const result = await commands.downloadModel(model.id, id, channel);
 		const wasCancelled = transfers.get(model.id)?.cancelling ?? false;
 		transfers.delete(model.id);
-		if (result.status === 'error') {
+		if (result.error !== null) {
 			// A requested cancel is the cause of this error: a clean stop, not a
 			// failure worth reporting.
 			if (!wasCancelled) error = result.error.message;
@@ -188,7 +188,7 @@ function createLocalModels() {
 
 		async setUnloadPolicy(policy: UnloadPolicy) {
 			const result = await commands.setUnloadPolicy(policy);
-			if (result.status === 'error') {
+			if (result.error !== null) {
 				error = result.error.message;
 				return;
 			}
@@ -233,7 +233,7 @@ function createLocalModels() {
 		 */
 		async remove(model: ModelInfo) {
 			const result = await commands.deleteModel(model.id);
-			if (result.status === 'error') {
+			if (result.error !== null) {
 				error = result.error.message;
 				// The host may have removed the file before failing to clear the
 				// choice, so re-read rather than assuming nothing changed.

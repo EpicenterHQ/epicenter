@@ -14,8 +14,8 @@ mock.module('$app/navigation', () => ({
 	goto: mock(),
 }));
 
-mock.module('$lib/constants/urls', () => ({
-	WHISPERING_RECORDINGS_PATHNAME: '/apps/whispering/recordings',
+mock.module('$app/paths', () => ({
+	resolve: (pathname: string) => `/apps/whispering${pathname}`,
 }));
 
 mock.module('$lib/operations/sink', () => ({
@@ -56,9 +56,11 @@ const { deliverTranscriptionResult } = await import(
 type WhisperingApp = import('../src/lib/whispering/app').WhisperingApp;
 
 const app = {
-	settings: {
-		get(key: string) {
-			return settingsValues.get(key) ?? false;
+	local: {
+		kv: {
+			get(key: string) {
+				return settingsValues.get(key) ?? false;
+			},
 		},
 	},
 } as unknown as WhisperingApp;

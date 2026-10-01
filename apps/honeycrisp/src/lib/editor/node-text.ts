@@ -1,15 +1,15 @@
 /**
  * Plain text read off a note's node, without rebuilding the note.
  *
- * A note's body is a nested `Y.Type` in the document this store already holds
+ * A note's body is a nested `Y.Node` in the document this store already holds
  * (ADR-0295), so the list can read what it needs directly. It used to read a
  * `preview` value the editor wrote back on every change, because a body lived
  * in its own lazily loaded document (ADR-0248) and a list could not afford to
  * open one per row. That reason is gone.
  *
  * **Everything here goes through `slice`, and that is the whole point.**
- * `YType.slice` walks the item list and returns as soon as it has the count it
- * was asked for (`typeListSlice`, `@y/y` 14.0.0-rc.24 `src/ytype.js`), so
+ * `YNode.slice` walks the item list and returns as soon as it has the count it
+ * was asked for (`typeListSlice`, `@y/y` 14.0.0-rc.26 `src/ynode.js`), so
  * reading a hundred characters costs a hundred characters. `toString`,
  * `toArray`, `forEach`, `map` and `toJSON` all route through `toDelta` and
  * materialize the entire subtree, so `body.toString().slice(0, 100)` would pay
@@ -17,7 +17,7 @@
  * spelling and it is the expensive one.
  *
  * `slice` yields a text run as a plain string and a nested element as a
- * `Y.Type`, which is the same discriminant `toString` uses internally, so
+ * `Y.Node`, which is the same discriminant `toString` uses internally, so
  * walking it needs nothing from ProseMirror.
  */
 import * as Y from '@y/y';
@@ -28,14 +28,14 @@ const BATCH = 8;
 /**
  * Plain text from the start of one node, up to `limit` characters.
  *
- * A string child is text. A `Y.Type` child is an element whose own children
+ * A string child is text. A `Y.Node` child is an element whose own children
  * are walked the same way; for a text-bearing type those children are single
  * characters, which is what `ContentString.getContent` hands back.
  */
 function textOf(node: unknown, limit: number): string {
 	if (limit <= 0) return '';
 	if (typeof node === 'string') return node.slice(0, limit);
-	if (!(node instanceof Y.Type)) return '';
+	if (!(node instanceof Y.Node)) return '';
 	let text = '';
 	let taken = 0;
 	while (text.length < limit && taken < node.length) {
@@ -57,7 +57,7 @@ function textOf(node: unknown, limit: number): string {
  * surface and the title is the first line of it. The cap matches what the row
  * used to store.
  */
-export function noteTitle(body: Y.Type): string {
+export function noteTitle(body: Y.Node): string {
 	return textOf(body.slice(0, 1)[0], 80).trim();
 }
 
@@ -67,7 +67,7 @@ export function noteTitle(body: Y.Type): string {
  * Blocks are joined with a space so the last word of one does not run into the
  * first word of the next. Not stored anywhere; the list reads it.
  */
-export function notePreview(body: Y.Type): string {
+export function notePreview(body: Y.Node): string {
 	const limit = 100;
 	const parts: string[] = [];
 	let length = 0;

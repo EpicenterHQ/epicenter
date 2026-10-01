@@ -4,7 +4,8 @@
 	import { Skeleton } from '@epicenter/ui/skeleton';
 	import * as Table from '@epicenter/ui/table';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { billing } from '$lib/billing/queries';
+	import { getDashboard } from '$lib/dashboard/context';
+	const { billing } = getDashboard();
 
 	const events = createQuery(() => billing.events({ limit: 50 }).options);
 

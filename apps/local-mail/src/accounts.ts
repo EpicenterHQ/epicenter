@@ -7,6 +7,11 @@
  * addressed by the same `sub`, which is the subject Google returns for the
  * account and which nothing here allocates (ADR-0319).
  *
+ * The outbox is the fourth thing filed under the same `sub`: `label_intents` is
+ * what a person owes Gmail and `last_pass` is what happened the last time this
+ * device tried to pay it (`outbox.ts`). Both are in the durable file, and both
+ * leave with the account row in the same transaction below.
+ *
  * **Nothing is minted, so nothing can be minted twice.** An earlier design gave
  * each account a row id and keyed the stores by it, which meant removing the
  * account deleted the only name its rows had. Reconnecting the same person
@@ -21,17 +26,17 @@
  * decided in this file.
  */
 
-import type { Epicenter, SecretError } from '@epicenter/app';
+import type { SecretError, SecretStore } from '@epicenter/device';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import {
-	DEFAULT_MAIL_CONFIG,
-	type GmailClientIdentity,
-	type MailConfig,
-} from './config.ts';
+import { type GmailClientIdentity, type MailConfig } from './config.ts';
 import { createGmailClient } from './gmail-client.ts';
 import { sqliteHandle } from './handle.ts';
-import { openIntentStore, type PendingSummary } from './intent-store.ts';
+import {
+	type IntentStore,
+	type LabelAssertion,
+	openIntentStore,
+} from './intent-store.ts';
 import { openMailbox } from './mailbox.ts';
 import {
 	type AuthorizationRequest,
@@ -39,13 +44,20 @@ import {
 	completeAuthorization,
 	type OAuthError,
 } from './oauth.ts';
-import type { ReconcileDeps } from './reconcile.ts';
-import { claimReconcile, type ReconcileClaimError } from './reconcile-claim.ts';
+import {
+	type DiscardedAssertion,
+	openPassRecord,
+	type PassOutcome,
+	type PassRecord,
+	readOutbox,
+} from './outbox.ts';
+import { type ReconcilePassOutcome, reconcileAccount } from './reconcile.ts';
 import {
 	accountFiling,
 	type LocalMailStorage,
 	requireAccountFiling,
 } from './storage.ts';
+import type { SyncDeps } from './sync.ts';
 import { createTokenManager } from './token-manager.ts';
 
 export const AccountError = defineErrors({
@@ -75,61 +87,156 @@ export type ConnectedAccount = {
 	sub: string;
 	email: string;
 	connectedAt: string;
-	lastSyncedAt: string | null;
 };
 
-export type MailApp = {
+/** One account's storage and Gmail client for reconciliation. */
+export type MailSession = SyncDeps & {
+	sub: string;
+	intents: IntentStore;
+	passes: PassRecord;
+};
+
+export type ReconcileOutcome = ReconcilePassOutcome & {
+	/** The run's durable report, including rejections from its follow-up passes. */
+	pass: PassOutcome;
+};
+
+export type AccountWorkflow = {
 	storage: LocalMailStorage;
 	config: MailConfig;
 	identity: GmailClientIdentity;
-	epicenter: Epicenter;
+	secrets: SecretStore;
 	now: () => number;
-	/**
-	 * One live session per connected account, for the life of the application.
-	 *
-	 * Held here rather than rebuilt per call because a session now opens a file
-	 * and verifies its shape, and because removal has to be able to reach the
-	 * sessions it invalidates. A caller that kept one from before a removal is
-	 * holding a mailbox over a file that is gone; on the desktop, writing
-	 * through it would recreate the file the removal unlinked.
-	 */
-	readonly sessions: Map<string, Promise<ReconcileDeps>>;
+	/** One owner for each account's admitted work, session, and removal. */
+	readonly activity: Map<string, AccountActivity>;
 };
 
-export function createMailApp({
-	epicenter,
-	storage,
-	identity,
-	config = DEFAULT_MAIL_CONFIG,
-	now = () => Date.now(),
-}: {
-	epicenter: Epicenter;
-	storage: LocalMailStorage;
-	identity: GmailClientIdentity;
-	config?: MailConfig;
-	now?: () => number;
-}): MailApp {
-	return { epicenter, storage, identity, config, now, sessions: new Map() };
+type AccountActivity = {
+	pending: Set<Promise<unknown>>;
+	session?: Promise<MailSession>;
+	sync?: { request(): void; promise: Promise<ReconcileOutcome> };
+	removal?: Promise<Result<void, SecretError | AccountError>>;
+};
+
+function accountActivity(app: AccountWorkflow, sub: string): AccountActivity {
+	let activity = app.activity.get(sub);
+	if (!activity) {
+		activity = { pending: new Set() };
+		app.activity.set(sub, activity);
+	}
+	return activity;
+}
+
+/** Removal closes admission before waiting for every operation it admitted. */
+function withAccount<T>(
+	app: AccountWorkflow,
+	sub: string,
+	run: () => Promise<T>,
+): Promise<T> {
+	const activity = accountActivity(app, sub);
+	if (activity.removal)
+		return Promise.reject(new Error('This Gmail account is being removed.'));
+	const work = Promise.resolve().then(run);
+	activity.pending.add(work);
+	void work.then(
+		() => activity.pending.delete(work),
+		() => activity.pending.delete(work),
+	);
+	return work;
+}
+
+/** Read this account's downloaded facts without constructing a Gmail client. */
+export function withMailbox<T>(
+	app: AccountWorkflow,
+	sub: string,
+	run: (mailbox: ReturnType<typeof openMailbox>) => Promise<T>,
+): Promise<T> {
+	return withAccount(app, sub, async () => {
+		await requireConnectedAccount(app, sub);
+		return run(openMailbox(await app.storage.mail(sub)));
+	});
+}
+
+/** Restricted inspection reads downloaded facts, without the triage overlay. */
+export function queryAccount(
+	app: AccountWorkflow,
+	sub: string,
+	sql: string,
+	signal?: AbortSignal,
+) {
+	return withAccount(app, sub, async () => {
+		await requireConnectedAccount(app, sub);
+		const database = await app.storage.mail(sub);
+		const result = await database.query(sql, {
+			tables: ['messages', 'labels'],
+			signal,
+		});
+		if (result.error !== null) throw new Error(result.error.message);
+		return result.data;
+	});
+}
+
+/** Record one label choice without opening the cache or consulting Gmail.
+ * A fresh revision makes this choice supersede any delivery already in flight. */
+export function assertAccountLabel(
+	app: AccountWorkflow,
+	sub: string,
+	assertion: LabelAssertion,
+): Promise<void> {
+	return withAccount(app, sub, async () => {
+		await requireConnectedAccount(app, sub);
+		await openIntentStore(app.storage.local, sub).assert(
+			[assertion],
+			new Date(app.now()).toISOString(),
+		);
+	});
+}
+
+/** Inspect durable work even when opening the optional mail cache fails. */
+export function readAccountOutbox(app: AccountWorkflow, sub: string) {
+	return withAccount(app, sub, async () => {
+		await requireConnectedAccount(app, sub);
+		return readOutbox({
+			intents: openIntentStore(app.storage.local, sub),
+			passes: openPassRecord(app.storage.local, sub),
+			subjectsOf: async (ids) =>
+				openMailbox(await app.storage.mail(sub)).subjectsOf(ids),
+		});
+	});
+}
+
+/** Membership failures must never be mistaken for an unavailable cache. */
+async function requireConnectedAccount(
+	app: AccountWorkflow,
+	sub: string,
+): Promise<void> {
+	const [row] = await sqliteHandle(app.storage.local).all<{ sub: string }>(
+		`SELECT sub FROM accounts WHERE sub = ?`,
+		[sub],
+	);
+	if (row === undefined) {
+		throw new Error(`No account is connected on this device for ${sub}.`);
+	}
 }
 
 type AccountRow = {
 	sub: string;
 	email: string;
 	connected_at: string;
-	last_synced_at: string | null;
 };
 
 const toAccount = (row: AccountRow): ConnectedAccount => ({
 	sub: row.sub,
 	email: row.email,
 	connectedAt: row.connected_at,
-	lastSyncedAt: row.last_synced_at,
 });
 
 /** Every account connected on this device, oldest connection first. */
-export async function listAccounts(app: MailApp): Promise<ConnectedAccount[]> {
+export async function listAccounts(
+	app: AccountWorkflow,
+): Promise<ConnectedAccount[]> {
 	const rows = await sqliteHandle(app.storage.local).all<AccountRow>(
-		`SELECT sub, email, connected_at, last_synced_at FROM accounts
+		`SELECT sub, email, connected_at FROM accounts
 		 ORDER BY connected_at, sub`,
 	);
 	return rows.map(toAccount);
@@ -137,7 +244,7 @@ export async function listAccounts(app: MailApp): Promise<ConnectedAccount[]> {
 
 /** Step one of connecting: where to send the person, and what to hold. */
 export function startConnect(
-	app: MailApp,
+	app: AccountWorkflow,
 	{ redirectUri }: { redirectUri: string },
 ): Promise<AuthorizationRequest> {
 	return beginAuthorization({
@@ -165,7 +272,7 @@ export function startConnect(
  * earlier undelivered triage in order to report a keychain failure.
  */
 export async function finishConnect(
-	app: MailApp,
+	app: AccountWorkflow,
 	{ request, callbackUrl }: { request: AuthorizationRequest; callbackUrl: URL },
 ): Promise<Result<ConnectedAccount, OAuthError | SecretError | AccountError>> {
 	const authorized = await completeAuthorization({
@@ -187,41 +294,26 @@ export async function finishConnect(
 	if (filing === undefined) {
 		return Err(AccountError.UnusableSubject({ sub }).error);
 	}
-	const local = sqliteHandle(app.storage.local);
-	const connectedAt = new Date(app.now()).toISOString();
-	await local.run(
-		`INSERT INTO accounts (sub, email, connected_at, last_synced_at)
-		 VALUES (?, ?, ?, NULL)
+	return withAccount(app, sub, async () => {
+		const local = sqliteHandle(app.storage.local);
+		const connectedAt = new Date(app.now()).toISOString();
+		await local.run(
+			`INSERT INTO accounts (sub, email, connected_at)
+		 VALUES (?, ?, ?)
 		 ON CONFLICT(sub) DO UPDATE SET email = excluded.email`,
-		[sub, email, connectedAt],
-	);
+			[sub, email, connectedAt],
+		);
 
-	const kept = await app.epicenter.secrets.put(filing.secret, refreshToken);
-	if (kept.error !== null) return kept;
+		const kept = await app.secrets.put(filing.secret, refreshToken);
+		if (kept.error !== null) return kept;
 
-	const [row] = await local.all<AccountRow>(
-		`SELECT sub, email, connected_at, last_synced_at FROM accounts WHERE sub = ?`,
-		[sub],
-	);
-	return Ok(
-		row === undefined
-			? { sub, email, connectedAt, lastSyncedAt: null }
-			: toAccount(row),
-	);
-}
-
-/**
- * What one account still owes Gmail, which is what removal turns on.
- *
- * Straight at the durable file: this is what a person is asked about before a
- * removal, and asking must not open the mail file the removal is about to
- * unlink.
- */
-export function pendingWork(
-	app: MailApp,
-	sub: string,
-): Promise<PendingSummary> {
-	return openIntentStore(app.storage.local, sub).summary();
+		const [row] = await local.all<AccountRow>(
+			`SELECT sub, email, connected_at FROM accounts WHERE sub = ?`,
+			[sub],
+		);
+		if (!row) throw new Error('The connected Gmail account was not recorded.');
+		return Ok(toAccount(row));
+	});
 }
 
 /**
@@ -233,10 +325,12 @@ export function pendingWork(
  * removal following this is about to unlink.
  */
 export async function discardPending(
-	app: MailApp,
+	app: AccountWorkflow,
 	sub: string,
 ): Promise<number> {
-	return openIntentStore(app.storage.local, sub).discardAll();
+	return withAccount(app, sub, () =>
+		openIntentStore(app.storage.local, sub).discardAll(),
+	);
 }
 
 /**
@@ -259,61 +353,52 @@ export async function discardPending(
  * An interruption therefore always leaves more than it should rather than less,
  * and running this again finishes the job.
  */
-export async function removeAccount(
-	app: MailApp,
+export function removeAccount(
+	app: AccountWorkflow,
 	sub: string,
-): Promise<Result<void, SecretError | AccountError | ReconcileClaimError>> {
-	// The account's claim, for the same reason a pass takes it: a reconciler
-	// already running holds an access token in memory, so destroying the
-	// credential does not stop it. It would deliver into a mail file this is
-	// unlinking and record a sync against a row this is deleting.
-	//
-	// The claim is held within one surface, which is all it ever promised
-	// (`reconcile-claim.ts`). A second window has its own, so removing here
-	// cannot exclude a pass running there. One window is the shape this
-	// application has today, and a claim that crossed windows would be a
-	// different mechanism than the one that exists.
-	//
-	// It does not close the window between counting what is owed and deleting
-	// it. A triage act does not take this claim, deliberately, because a person
-	// pressing `e` should never wait on a network pass, so an assertion recorded
-	// between the count and the commit is deleted without anyone choosing that.
-	// The window is one person's own two hands, and the interface only reaches
-	// this from a dialog they are looking at. Narrowing it further means either
-	// making every keystroke contend with the reconciler, or deleting by the
-	// sequence the count observed, which would leave an assertion behind under
-	// an account row that is gone: the orphan ADR-0319 exists to prevent.
-	const taken = claimReconcile(sub);
-	if (taken.error !== null) return taken;
-	const { release } = taken.data;
-	try {
-		const owed = (await pendingWork(app, sub)).assertions;
-		if (owed > 0) {
-			return Err(AccountError.OwesWork({ sub, pending: owed }).error);
-		}
+): Promise<Result<void, SecretError | AccountError>> {
+	const activity = accountActivity(app, sub);
+	if (activity.removal) return activity.removal;
+	const removing = Promise.resolve().then(async () => {
+		await Promise.allSettled(activity.pending);
+		return removeIdleAccount(app, sub, activity);
+	});
+	activity.removal = removing;
+	void removing.then(
+		() => {
+			activity.removal = undefined;
+		},
+		() => {
+			activity.removal = undefined;
+		},
+	);
+	return removing;
+}
 
-		const forgotten = await app.epicenter.secrets.delete(
-			requireAccountFiling(sub).secret,
-		);
-		if (forgotten.error !== null) return forgotten;
-
-		// The session goes before the file it holds, so nothing composed over
-		// this account survives the account. A session still opening is awaited
-		// rather than only dropped: it holds a `sqlite.open` that would land
-		// after the unlink and recreate the file (ADR-0321).
-		const opening = app.sessions.get(sub);
-		app.sessions.delete(sub);
-		await opening?.catch(() => undefined);
-		await app.storage.forgetMail(sub);
-		await sqliteHandle(app.storage.local).batch([
-			{ sql: `DELETE FROM label_intents WHERE sub = ?`, parameters: [sub] },
-			{ sql: `DELETE FROM intent_meta WHERE sub = ?`, parameters: [sub] },
-			{ sql: `DELETE FROM accounts WHERE sub = ?`, parameters: [sub] },
-		]);
-		return Ok(undefined);
-	} finally {
-		release();
+async function removeIdleAccount(
+	app: AccountWorkflow,
+	sub: string,
+	activity: AccountActivity,
+): Promise<Result<void, SecretError | AccountError>> {
+	const owed = await openIntentStore(app.storage.local, sub).count();
+	if (owed > 0) {
+		return Err(AccountError.OwesWork({ sub, pending: owed }).error);
 	}
+
+	const forgotten = await app.secrets.delete(requireAccountFiling(sub).secret);
+	if (forgotten.error !== null) return forgotten;
+
+	// Removal drained reconciliation, the only operation that opens sessions.
+	// Forget its cached handles before deleting the file they refer to.
+	activity.session = undefined;
+	await app.storage.forgetMail(sub);
+	await sqliteHandle(app.storage.local).batch([
+		{ sql: `DELETE FROM label_intents WHERE sub = ?`, parameters: [sub] },
+		{ sql: `DELETE FROM intent_counters WHERE sub = ?`, parameters: [sub] },
+		{ sql: `DELETE FROM last_pass WHERE sub = ?`, parameters: [sub] },
+		{ sql: `DELETE FROM accounts WHERE sub = ?`, parameters: [sub] },
+	]);
+	return Ok(undefined);
 }
 
 /**
@@ -326,21 +411,16 @@ export async function removeAccount(
  * empty. Asking the registry first turns a stale caller into an error it can
  * report instead of a mailbox that quietly says nothing is there.
  */
-export function openSession(app: MailApp, sub: string): Promise<ReconcileDeps> {
-	const existing = app.sessions.get(sub);
+function openSession(app: AccountWorkflow, sub: string): Promise<MailSession> {
+	const activity = accountActivity(app, sub);
+	const existing = activity.session;
 	if (existing !== undefined) return existing;
 	const opening = (async () => {
-		const [row] = await sqliteHandle(app.storage.local).all<{ sub: string }>(
-			`SELECT sub FROM accounts WHERE sub = ?`,
-			[sub],
-		);
-		if (row === undefined) {
-			throw new Error(`No account is connected on this device for ${sub}.`);
-		}
+		await requireConnectedAccount(app, sub);
 		const tokens = createTokenManager({
 			config: app.config,
 			identity: app.identity,
-			secrets: app.epicenter.secrets,
+			secrets: app.secrets,
 			label: requireAccountFiling(sub).secret,
 			now: app.now,
 		});
@@ -348,24 +428,65 @@ export function openSession(app: MailApp, sub: string): Promise<ReconcileDeps> {
 			sub,
 			mailbox: openMailbox(await app.storage.mail(sub)),
 			intents: openIntentStore(app.storage.local, sub),
+			passes: openPassRecord(app.storage.local, sub),
 			client: createGmailClient({ config: app.config, tokens }),
-			config: app.config,
 			now: app.now,
 		};
 	})();
 	// Evict this open, not whatever is under the key when it fails: a slow
 	// failure must not take a healthy session opened after it.
 	opening.catch(() => {
-		if (app.sessions.get(sub) === opening) app.sessions.delete(sub);
+		if (activity.session === opening) activity.session = undefined;
 	});
-	app.sessions.set(sub, opening);
+	activity.session = opening;
 	return opening;
 }
 
-/** Record that a pass reached Gmail, on this device's own registry row. */
-export async function recordSynced(app: MailApp, sub: string): Promise<void> {
-	await sqliteHandle(app.storage.local).run(
-		`UPDATE accounts SET last_synced_at = ? WHERE sub = ?`,
-		[new Date(app.now()).toISOString(), sub],
-	);
+/**
+ * Deliver and pull, coalescing requests received during a pass into a follow-up.
+ * A failure alone never schedules a retry. Only another caller requests a pass.
+ * All callers settle after the requested passes, so removal can await delivery.
+ */
+export function reconcileNow(
+	app: AccountWorkflow,
+	sub: string,
+): Promise<ReconcileOutcome> {
+	const activity = accountActivity(app, sub);
+	if (activity.removal)
+		return Promise.reject(new Error('This Gmail account is being removed.'));
+	if (activity.sync) {
+		activity.sync.request();
+		return activity.sync.promise;
+	}
+	let requested = false;
+	const promise = withAccount(app, sub, async () => {
+		try {
+			const session = await openSession(app, sub);
+			const discarded: DiscardedAssertion[] = [];
+			let outcome: ReconcileOutcome;
+			do {
+				requested = false;
+				const { delivery, pull } = await reconcileAccount(session);
+				discarded.push(...delivery.discarded);
+				const pass = await session.passes.record({
+					finishedAt: new Date(app.now()).toISOString(),
+					discarded,
+					failure: delivery.failure ?? pull.failure,
+				});
+				outcome = { delivery, pull, pass };
+			} while (requested);
+			return outcome;
+		} finally {
+			// Clear before returning: a caller arriving during promise settlement
+			// must start a new run rather than request an already finished loop.
+			activity.sync = undefined;
+		}
+	});
+	activity.sync = {
+		request() {
+			requested = true;
+		},
+		promise,
+	};
+	return promise;
 }

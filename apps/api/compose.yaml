@@ -1,4 +1,4 @@
-# Local object storage for the opaque-id blob store (development + self-host).
+# Local object storage for hosted blobs (development + self-host).
 #
 # Run this ALONGSIDE the Bun server (`bun run dev:bun`). The two are decoupled
 # over the S3 HTTP API, exactly as the hosted Worker talks to R2:

@@ -12,7 +12,7 @@
  * documents `sub` as stable for the life of the account while an email address
  * may change, so `sub` is recorded as `providerAccountId` and the address is
  * display metadata. Neither is Local Mail's own account id: that is the row id
- * Epicenter Data minted, which is what `epicenter.secrets` is keyed by and what
+ * Epicenter Data minted, which is what `app.secrets` is keyed by and what
  * every mail and intent row is partitioned by.
  */
 
@@ -20,6 +20,7 @@ import * as oauth from 'oauth4webapi';
 import {
 	defineErrors,
 	extractErrorMessage,
+	type InferError,
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -65,6 +66,10 @@ export const OAuthError = defineErrors({
 	}),
 });
 export type OAuthError = InferErrors<typeof OAuthError>;
+
+export type RefreshAccessError = InferError<
+	typeof OAuthError.ReauthRequired | typeof OAuthError.TokenExchangeFailed
+>;
 
 /**
  * `gmail.modify` for the mailbox, and `openid email` for the two things that
@@ -248,7 +253,7 @@ export async function refreshAccess({
 	identity: GmailClientIdentity;
 	refreshToken: string;
 	now: () => number;
-}): Promise<Result<RefreshedAccess, OAuthError>> {
+}): Promise<Result<RefreshedAccess, RefreshAccessError>> {
 	const as = authServer(config);
 	const client: oauth.Client = { client_id: identity.clientId };
 	try {

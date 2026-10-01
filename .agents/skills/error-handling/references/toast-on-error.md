@@ -3,6 +3,10 @@
 `toastOnError` from `@epicenter/ui/sonner` accepts either a `Result<T, AnyTaggedError>` or a bare `AnyTaggedError`. It shows the tagged error's message and returns its input unchanged.
 
 The call site supplies the short UI title. The error variant owns the detailed description.
+The pass-through return is convenient for expressions; it does not mean a caller
+should present the failure and then forward it to another presentation owner.
+If another caller must decide what the failure means, return the Result without
+toasting it here.
 
 ## Inspect Data Locally
 
@@ -11,7 +15,8 @@ Destructure the Result, present the error branch, then continue with the narrowe
 ```ts
 const { data, error } = await api.billing.portal();
 if (error !== null) {
-	return toastOnError(error, 'Could not open billing portal');
+	toastOnError(error, 'Could not open billing portal');
+	return;
 }
 if (data.portalUrl) window.location.href = data.portalUrl;
 ```

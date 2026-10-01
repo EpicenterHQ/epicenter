@@ -1,12 +1,10 @@
 <script lang="ts">
+	import { local } from '$lib/whispering/local.js';
 	import { Button } from '@epicenter/ui/button';
 	import * as Card from '@epicenter/ui/card';
 	import * as SectionHeader from '@epicenter/ui/section-header';
 	import DatabaseIcon from '@lucide/svelte/icons/database';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
-	import { getWhisperingApp } from '$lib/whispering/context';
-
-	const app = getWhisperingApp();
 
 	// ── Metrics ────────────────────────────────────────────────────────────────
 
@@ -14,11 +12,12 @@
 		function snapshot() {
 			return {
 				tables: [
-					{ label: 'Recordings', count: app.recordings.count },
-					{ label: 'Recipes', count: app.recipes.count },
+					{
+						label: 'Recordings',
+						count: local.tables.recordings.rows.length,
+					},
 				],
-				nonconforming:
-					app.recordings.nonconforming.length + app.recipes.nonconforming.length,
+				nonconforming: local.tables.recordings.nonconforming.length,
 			};
 		}
 
@@ -37,7 +36,6 @@
 	// ── Instance ──────────────────────────────────────────────────────────────
 
 	const metrics = createMetrics();
-
 </script>
 
 {#if import.meta.env.DEV}
@@ -50,7 +48,7 @@
 				</SectionHeader.Title>
 			</div>
 			<SectionHeader.Description class="max-w-2xl">
-				Workspace metrics. Only visible in development.
+				Local metrics. Only visible in development.
 			</SectionHeader.Description>
 		</SectionHeader.Root>
 
@@ -60,9 +58,7 @@
 				<div class="flex items-center justify-between">
 					<div class="flex items-center gap-2">
 						<DatabaseIcon class="h-4 w-4 text-muted-foreground" />
-						<Card.Title class="text-base font-medium"
-							>Workspace Metrics</Card.Title
-						>
+						<Card.Title class="text-base font-medium">Local metrics</Card.Title>
 					</div>
 					<Button variant="outline" size="sm" onclick={() => metrics.refresh()}>
 						<RefreshCwIcon class="mr-1.5 h-3.5 w-3.5" />

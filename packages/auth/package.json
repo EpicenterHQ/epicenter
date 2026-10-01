@@ -7,7 +7,6 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./desktop": "./src/desktop-broker-auth.ts",
-		"./oauth-launchers": "./src/oauth-launchers/index.ts",
 		"./svelte": "./src/svelte/auth.svelte.ts"
 	},
 	"scripts": {
@@ -19,11 +18,10 @@
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/sync": "workspace:*",
 		"arktype": "catalog:",
-		"better-auth": "catalog:",
-		"oauth4webapi": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
+		"better-auth": "catalog:",
 		"@types/bun": "catalog:",
 		"typescript": "catalog:",
 		"svelte": "catalog:"

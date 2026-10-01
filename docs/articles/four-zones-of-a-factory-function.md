@@ -157,7 +157,7 @@ return {
 
 Six public members. The return object starts on line ~386 of a 560-line function; you scroll to the bottom and you're looking at the entire API. No scanning for `private` keywords, no checking member order.
 
-`destroy()` calls `this.disconnect()` because both live in the return object. Method shorthand gives proper `this` binding. Meanwhile, `disconnect()` calls `backoff.wake()` and `manageWindowListeners()` directly because those are zone 3 helpers accessed through closure.
+`destroy()` calls `this.disconnect()` when invoked through the returned object, which supplies `this`; extracting `destroy` loses that receiver. Meanwhile, `disconnect()` calls `backoff.wake()` and `manageWindowListeners()` directly because those are zone 3 helpers accessed through closure.
 
 ## The Decision Rule
 
@@ -179,4 +179,4 @@ Reading the function top-down gives you setup context before implementation; rea
 
 - [Closures Are Better Privacy Than Keywords](./closures-are-better-privacy-than-keywords.md): why this beats class keywords
 - [The Factory Function Pattern](./factory-function-pattern.md): the external signature and dependency injection
-- [Method Shorthand for JSDoc Preservation](./method-shorthand-jsdoc-preservation.md): why method shorthand in zone 4 preserves IDE documentation
+- [Documenting Returned Factory Methods](./method-shorthand-jsdoc-preservation.md): where to put public JSDoc and when sibling calls need a receiver

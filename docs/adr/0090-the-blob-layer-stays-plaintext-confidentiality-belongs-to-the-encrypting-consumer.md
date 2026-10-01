@@ -3,6 +3,10 @@
 - **Status:** Accepted
 - **Date:** 2026-07-01
 
+- **Amended by:** [ADR-0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) at media delivery: plaintext and a locator alone do not establish authenticated range playback. The mandatory presigned/redirect transport is not retained; encryption ownership is unchanged.
+
+- **Amended by ADR-0426 (blob identity only):** [Scoped opaque identities](0426-copies-create-independent-blobs-at-their-destination.md) replace the historical content-hash addressing assumption below. Consumer-owned encryption remains unchanged.
+
 ## Context
 
 Blobs will carry personal media (audio, images, PDFs), which raised the question of blob-layer encryption. The system's precedent points one way: the sync anchor deliberately reads workspace plaintext ([ADR-0004](0004-trust-the-relay-reject-zero-knowledge.md)), the secret vault runs on an operator-readable server-derived keyring ([ADR-0074](0074-the-secret-vault-is-an-owner-scoped-synced-store-encrypted-under-a-server-derived-keyring.md)), and privacy is a deployment choice ([ADR-0068](0068-privacy-is-a-deployment-not-a-product-feature.md)). Blob-layer E2EE would make raw media the most operator-blind data class in the system while the designated confidential store is not, and it would charge every consumer for streaming crypto, dead ranged reads, dead previews, and a key-recovery story that only some consumers need.

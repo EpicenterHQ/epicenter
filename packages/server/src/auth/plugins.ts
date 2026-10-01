@@ -1,111 +1,22 @@
-import { oauthProvider } from '@better-auth/oauth-provider';
 import { passkey } from '@better-auth/passkey';
-import { EPICENTER_OAUTH_SCOPES } from '@epicenter/constants/oauth-clients';
-import { buildTrustedOAuthClients } from '@epicenter/constants/oauth-seed';
 import type { BetterAuthOptions } from 'better-auth';
-import { jwt } from 'better-auth/plugins/jwt';
-import { JWT_SIGNING_ALG } from './base-config.js';
+import { bearer } from 'better-auth/plugins/bearer';
+import { sessionHandoff } from './session-handoff.js';
 
-/**
- * Build the Better Auth plugins that define Epicenter's OAuth server boundary.
- *
- * Use this only from the API auth factory, where the request URL is known.
- * `apiBaseURL` is the OAuth resource audience: clients pass it as `resource`,
- * and we accept tokens minted only for this audience, preventing tokens from
- * one resource server being replayed against another. It also fixes the
- * passkey Relying Party below.
- */
-export function authPlugins(apiBaseURL: string) {
-	const trustedOAuthClientIds = new Set(
-		buildTrustedOAuthClients().map((client) => client.clientId),
-	);
-	// WebAuthn binds credentials to a Relying Party. Passkeys are only ever
-	// created and used on the hosted auth pages, which the API serves at its own
-	// origin, so the RP is exactly this deployment: `rpID` is the API hostname
-	// (`localhost` in dev, the deployment host in prod) and `origin` is the full
-	// base URL with no trailing slash (what the browser reports and the plugin
-	// checks as `expectedOrigin`). Both derive from `apiBaseURL`, so a preview or
-	// self-host deployment gets a correct RP without extra config.
+/** Build the Better Auth plugins used by the hosted session server. */
+export function authPlugins(
+	apiBaseURL: string,
+	callbacks: readonly string[] = [],
+) {
 	const origin = apiBaseURL.replace(/\/$/, '');
 	const rpID = new URL(origin).hostname;
 	return [
-		// `JWT_SIGNING_ALG` (ES256, P-256 ECDSA) signs the id_token and JWT
-		// access tokens. `id_token_signing_alg_values_supported` on
-		// `/.well-known/openid-configuration` is derived from this same
-		// `keyPairConfig.alg` by the OAuth provider plugin, not a second
-		// hardcoded list, so the advertised alg and the signing alg cannot
-		// drift. See that constant for why ES256 is pinned over the `jose`
-		// EdDSA default, and why `alg` is the only thing we configure (Better
-		// Auth derives the key shape from it).
-		//
-		// `keyPairConfig.alg` governs only newly minted keys. If the `jwks`
-		// table ever holds a row of another algorithm (such as a pre-ES256
-		// Ed25519 key), signing crashes because `importJWK` rejects the
-		// mismatch. The fix is to delete that stale row so Better Auth mints a
-		// compliant key, not to filter the table in this read path.
-		jwt({ jwks: { keyPairConfig: { alg: JWT_SIGNING_ALG } } }),
-		oauthProvider({
-			loginPage: '/sign-in',
-			consentPage: '/consent',
-			requirePKCE: true,
-			// JWT access tokens are stateless: the resource server verifies them
-			// against JWKS with no per-request introspection, so a token stays
-			// valid until it expires even after the session or refresh token is
-			// revoked. The plugin default is 3600s (1h); 600s (10min) keeps that
-			// post-revocation window short while the client refreshes
-			// transparently (refresh tokens rotate, and the auth runtime refreshes
-			// on a 60s skew and on any 401). Refresh-token lifetime is unchanged.
-			accessTokenExpiresIn: 600,
-			// Refresh-token semantics, verified against the installed
-			// @better-auth/oauth-provider 1.6.23 dist (2026-07-05 re-check on the
-			// 1.6.18 -> 1.6.23 bump; re-verify on upgrade):
-			//
-			// - Rotation is unconditional (every refresh mints a new token) and
-			//   reuse detection is built in: replaying a rotated-out token
-			//   invalidates the whole (clientId, userId) family per RFC 9700
-			//   §4.14. On by default; nothing to configure. Family granularity is
-			//   per client id, so one detected replay signs the user out of that
-			//   app on every device: coarse but fail-safe.
-			// - Refresh lifetime is a SLIDING window (`refreshTokenExpiresIn`,
-			//   default 30 days, reset on every rotation). No absolute-cap knob
-			//   exists upstream; `auth_time` is carried through rotations, so an
-			//   absolute cap could be enforced by a periodic delete on
-			//   `oauth_refresh_token.auth_time` if replay risk ever demands one.
-			// - Better Auth session revocation does NOT revoke grants: sign-out
-			//   deletes the session row and the refresh row survives with
-			//   `session_id` SET NULL (offline_access semantics). Killing a grant
-			//   takes /oauth2/revoke or deleting its rows.
-			// A rotated-out refresh token replayed within this window returns the
-			// CACHED token pair instead of invalidating the family, and only when
-			// the client, scopes, resources, and sender constraint all match; a
-			// mismatch inside the window is a plain `invalid_grant` with the
-			// family left alone. Default is 0, which means any duplicate refresh
-			// signs the person out of this app on every device. Upstream's own
-			// `mcp()` plugin defaults to 30s for the same reason.
-			//
-			// What this covers: a lost response, a duplicated request, a retry
-			// across a flaky connection. What it does NOT cover, and the reason
-			// this is not the whole fix: a second tab holding a stale grant in
-			// memory refreshes when ITS access token nears expiry, which is up to
-			// `accessTokenExpiresIn` after the first tab rotated. No interval
-			// short enough to be safe reaches that. The fix for the cross-tab race
-			// is the client adopting a rotated grant (`persisted-auth-storage.ts`
-			// reads once and never re-reads), not a longer window here.
-			refreshTokenReuseInterval: 60,
-			cachedTrustedClients: trustedOAuthClientIds,
-			validAudiences: [apiBaseURL],
-			allowDynamicClientRegistration: false,
-			scopes: [...EPICENTER_OAUTH_SCOPES],
-			// The plugin warns that /.well-known/oauth-authorization-server/auth must exist
-			// because basePath is /auth (not /), so it can't auto-mount at the root.
-			// We already mount both discovery endpoints manually in app.ts.
-			silenceWarnings: { oauthAuthServerConfig: true, openidConfig: true },
+		// Better Auth signs and resolves these credentials against its session row.
+		bearer({ requireSignature: true }),
+		sessionHandoff({
+			origin,
+			callbacks,
 		}),
-		// Passkey (WebAuthn) as a returning-user sign-in method. Registration
-		// requires a session (the plugin default), so it lives on the signed-in
-		// auth page; authentication runs on the sign-in page and, on success,
-		// sets a standard session cookie that the oauthProvider above then uses to
-		// continue the authorize flow. Adds a `passkey` table to the schema.
 		passkey({ rpID, rpName: 'Epicenter', origin }),
 	] satisfies NonNullable<BetterAuthOptions['plugins']>;
 }

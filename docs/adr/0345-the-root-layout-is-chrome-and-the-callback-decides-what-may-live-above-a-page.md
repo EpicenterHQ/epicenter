@@ -2,7 +2,9 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-03
-- **Built:** all of it, and none of it by this record. Whispering routes `(app)` around its shell, `apps/api/ui` gates at `/dashboard/+layout.svelte`, and Honeycrisp and Vocab open from `+page.svelte`. This states the rule those four already follow and names the trigger for the next app, so the invariant stops living in two source comments.
+- **Page lifetime:** The fixed-library direction is recorded in [ADR-0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md). A boot node captures one primary library and deliberate changes close before navigation. The earlier reactive `{#if}`/`{#key}` replacement guidance is withdrawn. The narrowest node outside the callback still owns application opening; the page-lifetime transition is unbuilt.
+- **Amended by:** [ADR-0342](0342-sign-in-is-the-door-to-keeping-not-to-using.md)'s rejection, at its citation of ADR-0088: sign-in IS a door, and every application renders a sign-in screen while signed out.
+- **Unbuilt:** nothing.
 - **Relates:** [ADR-0088](0088-sign-in-is-an-enhancement-never-a-door.md) (a page lifetime is one auth generation, which is the part of 0088 this depends on), [ADR-0342](0342-sign-in-is-the-door-to-keeping-not-to-using.md) (why every app gates today), [ADR-0344](0344-an-epicenter-owns-one-data-session-and-opening-it-is-a-verb.md) (opening is a verb, so someone has to own the call)
 
 ## Context

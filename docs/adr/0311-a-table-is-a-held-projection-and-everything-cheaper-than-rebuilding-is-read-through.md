@@ -13,7 +13,7 @@ something reads each attribute and builds it, and building one costs about two
 microseconds. The Svelte adapter held nothing, so every read built every row.
 
 That is affordable exactly until a list is long. Measured against the real
-store (`packages/data/evidence/bench/list-per-keystroke.ts`):
+store (`packages/app/evidence/data/bench/list-per-keystroke.ts`):
 
 | notes | rows walk | filter | sort | one derive |
 | --- | --- | --- | --- | --- |

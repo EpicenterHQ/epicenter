@@ -8,7 +8,7 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import { type Command, commands } from '$lib/commands';
 	import { os } from '#platform/os';
-	import { createAppShortcuts } from '$lib/platform/shortcuts';
+	import { createAppShortcuts } from '$lib/shortcuts';
 	import { getWhisperingApp } from '$lib/whispering/context';
 	import { report } from '$lib/report';
 	import {

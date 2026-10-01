@@ -2,9 +2,12 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-02
+- **Amended by:** [ADR-0375](0375-local-and-personal-data-preserve-named-account-ownership.md) at equating authenticated identity with every data partition: a named user retains their identity while accessing Personal or deployment-shared data, without prescribing replacement identifiers or storage keys.
 - **Restated by:** [ADR-0263](0263-a-connection-is-one-server-at-a-time-and-a-replica-is-derived-from-it.md) as the reader-facing Cloud/self-host contract
 - **Amends:** [ADR-0067](0067-auth-owns-the-session-endpoint-the-data-client-is-owner-scoped.md), [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md)
 - **Relates:** [ADR-0066](0066-runtime-portability-is-per-concern-injection-not-a-runtime-object.md), [ADR-0070](0070-self-host-adds-no-new-ownership-or-auth-mode.md), [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md), [ADR-0076](0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md)
+
+- **Amended by:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at blob identity and physical/HTTP addresses. Local blobs use the fixed `device/no-account` path; copies return fresh BlobIds within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target.
 
 ## Context
 

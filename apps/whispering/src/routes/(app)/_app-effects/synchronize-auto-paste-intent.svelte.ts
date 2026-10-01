@@ -17,7 +17,7 @@ export function synchronizeAutoPasteIntent(app: WhisperingApp): void {
 
 	$effect(() => {
 		void t.keyboard
-			.setAutoPasteEnabled(outputWritesToCursor(app))
+			.setAutoPasteEnabled(outputWritesToCursor())
 			.catch((cause) => {
 				report.error({
 					title: 'Failed to update paste-at-cursor intent',

@@ -3,80 +3,20 @@ import {
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
-import type { MailConfig } from './config.ts';
 import type { GmailClient, GmailClientError } from './gmail-client.ts';
-import type { CacheState, Mailbox } from './mailbox.ts';
+import type { FullPullCheckpoint, Mailbox } from './mailbox.ts';
 import type { GmailMessage, HistoryRecord } from './schema.ts';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const FULL_PULL_GET_CHUNK_SIZE = 8;
 
 export type SyncMode = 'FULL' | 'INCREMENTAL';
-type ModeDecision = { mode: SyncMode; reason: string };
-
-type ModeInputs = {
-	forceFull: boolean;
-	cacheState: CacheState;
-	now: number;
-	historySafeWindowDays: number;
-	fullBackstopDays: number;
-};
-
-/**
- * Choose FULL vs INCREMENTAL from the stored mailbox state alone (pure, so it
- * is unit testable without a network). Unlike `apps/local-books`' `decideMode`,
- * staleness is NOT derived from parsing the cursor: Gmail's `historyId` is an
- * opaque increasing integer, not a timestamp, so there is no cursor age to
- * compute. Instead this measures wall-clock time since our own last
- * successful sync (`lastSyncedAt`), which is the only staleness signal we
- * actually have.
- */
-export function decideMode({
-	forceFull,
-	cacheState,
-	now,
-	historySafeWindowDays,
-	fullBackstopDays,
-}: ModeInputs): ModeDecision {
-	if (forceFull) return { mode: 'FULL', reason: 'forced' };
-
-	if (!cacheState.historyId)
-		return { mode: 'FULL', reason: 'no cursor (first run)' };
-	if (!cacheState.lastSyncedAt) {
-		return { mode: 'FULL', reason: 'cursor present but no recorded sync time' };
-	}
-
-	const sinceLastSyncDays =
-		(now - Date.parse(cacheState.lastSyncedAt)) / DAY_MS;
-	if (sinceLastSyncDays > historySafeWindowDays) {
-		return {
-			mode: 'FULL',
-			reason: `${sinceLastSyncDays.toFixed(1)}d since last sync exceeds ${historySafeWindowDays}d safe window (historyId retention is at least a week, not guaranteed longer)`,
-		};
-	}
-
-	if (!cacheState.lastFullPullAt)
-		return { mode: 'FULL', reason: 'no recorded full pull' };
-	const fullAgeDays = (now - Date.parse(cacheState.lastFullPullAt)) / DAY_MS;
-	if (fullAgeDays > fullBackstopDays) {
-		return {
-			mode: 'FULL',
-			reason: `last full pull ${fullAgeDays.toFixed(1)}d old exceeds ${fullBackstopDays}d backstop`,
-		};
-	}
-
-	return {
-		mode: 'INCREMENTAL',
-		reason: `synced ${sinceLastSyncDays.toFixed(1)}d ago, within window`,
-	};
-}
 
 /**
  * A concurrent writer held the cache's lock past the busy timeout. The failed
  * batch rolled back whole, so the cursor did not advance and the next pass
  * retries the same window. It is a reportable outcome rather than a crash,
- * because a visible window and a hidden synchronization worker writing the same
- * database is the supported desktop arrangement (ADR-0317).
+ * because the cache is one file that a pass writes and the page reads, and a
+ * write that loses the lock costs one pass rather than the surface.
  */
 export const CacheWriteError = defineErrors({
 	CacheBusy: ({ cause }: { cause: unknown }) => ({
@@ -110,14 +50,11 @@ export type SyncOutcome = {
 export type SyncDeps = {
 	mailbox: Mailbox;
 	client: GmailClient;
-	config: MailConfig;
 	now: () => number;
 	log?: (message: string) => void;
 };
 
-/** A failed pass: the cursor never moved, so `cursorAfter` always equals
- * `cursorBefore`, and every count is zero except `messagesUpserted` (a FULL
- * pull's per-page commits can have landed real rows before it failed). */
+/** Failure before a checkpoint; completed download pages remain readable. */
 function failedOutcome(
 	mode: SyncMode,
 	reason: string,
@@ -137,29 +74,43 @@ function failedOutcome(
 	};
 }
 
-/**
- * Full pull: paginate `messages.list`, fetch each page's messages concurrently
- * via `messages.get(format=full)`, and commit per page (`ingestFullPullPage`).
- * Cursor advances only once, via `finishFullPull`, after every page succeeds
- * against the pre-pull `getProfile` baseline. Committing a page
- * that later fails means a retry re-pulls from `messages.list`'s first page
- * again (upserts are idempotent, so this repeats work rather than losing it,
- * the same tradeoff `apps/local-books` makes on a failed FULL pull).
- */
+/** Download all messages, committing each complete page for offline reading. */
 async function fullPull(
 	deps: SyncDeps,
-	syncedAt: string,
-): Promise<{ upserted: number; failure: GmailClientError | null }> {
+	checkpoint: FullPullCheckpoint,
+	resuming: boolean,
+): Promise<{
+	upserted: number;
+	failure: SyncFailure | null;
+	rejectedPageToken?: true;
+}> {
 	const { mailbox, client } = deps;
 	const log = deps.log ?? (() => {});
 	let upserted = 0;
-	let pageToken: string | undefined;
+	let pageToken = checkpoint.nextPageToken ?? undefined;
 	let page = 0;
+	if (resuming && pageToken === undefined) return { upserted, failure: null };
+
+	const labels = await client.listLabels();
+	if (labels.error) return { upserted, failure: labels.error };
+	await mailbox.ingestLabels(labels.data);
 
 	while (true) {
 		page += 1;
 		const listed = await client.listMessageIds(pageToken);
-		if (listed.error) return { upserted, failure: listed.error };
+		if (listed.error) {
+			// A bad request with a continuation may be a stale page token. Restart
+			// once at the caller; a first-page failure is never swallowed.
+			return {
+				upserted,
+				failure: listed.error,
+				...(pageToken &&
+				listed.error.name === 'Http' &&
+				listed.error.status === 400
+					? { rejectedPageToken: true as const }
+					: {}),
+			};
+		}
 
 		const messages: GmailMessage[] = [];
 		for (
@@ -175,12 +126,24 @@ async function fullPull(
 				chunk.map((id) => client.getMessage(id)),
 			);
 			for (const result of fetched) {
-				if (result.error) return { upserted, failure: result.error };
+				if (result.error) {
+					if (result.error.name === 'Http' && result.error.status === 404)
+						continue;
+					return { upserted, failure: result.error };
+				}
 				messages.push(result.data);
 			}
 		}
 
-		await mailbox.ingestFullPullPage(messages, syncedAt);
+		try {
+			await mailbox.ingestFullPullPage(messages, {
+				...checkpoint,
+				nextPageToken: listed.data.nextPageToken ?? null,
+			});
+		} catch (cause) {
+			if (!isSqliteBusy(cause)) throw cause;
+			return { upserted, failure: CacheWriteError.CacheBusy({ cause }).error };
+		}
 		upserted += messages.length;
 		log(
 			`full pull: page ${page}, ${messages.length} messages (${upserted} total)`,
@@ -190,10 +153,6 @@ async function fullPull(
 		pageToken = listed.data.nextPageToken;
 	}
 
-	const labels = await client.listLabels();
-	if (labels.error) return { upserted, failure: labels.error };
-	await mailbox.ingestLabels(labels.data, syncedAt);
-
 	return { upserted, failure: null };
 }
 
@@ -201,7 +160,7 @@ async function fullPull(
 type PendingAction =
 	| { kind: 'upsert' }
 	| { kind: 'delete' }
-	| { kind: 'labelPatch'; labelIds: string[] };
+	| { kind: 'labelPatch'; wants: Map<string, boolean> };
 
 /**
  * Fold every history record across every page into one final action per
@@ -223,19 +182,18 @@ function foldHistoryRecords(
 		for (const { message } of record.messagesDeleted ?? []) {
 			actions.set(message.id, { kind: 'delete' });
 		}
-		for (const { message } of [
-			...(record.labelsAdded ?? []),
-			...(record.labelsRemoved ?? []),
-		]) {
-			const existing = actions.get(message.id);
-			if (existing?.kind === 'upsert' || existing?.kind === 'delete') continue;
-			// `message.labelIds` on a labelsAdded/labelsRemoved record is the full
-			// CURRENT snapshot, not the delta; the record's own top-level `labelIds`
-			// is the delta and is intentionally unused here.
-			actions.set(message.id, {
-				kind: 'labelPatch',
-				labelIds: message.labelIds ?? [],
-			});
+		for (const [events, want] of [
+			[record.labelsAdded ?? [], true],
+			[record.labelsRemoved ?? [], false],
+		] as const) {
+			for (const { message, labelIds } of events) {
+				const existing = actions.get(message.id);
+				if (existing?.kind === 'upsert' || existing?.kind === 'delete')
+					continue;
+				const wants = existing?.wants ?? new Map<string, boolean>();
+				for (const labelId of labelIds) wants.set(labelId, want);
+				actions.set(message.id, { kind: 'labelPatch', wants });
+			}
 		}
 	}
 	return actions;
@@ -244,8 +202,8 @@ function foldHistoryRecords(
 /**
  * Incremental refresh: paginate `history.list` from `cursorBefore`, fold every
  * record into a final per-message action, fetch full content for anything
- * that needs it, then apply the whole batch and advance the cursor in one
- * batch (`mailbox.applyHistoryBatch`). A `messages.get` 404 for a message
+ * that needs it, then apply bounded chunks before advancing the cursor
+ * (`mailbox.applyHistoryBatch`). A `messages.get` 404 for a message
  * flagged `upsert` (added, then permanently deleted before we fetched it) is
  * folded into a delete rather than failing the pass. Any other failure aborts
  * without advancing the cursor, so the next pass re-pulls the same window.
@@ -280,7 +238,10 @@ async function incrementalPoll(
 	const actions = foldHistoryRecords(records);
 	const messagesToUpsert: GmailMessage[] = [];
 	const messagesToDelete: string[] = [];
-	const labelPatches: { messageId: string; labelIds: string[] }[] = [];
+	const labelPatches: {
+		messageId: string;
+		wants: ReadonlyMap<string, boolean>;
+	}[] = [];
 
 	for (const [id, action] of actions) {
 		if (action.kind === 'delete') {
@@ -288,12 +249,10 @@ async function incrementalPoll(
 			continue;
 		}
 		if (action.kind === 'labelPatch' && (await mailbox.hasMessage(id))) {
-			labelPatches.push({ messageId: id, labelIds: action.labelIds });
+			labelPatches.push({ messageId: id, wants: action.wants });
 			continue;
 		}
-		// An upsert, or a label patch aimed at a row the cache lacks: full
-		// pulls exclude SPAM/TRASH, so the sweep can evict a row that a later
-		// patch targets (untrash), and refetching converges the cache.
+		// A new or missing row needs its full resource before deltas can apply.
 		const fetched = await client.getMessage(id);
 		if (fetched.error) {
 			if (fetched.error.name === 'Http' && fetched.error.status === 404) {
@@ -316,7 +275,7 @@ async function incrementalPoll(
 			`labels.list failed during incremental refresh: ${labels.error.message}`,
 		);
 	} else {
-		await mailbox.ingestLabels(labels.data, syncedAt);
+		await mailbox.ingestLabels(labels.data);
 	}
 
 	const { labelsChanged } = await mailbox.applyHistoryBatch({
@@ -339,77 +298,96 @@ async function incrementalPoll(
 	};
 }
 
-/**
- * One sync pass: decide FULL vs INCREMENTAL, run it, and (for INCREMENTAL)
- * fall back to FULL within the same pass if the cursor turns out to be
- * expired (`HistoryExpired`) even though `decideMode` thought it was fresh.
- */
-export async function syncMailbox(
-	deps: SyncDeps,
-	{ forceFull }: { forceFull: boolean },
-): Promise<SyncOutcome> {
-	const { mailbox, config, now } = deps;
-	const log = deps.log ?? (() => {});
-
-	const cacheState = await mailbox.readCacheState();
-	const nowMs = now();
-	const decision = decideMode({
-		forceFull,
-		cacheState,
-		now: nowMs,
-		historySafeWindowDays: config.historySafeWindowDays,
-		fullBackstopDays: config.fullBackstopDays,
-	});
-	const cursorBefore = cacheState.historyId;
-	const syncedAt = new Date(nowMs).toISOString();
-	let fullReason = decision.reason;
-	log(`sync: ${decision.mode} (${decision.reason})`);
-
-	// SQLITE_BUSY past the busy timeout throws out of the cache writes; map it
-	// to a failed outcome so a lock lost to a concurrent writer reports like any
-	// other failed pass instead of taking the surface down with it. Anything
-	// else keeps throwing: it is a bug, not an operational condition.
+/** Receive Gmail changes, populating the whole mailbox only without a valid cursor. */
+export async function syncMailbox(deps: SyncDeps): Promise<SyncOutcome> {
+	const { mailbox, now } = deps;
+	const cursorBefore = (await mailbox.readCacheState()).historyId;
+	let checkpoint = await mailbox.readFullPullCheckpoint();
+	const syncedAt = new Date(now()).toISOString();
+	let mode: SyncMode = cursorBefore && !checkpoint ? 'INCREMENTAL' : 'FULL';
+	let reason = checkpoint
+		? 'saved download checkpoint'
+		: cursorBefore
+			? 'saved history cursor'
+			: 'no history cursor';
+	let upserted = 0;
+	let deleted = 0;
 	try {
-		if (decision.mode === 'INCREMENTAL' && cursorBefore) {
+		if (cursorBefore && !checkpoint) {
 			const outcome = await incrementalPoll(deps, cursorBefore, syncedAt);
-			if (!outcome.failure || outcome.failure.name !== 'HistoryExpired') {
-				return outcome;
+			if (outcome.failure?.name !== 'HistoryExpired') return outcome;
+			mode = 'FULL';
+			reason = 'history cursor expired';
+		}
+		deps.log?.(`sync: FULL (${reason})`);
+		for (let attempt = 0; ; attempt++) {
+			const resuming = checkpoint !== null;
+			if (!checkpoint) {
+				// Capture before enumeration so changes during the download replay.
+				const profile = await deps.client.getProfile();
+				if (profile.error)
+					return failedOutcome(
+						mode,
+						reason,
+						cursorBefore,
+						profile.error,
+						upserted,
+					);
+				checkpoint = {
+					historyId: profile.data.historyId,
+					scanId: crypto.randomUUID(),
+					syncedAt,
+					nextPageToken: null,
+				};
 			}
-			fullReason = 'historyId expired mid-pass';
-			log('sync: historyId expired mid-pass, falling back to FULL');
+			const pulled = await fullPull(deps, checkpoint, resuming);
+			upserted += pulled.upserted;
+			if (pulled.rejectedPageToken && attempt === 0) {
+				checkpoint = null;
+				reason = 'page token rejected; restarted enumeration';
+				continue;
+			}
+			if (pulled.failure)
+				return failedOutcome(
+					mode,
+					reason,
+					cursorBefore,
+					pulled.failure,
+					upserted,
+				);
+			break;
 		}
-
-		const profile = await deps.client.getProfile();
-		if (profile.error) {
-			return failedOutcome('FULL', fullReason, cursorBefore, profile.error);
-		}
-
-		const { upserted, failure } = await fullPull(deps, syncedAt);
-		if (failure) {
-			return failedOutcome('FULL', fullReason, cursorBefore, failure, upserted);
-		}
-
-		const messagesDeleted = await mailbox.finishFullPull(
-			profile.data.historyId,
-			syncedAt,
+		deleted = await mailbox.finishFullPull(
+			checkpoint.historyId,
+			checkpoint.scanId,
+		);
+		// The baseline is durable now. Failed catchup resumes here next time,
+		// without repeating the completed enumeration. Expiry is a bounded failure.
+		const caughtUp = await incrementalPoll(
+			deps,
+			checkpoint.historyId,
+			new Date(now()).toISOString(),
 		);
 		return {
-			mode: 'FULL',
-			reason: fullReason,
+			...caughtUp,
+			mode,
+			reason,
 			cursorBefore,
-			cursorAfter: profile.data.historyId,
-			messagesUpserted: upserted,
-			messagesDeleted,
-			labelsPatched: 0,
-			failure: null,
+			messagesUpserted: upserted + caughtUp.messagesUpserted,
+			messagesDeleted: deleted + caughtUp.messagesDeleted,
 		};
 	} catch (cause) {
 		if (!isSqliteBusy(cause)) throw cause;
-		return failedOutcome(
-			decision.mode,
-			decision.reason,
-			cursorBefore,
-			CacheWriteError.CacheBusy({ cause }).error,
-		);
+		return {
+			...failedOutcome(
+				mode,
+				reason,
+				cursorBefore,
+				CacheWriteError.CacheBusy({ cause }).error,
+				upserted,
+			),
+			cursorAfter: (await mailbox.readCacheState()).historyId,
+			messagesDeleted: deleted,
+		};
 	}
 }

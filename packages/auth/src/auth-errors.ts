@@ -1,3 +1,4 @@
+import type { SyncRefusal } from '@epicenter/sync/transport';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -15,12 +16,21 @@ export const AuthError = defineErrors({
 		message: `Failed to start sign-in: ${extractErrorMessage(cause)}`,
 		cause,
 	}),
-	SignOutFailed: ({ cause }: { cause: unknown }) => ({
-		message: `Failed to sign out: ${extractErrorMessage(cause)}`,
+	/**
+	 * A sign-in that was already launched could not be finished from the
+	 * callback the transport received.
+	 *
+	 * Separate from `StartSignInFailed` because the repairs are different and a
+	 * surface has to be able to tell them apart: starting again is what repairs
+	 * a failed launch, and it is exactly the wrong answer to a callback whose
+	 * authorization code was already spent.
+	 */
+	CompleteSignInFailed: ({ cause }: { cause: unknown }) => ({
+		message: `Failed to complete sign-in: ${extractErrorMessage(cause)}`,
 		cause,
 	}),
-	RefreshGrantFailed: ({ cause }: { cause: unknown }) => ({
-		message: `Failed to refresh OAuth grant: ${extractErrorMessage(cause)}`,
+	SignOutFailed: ({ cause }: { cause: unknown }) => ({
+		message: `Failed to sign out: ${extractErrorMessage(cause)}`,
 		cause,
 	}),
 	ProfileUnavailable: ({ cause }: { cause: unknown }) => ({
@@ -31,26 +41,18 @@ export const AuthError = defineErrors({
 
 export type AuthError = InferErrors<typeof AuthError>;
 
-/**
- * Thrown (not returned) by `AuthClient.openWebSocket` when no usable bearer can
- * be attached: a protected socket is never opened credential-less. A credential
- * model that can never attach one (same-origin cookie, desktop window) throws
- * this permanently rather than omitting the method.
- * The error object conforms to the `OpenWebSocketDenial` contract in
- * `@epicenter/sync`, which the sync supervisor classifies: `'permanent'`
- * parks sync until the auth state changes, `'transient'` backs off and
- * retries.
- */
+/** A socket dial refused before it could receive a usable credential. */
 export const OpenWebSocketDenied = defineErrors({
-	OpenWebSocketDenied: ({
-		permanence,
-		code,
-	}: {
-		permanence: 'permanent' | 'transient';
-		code: string;
-	}) => ({
+	OpenWebSocketDenied: ({ code }: { code: SyncRefusal }) => ({
 		message: `No usable bearer for the WebSocket upgrade (${code}).`,
-		permanence,
 		code,
 	}),
 }).OpenWebSocketDenied;
+
+/** HTTP authorization failed before a request could be dispatched. */
+export const AccountUnavailable = defineErrors({
+	AccountUnavailable: ({ code }: { code: SyncRefusal }) => ({
+		message: `Account network access is unavailable (${code}).`,
+		code,
+	}),
+}).AccountUnavailable;

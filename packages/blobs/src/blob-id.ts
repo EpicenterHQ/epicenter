@@ -5,12 +5,12 @@ import type { Brand } from 'wellcrafted/brand';
 /**
  * @fileoverview BlobId: the one opaque identifier a blob carries everywhere.
  *
- * A blob is minted exactly one id at record time, and that same id names the
- * object in the local store, on the optional remote, and in the row
- * that references it. The id is NOT a content hash: it says nothing about the
+ * Each immutable object has one ID in its owning store. Explicit uploads
+ * allocate fresh remote IDs; local and remote objects have independent lifetimes.
+ * The id is NOT a content hash: it says nothing about the
  * bytes, and SHA-256 or dedup never appear in this contract.
  *
- * Representation: `blob_` followed by 21 lowercase alphanumerics
+ * Representation: `blob_` followed by 21 lowercase alphanumerics and a lowercase extension
  * (CSPRNG-backed nanoid, ~108.6 bits). Every character is safe as a filesystem name, an S3 key
  * segment, a URL path segment, and XML text, so implementations can use the
  * id verbatim as a storage key.
@@ -29,7 +29,7 @@ import type { Brand } from 'wellcrafted/brand';
 const generateBody = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 21);
 
 /** Unanchored BlobId pattern for URL routers that add their own boundaries. */
-export const BLOB_ID_ROUTE_REGEX = 'blob_[a-z0-9]{21}';
+export const BLOB_ID_ROUTE_REGEX = 'blob_[a-z0-9]{21}\\.[a-z0-9]{1,10}';
 
 /**
  * Opaque, globally unique blob identifier.
@@ -53,13 +53,15 @@ export const BlobId = type(new RegExp(`^${BLOB_ID_ROUTE_REGEX}$`)).as<BlobId>();
  * parse of one via the {@link BlobId} validator.
  *
  * One other implementation mints this same shape: Epicenter's native recorder,
- * in `apps/epicenter/src-tauri/src/recorder/blob.rs`, because the host decides
+ * in `apps/epicenter/src-tauri/src/blobs.rs`, because the host decides
  * which recording exists and hands the id back over IPC. The two mints must
  * agree, and each side has a round-trip test against its own parse to keep them
  * from drifting apart.
  */
-export function generateBlobId(): BlobId {
-	return `blob_${generateBody()}` as BlobId;
+export function generateBlobId(extension: string): BlobId {
+	if (!/^[a-z0-9]{1,10}$/.test(extension))
+		throw new TypeError('Invalid blob extension.');
+	return `blob_${generateBody()}.${extension}` as BlobId;
 }
 
 /** Parse an untrusted value without exposing Arktype's error representation. */

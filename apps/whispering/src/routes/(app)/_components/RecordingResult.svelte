@@ -1,55 +1,55 @@
-<!--
-	The result of a finished recording: a copyable, expandable transcript preview
-	and a player for the captured audio. The home recorder and the first-run "try
-	it" step both render this, so the two cannot drift.
-
-	The audio renders whenever the clip exists, independent of the transcript, so a
-	silent or not-yet-transcribed recording still plays back. This component owns
-	its playback URL acquisition and disposes it on teardown.
--->
 <script lang="ts">
+	import { local } from '$lib/whispering/local.js';
+	import { getWhisperingApp } from '$lib/whispering/context';
+	const app = getWhisperingApp();
+	import { resolve } from '$app/paths';
+	import { Link } from '@epicenter/ui/link';
 	import { Button } from '@epicenter/ui/button';
-	import type { BlobId } from '@epicenter/blobs';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import AudioBlobPlayer from '$lib/components/AudioBlobPlayer.svelte';
 	import TextPreviewDialog from '$lib/components/copyable/TextPreviewDialog.svelte';
 	import { viewTransition } from '$lib/utils/viewTransitions';
-	import type { RecordingId } from '$lib/workspace';
+	import type { RecordingId } from '$lib/data';
 
 	let {
 		recordingId,
-		audioBlobId,
 		transcript,
 		rows = 1,
 		onDelete,
 	}: {
 		recordingId: RecordingId;
-		audioBlobId: BlobId;
 		transcript: string;
 		/** Visible rows of the transcript preview before it scrolls/expands. */
 		rows?: number;
 		/** When provided, a delete button is shown at the end of the audio row. */
 		onDelete?: () => void;
 	} = $props();
-
 </script>
 
 <div class="flex w-full flex-col gap-2">
-	<TextPreviewDialog
-		id={viewTransition.recording(recordingId).transcript}
-		title="Transcript"
-		label="transcript"
-		text={transcript}
-		{rows}
-		disabled={!transcript.trim()}
-	/>
+	{#if transcript.trim()}
+		<TextPreviewDialog
+			id={viewTransition.recording(recordingId).transcript}
+			title="Transcript"
+			label="transcript"
+			text={transcript}
+			{rows}
+		/>
+	{:else}
+		<p class="text-sm text-muted-foreground">
+			Audio saved to Local. <Link href={resolve('/recordings')}
+				>Transcribe from Recordings</Link
+			>.
+		</p>
+	{/if}
 	<!-- Delete is a companion action on the audio row, mirroring the copy button
 	     on the transcript row above: content stretches, its action caps the row.
 	     Icon-only with a tooltip; the confirmation dialog carries the words. -->
-	{#if audioBlobId || onDelete}
+	{#if recordingId}
 		<div class="flex w-full items-center gap-2">
 			<AudioBlobPlayer
-				id={audioBlobId}
+				id={recordingId}
+				store={local}
 				class="h-8 min-w-0 flex-1"
 				viewTransitionName={viewTransition.recording(recordingId).audio}
 			/>

@@ -3,7 +3,7 @@
  *
  * Each app under apps/<app>/blocks/ contributes recipe blocks that consumers
  * copy into their own tree with `bunx jsrepo add epicenter/<app>/<recipe>`.
- * The blocks depend on the npm primitives in @epicenter/data, the
+ * The blocks depend on the npm primitives in @epicenter/app/store, the
  * @epicenter/<app> schema package root, and friends; consumers install those
  * normally. The blocks themselves are owned by the consumer once copied.
  */

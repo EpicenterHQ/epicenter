@@ -11,16 +11,16 @@ It is an explanation of intent.
 
 ## The one change everything else follows from
 
-**An application has ONE Yjs document, replayed in full before any handle
-exists, and the surface over it is synchronous.** Each row owns one nested live
-content node at `row.content`; every other field holds an ordinary value.
+**A store has one Yjs document, replayed in full before any handle exists, and
+row access is synchronous.** Rows expose value snapshots. A table can declare
+a body codec; its rows then own live nodes accessed through `table.body(id)`.
 
 The old stack was many documents behind a process boundary: a replica owned by a
 worker or a desktop host, reached over a message port or HTTP. Every read was a
 round trip, so every read was `async`, so every consumer was `async`, so every
 consumer needed cache invalidation and race protection.
 
-Once the whole application is one document in memory, none of that is true. A
+Once the store is one document in memory, none of that is true. A
 read is a property access. That single fact deletes more code than any other
 decision here, and most of the entries below are consequences of it rather than
 independent changes.
@@ -84,7 +84,7 @@ a problem that no longer exists.
 
 **New:** `db.notes.subscribe(listener)` fires once per commit with the ROW IDS
 that commit touched (ADR-0221), for a local write and for bytes that arrived
-from another device alike. Text typed inside a row's content node is NOT a
+from another device alike. Text typed inside a row's body node is NOT a
 table commit: it has its own signal, `watch(node, listener)`, because routing
 it here would wake every list in the application at typing frequency.
 It fires after every `onCommitted` listener has run, so a composed follower
@@ -154,7 +154,7 @@ Two behaviour changes worth knowing:
 **New:** ids are minted, always, 24 characters (ADR-0206).
 
 This is a correctness decision, not ergonomics. A row is a record with one
-content node, addressed by the operation that created it, so two devices
+body node, addressed by the operation that created it, so two devices
 creating the same chosen id produce two records and map LWW discards one
 **with every field in it**. A minted id makes that unreachable.
 
@@ -184,16 +184,17 @@ data.kv.update({ theme: 'dark' });  // merges; other keys untouched
 
 ---
 
-## Nodes and row content
+## Nodes and row bodies
 
 **Old:** rich content was opened through a separate row-document lease and
 polled for remote changes.
 
-**New:** `data.tables.notes.get(id)`, `rows`, and `create` return one flat row.
-The row's `content` property is its live `Y.Type`, so an editor binds directly
-to `row.content`; remote edits arrive through the store's one connection.
-Creating a row always mints and persists exactly one content node, even when
-the caller omits `content`.
+**New:** `data.tables.notes.get(id)`, `rows`, and `create` return value
+snapshots. For a table with a body codec, `data.tables.notes.body(id)` returns
+the live `Y.Node` an editor binds to. Remote edits arrive through the store's
+one connection.
+For a table with a body codec, creating a row mints one body node, even when
+the caller omits `body`.
 
 Deleting the row removes that node with the row. There is no second document
 address or document lifecycle for an editor to manage.
@@ -209,17 +210,22 @@ machine-produced, replaced wholesale, and rendered in a list.
 
 **Old:** TypeBox, `defineTable({ fields: { title: field.string() } })`.
 
-**New:** ordinary value field descriptors at the table's top level, one
-required `content` codec, pure JSON definitions, and application-owned
+**New:** ordinary value field descriptors under `fields`, an optional `body`
+codec, inert store definitions, and application-owned
 recovery values (ADR-0255).
 
 ```ts
-import { defineData, field, plainText } from '@epicenter/data/definition';
+import { defineStore, defineTable, field, plainText } from '@epicenter/app';
 
-export const definition = defineData({
+export const definition = defineStore({
   id: 'so.epicenter.honeycrisp',
   kv: { theme: field.select(['light', 'dark']) },
-  tables: { notes: { title: field.string(), folderId: field.nullable(field.string()), content: plainText() } },
+  tables: {
+    notes: defineTable({
+      fields: { title: field.string(), folderId: field.nullable(field.string()) },
+      body: plainText(),
+    }),
+  },
 });
 ```
 
@@ -229,7 +235,7 @@ Three things bite immediately:
    attribute and the row alike. `field.nullable(inner)` accepts stored null,
    while a missing field is nonconforming.
 2. **Definitions do not own defaults.** Initialization and recovery values live
-   in application code, and `parseData` rejects declaration defaults.
+   in application code, and `compileData` rejects declaration defaults.
 3. **No transforming fields.** Date, instant, and datetime descriptors preserve
    their string representation, so values round-trip through storage.
    `update(id, { when: row.when })` would break.
@@ -238,7 +244,7 @@ Objects have no STRING expression, so `'{ status: ... }'` does not parse and
 `'object|null'` validates nothing. Today that means flattening a
 `{ status, completedAt, error }` shape into separate fields.
 
-`parseData` is the runtime parser for this closed descriptor vocabulary. It
+`compileData` is the runtime parser for this closed descriptor vocabulary. It
 accepts storage-valid JSON facts and leaves conformance to reads; it does not
 apply defaults or transform stored values. Flattening a value into several
 fields is an application choice, not a migration requirement.
@@ -264,9 +270,11 @@ announces its own durable local work to the transport internally, so
 **nothing calls `nudge`**; forgetting to was the same class of silent wedge.
 
 Server side: one Durable Object per (principal, application id),
-addressed by a principal resolved from the bearer (ADR-0225). **Being signed in
-on two devices is the entire sharing model** — nothing to pair, invite or
-approve, and no identifier a client can supply that reaches another partition.
+addressed by a principal resolved from the bearer (ADR-0225). Signing in to the
+same account on two devices synchronizes Personal data. Device data stays
+local, and no identifier a client supplies grants access to another principal's
+data. Server-wide Shared data is deferred in
+[ADR-0416](adr/0416-defer-server-wide-shared-data.md).
 
 ---
 
@@ -309,22 +317,21 @@ has rather than a privileged local one.
 
 ---
 
-## Blobs, which did NOT change
+## Blobs have independent local and remote lifetimes
 
-Worth stating because the host rule sounds like it should have.
+Rows store ordinary blob keys or URLs. The blob store does not know which rows
+reference them. Keys are minted opaque identities, not content hashes.
 
-`packages/blobs` has no `@epicenter/*` import at all: the row layer only ever
-stored an opaque id, and the blob layer never knew a row existed. A blob is
-content-addressed and write-once, so it cannot diverge, so it creates none of
-the failure modes the host rule refuses.
+`app.blobs.local` saves immutable bytes in the app's device-local namespace.
+`app.blobs.remote` exposes explicit account-scoped hosting. Upload creates a
+remote object and returns its URL; it does not move or delete the local object.
+The application decides whether to store that URL in a row. Row synchronization
+never schedules byte transfers, and deleting a row does not delete either object.
 
-Its durable home is the object store. The host holds local bytes, some uploaded
-and some queued, and the row says which. **When one uploads is the
-application's policy** — Epicenter supplies the verbs and has no opinion about
-batching, Wi-Fi or retention.
-
-The asymmetry to know: an un-uploaded blob exists on exactly one machine. The
-blob plane does not have the row plane's guarantees.
+Local-only bytes remain on that device. Materialized Markdown preserves their
+keys and remote URLs as values, without copying or fetching the bytes. Copying
+or zipping that folder does not back up its referenced audio. See ADR-0393,
+ADR-0394, and ADR-0395 for references, materialization, and content recovery.
 
 ---
 
@@ -386,8 +393,8 @@ collection?** One device at a time, or one place in the UI: an array field is
 right. Several devices, concurrently, each adding their own element: it is a
 table.
 
-**Per-character merging exists in exactly one place: the row's content node.**
-`row.content` is a live `Y.Type`, so two people typing in it merge at the
+**Per-character merging exists in exactly one place: the row's body node.**
+`table.body(id)` returns a live `Y.Node`, so two people typing in it merge at the
 character. That is the whole reason a node lives there rather than in a
 `string` field, and the reason a machine-produced transcript does not need to.
 
@@ -400,7 +407,7 @@ cache derived from the CRDT, so it never affects what merges with what.
 | two fields of one row | independent, both survive |
 | one value field | last write wins, converged |
 | one array or object field | last write wins on the WHOLE value (kept, see above) |
-| a row's content node | per character |
+| a row's body node | per character |
 | the SQL projection | a composed cache; rebuilt whole at the next read |
 
 ---
@@ -516,14 +523,14 @@ indefinitely without hurting anyone, and `raw` still holds it.
 
 1. Rewrite the workspace: arktype strings, nullable-with-default, no optionals, no
    objects, defaults inline. Settings to `kv`.
-2. Decide whether the value belongs in the row's `content` node or in an ordinary
+2. Decide whether the value belongs in the row's `body` node or in an ordinary
    value field.
 3. Replace `openEpicenter` with `openLocal(workspace)` (and `openAccount(workspace,
    { principalId })` for a signed-in replica, per ADR-0233).
 4. Replace `scan` + `refresh` + generations with `read()` + `subscribe(read)`.
 5. Drop `await` from every read and every mutation; destructure `{ data, error }`.
 6. Delete chosen-id machinery; move anything that needed a stable name to `kv`.
-7. Bind editors to the flat row's `content` node. Do not create a second row
+7. Bind editors through `table.body(id)`. Do not create a second row
    document or content address.
 8. Add a `dial` if the application syncs, and delete every `nudge`.
 9. Decide what the application does with `rows().nonconforming`. Showing it,

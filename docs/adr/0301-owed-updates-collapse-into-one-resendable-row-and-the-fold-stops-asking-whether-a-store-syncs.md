@@ -93,7 +93,7 @@ never fires for it and it folds everything, which is what it did before.
   mid-submission, which would disable merging in exactly the offline case the
   merge exists for.
 - The storage epoch goes to `v3` and pre-existing local records are stranded
-  (`STORE_GENERATION`, `packages/data/src/store/browser.ts`). A `v2` local
+  (`STORE_GENERATION`, `packages/app/src/data/store/browser.ts`). A `v2` local
   store wrote its own appends with a NULL position, and NULL now means owed on
   every store kind, so those rows read under this shape would be offered to a
   sender that does not exist. The value changed rather than the schema, which

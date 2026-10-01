@@ -5,8 +5,9 @@
 //! A model is identified by a stable `modelId` string rendered from its Hugging
 //! Face coordinate as `"{repo_id}@{revision}/{filename}"`. That id is an opaque
 //! catalog key. Epicenter Home names it when it administers models, and the host
-//! stores the one active choice; applications never see it and never pass it to
-//! `transcribe_recording` (ADR-0180). An id outside this catalog is refused
+//! stores the active dictation choice. Explicit file inference lists cached IDs
+//! and passes the selected ID to `transcribe_audio_bytes`; the older
+//! `transcribe_recording` path resolves the active choice. An unknown ID is refused
 //! rather than parsed. (Custom drop-in GGUF is a later earned feature, not a
 //! compatibility path.)
 //!

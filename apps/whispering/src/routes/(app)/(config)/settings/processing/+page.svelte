@@ -12,7 +12,7 @@
 	<Field.Legend>Privacy &amp; Processing</Field.Legend>
 	<Field.Description>
 		Choose where each stage of the pipeline runs. Audio is transcribed first,
-		then Polish and Recipes clean up the text. Each stage can stay on this
+		then optional cleanup can improve the text. Each stage can stay on this
 		device or go to a provider you pick.
 	</Field.Description>
 	<Field.Separator />
@@ -28,7 +28,7 @@
 		<Field.Separator />
 
 		<Field.Set>
-			<Field.Legend variant="label">Text (Polish &amp; Recipes)</Field.Legend>
+			<Field.Legend variant="label">Text cleanup</Field.Legend>
 			<Field.Description>
 				Where transcript text goes for AI cleanup.
 			</Field.Description>

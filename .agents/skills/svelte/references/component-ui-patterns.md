@@ -1,81 +1,31 @@
 # Svelte Component And UI Patterns
 
-Detailed Svelte guidance for shadcn-svelte imports, props, self-contained components, view branching, repetitive markup, referential stability, loading states, prop-first derivation, and template gotchas.
+Detailed Svelte guidance for component props, self-contained components, view branching, repetitive markup, referential stability, loading states, prop-first derivation, and template gotchas.
 
 # Styling
 
 For general CSS and Tailwind guidelines, see the `styling` skill.
 
-# shadcn-svelte Best Practices
+# UI component boundary
 
-## Component Organization
+Apps use `@epicenter/ui` subpaths. Components and extras are vendored in
+`packages/ui/src`; this repo does not use shadcn-svelte's app-local
+`$lib/components/ui` layout or a `components.json` in the UI package. Read the
+[UI package guide](../../../../packages/ui/README.md) for imports, component
+selection, Vega styling, and the update workflow. Do not run an unpinned
+`shadcn-svelte add` or `jsrepo add` into the live package: generated files need
+review against the local overlay, imports, and component contracts.
 
-- Use the CLI: `bun x shadcn-svelte@latest add [component]`
-- Each component in its own folder under `$lib/components/ui/` with an `index.ts` export
-- Follow kebab-case for folder names (e.g., `dialog/`, `toggle-group/`)
-- Group related sub-components in the same folder
+For a changed component's current API or composition, check its local source
+and the [shadcn-svelte docs](https://shadcn-svelte.com/docs/components) or
+[shadcn-svelte-extras docs](https://www.shadcn-svelte-extras.com/docs). The
+[upstream shadcn-svelte skill](https://github.com/huntabyte/shadcn-svelte/tree/main/skills/shadcn-svelte)
+is useful for discovery, but its CLI and alias instructions assume a standard
+shadcn-svelte project.
 
-## Import Patterns
-
-**Namespace imports** (preferred for multi-part components):
-
-```typescript
-import * as Dialog from '$lib/components/ui/dialog';
-import * as ToggleGroup from '$lib/components/ui/toggle-group';
-```
-
-**Named imports** (for single components):
-
-```typescript
-import { Button } from '$lib/components/ui/button';
-import { Input } from '$lib/components/ui/input';
-```
-
-**Lucide icons** (prefer individual icon paths in this repo):
-
-```typescript
-// Good: individual icon paths keep dev imports narrow
-import Database from '@lucide/svelte/icons/database';
-import MinusIcon from '@lucide/svelte/icons/minus';
-import MoreVerticalIcon from '@lucide/svelte/icons/more-vertical';
-
-// Avoid adding new barrel imports in changed files
-import { Database, MinusIcon, MoreVerticalIcon } from '@lucide/svelte';
-```
-
-The path uses kebab-case (e.g., `more-vertical`, `minimize-2`), and you can name the import whatever you want (typically PascalCase with optional Icon suffix). If you are already editing a file with `@lucide/svelte` barrel imports, convert the touched icons to per-icon paths when it stays local to the change.
-
-## Styling and Customization
-
-- Always use the `cn()` utility from `$lib/utils` for combining Tailwind classes
-- Modify component code directly rather than overriding styles with complex CSS
-- Use `tailwind-variants` for component variant systems
-- Follow the `background`/`foreground` convention for colors
-- Leverage CSS variables for theme consistency
-
-## Component Usage Patterns
-
-Use proper component composition following shadcn-svelte patterns:
-
-```svelte
-<Dialog.Root bind:open={isOpen}>
-	<Dialog.Trigger>
-		<Button>Open</Button>
-	</Dialog.Trigger>
-	<Dialog.Content>
-		<Dialog.Header>
-			<Dialog.Title>Title</Dialog.Title>
-		</Dialog.Header>
-	</Dialog.Content>
-</Dialog.Root>
-```
-
-## Custom Components
-
-- When extending shadcn components, create wrapper components that maintain the design system
-- Add JSDoc comments for complex component props
-- Ensure custom components follow the same organizational patterns
-- Consider semantic appropriateness (e.g., use section headers instead of cards for page sections)
+Import Lucide icons from individual paths such as
+`@lucide/svelte/icons/database`; convert touched barrel imports when local to
+the change.
 
 # DOM Attachments
 
@@ -427,9 +377,9 @@ For more complex repeated patterns (e.g., toolbar buttons with tooltips), use `{
 - **2 or fewer** repetitions: extraction adds indirection without meaningful savings.
 - **Structurally similar but semantically different**: if the elements serve different purposes and might diverge, keep them separate.
 
-# Single-Use Functions And Aliases: Inline Or Document
+# Single-Use Functions And Aliases
 
-If a `function`, `$derived`, or `const` (including a one-off class string) is defined in the script tag and used **only once** in the template, inline it at the call site. This covers event handlers, callbacks, derived aliases, and one-off class strings.
+Inline a single-use binding when it merely forwards a call, aliases a property, or stores a one-off class string. Keep it when it owns a complete operation, a meaningful interaction boundary, or a non-obvious decision. A named operation can return a Result to the handler that presents its outcome, even when that handler is its only caller. See [error-handling](../../error-handling/SKILL.md) for Result composition and consumption.
 
 ## Why Inline?
 
@@ -468,7 +418,7 @@ A single-use `const` class string is the same smell: scanning it inline beats ch
 <div class="grid gap-3 rounded-md border bg-background px-3 py-3">...</div>
 ```
 
-This also applies to longer handlers. If the logic is linear (guard clauses + branches, not deeply nested), inline it even if it's 10 to 15 lines:
+Event-specific logic can remain inline when its steps are easier to understand beside the element:
 
 ```svelte
 <!-- GOOD: Inlined keyboard shortcut handler -->
@@ -487,12 +437,9 @@ This also applies to longer handlers. If the logic is linear (guard clauses + br
 }} />
 ```
 
-## The Exception: A Justifying Comment Plus A Semantic Name
+## When A Name Earns Its Place
 
-Keep a single-use binding extracted **only** when both conditions are met:
-
-1. It has **JSDoc or a comment** explaining why it exists as a named unit.
-2. The name provides a **clear semantic meaning** that makes the template more readable than the inlined version would be.
+Keep a single-use binding when its name tells the reader what the action accomplishes, or when the function owns sequencing or a failure decision that the event wiring should not carry. Add a comment when the decision itself needs an explanation; a comment is not required merely to justify the function.
 
 ```svelte
 <script lang="ts">
@@ -509,9 +456,9 @@ Keep a single-use binding extracted **only** when both conditions are met:
 <div onkeydown={navigateWithArrowKeys} tabindex="-1">
 ```
 
-A documented state-to-class map earns the same exception: when the name parks a non-obvious decision (why a cell rings amber, why digits right-align), keeping it beats burying that rationale inside a `class={[...]}` array.
+A documented state-to-class map can also earn its name when it parks a non-obvious decision (why a cell rings amber, why digits right-align) that would be buried inside a `class={[...]}` array.
 
-Without a justifying comment and a meaningful name, inline it: the indirection is not earning its keep.
+Inline bindings that merely forward values or calls; their indirection does not earn its place.
 
 ## Multi-Use Bindings
 

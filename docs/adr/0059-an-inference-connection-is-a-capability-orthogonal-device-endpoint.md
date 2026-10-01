@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-23
+- **Amended by:** [ADR-0363](0363-an-inference-selection-identifies-the-connection-and-model.md) replaces model-name routing with explicit device-local connection and model selections.
 - **Amends:** [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (the model no longer travels with the backend; the device holds a set of connections, not one active backend)
 - **Relates:** [ADR-0050](0050-the-inference-contract-is-openai-compatible.md) (the OpenAI-compatible wire every connection speaks), [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md) (the bearer reaches only the hosted connection), [ADR-0055](0055-conversation-storage-is-one-canonical-table-every-surface-syncs.md) (the synced `model` column this resolves against), [ADR-0056](0056-local-inference-is-a-delegated-engine-behind-the-openai-compatible-seam.md) (local chat is an HTTP engine, so chat has no in-process engine kind), [ADR-0022](0022-rust-owns-the-models-folder-the-webview-owns-the-catalog.md) (the downloaded-binary engine kind that is *not* a connection)
 - **Spec:** specs/20260623T120000-inference-connections-and-presets.md (completed and deleted per the two-state lifecycle; recoverable via git history)

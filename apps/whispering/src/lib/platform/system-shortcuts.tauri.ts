@@ -1,6 +1,8 @@
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, tryAsync } from 'wellcrafted/result';
 import { type Command, commands, dispatchCommandTrigger } from '$lib/commands';
+import { createShortcuts } from '$lib/shortcuts/shared';
+import type { CreateSystemShortcuts } from '$lib/shortcuts/types';
 import {
 	DEFAULT_GLOBAL_BINDINGS,
 	deviceConfig,
@@ -13,8 +15,6 @@ import {
 	keyBindingToAccelerator,
 } from '$lib/utils/key-binding';
 import { validateGlobalBinding } from '$lib/utils/reserved-shortcuts';
-import { createShortcuts } from './shortcuts.shared';
-import type { CreateSystemShortcuts } from './types';
 
 /**
  * Tauri build of `#platform/system-shortcuts`: system-global chords driven by

@@ -8,7 +8,8 @@
 	import { scaleUtc } from 'd3-scale';
 	import { curveMonotoneX } from 'd3-shape';
 	import { AreaChart } from 'layerchart';
-	import { billing } from '$lib/billing/queries';
+	import { getDashboard } from '$lib/dashboard/context';
+	const { billing } = getDashboard();
 
 	type Range = '7d' | '30d' | '90d';
 
@@ -157,7 +158,17 @@
 								v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v),
 						},
 					}}
-				/>
+				>
+					{#snippet tooltip()}
+						<Chart.Tooltip
+							labelFormatter={(date: Date) =>
+								date.toLocaleDateString('en-US', {
+									month: 'short',
+									day: 'numeric',
+								})}
+						/>
+					{/snippet}
+				</AreaChart>
 			</Chart.Container>
 
 			<div

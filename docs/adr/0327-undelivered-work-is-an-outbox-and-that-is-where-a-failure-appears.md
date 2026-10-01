@@ -2,8 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-01
-- **Unbuilt:** all of it. Local Mail shows a count and an age in its status bar and no list, and the one failure that matters is derived from a reconcile the window itself ran, so it exists only while a window is open.
-- **Amends:** [ADR-0323](0323-background-work-runs-in-the-host-and-a-window-is-for-looking-at.md) at two points. Added: where a pass outcome lands, which that record moved into the host without saying. Rescoped: "no way for an application to detect whether its background half is running", which is false once a window reads rows the host wrote. The refusal it was protecting is narrower and stands: no platform surface answers "am I running in the background", so nothing can ask a person for that.
+- **Built**, on a narrower premise than it was written on. Local Mail records every pass in `last_pass`, and its status bar opens the outbox over that plus the intent store, so a failure is still there after the window that saw it was closed and reopened. See "What a draining outbox turned out to mean" below.
+- **Amended in build:** an assertion the provider refused individually is written down after all, on the last-pass row rather than in a table of its own. This record left it where `reconcile.ts` had put it, which was a return value announced in a toast, and a toast tells nobody who has stepped away. It inherits the row's lifetime, so the next pass replaces it and nothing accumulates; the dead-letter table both records refuse is still refused.
+- **No longer amends [ADR-0323](0323-background-work-runs-in-the-host-and-a-window-is-for-looking-at.md).** That record's host-side background half was not built and is not being built, so this one has nothing to amend in it. What survives from the amendment is the sentence that mattered on its own terms: a pass outcome lands in the application's own durable storage, which is true whatever runs the pass.
 - **Relates:** [ADR-0318](0318-epicenter-data-is-what-epicenter-is-the-authority-for-and-a-foreign-write-is-a-command.md) (a write to a foreign authority is a command, and a command that cannot be sent yet is a row in a table the application owns), [ADR-0320](0320-removing-an-account-settles-what-it-owes-before-anything-is-deleted.md) (removal already asks a person about this same undelivered work), and [ADR-0244](0244-epicenter-speaks-of-apps-and-windows-not-surfaces.md) (the library states the failure and the application decides what a person is told)
 
 ## Context
@@ -38,10 +39,11 @@ already shows how much of it there is.**
  └──────────────────────────────────────────────────────────────────┘
 ```
 
-**It drains itself, and empty is the normal state.** Delivery is eager: a pass
-runs whenever there is something to deliver, so a row appears when a person acts
-and is gone when the provider agrees. An outbox at zero is an application saying
-it is finished, which is the sentence a person actually wants.
+**It drains itself while a person is here, and empty is the normal state.**
+Delivery is eager within a session: a pass runs when the application opens, when
+a person acts, and when they press Retry, so a row appears when they act and is
+gone when the provider agrees. An outbox at zero is an application saying it is
+finished, which is the sentence a person actually wants.
 
 **A failure appears in the outbox, because that is where a person is already
 looking when the number stops falling.** Not a separate error surface, not a
@@ -54,8 +56,8 @@ toast that scrolls away, and not a notification.
 
 **So every pass writes its outcome where the window reads it.** The application
 records what happened, in its own durable storage, beside the work the outcome
-is about. That is what makes the outbox true whether or not a window was open
-when the pass ran, and it is what ADR-0323 moved into the host without saying.
+is about. That is what makes a failure outlive the window that saw it, which is
+the whole point: the last thing that happened is what a person comes back to.
 
 **The only control is "try again now".** There is nothing per row, because
 delivery is a pass rather than a queue of independent errands, and a person who
@@ -73,6 +75,32 @@ leaves and permission to speak while a person is doing something else. It may
 be right later, and it is cheap to add once the outcome is already recorded,
 which is the ordering this record chooses: make the state true first, and decide
 about interrupting separately.
+
+## What a draining outbox turned out to mean
+
+This record was written expecting a background half to do the draining
+(ADR-0323), and ADR-0328 leaned on that: "an outbox that drains only while
+somebody watches it is not an outbox." That premise was withdrawn. Local Mail
+reconciles in the foreground only: when the application opens, when a person
+records triage, and when they press Retry. If nothing is open, owed work waits.
+
+**The decision above survives the change, and one clause narrows.** Everything
+that made this record worth writing was about the state, not the schedule: a
+person can answer "did my triage go through" by looking, a failure is not a
+toast, and the answer is the same after a reload. None of that needs a
+background writer. What narrows is only how quickly the number falls, and the
+answer is now "while you are here", which is honest and is what the panel says.
+
+**Two things it made possible are no longer built.** There is no retry schedule,
+because nothing is running to honour one, so `last_pass` carries the failure and
+its kind and no `retry_after`. And there is no "Syncing" in the durable read: a
+pass in flight is a fact about the surface running it, so that surface says so
+beside the outbox rather than through it. The outbox became entirely durable as
+a result, which is a simpler thing than it was going to be.
+
+**A failure's kind still earns its keep**, because it decides what a person is
+told about the one control: `retry` invites pressing it, `refused` says it will
+not help, and `signin` replaces it with Sign in.
 
 ## Consequences
 

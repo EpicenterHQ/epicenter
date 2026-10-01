@@ -30,6 +30,8 @@ describe('buildEpicenterTrustedOrigins', () => {
 	});
 
 	test('a local deployment trusts the localhost dev origins', () => {
+		expect(LOCAL).toContain('http://localhost:5177');
+		expect(PROD).not.toContain('http://localhost:5177');
 		expect(LOCAL).toContain(localUrl(APPS.HONEYCRISP));
 		expect(LOCAL).toContain(localUrl(APPS.API));
 		expect(LOCAL).toContain(`http://${new URL(APPS.API.url).host}`);

@@ -5,7 +5,7 @@ import { AnalyticsError } from './types';
 
 export type { AnalyticsError, AnalyticsService, Event } from './types';
 
-export const AnalyticsServiceLive = {
+export const AnalyticsServiceLive: AnalyticsService = {
 	logEvent: async (event) =>
 		tryAsync({
 			try: async () => {
@@ -17,4 +17,4 @@ export const AnalyticsServiceLive = {
 			},
 			catch: (error) => AnalyticsError.LogEventFailed({ cause: error }),
 		}),
-} satisfies AnalyticsService;
+};

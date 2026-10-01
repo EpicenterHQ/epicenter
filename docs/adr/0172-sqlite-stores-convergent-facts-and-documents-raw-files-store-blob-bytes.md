@@ -7,6 +7,8 @@
 - **Amends:** [ADR-0151](0151-local-workspace-stores-use-owner-first-directories.md), [ADR-0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md)
 - **Relates:** [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md)
 
+- **Current blob direction:** [ADR-0349](0349-local-blobs-belong-to-the-app-on-this-device.md) and [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) replace the blob inventory/address claims below. Blob identities are independent of row coordinates; browser storage uses IndexedDB and desktop storage uses flat files. This note does not revise the structured-data history.
+
 ## Context
 
 Browser persistence is sometimes framed as a choice between SQLite and OPFS.

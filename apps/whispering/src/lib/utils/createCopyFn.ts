@@ -1,6 +1,6 @@
+import { clipboard } from '@epicenter/app/clipboard';
 import type { CopyFn } from '@epicenter/ui/copy-button';
 import { report } from '$lib/report';
-import { services } from '$lib/services';
 
 /**
  * Creates a copy function with toast notifications.
@@ -20,7 +20,7 @@ import { services } from '$lib/services';
  */
 export function createCopyFn(contentDescription: string): CopyFn {
 	return async (text: string) => {
-		const { error } = await services.text.copyToClipboard(text);
+		const { error } = await clipboard.writeText(text);
 		if (error) {
 			report.error({
 				title: `Error copying ${contentDescription} to clipboard`,

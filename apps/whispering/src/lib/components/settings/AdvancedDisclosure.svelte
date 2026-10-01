@@ -14,7 +14,7 @@
 	// coordinated set of sections, not a lone toggle. It stays app-local until a
 	// second app grows the same idiom; the other collapsibles in the monorepo
 	// (sidebar sections, search groups, tree folders) are different affordances.
-	let { children }: { children: Snippet } = $props();
+	let { children, label = 'Advanced' }: { children: Snippet; label?: string } = $props();
 </script>
 
 <Collapsible.Root>
@@ -22,7 +22,7 @@
 		class="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-sm [&[data-state=open]>svg]:rotate-180"
 	>
 		<ChevronDownIcon class="size-4 transition-transform" />
-		Advanced
+		{label}
 	</Collapsible.Trigger>
 	<Collapsible.Content class="pt-3">
 		{@render children()}

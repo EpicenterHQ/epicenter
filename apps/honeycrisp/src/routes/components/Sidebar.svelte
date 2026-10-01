@@ -1,40 +1,90 @@
+<script lang="ts" module>
+	import type { SyncRefusal } from '@epicenter/app/sync';
+
+	// What a refused dial says to a person, mapped exhaustively so a new
+	// refusal cannot arrive without a decision about this line. Two arms say
+	// nothing: a device with no credential and a window that can never hold one
+	// are not conditions to repair here, and a status line about them is noise.
+	const REFUSAL_LINE = {
+		'signed-out': undefined,
+		'reauth-required': 'Sign in to sync',
+		'auth-unavailable': 'Offline',
+		'no-credential-model': undefined,
+	} satisfies Record<SyncRefusal, string | undefined>;
+</script>
+
 <script lang="ts">
+	import type { ReactiveData } from '@epicenter/svelte';
+	import type { HoneycrispData } from '$lib/data.js';
 	import { AccountPopover } from '@epicenter/app-shell/account-popover';
-	import type { SyncConnectionStatus } from '@epicenter/data/sync';
+	import type { SyncConnectionStatus } from '@epicenter/app/sync';
 	import * as Collapsible from '@epicenter/ui/collapsible';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
-	import { auth } from '#platform/auth';
-	import type { WorkingCopy } from '@epicenter/data/artifact/checkout';
-	import { getHoneycrisp } from '$lib/app.svelte.js';
-	import { navigation } from '$lib/navigation.svelte.js';
+	import { auth } from '$lib/auth.svelte.js';
+		import { navigation } from '$lib/navigation.svelte.js';
 	import FolderMenuItem from '../components/FolderMenuItem.svelte';
-	import PullToFolder from './PullToFolder.svelte';
-	import SendFolderEdits from './SendFolderEdits.svelte';
+	import NotesLinks from './NotesLinks.svelte';
 
-	let {
-		syncStatus,
-		folder,
-	}: {
-		syncStatus: () => SyncConnectionStatus | undefined;
-		/** The `~/Epicenter` folder, or nothing in a build with no filesystem. */
-		folder: WorkingCopy | undefined;
-	} = $props();
+	let props: { data: ReactiveData<HoneycrispData> } = $props();
 
-	const honeycrisp = getHoneycrisp();
 	let sync = $state.raw<SyncConnectionStatus | undefined>(undefined);
 
 	$effect(() => {
-		sync = syncStatus();
+		sync = props.data.sync.status();
 		const timer = setInterval(() => {
-			sync = syncStatus();
+			sync = props.data.sync.status();
 		}, 1_000);
 		return () => clearInterval(timer);
 	});
 
+	const line = $derived.by(() => {
+		if (sync === undefined) return undefined;
+		if (sync.refusal !== undefined) return REFUSAL_LINE[sync.refusal];
+		return `${sync.connected ? 'Synced' : 'Offline'} · ${sync.cursor} changes received`;
+	});
+
+	// The tooltip answers for the line above it. Under a refusal that line is
+	// about the credential, so the connected-and-caught-up explanation would be
+	// answering a question nobody asked.
+	const lineTitle = $derived(
+		sync?.refusal === undefined
+			? 'Whether this device is connected and caught up with your other devices.'
+			: undefined,
+	);
+
+	// Never shown under a refusal. A window that is refused locally every thirty
+	// seconds climbs this count for the life of the page, which says nothing
+	// about the network.
+	const retries = $derived(
+		sync !== undefined &&
+			sync.refusal === undefined &&
+			!sync.connected &&
+			sync.failures > 0
+			? sync.failures
+			: undefined,
+	);
+
+	const folders = $derived(
+		props.data.tables.folders.rows.toSorted((a, b) => a.name.localeCompare(b.name)),
+	);
+	const counts = $derived.by(() => {
+		const counts = { active: 0, deleted: 0, folders: new Map<string, number>() };
+		for (const note of props.data.tables.notes.rows) {
+			if (note.deletedAt !== null) {
+				counts.deleted += 1;
+				continue;
+			}
+			counts.active += 1;
+			if (note.folderId) {
+				counts.folders.set(note.folderId, (counts.folders.get(note.folderId) ?? 0) + 1);
+			}
+		}
+		return counts;
+	});
 </script>
 
 <Sidebar.Root>
@@ -52,6 +102,7 @@
 				<Sidebar.Trigger />
 			</div>
 		</div>
+		<div class="px-2"><NotesLinks /></div>
 		<div class="px-2 pb-1">
 			<Sidebar.Input
 				placeholder="Search notes…"
@@ -73,7 +124,7 @@
 							<FileTextIcon class="size-4" />
 							<span>All Notes</span>
 							<span class="ml-auto text-xs text-muted-foreground">
-								{honeycrisp.tables.notes.all.length}
+								{counts.active}
 							</span>
 						</Sidebar.MenuButton>
 					</Sidebar.MenuItem>
@@ -84,9 +135,9 @@
 						>
 							<TrashIcon class="size-4" />
 							<span>Recently Deleted</span>
-							{#if honeycrisp.tables.notes.deleted.length > 0}
+							{#if counts.deleted > 0}
 								<span class="ml-auto text-xs text-muted-foreground">
-									{honeycrisp.tables.notes.deleted.length}
+									{counts.deleted}
 								</span>
 							{/if}
 						</Sidebar.MenuButton>
@@ -103,7 +154,7 @@
 				<Sidebar.GroupAction
 					title="New Folder"
 					onclick={() =>
-						honeycrisp.tables.folders.create()}
+						props.data.tables.folders.create({ name: 'New Folder', icon: null })}
 				>
 					<PlusIcon />
 					<span class="sr-only">New Folder</span>
@@ -111,8 +162,8 @@
 				<Collapsible.Content>
 					<Sidebar.GroupContent>
 						<Sidebar.Menu>
-							{#each honeycrisp.tables.folders.all as folder (folder.id)}
-								<FolderMenuItem {folder} />
+							{#each folders as folder (folder.id)}
+								<FolderMenuItem data={props.data} {folder} count={counts.folders.get(folder.id) ?? 0} />
 							{:else}
 								<Sidebar.MenuItem>
 									<span class="text-muted-foreground px-2 py-1 text-xs">
@@ -128,18 +179,14 @@
 	</Sidebar.Content>
 
 	<Sidebar.Footer>
-		{#if folder}
-			<SendFolderEdits {folder} />
-			<PullToFolder {folder} />
-		{/if}
-		{#if sync}
+		{#if line !== undefined}
 			<div
 				class="text-muted-foreground px-2 pb-1 text-[11px] tabular-nums"
-				title="Whether this device is connected and caught up with your other devices."
+				title={lineTitle}
 			>
-				{sync.connected ? 'Synced' : 'Offline'} · {sync.cursor} changes received
-				{#if !sync.connected && sync.attempts > 0}
-					· {sync.attempts} failed {sync.attempts === 1 ? 'retry' : 'retries'}
+				{line}
+				{#if retries !== undefined}
+					· {retries} failed {retries === 1 ? 'retry' : 'retries'}
 				{/if}
 			</div>
 		{/if}

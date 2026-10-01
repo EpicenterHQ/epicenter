@@ -1,6 +1,7 @@
 # 0331. Whispering authenticates with an OAuth bearer on every surface; the web build keeps its own origin
 
 - **Status:** Accepted
+- **Implementation amendment (2026-09-07):** [ADR-0354](0354-hosted-applications-authenticate-with-better-auth-session-bearers.md) replaces first-party OAuth grants with signed Better Auth sessions for browser apps, Bun, and the dashboard. Tauri needs a protected handoff, not an Epicenter OAuth provider. The separate Whispering origin and explicit bearer transport remain. Short access-token TTL and refresh rotation below describe the removed implementation; live session validation and a 600-second socket bound replace them.
 - **Date:** 2026-06-27
 - **Renumbered from 0079 (2026-09-01).** Two branches each kept 0079 as a provisional number and both merged, so `ADR-0079` cited two decisions. The more-cited record keeps the integer and this one took the next free number. Every `ADR-0079` citation elsewhere in the tree means the record that kept it.
 - **Amended by:** [ADR-0230](0230-an-auth-client-always-offers-openwebsocket-and-a-model-that-cannot-sync-denies-permanently.md): reason 1 below says the cookie client "is rejected at the type level" and calls it a plain `AuthClient` with no `openWebSocket`. That mechanism is withdrawn. `SyncAuthClient` is deleted, every client declares `openWebSocket`, and the cookie client denies permanently at runtime instead. The conclusion is unchanged: cookie auth still cannot drive sync, and Whispering still uses an OAuth bearer on every surface.

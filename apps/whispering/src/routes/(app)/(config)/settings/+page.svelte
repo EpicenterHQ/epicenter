@@ -19,17 +19,7 @@
 				Applies immediately after an audio transcription finishes.
 			</Field.Description>
 			<Field.Group>
-				<OutputDeliveryControls scope="transcription" />
-			</Field.Group>
-		</Field.Set>
-
-		<Field.Set>
-			<Field.Legend variant="label">Recipe output</Field.Legend>
-			<Field.Description>
-				Applies after you run a Recipe on your selection or clipboard.
-			</Field.Description>
-			<Field.Group>
-				<OutputDeliveryControls scope="recipe" />
+				<OutputDeliveryControls />
 			</Field.Group>
 		</Field.Set>
 

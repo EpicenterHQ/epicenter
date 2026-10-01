@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { local } from '$lib/whispering/local.js';
+	import { DEVICE_DEFAULTS } from '$lib/operations/settings.js';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
@@ -7,7 +9,10 @@
 	import { createMutation } from '@tanstack/svelte-query';
 	import { resultMutationOptions } from 'wellcrafted/query';
 	import { SettingSelect, SettingSwitch } from '$lib/components/settings';
-	import { BITRATE_OPTIONS, RECORDING_TRIGGER_OPTIONS } from '$lib/constants/audio';
+	import {
+		BITRATE_OPTIONS,
+		RECORDING_TRIGGER_OPTIONS,
+	} from '$lib/constants/audio';
 	import { report } from '$lib/report';
 	import { asDeviceIdentifier } from '@epicenter/recorder';
 	import { deviceConfig } from '$lib/state/device-config.svelte';
@@ -24,12 +29,12 @@
 	const exportRecordings = createMutation(() =>
 		resultMutationOptions({
 			mutationKey: ['recordings', 'export'],
-			mutationFn: () => exportRecordingsMarkdown(app),
+			mutationFn: () => exportRecordingsMarkdown(local),
 		}),
 	);
 </script>
 
-<svelte:head> <title>Recording Settings - Whispering</title> </svelte:head>
+<svelte:head><title>Recording Settings - Whispering</title></svelte:head>
 
 <Field.Set>
 	<Field.Legend>Recording</Field.Legend>
@@ -39,8 +44,9 @@
 	<Field.Separator />
 	<Field.Group>
 		<SettingSelect
-			store={app.settings}
-			key="recordingTrigger"
+			value={local.kv.get('recordingTrigger') ??
+				DEVICE_DEFAULTS.recordingTrigger}
+			onSelect={(recordingTrigger) => local.kv.update({ recordingTrigger })}
 			label="Recording Trigger"
 			items={RECORDING_TRIGGER_OPTIONS}
 			description="Choose how recording starts: {RECORDING_TRIGGER_OPTIONS.map(
@@ -49,34 +55,29 @@
 		/>
 
 		<SettingSwitch
-			key="recordingPausePlayback"
+			checked={local.kv.get('recordingPausePlayback') ??
+				DEVICE_DEFAULTS.recordingPausePlayback}
+			onCheckedChange={(checked) =>
+				local.kv.update({ recordingPausePlayback: checked })}
 			label="Pause playback while recording"
 			description="Whispering pauses media playing on your computer (music, video, browser tabs) while your voice is being captured, then tries to resume it after. In voice activated mode it pauses only while you actually speak, so music keeps playing between phrases. Works with most apps in your system media controls. A few can't be paused, and on macOS the resume can occasionally wake a different app that was already paused."
 		/>
 
-		{#if app.recordings.remoteAvailable}
-			<SettingSwitch
-				key="recordingAutoUpload"
-				label="Upload new recordings"
-				description="After saving a new recording on this device, try once to copy its audio to your online storage. Failed uploads stay local and are not retried automatically."
-			/>
-		{/if}
-
-		{#if app.settings.get('recordingTrigger') === 'manual'}
+		{#if (local.kv.get('recordingTrigger') ?? DEVICE_DEFAULTS.recordingTrigger) === 'manual'}
 			<ManualSelectRecordingDevice
-				bind:selected={() => {
-					const selected = manualRecorderConfig.deviceId;
-					return selected ? asDeviceIdentifier(selected) : null;
+				bind:selected={
+					() => {
+						const selected = manualRecorderConfig.deviceId;
+						return selected ? asDeviceIdentifier(selected) : null;
 					},
-					(selected) => (manualRecorderConfig.deviceId = selected)}
+					(selected) => (manualRecorderConfig.deviceId = selected)
+				}
 			/>
-		{:else if app.settings.get('recordingTrigger') === 'vad'}
+		{:else if (local.kv.get('recordingTrigger') ?? DEVICE_DEFAULTS.recordingTrigger) === 'vad'}
 			{#if os.isLinux}
 				<Alert.Root variant="destructive">
 					<InfoIcon class="size-4" />
-					<Alert.Title>
-						Voice Activated not supported on Linux
-					</Alert.Title>
+					<Alert.Title>Voice Activated not supported on Linux</Alert.Title>
 					<Alert.Description>
 						Voice Activated Detection (VAD) requires the browser's Navigator
 						API, which is not fully supported in Tauri on Linux. Device
@@ -94,9 +95,7 @@
 				{#if tauri && os.isApple}
 					<Alert.Root variant="warning">
 						<InfoIcon class="size-4" />
-						<Alert.Title>
-							Global Shortcuts May Be Unreliable
-						</Alert.Title>
+						<Alert.Title>Global Shortcuts May Be Unreliable</Alert.Title>
 						<Alert.Description>
 							VAD uses browser-owned capture. macOS App Nap may delay browser
 							recording logic when Whispering is not in focus.
@@ -105,9 +104,7 @@
 				{/if}
 				<Alert.Root>
 					<InfoIcon class="size-4" />
-					<Alert.Title>
-						Voice Activated Detection
-					</Alert.Title>
+					<Alert.Title>Voice Activated Detection</Alert.Title>
 					<Alert.Description>
 						VAD uses the browser's Web Audio API for real-time voice detection.
 						Captured speech is encoded to uncompressed WAV format.
@@ -116,19 +113,22 @@
 			{/if}
 
 			<VadSelectRecordingDevice
-				bind:selected={() => {
-					const selected = deviceConfig.get('recording.navigator.deviceId');
-					return selected ? asDeviceIdentifier(selected) : null;
+				bind:selected={
+					() => {
+						const selected = deviceConfig.get('recording.navigator.deviceId');
+						return selected ? asDeviceIdentifier(selected) : null;
 					},
 					(selected) =>
-						deviceConfig.set('recording.navigator.deviceId', selected)}
+						deviceConfig.set('recording.navigator.deviceId', selected)
+				}
 			/>
 		{/if}
 
-		{#if app.settings.get('recordingTrigger') === 'manual' && !tauri}
+		{#if (local.kv.get('recordingTrigger') ?? DEVICE_DEFAULTS.recordingTrigger) === 'manual' && !tauri}
 			<SettingSelect
-				store={deviceConfig}
-				key="recording.navigator.bitrateKbps"
+				value={deviceConfig.get('recording.navigator.bitrateKbps')}
+				onSelect={(value) =>
+					deviceConfig.set('recording.navigator.bitrateKbps', value)}
 				label="Bitrate"
 				items={BITRATE_OPTIONS}
 				description="The bitrate of the recording. Higher values mean better quality but larger file sizes."
@@ -167,11 +167,13 @@
 				}}
 				disabled={exportRecordings.isPending}
 			>
-				{exportRecordings.isPending ? 'Exporting...' : 'Export recordings (.zip)'}
+				{exportRecordings.isPending
+					? 'Exporting...'
+					: 'Export recordings (.zip)'}
 			</Button>
 			<Field.Description>
-				Download every recording as a zip of Markdown files. This is a
-				snapshot: later edits in Whispering do not change the downloaded file.
+				Download every recording as a zip of Markdown files. This is a snapshot:
+				later edits in Whispering do not change the downloaded file.
 			</Field.Description>
 		</Field.Field>
 	</Field.Group>

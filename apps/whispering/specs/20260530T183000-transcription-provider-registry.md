@@ -1,5 +1,7 @@
 # Transcription provider registry: the from-scratch answer
 
+**Superseded by**: `specs/20260912T112824-app-hub-and-whispering-transcription-collapse.md`
+
 ## Status
 
 Accepted, implementing. Answers the brief in `20260527T003910-transcription-providers-from-first-principles.md`. Supersedes the narrow adapter collapse in `20260527T002843-cloud-transcription-collapse.md`.

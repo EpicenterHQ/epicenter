@@ -2,7 +2,16 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-30
+- **Amended by:** [ADR-0238](0238-the-live-document-is-the-truth-while-open-and-persistence-is-a-visible-debt.md) at the OPFS clause only, which is withdrawn: a store's durable record in a browser tab and in a Tauri WebView alike is IndexedDB, written directly, at the address [ADR-0348](0348-the-local-address-carries-the-principal-and-a-database-needs-no-binding-to-know-whose-it-is.md) spells. The keychain credential, and the decision that a build declares which Epicenter owns its data, stand. And by [ADR-0402](0402-a-window-label-is-identity-never-authority-and-the-capability-is-a-host-constant.md) at "an application gets a native capability file only when it calls native commands" and at the refusal of the trusted-app file "for symmetry": the host grants every native verb to every window, so no application has or lacks a capability file. The build-declares-ownership rule stands for the apps' own seams; [ADR-0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) withdraws it for `@epicenter/app`, which selects at runtime.
 - **Relates:** [ADR-0189](0189-home-launches-applications-into-their-own-windows-and-stays-open-behind-them.md) (Home lists and launches compiled applications; this record decides how one is built and where its data lives), [ADR-0118](0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md), [ADR-0165](0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0177](0177-a-browser-replica-is-owned-by-a-storage-partition-and-origin-pair.md), [ADR-0168](0168-lenses-are-complete-pure-json-interpretations.md)
+
+> **2026-09-05 amendment:** The `## Context` sentence below saying Honeycrisp's
+> standalone bundle "owns its own OPFS storage" is stale, and only in its
+> medium. A build that owns its own store owns an IndexedDB record in its own
+> storage partition (`packages/app/src/data/store/browser.ts`, which holds the only
+> persistence there is and states why there is no worker and no OPFS). Which
+> Epicenter owns the data is still fixed at build time by the condition this
+> record decides.
 
 ## Context
 

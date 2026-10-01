@@ -2,21 +2,15 @@
  * How each of Local Mail's two kinds of file is opened, which is the only code
  * here that destroys data.
  *
- * The durable file is migrated and never unlinked, and it refuses a shape from
- * the future rather than writing through it. A borrowed file is demolished
- * whenever its shape is not the one this build understands, in either
- * direction, because Gmail still has the originals (ADR-0319). Those two
- * sentences are opposite policies applied by one module, so the tests that
- * matter are the ones that prove the policies cannot be swapped.
+ * Durable data refuses newer schemas. Known mail-cache schemas upgrade in
+ * place; unknown cache schemas are rebuilt because Gmail holds the originals.
+ * These tests keep those policies separate and verify account isolation.
  */
 
 import { expect, test } from 'bun:test';
-import {
-	type AppSqliteDatabase,
-	databaseName,
-	type Epicenter,
-} from '@epicenter/app';
+import type { AppSqliteDatabase } from '@epicenter/device';
 import { Ok } from 'wellcrafted/result';
+import { expectOk } from 'wellcrafted/testing';
 import { createTestAppSqlite } from './app-sqlite.test-support.ts';
 import {
 	LOCAL_SCHEMA_VERSION,
@@ -32,8 +26,7 @@ import {
 function testOwner() {
 	const files = new Map<string, ReturnType<typeof createTestAppSqlite>>();
 	const deleted: string[] = [];
-	const epicenter = {
-		appId: 'so.epicenter.local-mail',
+	const device = {
 		sqlite: {
 			open: async (name: string) => {
 				const existing = files.get(name);
@@ -49,8 +42,8 @@ function testOwner() {
 				return Ok(undefined);
 			},
 		},
-	} as unknown as Epicenter;
-	return { epicenter, files, deleted };
+	};
+	return { device, files, deleted };
 }
 
 const version = async (database: AppSqliteDatabase): Promise<number> => {
@@ -68,7 +61,7 @@ const stamp = async (database: AppSqliteDatabase, at: number) => {
 
 test('a first open creates the durable file and stamps its version', async () => {
 	const owner = testOwner();
-	const storage = await openLocalMailStorage(owner.epicenter);
+	const storage = await openLocalMailStorage(owner.device);
 
 	expect(await version(storage.local)).toBe(LOCAL_SCHEMA_VERSION);
 	const tables = await storage.local.all<{ name: string }>(
@@ -76,8 +69,9 @@ test('a first open creates the durable file and stamps its version', async () =>
 	);
 	expect(tables.data?.map((row) => row.name)).toEqual([
 		'accounts',
-		'intent_meta',
+		'intent_counters',
 		'label_intents',
+		'last_pass',
 	]);
 	// The durable file is never deleted, not even to create it.
 	expect(owner.deleted).toEqual([]);
@@ -85,25 +79,23 @@ test('a first open creates the durable file and stamps its version', async () =>
 
 test('the durable file refuses a shape written by a newer build', async () => {
 	const owner = testOwner();
-	const opened = await owner.epicenter.sqlite.open(databaseName('local'));
+	const opened = await owner.device.sqlite.open('local');
 	if (opened.error !== null) throw opened.error;
 	await stamp(opened.data, LOCAL_SCHEMA_VERSION + 1);
 
 	// Writing through it would lose the columns this build does not know about,
 	// and these bytes cannot be fetched again.
-	expect(openLocalMailStorage(owner.epicenter)).rejects.toThrow(
-		/newer version/,
-	);
+	expect(openLocalMailStorage(owner.device)).rejects.toThrow(/newer version/);
 	expect(owner.deleted).toEqual([]);
 });
 
 test('a mail file at the wrong shape is demolished, in either direction', async () => {
-	for (const wrong of [MAIL_SCHEMA_VERSION - 1, MAIL_SCHEMA_VERSION + 1]) {
+	for (const wrong of [0, MAIL_SCHEMA_VERSION + 1]) {
 		const owner = testOwner();
-		const storage = await openLocalMailStorage(owner.epicenter);
+		const storage = await openLocalMailStorage(owner.device);
 		const name = requireAccountFiling('sub-one').database;
 
-		const stale = await owner.epicenter.sqlite.open(name);
+		const stale = await owner.device.sqlite.open(name);
 		if (stale.error !== null) throw stale.error;
 		await stale.data.run('CREATE TABLE gone (id TEXT)');
 		await stale.data.run(`INSERT INTO gone VALUES ('row')`);
@@ -116,16 +108,17 @@ test('a mail file at the wrong shape is demolished, in either direction', async 
 			`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`,
 		);
 		expect(tables.data?.map((row) => row.name)).toEqual([
-			'cache_meta',
+			'full_pull_checkpoint',
 			'labels',
 			'messages',
+			'sync_state',
 		]);
 	}
 });
 
 test('the first open of an account creates its file without deleting one', async () => {
 	const owner = testOwner();
-	const storage = await openLocalMailStorage(owner.epicenter);
+	const storage = await openLocalMailStorage(owner.device);
 
 	const mail = await storage.mail('sub-one');
 	expect(await version(mail)).toBe(MAIL_SCHEMA_VERSION);
@@ -136,21 +129,19 @@ test('the first open of an account creates its file without deleting one', async
 
 test('a mail file already at this shape is opened, not demolished', async () => {
 	const owner = testOwner();
-	const storage = await openLocalMailStorage(owner.epicenter);
+	const storage = await openLocalMailStorage(owner.device);
 
 	const first = await storage.mail('sub-one');
-	await first.run(
-		`INSERT INTO cache_meta (key, value) VALUES ('history_id', '9')`,
-	);
+	await first.run(`UPDATE sync_state SET history_id = '9' WHERE id = 1`);
 	owner.deleted.length = 0;
 
 	// A second call joins the open it already performed, and a second storage
 	// over the same owner finds the file at the right version and leaves it.
 	expect(await storage.mail('sub-one')).toBe(first);
-	const reopened = await openLocalMailStorage(owner.epicenter);
+	const reopened = await openLocalMailStorage(owner.device);
 	const again = await reopened.mail('sub-one');
 	const rows = await again.all<{ value: string }>(
-		`SELECT value FROM cache_meta WHERE key = 'history_id'`,
+		`SELECT history_id AS value FROM sync_state WHERE id = 1`,
 	);
 	expect(rows.data?.[0]?.value).toBe('9');
 	expect(owner.deleted).toEqual([]);
@@ -158,15 +149,11 @@ test('a mail file already at this shape is opened, not demolished', async () => 
 
 test('two accounts are two files, and forgetting one leaves the other', async () => {
 	const owner = testOwner();
-	const storage = await openLocalMailStorage(owner.epicenter);
+	const storage = await openLocalMailStorage(owner.device);
 	const one = await storage.mail('sub-one');
 	const two = await storage.mail('sub-two');
-	await one.run(
-		`INSERT INTO cache_meta (key, value) VALUES ('history_id', '1')`,
-	);
-	await two.run(
-		`INSERT INTO cache_meta (key, value) VALUES ('history_id', '2')`,
-	);
+	await one.run(`UPDATE sync_state SET history_id = '1' WHERE id = 1`);
+	await two.run(`UPDATE sync_state SET history_id = '2' WHERE id = 1`);
 
 	await storage.forgetMail('sub-one');
 	expect(owner.deleted).toEqual([requireAccountFiling('sub-one').database]);
@@ -175,7 +162,69 @@ test('two accounts are two files, and forgetting one leaves the other', async ()
 	// The next open of a forgotten account is a new empty file, not the handle
 	// that was evicted with it.
 	const reopened = await storage.mail('sub-one');
-	const rows = await reopened.all(`SELECT value FROM cache_meta`);
-	expect(rows.data).toEqual([]);
-	expect((await two.all(`SELECT value FROM cache_meta`)).data).toHaveLength(1);
+	const rows = await reopened.all(`SELECT history_id AS value FROM sync_state`);
+	expect(rows.data).toEqual([{ value: null }]);
+	expect(
+		(await two.all(`SELECT history_id AS value FROM sync_state`)).data,
+	).toHaveLength(1);
+});
+
+test('new account storage reopens with cached mail and durable pending triage intact', async () => {
+	const owner = testOwner();
+	const first = await openLocalMailStorage(owner.device);
+	await first.local.run(
+		"INSERT INTO accounts VALUES ('one', 'one@example.com', 'today')",
+	);
+	await first.local.run(
+		"INSERT INTO label_intents VALUES ('one', 'message', 'INBOX', 0, 1, 'today')",
+	);
+	const cache = await first.mail('one');
+	await cache.run(
+		"INSERT INTO messages (id, resource, synced_at) VALUES ('message', '{}', 'today')",
+	);
+	const reopened = await openLocalMailStorage(owner.device);
+	expect((await reopened.local.all('SELECT sub FROM accounts')).data).toEqual([
+		{ sub: 'one' },
+	]);
+	expect(
+		(await reopened.local.all('SELECT revision FROM label_intents')).data,
+	).toEqual([{ revision: 1 }]);
+	expect(
+		(await (await reopened.mail('one')).all('SELECT id FROM messages')).data,
+	).toEqual([{ id: 'message' }]);
+	expect(owner.deleted).toEqual([]);
+});
+
+test('version one mail upgrades without deleting its messages or history bookmark', async () => {
+	const owner = testOwner();
+	try {
+		const first = await openLocalMailStorage(owner.device);
+		const cache = await first.mail('one');
+		expectOk(
+			await cache.batch([
+				{ sql: 'DROP TABLE full_pull_checkpoint' },
+				{ sql: 'ALTER TABLE messages DROP COLUMN full_pull_id' },
+				{
+					sql: "INSERT INTO messages (id, resource, synced_at) VALUES ('kept', '{}', 'today')",
+				},
+				{ sql: "UPDATE sync_state SET history_id = '100' WHERE id = 1" },
+				{ sql: 'PRAGMA user_version = 1' },
+			]),
+		);
+		const reopened = await openLocalMailStorage(owner.device);
+		const upgraded = await reopened.mail('one');
+		expect(await version(upgraded)).toBe(MAIL_SCHEMA_VERSION);
+		expect(expectOk(await upgraded.all('SELECT id FROM messages'))).toEqual([
+			{ id: 'kept' },
+		]);
+		expect(
+			expectOk(await upgraded.all('SELECT history_id FROM sync_state')),
+		).toEqual([{ history_id: '100' }]);
+		expect(
+			expectOk(await upgraded.all('SELECT * FROM full_pull_checkpoint')),
+		).toEqual([]);
+		expect(owner.deleted).toEqual([]);
+	} finally {
+		for (const database of owner.files.values()) database.close();
+	}
 });

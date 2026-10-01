@@ -18,7 +18,7 @@ export async function readHostedPrincipalEmail(
 
 /**
  * Delete the hosted auth user during account deletion. Sessions, provider
- * accounts, OAuth tokens, consents, and passkeys cascade from the user row
+ * accounts and passkeys cascade from the user row
  * (schema/auth.ts), so removing it is the durable gate against any later
  * authenticated operation. Idempotent for coordinator retries; run it LAST so
  * a retry after an earlier partial failure can still authenticate.

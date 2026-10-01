@@ -1,14 +1,15 @@
 /**
- * Release-built SPA assets exposed by the Bun-owned Epicenter origin.
+ * Built and installed SPA assets exposed by the Bun-owned Epicenter origin.
  *
  * The release layout is explicit: `home/index.html` plus one directory per
- * compiled application. The host loads the closed list supplied by the
- * composition root; it does not discover or admit application directories.
+ * compiled application. Installed applications add validated bundles below
+ * the platform data root; both sources use the same served representation.
  */
 
 import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import mime from 'mime';
+import type { InstalledApplication } from './app-installation.ts';
 
 export type StaticAsset = {
 	file: ReturnType<typeof Bun.file>;
@@ -24,27 +25,20 @@ export type StaticAsset = {
  * three things to do to it that a file cannot carry: gate it behind an
  * established browser session, stamp the auth bootstrap into it, and hash its
  * inline scripts into the one Content-Security-Policy this origin sends. That
- * stamp is what lets a build open the host-owned replica instead of one of its
- * own, and the hash is what lets its own boot script run at all.
+ * stamp supplies the account identity used to reach the host's credential broker.
+ * The app opens its own replica; the hash lets its boot script run.
  */
-type ServedSpa = {
+export type ServedApplicationAssets = {
 	id: string;
 	title: string;
 	page: string;
 	resolve(pathname: string): Promise<StaticAsset | undefined>;
 };
 
-/**
- * One derived catalog member: enough to list it and serve its static root. Its
- * `id` comes from the database declaration (ADR-0210).
- */
-/** One compiled application's release build. */
-export type CompiledApplicationAssets = ServedSpa;
-
 export type EpicenterStaticAssets = {
 	homePage: string;
-	/** Compiled applications, in the order the release declared them. */
-	applications: CompiledApplicationAssets[];
+	/** Compiled applications followed by installed applications. */
+	applications: ServedApplicationAssets[];
 };
 
 /**
@@ -56,6 +50,7 @@ export type EpicenterStaticAssets = {
 export async function loadStaticAssets(
 	appsDist: string,
 	applications: readonly { id: string; title: string }[],
+	installedApplications: readonly InstalledApplication[] = [],
 ): Promise<EpicenterStaticAssets> {
 	if (appsDist.trim() === '') {
 		throw new Error(
@@ -70,32 +65,59 @@ export async function loadStaticAssets(
 		'Home index',
 	);
 
-	return {
-		homePage: await Bun.file(homeIndex).text(),
-		applications: await Promise.all(
-			applications.map(async ({ id, title }) => {
-				const appRoot = await requiredContainedDirectory(
+	const compiled = await Promise.all(
+		applications.map(async (application) =>
+			loadApplicationAssets({
+				id: application.id,
+				title: application.title,
+				root: await requiredContainedDirectory(
 					root,
-					resolve(root, id),
-					`${title} asset root`,
-				);
-				const index = await requiredFile(
-					appRoot,
-					resolve(appRoot, 'index.html'),
-					`${title} index`,
-				);
-				return {
-					id,
-					title,
-					page: await Bun.file(index).text(),
-					resolve: createContainedResolver({
-						prefix: `/apps/${id}/`,
-						root: appRoot,
-						index,
-					}),
-				};
+					resolve(root, application.id),
+					`${application.title} asset root`,
+				),
 			}),
 		),
+	);
+	const installed = await Promise.all(
+		installedApplications.map((application) =>
+			loadApplicationAssets({
+				id: application.id,
+				title: application.title,
+				root: application.bundleRoot,
+			}),
+		),
+	);
+
+	return {
+		homePage: await Bun.file(homeIndex).text(),
+		applications: [...compiled, ...installed],
+	};
+}
+
+export async function loadApplicationAssets({
+	id,
+	title,
+	root,
+}: {
+	id: string;
+	title: string;
+	root: string;
+}): Promise<ServedApplicationAssets> {
+	const appRoot = await requiredDirectory(root, `${title} asset root`);
+	const index = await requiredFile(
+		appRoot,
+		resolve(appRoot, 'index.html'),
+		`${title} index`,
+	);
+	return {
+		id,
+		title,
+		page: await Bun.file(index).text(),
+		resolve: createContainedResolver({
+			prefix: `/apps/${id}/`,
+			root: appRoot,
+			index,
+		}),
 	};
 }
 

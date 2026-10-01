@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-recording-document-generation"
+description = "Enables the recording_document_generation command without any pre-configured scope."
+commands.allow = ["recording_document_generation"]
+
+[[permission]]
+identifier = "deny-recording-document-generation"
+description = "Denies the recording_document_generation command without any pre-configured scope."
+commands.deny = ["recording_document_generation"]

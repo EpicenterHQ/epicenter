@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createNote } from '$lib/notes.js';
+	import type { ReactiveData } from '@epicenter/svelte';
+	import type { HoneycrispData } from '$lib/data.js';
 	import {
 		CommandPalette as UiCommandPalette,
 		type CommandPaletteItem,
@@ -7,10 +10,10 @@
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
 	import PlusIcon from '@lucide/svelte/icons/plus';
-	import { getHoneycrisp } from '$lib/app.svelte.js';
 	import { navigation } from '$lib/navigation.svelte.js';
 
-	const honeycrisp = getHoneycrisp();
+
+	let props: { data: ReactiveData<HoneycrispData> } = $props();
 
 	let isOpen = $state(false);
 
@@ -22,7 +25,7 @@
 			icon: FileTextIcon,
 			onSelect: () => navigation.selectFolder(null),
 		},
-		...honeycrisp.tables.folders.all.map((folder): CommandPaletteItem => ({
+		...props.data.tables.folders.rows.toSorted((a, b) => a.name.localeCompare(b.name)).map((folder): CommandPaletteItem => ({
 			id: `folder:${folder.id}`,
 			label: folder.icon ? `${folder.icon} ${folder.name}` : folder.name,
 			keywords: [folder.name],
@@ -30,7 +33,7 @@
 			icon: folder.icon ? undefined : FolderIcon,
 			onSelect: () => navigation.selectFolder(folder.id),
 		})),
-		...honeycrisp.tables.notes.all.map((note): CommandPaletteItem => ({
+		...props.data.tables.notes.rows.filter((note) => note.deletedAt === null).map((note): CommandPaletteItem => ({
 			id: `note:${note.id}`,
 			label: note.title || 'Untitled',
 			group: 'Notes',
@@ -43,7 +46,7 @@
 			group: 'Actions',
 			icon: PlusIcon,
 			onSelect: () =>
-				honeycrisp.createNote(),
+				createNote(props.data),
 		},
 		{
 			id: 'action:new-folder',
@@ -51,7 +54,7 @@
 			group: 'Actions',
 			icon: FolderPlusIcon,
 			onSelect: () =>
-				honeycrisp.tables.folders.create(),
+				props.data.tables.folders.create({ name: 'New Folder', icon: null }),
 		},
 	]);
 </script>

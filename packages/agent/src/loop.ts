@@ -79,8 +79,20 @@ export function createConversation({
 			.sort((a, b) => a.createdAt - b.createdAt);
 
 	let persisted = readAll();
+	let lastCreatedAt = persisted.reduce(
+		(latest, message) => Math.max(latest, message.createdAt),
+		0,
+	);
+	const nextCreatedAt = () => {
+		lastCreatedAt = Math.max(Date.now(), lastCreatedAt + 1);
+		return lastCreatedAt;
+	};
 	const unobserve = store.observe(() => {
 		persisted = readAll();
+		lastCreatedAt = persisted.reduce(
+			(latest, message) => Math.max(latest, message.createdAt),
+			lastCreatedAt,
+		);
 		notify();
 	});
 	let turn: AgentMessage[] | null = null;
@@ -198,7 +210,7 @@ export function createConversation({
 			const assistant: AgentMessage = {
 				id: generateId(),
 				role: 'assistant',
-				createdAt: Date.now(),
+				createdAt: nextCreatedAt(),
 				parts: [],
 			};
 			turn.push(assistant);
@@ -245,7 +257,7 @@ export function createConversation({
 			store.set(id, {
 				id,
 				role: 'user',
-				createdAt: Date.now(),
+				createdAt: nextCreatedAt(),
 				parts: [{ type: 'text', text }],
 			});
 			void runTurn();

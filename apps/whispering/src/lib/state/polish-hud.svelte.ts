@@ -11,14 +11,16 @@
  * it: the pipeline (imperative) and the overlay action handler (reactive).
  */
 let controller: AbortController | null = null;
+let ownsFeedback: (() => boolean) | undefined;
 
 export const polishHud = {
 	/**
 	 * Start a Polish pass and return a fresh `AbortSignal` to hand to `runPolish`.
 	 * Call only when an AI call is actually about to happen (`polishWillRun`).
 	 */
-	begin(): AbortSignal {
+	begin(isCurrent: () => boolean): AbortSignal {
 		controller = new AbortController();
+		ownsFeedback = isCurrent;
 		return controller.signal;
 	},
 
@@ -28,11 +30,13 @@ export const polishHud = {
 	 * and returns the raw input.
 	 */
 	shipRaw(): void {
-		controller?.abort();
+		if (ownsFeedback?.()) controller?.abort();
 	},
 
-	/** Mark the pass finished (success, failure, or abort) and drop the controller. */
-	end(): void {
+	/** Drop only this pass's controller; a newer pass may already own the HUD. */
+	end(signal: AbortSignal): void {
+		if (controller?.signal !== signal) return;
 		controller = null;
+		ownsFeedback = undefined;
 	},
 };

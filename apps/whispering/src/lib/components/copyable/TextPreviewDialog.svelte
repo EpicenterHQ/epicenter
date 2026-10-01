@@ -75,7 +75,7 @@
 			></CopyButton>
 		</InputGroup.Addon>
 	</InputGroup.Root>
-	<Modal.Content class="max-w-4xl">
+	<Modal.Content class="sm:max-w-4xl">
 		<Modal.Title>{title}</Modal.Title>
 		<Textarea readonly value={text} rows={20} />
 		<Modal.Footer>

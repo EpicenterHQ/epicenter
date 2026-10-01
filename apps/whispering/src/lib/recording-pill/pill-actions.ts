@@ -1,8 +1,7 @@
 import {
 	cancelRecording,
-	stopManualRecording,
 	stopVadRecording,
-} from '$lib/operations/recording';
+} from '$lib/operations/recording.svelte.js';
 import type { RecordingPillAction } from '$lib/recording-pill/model';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
 import { polishHud } from '$lib/state/polish-hud.svelte';
@@ -30,11 +29,11 @@ export function dispatchPillAction(
 		polishHud.shipRaw();
 		return;
 	}
-	const { capture } = dictationLifecycle.current;
+	const { capture } = dictationLifecycle.current(app.recording);
 	if (capture.kind !== 'recording') return;
 	if (capture.trigger === 'manual') {
 		if (action === 'cancel') void cancelRecording(app);
-		else void stopManualRecording(app);
+		else void app.recording.stop();
 		return;
 	}
 	if (action === 'stop') void stopVadRecording(app);

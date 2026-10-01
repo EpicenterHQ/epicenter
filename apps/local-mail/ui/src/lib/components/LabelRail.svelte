@@ -10,7 +10,7 @@
 	import TagIcon from '@lucide/svelte/icons/tag';
 	import type { Component } from 'svelte';
 	import { labelDisplayName } from '$lib/format';
-	import type { MailLabel } from '$lib/types';
+	import type { LabelSummary } from '@epicenter/local-mail/mailbox';
 
 	let {
 		labels,
@@ -19,7 +19,7 @@
 		onSelect,
 		onSearch,
 	}: {
-		labels: MailLabel[];
+		labels: LabelSummary[];
 		selectedLabel: string | null;
 		search: string;
 		onSelect: (id: string | null) => void;

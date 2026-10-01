@@ -1,6 +1,6 @@
 ---
 name: logging
-description: 'wellcrafted/logger for library diagnostics: 5 levels, typed errors, injected sinks, and host-owned durability. Use for attach primitives, background errors, durable host logs, or replacing console.* in library code.'
+description: 'Use for wellcrafted/logger, logger sinks, library diagnostics, typed logging, background errors, durable host logs, or replacing console.* in library code.'
 metadata:
   author: epicenter
   version: '2.2'
@@ -109,7 +109,7 @@ export const WhisperingBackgroundError = defineErrors({
   }),
 });
 
-export type WhisperingAppDependencies = {
+export type WhisperingAppOptions = {
   reportBackgroundError(cause: unknown): void;
 };
 ```
@@ -130,7 +130,7 @@ Minting a variant is not the same as publishing one. Two kinds:
 | Export it? | Yes; renaming a variant is a breaking change | No, `const` at module scope |
 | Examples | `ReplicaError`, `DocumentPullError`, `DataReadError`, `TransportProtocolError` | `SyncSupervisorError`, `BrowserWorkerError`, `ObservationCarrierError` |
 
-Exporting a log-only set publishes a name no one can import for a reason and freezes a string you should stay free to reword. `packages/data` and `packages/lens` keep theirs private for exactly this; only errors that leave in a `Result` are in the published failure surface. Export a log-only set solely when a second file in the same package logs the same failure, and even then, only within the package.
+Exporting a log-only set publishes a name no one can import for a reason and freezes a string you should stay free to reword. `packages/app` and `packages/lens` keep theirs private for exactly this; only errors that leave in a `Result` are in the published failure surface. Export a log-only set solely when a second file in the same package logs the same failure, and even then, only within the package.
 
 **Name the variant key for the log line, not for the set.** `defineErrors` stamps `name` from the key alone; the `const` you assign the set to never reaches the sink. `createLogger`'s `source` supplies the namespace, so `[data/sync] { name: 'StatusSubscriberThrew' }` reads fine and the key stays short.
 
@@ -249,7 +249,6 @@ Custom sinks that serialize for the wire should convert `ts` to ISO-8601 and fla
 
 ## See also
 
-- `error-handling` skill: the `trySync`/`tryAsync` patterns the logger consumes
-- `define-errors` skill: how to mint the typed error variants the logger consumes
-- `rust-errors` skill: full `tracing` ↔ `Logger` mapping
+- `error-handling` skill: `trySync`/`tryAsync` patterns and the [error variants reference](../error-handling/references/error-variants.md) for the typed failures the logger consumes
+- `tauri`'s [Rust command errors reference](../tauri/references/rust-command-errors.md): typed failures that cross IPC
 - `tapErr` (from `wellcrafted/result`): Result-chain combinator that logs on the Err branch and passes the Result through. Rare in epicenter, since most call sites branch on `result.error` directly to use the data on the Ok branch. Reach for it only when the Result flows out of the function in a `.then(...)` chain.

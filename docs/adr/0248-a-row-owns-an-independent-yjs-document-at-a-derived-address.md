@@ -19,12 +19,12 @@
 - **Relates:** [ADR-0214](0214-one-sqlite-file-holds-the-update-log-and-the-projection-and-history-lives-outside-the-crdt.md),
   [ADR-0238](0238-the-live-document-is-the-truth-while-open-and-persistence-is-a-visible-debt.md),
   and [ADR-0241](0241-a-store-is-truth-plus-debts-and-sql-is-a-composed-follower.md).
-- **Built:** `documentAddress` in `packages/data/src/definition/addresses.ts`, the
+- **Built:** `documentAddress` in `packages/app/src/data/definition/addresses.ts`, the
 <!-- doc-path-check: ignore-next-line (a file this superseded record described, since deleted) -->
-  document manager in `packages/data/src/store/documents.ts`, the composed
+  document manager in `packages/app/src/data/store/documents.ts`, the composed
   row-deletion path in the table verb, and the multiplexed envelope payload in
 <!-- doc-path-check: ignore-next-line (a file this superseded record described, since deleted) -->
-  `packages/data/src/store/envelope.ts`. The nested `!doc` container is
+  `packages/app/src/data/store/envelope.ts`. The nested `!doc` container is
   deleted.
 - **Amended by:** [ADR-0284](0284-the-application-document-is-an-index-and-a-rows-remaining-fields-live-in-its-own-document.md) at what the document at the derived address holds: a row's non-index scalars as well as its prose.
 

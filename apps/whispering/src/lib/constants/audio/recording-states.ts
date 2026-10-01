@@ -6,7 +6,7 @@
 /**
  * Manual recording state as the UI tracks it. Owned here rather than by the
  * recorder contract: the recorder has no state to report, because holding a
- * `Recording` is what "recording" means. `manual-recorder.svelte.ts` derives
+ * `Recording` is what "recording" means. `operations/recording.svelte.ts` derives
  * this from whether it holds one, and the UI reads that.
  */
 export type WhisperingRecordingState = 'IDLE' | 'RECORDING';

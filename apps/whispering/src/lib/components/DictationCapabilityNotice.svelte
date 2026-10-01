@@ -5,9 +5,6 @@
 	import { accessibilityGuide } from '$lib/components/MacosAccessibilityGuideDialog.svelte';
 	import { outputWritesToCursor } from '$lib/operations/delivery';
 	import { dictationCapability } from '$lib/state/dictation-capability.svelte';
-	import { getWhisperingApp } from '$lib/whispering/context';
-
-	const app = getWhisperingApp();
 
 	// A home banner that fires ONLY when something the user configured is broken,
 	// never as a feature pitch. The dictation capability Rust owns already encodes
@@ -32,7 +29,7 @@
 	const cursorPasteNotFiring = $derived(
 		dictationCapability.needsAccessibility &&
 			!dictationCapability.isStale &&
-			outputWritesToCursor(app),
+			outputWritesToCursor(),
 	);
 </script>
 
@@ -44,8 +41,8 @@
 		<Item.Content>
 			<Item.Title>Paste at cursor isn't working</Item.Title>
 			<Item.Description>
-				Re-granting macOS Accessibility usually fixes it. Until then, transcripts
-				go to your clipboard.
+				Re-granting macOS Accessibility usually fixes it. Until then,
+				transcripts go to your clipboard.
 			</Item.Description>
 		</Item.Content>
 		<Item.Actions>

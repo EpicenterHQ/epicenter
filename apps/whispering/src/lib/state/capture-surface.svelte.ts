@@ -1,5 +1,6 @@
 import type { CaptureSurface } from '$lib/constants/audio';
-import type { WhisperingApp } from '$lib/whispering/app';
+import { DEVICE_DEFAULTS } from '../operations/settings.js';
+import { local } from '../whispering/local.js';
 
 /**
  * Which capture surface the home page and the config header are currently
@@ -17,7 +18,7 @@ import type { WhisperingApp } from '$lib/whispering/app';
  * It lives at module scope so the home tabs and the header dropdown share one
  * selection. This module is a leaf: the orchestration that runs when you switch
  * surfaces (stopping a live recorder, switching the trigger) lives in
- * `operations/recording.ts`, which calls `showImport`/`dismissImport` here.
+ * `operations/recording.svelte.ts`, which calls `showImport`/`dismissImport` here.
  */
 let isImportSurfaceShowing = $state(false);
 
@@ -25,10 +26,10 @@ export const captureSurface = {
 	/** The surface on screen now: `import` while the import overlay is open,
 	 *  otherwise the durable recording trigger. Reactive when called inside a
 	 *  template, `$derived`, or `$effect`. */
-	current(app: WhisperingApp): CaptureSurface {
+	current(): CaptureSurface {
 		return isImportSurfaceShowing
 			? 'import'
-			: app.settings.get('recordingTrigger');
+			: (local.kv.get('recordingTrigger') ?? DEVICE_DEFAULTS.recordingTrigger);
 	},
 
 	/** Open the file-import overlay over the current trigger. */

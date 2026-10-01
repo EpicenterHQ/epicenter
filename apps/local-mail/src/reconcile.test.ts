@@ -4,13 +4,13 @@
  *
  * - One message's opinions become ONE `messages.modify`, with trash routed to
  *   Gmail's own endpoint at delivery and never smuggled into a label set.
- * - Retirement requires the sequence that was delivered, so an act made while a
+ * - Retirement requires the revision that was delivered, so an act made while a
  *   delivery is in flight survives it.
  * - A refused request is retried one assertion at a time before anything is
  *   resolved, so one impossible label cannot discard the archive that shared its
  *   call; a systemic failure stops delivery and keeps every assertion, with
  *   nothing written down about the failure itself.
- * - An act made mid-delivery wins, because retirement matches the sequence that
+ * - An act made mid-delivery wins, because retirement matches the revision that
  *   was actually proved.
  * - Read-only skips delivery entirely.
  *
@@ -19,14 +19,13 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { assertMessageLabels } from './assert.ts';
-import { DEFAULT_MAIL_CONFIG } from './config.ts';
+import type { MailSession } from './accounts.ts';
 import { GmailApiError, type GmailClient } from './gmail-client.ts';
 import type { IntentStore } from './intent-store.ts';
 import { openIntentStore } from './intent-store.ts';
 import { type Mailbox, openMailbox, overlayOf } from './mailbox.ts';
-import { type ReconcileDeps, reconcileAccount } from './reconcile.ts';
-import { claimReconcile } from './reconcile-claim.ts';
+import { openPassRecord } from './outbox.ts';
+import { reconcileAccount } from './reconcile.ts';
 import type { GmailLabel, GmailMessage, HistoryPage } from './schema.ts';
 import { openTestSession, type TestSession } from './session.test-support.ts';
 
@@ -153,7 +152,7 @@ async function setup(
 	client: GmailClient,
 	messages: GmailMessage[] = [message('m1', ['INBOX', 'UNREAD'])],
 ): Promise<{
-	deps: ReconcileDeps;
+	deps: MailSession;
 	session: TestSession;
 	mailbox: Mailbox;
 	intents: IntentStore;
@@ -161,8 +160,13 @@ async function setup(
 }> {
 	const session = await openTestSession(ACCOUNT_ID);
 	const syncedAt = new Date(NOW).toISOString();
-	await session.mailbox.ingestFullPullPage(messages, syncedAt);
-	await session.mailbox.ingestLabels(MIRRORED_LABELS, syncedAt);
+	await session.mailbox.ingestFullPullPage(messages, {
+		historyId: 'seed',
+		scanId: syncedAt,
+		syncedAt: syncedAt,
+		nextPageToken: null,
+	});
+	await session.mailbox.ingestLabels(MIRRORED_LABELS);
 	// A cursor plus a recent sync keeps the pull phase INCREMENTAL, so these
 	// tests exercise delivery rather than a full backfill.
 	await session.mailbox.finishFullPull('1', syncedAt);
@@ -170,8 +174,8 @@ async function setup(
 		deps: {
 			mailbox: session.mailbox,
 			intents: session.intents,
+			passes: session.passes,
 			client,
-			config: DEFAULT_MAIL_CONFIG,
 			now: () => NOW,
 			sub: ACCOUNT_ID,
 		},
@@ -183,25 +187,13 @@ async function setup(
 }
 
 /**
- * One pass, as a real owner runs one: take the account's claim, deliver under
- * it, release. A pass cannot be called without the capability, so the tests
- * below reach the write path the only way production does.
+ * One pass over one account's session.
+ *
+ * Production reaches this through `reconcileNow`, which adds only the joining
+ * of a second caller to a pass already in flight; that is `accounts.test.ts`'
+ * subject, and everything below is about what a single pass does.
  */
-async function pass(deps: ReconcileDeps, readOnly = false) {
-	const taken = claimReconcile(deps.sub);
-	if (taken.error !== null) {
-		throw new Error('the test could not become the reconcile owner');
-	}
-	try {
-		return await reconcileAccount(deps, {
-			forceFull: false,
-			readOnly,
-			claim: taken.data.claim,
-		});
-	} finally {
-		taken.data.release();
-	}
-}
+const pass = (deps: MailSession) => reconcileAccount(deps);
 
 /** Gmail's facts for one message, straight out of the cache column, with no
  * intent overlay: what the reconciler folded, not what a reader would see. */
@@ -443,7 +435,7 @@ describe('drain', () => {
 			const { delivery } = await pass(created.deps);
 
 			expect(client.untrashCalls).toEqual(['m1']);
-			// The untrash proved the old sequence and retires nothing; the archive is
+			// The untrash proved the old revision and retires nothing; the archive is
 			// unrelated and lands.
 			expect(delivery).toMatchObject({ pending: 2, delivered: 1, retained: 1 });
 			expect(await intents.pending()).toMatchObject([
@@ -498,8 +490,7 @@ describe('drain', () => {
 	});
 
 	test('archive then undo, racing an in-flight drain, keeps the undo', async () => {
-		// The whole point of sequencing, driven through the public act path rather
-		// than the store: the user archives, the drain picks it up, and the undo
+		// The whole point of revision matching, driven through the store and reconciler: the user archives, the drain picks it up, and the undo
 		// lands while that delivery is on the wire.
 		let undo: (() => Promise<void>) | null = null;
 		const client = fakeGmail(
@@ -510,28 +501,26 @@ describe('drain', () => {
 		const { deps, intents, session, cleanup } = created;
 		try {
 			const archive = () =>
-				assertMessageLabels({
-					deps,
-					input: { ids: ['m1'], addLabels: [], removeLabels: ['INBOX'] },
-					readOnly: false,
-				});
+				intents.assert(
+					[{ messageId: 'm1', labelId: 'INBOX', want: false }],
+					new Date(NOW).toISOString(),
+				);
 			const unarchive = () =>
-				assertMessageLabels({
-					deps,
-					input: { ids: ['m1'], addLabels: ['INBOX'], removeLabels: [] },
-					readOnly: false,
-				});
+				intents.assert(
+					[{ messageId: 'm1', labelId: 'INBOX', want: true }],
+					new Date(NOW).toISOString(),
+				);
 
-			expect((await archive()).error).toBeNull();
+			expect(await archive()).toBe(1);
 			undo = async () => {
 				undo = null;
-				expect((await unarchive()).error).toBeNull();
+				expect(await unarchive()).toBe(1);
 			};
 
 			const first = await pass(deps);
 
 			// Gmail was told to archive, and answered. But the undo carries a newer
-			// sequence, so that answer proves nothing about it: nothing is retired,
+			// revision, so that answer proves nothing about it: nothing is retired,
 			// and the mailbox the user sees is back in the inbox on the strength of
 			// the still-pending assertion.
 			expect(client.modifyCalls).toEqual([
@@ -646,7 +635,13 @@ describe('drain', () => {
 							error: GmailApiError.Http({ status: 400, body: 'bad request' })
 								.error,
 						}
-					: { error: GmailApiError.Throttled({ retries: 5 }).error };
+					: {
+							error: GmailApiError.Throttled({
+								retries: 5,
+								status: 429,
+								body: 'Too many requests',
+							}).error,
+						};
 			},
 		});
 		const { deps, intents, cleanup } = await setup(client);
@@ -727,7 +722,16 @@ describe('drain', () => {
 	test('a systemic failure stops delivery and keeps every undelivered assertion', async () => {
 		const client = fakeGmail(
 			new Map<string, WriteResult>([
-				['m1', { error: GmailApiError.Throttled({ retries: 5 }).error }],
+				[
+					'm1',
+					{
+						error: GmailApiError.Throttled({
+							retries: 5,
+							status: 429,
+							body: 'Too many requests',
+						}).error,
+					},
+				],
 				['m2', { data: message('m2', []) }],
 			]),
 		);
@@ -757,33 +761,6 @@ describe('drain', () => {
 			expect(delivery.failure?.name).toBe('Throttled');
 			expect(await intents.pending()).toHaveLength(2);
 			// The pull still runs: a failure to write is not a reason to stop reading.
-			expect(pull.failure).toBeNull();
-		} finally {
-			cleanup();
-		}
-	});
-
-	test('read-only mode delivers nothing and keeps every assertion', async () => {
-		const client = fakeGmail(new Map([['m1', { data: message('m1', []) }]]));
-		const { deps, intents, cleanup } = await setup(client);
-		try {
-			await intents.assert(
-				[{ messageId: 'm1', labelId: 'INBOX', want: false }],
-				new Date(NOW).toISOString(),
-			);
-
-			const { delivery, pull } = await pass(deps, true);
-
-			expect(client.modifyCalls).toEqual([]);
-			expect(client.trashCalls).toEqual([]);
-			expect(delivery).toMatchObject({
-				pending: 1,
-				delivered: 0,
-				retained: 1,
-				failure: null,
-			});
-			expect(await intents.pending()).toHaveLength(1);
-			// Reads keep working in read-only mode, so the pull still happens.
 			expect(pull.failure).toBeNull();
 		} finally {
 			cleanup();
@@ -850,74 +827,6 @@ describe("folding Gmail's answer", () => {
 	});
 });
 
-describe('ownership', () => {
-	test('a second reconciler cannot run while the first holds the account', async () => {
-		const client = fakeGmail(
-			new Map([['m1', { data: message('m1', ['UNREAD']) }]]),
-		);
-		const { deps, intents, cleanup } = await setup(client);
-		try {
-			await intents.assert(
-				[{ messageId: 'm1', labelId: 'INBOX', want: false }],
-				new Date(NOW).toISOString(),
-			);
-
-			const first = claimReconcile(deps.sub);
-			expect(first.error).toBeNull();
-			if (first.error !== null) throw first.error;
-
-			// The second owner is refused, so it never obtains the capability a pass
-			// requires. There is no other way in: `reconcileAccount` has no overload
-			// that skips the claim.
-			const second = claimReconcile(deps.sub);
-			expect(second.error?.name).toBe('Busy');
-
-			// Nothing reached Gmail on the refused path, and the change is still owed.
-			expect(client.modifyCalls).toEqual([]);
-			expect(await intents.pending()).toHaveLength(1);
-
-			// The holder can still run, and the release hands ownership on.
-			const owned = await reconcileAccount(deps, {
-				forceFull: false,
-				readOnly: false,
-				claim: first.data.claim,
-			});
-			expect(owned.delivery.delivered).toBe(1);
-			first.data.release();
-
-			const third = claimReconcile(deps.sub);
-			expect(third.error).toBeNull();
-			third.data?.release();
-		} finally {
-			cleanup();
-		}
-	});
-
-	test("one account's claim cannot authorize a pass over another's mailbox", async () => {
-		// A surface serving several connected accounts holds one claim each, so
-		// "has a claim" is not the same question as "has THIS account's claim".
-		// Crossing them would write to a mailbox nobody claimed, which is a
-		// programming error rather than a runtime condition.
-		const client = fakeGmail(new Map());
-		const { deps, cleanup } = await setup(client);
-		try {
-			const other = claimReconcile('another-account');
-			if (other.error !== null) throw other.error;
-			expect(
-				reconcileAccount(deps, {
-					forceFull: false,
-					readOnly: false,
-					claim: other.data.claim,
-				}),
-			).rejects.toThrow('another-account');
-			expect(client.modifyCalls).toEqual([]);
-			other.data.release();
-		} finally {
-			cleanup();
-		}
-	});
-});
-
 describe('across a restart', () => {
 	test('an act made offline survives the process and lands on the next pass', async () => {
 		// The product headline, end to end: archive on a plane, quit, reopen on the
@@ -933,9 +842,14 @@ describe('across a restart', () => {
 		const syncedAt = new Date(NOW).toISOString();
 		await session.mailbox.ingestFullPullPage(
 			[message('m1', ['INBOX', 'UNREAD'])],
-			syncedAt,
+			{
+				historyId: 'seed',
+				scanId: syncedAt,
+				syncedAt: syncedAt,
+				nextPageToken: null,
+			},
 		);
-		await session.mailbox.ingestLabels(MIRRORED_LABELS, syncedAt);
+		await session.mailbox.ingestLabels(MIRRORED_LABELS);
 		await session.mailbox.finishFullPull('1', syncedAt);
 
 		// Session one: offline. Every Gmail write fails with a network error, which
@@ -944,24 +858,21 @@ describe('across a restart', () => {
 		const offline = fakeGmail(new Map());
 		offline.modifyMessage = async () =>
 			GmailApiError.Network({ cause: new Error('offline') });
-		const firstDeps: ReconcileDeps = {
+		const firstDeps: MailSession = {
 			mailbox: session.mailbox,
 			intents: session.intents,
+			passes: session.passes,
 			client: offline,
-			config: DEFAULT_MAIL_CONFIG,
 			now: () => NOW,
 			sub: ACCOUNT_ID,
 		};
 
 		expect(
-			(
-				await assertMessageLabels({
-					deps: firstDeps,
-					input: { ids: ['m1'], addLabels: [], removeLabels: ['INBOX'] },
-					readOnly: false,
-				})
-			).error,
-		).toBeNull();
+			await session.intents.assert(
+				[{ messageId: 'm1', labelId: 'INBOX', want: false }],
+				new Date(NOW).toISOString(),
+			),
+		).toBe(1);
 		// The act is already true for every reader, before Gmail has heard.
 		expect(
 			await session.mailbox.listMessages({
@@ -985,17 +896,18 @@ describe('across a restart', () => {
 		);
 		const restarted = openMailbox(session.mailboxDatabase);
 		const restartedIntents = openIntentStore(session.localDatabase, ACCOUNT_ID);
-		const secondDeps: ReconcileDeps = {
+		const restartedPasses = openPassRecord(session.localDatabase, ACCOUNT_ID);
+		const secondDeps: MailSession = {
 			mailbox: restarted,
 			intents: restartedIntents,
+			passes: restartedPasses,
 			client: online,
-			config: DEFAULT_MAIL_CONFIG,
 			now: () => NOW,
 			sub: ACCOUNT_ID,
 		};
 
 		// The change was still owed when the new handles opened.
-		expect((await restartedIntents.summary()).assertions).toBe(1);
+		expect(await restartedIntents.count()).toBe(1);
 
 		const landed = await pass(secondDeps);
 		expect(landed.delivery.delivered).toBe(1);

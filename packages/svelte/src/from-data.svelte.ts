@@ -1,3 +1,4 @@
+import { type AdaptableKv, fromKv } from './from-kv.svelte.js';
 /**
  * A Svelte 5 reactivity adapter over one opened data handle's declared shape.
  *
@@ -21,15 +22,15 @@
  * store beyond the ids it already had. `kv` and `persistence` use
  * `createSubscriber` instead, because there is nothing keyed to track.
  *
- * **A row's `content` node is not made reactive here, deliberately.** It
- * carries its own field-scoped `subscribe` (ADR-0296): an editor binds the
- * type directly and hears every keystroke without a table signal in the path.
+ * **`body(id)` tracks whether the row exists, including nonconforming rows.**
+ * Body edits have their own `watch` signal: an editor binds the node directly
+ * and hears every keystroke without a table signal in the path.
  * `fromSubscription` is how an application reads a value off one.
  *
  * **Eager, because it cannot be lazy.** An application reads `rows` inside
  * `$derived`, and writing Svelte state from there is `state_unsafe_mutation`,
  * so a projection filled on first read is not available. `fromData` walks each
- * declared table once when it is called.
+ * declared table once on the first call for that store.
  *
  * **Never torn down.** Ref-counting a projection to its readers leaves the
  * object alive and the updates stopped, which serves the next reader rows from
@@ -40,11 +41,10 @@
  * purpose, because a reactive wrapper must not pretend a reconnect is local
  * state.
  *
- * One instance per opened store, made by `fromEpicenter` on the way to its
- * `ready` state, so an application never calls this itself and never calls it
- * twice. A module-global instance is correct here and used to be refused by
- * this comment: a page lifetime is one auth generation (ADR-0088), so a module
- * lifetime is one too, and the next generation is the next document.
+ * One instance per raw store identity. Repeated calls return the same wrapper
+ * without walking tables or subscribing again. Route components can remount
+ * over one opened store without owning the projection lifetime. The weak cache
+ * does not keep an otherwise unreachable store alive.
  *
  * @example
  * ```svelte
@@ -62,7 +62,7 @@ import { createSubscriber, SvelteMap } from 'svelte/reactivity';
 import type { Brand } from 'wellcrafted/brand';
 
 /**
- * The slice of `@epicenter/data`'s `TableHandle` this adapter touches: the
+ * The slice of `@epicenter/app/store`'s `TableHandle` this adapter touches: the
  * read verbs it makes reactive, and the invalidation feed it rides.
  *
  * Structural rather than imported, and that is a variance requirement, not a
@@ -73,8 +73,8 @@ import type { Brand } from 'wellcrafted/brand';
  *
  * **Every reactive read verb is here.** `create`, `update`, `delete`, `watch` and
  * `subscribe` pass through the spread untouched; they are writes or their own
- * feeds. The row's live `content` node is intentionally a direct row property,
- * not a second table read surface.
+ * feeds. `body(id)` tracks existence through the readable and unreadable
+ * projections, then returns the raw table's live body.
  */
 type AdaptableTable = {
 	readonly rows: unknown[];
@@ -88,15 +88,9 @@ type AdaptableTable = {
 	readonly nonconforming: readonly { readonly id: string }[];
 	ids(): string[];
 	get(rowId: string): unknown;
+	body(rowId: string): unknown;
 	subscribe(listener: (rowIds: readonly string[]) => void): () => void;
 	watch(type: never, listener: () => void): () => void;
-};
-
-/** The slice of `KvHandle` the adapter touches: its reads, and one feed. */
-type AdaptableKv = {
-	get(key: never): unknown;
-	readonly nonconforming: unknown[];
-	subscribe(listener: () => void): () => void;
 };
 
 /**
@@ -151,6 +145,8 @@ export type AdaptableData = {
 export type ReactiveData<TData extends AdaptableData> = TData &
 	Brand<'ReactiveData'>;
 
+const projections = new WeakMap<AdaptableData, ReactiveData<AdaptableData>>();
+
 /**
  * Adapt one opened store's reads into Svelte reactivity, and hand back the
  * store.
@@ -167,7 +163,11 @@ export type ReactiveData<TData extends AdaptableData> = TData &
 export function fromData<TData extends AdaptableData>(
 	data: TData,
 ): ReactiveData<TData> {
-	return Object.freeze(
+	const existing = projections.get(data);
+	// Each key stores only the projection constructed from that exact store.
+	if (existing) return existing as ReactiveData<TData>;
+
+	const reactive = Object.freeze(
 		Object.defineProperties({} as TData, {
 			...Object.getOwnPropertyDescriptors(data),
 			tables: {
@@ -181,13 +181,15 @@ export function fromData<TData extends AdaptableData>(
 					),
 				),
 			},
-			kv: { enumerable: true, value: reactiveKv(data.kv) },
+			kv: { enumerable: true, value: fromKv(data.kv) },
 			persistence: {
 				enumerable: true,
 				value: reactivePersistence(data.persistence),
 			},
 		}),
 	) as ReactiveData<TData>;
+	projections.set(data, reactive);
+	return reactive;
 }
 
 /**
@@ -235,7 +237,7 @@ function reactivePersistence<TPersistence extends AdaptablePersistence>(
  * **Seeded here, never during a read.** An application reads `rows` inside
  * `$derived`, and writing Svelte state from there is `state_unsafe_mutation`.
  * Filling the map lazily on first read is therefore not available, which is
- * why this is eager and why `fromData` is no longer free to call.
+ * why the first `fromData` call for a store eagerly builds its projection.
  *
  * **Never torn down.** The subscription is held for the life of the wrapper
  * rather than ref-counted to readers, because a projection that stops being
@@ -309,6 +311,15 @@ function reactiveTable<TTable extends AdaptableTable>(table: TTable): TTable {
 					enumerable: true,
 					value: (rowId: string) => rows.get(rowId),
 				},
+				body: {
+					enumerable: true,
+					value: (rowId: string) => {
+						// Both projections own existence: malformed metadata must not hide a body.
+						rows.has(rowId);
+						unreadable.has(rowId);
+						return table.body(rowId);
+					},
+				},
 				nonconforming: {
 					enumerable: true,
 					get() {
@@ -318,36 +329,4 @@ function reactiveTable<TTable extends AdaptableTable>(table: TTable): TTable {
 			},
 		),
 	) as TTable;
-}
-
-function reactiveKv<TKv extends AdaptableKv>(kv: TKv): TKv {
-	// Read through, unlike a table, and the rule is the same one: hold what is
-	// expensive to rebuild. Ten keys and ten validations is not, so there is
-	// nothing here to hold, nothing to keep current, and no `keys()` verb the
-	// handle would have to grow so this could seed itself.
-	const subscribe = createSubscriber((update) => kv.subscribe(update));
-	// Descriptors for the same reason a table needs them: `nonconforming` is a
-	// getter, and a spread would invoke it.
-	return Object.freeze(
-		Object.defineProperties(
-			{},
-			{
-				...Object.getOwnPropertyDescriptors(kv),
-				get: {
-					enumerable: true,
-					value: (key: never) => {
-						subscribe();
-						return kv.get(key);
-					},
-				},
-				nonconforming: {
-					enumerable: true,
-					get() {
-						subscribe();
-						return kv.nonconforming;
-					},
-				},
-			},
-		),
-	) as TKv;
 }

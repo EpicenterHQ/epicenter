@@ -8,26 +8,19 @@
 		"#platform/auth": {
 			"epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",
 			"default": "./src/lib/platform/auth.browser.ts"
-		},
-		"#platform/binding": {
-			"epicenter-host": "./src/lib/platform/binding.epicenter-host.ts",
-			"default": "./src/lib/platform/binding.browser.ts"
-		},
-		"#platform/folder": {
-			"epicenter-host": "./src/lib/platform/folder.epicenter-host.ts",
-			"default": "./src/lib/platform/folder.browser.ts"
 		}
 	},
 	"scripts": {
-		"dev": "bun run dev:web",
-		"dev:web": "vite dev",
+		"dev": "vite dev",
 		"build": "NODE_ENV=production vite build",
 		"build:epicenter": "EPICENTER_HOST=1 bun run build",
 		"preview": "vite preview",
 		"deploy": "wrangler deploy",
 		"prepare": "svelte-kit sync || echo ''",
-		"test": "bun test",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter.json"
+		"test": "bun test --isolate",
+		"smoke:editor": "bun evidence/editor/browser.ts",
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json && bun run typecheck:scripts",
+		"typecheck:scripts": "tsc -p tsconfig.scripts.json && tsc -p ../self-host/tsconfig.honeycrisp.json"
 	},
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",
@@ -54,11 +47,11 @@
 		"@epicenter/app-shell": "workspace:*",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/constants": "workspace:*",
-		"@epicenter/data": "workspace:*",
+		"@epicenter/device": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/sync": "workspace:*",
-		"@y/prosemirror": "2.0.0-6",
-		"@y/y": "14.0.0-rc.24",
+		"@y/prosemirror": "2.0.0-12",
+		"@y/y": "14.0.0-rc.26",
 		"arktype": "catalog:",
 		"better-auth": "catalog:",
 		"bits-ui": "catalog:",

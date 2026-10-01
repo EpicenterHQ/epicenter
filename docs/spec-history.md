@@ -16,13 +16,23 @@
 >
 > **Regenerate (deterministic per ref set, lossless):** `bun scripts/generate-spec-history.ts`. The totals track the refs this clone can see; `--all` is deliberate so the timeline recovers specs that only lived on unmerged or deleted branches.
 
-**1422 specs ever** (522 still in tree, 900 removed).
+**1432 specs ever** (524 still in tree, 908 removed).
 
 
 ## 2026
 
 | Date | Spec | State | Path |
 |------|------|-------|------|
+| 2026-09-23 | store-owned-sqlite-and-signout-cleanup.handoff | removed | specs/20260923T120725-store-owned-sqlite-and-signout-cleanup.handoff.md |
+| 2026-09-23 | store-owned-sqlite-and-signout-cleanup | removed | specs/20260923T120725-store-owned-sqlite-and-signout-cleanup.md |
+| 2026-09-18 | ready-app-page-lifetime | removed | specs/20260918T211222-ready-app-page-lifetime.md |
+| 2026-09-18 | app-runtime-and-admission | removed | specs/20260918T192656-app-runtime-and-admission.md |
+| 2026-09-07 | direct-session-auth.handoff | removed | specs/20260907T214002-direct-session-auth.handoff.md |
+| 2026-09-07 | direct-session-auth | removed | specs/20260907T214002-direct-session-auth.md |
+| 2026-09-05 | keyed-session-boot | in tree | specs/20260905T005141-keyed-session-boot.md |
+| 2026-09-05 | account-exit-and-local-removal.execute | removed | specs/20260905T210735-account-exit-and-local-removal.execute.md |
+| 2026-09-05 | account-exit-and-local-removal | removed | specs/20260905T210735-account-exit-and-local-removal.md |
+| 2026-08-28 | the-switch | in tree | specs/20260828T230000-the-switch.md |
 | 2026-08-26 | host-discovery-connect-device | in tree | apps/epicenter/specs/host-discovery-connect-device.md |
 | 2026-08-26 | inference-credit-billing | removed | specs/20260826T120000-inference-credit-billing.md |
 | 2026-08-26 | instance-stops-doing-inference | removed | specs/20260826T190000-instance-stops-doing-inference.md |
@@ -103,7 +113,7 @@
 | 2026-06-30 | local-mail-tauri-cdc-mirror.handoff | removed | specs/20260630T150000-local-mail-tauri-cdc-mirror.handoff.md |
 | 2026-06-30 | local-mail-tauri-cdc-mirror | removed | specs/20260630T150000-local-mail-tauri-cdc-mirror.md |
 | 2026-06-30 | capability-plane-greenfield-buildout | removed | specs/20260630T120000-capability-plane-greenfield-buildout.md |
-| 2026-06-28 | voice-cursor-intent-in-context | in tree | apps/whispering/specs/20260628T003033-voice-cursor-intent-in-context.md |
+| 2026-06-28 | voice-cursor-intent-in-context | removed | apps/whispering/specs/20260628T003033-voice-cursor-intent-in-context.md |
 | 2026-06-27 | matter-editable-views | in tree | docs/specs/20260627T231500-matter-editable-views.md |
 | 2026-06-27 | vocab-terms-layer | removed | specs/20260627T221709-vocab-terms-layer.md |
 | 2026-06-27 | extract-recorder-vad-package | removed | specs/20260627T005829-extract-recorder-vad-package.md |

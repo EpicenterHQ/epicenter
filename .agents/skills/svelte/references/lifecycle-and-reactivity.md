@@ -303,7 +303,7 @@ arrived from another device alike. Text typed inside a row's content node is
 not a table commit; `watch(node, listener)` is its signal.
 
 ```typescript
-// Root of the surface: adapt the chosen document once, then layer app state.
+// Adapt the supplied store; repeated calls reuse its projection.
 const app = fromData(data);
 const table = app.tables.notes;
 
@@ -322,9 +322,11 @@ return {
 
 There is no `refresh`, no generation counter, no `await` on a read, and no
 `Symbol.dispose`. A table is HELD: `fromData` seeds a `SvelteMap` projection
-keyed by row id when it is called, patches it with the ids each commit names,
+keyed by row id on the first call for a raw store, patches it with the ids each commit names,
 and never tears it down, so the projection and its subscription die with the
-document. That is not ref-counting, and the difference matters: a projection
+document. Repeated calls with the same raw store return that same projection
+without adding subscriptions. The cache keys by object identity, so another
+opened store receives its own projection. That is not ref-counting, and the difference matters: a projection
 detached from its source stays alive and stops being true. `kv` and
 `persistence` are read-through on `createSubscriber` instead, because ten keys
 and one enum are not worth holding.

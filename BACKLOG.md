@@ -1,14 +1,192 @@
 # Backlog
 
-## Remove Local Mail's headless continuous watcher
+## Conventions
 
-- Desired result: Remove `local-mail reconcile --watch` so the open desktop app
-  is the only continuous reconcile owner while a one-shot `reconcile` remains
-  available for explicit delivery and freshness.
-- Grounding:
-  [ADR-0116](docs/adr/0116-local-mail-is-desktop-first-one-bun-engine-no-background-mail-service.md)
-  says Local Mail does not update automatically while the app is closed.
-- Revisit when: Local Mail next changes its CLI or synchronization lifecycle.
+Record wanted outcomes briefly and keep related items together when useful.
+Use an outcome heading with a desired result; add grounding or a revisit
+condition only when it helps someone resume the work. A backlog item can be a
+change, investigation, or decision. Recording an idea does not schedule or
+authorize implementation.
+
+Keep entries while work is underway or paused. Remove an entry on completion,
+preserving any unfinished scope. Remove its execution-order row too, if it has
+one. Record lasting decisions and completion evidence in the owning tests,
+README, or decision record.
+
+## Execution order after the transcript review
+
+This is the entry point for the surviving transcript work. Detailed evidence
+stays in the [review](docs/transcript-reviews.md#eight-export-review-2026-09-20)
+and existing plans. The older backlog below remains conditional work, not an
+instruction to execute every item in file order.
+
+| Order | Session-sized outcome | Finish or boundary |
+| --- | --- | --- |
+| 1 | [Prevent Mail refresh from overwriting a reconnect](#prevent-mail-refresh-from-overwriting-a-reconnect) | Regression for a paused refresh crossing reconnect; new credentials and access remain authoritative. |
+| 2 | [Finish bounded, cancellable Mail sync](#finish-bounded-cancellable-local-mail-synchronization) | Shared pacing/cooldown, delivery between pages, cancellable requests/waits, durable resume. Preserve the existing storage edits. |
+| 3 | [Complete Mail acceptance and remaining edge cases](#complete-mail-acceptance-and-triage-edge-cases) | Review the large-message limit separately; prove desktop restart, offline triage, and delivery with designated test data. |
+| 4 | [Let signed-in Local open without Personal](#let-signed-in-local-open-without-bootstrapping-personal) | Browser reproduction and a coherent readiness contract that preserves account identity. |
+| Independent | [Repair Vocab candidate extraction](#preserve-verbatim-vocab-candidates) | Legitimate punctuation survives; candidates are validated against their source. |
+| Independent | [Finish the bounded test/API cleanup](#finish-the-bounded-test-and-api-cleanup) | Retire obsolete contracts together with their tests; preserve actual lifecycle and data-isolation evidence. Coordinate any StoreBacking changes with step 4. |
+| Hardware-dependent | [Finish native capture acceptance](#finish-native-capture-interruption-acceptance) | Actual microphone interruption, release, and reacquisition. |
+| Product judgment | [Zhongwen](#define-zhongwens-saved-word-review-loop) and [deferred capability choices](#resolve-deferred-capability-purpose-only-when-needed) | Settle the intended product before implementing or deleting capabilities. |
+
+Use one session per outcome. Recheck current source and dirty work before
+starting: a prior session may already have completed it.
+
+## Complete Mail acceptance and triage edge cases
+
+- Desired result: Desktop sign-in and Gmail consent lead to readable local mail;
+  a complete restart retains credentials and cache; offline triage reaches
+  Gmail after reconnecting. Undo issues the opposite label assertion without
+  claiming to restore the exact prior Gmail state.
+- Grounding: The [Mail evidence notes](apps/local-mail/evidence/README.md)
+  separate synthetic checks from the remaining live journey. The later
+  [product-review extraction](docs/transcript-reviews.md#extracted-from-codex-session-01a0ba84)
+  raised an already-trashed message as a possible Undo problem. A subsequent
+  conversation chose command-level Undo even when the original assertion was a
+  no-op. Gmail's provider-specific Trash restoration still needs verification.
+- Revisit when: After the sync changes. Handle the
+  [individual-message limit](#resolve-local-mails-oversized-individual-message-limit)
+  as its own supported-behavior decision. Select a test message and permitted
+  label change before any live write-back; synthetic evidence alone does not
+  complete acceptance.
+
+## Finish the bounded test and API cleanup
+
+- Desired result: Remove obsolete production contracts and misleading tests
+  while preserving real data isolation, retirement, rollback, and disposal.
+- Grounding: The [current corrections](docs/transcript-reviews.md#testapi-audit-what-remains-actionable)
+  supersede the dated audit's bootstrap and auth-restoration advice. Candidates
+  include static-token tooling, the returned SQL drain phase, initialization
+  and passkey prototypes, artificial Account-replacement cases, and source
+  spelling checks. Recording disposal assertions need repair. Replicated
+  StoreBacking must require invalidation before its legacy case can go.
+- Revisit when: A focused cleanup session can recheck callers and preserve the
+  stronger replacement evidence. Whispering's explicit-owner work is already
+  implemented; do not repeat it. The Worker `pg-protocol` alias needs a verified
+  removal condition, not deletion merely because it is a workaround.
+
+## Preserve verbatim Vocab candidates
+
+- Desired result: Suggested saved spans preserve legitimate punctuation and
+  match the source passage before the person chooses to save them.
+- Grounding: The current parser reproduced `Yes: absolutely` becoming `Yes`,
+  `wait - what` becoming `wait`, and `say:` disappearing. Its tests currently
+  reward guessing that punctuation introduces a gloss. See the
+  [review](docs/transcript-reviews.md#testapi-audit-what-remains-actionable).
+- Revisit when: Next Vocab correctness pass. Change parsing, its source-aware
+  caller, and regression coverage together; existing saved entries need no
+  inferred migration. This is separate from designing Zhongwen's review loop.
+
+## Finish native capture interruption acceptance
+
+- Desired result: Physical recording interrupted by account-change restart
+  releases the microphone and staging resources; a reopened app can record
+  again while previously saved audio survives.
+- Grounding: The [runtime lifetime plan](specs/20260919T090341-runtime-lifetime-collapse.md)
+  retains this gate. Previous attempts failed before acquisition because macOS
+  exposed no input device. Synthetic capture and restart evidence are recorded
+  there but do not prove physical capture interruption.
+- Revisit when: A working input device is available. Finish the maintained
+  probe and acceptance evidence, then retire the spent spec.
+
+## Resolve deferred capability purpose only when needed
+
+- Desired result: Give an explicit product owner to any capability we choose
+  to develop or retire: the unconsumed working-copy engine, Skills/chat surfaces,
+  and future team collections.
+- Grounding: The [review](docs/transcript-reviews.md#product-choices-and-acceptance-to-preserve)
+  preserves these open choices. Tests/benchmarks alone do not establish a
+  working-copy product, but they also do not authorize its deletion. Removing
+  server-wide Shared did not implement team membership or invitations.
+- Revisit when: A concrete user workflow needs one of these capabilities.
+  These are deferred decisions, not prerequisites for Mail or Local readiness.
+
+## Finish bounded, cancellable Local Mail synchronization
+
+- Desired result: Each Gmail account paces requests and shares cooldowns;
+  reconciliation gives pending changes a delivery opportunity between download
+  pages. Cancellation reaches network requests and retry waits. Reopening
+  retains pending changes and download progress.
+- Grounding: The [2026-09-20 transcript review](docs/transcript-reviews.md#mail-preserve-the-product-finish-execution)
+  verifies that full pulls still monopolize a pass and requests retry
+  independently. The user retained formatted mail, local reads, and durable
+  write-back. Bounded concurrency remains a measurement choice.
+- Revisit when: Next Local Mail implementation pass. Verify coordinated
+  throttling, archive delivery during download, cancellation, and reopen, then
+  finish the designated live Gmail journey.
+
+## Prevent Mail refresh from overwriting a reconnect
+
+- Desired result: A refresh begun before reconnect cannot replace the newly
+  connected credential or continue using stale cached access afterward.
+- Grounding: A synthetic probe on 2026-09-20 paused the production token
+  manager's refresh, wrote a reconnect credential, then released the response.
+  The older rotated credential overwrote the reconnect. `withAccount` tracks
+  work for removal but does not serialize these credential writes. See the
+  [source-grounded review](docs/transcript-reviews.md#mail-preserve-the-product-finish-execution).
+- Revisit when: Next Mail credential or synchronization change. Cover the
+  reconnect/refresh interleaving and removal while work is admitted.
+
+## Resolve Local Mail's oversized individual-message limit
+
+- Desired result: A large individual message has an explicit supported storage
+  path or a deliberate product limit without silently weakening SQLite batch
+  atomicity or advancing a checkpoint past unsaved mail.
+- Grounding: The uncommitted page-chunking repair handles large pages but
+  rejects any one serialized statement above 4 MiB. See
+  [mailbox.ts](apps/local-mail/src/mailbox.ts) and the
+  [review](docs/transcript-reviews.md#mail-preserve-the-product-finish-execution).
+- Revisit when: Completing large-mailbox acceptance or encountering a refused
+  individual message. Page chunking alone does not finish this work.
+
+## Let signed-in Local open without bootstrapping Personal
+
+- Desired result: Local use keeps its captured account identity and account
+  capabilities while an uncached, offline Personal store is unavailable.
+- Grounding: On 2026-09-20 the real `openApp` with a memory runtime acquired
+  Device successfully, failed Personal, and rejected the whole App. Signed-out
+  opening succeeded. [The opener](packages/app/src/open.ts) waits for both.
+- Revisit when: Next App readiness change. First reproduce the signed-in Local
+  browser journey; do not work around it by dropping the Account and selecting
+  someone else's storage namespace.
+
+## Define Zhongwen's saved-word review loop
+
+- Desired result: A broader Chinese study app where someone saves words,
+  returns to them through review, and retains progress.
+- Grounding: The later product conversation explicitly requested saved words
+  and review. Zhongwen is intended as an independent personal repository; Vocab
+  implements saved entries and generated practice, but that does not establish
+  a review-history/scheduling product. The
+  [transcript review](docs/transcript-reviews.md#product-choices-and-acceptance-to-preserve)
+  preserves the product question.
+- Revisit when: Chinese study work becomes the next product milestone. Settle
+  the first retrieval interaction before choosing a scheduler or changing the
+  schema.
+
+## Prove independent Zhongwen installation
+
+- Desired result: A public Zhongwen repository imports published Epicenter
+  packages, publishes a prebuilt release at a URL, installs and launches in
+  Epicenter, and retains Personal data after restart.
+- Grounding: [ADR-0358](docs/adr/0358-installation-admits-a-built-application-release.md)
+  records the local built-release boundary. The independent-app conversation
+  identified URL distribution and the full Zhongwen journey as the missing proof.
+- Revisit when: Building Zhongwen as the first independently maintained app.
+
+## Establish hosted erasure before external onboarding
+
+- Desired result: Attribute every hosted allocation to its account and locally
+  verify an operator-run procedure that retires access and removes owned data.
+- Grounding: Account deletion currently refuses before destructive work. Empty
+  API namespaces were observed on 2026-09-08, but complete allocation ownership
+  and an operator deletion procedure remain unbuilt. See
+  [ADR-0360](docs/adr/0360-defer-automated-hosted-account-deletion.md).
+- Revisit when: Preparing to onboard external users. Automated retries and a
+  self-service endpoint stay deferred until the product needs them or operator
+  deletion becomes recurring work. Self-hosted reset is outside this scope.
 
 ## Make Sign in with Apple a supported product path
 
@@ -27,6 +205,17 @@
 - Grounding: Local Mail already treats Gmail as the source of truth and requires
   human-meaningful state to round-trip through Gmail.
 - Revisit when: Local Mail next expands its triage or agent-assisted workflows.
+
+## Make saved Local Mail views actionable
+
+- Desired result: A person can save a named rule for downloaded Inbox messages,
+  open its matches as a mailbox tab, and triage them through the ordinary
+  Archive, Trash, and Undo actions.
+- Grounding: [ADR-0378](docs/adr/0378-local-mail-saves-message-rules-as-triage-views.md)
+  specifies the view contract. The current saved-query prototype produces
+  separate result tables that cannot act on messages.
+- Revisit when: Local Mail's saved queries or agent-assisted triage are next
+  changed.
 
 ## Add Outlook as a standalone Local Mail provider
 
@@ -62,6 +251,88 @@
   [ADR-0181](docs/adr/0181-every-app-receives-one-portable-epicenter-capability-handle.md).
 - Revisit when: Whispering's first-run or unavailable-transcription surface is
   next changed.
+
+## Make Whispering's dictation loop clear from speech to delivered text
+
+- Desired result: A person can start dictation from another app, see whether
+  Whispering is listening and processing, and tell when text reached the intended
+  field or stayed available for copying. A failed delivery does not lose the
+  transcript.
+- Grounding: [FluidVoice](https://github.com/altic-dev/FluidVoice) describes a
+  live preview and direct insertion; [FreeFlow](https://github.com/zachlatta/freeflow)
+  emphasizes its hold-to-talk and toggle flow. Compare the whole journey in
+  Whispering before choosing an overlay or shortcut change. Whispering already
+  has global shortcuts, a recording overlay, and cursor delivery with a
+  clipboard fallback.
+- Revisit when: Whispering's recording overlay, shortcuts, or text delivery is
+  next designed as a user workflow.
+
+## Let a spoken instruction revise selected text
+
+- Desired result: A person selects text in another app, speaks a one-off change
+  such as "make this shorter," reviews the result, and can leave the original
+  untouched. Ordinary dictation remains predictable when no edit was requested.
+- Grounding: [FluidVoice Write Mode](https://github.com/altic-dev/FluidVoice)
+  and [FreeFlow Edit Mode](https://github.com/zachlatta/freeflow) describe this
+  interaction. This item would add a spoken instruction for selected text;
+  [ADR-0440](docs/adr/0440-whispering-cleans-transcriptions-and-does-not-own-general-text-actions.md)
+  keeps that action outside Whispering's current scope.
+- Revisit when: The basic dictation and delivery journey is sound enough to
+  judge a second spoken action.
+
+## Let a person deliberately use screen content with speech
+
+- Desired result: A person chooses visible content, such as a captured screen
+  region, and speaks a request about it. Whispering shows what was captured and
+  where the resulting text will go before acting on it.
+- Grounding: [VoiceInk](https://github.com/Beingpax/VoiceInk) describes adapting
+  to screen content, and [FreeFlow](https://github.com/zachlatta/freeflow)
+  describes nearby app context for correcting names. These are different uses:
+  text context may help spell dictated words, while an image can support a
+  request about visual content. Compare them against a concrete user task before
+  choosing screenshot capture, text extraction, or both. Whispering has no
+  general screen-context capture path today.
+- Revisit when: A concrete dictation or "speak about this screen" journey needs
+  context that the person's saved Dictionary and selected text cannot provide.
+
+## Show where Whispering keeps audio and transcripts after dictation
+
+- Desired result: After speaking, a person can find the Local recording and
+  its Original or accepted Cleaned text, understand which provider processed
+  it, and see whether selected text was added to Capture.
+- Grounding: [ADRs 0439](docs/adr/0439-whispering-promotes-text-to-capture-instead-of-copying-recordings.md)
+  and [0440](docs/adr/0440-whispering-cleans-transcriptions-and-does-not-own-general-text-actions.md)
+  keep audio and transcription results Local, replace Personal recording copies
+  with selected-text promotion to Capture, and rename optional Polish to cleanup.
+  Browser promotion and cleanup-preview verification remain unbuilt.
+- Revisit when: Whispering's recording results, history, or Capture handoff is
+  next changed.
+
+## Reconcile Result presentation guidance
+
+- Desired result: Service and application operations preserve typed Results
+  until a user-facing action presents the outcome once. The error-handling,
+  Svelte, query, and service guidance agree on toast and mutation boundaries.
+- Grounding: The Svelte operation-composition discussion settled the direction
+  but changed no guidance. The current `error-handling` skill still teaches
+  `toastOnError` inside a Result chain; decide whether that helper preserves or
+  consumes the Result before updating examples.
+- Revisit when: The next cross-skill error-handling pass is made.
+
+## Explore Wispr Flow for Whispering onboarding and gamification
+
+- Desired result: Improve Whispering's onboarding and explore gamification
+  that shows how many hours a person has saved by dictating.
+- Grounding: Review Wispr Flow for inspiration for both onboarding and
+  dictation progress feedback.
+- Revisit when: Whispering's onboarding or usage statistics are next changed.
+
+## Show saved shortcuts in Whispering button tooltips
+
+- Desired result: Hovering over a button reveals its saved keyboard shortcuts
+  in a tooltip.
+- Grounding: Make configured shortcuts discoverable where their actions live.
+- Revisit when: Whispering's buttons or shortcut discoverability are next changed.
 
 ## Ship a trusted Epicenter macOS application
 
@@ -119,10 +390,12 @@
     static self-host bearer (`EPICENTER_TOKEN`, or `EPICENTER_TOKEN_FILE` to
     keep the secret out of the process environment) and the persisted OAuth
     cell, so one entry point served both deployment kinds.
-  The blob half is also superseded in shape:
-  [ADR-0173](docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md)
-  makes a blob a row-owned write-once slot addressed by row, not an opaque id,
-  so any replacement addresses a row rather than minting a BlobId.
+  The blob half is also superseded in shape. [ADR-0173](docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md)
+  withdrew its row-owned write-once slot. [ADR-0393](docs/adr/0393-rows-refer-to-blobs-without-owning-their-lifetime.md)
+  lets rows cite independently owned blobs, and
+  [ADR-0438](docs/adr/0438-hosted-blobs-have-stable-authority-urls.md) gives
+  hosted blobs stable authority URLs. A future command should derive its file
+  and URL contract from that current model.
   Authentication is now owned entirely by the apps, and there is no headless
   login workflow. Any future headless tool should be designed around a concrete
   workflow and re-derive its credential story from that, treating the above as
@@ -161,25 +434,11 @@
 - Revisit when: An application genuinely needs a hierarchical file abstraction
   that the row and document model cannot express directly.
 
-## Decide what `@epicenter/sync` is called
-
-- Desired result: The package name describes its contents, or the contents move
-  somewhere that already fits.
-- Grounding: The package is now one file, the bearer-in-subprotocol WebSocket
-  handshake, after
-  [commit 0ecddff6](https://github.com/EpicenterHQ/epicenter/commit/0ecddff603)
-  deleted the Yjs wire it was named for. Two blockers kept the rename out of
-  that commit: it is published as `@epicenter/sync@0.3.0`, and folding it into
-  `@epicenter/auth` would move MIT code into an AGPL package, which
-  `docs/licensing/licensing-strategy.md` treats as a relicensing act.
-- Revisit when: The published toolkit surface is next revised, or the attach
-  relay's auth handshake changes.
-
 ## Revoke the `epicenter-cli` OAuth client row in each deployed database
 
 - Desired result: No deployment still advertises a registered OAuth client for
   the deleted CLI.
-- Grounding: `apps/api/scripts/seed-oauth-clients.ts` only upserts the clients
+- Grounding: The [removed OAuth seed](https://github.com/EpicenterHQ/epicenter/blob/f59fc1e19f/apps/api/scripts/seed-oauth-clients.ts) only upserts the clients
   it knows about; it never deletes. The `epicenter-cli` row seeded before that
   client was removed from `buildTrustedOAuthClients` therefore survives in every
   database that was seeded, still carrying its `/cli-callback` redirect URI. It
@@ -189,6 +448,8 @@
   'epicenter-cli'` per deployed database, or setting `disabled = true` to keep
   the row for audit. Deliberately not executed here: this is a production
   database mutation, not a code change.
+  The direct-session implementation removes these registration surfaces for
+  fresh deployments; it has not changed any deployed database.
 - Revisit when: The next production deploy of `apps/api`, or sooner if an audit
   of registered OAuth clients is run.
 
@@ -204,3 +465,17 @@
   under the same name. Do not unpublish: that permanently burns the version
   number.
 - Revisit when: Before the next npm release from this repository.
+
+## Decide the identity model for a liked-music library
+
+- Desired result: Decide whether an Epicenter music library should show the same
+  liked recording once across streaming services, keep each service link and the
+  source of the like, and group distinct recordings under a song when useful.
+- Grounding: The completed Codex task `01a0e883-3e17-7c80-baea-1b9944748d6d`
+  separated songs, recordings, and platform entries. It suggested external
+  matching services as candidates, but did not establish their coverage or
+  commit Epicenter to building this app. The draft
+  `specs/20260511T111700-item-tagging-schema.md` concerns tags on music and other
+  items; it does not settle cross-service recording identity.
+- Revisit when: Building a music collection or importing likes from more than
+  one service.

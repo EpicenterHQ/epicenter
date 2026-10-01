@@ -1,157 +1,295 @@
 import {
+	AuthError,
 	type AuthFetch,
-	type AuthState,
-	type ConnectionStatus,
-	createOAuthCredentialAuthority,
+	type AuthIdentityState,
+	type AuthServer,
 	createSerializedPersistedAuthStorage,
+	createSessionAuth,
+	createSessionHandoffClient,
+	parsePersistedAuth,
+	readApiSession,
+	revokeSession,
 } from '@epicenter/auth';
-import { createOAuthClient } from '@epicenter/auth/oauth-launchers';
-import { EPICENTER_API_URL } from '@epicenter/constants/apps';
-import {
-	EPICENTER_DESKTOP_OAUTH_CLIENT_ID,
-	EPICENTER_DESKTOP_TAURI_OAUTH_REDIRECT_URI,
-} from '@epicenter/constants/oauth-clients';
-import { Ok } from 'wellcrafted/result';
+import type { DesktopAuthBootstrap } from '@epicenter/auth/desktop';
+import { Ok, type Result } from 'wellcrafted/result';
 import type { NativeAuthPort } from './sidecar-runtime.ts';
 
 const CALLBACK_TIMEOUT_MS = 10 * 60 * 1_000;
+const CALLBACK_URL = 'epicenter://auth/callback';
 
-export type DesktopAuthBootSnapshot = {
-	state: AuthState;
-	connection: { baseURL: string; status: ConnectionStatus };
-	networkEligible: boolean;
-};
-
-/**
- * Own the hosted desktop credential for one immutable process generation.
- *
- * Windows receive only the boot snapshot and use same-origin account broker
- * operations that never expose a bearer. Account changes persist the next cell
- * and relaunch.
- *
- * **One authority, named by this build.** The desktop reaches the authority
- * its bundle was built against and offers no way to point at another
- * (ADR-0326). The keychain cell is therefore the serialized credential and
- * nothing else: it carried a `deployment` discriminator only while a second
- * kind existed to select, and selecting one is what ADR-0325 refused.
- */
+/** One boot Account. Explicit authentication prepares credentials for a new process. */
 export function createDesktopAuthAuthority({
 	authCell,
 	nativeAuthPort,
+	server,
+	accountManagement,
 	fetch = globalThis.fetch.bind(globalThis),
+	callbackUrl = CALLBACK_URL,
 }: {
 	authCell: string | null;
 	nativeAuthPort: NativeAuthPort;
+	server: AuthServer;
+	accountManagement: boolean;
 	fetch?: AuthFetch;
+	callbackUrl?: string;
 }) {
-	const oauthTransaction = new Map<string, string>();
-	let queuedCallback: string | null = null;
-	let callbackWaiter: ((url: string) => void) | null = null;
-	const stopCallbacks = nativeAuthPort.onOAuthCallback((url) => {
-		if (callbackWaiter === null) queuedCallback = url;
-		else {
-			const resolve = callbackWaiter;
-			callbackWaiter = null;
-			resolve(url);
+	const { baseURL, authorityId } = server;
+	let initial: string | null = null;
+	let credentialUnreadable = false;
+	try {
+		const cell = authCell === null ? null : JSON.parse(authCell);
+		if (cell !== null && cell.auth !== null) {
+			if (
+				cell.origin !== new URL(baseURL).origin ||
+				(cell.method !== undefined &&
+					cell.method !== 'cloud' &&
+					cell.method !== 'issuer')
+			)
+				throw new Error('Saved credentials do not belong to this deployment.');
+			const credential = parsePersistedAuth(JSON.stringify(cell.auth) ?? null);
+			if (credential === null) throw new Error('Invalid saved credential.');
+			initial = JSON.stringify(credential);
 		}
+	} catch {
+		credentialUnreadable = true;
+	}
+	const bootCredential = parsePersistedAuth(initial);
+	let writeTail = Promise.resolve();
+	function writeCell(serialized: string | null) {
+		const value =
+			serialized === null
+				? null
+				: JSON.stringify({
+						origin: new URL(baseURL).origin,
+						auth: JSON.parse(serialized),
+					});
+		const pending = writeTail.then(() => nativeAuthPort.storeAuth(value));
+		writeTail = pending.catch(() => {});
+		return pending;
+	}
+	const auth = createSessionAuth({
+		authorityId,
+		baseURL,
+		fetch,
+		persistedAuthStorage: createSerializedPersistedAuthStorage({
+			initial,
+			write: writeCell,
+		}),
+		launcher: {
+			async startSignIn() {
+				throw new Error('Desktop sign-in belongs to the next process.');
+			},
+		},
 	});
-	const oauthClient = createOAuthClient({
-		issuer: `${EPICENTER_API_URL}/auth`,
-		clientId: EPICENTER_DESKTOP_OAUTH_CLIENT_ID,
-		resource: EPICENTER_API_URL,
+	const account = auth.getState().account ?? null;
+	function projectBootIdentity(): AuthIdentityState {
+		const current = auth.getState();
+		return current.status === 'signed-out'
+			? { status: 'signed-out' }
+			: { status: current.status, principalId: current.account.principalId };
+	}
+	const bootSnapshot: DesktopAuthBootstrap = {
+		state: projectBootIdentity(),
+		server,
+		accountManagement,
+		credentialUnreadable,
+	};
+	let disposed = false;
+	let attempt:
+		| {
+				controller: AbortController;
+				promise: Promise<Result<undefined, AuthError>>;
+				resolve(result: Result<undefined, AuthError>): void;
+		  }
+		| undefined;
+	const transaction = new Map<string, string>();
+	const handoff = createSessionHandoffClient({
+		baseURL,
+		callback: callbackUrl,
 		fetch,
 		storage: {
-			getItem(key) {
-				return oauthTransaction.get(key) ?? null;
-			},
-			setItem(key, value) {
-				oauthTransaction.set(key, value);
-			},
-			removeItem(key) {
-				oauthTransaction.delete(key);
+			getItem: (key) => transaction.get(key) ?? null,
+			setItem: (key, value) => {
+				transaction.set(key, value);
 			},
 		},
 	});
-	const authority = createOAuthCredentialAuthority(
-		{
-			fetch,
-			persistedAuthStorage: createSerializedPersistedAuthStorage({
-				initial: authCell,
-				write: (serialized) => nativeAuthPort.storeAuth(serialized),
-			}),
-			launcher: {
-				async startSignIn() {
-					const { data: url, error } = await oauthClient.createAuthorizationUrl(
-						EPICENTER_DESKTOP_TAURI_OAUTH_REDIRECT_URI,
-					);
-					if (error) return { data: null, error };
-					await nativeAuthPort.openAuthUrl(url.toString());
-					const callback = await waitForCallback();
-					const grant = await oauthClient.exchangeCallback(callback);
-					if (grant.error) return grant;
-					return Ok({ status: 'completed', grant: grant.data } as const);
-				},
-			},
-		},
-		{
-			baseURL: EPICENTER_API_URL,
-			clientId: EPICENTER_DESKTOP_OAUTH_CLIENT_ID,
-		},
-	);
-	const bootSnapshot = {
-		state: authority.snapshot.state,
-		connection: { baseURL: EPICENTER_API_URL, status: 'connected' as const },
-		networkEligible: authority.snapshot.networkEligible,
-	} satisfies DesktopAuthBootSnapshot;
+	let callbackWaiter:
+		| { accept(url: string): boolean; reject(cause: unknown): void }
+		| undefined;
+	function acceptSignInCallback(url: string) {
+		return callbackWaiter?.accept(url) ?? false;
+	}
+	const stopCallbacks = nativeAuthPort.onAuthCallback(acceptSignInCallback);
+	function cancelAttempt() {
+		const pending = attempt;
+		attempt = undefined;
+		pending?.controller.abort();
+		handoff.cancel();
+		pending?.resolve(
+			AuthError.StartSignInFailed({ cause: new Error('Sign-in cancelled.') }),
+		);
+	}
+	function dispose() {
+		if (disposed) return;
+		disposed = true;
+		cancelAttempt();
+		stopCallbacks();
+		auth[Symbol.dispose]();
+	}
+	void nativeAuthPort.completed.then(dispose, dispose);
+	const revoke = (token: string) => revokeSession({ baseURL, token, fetch });
 
-	function waitForCallback(): Promise<string> {
-		if (queuedCallback !== null) {
-			const callback = queuedCallback;
-			queuedCallback = null;
-			return Promise.resolve(callback);
+	async function replaceProcess(next: ReturnType<typeof parsePersistedAuth>) {
+		if (disposed)
+			throw new Error('Restart Epicenter before changing accounts again.');
+		// Acceptance is synchronous. Disposal fences transport without writing storage.
+		// A prior verification write already entered writeTail or fails its owner check.
+		dispose();
+		try {
+			await writeCell(next === null ? null : JSON.stringify(next));
+		} catch (cause) {
+			// A failed write may have changed storage. Never resume or claim its contents.
+			const token = next?.token ?? bootCredential?.token;
+			if (token) await revoke(token);
+			throw cause;
 		}
-		return new Promise<string>((resolve, reject) => {
-			const timeout = setTimeout(() => {
-				if (callbackWaiter !== settle) return;
-				callbackWaiter = null;
-				reject(new Error('Timed out waiting for the desktop OAuth callback.'));
-			}, CALLBACK_TIMEOUT_MS);
-			const settle = (url: string) => {
+		if (bootCredential && bootCredential.token !== next?.token)
+			await revoke(bootCredential.token);
+		nativeAuthPort.relaunch();
+	}
+
+	async function launch(signal: AbortSignal, reauthenticate: boolean) {
+		signal.throwIfAborted();
+		const url = await handoff.begin();
+		signal.throwIfAborted();
+		if (reauthenticate) url.searchParams.set('reauth', '1');
+		const callback = await new Promise<string>((resolve, reject) => {
+			const cleanup = () => {
 				clearTimeout(timeout);
-				resolve(url);
+				signal.removeEventListener('abort', abort);
+				if (callbackWaiter === waiter) callbackWaiter = undefined;
 			};
-			callbackWaiter = settle;
+			const waiter = {
+				accept(value: string) {
+					const destination = URL.parse(value);
+					if (!destination) return false;
+					const state = destination.searchParams.get('state');
+					destination.search = '';
+					if (
+						destination.href !== callbackUrl ||
+						state !== url.searchParams.get('state')
+					)
+						return false;
+					cleanup();
+					resolve(value);
+					return true;
+				},
+				reject(cause: unknown) {
+					if (callbackWaiter === waiter) handoff.cancel();
+					cleanup();
+					reject(cause);
+				},
+			};
+			const abort = () => waiter.reject(signal.reason);
+			const timeout = setTimeout(
+				() =>
+					waiter.reject(new Error('Timed out waiting for desktop sign-in.')),
+				CALLBACK_TIMEOUT_MS,
+			);
+			callbackWaiter = waiter;
+			signal.addEventListener('abort', abort, { once: true });
+			void Promise.resolve()
+				.then(() => {
+					signal.throwIfAborted();
+					return nativeAuthPort.openAuthUrl(url.href);
+				})
+				.catch(waiter.reject);
 		});
+		return handoff.complete(callback);
 	}
 
 	return {
-		baseURL: EPICENTER_API_URL,
+		baseURL,
+		callbackUrl,
+		acceptSignInCallback,
 		bootSnapshot,
-		authorize(options?: { forceRefresh?: boolean }) {
-			return authority.authorize(options);
+		account,
+		get restartRequired() {
+			return (
+				disposed ||
+				(account !== null && auth.getState().status === 'signed-out')
+			);
 		},
-		reportRejected(tokenGeneration: number) {
-			authority.reportRejected(tokenGeneration);
+		getState: projectBootIdentity,
+		async cancelConnection() {
+			if (disposed)
+				return AuthError.StartSignInFailed({
+					cause: new Error('Restart Epicenter to continue.'),
+				});
+			cancelAttempt();
+			return Ok(undefined);
 		},
-		async startSignIn() {
-			const result = await authority.startSignIn();
-			if (!result.error && authority.snapshot.state.status === 'signed-in') {
-				nativeAuthPort.relaunch();
-			}
-			return result;
+		startSignIn({
+			reauthenticate = auth.getState().status === 'reauth-required',
+		} = {}) {
+			if (disposed)
+				return Promise.resolve(
+					AuthError.StartSignInFailed({
+						cause: new Error('Restart Epicenter before signing in again.'),
+					}),
+				);
+			if (attempt) return attempt.promise;
+			const pending = {
+				controller: new AbortController(),
+				...Promise.withResolvers<Result<undefined, AuthError>>(),
+			};
+			attempt = pending;
+			void (async () => {
+				let token: string | undefined;
+				let accepted = false;
+				try {
+					const signal = pending.controller.signal;
+					token = await launch(signal, reauthenticate);
+					signal.throwIfAborted();
+					const verified = await readApiSession({
+						baseURL,
+						token,
+						fetch,
+						signal,
+					});
+					signal.throwIfAborted();
+					if (verified.error) throw verified.error;
+					if (disposed || attempt !== pending)
+						throw new Error('Sign-in was superseded.');
+					// Detach before disposal so cancellation cannot override an accepted result.
+					attempt = undefined;
+					accepted = true;
+					await replaceProcess({
+						token,
+						principalId: verified.data.principalId,
+					});
+					pending.resolve(Ok(undefined));
+				} catch (cause) {
+					if (token && !accepted) await revoke(token);
+					pending.resolve(AuthError.StartSignInFailed({ cause }));
+				} finally {
+					if (attempt === pending) attempt = undefined;
+				}
+			})();
+			return pending.promise;
 		},
 		async signOut() {
-			const result = await authority.signOut();
-			if (!result.error) nativeAuthPort.relaunch();
-			return result;
+			try {
+				await replaceProcess(null);
+				return Ok(undefined);
+			} catch (cause) {
+				return AuthError.SignOutFailed({ cause });
+			}
 		},
-		[Symbol.dispose]() {
-			stopCallbacks();
-			authority[Symbol.dispose]();
-		},
+		[Symbol.dispose]: dispose,
 	};
 }
-
 export type DesktopAuthAuthority = ReturnType<
 	typeof createDesktopAuthAuthority
 >;

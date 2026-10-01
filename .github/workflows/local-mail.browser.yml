@@ -1,0 +1,48 @@
+name: Local Mail browsers
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: 'package.json'
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Install the suite's browser versions
+        run: bun run --cwd apps/local-mail/ui test:browser:install
+      - name: Check Local Mail and its browser fixtures
+        run: |
+          bun run --cwd apps/local-mail typecheck
+          bun run --cwd apps/local-mail/ui typecheck
+          bun test apps/local-mail
+      - name: Run Chromium and WebKit journeys
+        run: bun run --cwd apps/local-mail test:browser
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-mail-browser-failures
+          path: |
+            apps/local-mail/ui/test-results/
+            apps/local-mail/ui/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7

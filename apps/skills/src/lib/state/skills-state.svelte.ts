@@ -1,5 +1,5 @@
-import type { NonconformingRow } from '@epicenter/data';
-import { InstantString } from '@epicenter/data/field';
+import { InstantString } from '@epicenter/app/field';
+import type { NonconformingRow } from '@epicenter/app/store';
 import type { Reference, Skill, SkillsData } from '@epicenter/skills';
 
 export type SkillMetadataUpdate = Partial<

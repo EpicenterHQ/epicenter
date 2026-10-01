@@ -1,17 +1,16 @@
 /**
- * Type-level smoke tests for the boundary adapter.
+ * Type-level smoke tests for the generated command boundary.
  *
  * These assertions never run at value-level; they exist so a regression in
- * the `Wrap<F>` mapper or in `tauri-specta`'s output surfaces as a
+ * `tauri-specta`'s DataError output surface as a
  * `svelte-check` / `tsc` failure at the type level.
  */
 
+import type { RecordingEndedReason } from '@epicenter/app/recorder';
 import type { Result } from 'wellcrafted/result';
-import type { RecordingEndedReason } from '$lib/services/recorder/contract';
 import type {
 	commands,
 	DeviceAcquisition,
-	DictationCapability,
 	EndedReason,
 	HostRecording,
 	IpcRecorderError,
@@ -21,14 +20,6 @@ import type {
 	TranscriptionHints,
 	TranscriptionOutcome,
 } from './commands';
-import type {
-	DictationCapability as SharedDictationCapability,
-	IpcRecorderError as SharedIpcRecorderError,
-	LocalTranscriptionReadiness as SharedLocalTranscriptionReadiness,
-	TranscriptionError as SharedTranscriptionError,
-	TranscriptionHints as SharedTranscriptionHints,
-	TranscriptionOutcome as SharedTranscriptionOutcome,
-} from './commands.types';
 
 /**
  * A failed assertion carries both sides, so the error names what moved.
@@ -41,8 +32,8 @@ import type {
  *     does not satisfy the constraint 'true'.
  *
  * Copied rather than shared. It is four lines of the canonical spelling with no
- * semantics of its own, and the three copies live in `packages/data/src/field`,
- * `packages/data/src/definition`, and `apps/whispering`, which do not
+ * semantics of its own, and the three copies live in `packages/app/src/data/field`,
+ * `packages/app/src/data/definition`, and `apps/whispering`, which do not
  * otherwise reach into each other for test
  * utilities. `wellcrafted/testing` exports this pair as of the release after
  * 0.44.0; import it from there once the catalog moves and these go.
@@ -52,29 +43,6 @@ type Equal<X, Y> =
 	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
 		? true
 		: { expected: Y; got: X };
-
-// Browser-safe copies of generated contracts must move in lockstep with the
-// native bindings without importing their runtime module into the hosted SPA.
-type _SharedContracts = Expect<
-	Equal<
-		[
-			SharedDictationCapability,
-			SharedIpcRecorderError,
-			SharedLocalTranscriptionReadiness,
-			SharedTranscriptionError,
-			SharedTranscriptionHints,
-			SharedTranscriptionOutcome,
-		],
-		[
-			DictationCapability,
-			IpcRecorderError,
-			LocalTranscriptionReadiness,
-			TranscriptionError,
-			TranscriptionHints,
-			TranscriptionOutcome,
-		]
-	>
->;
 
 // The whole recording surface, pinned.
 //
@@ -92,7 +60,10 @@ type _SharedContracts = Expect<
 // does not have to enumerate devices first, because the host reports the
 // microphone it actually opened.
 type _StartRecordingArgs = Expect<
-	Equal<Parameters<typeof commands.startRecording>, [string | null]>
+	Equal<
+		Parameters<typeof commands.startRecording>,
+		[string | null, string, string]
+	>
 >;
 
 type _StartRecording = Expect<
@@ -102,9 +73,7 @@ type _StartRecording = Expect<
 	>
 >;
 
-// One shape for a started recording and a recovered one. `endedReason` is what
-// makes that possible: a recording whose capture died is the same recording with
-// a reason attached, not a second kind of thing arriving down a second channel.
+// Capture is disposable and carries no store or row destination.
 type _HostRecordingShape = Expect<
 	Equal<
 		HostRecording,
@@ -130,11 +99,9 @@ type _DeviceAcquisitionShape = Expect<
 	>
 >;
 
-// stop_recording: names the recording to end, and answers with the committed
-// blob plus the host's exact duration and byte length. Neither is nullable,
-// because a stop that returns at all has already published the file.
+// Stop returns a temporary finished-file token, not a published recording row.
 type _StopRecordingArgs = Expect<
-	Equal<Parameters<typeof commands.stopRecording>, [string]>
+	Equal<Parameters<typeof commands.stopRecording>, [string, string]>
 >;
 
 type _StopRecording = Expect<
@@ -147,7 +114,11 @@ type _StopRecording = Expect<
 type _StoppedRecordingShape = Expect<
 	Equal<
 		StoppedRecording,
-		{ audioBlobId: string; durationMs: number; byteLength: number }
+		{
+			blobId: string;
+			durationMs: number;
+			byteLength: number;
+		}
 	>
 >;
 
@@ -155,7 +126,7 @@ type _StoppedRecordingShape = Expect<
 // absence of a result type is the invariant: a cancel can never hand anyone a
 // blob.
 type _CancelRecordingArgs = Expect<
-	Equal<Parameters<typeof commands.cancelRecording>, [string]>
+	Equal<Parameters<typeof commands.cancelRecording>, [string, string]>
 >;
 
 type _CancelRecording = Expect<
@@ -165,22 +136,24 @@ type _CancelRecording = Expect<
 	>
 >;
 
-// current_recording: takes nothing, because the only window it could be asked
-// about is the one asking. That scoping lives in Rust with the injected window,
-// which is why there is no label parameter here to get wrong.
-//
-// It answers in the same shape `start` does, which is what lets a recording
-// recovered after a reload be as capable as one just started rather than a
-// degraded stand-in, including one whose capture already ended.
-type _CurrentRecordingArgs = Expect<
-	Equal<Parameters<typeof commands.currentRecording>, []>
->;
-
-type _CurrentRecording = Expect<
+// Session registration replaces cross-document capture recovery.
+type _RegisterRecordingSession = Expect<
 	Equal<
-		ReturnType<typeof commands.currentRecording>,
+		Parameters<typeof commands.registerRecordingSession>,
+		[string, import('./bindings.gen').AccountIdentity | null, string, number]
+	>
+>;
+type _ResolveRecordingStart = Expect<
+	Equal<Parameters<typeof commands.resolveRecordingStart>, [string, string]>
+>;
+type _ResolvedRecordingStart = Expect<
+	Equal<
+		ReturnType<typeof commands.resolveRecordingStart>,
 		Promise<Result<HostRecording | null, IpcRecorderError>>
 	>
+>;
+type _CurrentDocumentRecording = Expect<
+	Equal<Parameters<typeof commands.currentRecording>, [string]>
 >;
 
 // The recorder contract is platform-neutral, so it cannot import the native
@@ -217,7 +190,7 @@ type _TranscribeRecording = Expect<
 type _TranscribeRecordingArgs = Expect<
 	Equal<
 		Parameters<typeof commands.transcribeRecording>,
-		[string, TranscriptionHints]
+		[string, TranscriptionHints, import('./bindings.gen').BlobDestination]
 	>
 >;
 
@@ -280,4 +253,14 @@ type _TranscriptionHintsShape = Expect<
 			initialPrompt?: string | null;
 		}
 	>
+>;
+
+/** Shared native capture wire contract follows the generated Rust shape. */
+type _PortableNativeRecording = Expect<
+	Equal<HostRecording, import('@epicenter/app/recorder').NativeRecording>
+>;
+type _PortableBlobDestination = Expect<
+	import('@epicenter/blobs/native').BlobDestination extends import('./bindings.gen').BlobDestination
+		? true
+		: false
 >;

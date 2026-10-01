@@ -1,16 +1,34 @@
 ---
 name: consult-claude
-description: Get Claude Code's second opinion on a proposal or implementation. Use when the user asks to consult Claude, requests Claude's design judgment or research, or invokes a design-review workflow that includes Claude. Do not enlist Claude merely because a task is complex.
+description: Assign Claude Code a read-only investigation, recommendation, or finished text draft. Use when asked to consult Claude or when a design-review workflow includes Claude. Completed edits and executable experiments belong to delegate-claude.
 ---
 
 # Consult Claude
 
-Codex briefs Claude on the problem and evidence. For an adversarial design
-review, the first brief omits the proposed design and reasoning; a follow-up
-provides them after Claude's independent initial answer. Claude reads the
-current checkout and returns its judgment, alternatives, and objections.
-Codex owns implementation and verification; when Claude needs a test, benchmark,
-or experiment, it requests that evidence from Codex.
+Claude owns a bounded answer: an investigation, recommendation, caller map,
+API example, migration assessment, or finished text draft. Codex owns the
+conversation, execution, verification, and integration. Use
+[delegate-claude](../delegate-claude/SKILL.md) when Claude should own edits or
+run an experiment.
+
+Choose a consultation when its result advances a named decision or replaces
+work Codex would otherwise do. Give Claude enough work to finish the answer;
+available capacity alone does not justify another opinion. A standalone
+consultation does not automatically launch the adversarial reviewer pair.
+
+## Define the result
+
+Brief Claude with the desired result, intended consumer, source paths, genuine
+constraints, acceptance evidence, and stopping condition. For example:
+
+> Trace every caller affected by this rename API. Return a source-linked caller
+> map, incompatible assumptions, and the smallest migration proposal. Read the
+> current uncommitted source. Stop when every caller class is accounted for;
+> request runtime evidence only where it decides compatibility.
+
+Distinguish explicit requirements, observed behavior, and hypotheses. If the
+contract is unresolved, assign its discovery rather than assuming a fix.
+Check the deciding claims against sources; do not redo the whole investigation.
 
 ## Make the design legible
 
@@ -43,8 +61,8 @@ Requires Bun, Git, and authenticated Claude Code 2.1.280 or later with access to
 the selected model. Use `--effort high` for an adversarial architecture review,
 including follow-ups. Use `xhigh` only for a focused unresolved decision, then
 return to high. For narrower consultations, omit `--effort` and let Claude Code
-select its configured or model default. Run from this repository; supply the
-brief directly on stdin:
+select its configured or model default. Run from the checkout containing the
+evidence; supply the brief directly on stdin:
 
 ```bash
 bun .agents/skills/consult-claude/scripts/consult-claude.ts --effort high <<'BRIEF'
@@ -63,7 +81,10 @@ The launcher runs one native print-mode turn in the current checkout with only
 Read, Glob, and Grep. Restricted mode, blocked MCP tools, disabled hooks, and
 outside-read restrictions enforce the boundary. It creates no replica, brief
 file, or checkpoint. Claude Code owns session storage. Keep the reviewed files
-stable during each turn; identify changed files when supplying fresh evidence.
+stable during each turn. For parallel work, use a source snapshot containing the
+relevant committed, uncommitted, and untracked task files. A HEAD-only copy can
+omit the proposal. Copy prototype evidence into the selected checkout or run
+there; naming an outside path in the brief does not grant access.
 
 Read the native JSON result, including `result`, `session_id`, `is_error`, and
 any permission denials. A process starting or exiting successfully is not proof
@@ -75,7 +96,10 @@ bun .agents/skills/consult-claude/scripts/consult-claude.ts --effort high --resu
 EVIDENCE
 ```
 
-Resume only a completed consultation from this launcher, in the same checkout.
+Resume a completed consultation for the same assignment in the same checkout.
+State source changes and new evidence in the follow-up. Use a fresh session for
+an independent review of Claude-authored work or a materially different frame;
+resuming retains context and does not restore independence.
 The launcher reapplies the access boundary on every turn. If the shell tool
 yields a running process, keep monitoring it and provide progress updates.
 There is no interactive attach step.
@@ -94,10 +118,11 @@ within the user's existing authorization and return the commands, relevant raw
 results, and source state. An advice-only request does not authorize edits.
 Ask before materially expanding the task; prior authorization still applies.
 
-Codex normally runs experiments. If the user explicitly delegates experimental
-execution to Claude, arrange an appropriately isolated workspace for that task
-separately. This launcher never grants write or execution tools, and elapsed
-time alone does not justify a new workspace or broader delegation.
+This route remains read-only. When the assignment requires Claude to own
+implementation or experimental execution, use delegate-claude within the
+user's authorized scope. Do not turn an advice-only request into execution.
+Return artifacts and evidence, including limitations. A longer report or more
+objections does not establish that a consultation was useful.
 
 Return the recommendation, supporting evidence, and remaining disagreement.
 Stop when the bounded decision has enough evidence; consensus is not required.

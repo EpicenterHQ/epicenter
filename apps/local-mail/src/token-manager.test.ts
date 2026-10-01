@@ -6,12 +6,17 @@
  * token is now current, concurrent callers share one grant, a failed grant does
  * not poison the next call, and a device holding no credential says so in the
  * words a person can act on.
+ * Failed rotation writes remain retryable without losing the replacement
+ * credential or exposing access before storage recovers.
  */
 
 import { expect, test } from 'bun:test';
-import { type SecretStore, secretLabel } from '@epicenter/app';
+import { SecretError, type SecretStore, secretLabel } from '@epicenter/device';
 import { Ok } from 'wellcrafted/result';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { DEFAULT_MAIL_CONFIG, type MailConfig } from './config.ts';
+import { openPassRecord, readOutbox } from './outbox.js';
+import { openTestSession } from './session.test-support.js';
 import { createTokenManager } from './token-manager.ts';
 
 const IDENTITY = { clientId: 'client-id-123', clientSecret: 'client-secret' };
@@ -197,8 +202,8 @@ test('a revoked grant asks for re-consent rather than a retry', async () => {
 });
 
 test('a device holding no credential asks for the account again', async () => {
-	// The account list synchronized and the credential did not, which is what a
-	// browser reload and a new desktop device both look like (ADR-0310).
+	// Reloading a browser page preserves the account record but replaces the
+	// in-memory secret store with an empty one.
 	const { secrets } = secretStore(null);
 	const manager = createTokenManager({
 		config: config(),
@@ -208,7 +213,329 @@ test('a device holding no credential asks for the account again', async () => {
 		now: NOW,
 	});
 
-	const result = await manager.getValidAccessToken();
-	expect(result.error?.name).toBe('ReauthRequired');
-	expect(result.error?.message).toContain('holds no credential');
+	const error = expectErr(await manager.getValidAccessToken());
+	expect(error.name).toBe('CredentialMissing');
+	const session = await openTestSession();
+	try {
+		await session.passes.record({
+			finishedAt: new Date(NOW()).toISOString(),
+			discarded: [],
+			failure: error,
+		});
+		const outbox = await readOutbox({
+			...session,
+			subjectsOf: session.mailbox.subjectsOf,
+			passes: openPassRecord(session.localDatabase, session.sub),
+		});
+		expect(outbox.status).toBe('signin');
+		expect(outbox.lastPass?.failure).toEqual({
+			kind: 'signin',
+			name: 'CredentialMissing',
+			message: error.message,
+		});
+	} finally {
+		session.close();
+	}
+});
+
+test('a failed credential read preserves the storage failure instead of claiming the credential is missing', async () => {
+	const { secrets } = secretStore();
+	const failed = SecretError.StorageFailed({ cause: 'Keychain is locked' });
+	const manager = createTokenManager({
+		config: config(),
+		identity: IDENTITY,
+		label: ACCOUNT,
+		now: NOW,
+		secrets: { ...secrets, get: async () => failed },
+	});
+	expect(expectErr(await manager.getValidAccessToken())).toEqual(
+		expectErr(failed),
+	);
+});
+
+test('a failed rotation stays retryable until the replacement credential is saved', async () => {
+	let requests = 0;
+	const server = tokenServer(() => {
+		requests += 1;
+		return Response.json({
+			token_type: 'Bearer',
+			access_token: 'new-access',
+			refresh_token: 'new-refresh',
+			expires_in: 3600,
+		});
+	});
+	const { secrets, writes } = secretStore();
+	const failed = SecretError.StorageFailed({ cause: 'Keychain is locked' });
+	let locked = true;
+	const manager = createTokenManager({
+		config: config({ tokenUrl: `http://127.0.0.1:${server.port}/token` }),
+		identity: IDENTITY,
+		label: ACCOUNT,
+		now: NOW,
+		secrets: {
+			...secrets,
+			put: async (label, value) =>
+				locked ? failed : secrets.put(label, value),
+		},
+	});
+	const session = await openTestSession();
+	try {
+		for (const attempt of [
+			() => manager.getValidAccessToken(),
+			() => manager.getValidAccessToken(),
+			() => manager.forceRefresh(),
+		]) {
+			const error = expectErr(await attempt());
+			expect(error).toBe(expectErr(failed));
+			await session.passes.record({
+				finishedAt: new Date(NOW()).toISOString(),
+				discarded: [],
+				failure: error,
+			});
+			const outbox = await readOutbox({
+				...session,
+				subjectsOf: session.mailbox.subjectsOf,
+				passes: openPassRecord(session.localDatabase, session.sub),
+			});
+			expect(outbox.lastPass?.failure).toMatchObject({
+				name: 'StorageFailed',
+				kind: 'retry',
+			});
+		}
+		expect(requests).toBe(1);
+		expect(writes).toEqual([]);
+		locked = false;
+		expect(expectOk(await manager.getValidAccessToken())).toBe('new-access');
+		expect(expectOk(await manager.getValidAccessToken())).toBe('new-access');
+		expect(writes).toEqual(['new-refresh']);
+		expect(requests).toBe(1);
+	} finally {
+		server.stop(true);
+		session.close();
+	}
+});
+
+test('ordinary and forced callers share a paused rotation save without returning cached access', async () => {
+	let requests = 0;
+	const server = tokenServer(() => {
+		requests += 1;
+		return Response.json({
+			token_type: 'Bearer',
+			access_token: `access-${requests}`,
+			...(requests === 1 ? {} : { refresh_token: 'rotated-refresh' }),
+			expires_in: 3600,
+		});
+	});
+	const started = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	const { secrets, writes } = secretStore();
+	const manager = createTokenManager({
+		config: config({ tokenUrl: `http://127.0.0.1:${server.port}/token` }),
+		identity: IDENTITY,
+		label: ACCOUNT,
+		now: NOW,
+		secrets: {
+			...secrets,
+			async put(label, value) {
+				started.resolve();
+				await release.promise;
+				return secrets.put(label, value);
+			},
+		},
+	});
+	try {
+		expect(expectOk(await manager.getValidAccessToken())).toBe('access-1');
+		const forced = manager.forceRefresh();
+		await started.promise;
+		let completed = false;
+		const ordinary = manager.getValidAccessToken().then((result) => {
+			completed = true;
+			return result;
+		});
+		const alsoForced = manager.forceRefresh();
+		await Bun.sleep(0);
+		expect(completed).toBe(false);
+		expect(writes).toEqual([]);
+		release.resolve();
+		for (const result of await Promise.all([forced, ordinary, alsoForced])) {
+			expect(expectOk(result)).toBe('access-2');
+		}
+		expect(writes).toEqual(['rotated-refresh']);
+		expect(requests).toBe(2);
+	} finally {
+		release.resolve();
+		server.stop(true);
+	}
+});
+
+test('a failed forced refresh never returns the previously rejected access token', async () => {
+	let requests = 0;
+	const server = tokenServer(() => {
+		requests += 1;
+		return requests === 1
+			? Response.json({
+					token_type: 'Bearer',
+					access_token: 'rejected-access',
+					expires_in: 3600,
+				})
+			: Response.json({ error: 'invalid_grant' }, { status: 400 });
+	});
+	const { secrets } = secretStore();
+	const manager = createTokenManager({
+		config: config({ tokenUrl: `http://127.0.0.1:${server.port}/token` }),
+		identity: IDENTITY,
+		label: ACCOUNT,
+		now: NOW,
+		secrets,
+	});
+	try {
+		expect(expectOk(await manager.getValidAccessToken())).toBe(
+			'rejected-access',
+		);
+		expect(expectErr(await manager.forceRefresh()).name).toBe('ReauthRequired');
+		expect(expectErr(await manager.getValidAccessToken()).name).toBe(
+			'ReauthRequired',
+		);
+		expect(requests).toBe(3);
+	} finally {
+		server.stop(true);
+	}
+});
+
+test.each([
+	'expired',
+	'forced',
+] as const)('%s access saves the pending credential before requesting a new grant', async (reason) => {
+	const submitted: string[] = [];
+	const { secrets, writes } = secretStore();
+	const server = tokenServer(async (request) => {
+		submitted.push(
+			new URLSearchParams(await request.text()).get('refresh_token')!,
+		);
+		return Response.json({
+			token_type: 'Bearer',
+			access_token: `access-${submitted.length}`,
+			refresh_token: 'rotated-refresh',
+			expires_in: 3600,
+		});
+	});
+	let locked = true;
+	let now = NOW();
+	const manager = createTokenManager({
+		config: config({ tokenUrl: `http://127.0.0.1:${server.port}/token` }),
+		identity: IDENTITY,
+		label: ACCOUNT,
+		now: () => now,
+		secrets: {
+			...secrets,
+			put: async (label, value) =>
+				locked
+					? SecretError.StorageFailed({ cause: 'Keychain is locked' })
+					: secrets.put(label, value),
+		},
+	});
+	try {
+		expect(expectErr(await manager.getValidAccessToken()).name).toBe(
+			'StorageFailed',
+		);
+		locked = false;
+		if (reason === 'expired') now += 3600_000;
+		const result = await (reason === 'forced'
+			? manager.forceRefresh()
+			: manager.getValidAccessToken());
+		expect(expectOk(result)).toBe('access-2');
+		expect(writes).toEqual(['rotated-refresh']);
+		expect(submitted).toEqual(['old-refresh-token', 'rotated-refresh']);
+	} finally {
+		server.stop(true);
+	}
+});
+
+test.each([
+	'replaced',
+	'deleted',
+] as const)('a %s credential supersedes a pending rotation', async (change) => {
+	const submitted: string[] = [];
+	const server = tokenServer(async (request) => {
+		submitted.push(
+			new URLSearchParams(await request.text()).get('refresh_token')!,
+		);
+		return Response.json({
+			token_type: 'Bearer',
+			access_token: `access-${submitted.length}`,
+			...(submitted.length === 1 ? { refresh_token: 'unsaved-refresh' } : {}),
+			expires_in: 3600,
+		});
+	});
+	const { secrets, writes } = secretStore();
+	const manager = createTokenManager({
+		config: config({ tokenUrl: `http://127.0.0.1:${server.port}/token` }),
+		identity: IDENTITY,
+		label: ACCOUNT,
+		now: NOW,
+		secrets: {
+			...secrets,
+			put: async () =>
+				SecretError.StorageFailed({ cause: 'Keychain is locked' }),
+		},
+	});
+	try {
+		expect(expectErr(await manager.getValidAccessToken()).name).toBe(
+			'StorageFailed',
+		);
+		if (change === 'replaced') {
+			expectOk(await secrets.put(ACCOUNT, 'reconnected-refresh'));
+			expect(expectOk(await manager.getValidAccessToken())).toBe('access-2');
+			expect(submitted).toEqual(['old-refresh-token', 'reconnected-refresh']);
+			expect(writes).toEqual(['reconnected-refresh']);
+		} else {
+			expectOk(await secrets.delete(ACCOUNT));
+			expect(expectErr(await manager.getValidAccessToken()).name).toBe(
+				'CredentialMissing',
+			);
+			expect(submitted).toEqual(['old-refresh-token']);
+			expect(expectOk(await secrets.get(ACCOUNT))).toBeNull();
+		}
+	} finally {
+		server.stop(true);
+	}
+});
+
+test('a rotation write that landed despite an error is recognized on retry', async () => {
+	let requests = 0;
+	const server = tokenServer(() => {
+		requests += 1;
+		return Response.json({
+			token_type: 'Bearer',
+			access_token: 'new-access',
+			refresh_token: 'new-refresh',
+			expires_in: 3600,
+		});
+	});
+	const { secrets, writes } = secretStore();
+	const manager = createTokenManager({
+		config: config({ tokenUrl: `http://127.0.0.1:${server.port}/token` }),
+		identity: IDENTITY,
+		label: ACCOUNT,
+		now: NOW,
+		secrets: {
+			...secrets,
+			async put(label, value) {
+				expectOk(await secrets.put(label, value));
+				return SecretError.StorageFailed({
+					cause: 'Write acknowledgement lost',
+				});
+			},
+		},
+	});
+	try {
+		expect(expectErr(await manager.getValidAccessToken()).name).toBe(
+			'StorageFailed',
+		);
+		expect(expectOk(await manager.getValidAccessToken())).toBe('new-access');
+		expect(writes).toEqual(['new-refresh']);
+		expect(requests).toBe(1);
+	} finally {
+		server.stop(true);
+	}
 });

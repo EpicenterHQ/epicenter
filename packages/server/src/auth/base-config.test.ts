@@ -11,7 +11,6 @@
 import { describe, expect, test } from 'bun:test';
 import { betterAuth } from 'better-auth';
 import { memoryAdapter } from 'better-auth/adapters/memory';
-import { createOAuthTestDb } from '../test-helpers/oauth.js';
 import { BASE_AUTH_CONFIG } from './base-config.js';
 import { authPlugins } from './plugins.js';
 
@@ -20,7 +19,13 @@ const baseURL = 'http://localhost:8787';
 function createProductionShapedAuth() {
 	return betterAuth({
 		...BASE_AUTH_CONFIG,
-		database: memoryAdapter(createOAuthTestDb()),
+		database: memoryAdapter({
+			user: [],
+			account: [],
+			session: [],
+			verification: [],
+			passkey: [],
+		}),
 		baseURL,
 		secret: 'test-secret-test-secret-test-secret',
 		socialProviders: { google: { clientId: 'x', clientSecret: 'y' } },

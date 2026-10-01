@@ -4,7 +4,7 @@
 	import { Separator } from '@epicenter/ui/separator';
 	import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
 	import { report } from '$lib/report';
-	import { createAppShortcuts } from '$lib/platform/shortcuts';
+	import { createAppShortcuts } from '$lib/shortcuts';
 	import { getWhisperingApp } from '$lib/whispering/context';
 	import KeyboardShortcutRecorder from './keyboard-shortcut-recorder/KeyboardShortcutRecorder.svelte';
 	import ShortcutTable from './keyboard-shortcut-recorder/ShortcutTable.svelte';

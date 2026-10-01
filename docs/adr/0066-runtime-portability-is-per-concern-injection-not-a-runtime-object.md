@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-24
+- **Amended by:** [ADR-0447](0447-the-bun-self-hosted-server-owns-one-data-root.md) at the S3-only hosted-blob rule and the self-hosting requirement for an S3 endpoint. The per-concern composition rule remains.
 - **Relates:** the in-flight spec `specs/20260623T234500-one-server-runtime-port-vs-per-owner-instance.md` (the grill and wave plan this harvests), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (the same config-not-code, deployment-chooses posture for inference backends), [ADR-0004](0004-trust-the-relay-reject-zero-knowledge.md) (why identity/secrets stay a shared plane, not per-instance), [ADR-0092](0092-identity-is-the-partition.md) (keeps the injection posture but collapses the ownership seam into the principal resolver)
 
 ## Context

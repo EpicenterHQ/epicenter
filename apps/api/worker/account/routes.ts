@@ -1,103 +1,66 @@
-/**
- * Hosted account deletion: `DELETE /api/account`.
- *
- * The route owns HTTP shape and wiring; `service.ts` owns the retry-safe
- * step order. A partial failure answers 503 with the failed step; deletion is
- * complete only when the route answers 204.
- *
- * Authentication is deliberately narrower than the other principal surfaces:
- * a FRESH host-only session cookie, read with the cookie cache disabled. A
- * bearer cannot trigger deletion (a leaked token must not be able to destroy
- * the account), a stale session is refused with the same `SESSION_NOT_FRESH`
- * remedy the dashboard already handles, and the cache bypass means this route
- * always observes the live session row.
- *
- * After the gated steps succeed, the authority and blob sweeps run once more:
- * while the auth user still existed, a signed-in device could re-register
- * workspace state or land a blob, so one post-fence pass sweeps that window.
- * Sweep failures are logged, not surfaced: the auth user is gone, no retry
- * can authenticate, and the residue is unreachable garbage, not user data.
- *
- * Known non-atomic residue, accepted and documented: a presigned blob PUT
- * issued up to five minutes earlier can land after the final sweep; other
- * cookie surfaces may honor the deleting browser's cached session for up to
- * five minutes after 204; an Autumn customer deleted out-of-band leaves any
- * Stripe counterpart to manual reconciliation (the 404 tolerance cannot see
- * Stripe).
- *
- * Lives in apps/api, not @epicenter/server: Better Auth, Postgres, and Autumn
- * are hosted-only deployment policy. The self-hosted instance has no per-user
- * account; its analog would be an operator-owned whole-instance reset, which
- * deliberately does not exist as an HTTP surface.
- */
+/** Hosted account deletion requires a live, fresh, principal-bound session bearer. */
 
 import { asPrincipalId } from '@epicenter/principal';
-import {
-	blobPrincipalPrefix,
-	type CloudEnv,
-	deleteStorageObservations,
-	resolveDeploymentBlobStore,
-} from '@epicenter/server';
-import {
-	deleteHostedPrincipal,
-	readHostedPrincipalEmail,
-} from '@epicenter/server/cloud-db';
+import type { CloudEnv } from '@epicenter/server';
+import type { Session, User } from 'better-auth';
+import { APIError } from 'better-auth/api';
 import type { Hono, MiddlewareHandler } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { describeRoute } from 'hono-openapi';
-import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
-import { createBillingService } from '../billing/service.js';
-import { type AccountDeletionStep, runAccountDeletion } from './service.js';
-
-/**
- * Better Auth's `session.freshAge` default. The deployment's auth config does
- * not override freshAge (its type would carry the field if it did), so this
- * mirrors the same window `SESSION_NOT_FRESH` uses for login-method changes.
- */
-const FRESH_AGE_SECONDS = 60 * 60 * 24;
+import { defineErrors } from 'wellcrafted/error';
 
 /**
  * Error variants for the hosted deletion surface, owned beside their only
  * consumer: account deletion is hosted deployment policy (see the module
  * JSDoc), so this union is cloud-local, not a shared contract. Each factory
  * returns the wellcrafted envelope `{ data: null, error: { name, message,
- * ...fields } }` that `c.json` serializes directly. The dashboard branches on
- * HTTP status alone; `SessionNotFresh.code` mirrors the `SESSION_NOT_FRESH`
- * code Better Auth emits for the other fresh-session surfaces.
+ * ...fields } }` that `c.json` serializes directly. `SessionNotFresh.code`
+ * mirrors the `SESSION_NOT_FRESH` code Better Auth emits for the other
+ * fresh-session surfaces.
  */
 const AccountDeletionError = defineErrors({
 	Unauthorized: () => ({ message: 'Session required' }),
+	SessionUnavailable: () => ({ message: 'Session database unavailable' }),
+	PrincipalMismatch: () => ({
+		code: 'PRINCIPAL_MISMATCH',
+		message: 'Account changed',
+	}),
 	SessionNotFresh: () => ({
 		message: 'Sign in again to delete your account.',
 		code: 'SESSION_NOT_FRESH',
 	}),
-	AccountDeletionIncomplete: ({
-		failedStep,
-	}: {
-		failedStep: AccountDeletionStep;
-	}) => ({
-		message: `Account deletion did not complete (step: ${failedStep}). Retry the request.`,
-		failedStep,
+	AccountDeletionUnavailable: () => ({
+		code: 'ACCOUNT_DELETION_UNAVAILABLE',
+		message:
+			'Account deletion is unavailable because complete removal of hosted data cannot yet be guaranteed. No deletion has started.',
 	}),
 });
 
 /**
- * Cookie-only, cache-bypassing, freshness-gated authentication for the one
- * destructive account surface. Mirrors Better Auth's own `freshAge` check
- * (`base-config.ts`) so the dashboard's existing `SESSION_NOT_FRESH` re-sign-in
- * remedy applies unchanged.
+ * A captured bearer, checked against the live session and expected principal.
+ * Deletion uses the same freshness window as login-method changes.
  */
-const requireFreshCookieSession: MiddlewareHandler<CloudEnv> =
+const requireFreshAccountSession: MiddlewareHandler<CloudEnv> =
 	createMiddleware<CloudEnv>(async (c, next) => {
-		const session = await c.var.auth.api.getSession({
-			headers: c.req.raw.headers,
-			query: { disableCookieCache: true },
-		});
-		if (!session) {
-			return c.json(AccountDeletionError.Unauthorized(), 401);
+		const authorization = c.req.header('authorization');
+		if (!authorization) return c.json(AccountDeletionError.Unauthorized(), 401);
+		let session: { session: Session; user: User } | null;
+		try {
+			session = await c.var.auth.api.getSession({
+				headers: new Headers({ authorization }),
+				query: { disableCookieCache: true, disableRefresh: true },
+			});
+		} catch (cause) {
+			if (cause instanceof APIError && cause.statusCode === 401)
+				return c.json(AccountDeletionError.Unauthorized(), 401);
+			return c.json(AccountDeletionError.SessionUnavailable(), 503);
 		}
+		if (!session || session.session.expiresAt.getTime() <= Date.now())
+			return c.json(AccountDeletionError.Unauthorized(), 401);
+		if (c.req.header('x-epicenter-principal') !== session.user.id)
+			return c.json(AccountDeletionError.PrincipalMismatch(), 403);
 		const createdAt = new Date(session.session.createdAt).getTime();
-		if (Date.now() - createdAt >= FRESH_AGE_SECONDS * 1000) {
+		if (Date.now() - createdAt >= c.var.auth.options.session.freshAge * 1000) {
 			return c.json(AccountDeletionError.SessionNotFresh(), 403);
 		}
 		c.set('principal', {
@@ -107,74 +70,23 @@ const requireFreshCookieSession: MiddlewareHandler<CloudEnv> =
 		return next();
 	});
 
-/** Mount the hosted account-deletion route with its bundled destructive auth. */
-export function mountAccountDeletionApi(app: Hono<CloudEnv>): void {
+/**
+ * Refuse deletion before any destructive work until historical storage ownership
+ * and write retirement are established. See README.md for the missing evidence.
+ */
+export function mountAccountDeletionApi(
+	app: Hono<CloudEnv>,
+	opts: { setup: MiddlewareHandler<CloudEnv> },
+): void {
 	app.delete(
 		'/api/account',
+		opts.setup,
 		describeRoute({
 			description:
-				'Delete the authenticated account everywhere: authority storage, blobs, billing customer, storage observations, and the auth user. Requires a fresh session cookie. Retry until 204.',
+				'Account deletion is unavailable. A valid fresh account session receives 503 with ACCOUNT_DELETION_UNAVAILABLE; no deletion is accepted or started.',
 			tags: ['account'],
 		}),
-		requireFreshCookieSession,
-		async (c) => {
-			const principalId = c.var.principal.id;
-			const sweepBlobs = async () => {
-				const store = resolveDeploymentBlobStore(c.env);
-				if (!store) {
-					// The hosted deployment always configures object storage, so an
-					// unresolved store is a misconfiguration. Failing closed keeps a
-					// 204 honest about "uploaded files are deleted".
-					throw new Error('Hosted blob storage is not configured');
-				}
-				await store.deletePrefix(blobPrincipalPrefix(principalId));
-			};
-			const result = await runAccountDeletion(
-				{
-					blobs: sweepBlobs,
-					async billing() {
-						const principalEmail = await readHostedPrincipalEmail(
-							c.var.db,
-							principalId,
-						);
-						// The auth user deletes last and this route bypasses the cookie
-						// cache, so the row must still exist here; its absence means
-						// out-of-band interference and the step fails loudly.
-						if (principalEmail === null) {
-							throw new Error('Account user row disappeared mid-deletion');
-						}
-						const { error } = await createBillingService(
-							c.env as Cloudflare.Env,
-							{ principalId, principalEmail },
-						).deleteCustomer();
-						if (error) throw new Error(extractErrorMessage(error));
-					},
-					observations: () => deleteStorageObservations(c.var.db, principalId),
-					'auth-user': () => deleteHostedPrincipal(c.var.db, principalId),
-				},
-				principalId,
-			);
-			if (result.outcome === 'incomplete') {
-				return c.json(
-					AccountDeletionError.AccountDeletionIncomplete({
-						failedStep: result.failedStep,
-					}),
-					503,
-				);
-			}
-			// Post-fence sweeps: close the recreation window that was open while
-			// the auth user still authenticated pushes and uploads. Best-effort by
-			// design; see the module JSDoc.
-			for (const [name, sweep] of [['blobs-sweep', sweepBlobs]] as const) {
-				try {
-					await sweep();
-				} catch (cause) {
-					console.error(
-						`[account] post-fence ${name} for ${principalId} failed: ${extractErrorMessage(cause)}`,
-					);
-				}
-			}
-			return c.body(null, 204);
-		},
+		requireFreshAccountSession,
+		(c) => c.json(AccountDeletionError.AccountDeletionUnavailable(), 503),
 	);
 }

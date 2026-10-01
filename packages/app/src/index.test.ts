@@ -1,139 +1,29 @@
+/** Inert declarations validate identity and retain their schema without acquiring resources. */
 import { expect, test } from 'bun:test';
-import { Ok } from 'wellcrafted/result';
-import {
-	createEpicenter,
-	databaseName,
-	type EpicenterBinding,
-	secretLabel,
-} from './index.js';
+import { defineStore } from './index.js';
 
-function bindingFor(calls: string[]): (appId: string) => EpicenterBinding {
-	return () => ({
-		open: async (name) => {
-			calls.push(name);
-			return Ok({
-				run: async () => Ok({ changes: 1 }),
-				all: async () => Ok([]),
-				batch: async (statements) => Ok({ changes: statements.map(() => 1) }),
-			});
-		},
-		delete: async (name) => {
-			calls.push(`delete:${name}`);
-			return Ok(undefined);
-		},
-		secrets: {
-			put: async () => Ok(undefined),
-			get: async () => Ok(null),
-			delete: async () => Ok(undefined),
-		},
-	});
-}
-
-test('creates a handle scoped to one application', async () => {
-	const calls: string[] = [];
-	const epicenter = createEpicenter({
-		appId: 'so.epicenter.test',
-		binding: bindingFor(calls),
-	});
-
-	expect(epicenter.appId).toBe('so.epicenter.test');
-	const opened = await epicenter.sqlite.open(databaseName('mail'));
-	expect(opened.error).toBeNull();
-	if (opened.error !== null) throw opened.error;
-	expect(calls).toEqual(['mail']);
-	expect('transaction' in opened.data).toBe(false);
-	expect('close' in opened.data).toBe(false);
+const definition = defineStore({
+	id: 'so.epicenter.notes',
+	tables: {},
+	kv: {},
+});
+test('the declaration exposes one identity and the schema without implementation options', () => {
+	const titledDefinition = defineStore({ ...definition, title: 'Notes' });
+	expect(titledDefinition.id).toBe(definition.id);
+	expect(titledDefinition.title).toBe('Notes');
+	expect(titledDefinition.tables).toBe(definition.tables);
+	expect(titledDefinition.kv).toBe(definition.kv);
+	expect(Object.keys(titledDefinition).sort()).toEqual([
+		'id',
+		'kv',
+		'tables',
+		'title',
+	]);
+	expect(Object.isFrozen(titledDefinition)).toBe(true);
 });
 
-test('deleting takes the same name as opening', async () => {
-	const calls: string[] = [];
-	const epicenter = createEpicenter({
-		appId: 'so.epicenter.test',
-		binding: bindingFor(calls),
-	});
-
-	const deleted = await epicenter.sqlite.delete(databaseName('mail'));
-	expect(deleted.error).toBeNull();
-	expect(calls).toEqual(['delete:mail']);
-});
-
-test('a handle with no definition has no store and no account', () => {
-	const epicenter = createEpicenter({
-		appId: 'so.epicenter.test',
-		binding: bindingFor([]),
-	});
-
-	// The type says this already: `[TDefinition] extends [never]` fails
-	// downward, so omitting the definition yields the smaller handle. The
-	// runtime agrees, which is what keeps a `in` test from finding one.
-	for (const member of [
-		'state',
-		'open',
-		'onStateChange',
-		'close',
-		'account',
-		'eraseReplica',
-	]) {
-		expect(member in epicenter).toBe(false);
-	}
-});
-
-test('a name is checked where it is minted, not on every call', () => {
-	// The six per-call guards are gone (ADR-0339). What refuses a name that
-	// could be read as a path is the mint, and it throws, because a name
-	// reaching it is a constant in a build.
-	expect(() => databaseName('../mail')).toThrow('is not valid');
-	expect(() => databaseName('Mail')).toThrow('is not valid');
-	expect(String(databaseName('mail'))).toBe('mail');
-
-	expect(() => secretLabel('../other')).toThrow('is not valid');
-	expect(() => secretLabel('a/b')).toThrow('is not valid');
-	expect(String(secretLabel('sub-one'))).toBe('sub-one');
-});
-
-test('the application id is explicit and independent from the definition id', () => {
-	// One id, threaded into the binding by the handle. There is nothing to
-	// check, because the binding is a function of the id rather than a value
-	// built beside one (ADR-0339).
-	const definition = { id: 'so.epicenter.notes' } as never;
-	const account = {} as never;
-	expect(
-		createEpicenter({
-			appId: 'so.epicenter.notes',
-			binding: bindingFor([]),
-			definition,
-			account,
-		}).appId,
-	).toBe('so.epicenter.notes');
-	expect(
-		createEpicenter({
-			appId: 'so.epicenter.reader',
-			binding: bindingFor([]),
-			definition,
-			account,
-		}).appId,
-	).toBe('so.epicenter.reader');
-});
-
-test('an application id this platform cannot file refuses at construction', () => {
-	expect(() =>
-		createEpicenter({ appId: 'not an app id', binding: bindingFor([]) }),
-	).toThrow('is not valid');
-});
-
-test('definition and account are both required when adding a store', () => {
-	const binding = bindingFor([]);
-	const definition = { id: 'so.epicenter.test' } as never;
-	const account = {} as never;
-
-	expect(() =>
-		createEpicenter({
-			appId: 'so.epicenter.test',
-			binding,
-			definition,
-		} as never),
-	).toThrow('definition and account');
-	expect(() =>
-		createEpicenter({ appId: 'so.epicenter.test', binding, account } as never),
-	).toThrow('definition and account');
+test('a store definition ID this platform cannot file refuses at construction', () => {
+	expect(() => defineStore({ ...definition, id: 'not a store id' })).toThrow(
+		'is not valid',
+	);
 });

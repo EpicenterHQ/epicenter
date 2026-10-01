@@ -47,7 +47,6 @@
 				/** Whether a delivery was tried, or the count simply moved under us. */
 				attempted: boolean;
 			}
-		| { kind: 'busy'; message: string }
 		| { kind: 'failed'; message: string };
 
 	let step = $state<Step>({ kind: 'reading' });
@@ -60,15 +59,18 @@
 		step = { kind: 'reading' };
 		void (async () => {
 			try {
-				const pending = await mail.pending(opened.sub);
+				// The outbox, not a second count of its own: this dialog and the
+				// status bar's panel describe the same work, and a person who has
+				// seen "3 waiting" must not be told a different number here.
+				const owed = await mail.outbox(opened.sub);
 				if (account?.sub !== opened.sub) return;
 				step =
-					pending.assertions === 0
+					owed.waiting === 0
 						? { kind: 'clear' }
 						: {
 								kind: 'owed',
-								assertions: pending.assertions,
-								oldestAssertedAt: pending.oldestAssertedAt,
+								assertions: owed.waiting,
+								oldestAssertedAt: owed.oldestAssertedAt,
 							};
 			} catch (error) {
 				if (account?.sub !== opened.sub) return;
@@ -108,22 +110,18 @@
 	async function deliverThenRemove(sub: string, owed: number): Promise<void> {
 		step = { kind: 'working', label: 'Delivering to Gmail' };
 		try {
-			const outcome = await mail.reconcile(sub);
-			// A pass this surface is already running holds the account's claim, so
-			// this one delivered nothing. Saying "couldn't finish" would report a
-			// failure that did not happen while a delivery is in fact underway.
-			if ('reconciled' in outcome && outcome.reconciled === false) {
-				step = { kind: 'busy', message: outcome.message };
-				return;
-			}
-			const left = await mail.pending(sub);
-			if (left.assertions > 0) {
+			// Resolves when the pass has finished, including one already running for
+			// this account, so what is read back below is the state after a real
+			// delivery rather than beside one still in flight.
+			await mail.reconcile(sub);
+			const left = await mail.outbox(sub);
+			if (left.waiting > 0) {
 				// Nothing has been deleted. A delivery that cannot finish is a
 				// removal that did not happen, so the account stands as it was.
 				step = {
 					kind: 'stalled',
-					delivered: Math.max(owed - left.assertions, 0),
-					owed: left.assertions,
+					delivered: Math.max(owed - left.waiting, 0),
+					owed: left.waiting,
 					attempted: true,
 				};
 				return;
@@ -193,8 +191,6 @@
 						{step.owed}
 						{step.owed === 1 ? 'change is' : 'changes are'} still waiting, and
 						nothing has been removed.
-					{:else if step.kind === 'busy'}
-						{step.message} Nothing has been removed. Try again once it finishes.
 					{:else if step.kind === 'failed'}
 						{step.message}
 					{:else}
@@ -240,7 +236,7 @@
 						Discard {owed} and remove
 					</Button>
 					<Button onclick={onClose}>Keep the account, try again later</Button>
-				{:else if step.kind === 'busy' || step.kind === 'failed'}
+				{:else if step.kind === 'failed'}
 					<Button onclick={onClose}>Close</Button>
 				{/if}
 			</Dialog.Footer>

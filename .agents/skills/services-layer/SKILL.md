@@ -57,8 +57,8 @@ export type DownloadService = {
 
 Errors belong to the layer that understands the failure. Preserve lower-layer
 tagged errors when composing services. Define a service-local variant only for
-a failure the service itself owns. Use `define-errors` for variant shape and
-message rules; use `error-handling` for adaptation and propagation.
+a failure the service itself owns. Use `error-handling` for variant shape,
+message rules, adaptation, and propagation.
 
 ## Direct Object Or Factory
 

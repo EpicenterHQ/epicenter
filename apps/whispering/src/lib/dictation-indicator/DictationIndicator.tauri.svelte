@@ -31,7 +31,7 @@
 	const app = getWhisperingApp();
 
 	const log = createLogger('whispering/dictation-indicator');
-	const status = $derived(projectLifecycleToStatus(dictationLifecycle.current));
+	const status = $derived(projectLifecycleToStatus(dictationLifecycle.current(app.recording)));
 
 	const warn = (cause: unknown) =>
 		log.warn(DictationIndicatorError.OverlayWiringFailed({ cause }));

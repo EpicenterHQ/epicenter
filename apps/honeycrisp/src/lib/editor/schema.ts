@@ -4,7 +4,7 @@
  * Shared so the live editor (`Editor.svelte`) and the Markdown codec
  * (`markdown.ts`, which the file export and import both run through) convert
  * the same document shape (ADR-0264). Nothing reads a title or a preview
- * through here any more; those are sliced off the `Y.Type` directly
+ * through here any more; those are sliced off the `Y.Node` directly
  * (`node-text.ts`).
  */
 import { type MarkSpec, type NodeSpec, Schema } from 'prosemirror-model';

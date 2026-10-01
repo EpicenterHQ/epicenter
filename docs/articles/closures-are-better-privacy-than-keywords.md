@@ -135,7 +135,7 @@ return {
 };
 ```
 
-`bumpEpoch` calls `this.getEpoch()` because both live in the return object. Method shorthand gives you proper `this` binding; arrow functions don't.
+`bumpEpoch` calls `this.getEpoch()` when invoked through the returned object, which supplies `this`. Extracting `bumpEpoch` loses that receiver. An arrow property does not receive the returned object as `this`.
 
 If a function is called both by return-object methods *and* by pre-return initialization logic, it belongs in zone 3 (private helpers). Call it directly by name. No `this` needed, because it's a closure variable.
 
@@ -196,4 +196,4 @@ Zone 1 and 2 can merge when there's little state. Zone 3 is empty for small fact
 
 - [The Factory Function Pattern](./factory-function-pattern.md): the external signature and dependency injection
 - [The Universal Factory Function Signature](./universal-factory-signature.md): why every factory takes `(deps, options?)`
-- [Method Shorthand for JSDoc Preservation](./method-shorthand-jsdoc-preservation.md): why method shorthand in the return object preserves IDE documentation
+- [Documenting Returned Factory Methods](./method-shorthand-jsdoc-preservation.md): where to put public JSDoc and when sibling calls need a receiver

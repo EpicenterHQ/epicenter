@@ -1,6 +1,6 @@
 import { createMutation } from '@tanstack/svelte-query';
 import { VAD_RECORDING_BUTTON } from '$lib/constants/audio';
-import { toggleVadRecording } from '$lib/operations/recording';
+import { toggleVadRecording } from '$lib/operations/recording.svelte.js';
 import { vadRecorder } from '$lib/state/vad-recorder.svelte';
 import { getRecordingShortcutLabel } from '$lib/utils/recording-shortcut';
 import type { WhisperingApp } from '$lib/whispering/app';

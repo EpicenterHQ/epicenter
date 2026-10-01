@@ -1,13 +1,9 @@
 # @epicenter/recorder
 
-Browser microphone capture and voice-activity detection, with no app glue: no
-settings store, no tables, no transcription, no UI. It hands back a `Blob` plus
-level and speech callbacks.
-
-Manual recording products (start/stop lifecycles, artifact shapes, native
-recorders) are intentionally not here; an app builds those on top of this
-package's stream acquisition. This package is the browser-portable audio
-toolkit.
+Portable microphone streams, device vocabulary, and voice activity detection.
+Transient dictation can capture utterances without opening a store.
+Saved recordings use [the recorder resource in `@epicenter/app`](../app/README.md#blobs-and-recording),
+which commits audio to a Local store's blobs and coordinates shutdown.
 
 ## Public API
 

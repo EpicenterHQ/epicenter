@@ -1,206 +1,75 @@
-# Method Shorthand for JSDoc Preservation
+# Documenting Returned Factory Methods
 
-**TL;DR**: When factory functions have helper functions that are only used by returned methods, move them INTO the return object using method shorthand. Use `this.helperMethod()` to call siblings. This ensures JSDoc comments are properly passed through to consumers.
+A factory's returned object is its public API. Put consumer-facing JSDoc where a reader can find the operation, and choose the call style that matches how consumers use the object. Method shorthand is useful for both, but TypeScript does not require it to preserve JSDoc.
 
-## The Problem
+## What TypeScript shows
 
-You write a factory function with a well-documented helper:
+TypeScript 5.9.3 shows the helper's JSDoc on `counter.current()` even when the returned object uses property shorthand:
 
-```typescript
-function createHeadDoc(options: { workspaceId: string }) {
-	const { workspaceId } = options;
+```ts
+function createCounter() {
+	let count = 0;
 
-	/**
-	 * Get the current epoch number.
-	 *
-	 * Computes the maximum of all client-proposed epochs.
-	 * This ensures concurrent bumps converge to the same version.
-	 *
-	 * @returns The current epoch (0 if no bumps have occurred)
-	 */
-	function getEpoch(): number {
-		let max = 0;
-		for (const value of epochsMap.values()) {
-			max = Math.max(max, value);
-		}
-		return max;
+	/** Return the current count. */
+	function current() {
+		return count;
 	}
 
-	return {
-		workspaceId,
-		getEpoch, // JSDoc is NOT visible when hovering on returned object!
-
-		bumpEpoch(): number {
-			const next = getEpoch() + 1; // Calling internal helper
-			return next;
-		},
-	};
+	return { current };
 }
+
+type Counter = ReturnType<typeof createCounter>;
+declare const counter: Counter;
+counter.current();
 ```
 
-When you hover over `head.getEpoch()` in your IDE, you see... nothing. The JSDoc is lost.
+If the public wording differs from the helper's purpose, put that documentation on a returned method:
 
-## The Solution
-
-Move the helper INTO the return object using method shorthand:
-
-```typescript
-function createHeadDoc(options: { workspaceId: string }) {
-	const { workspaceId } = options;
-
-	return {
-		workspaceId,
-
-		/**
-		 * Get the current epoch number.
-		 *
-		 * Computes the maximum of all client-proposed epochs.
-		 * This ensures concurrent bumps converge to the same version.
-		 *
-		 * @returns The current epoch (0 if no bumps have occurred)
-		 */
-		getEpoch(): number {
-			let max = 0;
-			for (const value of epochsMap.values()) {
-				max = Math.max(max, value);
-			}
-			return max;
-		},
-
-		bumpEpoch(): number {
-			const next = this.getEpoch() + 1; // Use this.methodName()
-			return next;
-		},
-	};
-}
-```
-
-Now hovering over `head.getEpoch()` shows the full JSDoc.
-
-## Why This Works
-
-1. **JSDoc attaches to the method definition site** - when methods are inline in the return object, the JSDoc is directly on the property TypeScript sees
-2. **Method shorthand uses `function` semantics** - `this` is bound to the object, so `this.getEpoch()` works
-3. **No separate helper needed** - if it's only used by sibling methods, it belongs in the same object
-
-## The Pattern
-
-```typescript
-// BAD: Helper defined separately, JSDoc lost on return
-function createService(client) {
-  /** Fetches user data with caching. */
-  function fetchUser(id: string) { ... }
-
-  return {
-    fetchUser,  // JSDoc not visible to consumers!
-    getProfile(id: string) {
-      return fetchUser(id);  // Works, but consumers can't see docs
-    },
-  };
-}
-
-// GOOD: Method shorthand, JSDoc preserved
-function createService(client) {
-  return {
-    /** Fetches user data with caching. */
-    fetchUser(id: string) { ... },
-
-    getProfile(id: string) {
-      return this.fetchUser(id);  // Use this.method()
-    },
-  };
-}
-```
-
-## When to Apply
-
-Use this pattern when:
-
-- Helper functions are ONLY used by methods in the return object
-- You want JSDoc visible when consumers hover over the method
-- The helper doesn't need to be called before the return statement
-
-Keep helpers separate when:
-
-- They're called during initialization (before return)
-- They're used by multiple factories (extract to shared module)
-- They're truly internal and shouldn't be exposed
-
-## Arrow Functions Don't Work
-
-Arrow functions don't have their own `this`:
-
-```typescript
-// BAD: Arrow function, this is undefined
+```ts
 return {
-  getEpoch: () => { ... },
-  bumpEpoch: () => {
-    this.getEpoch();  // ERROR: this is undefined!
-  },
-};
-
-// GOOD: Method shorthand has correct this binding
-return {
-  getEpoch() { ... },
-  bumpEpoch() {
-    this.getEpoch();  // Works!
-  },
+	/** Return the current count. */
+	current() { return readCount(); },
 };
 ```
 
-## Real Example
+In TypeScript 5.9.3, JSDoc on an aliasing property did not replace the helper's own JSDoc in the consumer hover.
 
-From `packages/workspace/src/core/docs/head-doc.ts`:
+When an operation belongs only to the public object, method shorthand puts its implementation and documentation at that surface:
 
-```typescript
-export function createHeadDoc(options: { workspaceId: string; ydoc?: Y.Doc }) {
-	const { workspaceId } = options;
-	const ydoc = options.ydoc ?? new Y.Doc({ guid: workspaceId });
-	const epochsMap = ydoc.getMap<number>('epochs');
+```ts
+function createCounter() {
+	let count = 0;
 
 	return {
-		ydoc,
-		workspaceId,
-
-		/**
-		 * Get the current epoch number.
-		 *
-		 * Computes the maximum of all client-proposed epochs.
-		 * This ensures concurrent bumps converge to the same version
-		 * without skipping epoch numbers.
-		 *
-		 * @returns The current epoch (0 if no bumps have occurred)
-		 */
-		getEpoch(): number {
-			let max = 0;
-			for (const value of epochsMap.values()) {
-				max = Math.max(max, value);
-			}
-			return max;
+		/** Return the current count. */
+		current() {
+			return count;
 		},
-
-		/**
-		 * Bump the epoch to the next version.
-		 *
-		 * @returns The new epoch number after bumping
-		 */
-		bumpEpoch(): number {
-			const next = this.getEpoch() + 1;
-			epochsMap.set(ydoc.clientID.toString(), next);
-			return next;
-		},
-
-		// ... other methods using this.getEpoch()
 	};
 }
 ```
 
-## Summary
+Keep a separate helper when initialization or private code also calls it. `ReturnType<typeof createCounter>` retains the inferred members and their documentation. A separate return interface, wrapper, or re-export can change where Go to Definition lands, so inspect the actual call site when navigation matters.
 
-| Approach                    | JSDoc Visible? | `this` Works? |
-| --------------------------- | -------------- | ------------- |
-| Separate helper + reference | No             | N/A           |
-| Arrow function in return    | Yes            | No            |
-| Method shorthand in return  | Yes            | Yes           |
+## Calling a sibling method
 
-Method shorthand is the only approach that preserves JSDoc AND allows methods to call each other via `this`.
+A method shorthand member receives the returned object as `this` when called through that object:
+
+```ts
+return {
+	current() { return count; },
+	bump() { return this.current() + 1; },
+};
+```
+
+That call follows a replacement of `current`, but extracting `bump` loses its receiver. An arrow property does not acquire the returned object as `this`. If extraction must work, or the helper also runs during initialization, call a closure directly:
+
+```ts
+function current() { return count; }
+return {
+	current,
+	bump() { return current() + 1; },
+};
+```
+
+This direct call keeps using the closure's `current` even if a consumer replaces the public property. Decide which behavior the factory promises before moving a helper into the return object. For the concise decision rule, see the [factory composition reference](../../.agents/skills/factory-function-composition/references/method-documentation-and-sibling-calls.md).

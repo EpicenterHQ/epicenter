@@ -3,8 +3,18 @@ import { parseMarkdown } from './parse';
 import { editBody, editField, serializeEntry } from './serialize';
 
 describe('serializeEntry', () => {
-	test('an empty mapping is body only (no fence)', () => {
-		expect(serializeEntry({}, '# Body\ntext')).toBe('# Body\ntext');
+	test('an empty mapping retains explicit row framing', () => {
+		expect(serializeEntry({}, '# Body\ntext')).toBe(
+			'---\n{}\n---\n# Body\ntext',
+		);
+	});
+
+	test('editing a body-only file adds framing without changing its new body', () => {
+		const body = '---\nThis is body text, not YAML\n';
+		expect(parseMarkdown(editBody('old body', body)).data).toEqual({
+			frontmatter: {},
+			body,
+		});
 	});
 
 	test('emits a fence that reparses to the same values', () => {
@@ -79,10 +89,10 @@ describe('edit cycle (parse -> edit -> serialize -> parse)', () => {
 		expect(parseMarkdown(out).data?.frontmatter).toEqual({ title: '' });
 	});
 
-	test('clearing the last field drops the fence to body-only', () => {
+	test('clearing the last field retains an empty mapping', () => {
 		expect(
 			editField('---\ntitle: Hello\n---\n# Body\ntext', 'title', undefined),
-		).toBe('# Body\ntext');
+		).toBe('---\n{}\n---\n# Body\ntext');
 	});
 
 	test('an invalid-against-the-contract value survives by value (stays editable)', () => {

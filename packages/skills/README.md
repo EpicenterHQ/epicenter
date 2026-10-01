@@ -4,18 +4,20 @@
 services over an already opened handle. The package does not open storage,
 construct browser or Node runtimes, expose Yjs GUIDs, or register actions.
 
+A consumer chooses the opening boundary. An application calls `openPersonal` from
+`@epicenter/app/open` with this definition and `{ account }`. Tests and
+Bun tools can use a memory record:
+
 ```ts
-import { openDatabase } from '@epicenter/data/browser';
+import { openMemory } from '@epicenter/app/memory';
 import { skillsDefinition } from '@epicenter/skills';
 
-const { data: skills, error } = await openDatabase(skillsDefinition, {
-	appId: 'so.epicenter.skills',
-	generation,
-	account,
-});
-if (error !== null) return handle(error);
+await using skills = await openMemory(skillsDefinition);
 const rows = skills.tables.skills.rows;
 ```
+
+The Skills application still refuses startup pending its product and auth
+model. Its historical generation opener is retired; existing bytes remain.
 
 ## Data model
 
@@ -25,11 +27,11 @@ ids. A
 SKILL.md `metadata.id` is stored separately as `sourceId`, so filesystem
 round-trips can match records without forging canonical identity.
 
-Each skill and reference row carries a `content` rich field. A skill's holds its
+Each skill and reference row owns a collaborative body. A skill's holds its
 instructions; a reference's holds its Markdown body:
 
 ```ts
-const content = skills.tables.skills.get(skill.id)?.content;
+const content = skills.tables.skills.body(skill.id);
 content?.insert(0, ['# Instructions']);
 ```
 

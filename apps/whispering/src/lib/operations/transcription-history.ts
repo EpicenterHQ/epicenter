@@ -1,17 +1,12 @@
-import { InstantString } from '@epicenter/data/field';
+import { InstantString } from '@epicenter/app/field';
 import {
 	type AnyTaggedError,
 	defineErrors,
-	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
-import { createLogger, type Logger } from 'wellcrafted/logger';
-import { Err, isErr, Ok, type Result, trySync } from 'wellcrafted/result';
-import type { WhisperingApp } from '$lib/whispering/app';
-import type { Recording } from '$lib/whispering/recording';
-import type { RecordingId } from '$lib/workspace';
-
-const defaultLog = createLogger('whispering/transcription-history');
+import { Err, isErr, Ok, type Result, tryAsync } from 'wellcrafted/result';
+import type { RecordingId, Transcription } from '../data.js';
+import type { WhisperingApp, WhisperingData } from '../whispering/app.js';
 
 export const RecordingHistoryError = defineErrors({
 	SaveUnconfirmed: ({
@@ -30,61 +25,110 @@ export type RecordingHistoryError = InferErrors<typeof RecordingHistoryError>;
 
 export type TranscriptionSuccess = {
 	text: string;
-	history: Result<void, RecordingHistoryError>;
+	resultId: string | null;
+	history: Result<void, AnyTaggedError>;
 };
 
-/**
- * Attempt one transcription-related recording patch without letting a refused
- * write escape the operation's Result contract.
- *
- * Still conservative about what a failure means, and still asynchronous. The
- * write itself is synchronous now, but every caller is inside an async
- * transcription pipeline and the outcome is reported the same way either
- * direction, so the shape stays.
- */
-export function saveRecordingHistory(
+/** One successful inference owns one Original, even if persistence needs a retry. */
+export async function recordTranscriptionOutcome<TError extends AnyTaggedError>(
 	app: WhisperingApp,
-	recordingId: RecordingId,
-	changes: Partial<Omit<Recording, 'id' | 'audioBlobId' | 'uploadedAt'>>,
-): Result<void, RecordingHistoryError> {
-	const { error } = trySync({
-		try: () => app.recordings.patch(recordingId, changes),
-		catch: (cause) =>
-			RecordingHistoryError.SaveUnconfirmed({ recordingId, cause }),
-	});
-	return error !== null ? Err(error) : Ok(undefined);
-}
-
-/** Record a provider outcome without letting secondary history failure replace it. */
-export function recordTranscriptionOutcome<TError extends AnyTaggedError>(
-	app: WhisperingApp,
+	store: WhisperingData,
 	recordingId: RecordingId,
 	transcription: Result<string, TError>,
-	log: Logger = defaultLog,
-): Result<TranscriptionSuccess, TError> {
-	// The outcome is three columns rather than one nested object: a workspace has no
-	// expression for an inline object, and flattening also lets a failure's
-	// message merge independently of its timestamp (`workspace/index.ts`).
+	receipt = app.pendingSaves.reserve('Transcript'),
+	attemptedAt = InstantString.now(),
+	selection: { connectionId: string; model: string } | null = null,
+): Promise<Result<TranscriptionSuccess, TError>> {
 	if (isErr(transcription)) {
-		const error = transcription.error;
-		const { error: historyError } = saveRecordingHistory(app, recordingId, {
-			transcriptionStatus: 'failed',
-			transcriptionCompletedAt: InstantString.now(),
-			transcriptionError: extractErrorMessage(error),
-		});
-		if (historyError !== null) {
-			log.warn(historyError);
-		}
-		return Err(error);
+		receipt.discard();
+		return Err(transcription.error);
 	}
-
 	const text = transcription.data;
-	const history = saveRecordingHistory(app, recordingId, {
-		transcript: text,
-		polishedTranscript: null,
-		transcriptionStatus: 'completed',
-		transcriptionCompletedAt: InstantString.now(),
-		transcriptionError: null,
-	});
-	return Ok({ text, history });
+	const values = {
+		recordingId,
+		attemptedAt,
+		completedAt: InstantString.now(),
+		rawText: text,
+		cleanedText: null,
+		connectionId: selection?.connectionId ?? null,
+		model: selection?.model ?? null,
+		legacyRecordingId: null,
+	};
+	let created: Transcription | undefined;
+	let attempted = false;
+	const history = await receipt.run(() =>
+		tryAsync({
+			try: async () => {
+				app.signal.throwIfAborted();
+				if (!store.tables.recordings.get(recordingId))
+					throw new Error('The recording is no longer available.');
+				if (!attempted) {
+					attempted = true;
+					created = store.tables.transcriptions.create(values);
+				}
+				if (!created)
+					throw new Error(
+						'Creation acceptance is uncertain. Do not create another result.',
+					);
+				await store.persistence.flush();
+				app.signal.throwIfAborted();
+				if (store.persistence.get() !== 'saved')
+					throw new Error('Local persistence is blocked.');
+				const saved = store.tables.transcriptions.get(created.id);
+				if (
+					!saved ||
+					saved.rawText !== text ||
+					saved.recordingId !== recordingId
+				)
+					throw new Error('The retained Original is no longer present.');
+			},
+			catch: (cause) =>
+				RecordingHistoryError.SaveUnconfirmed({ recordingId, cause }),
+		}),
+	);
+	return Ok({ text, resultId: created?.id ?? null, history });
+}
+
+/** Accept one Cleaned value only for the Original and version the caller saw. */
+export async function saveCleanedTranscription(
+	app: WhisperingApp,
+	store: WhisperingData,
+	resultId: string,
+	expected: Pick<Transcription, 'rawText' | 'cleanedText'>,
+	cleanedText: string | null,
+	receipt = app.pendingSaves.reserve('Cleaned transcript'),
+): Promise<Result<void, AnyTaggedError>> {
+	return receipt.run(() =>
+		tryAsync({
+			try: async () => {
+				app.signal.throwIfAborted();
+				const current = store.tables.transcriptions.get(resultId);
+				if (!current || current.rawText !== expected.rawText)
+					throw new Error('The Original changed or is no longer available.');
+				if (current.cleanedText !== cleanedText) {
+					if (current.cleanedText !== expected.cleanedText)
+						throw new Error(
+							'The Cleaned version changed after the preview opened.',
+						);
+					const written = store.tables.transcriptions.update(resultId, {
+						cleanedText,
+					});
+					if (written.error) throw written.error;
+				}
+				await store.persistence.flush();
+				app.signal.throwIfAborted();
+				if (
+					store.persistence.get() !== 'saved' ||
+					store.tables.transcriptions.get(resultId)?.cleanedText !== cleanedText
+				)
+					throw new Error('The Cleaned version was not confirmed.');
+			},
+			catch: (cause) =>
+				RecordingHistoryError.SaveUnconfirmed({
+					recordingId:
+						store.tables.transcriptions.get(resultId)?.recordingId ?? 'unknown',
+					cause,
+				}),
+		}),
+	);
 }

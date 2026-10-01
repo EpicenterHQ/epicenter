@@ -4,7 +4,8 @@
  * Frontmatter is the typed-COLUMN layer, so the app owns its formatting and
  * re-emits it canonically (eemeli `yaml` `stringify`): key order follows the
  * object (which is disk order, since the caller edits a freshly parsed mapping;
- * a newly set key appends), and an empty mapping drops the fence entirely. The
+ * a newly set key appends). Empty mappings retain a fence so clearing the last
+ * field still produces a row file. The
  * body is the one rich field and is written VERBATIM, never reparsed, so prose
  * and any comments you care about live there and survive untouched.
  *
@@ -29,7 +30,6 @@ export function serializeEntry(
 	frontmatter: Record<string, unknown>,
 	body: string,
 ): string {
-	if (Object.keys(frontmatter).length === 0) return body;
 	return `---\n${stringify(frontmatter)}---\n${body}`;
 }
 

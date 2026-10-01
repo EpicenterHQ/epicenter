@@ -5,24 +5,29 @@
 	"version": "0.0.1",
 	"type": "module",
 	"imports": {
-		"#platform/binding": {
-			"epicenter-host": "./src/lib/platform/binding.epicenter-host.ts",
-			"default": "./src/lib/platform/binding.browser.ts"
-		},
 		"#platform/gmail-authorization": {
 			"epicenter-host": "./src/lib/platform/gmail-authorization.epicenter-host.ts",
 			"default": "./src/lib/platform/gmail-authorization.browser.ts"
+		},
+		"#platform/auth": {
+			"epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",
+			"default": "./src/lib/platform/auth.browser.ts"
 		}
 	},
 	"scripts": {
-		"dev": "vite dev",
+		"dev": "infisical run --silent --env=dev --path=/apps/local-mail --project-config-dir=../../api -- vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
+		"test:browser": "playwright test",
+		"test:browser:install": "playwright install --with-deps chromium webkit",
 		"prepare": "svelte-kit sync || echo ''",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json && svelte-check --tsconfig ./evidence/tsconfig.json"
 	},
 	"devDependencies": {
+		"@playwright/test": "1.62.1",
+		"@epicenter/sync": "workspace:*",
 		"@epicenter/ui": "workspace:*",
+		"@epicenter/vite-config": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@sveltejs/adapter-static": "catalog:",
 		"@sveltejs/kit": "catalog:",
@@ -40,12 +45,18 @@
 		"vite": "catalog:"
 	},
 	"dependencies": {
-		"@epicenter/app": "workspace:*",
+		"@epicenter/app-shell": "workspace:*",
+		"@epicenter/device": "workspace:*",
 		"@epicenter/local-mail": "workspace:*",
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/plugin-opener": "catalog:",
 		"arkregex": "catalog:",
-		"dompurify": "^3.4.10"
+		"dompurify": "^3.4.10",
+		"@epicenter/app": "workspace:*",
+		"@epicenter/auth": "workspace:*",
+		"@epicenter/constants": "workspace:*",
+		"@epicenter/svelte": "workspace:*",
+		"wellcrafted": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/self-host",
-	"description": "Self-hosted single-partition instance (community-supported): one operator-supplied bearer, an off-Cloudflare Bun entry and a Cloudflare Worker reference",
+	"description": "Community-supported self-hosting with named users and passkey sign-in on Bun and Cloudflare Workers",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",
@@ -17,6 +17,7 @@
 		"gen-token": "bun scripts/gen-token.ts"
 	},
 	"dependencies": {
+		"@epicenter/app": "workspace:*",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/principal": "workspace:*",

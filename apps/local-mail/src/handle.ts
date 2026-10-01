@@ -15,7 +15,7 @@
  * has to thread.
  */
 
-import type { AppSqliteDatabase } from '@epicenter/app';
+import type { AppSqliteDatabase } from '@epicenter/device';
 
 /** What a statement may bind. Neither store stores a BLOB. */
 export type Binding = string | number | null;

@@ -1,0 +1,54 @@
+{
+	"$schema": "https://shadcn-svelte.com/schema/registry-item.json",
+	"name": "chat",
+	"title": "Chat",
+	"type": "registry:ui",
+	"description": "A component for creating live chats, messaging interfaces, conversation UIs, chat bubbles, message threads, and real-time communication displays.",
+	"devDependencies": [
+		"bits-ui@^2.16.5",
+		"@lucide/svelte@^1.7.0"
+	],
+	"registryDependencies": [
+		"./shadcn-svelte-avatar.json",
+		"./utils.json",
+		"./button.json",
+		"./use-auto-scroll.json"
+	],
+	"files": [
+		{
+			"content": "<script lang=\"ts\">\n\timport { Root } from '$COMPONENTS$/ui/avatar';\n\timport { Avatar as AvatarPrimitive } from 'bits-ui';\n\timport { cn } from '$UTILS$.js';\n\n\tlet {\n\t\tref = $bindable(null),\n\t\tclass: className,\n\t\t...restProps\n\t}: AvatarPrimitive.RootProps = $props();\n</script>\n\n<Root\n\tbind:ref\n\tclass={cn(\"order-1 group-data-[variant='sent']/chat-bubble:order-2\", className)}\n\t{...restProps}\n/>\n",
+			"type": "registry:ui",
+			"target": "chat/chat-bubble-avatar.svelte"
+		},
+		{
+			"content": "<script lang=\"ts\">\n\timport LoadingDots from './loading-dots.svelte';\n\timport { cn } from '$UTILS$.js';\n\timport type { ChatBubbleMessageProps } from './types';\n\n\tlet {\n\t\tref = $bindable(null),\n\t\ttyping = false,\n\t\tclass: className,\n\t\tchildren,\n\t\t...rest\n\t}: ChatBubbleMessageProps = $props();\n</script>\n\n<div\n\t{...rest}\n\tbind:this={ref}\n\tclass={cn(\n\t\t\"bg-secondary group-data-[variant='sent']/chat-bubble:bg-primary group-data-[variant='sent']/chat-bubble:text-primary-foreground order-2 rounded-lg p-4 text-sm group-data-[variant='received']/chat-bubble:rounded-bl-none group-data-[variant='sent']/chat-bubble:order-1 group-data-[variant='sent']/chat-bubble:rounded-br-none\",\n\t\tclassName\n\t)}\n>\n\t{#if typing}\n\t\t<div class=\"flex size-full place-items-center justify-center\">\n\t\t\t<LoadingDots />\n\t\t</div>\n\t{:else}\n\t\t{@render children?.()}\n\t{/if}\n</div>\n",
+			"type": "registry:ui",
+			"target": "chat/chat-bubble-message.svelte"
+		},
+		{
+			"content": "<script lang=\"ts\">\n\timport type { ChatBubbleProps } from './types';\n\timport { cn } from '$UTILS$.js';\n\n\tlet {\n\t\tref = $bindable(null),\n\t\tvariant,\n\t\tchildren,\n\t\tclass: className,\n\t\t...rest\n\t}: ChatBubbleProps = $props();\n</script>\n\n<div\n\t{...rest}\n\tbind:this={ref}\n\tclass={cn(\n\t\t\"group/chat-bubble flex max-w-[80%] flex-row place-items-end gap-2 data-[variant='sent']:place-self-end\",\n\t\tclassName\n\t)}\n\tdata-variant={variant}\n>\n\t{@render children?.()}\n</div>\n",
+			"type": "registry:ui",
+			"target": "chat/chat-bubble.svelte"
+		},
+		{
+			"content": "<script lang=\"ts\">\n\timport { cn } from '$UTILS$.js';\n\timport { onMount } from 'svelte';\n\timport Button from '$COMPONENTS$/button.svelte';\n\timport ArrowDownIcon from '@lucide/svelte/icons/arrow-down';\n\timport { scale } from 'svelte/transition';\n\timport { UseAutoScroll } from '$HOOKS$/use-auto-scroll.svelte.js';\n\timport type { ChatListProps } from './types';\n\n\tlet { ref = $bindable(null), children, class: className, ...rest }: ChatListProps = $props();\n\n\t// Prevents movement on page load\n\tlet canScrollSmooth = $state(false);\n\n\tconst autoScroll = new UseAutoScroll();\n\n\tonMount(() => {\n\t\tcanScrollSmooth = true;\n\t});\n</script>\n\n<div class=\"relative\">\n\t<div\n\t\t{...rest}\n\t\tbind:this={ref}\n\t\tclass={cn('no-scrollbar flex h-full w-full flex-col gap-4 overflow-y-auto p-4', className, {\n\t\t\t'scroll-smooth': canScrollSmooth\n\t\t})}\n\t\tbind:this={autoScroll.ref}\n\t>\n\t\t{@render children?.()}\n\t</div>\n\t{#if !autoScroll.isAtBottom}\n\t\t<div\n\t\t\tin:scale={{ start: 0.85, duration: 100, delay: 250 }}\n\t\t\tout:scale={{ start: 0.85, duration: 100 }}\n\t\t>\n\t\t\t<Button\n\t\t\t\tonclick={() => autoScroll.scrollToBottom()}\n\t\t\t\tvariant=\"outline\"\n\t\t\t\tsize=\"icon\"\n\t\t\t\tclass=\"absolute bottom-2 left-1/2 inline-flex -translate-x-1/2 transform rounded-full shadow-md\"\n\t\t\t>\n\t\t\t\t<ArrowDownIcon />\n\t\t\t</Button>\n\t\t</div>\n\t{/if}\n</div>\n",
+			"type": "registry:ui",
+			"target": "chat/chat-list.svelte"
+		},
+		{
+			"content": "import Bubble from './chat-bubble.svelte';\nimport BubbleMessage from './chat-bubble-message.svelte';\nimport BubbleAvatar from './chat-bubble-avatar.svelte';\nimport List from './chat-list.svelte';\nimport * as Avatar from '$COMPONENTS$/ui/avatar';\n\nconst BubbleAvatarImage = Avatar.Image;\nconst BubbleAvatarFallback = Avatar.Fallback;\n\nexport { List, Bubble, BubbleMessage, BubbleAvatar, BubbleAvatarImage, BubbleAvatarFallback };\n\nexport type {\n\tChatListPropsWithoutHTML,\n\tChatListProps,\n\tChatBubblePropsWithoutHTML,\n\tChatBubbleProps,\n\tChatBubbleMessagePropsWithoutHTML,\n\tChatBubbleMessageProps\n} from './types';\n",
+			"type": "registry:ui",
+			"target": "chat/index.ts"
+		},
+		{
+			"content": "<script lang=\"ts\">\n\ttype Props = {\n\t\tsize?: number;\n\t};\n\n\tlet { size = 4 }: Props = $props();\n</script>\n\n<div style:--loading-dots-size=\"{size}px\" class=\"inline-flex items-center gap-1\">\n\t{#each { length: 3 } as _, i (i)}\n\t\t<span class=\"bg-primary inline-block size-(--loading-dots-size) rounded-full\"></span>\n\t{/each}\n</div>\n\n<style>\n\tspan {\n\t\tanimation-name: loading-dots;\n\t\tanimation-duration: 1.4s;\n\t\tanimation-iteration-count: infinite;\n\t\tanimation-fill-mode: both;\n\t}\n\n\tspan:nth-of-type(2) {\n\t\tanimation-delay: 0.2s;\n\t}\n\n\tspan:nth-of-type(3) {\n\t\tanimation-delay: 0.4s;\n\t}\n\n\t@keyframes loading-dots {\n\t\t0% {\n\t\t\topacity: 0.2;\n\t\t}\n\t\t20% {\n\t\t\topacity: 1;\n\t\t}\n\t\tto {\n\t\t\topacity: 0.2;\n\t\t}\n\t}\n</style>\n",
+			"type": "registry:ui",
+			"target": "chat/loading-dots.svelte"
+		},
+		{
+			"content": "import type { WithChildren, WithoutChildren } from 'bits-ui';\nimport type { HTMLAttributes } from 'svelte/elements';\n\nexport type ChatListPropsWithoutHTML = WithChildren<{\n\tref?: HTMLDivElement | null;\n}>;\n\nexport type ChatListProps = ChatListPropsWithoutHTML &\n\tWithoutChildren<HTMLAttributes<HTMLDivElement>>;\n\nexport type ChatBubblePropsWithoutHTML = WithChildren<{\n\tref?: HTMLDivElement | null;\n\tvariant: 'sent' | 'received';\n}>;\n\nexport type ChatBubbleProps = ChatBubblePropsWithoutHTML &\n\tWithoutChildren<HTMLAttributes<HTMLDivElement>>;\n\nexport type ChatBubbleMessagePropsWithoutHTML = WithChildren<{\n\tref?: HTMLDivElement | null;\n\ttyping?: boolean;\n}>;\n\nexport type ChatBubbleMessageProps = ChatBubbleMessagePropsWithoutHTML &\n\tWithoutChildren<HTMLAttributes<HTMLDivElement>>;\n",
+			"type": "registry:ui",
+			"target": "chat/types.ts"
+		}
+	]
+}

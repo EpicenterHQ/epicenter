@@ -2,11 +2,12 @@
 	import { Button } from '@epicenter/ui/button';
 	import { CopyButton } from '@epicenter/ui/copy-button';
 	import * as InputGroup from '@epicenter/ui/input-group';
-	import type { RecordingId } from '$lib/workspace';
+	import type { RecordingId } from '$lib/data';
 	import { createCopyFn } from '$lib/utils/createCopyFn';
 	import { viewTransition } from '$lib/utils/viewTransitions';
 	import RecordingDetailModal from './RecordingDetailModal.svelte';
 	import { getWhisperingApp } from '$lib/whispering/context';
+	import { latestTranscription } from '$lib/whispering/transcriptions';
 
 	const app = getWhisperingApp();
 
@@ -17,22 +18,29 @@
 	 * most natural gesture. The inline copy button keeps the fast-copy path
 	 * without opening anything.
 	 */
-	let { recordingId }: { recordingId: RecordingId } = $props();
+	let {
+		recordingId,
+		store,
+	}: {
+		recordingId: RecordingId;
+		store: import('$lib/whispering/app.js').RecordingStore;
+	} = $props();
 
 	let showOriginal = $state(false);
-	const recording = $derived(app.recordings.get(recordingId));
-	const hasDeliveredTranscript = $derived(!!recording?.polishedTranscript);
+	const recording = $derived(store.tables.recordings.get(recordingId));
+	const result = $derived(latestTranscription(store, recordingId));
+	const hasCleanedTranscript = $derived(!!result?.cleanedText);
 	const transcript = $derived(
 		showOriginal
-			? (recording?.transcript ?? '')
-			: (recording?.polishedTranscript ?? recording?.transcript ?? ''),
+			? (result?.rawText ?? '')
+			: (result?.cleanedText ?? result?.rawText ?? ''),
 	);
 	const hasTranscript = $derived(!!transcript.trim());
 </script>
 
 {#if recording}
 	<InputGroup.Root>
-		<RecordingDetailModal {recording}>
+		<RecordingDetailModal {recording} {store}>
 			{#snippet trigger(props)}
 				<textarea
 					{...props}
@@ -44,25 +52,24 @@
 					style:view-transition-name={viewTransition.recording(recordingId)
 						.transcript}
 					rows={1}
-					aria-label="Click to open this recording"
-				></textarea>
+					aria-label="Click to open this recording"></textarea>
 			{/snippet}
 		</RecordingDetailModal>
 		{#if hasTranscript}
-			{#if hasDeliveredTranscript}
+			{#if hasCleanedTranscript}
 				<InputGroup.Addon align="inline-end">
 					<Button
 						variant="ghost"
 						size="sm"
 						tooltip={showOriginal
-							? 'Show delivered transcript'
+							? 'Show cleaned transcript'
 							: 'Show original transcript'}
 						onclick={(e) => {
 							e.stopPropagation();
 							showOriginal = !showOriginal;
 						}}
 					>
-						{showOriginal ? 'Result' : 'Original'}
+						{showOriginal ? 'Cleaned' : 'Original'}
 					</Button>
 				</InputGroup.Addon>
 			{/if}

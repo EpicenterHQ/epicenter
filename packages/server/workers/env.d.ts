@@ -8,6 +8,8 @@ import type { StoreTestReplica } from './replica.js';
 declare global {
 	namespace Cloudflare {
 		interface Env {
+			/** Hosted deletion-route fixture imports the billing binding contract. */
+			AUTUMN_SECRET_KEY: string;
 			STORE_AUTHORITY: DurableObjectNamespace<StoreAuthority>;
 			REPLICA: DurableObjectNamespace<StoreTestReplica>;
 		}

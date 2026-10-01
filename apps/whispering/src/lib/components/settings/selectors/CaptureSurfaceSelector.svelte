@@ -7,7 +7,7 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import { CAPTURE_SURFACE_OPTIONS } from '$lib/constants/audio';
-	import { selectCaptureSurface } from '$lib/operations/recording';
+	import { selectCaptureSurface } from '$lib/operations/recording.svelte.js';
 	import { captureSurface } from '$lib/state/capture-surface.svelte';
 	import { getWhisperingApp } from '$lib/whispering/context';
 
@@ -19,7 +19,7 @@
 
 	const current = $derived(
 		CAPTURE_SURFACE_OPTIONS.find(
-			(surface) => surface.value === captureSurface.current(app),
+			(surface) => surface.value === captureSurface.current(),
 		),
 	);
 </script>
@@ -33,6 +33,7 @@
 				tooltip={current
 					? `Capture: ${current.label}`
 					: 'Select capture surface'}
+				aria-label="Capture surface"
 				role="combobox"
 				aria-expanded={combobox.open}
 				variant="ghost"
@@ -47,7 +48,7 @@
 			<Command.List>
 				<Command.Group>
 					{#each CAPTURE_SURFACE_OPTIONS as surface (surface.value)}
-						{@const isSelected = captureSurface.current(app) === surface.value}
+						{@const isSelected = captureSurface.current() === surface.value}
 						{@const SurfaceIcon = surface.Icon}
 						<Command.Item
 							value={surface.value}

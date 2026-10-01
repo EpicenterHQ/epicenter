@@ -19,12 +19,22 @@ export const corsMiddleware = createMiddleware<Env>(async (c, next) => {
 		origin: (origin) =>
 			origin && trustedOrigins.includes(origin) ? origin : undefined,
 		credentials: true,
-		// `If-None-Match` and an exposed `ETag` used to be here for the document
-		// pull's conditional read. No route on this server reads or emits either
-		// one now. The blob store's `If-None-Match: *` is not a counterexample:
-		// that header rides a presigned PUT straight to S3, which never passes
-		// through this middleware and answers to the bucket's own CORS config.
-		allowHeaders: ['Content-Type', 'Authorization', 'Upgrade'],
-		allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+		allowHeaders: [
+			'Content-Type',
+			'Authorization',
+			'Upgrade',
+			'X-Epicenter-Principal',
+			'If-Match',
+			'If-Range',
+			'Range',
+		],
+		allowMethods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+		exposeHeaders: [
+			'ETag',
+			'Content-Range',
+			'Accept-Ranges',
+			'Epicenter-Generation',
+			'Epicenter-Log-Position',
+		],
 	})(c, next);
 });

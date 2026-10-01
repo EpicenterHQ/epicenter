@@ -15,7 +15,10 @@
 		senderName,
 		shortDate,
 	} from '$lib/format';
-	import type { MailLabel, MessageSummary } from '$lib/types';
+	import type {
+		LabelSummary,
+		MessageSummary,
+	} from '@epicenter/local-mail/mailbox';
 
 	let {
 		messages,
@@ -27,7 +30,7 @@
 		onSelect,
 	}: {
 		messages: MessageSummary[];
-		labels: MailLabel[];
+		labels: LabelSummary[];
 		selectedId: string | null;
 		loading: boolean;
 		error: string | null;
@@ -84,7 +87,7 @@
 			</Empty.Title>
 			<Empty.Description>
 				{mirrorEmpty
-					? 'Run local-mail reconcile --full to populate the mirror.'
+					? 'Open Sync to download your mail or reconnect Gmail.'
 					: 'Try a different label or search term.'}
 			</Empty.Description>
 		</Empty.Root>

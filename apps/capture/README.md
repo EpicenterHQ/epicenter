@@ -1,0 +1,13 @@
+# Capture
+
+Capture is a signed-in web app over one Personal `so.epicenter.capture` store. Its root shows dated capture cards newest first. **New capture** opens a draft dialog. A capture has full editable text and one manually ordered list of independently editable thoughts. The timeline shows a short multiline excerpt of the capture body and its thought count. Thought rows can be edited, copied, reordered, moved to another capture, or deleted individually. The URL selects a capture by ID.
+
+The capture and thought body editors bind their existing flat Yjs text nodes directly to text-only ProseMirror views. Enter and plain-text paste preserve line breaks. The new capture and Add a thought fields remain draft inputs until a row is created. Dismissing the new-capture form keeps its draft while the account view stays mounted.
+
+Thoughts whose capture is unavailable surface as a conditional **Thoughts without a capture** notice on the root. Opening it reveals the editable thoughts and their actions. They keep their original reference until the capture arrives or the person moves or deletes them. Deleting a capture shows its text and the exact thoughts selected for deletion, refreshes on local changes, and reports completion after local persistence. A thought added on another offline device can survive and appear in recovery.
+
+The root also shows **Earlier entries** if the account has rows from the previous recursive implementation. Each readable entry shows its full text for copying into the new model. This is an explicit manual recovery path; the app does not convert or erase old rows. Unreadable rows raise an alert.
+
+Run `bun dev:capture` from the repository root. `bun run --cwd apps/capture smoke:browser` starts a disposable self-hosted issuer and two isolated Chromium contexts. It verifies multiline text, sync, reload, thought order and moves, refreshed deletion, conflicting offline reorders, and an unseen offline thought surviving in recovery. The fixture deletes its temporary server state when it exits.
+
+The store contract lives in [`packages/capture`](../../packages/capture/). In the Epicenter desktop app, Whispering can submit selected transcript text to the mounted Capture document. Capture claims each request before creating a root and acknowledges it after local persistence. The handoff leaves Capture's current selection and unsent draft alone; opening the confirmed capture selects its exact ID. The separately hosted browser apps do not have a background handoff. Markdown preview and copy or download of one capture with its thoughts remain later work. ADRs 0432 through 0435 remain Proposed.

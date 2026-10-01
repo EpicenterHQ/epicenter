@@ -61,7 +61,7 @@ test('the settled words pass', () => {
 	withRepo((dir) => {
 		write(
 			dir,
-			'packages/data/src/row.ts',
+			'packages/app/src/data/row.ts',
 			'// a field holds a value or a node\n',
 		);
 		commitAll(dir);
@@ -73,19 +73,19 @@ test('the settled words pass', () => {
 
 test('a retired word fails, with its file, line, and replacement', () => {
 	withRepo((dir) => {
-		write(dir, 'packages/data/src/row.ts', '// ok\n// a scalar field\n');
+		write(dir, 'packages/app/src/data/row.ts', '// ok\n// a scalar field\n');
 		commitAll(dir);
 		const { code, out } = run(dir);
 		expect(code).toBe(1);
-		expect(out).toContain('packages/data/src/row.ts:2');
+		expect(out).toContain('packages/app/src/data/row.ts:2');
 		expect(out).toContain('use value');
 	});
 });
 
 test('the plural and the capital both count', () => {
 	withRepo((dir) => {
-		write(dir, 'packages/data/a.ts', '// the scalars\n');
-		write(dir, 'packages/data/b.ts', '// Scalar fields\n');
+		write(dir, 'packages/app/src/data/a.ts', '// the scalars\n');
+		write(dir, 'packages/app/src/data/b.ts', '// Scalar fields\n');
 		commitAll(dir);
 		expect(run(dir).code).toBe(1);
 	});
@@ -93,9 +93,9 @@ test('the plural and the capital both count', () => {
 
 test('an untracked file is not scanned, so the verdict does not depend on the machine', () => {
 	withRepo((dir) => {
-		write(dir, 'packages/data/src/row.ts', '// clean\n');
+		write(dir, 'packages/app/src/data/row.ts', '// clean\n');
 		commitAll(dir);
-		write(dir, 'packages/data/src/stray.ts', '// a scalar\n');
+		write(dir, 'packages/app/src/data/stray.ts', '// a scalar\n');
 		expect(run(dir).code).toBe(0);
 	});
 });
@@ -138,7 +138,7 @@ test('an app with its own SQLite mirror may lift scalar columns', () => {
 
 test('prose is refused inside the store and allowed outside it', () => {
 	withRepo((dir) => {
-		write(dir, 'packages/data/src/row.ts', "// the row's prose\n");
+		write(dir, 'packages/app/src/data/row.ts', "// the row's prose\n");
 		commitAll(dir);
 		expect(run(dir).code).toBe(1);
 	});
@@ -159,7 +159,7 @@ test('column is not checked, because real columns exist', () => {
 	withRepo((dir) => {
 		write(
 			dir,
-			'packages/data/src/log.ts',
+			'packages/app/src/data/log.ts',
 			'// the one column you have to understand\n',
 		);
 		commitAll(dir);
@@ -169,7 +169,7 @@ test('column is not checked, because real columns exist', () => {
 
 test('ProseMirror is a product name, not the word', () => {
 	withRepo((dir) => {
-		write(dir, 'packages/data/src/codec.ts', '// a ProseMirror node\n');
+		write(dir, 'packages/app/src/data/codec.ts', '// a ProseMirror node\n');
 		commitAll(dir);
 		expect(run(dir).code).toBe(0);
 	});
@@ -179,14 +179,14 @@ test('a marked line is allowed, and only that line', () => {
 	withRepo((dir) => {
 		write(
 			dir,
-			'packages/data/src/row.ts',
+			'packages/app/src/data/row.ts',
 			"// vocab-check: ignore-next-line (YAML's word)\n// a YAML scalar\n// a scalar field\n",
 		);
 		commitAll(dir);
 		const { code, out } = run(dir);
 		expect(code).toBe(1);
-		expect(out).toContain('packages/data/src/row.ts:3');
-		expect(out).not.toContain('packages/data/src/row.ts:2');
+		expect(out).toContain('packages/app/src/data/row.ts:3');
+		expect(out).not.toContain('packages/app/src/data/row.ts:2');
 	});
 });
 
@@ -194,7 +194,7 @@ test('a whole file can opt out', () => {
 	withRepo((dir) => {
 		write(
 			dir,
-			'packages/data/src/legacy.md',
+			'packages/app/src/data/legacy.md',
 			'<!-- vocab-check: ignore-file -->\n\nScalars and prose, throughout.\n',
 		);
 		commitAll(dir);
@@ -205,7 +205,7 @@ test('a whole file can opt out', () => {
 test('generated declarations and changelogs are skipped', () => {
 	withRepo((dir) => {
 		write(dir, 'apps/api/worker-configuration.d.ts', '// prose explanation\n');
-		write(dir, 'packages/data/CHANGELOG.md', '- scalars removed\n');
+		write(dir, 'packages/app/src/data/CHANGELOG.md', '- scalars removed\n');
 		commitAll(dir);
 		expect(run(dir).code).toBe(0);
 	});

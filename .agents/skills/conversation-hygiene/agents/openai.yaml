@@ -1,0 +1,4 @@
+interface:
+  display_name: "Conversation Hygiene"
+  short_description: "Triage old Codex conversations without losing wanted work"
+  default_prompt: "Use $conversation-hygiene to triage this project’s Codex conversations, preserve wanted work, and archive conversations that no longer need attention."

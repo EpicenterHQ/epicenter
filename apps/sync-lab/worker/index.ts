@@ -2,7 +2,7 @@
  * THROWAWAY. One Durable Object per application partition, and a page.
  *
  * The Durable Object is a thin adapter and nothing more: every rule about who
- * has been sent what lives in `@epicenter/data/sync`, so what runs here and
+ * has been sent what lives in `@epicenter/app/sync`, so what runs here and
  * what the tests drive are the same object rather than two that agree today.
  *
  * Delete this app once the transport is settled. It exists because `wrangler
@@ -16,7 +16,7 @@ import {
 	openSyncAuthority,
 	type SyncAuthority,
 	type SyncHub,
-} from '@epicenter/data/sync';
+} from '@epicenter/app/sync';
 import {
 	createDurableObjectSqliteAdapter,
 	type DurableObjectSqliteStorage,

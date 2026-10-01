@@ -1,6 +1,6 @@
 ---
 name: typescript
-description: Apply project conventions for TypeScript types, imports, generics, factories, and runtime schemas. Use when editing `.ts` files or reviewing TypeScript design and tests.
+description: Apply project conventions for TypeScript types, imports, generics, factories, and runtime schemas. Use when editing `.ts` files or reviewing TypeScript design and tests, including constraints that need to name an invalid literal key or string in a compiler error.
 metadata:
   author: epicenter
   version: '2.0'
@@ -8,7 +8,7 @@ metadata:
 
 # TypeScript Guidelines
 
-Project-wide TypeScript conventions compose with narrower skills such as `arktype`, `typebox`, `testing`, and `method-shorthand-jsdoc`.
+Project-wide TypeScript conventions compose with narrower skills such as `arktype`, `typebox`, `testing`, and `factory-function-composition`.
 
 ## Core Rules
 
@@ -35,7 +35,7 @@ Project-wide TypeScript conventions compose with narrower skills such as `arktyp
 - Use `is`, `has`, or `can` prefixes for booleans that answer a question.
 - Prefer `switch` over `if/else` for repeated equality comparisons against the same value. Use `default: value satisfies never` for exhaustiveness when needed.
 - Prefer `Record` lookup tables over nested ternaries for finite value mappings.
-- Compose typed errors bottom-up. Do not filter a broad upstream error union at the boundary.
+- Compose typed errors bottom-up. Do not filter a broad upstream error union at the boundary. See `error-handling` for Result propagation, recovery, and presentation.
 - Question silent fallbacks that hide invalid state. Preserve round-trip invariants when parsing and serializing.
 
 ## Go-to-Definition Awareness
@@ -49,7 +49,7 @@ Concrete regressions to watch for:
 - **`: T` annotation over `satisfies` for a multi-impl port**: the complement of the rule above. When an interface `T` has several impls (a `#platform/*` or browser/tauri split) and one impl is deliberately narrower than `T` (e.g. ignores a param the contract declares), `export const x = {...} satisfies T` leaks that narrow concrete type, so a caller's view of the method changes by platform. Annotate `export const x: T = {...}` to publish the wide contract, and the narrower impl still type-checks. Reference: whispering's `ManualRecorderLive: RecorderService<...>` (unary CPAL impl behind a binary contract).
 - **Re-export chains in non-barrel files**: `export { X } from './alias'` outside `index.ts` costs an extra hop with nothing to show for it. Reserve `export { ... } from ...` for barrels; export at the declaration everywhere else.
 - **Adapter / proxy / wrapper with no behavior change**: a `fromX` translator or thin passthrough makes Go-to-Def land on the wrapper. Widen the underlying factory's return shape instead (see `factory-function-composition` "collapsed adapter" rule).
-- **Manual return type annotation duplicating zone 4**: annotating a factory with a hand-written interface diverts Go-to-Def to the alias. Let the factory return its concrete object, then put the exported alias directly after it as `export type Thing = ReturnType<typeof createThing>`. This keeps navigation on the returned members and lets their JSDoc own the public documentation. See `method-shorthand-jsdoc`.
+- **Manual return type annotation duplicating zone 4**: annotating a factory with a hand-written interface diverts Go-to-Def to the alias. Let the factory return its concrete object, then put the exported alias directly after it as `export type Thing = ReturnType<typeof createThing>`. This keeps navigation on the returned members and lets their JSDoc own the public documentation. See [factory method documentation](../factory-function-composition/references/method-documentation-and-sibling-calls.md) when hover or navigation is in question.
 - **Noisy `satisfies` generic lists**: if a return object should prove it extends a generic contract but `satisfies Contract<A, B, C> & Extras` forces callers to restate inferred table, action, or runtime types, prefer a constrained identity helper owned by the contract module. Example: `return defineWorkspace({ ...workspace, ...runtime })` where the helper accepts `TWorkspace extends Workspace<...>` and returns `TWorkspace`. This keeps the call site readable, preserves the exact inferred return type, and leaves Go-to-Def on the real object members.
 - **When not to add `defineX`**: do not wrap a simple `satisfies` check just to give it a helper name. If the contract has no required type arguments, or its generics have defaults that make `satisfies Contract` readable, prefer `satisfies`. The helper only earns the extra name when it removes generic noise the reader would otherwise have to carry.
 
@@ -64,3 +64,4 @@ For broader public-shape decisions that affect navigation across packages, see `
 - [Runtime schema patterns](references/runtime-schema-patterns.md): arktype, branded IDs, optional property syntax, and workspace table IDs.
 - [Testing patterns](references/testing-patterns.md): inline single-use setup and source-shadowing tests.
 - [Advanced TypeScript features](references/advanced-typescript-features.md): iterator helpers and const generic array inference.
+- [Readable constraint errors](references/readable-constraint-errors.md): read when a literal key or string constraint needs to identify the offending value in a compiler diagnostic.

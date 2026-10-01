@@ -1,0 +1,21 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"types": ["bun"],
+		"noUnusedLocals": true,
+		"noUnusedParameters": true
+	},
+	"exclude": [
+		"src/data/store/browser.ts",
+		"src/data/store/browser.test.ts",
+		"src/data/store/current-open.test.ts",
+		"src/data/store/port-conformance.test.ts",
+		"src/data/store/current-cache.ts",
+		"src/data/store/idb-updates.ts",
+		"**/*.test.ts",
+		"**/*.test-d.ts",
+		"**/*.test-support.ts",
+		"src/data/__benchmarks__"
+	],
+	"include": ["src/data/**/*.ts"]
+}

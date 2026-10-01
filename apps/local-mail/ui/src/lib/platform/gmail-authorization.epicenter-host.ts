@@ -32,17 +32,30 @@ const AUTHORIZATION_TIMEOUT_MS = 10 * 60 * 1_000;
 const POLL_INTERVAL_MS = 500;
 
 export const gmailAuthorization: GmailAuthorization = {
-	async authorize(request) {
+	async authorize(request, signal) {
+		signal.throwIfAborted();
 		// Discard whatever an abandoned attempt left behind. Without this, a
 		// callback nobody redeemed would be handed to this attempt instead of
 		// its own, which fails the `state` check and strands the real answer.
-		await collect();
+		await collect(signal);
+		signal.throwIfAborted();
 		await openUrl(request.authorizeUrl);
 		const deadline = Date.now() + AUTHORIZATION_TIMEOUT_MS;
 		while (Date.now() < deadline) {
-			const pending = await collect();
+			const pending = await collect(signal);
 			if (pending !== null) return new URL(pending.callbackUrl);
-			await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+			await new Promise<void>((resolve, reject) => {
+				signal.throwIfAborted();
+				const abort = () => {
+					clearTimeout(timer);
+					reject(signal.reason);
+				};
+				const timer = setTimeout(() => {
+					signal.removeEventListener('abort', abort);
+					resolve();
+				}, POLL_INTERVAL_MS);
+				signal.addEventListener('abort', abort, { once: true });
+			});
 		}
 		throw new Error(
 			'Google did not answer. Close the browser tab and try connecting again.',
@@ -51,8 +64,11 @@ export const gmailAuthorization: GmailAuthorization = {
 };
 
 /** The callback the host is holding, or nothing yet. */
-async function collect(): Promise<PendingCallback | null> {
-	const response = await fetch(PENDING_CALLBACK_PATH, { cache: 'no-store' });
+async function collect(signal: AbortSignal): Promise<PendingCallback | null> {
+	const response = await fetch(PENDING_CALLBACK_PATH, {
+		cache: 'no-store',
+		signal,
+	});
 	if (response.status === 204) return null;
 	if (!response.ok) {
 		throw new Error(
@@ -61,3 +77,7 @@ async function collect(): Promise<PendingCallback | null> {
 	}
 	return (await response.json()) as PendingCallback;
 }
+
+/** Explain the lifetime of the credential owned by this build. */
+export const gmailSignInNotice: string =
+	'Your Gmail sign-in is saved in this device’s secure store. It is not shared with other devices.';

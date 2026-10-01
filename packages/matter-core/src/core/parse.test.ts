@@ -72,3 +72,35 @@ describe('parseMarkdown', () => {
 		expect(parseMarkdown(raw).error?.name).toBe('FrontmatterNotMapping');
 	});
 });
+
+test('an opening fence requires an exact closing fence line', () => {
+	expect(parseMarkdown('---\ntitle: x\n---not-a-fence\nbody').error?.name).toBe(
+		'InvalidYaml',
+	);
+	expect(parseMarkdown('---\ntitle: x').error?.name).toBe('InvalidYaml');
+	expect(parseMarkdown('---\ntitle: x\n---').data).toEqual({
+		frontmatter: { title: 'x' },
+		body: '',
+	});
+	const body = '# Body\n---\nexample: content\n---\n';
+	expect(parseMarkdown(body).data).toEqual({ frontmatter: {}, body });
+});
+
+test('extra YAML documents and content after document end refuse', () => {
+	for (const raw of [
+		'---\ntitle: x\n...\nother: y\n---\n',
+		'---\ntitle: x\n--- second\nother: y\n---\n',
+	]) {
+		expect(parseMarkdown(raw).error?.name).toBe('InvalidYaml');
+	}
+});
+test('only an empty YAML document is an empty mapping, never an explicit null scalar', () => {
+	for (const yaml of ['null', '~', '!!null null']) {
+		expect(parseMarkdown(`---\n${yaml}\n---\n`).error?.name).toBe(
+			'FrontmatterNotMapping',
+		);
+	}
+	for (const yaml of ['', '# comment only', '{}']) {
+		expect(parseMarkdown(`---\n${yaml}\n---\n`).data?.frontmatter).toEqual({});
+	}
+});

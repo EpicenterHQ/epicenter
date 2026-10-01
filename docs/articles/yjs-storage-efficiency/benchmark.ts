@@ -6,7 +6,7 @@
  *
  * Requirements:
  *   - Bun runtime (includes bun:sqlite)
- *   - yjs package: `bun add yjs`
+ *   - workspace dependencies: `bun install` from the repository root
  *
  * Usage:
  *   bun run benchmark.ts
@@ -34,7 +34,7 @@
  */
 
 import { Database } from 'bun:sqlite';
-import * as Y from 'yjs';
+import * as Y from '@y/y';
 import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -231,12 +231,12 @@ function createSqliteStore(path: string) {
 /**
  * Creates a YJS store with methods for CRUD operations.
  *
- * Same pattern as SQLite: the Y.Doc and Y.Map are closed over,
+ * Same pattern as SQLite: the Y.Doc and Y.Node are closed over,
  * so callers don't need to pass them to every method.
  */
 function createYjsStore() {
 	const doc = new Y.Doc();
-	const recordsMap = doc.getMap('records') as Y.Map<Y.Map<unknown>>;
+	const recordsMap = doc.get('records');
 
 	return {
 		/** Insert all records in a single transaction. Returns time in ms. */
@@ -244,16 +244,16 @@ function createYjsStore() {
 			const start = performance.now();
 			doc.transact(() => {
 				for (const r of records) {
-					const row = new Y.Map();
-					row.set('id', r.id);
-					row.set('title', r.title);
-					row.set('content', r.content);
-					row.set('category', r.category);
-					row.set('views', r.views);
-					row.set('created_at', r.created_at);
-					row.set('updated_at', r.updated_at);
-					row.set('is_published', r.is_published);
-					recordsMap.set(r.id, row);
+					const row = new Y.Node();
+					row.setAttr('id', r.id);
+					row.setAttr('title', r.title);
+					row.setAttr('content', r.content);
+					row.setAttr('category', r.category);
+					row.setAttr('views', r.views);
+					row.setAttr('created_at', r.created_at);
+					row.setAttr('updated_at', r.updated_at);
+					row.setAttr('is_published', r.is_published);
+					recordsMap.setAttr(r.id, row);
 				}
 			});
 			return performance.now() - start;
@@ -263,8 +263,8 @@ function createYjsStore() {
 		deleteAll(): number {
 			const start = performance.now();
 			doc.transact(() => {
-				for (const key of recordsMap.keys()) {
-					recordsMap.delete(key);
+				for (const key of recordsMap.attrKeys()) {
+					recordsMap.deleteAttr(key as string);
 				}
 			});
 			return performance.now() - start;
@@ -274,9 +274,9 @@ function createYjsStore() {
 		updateAll(): number {
 			const start = performance.now();
 			doc.transact(() => {
-				for (const [, row] of recordsMap) {
-					row.set('views', (row.get('views') as number) + 1);
-					row.set('updated_at', new Date().toISOString());
+				for (const [, row] of recordsMap.attrEntries()) {
+					row.setAttr('views', (row.getAttr('views') as number) + 1);
+					row.setAttr('updated_at', new Date().toISOString());
 				}
 			});
 			return performance.now() - start;
@@ -286,16 +286,16 @@ function createYjsStore() {
 		readAll(): { time: number; count: number } {
 			const start = performance.now();
 			const results: Record[] = [];
-			for (const [, row] of recordsMap) {
+			for (const [, row] of recordsMap.attrEntries()) {
 				results.push({
-					id: row.get('id') as string,
-					title: row.get('title') as string,
-					content: row.get('content') as string,
-					category: row.get('category') as string,
-					views: row.get('views') as number,
-					created_at: row.get('created_at') as string,
-					updated_at: row.get('updated_at') as string,
-					is_published: row.get('is_published') as number,
+					id: row.getAttr('id') as string,
+					title: row.getAttr('title') as string,
+					content: row.getAttr('content') as string,
+					category: row.getAttr('category') as string,
+					views: row.getAttr('views') as number,
+					created_at: row.getAttr('created_at') as string,
+					updated_at: row.getAttr('updated_at') as string,
+					is_published: row.getAttr('is_published') as number,
 				});
 			}
 			return { time: performance.now() - start, count: results.length };
@@ -305,17 +305,17 @@ function createYjsStore() {
 		readByCategory(category: string): { time: number; count: number } {
 			const start = performance.now();
 			const results: Record[] = [];
-			for (const [, row] of recordsMap) {
-				if (row.get('category') === category) {
+			for (const [, row] of recordsMap.attrEntries()) {
+				if (row.getAttr('category') === category) {
 					results.push({
-						id: row.get('id') as string,
-						title: row.get('title') as string,
-						content: row.get('content') as string,
-						category: row.get('category') as string,
-						views: row.get('views') as number,
-						created_at: row.get('created_at') as string,
-						updated_at: row.get('updated_at') as string,
-						is_published: row.get('is_published') as number,
+						id: row.getAttr('id') as string,
+						title: row.getAttr('title') as string,
+						content: row.getAttr('content') as string,
+						category: row.getAttr('category') as string,
+						views: row.getAttr('views') as number,
+						created_at: row.getAttr('created_at') as string,
+						updated_at: row.getAttr('updated_at') as string,
+						is_published: row.getAttr('is_published') as number,
 					});
 				}
 			}
@@ -331,7 +331,7 @@ function createYjsStore() {
 
 		/** Get current record count. */
 		count(): number {
-			return recordsMap.size;
+			return [...recordsMap.attrKeys()].length;
 		},
 	};
 }

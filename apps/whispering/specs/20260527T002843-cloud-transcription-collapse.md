@@ -1,5 +1,7 @@
 # Cloud transcription provider collapse
 
+**Superseded by**: `specs/20260912T112824-app-hub-and-whispering-transcription-collapse.md`
+
 ## Status
 
 Draft. Handoff-ready prompt at bottom.

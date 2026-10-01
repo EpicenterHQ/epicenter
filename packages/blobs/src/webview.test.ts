@@ -1,196 +1,207 @@
 /**
- * WebView Blob Adapter Tests
- *
- * Verifies the WebView implementation of the portable local blob contract.
- * The adapter must keep requests relative to the active authenticated origin
- * and translate the small HTTP status vocabulary back into typed Results.
- *
- * Key behaviors:
- * - Stable media URLs remain relative and contain only the opaque BlobId
- * - Requests preserve same-origin cookie authentication
- * - HTTP not-found and collision statuses become expected typed errors
- * - HEAD metadata is validated before entering the portable contract
- * - Sources hand out the stable URL after a stat check, with a safe no-op
- *   disposer
+ * WebView local blob adapter tests.
+ * Verifies app-local routes, authenticated transport, metadata validation,
+ * immutable write errors, and disposable playback without account selectors.
  */
-
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { generateBlobId } from './blob-id.js';
-import {
-	createWebviewBlobRemote,
-	createWebviewBlobSources,
-	createWebviewBlobStore,
-	desktopBlobUrl,
-} from './webview.js';
+import type { BlobStoreError } from './blob-store.js';
+import { BLOB_PATHS, createWebviewBlobs } from './webview.js';
 
 function setup(responses: Response[]) {
 	const requests: Request[] = [];
-	const requestInits: RequestInit[] = [];
-	const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
-		requestInits.push(init ?? {});
-		const absoluteInput =
-			typeof input === 'string' && input.startsWith('/')
-				? new URL(input, 'http://localhost')
-				: input;
-		requests.push(new Request(absoluteInput, init));
-		const response = responses.shift();
-		if (response === undefined) throw new Error('Unexpected HTTP request');
-		return response;
+	const inits: RequestInit[] = [];
+	const options = {
+		appId: 'so.epicenter.test',
+		async fetch(input: RequestInfo | URL, init?: RequestInit) {
+			inits.push(init ?? {});
+			requests.push(
+				new Request(new URL(String(input), 'http://localhost'), init),
+			);
+			const response = responses.shift();
+			if (!response) throw new Error('Unexpected HTTP request');
+			return response;
+		},
 	};
-	return {
-		blobs: createWebviewBlobStore({ fetch: fetcher }),
-		fetcher,
-		requestInits,
-		requests,
-	};
+	return { ...createWebviewBlobs(options), options, requests, inits };
 }
 
-test('desktopBlobUrl constructs one relative opaque-id locator', () => {
-	const id = generateBlobId();
-
-	expect(desktopBlobUrl(id)).toBe(`/api/local-blobs/${id}`);
-});
-
-test('put sends bytes with same-origin credentials and maps collisions', async () => {
-	const { blobs, requestInits, requests } = setup([
-		new Response(null, { status: 201 }),
-		new Response(null, { status: 409 }),
-	]);
-	const id = generateBlobId();
-
-	expectOk(await blobs.put(id, new Blob(['first'], { type: 'audio/wav' })));
-	const error = expectErr(
-		await blobs.put(id, new Blob(['second'], { type: 'audio/wav' })),
-	);
-
-	expect(error.name).toBe('BlobAlreadyExists');
-	expect(requests[0]?.url).toBe(`http://localhost${desktopBlobUrl(id)}`);
-	expect(requests[0]?.method).toBe('PUT');
-	expect(requestInits[0]?.credentials).toBe('same-origin');
-	expect(requests[0]?.headers.get('content-type')).toBe('audio/wav');
-});
-
-test('get returns response bytes and maps a missing object', async () => {
-	const { blobs } = setup([
-		new Response('audio', {
-			headers: { 'content-type': 'audio/test' },
-		}),
-		new Response(null, { status: 404 }),
-	]);
-	const id = generateBlobId();
-
-	const blob = expectOk(await blobs.get(id));
-	expect(blob.type).toBe('audio/test');
-	expect(await blob.text()).toBe('audio');
-	expect(expectErr(await blobs.get(id)).name).toBe('BlobNotFound');
-});
-
-test('stat parses HEAD metadata and rejects malformed responses', async () => {
-	const { blobs } = setup([
-		new Response(null, {
-			headers: {
-				'content-length': '42',
-				'content-type': 'audio/wav',
-			},
-		}),
-		new Response(null, {
-			headers: {
-				'content-length': 'not-a-number',
-				'content-type': 'audio/wav',
-			},
-		}),
-	]);
-	const id = generateBlobId();
-
-	expect(expectOk(await blobs.stat(id))).toEqual({
-		contentType: 'audio/wav',
-		size: 42,
+function metadata(size = 5, contentType = 'audio/wav') {
+	return new Response(null, {
+		headers: { 'content-length': String(size), 'content-type': contentType },
 	});
-	expect(expectErr(await blobs.stat(id)).name).toBe('BlobStoreFailed');
-});
+}
 
-test('delete is idempotent when the host accepts repeated requests', async () => {
-	const { blobs } = setup([
+test('all local operations retain the app selected at construction', async () => {
+	const id = generateBlobId('wav');
+	const { local, sources, options, requests, inits } = setup([
+		new Response(null, { status: 204 }),
+		new Response('audio'),
+		metadata(),
+		metadata(),
 		new Response(null, { status: 204 }),
 		new Response(null, { status: 204 }),
 	]);
-	const id = generateBlobId();
-
-	expectOk(await blobs.delete(id));
-	expectOk(await blobs.delete(id));
-});
-
-test('webview sources stat local availability and return the stable URL', async () => {
-	const { blobs, requests } = setup([
-		new Response(null, {
-			headers: { 'content-length': '7', 'content-type': 'audio/wav' },
-		}),
-	]);
-	const sources = createWebviewBlobSources(blobs);
-	const id = generateBlobId();
-
+	options.appId = 'so.epicenter.other';
+	expectOk(await local.put(id, new Blob(['audio'])));
+	expect(await expectOk(await local.get(id)).text()).toBe('audio');
+	expect(expectOk(await local.stat(id))).toEqual({
+		size: 5,
+		contentType: 'audio/wav',
+	});
 	const source = expectOk(await sources.open(id));
-	expect(source.url).toBe(desktopBlobUrl(id));
-	expect(requests[0]?.method).toBe('HEAD');
-
-	// The URL is stable, so disposal is a harmless idempotent no-op.
+	expect(source.url).toBe(
+		`/api/apps/so.epicenter.test/blobs/${id}?owner=no-account`,
+	);
 	source[Symbol.dispose]();
 	source[Symbol.dispose]();
-	expect(source.url).toBe(desktopBlobUrl(id));
-});
-
-test('webview sources forward missing local bytes from the stat check', async () => {
-	const { blobs } = setup([new Response(null, { status: 404 })]);
-	const sources = createWebviewBlobSources(blobs);
-	const id = generateBlobId();
-
-	const error = expectErr(await sources.open(id));
-	expect(error).toMatchObject({ name: 'BlobNotFound', id });
-});
-
-test('remote operations post the id-only path with same-origin credentials', async () => {
-	const { fetcher, requests, requestInits } = setup([
-		new Response(null, { status: 204 }),
-		new Response(null, { status: 204 }),
-		new Response(null, { status: 204 }),
-	]);
-	const remote = createWebviewBlobRemote({ fetch: fetcher });
-	const id = generateBlobId();
-
-	expectOk(await remote.upload(id));
-	expectOk(await remote.download(id));
-	expectOk(await remote.purge(id));
-
-	expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
-		`${desktopBlobUrl(id)}/upload`,
-		`${desktopBlobUrl(id)}/download`,
-		`${desktopBlobUrl(id)}/purge`,
+	expectOk(await local.delete(id));
+	expect(requests.map((request) => request.method)).toEqual([
+		'PUT',
+		'GET',
+		'HEAD',
+		'HEAD',
+		'DELETE',
 	]);
 	for (const request of requests) {
-		expect(request.method).toBe('POST');
-		expect(request.headers.get('authorization')).toBeNull();
+		expect(request.url).toContain('/api/apps/so.epicenter.test/blobs/');
 	}
-	for (const init of requestInits) {
+	for (const init of inits) {
 		expect(init.credentials).toBe('same-origin');
-		expect(init.body).toBeUndefined();
+		expect(init.redirect).toBe('error');
+	}
+	expect(BLOB_PATHS).toEqual({ local: '/api/apps/:appId/blobs' });
+});
+
+test('invalid application IDs fail before fetching', () => {
+	for (const appId of [
+		'',
+		'app',
+		'../other',
+		' so.epicenter.test',
+		'so.epicenter.test/other',
+	])
+		expect(() => createWebviewBlobs({ appId })).toThrow();
+});
+
+test('list sends exclusive pagination and accepts only ordered complete metadata', async () => {
+	const ids = [
+		generateBlobId('wav'),
+		generateBlobId('wav'),
+		generateBlobId('wav'),
+	].sort();
+	const items = [{ id: ids[1]!, size: 12, contentType: 'audio/wav' }];
+	const { local, requests } = setup([
+		Response.json({ items, nextCursor: ids[1] }),
+	]);
+	expect(expectOk(await local.list({ cursor: ids[0], limit: 1 }))).toEqual({
+		items,
+		nextCursor: ids[1],
+	});
+	const url = new URL(requests[0]!.url);
+	expect(url.pathname).toBe('/api/apps/so.epicenter.test/blobs');
+	expect(url.searchParams.get('cursor')).toBe(ids[0]!);
+	expect(url.searchParams.get('limit')).toBe('1');
+});
+
+test('list rejects malformed results and invalid options', async () => {
+	const id = generateBlobId('wav');
+	for (const page of [
+		{},
+		{ items: [{ id, size: -1, contentType: 'audio/wav' }] },
+		{ items: [{ id, size: 1, contentType: '' }] },
+		{
+			items: [
+				{
+					id: 'attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa',
+					size: 1,
+					contentType: 'audio/wav',
+				},
+			],
+		},
+		{ items: [], nextCursor: id },
+		{
+			items: [
+				{ id, size: 1, contentType: 'audio/wav' },
+				{ id, size: 1, contentType: 'audio/wav' },
+			],
+		},
+	]) {
+		const { local } = setup([Response.json(page)]);
+		expect(expectErr(await local.list()).name).toBe('BlobStoreFailed');
+	}
+	const { local, requests } = setup([]);
+	for (const options of [
+		{ cursor: '../escape' },
+		{ limit: 0 },
+		{ limit: 1001 },
+	])
+		expect(expectErr(await local.list(options)).name).toBe('BlobStoreFailed');
+	expect(requests).toHaveLength(0);
+});
+
+test('missing bytes and immutable collisions keep typed errors', async () => {
+	const id = generateBlobId('wav');
+	const { local, sources } = setup([
+		new Response(null, { status: 404 }),
+		new Response(null, { status: 404 }),
+		new Response(null, { status: 409 }),
+		new Response(null, { status: 404 }),
+	]);
+	expect(expectErr(await local.get(id))).toMatchObject({
+		name: 'BlobNotFound',
+		id,
+	});
+	expect(expectErr(await local.stat(id))).toMatchObject({
+		name: 'BlobNotFound',
+		id,
+	});
+	expect(expectErr(await local.put(id, new Blob()))).toMatchObject({
+		name: 'BlobAlreadyExists',
+		id,
+	});
+	expect(expectErr(await sources.open(id))).toMatchObject({
+		name: 'BlobNotFound',
+		id,
+	});
+});
+
+test('invalid HEAD metadata fails without creating a playback URL', async () => {
+	for (const response of [
+		new Response(),
+		metadata(-1),
+		metadata(1.5),
+		metadata(5, ''),
+	]) {
+		const { sources } = setup([response]);
+		expect(expectErr(await sources.open(generateBlobId('wav'))).name).toBe(
+			'BlobStoreFailed',
+		);
 	}
 });
 
-test('remote statuses map onto the typed blob vocabulary', async () => {
-	const { fetcher } = setup([
-		new Response('Blob not found', { status: 404 }),
-		new Response('Blob not found', { status: 404 }),
-		new Response('Blob store failed', { status: 500 }),
-		new Response('Remote operation failed', { status: 502 }),
-		new Response('Remote storage unavailable', { status: 503 }),
-	]);
-	const remote = createWebviewBlobRemote({ fetch: fetcher });
-	const id = generateBlobId();
-
-	expect(expectErr(await remote.upload(id)).name).toBe('BlobNotFound');
-	expect(expectErr(await remote.download(id)).name).toBe('RemoteBlobNotFound');
-	expect(expectErr(await remote.upload(id)).name).toBe('BlobStoreFailed');
-	expect(expectErr(await remote.download(id)).name).toBe('BlobRemoteFailed');
-	expect(expectErr(await remote.purge(id)).name).toBe('BlobRemoteFailed');
+test('transport and HTTP failures remain typed for each operation', async () => {
+	const id = generateBlobId('wav');
+	const { local } = setup(
+		Array.from({ length: 7 }, () => new Response(null, { status: 500 })),
+	);
+	for (const operation of [
+		() => local.get(id),
+		() => local.stat(id),
+		() => local.put(id, new Blob()),
+		() => local.delete(id),
+		() => local.list(),
+	])
+		expect(expectErr<BlobStoreError>(await operation()).name).toBe(
+			'BlobStoreFailed',
+		);
+	const failing = createWebviewBlobs({
+		appId: 'so.epicenter.test',
+		fetch: async () => {
+			throw new Error('offline');
+		},
+	});
+	expect(expectErr(await failing.local.get(id)).name).toBe('BlobStoreFailed');
+	expect(expectErr(await failing.local.list()).name).toBe('BlobStoreFailed');
 });

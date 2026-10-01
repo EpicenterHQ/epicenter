@@ -32,7 +32,7 @@
 		{
 			"id": "review-simplify-this",
 			"cluster": "review",
-			"prompt": "Take a look at packages/data and simplify this. There is a lot of indirection nobody needs.",
+			"prompt": "Take a look at packages/app and simplify this. There is a lot of indirection nobody needs.",
 			"anchors": ["simplify this"],
 			"expect": "collapse-pass",
 			"forbid": ["control-flow"],

@@ -1,0 +1,42 @@
+{
+	"name": "@epicenter/todos",
+	"description": "File-first todos: Markdown rows, browser Git history, and a folder terminal",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "bun scripts/dev.ts",
+		"dev:ui": "vite dev",
+		"dev:git": "bun server/git-server.ts",
+		"native": "bun scripts/native.ts",
+		"build": "NODE_ENV=production vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"test": "bun test --isolate",
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.scripts.json"
+	},
+	"devDependencies": {
+		"@epicenter/ui": "workspace:*",
+		"@epicenter/vite-config": "workspace:*",
+		"@lucide/svelte": "catalog:",
+		"@sveltejs/adapter-static": "catalog:",
+		"@sveltejs/kit": "catalog:",
+		"@sveltejs/vite-plugin-svelte": "catalog:",
+		"@tailwindcss/vite": "catalog:",
+		"@types/bun": "catalog:",
+		"fake-indexeddb": "^6.2.5",
+		"mode-watcher": "catalog:",
+		"svelte": "catalog:",
+		"svelte-check": "catalog:",
+		"svelte-sonner": "catalog:",
+		"tailwindcss": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:"
+	},
+	"dependencies": {
+		"@epicenter/app": "workspace:*",
+		"buffer": "^6.0.3",
+		"wellcrafted": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

@@ -22,7 +22,7 @@
 	// The markdown content node itself, rather than a separate row document. The
 	// caller already chose which table and which row; handing that choice down
 	// would make this component know about Skills, and it only knows about text.
-	let { content }: { content: Y.Type } =
+	let { content }: { content: Y.Node } =
 		$props();
 	let container: HTMLDivElement | undefined = $state();
 

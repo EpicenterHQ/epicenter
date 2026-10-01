@@ -7,18 +7,8 @@
 
 @import "./prose.css";
 
-/*
-  shadcn-svelte 1.x style system. shadcn-base.css vendors upstream
-  shadcn-svelte/tailwind.css (data-* custom variants, no-scrollbar, accordion
-  keyframes) that the cn-* rules depend on; style-vega.css is the vendored Vega
-  preset; epicenter-overlay.css carries Epicenter-specific deltas. Components emit
-  Vega cn-* hooks where the preset supports them; inline utilities remain only for
-  structural layout, required Tailwind variants, or documented Epicenter deltas.
-  See specs/20260606T160000-ui-shadcn-cn-style-migration-vega.md
-*/
+/* Keep the upstream data variants, utilities, and accordion animation definitions. */
 @import "./styles/shadcn-base.css";
-@import "./styles/style-vega.css" layer(base);
-@import "./styles/epicenter-overlay.css" layer(base);
 
 @source "./**/*.{svelte,ts}";
 /* App-shell components are styled through this shared CSS entrypoint, so Tailwind

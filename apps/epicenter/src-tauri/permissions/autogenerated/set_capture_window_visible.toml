@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-capture-window-visible"
+description = "Enables the set_capture_window_visible command without any pre-configured scope."
+commands.allow = ["set_capture_window_visible"]
+
+[[permission]]
+identifier = "deny-set-capture-window-visible"
+description = "Denies the set_capture_window_visible command without any pre-configured scope."
+commands.deny = ["set_capture_window_visible"]

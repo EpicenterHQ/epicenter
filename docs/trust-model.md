@@ -9,8 +9,8 @@ This page describes what the code does today. The files that carry it:
 - `packages/server/src/store-sync/authority.ts`: the authority, one Durable
   Object per principal, application, and generation (ADR-0292, ADR-0298)
 - `packages/server/src/store-sync/mount.ts`: the authenticated upgrade onto it
-- `packages/data/src/store/store.ts`: the client-owned store
-- `packages/data/src/store/browser.ts`: local persistence, in the client
+- `packages/app/src/data/store/store.ts`: the client-owned store
+- `packages/app/src/data/store/browser.ts`: local persistence, in the client
 
 The shape changed with ADR-0298, restoring ADR-0218, and is worth stating
 precisely, because it moves

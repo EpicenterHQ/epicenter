@@ -17,9 +17,10 @@ admits trusted installed apps. Every trusted app receives:
 ```txt
 <Epicenter root>/
   data/                         shared curated Epicenter authority
-  blobs/                        host-owned blobs
   apps/
-    <app-id>/                   private operational place for one trusted app
+    <app-id>/                   private operational place for one trusted app,
+                               including app-local blob bytes
+      blobs/                    app-local bytes; account-remote uploads are explicit
 ```
 
 The directory is an ownership boundary, not an operating-system sandbox. Apps

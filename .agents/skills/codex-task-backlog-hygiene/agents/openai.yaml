@@ -1,4 +1,0 @@
-interface:
-  display_name: "Codex Task Backlog Hygiene"
-  short_description: "Clean Codex tasks without losing future intent"
-  default_prompt: "Use $codex-task-backlog-hygiene to audit this project’s Codex tasks, preserve desired future outcomes, and archive completed ownership."

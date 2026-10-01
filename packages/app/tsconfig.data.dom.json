@@ -1,0 +1,14 @@
+{
+	"extends": "../../tsconfig.dom.json",
+	"compilerOptions": {
+		"types": ["bun"],
+		"noUnusedLocals": true,
+		"noUnusedParameters": true
+	},
+	"include": ["evidence/data/**/*.ts"],
+	"exclude": [
+		"evidence/data/browser/durable-store",
+		"evidence/data/browser/write-cost",
+		"evidence/data/browser/port-cost"
+	]
+}

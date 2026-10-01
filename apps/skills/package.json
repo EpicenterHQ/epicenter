@@ -14,6 +14,8 @@
 		"check": "bun run typecheck"
 	},
 	"devDependencies": {
+		"@epicenter/device": "workspace:*",
+		"@epicenter/sync": "workspace:*",
 		"@codemirror/commands": "^6.10.3",
 		"@codemirror/lang-markdown": "^6.5.0",
 		"@codemirror/language": "^6.12.2",
@@ -38,9 +40,11 @@
 	},
 	"license": "AGPL-3.0-or-later",
 	"dependencies": {
-		"@epicenter/data": "workspace:*",
-		"@y/y": "14.0.0-rc.24",
+		"@epicenter/principal": "workspace:*",
+		"@epicenter/auth": "workspace:*",
+		"@y/y": "14.0.0-rc.26",
 		"mode-watcher": "^1.1.0",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"@epicenter/app": "workspace:*"
 	}
 }
