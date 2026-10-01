@@ -19,6 +19,7 @@ import type {
 	PullOutcome,
 	TableWriteError,
 } from '@epicenter/app/files';
+import { sameVersion } from '@epicenter/app/files';
 import { createFolderTerminal } from '@epicenter/app/files/terminal';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -94,6 +95,7 @@ export function createTodos(folder: TodosFolder) {
 	let listingError = $state<string | undefined>();
 	let git = $state.raw<GitSnapshot>(folder.git.snapshot);
 	let selectedPath = $state<string | undefined>();
+	let refreshSequence = 0;
 	/** Folders open in the file browser; kept while the browser is hidden. */
 	const expanded = new SvelteSet<string>(['todos']);
 	const todoEditors = new SvelteMap<string, TodoEditor>();
@@ -141,9 +143,10 @@ export function createTodos(folder: TodosFolder) {
 	}
 
 	/** Show newer saved text in clean open files, and forget clean files that left the folder. */
-	async function observeOpenFiles(current: FileListing) {
+	async function observeOpenFiles(current: FileListing, sequence: number) {
 		const present = new Set(current.files.map((file) => file.path));
 		for (const [path, file] of openFiles) {
+			if (sequence !== refreshSequence) return;
 			if (file.kind === 'loading') continue;
 			if (file.kind !== 'text') {
 				if (!present.has(path)) openFiles.delete(path);
@@ -157,15 +160,18 @@ export function createTodos(folder: TodosFolder) {
 				continue;
 			}
 			const read = await readTextFile(folder.files, path);
+			if (sequence !== refreshSequence) return;
 			if (read.data?.kind === 'text') file.editor.observe(read.data.file);
 		}
 	}
 
 	async function refresh() {
+		const sequence = ++refreshSequence;
 		const [rows, files] = await Promise.all([
 			table.list(),
 			folder.files.list(),
 		]);
+		if (sequence !== refreshSequence) return;
 		if (rows.error) {
 			// Keep the previous observation visible; never show an empty list for a failed read.
 			listError = rows.error.message;
@@ -178,13 +184,25 @@ export function createTodos(folder: TodosFolder) {
 			}));
 			for (const entry of rows.data.entries)
 				todoEditors.get(entry.path)?.observe(entry);
+			const present = new Set([
+				...rows.data.entries.map((entry) => entry.path),
+				...rows.data.unreadable.map((entry) => entry.path),
+			]);
+			for (const [path, editor] of todoEditors) {
+				if (
+					!present.has(path) &&
+					!editor.dirty &&
+					editor.saveState.kind === 'saved'
+				)
+					forget(path);
+			}
 		}
 		if (files.error) {
 			listingError = files.error.message;
 		} else {
 			listingError = undefined;
 			listing = files.data;
-			await observeOpenFiles(files.data);
+			await observeOpenFiles(files.data, sequence);
 		}
 	}
 
@@ -252,18 +270,32 @@ export function createTodos(folder: TodosFolder) {
 		if (selectedPath === path) selectedPath = undefined;
 	}
 
+	/** Settle input, then capture current attachment ownership for a file operation. */
+	async function todoForOperation(
+		path: string,
+	): Promise<Result<TodoEntry, string>> {
+		const editor = todoEditors.get(path);
+		if (editor !== undefined && !(await editor.settle())) return Err(UNSETTLED);
+		const read = await table.get(stemOf(path));
+		if (read.error) return Err(read.error.message);
+		if (read.data === undefined)
+			return Err('This todo is no longer in the folder.');
+		if (
+			editor !== undefined &&
+			!sameVersion(read.data.version, editor.baseline.version)
+		)
+			return Err('The file changed after it was read. Check it and try again.');
+		return Ok(read.data);
+	}
+
 	async function renameTodo(
 		path: string,
 		stem: string,
 	): Promise<string | undefined> {
 		const editor = todoEditors.get(path);
-		let target = entries.find((entry) => entry.path === path);
-		if (editor !== undefined) {
-			if (!(await editor.settle())) return UNSETTLED;
-			target = editor.baseline;
-		}
-		if (target === undefined) return 'This todo is no longer in the folder.';
-		const renamed = await table.rename(target, stem);
+		const target = await todoForOperation(path);
+		if (target.error !== null) return target.error;
+		const renamed = await table.rename(target.data, stem);
 		if (renamed.error) {
 			await refresh();
 			return describeWriteError(renamed.error);
@@ -362,6 +394,15 @@ export function createTodos(folder: TodosFolder) {
 		refresh,
 		refreshAll,
 		open,
+		/** Explicitly discard a retained conflict whose saved file is gone. */
+		discardRemoved(path: string) {
+			const editor = todoEditors.get(path) ?? textEditorAt(path);
+			if (
+				editor?.saveState.kind === 'conflict' &&
+				editor.saveState.current === undefined
+			)
+				forget(path);
+		},
 		async create(title: string): Promise<string | undefined> {
 			const created = await table.create({
 				fields: { title, done: false },
@@ -380,6 +421,11 @@ export function createTodos(folder: TodosFolder) {
 			if (editor !== undefined) {
 				if (!patchTodo(editor, { fields: { done } })) return editor.refusal;
 				await editor.save();
+				if (
+					editor.saveState.kind === 'failed' ||
+					editor.saveState.kind === 'conflict'
+				)
+					return editor.saveState.message;
 				return undefined;
 			}
 			const updated = await table.update(entry, {
@@ -458,21 +504,12 @@ export function createTodos(folder: TodosFolder) {
 					);
 				return Ok({ kind: 'folder', path });
 			}
-			const todo = todoEditors.get(path);
-			if (todo !== undefined) {
-				if (!(await todo.settle())) return Err(UNSETTLED);
-				// The listed entry carries the current attachment when it is the same file.
-				const listed = entries.find((item) => item.path === path);
-				return Ok({
-					kind: 'todo',
-					entry:
-						listed?.version.sha256 === todo.baseline.version.sha256
-							? listed
-							: todo.baseline,
-				});
+			if (todoEditors.has(path) || rowPaths.has(path)) {
+				const entry = await todoForOperation(path);
+				return entry.error !== null
+					? entry
+					: Ok({ kind: 'todo', entry: entry.data });
 			}
-			const entry = entries.find((item) => item.path === path);
-			if (entry !== undefined) return Ok({ kind: 'todo', entry });
 			const text = textEditorAt(path);
 			if (text !== undefined) {
 				if (!(await text.settle())) return Err(UNSETTLED);

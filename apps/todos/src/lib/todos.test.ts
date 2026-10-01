@@ -76,6 +76,115 @@ test('a todo row deletes through its table, taking its attachment with it', asyn
 	expect(todos.selectedPath).toBeUndefined();
 });
 
+test('rename discovers an attachment added after the editor opened', async () => {
+	const todos = await open();
+	await todos.create('Milk');
+	const path = todos.selectedPath!;
+	await todos.folder.files.write(
+		path.replace(/\.md$/, '.png'),
+		new Uint8Array([1]),
+		{
+			expected: 'absent',
+		},
+	);
+	expect(await todos.rename(path, 'renamed.md')).toBeUndefined();
+	expect(
+		(await todos.folder.files.read('todos/renamed.png')).data?.bytes,
+	).toEqual(new Uint8Array([1]));
+	expect(await text(todos, path)).toBeUndefined();
+});
+
+test('refresh forgets a removed idle todo but retains a removed dirty draft until discarded', async () => {
+	const todos = await open();
+	await todos.create('Idle');
+	const idlePath = todos.selectedPath!;
+	await todos.folder.files.remove(idlePath, { expected: 'any' });
+	await todos.refresh();
+	expect(todos.selection).toBeUndefined();
+	expect(todos.unsaved).toBe(false);
+
+	await todos.create('Dirty');
+	const path = todos.selectedPath!;
+	const selection = todos.selection;
+	if (selection?.kind !== 'todo') throw new Error('Expected todo selection');
+	const editor = selection.editor;
+	editor.input(`${editor.buffer}mine\n`);
+	await todos.folder.files.remove(path, { expected: 'any' });
+	await todos.refresh();
+	expect(todos.selection?.kind).toBe('todo');
+	expect(editor.buffer).toContain('mine');
+	await editor.save();
+	expect(editor.saveState).toMatchObject({
+		kind: 'conflict',
+		current: undefined,
+	});
+	expect(todos.unsaved).toBe(true);
+	todos.discardRemoved(path);
+	expect(todos.selection).toBeUndefined();
+	expect(todos.unsaved).toBe(false);
+});
+
+test('a removed raw draft can be explicitly discarded after its save conflicts', async () => {
+	const todos = await open();
+	await todos.folder.files.write('notes.txt', 'saved', { expected: 'absent' });
+	await todos.open('notes.txt');
+	const editor = textEditor(todos);
+	editor.input('mine');
+	await todos.folder.files.remove('notes.txt', { expected: 'any' });
+	await editor.save();
+	expect(editor.buffer).toBe('mine');
+	expect(todos.unsaved).toBe(true);
+	todos.discardRemoved('notes.txt');
+	expect(todos.selection).toBeUndefined();
+	expect(todos.unsaved).toBe(false);
+});
+
+test('an older refresh cannot forget a todo opened by a newer refresh', async () => {
+	const todos = await open();
+	const table = todos.folder.tables.todos;
+	const list = table.list.bind(table);
+	const captured = await list();
+	let release!: () => void;
+	const delayed = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	let first = true;
+	table.list = async () => {
+		if (!first) return list();
+		first = false;
+		await delayed;
+		return captured;
+	};
+	const older = todos.refresh();
+	try {
+		await todos.create('New');
+		const path = todos.selectedPath;
+		release();
+		await older;
+		expect(todos.selectedPath).toBe(path);
+		expect(todos.selection?.kind).toBe('todo');
+		expect(todos.entries).toHaveLength(1);
+	} finally {
+		release();
+		await older;
+		table.list = list;
+	}
+});
+
+test('toggle reports an open draft conflict instead of claiming success', async () => {
+	const todos = await open();
+	await todos.create('Milk');
+	const selection = todos.selection;
+	if (selection?.kind !== 'todo') throw new Error('Expected todo selection');
+	const editor = selection.editor;
+	await todos.folder.files.write(editor.path, `${editor.buffer}theirs\n`, {
+		expected: 'any',
+	});
+	expect(await todos.toggle(editor.baseline)).toBeDefined();
+	expect(editor.saveState.kind).toBe('conflict');
+	expect(editor.buffer).not.toContain('theirs');
+});
+
 test('a raw delete removes only the version that was confirmed', async () => {
 	const todos = await open();
 	await todos.folder.files.write('notes.txt', 'first', { expected: 'absent' });

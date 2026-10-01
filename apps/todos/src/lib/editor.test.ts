@@ -96,3 +96,15 @@ test('typing during a save stays dirty after the earlier generation is accepted'
 	expect(editor.dirty).toBe(true);
 	editor.dispose();
 });
+
+test('same-byte observations refresh attachment metadata without replacing typing', async () => {
+	const { table } = recordingTable();
+	const original = await entryFor('---\ntitle: Milk\ndone: false\n---\n');
+	const editor = createTodoEditor(table, original, () => {});
+	editor.input(`${original.source}mine\n`);
+	editor.observe({ ...original, attachment: 'todos/milk.png' });
+	expect(editor.baseline.attachment).toBe('todos/milk.png');
+	expect(editor.buffer).toBe(`${original.source}mine\n`);
+	expect(editor.dirty).toBe(true);
+	editor.dispose();
+});

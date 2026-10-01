@@ -2,7 +2,10 @@
 	import { Button } from '@epicenter/ui/button';
 	import type { TextFileEditor, TodoEditor } from '$lib/editor.svelte.js';
 
-	let { editor }: { editor: TodoEditor | TextFileEditor } = $props();
+	let { editor, onDiscardRemoved }: {
+		editor: TodoEditor | TextFileEditor;
+		onDiscardRemoved: () => void;
+	} = $props();
 </script>
 
 <!-- One editor's save state, including the conflict choice that keeps or replaces the input. -->
@@ -23,6 +26,8 @@
 				Discard mine and load saved
 			</Button>
 			<Button size="xs" onclick={() => void editor.keepMine()}>Save mine over it</Button>
+		{:else}
+			<Button size="xs" variant="outline" onclick={onDiscardRemoved}>Discard mine</Button>
 		{/if}
 	{:else if editor.dirty}
 		<span class="text-muted-foreground">Unsaved typing</span>

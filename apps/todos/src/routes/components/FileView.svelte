@@ -67,7 +67,7 @@
 		</Empty.Root>
 	{:else if file.kind === 'text'}
 		{@const editor = file.editor}
-		<SaveStatus {editor} />
+		<SaveStatus {editor} onDiscardRemoved={() => todos.discardRemoved(editor.path)} />
 		<div class="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4">
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-mono text-xs"

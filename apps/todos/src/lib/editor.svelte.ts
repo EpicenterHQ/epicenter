@@ -19,6 +19,7 @@ import {
 	type FolderFiles,
 	patchSource,
 	type SourceChange,
+	sameVersion,
 } from '@epicenter/app/files';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { TodoFields } from './definition.js';
@@ -156,12 +157,16 @@ function createDraft<T extends SavedText>(
 		},
 		save,
 		/**
-		 * A newer observation of this file. A clean, idle draft adopts it; a
-		 * dirty one keeps its baseline so its next save detects the other writer.
+		 * Same-byte observations refresh metadata without replacing input.
+		 * Changed bytes are adopted only by a clean, idle draft; a dirty draft
+		 * keeps its version so its next save detects the other writer.
 		 */
 		observe(next: T) {
 			if (next.path !== baseline.path) return;
-			if (next.version.sha256 === baseline.version.sha256) return;
+			if (sameVersion(next.version, baseline.version)) {
+				baseline = next;
+				return;
+			}
 			if (dirty() || saving || saveState.kind !== 'saved') return;
 			baseline = next;
 			buffer = next.source;
