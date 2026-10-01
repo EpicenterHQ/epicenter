@@ -1,8 +1,10 @@
-<p align="center">
-  <a href="https://epicenter.so">
-    <img width="80" src="logos/source/epicenter-icon-squircle.svg" alt="Epicenter">
-  </a>
-</p>
+# Target README draft
+
+**Status:** Draft
+
+This is a present-tense description of the completed vision, not current implementation documentation. The file-authoritative foundation and independent application model remain proposed or unbuilt. The root README on this design branch now describes the target product, with the approved opening verbatim. Implementation gaps are tracked in the public-materials plan rather than included in the target copy.
+
+## Proposed README
 
 # Epicenter
 
@@ -34,26 +36,23 @@ Applications can have their own repositories, releases, and public domains. Shar
 
 ## Development
 
-This repository contains the shared packages, applications, desktop host, and service deployments. Use Bun and start applications from the repository root.
+This repository contains the shared packages, applications, desktop host, and service deployments.
 
-```bash
-git clone https://github.com/EpicenterHQ/epicenter.git
-cd epicenter
-bun install
-```
+- [Application composition](../apps/README.md)
+- [Application package](../packages/app/README.md)
+- [Contributing](../CONTRIBUTING.md)
+- [Architecture decisions](../docs/adr/README.md)
 
-Start an application with `bun dev:<app>`. App READMEs document their prerequisites, development commands, and build steps.
-
-Run `bun run check` for the repository’s lint, typecheck, test, and structural checks.
-
-- [Application composition](apps/README.md)
-- [Application package](packages/app/README.md)
-- [Hosted API setup](apps/api/README.md)
-- [Contributing](CONTRIBUTING.md)
-- [Architecture decisions](docs/adr/README.md)
-
-Package READMEs document their APIs and resource contracts.
+App READMEs document their build and installation steps. Package READMEs document their APIs and resource contracts.
 
 ## License
 
-The applications and packages in this repository are AGPL-3.0-or-later. Previously published MIT versions retain their original license. See the [licensing strategy](docs/licensing/licensing-strategy.md).
+The applications and packages in this repository are AGPL-3.0-or-later. Previously published MIT versions retain their original license. See the [licensing strategy](../docs/licensing/licensing-strategy.md).
+
+## Notes outside the proposed README
+
+This revision restores the general articulation from ADR-0208 (readable Markdown and queryable SQLite), ADR-0209 (applications as views over accessible data), ADR-0449 (independent applications), and ADR-0470 (personal software with durable data). Older records contain withdrawn projection and runtime mechanisms; those mechanisms are not reinstated here. The file-source and SQLite distinctions follow ADR-0450, ADR-0459, and ADR-0463.
+
+The previous draft narrowed the opening to a dictation example and added an agent-led narrative before explaining the platform. This revision removes both, along with the publisher/owner slogan. Detailed file examples belong in a worked guide after the reader understands the general model.
+
+Before adoption, add a tested builder starting point and reconcile linked guides with the implemented model. Synchronization, browser access, permissions, and data-egress contracts need their own verified documentation. This writing exercise does not decide those contracts or establish current availability.

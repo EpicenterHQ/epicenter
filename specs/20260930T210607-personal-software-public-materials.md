@@ -6,6 +6,23 @@
 **Branch**: `codex/personal-software-branding`
 **Worktree**: `/Users/braden/.codex/worktrees/personal-software-branding/epicenter`
 
+## Current working mode
+
+Braden clarified that this branch designs the README and related public material for the fully implemented product. The root README is the target description, with the approved opening preserved verbatim. Implementation status, migration gaps, and current Yjs stores belong in this plan, not in the proposed README. Earlier passages below record the previous readiness-first approach; they are superseded for this design pass. Deploying these materials publicly is separate from preparing them here.
+
+### Work backward from the target
+
+| Target statement | Required proof | Owning material |
+| --- | --- | --- |
+| Personal data remains accessible as Markdown, attachments, and SQLite. | Open and edit saved source outside the app; recover documents and media from a complete folder copy. | Data-folder contract and recovery guide. |
+| Compatible applications work with the same data. | Two interfaces use one compatible format and preserve fields they do not understand. | Application composition guide and worked example. |
+| SQL tools can query the data. | Generate and open the root index; regenerate it after source changes without losing source. | SQLite index contract. |
+| Apps compose the capabilities they need. | A small application acquires only its required resources and has a documented build path. | Package READMEs and starter guide. |
+| Applications have independent repositories, releases, and domains. | Build, release, and use one app without the Epicenter desktop host. | Whispering README and independent release instructions. |
+| Publishing software does not publish user data. | Two users run the published app with separate data; document access and network behavior. | Application access and trust contracts. |
+
+The next documentation pass should define the target application guide and a smallest complete developer journey: create an app, save data, inspect it externally, change the interface, reopen compatible data, and publish the app for another person. Missing APIs and unsettled access or synchronization contracts stay explicit in design notes; do not invent commands to make the journey appear implemented.
+
 ## One sentence
 
 Make the root README and Epicenter landing page explain the personal-software foundation, while Whispering's public material identifies Braden as its publisher and describes its available build.
@@ -50,6 +67,12 @@ The intended Whispering home is `whispering.bradenwong.com`. The intended source
 
 ## Work backward from the experience
 
+[Target README draft](personal-software-readme-draft.md) is a separate future-state writing exercise. Braden requested present-tense copy as if the vision is implemented, to judge the complete user journey before updating current public documentation. The initial version included personal publishing; the technical-reader revision below narrows its role. Its review notes identify unresolved services and the required tested starting path. The live README still documents current behavior.
+
+The subsequent technical-reader review separates the surfaces: the README explains the data contract and provides developer proof; the landing page owns the invitation and app discovery. The revised target draft preserves the accepted Markdown-and-SQLite opening, then demonstrates an illustrative recording folder before explaining SQL. It removes the promotional app catalog and hosted publishing/community story. Independent publication remains a short ownership explanation. Fresh Codex and Opus reviews checked the draft against the ADRs; integration corrected the recording-body transcript assumption using current Whispering source. The illustrative format is not a settled migration schema.
+
+Braden’s next correction rejects the app-specific example and conversational agent narrative as the README’s opening structure. The current target draft instead explains the general relationship between applications and accessible personal data, followed by Data model, Application model, Development, and License. It draws that articulation from ADRs 0208, 0209, 0449, and 0470 without restoring superseded projection or runtime mechanisms. A worked example is deferred to a developer guide; the live README remains unchanged.
+
 ```text
 Person discovers Whispering on Braden's website
   -> understands speech-to-text and obtains its available build
@@ -68,6 +91,8 @@ The destination proof is one app saving real data, changing its interface, and r
 Whispering's existing desktop Add to Capture action is a specific integration. Separately hosted browser apps do not currently have that handoff. Quickcapture remains a prospective personal app example, not a deployed product entry.
 
 ## Page outlines
+
+The approved four-paragraph opening has now been applied verbatim to the root README. The remaining README uses the general data/application model with a separate implementation-status section, current trust boundaries, development entrypoints, and license. The previous API tutorial and app catalog were replaced by links to their owning READMEs. Local links and exact approved text were verified. The landing page and app README edits remain pending.
 
 ### Root README
 
