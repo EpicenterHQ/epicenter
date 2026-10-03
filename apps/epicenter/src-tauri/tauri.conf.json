@@ -6,7 +6,7 @@
 	"build": {
 		"beforeBuildCommand": "bun run build:desktop",
 		"beforeDevCommand": {
-			"script": "bun run build",
+			"script": "bun run build:desktop",
 			"wait": true
 		},
 		"frontendDist": "frontend-placeholder"
