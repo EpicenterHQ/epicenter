@@ -242,12 +242,14 @@ async function* parseOpenAiStream(
 			const { done, value } = await reader.read();
 			if (done) break;
 			buffer += decoder.decode(value, { stream: true });
-			const frames = buffer.split('\n\n');
+			// SSE lines may end in CRLF as well as LF (servers on sse-starlette
+			// default to CRLF), so a blank line is either `\n\n` or `\r\n\r\n`.
+			const frames = buffer.split(/\r?\n\r?\n/);
 			// The last element is an incomplete frame; keep it for the next read.
 			buffer = frames.pop() ?? '';
 			for (const frame of frames) {
 				const dataLine = frame
-					.split('\n')
+					.split(/\r?\n/)
 					.find((line) => line.startsWith('data:'));
 				if (!dataLine) continue;
 				const data = dataLine.slice('data:'.length).trimStart();
