@@ -86,16 +86,11 @@ async function setup(object: string) {
 		throw cause;
 	}
 
-	let worker: Miniflare | undefined;
-	async function cleanup(): Promise<void> {
-		await worker?.dispose();
-		worker = undefined;
-		rmSync(persistence, { recursive: true, force: true });
-		rmSync(buildDirectory, { recursive: true, force: true });
-	}
-
-	async function start(scriptPath = builtEntry): Promise<Miniflare> {
-		worker = new Miniflare({
+	let generation = 0;
+	function workerOptions(scriptPath: string) {
+		generation += 1;
+		return {
+			bindings: { HARNESS_GENERATION: String(generation) },
 			compatibilityDate: '2026-03-06',
 			durableObjects: {
 				DATA_AUTHORITY: { className: 'DataAuthority', useSQLite: true },
@@ -106,14 +101,30 @@ async function setup(object: string) {
 			modules: true,
 			modulesRoot: buildDirectory,
 			scriptPath,
-		});
+		};
+	}
+
+	let worker: Miniflare | undefined;
+	async function cleanup(): Promise<void> {
+		await worker?.dispose();
+		worker = undefined;
+		rmSync(persistence, { recursive: true, force: true });
+		rmSync(buildDirectory, { recursive: true, force: true });
+	}
+
+	async function reconfigure(scriptPath: string): Promise<Miniflare> {
+		if (worker === undefined) {
+			worker = new Miniflare(workerOptions(scriptPath));
+		} else {
+			await worker.setOptions(workerOptions(scriptPath));
+		}
 		await worker.ready;
 		return worker;
 	}
 
 	let seededBody: { objects: string[] };
 	try {
-		const seeder = await start(seederEntry);
+		const seeder = await reconfigure(seederEntry);
 		const seeded = (await seeder.dispatchFetch('http://authority.test', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
@@ -126,9 +137,7 @@ async function setup(object: string) {
 				`platform KV seed did not create _cf_KV: ${seededBody.objects.join(', ')}`,
 			);
 		}
-		await seeder.dispose();
-		worker = undefined;
-		await start();
+		await reconfigure(builtEntry);
 	} catch (cause) {
 		await cleanup();
 		throw cause;
@@ -150,29 +159,28 @@ async function setup(object: string) {
 			return (await response.json()) as T;
 		},
 		async restart(): Promise<void> {
-			await worker?.dispose();
-			worker = undefined;
-			await start();
+			await reconfigure(builtEntry);
 		},
 		async hasPlatformSeed(): Promise<boolean> {
-			await worker?.dispose();
-			worker = undefined;
-			const inspector = await start(seederEntry);
-			const inspected = (await inspector.dispatchFetch(
-				'http://authority.test',
-				{
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ object, operation: 'inspect' }),
-				},
-			)) as unknown as WorkerdResponse;
-			if (!inspected.ok)
-				throw new Error('failed to inspect the platform KV key');
-			const body = (await inspected.json()) as { hasPlatformSeed: boolean };
-			await inspector.dispose();
-			worker = undefined;
-			await start();
-			return body.hasPlatformSeed;
+			const inspector = await reconfigure(seederEntry);
+			try {
+				const inspected = (await inspector.dispatchFetch(
+					'http://authority.test',
+					{
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({ object, operation: 'inspect' }),
+					},
+				)) as unknown as WorkerdResponse;
+				if (!inspected.ok)
+					throw new Error('failed to inspect the platform KV key');
+				const body = (await inspected.json()) as {
+					hasPlatformSeed: boolean;
+				};
+				return body.hasPlatformSeed;
+			} finally {
+				await reconfigure(builtEntry);
+			}
 		},
 		async close(): Promise<void> {
 			await cleanup();
