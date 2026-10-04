@@ -42,7 +42,8 @@
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"test": "bun test",
-		"bench": "bun test ./src/__benchmarks__/*.bench.ts --timeout 60000"
+		"bench": "bun test ./src/__benchmarks__/*.bench.ts --timeout 60000",
+		"bench:per-cell": "WORKSPACE_BENCH_ROWS=50000 WORKSPACE_BENCH_CHURN=100000 WORKSPACE_BENCH_LAYOUT=whole-row bun test ./src/__benchmarks__/per-cell-full-replica.bench.ts --timeout 300000 && WORKSPACE_BENCH_ROWS=50000 WORKSPACE_BENCH_CHURN=100000 WORKSPACE_BENCH_LAYOUT=per-cell bun test ./src/__benchmarks__/per-cell-full-replica.bench.ts --timeout 300000"
 	},
 	"dependencies": {
 		"@epicenter/agent-protocol": "workspace:*",

@@ -194,5 +194,6 @@ Each option and the one reason it lost. Terse. This is not the spec.
 | [0115](0115-super-chat-remote-attach-rides-an-endpoint-addressed-trusted-relay.md) | Super Chat remote attach rides an endpoint-addressed trusted AttachRelay; one consumer, not the deleted route-addressed relay floor | Accepted |
 | [0116](0116-local-mail-is-desktop-first-one-bun-engine-no-background-mail-service.md) | Local Mail is desktop-first: one Bun engine, no background mail service, the open app owns the sync loop | Accepted |
 | [0117](0117-global-shortcut-input-is-plugin-chords-only-and-the-macos-tap-is-just-the-paste-grant-watcher.md) | Global shortcut input is plugin chords only, and the macOS tap is just the paste grant watcher | Accepted |
+| [0118](0118-workspace-storage-addresses-are-permanent-and-schema-evolution-is-additive.md) | Workspace rows are permanent independently editable cells | Proposed |
 
 When you add an ADR, add its row here.
