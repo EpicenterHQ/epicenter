@@ -88,12 +88,6 @@ export const whisperingSettingEntries = {
 	'output.recipe.clipboard': field.boolean(),
 	'output.recipe.cursor': field.boolean(),
 	'output.recipe.enter': field.boolean(),
-	'retention.strategy': field.select([
-		'keep-forever',
-		'limit-count',
-		'keep-none',
-	]),
-	'retention.maxCount': field.integer({ minimum: 1 }),
 	'recording.trigger': field.select(RECORDING_TRIGGERS),
 	'recording.pausePlayback': field.boolean(),
 	'transcription.service': field.select(TRANSCRIPTION_SERVICE_IDS),

@@ -28,8 +28,6 @@ export function createWhisperingSettingDefaults(
 		'output.recipe.clipboard': true,
 		'output.recipe.cursor': false,
 		'output.recipe.enter': false,
-		'retention.strategy': 'keep-forever',
-		'retention.maxCount': 100,
 		'recording.trigger': 'manual',
 		'recording.pausePlayback': false,
 		'transcription.service': defaultTranscriptionService,

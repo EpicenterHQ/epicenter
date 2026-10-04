@@ -5,7 +5,6 @@ import { attachAutoPasteIntent } from './attach-auto-paste-intent.svelte';
 import { attachDebugCommands } from './attach-debug-commands';
 import { attachDictationExceptions } from './attach-dictation-exceptions.svelte';
 import { attachLocalShortcutListener } from './attach-local-shortcut-listener.svelte';
-import { attachRecordingRetention } from './attach-recording-retention.svelte';
 import { attachShortcutSync } from './attach-shortcut-sync';
 import { attachUnloadPolicy } from './attach-unload-policy.svelte';
 import type { RuntimeOwner } from './types';
@@ -18,7 +17,6 @@ export const runtimeOwners = [
 	...(recordingOverlayRuntimeOwner ? [recordingOverlayRuntimeOwner] : []),
 	{ attach: attachDictationExceptions },
 	{ attach: attachUnloadPolicy },
-	{ attach: attachRecordingRetention },
 	{ attach: attachAutoPasteIntent },
 	{ attach: dictationCapability.attach },
 ] satisfies RuntimeOwner[];

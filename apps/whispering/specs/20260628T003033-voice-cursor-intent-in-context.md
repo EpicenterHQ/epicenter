@@ -78,7 +78,7 @@ Feature audits of Handy (`cjpais/Handy`) and FluidVoice (`altic-dev/FluidVoice`)
 | Post-processing | Polish always-on + Recipes | opt-in prompt + a dedicated always-post-process hotkey | prompt slots per mode |
 | Custom words | AI-injected `string[]` (ADR-0099) | deterministic fuzzy (Levenshtein + Soundex + n-gram) plus Whisper `initial_prompt` | LLM prompt slots |
 | Delivery | cursor paste with clipboard fallback | paste variants, direct typing, external-script seam, clipboard restore | multi-tier insertion ladder, clipboard snapshot/restore |
-| History/retention | synced table, retention strategies | SQLite + WAV, "saved" flag exempt from cleanup, retry-transcription | UserDefaults + audio GB budget |
+| History/retention | synced table, manual deletion only | SQLite + WAV, "saved" flag exempt from cleanup, retry-transcription | UserDefaults + audio GB budget |
 | Sync | Yjs local-first sync | none | JSON settings export, keys excluded |
 
 Key findings:
