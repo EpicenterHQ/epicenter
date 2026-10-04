@@ -29,7 +29,7 @@ import {
 } from '$lib/services/transcription/providers';
 import { deviceConfig } from '$lib/state/device-config.svelte';
 import { type SecretKey, secrets } from '$lib/state/secrets.svelte';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 import type { RecordingId } from '$lib/workspace';
 
 /**

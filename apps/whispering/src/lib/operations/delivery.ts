@@ -8,7 +8,7 @@ import {
 	type Sink,
 } from '$lib/operations/sink';
 import type { Notice } from '$lib/report';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 // The reach types live in their own `delivery-reach` module next to their ADR
 // docstrings; re-exported here so callers keep one delivery import.

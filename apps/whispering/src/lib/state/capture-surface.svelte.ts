@@ -1,5 +1,5 @@
 import type { CaptureSurface } from '$lib/constants/audio';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 /**
  * Which capture surface the home page and the config header are currently

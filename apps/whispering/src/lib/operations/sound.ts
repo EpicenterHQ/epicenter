@@ -2,7 +2,7 @@ import { Ok, type Result } from 'wellcrafted/result';
 import type { WhisperingSoundNames } from '$lib/constants/sounds';
 import { services } from '$lib/services';
 import type { SoundError } from '$lib/services/sound';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 const soundSettingKeyMap = {
 	'manual-start': 'sound.manualStart',

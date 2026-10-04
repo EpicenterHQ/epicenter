@@ -1,7 +1,7 @@
 import { onMount } from 'svelte';
 import { dispatchCommandTrigger } from '$lib/commands';
 import { services } from '$lib/services';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 /**
  * Subscribe the in-app keydown matcher to the command layer for the app's

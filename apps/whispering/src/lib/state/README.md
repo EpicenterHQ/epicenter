@@ -1,12 +1,12 @@
 # State
 
-Reactive state that stays in sync with the application. Unlike the rpc layer which uses stale-while-revalidate caching, state modules maintain live state that updates immediately and persists across the application lifecycle.
+Reactive state that stays in sync with the application. Unlike the query layer, which uses stale-while-revalidate caching, state modules maintain live state that updates immediately and persists across the application lifecycle.
 
 Two shapes live here. Workspace-backed state (`settings`, `recordings`, `recipes`) is owned and hydrated by the UI-free application; these modules are thin Svelte reactivity adapters over that ready product API. Device/hardware state (`device-config`, recorders, lifecycle) remains module singletons.
 
-## When to Use State vs RPC Layer
+## When to Use State vs Query Layer
 
-| Aspect | `$lib/state/` | `$lib/rpc/` |
+| Aspect | `$lib/state/` | `$lib/queries/` |
 |--------|----------------|---------------|
 | **Pattern** | Application-owned domain state plus Svelte adapters | Stale-while-revalidate (TanStack Query) |
 | **State Location** | Ready `WhisperingApplication` | TanStack Query cache |
@@ -34,7 +34,7 @@ app.settings.set('recording.trigger', 'vad');
 
 ### `recordings.svelte.ts`
 
-Recording metadata backed by structural workspace row ids. The application namespace maintains the cache and refreshes after local writes or installed remote record changes; this module only makes its reads reactive. Audio blobs remain separate and are addressed by each row's `audioBlobId`; use `$lib/rpc/audio` for playback URLs and `services.blobs.local` for raw blob access.
+Recording metadata backed by structural workspace row ids. The application namespace maintains the cache and refreshes after local writes or installed remote record changes; this module only makes its reads reactive. Audio blobs remain separate and are addressed by each row's `audioBlobId`; use `$lib/queries/audio` for availability and `services.blobs.local` for raw blob access.
 
 ```typescript
 import { InstantString } from '@epicenter/field';
@@ -112,7 +112,7 @@ await vadRecorder.stopActiveListening();
 
 ## Why VAD Lives Here
 
-The VAD recorder doesn't fit the rpc layer pattern because:
+The VAD recorder doesn't fit the query layer pattern because:
 
 1. **Live state**: VAD state (`IDLE` → `LISTENING` → `SPEECH_DETECTED`) must update immediately as hardware events occur
 2. **Singleton nature**: Only one VAD instance can exist at a time
@@ -128,7 +128,7 @@ Create a new state module when you need:
 3. **Application-lifetime persistence** (not request-scoped)
 4. **Hardware or system state** that can't be "refreshed" like data
 
-Use the rpc layer (`$lib/rpc/`) instead when you need:
+Use the query layer (`$lib/queries/`) instead when you need:
 - Data fetching with caching
 - Mutations with optimistic updates
 - Background refresh and stale-while-revalidate
@@ -142,6 +142,6 @@ export const recorderKeys = defineKeys({
 });
 ```
 
-Use the same module shape as `$lib/rpc/`: exported `*Keys` for shared cache identity, local `defineErrors` namespaces for state-owned failures, named input object types for structured public methods, and `ReturnType<typeof createThing>` when exporting the exact shape returned by a factory.
+Use the same module shape as `$lib/queries/`: exported `*Keys` for shared cache identity, local `defineErrors` namespaces for state-owned failures, named input object types for structured public methods, and `ReturnType<typeof createThing>` when exporting the exact shape returned by a factory.
 
-See `$lib/rpc/README.md` for the rpc layer documentation.
+See `$lib/queries/README.md` for the query layer documentation.

@@ -10,9 +10,13 @@
 	import { report } from '$lib/report';
 	import { playSoundIfEnabled } from '$lib/operations/sound';
 	import type { Recording } from '$lib/state/recordings.svelte';
-	import { getWhisperingApp } from '$lib/whispering/context';
+	import {
+		getWhisperingApp,
+		getWhisperingQueries,
+	} from '$lib/whispering/context';
 
 	const app = getWhisperingApp();
+	const queries = getWhisperingQueries();
 
 	/**
 	 * The transcribe / retry button for a single recording.
@@ -37,7 +41,7 @@
 	} = $props();
 
 	const transcribeRecording = createMutation(
-		() => app.rpc.transcription.transcribeRecording.options,
+		() => queries.transcription.transcribeRecording.options,
 	);
 
 	const transcriptionState = $derived.by(() => {

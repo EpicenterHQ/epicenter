@@ -1,6 +1,6 @@
 import { services } from '$lib/services';
 import type { Event } from '$lib/services/analytics/types';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 /**
  * Log an anonymous analytics event if analytics is enabled in settings.

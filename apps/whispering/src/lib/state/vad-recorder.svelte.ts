@@ -4,11 +4,10 @@ import {
 	enumerateDevices,
 } from '@epicenter/recorder';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
-import { defineKeys } from 'wellcrafted/query';
+import { defineKeys, resultQueryOptions } from 'wellcrafted/query';
 import { Ok } from 'wellcrafted/result';
 import type { VadState } from '$lib/constants/audio';
 import { WHISPERING_BASE_PATHNAME } from '$lib/constants/urls';
-import { defineQuery } from '$lib/rpc/client';
 import { deviceConfig } from '$lib/state/device-config.svelte';
 
 const VadRecorderError = defineErrors({
@@ -63,15 +62,17 @@ function createReactiveVadRecorder() {
 		 * Usage:
 		 * - With createQuery: `createQuery(() => vadRecorder.enumerateDevices.options)`
 		 */
-		enumerateDevices: defineQuery({
-			queryKey: vadKeys.devices,
-			queryFn: async () => {
-				const { data, error } = await enumerateDevices();
-				if (error)
-					return VadRecorderError.EnumerateDevicesFailed({ cause: error });
-				return Ok(data);
-			},
-		}),
+		enumerateDevices: {
+			options: resultQueryOptions({
+				queryKey: vadKeys.devices,
+				queryFn: async () => {
+					const { data, error } = await enumerateDevices();
+					if (error)
+						return VadRecorderError.EnumerateDevicesFailed({ cause: error });
+					return Ok(data);
+				},
+			}),
+		},
 
 		/**
 		 * Start voice activity detection on the configured device. Updates `state`

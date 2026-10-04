@@ -13,7 +13,7 @@ import { type Result, tryAsync } from 'wellcrafted/result';
 import { report } from '$lib/report';
 import { services } from '$lib/services';
 import type { Recording } from '$lib/state/recordings.svelte';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 import { purgeRecordingAudio, RecordingAudioError } from './recording-audio.js';
 
 export const RecordingDeletionError = defineErrors({

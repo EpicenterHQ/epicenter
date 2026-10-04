@@ -109,7 +109,7 @@
 					>
 				</a>
 				<a
-					href="https://github.com/search?q=repo%3AEpicenterHQ%2Fepicenter+rpc.analytics.logEvent&type=code"
+					href="https://github.com/search?q=repo%3AEpicenterHQ%2Fepicenter+logEvent&type=code"
 					target="_blank"
 					rel="noopener noreferrer"
 					class="group flex items-center gap-2 text-primary hover:text-primary/80 transition-colors"

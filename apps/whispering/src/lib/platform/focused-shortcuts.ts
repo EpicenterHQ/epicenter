@@ -8,7 +8,7 @@ import {
 	isEmptyBinding,
 	type KeyBinding,
 } from '$lib/utils/key-binding';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 import { createShortcuts } from './shortcuts.shared';
 import type { Shortcuts } from './types';
 

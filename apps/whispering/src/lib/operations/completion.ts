@@ -6,7 +6,7 @@ import {
 	resolveCompletionStateFromConfig,
 } from '$lib/operations/completion-target';
 import { deviceConfig } from '$lib/state/device-config.svelte';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 /**
  * Resolve the single global completion state: what to call (`target`), whether

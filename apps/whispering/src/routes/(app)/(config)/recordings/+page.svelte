@@ -56,9 +56,13 @@
 	import RecordingStorageBadge from './RecordingStorageBadge.svelte';
 	import TranscriptionStatusBadge from './TranscriptionStatusBadge.svelte';
 	import RecordingRowActions from './actions/RecordingRowActions.svelte';
-	import { getWhisperingApp } from '$lib/whispering/context';
+	import {
+		getWhisperingApp,
+		getWhisperingQueries,
+	} from '$lib/whispering/context';
 
 	const app = getWhisperingApp();
+	const queries = getWhisperingQueries();
 
 	/**
 	 * Returns a cell renderer for an instant, optionally using a row-owned
@@ -99,7 +103,7 @@
 	}
 
 	const transcribeRecordings = createMutation(
-		() => app.rpc.transcription.transcribeRecordings.options,
+		() => queries.transcription.transcribeRecordings.options,
 	);
 
 	function displayTranscript(recording: Recording): string {

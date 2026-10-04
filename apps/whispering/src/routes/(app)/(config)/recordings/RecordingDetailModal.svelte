@@ -21,9 +21,13 @@
 	import TranscribeRecordingButton from './actions/TranscribeRecordingButton.svelte';
 	import RecordingStorageAction from './RecordingStorageAction.svelte';
 	import RecordingStorageBadge from './RecordingStorageBadge.svelte';
-	import { getWhisperingApp } from '$lib/whispering/context';
+	import {
+		getWhisperingApp,
+		getWhisperingQueries,
+	} from '$lib/whispering/context';
 
 	const app = getWhisperingApp();
+	const queries = getWhisperingQueries();
 
 	/**
 	 * The single detail surface for one recording: play it back, read and edit
@@ -75,7 +79,7 @@
 	 * local blob URLs.
 	 */
 	const audioAvailabilityQuery = createQuery(() => ({
-		...app.rpc.audio.availability(() => recording).options,
+		...queries.audio.availability(() => recording).options,
 		enabled: isDialogOpen,
 	}));
 

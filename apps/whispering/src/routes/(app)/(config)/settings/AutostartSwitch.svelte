@@ -1,7 +1,11 @@
 <script lang="ts">
 	import * as Field from '@epicenter/ui/field';
 	import { Switch } from '@epicenter/ui/switch';
-	import { createMutation, createQuery } from '@tanstack/svelte-query';
+	import {
+		createMutation,
+		createQuery,
+		useQueryClient,
+	} from '@tanstack/svelte-query';
 	import { report } from '$lib/report';
 	import type { Tauri } from '#platform/tauri';
 
@@ -10,9 +14,23 @@
 	// source of truth; we read it rather than mirror it in a stored setting.
 	let { autostart }: { autostart: Tauri['autostart'] } = $props();
 
+	const queryClient = useQueryClient();
 	const isEnabledQuery = createQuery(() => autostart.isEnabled.options);
-	const enableMutation = createMutation(() => autostart.enable.options);
-	const disableMutation = createMutation(() => autostart.disable.options);
+	// The capability module carries no query client, so the mutation cannot
+	// invalidate from `onSettled` itself; reuse the query's own key rather
+	// than hand-mirroring it.
+	const invalidate = () =>
+		queryClient.invalidateQueries({
+			queryKey: autostart.isEnabled.options.queryKey,
+		});
+	const enableMutation = createMutation(() => ({
+		...autostart.enable.options,
+		onSettled: invalidate,
+	}));
+	const disableMutation = createMutation(() => ({
+		...autostart.disable.options,
+		onSettled: invalidate,
+	}));
 </script>
 
 <Field.Field orientation="horizontal">

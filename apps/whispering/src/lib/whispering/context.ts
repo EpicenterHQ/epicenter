@@ -1,7 +1,5 @@
 import { createContext } from 'svelte';
-import type { WhisperingRpc } from '$lib/rpc';
-import type { Recipes } from '$lib/state/recipes.svelte';
-import type { Recordings } from '$lib/state/recordings.svelte';
+import type { WhisperingQueries } from '$lib/queries';
 import type { WhisperingApplication } from './application';
 
 /**
@@ -9,17 +7,25 @@ import type { WhisperingApplication } from './application';
  * the UI-free product namespaces wrapped with Svelte dependency tracking.
  * Operation modules receive this explicitly; components read it from context.
  */
-export type WhisperingApp = WhisperingApplication & {
-	recordings: Recordings;
-	recipes: Recipes;
+export type WhisperingContext = {
+	application: WhisperingApplication;
+	queries: WhisperingQueries;
 };
-
-export type WhisperingAppContext = WhisperingApp & { rpc: WhisperingRpc };
 
 /**
  * Typed context supplied synchronously by `WhisperingAppProvider` inside the
- * fulfilled boot branch. `getWhisperingApp` is ready-only by construction:
- * nothing outside that branch can reach it.
+ * fulfilled boot branch. The focused getters below are ready-only by
+ * construction: nothing outside that branch can reach either dependency.
  */
-export const [getWhisperingApp, setWhisperingApp] =
-	createContext<WhisperingAppContext>();
+const [getWhisperingContext, setWhisperingContext] =
+	createContext<WhisperingContext>();
+
+export { setWhisperingContext };
+
+export function getWhisperingApp() {
+	return getWhisperingContext().application;
+}
+
+export function getWhisperingQueries() {
+	return getWhisperingContext().queries;
+}

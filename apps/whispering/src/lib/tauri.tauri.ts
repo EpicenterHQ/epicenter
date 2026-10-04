@@ -46,9 +46,12 @@ import { readFile } from '@tauri-apps/plugin-fs';
 import { openPath as revealPath } from '@tauri-apps/plugin-opener';
 import mime from 'mime';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
-import { defineKeys } from 'wellcrafted/query';
+import {
+	defineKeys,
+	resultMutationOptions,
+	resultQueryOptions,
+} from 'wellcrafted/query';
 import { Ok, tryAsync } from 'wellcrafted/result';
-import { defineMutation, defineQuery, queryClient } from '$lib/rpc/client';
 import type {
 	DictationCapability,
 	DownloadProgress,
@@ -206,7 +209,7 @@ const AutostartError = defineErrors({
 // Public namespaces ------------------------------------------------
 // Each capability picks ONE shape per method: TanStack where reactivity,
 // caching, or invalidation is the point; plain Result functions otherwise.
-// One canonical call shape per leaf; no `tauri.X.Y` vs `tauri.rpc.X.Y`
+// One canonical call shape per leaf; no duplicate capability/query namespace.
 // duplication.
 
 const autostartKeys = defineKeys({
@@ -216,48 +219,50 @@ const autostartKeys = defineKeys({
 });
 
 const autostart = {
-	isEnabled: defineQuery({
-		queryKey: autostartKeys.isEnabled,
-		queryFn: () =>
-			tryAsync({
-				try: async () => {
-					const { data, error } = await commands.isAutostartEnabled();
-					if (error !== null) throw new Error(error);
-					return data;
-				},
-				catch: (error) => AutostartError.CheckFailed({ cause: error }),
-			}),
-		// The OS login-item state can change outside the app (System Settings,
-		// another tool, the platform dropping the entry), so re-read on focus
-		// instead of trusting a stale cached value.
-		refetchOnWindowFocus: true,
-	}),
-	enable: defineMutation({
-		mutationKey: autostartKeys.enable,
-		mutationFn: () =>
-			tryAsync({
-				try: async () => {
-					const { error } = await commands.setAutostartEnabled(true);
-					if (error !== null) throw new Error(error);
-				},
-				catch: (error) => AutostartError.EnableFailed({ cause: error }),
-			}),
-		onSettled: () =>
-			queryClient.invalidateQueries({ queryKey: autostartKeys.isEnabled }),
-	}),
-	disable: defineMutation({
-		mutationKey: autostartKeys.disable,
-		mutationFn: () =>
-			tryAsync({
-				try: async () => {
-					const { error } = await commands.setAutostartEnabled(false);
-					if (error !== null) throw new Error(error);
-				},
-				catch: (error) => AutostartError.DisableFailed({ cause: error }),
-			}),
-		onSettled: () =>
-			queryClient.invalidateQueries({ queryKey: autostartKeys.isEnabled }),
-	}),
+	isEnabled: {
+		options: resultQueryOptions({
+			queryKey: autostartKeys.isEnabled,
+			queryFn: () =>
+				tryAsync({
+					try: async () => {
+						const { data, error } = await commands.isAutostartEnabled();
+						if (error !== null) throw new Error(error);
+						return data;
+					},
+					catch: (error) => AutostartError.CheckFailed({ cause: error }),
+				}),
+			// The OS login-item state can change outside the app (System Settings,
+			// another tool, the platform dropping the entry), so re-read on focus
+			// instead of trusting a stale cached value.
+			refetchOnWindowFocus: true,
+		}),
+	},
+	enable: {
+		options: resultMutationOptions({
+			mutationKey: autostartKeys.enable,
+			mutationFn: () =>
+				tryAsync({
+					try: async () => {
+						const { error } = await commands.setAutostartEnabled(true);
+						if (error !== null) throw new Error(error);
+					},
+					catch: (error) => AutostartError.EnableFailed({ cause: error }),
+				}),
+		}),
+	},
+	disable: {
+		options: resultMutationOptions({
+			mutationKey: autostartKeys.disable,
+			mutationFn: () =>
+				tryAsync({
+					try: async () => {
+						const { error } = await commands.setAutostartEnabled(false);
+						if (error !== null) throw new Error(error);
+					},
+					catch: (error) => AutostartError.DisableFailed({ cause: error }),
+				}),
+		}),
+	},
 };
 
 let shortcutListenerPromise: ReturnType<

@@ -3,7 +3,7 @@ import { VAD_RECORDING_BUTTON } from '$lib/constants/audio';
 import { toggleVadRecording } from '$lib/operations/recording';
 import { vadRecorder } from '$lib/state/vad-recorder.svelte';
 import { getRecordingShortcutLabel } from '$lib/utils/recording-shortcut';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 import type { RecordingActionController } from './recording-action-controller';
 
 /**

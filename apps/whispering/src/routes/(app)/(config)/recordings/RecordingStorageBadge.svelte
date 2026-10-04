@@ -2,9 +2,9 @@
 	import { Badge } from '@epicenter/ui/badge';
 	import { createQuery } from '@tanstack/svelte-query';
 	import type { Recording } from '$lib/state/recordings.svelte';
-	import { getWhisperingApp } from '$lib/whispering/context';
+	import { getWhisperingQueries } from '$lib/whispering/context';
 
-	const app = getWhisperingApp();
+	const queries = getWhisperingQueries();
 
 	let {
 		recording,
@@ -13,7 +13,7 @@
 	} = $props();
 
 	const availability = createQuery(
-		() => app.rpc.audio.availability(() => recording).options,
+		() => queries.audio.availability(() => recording).options,
 	);
 
 	const labels = {

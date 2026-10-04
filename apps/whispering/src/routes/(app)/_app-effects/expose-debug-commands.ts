@@ -1,7 +1,7 @@
 import { onMount } from 'svelte';
 import { goto } from '$app/navigation';
 import { type BoundCommandRunners, commandRunners } from '$lib/commands';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 /**
  * Expose the command runners and router on `window` for DevTools poking while

@@ -1,7 +1,7 @@
 import { onMount } from 'svelte';
 import { tauri } from '#platform/tauri';
 import { createAppShortcuts } from '$lib/platform/shortcuts';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 /**
  * Register the current shortcut bindings on every backend this build runs.

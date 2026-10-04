@@ -17,7 +17,7 @@ import { deviceConfig } from '$lib/state/device-config.svelte';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
 import { manualRecorder } from '$lib/state/manual-recorder.svelte';
 import { vadRecorder } from '$lib/state/vad-recorder.svelte';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 /**
  * Surface the outcome of acquiring a recording device. A clean success is

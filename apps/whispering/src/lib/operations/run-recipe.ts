@@ -6,7 +6,7 @@ import {
 import { isErr, Ok, type Result } from 'wellcrafted/result';
 import { buildSystemPrompt } from '$lib/operations/build-system-prompt';
 import { completeWithGlobalDefault } from '$lib/operations/completion';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 import type { Recipe } from '$lib/workspace';
 
 export const RunRecipeError = defineErrors({

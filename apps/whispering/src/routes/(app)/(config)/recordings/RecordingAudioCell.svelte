@@ -2,13 +2,13 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import type { Recording } from '$lib/state/recordings.svelte';
 	import RenderAudioUrl from './RenderAudioUrl.svelte';
-	import { getWhisperingApp } from '$lib/whispering/context';
+	import { getWhisperingQueries } from '$lib/whispering/context';
 
-	const app = getWhisperingApp();
+	const queries = getWhisperingQueries();
 
 	let { recording }: { recording: Recording } = $props();
 	const availability = createQuery(
-		() => app.rpc.audio.availability(() => recording).options,
+		() => queries.audio.availability(() => recording).options,
 	);
 </script>
 

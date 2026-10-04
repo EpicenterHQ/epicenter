@@ -53,7 +53,8 @@ mock.module('$lib/operations/sink', () => ({
 const { deliverTranscriptionResult } = await import(
 	'../src/lib/operations/delivery'
 );
-type WhisperingApp = import('../src/lib/whispering/context').WhisperingApp;
+type WhisperingApp =
+	import('../src/lib/whispering/application').WhisperingApplication;
 
 const app = {
 	settings: {

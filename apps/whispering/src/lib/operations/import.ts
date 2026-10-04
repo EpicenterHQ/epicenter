@@ -9,7 +9,7 @@ import { logAnalyticsEvent } from '$lib/operations/analytics';
 import { finalizeAudioBlob } from '$lib/operations/local-audio';
 import { processRecordingPipeline } from '$lib/operations/pipeline';
 import { report } from '$lib/report';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 type RejectedImportFile = { file: File; reason: string };
 

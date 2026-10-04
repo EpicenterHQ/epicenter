@@ -1,11 +1,10 @@
 import { type BlobId, generateBlobId } from '@epicenter/blobs';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
-import { defineKeys } from 'wellcrafted/query';
+import { defineKeys, resultQueryOptions } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { manualRecorderConfig } from '#platform/manual-recorder-config';
 import { ManualRecorderLive } from '#platform/recorder';
 import type { WhisperingRecordingState } from '$lib/constants/audio';
-import { defineQuery } from '$lib/rpc/client';
 import type {
 	RecorderError,
 	RecordingCallbacks,
@@ -122,15 +121,17 @@ function createManualRecorder() {
 			return _starting;
 		},
 
-		enumerateDevices: defineQuery({
-			queryKey: manualRecorderKeys.devices,
-			queryFn: async () => {
-				const { data, error } = await ManualRecorderLive.enumerateDevices();
-				if (error)
-					return ManualRecorderError.EnumerateDevicesFailed({ cause: error });
-				return Ok(data);
-			},
-		}),
+		enumerateDevices: {
+			options: resultQueryOptions({
+				queryKey: manualRecorderKeys.devices,
+				queryFn: async () => {
+					const { data, error } = await ManualRecorderLive.enumerateDevices();
+					if (error)
+						return ManualRecorderError.EnumerateDevicesFailed({ cause: error });
+					return Ok(data);
+				},
+			}),
+		},
 
 		async startRecording(callbacks: RecordingCallbacks) {
 			if (_starting) return ManualRecorderError.AlreadyRecording();

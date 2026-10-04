@@ -33,7 +33,8 @@ mock.module('$lib/services', () => ({
 }));
 
 const { deleteRecordings } = await import('../src/lib/operations/recordings');
-type WhisperingApp = import('../src/lib/whispering/context').WhisperingApp;
+type WhisperingApp =
+	import('../src/lib/whispering/application').WhisperingApplication;
 
 // The explicit dependencies below own every effect; the app is never touched.
 const app = { recordings: { delete: mock() } } as unknown as WhisperingApp;

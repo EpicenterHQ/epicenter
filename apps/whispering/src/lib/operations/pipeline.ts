@@ -13,7 +13,7 @@ import { report } from '$lib/report';
 import { services } from '$lib/services';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
 import { polishHud } from '$lib/state/polish-hud.svelte';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 import type { Recording } from '$lib/workspace';
 
 /**

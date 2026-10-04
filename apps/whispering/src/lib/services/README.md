@@ -12,7 +12,7 @@ service implementations.
 
 ```txt
 component / route   presentation and observed lifecycle
-rpc                 shared query identity and TanStack lifecycle
+query               shared query identity and TanStack lifecycle
 operation           app settings, provider choice, multi-step workflow
 service             one UI-free capability and its domain failures
 platform mapping    browser versus Tauri implementation
@@ -107,8 +107,9 @@ upload behavior, and dispatches through the provider table. Provider services
 receive explicit credentials, model names, endpoints, language, and prompt
 inputs.
 
-The RPC layer observes that operation through
-`rpc.transcription.transcribeRecording`; it does not choose the provider again.
+The query layer observes that operation through
+`queries.transcription.transcribeRecording`; it does not choose the provider
+again.
 
 ## Service Barrel
 

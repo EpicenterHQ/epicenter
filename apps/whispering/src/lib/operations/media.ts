@@ -1,6 +1,6 @@
 import { tauri } from '#platform/tauri';
 import { log } from '$lib/report';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 // The one best-effort side effect for recording: pause whatever the system is
 // playing while recording, resume it after. Recording never waits on this and

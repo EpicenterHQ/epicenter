@@ -7,7 +7,7 @@ import {
 import { deviceConfig } from '$lib/state/device-config.svelte';
 import { localModels } from '$lib/state/local-models.svelte';
 import { secrets } from '$lib/state/secrets.svelte';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 function hasValue(value: string) {
 	return value.trim() !== '';

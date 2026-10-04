@@ -1,15 +1,21 @@
 import { defineKeys } from 'wellcrafted/query';
 import { Ok, partitionResults } from 'wellcrafted/result';
 import { transcribeAndPersist } from '$lib/operations/transcribe';
-import { defineMutation, queryClient } from '$lib/rpc/client';
+import type { WhisperingQueryRuntime } from '$lib/queries/client';
 import type { Recording } from '$lib/state/recordings.svelte';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 export const transcriptionKeys = defineKeys({
 	isTranscribing: ['transcription', 'isTranscribing'],
 });
 
-export function createTranscriptionRpc(app: WhisperingApp) {
+export function createTranscriptionQueries(
+	app: WhisperingApp,
+	{
+		defineMutation,
+		queryClient,
+	}: Pick<WhisperingQueryRuntime, 'defineMutation' | 'queryClient'>,
+) {
 	return {
 		isCurrentlyTranscribing() {
 			return (

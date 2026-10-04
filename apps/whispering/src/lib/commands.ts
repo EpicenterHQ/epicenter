@@ -9,7 +9,7 @@ import {
 	toggleVadRecording,
 } from '$lib/operations/recording';
 import type { Reach } from '$lib/utils/key-binding';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 /**
  * Registry of available commands in the application.

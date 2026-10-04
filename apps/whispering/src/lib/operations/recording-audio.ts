@@ -15,7 +15,7 @@ import {
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { services } from '$lib/services';
 import type { Recording } from '$lib/state/recordings.svelte';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 export type RecordingAudioAvailability =
 	| 'local-only'

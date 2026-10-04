@@ -1,7 +1,7 @@
 import type { BlobId } from '@epicenter/blobs';
 import { log, report } from '$lib/report';
 import { manualRecorder } from '$lib/state/manual-recorder.svelte';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 import { startManualRecording, stopManualRecordingById } from './recording';
 
 /**

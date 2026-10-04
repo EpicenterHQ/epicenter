@@ -235,7 +235,7 @@ test('an abort during acquisition releases and rejects', async () => {
 	expect(fake.disposed).toBe(true);
 });
 
-test('after resolve the provider owns application disposal', async () => {
+test('after resolve the caller owns application disposal', async () => {
 	const fake = createFakeRuntime();
 	const controller = new AbortController();
 	const app = await openWhisperingApplication(dependencies(fake), {

@@ -13,7 +13,7 @@
 import type { createAppAuthClient } from '@epicenter/svelte/auth';
 import type { Command } from '$lib/commands';
 import type { KeyBinding } from '$lib/utils/key-binding';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 /**
  * Why a binding cannot be assigned, as structured data rather than prose. The

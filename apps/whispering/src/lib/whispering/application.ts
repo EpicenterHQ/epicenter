@@ -77,9 +77,9 @@ function clone<TValue>(value: TValue): TValue {
  * The caller owns observation: the root Svelte `{#await}` (or a script's
  * `await`) attaches to this promise the moment it exists, so a boot failure
  * always has an observer. Aborting `signal` releases an in-flight acquisition.
- * Once resolved, the mounted provider becomes the sole lifecycle owner so it
- * can drain shell work before closing the application. Boot retry is a full
- * page reload.
+ * Once resolved, the caller owns disposal. The Svelte route wraps this core in
+ * one UI session so shell work, query state, and the application close in one
+ * ordered lifecycle. Boot retry is a full page reload.
  *
  * Scripts: `await using app = await openWhisperingApplication(bunDeps)`.
  */
@@ -163,8 +163,7 @@ export async function openWhisperingApplication(
 			Promise.all([recordingsDomain.ready, recipesDomain.ready]),
 		);
 		signal?.throwIfAborted();
-		// The signal owns only acquisition. Once ready, the mounted provider is
-		// the sole lifecycle owner so it can drain shell work before closing.
+		// The signal owns only acquisition. Once ready, the caller owns disposal.
 		signal?.removeEventListener('abort', onAbort);
 		signal?.throwIfAborted();
 		return Object.freeze({

@@ -25,7 +25,7 @@ import type { TranscriptionServiceId } from '$lib/services/transcription/provide
 import { deviceConfig } from '$lib/state/device-config.svelte';
 import { localModels } from '$lib/state/local-models.svelte';
 import type { ModelInfo } from '$lib/tauri/commands.types';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 import { isTranscriptionServiceConfigured } from './transcription-validation';
 
 /**

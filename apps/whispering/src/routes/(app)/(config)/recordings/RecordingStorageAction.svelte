@@ -3,7 +3,11 @@
 	import CloudDownloadIcon from '@lucide/svelte/icons/cloud-download';
 	import CloudUploadIcon from '@lucide/svelte/icons/cloud-upload';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
-	import { createMutation, createQuery } from '@tanstack/svelte-query';
+	import {
+		createMutation,
+		createQuery,
+		useQueryClient,
+	} from '@tanstack/svelte-query';
 	import { resultMutationOptions } from 'wellcrafted/query';
 	import {
 		downloadRecordingAudio,
@@ -11,17 +15,21 @@
 		uploadRecordingAudio,
 	} from '$lib/operations/recording-audio';
 	import { report } from '$lib/report';
-	import { queryClient } from '$lib/rpc/client';
 	import { services } from '$lib/services';
 	import type { Recording } from '$lib/state/recordings.svelte';
-	import { getWhisperingApp } from '$lib/whispering/context';
+	import {
+		getWhisperingApp,
+		getWhisperingQueries,
+	} from '$lib/whispering/context';
 
 	const app = getWhisperingApp();
+	const queries = getWhisperingQueries();
+	const queryClient = useQueryClient();
 
 	let { recording }: { recording: Recording } = $props();
 
 	const availability = createQuery(
-		() => app.rpc.audio.availability(() => recording).options,
+		() => queries.audio.availability(() => recording).options,
 	);
 	const canUseRemote = $derived(services.blobs.remote !== null);
 

@@ -4,7 +4,7 @@ import type { Command } from '$lib/commands';
 import { createFocusedShortcuts } from '$lib/platform/focused-shortcuts';
 import type { Shortcuts } from '$lib/platform/types';
 import { keyBindingToLabel } from '$lib/utils/key-binding';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 /**
  * Preference order for the shortcut that starts each recording mode: the first

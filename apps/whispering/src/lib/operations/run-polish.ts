@@ -13,7 +13,7 @@ import {
 import { describePolishDestination } from '$lib/operations/completion-target';
 import { resolveTranscriptionLocalityFromConfig } from '$lib/operations/transcription-target';
 import { deviceConfig } from '$lib/state/device-config.svelte';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 export const RunPolishError = defineErrors({
 	/**

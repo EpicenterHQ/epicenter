@@ -1,7 +1,7 @@
 import { tauri } from '#platform/tauri';
 import { outputWritesToCursor } from '$lib/operations/delivery';
 import { report } from '$lib/report';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 /**
  * Tell Rust whether delivery writes at the cursor. Cursor delivery uses a

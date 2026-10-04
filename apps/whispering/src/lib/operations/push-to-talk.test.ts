@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'bun:test';
 import { type BlobId, generateBlobId } from '@epicenter/blobs';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 let recorderState: 'STOPPED' | 'RECORDING' = 'STOPPED';
 let recorderIsStarting = false;

@@ -6,7 +6,7 @@ import {
 import type { RecordingPillAction } from '$lib/recording-pill/model';
 import { dictationLifecycle } from '$lib/state/dictation-lifecycle.svelte';
 import { polishHud } from '$lib/state/polish-hud.svelte';
-import type { WhisperingApp } from '$lib/whispering/context';
+import type { WhisperingApplication as WhisperingApp } from '$lib/whispering/application';
 
 /**
  * The pill's control gestures, mapped to operations in one place. Both pill
