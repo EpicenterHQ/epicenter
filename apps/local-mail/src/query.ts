@@ -1,11 +1,10 @@
-import { existsSync } from 'node:fs';
 import {
 	defineErrors,
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import { mailDbPath, openMailDbReadonly } from './db.ts';
+import { mailMirror, openMailDbReadonly } from './db.ts';
 
 export const MailQueryError = defineErrors({
 	NoMirror: ({ path }: { path: string }) => ({
@@ -35,11 +34,15 @@ export function queryMail({
 	accountEmail: string;
 	sql: string;
 }): Result<MailQueryResult, MailQueryError> {
-	const path = mailDbPath(dataDir, accountEmail);
-	if (!existsSync(path)) return MailQueryError.NoMirror({ path });
-	let db: ReturnType<typeof openMailDbReadonly> | undefined;
+	// The opener reports absence rather than conjuring a file, so there is no
+	// existence check to race against the sync that may be creating it.
+	const db = openMailDbReadonly({ dataDir, accountEmail });
+	if (db === null) {
+		return MailQueryError.NoMirror({
+			path: mailMirror(dataDir, accountEmail).path,
+		});
+	}
 	try {
-		db = openMailDbReadonly({ dataDir, accountEmail });
 		const rows: Record<string, unknown>[] = [];
 		let truncated = false;
 		for (const row of db.raw.query(sql).iterate()) {
@@ -53,6 +56,6 @@ export function queryMail({
 	} catch (cause) {
 		return MailQueryError.QueryFailed({ cause });
 	} finally {
-		db?.close();
+		db.close();
 	}
 }

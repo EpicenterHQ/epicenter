@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Fingerprint the REAL Local Mail mirror's durable state, to prove a write test
 # never touched it. Hashes only the durable files: `credentials.json` and each
-# account's `mail.db`. The volatile `-wal`/`-shm`/`lock.db` sidecars are skipped
-# on purpose: SQLite rewrites them during any open, so they are noise, not signal.
+# account's mirror artifacts (`mail.<fingerprint>.db`, including any predecessor
+# awaiting reclaim). The volatile `-wal`/`-shm`/`lock.db` sidecars are skipped on
+# purpose: SQLite rewrites them during any open, so they are noise, not signal.
+#
+# Unrelated to the declaration fingerprint in the artifact's NAME (ADR-0194):
+# this hashes file contents to detect a write, that one names a stored shape.
 #
 # Usage:
 #   fingerprint.sh > before.txt      # capture before a write test
@@ -23,5 +27,5 @@ fi
 # Sorted for a stable diff regardless of filesystem enumeration order.
 {
 	[ -f "$REAL/credentials.json" ] && shasum -a 256 "$REAL/credentials.json"
-	find "$REAL" -maxdepth 2 -name mail.db -exec shasum -a 256 {} \;
+	find "$REAL" -maxdepth 2 -name 'mail.*.db' -exec shasum -a 256 {} \;
 } | sort

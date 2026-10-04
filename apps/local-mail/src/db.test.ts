@@ -12,16 +12,24 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { Buffer } from 'node:buffer';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
 	type MailDb,
-	mailDbPath,
+	mailMirror,
 	openMailDb,
 	openMailDbReadonly,
-	SCHEMA_VERSION,
 } from './db.ts';
+import { acquireSyncLock } from './lock.ts';
 import type { GmailMessage } from './schema.ts';
 
 function tempDir() {
@@ -325,17 +333,21 @@ describe('full pull page ingestion', () => {
 		cleanup();
 	});
 
-	test('creates data and account dirs as 0700 and db files as 0600', () => {
+	test('creates data and account dirs as 0700 and the artifact and its sidecars as 0600', () => {
 		const tmp = tempDir();
 		chmodSync(tmp.dir, 0o755);
 		const accountDir = join(tmp.dir, 'you@example.com');
-		const path = join(accountDir, 'mail.db');
+		const path = mailMirror(tmp.dir, 'you@example.com').path;
 		const db = openMailDb({
 			dataDir: tmp.dir,
 			accountEmail: 'you@example.com',
 		});
 		db.ingestFullPullPage([message()], 's1');
 
+		// The directory mode is the one that must be in place before the artifact
+		// exists: the 0600 chmod cannot precede WAL activation, which is what
+		// creates the sidecars, so the sidecars are protected by being born inside
+		// a 0700 directory and chmodded the moment there is a file to chmod.
 		expect(mode(tmp.dir)).toBe(0o700);
 		expect(mode(accountDir)).toBe(0o700);
 		expect(mode(path)).toBe(0o600);
@@ -494,41 +506,15 @@ describe('labels', () => {
 });
 
 describe('readonly open', () => {
-	test('a stale-schema mirror opens readonly without touching the current column set', () => {
-		// Hand-build a v1-shaped mirror: no body_text column, a threads table,
-		// TEXT internal_date. A readonly consumer (`status` before the first
-		// post-upgrade sync) must read it without throwing; only the next
-		// writer open migrates.
+	test('an account with no current artifact reports absence and creates nothing', () => {
 		const tmp = tempDir();
-		const accountDir = join(tmp.dir, 'you@example.com');
-		mkdirSync(accountDir, { recursive: true });
-		const path = join(accountDir, 'mail.db');
-		const old = new Database(path, { create: true });
-		old.exec(`
-			CREATE TABLE _meta (key TEXT PRIMARY KEY, value TEXT);
-			CREATE TABLE messages (
-				id TEXT PRIMARY KEY,
-				raw TEXT NOT NULL,
-				subject TEXT,
-				sender TEXT,
-				synced_at TEXT NOT NULL,
-				deleted INTEGER NOT NULL DEFAULT 0
-			);
-			CREATE TABLE threads (id TEXT PRIMARY KEY, raw TEXT NOT NULL);
-			CREATE TABLE labels (id TEXT PRIMARY KEY, raw TEXT NOT NULL, synced_at TEXT NOT NULL);
-			INSERT INTO _meta (key, value) VALUES ('schema_version', '1'), ('history_id', '42');
-			INSERT INTO messages (id, raw, synced_at) VALUES ('m1', '{}', 's1');
-		`);
-		old.close();
+		const site = mailMirror(tmp.dir, 'you@example.com');
 
-		const reader = openMailDbReadonly({
-			dataDir: tmp.dir,
-			accountEmail: 'you@example.com',
-		});
-		expect(reader.schemaVersion()).toBe('1');
-		expect(reader.realmState().historyId).toBe('42');
-		expect(reader.counts()).toEqual({ messages: 1, labels: 0 });
-		reader.close();
+		expect(
+			openMailDbReadonly({ dataDir: tmp.dir, accountEmail: 'you@example.com' }),
+		).toBeNull();
+		expect(existsSync(site.path)).toBe(false);
+		expect(existsSync(join(tmp.dir, 'you@example.com'))).toBe(false);
 		tmp.cleanup();
 	});
 
@@ -539,93 +525,143 @@ describe('readonly open', () => {
 			dataDir,
 			accountEmail: 'you@example.com',
 		});
-		expect(() => reader.raw.exec(`DELETE FROM messages`)).toThrow();
-		reader.close();
+		expect(reader).not.toBeNull();
+		expect(() => reader?.raw.run(`DELETE FROM messages`)).toThrow();
+		reader?.close();
 		cleanup();
 	});
 });
 
 describe('mirror layout', () => {
 	test('an account email that is not one path segment cannot name a mirror directory', () => {
-		expect(() => mailDbPath('/data', '../evil')).toThrow(
+		expect(() => mailMirror('/data', '../evil')).toThrow(
 			'cannot name a mirror directory',
 		);
-		expect(() => mailDbPath('/data', 'a/b@example.com')).toThrow(
+		expect(() => mailMirror('/data', 'a/b@example.com')).toThrow(
 			'cannot name a mirror directory',
 		);
-		expect(() => mailDbPath('/data', '')).toThrow(
+		expect(() => mailMirror('/data', '')).toThrow(
 			'cannot name a mirror directory',
 		);
-		expect(mailDbPath('/data', 'you@example.com')).toBe(
-			join('/data', 'you@example.com', 'mail.db'),
+	});
+
+	test('the artifact is named by the declaration fingerprint, inside the account dir', () => {
+		const site = mailMirror('/data', 'you@example.com');
+		expect(site.path).toBe(
+			join('/data', 'you@example.com', `mail.${site.fingerprint}.db`),
 		);
+		expect(site.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+	});
+
+	test('the declaration covers every table and column the DDL creates', () => {
+		// The declaration is the source the DDL is generated from, so a column
+		// that exists on disk but not in the declaration would be a column whose
+		// change never renames the artifact. Read the shape back from SQLite.
+		const { db, cleanup } = openTmp();
+		const tables = db.raw
+			.query<{ name: string }, []>(
+				`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`,
+			)
+			.all()
+			.map((row) => row.name);
+		expect(tables).toEqual(['_meta', 'labels', 'messages']);
+
+		// `table_xinfo`, not `table_info`: generated columns are hidden, and four
+		// of the ten are exactly what this is checking.
+		const columns = db.raw
+			.query<{ name: string }, []>(`PRAGMA table_xinfo(messages)`)
+			.all()
+			.map((row) => row.name);
+		expect(columns).toEqual([
+			'id',
+			'raw',
+			'thread_id',
+			'snippet',
+			'label_ids',
+			'internal_date',
+			'subject',
+			'sender',
+			'body_text',
+			'synced_at',
+		]);
+		cleanup();
 	});
 });
 
-describe('schema-version migration', () => {
-	test('a stale schema_version rebuilds a fresh file in the same open', () => {
+describe('a changed declaration', () => {
+	test('leaves the predecessor and the account lock intact, and starts empty', () => {
 		const tmp = tempDir();
 		const location = { dataDir: tmp.dir, accountEmail: 'you@example.com' };
 		const accountDir = join(tmp.dir, 'you@example.com');
-		mkdirSync(accountDir, { recursive: true });
-		const path = join(accountDir, 'mail.db');
-		const old = new Database(path, { create: true });
-		old.exec(`
-			CREATE TABLE _meta (key TEXT PRIMARY KEY, value TEXT);
-			CREATE TABLE messages (
-				id TEXT PRIMARY KEY,
-				raw TEXT NOT NULL,
-				subject TEXT,
-				sender TEXT,
-				synced_at TEXT NOT NULL,
-				deleted INTEGER NOT NULL DEFAULT 0
-			);
-			CREATE TABLE threads (id TEXT PRIMARY KEY, raw TEXT NOT NULL);
-			CREATE TABLE labels (id TEXT PRIMARY KEY, raw TEXT NOT NULL, synced_at TEXT NOT NULL);
-			INSERT INTO _meta (key, value) VALUES
-				('schema_version', '3'),
-				('history_id', '42'),
-				('last_full_pull_at', 's1'),
-				('last_synced_at', 's1');
-			INSERT INTO messages (id, raw, synced_at) VALUES ('m1', '{}', 's1');
-		`);
+		const site = mailMirror(tmp.dir, 'you@example.com');
+
+		// The mailbox an earlier declaration left behind. Written under its own
+		// fingerprint rather than renamed into place, because the filename is the
+		// only thing that distinguishes the two: a predecessor is just an artifact
+		// this build's declaration does not name.
+		const predecessorFingerprint = 'b'.repeat(64);
+		const predecessor = join(accountDir, `mail.${predecessorFingerprint}.db`);
+		mkdirSync(accountDir, { recursive: true, mode: 0o700 });
+		const old = new Database(predecessor, { create: true });
+		old.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, raw TEXT NOT NULL);`);
+		old.run(`INSERT INTO messages (id, raw) VALUES ('m1', '{}');`);
 		old.close();
 
-		// The handle returned from `openMailDb` must already be writable against
-		// the current schema.
-		const second = openMailDb(location);
-		expect(() =>
-			second.ingestFullPullPage([message({ id: 'm2' })], 's2'),
-		).not.toThrow();
-		const row = second.raw
-			.query<{ id: string }, [string]>(`SELECT id FROM messages WHERE id = ?`)
-			.get('m2');
-		expect(row?.id).toBe('m2');
+		// The sync-owner lock is a sibling of the artifact, not an artifact.
+		const lock = acquireSyncLock(location);
+		expect(lock).not.toBeNull();
+		lock?.release();
+
+		const rebuilt = openMailDb(location);
+		expect(rebuilt.counts()).toEqual({ messages: 0, labels: 0 });
+		expect(rebuilt.readRealmState().historyId).toBeNull();
+		rebuilt.close();
+
+		// Nothing was unlinked, dropped, or migrated.
+		expect(existsSync(predecessor)).toBe(true);
+		const retained = new Database(predecessor, { readonly: true });
 		expect(
-			second.raw
-				.query<{ id: string }, [string]>(`SELECT id FROM messages WHERE id = ?`)
-				.get('m1'),
-		).toBeNull();
+			retained
+				.query<{ n: number }, []>(`SELECT count(*) AS n FROM messages`)
+				.get()?.n,
+		).toBe(1);
+		retained.close();
+		expect(existsSync(join(accountDir, 'lock.db'))).toBe(true);
+
+		// The predecessor is inventory, never the thing a read verb opens.
 		expect(
-			second.raw
-				.query<{ value: string | null }, [string]>(
-					`SELECT value FROM _meta WHERE key = ?`,
-				)
-				.get('schema_version')?.value,
-		).toBe(SCHEMA_VERSION);
-		expect(
-			second.raw
-				.query<{ value: string | null }, [string]>(
-					`SELECT value FROM _meta WHERE key = ?`,
-				)
-				.get('history_id'),
-		).toBeNull();
-		const columns = second.raw
-			.query<{ name: string }, []>(`PRAGMA table_info(messages)`)
-			.all()
-			.map((row) => row.name);
-		expect(columns).not.toContain('deleted');
-		second.close();
+			site
+				.artifacts()
+				.filter((a) => !a.current)
+				.map((a) => a.fingerprint),
+		).toEqual([predecessorFingerprint]);
+		const reader = openMailDbReadonly(location);
+		expect(reader?.raw.filename).toBe(site.path);
+		reader?.close();
+		tmp.cleanup();
+	});
+
+	test('reclaim removes the predecessor without touching lock.db or the current artifact', () => {
+		const tmp = tempDir();
+		const location = { dataDir: tmp.dir, accountEmail: 'you@example.com' };
+		const accountDir = join(tmp.dir, 'you@example.com');
+		const site = mailMirror(tmp.dir, 'you@example.com');
+
+		const predecessor = join(accountDir, `mail.${'c'.repeat(64)}.db`);
+		const db = openMailDb(location);
+		db.ingestFullPullPage([message()], 's1');
+		db.close();
+		writeFileSync(predecessor, '');
+		acquireSyncLock(location)?.release();
+
+		site.reclaim('c'.repeat(64));
+
+		expect(existsSync(predecessor)).toBe(false);
+		expect(existsSync(join(accountDir, 'lock.db'))).toBe(true);
+		expect(existsSync(site.path)).toBe(true);
+		expect(() => site.reclaim(site.fingerprint)).toThrow(
+			'it is the current artifact',
+		);
 		tmp.cleanup();
 	});
 });

@@ -16,7 +16,7 @@
 # Prints machine-readable lines the other scripts parse:
 #   ACCOUNT <email>
 #   COPY_READY <dir>
-#   MOCK_DB <path to copied mail.db>
+#   MOCK_DB <path to the copied mirror artifact>
 set -euo pipefail
 
 REAL="${LOCAL_MAIL_REAL_DIR:-$HOME/Library/Application Support/local-mail}"

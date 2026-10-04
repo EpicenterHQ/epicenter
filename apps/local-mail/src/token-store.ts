@@ -1,15 +1,9 @@
-import {
-	chmodSync,
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	writeFileSync,
-} from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { Value } from 'typebox/value';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { AppConfig } from './config.ts';
-import { mailDbPath } from './db.ts';
+import { mailMirror } from './db.ts';
 import { type TokenSet, TokenSetSchema } from './tokens.ts';
 
 /**
@@ -39,7 +33,11 @@ export async function resolveAccount(
 		if (accounts.includes(config.account)) return Ok(config.account);
 		let hasMirror = false;
 		try {
-			hasMirror = existsSync(mailDbPath(config.dataDir, config.account));
+			// Any artifact counts, including one a declaration edit retired: the
+			// account plainly exists on disk, and which of its materializations the
+			// read verbs can open is their answer to give, not this resolver's.
+			hasMirror =
+				mailMirror(config.dataDir, config.account).artifacts().length > 0;
 		} catch {
 			// Not even one path segment; the error below names the real accounts.
 		}

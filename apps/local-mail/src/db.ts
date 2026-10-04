@@ -1,11 +1,11 @@
-import { Database } from 'bun:sqlite';
-import { chmodSync, mkdirSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, mkdirSync } from 'node:fs';
 import { bodyHtml, bodyText, headerValue } from './message-fields.ts';
+import { defineMirror, type MirrorSite } from './mirror.ts';
+import { accountDir } from './paths.ts';
 import type { GmailLabel, GmailMessage } from './schema.ts';
 
 /**
- * The local mirror: one SQLite file per connected Gmail account. Ports
+ * The local mirror: one SQLite artifact per connected Gmail account. Ports
  * `apps/local-books`' CDC-cursor and transaction discipline (see that file's
  * top comment) onto Gmail's `history.list` shape, which differs from
  * QuickBooks' `/cdc` in ways that shaped the design below:
@@ -22,17 +22,15 @@ import type { GmailLabel, GmailMessage } from './schema.ts';
  *   whole mailbox in memory before one transaction; the cursor only advances
  *   once, in `finishFullPull`, after every page has committed.
  *
- * Migration is intentionally two-speed, not one blunt `SCHEMA_VERSION` bump
- * for everything: adding an index alone (a query got slow, no row or derived
- * shape change) needs nothing but a new `CREATE INDEX IF NOT EXISTS` line
- * below. Index creation runs unconditionally on every open, with no version
- * bump, no data loss, and no Gmail re-download. A row shape or derivation
- * change needs `SCHEMA_VERSION` bumped, including changes to `bodyText` or
- * header extraction. A version mismatch deletes and rebuilds the whole mirror
- * file because the corpus is disposable and Gmail owns the truth.
+ * The account owns its identity through the directory (`<dataDir>/<account>/`),
+ * not a stored column. Inside that directory the artifact is named by the
+ * fingerprint of `MIRROR_DECLARATION` (ADR-0194): nothing about the stored shape
+ * is stamped inside the file, and opening never drops, unlinks, or migrates
+ * anything. That matters more here than in Books because Mail's rebuild is an
+ * hours-long paginated backfill, so the predecessor stays readable on disk while
+ * its successor fills; see `finishFullPull` for when the app decides a
+ * replacement is complete.
  */
-
-export const SCHEMA_VERSION = '4';
 
 export type RealmState = {
 	historyId: string | null;
@@ -117,77 +115,215 @@ function secureDbFiles(path: string): void {
 	chmodIfExists(`${path}-shm`, 0o600);
 }
 
-function unlinkIfExists(path: string): void {
-	try {
-		unlinkSync(path);
-	} catch (error) {
-		const code = (error as { code?: unknown }).code;
-		if (code !== 'ENOENT') throw error;
-	}
+type ColumnType = 'TEXT' | 'INTEGER';
+
+/** A column SQLite computes from `raw` on its own, as a GENERATED column. */
+type Projection = {
+	/** The `json_extract` path, e.g. `$.threadId`. */
+	path: string;
+	/** `STORED` when a read or an index needs the value materialized. */
+	storage: 'VIRTUAL' | 'STORED';
+	/** Wrap in `CAST(... AS <type>)` when SQLite must be told the affinity. */
+	cast: ColumnType | null;
+};
+
+/**
+ * One declared column. Exactly one of `projected` and `derivation` is set, or
+ * neither for a plain column the app writes verbatim.
+ */
+type ColumnDeclaration = {
+	name: string;
+	type: ColumnType;
+	constraint: string | null;
+	projected: Projection | null;
+	derivation: string | null;
+};
+
+type TableDeclaration = { table: string; columns: ColumnDeclaration[] };
+
+/** A column the app writes verbatim: an id, the raw blob, a bookkeeping stamp. */
+function stored(
+	name: string,
+	type: ColumnType,
+	constraint: string | null = null,
+): ColumnDeclaration {
+	return { name, type, constraint, projected: null, derivation: null };
 }
 
-function unlinkDbFiles(path: string): void {
-	unlinkIfExists(path);
-	unlinkIfExists(`${path}-wal`);
-	unlinkIfExists(`${path}-shm`);
-}
-
-function openWritableHandle(path: string): Database {
-	const db = new Database(path, { create: true });
-
-	db.exec('PRAGMA journal_mode = WAL;');
-	db.exec('PRAGMA busy_timeout = 5000;');
-	db.exec('PRAGMA synchronous = NORMAL;');
-	db.exec('PRAGMA foreign_keys = ON;');
-	secureDbFiles(path);
-	db.exec(
-		`CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT);`,
-	);
-	return db;
+/** A column SQLite projects out of `raw`; the declaration carries the expression. */
+function projected(
+	name: string,
+	type: ColumnType,
+	projection: Projection,
+): ColumnDeclaration {
+	return {
+		name,
+		type,
+		constraint: null,
+		projected: projection,
+		derivation: null,
+	};
 }
 
 /**
- * One SQLite file per connected account: `<data-dir>/<accountEmail>/mail.db`.
- * The mirror owns this layout; nothing outside this file assembles mirror
- * paths. The account email names a directory, so it must be exactly one path
- * segment: emails reach here from Google's profile endpoint or a
- * store-validated override, and this guard keeps any other string from
- * escaping the data dir.
+ * A column whose value the app computes in TypeScript at ingest, named by what
+ * it holds. Gmail nests headers as an array and MIME bodies as a base64url part
+ * tree, so neither is reachable from a `json_extract` path: `message-fields.ts`
+ * decodes them once at ingest and the column stores the result.
+ *
+ * The string is therefore the one hand-maintained fingerprint input in this
+ * file, and it is irreducible rather than a `SCHEMA_VERSION` in disguise. The
+ * fingerprint has to answer "is the stored shape the same shape as before", and
+ * for these three columns the stored shape is a TypeScript function's output.
+ * ADR-0194 rejects hashing function source (formatting and bundling changes are
+ * not shape changes), so what is declared is the contract: change what
+ * `bodyText` selects and this string no longer describes the column, which
+ * renames the artifact and re-pulls. The check a reviewer runs is local ("does
+ * this string still describe what the function does?"), not a global constant
+ * disconnected from the change that invalidated it.
  */
-export function mailDbPath(dataDir: string, accountEmail: string): string {
-	if (
-		accountEmail.length === 0 ||
-		accountEmail === '.' ||
-		accountEmail === '..' ||
-		accountEmail.includes('/') ||
-		accountEmail.includes('\\')
-	) {
-		throw new Error(
-			`Account email ${JSON.stringify(accountEmail)} cannot name a mirror directory.`,
-		);
-	}
-	return join(dataDir, accountEmail, 'mail.db');
+function derived(
+	name: string,
+	type: ColumnType,
+	derivation: string,
+): ColumnDeclaration {
+	return { name, type, constraint: null, projected: null, derivation };
 }
+
+/**
+ * The mirror's declared stored shape, as plain data. It is BOTH the source the
+ * DDL below is generated from AND the fingerprint input that names the artifact
+ * on disk, so a shape change cannot be made without renaming the artifact.
+ *
+ * Column order is meaningful (it is the table's column order), so it is
+ * preserved rather than sorted. Table order is not, but this is a closed
+ * three-table literal rather than a registry, so there is nothing to reorder by
+ * accident and sorting would only hide the DDL's real shape.
+ *
+ * Indexes are deliberately absent: an index holds no mirror facts and is applied
+ * idempotently on every open, so a query optimization must not force a re-pull.
+ * That is what makes migration two-speed. Adding a `CREATE INDEX IF NOT EXISTS`
+ * line in `openMailDb` costs nothing; touching this literal costs one full
+ * paginated re-pull of the mailbox, with the predecessor retained until
+ * something calls `reclaim`.
+ */
+const MIRROR_DECLARATION = {
+	tables: [
+		{
+			table: '_meta',
+			columns: [stored('key', 'TEXT', 'PRIMARY KEY'), stored('value', 'TEXT')],
+		},
+		{
+			table: 'messages',
+			columns: [
+				stored('id', 'TEXT', 'PRIMARY KEY'),
+				stored('raw', 'TEXT', 'NOT NULL'),
+				projected('thread_id', 'TEXT', {
+					path: '$.threadId',
+					storage: 'VIRTUAL',
+					cast: null,
+				}),
+				projected('snippet', 'TEXT', {
+					path: '$.snippet',
+					storage: 'STORED',
+					cast: null,
+				}),
+				projected('label_ids', 'TEXT', {
+					path: '$.labelIds',
+					storage: 'VIRTUAL',
+					cast: null,
+				}),
+				projected('internal_date', 'INTEGER', {
+					path: '$.internalDate',
+					storage: 'STORED',
+					cast: 'INTEGER',
+				}),
+				derived('subject', 'TEXT', 'header:Subject'),
+				derived('sender', 'TEXT', 'header:From'),
+				derived('body_text', 'TEXT', 'body:text-plain-else-stripped-html'),
+				stored('synced_at', 'TEXT', 'NOT NULL'),
+			],
+		},
+		{
+			table: 'labels',
+			columns: [
+				stored('id', 'TEXT', 'PRIMARY KEY'),
+				stored('raw', 'TEXT', 'NOT NULL'),
+				projected('name', 'TEXT', {
+					path: '$.name',
+					storage: 'VIRTUAL',
+					cast: null,
+				}),
+				projected('type', 'TEXT', {
+					path: '$.type',
+					storage: 'VIRTUAL',
+					cast: null,
+				}),
+				stored('synced_at', 'TEXT', 'NOT NULL'),
+			],
+		},
+	],
+} satisfies { tables: TableDeclaration[] };
+
+const MIRROR = defineMirror({ name: 'mail', declaration: MIRROR_DECLARATION });
+
+/**
+ * The mirror as materialized for one account: `<dataDir>/<accountEmail>/`. The
+ * site answers what the current artifact's path is, what else is on disk, and
+ * how to open or reclaim it; nothing outside this file assembles a mirror path.
+ */
+export function mailMirror(dataDir: string, accountEmail: string): MirrorSite {
+	return MIRROR.at(accountDir(dataDir, accountEmail));
+}
+
+/** `CREATE TABLE IF NOT EXISTS` for one declared table. */
+function createTableSql({ table, columns }: TableDeclaration): string {
+	const defs = columns.map((c) => {
+		const constraint = c.constraint ? ` ${c.constraint}` : '';
+		if (!c.projected) return `${c.name} ${c.type}${constraint}`;
+		const { path, storage, cast } = c.projected;
+		const extract = `json_extract(raw, '${path}')`;
+		const expression = cast ? `CAST(${extract} AS ${cast})` : extract;
+		return `${c.name} ${c.type} GENERATED ALWAYS AS (${expression}) ${storage}`;
+	});
+	return `CREATE TABLE IF NOT EXISTS ${table} (\n\t${defs.join(',\n\t')}\n);`;
+}
+
+const CREATE_TABLES = MIRROR_DECLARATION.tables.map(createTableSql);
+
+/**
+ * Applied on every open and deliberately outside the declaration, so adding one
+ * costs a query plan and not a mailbox re-download.
+ */
+const CREATE_INDEXES = [
+	`CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, internal_date);`,
+	`CREATE INDEX IF NOT EXISTS idx_messages_internal_date ON messages(internal_date);`,
+];
 
 type MailDbLocation = { dataDir: string; accountEmail: string };
 
+/**
+ * Open the account's current mirror artifact for writing, creating it if absent.
+ * Nothing here inspects, migrates, or drops what it finds: a different
+ * declaration is a different filename, so an artifact this opens is always one
+ * this build wrote (ADR-0194).
+ *
+ * Permissions stay with the app, and their ordering is the reason this does not
+ * simply call `site.open()`. Both directories are secured to 0700 BEFORE the
+ * artifact exists, so the file and its `-wal`/`-shm` sidecars are born inside a
+ * directory no other user can traverse. The 0600 chmod cannot come first: the
+ * sidecars do not exist until `journal_mode = WAL` creates them, which is inside
+ * `open()`. The directory mode is what closes the window; the file mode is the
+ * second layer, applied the moment there is a file to apply it to.
+ */
 export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
-	const path = mailDbPath(dataDir, accountEmail);
+	const site = mailMirror(dataDir, accountEmail);
 	secureDir(dataDir);
-	secureDir(join(dataDir, accountEmail));
-	let db = openWritableHandle(path);
-
-	const storedVersion =
-		db
-			.query<{ value: string | null }, [string]>(
-				`SELECT value FROM _meta WHERE key = ?`,
-			)
-			.get('schema_version')?.value ?? null;
-	if (storedVersion !== null && storedVersion !== SCHEMA_VERSION) {
-		db.close();
-		unlinkDbFiles(path);
-		db = openWritableHandle(path);
-	}
+	secureDir(accountDir(dataDir, accountEmail));
+	const db = site.open();
+	secureDbFiles(site.path);
+	for (const sql of CREATE_TABLES) db.run(sql);
+	for (const sql of CREATE_INDEXES) db.run(sql);
 
 	const setMetaStmt = db.query(
 		`INSERT INTO _meta (key, value) VALUES (?, ?)
@@ -196,32 +332,6 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 	const getMetaStmt = db.query<{ value: string | null }, [string]>(
 		`SELECT value FROM _meta WHERE key = ?`,
 	);
-
-	db.exec(`
-		CREATE TABLE IF NOT EXISTS messages (
-			id            TEXT PRIMARY KEY,
-			raw           TEXT NOT NULL,
-			thread_id     TEXT GENERATED ALWAYS AS (json_extract(raw, '$.threadId')) VIRTUAL,
-			snippet       TEXT GENERATED ALWAYS AS (json_extract(raw, '$.snippet')) STORED,
-			label_ids     TEXT GENERATED ALWAYS AS (json_extract(raw, '$.labelIds')) VIRTUAL,
-			internal_date INTEGER GENERATED ALWAYS AS (CAST(json_extract(raw, '$.internalDate') AS INTEGER)) STORED,
-			subject       TEXT,
-			sender        TEXT,
-			body_text     TEXT,
-			synced_at     TEXT NOT NULL
-		);
-		CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, internal_date);
-		CREATE INDEX IF NOT EXISTS idx_messages_internal_date ON messages(internal_date);
-
-		CREATE TABLE IF NOT EXISTS labels (
-			id         TEXT PRIMARY KEY,
-			raw        TEXT NOT NULL,
-			name       TEXT GENERATED ALWAYS AS (json_extract(raw, '$.name')) VIRTUAL,
-			type       TEXT GENERATED ALWAYS AS (json_extract(raw, '$.type')) VIRTUAL,
-			synced_at  TEXT NOT NULL
-		);
-	`);
-	setMetaStmt.run('schema_version', SCHEMA_VERSION);
 
 	const upsertMessageStmt = db.query(
 		`INSERT INTO messages (id, raw, subject, sender, body_text, synced_at)
@@ -597,19 +707,23 @@ export function openMailDb({ dataDir, accountEmail }: MailDbLocation) {
 }
 
 /**
- * The read-only view of a mirror file, for surfaces that must never write and
- * must never assume the on-disk schema is current (`status`, `query`): a
- * pre-current mirror is a valid thing to inspect, so nothing here prepares a
- * statement against today's column set up front; every read compiles at call
- * time against whatever schema the file actually has. The handle rejects
- * writes at the SQLite level, and `busy_timeout` keeps reads from failing
- * against a lock a concurrent sync briefly holds.
+ * The read-only view of the current mirror artifact, for surfaces that must
+ * never write (`status`, `query`), or `null` when the account has no current
+ * materialization yet. "Not built" is a state a caller reports, not an error,
+ * and never a file this conjures: an absent artifact used to be an `existsSync`
+ * check followed by an open, which left a window between the two.
+ *
+ * A predecessor is never opened here. The moment the declaration changes it
+ * stops being authoritative, so it is retained but not consulted; a caller that
+ * wants to inspect one takes its path from `mailMirror(...).artifacts()` and
+ * opens it deliberately.
+ *
+ * The handle rejects writes at the SQLite level, and `busy_timeout` keeps reads
+ * from failing against a lock a concurrent sync briefly holds.
  */
 export function openMailDbReadonly({ dataDir, accountEmail }: MailDbLocation) {
-	const db = new Database(mailDbPath(dataDir, accountEmail), {
-		readonly: true,
-	});
-	db.exec('PRAGMA busy_timeout = 5000;');
+	const db = mailMirror(dataDir, accountEmail).openReadonly();
+	if (db === null) return null;
 
 	const meta = (key: string): string | null =>
 		db
@@ -628,10 +742,6 @@ export function openMailDbReadonly({ dataDir, accountEmail }: MailDbLocation) {
 				lastFullPullAt: meta('last_full_pull_at'),
 				lastSyncedAt: meta('last_synced_at'),
 			};
-		},
-
-		schemaVersion(): string | null {
-			return meta('schema_version');
 		},
 
 		counts(): { messages: number; labels: number } {

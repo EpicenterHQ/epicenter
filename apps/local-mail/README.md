@@ -17,11 +17,24 @@ table.
 
 - Runtime: Bun. `bun:sqlite` stores the mirror, built-in `fetch` calls Gmail,
   `oauth4webapi` handles OAuth.
-- One SQLite file per connected account: `<data-dir>/<accountEmail>/mail.db`.
-  The refresh token lives in a separate `0600 credentials.json` at the data-dir
+- One SQLite artifact per connected account, under `<data-dir>/<accountEmail>/`,
+  named `mail.<fingerprint>.db` where the fingerprint is the SHA-256 of the
+  mirror's declaration (`MIRROR_DECLARATION` in `src/db.ts`). `src/mirror.ts`
+  owns the naming, the two opening modes, artifact listing, and grammar-scoped
+  `reclaim`; the app owns the declaration, DDL, ingestion, cursors, the sync
+  lock, file permissions, and cleanup timing. Opening is non-destructive: a
+  declaration edit is a new filename, not a migration, so nothing is dropped or
+  unlinked on open and the predecessor stays readable while its successor
+  backfills. There is no schema version stamped in the file. See ADR-0194.
+  Editing the declaration therefore renames the artifact and costs one full
+  paginated re-pull of the mailbox; `local-mail status` lists what is retained,
+  and reclaiming it is a deliberate act.
+- The refresh token lives in a separate `0600 credentials.json` at the data-dir
   root, never inside the mirror db.
-- Data and account directories are `0700`. `mail.db`, `mail.db-wal`,
-  `mail.db-shm`, and `credentials.json` are `0600`.
+- Data and account directories are `0700`. The artifact, its `-wal` and `-shm`
+  sidecars, and `credentials.json` are `0600`. The directory mode is what
+  protects the sidecars at birth: they do not exist until WAL is activated, so
+  their own `0600` is applied immediately afterwards, not before.
 - Tables: `messages`, `labels`, and `_meta`. Thread facts are derived from live
   messages instead of stored in a separate `threads` table.
 - `messages.body_text` is decoded at ingest from `text/plain` MIME parts, with

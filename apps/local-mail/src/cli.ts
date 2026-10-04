@@ -456,7 +456,12 @@ function renderStatus(status: MailStatus): string {
 		['connected', status.connected ? 'yes' : 'no'],
 		['access token', accessToken],
 		['mirror', status.mirror],
-		['schema version', status.schemaVersion ?? 'none'],
+		['artifact', status.mirrorPath],
+		// One row per retained predecessor, so the alignment below handles a list
+		// for free. These are never read; they are inventory awaiting reclaim.
+		...(status.retained.length === 0
+			? [['retained', 'none'] as [string, string]]
+			: status.retained.map((a): [string, string] => ['retained', a.path])),
 		['history cursor', status.historyId ?? 'none'],
 		['last full pull', status.lastFullPullAt ?? 'never'],
 		['last synced', status.lastSyncedAt ?? 'never'],

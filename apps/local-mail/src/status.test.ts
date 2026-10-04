@@ -5,17 +5,25 @@
  * only whether the SQLite file exists.
  *
  * Key behaviors:
- * - missing mirror reports `empty`
+ * - missing mirror reports `empty`, without conjuring a file to report on
+ * - a predecessor an earlier declaration left behind is listed as retained
+ *   inventory, and never counted as the mirror
  * - mirror file with no history cursor reports `building`
  * - mirror with a history cursor reports `ready`
  */
 
 import { expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AppConfig } from './config.ts';
-import { openMailDb } from './db.ts';
+import { mailMirror, openMailDb } from './db.ts';
 import type { GmailMessage } from './schema.ts';
 import { readMailStatus } from './status.ts';
 import type { TokenStore } from './token-store.ts';
@@ -74,6 +82,34 @@ test('status reports empty when the mirror file does not exist', async () => {
 	expect(status.mirror).toBe('empty');
 	expect(status.historyId).toBeNull();
 	expect(status.rows).toEqual({ messages: 0, labels: 0 });
+	expect(status.mirrorPath).toBe(mailMirror(tmp.dir, ACCOUNT).path);
+	expect(status.retained).toEqual([]);
+	// Reporting an absent mirror must not create one.
+	expect(existsSync(status.mirrorPath)).toBe(false);
+	tmp.cleanup();
+});
+
+test('a retained predecessor is inventory, never the mirror status reports', async () => {
+	const tmp = tempDir();
+	const accountDir = join(tmp.dir, ACCOUNT);
+	const fingerprint = 'd'.repeat(64);
+	mkdirSync(accountDir, { recursive: true });
+	writeFileSync(join(accountDir, `mail.${fingerprint}.db`), '');
+	// Neither of these is an artifact, so neither may appear as one.
+	writeFileSync(join(accountDir, 'lock.db'), '');
+	writeFileSync(join(accountDir, 'credentials.json'), '{}');
+
+	const status = await readMailStatus({
+		config: config(tmp.dir),
+		accountEmail: ACCOUNT,
+		store,
+	});
+
+	expect(status.mirror).toBe('empty');
+	expect(status.rows).toEqual({ messages: 0, labels: 0 });
+	expect(status.retained).toEqual([
+		{ fingerprint, path: join(accountDir, `mail.${fingerprint}.db`) },
+	]);
 	tmp.cleanup();
 });
 

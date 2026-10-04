@@ -17,7 +17,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Result } from 'wellcrafted/result';
-import { type MailDb, openMailDb, SCHEMA_VERSION } from './db.ts';
+import { type MailDb, openMailDb } from './db.ts';
 import { GmailApiError, type GmailClient } from './gmail-client.ts';
 import {
 	type ModifyMessageLabelsInput,
@@ -439,7 +439,6 @@ describe('modifyMessageLabels', () => {
 			lastFullPullAt: 's1',
 			lastSyncedAt: 's1',
 		});
-		expect(SCHEMA_VERSION).toBe('4');
 		cleanup();
 	});
 
