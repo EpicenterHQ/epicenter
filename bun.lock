@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "epicenter",
@@ -748,6 +747,19 @@
         "@tauri-apps/plugin-opener",
       ],
     },
+    "packages/blobs": {
+      "name": "@epicenter/blobs",
+      "version": "0.0.1",
+      "dependencies": {
+        "arktype": "catalog:",
+        "nanoid": "catalog:",
+        "wellcrafted": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/chat": {
       "name": "@epicenter/chat",
       "version": "0.1.0",
@@ -1420,6 +1432,8 @@
     "@epicenter/app-shell": ["@epicenter/app-shell@workspace:packages/app-shell"],
 
     "@epicenter/auth": ["@epicenter/auth@workspace:packages/auth"],
+
+    "@epicenter/blobs": ["@epicenter/blobs@workspace:packages/blobs"],
 
     "@epicenter/chat": ["@epicenter/chat@workspace:packages/chat"],
 
