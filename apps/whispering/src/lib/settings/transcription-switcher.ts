@@ -9,8 +9,8 @@
  *    GGUFs, one leaf per model.
  *
  * Same leaf shape, different provenance. Each producer computes its own
- * `label` where it already reads its own store, so the selector does not need
- * cross-store display branching.
+ * `title` (and exact-model fields) where it already reads its own store, so
+ * the selector does not need cross-store display branching.
  * Reactive by construction: the getters it reads (`settings`, `secrets`,
  * `auth`, `deviceConfig`, `localModels`) are all reactive, so calling this
  * inside a `$derived` re-runs it when any source changes.
@@ -30,8 +30,9 @@ import { isTranscriptionServiceConfigured } from './transcription-validation';
 
 /**
  * One switchable transcription route. The union's single row shape: an icon,
- * a name, where it runs, a check if active, and how to make it active. Each
- * producer fills `label`/`sublabel` from the store it owns.
+ * an identity, the exact model truth, where it runs, a check if active, and
+ * how to make it active. Each producer fills `title`/`modelId`/`endpointHost`
+ * from the store it owns.
  */
 export type SwitcherLeaf = {
 	/** Stable list/cmdk key. remote providers: providerId. onDevice: model id. */
@@ -41,11 +42,26 @@ export type SwitcherLeaf = {
 	/** Brand glyph markup from `PROVIDER_ICONS` (local shares the ggml icon). */
 	icon: string;
 	invertInDarkMode: boolean;
-	/** Primary line: session -> "Epicenter"; key -> selected model; onDevice ->
-	 *  model name; endpoint -> model id (#2337). */
-	label: string;
-	/** Secondary line: key -> provider label; endpoint -> endpoint host. */
-	sublabel?: string;
+	/**
+	 * The route's identity: the compact pipeline trigger's text and the picker
+	 * row's primary line. onDevice -> the curated model name ("Whisper Small");
+	 * every remote access -> the provider label ("Epicenter", "OpenAI",
+	 * "Speaches"). Unambiguous today because every remote provider produces
+	 * exactly one leaf, and each on-device leaf IS a model.
+	 */
+	title: string;
+	/**
+	 * The exact model id this route will run, the confirmation #2337 asked for:
+	 * key -> the committed model setting; endpoint -> the configured server
+	 * model id. Absent where the id adds nothing over the title: session runs
+	 * the gateway-pinned wire model, and an onDevice title already names its
+	 * model (the opaque HF coordinate stays searchable via `keywords` and
+	 * visible in settings).
+	 */
+	modelId?: string;
+	/** endpoint only: the configured server's host, so the row also answers
+	 *  "which box runs this model" next to `modelId`. */
+	endpointHost?: string;
 	/** The cmdk search string (also its unique `value`). */
 	keywords: string;
 	/** True when this leaf is the current active selection. */
@@ -54,7 +70,7 @@ export type SwitcherLeaf = {
 	select: () => void;
 };
 
-/** The endpoint provider's host sublabel; the raw string if it won't parse. */
+/** The endpoint provider's host; the raw string if it won't parse. */
 function endpointHost(endpoint: string): string {
 	try {
 		return new URL(endpoint).host || endpoint;
@@ -90,31 +106,33 @@ function toRemoteLeaf(app: WhisperingApp, entry: RemoteEntry): SwitcherLeaf {
 			return {
 				...base,
 				access: 'session',
-				label: entry.label,
+				title: entry.label,
 				keywords: `${entry.id} ${entry.label} epicenter hosted account credits`,
 			};
 		case 'key': {
-			// The committed model (set once in setup) is the leaf; the provider is
-			// conveyed by the icon and the sublabel.
+			// The provider is the route's identity; the committed model (set once in
+			// setup) rides along as the exact-model confirmation.
 			const model =
 				app.settings.get(entry.modelSettingKey) || entry.defaultModel;
 			return {
 				...base,
 				access: 'key',
-				label: model,
-				sublabel: entry.label,
+				title: entry.label,
+				modelId: model,
 				keywords: `${entry.id} ${entry.label} ${model} cloud api key`,
 			};
 		}
 		case 'endpoint': {
-			// #2337: the model id is the primary label, the endpoint host the sublabel.
+			// The provider is the identity here too; the configured model id (#2337)
+			// and the server host stay on the leaf as exact truth.
 			const endpoint = deviceConfig.get(entry.endpointConfigKey);
 			const modelId = deviceConfig.get(entry.modelIdConfigKey);
 			return {
 				...base,
 				access: 'endpoint',
-				label: modelId,
-				sublabel: endpointHost(endpoint),
+				title: entry.label,
+				modelId,
+				endpointHost: endpointHost(endpoint),
 				keywords: `${entry.id} ${entry.label} ${modelId} ${endpoint} custom server self-hosted`,
 			};
 		}
@@ -129,7 +147,7 @@ function toLocalLeaf(app: WhisperingApp, model: ModelInfo): SwitcherLeaf {
 		access: 'onDevice',
 		icon: PROVIDER_ICONS.local.icon,
 		invertInDarkMode: PROVIDER_ICONS.local.invertInDarkMode,
-		label: model.name,
+		title: model.name,
 		keywords: `${model.id} ${model.name} ${model.description} local on-device offline gguf whisper private`,
 		isActive:
 			app.settings.get('transcription.service') === 'local' &&

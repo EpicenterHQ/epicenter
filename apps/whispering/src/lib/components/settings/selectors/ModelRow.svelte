@@ -49,9 +49,18 @@
 		{@html leaf.icon}
 	</div>
 	<div class="flex-1 min-w-0">
-		<div class="font-medium text-sm truncate">{leaf.label}</div>
-		{#if leaf.sublabel}
-			<div class="text-xs text-muted-foreground truncate">{leaf.sublabel}</div>
+		<div class="font-medium text-sm truncate">{leaf.title}</div>
+		<!-- The exact-model confirmation (#2337): which model this route will run,
+		and for a custom server, which host runs it. One truncating line; the full
+		values live in settings and stay searchable via `leaf.keywords`. -->
+		{#if leaf.modelId}
+			<div class="text-xs text-muted-foreground truncate">
+				{#if leaf.endpointHost}
+					{leaf.modelId} · {leaf.endpointHost}
+				{:else}
+					{leaf.modelId}
+				{/if}
+			</div>
 		{/if}
 	</div>
 	<div class="flex items-center gap-1 shrink-0 text-muted-foreground">

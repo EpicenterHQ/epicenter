@@ -3,10 +3,10 @@
     <img width="180" src="./src/lib/assets/studio-microphone.png" alt="Whispering">
   </a>
   <h1 align="center">Whispering</h1>
-  <p align="center">A browser-hostable speech-to-text app that also runs as an Epicenter desktop surface.</p>
+  <p align="center">Press shortcut → speak → get text.</p>
 </p>
 
-Whispering records speech, transcribes it with a provider you choose, optionally polishes the transcript, and delivers the text. The same Svelte SPA serves two hosts:
+Whispering is a free and open source speech-to-text app. It records speech, transcribes it with a provider you choose, optionally polishes the transcript, and delivers the text. The same browser-hostable Svelte SPA serves two hosts:
 
 - [whispering.epicenter.so](https://whispering.epicenter.so) runs the browser build.
 - [Epicenter](../epicenter) runs the Tauri build under `/apps/whispering`.

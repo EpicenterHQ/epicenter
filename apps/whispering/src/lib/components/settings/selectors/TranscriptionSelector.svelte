@@ -53,7 +53,7 @@
 
 	// The two-source union of routes usable right now (downloaded on-device GGUFs
 	// unioned with signed-in session, keyed, and endpoint providers). Each leaf owns
-	// its own label, so the trigger just reads the active one.
+	// its own title, so the trigger just reads the active one.
 	const leaves = $derived(readyModels(app));
 	const activeLeaf = $derived(leaves.find((leaf) => leaf.isActive));
 
@@ -66,16 +66,19 @@
 			: !!selectedService && !isSelectedServiceReady,
 	);
 
-	// The pipeline trigger surfaces the active model as text, so it reads at a
-	// glance instead of relying on a hover tooltip. Falls back to the selected
-	// provider's label (when its model is not yet ready), then to a prompt.
+	// The pipeline trigger surfaces the active route's identity as text (an
+	// on-device model name, or a provider name), so it reads at a glance instead
+	// of relying on a hover tooltip. Exact model ids live in the expanded rows
+	// and settings. Falls back to the selected provider's label (when its model
+	// is not yet ready), then to a prompt.
 	const pipelineLabel = $derived(
-		activeLeaf?.label ?? selectedService?.label ?? 'Choose model',
+		activeLeaf?.title ?? selectedService?.label ?? 'Choose model',
 	);
 
-	// The pipeline pill already shows the model name, so its tooltip describes the
-	// action rather than echoing the visible value. The standalone switcher keeps
-	// the value, since there it is the brand icon, not text, that is on screen.
+	// The pipeline pill already shows the route's name, so its tooltip describes
+	// the action rather than echoing the visible value. The standalone switcher
+	// keeps the value, since there it is the brand icon, not text, that is on
+	// screen; the exact model id rides along when the route has one.
 	const triggerTooltip = $derived.by(() => {
 		if (variant === 'pipeline') {
 			return selectedService
@@ -83,9 +86,9 @@
 				: 'Choose transcription model';
 		}
 		if (activeLeaf) {
-			return activeLeaf.sublabel
-				? `${activeLeaf.sublabel} - ${activeLeaf.label}`
-				: activeLeaf.label;
+			return activeLeaf.modelId
+				? `${activeLeaf.title} - ${activeLeaf.modelId}`
+				: activeLeaf.title;
 		}
 		return selectedService
 			? selectedService.label
