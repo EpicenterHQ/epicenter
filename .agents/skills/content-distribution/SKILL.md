@@ -9,75 +9,101 @@ Follow [writing-voice](../writing-voice/SKILL.md) for tone. Use [social-media](.
 
 ## Core Philosophy
 
-The goal is not to become a full-time creator. The goal is to make existing thinking travel farther.
+The goal is not to become a full-time creator. The goal is to make existing
+thinking travel farther **without distorting it**.
 
-Use one markdown source. Use real artifacts. AI adapts, packages, resizes, rewrites, captions, and formats. AI does not pretend to be the author.
+The page owns the thought. A variant is that same thought *rendered* on one
+surface — in the page's own words, order, and voice **by default**. Fidelity is
+the default; compression and promotion are opt-in moves the author requests, not
+the reflex an agent reaches for. Use one markdown source and real artifacts. AI
+casts the page for each surface — chooses what is spoken vs. shown, splits for
+timing, re-houses the prose — it does **not** rewrite the argument or pretend to
+be the author.
 
 ```txt
 real idea
-  -> pages/<slug>.md (the private draft)
-  -> variants/<slug>-<channel>-<format>-<version>.md (the shaped artifact)
+  -> pages/<slug>.md (the source thought)
+  -> variants/<slug>-<channel>-<format>-<version>.md (one surface's rendering)
        placements: [{platform, published_at, url, caption}] (shipped facts)
   -> performance notes
   -> next ideas from replies
 ```
 
+### Fidelity ladder
+
+Fidelity is set by **format**; channel is a voice/kit overlay on top.
+
+- **article** (personal-blog / medium / substack / newsletter): near 1:1. The
+  variant is the page's prose, lightly re-housed — a channel `subtitle`/dek, house
+  styling. Compression is opt-in only.
+- **short-video** (instagram / tiktok / youtube): a faithful full performance of
+  **one page** — same spine, claims, order, voice. A short-video maps 1:1 to a
+  page (ADR-0021). If a page won't fit one reel, **split the page** into smaller
+  backlinked pages that each map to their own reel — do not carve a span out of a
+  page, and accept that a large synthesis page may have no short-video at all.
+- **social-post** (x / linkedin / reddit): the one format that extracts a sharper
+  atom, because the surface can't hold a full essay — but preserve the source
+  pressure and the real example. Promote, tease, or summarize only when explicitly
+  asked.
+
 ## Default Workflow
 
-1. Identify the source artifact: a `pages/` note, article draft, photo, screenshot, code diff, ASCII diagram, spec excerpt, voice note, or product decision.
-2. Distill one content atom: thesis, tension, proof, visual, audience, and desired reaction.
-3. Choose renderers by platform, not by rewriting the idea from scratch.
-4. Preserve the human thesis and concrete examples. Let AI adapt structure and phrasing.
-5. Produce wrappers for each platform: hook, caption, title, CTA, and format.
-6. Keep performance notes simple: hook, visual type, platform, replies, saves, shares, profile clicks, and next variant.
+1. Identify the source: a `pages/` note is the default; a photo, screenshot, code
+   diff, diagram, spec excerpt, voice note, or product decision can seed a page first.
+2. Choose the format and channel (see the fidelity ladder above and the routing specs).
+3. Render faithfully by format:
+   - **article** — re-house the page's prose; add only a channel `subtitle`.
+   - **short-video** — perform the page: lift its prose verbatim as spoken lines,
+     insert headings to pace, stage real artifacts before the prose they
+     illustrate. See references/platform-renderers.md and ADR-0021.
+   - **social-post** — extract the sharpest atom that still carries the source
+     pressure; segment into a thread if needed.
+4. Preserve the thesis, the order, and the concrete examples. Do not invent hooks,
+   lessons, metrics, or CTAs the page doesn't have.
+5. Keep performance notes simple: hook (if any), visual type, platform, replies,
+   saves, shares, profile clicks, and next variant.
 
-## Content Atom
+## Atom Extraction (social-post only)
 
-Before rendering, reduce the source to this shape:
+A full essay won't fit a tweet, so `social-post` is the **one** format where you
+reduce the page to a single sharp atom. `article` and `short-video` do not do this
+— they render the whole page. When you do extract, keep the atom honest to the
+source:
 
 ```txt
-Thesis:
-  The claim the post is making.
-
-Tension:
-  Why the claim matters or what common belief it pushes against.
-
-Proof:
-  Concrete artifact, example, diff, screenshot, metric, failure, or quote.
-
-Visual:
-  Real photo, screenshot, diagram, code, spec excerpt, or Marp slide.
-
-Audience:
-  Who should feel seen, challenged, or helped.
-
-Desired reaction:
-  save, argue, try, reply, share, click, subscribe.
+Thesis:   the claim, taken from the page (not invented).
+Tension:  the belief it pushes against — the page's, not a manufactured one.
+Proof:    a real artifact, example, diff, screenshot, metric, or quote the page already has.
+Audience: who the page already speaks to.
+Reaction: save, argue, try, reply, share, click, subscribe.
 ```
+
+Do not add fake vulnerability, fake lessons, fake metrics, or invented stories to
+sharpen the atom. If the page has no proof, the page isn't ready — fix the page.
 
 ## Renderer Decision Tree
 
 ```txt
-Does the user need platform versions?
-  -> Use references/platform-renderers.md.
+Need platform versions of a page?
+  -> references/platform-renderers.md.
 
-Does the output need strong opening lines?
-  -> Use references/hooks.md.
-
-Does the output include carousels or short video?
-  -> Use references/marp-remotion-pipeline.md.
+Writing a social-post and need a strong opening line?
+  -> references/hooks.md (social-post only; a short-video has no hook — it opens on
+     the page's own words).
 ```
 
 ## Platform Grouping
 
-Treat TikTok, Instagram Reels, and YouTube Shorts as one short-video renderer with small platform wrappers:
+Treat Instagram Reels, TikTok, and YouTube Shorts as one rendered short-video (one
+variant) shipped to three apps (three placements):
 
 ```txt
 Same:
-  core idea, slides, photos, screenshots, voiceover, captions.
+  the rendered video — one faithful performance of the page. Identical bytes.
 
 Different:
-  first hook frame, title, caption, CTA, pacing if needed.
+  only each placement's caption. No per-app hook frame, title card, or CTA — the
+  timeline is caption-first and chrome-free (ADR-0020, ADR-0021).
 ```
 
 Treat Medium and Substack as one article renderer with different relationship posture:
@@ -140,6 +166,8 @@ Current vault schema: `pages/matter.json` requires `title`, `date`, `timezone`, 
 
 ## Do Not
 
+- Do not distill or hook-ify an `article` or `short-video` — those render the whole
+  page. Only `social-post` extracts an atom.
 - Do not generate pure AI images or pure AI videos when the user asked for authentic content from existing materials.
 - Do not turn every platform into a separate original writing task.
 - Do not optimize for raw volume before a platform wrapper preserves the author's taste.

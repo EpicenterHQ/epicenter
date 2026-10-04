@@ -80,51 +80,53 @@ Rules:
 - Keep self-promotion secondary and only when relevant.
 - Prefer comments when the source idea responds to an existing discussion.
 
-## TikTok, Instagram Reels, YouTube Shorts
+## Instagram Reels, TikTok, YouTube Shorts
+
+One rendered short-video (one variant) ships to all three apps; only each
+placement's caption differs. The short-video is a **faithful full performance of
+one page** (ADR-0021) — not a slideshow assembled from wrappers.
 
 Best default:
 
 ```txt
-vertical slide video
-  + real photos/screenshots
-  + Marp slides
-  + voiceover or captions
-  + burned-in captions
+caption-first performance of the page
+  + the page's prose spoken (narration + captions), alive from frame 0
+  + headings pace the timeline and draw no pixels
+  + rare real artifacts (image / code / quote) take the stage as evidence
 ```
 
-Use the same core video when possible. Change:
+The variant `.md` body is the script AND the storyboard:
 
-- First hook frame.
-- Caption.
-- Title.
-- CTA.
-- Pacing if platform feedback requires it.
+- **Prose** is spoken and rendered as the caption canvas.
+- **Headings** (`##`, `###`) pace the script and bound artifacts — they draw no pixels.
+- A **display block** — a markdown image, fenced code, or `> blockquote` — is a
+  silent evidence artifact, authored immediately *before* the prose it illustrates
+  (ADR-0019). Lists are refused: write them as prose or show the real artifact.
+- To show **and** speak a quote, author it twice: a `> blockquote` (the shown
+  artifact) plus a prose line (the spoken caption). Artifacts are never voiced.
 
-Video options:
+There is no hook frame, title card, CTA, or slide. Browse identity is a separate
+cover Still (`bun run cover`), never chrome inside the timeline (ADR-0020).
 
-1. Slideshow with real voiceover.
-2. Slideshow with captions only.
-3. Screen recording with captions.
-4. Code or demo clip with voiceover.
-5. Face photo hook for the first second, then slides.
-6. Product walkthrough with zooms and labels.
+Pipeline (`narrate` needs the ElevenLabs secrets — see AGENTS.md for the
+`infisical run` wrapper):
+
+```txt
+bun run cues <slug>     # preview heading/artifact cue timing, no paid narration
+bun run narrate <slug>  # ElevenLabs → narration.mp3 + .captions.json + .cues.json
+bun run render <slug>   # dist/video.mp4
+bun run cover <slug>    # dist/cover.png (browse identity)
+```
+
+If a page won't fit one reel, **split the page** (ADR-0021) — do not compress it
+into a faster slideshow.
 
 ## Instagram Static Or Carousel
 
-Best default:
-
-```txt
-carousel or photo-backed post
-```
-
-Use:
-
-- Personal photo plus lesson.
-- Behind-the-scenes work artifact.
-- Screenshot sequence.
-- Simple visual essay.
-
-Make it more visual and less formal than LinkedIn.
+Refused. The format→platform matrix reaches Instagram only as a `short-video`;
+there is no static or carousel format (ADR-0005 refuses carousel until a real one
+recurs). A photo-plus-lesson idea ships as a `social-post` elsewhere or as a
+short-video, not an Instagram carousel.
 
 ## Medium
 
