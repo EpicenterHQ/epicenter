@@ -236,5 +236,9 @@ Each option and the one reason it lost. Terse. This is not the spec.
 | [0157](0157-read-only-sql-exposes-one-schema-opaque-row-relation.md) | Read-only SQL exposes one schema-opaque row relation | Accepted |
 | [0158](0158-installed-apps-declare-workspace-ids-but-run-no-bun-modules.md) | Installed apps declare workspace IDs but run no Bun modules | Proposed |
 | [0159](0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md) | Row documents persist in one owner-side SQLite update log | Accepted |
+| [0160](0160-epicenter-opens-named-database-definitions.md) | Epicenter opens named database definitions | Proposed |
+| [0161](0161-local-database-files-carry-their-logical-identity.md) | Local database files carry their logical identity | Proposed |
+| [0162](0162-database-definitions-install-connection-local-sql-views.md) | Database definitions install connection-local SQL views | Proposed |
+| [0163](0163-scalar-synchronization-uses-one-database-sync-endpoint.md) | Scalar synchronization uses one database sync endpoint | Proposed |
 
 When you add an ADR, add its row here.
