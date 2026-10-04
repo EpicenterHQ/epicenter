@@ -232,5 +232,8 @@ Each option and the one reason it lost. Terse. This is not the spec.
 | [0153](0153-trusted-apps-are-source-built-static-catalog-members.md) | Trusted apps are source-built static catalog members | Accepted |
 | [0154](0154-blob-access-is-address-only.md) | Blob access is address-only | Accepted |
 | [0155](0155-epicenter-desktop-auth-is-one-credential-free-window-bun-authority.md) | Epicenter desktop auth is one Bun authority with credential-free windows | Accepted |
+| [0156](0156-a-workspace-opens-as-release-local-lens-views-over-one-schema-opaque-owner.md) | A workspace opens as release-local lens views over one schema-opaque owner (amends 0130) | Proposed |
+| [0157](0157-workspace-sql-is-one-stable-schema-opaque-records-relation.md) | Workspace SQL is one stable schema-opaque records relation (amends 0122) | Proposed |
+| [0158](0158-trusted-apps-contribute-workspaces-through-one-built-inert-host-module.md) | Trusted apps contribute workspaces through one built inert host module (amends 0152, 0153) | Proposed |
 
 When you add an ADR, add its row here.
