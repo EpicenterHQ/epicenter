@@ -7,7 +7,8 @@ import {
 import { field } from '@epicenter/field';
 
 export const conversationsTable = defineTable({
-	key: 'so.epicenter.home.conversations',
+	namespace: 'so.epicenter.home',
+	table: 'conversations',
 	fields: {
 		title: field.string(),
 		model: field.string(),
@@ -17,7 +18,8 @@ export const conversationsTable = defineTable({
 });
 
 export const honeycrispFoldersTable = defineTable({
-	key: 'so.epicenter.honeycrisp.folders',
+	namespace: 'so.epicenter.honeycrisp',
+	table: 'folders',
 	fields: {
 		name: field.string(),
 		icon: optional(field.string()),
@@ -26,7 +28,8 @@ export const honeycrispFoldersTable = defineTable({
 });
 
 export const honeycrispNotesTable = defineTable({
-	key: 'so.epicenter.honeycrisp.notes',
+	namespace: 'so.epicenter.honeycrisp',
+	table: 'notes',
 	fields: {
 		folderId: optional(field.string()),
 		title: field.string(),

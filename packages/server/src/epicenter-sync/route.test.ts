@@ -6,7 +6,7 @@
  *
  * Key behaviors:
  * - Valid exchanges resolve the authenticated principal's authority
- * - Malformed and oversized JSON never call the authority
+ * - Malformed, legacy-shaped, and oversized JSON never call the authority
  */
 import { expect, test } from 'bun:test';
 
@@ -15,6 +15,8 @@ import { Hono } from 'hono';
 
 import type { Env } from '../types.js';
 import { createEpicenterSyncApp } from './route.js';
+
+const LIFETIME = 'llllllllllllllllllllllll';
 
 function setup() {
 	const principals: PrincipalId[] = [];
@@ -32,7 +34,12 @@ function setup() {
 			principals.push(principalId);
 			return () => {
 				exchanges += 1;
-				return { through: 0, records: [], next: null };
+				return {
+					lifetimeId: LIFETIME,
+					through: 0,
+					records: [],
+					more: false,
+				};
 			};
 		}),
 	);
@@ -55,20 +62,22 @@ test('valid request resolves and calls the authenticated principal authority', a
 		},
 		body: JSON.stringify({
 			replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
+			lifetimeId: null,
 			after: 0,
 		}),
 	});
 	expect(response.status).toBe(200);
 	expect((await response.json()) as unknown).toEqual({
+		lifetimeId: LIFETIME,
 		through: 0,
 		records: [],
-		next: null,
+		more: false,
 	});
 	expect(context.principals).toEqual([asPrincipalId('bob')]);
 	expect(context.exchanges).toBe(1);
 });
 
-test('malformed and oversized requests are refused before authority lookup', async () => {
+test('malformed, legacy-cursor, and oversized requests are refused before authority lookup', async () => {
 	const context = setup();
 	const malformed = await context.app.request('/api/sync/v1', {
 		method: 'POST',
@@ -76,6 +85,17 @@ test('malformed and oversized requests are refused before authority lookup', asy
 		body: '{',
 	});
 	expect(malformed.status).toBe(400);
+	// The pre-V1 cursor request shape is malformed input, not a refusal.
+	const legacy = await context.app.request('/api/sync/v1', {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
+			after: 0,
+			cursor: { through: 2, position: 1 },
+		}),
+	});
+	expect(legacy.status).toBe(400);
 	const oversized = await context.app.request('/api/sync/v1', {
 		method: 'POST',
 		headers: {

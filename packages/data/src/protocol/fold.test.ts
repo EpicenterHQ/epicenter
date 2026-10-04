@@ -1,203 +1,298 @@
 /**
- * Scalar Fold Tests
+ * Latest-State Fold Tests
  *
- * Exercises every transition in the deterministic latest-state fold.
+ * Verifies the three-way fold contract: applied records, benign noops that
+ * surface the current record for authority touch, and inadmissible merges
+ * that must refuse rather than silently clear.
  *
  * Key behaviors:
- * - Row deletion is terminal
- * - Row updates apply set before unset
- * - Value unset is nonterminal
+ * - A row tombstone is terminal within one lifetime; value unset is not
+ * - Benign noops and inadmissible merges are different variants
+ * - Row and value addresses never collide even with equal member keys
  */
 import { describe, expect, test } from 'bun:test';
 
-import {
-	type Change,
-	DATA_ADMISSION_LIMITS,
-	foldChange,
-	type JsonObject,
-	type Record as SyncRecord,
-} from './index.js';
+import { DATA_ADMISSION_LIMITS } from './admission.js';
+import { foldChange } from './fold.js';
+import type { Change, JsonObject, Record as SyncRecord } from './schemas.js';
 
-const KEY = 'so.epicenter.notes.rows';
-const VALUE_KEY = 'so.epicenter.settings.theme';
-const ROW_ID = 'abc123def456ghi789jkl012';
-const row = (
-	fields: JsonObject = { title: 'A' },
-	changedSequence = 1,
-): SyncRecord => ({
+const NAMESPACE = 'so.epicenter.fold';
+const ROW_ID = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+
+const liveRow = (fields: JsonObject): SyncRecord => ({
 	kind: 'row',
-	key: KEY,
+	namespace: NAMESPACE,
+	table: 'rows',
 	rowId: ROW_ID,
-	changedSequence,
+	changedSequence: 5,
 	fields,
 });
-const deleted = (): SyncRecord => ({
-	kind: 'row-deleted',
-	key: KEY,
-	rowId: ROW_ID,
-	changedSequence: 2,
-});
-const value = (): SyncRecord => ({
-	kind: 'value',
-	key: VALUE_KEY,
-	changedSequence: 1,
-	value: 'dark',
-});
-const unset = (): SyncRecord => ({
-	kind: 'value-unset',
-	key: VALUE_KEY,
-	changedSequence: 2,
-});
 
-describe('row fold', () => {
-	const cases: Array<{
-		name: string;
-		current: SyncRecord | undefined;
-		change: Change;
-		expected: 'applied' | 'noop';
-	}> = [
-		{
-			name: 'create at absence applies',
-			current: undefined,
-			change: {
+const tombstone: SyncRecord = {
+	kind: 'row-deleted',
+	namespace: NAMESPACE,
+	table: 'rows',
+	rowId: ROW_ID,
+	changedSequence: 6,
+};
+
+describe('applied folds', () => {
+	test('create, update, delete, set, and unset produce winning records', () => {
+		const created = foldChange(
+			undefined,
+			{
 				kind: 'create',
-				key: KEY,
+				namespace: NAMESPACE,
+				table: 'rows',
 				rowId: ROW_ID,
 				fields: { title: 'A' },
 			},
-			expected: 'applied',
-		},
-		{
-			name: 'create at live is a no-op',
-			current: row(),
-			change: { kind: 'create', key: KEY, rowId: ROW_ID, fields: {} },
-			expected: 'noop',
-		},
-		{
-			name: 'create at tombstone is a no-op',
-			current: deleted(),
-			change: { kind: 'create', key: KEY, rowId: ROW_ID, fields: {} },
-			expected: 'noop',
-		},
-		{
-			name: 'update at absence is a no-op',
-			current: undefined,
-			change: {
-				kind: 'update',
-				key: KEY,
-				rowId: ROW_ID,
-				fields: { set: { x: 1 }, unset: [] },
-			},
-			expected: 'noop',
-		},
-		{
-			name: 'update at tombstone is a no-op',
-			current: deleted(),
-			change: {
-				kind: 'update',
-				key: KEY,
-				rowId: ROW_ID,
-				fields: { set: { x: 1 }, unset: [] },
-			},
-			expected: 'noop',
-		},
-		{
-			name: 'delete at live applies',
-			current: row(),
-			change: { kind: 'delete', key: KEY, rowId: ROW_ID },
-			expected: 'applied',
-		},
-		{
-			name: 'delete at absence is a no-op',
-			current: undefined,
-			change: { kind: 'delete', key: KEY, rowId: ROW_ID },
-			expected: 'noop',
-		},
-		{
-			name: 'delete at tombstone is a no-op',
-			current: deleted(),
-			change: { kind: 'delete', key: KEY, rowId: ROW_ID },
-			expected: 'noop',
-		},
-	];
-	for (const entry of cases) {
-		test(entry.name, () =>
-			expect(foldChange(entry.current, entry.change, 9).kind).toBe(
-				entry.expected,
-			),
+			7,
 		);
-	}
+		expect(created).toMatchObject({
+			kind: 'applied',
+			record: { kind: 'row', changedSequence: 7, fields: { title: 'A' } },
+		});
 
-	test('update applies set then unset and receives the next sequence', () => {
-		const folded = foldChange(
-			row({ title: 'A', keep: true }),
+		const updated = foldChange(
+			liveRow({ title: 'A', old: 1 }),
 			{
 				kind: 'update',
-				key: KEY,
+				namespace: NAMESPACE,
+				table: 'rows',
 				rowId: ROW_ID,
-				fields: { set: { title: 'B', remove: 'set-first' }, unset: ['remove'] },
+				fields: { set: { title: 'B' }, unset: ['old'] },
 			},
+			8,
+		);
+		expect(updated).toMatchObject({
+			kind: 'applied',
+			record: { changedSequence: 8, fields: { title: 'B' } },
+		});
+
+		const deleted = foldChange(
+			liveRow({}),
+			{ kind: 'delete', namespace: NAMESPACE, table: 'rows', rowId: ROW_ID },
 			9,
 		);
-		expect(folded).toEqual({
+		expect(deleted).toMatchObject({
 			kind: 'applied',
-			record: {
-				kind: 'row',
-				key: KEY,
-				rowId: ROW_ID,
-				changedSequence: 9,
-				fields: { title: 'B', keep: true },
+			record: { kind: 'row-deleted', changedSequence: 9 },
+		});
+
+		const set = foldChange(
+			undefined,
+			{ kind: 'set', namespace: NAMESPACE, value: 'theme', payload: 'dark' },
+			10,
+		);
+		expect(set).toMatchObject({
+			kind: 'applied',
+			record: { kind: 'value', payload: 'dark', changedSequence: 10 },
+		});
+
+		const unset = foldChange(
+			{
+				kind: 'value',
+				namespace: NAMESPACE,
+				value: 'theme',
+				changedSequence: 10,
+				payload: 'dark',
 			},
+			{ kind: 'unset', namespace: NAMESPACE, value: 'theme' },
+			11,
+		);
+		expect(unset).toMatchObject({
+			kind: 'applied',
+			record: { kind: 'value-unset', changedSequence: 11 },
 		});
 	});
 
-	test('a composed row above the record capacity is a no-op', () => {
-		const folded = foldChange(
-			row(),
+	test('value set replaces unset: unset latest state is not terminal', () => {
+		const replaced = foldChange(
 			{
-				kind: 'update',
-				key: KEY,
-				rowId: ROW_ID,
-				fields: {
-					set: { huge: 'x'.repeat(DATA_ADMISSION_LIMITS.encodedRecordBytes) },
-					unset: [],
-				},
+				kind: 'value-unset',
+				namespace: NAMESPACE,
+				value: 'theme',
+				changedSequence: 4,
 			},
-			9,
+			{ kind: 'set', namespace: NAMESPACE, value: 'theme', payload: 'light' },
+			12,
 		);
-		expect(folded.kind).toBe('noop');
+		expect(replaced).toMatchObject({
+			kind: 'applied',
+			record: { kind: 'value', payload: 'light' },
+		});
 	});
 });
 
-describe('value fold', () => {
-	test('set always replaces absence, live, or unset', () => {
-		for (const current of [undefined, value(), unset()]) {
-			expect(
-				foldChange(current, { kind: 'set', key: VALUE_KEY, value: 'light' }, 7),
-			).toEqual({
-				kind: 'applied',
-				record: {
-					kind: 'value',
-					key: VALUE_KEY,
-					changedSequence: 7,
-					value: 'light',
+describe('benign noops surface the current record', () => {
+	test('create over an existing live row is a noop carrying that row', () => {
+		const current = liveRow({ title: 'A' });
+		expect(
+			foldChange(
+				current,
+				{
+					kind: 'create',
+					namespace: NAMESPACE,
+					table: 'rows',
+					rowId: ROW_ID,
+					fields: { title: 'stale' },
 				},
+				7,
+			),
+		).toEqual({ kind: 'noop', current });
+	});
+
+	test('a row tombstone defeats later create, update, and delete', () => {
+		const attempts: Change[] = [
+			{
+				kind: 'create',
+				namespace: NAMESPACE,
+				table: 'rows',
+				rowId: ROW_ID,
+				fields: { resurrect: true },
+			},
+			{
+				kind: 'update',
+				namespace: NAMESPACE,
+				table: 'rows',
+				rowId: ROW_ID,
+				fields: { set: { resurrect: true }, unset: [] },
+			},
+			{ kind: 'delete', namespace: NAMESPACE, table: 'rows', rowId: ROW_ID },
+		];
+		for (const change of attempts) {
+			expect(foldChange(tombstone, change, 9)).toEqual({
+				kind: 'noop',
+				current: tombstone,
 			});
 		}
 	});
 
-	test('unset applies only at live and a later set revives it', () => {
-		const removed = foldChange(value(), { kind: 'unset', key: VALUE_KEY }, 2);
-		expect(removed).toEqual({ kind: 'applied', record: unset() });
+	test('mutating an absent address is a noop with no current record', () => {
 		expect(
-			foldChange(undefined, { kind: 'unset', key: VALUE_KEY }, 3).kind,
-		).toBe('noop');
-		expect(foldChange(unset(), { kind: 'unset', key: VALUE_KEY }, 3).kind).toBe(
-			'noop',
-		);
+			foldChange(
+				undefined,
+				{
+					kind: 'update',
+					namespace: NAMESPACE,
+					table: 'rows',
+					rowId: ROW_ID,
+					fields: { set: { title: 'B' }, unset: [] },
+				},
+				7,
+			),
+		).toEqual({ kind: 'noop', current: undefined });
 		expect(
-			foldChange(unset(), { kind: 'set', key: VALUE_KEY, value: 'again' }, 3)
-				.kind,
+			foldChange(
+				undefined,
+				{ kind: 'unset', namespace: NAMESPACE, value: 'theme' },
+				7,
+			),
+		).toEqual({ kind: 'noop', current: undefined });
+	});
+
+	test('unset of an unset value is a noop carrying the unset record', () => {
+		const current: SyncRecord = {
+			kind: 'value-unset',
+			namespace: NAMESPACE,
+			value: 'theme',
+			changedSequence: 3,
+		};
+		expect(
+			foldChange(
+				current,
+				{ kind: 'unset', namespace: NAMESPACE, value: 'theme' },
+				7,
+			),
+		).toEqual({ kind: 'noop', current });
+	});
+});
+
+describe('address discrimination', () => {
+	test('a value record never folds as the current state of a row change', () => {
+		const valueRecord: SyncRecord = {
+			kind: 'value',
+			namespace: NAMESPACE,
+			value: 'rows',
+			changedSequence: 5,
+			payload: 1,
+		};
+		// Same namespace and member key, different kind: the create applies.
+		expect(
+			foldChange(
+				valueRecord,
+				{
+					kind: 'create',
+					namespace: NAMESPACE,
+					table: 'rows',
+					rowId: ROW_ID,
+					fields: {},
+				},
+				7,
+			).kind,
 		).toBe('applied');
+	});
+
+	test('a record from another namespace never folds as current state', () => {
+		const foreign: SyncRecord = {
+			kind: 'row',
+			namespace: 'so.epicenter.other',
+			table: 'rows',
+			rowId: ROW_ID,
+			changedSequence: 5,
+			fields: {},
+		};
+		expect(
+			foldChange(
+				foreign,
+				{
+					kind: 'create',
+					namespace: NAMESPACE,
+					table: 'rows',
+					rowId: ROW_ID,
+					fields: {},
+				},
+				7,
+			).kind,
+		).toBe('applied');
+	});
+});
+
+describe('inadmissible merged records', () => {
+	test('an admissible update that merges above the record bound is inadmissible, not benign', () => {
+		const halfBound = 'x'.repeat(
+			Math.floor(DATA_ADMISSION_LIMITS.encodedRecordBytes / 2) + 1024,
+		);
+		const current = liveRow({ first: halfBound });
+		const folded = foldChange(
+			current,
+			{
+				kind: 'update',
+				namespace: NAMESPACE,
+				table: 'rows',
+				rowId: ROW_ID,
+				fields: { set: { second: halfBound }, unset: [] },
+			},
+			7,
+		);
+		expect(folded).toEqual({ kind: 'inadmissible', reason: 'record-bound' });
+	});
+
+	test('an oversized create is inadmissible even with no current record', () => {
+		const oversized = 'x'.repeat(DATA_ADMISSION_LIMITS.encodedRecordBytes + 1);
+		expect(
+			foldChange(
+				undefined,
+				{
+					kind: 'create',
+					namespace: NAMESPACE,
+					table: 'rows',
+					rowId: ROW_ID,
+					fields: { blob: oversized },
+				},
+				7,
+			),
+		).toEqual({ kind: 'inadmissible', reason: 'record-bound' });
 	});
 });

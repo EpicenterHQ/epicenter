@@ -23,7 +23,8 @@ import { fromTable } from './from-table.svelte.js';
 );
 
 const definition = defineTable({
-	key: 'so.epicenter.test.svelte.rows',
+	namespace: 'so.epicenter.test',
+	table: 'svelte.rows',
 	fields: { name: field.string() },
 });
 type Row = RowFor<typeof definition>;
@@ -40,7 +41,8 @@ const row = (id: string, name = id): StoredEntry => ({
 const nonconforming = (id: string): StoredEntry => ({
 	kind: 'error',
 	error: DataReadError.NonconformingRow({
-		key: definition.key,
+		namespace: definition.namespace,
+		table: definition.table,
 		id,
 		raw: {},
 		issues: [{ field: 'name', kind: 'missing', message: 'required' }],

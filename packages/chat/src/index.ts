@@ -22,7 +22,8 @@ export const asConversationId = (value: string): ConversationId =>
 	value as ConversationId;
 
 export const conversationsTable = defineTable({
-	key: 'so.epicenter.chat.conversations',
+	namespace: 'so.epicenter.chat',
+	table: 'conversations',
 	fields: {
 		title: field.string(),
 		model: field.string(),

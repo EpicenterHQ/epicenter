@@ -6,10 +6,11 @@
 
 ## Context
 
-Epicenter stores one person's curated data as typed scalar facts, lazy row
-documents, and explicitly addressed blobs. The current synchronization
-implementation groups pending scalar changes for transport and exact retry, but
-that grouping does not come from an application transaction. Treating an
+Epicenter stores one person's curated data as typed values and row aggregates
+that own scalar fields, lazy documents, and optional immutable bytes. The
+current synchronization implementation groups pending scalar changes for
+transport and exact retry, but that grouping does not come from an application
+transaction. Treating an
 incidental transport group as a commit would turn an implementation detail into
 a distributed transaction promise.
 
@@ -20,13 +21,11 @@ One principal owns one Epicenter:
 ```txt
 One principal
 └── one Epicenter
-    ├── scalar facts
-    │   ├── typed rows
-    │   └── typed values
-    ├── lazy row documents
-    │   └── Yjs state for merge-sensitive content
-    └── blobs
-        └── explicitly addressed binary data
+    ├── typed values
+    └── typed rows
+        ├── scalar fields
+        ├── one latent Yjs document
+        └── zero or one write-once immutable blob
 ```
 
 Applications contribute typed lenses over portions of this shared Epicenter.
@@ -54,6 +53,10 @@ When several values must change as one conceptual object, the application puts
 them in one scalar row or one row-owned Yjs document. A real cross-row business
 invariant belongs in an application-specific semantic authority, not in the
 Epicenter synchronization layer.
+
+Rows are also the multiplicity primitive for binary assets. Several attachments
+use several rows with ordinary non-enforcing references. Epicenter promises no
+atomic parent-and-asset creation, reference swap, cascade, or cleanup.
 
 Portability is a separate product promise. A portable representation may
 capture one owner's complete current logical state without making every live

@@ -28,9 +28,10 @@ a monotonically increasing authority sequence. Values use
 `(namespace key, table key, globally unique row ID)`.
 
 A row tombstone is terminal synchronization state, not an application row. It
-retains the address and winning version but no deleted payload or document
-bytes. Row IDs are never reused by conforming runtimes; later create and update
-operations at a tombstoned address are no-ops. Row tombstones remain permanent
+retains the address and winning version but no deleted scalar payload,
+document, or blob bytes. Row IDs are never reused by conforming runtimes; later
+create and update operations at a tombstoned address are no-ops. Row tombstones
+remain permanent
 within one authority lifetime. [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md)
 permits discarding them only by replacing that entire lifetime from a complete
 Backup, which invalidates every old replica.
@@ -45,24 +46,50 @@ Scalar synchronization uses one versioned exchange for the entire Epicenter:
 ```txt
 POST /api/sync/v1
 
-request  replica identity, last applied authority sequence,
-         bounded pending local changes, optional page continuation
-response accepted-local receipt, fixed page ceiling, latest-state records,
-         next sequence or continuation
+request  replica identity, authority-lifetime binding (null when fresh),
+         durable watermark `after`, optional transient scan bound `through`,
+         optional bounded batch of pending local changes
+response active lifetime, minimal accepted-batch receipt (sequence, digest),
+         `through`, ordered latest-state records, continuation fact `more`
 ```
 
-At the start of a paged response, the authority fixes `through` to its current
-maximum sequence. It returns records whose latest `changed_sequence` is greater
-than the replica's `after` and no greater than `through`, ordered by sequence.
-If a record changes during paging, its latest sequence moves above `through`
-and the next exchange returns it. The client advances to `through` only after
-installing every page. The implementation must prove this pagination invariant
-under concurrent writes before the protocol is accepted.
+Every request is bound to one opaque equality-only authority lifetime. A fresh
+replica sends `null`, may carry an initial batch, and binds the returned
+lifetime. A bound replica presents its exact lifetime; a mismatch is an
+actionable refusal that makes the replica erase its old-lifetime state and
+reacquire, per
+[ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md).
+Same-lifetime progress beyond the authority head is a disjoint terminal
+checkpoint-ahead diagnostic, never Restore recovery.
 
-The exact request encoding, idempotency receipt, conflict ordering, batch
-limits, and retry rules belong to the protocol implementation and conformance
-tests. They must not split the product back into push, pull, acquire, database,
-or table-specific network operations.
+Paging uses one durable replica watermark. The first request of a scan omits
+`through`; the authority samples it at its current maximum sequence and
+returns records whose latest `changed_sequence` lies in `(after, through]`,
+ordered by sequence. Each installed page atomically advances the durable
+`after`: to the last returned sequence while `more` records remain, and to
+`through` on the terminal page. A continuation request carries the durable
+`after` plus the transient `through`; a crash forgets only `through` and
+begins a fresh scan from durable progress, so no completed page is downloaded
+or installed again. A record changed during a scan moves above `through` and
+arrives next exchange, and the fixed bound guarantees termination during
+sustained writes.
+
+A batch rides only the first page of a scan; it is transport grouping, never a
+semantic commit, and co-batch atomic visibility is explicitly unpromised. The
+authority keeps one row per replica: the last accepted batch sequence and
+request digest. An exact retry returns that stored receipt without reapplying;
+a gap or fork is a batch conflict whose local recovery is a fresh replica
+identity. A benign semantic noop against an existing record touches that
+record with a fresh changed sequence, so ordinary scanning re-delivers
+authority truth that a replica's pending optimism suppressed. A change whose
+merged record exceeds the record bound refuses the entire batch envelope
+before any mutation, identifying the offending change; the replica parks that
+exact obligation visibly and reseals the rest. Refused work is never silently
+reported as synchronized.
+
+The exact request encoding, admission ceilings, and retry rules belong to the
+protocol implementation and conformance tests. They must not split the product
+back into push, pull, acquire, database, or table-specific network operations.
 
 Synchronization starts automatically when an attached replica has credentials
 and network access. Public status is observation only: idle, syncing, pending
@@ -72,9 +99,11 @@ authority scheduler. The scalar HTTP route version and row-document WebSocket
 subprotocol version evolve independently.
 
 Row documents remain a separate lazy plane because hydrating every Yjs document
-would defeat table-shaped local reads. One authenticated WebSocket binds one
-currently open row document. Multiplexing does not ship until measured browser
-socket limits require it.
+would defeat table-shaped local reads. Durable outbound document publication
+continues after the last live handle closes, as defined by ADR-0171. A realtime
+connection for an open document is only a collaboration overlay; its exact
+topology remains independently versioned and must not become the durability
+contract.
 
 ## Consequences
 

@@ -40,6 +40,14 @@ Implementations may deduplicate physical storage invisibly, but correctness
 never depends on shared bytes, reference counts, or another Backup remaining
 present.
 
+Backup membership comes from the portable SQLite row relation. Capture freezes
+one accepted authority cut, records each row's compact document update and
+nullable blob digest, pins every selected external blob against deletion, copies
+and verifies those bytes, and publishes the Backup only after the artifact is
+complete. A separate blob-membership manifest is neither authoritative nor
+required. The pin, copy, verify, and seal sequence remains necessary because a
+SQLite snapshot cannot atomically capture external files.
+
 The Epicenter host control plane owns active-lifetime selection and Backup
 lifecycle independently of the replaceable authority. An authority lifetime
 owns only its live authority state. Hosted, self-hosted, and local-only hosts
@@ -130,8 +138,9 @@ deleted after the replacement is proven active.
 - Backup capture, validation, download, and Restore must stream large blob sets
   and prove one complete authority cut without requiring every device to settle.
 - Storage use can grow with retained Backups. Quotas and explicit deletion make
-  that cost visible. Blob-free Backups and partial downloads are refused so they
-  cannot weaken the meaning of Backup.
+  that cost visible. Blob-stripped Backups and partial downloads are refused so
+  they cannot omit bytes owned at the cut. An Epicenter that owns no blobs still
+  produces a valid complete Backup.
 - Authority replacement needs lifetime binding, mismatch refusal, successor
   staging, atomic activation, replica reset, and failure-injection tests. It
   does not need multiple active generations, lineage ordering, branch merge, or

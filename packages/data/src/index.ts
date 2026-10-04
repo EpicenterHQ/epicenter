@@ -40,6 +40,7 @@ export {
 	type Exchange,
 	type OpenReplicaOptions,
 	openReplica,
+	type ParkedObligation,
 	REPLICA_FORMAT_VERSION,
 	type Replica,
 	type ReplicaChange,

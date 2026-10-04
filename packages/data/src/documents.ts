@@ -6,7 +6,11 @@ import type { Replica } from './replica/index.js';
 const COMPACTION_THRESHOLD = 64;
 const hydrationOrigin = Object.freeze({ kind: 'epicenter-document-hydration' });
 
-export type DocumentAddress = { key: string; rowId: string };
+export type DocumentAddress = {
+	namespace: string;
+	table: string;
+	rowId: string;
+};
 
 type StoredUpdate = SqliteRow & {
 	update_sequence: number;
@@ -72,16 +76,16 @@ export function createDocumentRuntime({
 	const opening = new Map<string, Promise<DocumentEntry>>();
 	let isDisposed = false;
 
-	function addressKey({ key, rowId }: DocumentAddress): string {
-		return JSON.stringify([key, rowId]);
+	function addressKey({ namespace, table, rowId }: DocumentAddress): string {
+		return JSON.stringify([namespace, table, rowId]);
 	}
 
 	function requireRuntimeOpen(): void {
 		if (isDisposed) throw new Error('Epicenter document runtime is disposed');
 	}
 
-	function isRowLive({ key, rowId }: DocumentAddress): boolean {
-		const result = replica.readRow(key, rowId);
+	function isRowLive(address: DocumentAddress): boolean {
+		const result = replica.readRow(address);
 		if (result.error !== null) throw result.error;
 		return result.data !== undefined;
 	}
@@ -89,7 +93,7 @@ export function createDocumentRuntime({
 	function requireRowLive(address: DocumentAddress): void {
 		if (isRowLive(address)) return;
 		throw new Error(
-			`Cannot open document for absent row '${address.key}.${address.rowId}'`,
+			`Cannot open document for absent row '${address.namespace}/${address.table}/${address.rowId}'`,
 		);
 	}
 
@@ -97,9 +101,9 @@ export function createDocumentRuntime({
 		return database.all<StoredUpdate>(
 			`SELECT update_sequence, update_bytes
 			 FROM document_updates
-			 WHERE qualified_key = ? AND row_id = ?
+			 WHERE namespace_key = ? AND table_key = ? AND row_id = ?
 			 ORDER BY update_sequence`,
-			[address.key, address.rowId],
+			[address.namespace, address.table, address.rowId],
 		);
 	}
 
@@ -126,21 +130,27 @@ export function createDocumentRuntime({
 		database.transaction(() => {
 			if (!isRowLive(address)) {
 				throw new Error(
-					`Cannot persist document update for absent row '${address.key}.${address.rowId}'`,
+					`Cannot persist document update for absent row '${address.namespace}/${address.table}/${address.rowId}'`,
 				);
 			}
 			const nextSequence =
 				database.all<SqliteRow & { sequence: number }>(
 					`SELECT COALESCE(MAX(update_sequence), 0) + 1 AS sequence
 					 FROM document_updates
-					 WHERE qualified_key = ? AND row_id = ?`,
-					[address.key, address.rowId],
+					 WHERE namespace_key = ? AND table_key = ? AND row_id = ?`,
+					[address.namespace, address.table, address.rowId],
 				)[0]?.sequence ?? 1;
 			database.run(
 				`INSERT INTO document_updates (
-					qualified_key, row_id, update_sequence, update_bytes
-				) VALUES (?, ?, ?, ?)`,
-				[address.key, address.rowId, nextSequence, new Uint8Array(update)],
+					namespace_key, table_key, row_id, update_sequence, update_bytes
+				) VALUES (?, ?, ?, ?, ?)`,
+				[
+					address.namespace,
+					address.table,
+					address.rowId,
+					nextSequence,
+					new Uint8Array(update),
+				],
 			);
 			const updates = readUpdates(address);
 			if (updates.length < COMPACTION_THRESHOLD) return;
@@ -148,14 +158,15 @@ export function createDocumentRuntime({
 			try {
 				const baseline = new Uint8Array(Y.encodeStateAsUpdateV2(compacted));
 				database.run(
-					'DELETE FROM document_updates WHERE qualified_key = ? AND row_id = ?',
-					[address.key, address.rowId],
+					`DELETE FROM document_updates
+					 WHERE namespace_key = ? AND table_key = ? AND row_id = ?`,
+					[address.namespace, address.table, address.rowId],
 				);
 				database.run(
 					`INSERT INTO document_updates (
-						qualified_key, row_id, update_sequence, update_bytes
-					) VALUES (?, ?, 1, ?)`,
-					[address.key, address.rowId, baseline],
+						namespace_key, table_key, row_id, update_sequence, update_bytes
+					) VALUES (?, ?, ?, 1, ?)`,
+					[address.namespace, address.table, address.rowId, baseline],
 				);
 			} finally {
 				compacted.destroy();
@@ -295,11 +306,24 @@ export function createDocumentRuntime({
 			if (entry.revoked !== undefined) throw entry.revoked;
 			return createHandle(entry);
 		},
+		/** Revoke every open handle after a lifetime replacement wiped local state. */
+		reset(): void {
+			for (const entry of [...entries.values()]) {
+				entry.revoked = new Error(
+					'Row document was revoked because the authority lifetime was replaced',
+				);
+				for (const listener of entry.revocationListeners) {
+					listener(entry.revoked);
+				}
+				entry.revocationListeners.clear();
+				destroyEntry(entry);
+			}
+		},
 		revoke(address: DocumentAddress): void {
 			const entry = entries.get(addressKey(address));
 			if (entry === undefined) return;
 			entry.revoked = new Error(
-				`Row document was revoked because '${address.key}.${address.rowId}' is no longer live`,
+				`Row document was revoked because '${address.namespace}/${address.table}/${address.rowId}' is no longer live`,
 			);
 			for (const listener of entry.revocationListeners) {
 				listener(entry.revoked);

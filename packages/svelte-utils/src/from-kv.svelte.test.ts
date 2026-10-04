@@ -18,8 +18,9 @@ import { fromKv } from './from-kv.svelte.js';
 );
 
 const themeDefinition = defineValue({
-	key: 'so.epicenter.test.svelte.theme',
-	value: field.select(['light', 'dark']),
+	namespace: 'so.epicenter.test',
+	value: 'svelte.theme',
+	schema: field.select(['light', 'dark']),
 });
 
 test('value binding loads and writes through the lens', async () => {

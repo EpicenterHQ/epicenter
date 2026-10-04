@@ -163,7 +163,8 @@ function createStoreOwner() {
 }
 
 const notes = defineTable({
-	key: 'so.epicenter.test.notes',
+	namespace: 'so.epicenter.test',
+	table: 'notes',
 	fields: {
 		title: field.string(),
 		detail: optional(field.string()),
@@ -171,8 +172,9 @@ const notes = defineTable({
 });
 
 const theme = defineValue({
-	key: 'so.epicenter.test.theme',
-	value: field.string(),
+	namespace: 'so.epicenter.test',
+	value: 'theme',
+	schema: field.string(),
 });
 
 async function setup() {
@@ -304,7 +306,12 @@ test('row documents persist incremental updates and revoke on row deletion', asy
 test('attachSync refuses a second principal through RPC', async () => {
 	const { openTab } = await setup();
 	await using epicenter = await openTab();
-	const exchange = async () => ({ through: 0, records: [], next: null });
+	const exchange = async () => ({
+		lifetimeId: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+		through: 0,
+		records: [],
+		more: false,
+	});
 
 	expectOk(
 		await epicenter.attachSync({

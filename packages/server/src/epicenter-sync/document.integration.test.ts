@@ -44,11 +44,13 @@ import {
 } from './document-server.js';
 
 const ADDRESS: DocumentAddress = {
-	key: 'so.epicenter.tests.documents',
+	namespace: 'so.epicenter.test',
+	table: 'documents',
 	rowId: 'aaaaaaaaaaaaaaaaaaaaaaaa',
 };
 const definition = defineTable({
-	key: ADDRESS.key,
+	namespace: ADDRESS.namespace,
+	table: ADDRESS.table,
 	fields: { title: field.string() },
 });
 
@@ -66,8 +68,7 @@ async function openLocal(): Promise<Local> {
 	expectOk(
 		replica.write({
 			kind: 'create',
-			key: ADDRESS.key,
-			rowId: ADDRESS.rowId,
+			...ADDRESS,
 			fields: { title: 'document' },
 		}),
 	);
@@ -85,13 +86,13 @@ function openAuthority() {
 	const changes = [
 		{
 			kind: 'create' as const,
-			key: ADDRESS.key,
-			rowId: ADDRESS.rowId,
+			...ADDRESS,
 			fields: { title: 'document' },
 		},
 	];
 	scalar.exchange({
 		replicaId: 'serverseed00000000000000',
+		lifetimeId: null,
 		after: 0,
 		batch: { seq: 1, digest: batchDigest(changes), changes },
 	});
@@ -291,12 +292,12 @@ test('row deletion closes sockets and local deletion revokes the connector', asy
 	await connection.whenConnected;
 	const deletion = {
 		kind: 'delete' as const,
-		key: ADDRESS.key,
-		rowId: ADDRESS.rowId,
+		...ADDRESS,
 	};
 	const changes = [deletion];
 	authority.scalar.exchange({
 		replicaId: 'serverseed00000000000000',
+		lifetimeId: null,
 		after: 1,
 		batch: { seq: 2, digest: batchDigest(changes), changes },
 	});
@@ -405,7 +406,7 @@ test('presence publishes the other peer for the same row address', async () => {
 test('wrong document subprotocol or missing bearer is refused at upgrade', async () => {
 	const wrong = await verifyDocumentUpgrade({
 		request: new Request(
-			`https://example.com/api/sync/v1/documents/${ADDRESS.key}/${ADDRESS.rowId}`,
+			`https://example.com/api/sync/v1/documents/${ADDRESS.namespace}/${ADDRESS.table}/${ADDRESS.rowId}`,
 			{
 				headers: {
 					upgrade: 'websocket',
@@ -418,7 +419,7 @@ test('wrong document subprotocol or missing bearer is refused at upgrade', async
 	expect(expectErr(wrong).name).toBe('InvalidSubprotocol');
 	const missing = await verifyDocumentUpgrade({
 		request: new Request(
-			`https://example.com/api/sync/v1/documents/${ADDRESS.key}/${ADDRESS.rowId}`,
+			`https://example.com/api/sync/v1/documents/${ADDRESS.namespace}/${ADDRESS.table}/${ADDRESS.rowId}`,
 			{
 				headers: {
 					upgrade: 'websocket',

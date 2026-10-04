@@ -30,7 +30,8 @@ import { getSkill, listSkills, scanSkills } from './services.js';
 import { skillsDefinitions } from './workspace.js';
 
 const historicalSkillsTable = defineTable({
-	key: 'so.epicenter.skills.skills',
+	namespace: 'so.epicenter.skills',
+	table: 'skills',
 	fields: {
 		name: field.string(),
 		description: field.string(),

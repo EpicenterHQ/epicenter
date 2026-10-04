@@ -9,6 +9,7 @@
  * - Transport failure reports offline and scheduled retry recovers
  * - Credential absence pauses exchange until credentials return
  * - Status transitions are observable
+ * - Parked refused work reports pending, never idle
  */
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
@@ -27,7 +28,8 @@ import type {
 } from './sync-supervisor.js';
 
 const notes = defineTable({
-	key: 'so.epicenter.tests.supervisor-notes',
+	namespace: 'so.epicenter.tests',
+	table: 'supervisor-notes',
 	fields: { title: field.string() },
 });
 
@@ -54,18 +56,18 @@ function setup() {
 
 function successfulResponse(request: ExchangeRequest): ExchangeResponse {
 	return {
+		lifetimeId: 'aaaaaaaaaaaaaaaaaaaaaaaa',
 		...(request.batch === undefined
 			? {}
 			: {
 					receipt: {
 						seq: request.batch.seq,
 						digest: request.batch.digest,
-						appliedThrough: request.after,
 					},
 				}),
 		through: request.after,
 		records: [],
-		next: null,
+		more: false,
 	};
 }
 
@@ -146,6 +148,35 @@ test('network failure reports offline and scheduled retry recovers', async () =>
 	expect(states).toContain('syncing');
 	expect(states).toContain('offline');
 	expect(states.at(-1)).toBe('idle');
+	await epicenter[Symbol.asyncDispose]();
+	raw.close();
+});
+
+test('a refused change parks and the drained supervisor reports pending, not idle', async () => {
+	const { raw, epicenter } = setup();
+	const data = epicenter.bind({ tables: { notes }, values: {} });
+	expectOk(
+		await epicenter.attachSync({
+			deploymentId: 'https://example.com/',
+			principalId: 'principal-a',
+			exchange(request) {
+				if (request.batch !== undefined) {
+					return {
+						refusal: 'change-inadmissible',
+						lifetimeId: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+						seq: request.batch.seq,
+						digest: request.batch.digest,
+						changeIndex: 0,
+						reason: 'record-bound',
+					};
+				}
+				return successfulResponse(request);
+			},
+		}),
+	);
+	await data.tables.notes.create({ title: 'refused upstream' });
+	await waitFor(() => epicenter.syncStatus.state === 'pending');
+	expect(epicenter.syncStatus.state).toBe('pending');
 	await epicenter[Symbol.asyncDispose]();
 	raw.close();
 });

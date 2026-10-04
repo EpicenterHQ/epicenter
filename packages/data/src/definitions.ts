@@ -14,7 +14,8 @@ import {
 	isJsonValue,
 	type JsonObject,
 	type JsonValue,
-	parseQualifiedKey,
+	parseMemberKey,
+	parseNamespaceKey,
 } from './protocol/index.js';
 
 type FieldSchemas = Record<string, TSchema>;
@@ -38,14 +39,16 @@ declare const tableDefinitionParts: unique symbol;
 declare const valueDefinitionParts: unique symbol;
 
 export type TableDefinition<TFields extends FieldSchemas = FieldSchemas> = {
-	key: string;
+	namespace: string;
+	table: string;
 	fields: TFields;
 	[tableDefinitionParts]: { fields: TFields };
 };
 
 export type ValueDefinition<TValueSchema extends TSchema = TSchema> = {
-	key: string;
-	value: TValueSchema;
+	namespace: string;
+	value: string;
+	schema: TValueSchema;
 	[valueDefinitionParts]: TValueSchema;
 };
 
@@ -87,25 +90,37 @@ export type ConformanceIssue = {
 
 export const DataReadError = defineErrors({
 	NonconformingRow: ({
-		key,
+		namespace,
+		table,
 		id,
 		raw,
 		issues,
 	}: {
-		key: string;
+		namespace: string;
+		table: string;
 		id: string;
 		raw: JsonObject;
 		issues: readonly ConformanceIssue[];
 	}) => ({
-		message: `Stored row '${key}.${id}' does not satisfy the current definition`,
-		key,
+		message: `Stored row '${namespace}/${table}/${id}' does not satisfy the current definition`,
+		namespace,
+		table,
 		id,
 		raw,
 		issues,
 	}),
-	NonconformingValue: ({ key, raw }: { key: string; raw: JsonValue }) => ({
-		message: `Stored value '${key}' does not satisfy the current definition`,
-		key,
+	NonconformingValue: ({
+		namespace,
+		value,
+		raw,
+	}: {
+		namespace: string;
+		value: string;
+		raw: JsonValue;
+	}) => ({
+		message: `Stored value '${namespace}/${value}' does not satisfy the current definition`,
+		namespace,
+		value,
 		raw,
 	}),
 });
@@ -155,13 +170,16 @@ export function optional<TSchemaValue extends TSchema>(
 }
 
 export function defineTable<const TFields extends FieldSchemas>({
-	key,
+	namespace,
+	table,
 	fields: fieldsInput,
 }: {
-	key: string;
+	namespace: string;
+	table: string;
 	fields: TFields & { id?: never };
 }): TableDefinition<TFields> {
-	assertQualifiedKey(key);
+	assertNamespaceKey(namespace);
+	assertMemberKey(table, 'table');
 	assertPlainObject(fieldsInput, 'Table fields');
 	if (Object.keys(fieldsInput).some((name) => name.toLowerCase() === 'id')) {
 		throw new Error(
@@ -185,24 +203,28 @@ export function defineTable<const TFields extends FieldSchemas>({
 	}
 
 	const definition = Object.freeze({
-		key,
+		namespace,
+		table,
 		fields: Object.freeze(fields),
 	}) as TableDefinition<TFields>;
 	compiledTables.set(
 		definition,
-		createCompiledTable(key, compiledFields, optionalFields),
+		createCompiledTable({ namespace, table }, compiledFields, optionalFields),
 	);
 	return definition;
 }
 
 export function defineValue<const TSchemaValue extends TSchema>({
-	key,
-	value: authoredSchema,
+	namespace,
+	value,
+	schema: authoredSchema,
 }: {
-	key: string;
-	value: TSchemaValue;
+	namespace: string;
+	value: string;
+	schema: TSchemaValue;
 }): ValueDefinition<TSchemaValue> {
-	assertQualifiedKey(key);
+	assertNamespaceKey(namespace);
+	assertMemberKey(value, 'value');
 	if (IsOptional(authoredSchema)) {
 		throw new Error('Singleton values cannot use optional(...)');
 	}
@@ -213,23 +235,25 @@ export function defineValue<const TSchemaValue extends TSchema>({
 	}
 	const check = compile(recognized.schema);
 	const definition = Object.freeze({
-		key,
-		value: freezeJson(schema),
+		namespace,
+		value,
+		schema: freezeJson(schema),
 	}) as ValueDefinition<TSchemaValue>;
 	compiledValues.set(definition, {
-		project(value) {
-			return check(value)
-				? Ok(structuredClone(value))
+		project(stored) {
+			return check(stored)
+				? Ok(structuredClone(stored))
 				: DataReadError.NonconformingValue({
-						key,
-						raw: structuredClone(value),
+						namespace,
+						value,
+						raw: structuredClone(stored),
 					});
 		},
-		validate(value) {
-			if (!check(value)) {
-				throw new TypeError(`Invalid value for '${key}'`);
+		validate(candidate) {
+			if (!check(candidate)) {
+				throw new TypeError(`Invalid value for '${namespace}/${value}'`);
 			}
-			return cloneJsonValue(value);
+			return cloneJsonValue(candidate);
 		},
 	});
 	return definition;
@@ -252,7 +276,7 @@ export function compileValueDefinition(
 }
 
 function createCompiledTable(
-	key: string,
+	address: { namespace: string; table: string },
 	fields: ReadonlyMap<string, CompiledField>,
 	optionalFields: ReadonlySet<string>,
 ): CompiledTableDefinition {
@@ -287,7 +311,8 @@ function createCompiledTable(
 			return issues.length === 0
 				? Ok(projected)
 				: DataReadError.NonconformingRow({
-						key,
+						namespace: address.namespace,
+						table: address.table,
 						id,
 						raw: structuredClone(payload),
 						issues,
@@ -334,9 +359,15 @@ function createCompiledTable(
 	};
 }
 
-function assertQualifiedKey(key: string): void {
-	if (parseQualifiedKey(key).error !== null) {
-		throw new Error(`Invalid qualified key '${key}'`);
+function assertNamespaceKey(namespace: string): void {
+	if (parseNamespaceKey(namespace).error !== null) {
+		throw new Error(`Invalid namespace key '${namespace}'`);
+	}
+}
+
+function assertMemberKey(member: string, label: string): void {
+	if (parseMemberKey(member).error !== null) {
+		throw new Error(`Invalid ${label} key '${member}'`);
 	}
 }
 

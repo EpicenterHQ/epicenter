@@ -8,10 +8,15 @@ const DEFAULT_EXCHANGE_INTERVAL_MS = 30_000;
 const BASE_RETRY_MS = 500;
 const MAX_RETRY_MS = 30_000;
 
+/**
+ * `pending` reports drained synchronization with parked refused work still
+ * owed at specific addresses; refused work is never reported as `idle`.
+ */
 export type SyncState =
 	| 'local'
 	| 'syncing'
 	| 'idle'
+	| 'pending'
 	| 'offline'
 	| 'authentication-required';
 
@@ -133,7 +138,12 @@ export function createSyncSupervisor({
 				return lastResult;
 			}
 			retryAttempt = 0;
-			setStatus({ state: 'idle', lastError: undefined });
+			const parked = replica.parked();
+			setStatus({
+				state:
+					parked.error === null && parked.data.length > 0 ? 'pending' : 'idle',
+				lastError: undefined,
+			});
 		}
 		if (!isDisposed && activeGeneration === generation && hasCredentials()) {
 			scheduleWake(exchangeIntervalMs);

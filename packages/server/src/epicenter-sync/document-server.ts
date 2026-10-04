@@ -1,4 +1,8 @@
-import { parseQualifiedKey, parseRowId } from '@epicenter/data/protocol';
+import {
+	parseMemberKey,
+	parseNamespaceKey,
+	parseRowId,
+} from '@epicenter/data/protocol';
 import {
 	type DocumentAddress,
 	type DocumentFrame,
@@ -53,7 +57,8 @@ export async function verifyDocumentUpgrade({
 	const address = parseDocumentRoute(request.url);
 	if (
 		address === undefined ||
-		parseQualifiedKey(address.key).error !== null ||
+		parseNamespaceKey(address.namespace).error !== null ||
+		parseMemberKey(address.table).error !== null ||
 		parseRowId(address.rowId).error !== null
 	) {
 		return DocumentUpgradeError.InvalidRoute();
@@ -82,7 +87,11 @@ export function createEpicenterDocumentServer({
 	const sessions = new Map<EpicenterDocumentSocket, Session>();
 
 	function sameAddress(left: DocumentAddress, right: DocumentAddress): boolean {
-		return left.key === right.key && left.rowId === right.rowId;
+		return (
+			left.namespace === right.namespace &&
+			left.table === right.table &&
+			left.rowId === right.rowId
+		);
 	}
 
 	function sessionsAt(address: DocumentAddress): Session[] {

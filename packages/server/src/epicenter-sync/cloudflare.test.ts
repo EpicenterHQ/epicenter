@@ -6,7 +6,8 @@
  *
  * Key behaviors:
  * - Scalar exchange executes through Durable Object fetch
- * - Accepted state and replica receipts survive actor restart
+ * - Accepted state, replica receipts, and the authority lifetime survive
+ *   actor restart
  */
 import { Database } from 'bun:sqlite';
 import { expect, mock, test } from 'bun:test';
@@ -70,23 +71,25 @@ function setupStorage() {
 	return { database, storage };
 }
 
-function requestBody() {
+function requestBody(lifetimeId: string | null) {
 	const changes = [
 		{
 			kind: 'create' as const,
-			key: 'so.epicenter.tests.rows',
+			namespace: 'so.epicenter.tests',
+			table: 'rows',
 			rowId: 'aaaaaaaaaaaaaaaaaaaaaaaa',
 			fields: { title: 'Persisted' },
 		},
 	];
 	return {
 		replicaId: 'rrrrrrrrrrrrrrrrrrrrrrrr',
+		lifetimeId,
 		after: 0,
 		batch: { seq: 1, digest: batchDigest(changes), changes },
 	};
 }
 
-test('exchange state and receipt survive Durable Object restart', async () => {
+test('exchange state, receipt, and lifetime survive Durable Object restart', async () => {
 	const { EpicenterAuthority } = await import('./cloudflare.js');
 	const owned = setupStorage();
 	const state = {
@@ -98,12 +101,18 @@ test('exchange state and receipt survive Durable Object restart', async () => {
 		const accepted = await authority.fetch(
 			new Request('https://epicenter-authority.internal/', {
 				method: 'POST',
-				body: JSON.stringify(requestBody()),
+				body: JSON.stringify(requestBody(null)),
 			}),
 		);
 		expect(accepted.status).toBe(200);
-		expect((await accepted.json()) as unknown).toMatchObject({
-			receipt: { seq: 1, appliedThrough: 1 },
+		const acceptedBody = (await accepted.json()) as {
+			lifetimeId: string;
+			receipt: { seq: number; digest: string };
+			through: number;
+		};
+		expect(acceptedBody.lifetimeId).toMatch(/^[a-z0-9]{24}$/);
+		expect(acceptedBody).toMatchObject({
+			receipt: { seq: 1 },
 			through: 1,
 		});
 
@@ -111,18 +120,35 @@ test('exchange state and receipt survive Durable Object restart', async () => {
 		const retried = await authority.fetch(
 			new Request('https://epicenter-authority.internal/', {
 				method: 'POST',
-				body: JSON.stringify(requestBody()),
+				body: JSON.stringify(requestBody(acceptedBody.lifetimeId)),
 			}),
 		);
 		expect((await retried.json()) as unknown).toMatchObject({
-			receipt: { seq: 1, appliedThrough: 1 },
+			lifetimeId: acceptedBody.lifetimeId,
+			receipt: { seq: 1 },
 			through: 1,
+			more: false,
 			records: [
 				{
 					kind: 'row',
+					namespace: 'so.epicenter.tests',
+					table: 'rows',
 					fields: { title: 'Persisted' },
 				},
 			],
+		});
+
+		// A superseded lifetime is refused after restart too.
+		authority = new EpicenterAuthority(state, {} as Cloudflare.Env);
+		const mismatched = await authority.fetch(
+			new Request('https://epicenter-authority.internal/', {
+				method: 'POST',
+				body: JSON.stringify(requestBody('oooooooooooooooooooooooo')),
+			}),
+		);
+		expect((await mismatched.json()) as unknown).toEqual({
+			refusal: 'lifetime-mismatch',
+			lifetimeId: acceptedBody.lifetimeId,
 		});
 	} finally {
 		owned.database.close();

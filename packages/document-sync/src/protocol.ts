@@ -13,7 +13,11 @@ export const DOCUMENT_FRAME_LIMITS = {
 	payloadBytes: 2 * DOCUMENT_BOUND.stateBytes,
 } as const;
 
-export type DocumentAddress = { key: string; rowId: string };
+export type DocumentAddress = {
+	namespace: string;
+	table: string;
+	rowId: string;
+};
 
 export type DocumentPeer = {
 	nodeId: string;
@@ -111,7 +115,7 @@ export function documentWebSocketUrl({
 }): URL {
 	const url = new URL(baseUrl);
 	url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-	url.pathname = `/api/sync/v1/documents/${encodeURIComponent(address.key)}/${encodeURIComponent(address.rowId)}`;
+	url.pathname = `/api/sync/v1/documents/${encodeURIComponent(address.namespace)}/${encodeURIComponent(address.table)}/${encodeURIComponent(address.rowId)}`;
 	url.search = '';
 	url.hash = '';
 	return url;
@@ -122,7 +126,7 @@ export function parseDocumentRoute(
 ): DocumentAddress | undefined {
 	const parts = new URL(url).pathname.split('/');
 	if (
-		parts.length !== 7 ||
+		parts.length !== 8 ||
 		parts[1] !== 'api' ||
 		parts[2] !== 'sync' ||
 		parts[3] !== 'v1' ||
@@ -131,9 +135,12 @@ export function parseDocumentRoute(
 		return undefined;
 	}
 	try {
-		const key = decodeURIComponent(parts[5] ?? '');
-		const rowId = decodeURIComponent(parts[6] ?? '');
-		return key.length > 0 && rowId.length > 0 ? { key, rowId } : undefined;
+		const namespace = decodeURIComponent(parts[5] ?? '');
+		const table = decodeURIComponent(parts[6] ?? '');
+		const rowId = decodeURIComponent(parts[7] ?? '');
+		return namespace.length > 0 && table.length > 0 && rowId.length > 0
+			? { namespace, table, rowId }
+			: undefined;
 	} catch {
 		return undefined;
 	}

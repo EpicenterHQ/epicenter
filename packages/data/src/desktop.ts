@@ -111,8 +111,12 @@ export async function openDesktopEpicenter({
 		}) as BoundData<TTables, TValues>;
 	}
 
-	function notifyTable(key: string, rowId: string): void {
-		for (const listener of tableListeners.get(key) ?? []) listener([rowId]);
+	function notifyTable(namespace: string, table: string, rowId: string): void {
+		for (const listener of tableListeners.get(
+			tableListenerAddress(namespace, table),
+		) ?? []) {
+			listener([rowId]);
+		}
 	}
 
 	function createTableLens<TDefinition extends TableDefinition>(
@@ -126,7 +130,7 @@ export async function openDesktopEpicenter({
 					definition: serialized,
 					fields,
 				});
-				notifyTable(definition.key, row.id);
+				notifyTable(definition.namespace, definition.table, row.id);
 				return row;
 			},
 			get(rowId: string) {
@@ -144,7 +148,7 @@ export async function openDesktopEpicenter({
 					Awaited<ReturnType<TableLens<TDefinition>['update']>>
 				>({ kind: 'table-update', definition: serialized, rowId, patch });
 				if (result.error === null && result.data !== undefined) {
-					notifyTable(definition.key, rowId);
+					notifyTable(definition.namespace, definition.table, rowId);
 				}
 				return result;
 			},
@@ -154,7 +158,9 @@ export async function openDesktopEpicenter({
 					definition: serialized,
 					rowId,
 				});
-				if (deleted) notifyTable(definition.key, rowId);
+				if (deleted) {
+					notifyTable(definition.namespace, definition.table, rowId);
+				}
 				return deleted;
 			},
 			list(options: ListOptions<TDefinition> = {}) {
@@ -165,9 +171,13 @@ export async function openDesktopEpicenter({
 				});
 			},
 			subscribe(listener: (changedIds: string[]) => void) {
-				const listeners = tableListeners.get(definition.key) ?? new Set();
+				const listenerAddress = tableListenerAddress(
+					definition.namespace,
+					definition.table,
+				);
+				const listeners = tableListeners.get(listenerAddress) ?? new Set();
 				listeners.add(listener);
-				tableListeners.set(definition.key, listeners);
+				tableListeners.set(listenerAddress, listeners);
 				return () => listeners.delete(listener);
 			},
 			openDocument: (rowId: string) => openDocument(serialized, rowId),
@@ -191,18 +201,30 @@ export async function openDesktopEpicenter({
 					definition: serialized,
 					value: value as JsonValue,
 				});
-				for (const listener of valueListeners.get(definition.key) ?? [])
+				const listenerAddress = valueListenerAddress(
+					definition.namespace,
+					definition.value,
+				);
+				for (const listener of valueListeners.get(listenerAddress) ?? [])
 					listener();
 			},
 			async unset() {
 				await request<void>({ kind: 'value-unset', definition: serialized });
-				for (const listener of valueListeners.get(definition.key) ?? [])
+				const listenerAddress = valueListenerAddress(
+					definition.namespace,
+					definition.value,
+				);
+				for (const listener of valueListeners.get(listenerAddress) ?? [])
 					listener();
 			},
 			subscribe(listener: () => void) {
-				const listeners = valueListeners.get(definition.key) ?? new Set();
+				const listenerAddress = valueListenerAddress(
+					definition.namespace,
+					definition.value,
+				);
+				const listeners = valueListeners.get(listenerAddress) ?? new Set();
 				listeners.add(listener);
-				valueListeners.set(definition.key, listeners);
+				valueListeners.set(listenerAddress, listeners);
 				return () => listeners.delete(listener);
 			},
 		});
@@ -277,7 +299,11 @@ export async function openDesktopEpicenter({
 			},
 		};
 		registerRowDocumentConnectionTarget(handle, {
-			address: { key: definition.key, rowId },
+			address: {
+				namespace: definition.namespace,
+				table: definition.table,
+				rowId,
+			},
 			applyUpdate(update, origin) {
 				Y.applyUpdateV2(document, update, origin);
 			},
@@ -331,7 +357,8 @@ function serializeTableDefinition(
 ): SerializedTableDefinition {
 	const compiled = compileTableDefinition(definition);
 	return {
-		key: definition.key,
+		namespace: definition.namespace,
+		table: definition.table,
 		fields: cloneJson(definition.fields),
 		optionalFields: [...compiled.optional],
 	};
@@ -341,7 +368,19 @@ function serializeValueDefinition(
 	definition: ValueDefinition,
 ): SerializedValueDefinition {
 	compileValueDefinition(definition);
-	return { key: definition.key, value: cloneJson(definition.value) };
+	return {
+		namespace: definition.namespace,
+		value: definition.value,
+		schema: cloneJson(definition.schema),
+	};
+}
+
+function tableListenerAddress(namespace: string, table: string): string {
+	return `${namespace}\0${table}`;
+}
+
+function valueListenerAddress(namespace: string, value: string): string {
+	return `${namespace}\0${value}`;
 }
 
 function cloneJson<TValue>(value: TValue): TValue {

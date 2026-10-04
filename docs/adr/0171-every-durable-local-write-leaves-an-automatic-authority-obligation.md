@@ -61,7 +61,7 @@ The law has three independent protocol realizations:
 | --- | --- | --- |
 | Scalar | latest-state intent in the scalar outbox | matching accepted-batch receipt |
 | Document | bounded Yjs baseline-plus-tail chain plus a dirty revision and optional frozen `inflight` payload | post-commit receipt for the exact frozen `inflight` bytes |
-| Blob | immutable local bytes plus a row-addressed publication record | accepted content digest at the live row address |
+| Blob | one immutable local byte stream plus its row-addressed publication record | accepted SHA-256 for the live row's blob slot |
 
 These are independent convergence units, not one transaction. They share one
 runtime lifecycle owner for attachment, credentials, wakeups, retry, backoff,
@@ -110,6 +110,13 @@ the frozen payload. Closing the last live handle destroys the in-memory `Y.Doc`
 but leaves the SQLite revision and any in-flight retry image intact. A
 background drain therefore publishes dirty documents without depending on open
 handles.
+
+A row's blob publication is also write-once. The authority accepts an absent
+slot with digest A, treats a retry of A as idempotent, and refuses or parks a
+different digest B while that row remains live. The obligation clears only
+after the authority acknowledges matching bytes at the active lifetime and row
+address. New bytes require a new row rather than another blob member or mutable
+replacement protocol.
 
 Document publication is outbound and automatic. Remote document state remains
 lazy and arrives when the row document is next opened. A realtime connection

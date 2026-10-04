@@ -21,13 +21,14 @@ export type DocumentAppendResult =
 
 /** Open the disposable document persistence seam over one authority database. */
 export function createEpicenterDocumentStore(database: SqliteDatabase) {
-	function isRowLive({ key, rowId }: DocumentAddress): boolean {
+	function isRowLive({ namespace, table, rowId }: DocumentAddress): boolean {
 		return (
 			database.all<SqliteRow>(
 				`SELECT 1 AS live FROM state
-				 WHERE address_kind = 'row' AND qualified_key = ? AND row_id = ?
+				 WHERE address_kind = 'row' AND namespace_key = ? AND member_key = ?
+				   AND row_id = ?
 				   AND status = 'live' LIMIT 1`,
-				[key, rowId],
+				[namespace, table, rowId],
 			).length === 1
 		);
 	}
@@ -35,8 +36,9 @@ export function createEpicenterDocumentStore(database: SqliteDatabase) {
 	function readUpdates(address: DocumentAddress): StoredUpdate[] {
 		return database.all<StoredUpdate>(
 			`SELECT update_sequence, update_bytes FROM document_updates
-			 WHERE qualified_key = ? AND row_id = ? ORDER BY update_sequence`,
-			[address.key, address.rowId],
+			 WHERE namespace_key = ? AND table_key = ? AND row_id = ?
+			 ORDER BY update_sequence`,
+			[address.namespace, address.table, address.rowId],
 		);
 	}
 
@@ -86,15 +88,16 @@ export function createEpicenterDocumentStore(database: SqliteDatabase) {
 							database.all<SqliteRow & { sequence: number }>(
 								`SELECT COALESCE(MAX(update_sequence), 0) + 1 AS sequence
 								 FROM document_updates
-								 WHERE qualified_key = ? AND row_id = ?`,
-								[address.key, address.rowId],
+								 WHERE namespace_key = ? AND table_key = ? AND row_id = ?`,
+								[address.namespace, address.table, address.rowId],
 							)[0]?.sequence ?? 1;
 						database.run(
 							`INSERT INTO document_updates (
-								qualified_key, row_id, update_sequence, update_bytes
-							) VALUES (?, ?, ?, ?)`,
+								namespace_key, table_key, row_id, update_sequence, update_bytes
+							) VALUES (?, ?, ?, ?, ?)`,
 							[
-								address.key,
+								address.namespace,
+								address.table,
 								address.rowId,
 								nextSequence,
 								new Uint8Array(update),

@@ -6,14 +6,16 @@ import type {
 import type { SyncState } from '../sync-supervisor.js';
 
 export type SerializedTableDefinition = {
-	key: string;
+	namespace: string;
+	table: string;
 	fields: Record<string, unknown>;
 	optionalFields: string[];
 };
 
 export type SerializedValueDefinition = {
-	key: string;
-	value: unknown;
+	namespace: string;
+	value: string;
+	schema: unknown;
 };
 
 export type BrowserOperation =
@@ -99,8 +101,8 @@ export type BrowserInvalidation = {
 	type: 'invalidation';
 	token: string;
 	change:
-		| { kind: 'table'; key: string; rowIds: string[] }
-		| { kind: 'value'; key: string };
+		| { kind: 'table'; namespace: string; table: string; rowIds: string[] }
+		| { kind: 'value'; namespace: string; value: string };
 	broadcast: boolean;
 };
 

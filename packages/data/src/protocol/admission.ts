@@ -6,9 +6,11 @@ import type {
 } from './schemas.js';
 
 export const DATA_ADMISSION_LIMITS = {
-	qualifiedKeyBytes: 128,
+	namespaceKeyBytes: 128,
+	memberKeyBytes: 64,
 	rowIdLength: 24,
 	replicaIdLength: 24,
+	lifetimeIdLength: 24,
 	changesPerBatch: 64,
 	recordsPerPage: 64,
 	unsetKeysPerChange: 128,
@@ -22,8 +24,22 @@ export const DATA_ADMISSION_LIMITS = {
 } as const;
 
 const textEncoder = new TextEncoder();
-const QUALIFIED_KEY =
+
+/**
+ * A namespace key is collision-resistant reverse-domain naming: at least three
+ * dot-separated lowercase labels, hyphens only inside a label.
+ */
+const NAMESPACE_KEY =
 	/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?){2,}$/;
+
+/**
+ * A member key names one table or one value inside a namespace: dot-separated
+ * lowercase kebab segments, e.g. `recordings` or `settings.sound.manual-start`.
+ * Tables and values share this one grammar; the address `kind` keeps them
+ * unambiguous even when they collide.
+ */
+const MEMBER_KEY = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)*$/;
+
 const RUNTIME_ID = /^[a-z0-9]{24}$/;
 
 export function encodedBytes(value: string): number {
@@ -34,12 +50,21 @@ export function encodedJsonBytes(value: unknown): number {
 	return encodedBytes(JSON.stringify(value));
 }
 
-export function isQualifiedKey(value: string): boolean {
+export function isNamespaceKey(value: string): boolean {
 	const bytes = encodedBytes(value);
 	return (
-		bytes >= 3 &&
-		bytes <= DATA_ADMISSION_LIMITS.qualifiedKeyBytes &&
-		QUALIFIED_KEY.test(value)
+		bytes >= 5 &&
+		bytes <= DATA_ADMISSION_LIMITS.namespaceKeyBytes &&
+		NAMESPACE_KEY.test(value)
+	);
+}
+
+export function isMemberKey(value: string): boolean {
+	const bytes = encodedBytes(value);
+	return (
+		bytes >= 1 &&
+		bytes <= DATA_ADMISSION_LIMITS.memberKeyBytes &&
+		MEMBER_KEY.test(value)
 	);
 }
 
@@ -95,9 +120,15 @@ function isFieldKey(value: string): boolean {
 	);
 }
 
+function isAdmissibleAddress(value: Change | SyncRecord): boolean {
+	if (!isNamespaceKey(value.namespace)) return false;
+	return 'rowId' in value
+		? isMemberKey(value.table) && isRuntimeId(value.rowId)
+		: isMemberKey(value.value);
+}
+
 export function isAdmissibleChange(change: Change): boolean {
-	if (!isQualifiedKey(change.key)) return false;
-	if ('rowId' in change && !isRuntimeId(change.rowId)) return false;
+	if (!isAdmissibleAddress(change)) return false;
 	if (encodedJsonBytes(change) > DATA_ADMISSION_LIMITS.encodedChangeBytes)
 		return false;
 
@@ -123,7 +154,7 @@ export function isAdmissibleChange(change: Change): boolean {
 		case 'delete':
 			return true;
 		case 'set':
-			return isJsonValue(change.value);
+			return isJsonValue(change.payload);
 		case 'unset':
 			return true;
 		default:
@@ -133,18 +164,17 @@ export function isAdmissibleChange(change: Change): boolean {
 
 export function isAdmissibleRecord(record: SyncRecord): boolean {
 	if (
-		!isQualifiedKey(record.key) ||
+		!isAdmissibleAddress(record) ||
 		!Number.isSafeInteger(record.changedSequence) ||
 		record.changedSequence < 1
 	) {
 		return false;
 	}
-	if ('rowId' in record && !isRuntimeId(record.rowId)) return false;
 	if (encodedJsonBytes(record) > DATA_ADMISSION_LIMITS.encodedRecordBytes)
 		return false;
 	return record.kind === 'row'
 		? isJsonObject(record.fields)
 		: record.kind === 'value'
-			? isJsonValue(record.value)
+			? isJsonValue(record.payload)
 			: true;
 }

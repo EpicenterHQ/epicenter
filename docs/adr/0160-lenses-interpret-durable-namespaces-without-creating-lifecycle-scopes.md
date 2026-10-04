@@ -77,10 +77,11 @@ durable owner. Binding a Lens borrows typed access to an open `Epicenter`. It
 creates no storage, performs no synchronization, and owns no disposal.
 
 Table rows have runtime-minted globally unique IDs that callers cannot replace
-or reuse. Every live row latently owns exactly one schema-free document at the
-row's own address. The document has no independent public ID or lifetime.
+or reuse. Every live row latently owns exactly one schema-free document and one
+zero-or-one write-once immutable blob slot at the row's own address. Neither
+capability has an independent public ID, Lens declaration, or lifetime.
 Deleting the row, through any Lens or synchronization, revokes open handles and
-deletes its document state.
+terminally deletes its document and blob state.
 
 Values are singleton values, not a second database. Row and value addresses are
 distinguished by `kind`, so a namespace may use the same local name for a table

@@ -98,7 +98,8 @@ export function createBunEpicenterSyncRuntime({ dir }: { dir: string }) {
 		for (const change of request.batch.changes) {
 			if (change.kind !== 'delete') continue;
 			documents.closeRow(principalId, {
-				key: change.key,
+				namespace: change.namespace,
+				table: change.table,
 				rowId: change.rowId,
 			});
 		}
@@ -165,7 +166,7 @@ export function mountBunEpicenterSyncApp<E extends Env = Env>(
 		auth,
 		locateAuthority: runtime.locateAuthority,
 	});
-	app.get('/api/sync/v1/documents/:key/:rowId', async (c) => {
+	app.get('/api/sync/v1/documents/:namespace/:table/:rowId', async (c) => {
 		const authorization = await resolveEpicenterDocumentUpgrade(
 			c,
 			resolveDocumentPrincipal,

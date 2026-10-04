@@ -11,7 +11,8 @@ import { field, jsonValue } from '@epicenter/field';
 import { Type } from 'typebox';
 
 export const skillsTable = defineTable({
-	key: 'so.epicenter.skills.skills',
+	namespace: 'so.epicenter.skills',
+	table: 'skills',
 	fields: {
 		sourceId: field.string(),
 		name: field.string(),
@@ -25,7 +26,8 @@ export const skillsTable = defineTable({
 });
 
 export const referencesTable = defineTable({
-	key: 'so.epicenter.skills.references',
+	namespace: 'so.epicenter.skills',
+	table: 'references',
 	fields: {
 		skillId: field.string(),
 		path: field.string(),

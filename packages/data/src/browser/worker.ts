@@ -77,7 +77,7 @@ type Client = {
 };
 
 type WorkerDocument = {
-	address: { key: string; rowId: string };
+	address: { namespace: string; table: string; rowId: string };
 	document: RowDocument;
 	stopUpdates(): void;
 };
@@ -132,16 +132,21 @@ export function createBrowserWorkerHost({
 					if (change.kind === 'row') {
 						emitInvalidation({
 							kind: 'table',
-							key: change.key,
+							namespace: change.namespace,
+							table: change.table,
 							rowIds: [change.rowId],
 						});
-						const row = store.replica.readRow(change.key, change.rowId);
+						const row = store.replica.readRow(change);
 						if (row.error === null && row.data === undefined) {
-							void revokeDocuments(change.key, change.rowId);
+							void revokeDocuments(change);
 						}
 						continue;
 					}
-					emitInvalidation({ kind: 'value', key: change.key });
+					emitInvalidation({
+						kind: 'value',
+						namespace: change.namespace,
+						value: change.value,
+					});
 				}
 			});
 			stopSyncStatusSubscription = store.epicenter.subscribeSyncStatus(
@@ -164,8 +169,13 @@ export function createBrowserWorkerHost({
 
 	function emitInvalidation(
 		change:
-			| { kind: 'table'; key: string; rowIds: string[] }
-			| { kind: 'value'; key: string },
+			| {
+					kind: 'table';
+					namespace: string;
+					table: string;
+					rowIds: string[];
+			  }
+			| { kind: 'value'; namespace: string; value: string },
 	): void {
 		const token = `${hostId}:${++nextInvalidationId}`;
 		let broadcaster: Client | undefined;
@@ -180,11 +190,23 @@ export function createBrowserWorkerHost({
 		}
 	}
 
-	async function revokeDocuments(key: string, rowId: string): Promise<void> {
-		const message = `Row document was revoked because '${key}.${rowId}' is no longer live`;
+	async function revokeDocuments({
+		namespace,
+		table,
+		rowId,
+	}: {
+		namespace: string;
+		table: string;
+		rowId: string;
+	}): Promise<void> {
+		const message = `Row document was revoked because '${namespace}/${table}/${rowId}' is no longer live`;
 		for (const client of clients) {
 			for (const [documentId, entry] of client.documents) {
-				if (entry.address.key !== key || entry.address.rowId !== rowId)
+				if (
+					entry.address.namespace !== namespace ||
+					entry.address.table !== table ||
+					entry.address.rowId !== rowId
+				)
 					continue;
 				client.port.postMessage({
 					type: 'document-revoked',
@@ -349,7 +371,11 @@ export function createBrowserWorkerHost({
 			});
 		});
 		client.documents.set(documentId, {
-			address: { key: operation.definition.key, rowId: operation.rowId },
+			address: {
+				namespace: operation.definition.namespace,
+				table: operation.definition.table,
+				rowId: operation.rowId,
+			},
 			document,
 			stopUpdates,
 		});
@@ -435,7 +461,11 @@ function deserializeTable(
 			? optional(typedSchema)
 			: typedSchema;
 	}
-	return defineTable({ key: definition.key, fields });
+	return defineTable({
+		namespace: definition.namespace,
+		table: definition.table,
+		fields,
+	});
 }
 
 function tableLens(
@@ -453,8 +483,9 @@ function valueLens(
 	definition: SerializedValueDefinition,
 ): UntypedValueLens {
 	const valueDefinition = defineValue({
-		key: definition.key,
-		value: definition.value as TSchema,
+		namespace: definition.namespace,
+		value: definition.value,
+		schema: definition.schema as TSchema,
 	}) as ValueDefinition;
 	return epicenter.bind({
 		tables: {},

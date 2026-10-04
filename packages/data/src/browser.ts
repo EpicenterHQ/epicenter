@@ -136,7 +136,11 @@ export async function openBrowserEpicenter({
 	function notifyInvalidation(signal: BrowserInvalidationSignal): void {
 		if (!rememberInvalidation(signal.token)) return;
 		if (signal.change.kind === 'table') {
-			for (const listener of tableListeners.get(signal.change.key) ?? []) {
+			const listenerAddress = tableListenerAddress(
+				signal.change.namespace,
+				signal.change.table,
+			);
+			for (const listener of tableListeners.get(listenerAddress) ?? []) {
 				try {
 					listener([...signal.change.rowIds]);
 				} catch (cause) {
@@ -149,7 +153,11 @@ export async function openBrowserEpicenter({
 			}
 			return;
 		}
-		for (const listener of valueListeners.get(signal.change.key) ?? []) {
+		const listenerAddress = valueListenerAddress(
+			signal.change.namespace,
+			signal.change.value,
+		);
+		for (const listener of valueListeners.get(listenerAddress) ?? []) {
 			try {
 				listener();
 			} catch (cause) {
@@ -327,12 +335,16 @@ export async function openBrowserEpicenter({
 			},
 			subscribe(listener: (changedIds: string[]) => void) {
 				requireOpen();
-				const listeners = tableListeners.get(definition.key) ?? new Set();
+				const listenerAddress = tableListenerAddress(
+					definition.namespace,
+					definition.table,
+				);
+				const listeners = tableListeners.get(listenerAddress) ?? new Set();
 				listeners.add(listener);
-				tableListeners.set(definition.key, listeners);
+				tableListeners.set(listenerAddress, listeners);
 				return () => {
 					listeners.delete(listener);
-					if (listeners.size === 0) tableListeners.delete(definition.key);
+					if (listeners.size === 0) tableListeners.delete(listenerAddress);
 				};
 			},
 			openDocument(rowId: string) {
@@ -365,12 +377,16 @@ export async function openBrowserEpicenter({
 			},
 			subscribe(listener: () => void) {
 				requireOpen();
-				const listeners = valueListeners.get(definition.key) ?? new Set();
+				const listenerAddress = valueListenerAddress(
+					definition.namespace,
+					definition.value,
+				);
+				const listeners = valueListeners.get(listenerAddress) ?? new Set();
 				listeners.add(listener);
-				valueListeners.set(definition.key, listeners);
+				valueListeners.set(listenerAddress, listeners);
 				return () => {
 					listeners.delete(listener);
-					if (listeners.size === 0) valueListeners.delete(definition.key);
+					if (listeners.size === 0) valueListeners.delete(listenerAddress);
 				};
 			},
 		});
@@ -452,7 +468,11 @@ export async function openBrowserEpicenter({
 			},
 		};
 		registerRowDocumentConnectionTarget(handle, {
-			address: { key: definition.key, rowId },
+			address: {
+				namespace: definition.namespace,
+				table: definition.table,
+				rowId,
+			},
 			applyUpdate(update, origin) {
 				requireUsable();
 				Y.applyUpdateV2(document, new Uint8Array(update), origin);
@@ -501,13 +521,13 @@ export async function openBrowserEpicenter({
 		session: EpicenterSyncSession,
 	): Promise<Awaited<ReturnType<Epicenter['attachSync']>>> {
 		requireOpen();
-		const key = ++transportKey;
-		exchanges.set(key, session.exchange);
+		const transportId = ++transportKey;
+		exchanges.set(transportId, session.exchange);
 		stopCredentials?.();
 		stopCredentials = session.credentials?.subscribe?.(() => {
 			void request<void>({
 				kind: 'sync-credentials',
-				transportKey: key,
+				transportKey: transportId,
 				hasCredentials: session.credentials?.get() !== undefined,
 			});
 		});
@@ -516,17 +536,17 @@ export async function openBrowserEpicenter({
 				Awaited<ReturnType<Epicenter['attachSync']>>
 			>({
 				kind: 'attach-sync',
-				transportKey: key,
+				transportKey: transportId,
 				deploymentId: session.deploymentId,
 				principalId: session.principalId,
 				hasCredentials:
 					session.credentials === undefined ||
 					session.credentials.get() !== undefined,
 			});
-			if (result.error !== null) exchanges.delete(key);
+			if (result.error !== null) exchanges.delete(transportId);
 			return result;
 		} catch (cause) {
-			exchanges.delete(key);
+			exchanges.delete(transportId);
 			throw cause;
 		}
 	}
@@ -583,7 +603,8 @@ function serializeTableDefinition(
 ): SerializedTableDefinition {
 	const compiled = compileTableDefinition(definition);
 	return {
-		key: definition.key,
+		namespace: definition.namespace,
+		table: definition.table,
 		fields: cloneJson(definition.fields),
 		optionalFields: [...compiled.optional],
 	};
@@ -593,7 +614,11 @@ function serializeValueDefinition(
 	definition: ValueDefinition,
 ): SerializedValueDefinition {
 	compileValueDefinition(definition);
-	return { key: definition.key, value: cloneJson(definition.value) };
+	return {
+		namespace: definition.namespace,
+		value: definition.value,
+		schema: cloneJson(definition.schema),
+	};
 }
 
 function cloneJson<TValue>(value: TValue): TValue {
@@ -604,29 +629,37 @@ function assertDefinitionGroup(
 	tables: TableDefinitions,
 	values: ValueDefinitions,
 ): void {
-	const keys = new Map<string, string>();
+	const addresses = new Map<string, string>();
 	for (const [propertyName, definition] of Object.entries(tables)) {
 		compileTableDefinition(definition);
-		rememberDefinition(keys, definition.key, `tables.${propertyName}`);
+		rememberDefinition(
+			addresses,
+			`row\0${definition.namespace}\0${definition.table}`,
+			`tables.${propertyName}`,
+		);
 	}
 	for (const [propertyName, definition] of Object.entries(values)) {
 		compileValueDefinition(definition);
-		rememberDefinition(keys, definition.key, `values.${propertyName}`);
+		rememberDefinition(
+			addresses,
+			`value\0${definition.namespace}\0${definition.value}`,
+			`values.${propertyName}`,
+		);
 	}
 }
 
 function rememberDefinition(
-	keys: Map<string, string>,
-	key: string,
+	addresses: Map<string, string>,
+	address: string,
 	propertyName: string,
 ): void {
-	const existing = keys.get(key);
+	const existing = addresses.get(address);
 	if (existing !== undefined) {
 		throw new Error(
-			`Duplicate qualified key '${key}' is bound by '${existing}' and '${propertyName}'`,
+			`Duplicate scalar address is bound by '${existing}' and '${propertyName}'`,
 		);
 	}
-	keys.set(key, propertyName);
+	addresses.set(address, propertyName);
 }
 
 function isInvalidationSignal(
@@ -641,12 +674,22 @@ function isInvalidationSignal(
 		return false;
 	return (
 		(message.change.kind === 'value' &&
-			typeof message.change.key === 'string') ||
+			typeof message.change.namespace === 'string' &&
+			typeof message.change.value === 'string') ||
 		(message.change.kind === 'table' &&
-			typeof message.change.key === 'string' &&
+			typeof message.change.namespace === 'string' &&
+			typeof message.change.table === 'string' &&
 			Array.isArray(message.change.rowIds) &&
 			message.change.rowIds.every((rowId) => typeof rowId === 'string'))
 	);
+}
+
+function tableListenerAddress(namespace: string, table: string): string {
+	return `${namespace}\0${table}`;
+}
+
+function valueListenerAddress(namespace: string, value: string): string {
+	return `${namespace}\0${value}`;
 }
 
 function defaultSharedWorker(): {

@@ -198,8 +198,9 @@ function valueLens(
 		tables: {},
 		values: {
 			target: defineValue({
-				key: definition.key,
-				value: definition.value as TSchema,
+				namespace: definition.namespace,
+				value: definition.value,
+				schema: definition.schema as TSchema,
 			}) as ValueDefinition,
 		},
 	}).values.target as UntypedValueLens;
@@ -216,7 +217,11 @@ function deserializeTable(
 			? optional(typedSchema)
 			: typedSchema;
 	}
-	return defineTable({ key: definition.key, fields });
+	return defineTable({
+		namespace: definition.namespace,
+		table: definition.table,
+		fields,
+	});
 }
 
 function parseDesktopRequest(input: unknown): DesktopRequest {

@@ -29,7 +29,8 @@ import {
 } from './route.js';
 
 const INTERNAL_DOCUMENT_PATH = '/document';
-const ADDRESS_KEY_HEADER = 'x-epicenter-document-key';
+const ADDRESS_NAMESPACE_HEADER = 'x-epicenter-document-namespace';
+const ADDRESS_TABLE_HEADER = 'x-epicenter-document-table';
 const ADDRESS_ROW_HEADER = 'x-epicenter-document-row';
 const AUTHORIZATION_EXPIRES_HEADER = 'x-epicenter-authorization-expires-at';
 const ORDINARY_CLOSE_CODE = 1000;
@@ -47,7 +48,8 @@ function isDocumentAttachment(value: unknown): value is DocumentAttachment {
 	return (
 		attachment.version === 1 &&
 		typeof attachment.subprotocol === 'string' &&
-		typeof attachment.address?.key === 'string' &&
+		typeof attachment.address?.namespace === 'string' &&
+		typeof attachment.address.table === 'string' &&
 		typeof attachment.address.rowId === 'string' &&
 		typeof attachment.authorizationExpiresAt === 'number'
 	);
@@ -176,7 +178,11 @@ export class EpicenterAuthority extends DurableObject {
 			if (!('refusal' in response) && exchangeRequest.batch !== undefined) {
 				for (const change of exchangeRequest.batch.changes) {
 					if (change.kind === 'delete') {
-						this.documents.closeRow({ key: change.key, rowId: change.rowId });
+						this.documents.closeRow({
+							namespace: change.namespace,
+							table: change.table,
+							rowId: change.rowId,
+						});
 					}
 				}
 			}
@@ -198,20 +204,22 @@ export class EpicenterAuthority extends DurableObject {
 		) {
 			return new Response(null, { status: 400 });
 		}
-		const key = request.headers.get(ADDRESS_KEY_HEADER);
+		const namespace = request.headers.get(ADDRESS_NAMESPACE_HEADER);
+		const table = request.headers.get(ADDRESS_TABLE_HEADER);
 		const rowId = request.headers.get(ADDRESS_ROW_HEADER);
 		const authorizationExpiresAt = Number(
 			request.headers.get(AUTHORIZATION_EXPIRES_HEADER),
 		);
 		if (
-			key === null ||
+			namespace === null ||
+			table === null ||
 			rowId === null ||
 			!Number.isSafeInteger(authorizationExpiresAt) ||
 			authorizationExpiresAt <= Date.now()
 		) {
 			return new Response(null, { status: 400 });
 		}
-		const address = { key, rowId };
+		const address = { namespace, table, rowId };
 		if (!this.documents.admit(address)) {
 			return new Response(null, { status: 404 });
 		}
@@ -315,7 +323,7 @@ export function mountCloudflareEpicenterSyncApp<E extends Env = Env>(
 		locateAuthority: (principalId, env) => (request) =>
 			exchangeThroughDurableObject(resolveNamespace(env), principalId, request),
 	});
-	app.get('/api/sync/v1/documents/:key/:rowId', async (c) => {
+	app.get('/api/sync/v1/documents/:namespace/:table/:rowId', async (c) => {
 		const authorization = await resolveEpicenterDocumentUpgrade(
 			c,
 			resolveDocumentPrincipal,
@@ -326,7 +334,8 @@ export function mountCloudflareEpicenterSyncApp<E extends Env = Env>(
 		const headers = new Headers({
 			upgrade: 'websocket',
 			'sec-websocket-protocol': DOCUMENT_SUBPROTOCOL,
-			[ADDRESS_KEY_HEADER]: authorization.address.key,
+			[ADDRESS_NAMESPACE_HEADER]: authorization.address.namespace,
+			[ADDRESS_TABLE_HEADER]: authorization.address.table,
 			[ADDRESS_ROW_HEADER]: authorization.address.rowId,
 			[AUTHORIZATION_EXPIRES_HEADER]: String(
 				authorization.authorizationExpiresAt,

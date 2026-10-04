@@ -28,7 +28,8 @@ import {
 
 const TOKEN = 'desktop-data-test-token';
 const documentsTable = defineTable({
-	key: 'so.epicenter.tests.desktop-documents',
+	namespace: 'so.epicenter.tests',
+	table: 'desktop-documents',
 	fields: { name: field.string(), updatedAt: field.instant() },
 });
 

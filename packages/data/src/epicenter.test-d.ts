@@ -16,7 +16,8 @@ type Equal<TLeft, TRight> =
 type Expect<TValue extends true> = TValue;
 
 const ordinary = defineTable({
-	key: 'so.epicenter.types.ordinary',
+	namespace: 'so.epicenter.types',
+	table: 'ordinary',
 	fields: {
 		title: field.string(),
 		note: optional(field.string()),

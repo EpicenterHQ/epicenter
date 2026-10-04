@@ -2,7 +2,7 @@
  * Honeycrisp's inert Data definitions.
  *
  * Runtimes own storage, synchronization, and document lifecycles. This module
- * owns only qualified keys, release-local row lenses, and the one
+ * owns only structured addresses, release-local row lenses, and the one
  * multi-row folder deletion operation shared by the UI and desktop host.
  */
 
@@ -21,7 +21,8 @@ export type NoteId = string;
 export type FolderId = string;
 
 export const foldersTable = defineTable({
-	key: 'so.epicenter.honeycrisp.folders',
+	namespace: 'so.epicenter.honeycrisp',
+	table: 'folders',
 	fields: {
 		name: field.string(),
 		icon: optional(field.string()),
@@ -31,7 +32,8 @@ export const foldersTable = defineTable({
 export type Folder = RowFor<typeof foldersTable>;
 
 export const notesTable = defineTable({
-	key: 'so.epicenter.honeycrisp.notes',
+	namespace: 'so.epicenter.honeycrisp',
+	table: 'notes',
 	fields: {
 		folderId: optional(field.string()),
 		title: field.string(),
