@@ -252,6 +252,17 @@
         "vite": "catalog:",
       },
     },
+    "apps/local-photos": {
+      "name": "@epicenter/local-photos",
+      "version": "0.0.1",
+      "bin": {
+        "local-photos": "./src/bin.ts",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "apps/matter": {
       "name": "@epicenter/matter",
       "version": "0.0.2",
@@ -1433,6 +1444,8 @@
     "@epicenter/local-mail": ["@epicenter/local-mail@workspace:apps/local-mail"],
 
     "@epicenter/local-mail-ui": ["@epicenter/local-mail-ui@workspace:apps/local-mail/ui"],
+
+    "@epicenter/local-photos": ["@epicenter/local-photos@workspace:apps/local-photos"],
 
     "@epicenter/matter": ["@epicenter/matter@workspace:apps/matter"],
 

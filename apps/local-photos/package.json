@@ -1,0 +1,28 @@
+{
+	"name": "@epicenter/local-photos",
+	"description": "Local photo and video archive with provenance-preserving Takeout imports.",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"keywords": [
+		"local-first",
+		"photos",
+		"google-takeout",
+		"sqlite",
+		"cli"
+	],
+	"bin": {
+		"local-photos": "./src/bin.ts"
+	},
+	"scripts": {
+		"local-photos": "bun run src/bin.ts",
+		"test": "bun test",
+		"typecheck": "tsc --noEmit",
+		"build:binary": "bun build --compile --outfile dist/local-photos src/bin.ts"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

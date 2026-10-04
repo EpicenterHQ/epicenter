@@ -190,5 +190,7 @@ Each option and the one reason it lost. Terse. This is not the spec.
 | [0111](0111-super-chat-v1-exposes-built-in-epicenter-apps-and-defers-extension-surfaces.md) | Super Chat v1 exposes built-in Epicenter apps and defers extension surfaces | Accepted |
 | [0112](0112-the-cli-watcher-is-not-a-callable-action-server.md) | The CLI watcher is not a callable action server | Accepted |
 | [0113](0113-hosted-auth-surfaces-are-plain-tool-logins-not-marketing-pages.md) | Hosted auth surfaces are plain tool logins, not marketing pages | Accepted |
+| [0114](0114-local-photos-is-an-import-ledger-not-a-google-photos-sync-client.md) | Local Photos is an import ledger, not a Google Photos sync client | Proposed |
+| [0115](0115-local-photos-deletes-only-from-local-tombstones-not-source-absence.md) | Local Photos deletes only from local tombstones, not source absence | Proposed |
 
 When you add an ADR, add its row here.
