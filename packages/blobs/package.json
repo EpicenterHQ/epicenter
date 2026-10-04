@@ -8,7 +8,7 @@
 		".": "./src/index.ts",
 		"./browser": "./src/browser.ts",
 		"./bun": "./src/bun.ts",
-		"./http": "./src/http.ts"
+		"./webview": "./src/webview.ts"
 	},
 	"license": "AGPL-3.0-or-later",
 	"scripts": {

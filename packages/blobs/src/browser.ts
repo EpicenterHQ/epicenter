@@ -1,19 +1,13 @@
 /// <reference lib="dom" />
 
-import {
-	defineErrors,
-	extractErrorMessage,
-	type InferError,
-} from 'wellcrafted/error';
-import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
+import { Err, Ok, tryAsync, trySync } from 'wellcrafted/result';
 import type { BlobId } from './blob-id.js';
 import {
-	type BlobNotFound,
-	type BlobStat,
-	BlobStoreError,
-	type BlobStoreFailed,
-	type Blobs,
-} from './blobs.js';
+	type BlobSource,
+	BlobSourceError,
+	type BlobSources,
+} from './blob-source.js';
+import { type BlobStat, BlobStoreError, type Blobs } from './blobs.js';
 
 const DATABASE_VERSION = 1;
 const DATA_STORE = 'blob-data';
@@ -225,30 +219,16 @@ export function createBrowserBlobs({
 	};
 }
 
-export type BrowserBlobUrl = {
-	url: string;
-	dispose(): void;
-};
-
-export const BrowserBlobUrlError = defineErrors({
-	BlobUrlFailed: ({ id, cause }: { id: BlobId; cause: unknown }) => ({
-		message: `Could not create a browser URL for blob '${id}': ${extractErrorMessage(cause)}`,
-		id,
-		cause,
-	}),
-});
-export type BrowserBlobUrlFailed = InferError<
-	typeof BrowserBlobUrlError.BlobUrlFailed
->;
-
 /**
- * Create revocable browser URLs over one local blob store.
+ * Create revocable browser sources over one local blob store.
  *
  * Each `open` owns one independent object URL. The caller must dispose that
  * acquisition when its media element or download no longer needs it; the
  * storage layer deliberately has no shared URL cache or reference counts.
+ * Disposal is idempotent and revokes the object URL exactly once; revocation
+ * is synchronous, though an already-started fetch of the URL may complete.
  */
-export function createBrowserBlobUrls(
+export function createBrowserBlobSources(
 	blobs: Pick<Blobs, 'get'>,
 	{
 		createObjectUrl = URL.createObjectURL,
@@ -257,35 +237,26 @@ export function createBrowserBlobUrls(
 		createObjectUrl?: (blob: Blob) => string;
 		revokeObjectUrl?: (url: string) => void;
 	} = {},
-) {
+): BlobSources {
 	return {
-		async open(
-			id: BlobId,
-		): Promise<
-			Result<
-				BrowserBlobUrl,
-				BlobNotFound | BlobStoreFailed | BrowserBlobUrlFailed
-			>
-		> {
+		async open(id) {
 			const { data: blob, error } = await blobs.get(id);
 			if (error !== null) return Err(error);
 
 			const { data: url, error: urlError } = trySync({
 				try: () => createObjectUrl(blob),
-				catch: (cause) => BrowserBlobUrlError.BlobUrlFailed({ id, cause }),
+				catch: (cause) => BlobSourceError.BlobSourceFailed({ id, cause }),
 			});
 			if (urlError !== null) return Err(urlError);
 			let isDisposed = false;
 			return Ok({
 				url,
-				dispose() {
+				[Symbol.dispose]() {
 					if (isDisposed) return;
 					isDisposed = true;
 					revokeObjectUrl(url);
 				},
-			} satisfies BrowserBlobUrl);
+			} satisfies BlobSource);
 		},
 	};
 }
-
-export type BrowserBlobUrls = ReturnType<typeof createBrowserBlobUrls>;

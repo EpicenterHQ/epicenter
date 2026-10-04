@@ -1,14 +1,14 @@
 # @epicenter/blobs
 
-Opaque blob identity and the shared blob contracts: one `BlobId` names an object locally, remotely, and in rows; `Blobs` is the canonical local store apps read and write; `BlobReplica` is the optional, explicit copy seam (upload, download, purge) to one remote under the same id.
+Opaque blob identity and the shared blob contracts: one `BlobId` names an object locally, remotely, and in rows; `Blobs` is the canonical local store apps read and write; `BlobReplica` is the optional, explicit copy seam (upload, download, purge) to one remote under the same id; `BlobSources` acquires disposable playback URLs over the local bytes.
 
 This package is the AGPL blob boundary. The root export owns the portable
 contracts; platform subpaths own the implementations that satisfy them. The
-browser subpath provides IndexedDB storage and explicitly acquired, revocable
-object URLs. The Bun subpath provides filesystem storage for desktop hosts and
-scripts. The HTTP subpath adapts the authenticated desktop origin back to the
-same portable contract and constructs its stable relative media URL. Replica
-implementations compose over `Blobs` rather than inventing a second
+browser subpath provides IndexedDB storage and object-URL sources. The Bun
+subpath provides filesystem storage for desktop hosts and scripts. The WebView
+subpath adapts the authenticated desktop origin back to the same portable
+contracts, including sources that hand out its stable relative media URL.
+Replica implementations compose over `Blobs` rather than inventing a second
 application-facing store.
 
 Browser replica implementations may compose directly over `Blobs`: the public
@@ -16,8 +16,8 @@ browser adapter is Blob-valued. Its IndexedDB codec stores `ArrayBuffer` plus
 content type because WebKit rejects persisted `Blob`/`File` values, then
 reconstructs a `Blob` on read. Desktop replication is host-owned instead. It
 must stream between the Bun filesystem store and the remote without routing a
-whole recording through the WebView; composing a desktop replica over the HTTP
-adapter's Blob-valued `get` would defeat that boundary.
+whole recording through the WebView; composing a desktop replica over the
+WebView adapter's Blob-valued `get` would defeat that boundary.
 
 ## Identity
 
@@ -39,8 +39,13 @@ adapter's Blob-valued `get` would defeat that boundary.
 - A replica download is idempotent. If the immutable id already exists in the
   canonical local store, the replica implementation consumes that collision as
   success because the requested local state is already present.
-- URL access stays platform-specific. Browser callers acquire and dispose an
-  object URL; desktop callers use the host's stable same-origin HTTP locator.
+- Playback URLs come from `BlobSources`, a sibling capability beside the
+  store, never a method on `Blobs`. Each `open` returns one standard
+  `Disposable` handle: release is always safe and idempotent. The browser
+  implementation revokes its object URL exactly once; the WebView
+  implementation returns the host's stable same-origin locator and its
+  disposer is a harmless no-op. Bounded imperative consumers may `using` the
+  handle; component lifecycles call `[Symbol.dispose]()` from their cleanup.
 
 For an independent local lifetime, compose the existing verbs: `get` the
 source bytes, mint a new `BlobId`, then `put` those bytes under the new id. That

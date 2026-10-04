@@ -1,20 +1,16 @@
-import type { BlobReplica, Blobs } from '@epicenter/blobs';
+import type { BlobReplica, BlobSources, Blobs } from '@epicenter/blobs';
 import {
+	createBrowserBlobSources,
 	createBrowserBlobs,
-	createBrowserBlobUrls,
 } from '@epicenter/blobs/browser';
 import {
 	createBrowserBlobReplica,
 	createEpicenterClient,
 } from '@epicenter/client';
 import { auth } from '#platform/auth';
-import type { AudioBlobUrls } from './types.js';
 
-export type { AudioBlobUrls } from './types.js';
-
-export const AudioBlobsLive: Blobs = createBrowserBlobs();
-export const AudioBlobUrlsLive: AudioBlobUrls =
-	createBrowserBlobUrls(AudioBlobsLive);
+export const BlobsLive: Blobs = createBrowserBlobs();
+export const BlobSourcesLive: BlobSources = createBrowserBlobSources(BlobsLive);
 const epicenterClient = createEpicenterClient({
 	baseURL: auth.deployment.baseURL,
 	fetch: auth.fetch,
@@ -25,8 +21,7 @@ const epicenterClient = createEpicenterClient({
  * application operations still refuse calls while signed out so a missing
  * credential is a product state rather than an HTTP surprise.
  */
-export const AudioBlobReplicaLive: BlobReplica | null =
-	createBrowserBlobReplica({
-		blobs: AudioBlobsLive,
-		client: epicenterClient,
-	});
+export const BlobReplicaLive: BlobReplica | null = createBrowserBlobReplica({
+	blobs: BlobsLive,
+	client: epicenterClient,
+});

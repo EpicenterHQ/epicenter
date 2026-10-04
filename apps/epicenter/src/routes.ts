@@ -8,7 +8,7 @@
  * code.
  */
 
-import { LOCAL_BLOB_PATH } from '@epicenter/blobs/http';
+import { LOCAL_BLOB_PATH } from '@epicenter/blobs/webview';
 
 const stripTrailing = (value: string) => value.replace(/\/+$/, '');
 

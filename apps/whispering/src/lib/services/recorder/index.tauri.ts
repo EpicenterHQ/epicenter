@@ -7,7 +7,7 @@ import {
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { AudioBlobsLive } from '#platform/blobs';
+import { BlobsLive } from '#platform/blobs';
 import type { WhisperingRecordingState } from '$lib/constants/audio';
 import { recorderErrorFromIpc } from '$lib/services/recorder/categorize-error';
 import {
@@ -191,7 +191,7 @@ function createCpalRecorder() {
 					});
 				}
 				const { data: blobStat, error: statError } =
-					await AudioBlobsLive.stat(audioBlobId);
+					await BlobsLive.stat(audioBlobId);
 				if (statError !== null) return Err(statError);
 
 				return Ok({

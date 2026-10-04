@@ -30,7 +30,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateBlobId } from '@epicenter/blobs';
 import { createBunBlobs } from '@epicenter/blobs/bun';
-import { desktopBlobUrl } from '@epicenter/blobs/http';
+import { desktopBlobUrl } from '@epicenter/blobs/webview';
 import type { AgentEngine, EngineChunk } from '@epicenter/workspace/agent';
 import {
 	createQueryHost,

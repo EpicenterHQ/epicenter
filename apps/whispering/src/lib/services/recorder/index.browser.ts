@@ -5,7 +5,7 @@ import {
 	getRecordingStream,
 } from '@epicenter/recorder';
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
-import { AudioBlobsLive } from '#platform/blobs';
+import { BlobsLive } from '#platform/blobs';
 import {
 	type NavigatorRecordingParams,
 	RecorderError,
@@ -90,7 +90,7 @@ function createBrowserRecorder(): RecorderService<NavigatorRecordingParams> {
 					teardown();
 					return Err(stopError);
 				}
-				const { error: putError } = await AudioBlobsLive.put(audioBlobId, blob);
+				const { error: putError } = await BlobsLive.put(audioBlobId, blob);
 				teardown();
 				if (putError !== null) return Err(putError);
 

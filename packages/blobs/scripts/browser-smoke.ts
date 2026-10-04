@@ -30,7 +30,7 @@ try {
 	await page.goto(`http://127.0.0.1:${server.port}`);
 	const result = await page.evaluate(async () => {
 		const moduleUrl = '/blobs.js';
-		const { createBrowserBlobs, createBrowserBlobUrls } = await import(
+		const { createBrowserBlobs, createBrowserBlobSources } = await import(
 			moduleUrl
 		);
 		const fail = (error: unknown): never => {
@@ -65,8 +65,8 @@ try {
 			throw new Error('Persisted bytes changed after reopen.');
 		}
 
-		const urls = createBrowserBlobUrls(reopened);
-		const opened = await urls.open(id);
+		const sources = createBrowserBlobSources(reopened);
+		const opened = await sources.open(id);
 		if (opened.error) fail(opened.error);
 		if (
 			(await fetch(opened.data.url).then((response) => response.text())) !==
@@ -74,7 +74,7 @@ try {
 		) {
 			throw new Error('Object URL did not expose the stored bytes.');
 		}
-		opened.data.dispose();
+		opened.data[Symbol.dispose]();
 		let revoked = false;
 		try {
 			await fetch(opened.data.url);

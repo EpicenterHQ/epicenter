@@ -1,6 +1,5 @@
 <script lang="ts">
-	import type { BlobId } from '@epicenter/blobs';
-	import type { AudioBlobUrl } from '$lib/services/blobs/types';
+	import type { BlobId, BlobSource } from '@epicenter/blobs';
 	import { services } from '$lib/services';
 
 	let {
@@ -15,8 +14,10 @@
 		viewTransitionName?: string;
 	} = $props();
 
-	let handle = $state<AudioBlobUrl | null>(null);
+	let handle = $state<BlobSource | null>(null);
 
+	// The source outlives any lexical scope (`using` cannot span a component
+	// lifetime), so effect teardown owns the manual [Symbol.dispose]() call.
 	$effect(() => {
 		const requestedId = id;
 		if (!enabled) {
@@ -25,11 +26,11 @@
 		}
 
 		let cancelled = false;
-		let owned: AudioBlobUrl | null = null;
-		void services.blobUrls.open(requestedId).then(({ data }) => {
+		let owned: BlobSource | null = null;
+		void services.blobSources.open(requestedId).then(({ data }) => {
 			if (data === null) return;
 			if (cancelled) {
-				data.dispose();
+				data[Symbol.dispose]();
 				return;
 			}
 			owned = data;
@@ -38,7 +39,7 @@
 
 		return () => {
 			cancelled = true;
-			owned?.dispose();
+			owned?.[Symbol.dispose]();
 			if (handle === owned) handle = null;
 		};
 	});

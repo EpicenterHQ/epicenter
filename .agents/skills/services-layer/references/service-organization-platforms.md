@@ -46,7 +46,7 @@ export const TextServiceLive = {
 } satisfies TextService;
 ```
 
-Current service seams include analytics, blob-store, download, HTTP, recorder,
+Current service seams include analytics, blobs, download, HTTP, recorder,
 and text. Check `package.json#imports` rather than copying this list when adding
 or moving a service.
 
@@ -74,14 +74,20 @@ capabilities after their platform imports resolve:
 
 ```typescript
 import { AnalyticsServiceLive } from '#platform/analytics';
-import { AudioBlobStoreLive } from '#platform/blob-store';
+import {
+	BlobReplicaLive,
+	BlobsLive,
+	BlobSourcesLive,
+} from '#platform/blobs';
 import { DownloadServiceLive } from '#platform/download';
 import { TextServiceLive } from '#platform/text';
 
 export const services = {
 	analytics: AnalyticsServiceLive,
 	text: TextServiceLive,
-	blobs: { audio: AudioBlobStoreLive },
+	blobs: BlobsLive,
+	blobReplica: BlobReplicaLive,
+	blobSources: BlobSourcesLive,
 	download: DownloadServiceLive,
 	localShortcutManager: LocalShortcutManagerLive,
 	sound: PlaySoundServiceLive,

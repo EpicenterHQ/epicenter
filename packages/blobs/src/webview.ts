@@ -2,6 +2,7 @@
 
 import { Err, Ok, tryAsync } from 'wellcrafted/result';
 import type { BlobId } from './blob-id.js';
+import type { BlobSources } from './blob-source.js';
 import { BlobStoreError, type Blobs } from './blobs.js';
 
 /** The desktop host path shared by its server and WebView adapter. */
@@ -22,7 +23,7 @@ export function desktopBlobUrl(id: BlobId): string {
  * Relative URLs deliberately preserve the active loopback origin and its
  * HttpOnly session cookie.
  */
-export function createHttpBlobs({
+export function createWebviewBlobs({
 	fetch: fetcher = globalThis.fetch,
 }: {
 	fetch?: HttpFetch;
@@ -115,6 +116,27 @@ export function createHttpBlobs({
 				});
 			}
 			return Ok(undefined);
+		},
+	};
+}
+
+/**
+ * Create WebView playback sources over the desktop host's local-blob routes.
+ *
+ * `open` confirms the host has local bytes (`stat`), then hands out the
+ * stable relative loopback URL. Nothing is allocated per acquisition, so the
+ * disposer is deliberately a harmless no-op: the shared `BlobSources`
+ * contract promises release is always safe, not that every platform revokes
+ * something.
+ */
+export function createWebviewBlobSources(
+	blobs: Pick<Blobs, 'stat'>,
+): BlobSources {
+	return {
+		async open(id) {
+			const { error } = await blobs.stat(id);
+			if (error !== null) return Err(error);
+			return Ok({ url: desktopBlobUrl(id), [Symbol.dispose]() {} });
 		},
 	};
 }

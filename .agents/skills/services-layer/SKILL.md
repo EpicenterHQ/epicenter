@@ -102,7 +102,9 @@ when adding or moving a platform service.
 export const services = {
 	analytics: AnalyticsServiceLive,
 	text: TextServiceLive,
-	blobs: { audio: AudioBlobStoreLive },
+	blobs: BlobsLive,
+	blobReplica: BlobReplicaLive,
+	blobSources: BlobSourcesLive,
 	download: DownloadServiceLive,
 	localShortcutManager: LocalShortcutManagerLive,
 	sound: PlaySoundServiceLive,

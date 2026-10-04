@@ -14,7 +14,7 @@ import { expect, test } from 'bun:test';
 import { indexedDB } from 'fake-indexeddb';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { generateBlobId } from './blob-id.js';
-import { createBrowserBlobs, createBrowserBlobUrls } from './browser.js';
+import { createBrowserBlobSources, createBrowserBlobs } from './browser.js';
 
 let databaseSequence = 0;
 
@@ -166,50 +166,68 @@ test('IndexedDB failures return BlobStoreFailed with the original cause', async 
 	expect(error).toMatchObject({ name: 'BlobStoreFailed', id, cause });
 });
 
-test('browser URL acquisitions own independent idempotent disposal', async () => {
+test('browser source acquisitions own independent disposal that revokes exactly once', async () => {
 	const { blobs } = setup();
 	const id = generateBlobId();
 	expectOk(await blobs.put(id, new Blob(['play me'])));
 	const revoked: string[] = [];
 	let sequence = 0;
-	const urls = createBrowserBlobUrls(blobs, {
+	const sources = createBrowserBlobSources(blobs, {
 		createObjectUrl: () => `blob:test-${sequence++}`,
 		revokeObjectUrl: (url) => revoked.push(url),
 	});
 
-	const first = expectOk(await urls.open(id));
-	const second = expectOk(await urls.open(id));
+	const first = expectOk(await sources.open(id));
+	const second = expectOk(await sources.open(id));
 	expect(first.url).toBe('blob:test-0');
 	expect(second.url).toBe('blob:test-1');
 
-	first.dispose();
-	first.dispose();
-	second.dispose();
+	first[Symbol.dispose]();
+	first[Symbol.dispose]();
+	second[Symbol.dispose]();
 	expect(revoked).toEqual(['blob:test-0', 'blob:test-1']);
 });
 
-test('browser URL acquisition forwards missing local bytes', async () => {
+test('browser sources revoke at the end of a using scope', async () => {
 	const { blobs } = setup();
 	const id = generateBlobId();
-	const urls = createBrowserBlobUrls(blobs);
+	expectOk(await blobs.put(id, new Blob(['bounded'])));
+	const revoked: string[] = [];
+	const sources = createBrowserBlobSources(blobs, {
+		createObjectUrl: () => 'blob:test-scoped',
+		revokeObjectUrl: (url) => revoked.push(url),
+	});
 
-	const error = expectErr(await urls.open(id));
+	{
+		using source = expectOk(await sources.open(id));
+		expect(source.url).toBe('blob:test-scoped');
+		expect(revoked).toEqual([]);
+	}
+	expect(revoked).toEqual(['blob:test-scoped']);
+});
+
+test('browser source acquisition forwards missing local bytes', async () => {
+	const { blobs } = setup();
+	const id = generateBlobId();
+	const sources = createBrowserBlobSources(blobs);
+
+	const error = expectErr(await sources.open(id));
 	expect(error).toMatchObject({ name: 'BlobNotFound', id });
 });
 
-test('browser URL creation failures remain typed after storage succeeds', async () => {
+test('browser source creation failures remain typed after storage succeeds', async () => {
 	const { blobs } = setup();
 	const id = generateBlobId();
 	expectOk(await blobs.put(id, new Blob(['stored'])));
 	const cause = new Error('object URLs unavailable');
-	const urls = createBrowserBlobUrls(blobs, {
+	const sources = createBrowserBlobSources(blobs, {
 		createObjectUrl() {
 			throw cause;
 		},
 	});
 
-	const error = expectErr(await urls.open(id));
-	expect(error).toMatchObject({ name: 'BlobUrlFailed', id, cause });
+	const error = expectErr(await sources.open(id));
+	expect(error).toMatchObject({ name: 'BlobSourceFailed', id, cause });
 });
 
 test('blocked database opens reject and close a later connection', async () => {

@@ -1,5 +1,5 @@
 /**
- * HTTP Blob Adapter Tests
+ * WebView Blob Adapter Tests
  *
  * Verifies the WebView implementation of the portable local blob contract.
  * The adapter must keep requests relative to the active authenticated origin
@@ -10,12 +10,18 @@
  * - Requests preserve same-origin cookie authentication
  * - HTTP not-found and collision statuses become expected typed errors
  * - HEAD metadata is validated before entering the portable contract
+ * - Sources hand out the stable URL after a stat check, with a safe no-op
+ *   disposer
  */
 
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { generateBlobId } from './blob-id.js';
-import { createHttpBlobs, desktopBlobUrl } from './http.js';
+import {
+	createWebviewBlobSources,
+	createWebviewBlobs,
+	desktopBlobUrl,
+} from './webview.js';
 
 function setup(responses: Response[]) {
 	const requests: Request[] = [];
@@ -31,7 +37,11 @@ function setup(responses: Response[]) {
 		if (response === undefined) throw new Error('Unexpected HTTP request');
 		return response;
 	};
-	return { blobs: createHttpBlobs({ fetch: fetcher }), requestInits, requests };
+	return {
+		blobs: createWebviewBlobs({ fetch: fetcher }),
+		requestInits,
+		requests,
+	};
 }
 
 test('desktopBlobUrl constructs one relative opaque-id locator', () => {
@@ -107,4 +117,32 @@ test('delete is idempotent when the host accepts repeated requests', async () =>
 
 	expectOk(await blobs.delete(id));
 	expectOk(await blobs.delete(id));
+});
+
+test('webview sources stat local availability and return the stable URL', async () => {
+	const { blobs, requests } = setup([
+		new Response(null, {
+			headers: { 'content-length': '7', 'content-type': 'audio/wav' },
+		}),
+	]);
+	const sources = createWebviewBlobSources(blobs);
+	const id = generateBlobId();
+
+	const source = expectOk(await sources.open(id));
+	expect(source.url).toBe(desktopBlobUrl(id));
+	expect(requests[0]?.method).toBe('HEAD');
+
+	// The URL is stable, so disposal is a harmless idempotent no-op.
+	source[Symbol.dispose]();
+	source[Symbol.dispose]();
+	expect(source.url).toBe(desktopBlobUrl(id));
+});
+
+test('webview sources forward missing local bytes from the stat check', async () => {
+	const { blobs } = setup([new Response(null, { status: 404 })]);
+	const sources = createWebviewBlobSources(blobs);
+	const id = generateBlobId();
+
+	const error = expectErr(await sources.open(id));
+	expect(error).toMatchObject({ name: 'BlobNotFound', id });
 });

@@ -104,7 +104,8 @@ Rules:
 - Static key entries do not need `as const`; `defineKeys` preserves literal tuple types for them.
 - Key factories need `as const` when the literal positions matter, like `['audio', 'availability', id] as const`.
 - Disposable handles do not belong in TanStack Query. A mounted player owns one
-  `blobUrls.open` acquisition and disposes it before replacement or unmount.
+  `blobSources.open` acquisition and calls its `[Symbol.dispose]()` before
+  replacement or unmount.
 - Keep keys in the owning module. Only lift them into a standalone file when a separate layer genuinely must reference the same key without importing the owning adapter (for example, a web fallback that cannot pull in a Tauri-only module).
 - Keep adapter-specific errors local unless another module needs to name that exact error union.
 - Inline small single-use input objects. Name an input type only when it is reused, exported, large enough to obscure the function, or carries domain meaning. Put named input types immediately before the adapter namespace that uses them.
