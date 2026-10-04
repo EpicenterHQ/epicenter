@@ -1,0 +1,1695 @@
+{
+  "schemaVersion": 1,
+  "charter": "ADR-0177 COMPLETE wide-versus-split replica benchmark: Bun owner",
+  "commit": "068c178349d372decabbf991ec34e4f37fecc84b",
+  "startedAt": "2026-07-22T21:02:01.093Z",
+  "finishedAt": "2026-07-22T21:02:01.353Z",
+  "durationMs": 260,
+  "profile": {
+    "profile": "smoke",
+    "order": "wide-first",
+    "commit": "068c178349d372decabbf991ec34e4f37fecc84b",
+    "records": 5000,
+    "proxyBytes": 1048576,
+    "repetitions": 1,
+    "pointBatches": 4,
+    "traversals": 3,
+    "laneBatches": 2,
+    "sealBatches": 2,
+    "factPages": 2,
+    "docAppendBatches": 2,
+    "drainScans": 3,
+    "tombstonePages": 1,
+    "reopenSamples": 2,
+    "batchSize": 16,
+    "parkedIntents": 5
+  },
+  "proxy": {
+    "version": 1,
+    "encoding": "UTF-8 bytes of RFC 8785 canonical {address,payload}",
+    "records": 5000,
+    "targetBytes": 1048576,
+    "emptyProxyBytes": 678738,
+    "baseFillerBytes": 73,
+    "extraFillerRecords": 4838
+  },
+  "fixture": {
+    "documents": 250,
+    "documentsWithSecondUpdate": 25,
+    "activeDocumentInflight": 13,
+    "blobMemberships": 200,
+    "pendingIntents": 100,
+    "parkedIntents": 5,
+    "disclosures": [
+      "Confirmed rows use direct INSERT batches. The candidate-specific INSERT statement differs only by installed schema; the 5,000-row transaction loop and exact V1 proxy generator are structurally identical.",
+      "Blob membership uses direct candidate-specific INSERT/UPDATE statements in an identical index loop. Real blob capture requires the layout-independent file store.",
+      "Parked scalar intents use direct candidate-specific INSERT/UPDATE statements in an identical address loop because no store API creates an already parked lane."
+    ]
+  },
+  "measurement": {
+    "timing": "milliseconds; per-address for pointRead, laneWrite, and docAppend; per operation for all other metrics",
+    "statementCounts": "run() and all() calls observed at the production SqliteDatabase adapter, retained per raw timing sample",
+    "rowsCounterLimitation": "SQLite embedded APIs expose no rows-read/rows-written counters, unlike Durable Object SqlStorageCursor; statement counts and query plans are the measurable proxies."
+  },
+  "workloadDecisions": [
+    "Smoke uses one candidate repetition and reduced per-metric samples; full uses three repetitions and alternates the requested first candidate.",
+    "Lane writes alternate confirmed existing addresses and benchmark-only fresh addresses within every batch.",
+    "Fact-install pages alternate updates to confirmed fixture addresses and fresh addresses.",
+    "Tombstone pages walk eligible multiples of 100 from the end of the fixture, then restore a pending intent before timing so every target owns document, blob, and intent state.",
+    "Relation counts include every installed user table, including the shared meta relation, rather than omitting useful stronger evidence."
+  ],
+  "runtime": {
+    "bun": "1.3.1",
+    "sqlite": "3.51.0",
+    "platform": "darwin",
+    "release": "25.5.0",
+    "cpu": "Apple M4 Max",
+    "logicalCpus": 16
+  },
+  "sourceFile": "packages/data/src/__benchmarks__/replica-layout-complete.bench.ts",
+  "sourceSha256": "3b46f0616d4ad01f390ca22fdb05289ba65cb0eb3640e7aed6479ac42709cff9",
+  "installedSchemaEncoding": "JSON array of non-internal sqlite_schema tables and indexes ordered by type and name",
+  "installedSchemaSha256": {
+    "wide": "a2c4c29896f030597666e85871399b9c3b784509ae11bca54bdb22e9c0ad0d4f",
+    "split": "e375a0c5a8f9205c4f7a2e8f0acee44c032cb1148f9838b8c964e6539b996f87"
+  },
+  "runs": [
+    {
+      "candidate": "wide",
+      "repetition": 0,
+      "metrics": {
+        "pointRead": {
+          "timingMs": {
+            "raw": [
+              0.012445312500000583,
+              0.004723937499999664,
+              0.005643250000000322,
+              0.0041119375000011615
+            ],
+            "p50": 0.005643250000000322,
+            "p95": 0.012445312500000583,
+            "minimum": 0.0041119375000011615,
+            "maximum": 0.012445312500000583
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "p50": 0,
+              "p95": 0,
+              "minimum": 0,
+              "maximum": 0
+            },
+            "all": {
+              "raw": [
+                16,
+                16,
+                16,
+                16
+              ],
+              "p50": 16,
+              "p95": 16,
+              "minimum": 16,
+              "maximum": 16
+            }
+          }
+        },
+        "traversal": {
+          "timingMs": {
+            "raw": [
+              0.053124999999994316,
+              0.008832999999981439,
+              0.008457999999990307
+            ],
+            "p50": 0.008832999999981439,
+            "p95": 0.053124999999994316,
+            "minimum": 0.008457999999990307,
+            "maximum": 0.053124999999994316
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                0,
+                0,
+                0
+              ],
+              "p50": 0,
+              "p95": 0,
+              "minimum": 0,
+              "maximum": 0
+            },
+            "all": {
+              "raw": [
+                1,
+                1,
+                1
+              ],
+              "p50": 1,
+              "p95": 1,
+              "minimum": 1,
+              "maximum": 1
+            }
+          }
+        },
+        "traversalScalar": {
+          "timingMs": {
+            "raw": [
+              0.03804199999999014,
+              0.008749999999992042,
+              0.007082999999994399
+            ],
+            "p50": 0.008749999999992042,
+            "p95": 0.03804199999999014,
+            "minimum": 0.007082999999994399,
+            "maximum": 0.03804199999999014
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                0,
+                0,
+                0
+              ],
+              "p50": 0,
+              "p95": 0,
+              "minimum": 0,
+              "maximum": 0
+            },
+            "all": {
+              "raw": [
+                1,
+                1,
+                1
+              ],
+              "p50": 1,
+              "p95": 1,
+              "minimum": 1,
+              "maximum": 1
+            }
+          }
+        },
+        "laneWrite": {
+          "timingMs": {
+            "raw": [
+              0.13034374999999976,
+              0.06193231249999975
+            ],
+            "p50": 0.13034374999999976,
+            "p95": 0.13034374999999976,
+            "minimum": 0.06193231249999975,
+            "maximum": 0.13034374999999976
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                16,
+                16
+              ],
+              "p50": 16,
+              "p95": 16,
+              "minimum": 16,
+              "maximum": 16
+            },
+            "all": {
+              "raw": [
+                16,
+                16
+              ],
+              "p50": 16,
+              "p95": 16,
+              "minimum": 16,
+              "maximum": 16
+            }
+          }
+        },
+        "seal": {
+          "timingMs": {
+            "raw": [
+              3.5207090000000107,
+              2.7607920000000092
+            ],
+            "p50": 3.5207090000000107,
+            "p95": 3.5207090000000107,
+            "minimum": 2.7607920000000092,
+            "maximum": 3.5207090000000107
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                2,
+                2
+              ],
+              "p50": 2,
+              "p95": 2,
+              "minimum": 2,
+              "maximum": 2
+            },
+            "all": {
+              "raw": [
+                2,
+                2
+              ],
+              "p50": 2,
+              "p95": 2,
+              "minimum": 2,
+              "maximum": 2
+            }
+          }
+        },
+        "factInstall": {
+          "timingMs": {
+            "raw": [
+              2.365208999999993,
+              1.9520829999999876
+            ],
+            "p50": 2.365208999999993,
+            "p95": 2.365208999999993,
+            "minimum": 1.9520829999999876,
+            "maximum": 2.365208999999993
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                65,
+                65
+              ],
+              "p50": 65,
+              "p95": 65,
+              "minimum": 65,
+              "maximum": 65
+            },
+            "all": {
+              "raw": [
+                65,
+                65
+              ],
+              "p50": 65,
+              "p95": 65,
+              "minimum": 65,
+              "maximum": 65
+            }
+          }
+        },
+        "docAppend": {
+          "timingMs": {
+            "raw": [
+              0.09490368750000044,
+              0.07031768749999934
+            ],
+            "p50": 0.09490368750000044,
+            "p95": 0.09490368750000044,
+            "minimum": 0.07031768749999934,
+            "maximum": 0.09490368750000044
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                48,
+                48
+              ],
+              "p50": 48,
+              "p95": 48,
+              "minimum": 48,
+              "maximum": 48
+            },
+            "all": {
+              "raw": [
+                32,
+                32
+              ],
+              "p50": 32,
+              "p95": 32,
+              "minimum": 32,
+              "maximum": 32
+            }
+          }
+        },
+        "docDrainScan": {
+          "timingMs": {
+            "raw": [
+              0.9089999999999918,
+              0.7574579999999855,
+              0.7227499999999907
+            ],
+            "p50": 0.7574579999999855,
+            "p95": 0.9089999999999918,
+            "minimum": 0.7227499999999907,
+            "maximum": 0.9089999999999918
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                0,
+                0,
+                0
+              ],
+              "p50": 0,
+              "p95": 0,
+              "minimum": 0,
+              "maximum": 0
+            },
+            "all": {
+              "raw": [
+                1,
+                1,
+                1
+              ],
+              "p50": 1,
+              "p95": 1,
+              "minimum": 1,
+              "maximum": 1
+            }
+          }
+        },
+        "blobDrainScan": {
+          "timingMs": {
+            "raw": [
+              0.7231669999999895,
+              0.7016669999999863,
+              0.7078329999999937
+            ],
+            "p50": 0.7078329999999937,
+            "p95": 0.7231669999999895,
+            "minimum": 0.7016669999999863,
+            "maximum": 0.7231669999999895
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                0,
+                0,
+                0
+              ],
+              "p50": 0,
+              "p95": 0,
+              "minimum": 0,
+              "maximum": 0
+            },
+            "all": {
+              "raw": [
+                1,
+                1,
+                1
+              ],
+              "p50": 1,
+              "p95": 1,
+              "minimum": 1,
+              "maximum": 1
+            }
+          }
+        },
+        "tombstoneCleanup": {
+          "timingMs": {
+            "raw": [
+              0.7836250000000007
+            ],
+            "p50": 0.7836250000000007,
+            "p95": 0.7836250000000007,
+            "minimum": 0.7836250000000007,
+            "maximum": 0.7836250000000007
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                49
+              ],
+              "p50": 49,
+              "p95": 49,
+              "minimum": 49,
+              "maximum": 49
+            },
+            "all": {
+              "raw": [
+                17
+              ],
+              "p50": 17,
+              "p95": 17,
+              "minimum": 17,
+              "maximum": 17
+            }
+          }
+        },
+        "reopen": {
+          "timingMs": {
+            "raw": [
+              0.44804200000001515,
+              0.205916000000002
+            ],
+            "p50": 0.44804200000001515,
+            "p95": 0.44804200000001515,
+            "minimum": 0.205916000000002,
+            "maximum": 0.44804200000001515
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                0,
+                0
+              ],
+              "p50": 0,
+              "p95": 0,
+              "minimum": 0,
+              "maximum": 0
+            },
+            "all": {
+              "raw": [
+                3,
+                3
+              ],
+              "p50": 3,
+              "p95": 3,
+              "minimum": 3,
+              "maximum": 3
+            }
+          }
+        }
+      },
+      "storage": {
+        "pageSize": 4096,
+        "pageCount": 379,
+        "freelistCount": 0,
+        "liveBytes": 1552384,
+        "fileBytes": 1585152
+      },
+      "integrityCheck": "ok",
+      "relationCountsAfterReopen": {
+        "document_inflight": 9,
+        "meta": 1,
+        "record_documents": 283,
+        "records": 5208
+      },
+      "queryPlans": {
+        "pointRead": [
+          {
+            "sql": "SELECT * FROM records WHERE namespace = ? AND collection = ? AND record_key = ?",
+            "detail": [
+              "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+            ]
+          }
+        ],
+        "traversal": [
+          {
+            "sql": "SELECT record_key, confirmed_state, confirmed_payload, confirmed_sequence,\n\t\t\tsealed_op, sealed_args, pending_op, pending_args,\n\t\t\tparked_op, parked_args, parked_code, parked_measured, parked_limit,\n\t\t\tdoc_revision, doc_dirty, blob_sha256, blob_pending, blob_parked_code\n\t\tFROM records WHERE namespace = ? AND collection = ? ORDER BY record_key",
+            "detail": [
+              "SEARCH records USING INDEX records_address (namespace=? AND collection=?)"
+            ]
+          }
+        ],
+        "traversalScalar": [
+          {
+            "sql": "SELECT record_key, confirmed_state, confirmed_payload, confirmed_sequence,\n\t\t\tsealed_op, sealed_args, pending_op, pending_args,\n\t\t\tparked_op, parked_args, parked_code, parked_measured, parked_limit\n\t\tFROM records WHERE namespace = ? AND collection = ? ORDER BY record_key",
+            "detail": [
+              "SEARCH records USING INDEX records_address (namespace=? AND collection=?)"
+            ]
+          }
+        ],
+        "laneWrite": [
+          {
+            "sql": "SELECT * FROM records WHERE namespace = ? AND collection = ? AND record_key = ?",
+            "detail": [
+              "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "UPDATE records SET pending_op = ?, pending_args = ?\n\t\t\t\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?",
+            "detail": [
+              "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "INSERT INTO records (\n\t\t\t\t\t\tnamespace, collection, record_key, pending_op, pending_args\n\t\t\t\t\t) VALUES (?, ?, ?, ?, ?)",
+            "detail": []
+          }
+        ],
+        "seal": [
+          {
+            "sql": "SELECT * FROM meta WHERE singleton = 1",
+            "detail": [
+              "SEARCH meta USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          },
+          {
+            "sql": "SELECT * FROM records WHERE pending_op IS NOT NULL\n\t\t\t\tORDER BY namespace, collection, record_key LIMIT ?",
+            "detail": [
+              "SCAN records USING INDEX records_pending"
+            ]
+          },
+          {
+            "sql": "UPDATE records SET\n\t\t\t\t\tsealed_op = pending_op,\n\t\t\t\t\tsealed_args = pending_args,\n\t\t\t\t\tpending_op = NULL,\n\t\t\t\t\tpending_args = NULL\n\t\t\t\tWHERE record_id IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "detail": [
+              "SEARCH records USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          },
+          {
+            "sql": "UPDATE meta SET\n\t\t\t\t\tsealed_submission = next_submission,\n\t\t\t\t\tsealed_request = ?,\n\t\t\t\t\tsealed_request_hash = ?\n\t\t\t\tWHERE singleton = 1",
+            "detail": [
+              "SEARCH meta USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          }
+        ],
+        "factInstall": [
+          {
+            "sql": "SELECT * FROM meta WHERE singleton = 1",
+            "detail": [
+              "SEARCH meta USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          },
+          {
+            "sql": "SELECT * FROM records WHERE namespace = ? AND collection = ? AND record_key = ?",
+            "detail": [
+              "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "UPDATE records SET\n\t\t\tconfirmed_state = ?,\n\t\t\tconfirmed_payload = ?,\n\t\t\tconfirmed_sequence = ?\n\t\tWHERE namespace = ? AND collection = ? AND record_key = ?",
+            "detail": [
+              "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "INSERT INTO records (\n\t\t\t\tnamespace, collection, record_key,\n\t\t\t\tconfirmed_state, confirmed_payload, confirmed_sequence\n\t\t\t) VALUES (?, ?, ?, ?, ?, ?)",
+            "detail": []
+          },
+          {
+            "sql": "UPDATE meta SET authority_lifetime = ?,\n\t\t\t\t\terased_authority_lifetime = NULL, after_sequence = ?\n\t\t\t\tWHERE singleton = 1",
+            "detail": [
+              "SEARCH meta USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          }
+        ],
+        "docAppend": [
+          {
+            "sql": "SELECT record_id, confirmed_state, sealed_op, pending_op,\n\t\t\tdoc_revision, doc_dirty\n\t\tFROM records WHERE namespace = ? AND collection = ? AND record_key = ?",
+            "detail": [
+              "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "SELECT seq, kind, bytes FROM record_documents\n\t\tWHERE record_id = ? ORDER BY seq",
+            "detail": [
+              "SEARCH record_documents USING INDEX sqlite_autoindex_record_documents_1 (record_id=?)"
+            ]
+          },
+          {
+            "sql": "INSERT INTO record_documents (record_id, seq, kind, bytes)\n\t\t\t\t\t\tVALUES (?, ?, 'update', ?)",
+            "detail": []
+          },
+          {
+            "sql": "UPDATE records SET doc_revision = doc_revision + 1, doc_dirty = 1\n\t\t\t\t\t\tWHERE record_id = ?",
+            "detail": [
+              "SEARCH records USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          },
+          {
+            "sql": "DELETE FROM document_inflight\n\t\t\t\t\t\tWHERE record_id = ? AND parked_code IS NOT NULL",
+            "detail": [
+              "SEARCH document_inflight USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          }
+        ],
+        "docDrainScan": [
+          {
+            "sql": "SELECT namespace, collection, record_key, doc_revision\n\t\t\tFROM records WHERE doc_dirty = 1\n\t\t\tORDER BY namespace, collection, record_key",
+            "detail": [
+              "SCAN records USING INDEX records_address"
+            ]
+          }
+        ],
+        "blobDrainScan": [
+          {
+            "sql": "SELECT namespace, collection, record_key, blob_sha256\n\t\t\tFROM records WHERE blob_pending = 1\n\t\t\tORDER BY namespace, collection, record_key",
+            "detail": [
+              "SCAN records USING INDEX records_address"
+            ]
+          }
+        ],
+        "tombstoneCleanup": [
+          {
+            "sql": "SELECT * FROM meta WHERE singleton = 1",
+            "detail": [
+              "SEARCH meta USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          },
+          {
+            "sql": "SELECT * FROM records WHERE namespace = ? AND collection = ? AND record_key = ?",
+            "detail": [
+              "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "UPDATE records SET\n\t\t\t\tconfirmed_state = 'tombstone',\n\t\t\t\tconfirmed_payload = NULL,\n\t\t\t\tconfirmed_sequence = ?,\n\t\t\t\tpending_op = NULL,\n\t\t\t\tpending_args = NULL,\n\t\t\t\tparked_op = NULL,\n\t\t\t\tparked_args = NULL,\n\t\t\t\tparked_code = NULL,\n\t\t\t\tparked_measured = NULL,\n\t\t\t\tparked_limit = NULL,\n\t\t\t\tblob_sha256 = NULL,\n\t\t\t\tblob_pending = 0,\n\t\t\t\tblob_parked_code = NULL,\n\t\t\t\tdoc_revision = 0,\n\t\t\t\tdoc_dirty = 0\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?",
+            "detail": [
+              "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "DELETE FROM record_documents WHERE record_id =\n\t\t\t\t(SELECT record_id FROM records WHERE namespace = ? AND collection = ? AND record_key = ?)",
+            "detail": [
+              "SEARCH record_documents USING COVERING INDEX sqlite_autoindex_record_documents_1 (record_id=?)",
+              "SCALAR SUBQUERY 1",
+              "SEARCH records USING COVERING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "DELETE FROM document_inflight WHERE record_id =\n\t\t\t\t(SELECT record_id FROM records WHERE namespace = ? AND collection = ? AND record_key = ?)",
+            "detail": [
+              "SEARCH document_inflight USING INTEGER PRIMARY KEY (rowid=?)",
+              "SCALAR SUBQUERY 1",
+              "SEARCH records USING COVERING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "UPDATE meta SET authority_lifetime = ?,\n\t\t\t\t\terased_authority_lifetime = NULL, after_sequence = ?\n\t\t\t\tWHERE singleton = 1",
+            "detail": [
+              "SEARCH meta USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          }
+        ],
+        "reopen": [
+          {
+            "sql": "SELECT type, name FROM sqlite_schema\n\t\tWHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%'\n\t\tORDER BY type, name",
+            "detail": [
+              "SCAN sqlite_schema",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          {
+            "sql": "SELECT * FROM meta WHERE singleton = 1",
+            "detail": [
+              "SEARCH meta USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          },
+          {
+            "sql": "SELECT * FROM records WHERE namespace = ? AND collection = ? AND record_key = ?",
+            "detail": [
+              "SEARCH records USING INDEX records_address (namespace=? AND collection=? AND record_key=?)"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "candidate": "split",
+      "repetition": 0,
+      "metrics": {
+        "pointRead": {
+          "timingMs": {
+            "raw": [
+              0.017015625000002643,
+              0.01088018749999975,
+              0.012239624999999421,
+              0.011463500000001403
+            ],
+            "p50": 0.012239624999999421,
+            "p95": 0.017015625000002643,
+            "minimum": 0.01088018749999975,
+            "maximum": 0.017015625000002643
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "p50": 0,
+              "p95": 0,
+              "minimum": 0,
+              "maximum": 0
+            },
+            "all": {
+              "raw": [
+                16,
+                16,
+                16,
+                16
+              ],
+              "p50": 16,
+              "p95": 16,
+              "minimum": 16,
+              "maximum": 16
+            }
+          }
+        },
+        "traversal": {
+          "timingMs": {
+            "raw": [
+              0.12758300000001555,
+              0.01912499999997408,
+              0.018332999999984168
+            ],
+            "p50": 0.01912499999997408,
+            "p95": 0.12758300000001555,
+            "minimum": 0.018332999999984168,
+            "maximum": 0.12758300000001555
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                0,
+                0,
+                0
+              ],
+              "p50": 0,
+              "p95": 0,
+              "minimum": 0,
+              "maximum": 0
+            },
+            "all": {
+              "raw": [
+                1,
+                1,
+                1
+              ],
+              "p50": 1,
+              "p95": 1,
+              "minimum": 1,
+              "maximum": 1
+            }
+          }
+        },
+        "traversalScalar": {
+          "timingMs": {
+            "raw": [
+              0.05237499999998363,
+              0.013750000000015916,
+              0.014166999999986274
+            ],
+            "p50": 0.014166999999986274,
+            "p95": 0.05237499999998363,
+            "minimum": 0.013750000000015916,
+            "maximum": 0.05237499999998363
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                0,
+                0,
+                0
+              ],
+              "p50": 0,
+              "p95": 0,
+              "minimum": 0,
+              "maximum": 0
+            },
+            "all": {
+              "raw": [
+                1,
+                1,
+                1
+              ],
+              "p50": 1,
+              "p95": 1,
+              "minimum": 1,
+              "maximum": 1
+            }
+          }
+        },
+        "laneWrite": {
+          "timingMs": {
+            "raw": [
+              0.049442687500000915,
+              0.04805468749999875
+            ],
+            "p50": 0.049442687500000915,
+            "p95": 0.049442687500000915,
+            "minimum": 0.04805468749999875,
+            "maximum": 0.049442687500000915
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                16,
+                16
+              ],
+              "p50": 16,
+              "p95": 16,
+              "minimum": 16,
+              "maximum": 16
+            },
+            "all": {
+              "raw": [
+                16,
+                16
+              ],
+              "p50": 16,
+              "p95": 16,
+              "minimum": 16,
+              "maximum": 16
+            }
+          }
+        },
+        "seal": {
+          "timingMs": {
+            "raw": [
+              2.945083000000011,
+              2.7124170000000163
+            ],
+            "p50": 2.945083000000011,
+            "p95": 2.945083000000011,
+            "minimum": 2.7124170000000163,
+            "maximum": 2.945083000000011
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                2,
+                2
+              ],
+              "p50": 2,
+              "p95": 2,
+              "minimum": 2,
+              "maximum": 2
+            },
+            "all": {
+              "raw": [
+                2,
+                2
+              ],
+              "p50": 2,
+              "p95": 2,
+              "minimum": 2,
+              "maximum": 2
+            }
+          }
+        },
+        "factInstall": {
+          "timingMs": {
+            "raw": [
+              2.049709000000007,
+              2.8817090000000007
+            ],
+            "p50": 2.8817090000000007,
+            "p95": 2.8817090000000007,
+            "minimum": 2.049709000000007,
+            "maximum": 2.8817090000000007
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                65,
+                65
+              ],
+              "p50": 65,
+              "p95": 65,
+              "minimum": 65,
+              "maximum": 65
+            },
+            "all": {
+              "raw": [
+                65,
+                65
+              ],
+              "p50": 65,
+              "p95": 65,
+              "minimum": 65,
+              "maximum": 65
+            }
+          }
+        },
+        "docAppend": {
+          "timingMs": {
+            "raw": [
+              0.07947393750000131,
+              0.29305987500000086
+            ],
+            "p50": 0.29305987500000086,
+            "p95": 0.29305987500000086,
+            "minimum": 0.07947393750000131,
+            "maximum": 0.29305987500000086
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                48,
+                48
+              ],
+              "p50": 48,
+              "p95": 48,
+              "minimum": 48,
+              "maximum": 48
+            },
+            "all": {
+              "raw": [
+                32,
+                32
+              ],
+              "p50": 32,
+              "p95": 32,
+              "minimum": 32,
+              "maximum": 32
+            }
+          }
+        },
+        "docDrainScan": {
+          "timingMs": {
+            "raw": [
+              0.08833399999997482,
+              0.05212499999998954,
+              0.05941699999999628
+            ],
+            "p50": 0.05941699999999628,
+            "p95": 0.08833399999997482,
+            "minimum": 0.05212499999998954,
+            "maximum": 0.08833399999997482
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                0,
+                0,
+                0
+              ],
+              "p50": 0,
+              "p95": 0,
+              "minimum": 0,
+              "maximum": 0
+            },
+            "all": {
+              "raw": [
+                1,
+                1,
+                1
+              ],
+              "p50": 1,
+              "p95": 1,
+              "minimum": 1,
+              "maximum": 1
+            }
+          }
+        },
+        "blobDrainScan": {
+          "timingMs": {
+            "raw": [
+              0.026749999999992724,
+              0.026999999999986812,
+              0.01599999999996271
+            ],
+            "p50": 0.026749999999992724,
+            "p95": 0.026999999999986812,
+            "minimum": 0.01599999999996271,
+            "maximum": 0.026999999999986812
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                0,
+                0,
+                0
+              ],
+              "p50": 0,
+              "p95": 0,
+              "minimum": 0,
+              "maximum": 0
+            },
+            "all": {
+              "raw": [
+                1,
+                1,
+                1
+              ],
+              "p50": 1,
+              "p95": 1,
+              "minimum": 1,
+              "maximum": 1
+            }
+          }
+        },
+        "tombstoneCleanup": {
+          "timingMs": {
+            "raw": [
+              0.9624579999999696
+            ],
+            "p50": 0.9624579999999696,
+            "p95": 0.9624579999999696,
+            "minimum": 0.9624579999999696,
+            "maximum": 0.9624579999999696
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                113
+              ],
+              "p50": 113,
+              "p95": 113,
+              "minimum": 113,
+              "maximum": 113
+            },
+            "all": {
+              "raw": [
+                33
+              ],
+              "p50": 33,
+              "p95": 33,
+              "minimum": 33,
+              "maximum": 33
+            }
+          }
+        },
+        "reopen": {
+          "timingMs": {
+            "raw": [
+              0.39987500000000864,
+              0.222500000000025
+            ],
+            "p50": 0.39987500000000864,
+            "p95": 0.39987500000000864,
+            "minimum": 0.222500000000025,
+            "maximum": 0.39987500000000864
+          },
+          "statements": {
+            "run": {
+              "raw": [
+                0,
+                0
+              ],
+              "p50": 0,
+              "p95": 0,
+              "minimum": 0,
+              "maximum": 0
+            },
+            "all": {
+              "raw": [
+                3,
+                3
+              ],
+              "p50": 3,
+              "p95": 3,
+              "minimum": 3,
+              "maximum": 3
+            }
+          }
+        }
+      },
+      "storage": {
+        "pageSize": 4096,
+        "pageCount": 268,
+        "freelistCount": 1,
+        "liveBytes": 1093632,
+        "fileBytes": 1130496
+      },
+      "integrityCheck": "ok",
+      "relationCountsAfterReopen": {
+        "blob_state": 184,
+        "confirmed_records": 5192,
+        "document_chains": 283,
+        "document_inflight": 9,
+        "local_intents": 121,
+        "meta": 1,
+        "record_documents": 234
+      },
+      "queryPlans": {
+        "pointRead": [
+          {
+            "sql": "WITH address AS (\n\t\t\tSELECT namespace, collection, record_key FROM confirmed_records\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM local_intents\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM record_documents\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM blob_state\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t)\n\t\tSELECT c.state AS confirmed_state, c.payload AS confirmed_payload,\n\t\t\tc.sequence AS confirmed_sequence,\n\t\t\ti.sealed_op, i.sealed_args, i.pending_op, i.pending_args,\n\t\t\ti.parked_op, i.parked_args, i.parked_code,\n\t\t\ti.parked_measured, i.parked_limit\n\t\tFROM address a\n\t\tLEFT JOIN confirmed_records c USING (namespace, collection, record_key)\n\t\tLEFT JOIN local_intents i USING (namespace, collection, record_key)",
+            "detail": [
+              "CO-ROUTINE address",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "SEARCH confirmed_records USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH local_intents USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH record_documents USING COVERING INDEX record_documents_address (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH blob_state USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "SCAN a",
+              "SEARCH c USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN",
+              "SEARCH i USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN"
+            ]
+          }
+        ],
+        "traversal": [
+          {
+            "sql": "WITH address AS (\n\t\t\tSELECT namespace, collection, record_key FROM confirmed_records\n\t\t\tWHERE namespace = ? AND collection = ?\n\t\t\tUNION SELECT namespace, collection, record_key FROM local_intents\n\t\t\tWHERE namespace = ? AND collection = ?\n\t\t\tUNION SELECT namespace, collection, record_key FROM record_documents\n\t\t\tWHERE namespace = ? AND collection = ?\n\t\t\tUNION SELECT namespace, collection, record_key FROM blob_state\n\t\t\tWHERE namespace = ? AND collection = ?\n\t\t)\n\t\tSELECT a.record_key, c.state, c.payload, c.sequence,\n\t\t\ti.sealed_op, i.sealed_args, i.pending_op, i.pending_args,\n\t\t\ti.parked_op, i.parked_args, i.parked_code,\n\t\t\ti.parked_measured, i.parked_limit,\n\t\t\td.revision, d.dirty, b.sha256, b.pending, b.parked_code AS blob_parked_code\n\t\tFROM address a\n\t\tLEFT JOIN confirmed_records c USING (namespace, collection, record_key)\n\t\tLEFT JOIN local_intents i USING (namespace, collection, record_key)\n\t\tLEFT JOIN record_documents d USING (namespace, collection, record_key)\n\t\tLEFT JOIN blob_state b USING (namespace, collection, record_key)\n\t\tORDER BY a.record_key",
+            "detail": [
+              "CO-ROUTINE address",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "SEARCH confirmed_records USING PRIMARY KEY (namespace=? AND collection=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH local_intents USING PRIMARY KEY (namespace=? AND collection=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH record_documents USING COVERING INDEX record_documents_address (namespace=? AND collection=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH blob_state USING PRIMARY KEY (namespace=? AND collection=?)",
+              "SCAN a",
+              "SEARCH c USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN",
+              "SEARCH i USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN",
+              "SEARCH d USING INDEX record_documents_address (namespace=? AND collection=? AND record_key=?) LEFT-JOIN",
+              "SEARCH b USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          }
+        ],
+        "traversalScalar": [
+          {
+            "sql": "WITH address AS (\n\t\t\tSELECT namespace, collection, record_key FROM confirmed_records\n\t\t\tWHERE namespace = ? AND collection = ?\n\t\t\tUNION SELECT namespace, collection, record_key FROM local_intents\n\t\t\tWHERE namespace = ? AND collection = ?\n\t\t)\n\t\tSELECT a.record_key, c.state, c.payload, c.sequence,\n\t\t\ti.sealed_op, i.sealed_args, i.pending_op, i.pending_args,\n\t\t\ti.parked_op, i.parked_args, i.parked_code,\n\t\t\ti.parked_measured, i.parked_limit\n\t\tFROM address a\n\t\tLEFT JOIN confirmed_records c USING (namespace, collection, record_key)\n\t\tLEFT JOIN local_intents i USING (namespace, collection, record_key)\n\t\tORDER BY a.record_key",
+            "detail": [
+              "CO-ROUTINE address",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "SEARCH confirmed_records USING PRIMARY KEY (namespace=? AND collection=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH local_intents USING PRIMARY KEY (namespace=? AND collection=?)",
+              "SCAN a",
+              "SEARCH c USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN",
+              "SEARCH i USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          }
+        ],
+        "laneWrite": [
+          {
+            "sql": "WITH address AS (\n\t\t\tSELECT namespace, collection, record_key FROM confirmed_records\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM local_intents\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM record_documents\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM blob_state\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t)\n\t\tSELECT c.state AS confirmed_state, c.payload AS confirmed_payload,\n\t\t\tc.sequence AS confirmed_sequence,\n\t\t\ti.sealed_op, i.sealed_args, i.pending_op, i.pending_args,\n\t\t\ti.parked_op, i.parked_args, i.parked_code,\n\t\t\ti.parked_measured, i.parked_limit\n\t\tFROM address a\n\t\tLEFT JOIN confirmed_records c USING (namespace, collection, record_key)\n\t\tLEFT JOIN local_intents i USING (namespace, collection, record_key)",
+            "detail": [
+              "CO-ROUTINE address",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "SEARCH confirmed_records USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH local_intents USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH record_documents USING COVERING INDEX record_documents_address (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH blob_state USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "SCAN a",
+              "SEARCH c USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN",
+              "SEARCH i USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN"
+            ]
+          },
+          {
+            "sql": "INSERT INTO local_intents (\n\t\t\t\t\tnamespace, collection, record_key, pending_op, pending_args\n\t\t\t\t) VALUES (?, ?, ?, ?, ?)\n\t\t\t\tON CONFLICT (namespace, collection, record_key) DO UPDATE SET\n\t\t\t\t\tpending_op = excluded.pending_op,\n\t\t\t\t\tpending_args = excluded.pending_args,\n\t\t\t\t\tparked_op = NULL,\n\t\t\t\t\tparked_args = NULL,\n\t\t\t\t\tparked_code = NULL,\n\t\t\t\t\tparked_measured = NULL,\n\t\t\t\t\tparked_limit = NULL",
+            "detail": []
+          },
+          {
+            "sql": "INSERT INTO local_intents (\n\t\t\t\t\t\tnamespace, collection, record_key, pending_op, pending_args\n\t\t\t\t\t) VALUES (?, ?, ?, ?, ?)",
+            "detail": []
+          }
+        ],
+        "seal": [
+          {
+            "sql": "SELECT * FROM meta WHERE singleton = 1",
+            "detail": [
+              "SEARCH meta USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          },
+          {
+            "sql": "SELECT * FROM local_intents WHERE pending_op IS NOT NULL\n\t\t\t\tORDER BY namespace, collection, record_key LIMIT ?",
+            "detail": [
+              "SCAN local_intents"
+            ]
+          },
+          {
+            "sql": "UPDATE local_intents SET\n\t\t\t\t\tsealed_op = pending_op,\n\t\t\t\t\tsealed_args = pending_args,\n\t\t\t\t\tpending_op = NULL,\n\t\t\t\t\tpending_args = NULL\n\t\t\t\tWHERE (namespace, collection, record_key) IN (VALUES (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?), (?, ?, ?))",
+            "detail": [
+              "SEARCH local_intents USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "LIST SUBQUERY 3",
+              "SCAN 64-ROW VALUES CLAUSE",
+              "CREATE BLOOM FILTER"
+            ]
+          },
+          {
+            "sql": "UPDATE meta SET\n\t\t\t\t\tsealed_submission = next_submission,\n\t\t\t\t\tsealed_request = ?,\n\t\t\t\t\tsealed_request_hash = ?\n\t\t\t\tWHERE singleton = 1",
+            "detail": [
+              "SEARCH meta USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          }
+        ],
+        "factInstall": [
+          {
+            "sql": "SELECT * FROM meta WHERE singleton = 1",
+            "detail": [
+              "SEARCH meta USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          },
+          {
+            "sql": "WITH address AS (\n\t\t\tSELECT namespace, collection, record_key FROM confirmed_records\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM local_intents\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM record_documents\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM blob_state\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t)\n\t\tSELECT c.state AS confirmed_state, c.payload AS confirmed_payload,\n\t\t\tc.sequence AS confirmed_sequence,\n\t\t\ti.sealed_op, i.sealed_args, i.pending_op, i.pending_args,\n\t\t\ti.parked_op, i.parked_args, i.parked_code,\n\t\t\ti.parked_measured, i.parked_limit\n\t\tFROM address a\n\t\tLEFT JOIN confirmed_records c USING (namespace, collection, record_key)\n\t\tLEFT JOIN local_intents i USING (namespace, collection, record_key)",
+            "detail": [
+              "CO-ROUTINE address",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "SEARCH confirmed_records USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH local_intents USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH record_documents USING COVERING INDEX record_documents_address (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH blob_state USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "SCAN a",
+              "SEARCH c USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN",
+              "SEARCH i USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN"
+            ]
+          },
+          {
+            "sql": "UPDATE confirmed_records SET state = ?, payload = ?, sequence = ?\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?",
+            "detail": [
+              "SEARCH confirmed_records USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "INSERT INTO confirmed_records (\n\t\t\t\tnamespace, collection, record_key, state, payload, sequence\n\t\t\t) VALUES (?, ?, ?, ?, ?, ?)",
+            "detail": []
+          },
+          {
+            "sql": "UPDATE meta SET authority_lifetime = ?,\n\t\t\t\t\terased_authority_lifetime = NULL, after_sequence = ?\n\t\t\t\tWHERE singleton = 1",
+            "detail": [
+              "SEARCH meta USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          }
+        ],
+        "docAppend": [
+          {
+            "sql": "WITH address AS (\n\t\t\tSELECT namespace, collection, record_key FROM confirmed_records\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM local_intents\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM record_documents\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t)\n\t\tSELECT d.doc_id, c.state AS confirmed_state,\n\t\t\ti.sealed_op, i.pending_op, d.revision, d.dirty\n\t\tFROM address a\n\t\tLEFT JOIN confirmed_records c USING (namespace, collection, record_key)\n\t\tLEFT JOIN local_intents i USING (namespace, collection, record_key)\n\t\tLEFT JOIN record_documents d USING (namespace, collection, record_key)",
+            "detail": [
+              "CO-ROUTINE address",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "SEARCH confirmed_records USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH local_intents USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH record_documents USING COVERING INDEX record_documents_address (namespace=? AND collection=? AND record_key=?)",
+              "SCAN a",
+              "SEARCH c USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN",
+              "SEARCH i USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN",
+              "SEARCH d USING INDEX record_documents_address (namespace=? AND collection=? AND record_key=?) LEFT-JOIN"
+            ]
+          },
+          {
+            "sql": "SELECT seq, kind, bytes FROM document_chains\n\t\tWHERE doc_id = ? ORDER BY seq",
+            "detail": [
+              "SEARCH document_chains USING INDEX sqlite_autoindex_document_chains_1 (doc_id=?)"
+            ]
+          },
+          {
+            "sql": "INSERT INTO document_chains (doc_id, seq, kind, bytes)\n\t\t\t\t\t\tVALUES (?, ?, 'update', ?)",
+            "detail": []
+          },
+          {
+            "sql": "UPDATE record_documents SET revision = revision + 1, dirty = 1\n\t\t\t\t\t\tWHERE doc_id = ?",
+            "detail": [
+              "SEARCH record_documents USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          },
+          {
+            "sql": "DELETE FROM document_inflight\n\t\t\t\t\t\tWHERE doc_id = ? AND parked_code IS NOT NULL",
+            "detail": [
+              "SEARCH document_inflight USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          }
+        ],
+        "docDrainScan": [
+          {
+            "sql": "SELECT namespace, collection, record_key, revision\n\t\t\tFROM record_documents WHERE dirty = 1\n\t\t\tORDER BY namespace, collection, record_key",
+            "detail": [
+              "SCAN record_documents USING INDEX record_documents_address"
+            ]
+          }
+        ],
+        "blobDrainScan": [
+          {
+            "sql": "SELECT namespace, collection, record_key, sha256\n\t\t\tFROM blob_state WHERE pending = 1\n\t\t\tORDER BY namespace, collection, record_key",
+            "detail": [
+              "SCAN blob_state"
+            ]
+          }
+        ],
+        "tombstoneCleanup": [
+          {
+            "sql": "SELECT * FROM meta WHERE singleton = 1",
+            "detail": [
+              "SEARCH meta USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          },
+          {
+            "sql": "WITH address AS (\n\t\t\tSELECT namespace, collection, record_key FROM confirmed_records\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM local_intents\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM record_documents\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM blob_state\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t)\n\t\tSELECT c.state AS confirmed_state, c.payload AS confirmed_payload,\n\t\t\tc.sequence AS confirmed_sequence,\n\t\t\ti.sealed_op, i.sealed_args, i.pending_op, i.pending_args,\n\t\t\ti.parked_op, i.parked_args, i.parked_code,\n\t\t\ti.parked_measured, i.parked_limit\n\t\tFROM address a\n\t\tLEFT JOIN confirmed_records c USING (namespace, collection, record_key)\n\t\tLEFT JOIN local_intents i USING (namespace, collection, record_key)",
+            "detail": [
+              "CO-ROUTINE address",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "SEARCH confirmed_records USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH local_intents USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH record_documents USING COVERING INDEX record_documents_address (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH blob_state USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "SCAN a",
+              "SEARCH c USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN",
+              "SEARCH i USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN"
+            ]
+          },
+          {
+            "sql": "UPDATE confirmed_records SET state = ?, payload = ?, sequence = ?\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?",
+            "detail": [
+              "SEARCH confirmed_records USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "DELETE FROM local_intents WHERE namespace = ? AND collection = ? AND record_key = ? AND sealed_op IS NULL",
+            "detail": [
+              "SEARCH local_intents USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "UPDATE local_intents SET\n\t\t\tpending_op = NULL, pending_args = NULL,\n\t\t\tparked_op = NULL, parked_args = NULL, parked_code = NULL,\n\t\t\tparked_measured = NULL, parked_limit = NULL\n\t\tWHERE namespace = ? AND collection = ? AND record_key = ? AND sealed_op IS NOT NULL",
+            "detail": [
+              "SEARCH local_intents USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "SELECT doc_id FROM record_documents WHERE namespace = ? AND collection = ? AND record_key = ?",
+            "detail": [
+              "SEARCH record_documents USING COVERING INDEX record_documents_address (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "DELETE FROM document_chains WHERE doc_id = ?",
+            "detail": [
+              "SEARCH document_chains USING INDEX sqlite_autoindex_document_chains_1 (doc_id=?)"
+            ]
+          },
+          {
+            "sql": "DELETE FROM document_inflight WHERE doc_id = ?",
+            "detail": [
+              "SEARCH document_inflight USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          },
+          {
+            "sql": "DELETE FROM record_documents WHERE doc_id = ?",
+            "detail": [
+              "SEARCH record_documents USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          },
+          {
+            "sql": "DELETE FROM blob_state WHERE namespace = ? AND collection = ? AND record_key = ?",
+            "detail": [
+              "SEARCH blob_state USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)"
+            ]
+          },
+          {
+            "sql": "UPDATE meta SET authority_lifetime = ?,\n\t\t\t\t\terased_authority_lifetime = NULL, after_sequence = ?\n\t\t\t\tWHERE singleton = 1",
+            "detail": [
+              "SEARCH meta USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          }
+        ],
+        "reopen": [
+          {
+            "sql": "SELECT type, name FROM sqlite_schema\n\t\tWHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%'\n\t\tORDER BY type, name",
+            "detail": [
+              "SCAN sqlite_schema",
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          },
+          {
+            "sql": "SELECT * FROM meta WHERE singleton = 1",
+            "detail": [
+              "SEARCH meta USING INTEGER PRIMARY KEY (rowid=?)"
+            ]
+          },
+          {
+            "sql": "WITH address AS (\n\t\t\tSELECT namespace, collection, record_key FROM confirmed_records\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM local_intents\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM record_documents\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t\tUNION\n\t\t\tSELECT namespace, collection, record_key FROM blob_state\n\t\t\tWHERE namespace = ? AND collection = ? AND record_key = ?\n\t\t)\n\t\tSELECT c.state AS confirmed_state, c.payload AS confirmed_payload,\n\t\t\tc.sequence AS confirmed_sequence,\n\t\t\ti.sealed_op, i.sealed_args, i.pending_op, i.pending_args,\n\t\t\ti.parked_op, i.parked_args, i.parked_code,\n\t\t\ti.parked_measured, i.parked_limit\n\t\tFROM address a\n\t\tLEFT JOIN confirmed_records c USING (namespace, collection, record_key)\n\t\tLEFT JOIN local_intents i USING (namespace, collection, record_key)",
+            "detail": [
+              "CO-ROUTINE address",
+              "COMPOUND QUERY",
+              "LEFT-MOST SUBQUERY",
+              "SEARCH confirmed_records USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH local_intents USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH record_documents USING COVERING INDEX record_documents_address (namespace=? AND collection=? AND record_key=?)",
+              "UNION USING TEMP B-TREE",
+              "SEARCH blob_state USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?)",
+              "SCAN a",
+              "SEARCH c USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN",
+              "SEARCH i USING PRIMARY KEY (namespace=? AND collection=? AND record_key=?) LEFT-JOIN"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "aggregate": {
+    "metrics": {
+      "pointRead": {
+        "wide": {
+          "raw": [
+            0.012445312500000583,
+            0.004723937499999664,
+            0.005643250000000322,
+            0.0041119375000011615
+          ],
+          "p50": 0.005643250000000322,
+          "p95": 0.012445312500000583,
+          "minimum": 0.0041119375000011615,
+          "maximum": 0.012445312500000583
+        },
+        "split": {
+          "raw": [
+            0.017015625000002643,
+            0.01088018749999975,
+            0.012239624999999421,
+            0.011463500000001403
+          ],
+          "p50": 0.012239624999999421,
+          "p95": 0.017015625000002643,
+          "minimum": 0.01088018749999975,
+          "maximum": 0.017015625000002643
+        }
+      },
+      "traversal": {
+        "wide": {
+          "raw": [
+            0.053124999999994316,
+            0.008832999999981439,
+            0.008457999999990307
+          ],
+          "p50": 0.008832999999981439,
+          "p95": 0.053124999999994316,
+          "minimum": 0.008457999999990307,
+          "maximum": 0.053124999999994316
+        },
+        "split": {
+          "raw": [
+            0.12758300000001555,
+            0.01912499999997408,
+            0.018332999999984168
+          ],
+          "p50": 0.01912499999997408,
+          "p95": 0.12758300000001555,
+          "minimum": 0.018332999999984168,
+          "maximum": 0.12758300000001555
+        }
+      },
+      "traversalScalar": {
+        "wide": {
+          "raw": [
+            0.03804199999999014,
+            0.008749999999992042,
+            0.007082999999994399
+          ],
+          "p50": 0.008749999999992042,
+          "p95": 0.03804199999999014,
+          "minimum": 0.007082999999994399,
+          "maximum": 0.03804199999999014
+        },
+        "split": {
+          "raw": [
+            0.05237499999998363,
+            0.013750000000015916,
+            0.014166999999986274
+          ],
+          "p50": 0.014166999999986274,
+          "p95": 0.05237499999998363,
+          "minimum": 0.013750000000015916,
+          "maximum": 0.05237499999998363
+        }
+      },
+      "laneWrite": {
+        "wide": {
+          "raw": [
+            0.13034374999999976,
+            0.06193231249999975
+          ],
+          "p50": 0.13034374999999976,
+          "p95": 0.13034374999999976,
+          "minimum": 0.06193231249999975,
+          "maximum": 0.13034374999999976
+        },
+        "split": {
+          "raw": [
+            0.049442687500000915,
+            0.04805468749999875
+          ],
+          "p50": 0.049442687500000915,
+          "p95": 0.049442687500000915,
+          "minimum": 0.04805468749999875,
+          "maximum": 0.049442687500000915
+        }
+      },
+      "seal": {
+        "wide": {
+          "raw": [
+            3.5207090000000107,
+            2.7607920000000092
+          ],
+          "p50": 3.5207090000000107,
+          "p95": 3.5207090000000107,
+          "minimum": 2.7607920000000092,
+          "maximum": 3.5207090000000107
+        },
+        "split": {
+          "raw": [
+            2.945083000000011,
+            2.7124170000000163
+          ],
+          "p50": 2.945083000000011,
+          "p95": 2.945083000000011,
+          "minimum": 2.7124170000000163,
+          "maximum": 2.945083000000011
+        }
+      },
+      "factInstall": {
+        "wide": {
+          "raw": [
+            2.365208999999993,
+            1.9520829999999876
+          ],
+          "p50": 2.365208999999993,
+          "p95": 2.365208999999993,
+          "minimum": 1.9520829999999876,
+          "maximum": 2.365208999999993
+        },
+        "split": {
+          "raw": [
+            2.049709000000007,
+            2.8817090000000007
+          ],
+          "p50": 2.8817090000000007,
+          "p95": 2.8817090000000007,
+          "minimum": 2.049709000000007,
+          "maximum": 2.8817090000000007
+        }
+      },
+      "docAppend": {
+        "wide": {
+          "raw": [
+            0.09490368750000044,
+            0.07031768749999934
+          ],
+          "p50": 0.09490368750000044,
+          "p95": 0.09490368750000044,
+          "minimum": 0.07031768749999934,
+          "maximum": 0.09490368750000044
+        },
+        "split": {
+          "raw": [
+            0.07947393750000131,
+            0.29305987500000086
+          ],
+          "p50": 0.29305987500000086,
+          "p95": 0.29305987500000086,
+          "minimum": 0.07947393750000131,
+          "maximum": 0.29305987500000086
+        }
+      },
+      "docDrainScan": {
+        "wide": {
+          "raw": [
+            0.9089999999999918,
+            0.7574579999999855,
+            0.7227499999999907
+          ],
+          "p50": 0.7574579999999855,
+          "p95": 0.9089999999999918,
+          "minimum": 0.7227499999999907,
+          "maximum": 0.9089999999999918
+        },
+        "split": {
+          "raw": [
+            0.08833399999997482,
+            0.05212499999998954,
+            0.05941699999999628
+          ],
+          "p50": 0.05941699999999628,
+          "p95": 0.08833399999997482,
+          "minimum": 0.05212499999998954,
+          "maximum": 0.08833399999997482
+        }
+      },
+      "blobDrainScan": {
+        "wide": {
+          "raw": [
+            0.7231669999999895,
+            0.7016669999999863,
+            0.7078329999999937
+          ],
+          "p50": 0.7078329999999937,
+          "p95": 0.7231669999999895,
+          "minimum": 0.7016669999999863,
+          "maximum": 0.7231669999999895
+        },
+        "split": {
+          "raw": [
+            0.026749999999992724,
+            0.026999999999986812,
+            0.01599999999996271
+          ],
+          "p50": 0.026749999999992724,
+          "p95": 0.026999999999986812,
+          "minimum": 0.01599999999996271,
+          "maximum": 0.026999999999986812
+        }
+      },
+      "tombstoneCleanup": {
+        "wide": {
+          "raw": [
+            0.7836250000000007
+          ],
+          "p50": 0.7836250000000007,
+          "p95": 0.7836250000000007,
+          "minimum": 0.7836250000000007,
+          "maximum": 0.7836250000000007
+        },
+        "split": {
+          "raw": [
+            0.9624579999999696
+          ],
+          "p50": 0.9624579999999696,
+          "p95": 0.9624579999999696,
+          "minimum": 0.9624579999999696,
+          "maximum": 0.9624579999999696
+        }
+      },
+      "reopen": {
+        "wide": {
+          "raw": [
+            0.44804200000001515,
+            0.205916000000002
+          ],
+          "p50": 0.44804200000001515,
+          "p95": 0.44804200000001515,
+          "minimum": 0.205916000000002,
+          "maximum": 0.44804200000001515
+        },
+        "split": {
+          "raw": [
+            0.39987500000000864,
+            0.222500000000025
+          ],
+          "p50": 0.39987500000000864,
+          "p95": 0.39987500000000864,
+          "minimum": 0.222500000000025,
+          "maximum": 0.39987500000000864
+        }
+      }
+    }
+  }
+}
