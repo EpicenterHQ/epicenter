@@ -51,6 +51,8 @@ remains.
 Before or while drafting, identify:
 
 - the strongest claim or emotional turn;
+- the originating human posture that made the thought worth expressing,
+  including wonder, irritation, affection, surprise, humor, or uncertainty;
 - the writer's characteristic nouns, verbs, humor, and unusual phrasing;
 - where the writer is certain, tentative, delighted, frustrated, or unresolved;
 - how much attention the source gives its center, context, caveats, and asides.
@@ -58,6 +60,12 @@ Before or while drafting, identify:
 Preserve those proportions. Do not spend more words on caveats, context, or
 counterarguments than the writer did. Do not smooth away the detail or
 roughness that makes the prose recognizable.
+
+Do not replace a lived observation or reaction with a cleaner conceptual
+summary merely because the summary is more pithy. A title, thesis, editorial
+diagnosis, and first body sentence perform different jobs. Let the destination
+skill assign those jobs, then preserve the human expression appropriate to
+each surface.
 
 ## Write As The Clearest Version Of The Writer
 

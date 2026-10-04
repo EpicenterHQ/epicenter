@@ -1,7 +1,8 @@
 # 0147. Cross-plane transfer and recovery use logical coordination, not atomic snapshots
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-07-17
+- **Superseded by:** [ADR-0161](0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0167](0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0170](0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), and [ADR-0171](0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md)
 - **Amends:** [ADR-0122](0122-logical-records-are-portable-sqlite-files-and-views-are-runtime-state.md), [ADR-0142](0142-bootstrap-history-gaps-and-lineage-mismatches-have-distinct-recovery.md), [ADR-0143](0143-account-open-never-consumes-device-data.md)
 
 ## Context

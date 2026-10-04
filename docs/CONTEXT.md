@@ -59,12 +59,14 @@ shapes, see `docs/adr/`.
   enumerated in a capability file, and it is not a sandbox.
 - **Account authority**: the one server replica for everything an authenticated
   principal stores. Its address derives from the principal alone. It orders
-  whole-Epicenter scalar synchronization and hosts separate lazy row-document
-  connections.
-- **Row-document connection**: one authenticated Yjs 14 WebSocket for one
-  currently open `(namespace key, table key, row ID)`. Its structured route address
-  is lifecycle identity, not a secret; it is separate from the whole-Epicenter
-  scalar facts and submissions protocol.
+  whole-Epicenter scalar synchronization and accepts separate row-document HTTP
+  publication and pull operations.
+- **Row-document synchronization**: automatic HTTP publication of locally
+  durable Yjs 14 state plus explicit HTTP pulls from open handles at one
+  `(namespace key, table key, row ID)` address. The structured route address is
+  lifecycle identity, not a secret. Document synchronization is separate from
+  the whole-Epicenter scalar facts and submissions protocol and has no
+  WebSocket, awareness, or presence plane.
 - **Row liveness**: the owner-local fact that a row address is currently
   live. Deletion replaces scalar state with a permanent compact tombstone and
   removes document and blob state, so an offline replica cannot recreate that
@@ -114,10 +116,10 @@ shapes, see `docs/adr/`.
   chat brain) streams tokens from an OpenAI-compatible endpoint (ADR-0050),
   over the inference seam. _Scalar sync_ carries rows and values through the
   Epicenter authority. _Document sync_ publishes durable Yjs updates
-  automatically and uses row-document connections only for lazy acquisition and
-  low-latency edits; it carries no awareness or presence. _Invoke_ (the agent's
-  hands) is local to the host that owns the tool process, unless a future product
-  re-earns a direct URL-addressed box surface.
+  automatically over HTTP and lets open handles pull accepted remote state
+  explicitly; it carries no WebSocket, awareness, or presence. _Invoke_ (the
+  agent's hands) is local to the host that owns the tool process, unless a future
+  product re-earns a direct URL-addressed box surface.
 - **Infisical project**: the owner and access-control boundary. Each secret-using
   runnable surface owns its own `.infisical.json`: `apps/api` and `ops` point
   at Epicenter's hosted/operator project, and personal local apps use ignored
@@ -205,12 +207,15 @@ shapes, see `docs/adr/`.
   from nonconforming diagnostics. Applications receive no public pages,
   cursors, filters, ordering options, or SQL.
 - **Row document handle**: the revocable handle returned by a lazy row document
-  open. It exposes application roots, local provider durability, and document
-  connection status. Releasing the final handle may unload live Yjs state but
-  never deletes persisted or synchronized content.
-- **Document publication receipt**: post-commit authority proof for one exact
-  frozen document update, bound to its authority lifetime, row address, protocol
-  version, and payload digest. State vectors are transfer hints, never receipts.
+  open. It exposes application roots, local provider durability, explicit
+  remote pull, and any durable synchronization issue. Releasing the final
+  handle may unload live Yjs state but never deletes persisted or synchronized
+  content.
+- **Document publication acknowledgement**: post-commit authority proof that
+  advances `accepted_revision` through one captured local publication revision
+  and no further. A lost acknowledgement leaves the row dirty; retry
+  reconstructs and resubmits current Yjs state. There is no frozen payload or
+  digest receipt.
 - **Proposed scalar V1 vocabulary**: the fact, intent, facts-feed, and numbered
   submission terms below describe the destination selected by Proposed
   ADR-0163. They are not the current production protocol. The transitional

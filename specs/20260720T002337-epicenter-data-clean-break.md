@@ -3,7 +3,7 @@
 - **Status:** In Progress
 - **Date:** 2026-07-20
 - **Program:** greenfield breaking replacement
-- **Decision owners:** [ADR-0160](../docs/adr/0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0161](../docs/adr/0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](../docs/adr/0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](../docs/adr/0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0164](../docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0165](../docs/adr/0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0166](../docs/adr/0166-data-document-sync-and-agent-replace-workspace.md), [ADR-0167](../docs/adr/0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0168](../docs/adr/0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0169](../docs/adr/0169-row-references-are-non-enforcing-table-interpretations.md), [ADR-0170](../docs/adr/0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](../docs/adr/0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](../docs/adr/0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md), [ADR-0173](../docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md), [ADR-0174](../docs/adr/0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md), [ADR-0175](../docs/adr/0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md), and [ADR-0176](../docs/adr/0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md)
+- **Decision owners:** [ADR-0146](../docs/adr/0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md), [ADR-0160](../docs/adr/0160-lenses-interpret-durable-namespaces-without-creating-lifecycle-scopes.md), [ADR-0161](../docs/adr/0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md), [ADR-0162](../docs/adr/0162-epicenter-home-owns-relational-inspection-applications-receive-no-sql.md), [ADR-0163](../docs/adr/0163-scalar-sync-separates-fact-reads-from-numbered-intent-submissions.md), [ADR-0164](../docs/adr/0164-scalar-facts-converge-independently-epicenter-refuses-distributed-transactions.md), [ADR-0165](../docs/adr/0165-browser-origins-contain-independent-epicenter-replicas.md), [ADR-0166](../docs/adr/0166-data-document-sync-and-agent-replace-workspace.md), [ADR-0167](../docs/adr/0167-a-portable-epicenter-is-an-identity-free-export-of-one-authority-cut.md), [ADR-0168](../docs/adr/0168-lenses-are-complete-pure-json-interpretations.md), [ADR-0169](../docs/adr/0169-row-references-are-non-enforcing-table-interpretations.md), [ADR-0170](../docs/adr/0170-one-live-epicenter-has-sealed-backups-and-restore-creates-a-fresh-authority-lifetime.md), [ADR-0171](../docs/adr/0171-every-durable-local-write-leaves-an-automatic-authority-obligation.md), [ADR-0172](../docs/adr/0172-sqlite-stores-convergent-facts-and-documents-raw-files-store-blob-bytes.md), [ADR-0173](../docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md), [ADR-0174](../docs/adr/0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md), [ADR-0175](../docs/adr/0175-table-traversal-is-complete-and-classified-with-paging-kept-private.md), and [ADR-0176](../docs/adr/0176-lenses-declare-no-query-capabilities-indexed-reads-require-separate-owners.md)
 
 ## Product sentence
 
@@ -11,6 +11,36 @@ Epicenter persists and synchronizes one person's values and row aggregates.
 Every row owns scalar fields, zero or one persisted collaborative document, and
 zero or one write-once immutable blob; applications bind pure JSON Lenses over
 durable namespaces in that shared data.
+
+## Current execution state (2026-07-30)
+
+The replacement is well underway, but the clean break is not complete.
+
+Already landed:
+
+- `@epicenter/data` owns the retained application-facing Lens, table, value,
+  row-document, and replica surfaces.
+- SQLite uses structured replica relations for confirmed scalar facts, scalar
+  outbox state, bounded document chains, and document publication revisions.
+- Local Yjs 14 document updates remain durable after handles close. One
+  runtime-owned drain publishes reconstructed current state through HTTP and
+  settles only the captured revision.
+- Open document handles hydrate local state immediately and expose explicit
+  HTTP pull for remote state. There is no document WebSocket.
+- Maintained applications have begun moving to the replacement Data surface.
+
+Still transitional:
+
+- The production scalar route still uses the accepted ADR-0141 combined
+  exchange. The private facts/submissions kernel exists, but production
+  composition has not completed the ADR-0163 cutover.
+- `@epicenter/workspace`, the legacy room protocol and routes, Yjs 13 storage,
+  `y-indexeddb`, and `@epicenter/sync` document machinery still have callers.
+- Backup, Restore, blob publication, full application migration, and final
+  legacy-owner deletion still require their verification gates.
+
+This spec therefore remains In Progress. Proposed ADRs become Accepted only
+after their production paths and required proof matrices land.
 
 ## Accepted premises
 
@@ -51,8 +81,9 @@ durable namespaces in that shared data.
 - Every locally durable scalar, document, or blob write leaves durable evidence
   of what the authority is owed. One Epicenter runtime owner drains those
   obligations automatically and applications expose no sync or publish action.
-- SQLite stores scalar state, bounded Yjs baseline-plus-tail chains, and exact
-  publication retry evidence. Raw files store row-owned immutable blob bytes.
+- SQLite stores scalar state, bounded Yjs baseline-plus-tail chains, and
+  revision-based document publication state. Raw files store row-owned
+  immutable blob bytes.
   Browser SQLite itself lives in OPFS.
 - Every row has one universal undeclared zero-or-one blob slot. The row address
   is its sole identity; SHA-256 is integrity and idempotency evidence. The slot
@@ -312,18 +343,18 @@ an arbitrary key-value collection.
 
 Row-owned Yjs documents are universal: every live row latently owns exactly
 one document at the row's own address, and every table lens exposes
-`openDocument(rowId)`, which checks liveness, returns a revocable handle, and
-lazily attaches the realtime collaboration overlay when synchronization is
-attached. Durable outbound publication does not depend on that handle or
-connection remaining open. Row deletion,
-through any lens or through synchronization, revokes open handles and removes
-document bytes in the same transaction. The document is schema-free Yjs
-infrastructure with no document IDs and no layout or touch policy. There is no
-per-definition `document` declaration: definitions are borrowed release-local
-lenses, and both storage authorities already enforce the document lifecycle
-purely by row address and liveness, so a definition flag could only gate
-client-side API visibility while letting independently authored definitions
-sharing one structured row address disagree about a capability neither owns. Opening a
+`openDocument(rowId)`, which checks liveness, hydrates locally durable state,
+and returns a revocable handle. The handle may
+explicitly pull newer authority state, but durable outbound publication does
+not depend on the handle remaining open. Row deletion, through any lens or
+through synchronization, revokes open handles and removes document bytes in
+the same transaction. The document is schema-free Yjs infrastructure with no
+document IDs and no layout or touch policy. There is no per-definition
+`document` declaration: definitions are borrowed release-local lenses, and
+both storage authorities already enforce the document lifecycle purely by row
+address and liveness, so a definition flag could only gate client-side API
+visibility while letting independently authored definitions sharing one
+structured row address disagree about a capability neither owns. Opening a
 document on a table that never uses one is inert: no bytes exist until the
 first update is persisted, and the row tombstone deletes whatever exists.
 
@@ -423,9 +454,7 @@ document state
   row address, zero-or-one compact gc:true baseline, bounded ordered V2 tail
 
 document publication
-  row address, revision and dirty state,
-  optional frozen inflight update, digest, and captured revision,
-  optional parked reason
+  row address, monotonic revision, accepted revision, optional terminal issue
 
 blob publication
   row address and SHA-256 for the one immutable byte stream awaiting authority acceptance
@@ -727,10 +756,10 @@ The current 64-fact page cap is transitional and must not become wire
 semantics. Browser, Bun, and Cloudflare scale tests choose the inclusive V1
 constants before ADR-0163 becomes Accepted.
 
-Both endpoint routes carry scalar protocol version `v1`. Document publication
-and any row-document realtime connection negotiate their own versions.
-Physical SQLite format versions remain adapter-local. Do not persist a
-cross-product of protocol floors.
+Both scalar endpoint routes carry scalar protocol version `v1`. Document
+publication and pull use their own HTTP protocol version. Physical SQLite
+format versions remain adapter-local. Do not persist a cross-product of
+protocol floors.
 
 ## Row-document synchronization
 
@@ -739,17 +768,22 @@ local Yjs update appends its V2 bytes and advances a lightweight dirty revision
 in one SQLite transaction. It does not duplicate each offline edit into a
 continually merged pending BLOB. A runtime-owned background drain enumerates
 dirty addresses without requiring an application handle, reads the document
-chain and revision in one snapshot, hydrates the current document, and uses the
-authority state vector only as a transfer hint. It freezes the resulting exact
-V2 payload, digest, and captured revision only if the revision still matches,
-then retries those immutable bytes until it receives a post-commit receipt bound
-to the active authority lifetime, row address, document protocol version, and
-payload digest. The owner marks the row clean only if its revision still equals
-the captured revision; a racing edit remains dirty for the next attempt. State
-vectors never prove durability because delete-only updates need not advance
-their struct clocks, but the frozen V2 payload still carries the delete set.
-Closing a document destroys its live `Y.Doc` and any realtime connection but
-never deletes the publication obligation.
+chain and revision in one SQLite snapshot, hydrates the current document,
+encodes one complete V2 update, and submits it with the captured revision
+through an ordinary HTTP request. Nothing is frozen and no payload digest is
+stored. A racing edit advances the revision beyond the captured value.
+
+After the authority checks row liveness, joins and validates the candidate,
+enforces the document bounds, commits the bounded representation, and
+acknowledges acceptance, the owner advances `accepted_revision` through the
+captured revision and no further. A newer local revision remains dirty. A lost
+acknowledgement also leaves the row dirty; a later attempt reconstructs and
+resubmits current state. Yjs application is commutative and idempotent, so
+retry safety is semantic rather than exact-byte replay. A terminal
+`too-large` issue remains visible at the row address and stops publication for
+that lineage. A terminal row tombstone removes the document and its
+publication state. Closing a document destroys its live `Y.Doc` but never
+deletes the publication obligation.
 
 First-attachment `Bring local data` preserves the exact local Yjs V2 state and
 its causal struct identities. The normal background drain submits it to the
@@ -762,24 +796,25 @@ an external import policy, flattens documents to visible content, inventories
 collisions, or offers keep/replace/merge choices.
 
 Inbound document state stays lazy. An unopened document is not eagerly
-hydrated merely because another device changed it. Opening the document
-performs state-vector exchange and may attach a realtime collaboration overlay
-for low-latency peer edits. That overlay carries no awareness or presence and
-cannot be the only authority-publication path. Connection or initial-sync
-status cannot stand in for a durable authority acknowledgement.
+hydrated merely because another device changed it. Opening hydrates local state
+only and never waits for the network. An open handle explicitly calls
+`document.pull()` to request newer authority-accepted state over HTTP. The
+authority may use an ETag or state vector to avoid sending an unchanged body.
+Repeated and overlapping pulls are safe, a late result cannot mutate a
+disposed handle, and an accepted pull never creates a local publication
+obligation. Applications choose their pull cadence; the first expected shape
+is an immediate pull followed by a small view-owned polling helper.
 
-The exact realtime topology remains open for the live-collaboration dialectic.
-One fixed-address socket per open row is the leading candidate; multiplexing
-must replace it rather than coexist if measured browser socket limits earn the
-extra subscription machinery. The authority stores no permanently live
-`Y.Doc`. It is the trusted Yjs joiner, validator, and compactor, but never an
-editing peer. Every live owner privately stores zero-or-one compact `gc: true`
-baseline plus a tail bounded by both entry count and total encoded bytes.
-Crossing either threshold atomically compacts the covered chain. A wire-valid
-update too large for one physical tail row is applied directly into a new
-compact baseline when the resulting canonical document remains within product
-bounds. Derived live-document caches are adapter tuning. Compaction preserves
-convergence but shares no scalar cursor or transport-batch semantics.
+There is no document WebSocket, awareness, presence, or live collaboration
+overlay. The authority stores no permanently live `Y.Doc`. It is the trusted
+Yjs joiner, validator, and compactor, but never an editing peer. Every live
+owner privately stores zero-or-one compact `gc: true` baseline plus a tail
+bounded by both entry count and total encoded bytes. Crossing either threshold
+atomically compacts the covered chain. A wire-valid update too large for one
+physical tail row is applied directly into a new compact baseline when the
+resulting canonical document remains within product bounds. Derived
+live-document caches are adapter tuning. Compaction preserves convergence but
+shares no scalar cursor or transport-batch semantics.
 
 ## Blob synchronization
 
@@ -831,8 +866,8 @@ _epicenter_values(namespace_key, value_key, value_json)
 `document_update_v2` is one self-contained compact V2 update for the complete
 Yjs document, never a state vector or copied live log. The two nullable columns
 are platform-owned row structure outside Lens fields. This logical projection
-does not replace the private live bounded chain or exact publication retry
-evidence.
+does not replace the private live bounded chain or revision-based publication
+state.
 
 The session has zero or one selected Lens interpretation. This bounds one
 unqualified SQL namespace to one coherent interpretation; it is a semantic
@@ -947,13 +982,15 @@ separate protocols.
 ## Target package graph
 
 ```txt
-field -----> data <----- document-sync -----> sync
+field -----> data <----- document-sync
                 \
                  +-----> sqlite
 
 agent -----> small data interface
 
-portable scalar/document protocols -----> server -----> api, self-host
+data scalar protocol --------\
+                              +-----> server -----> api, self-host
+document-sync HTTP protocol -/
 ```
 
 Candidate packages:
@@ -963,7 +1000,7 @@ Candidate packages:
   defineLens, parseLens, defineTable, defineValue, bind, local replica, sync attachment
 
 @epicenter/document-sync
-  row-document protocol, persistence, connection
+  row-document HTTP protocol and transports
 
 @epicenter/agent
   agent loop over an explicit table/value capability
@@ -1147,22 +1184,23 @@ Rollback point: the old path still exists and no caller imports the new core.
   model, then persist the bounded chain in each SQLite adapter.
 - Implement atomic count-and-byte compaction and the direct-to-baseline path for
   transient updates too large for one physical tail row.
-- Add the local dirty revision and immutable in-flight publication image. Prove
-  its crash and racing-edit transitions against a fake authority before adding
-  networking.
+- Add local `revision`, `accepted_revision`, and terminal issue state. Prove
+  crash, lost-acknowledgement, and racing-edit transitions against a fake
+  authority before adding networking.
 - Implement one authority document-acceptance transaction: check row liveness,
   apply the candidate, enforce post-candidate bounds, compact when required,
-  commit, and return the exact payload receipt.
+  commit, and acknowledge the captured revision.
 - Attach the runtime-owned background drain to that operation without depending
-  on open handles. Then route the realtime overlay through the same operation;
-  it earns no second acknowledgement or persistence path.
+  on open handles. Publish reconstructed current state through one HTTP
+  carrier, and prove overlapping retries converge without frozen payloads.
 - Preserve structured parked refusal details and expose them through Data and
   Epicenter Home. This presentation may follow the core protocol, but no
   intermediate implementation may report refused work as synchronized.
 - Replace browser IndexedDB blobs with one write-once OPFS file per owning row,
   nullable SHA-256 state, and durable automatic publication records.
-- Bind open row documents through the separately owned realtime collaboration
-  overlay.
+- Add explicit HTTP pull to open row-document handles. Prove unchanged,
+  overlapping, failed, and disposal-racing pulls without creating outbound
+  publication work.
 - Implement the one-time whole-replica first-attachment gate. `Bring` must
   retain and drain existing plane-specific obligations without an import path.
   `Discard` must commit the logical clear and attachment together before
@@ -1214,22 +1252,23 @@ Workspace remains on disk but unreachable.
   injection for transaction boundaries, and pairwise adapter coverage around
   these end-to-end stories.
 
-  | Narrative              | Required proof                                                                            |
-  | ---------------------- | ----------------------------------------------------------------------------------------- |
-  | Ordinary edit          | Local commit survives closure; authority commit precedes receipt and fanout               |
-  | Delete-only edit       | Exact receipt proves the submitted delete set even when the state vector does not advance |
-  | Racing local edit      | Receipt clears only its captured revision; later work remains dirty                       |
-  | Lost acknowledgement   | Exact bytes retry idempotently without permanent request history                          |
-  | Concurrent clients     | Reordered valid updates converge through the authority join                               |
-  | Compaction failure     | Reopen sees the old chain or new baseline, never a partial state                          |
-  | Oversized tail entry   | Valid bounded state stores directly as a compact baseline                                 |
-  | Product-bound refusal  | Below, at, and above byte and struct limits are deterministic and visibly parked          |
-  | Row deletion race      | Neither publication nor fanout resurrects the document                                    |
-  | Hibernation and reopen | SQLite alone reconstructs state and outstanding publication work                          |
-  | Restore race           | Work commits before activation or receives lifetime mismatch; it never crosses lifetimes  |
-  | Backup cut             | The nullable compact cell decodes to exactly the accepted authority document              |
-  | First-attach Bring     | Exact local V2 state joins through ordinary acceptance; stale history cannot roll back     |
-  | First-attach Discard   | Logical clear and attachment commit together before hydration; file debris stays inert     |
+  | Narrative              | Required proof                                                                           |
+  | ---------------------- | ---------------------------------------------------------------------------------------- |
+  | Ordinary edit          | Local commit survives handle closure; authority acknowledgement follows authority commit |
+  | Delete-only edit       | Reconstructed complete state preserves the delete set                                    |
+  | Racing local edit      | Acceptance advances only through its captured revision; later work remains dirty         |
+  | Lost acknowledgement   | Reconstructed current state resubmits idempotently without permanent request history     |
+  | Explicit pull          | Unchanged, overlapping, failed, and disposal-racing pulls preserve local usability       |
+  | Concurrent clients     | Reordered valid updates converge through the authority join                              |
+  | Compaction failure     | Reopen sees the old chain or new baseline, never a partial state                         |
+  | Oversized tail entry   | Valid bounded state stores directly as a compact baseline                                |
+  | Product-bound refusal  | Below, at, and above byte and struct limits are deterministic and visibly parked         |
+  | Row deletion race      | Neither publication nor a late pull resurrects the document                             |
+  | Hibernation and reopen | SQLite alone reconstructs state and outstanding publication work                         |
+  | Restore race           | Work commits before activation or receives lifetime mismatch; it never crosses lifetimes |
+  | Backup cut             | The nullable compact cell decodes to exactly the accepted authority document             |
+  | First-attach Bring     | Exact local V2 state joins through ordinary acceptance; stale history cannot roll back    |
+  | First-attach Discard   | Logical clear and attachment commit together before hydration; file debris stays inert    |
 
 - Prove representative present-state stress at 1,000,000 final-present scalar
   addresses and 512 MiB of the versioned scalar-fields-and-values benchmark
@@ -1252,14 +1291,17 @@ Workspace remains on disk but unreachable.
   racing pre-clear blob cleanup. Also cover sign-out/reopen, same-principal
   sign-in, wrong-principal refusal, two-device convergence, offline deletion,
   and browser multi-tab writes.
-- After the realtime topology dialectic freezes, verify its chosen shape on
-  iPhone Safari and an installed PWA at realistic simultaneous document counts.
 
 Rollback point: restore imports to the old on-disk path if proof fails.
 
 ### Wave 6: delete the old graph
 
 - Delete `packages/workspace` and its compatibility exports.
+- Delete the legacy `/api/rooms` route and room backends, Yjs 13 and
+  `y-indexeddb` storage, and old document-binding families after every retained
+  caller uses Data. Move any still-earned bearer or attach-relay subprotocol
+  out of `@epicenter/sync`, then delete its obsolete document protocol and the
+  package if no owner remains.
 - Delete provisional database packages, inventory, control, migration,
   scheduler, floors, aliases, rekeying, capture, SQL projection, and per-database
   lifecycle code.
@@ -1285,6 +1327,10 @@ application SQL escape hatches, private-schema dependencies, projection DTOs
 flat qualified data keys, redundant table/value/field key properties
 generic authority scheduler
 workspace compatibility barrel
+legacy room routes and backends
+Yjs 13 and y-indexeddb persistence
+old document-binding families
+obsolete @epicenter/sync document protocol
 ```
 
 ## Recognition criteria
@@ -1314,12 +1360,13 @@ without learning historical vocabulary:
 - How does scalar sync work? The runtime reads current authority facts after one
   sequence and submits one replica's numbered desired-state intents. Current
   facts are both learned state and submission settlement proof.
-- How do documents sync? Local updates publish automatically after handles
-  close; remote state hydrates lazily when a document opens.
+- How do documents sync? Local updates publish automatically over HTTP, even
+  after handles close; open handles pull remote state explicitly.
 - How are documents represented portably? As one nullable self-contained Yjs
   V2 update on the logical row, never the private live update log.
-- What are document WebSockets for? Optional low-latency collaboration, never
-  awareness, presence, or the sole durability path.
+- Do documents use WebSockets? No. Automatic publication and explicit pull use
+  HTTP. A future low-latency transport must earn a new decision and cannot
+  become the durability path.
 - How do blobs sync? Each row's zero-or-one write-once immutable byte stream
   publishes automatically and downloads on demand.
 - What identifies a blob? Its owning row address. SHA-256 proves the accepted
@@ -1350,9 +1397,3 @@ weaken the ADR destination above:
    vocabulary. Decide the exact pure JSON table metadata shape, typed
    reference-navigation ergonomics, and Matter replacement before deleting the
    current shared `field.reference()` implementation.
-3. **Realtime row-document topology.** Decide whether the live overlay uses
-   one fixed-address WebSocket per open row, one multiplexed connection, or no
-   dedicated overlay until a concrete collaborative surface ships. Preserve
-   automatic background publication, lazy inbound hydration, post-commit
-   authority proof, and the refusal of awareness and presence under every
-   option.

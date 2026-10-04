@@ -1,7 +1,8 @@
 # 0145. One account authority owns every workspace and one socket per open row document
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-07-18
+- **Superseded by:** [ADR-0161](0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md) for the ownership model and [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) for document synchronization and persistence
 - **Amended by:** [ADR-0161](0161-each-person-has-one-epicenter-replicated-on-each-adapter-boundary.md) (workspaces leave the principal authority), [ADR-0174](0174-row-documents-project-as-nullable-compact-cells-and-persist-as-bounded-live-chains.md) (supersedes this ADR's document-plane exact-byte retention, no-cache, compaction, and presence mechanics; the authority is instead the trusted Yjs joiner and compactor over a bounded live chain)
 - **Amends:** server document ownership from
   [ADR-0133](0133-row-authority-stores-documents-as-sequence-addressed-update-logs.md);

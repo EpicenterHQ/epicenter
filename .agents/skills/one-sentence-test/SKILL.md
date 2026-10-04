@@ -155,5 +155,8 @@ After the move, you can state in one concrete sentence what the subject *is* (co
 ## What This Skill Is Not
 
 - Not a naming exercise. The sentence is an analysis tool; the codename stays whatever it was.
+- Not an authorship shortcut. A diagnostic sentence that reveals a document's
+  boundary is not automatically its title, subtitle, thesis, or opening.
+  Return those surfaces to the destination writing skill.
 - Not a marketing tagline. Taglines abstract; this sentence must be concrete.
 - Not a complete spec. It's a coherence gate before specs get written, or a sniff test before an abstraction lands.
