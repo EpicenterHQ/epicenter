@@ -68,6 +68,7 @@ containing the evidence; supply the brief directly on stdin:
 
 ```bash
 bun .agents/skills/consult-claude/scripts/consult-claude.ts \
+  --account personal --account-email claude@example.com \
   --model claude-opus-5-5 --effort high <<'BRIEF'
 [Concrete question, code blocks, source paths, diagram, reasoning, uncertainties.]
 BRIEF
@@ -96,7 +97,9 @@ of a successful consultation. Preserve the session ID for follow-ups.
 For an architecture-review follow-up, repeat high effort:
 
 ```bash
-bun .agents/skills/consult-claude/scripts/consult-claude.ts --effort high --resume <session_id> <<'EVIDENCE'
+bun .agents/skills/consult-claude/scripts/consult-claude.ts \
+  --account personal --account-email claude@example.com \
+  --effort high --resume <session_id> <<'EVIDENCE'
 [Requested evidence, commands and relevant raw output, changed source, next question.]
 EVIDENCE
 ```
@@ -124,6 +127,48 @@ each follow-up; otherwise native settings or defaults decide it. Explicit
 `--dry-run` previews launch arguments without invoking Claude. Consult the native
 result or transcript before attributing findings to a model: access restrictions
 and fallback can change the model used.
+
+### Choose a subscription account
+
+Every launch, including resumes, requires `--account personal|work` and
+`--account-email <verified Claude email>`.
+`personal` uses the existing native default login; `work` uses `~/.claude-work`.
+The email assertion blocks a profile signed into the wrong identity. Codex carries
+the verified email and original account into follow-ups; no alias registry is
+stored. Do not infer a Claude login from a ChatGPT billing email. For example:
+
+```bash
+bun .agents/skills/consult-claude/scripts/consult-claude.ts \
+  --account personal --account-email claude@example.com \
+  --model claude-opus-5-5 --effort high <<'BRIEF'
+[Bounded consultation.]
+BRIEF
+```
+
+The launcher clears inherited Anthropic credentials, endpoints, provider flags,
+and secure-storage overrides in the child environment. Native `auth status`
+must identify the expected paid claude.ai account and configuration directory
+before the brief is sent. Restricted settings apply to both preflight and prompt;
+managed policy still applies. Claude resolves `--resume` in the selected profile
+and fails if it cannot find the session. The launcher does not inspect transcript
+files. Dry-run previews the selection without checking login and prints removed
+variable names, never credential values.
+
+Claude owns login, Keychain storage, refresh, and history. For a new work login,
+remove conflicting authentication overrides and run the native login with the
+user's work email:
+
+```bash
+CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude auth login --claudeai --email "work@example.com"
+```
+
+The user completes the browser login and verifies its Claude email. Keep profile
+login changes out of active launches: preflight does not lock the login while
+Claude runs. Do not copy credentials between profiles or log out of the default
+account. Explicitly setting `CLAUDE_CONFIG_DIR` to
+`~/.claude` selects a different Keychain entry from leaving it unset, so preserve
+the unset default for personal. This follows the official
+[multiple-account guidance](https://code.claude.com/docs/en/authentication#log-in-with-multiple-accounts).
 
 ## Adjudicate and continue
 

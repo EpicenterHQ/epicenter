@@ -9,14 +9,21 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const launcher = join(import.meta.dir, 'consult-claude.ts');
+const personalAccount = [
+	'--account',
+	'personal',
+	'--account-email',
+	'expected@example.com',
+];
 const sessionId = '12345678-1234-1234-1234-123456789abc';
 
 function setup() {
@@ -31,25 +38,41 @@ function setup() {
 	writeFileSync(
 		join(bin, 'claude'),
 		`#!${process.execPath}
+const args = process.argv.slice(2);
+const selectedEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(ANTHROPIC_|CLAUDE_CONFIG_DIR|CLAUDE_SECURESTORAGE_CONFIG_DIR|CLAUDE_CODE_USE_|CLAUDE_CODE_OAUTH_|CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR|CLAUDE_CODE_SIMPLE|AWS_BEARER_TOKEN_BEDROCK)/.test(key)));
+if (process.env.CONSULT_TEST_TRACE) {
+  const {appendFileSync} = await import('node:fs');
+  appendFileSync(process.env.CONSULT_TEST_TRACE, JSON.stringify({args, env:selectedEnv})+'\\n');
+}
+if (args.includes('auth')) {
+  console.log(process.env.CONSULT_TEST_STATUS || JSON.stringify({loggedIn:true, authMethod:'claude.ai', apiProvider:'firstParty', subscriptionType:'max', email:'expected@example.com', configDirectory:process.env.CLAUDE_CONFIG_DIR || '${join(homedir(), '.claude')}'}));
+  process.exit(process.env.CONSULT_TEST_STATUS_EXIT ? 1 : 0);
+}
 const input = await Bun.stdin.text();
 if (process.env.CONSULT_TEST_FAIL) {
   console.error('native failure');
   process.exit(7);
 }
-console.log(JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), input, session_id: '${sessionId}' }));
+console.log(JSON.stringify({ cwd: process.cwd(), args, env:selectedEnv, input, session_id: '${sessionId}' }));
 `,
 		{ mode: 0o755 },
 	);
 	return {
 		source,
 		root,
-		launch(args: string[] = [], input = 'Review this.', fail = false) {
+		launch(
+			args: string[] = [],
+			input = 'Review this.',
+			fail = false,
+			env: Record<string, string | undefined> = {},
+		) {
 			return spawnSync(process.execPath, [launcher, ...args], {
 				cwd: source,
 				env: {
 					...process.env,
 					PATH: `${bin}:${process.env.PATH}`,
 					CONSULT_TEST_FAIL: fail ? '1' : '',
+					...env,
 				},
 				input,
 				encoding: 'utf8',
@@ -70,7 +93,7 @@ test('new and resumed turns preserve the brief and enforce the same access bound
 		['--model', 'claude-opus-5-5'],
 		['--resume', sessionId],
 	]) {
-		const result = fixture.launch(options, brief);
+		const result = fixture.launch([...personalAccount, ...options], brief);
 		expect(result.status).toBe(0);
 		const call = JSON.parse(result.stdout);
 		expect(call.cwd).toBe(fixture.source);
@@ -98,10 +121,176 @@ test('new and resumed turns preserve the brief and enforce the same access bound
 	expect(readdirSync(fixture.source)).toEqual(['.git']);
 });
 
+test('both accounts share a sanitized environment across new and resumed consultation and delegation', () => {
+	using fixture = setup();
+	const workspace = join(fixture.root, 'worker');
+	expect(spawnSync('git', ['init', '-q', workspace]).status).toBe(0);
+	const trace = join(fixture.root, 'calls.jsonl');
+	const overrides = {
+		ANTHROPIC_API_KEY: 'secret-key',
+		ANTHROPIC_AUTH_TOKEN: 'secret-token',
+		ANTHROPIC_BASE_URL: 'https://wrong-provider.invalid',
+		CLAUDE_CODE_OAUTH_TOKEN: 'secret-oauth',
+		CLAUDE_CODE_OAUTH_REFRESH_TOKEN: 'secret-refresh',
+		CLAUDE_CODE_OAUTH_SCOPES: 'other-scopes',
+		CLAUDE_CODE_SIMPLE: '1',
+		CLAUDE_CODE_USE_BEDROCK: '1',
+		CLAUDE_SECURESTORAGE_CONFIG_DIR: '/wrong-shared-storage',
+		CLAUDE_CONFIG_DIR: '/wrong-profile',
+		CONSULT_TEST_TRACE: trace,
+	};
+	for (const account of ['personal', 'work']) {
+		for (const turn of [
+			['--model', 'sonnet'],
+			['--resume', sessionId],
+			['--mode', 'delegate', '--workspace', workspace],
+			['--mode', 'delegate', '--workspace', workspace, '--resume', sessionId],
+		]) {
+			writeFileSync(trace, '');
+			const result = fixture.launch(
+				[
+					'--account',
+					account,
+					'--account-email',
+					'expected@example.com',
+					...turn,
+				],
+				'Brief.',
+				false,
+				overrides,
+			);
+			expect(result.status).toBe(0);
+			const call = JSON.parse(result.stdout);
+			const expectedEnv =
+				account === 'personal'
+					? {}
+					: { CLAUDE_CONFIG_DIR: join(homedir(), '.claude-work') };
+			expect(call.env).toEqual(expectedEnv);
+			const calls = readFileSync(trace, 'utf8')
+				.trim()
+				.split('\n')
+				.map((line) => JSON.parse(line));
+			expect(calls).toHaveLength(2);
+			expect(calls[0].args).toContain('auth');
+			expect(calls[0].args).toContain('--restricted');
+			expect(calls[0].env).toEqual(call.env);
+			expect(calls[0].args[calls[0].args.indexOf('--settings') + 1]).toBe(
+				call.args[call.args.indexOf('--settings') + 1],
+			);
+			expect(result.stdout + result.stderr).not.toContain('secret-');
+		}
+	}
+});
+
+test('wrong identity, billing method, provider, missing subscription and invalid status stop before prompt', () => {
+	using fixture = setup();
+	const trace = join(fixture.root, 'calls.jsonl');
+	const status = {
+		loggedIn: true,
+		authMethod: 'claude.ai',
+		apiProvider: 'firstParty',
+		subscriptionType: 'max',
+		email: 'expected@example.com',
+		configDirectory: join(homedir(), '.claude-work'),
+	};
+	for (const override of [
+		{ email: 'other@example.com' },
+		{ loggedIn: false },
+		{ authMethod: 'api_key' },
+		{ apiProvider: 'bedrock' },
+		{ subscriptionType: null },
+		{ subscriptionType: ['max'] },
+		{ configDirectory: '/other/profile' },
+	]) {
+		writeFileSync(trace, '');
+		const result = fixture.launch(
+			[
+				'--model',
+				'sonnet',
+				'--account',
+				'work',
+				'--account-email',
+				'expected@example.com',
+			],
+			'Never send this.',
+			false,
+			{
+				CONSULT_TEST_TRACE: trace,
+				CONSULT_TEST_STATUS: JSON.stringify({ ...status, ...override }),
+			},
+		);
+		expect(result.status).not.toBe(0);
+		expect(result.stdout).toBe('');
+		expect(readFileSync(trace, 'utf8').trim().split('\n')).toHaveLength(1);
+	}
+	for (const env of [
+		{ CONSULT_TEST_STATUS: 'not-json' },
+		{ CONSULT_TEST_STATUS_EXIT: '1' },
+	]) {
+		expect(
+			fixture.launch(
+				[
+					'--model',
+					'sonnet',
+					'--account',
+					'work',
+					'--account-email',
+					'expected@example.com',
+				],
+				'Brief.',
+				false,
+				env,
+			).status,
+		).not.toBe(0);
+	}
+});
+
+test('account preview reveals no credentials, invokes no CLI, and requires identity with valid names', () => {
+	using fixture = setup();
+	const trace = join(fixture.root, 'calls.jsonl');
+	writeFileSync(trace, '');
+	const preview = fixture.launch(
+		[
+			'--model',
+			'sonnet',
+			'--account',
+			'work',
+			'--account-email',
+			'expected@example.com',
+			'--dry-run',
+		],
+		'Brief.',
+		true,
+		{ ANTHROPIC_API_KEY: 'secret-key', CONSULT_TEST_TRACE: trace },
+	);
+	expect(preview.status).toBe(0);
+	expect(preview.stdout).not.toContain('secret-key');
+	expect(JSON.parse(preview.stdout)).toMatchObject({
+		account: 'work',
+		configDirectory: join(homedir(), '.claude-work'),
+		expectedEmail: 'expected@example.com',
+	});
+	for (const args of [
+		[],
+		['--account', 'work'],
+		['--account', 'work', '--account-email', ' '],
+		['--account', 'other', '--account-email', 'expected@example.com'],
+		['--account-email', 'expected@example.com'],
+		['--account', '../other', '--account-email', 'expected@example.com'],
+	]) {
+		expect(
+			fixture.launch(['--model', 'sonnet', ...args], 'Brief.', false, {
+				CONSULT_TEST_TRACE: trace,
+			}).status,
+		).not.toBe(0);
+	}
+	expect(readFileSync(trace, 'utf8')).toBe('');
+});
+
 test('passes selected model and effort and previews without launching Claude', () => {
 	using fixture = setup();
 	const result = fixture.launch(
-		['--model', 'sonnet', '--effort', 'high', '--dry-run'],
+		[...personalAccount, '--model', 'sonnet', '--effort', 'high', '--dry-run'],
 		'Brief.',
 		true,
 	);
@@ -114,7 +303,7 @@ test('passes selected model and effort and previews without launching Claude', (
 
 test('new consultations require a deliberate model choice', () => {
 	using fixture = setup();
-	const result = fixture.launch();
+	const result = fixture.launch(personalAccount);
 	expect(result.status).not.toBe(0);
 	expect(result.stderr).toContain('A new consultation requires --model');
 	expect(result.stdout).toBe('');
@@ -126,7 +315,12 @@ test('resume omits launcher defaults and forwards explicit overrides', () => {
 		[],
 		['--model', 'claude-opus-5-5', '--effort', 'high'],
 	]) {
-		const result = fixture.launch(['--resume', sessionId, ...overrides]);
+		const result = fixture.launch([
+			...personalAccount,
+			'--resume',
+			sessionId,
+			...overrides,
+		]);
 		expect(result.status).toBe(0);
 		const { args } = JSON.parse(result.stdout);
 		expect(args.includes('--model')).toBe(overrides.length > 0);
@@ -138,12 +332,21 @@ test('resume omits launcher defaults and forwards explicit overrides', () => {
 	}
 });
 
-test('forwards native failures without disguising them as a result', () => {
+test('forwards native prompt and resume failures without disguising them as a result', () => {
 	using fixture = setup();
-	const result = fixture.launch(['--model', 'claude-opus-5-5'], 'Brief.', true);
-	expect(result.status).toBe(7);
-	expect(result.stdout).toBe('');
-	expect(result.stderr).toContain('native failure');
+	for (const turn of [
+		['--model', 'claude-opus-5-5'],
+		['--resume', sessionId],
+	]) {
+		const result = fixture.launch(
+			[...personalAccount, ...turn],
+			'Brief.',
+			true,
+		);
+		expect(result.status).toBe(7);
+		expect(result.stdout).toBe('');
+		expect(result.stderr).toContain('native failure');
+	}
 });
 
 test('rejects empty briefs, malformed session IDs, and obsolete laboratory options', () => {
@@ -157,11 +360,12 @@ test('rejects empty briefs, malformed session IDs, and obsolete laboratory optio
 		['--effort', ' '],
 		['--unknown'],
 	]) {
-		expect(fixture.launch(args).status).not.toBe(0);
+		expect(fixture.launch([...personalAccount, ...args]).status).not.toBe(0);
 	}
-	expect(fixture.launch(['--model', 'claude-opus-5-5'], '  ').status).not.toBe(
-		0,
-	);
+	expect(
+		fixture.launch([...personalAccount, '--model', 'claude-opus-5-5'], '  ')
+			.status,
+	).not.toBe(0);
 });
 
 test('delegation uses its dedicated clone and reapplies the execution boundary on resume', () => {
@@ -170,6 +374,7 @@ test('delegation uses its dedicated clone and reapplies the execution boundary o
 	expect(spawnSync('git', ['init', '-q', workspace]).status).toBe(0);
 	for (const resume of [[], ['--resume', sessionId]]) {
 		const result = fixture.launch([
+			...personalAccount,
 			'--mode',
 			'delegate',
 			'--workspace',
@@ -219,6 +424,7 @@ test('delegation overrides defaults and preserves explicit choices on resume', (
 			['--model', 'claude-opus-5-5', '--effort', 'high'],
 		]) {
 			const result = fixture.launch([
+				...personalAccount,
 				'--mode',
 				'delegate',
 				'--workspace',
@@ -272,6 +478,7 @@ test('refuses execution in the live checkout, nested repositories, shared worktr
 		shared,
 	]) {
 		const result = fixture.launch([
+			...personalAccount,
 			'--mode',
 			'delegate',
 			'--workspace',
@@ -285,5 +492,5 @@ test('refuses execution in the live checkout, nested repositories, shared worktr
 		['--mode', 'other'],
 		['--workspace', shared],
 	])
-		expect(fixture.launch(args).status).not.toBe(0);
+		expect(fixture.launch([...personalAccount, ...args]).status).not.toBe(0);
 });

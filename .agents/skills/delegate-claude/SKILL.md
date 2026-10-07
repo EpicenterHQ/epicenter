@@ -80,6 +80,7 @@ effort as a routine substitute for choosing Opus.
 
 ```bash
 bun .agents/skills/consult-claude/scripts/consult-claude.ts \
+  --account personal --account-email claude@example.com \
   --mode delegate --workspace /absolute/path/to/dedicated-clone <<'ASSIGNMENT'
 [Result, consumers, requirements, baseline, allowed changes, checks, stop.]
 ASSIGNMENT
@@ -93,6 +94,11 @@ or remove the clone, commit changes, or integrate them. Claude's instructions
 prohibit child agents, commits, remote changes, publishing, and access changes.
 Those instruction boundaries are separate from filesystem enforcement.
 
+Every launch requires the shared launcher's `--account personal|work` and
+`--account-email` flags on the first turn and every resume. Account setup,
+identity checks, and profile ownership are described in
+[Choose a subscription account](../consult-claude/SKILL.md#choose-a-subscription-account).
+
 Read native `result`, `session_id`, `is_error`, `permission_denials`, and actual
 model usage. A zero process exit alone does not establish completion. Monitor
 yielded processes and keep the user informed. Resume a completed worker in the
@@ -100,6 +106,7 @@ same workspace for the same assignment, supplying changed evidence explicitly:
 
 ```bash
 bun .agents/skills/consult-claude/scripts/consult-claude.ts \
+  --account personal --account-email claude@example.com \
   --mode delegate --workspace /absolute/path/to/dedicated-clone \
   --resume <session_id> --effort medium <<'FOLLOWUP'
 [Failed acceptance check, raw evidence, and focused correction.]

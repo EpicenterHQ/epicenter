@@ -2,7 +2,8 @@
 
 import { spawnSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
 async function main() {
@@ -14,9 +15,16 @@ async function main() {
 			workspace: { type: 'string' },
 			model: { type: 'string' },
 			effort: { type: 'string' },
+			account: { type: 'string' },
+			'account-email': { type: 'string' },
 			'dry-run': { type: 'boolean', default: false },
 		},
 	});
+	if (values.account !== 'personal' && values.account !== 'work')
+		throw new Error('--account must be personal or work.');
+	const expectedEmail = values['account-email']?.trim();
+	if (!expectedEmail)
+		throw new Error('--account-email must be the verified Claude email.');
 	if (!['consult', 'delegate'].includes(values.mode))
 		throw new Error('Mode must be consult or delegate.');
 	if (values.mode === 'consult' && values.workspace !== undefined)
@@ -109,6 +117,32 @@ async function main() {
 				}
 			: {}),
 	};
+	// Native Claude owns credentials and refresh. Personal preserves the existing
+	// unset/default Keychain service; explicitly setting ~/.claude is a different login.
+	const env = { ...process.env };
+	const removedEnv: string[] = [];
+	const configDirectory = join(
+		homedir(),
+		values.account === 'personal' ? '.claude' : '.claude-work',
+	);
+	for (const key of Object.keys(env)) {
+		if (
+			key.startsWith('ANTHROPIC_') ||
+			key.startsWith('CLAUDE_CODE_USE_') ||
+			key.startsWith('CLAUDE_CODE_OAUTH_') ||
+			[
+				'CLAUDE_CONFIG_DIR',
+				'CLAUDE_SECURESTORAGE_CONFIG_DIR',
+				'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR',
+				'CLAUDE_CODE_SIMPLE',
+				'AWS_BEARER_TOKEN_BEDROCK',
+			].includes(key)
+		) {
+			removedEnv.push(key);
+			delete env[key];
+		}
+	}
+	if (values.account === 'work') env.CLAUDE_CONFIG_DIR = configDirectory;
 	const args = [
 		'--print',
 		'--output-format',
@@ -133,12 +167,69 @@ async function main() {
 		...(values.resume ? ['--resume', values.resume] : []),
 	];
 	if (values['dry-run']) {
-		console.log(JSON.stringify({ cwd, args }, null, 2));
+		console.log(
+			JSON.stringify(
+				{
+					cwd,
+					args,
+					account: values.account,
+					configDirectory,
+					expectedEmail,
+					removedEnv,
+				},
+				null,
+				2,
+			),
+		);
 		return;
 	}
+	const status = spawnSync(
+		'claude',
+		[
+			'--restricted',
+			'--settings',
+			JSON.stringify(settings),
+			'auth',
+			'status',
+			'--json',
+		],
+		{ cwd, env, encoding: 'utf8', timeout: 30_000 },
+	);
+	if (status.error) throw status.error;
+	if (status.status !== 0)
+		throw new Error(
+			`Account ${values.account} is not signed in. Use native Claude login for that profile.`,
+		);
+	const identity: unknown = JSON.parse(status.stdout);
+	if (
+		!identity ||
+		typeof identity !== 'object' ||
+		!('loggedIn' in identity) ||
+		identity.loggedIn !== true ||
+		!('authMethod' in identity) ||
+		identity.authMethod !== 'claude.ai' ||
+		!('apiProvider' in identity) ||
+		identity.apiProvider !== 'firstParty' ||
+		!('subscriptionType' in identity) ||
+		typeof identity.subscriptionType !== 'string' ||
+		!['pro', 'max', 'team', 'enterprise'].includes(identity.subscriptionType) ||
+		!('email' in identity) ||
+		typeof identity.email !== 'string' ||
+		identity.email.toLowerCase() !== expectedEmail.toLowerCase() ||
+		!('configDirectory' in identity) ||
+		typeof identity.configDirectory !== 'string' ||
+		resolve(identity.configDirectory) !== resolve(configDirectory)
+	)
+		throw new Error(
+			`Account ${values.account} does not match the expected paid Claude subscription. No prompt was sent.`,
+		);
+	console.error(
+		`Using Claude account ${values.account}: ${identity.email} (${identity.subscriptionType}).`,
+	);
 	// Stream native JSON and diagnostics without owning another session format.
 	const child = Bun.spawn(['claude', ...args], {
 		cwd,
+		env,
 		stdin: new Blob([brief]),
 		stdout: 'inherit',
 		stderr: 'inherit',
