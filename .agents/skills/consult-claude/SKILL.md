@@ -11,7 +11,8 @@ conversation, execution, verification, and integration. Use
 [delegate-claude](../delegate-claude/SKILL.md) when Claude should own edits or
 run an experiment.
 
-Choose a consultation when its result advances a named decision or replaces
+When the user's request or chosen workflow includes Claude, choose a
+consultation whose result advances a named decision or replaces
 work Codex would otherwise do. Give Claude enough work to finish the answer;
 available capacity alone does not justify another opinion. A standalone
 consultation does not automatically launch the adversarial reviewer pair.
@@ -102,25 +103,19 @@ EVIDENCE
 ```
 
 Resume a completed consultation for the same assignment in the same checkout.
-State source changes and new evidence in the follow-up. Use a fresh session for
-an independent review of Claude-authored work or a materially different frame.
-For review of a worker's result, first supply the desired behavior, source
-baseline, actual callers, and cumulative diff from the idle worker clone or a
-snapshot containing that evidence. When running from a worker clone, invoke the
-launcher by its absolute path in the coordinating checkout; use the clone as the
-working directory, so code under review does not set its own access boundary.
-Withhold the worker's explanation until the reviewer has reconstructed the
-system. Resuming retains context and does not restore independence.
+State source changes and new evidence in the follow-up. The launcher reapplies
+read-only tools but does not verify the native session's assignment or original
+workspace; verify that identity before resuming. Use a fresh session for an
+independent review or a materially different frame. See `delegate-claude` for
+reviewing a worker's result. Resuming retains context and does not restore
+independence.
 The launcher reapplies the access boundary on every turn. If the shell tool
 yields a running process, keep monitoring it and provide progress updates.
 There is no interactive attach step.
 
-The shared launcher owns launch defaults. A new delegation defaults to Sonnet
-5.5 at medium effort; a new consultation requires `--model`. On resume it passes
-neither a default model nor a default effort: Claude Code restores the session's
-model, but command-line effort does not persist. Repeat the chosen `--effort` on
-each follow-up; otherwise native settings or defaults decide it. Explicit
-`--model` overrides the restored model for that launch.
+A new consultation requires `--model`. On resume the launcher supplies no model
+or effort default: Claude Code restores the session's model, while command-line
+effort must be repeated. Explicit `--model` overrides that session's model.
 `--dry-run` previews launch arguments without invoking Claude. Consult the native
 result or transcript before attributing findings to a model: access restrictions
 and fallback can change the model used.
@@ -133,8 +128,8 @@ results, and source state. An advice-only request does not authorize edits.
 Ask before materially expanding the task; prior authorization still applies.
 
 This route remains read-only. When the assignment requires Claude to own
-implementation or experimental execution, use delegate-claude within the
-user's authorized scope. Do not turn an advice-only request into execution.
+implementation or experimental execution, use delegate-claude only with the
+user's explicit authorization for Claude execution.
 Return artifacts and evidence, including limitations. A longer report or more
 objections does not establish that a consultation was useful.
 

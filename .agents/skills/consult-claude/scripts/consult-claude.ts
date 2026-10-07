@@ -23,9 +23,9 @@ async function main() {
 		throw new Error(
 			'--workspace belongs to delegate mode; run consultation from its source checkout.',
 		);
-	if (values.mode === 'delegate' && !values.workspace?.trim())
+	if (values.mode === 'delegate' && values.resume !== undefined)
 		throw new Error(
-			'Delegation requires --workspace pointing to a dedicated clone.',
+			'Delegation starts a fresh session; provide the full assignment and current worker evidence.',
 		);
 	if (values.model !== undefined && !values.model.trim())
 		throw new Error('Model must not be empty.');
@@ -44,7 +44,7 @@ async function main() {
 		);
 	}
 	const brief = await Bun.stdin.text();
-	if (!brief.trim()) throw new Error('Consultation brief is empty.');
+	if (!brief.trim()) throw new Error('Assignment brief is empty.');
 	const git = spawnSync('git', ['rev-parse', '--show-toplevel'], {
 		encoding: 'utf8',
 	});
@@ -58,8 +58,14 @@ async function main() {
 		(!values.resume && delegating ? 'claude-sonnet-5-5' : undefined);
 	const effort =
 		values.effort ?? (!values.resume && delegating ? 'medium' : undefined);
-	const cwd = delegating ? realpathSync(resolve(values.workspace!)) : source;
+	let cwd = source;
 	if (delegating) {
+		const workspace = values.workspace;
+		if (!workspace?.trim())
+			throw new Error(
+				'Delegation requires --workspace pointing to a disposable clone.',
+			);
+		cwd = realpathSync(resolve(workspace));
 		const inside = relative(source, cwd);
 		const ancestor = relative(cwd, source);
 		if (
@@ -85,13 +91,42 @@ async function main() {
 			throw new Error('Delegate workspace must be a Git clone.');
 		const [root, common] = target.stdout.trim().split('\n');
 		if (
-			realpathSync(root!) !== cwd ||
-			realpathSync(resolve(cwd, common!)) !== resolve(cwd, '.git')
+			!root ||
+			!common ||
+			realpathSync(root) !== cwd ||
+			realpathSync(resolve(cwd, common)) !== resolve(cwd, '.git')
 		)
 			throw new Error(
 				'Delegate workspace must be the root of a standalone clone, not a shared worktree.',
 			);
+		const origin = spawnSync('git', ['remote', 'get-url', 'origin'], {
+			cwd,
+			encoding: 'utf8',
+		});
+		let originRoot: string | undefined;
+		try {
+			const originUrl = origin.stdout.trim();
+			if (isAbsolute(originUrl)) originRoot = realpathSync(originUrl);
+		} catch {
+			// A missing or non-local origin cannot establish source provenance.
+		}
+		if (origin.status !== 0 || originRoot !== source)
+			throw new Error(
+				'Delegate workspace must be cloned from the coordinating checkout using its absolute local path.',
+			);
 	}
+	const shellEnvironment = new Set([
+		'PATH',
+		'HOME',
+		'USER',
+		'LOGNAME',
+		'SHELL',
+		'TMPDIR',
+		'LANG',
+		'LC_ALL',
+		'LC_CTYPE',
+		'TERM',
+	]);
 	const settings = {
 		disableAllHooks: true,
 		permissions: { blockReadsOutsideWorkingDirectories: true },
@@ -105,18 +140,24 @@ async function main() {
 						excludedCommands: [],
 						filesystem: { disabled: false },
 						network: { allowedDomains: [], allowLocalBinding: false },
+						credentials: {
+							envVars: Object.keys(process.env)
+								.filter((name) => !shellEnvironment.has(name))
+								.map((name) => ({ name, mode: 'deny' })),
+						},
 					},
 				}
 			: {}),
 	};
+	const fileTools = delegating ? 'Read,Glob,Grep,Edit,Write' : 'Read,Glob,Grep';
 	const args = [
 		'--print',
 		'--output-format',
 		'json',
 		'--restricted',
 		'--tools',
-		delegating ? 'Read,Glob,Grep,Edit,Write,Bash' : 'Read,Glob,Grep',
-		...(delegating ? ['--allowedTools', 'Read,Glob,Grep,Edit,Write,Bash'] : []),
+		delegating ? `${fileTools},Bash` : fileTools,
+		...(delegating ? ['--allowedTools', fileTools] : []),
 		'--disallowedTools',
 		'mcp__*',
 		'--strict-mcp-config',

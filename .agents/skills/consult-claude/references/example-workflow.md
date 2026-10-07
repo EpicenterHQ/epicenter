@@ -170,7 +170,7 @@ above illustrates the target; it is not a measured result or an answer key.
 | Reviewer requests a benchmark | Codex receives a specific discriminating check; Claude does not execute it or create a laboratory. |
 | Advice-only request | Codex returns the proposed check without silently authorizing implementation. |
 | Follow-up with new evidence | Same native session recalls the question, revises its judgment, and retains read-only access. |
-| Adversarial design review without a reviewer restriction | Coordinator gets one fresh GPT-6.1 Sol and one read-only Opus review. Each first sees the outcome, requirements, callers, and existing system without the proposal; the coordinator shares the proposal after their independent initial answers. |
+| Adversarial design review without a reviewer restriction | Coordinator uses the reviewer setup defined by adversarial-review. This example does not choose reviewer models or duplicate that workflow. |
 | Ordinary final code check | Uses post-implementation-review locally; does not launch the reviewer pair. |
 | Bounded read-only caller map or documentation draft | Claude returns the finished artifact with source evidence; Codex checks decisive claims without launching a panel. |
 | Explicit implementation or benchmark delegation | Uses delegate-claude in a dedicated clone; Claude runs checks and returns actual artifacts; Codex verifies and integrates. |
