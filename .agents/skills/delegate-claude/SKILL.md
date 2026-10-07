@@ -32,12 +32,12 @@ allowed changes, verification, and stop condition. Let Claude choose the
 implementation within those guarantees rather than prescribing each edit.
 For example:
 
-> Own the commit timing benchmark. Build and run a reproducible benchmark for
-> small and large folders, and commit attempts while a Git lock is held. Return
+> Own the folder-scanning benchmark. Build and run a reproducible benchmark for
+> small and large folders, including missing-directory failure behavior. Return
 > runnable files, measured timings, failure behavior, and limits of the evidence.
 > Modify only the benchmark directory. Stop after the measurements establish
-> whether local commit completion belongs on the API's critical path. Do not
-> decide the public API or require a remote service.
+> whether scanning belongs on the API's critical path. Do not decide the public
+> API or require a remote service.
 
 For a fix, define observable behavior and affected callers before dispatch.
 For an experiment, name the decision its evidence will settle. Claude returns
