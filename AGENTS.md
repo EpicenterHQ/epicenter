@@ -150,9 +150,10 @@ Claude provides a read-only second opinion when the user requests it or a
 workflow the user chose includes it. `adversarial-review` owns the reviewer
 setup for that workflow; complexity alone does not enlist Claude.
 Follow `consult-claude` for briefing and follow-ups and `adversarial-review`
-for the review method. Experimental execution by Claude requires separate user
-authorization. Codex verifies feedback against live state, applies accepted
-changes, and reruns verification.
+for the review method. Use `delegate-claude` only when the user explicitly
+authorizes Claude to own implementation or experimental execution. Authorization
+for the parent task alone does not authorize that delegation. Codex verifies
+the returned work, applies accepted changes, and reruns verification.
 
 ## Review routing
 
