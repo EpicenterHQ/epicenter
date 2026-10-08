@@ -52,6 +52,7 @@
 	import type { RecordingId } from '$lib/workspace';
 	import { createCopyFn } from '$lib/utils/createCopyFn';
 	import RecordingTranscriptCell from './RecordingTranscriptCell.svelte';
+	import RecordingDrafts from './RecordingDrafts.svelte';
 	import RecordingAudioCell from './RecordingAudioCell.svelte';
 	import RecordingStorageBadge from './RecordingStorageBadge.svelte';
 	import TranscriptionStatusBadge from './TranscriptionStatusBadge.svelte';
@@ -378,6 +379,7 @@
 			{tauri ? 'on your file system' : 'in IndexedDB'}.
 		</SectionHeader.Description>
 	</SectionHeader.Root>
+	<RecordingDrafts />
 	<Card class="flex flex-col gap-4 p-6">
 		<div class="flex flex-col md:flex-row items-center justify-between gap-2">
 			<Input

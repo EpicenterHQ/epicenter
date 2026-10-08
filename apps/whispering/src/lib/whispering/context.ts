@@ -1,6 +1,7 @@
 import { createContext } from 'svelte';
 import type { WhisperingQueries } from '$lib/queries';
 import type { WhisperingApp } from './app';
+import type { RecordingEditor } from './recording-editor.js';
 
 /**
  * The ready app as descendants of the fulfilled boot branch see it:
@@ -10,6 +11,7 @@ import type { WhisperingApp } from './app';
 export type WhisperingContext = {
 	app: WhisperingApp;
 	queries: WhisperingQueries;
+	recordingEditor: RecordingEditor;
 };
 
 /**
@@ -28,4 +30,8 @@ export function getWhisperingApp() {
 
 export function getWhisperingQueries() {
 	return getWhisperingContext().queries;
+}
+
+export function getRecordingEditor() {
+	return getWhisperingContext().recordingEditor;
 }
