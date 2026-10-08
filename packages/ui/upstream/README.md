@@ -56,7 +56,7 @@ The shadcn-svelte-extras responses come from their own registry, not the Vega re
 
 The saved dependency metadata is evidence for a refresh, not an upgrade command. In this checkout `bits-ui` is 2.17.2 and `vaul-svelte` is 1.0.0-next.7. The migrated code uses their installed APIs. Vaul already prevents autofocus when its root uses the default `autoFocus=false`; the redundant local guard was removed after browser checks.
 
-The intentional Epicenter differences and the caller reasons for them are in [`packages/ui/README.md`](../README.md#3-component-styling-and-epicenter-deltas). Subsequent refreshes replace a snapshot only as part of a reviewed component change.
+The intentional Epicenter differences and their reasons are recorded below. Subsequent refreshes replace a snapshot only as part of a reviewed component change.
 
 ## October 8 refresh
 
@@ -65,3 +65,37 @@ behavior, Field slots, and Sidebar formatting now match the current Vega
 responses. The other 34 Vega families were compared and their distributed
 source was unchanged. Exact raw responses remain review inputs, not runtime
 code or a promise to preserve older behavior.
+
+## Intentional upstream differences
+
+Record the maintained change and the caller or shared decision that needs it.
+Reconsider each reason during a refresh. This register covers reviewed
+customizations; it does not establish that every source difference is intentional
+or that every component matches its saved baseline. Unresolved omissions belong
+in the refresh PR or an issue, not in this register as accepted behavior.
+
+| Component | Epicenter difference | Reason |
+| --- | --- | --- |
+| Button and Link | `tooltip` prop and composed trigger props | Apps need one-label tooltips on buttons and links, including controls nested in popovers. `ghost-destructive` remains for existing icon actions. Standard sizes and `buttonVariants` follow upstream. |
+| Dialog and Drawer | Viewport scrolling and Drawer content scroll wrapper | Long recording details remain usable, and mobile content can scroll without losing drag behavior. Installed Vaul `1.0.0-next.7` already suppresses autofocus by default. |
+| Modal | Extras-based responsive composition with simplified context access | Forms use Dialog on desktop and a draggable Drawer below 768px. The root owns the live media query; children read that root directly. |
+| Menu callers | Honeycrisp folder-list scroll cap; LocalMail account items explicitly close after selection | Every folder remains reachable, and a completed account switch dismisses its menu. Shared menu selection defaults follow upstream. |
+| Table cells | `bg-clip-padding`, logical header alignment, and checkbox padding | Matter’s sticky and status cells keep their own backgrounds. Row hover follows upstream. |
+| Item and Sidebar | Truncation, inset shrink behavior, and the same offcanvas Sidebar at narrow widths | Rows and sidebars fit narrow flex layouts. Item remains a containing block for Honeycrisp’s positioned note controls. Collapsed offcanvas sidebars are inert so hidden navigation cannot receive keyboard focus. Sidebar preserves the existing navigation structure instead of adopting upstream’s separate mobile Sheet. |
+| Alert and Badge | Warning, ID, status, success, and destructive variants | Apps use these semantic states. |
+| Resizable | Spacing between panes | Adjacent panes need separation in current app layouts. |
+| Tooltip provider | Fixed 300 ms opening delay and 150 ms skip delay | App-root providers share one hover group and timing across controls. |
+| Input | File-input binding alongside normal value binding | File pickers need access to the selected files through the shared component. |
+| Item.Button | A real button using shared Item variants and merged trigger props | Interactive rows use button semantics without repeating Item’s child-snippet composition. |
+| Theme | Geist fonts and seven dark Neutral token adjustments | The accepted soft charcoal direction uses existing semantic variables; component geometry remains Vega’s. |
+
+Other structural choices with live callers remain in their components: the
+span-or-anchor Badge, ScrollArea viewport ring, Resizable handle, and the
+standard Loading shell. `switch` and `alert-dialog` emit `data-size`; sidebar
+menu controls emit `data-active` only when active. These attributes feed the
+Vega state selectors.
+
+The distributed registry still includes unresolved `cn-font-heading` and
+`cn-menu-*` hooks in some files. The maintained package omits those inert hooks;
+`shadcn-base.css` retains the upstream data variants, utilities, and animations
+used by the components.
