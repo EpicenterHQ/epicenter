@@ -24,6 +24,12 @@ Apps activate the preset with `class="style-vega"` on their root element; the
 preset is a one-class swap (e.g. to `style-rhea`). Background and rationale:
 `specs/20260606T160000-ui-shadcn-cn-style-migration-vega.md`.
 
+`src/app.css` owns the shared color tokens. Dark mode uses shadcn-svelte's
+[Neutral palette](https://www.shadcn-svelte.com/docs/theming#neutral) with a
+charcoal lift for the page, cards/popovers, secondary fills, and focus ring.
+Seven existing token values differ from Neutral; no theme variables are added.
+Light mode, sidebar colors, and status/chart colors retain their existing values.
+
 ## Design Stance
 
 This package is the shared Epicenter product system, not a place for one-off app
