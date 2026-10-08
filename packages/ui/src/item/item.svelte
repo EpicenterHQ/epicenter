@@ -2,9 +2,8 @@
 	import { tv, type VariantProps } from 'tailwind-variants';
 
 	export const itemVariants = tv({
-		// Custom overrides preserved inline: `relative` is needed for the
-		// absolute-positioned showOnHover Actions, and `[a]:hover:bg-accent/50`
-		// keeps the Epicenter accent hover color.
+		// Honeycrisp positions note controls inside the item.
+		// Keep their containing block and the shared accent hover color.
 		base: '[a]:hover:bg-muted rounded-md border text-sm group/item relative [a]:hover:bg-accent/50 focus-visible:border-ring focus-visible:ring-ring/50 flex flex-wrap items-center transition-colors duration-100 outline-none focus-visible:ring-[3px] [a]:transition-colors',
 		variants: {
 			variant: {
