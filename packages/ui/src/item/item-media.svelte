@@ -6,7 +6,7 @@
 		variants: {
 			variant: {
 				default: 'bg-transparent',
-				icon: "[&_svg:not([class*='size-'])]:size-4 bg-muted size-8 rounded-sm border",
+				icon: "[&_svg:not([class*='size-'])]:size-4",
 				image: 'size-10 overflow-hidden rounded-sm group-data-[size=sm]/item:size-8 group-data-[size=xs]/item:size-6 [&_img]:size-full [&_img]:object-cover',
 			},
 		},
