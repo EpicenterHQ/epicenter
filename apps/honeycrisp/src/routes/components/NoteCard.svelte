@@ -176,7 +176,7 @@
 					<FolderIcon class="mr-2 size-4" />
 					Move to Folder
 				</ContextMenu.SubTrigger>
-				<ContextMenu.SubContent class="w-48">
+				<ContextMenu.SubContent class="w-48 max-h-(--bits-menu-content-available-height) overflow-y-auto">
 					<ContextMenu.Item
 						onclick={() =>
 							honeycrisp.tables.notes.moveToFolder(note.id, null)}
