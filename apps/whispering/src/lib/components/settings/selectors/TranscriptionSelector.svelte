@@ -199,7 +199,7 @@
 			</Empty.Root>
 		{:else}
 			<Command.Root loop>
-				<Command.Input placeholder="Search models..." class="h-9 text-sm" />
+				<Command.Input placeholder="Search models..." />
 				<Command.List class="max-h-[40vh]">
 					<Command.Empty>No model found.</Command.Empty>
 

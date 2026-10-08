@@ -281,7 +281,7 @@
 						<Select.Group>
 							{#each modelItems as item}
 								<Select.Item value={item.value} label={item.label}>
-									<div class="flex flex-col gap-1 py-1">
+									<div class="flex flex-col gap-1 py-1 whitespace-normal">
 										<div class="font-medium">{item.name}</div>
 										<div class="text-sm text-muted-foreground">
 											{item.description}
