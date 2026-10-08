@@ -82,7 +82,7 @@ in the refresh PR or an issue, not in this register as accepted behavior.
 | Menu callers | Honeycrisp folder-list scroll cap; LocalMail account items explicitly close after selection | Every folder remains reachable, and a completed account switch dismisses its menu. Shared menu selection defaults follow upstream. |
 | Table cells | `bg-clip-padding`, logical header alignment, and checkbox padding | Matter’s sticky and status cells keep their own backgrounds. Row hover follows upstream. |
 | Item and Sidebar | Truncation, inset shrink behavior, and the same offcanvas Sidebar at narrow widths | Rows and sidebars fit narrow flex layouts. Item remains a containing block for Honeycrisp’s positioned note controls. Collapsed offcanvas sidebars are inert so hidden navigation cannot receive keyboard focus. Sidebar preserves the existing navigation structure instead of adopting upstream’s separate mobile Sheet. |
-| Alert and Badge | Warning, ID, status, success, and destructive variants | Apps use these semantic states. |
+| Alert and Badge | Warning, ID, status, and success variants | Apps use these semantic states. |
 | Resizable | Spacing between panes | Adjacent panes need separation in current app layouts. |
 | Tooltip provider | Fixed 300 ms opening delay and 150 ms skip delay | App-root providers share one hover group and timing across controls. |
 | Input | File-input binding alongside normal value binding | File pickers need access to the selected files through the shared component. |
@@ -90,8 +90,9 @@ in the refresh PR or an issue, not in this register as accepted behavior.
 | Theme | Geist fonts and seven dark Neutral token adjustments | The accepted soft charcoal direction uses existing semantic variables; component geometry remains Vega’s. |
 
 Other structural choices with live callers remain in their components: the
-span-or-anchor Badge, ScrollArea viewport ring, Resizable handle, and the
-standard Loading shell. `switch` and `alert-dialog` emit `data-size`; sidebar
+Resizable handle and the standard Loading shell. Badge’s span-or-anchor
+rendering, Tooltip’s arrow customization, and ScrollArea’s viewport and scrollbar
+props follow upstream. `switch` and `alert-dialog` emit `data-size`; sidebar
 menu controls emit `data-active` only when active. These attributes feed the
 Vega state selectors.
 

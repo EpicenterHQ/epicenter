@@ -71,7 +71,7 @@ policy with the caller: for example, a completed account switch sets
 
 ### Tooltips
 
-Place one `Tooltip.Provider` around each app’s root content. It shares theThis is a lot better for how the documentation is and like it's more thoughtful right. We also don't use WhatsApp the word surface anymore but loading and emphasates otherwise it's still done pretty good too. I'm just wondering like ask me some more like crux questions or like things that we can do that maybe if I responded to we could be able to use to narrow down and to figure out and narrow down things more
+Place one `Tooltip.Provider` around each app’s root content. It shares the
 300 ms opening delay and 150 ms skip delay across controls. Nesting another
 provider creates a separate hover group.
 
@@ -80,7 +80,7 @@ Use Button or Link’s `tooltip` prop for a simple label. Compose `Tooltip.Root`
 
 ### Loading and empty states
 
-Use `Loading` for a full-surface pending state with an optional caption:
+Use `Loading` for a page or panel loading state with an optional caption:
 
 ```svelte
 <Loading class="flex-1" label="Loading tabs..." />
