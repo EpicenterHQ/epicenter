@@ -9,7 +9,7 @@
 				secondary: 'bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80',
 				destructive: 'bg-destructive/10 [a]:hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 text-destructive dark:bg-destructive/20',
 				outline: 'border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground',
-				// Epicenter custom variants (overlay, not upstream).
+				// Epicenter custom variants (not upstream).
 				id: ' px-1.5 bg-muted text-muted-foreground [a&]:hover:bg-muted/90 border-transparent font-mono text-xs rounded-md font-normal',
 				'status.completed': ' bg-green-500/10 text-green-500',
 				'status.failed': ' bg-red-500/10 text-red-500',

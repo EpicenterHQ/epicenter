@@ -19,7 +19,7 @@ import paths change to the package's relative imports. Extras follow the same
 rule using their own distributed components as the baseline.
 
 The maintained components carry Vega utilities in their own files. The exact
-registry responses and SHA-256 digests used for this migration live under
+registry responses used for this migration live under
 [`upstream/`](upstream/README.md). They are comparison inputs, not runtime code.
 
 ### Epicenter house style
@@ -234,7 +234,7 @@ These differences survive this migration:
 | Modal | One responsive Dialog or Drawer with a shared open state | Forms use Dialog on desktop and a draggable Drawer below 768px. |
 | Menus and Select | Translucent surfaces, menu item state styling, logical submenu slides, and Select's minimum-content width | Shared menu appearance and long, scrollable app menus. |
 | Table | Hover fills cells rather than the row | Svelte's row wrapper and opaque cells otherwise hide the hover fill. |
-| Item and Sidebar | Truncation, icon media, inset shrink behavior, and item actions overlay | Rows and sidebars fit narrow flex layouts while retaining the shared actions control. |
+| Item and Sidebar | Truncation, icon media, inset shrink behavior, item actions overlay, and the same offcanvas Sidebar at narrow widths | Rows and sidebars fit narrow flex layouts while retaining the shared actions control. Sidebar preserves the existing navigation structure instead of adopting upstream’s separate mobile Sheet. |
 | Alert and Badge | Warning, ID, status, success, and destructive variants | Apps use these semantic states. |
 | Resizable | Spacing between panes | Adjacent panes need separation in current app layouts. |
 | Extras | Local imports and the same shared tokens; Link's tooltip and Modal's responsive behavior above | Extras ship from a separate registry and keep their own baselines. |
@@ -247,13 +247,14 @@ Vega state selectors.
 
 The distributed registry still includes unresolved `cn-font-heading` and
 `cn-menu-*` hooks in some files. The maintained package omits those inert hooks;
-its menu surface utilities are explicit. `shadcn-base.css` retains the upstream
-data variants, utilities, and animations used by the components.
+its menu surface utilities share the package-private `menuSurface` value.
+`shadcn-base.css` retains the upstream data variants, utilities, and animations
+used by the components.
 
 ## Component management workflow
 
 For an upstream refresh, fetch the distributed Vega response, save its exact
-JSON and digest under [`upstream/`](upstream/README.md), and compare it with the
+JSON under [`upstream/`](upstream/README.md), and compare it with the
 maintained component and real callers. The registry contains generator imports
 such as `$UTILS$`; normalize them to package-relative imports. Review dependency
 requests and preserve the differences above when they still have callers.
@@ -305,7 +306,7 @@ parts.
 2. **Use Barrel Exports**: each component folder has an `index.ts`.
 3. **Keep the comparison local**: component utilities stay in their source files;
    record intentional differences from the saved distributed baseline.
-5. **Consistent Imports**: relative inside `packages/ui/src`; `@epicenter/ui`
+4. **Consistent Imports**: relative inside `packages/ui/src`; `@epicenter/ui`
    only from consumers outside this package.
 
 ## Boundary Check

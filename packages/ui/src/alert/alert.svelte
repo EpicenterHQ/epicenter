@@ -7,7 +7,7 @@
 			variant: {
 				default: 'bg-card text-card-foreground',
 				destructive: 'text-destructive bg-card *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current',
-				// Epicenter custom variant (overlay, not upstream).
+				// Epicenter custom variant (not upstream).
 				warning: ' text-warning bg-card *:data-[slot=alert-description]:text-warning/90 [&>svg]:text-current',
 			},
 		},

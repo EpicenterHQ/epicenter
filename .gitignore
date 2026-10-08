@@ -81,3 +81,6 @@ dist-epicenter
 
 # Held while an Epicenter build runs; see apps/epicenter/scripts/with-build-lock.ts
 .build-lock/
+
+# Temporary UI browser regression fixtures
+packages/ui/.browser-migration-*/

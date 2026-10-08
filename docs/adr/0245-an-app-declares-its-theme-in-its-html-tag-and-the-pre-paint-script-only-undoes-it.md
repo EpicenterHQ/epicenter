@@ -28,7 +28,7 @@ The `<html>` tag declares the theme, and the pre-paint script only handles
 deviation from it.
 
 ```html
-<html lang="en" class="style-vega dark" style="color-scheme: dark">
+<html lang="en" class="dark" style="color-scheme: dark">
   <head>
     <script>
       if (localStorage.getItem('mode-watcher-mode') === 'light') {

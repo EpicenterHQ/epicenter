@@ -35,7 +35,7 @@ integration adjusts relative imports and icon imports. Epicenter-owned behavior,
 variants, accessibility fixes, and visual preferences stay when a caller,
 interaction, or shared theme decision establishes their purpose. The package
 README records these deltas and a recoverable baseline for each refresh: saved
-registry output with its digest, or an upstream commit and build inputs that
+registry output preserved in Git, or an upstream commit and build inputs that
 reproduce the artifact. Shared fonts, semantic tokens, and base CSS stay in
 `packages/ui/src/app.css`; app-specific workflow and layout stay in the apps.
 

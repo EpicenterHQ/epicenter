@@ -69,8 +69,7 @@
 		'data-slot': 'sidebar-menu-button',
 		'data-sidebar': 'menu-button',
 		'data-size': size,
-		// Emit data-active only when active: The data-active utilities use presence selectors
-		// (data-active:), so a literal data-active="false" would match too.
+		// Inactive buttons omit the active-state attribute.
 		'data-active': isActive ? 'true' : undefined,
 		...restProps,
 	});
