@@ -8,6 +8,7 @@
  * - A disabled setting performs no upload
  * - Upload remains best-effort and does not block transcription
  * - History failure warns only after usable text is delivered
+ * - A late polish cannot replace a manually saved transcript's displayed text
  */
 import { afterEach, expect, mock, test } from 'bun:test';
 import { generateBlobId } from '@epicenter/blobs';
@@ -16,6 +17,10 @@ import type { RecordingId } from '$lib/workspace';
 
 let autoUpload = true;
 let willPolish = false;
+let savedTranscript = 'transcript';
+let savedPolish: string | null = null;
+let polishGate: Promise<void> | undefined;
+let polishStarted: (() => void) | undefined;
 const uploadAudio = mock(async () => Ok(undefined));
 const deliverTranscriptionResult = mock(async () => ({
 	outcome: { reach: 'output' } as const,
@@ -24,7 +29,7 @@ const deliverTranscriptionResult = mock(async () => ({
 const reportInfo = mock();
 let historyError: { name: string; message: string } | null = null;
 let polishedHistoryError: { name: string; message: string } | null = null;
-const saveRecordingHistory = mock(async () =>
+const saveRecordingHistory = mock(() =>
 	polishedHistoryError === null ? Ok(undefined) : Err(polishedHistoryError),
 );
 
@@ -33,8 +38,11 @@ mock.module('$lib/operations/delivery', () => ({
 }));
 mock.module('$lib/operations/run-polish', () => ({
 	polishWillRun: () => willPolish,
-	runPolish: async (_app: unknown, { input }: { input: string }) =>
-		Ok(willPolish ? 'polished transcript' : input),
+	runPolish: async (_app: unknown, { input }: { input: string }) => {
+		polishStarted?.();
+		await polishGate;
+		return Ok(willPolish ? 'polished transcript' : input);
+	},
 }));
 mock.module('$lib/operations/sound', () => ({
 	playSoundIfEnabled: mock(async () => Ok(undefined)),
@@ -80,6 +88,10 @@ const app = {
 			return { ...fields, id: 'recording-1' as RecordingId };
 		},
 		uploadAudio,
+		get: () => ({
+			transcript: savedTranscript,
+			polishedTranscript: savedPolish,
+		}),
 		update: mock(async () => Ok(undefined)),
 	},
 } as unknown as WhisperingApp;
@@ -89,6 +101,50 @@ afterEach(() => {
 	willPolish = false;
 	historyError = null;
 	polishedHistoryError = null;
+	savedTranscript = 'transcript';
+	savedPolish = null;
+	polishGate = undefined;
+	polishStarted = undefined;
+});
+
+test('a late polish is not stored after the raw transcript was manually changed', async () => {
+	autoUpload = false;
+	willPolish = true;
+	const gate = Promise.withResolvers<void>();
+	const started = Promise.withResolvers<void>();
+	polishGate = gate.promise;
+	polishStarted = started.resolve;
+	const writesBefore = saveRecordingHistory.mock.calls.length;
+	const running = processRecordingPipeline(app, {
+		audioBlobId: generateBlobId(),
+		durationMs: 100,
+		deliverySource: 'import',
+	});
+	await started.promise;
+	savedTranscript = 'Saved by the person while polish was running';
+	gate.resolve();
+	await running;
+	expect(saveRecordingHistory).toHaveBeenCalledTimes(writesBefore);
+});
+
+test('a late polish is not stored over a newer polished transcript', async () => {
+	autoUpload = false;
+	willPolish = true;
+	const gate = Promise.withResolvers<void>();
+	const started = Promise.withResolvers<void>();
+	polishGate = gate.promise;
+	polishStarted = started.resolve;
+	const writesBefore = saveRecordingHistory.mock.calls.length;
+	const running = processRecordingPipeline(app, {
+		audioBlobId: generateBlobId(),
+		durationMs: 100,
+		deliverySource: 'import',
+	});
+	await started.promise;
+	savedPolish = 'A newer delivered version';
+	gate.resolve();
+	await running;
+	expect(saveRecordingHistory).toHaveBeenCalledTimes(writesBefore);
 });
 
 test('auto-upload attempts once for each new row only when enabled', async () => {

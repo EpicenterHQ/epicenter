@@ -120,6 +120,7 @@ export async function processRecordingPipeline(
 	// shows the HUD only when an AI pass actually runs (not in speed mode); begin/end
 	// bracket the call so the controller is dropped on success, failure, or abort.
 	const willPolish = polishWillRun(app, transcribedText);
+	const polishBaseline = app.recordings.get(recording.id);
 	const showPolishHud = willPolish && isDictation;
 	let signal: AbortSignal | undefined;
 	if (showPolishHud) {
@@ -148,10 +149,24 @@ export async function processRecordingPipeline(
 	// already left `polishedTranscript` null, so speed mode (no AI call) and a
 	// polish failure (the fallback delivers the raw words) need no second write.
 	if (willPolish && !polishError) {
-		const polishedHistory = await saveRecordingHistory(app, recording.id, {
-			polishedTranscript: polishedText,
-		});
-		if (polishedHistory.error !== null) history = polishedHistory;
+		// The person or another replica may have saved while Polish was running.
+		// Compare and patch synchronously so this result cannot hide that edit.
+		const current = app.recordings.get(recording.id);
+		if (
+			current?.transcript === transcribedText &&
+			current.polishedTranscript === polishBaseline?.polishedTranscript
+		) {
+			const polishedHistory = saveRecordingHistory(app, recording.id, {
+				polishedTranscript: polishedText,
+			});
+			if (polishedHistory.error !== null) history = polishedHistory;
+		} else {
+			report.info({
+				title: 'Recording changed while polishing',
+				description:
+					'Your saved changes were kept. The polished text will still be delivered.',
+			});
+		}
 	}
 
 	// The transcript is "ready" once it is polished and about to be delivered, so
