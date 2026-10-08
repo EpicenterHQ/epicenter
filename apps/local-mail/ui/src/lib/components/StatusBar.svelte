@@ -98,7 +98,7 @@
 						onValueChange={onSelectAccount}
 					>
 						{#each accounts as account (account.sub)}
-							<DropdownMenu.RadioItem value={account.sub}>
+							<DropdownMenu.RadioItem value={account.sub} closeOnSelect>
 								<span class="truncate font-mono text-xs">{account.email}</span>
 							</DropdownMenu.RadioItem>
 						{/each}
