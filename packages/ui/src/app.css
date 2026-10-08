@@ -56,7 +56,7 @@
 		"Geist Mono Variable", "SF Mono", ui-monospace, SFMono-Regular, Menlo,
 		Consolas, monospace;
 	--radius: 0.625rem;
-	/* Dark mode already separates --background from --card (0.129 vs 0.208); light mode
+	/* Dark mode already separates --background from --card; light mode
 	   collapsing both to pure white is the asymmetry. This barely-there warm-neutral tint
 	   restores that separation so a --card surface reads as elevated without a border. */
 	--background: oklch(0.9925 0.001 70);
@@ -72,7 +72,7 @@
 	/* --muted is the selected/hover fill (toggle-group items, ghost hovers). At
 	   the shadcn default 0.968 it sat 0.025 L above --background, nearly
 	   invisible as a selection; 0.945 keeps it soft but clearly separates a
-	   selected tab from the page (dark mode's pair is 0.15 L apart). */
+	   selected tab from the page. */
 	--muted: oklch(0.945 0.007 247.896);
 	--muted-foreground: oklch(0.554 0.046 257.417);
 	--accent: oklch(0.968 0.007 247.896);
@@ -99,26 +99,29 @@
 }
 
 .dark {
-	--background: oklch(0.129 0.042 264.695);
-	--foreground: oklch(0.984 0.003 247.858);
-	--card: oklch(0.208 0.042 265.755);
-	--card-foreground: oklch(0.984 0.003 247.858);
-	--popover: oklch(0.208 0.042 265.755);
-	--popover-foreground: oklch(0.984 0.003 247.858);
-	--primary: oklch(0.929 0.013 255.508);
-	--primary-foreground: oklch(0.208 0.042 265.755);
-	--secondary: oklch(0.279 0.041 260.031);
-	--secondary-foreground: oklch(0.984 0.003 247.858);
-	--muted: oklch(0.279 0.041 260.031);
-	--muted-foreground: oklch(0.704 0.04 256.788);
-	--accent: oklch(0.279 0.041 260.031);
-	--accent-foreground: oklch(0.984 0.003 247.858);
+	/* shadcn-svelte Neutral: https://www.shadcn-svelte.com/docs/theming#neutral
+	   Checked 2026-10-08. Charcoal lifts page, card/popover, and secondary fills.
+	   The brighter ring preserves focus contrast on those lifted surfaces. */
+	--background: oklch(0.245 0 0);
+	--foreground: oklch(0.985 0 0);
+	--card: oklch(0.28 0 0);
+	--card-foreground: oklch(0.985 0 0);
+	--popover: oklch(0.28 0 0);
+	--popover-foreground: oklch(0.985 0 0);
+	--primary: oklch(0.922 0 0);
+	--primary-foreground: oklch(0.205 0 0);
+	--secondary: oklch(0.31 0 0);
+	--secondary-foreground: oklch(0.985 0 0);
+	--muted: oklch(0.31 0 0);
+	--muted-foreground: oklch(0.708 0 0);
+	--accent: oklch(0.31 0 0);
+	--accent-foreground: oklch(0.985 0 0);
 	--destructive: oklch(0.704 0.191 22.216);
 	--warning: oklch(0.769 0.188 70.08);
 	--success: oklch(0.64 0.169 145.386);
 	--border: oklch(1 0 0 / 10%);
 	--input: oklch(1 0 0 / 15%);
-	--ring: oklch(0.551 0.027 264.364);
+	--ring: oklch(0.65 0 0);
 	--chart-1: oklch(0.488 0.243 264.376);
 	--chart-2: oklch(0.696 0.17 162.48);
 	--chart-3: oklch(0.769 0.188 70.08);
