@@ -37,7 +37,7 @@
 			bind:value={sql}
 			spellcheck={false}
 			rows={4}
-			class="font-mono text-xs md:text-xs"
+			class="font-mono"
 			placeholder="SELECT … FROM invoices WHERE deleted = 0"
 			onkeydown={(e) => {
 				// Cmd/Ctrl+Enter runs, the muscle-memory of every SQL console.

@@ -1,6 +1,6 @@
 # Upstream component baselines
 
-These are the exact distributed registry responses compared during the Vega migration on 2026-09-24. Git preserves the saved JSON bytes. Registry files are review inputs; `@epicenter/ui` imports only the maintained components in `src/`. Generator placeholders such as `$UTILS$` and `$UI$` become package-relative imports when integrated.
+These are the exact distributed registry responses compared during the Vega migration. Vega responses were refreshed on 2026-10-08; extras retain the 2026-09-24 baseline. Git preserves the saved JSON bytes. Registry files are review inputs; `@epicenter/ui` imports only the maintained components in `src/`. Generator placeholders such as `$UTILS$` and `$UI$` become package-relative imports when integrated.
 
 | Family | Distributed response |
 | --- | --- |
@@ -58,9 +58,10 @@ The saved dependency metadata is evidence for a refresh, not an upgrade command.
 
 The intentional Epicenter differences and the caller reasons for them are in [`packages/ui/README.md`](../README.md#3-component-styling-and-epicenter-deltas). Subsequent refreshes replace a snapshot only as part of a reviewed component change.
 
-## Incoming changes outside this migration
+## October 8 refresh
 
-The October 8 comparison found changes since this baseline in Command disabled
-attributes, ContextMenu and DropdownMenu selection/portal behavior, Field slots,
-and Sidebar formatting. These five families were not refreshed here. Review
-the incoming behavior against callers in a separate component update.
+Command disabled attributes, ContextMenu and DropdownMenu selection/portal
+behavior, Field slots, and Sidebar formatting now match the current Vega
+responses. The other 34 Vega families were compared and their distributed
+source was unchanged. Exact raw responses remain review inputs, not runtime
+code or a promise to preserve older behavior.

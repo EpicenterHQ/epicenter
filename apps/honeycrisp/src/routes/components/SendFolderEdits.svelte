@@ -183,7 +183,6 @@
 	}}
 >
 	<AlertDialog.Content
-		class="max-w-2xl!"
 		onOpenAutoFocus={(event) => {
 			// Enter pushes. bits-ui focuses the first focusable, which is Cancel,
 			// and this dialog's whole shape is one approval of a list a person

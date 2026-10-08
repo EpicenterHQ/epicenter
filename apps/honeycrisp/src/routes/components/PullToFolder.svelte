@@ -180,7 +180,6 @@
 	}}
 >
 	<AlertDialog.Content
-		class="max-w-2xl!"
 		onOpenAutoFocus={(event) => {
 			// Enter pulls, the same way Enter pushes. Both verbs are one approval
 			// of a list a person just read (ADR-0341).

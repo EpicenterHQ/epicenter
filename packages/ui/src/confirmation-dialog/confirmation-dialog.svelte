@@ -174,7 +174,6 @@
 
 <AlertDialog.Root bind:open={confirmationDialog.isOpen}>
 	<AlertDialog.Content
-		class="sm:max-w-xl!"
 		onEscapeKeydown={(event) => {
 			event.preventDefault();
 			confirmationDialog.cancel();

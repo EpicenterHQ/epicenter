@@ -11,8 +11,10 @@ This package is a shared, vendored fork of **shadcn-svelte** (1.x) on the
 components. Apps import its public subpaths rather than installing separate
 copies of the same components.
 
-The intended baseline for a shadcn-svelte component is the Vega component a
-developer receives from the CLI. Compare each local component with a recorded
+The baseline for a shadcn-svelte component is the current Vega component a
+developer receives from the CLI. Upstream visual and interaction defaults may
+change during a refresh; matching the previous appearance is not an acceptance
+requirement. Compare each local component with a recorded
 upstream registry artifact. Keep differences that provide an explicit Epicenter
 contract or fix a demonstrated problem; record those differences here. Source
 import paths change to the package's relative imports. Extras follow the same
@@ -225,14 +227,15 @@ and should not be imported by apps.
 
 Keep each component's distributed Vega utilities in its maintained source file.
 Add a local utility or markup change only for a named caller or interaction.
-These differences survive this migration:
+The following differences remain reviewable, rather than permanent compatibility
+requirements:
 
 | Component | Epicenter difference | Reason |
 | --- | --- | --- |
-| Button and Link | `tooltip` prop and composed trigger props | Apps need one-label tooltips on buttons and links, including controls nested in popovers. Button also keeps anchor and disabled behavior, eight sizes, `ghost-destructive`, and the public `buttonVariants` export. |
-| Dialog and Drawer | Button close control, viewport scrolling, and Drawer content scroll wrapper | Long recording details remain usable, and mobile content can scroll without losing drag behavior. Installed Vaul `1.0.0-next.7` already suppresses autofocus by default. |
+| Button and Link | `tooltip` prop and composed trigger props | Apps need one-label tooltips on buttons and links, including controls nested in popovers. `ghost-destructive` remains for existing icon actions. Standard sizes and `buttonVariants` follow upstream. |
+| Dialog and Drawer | Viewport scrolling and Drawer content scroll wrapper | Long recording details remain usable, and mobile content can scroll without losing drag behavior. Installed Vaul `1.0.0-next.7` already suppresses autofocus by default. |
 | Modal | One responsive Dialog or Drawer with a shared open state | Forms use Dialog on desktop and a draggable Drawer below 768px. |
-| Menus and Select | Translucent surfaces, menu item state styling, logical submenu slides, and Select's minimum-content width | Shared menu appearance and long, scrollable app menus. |
+| Menus and Select | Current distributed defaults | Upstream owns surfaces, destructive states, animations, selection behavior, and submenu portals. Honeycrisp’s folder-list caller supplies its scroll cap so every folder remains reachable. |
 | Table | Hover fills cells rather than the row | Svelte's row wrapper and opaque cells otherwise hide the hover fill. |
 | Item and Sidebar | Truncation, icon media, inset shrink behavior, item actions overlay, and the same offcanvas Sidebar at narrow widths | Rows and sidebars fit narrow flex layouts while retaining the shared actions control. Sidebar preserves the existing navigation structure instead of adopting upstream’s separate mobile Sheet. |
 | Alert and Badge | Warning, ID, status, success, and destructive variants | Apps use these semantic states. |
@@ -247,7 +250,6 @@ Vega state selectors.
 
 The distributed registry still includes unresolved `cn-font-heading` and
 `cn-menu-*` hooks in some files. The maintained package omits those inert hooks;
-its menu surface utilities share the package-private `menuSurface` value.
 `shadcn-base.css` retains the upstream data variants, utilities, and animations
 used by the components.
 
@@ -257,11 +259,13 @@ For an upstream refresh, fetch the distributed Vega response, save its exact
 JSON under [`upstream/`](upstream/README.md), and compare it with the
 maintained component and real callers. The registry contains generator imports
 such as `$UTILS$`; normalize them to package-relative imports. Review dependency
-requests and preserve the differences above when they still have callers.
+requests. Reconsider each local difference against the incoming implementation;
+a caller alone does not establish that an old workaround is still necessary.
 
-Check a consuming app at desktop and narrow widths. Inline utilities can alter
-which caller width or state class wins. Update the snapshot and the reason for
-any surviving local difference in the same change. Do not add a runtime vendor
+Check a consuming app at desktop and narrow widths. Verify that the person can
+complete the task; changed geometry alone does not establish a regression.
+Remove obsolete caller overrides when upstream defaults meet that task. Update
+the snapshot and the reason for any surviving local difference in the same change. Do not add a runtime vendor
 tree, patch generator, or per-app component copy.
 
 ### Import Path Convention

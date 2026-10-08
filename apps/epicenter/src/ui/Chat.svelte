@@ -130,7 +130,7 @@
 			class="max-h-[30vh] flex-none overflow-y-auto px-3 pb-2"
 			aria-label="Direct runs"
 		>
-			<Item.Group class="gap-1.5!">
+			<Item.Group>
 				{#each [...session.invocations].reverse() as invocation (invocation.id)}
 					<Item.Root variant="outline" size="sm">
 						<Item.Content>
