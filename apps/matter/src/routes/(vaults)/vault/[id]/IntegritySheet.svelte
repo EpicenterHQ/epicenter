@@ -72,7 +72,7 @@
 			</Button>
 		{/snippet}
 	</Sheet.Trigger>
-	<Sheet.Content class="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
+	<Sheet.Content class="flex w-full! flex-col gap-0 p-0 sm:max-w-lg!">
 		<Sheet.Header class="border-b px-5 py-4 text-left">
 			<Sheet.Title>Vault integrity</Sheet.Title>
 			<Sheet.Description>
@@ -91,7 +91,7 @@
 					</Empty.Description>
 				</Empty.Root>
 			{:else}
-				<Item.Group class="gap-2">
+				<Item.Group class="gap-2!">
 					{#each fatals as table (table.name)}
 						<Item.Root variant="outline" size="sm" role="listitem">
 							<Item.Content>

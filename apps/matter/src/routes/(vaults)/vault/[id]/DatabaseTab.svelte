@@ -51,7 +51,7 @@
 					Copy the database path or open it with the SQLite CLI.
 				</SectionHeader.Description>
 			</SectionHeader.Root>
-			<Item.Group class="gap-2">
+			<Item.Group class="gap-2!">
 				<Item.Root variant="outline" size="sm">
 					<Item.Media variant="icon"><DatabaseIcon /></Item.Media>
 					<Item.Content class="min-w-0">

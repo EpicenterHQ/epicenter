@@ -100,7 +100,7 @@
 				if (v) selectedRange = v as Range;
 			}}
 		>
-			<Select.Trigger class="w-[120px] h-8 text-xs">
+			<Select.Trigger size="sm" class="w-[120px] text-xs">
 				{rangeOptions.find((o) => o.value === selectedRange)?.label}
 			</Select.Trigger>
 			<Select.Content>
