@@ -1,28 +1,48 @@
-# UI Package Guide
+# UI package guide
 
-This guide explains the UI package import boundary, the shadcn-svelte style
-system it uses, and the component update workflow.
+This guide explains the UI package's shared contract, current styling, and
+component update workflow. The proposed distribution baseline is recorded in
+[ADR-0453](../../docs/adr/0453-epicenter-ui-tracks-distributed-shadcn-svelte-components-with-explicit-deltas.md).
 
-## Component Library Overview
+## Component library overview
 
-This package is a vendored fork of **shadcn-svelte** (1.x) on the **Vega**
-preset, plus a few **shadcn-svelte-extras** and Epicenter-specific components.
+This package is a shared, vendored fork of **shadcn-svelte** (1.x) on the
+**Vega** preset, plus selected **shadcn-svelte-extras** and Epicenter-owned
+components. Apps import its public subpaths rather than installing separate
+copies of the same components.
 
-It uses shadcn-svelte's `cn-*` style system: component markup carries semantic
-hook classes (`cn-button-variant-default`, `cn-dialog-content`) and the actual
-styling lives in CSS:
+The intended baseline for a shadcn-svelte component is the Vega component a
+developer receives from the CLI. Compare each local component with a recorded
+upstream registry artifact. Keep differences that provide an explicit Epicenter
+contract or fix a demonstrated problem; record those differences here. Source
+import paths change to the package's relative imports. Extras follow the same
+rule using their own distributed components as the baseline.
 
-- `src/styles/style-vega.css` (vendored): the Vega preset. All `cn-*` rules,
-  scoped under `.style-vega`.
-- `src/styles/shadcn-base.css` (vendored): the upstream base (data-* custom
-  variants, `no-scrollbar`, accordion keyframes) the `cn-*` rules depend on.
-- `src/styles/epicenter-overlay.css`: Epicenter style deltas (custom variants
-  and per-component overrides). The single place our styling diverges from Vega.
+The maintained components carry Vega utilities in their own files. The exact
+registry responses and SHA-256 digests used for this migration live under
+[`upstream/`](upstream/README.md). They are comparison inputs, not runtime code.
 
-Apps activate the preset with `class="style-vega"` on their root element; the
-`cn-*` rules are scoped under it, so without the class nothing is styled. The
-preset is a one-class swap (e.g. to `style-rhea`). Background and rationale:
-`specs/20260606T160000-ui-shadcn-cn-style-migration-vega.md`.
+### Epicenter house style
+
+Vega supplies the component geometry. `app.css` supplies Epicenter's Geist
+fonts and semantic color tokens. Apps compose the same `@epicenter/ui`
+components, adding product-specific layout and behavior at their call sites.
+
+`Button` and `Link` accept `tooltip` for a simple label. Import
+`@epicenter/ui/tooltip` when another element is the trigger or the tooltip
+needs composed content. Each app places one `Tooltip.Provider` around its root
+content. The provider owns the shared 300 ms opening delay and 150 ms skip
+delay. A nested provider creates a separate hover group rather than changing
+the app-wide timing.
+
+An Epicenter change to an upstream component must have a named caller,
+interaction, or shared theme decision behind it. Current examples include
+Button tooltip composition, Drawer scrolling and focus behavior, and component
+variants listed under
+[Current Epicenter deltas](#current-epicenter-deltas). These are package
+contracts to check during an upstream refresh.
+
+### Styling
 
 `src/app.css` owns the shared color tokens. Dark mode uses shadcn-svelte's
 [Neutral palette](https://www.shadcn-svelte.com/docs/theming#neutral) with a
@@ -30,7 +50,13 @@ charcoal lift for the page, cards/popovers, secondary fills, and focus ring.
 Seven existing token values differ from Neutral; no theme variables are added.
 Light mode, sidebar colors, and status/chart colors retain their existing values.
 
-## Design Stance
+
+`src/app.css` supplies Geist fonts, semantic tokens, and the upstream data
+variants and animations from `src/styles/shadcn-base.css`. Components own their
+Vega utility classes. Apps import `@epicenter/ui/app.css`; no app root class is
+needed to activate the components.
+
+## Design stance
 
 This package is the shared Epicenter product system, not a place for one-off app
 branding. Its job is to make product UI consistent, accessible, and easy to
@@ -133,7 +159,7 @@ A new primitive belongs in `packages/ui` only when it is stable, visual, and
 shared. If it depends on one app's data model, persistence, or product policy,
 keep it in the app and compose UI primitives there.
 
-## Key Differences from Standard shadcn-svelte
+## Key differences from standard shadcn-svelte
 
 ### 1. Import Boundary
 
@@ -195,126 +221,47 @@ Every `packages/ui/src/<folder>/index.ts` file is a public
 `@epicenter/ui/<folder>` subpath. Raw `.svelte` files are private to the package
 and should not be imported by apps.
 
-### 3. Styling: the overlay, not inline overrides
+### 3. Component styling and Epicenter deltas
 
-Component styling lives in `cn-*` classes, not inline Tailwind. Keep component
-markup byte-identical to upstream Vega so it stays trivially re-vendorable, and
-put every Epicenter style delta in `src/styles/epicenter-overlay.css`.
+Keep each component's distributed Vega utilities in its maintained source file.
+Add a local utility or markup change only for a named caller or interaction.
+These differences survive this migration:
 
-**Custom variants** (no upstream equivalent) become a `cn-*` class. Example, the
-button `ghost-destructive` variant:
+| Component | Epicenter difference | Reason |
+| --- | --- | --- |
+| Button and Link | `tooltip` prop and composed trigger props | Apps need one-label tooltips on buttons and links, including controls nested in popovers. Button also keeps anchor and disabled behavior, eight sizes, `ghost-destructive`, and the public `buttonVariants` export. |
+| Dialog and Drawer | Button close control, viewport scrolling, and Drawer content scroll wrapper | Long recording details remain usable, and mobile content can scroll without losing drag behavior. Installed Vaul `1.0.0-next.7` already suppresses autofocus by default. |
+| Modal | One responsive Dialog or Drawer with a shared open state | Forms use Dialog on desktop and a draggable Drawer below 768px. |
+| Menus and Select | Translucent surfaces, menu item state styling, logical submenu slides, and Select's minimum-content width | Shared menu appearance and long, scrollable app menus. |
+| Table | Hover fills cells rather than the row | Svelte's row wrapper and opaque cells otherwise hide the hover fill. |
+| Item and Sidebar | Truncation, icon media, inset shrink behavior, and item actions overlay | Rows and sidebars fit narrow flex layouts while retaining the shared actions control. |
+| Alert and Badge | Warning, ID, status, success, and destructive variants | Apps use these semantic states. |
+| Resizable | Spacing between panes | Adjacent panes need separation in current app layouts. |
+| Extras | Local imports and the same shared tokens; Link's tooltip and Modal's responsive behavior above | Extras ship from a separate registry and keep their own baselines. |
 
-```css
-/* epicenter-overlay.css, under .style-vega */
-.cn-button-variant-ghost-destructive {
-	@apply text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20;
-}
-```
+Other structural choices with live callers remain in their components: the
+span-or-anchor Badge, ScrollArea viewport ring, Resizable handle, and the
+standard Loading shell. `switch` and `alert-dialog` emit `data-size`; sidebar
+menu controls emit `data-active` only when active. These attributes feed the
+Vega state selectors.
 
-```svelte
-// button.svelte tv()
-'ghost-destructive': 'cn-button-variant-ghost-destructive',
-```
+The distributed registry still includes unresolved `cn-font-heading` and
+`cn-menu-*` hooks in some files. The maintained package omits those inert hooks;
+its menu surface utilities are explicit. `shadcn-base.css` retains the upstream
+data variants, utilities, and animations used by the components.
 
-**Per-component overrides** redefine the Vega `cn-*` class. The overlay is
-imported after `style-vega.css` (same `layer(base)`), so a same-specificity rule
-here wins:
+## Component management workflow
 
-```css
-.cn-select-content { @apply max-w-min; }
-```
+For an upstream refresh, fetch the distributed Vega response, save its exact
+JSON and digest under [`upstream/`](upstream/README.md), and compare it with the
+maintained component and real callers. The registry contains generator imports
+such as `$UTILS$`; normalize them to package-relative imports. Review dependency
+requests and preserve the differences above when they still have callers.
 
-**Invariant:** every `cn-*` class a component emits must be defined in
-`style-vega.css` or `epicenter-overlay.css`. An undefined `cn-*` class is a dead
-no-op; do not emit one.
-
-Two kinds of delta stay inline, by necessity:
-
-- **Utilities-layer overrides** of a property Vega sets inline in the component
-  (notably z-index). A base-layer `@apply` cannot beat a utilities-layer inline
-  utility, so override inline, or use `@apply ...!` in the overlay.
-- **Structural divergences** (extra wrapper elements, `<svelte:element>`, an
-  injected actions overlay) are markup, not CSS, and live in the component.
-
-### Current Epicenter deltas
-
-`epicenter-overlay.css` is the self-documenting source of truth for **custom
-variants** (button `ghost-destructive`, alert `warning`, badge
-`id`/`success`/`status.*`) and **per-component overrides** (`cn-table-row`,
-`cn-select-content`, `cn-dialog-content`, `cn-resizable-panel-group`,
-`cn-sidebar-inset`, `cn-item-*`, `cn-item-media-variant-icon`). Each block is
-commented there.
-
-The deltas that must stay **inline** (structural markup, or a property Vega sets
-inline that a base-layer rule cannot beat) are listed here so they are not lost
-on a re-vendor:
-
-| Inline delta | File | Why it stays inline | Still needed? |
-|---|---|---|---|
-| `relative` + `[a]:hover:bg-accent/50` on the item base | `item/item.svelte` | positioning context for the actions overlay; accent hover uses an arbitrary `[a&]`-style selector | yes |
-| Scroll wrapper `<div class="flex-1 overflow-y-auto">` | `drawer/drawer-content.svelte` | structural (extra element) | yes |
-| `onOpenAutoFocus` preventDefault | `drawer/drawer-content.svelte` | workaround for vaul-svelte vs bits-ui 2.x focus recursion | remove when vaul-svelte supports bits-ui 2.x |
-| Viewport ring/outline styling | `scroll-area/scroll-area.svelte` | Vega has no `cn-scroll-area-viewport` | until Vega defines it |
-| Handle base styling | `resizable/resizable-handle.svelte` | Vega has no `cn-resizable-handle` (only `-icon`) | until Vega defines it |
-| `<svelte:element>` span-or-anchor | `badge/badge.svelte` | structural (element choice) | yes |
-| `showOnHover` actions overlay | `item/item-actions.svelte` | structural (absolute overlay + gradient) | yes |
-| `tooltip` prop (wraps in `Tooltip`) | `button/button.svelte`, `link/link.svelte` | Epicenter feature; upstream Button and Link have none | yes |
-| Standard loading shell | `loading/loading.svelte` | Epicenter wrapper around `Empty.Root` + `Spinner` for generic pending panes | yes |
-| Portal and available-height limit | `context-menu/context-menu-sub-content.svelte` | lets long folder menus scroll without being clipped by their parent; Bits submenus expose `--bits-menu-content-*` variables | yes |
-| Orientation sizing `data-[orientation=horizontal]:h-px …` | `separator/separator.svelte` | byte-identical to upstream; the size is gated on a Tailwind variant, which only attaches to real utilities. Routing it through `cn-separator-horizontal` (a plain class, not an `@utility`) makes the variant emit nothing, so the divider collapses (a fat bar inside `field-separator`, 0px standalone). Do **not** cn-ify it. | yes |
-
-Correctness wiring (making Vega work, not Epicenter style): `switch` and
-`alert-dialog` carry a `size` prop that emits `data-size`; sidebar menu and
-sub-menu buttons emit `data-active` only when active. Keep these.
-
-## Component Management Workflow
-
-Components are (mostly) byte-identical to upstream shadcn-svelte Vega markup, so
-updates are a careful copy plus a translation step.
-
-### Upstream comparison baseline
-
-On 2026-09-22, Dialog, Sheet, and Select were compared with shadcn-svelte commit
-[`6b5914a`](https://github.com/huntabyte/shadcn-svelte/tree/6b5914aac9c142a1eff3604995b3cb94eda2f933).
-Dialog and Sheet close controls compose the shared ghost icon Button, and
-Select's popup uses Bits UI's available height and transform origin.
-Other component markup and the preset CSS were not refreshed; their
-original upstream revision is unrecorded.
-
-DropdownMenu also caps its height at Bits UI's available height. Callers that
-set a tighter maximum must combine both limits with `min()`, as Local Mail's
-label menu does, because caller classes replace the default maximum.
-
-For future refreshes, record the source commit and the components updated here.
-Review markup and preset CSS together: upstream can move structural utilities
-between them. In particular, that revision's Drawer moves positioning and size
-constraints from the preset into its markup, so replacing only the preset would
-remove constraints from our current Drawer.
-
-### Updating or adding a component
-
-1. Copy the component's `cn-*` Vega markup from upstream shadcn-svelte (or
-   generate it in a scratch project pinned to a 1.x version).
-2. Normalize imports to relative paths (`../utils.js`, `../button/index.js`).
-   The committed package has no generator aliases.
-3. Strip `IconPlaceholder`; use direct `@lucide/svelte/icons/*` imports.
-4. Move every Epicenter style delta into `epicenter-overlay.css` (see Styling
-   above). Do not leave inline override args stacked on a `cn-*` class.
-5. Confirm the invariant: every `cn-*` class the component emits is defined.
-6. Run `bun run check:ui-boundary` and build a consuming app.
-
-### Re-vendoring the whole preset
-
-To pull a newer Vega, replace `src/styles/style-vega.css` (and `shadcn-base.css`
-if the base changed) with the upstream file, then re-check the invariant. Newly
-defined `cn-*` classes may let you drop overlay overrides; newly emitted hooks in
-components may need definitions.
-
-### Do NOT
-
-- Regenerate with the shadcn-svelte CLI and copy blindly. It pulls
-  `IconPlaceholder` and generator aliases, and reintroduces the inline form.
-- Stack inline Tailwind overrides on top of a `cn-*` class. Use the overlay.
+Check a consuming app at desktop and narrow widths. Inline utilities can alter
+which caller width or state class wins. Update the snapshot and the reason for
+any surviving local difference in the same change. Do not add a runtime vendor
+tree, patch generator, or per-app component copy.
 
 ### Import Path Convention
 
@@ -346,8 +293,7 @@ inventory is grouped by job so it does not duplicate `ls`.
 - Content and app widgets: `avatar`, `chart`, `chat`, `copy-button`,
   `emoji-picker`, `github-button`, `kbd`, `light-switch`, `link`, `loading`,
   `markdown`, `pm-command`, `progress`, `snippet`, `star-rating`.
-- Styles: `styles/shadcn-base.css`, `styles/style-vega.css`,
-  `styles/epicenter-overlay.css`, `prose.css`, and `app.css`.
+- Styles: `styles/shadcn-base.css`, `prose.css`, and `app.css`.
 
 Add a folder only when the component is a shared visual primitive or stable
 product widget. App-owned behavior should stay in the app and compose these
@@ -357,9 +303,8 @@ parts.
 
 1. **Keep Components Pure**: no business logic in UI components.
 2. **Use Barrel Exports**: each component folder has an `index.ts`.
-3. **Style in the overlay**: Epicenter deltas go in `epicenter-overlay.css`, not
-   inline on the component, unless they must stay inline (see Styling).
-4. **Hold the invariant**: never emit a `cn-*` class that is not defined.
+3. **Keep the comparison local**: component utilities stay in their source files;
+   record intentional differences from the saved distributed baseline.
 5. **Consistent Imports**: relative inside `packages/ui/src`; `@epicenter/ui`
    only from consumers outside this package.
 
@@ -395,22 +340,17 @@ If imports are not resolving:
 2. Ensure your IDE recognizes the package's TypeScript config.
 3. Restart the TypeScript language server.
 
-### Style Conflicts
+### Style conflicts
 
-If a custom style is not applying:
-
-1. Confirm the rule is in `epicenter-overlay.css` (imported after
-   `style-vega.css`, so it wins at equal specificity).
-2. If you are overriding a value Vega sets inline in the component (e.g.
-   z-index), a base-layer `@apply` will not win: override inline or use
-   `@apply ...!`.
-3. Confirm the app root carries `class="style-vega"`; without it the `cn-*`
-   rules do not apply at all.
+Check the component's `cn()` call and the caller's class at the rendered
+viewport and state. Responsive utilities such as `sm:max-w-md` can outrank an
+unprefixed caller class. Put an override in the matching variant when the
+caller owns that width or color.
 
 ### Component Updates
 
 When updating breaks functionality:
 
 1. Check the shadcn-svelte changelog.
-2. Review the overlay and any inline overrides.
+2. Compare the saved registry artifact with the component's local behavior and classes.
 3. Build a consuming app before committing.

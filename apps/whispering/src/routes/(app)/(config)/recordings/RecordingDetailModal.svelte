@@ -153,7 +153,7 @@
 		{/snippet}
 	</Modal.Trigger>
 	<Modal.Content
-		class="max-w-2xl"
+		class="sm:max-w-2xl"
 		onEscapeKeydown={(e) => {
 			e.preventDefault();
 			if (isDialogOpen) promptUserConfirmLeave();

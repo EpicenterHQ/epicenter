@@ -48,7 +48,7 @@
 	>
 		<PlusIcon class="size-3.5" />
 	</Button>
-	<Dialog.Content class="max-w-sm">
+	<Dialog.Content class="max-w-sm sm:max-w-sm">
 		<Dialog.Header>
 			<Dialog.Title>New Skill</Dialog.Title>
 			<Dialog.Description

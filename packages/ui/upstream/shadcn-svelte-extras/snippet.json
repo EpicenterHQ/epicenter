@@ -1,0 +1,27 @@
+{
+	"$schema": "https://shadcn-svelte.com/schema/registry-item.json",
+	"name": "snippet",
+	"title": "Snippet",
+	"type": "registry:ui",
+	"description": "A snippet component for displaying code snippets, command snippets, text snippets, with copy functionality, variants, and multiline support.",
+	"devDependencies": [
+		"tailwind-variants@^3.2.2"
+	],
+	"registryDependencies": [
+		"./utils.json",
+		"./copy-button.json",
+		"./use-clipboard.json"
+	],
+	"files": [
+		{
+			"content": "import Snippet from './snippet.svelte';\n\nexport { Snippet };\n",
+			"type": "registry:ui",
+			"target": "snippet/index.ts"
+		},
+		{
+			"content": "<script lang=\"ts\" module>\n\timport { cn } from '$UTILS$.js';\n\timport { tv, type VariantProps } from 'tailwind-variants';\n\timport { CopyButton } from '../copy-button';\n\timport type { UseClipboard } from '$HOOKS$/use-clipboard.svelte';\n\n\tconst style = tv({\n\t\tbase: 'bg-background relative w-full max-w-full rounded-md border py-2.5 pr-12 pl-3',\n\t\tvariants: {\n\t\t\tvariant: {\n\t\t\t\tdefault: 'border-border bg-card',\n\t\t\t\tsecondary: 'border-border bg-accent',\n\t\t\t\tdestructive: 'border-destructive bg-destructive',\n\t\t\t\tprimary: 'border-primary bg-primary text-primary-foreground'\n\t\t\t}\n\t\t}\n\t});\n\n\ttype Variant = VariantProps<typeof style>['variant'];\n\n\texport type SnippetProps = {\n\t\tvariant?: Variant;\n\t\ttext: string | string[];\n\t\tclass?: string;\n\t\tonCopy?: (status: UseClipboard['status']) => void;\n\t};\n</script>\n\n<script lang=\"ts\">\n\tlet { text, variant = 'default', onCopy, class: className }: SnippetProps = $props();\n</script>\n\n<div class={cn(style({ variant, className: className }))}>\n\t{#if typeof text == 'string'}\n\t\t<pre class={cn('overflow-y-auto text-left font-mono text-sm font-light whitespace-nowrap')}>\n\t\t\t{text}\n\t\t</pre>\n\t{:else}\n\t\t{#each text as line, i (i)}\n\t\t\t<pre class={cn('overflow-y-auto text-left font-mono text-sm font-light whitespace-nowrap')}>\n\t\t\t{line}\n\t\t</pre>\n\t\t{/each}\n\t{/if}\n\n\t<CopyButton\n\t\tclass=\"hover:text-opacity-80 absolute top-1/2 right-2 size-7 -translate-y-1/2 transition-opacity ease-in-out hover:bg-transparent dark:hover:bg-transparent\"\n\t\ttext={typeof text === 'string' ? text : text.join('\\n')}\n\t\t{onCopy}\n\t/>\n</div>\n",
+			"type": "registry:ui",
+			"target": "snippet/snippet.svelte"
+		}
+	]
+}

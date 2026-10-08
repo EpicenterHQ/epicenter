@@ -1,0 +1,30 @@
+{
+	"$schema": "https://shadcn-svelte.com/schema/registry-item.json",
+	"name": "pm-command",
+	"title": "PmCommand",
+	"type": "registry:ui",
+	"description": "A package manager command component for displaying npm, pnpm, yarn, bun commands, install commands, package manager instructions, and copyable command snippets.",
+	"devDependencies": [
+		"tailwind-variants@^3.2.2",
+		"package-manager-detector@^1.6.0",
+		"@lucide/svelte@^1.7.0"
+	],
+	"registryDependencies": [
+		"./utils.json",
+		"./copy-button.json",
+		"./shadcn-svelte-tooltip.json",
+		"./shadcn-svelte-tabs.json"
+	],
+	"files": [
+		{
+			"content": "import PMCommand from './pm-command.svelte';\n\nexport { PMCommand };\n",
+			"type": "registry:ui",
+			"target": "pm-command/index.ts"
+		},
+		{
+			"content": "<script lang=\"ts\" module>\n\timport { tv, type VariantProps } from 'tailwind-variants';\n\n\tconst style = tv({\n\t\tbase: 'border-border w-full rounded-lg border',\n\t\tvariants: {\n\t\t\tvariant: {\n\t\t\t\tdefault: 'bg-card',\n\t\t\t\tsecondary: 'bg-secondary/50 border-transparent'\n\t\t\t}\n\t\t}\n\t});\n\n\ttype Variant = VariantProps<typeof style>['variant'];\n\n\texport type PMCommandProps = {\n\t\tvariant?: Variant;\n\t\tclass?: string;\n\t\tagents?: Agent[];\n\t\tagent?: Agent;\n\t\tcommand: Command;\n\t\targs: string[];\n\t};\n</script>\n\n<script lang=\"ts\">\n\timport { cn } from '$UTILS$.js';\n\timport type { Command, Agent } from 'package-manager-detector';\n\timport { resolveCommand } from 'package-manager-detector/commands';\n\timport CopyButton from '../copy-button/copy-button.svelte';\n\timport ClipboardIcon from '@lucide/svelte/icons/clipboard';\n\timport TerminalIcon from '@lucide/svelte/icons/terminal';\n\timport * as Tooltip from '$COMPONENTS$/ui/tooltip';\n\timport * as Tabs from '$COMPONENTS$/ui/tabs';\n\n\tlet {\n\t\tvariant = 'default',\n\t\tclass: className,\n\t\tcommand,\n\t\tagents = ['npm', 'pnpm', 'yarn', 'bun'],\n\t\targs,\n\t\tagent = $bindable('npm')\n\t}: PMCommandProps = $props();\n\n\tconst cmd = $derived(resolveCommand(agent, command, args));\n\n\tconst commandText = $derived(`${cmd?.command} ${cmd?.args.join(' ')}`);\n</script>\n\n<div data-slot=\"pm-command\" class={cn(style({ variant }), className)}>\n\t<div class=\"border-border flex place-items-center justify-between gap-2 border-b py-1 pr-2\">\n\t\t<div class=\"flex place-items-center gap-2 px-2\">\n\t\t\t<div class=\"bg-foreground flex size-4 place-items-center justify-center opacity-50\">\n\t\t\t\t<TerminalIcon class=\"text-background size-3\" />\n\t\t\t</div>\n\t\t\t<Tabs.Root bind:value={agent}>\n\t\t\t\t<Tabs.List class=\"h-auto bg-transparent p-0\">\n\t\t\t\t\t{#each agents as pm (pm)}\n\t\t\t\t\t\t<Tabs.Trigger value={pm} class=\"h-7 font-mono text-sm font-light\">\n\t\t\t\t\t\t\t{pm}\n\t\t\t\t\t\t</Tabs.Trigger>\n\t\t\t\t\t{/each}\n\t\t\t\t</Tabs.List>\n\t\t\t</Tabs.Root>\n\t\t</div>\n\t\t<Tooltip.Provider delayDuration={0}>\n\t\t\t<Tooltip.Root>\n\t\t\t\t<Tooltip.Trigger>\n\t\t\t\t\t{#snippet child({ props })}\n\t\t\t\t\t\t<CopyButton {...props} text={commandText} tabindex={-1} class=\"size-6 [&_svg]:size-3\">\n\t\t\t\t\t\t\t{#snippet icon()}\n\t\t\t\t\t\t\t\t<ClipboardIcon />\n\t\t\t\t\t\t\t{/snippet}\n\t\t\t\t\t\t</CopyButton>\n\t\t\t\t\t{/snippet}\n\t\t\t\t</Tooltip.Trigger>\n\t\t\t\t<Tooltip.Content>Copy to Clipboard</Tooltip.Content>\n\t\t\t</Tooltip.Root>\n\t\t</Tooltip.Provider>\n\t</div>\n\t<div class=\"no-scrollbar overflow-x-auto p-3\">\n\t\t<span class=\"text-muted-foreground font-mono text-sm leading-none font-light text-nowrap\">\n\t\t\t{commandText}\n\t\t</span>\n\t</div>\n</div>\n\n<style>\n\t.no-scrollbar {\n\t\t-ms-overflow-style: none; /* IE and Edge */\n\t\tscrollbar-width: none; /* Firefox */\n\t}\n</style>\n",
+			"type": "registry:ui",
+			"target": "pm-command/pm-command.svelte"
+		}
+	]
+}

@@ -23,7 +23,7 @@
 	{...restProps}
 >
 	{#if withHandle}
-		<div class="cn-resizable-handle-icon z-10 flex shrink-0">
+		<div class="bg-border h-6 w-1 rounded-lg z-10 flex shrink-0">
 			<GripVerticalIcon class="size-2.5" />
 		</div>
 	{/if}

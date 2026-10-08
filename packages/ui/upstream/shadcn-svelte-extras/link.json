@@ -1,0 +1,22 @@
+{
+	"$schema": "https://shadcn-svelte.com/schema/registry-item.json",
+	"name": "link",
+	"title": "Link",
+	"type": "registry:ui",
+	"description": "A link component for navigation, anchor links, hyperlinks, styled links, with variants, external link indicators, and active states.",
+	"registryDependencies": [
+		"./utils.json"
+	],
+	"files": [
+		{
+			"content": "import Link from './link.svelte';\n\nexport { Link };\n",
+			"type": "registry:ui",
+			"target": "link/index.ts"
+		},
+		{
+			"content": "<script lang=\"ts\">\n\timport { cn } from '$UTILS$.js';\n\timport type { HTMLAnchorAttributes } from 'svelte/elements';\n\n\tlet { children, class: className, ...rest }: HTMLAnchorAttributes = $props();\n</script>\n\n<a {...rest} class={cn('text-foreground font-medium underline underline-offset-4', className)}>\n\t{@render children?.()}\n</a>\n",
+			"type": "registry:ui",
+			"target": "link/link.svelte"
+		}
+	]
+}

@@ -114,7 +114,7 @@
 	<div
 		bind:this={ref}
 		class={cn(
-			"cn-chart-tooltip grid min-w-[9rem] items-start",
+			"border-border/50 bg-background gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl grid min-w-[9rem] items-start",
 			className
 		)}
 		{...restProps}

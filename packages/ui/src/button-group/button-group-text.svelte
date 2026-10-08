@@ -15,7 +15,7 @@
 	const mergedProps = $derived({
 		...restProps,
 		class: cn(
-			'cn-button-group-text flex items-center [&_svg]:pointer-events-none',
+			"bg-muted gap-2 rounded-md border px-2.5 text-sm font-medium shadow-xs [&_svg:not([class*='size-'])]:size-4 flex items-center [&_svg]:pointer-events-none",
 			className,
 		),
 	});
