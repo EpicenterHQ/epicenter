@@ -3,12 +3,20 @@
 	import { ModeWatcher } from 'mode-watcher';
 	import { onNavigate } from '$app/navigation';
 	import { FlushEditsOnHide } from '@epicenter/svelte';
+	import { reloadOnAuthChange } from '@epicenter/auth/svelte';
+	import { authClient } from '#platform/auth';
+	import { whisperingPath } from '$lib/constants/urls';
 	import '@epicenter/ui/app.css';
 	// Whispering's brand overrides, layered after the shared theme so they win.
 	// Keep this import last among the stylesheets.
 	import '../app.css';
 
 	let { children } = $props();
+
+	$effect(() => reloadOnAuthChange(authClient, {
+		callbackPath: whisperingPath('/auth/callback'),
+		callbackDestination: whisperingPath('/'),
+	}));
 
 	// The root layout serves every surface: the (app) group, the auth
 	// callback, and the recording-overlay webview. It owns chrome only; the

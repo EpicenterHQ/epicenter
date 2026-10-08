@@ -10,6 +10,7 @@ import {
 	type WhisperingApp,
 	type WhisperingAppDependencies,
 } from './app';
+import { createRecordingEditor } from './recording-editor.js';
 
 function createWhisperingUiSession(core: WhisperingApp) {
 	const app: WhisperingApp = {
@@ -23,13 +24,16 @@ function createWhisperingUiSession(core: WhisperingApp) {
 	// A capture can end without anyone asking, including while no screen is
 	// mounted, so the reaction belongs to the session rather than to a component.
 	watchManualRecordingEnded(app);
+	const recordingEditor = createRecordingEditor(core.recordings);
 	let disposal: Promise<void> | undefined;
 
 	return {
 		app,
 		queries,
+		recordingEditor,
 		queryClient: queryRuntime.queryClient,
 		[Symbol.asyncDispose]() {
+			recordingEditor[Symbol.dispose]();
 			disposal ??= (async () => {
 				try {
 					await pushToTalk.dispose(app);

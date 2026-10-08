@@ -25,6 +25,8 @@
 		app: session.app,
 		/* svelte-ignore state_referenced_locally */
 		queries: session.queries,
+		/* svelte-ignore state_referenced_locally */
+		recordingEditor: session.recordingEditor,
 	});
 </script>
 

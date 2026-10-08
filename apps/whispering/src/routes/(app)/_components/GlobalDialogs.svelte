@@ -4,6 +4,7 @@
 	import MacosAccessibilityGuideDialog from '$lib/components/MacosAccessibilityGuideDialog.svelte';
 	import MoreDetailsDialog from '$lib/components/MoreDetailsDialog.svelte';
 	import RecipePicker from '$lib/components/RecipePicker.svelte';
+	import RecordingDetailModal from '../(config)/recordings/RecordingDetailModal.svelte';
 </script>
 
 <!--
@@ -16,6 +17,7 @@
 <MacosAccessibilityGuideDialog />
 <MoreDetailsDialog />
 <RecipePicker />
+<RecordingDetailModal />
 
 {#if import.meta.env.DEV}
 	<DevAccessibilityToggle />

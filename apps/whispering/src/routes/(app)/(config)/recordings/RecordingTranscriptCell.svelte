@@ -5,10 +5,12 @@
 	import type { RecordingId } from '$lib/workspace';
 	import { createCopyFn } from '$lib/utils/createCopyFn';
 	import { viewTransition } from '$lib/utils/viewTransitions';
-	import RecordingDetailModal from './RecordingDetailModal.svelte';
-	import { getWhisperingApp } from '$lib/whispering/context';
+	import { fromSubscription } from '@epicenter/svelte';
+	import { getWhisperingApp, getRecordingEditor } from '$lib/whispering/context';
 
 	const app = getWhisperingApp();
+	const editor = getRecordingEditor();
+	const editorState = fromSubscription(editor.subscribe, () => editor.state);
 
 	/**
 	 * The transcript column cell. Shows the transcript inline (or an "Empty
@@ -32,22 +34,20 @@
 
 {#if recording}
 	<InputGroup.Root>
-		<RecordingDetailModal {recording}>
-			{#snippet trigger(props)}
-				<textarea
-					{...props}
-					data-slot="input-group-control"
-					class="flex-1 min-w-0 resize-none rounded-none border-0 bg-transparent py-2 px-3 shadow-none focus-visible:ring-0 focus:outline-none dark:bg-transparent text-sm leading-snug hover:cursor-pointer hover:bg-accent/50 transition-colors min-h-0"
-					readonly
-					value={transcript}
-					placeholder="Empty transcript, click to open"
-					style:view-transition-name={viewTransition.recording(recordingId)
-						.transcript}
-					rows={1}
-					aria-label="Click to open this recording"
-				></textarea>
-			{/snippet}
-		</RecordingDetailModal>
+		<button
+			type="button"
+			data-slot="input-group-control"
+			class="flex-1 min-w-0 rounded-none border-0 bg-transparent py-2 px-3 text-left text-sm leading-snug hover:bg-accent/50 transition-colors"
+			style:view-transition-name={viewTransition.recording(recordingId).transcript}
+			onclick={() => editor.open(recordingId)}
+			aria-haspopup="dialog"
+			aria-label="Open {recording.title || 'untitled recording'}"
+		>
+			<span class="line-clamp-2">{transcript || 'Empty transcript, click to open'}</span>
+			{#if editorState.current.drafts.some((draft) => draft.id === recordingId)}
+				<span class="text-muted-foreground text-xs">Unsaved draft</span>
+			{/if}
+		</button>
 		{#if hasTranscript}
 			{#if hasDeliveredTranscript}
 				<InputGroup.Addon align="inline-end">
