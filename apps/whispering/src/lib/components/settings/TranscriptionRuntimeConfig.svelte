@@ -278,17 +278,19 @@
 						)?.label ?? 'Select a model'}
 					</Select.Trigger>
 					<Select.Content>
-						{#each modelItems as item}
-							<Select.Item value={item.value} label={item.label}>
-								<div class="flex flex-col gap-1 py-1">
-									<div class="font-medium">{item.name}</div>
-									<div class="text-sm text-muted-foreground">
-										{item.description}
+						<Select.Group>
+							{#each modelItems as item}
+								<Select.Item value={item.value} label={item.label}>
+									<div class="flex flex-col gap-1 py-1">
+										<div class="font-medium">{item.name}</div>
+										<div class="text-sm text-muted-foreground">
+											{item.description}
+										</div>
+										<Badge variant="outline" class="text-xs">{item.cost}</Badge>
 									</div>
-									<Badge variant="outline" class="text-xs">{item.cost}</Badge>
-								</div>
-							</Select.Item>
-						{/each}
+								</Select.Item>
+							{/each}
+						</Select.Group>
 					</Select.Content>
 				</Select.Root>
 				{#if entry.modelsDoc}
@@ -482,9 +484,11 @@
 				{spokenLanguageLabel ?? 'Select a spoken language'}
 			</Select.Trigger>
 			<Select.Content>
-				{#each SUPPORTED_LANGUAGES_OPTIONS as item}
-					<Select.Item value={item.value} label={item.label} />
-				{/each}
+				<Select.Group>
+					{#each SUPPORTED_LANGUAGES_OPTIONS as item}
+						<Select.Item value={item.value} label={item.label} />
+					{/each}
+				</Select.Group>
 			</Select.Content>
 		</Select.Root>
 		{#if !currentServiceCapabilities.supportsLanguage}

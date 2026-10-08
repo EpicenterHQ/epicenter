@@ -104,9 +104,11 @@
 				{rangeOptions.find((o) => o.value === selectedRange)?.label}
 			</Select.Trigger>
 			<Select.Content>
-				{#each rangeOptions as opt (opt.value)}
-					<Select.Item value={opt.value}>{opt.label}</Select.Item>
-				{/each}
+				<Select.Group>
+					{#each rangeOptions as opt (opt.value)}
+						<Select.Item value={opt.value}>{opt.label}</Select.Item>
+					{/each}
+				</Select.Group>
 			</Select.Content>
 		</Select.Root>
 	</Card.Header>

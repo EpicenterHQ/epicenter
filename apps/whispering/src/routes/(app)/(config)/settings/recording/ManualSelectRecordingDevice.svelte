@@ -85,9 +85,11 @@
 				{selectedLabel ?? 'Select a device'}
 			</Select.Trigger>
 			<Select.Content>
-				{#each items as item}
-					<Select.Item value={item.value} label={item.label} />
-				{/each}
+				<Select.Group>
+					{#each items as item}
+						<Select.Item value={item.value} label={item.label} />
+					{/each}
+				</Select.Group>
 			</Select.Content>
 		</Select.Root>
 	</Field.Field>

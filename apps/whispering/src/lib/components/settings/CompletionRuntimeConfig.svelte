@@ -70,9 +70,11 @@
 				{INFERENCE[provider].label}
 			</Select.Trigger>
 			<Select.Content>
-				{#each INFERENCE_PROVIDER_OPTIONS as option (option.value)}
-					<Select.Item value={option.value} label={option.label} />
-				{/each}
+				<Select.Group>
+					{#each INFERENCE_PROVIDER_OPTIONS as option (option.value)}
+						<Select.Item value={option.value} label={option.label} />
+					{/each}
+				</Select.Group>
 			</Select.Content>
 		</Select.Root>
 	</Field.Field>
@@ -103,9 +105,11 @@
 						{app.settings.get('completionModel') || 'Select a model'}
 					</Select.Trigger>
 					<Select.Content>
-						{#each modelItems as item (item.value)}
-							<Select.Item value={item.value} label={item.label} />
-						{/each}
+						<Select.Group>
+							{#each modelItems as item (item.value)}
+								<Select.Item value={item.value} label={item.label} />
+							{/each}
+						</Select.Group>
 					</Select.Content>
 				</Select.Root>
 				<Field.Description>

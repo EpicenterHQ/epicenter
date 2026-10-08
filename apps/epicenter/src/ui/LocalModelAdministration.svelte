@@ -202,16 +202,18 @@
 					{unloadPolicyLabel ?? 'Select a policy'}
 				</Select.Trigger>
 				<Select.Content>
-					{#each LOCAL_MODEL_UNLOAD_POLICY_OPTIONS as option (option.value)}
-						<Select.Item value={option.value} label={option.label}>
-							<div class="flex flex-col gap-1 py-1">
-								<div class="font-medium">{option.label}</div>
-								<div class="text-sm text-muted-foreground">
-									{option.description}
+					<Select.Group>
+						{#each LOCAL_MODEL_UNLOAD_POLICY_OPTIONS as option (option.value)}
+							<Select.Item value={option.value} label={option.label}>
+								<div class="flex flex-col gap-1 py-1">
+									<div class="font-medium">{option.label}</div>
+									<div class="text-sm text-muted-foreground">
+										{option.description}
+									</div>
 								</div>
-							</div>
-						</Select.Item>
-					{/each}
+							</Select.Item>
+						{/each}
+					</Select.Group>
 				</Select.Content>
 			</Select.Root>
 			<p class="text-sm text-muted-foreground">
