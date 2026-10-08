@@ -5,7 +5,7 @@
 		WorkingCopy,
 	} from '@epicenter/data/artifact/checkout';
 	import * as AlertDialog from '@epicenter/ui/alert-dialog';
-	import { Button, buttonVariants } from '@epicenter/ui/button';
+	import { Button } from '@epicenter/ui/button';
 	import FolderDownIcon from '@lucide/svelte/icons/folder-down';
 	import { getHoneycrisp } from '$lib/app.svelte.js';
 	import { irreversible, renderPlan } from '$lib/folder-overview.js';
@@ -212,7 +212,7 @@
 			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
 			<AlertDialog.Action
 				bind:ref={confirm}
-				class={buttonVariants({ variant: 'destructive' })}
+				variant="destructive"
 				onclick={() => answer(true)}
 			>
 				Write over them

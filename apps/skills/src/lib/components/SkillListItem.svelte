@@ -51,7 +51,7 @@
 			<ContextMenu.Shortcut>F2</ContextMenu.Shortcut>
 		</ContextMenu.Item>
 		<ContextMenu.Item
-			class="text-destructive"
+			variant="destructive"
 			onclick={() => {
 				skillsState.selectSkill(skill.id);
 				confirmationDialog.open({
