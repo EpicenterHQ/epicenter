@@ -20,6 +20,11 @@ contract or fix a demonstrated problem; record those differences here. Source
 import paths change to the package's relative imports. Extras follow the same
 rule using their own distributed components as the baseline.
 
+Place Select options inside `Select.Group`; the group owns upstream padding
+and binds its reference. Keep selection policy at the caller: a completed
+account switch can set `closeOnSelect`, while multi-toggle menus use the
+upstream default that stays open.
+
 The maintained components carry Vega utilities in their own files. The exact
 registry responses used for this migration live under
 [`upstream/`](upstream/README.md). They are comparison inputs, not runtime code.
@@ -41,7 +46,7 @@ An Epicenter change to an upstream component must have a named caller,
 interaction, or shared theme decision behind it. Current examples include
 Button tooltip composition, Drawer scrolling and focus behavior, and component
 variants listed under
-[Current Epicenter deltas](#current-epicenter-deltas). These are package
+[Current Epicenter deltas](#3-component-styling-and-epicenter-deltas). These are package
 contracts to check during an upstream refresh.
 
 ### Styling
@@ -236,8 +241,8 @@ requirements:
 | Dialog and Drawer | Viewport scrolling and Drawer content scroll wrapper | Long recording details remain usable, and mobile content can scroll without losing drag behavior. Installed Vaul `1.0.0-next.7` already suppresses autofocus by default. |
 | Modal | One responsive Dialog or Drawer with a shared open state | Forms use Dialog on desktop and a draggable Drawer below 768px. |
 | Menus and Select | Current distributed defaults | Upstream owns surfaces, destructive states, animations, selection behavior, and submenu portals. Honeycrisp’s folder-list caller supplies its scroll cap so every folder remains reachable. |
-| Table | Hover fills cells rather than the row | Svelte's row wrapper and opaque cells otherwise hide the hover fill. |
-| Item and Sidebar | Truncation, icon media, inset shrink behavior, item actions overlay, and the same offcanvas Sidebar at narrow widths | Rows and sidebars fit narrow flex layouts while retaining the shared actions control. Sidebar preserves the existing navigation structure instead of adopting upstream’s separate mobile Sheet. |
+| Table | Current distributed row hover | Rows own the hover surface; cells retain their deliberate status and sticky backgrounds. |
+| Item and Sidebar | Truncation, icon media, inset shrink behavior, and the same offcanvas Sidebar at narrow widths | Rows and sidebars fit narrow flex layouts. Item remains a containing block for Honeycrisp’s positioned note controls. Collapsed offcanvas sidebars are inert so hidden navigation cannot receive keyboard focus. Sidebar preserves the existing navigation structure instead of adopting upstream’s separate mobile Sheet. |
 | Alert and Badge | Warning, ID, status, success, and destructive variants | Apps use these semantic states. |
 | Resizable | Spacing between panes | Adjacent panes need separation in current app layouts. |
 | Extras | Local imports and the same shared tokens; Link's tooltip and Modal's responsive behavior above | Extras ship from a separate registry and keep their own baselines. |
