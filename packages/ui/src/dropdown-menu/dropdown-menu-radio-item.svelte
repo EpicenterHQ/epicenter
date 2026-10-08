@@ -1,29 +1,34 @@
 <script lang="ts">
-	import CircleIcon from '@lucide/svelte/icons/circle';
-	import { DropdownMenu as DropdownMenuPrimitive } from 'bits-ui';
-	import { cn, type WithoutChild } from '../utils.js';
+	import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
+	import CheckIcon from '@lucide/svelte/icons/check';
+	import { cn, type WithoutChild } from "../utils.js";
 
 	let {
 		ref = $bindable(null),
 		class: className,
 		children: childrenProp,
+		closeOnSelect = false,
 		...restProps
 	}: WithoutChild<DropdownMenuPrimitive.RadioItemProps> = $props();
 </script>
 
 <DropdownMenuPrimitive.RadioItem
 	bind:ref
+	{closeOnSelect}
 	data-slot="dropdown-menu-radio-item"
 	class={cn(
-		'cn-dropdown-menu-radio-item relative flex cursor-default items-center outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
-		className,
+		"focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm data-inset:pl-8 [&_svg:not([class*='size-'])]:size-4 relative flex cursor-default items-center outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+		className
 	)}
 	{...restProps}
 >
 	{#snippet children({ checked })}
-		<span class="cn-dropdown-menu-item-indicator pointer-events-none">
+		<span
+			class="absolute right-2 flex items-center justify-center pointer-events-none"
+			data-slot="dropdown-menu-radio-item-indicator"
+		>
 			{#if checked}
-				<CircleIcon class="size-2 fill-current" />
+				<CheckIcon />
 			{/if}
 		</span>
 		{@render childrenProp?.({ checked })}

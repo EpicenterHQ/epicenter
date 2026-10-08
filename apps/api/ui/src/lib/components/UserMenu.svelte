@@ -67,19 +67,19 @@
 
 		<DropdownMenu.Group>
 			<DropdownMenu.Item onclick={() => goto('/dashboard/account')}>
-				<UserIcon class="mr-2 size-4" />
+				<UserIcon class="size-4" />
 				Account
 			</DropdownMenu.Item>
 			<DropdownMenu.Item onclick={openBillingPortal}>
-				<CreditCardIcon class="mr-2 size-4" />
+				<CreditCardIcon class="size-4" />
 				Manage billing
 			</DropdownMenu.Item>
 			<DropdownMenu.Item onclick={toggleMode}>
 				{#if isDark}
-					<SunIcon class="mr-2 size-4" />
+					<SunIcon class="size-4" />
 					Light mode
 				{:else}
-					<MoonIcon class="mr-2 size-4" />
+					<MoonIcon class="size-4" />
 					Dark mode
 				{/if}
 			</DropdownMenu.Item>
@@ -88,7 +88,7 @@
 		<DropdownMenu.Separator />
 
 		<DropdownMenu.Item onclick={signOut}>
-			<LogOutIcon class="mr-2 size-4" />
+			<LogOutIcon class="size-4" />
 			Sign out
 		</DropdownMenu.Item>
 	</DropdownMenu.Content>

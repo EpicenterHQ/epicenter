@@ -13,14 +13,6 @@ class ModalRootState {
 	#isDesktop = new MediaQuery('(min-width: 768px)');
 }
 
-class ModalSubState {
-	get view() {
-		return this.root.view;
-	}
-
-	constructor(private root: ModalRootState) {}
-}
-
 const ctx = new Context<ModalRootState>('modal-root-state');
 
 export function useModal() {
@@ -28,5 +20,5 @@ export function useModal() {
 }
 
 export function useModalSub() {
-	return new ModalSubState(ctx.get());
+	return ctx.get();
 }

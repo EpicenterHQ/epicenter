@@ -39,6 +39,8 @@
 			// two files it did not change, so the generator's output is the
 			// committed form. `typecheck` still reads them.
 			"!**/bindings.gen.ts",
+			// Raw registry responses are retained byte-for-byte for upstream comparison.
+			"!packages/ui/upstream",
 			"!**/.gitignore",
 			"!.DS_Store",
 			"!docs/articles",

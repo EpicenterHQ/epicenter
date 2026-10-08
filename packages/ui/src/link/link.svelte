@@ -16,16 +16,20 @@
 </script>
 
 <script lang="ts">
+	import { mergeProps } from 'bits-ui';
 	import * as Tooltip from '../tooltip/index.js';
 	import { cn } from '../utils.js';
 
-	let { children, class: className, tooltip, ...rest }: LinkProps = $props();
+	let { children, class: className, tooltip, href, role, tabindex, type, ...rest }: LinkProps = $props();
 </script>
 
 {#snippet linkContent(tooltipProps?: Record<string, unknown>)}
 	<a
-		{...rest}
-		{...tooltipProps}
+		{...mergeProps(rest, tooltipProps ?? {})}
+		{href}
+		{role}
+		{tabindex}
+		{type}
 		class={cn('text-primary underline-offset-4 hover:underline', className)}
 	>
 		{@render children?.()}

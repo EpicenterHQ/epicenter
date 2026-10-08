@@ -5,7 +5,7 @@
 		WorkingCopy,
 	} from '@epicenter/data/artifact/checkout';
 	import * as AlertDialog from '@epicenter/ui/alert-dialog';
-	import { Button, buttonVariants } from '@epicenter/ui/button';
+	import { Button } from '@epicenter/ui/button';
 	import FolderDownIcon from '@lucide/svelte/icons/folder-down';
 	import { getHoneycrisp } from '$lib/app.svelte.js';
 	import { irreversible, renderPlan } from '$lib/folder-overview.js';
@@ -180,7 +180,6 @@
 	}}
 >
 	<AlertDialog.Content
-		class="max-w-2xl"
 		onOpenAutoFocus={(event) => {
 			// Enter pulls, the same way Enter pushes. Both verbs are one approval
 			// of a list a person just read (ADR-0341).
@@ -213,7 +212,7 @@
 			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
 			<AlertDialog.Action
 				bind:ref={confirm}
-				class={buttonVariants({ variant: 'destructive' })}
+				variant="destructive"
 				onclick={() => answer(true)}
 			>
 				Write over them

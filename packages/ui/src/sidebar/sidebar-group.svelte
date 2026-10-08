@@ -14,7 +14,7 @@
 	bind:this={ref}
 	data-slot="sidebar-group"
 	data-sidebar="group"
-	class={cn('cn-sidebar-group relative flex w-full min-w-0 flex-col', className)}
+	class={cn('p-2 relative flex w-full min-w-0 flex-col', className)}
 	{...restProps}
 >
 	{@render children?.()}

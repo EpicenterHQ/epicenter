@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
 	import * as Command from '../command/index.js';
 	import { confirmationDialog } from '../confirmation-dialog/index.js';
 	import type { CommandPaletteItem } from './index.js';
@@ -14,7 +13,6 @@
 		description = 'Search for a command to run',
 		shouldFilter,
 		shortcut = 'k',
-		inputEndContent,
 	}: {
 		items: CommandPaletteItem[];
 		open: boolean;
@@ -43,8 +41,6 @@
 		 * ```
 		 */
 		shortcut?: string | null;
-		/** Optional snippet rendered at the end of the search input row (e.g. scope toggles). */
-		inputEndContent?: Snippet;
 	} = $props();
 
 	// \u2500\u2500 Reset search value when palette closes \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -70,11 +66,7 @@
 />
 
 <Command.Dialog bind:open={isOpen} {title} {description} {shouldFilter}>
-	<Command.Input {placeholder} bind:value>
-		{#if inputEndContent}
-			{@render inputEndContent()}
-		{/if}
-	</Command.Input>
+	<Command.Input {placeholder} bind:value />
 	<Command.List>
 		<Command.Empty>{emptyMessage}</Command.Empty>
 		{#each grouped as [ group, groupItems ]}

@@ -13,7 +13,7 @@
 	bind:ref
 	data-slot="command-list"
 	class={cn(
-		'cn-command-list overflow-x-hidden overflow-y-auto',
+		'no-scrollbar max-h-72 scroll-py-1 outline-none overflow-x-hidden overflow-y-auto',
 		className,
 	)}
 	{...restProps}

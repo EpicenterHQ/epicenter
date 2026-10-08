@@ -19,7 +19,7 @@ const dir = await mkdtemp(`${root}/packages/ui/.browser-scroll-`),
 	out = await mkdtemp(join(tmpdir(), 'epicenter-ui-scroll-'));
 await writeFile(
 	`${dir}/index.html`,
-	'<!doctype html><html lang="en" class="style-vega dark"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div><script type="module" src="/main.js"></script></body></html>',
+	'<!doctype html><html lang="en" class="dark"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div><script type="module" src="/main.js"></script></body></html>',
 );
 await writeFile(
 	`${dir}/main.js`,
@@ -37,7 +37,7 @@ let visible=$state(false),count=$state(30),chosen=$state('none'),text=$state('St
 <h1 style="font-size:24px;font-weight:600">Chat scrolling and folder menus</h1>
 <div><Button onclick={()=>visible=!visible}>Toggle chat</Button> <Button onclick={()=>count++}>Append message</Button> <Button onclick={()=>text+=' More streaming text.'.repeat(30)}>Stream text</Button></div>
 <div style="height:200px">{#if visible}<Chat.List data-testid="chat">{#each Array.from({length:count},(_,i)=>i+1) as n}<p style="flex-shrink:0">Message {n}</p>{/each}<p style="flex-shrink:0">{text}</p></Chat.List>{/if}</div>
-<Menu.Root onOpenChange={(open)=>{if(open)chosen='none'}}><Menu.Trigger data-testid="note" style="display:block;padding:16px;border:1px solid var(--border)">Right-click this note to move it</Menu.Trigger><Menu.Content><Menu.Sub><Menu.SubTrigger>Move to Folder</Menu.SubTrigger><Menu.SubContent class="w-48">{#each Array.from({length:60},(_,i)=>'Folder '+String(i+1).padStart(2,'0')) as folder}<Menu.Item onclick={()=>chosen=folder}>{folder}</Menu.Item>{/each}</Menu.SubContent></Menu.Sub></Menu.Content></Menu.Root>
+<Menu.Root onOpenChange={(open)=>{if(open)chosen='none'}}><Menu.Trigger data-testid="note" style="display:block;padding:16px;border:1px solid var(--border)">Right-click this note to move it</Menu.Trigger><Menu.Content><Menu.Sub><Menu.SubTrigger>Move to Folder</Menu.SubTrigger><Menu.SubContent class="w-48 max-h-(--bits-menu-content-available-height) overflow-y-auto">{#each Array.from({length:60},(_,i)=>'Folder '+String(i+1).padStart(2,'0')) as folder}<Menu.Item onclick={()=>chosen=folder}>{folder}</Menu.Item>{/each}</Menu.SubContent></Menu.Sub></Menu.Content></Menu.Root>
 <p id="chosen">Selected: {chosen}</p>
 </main>`,
 );

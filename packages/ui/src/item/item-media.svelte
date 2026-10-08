@@ -2,14 +2,12 @@
 	import { tv, type VariantProps } from 'tailwind-variants';
 
 	export const itemMediaVariants = tv({
-		// Styling lives in the vendored Vega preset (cn-* classes); see
-		// packages/ui/src/styles/style-vega.css.
-		base: 'cn-item-media flex shrink-0 items-center justify-center [&_svg]:pointer-events-none',
+		base: 'gap-2 group-has-data-[slot=item-description]/item:translate-y-0.5 group-has-data-[slot=item-description]/item:self-start flex shrink-0 items-center justify-center [&_svg]:pointer-events-none',
 		variants: {
 			variant: {
-				default: 'cn-item-media-variant-default',
-				icon: 'cn-item-media-variant-icon',
-				image: 'cn-item-media-variant-image',
+				default: 'bg-transparent',
+				icon: "[&_svg:not([class*='size-'])]:size-4",
+				image: 'size-10 overflow-hidden rounded-sm group-data-[size=sm]/item:size-8 group-data-[size=xs]/item:size-6 [&_img]:size-full [&_img]:object-cover',
 			},
 		},
 		defaultVariants: {

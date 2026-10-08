@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Folder } from '$lib/data';
 	import * as AlertDialog from '@epicenter/ui/alert-dialog';
-	import { Button, buttonVariants } from '@epicenter/ui/button';
+	import { Button } from '@epicenter/ui/button';
 	import * as Dialog from '@epicenter/ui/dialog';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import * as EmojiPicker from '@epicenter/ui/emoji-picker';
@@ -99,23 +99,23 @@
 					editingName = folder.name;
 				}}
 				>
-					<PencilIcon class="mr-2 size-4" />
+					<PencilIcon class="size-4" />
 					Rename
 				</DropdownMenu.Item>
 				<DropdownMenu.Item onclick={() => (isPickingIcon = true)}>
 					{#if folder.icon}
-						<span class="mr-2 text-base leading-none">{folder.icon}</span>
+						<span class="text-base leading-none">{folder.icon}</span>
 					{:else}
-						<SmilePlusIcon class="mr-2 size-4" />
+						<SmilePlusIcon class="size-4" />
 					{/if}
 					{folder.icon ? 'Change icon' : 'Add icon'}
 				</DropdownMenu.Item>
 				<DropdownMenu.Separator />
 				<DropdownMenu.Item
-					class="text-destructive focus:text-destructive"
+					variant="destructive"
 					onclick={() => (confirmingDelete = true)}
 				>
-					<TrashIcon class="mr-2 size-4" />
+					<TrashIcon class="size-4" />
 					Delete
 				</DropdownMenu.Item>
 			</DropdownMenu.Content>
@@ -124,7 +124,7 @@
 </Sidebar.MenuItem>
 
 <Dialog.Root bind:open={isPickingIcon}>
-	<Dialog.Content class="w-auto max-w-fit gap-3 p-3">
+	<Dialog.Content class="w-auto max-w-fit sm:max-w-fit gap-3 p-3">
 		<Dialog.Header class="px-1 text-left">
 			<Dialog.Title class="text-sm">Folder icon</Dialog.Title>
 			<Dialog.Description class="text-xs">
@@ -191,7 +191,7 @@
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
 			<AlertDialog.Action
-				class={buttonVariants({ variant: 'destructive' })}
+				variant="destructive"
 				onclick={() =>
 					honeycrisp.tables.folders.delete(folder.id)}
 			>

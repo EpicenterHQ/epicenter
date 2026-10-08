@@ -16,6 +16,6 @@
 	bind:value
 	data-slot="sidebar-input"
 	data-sidebar="input"
-	class={cn('cn-sidebar-input', className)}
+	class={cn('bg-background h-8 w-full shadow-none', className)}
 	{...restProps}
 />

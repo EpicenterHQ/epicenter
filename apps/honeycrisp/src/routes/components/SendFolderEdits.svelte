@@ -5,7 +5,7 @@
 		WorkingCopy,
 	} from '@epicenter/data/artifact/checkout';
 	import * as AlertDialog from '@epicenter/ui/alert-dialog';
-	import { Button, buttonVariants } from '@epicenter/ui/button';
+	import { Button } from '@epicenter/ui/button';
 	import FolderUpIcon from '@lucide/svelte/icons/folder-up';
 	import { getHoneycrisp } from '$lib/app.svelte.js';
 	import { irreversible, renderPlan } from '$lib/folder-overview.js';
@@ -183,7 +183,6 @@
 	}}
 >
 	<AlertDialog.Content
-		class="max-w-2xl"
 		onOpenAutoFocus={(event) => {
 			// Enter pushes. bits-ui focuses the first focusable, which is Cancel,
 			// and this dialog's whole shape is one approval of a list a person
@@ -213,7 +212,6 @@
 			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
 			<AlertDialog.Action
 				bind:ref={confirm}
-				class={buttonVariants()}
 				onclick={() => answer(true)}
 			>
 				Push all

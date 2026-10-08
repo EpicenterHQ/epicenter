@@ -1,0 +1,26 @@
+{
+	"$schema": "https://shadcn-svelte.com/schema/registry-item.json",
+	"name": "light-switch",
+	"title": "LightSwitch",
+	"type": "registry:ui",
+	"description": "A light switch component for toggling themes, dark mode toggle, light dark mode switcher, theme toggle button, with smooth animations and visual feedback.",
+	"devDependencies": [
+		"@lucide/svelte@^1.7.0",
+		"mode-watcher@^1.1.0"
+	],
+	"registryDependencies": [
+		"./button.json"
+	],
+	"files": [
+		{
+			"content": "import LightSwitch from './light-switch.svelte';\n\nexport { LightSwitch };\n",
+			"type": "registry:ui",
+			"target": "light-switch/index.ts"
+		},
+		{
+			"content": "<script lang=\"ts\" module>\n\timport type { Size } from '$COMPONENTS$/button.svelte';\n\n\texport type LightSwitchProps = {\n\t\tvariant?: 'outline' | 'ghost';\n\t\tsize?: Size;\n\t};\n</script>\n\n<script lang=\"ts\">\n\timport SunIcon from '@lucide/svelte/icons/sun';\n\timport MoonIcon from '@lucide/svelte/icons/moon';\n\timport { toggleMode } from 'mode-watcher';\n\timport Button, { sizeMap } from '$COMPONENTS$/button.svelte';\n\n\tlet { variant = 'outline', size = 'default' }: LightSwitchProps = $props();\n</script>\n\n<Button onclick={toggleMode} {variant} size={sizeMap[size].icon}>\n\t<SunIcon class=\"scale-100 rotate-0 !transition-all dark:scale-0 dark:-rotate-90\" />\n\t<MoonIcon class=\"absolute scale-0 rotate-90 !transition-all dark:scale-100 dark:rotate-0\" />\n\t<span class=\"sr-only\">Toggle theme</span>\n</Button>\n",
+			"type": "registry:ui",
+			"target": "light-switch/light-switch.svelte"
+		}
+	]
+}

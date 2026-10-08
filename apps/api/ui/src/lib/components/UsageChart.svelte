@@ -100,13 +100,15 @@
 				if (v) selectedRange = v as Range;
 			}}
 		>
-			<Select.Trigger class="w-[120px] h-8 text-xs">
+			<Select.Trigger size="sm" class="w-[120px] text-xs">
 				{rangeOptions.find((o) => o.value === selectedRange)?.label}
 			</Select.Trigger>
 			<Select.Content>
-				{#each rangeOptions as opt (opt.value)}
-					<Select.Item value={opt.value}>{opt.label}</Select.Item>
-				{/each}
+				<Select.Group>
+					{#each rangeOptions as opt (opt.value)}
+						<Select.Item value={opt.value}>{opt.label}</Select.Item>
+					{/each}
+				</Select.Group>
 			</Select.Content>
 		</Select.Root>
 	</Card.Header>

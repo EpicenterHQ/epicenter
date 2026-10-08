@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { AccountPopover } from '@epicenter/app-shell/account-popover';
 	import * as AlertDialog from '@epicenter/ui/alert-dialog';
-	import { Button, buttonVariants } from '@epicenter/ui/button';
+	import { Button } from '@epicenter/ui/button';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { auth } from '#platform/auth';
 	import { bootFailure } from '$lib/boot-failure.js';
@@ -125,7 +125,7 @@
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
 			<AlertDialog.Action
-				class={buttonVariants({ variant: 'destructive' })}
+				variant="destructive"
 				onclick={erase}>Erase</AlertDialog.Action
 			>
 		</AlertDialog.Footer>

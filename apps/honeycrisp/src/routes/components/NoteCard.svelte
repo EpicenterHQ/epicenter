@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Note } from '$lib/data';
 	import * as AlertDialog from '@epicenter/ui/alert-dialog';
-	import { Button, buttonVariants } from '@epicenter/ui/button';
+	import { Button } from '@epicenter/ui/button';
 	import * as ContextMenu from '@epicenter/ui/context-menu';
 	import * as Item from '@epicenter/ui/item';
 	import { cn } from '@epicenter/ui/utils';
@@ -149,17 +149,17 @@
 				onclick={() =>
 					honeycrisp.tables.notes.restore(note.id)}
 			>
-				<ArchiveRestoreIcon class="mr-2 size-4" />
+				<ArchiveRestoreIcon class="size-4" />
 				Restore
 			</ContextMenu.Item>
 			<ContextMenu.Separator />
 			<ContextMenu.Item
-				class="text-destructive focus:text-destructive"
+				variant="destructive"
 				onclick={() => {
 					confirmingPermanentDelete = true;
 				}}
 			>
-				<TrashIcon class="mr-2 size-4" />
+				<TrashIcon class="size-4" />
 				Delete Permanently
 			</ContextMenu.Item>
 		{:else}
@@ -167,21 +167,21 @@
 				onclick={() =>
 					honeycrisp.tables.notes.togglePin(note.id)}
 			>
-				<PinIcon class={cn('mr-2 size-4', note.pinned && 'fill-current')} />
+				<PinIcon class={cn('size-4', note.pinned && 'fill-current')} />
 				{note.pinned ? 'Unpin' : 'Pin'}
 			</ContextMenu.Item>
 			<ContextMenu.Separator />
 			<ContextMenu.Sub>
 				<ContextMenu.SubTrigger>
-					<FolderIcon class="mr-2 size-4" />
+					<FolderIcon class="size-4" />
 					Move to Folder
 				</ContextMenu.SubTrigger>
-				<ContextMenu.SubContent class="w-48">
+				<ContextMenu.SubContent class="w-48 max-h-(--bits-menu-content-available-height) overflow-y-auto">
 					<ContextMenu.Item
 						onclick={() =>
 							honeycrisp.tables.notes.moveToFolder(note.id, null)}
 					>
-						<FileTextIcon class="mr-2 size-4" />
+						<FileTextIcon class="size-4" />
 						Unfiled
 					</ContextMenu.Item>
 					<ContextMenu.Separator />
@@ -191,9 +191,9 @@
 								honeycrisp.tables.notes.moveToFolder(note.id, folder.id)}
 						>
 							{#if folder.icon}
-								<span class="mr-2 text-base leading-none">{folder.icon}</span>
+								<span class="text-base leading-none">{folder.icon}</span>
 							{:else}
-								<FolderIcon class="mr-2 size-4" />
+								<FolderIcon class="size-4" />
 							{/if}
 							{folder.name}
 						</ContextMenu.Item>
@@ -202,11 +202,11 @@
 			</ContextMenu.Sub>
 			<ContextMenu.Separator />
 			<ContextMenu.Item
-				class="text-destructive focus:text-destructive"
+				variant="destructive"
 				onclick={() =>
 					honeycrisp.tables.notes.softDelete(note.id)}
 			>
-				<TrashIcon class="mr-2 size-4" />
+				<TrashIcon class="size-4" />
 				Delete
 			</ContextMenu.Item>
 		{/if}
@@ -224,7 +224,7 @@
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
 			<AlertDialog.Action
-				class={buttonVariants({ variant: 'destructive' })}
+				variant="destructive"
 				onclick={() =>
 					honeycrisp.tables.notes.permanentlyDelete(note.id)}
 				>Delete</AlertDialog.Action

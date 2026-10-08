@@ -54,9 +54,11 @@
 			{selectedLabel ?? 'Select an option'}
 		</Select.Trigger>
 		<Select.Content>
-			{#each items as item}
-				<Select.Item value={String(item.value)} label={item.label} />
-			{/each}
+			<Select.Group>
+				{#each items as item}
+					<Select.Item value={String(item.value)} label={item.label} />
+				{/each}
+			</Select.Group>
 		</Select.Content>
 	</Select.Root>
 	{#if description}

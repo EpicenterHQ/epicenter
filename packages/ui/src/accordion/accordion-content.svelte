@@ -13,10 +13,10 @@
 <AccordionPrimitive.Content
 	bind:ref
 	data-slot="accordion-content"
-	class="cn-accordion-content overflow-hidden"
+	class="data-open:animate-accordion-down data-closed:animate-accordion-up text-sm overflow-hidden"
 	{...restProps}
 >
-	<div class={cn('cn-accordion-content-inner', className)}>
+	<div class={cn("pt-0 pb-4 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4", className)}>
 		{@render children?.()}
 	</div>
 </AccordionPrimitive.Content>

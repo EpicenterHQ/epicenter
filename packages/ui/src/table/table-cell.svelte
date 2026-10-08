@@ -6,21 +6,16 @@
 		ref = $bindable(null),
 		class: className,
 		children,
-		variant = 'default',
 		...restProps
-	}: WithElementRef<HTMLTdAttributes> & {
-		variant?: 'default' | 'muted' | 'numeric';
-	} = $props();
+	}: WithElementRef<HTMLTdAttributes> = $props();
 </script>
 
 <td
 	bind:this={ref}
 	data-slot="table-cell"
 	class={cn(
-		'cn-table-cell',
+		'p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0',
 		'bg-clip-padding [&:has([role=checkbox])]:pe-0',
-		variant === 'muted' && 'text-muted-foreground',
-		variant === 'numeric' && 'text-right font-mono',
 		className,
 	)}
 	{...restProps}
