@@ -67,12 +67,19 @@ does not impose a narration or social-video standard on every piece.
 ### Economy
 
 Identify what each sentence or paragraph contributes: a claim, example, turn,
-qualification, emphasis, or the experience of discovering the thought. Try the
-deletion test: would removing it preserve meaning, movement, and human posture?
-Look for throat-clearing, doubled qualifiers, repeated explanations, generic
-connections, or abstract nouns a concrete verb could replace. A sentence can
-earn its time through hesitation, humor, contrast, or rhythm as well as new
-information. Cut unearned time, not simply words.
+qualification, emphasis, or the experience of discovering the thought. Make that
+contribution legible through arrangement, connection, and phrasing before
+considering a cut. Repeated information may let the author return to a thought,
+build pressure, or give it breathing room; new information is not its admission
+test. Repair transcription noise and mechanical duplication with no expressive
+work left. When unsure, preserve the passage.
+
+Optional compression that drops meaningful material or reduces its movement
+requires an explicit request to tighten, shorten, cut, or otherwise condense,
+or selection of a proposed cut. A voice or ear pass does not by itself authorize
+it, even after the first draft. For pages and journals, the destination's
+authorship guidance owns that permission boundary. Keep the first draft faithful
+and readable; do not preempt the author's later choice to whittle it down.
 
 ### Rhythm
 
