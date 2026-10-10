@@ -39,6 +39,6 @@ Once the governing choice is clear, revise toward clean force. Cut what is nones
 
 Do not reflexively produce a replacement essay or a list of tips. Make the reader/writer disagreement inspectable, then make the next revision or decision obvious. Draft language when asked, but label which choice the draft embodies so the writer can accept, reject, or redirect it. Preserve the writer's authorship and the passages that feel risky when their discomfort signals genuine discovery.
 
-When the work is also a Vault page, let `page-writing` own the page's boundary, evidence, title, and canonical form. Let `writing-voice` own a separate voice or ear pass. This skill supplies the English 120 dialectic about what the reader gets to discover.
+Let `writing-voice` own a separate voice or ear pass. This skill supplies the English 120 dialectic about what the reader gets to discover.
 
 Read [references/source-map.md](references/source-map.md) when a task calls for the provenance of a principle, comparison with a particular English 120 reading, or locating an original assignment or draft.

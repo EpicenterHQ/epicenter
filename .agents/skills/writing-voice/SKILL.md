@@ -45,8 +45,7 @@ unresolved without narrating every step of the conversation that produced it.
 Writing for the ear is part of developing the piece. Listen for how the words
 carry the thought, giving that attention more weight when the work will be
 spoken aloud. An “ear pass” names this editorial focus, not a separate workflow.
-The active writing workflow, such as page-writing or journal-writing, continues
-to own the conversation and edits.
+The active writing workflow continues to own the conversation and edits.
 
 Read connected passages at speaking speed and judge each sentence with what
 surrounds it. The four ear tests below guide attention, not a report to fill out.

@@ -1,6 +1,6 @@
 ---
 name: teaching-page
-description: Design a self-contained HTML page that teaches one thing, using space and a single accent instead of boxes and colour. Use when building an explainer, lesson, diagram, or walkthrough page, or when an existing page reads dense, overwhelming, or over-decorated. Not for authored Vault pages, which belong to page-writing, and not for a dialectic turn asking for a judgment.
+description: Design a self-contained HTML page that teaches one thing, using space and a single accent instead of boxes and colour. Use when building an explainer, lesson, diagram, or walkthrough page, or when an existing page reads dense, overwhelming, or over-decorated. Not for a dialectic turn asking for a judgment.
 ---
 
 # Teaching Page

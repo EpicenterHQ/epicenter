@@ -70,12 +70,6 @@
 			"skillPath": "skills/engineering/triage/SKILL.md",
 			"computedHash": "2b6efb6da12d92551772fcc04acf331f4e0e6f7bd9d4cb23ce0b301e0b128feb"
 		},
-		"wayfinder": {
-			"source": "mattpocock/skills",
-			"sourceType": "github",
-			"skillPath": "skills/engineering/wayfinder/SKILL.md",
-			"computedHash": "f343ecf46157cb645a5494644418308ad95391e9fc696faa47ae5a412bf5f6e4"
-		},
 		"write-a-skill": {
 			"source": "mattpocock/skills",
 			"sourceType": "github",
