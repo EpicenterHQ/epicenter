@@ -1,6 +1,6 @@
 ---
 name: writing-voice
-description: Shape prose so it sounds like Braden, with conversational precision, rhythm, humor, and earned poetic turns. Use for substantial drafting or revision, an ear pass, and explicit voice or tone work in prose, UI copy, documentation, or messages. Do not use to reopen wording selected for exact use.
+description: Shape prose so it sounds unmistakably like Braden, with conversational precision and recognizable phrasing, rhythm, and judgment. Use for substantial drafting or revision, an ear pass, and explicit voice or tone work in prose, UI copy, documentation, or messages. Do not use to reopen wording selected for exact use.
 ---
 
 # Writing Voice
@@ -15,8 +15,9 @@ voice, structure, and meaning develop together.
 
 ## Find The Expression
 
-Conversational precision with a poetic turn is an ambition, not a formula for
-every paragraph. A turn earns its place by revealing a connection in the material.
+Aim for conversational precision. Let the material and Braden's voice determine
+whether a passage is plain, funny, sharp, searching, or poetic. A turn earns its
+place when it helps express something he recognizes.
 Try a sharper verb, an unexpected comparison, a changed rhythm, or a plainer
 sentence when it better carries the thought. Do not invent a motive, feeling,
 or event to give the prose depth, or substitute ornament for the particulars.
@@ -54,13 +55,12 @@ Read connected passages at speaking speed and judge each sentence with what
 surrounds it. The four ear tests below guide attention, not a report to fill out.
 Hear what the writing is doing, then judge it by what this piece needs.
 
-When a reaction reveals a mismatch, rehear the passage under that correction
-and revise at the scope it illuminates. Use the destination's exploration
-workflow when contrasting expressions would help; an authorized direct edit
-needs no options menu. Reread the changed passage in context to hear whether
-its movement and the author's posture still belong together. After a whole-piece
-pass, check that the opening, strongest concrete detail, and ending still serve
-the same thought.
+Treat Braden's reactions as evidence about what he means and how he wants to
+express it.
+
+After a whole-piece pass, hear whether the opening, details, turns, and ending
+belong together in this expression. Preserve meaningful detours and unresolved
+movement; coherence need not mean every paragraph makes the same point.
 
 For work intended to be heard, read [spoken destinations](references/spoken-destinations.md)
 for the extra judgments a listener's experience requires. Ordinary editing
