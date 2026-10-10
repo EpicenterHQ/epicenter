@@ -5,7 +5,9 @@ description: Shape prose so it sounds like Braden, with conversational precision
 
 # Writing Voice
 
-Help the writing carry recognizable judgment and recognizable sound. Write in
+Help Braden bring forward the fullest readable expression of what he is trying
+to say. Judge the result by whether he can recognize it as “unmistakably me,”
+in both its judgment and its sound. Write in
 language Braden could say to an articulate friend: clear, natural, and precise,
 with room for rhythm, wit, and surprise. Find phrasing that makes the thought
 felt as well as understood. Use this craft throughout drafting and revision;
@@ -100,12 +102,18 @@ without imposing suspense, a moral, or a changed meaning at the end.
 
 ### Human recognition
 
-Ask: “Could the author genuinely have brought this to another person?” Hear
-whether the concrete details, odd phrasing, humor, uncertainty, and degree of
-judgment still belong to the author. Remove polish that makes the passage more
-solemn, certain, universal, or professionally scripted than its intended
-expression. Recognition matters more than grammatical perfection; shaping the
-writing should keep the person audible, including in newly discovered language.
+“Unmistakably me” is a test of the resulting passage, not a label the agent can
+declare satisfied. Hear whether its words, characteristic connections, concrete
+details, humor, uncertainty, conviction, and movement belong to Braden. Retaining
+the facts alone does not establish recognition. Let his reactions show which
+phrases and turns he recognizes, and carry those forward in the next attempt.
+
+New language can pass this test when he recognizes the thought and how it moves,
+even if he would not have arrived at that exact sentence alone. Preserve room for
+that discovery without treating smoother or more polished prose as inherently
+better. Remove polish that makes the passage more solemn, certain, universal,
+or professionally scripted than its intended expression. Recognition matters
+more than grammatical perfection; the person should remain audible.
 
 ## Respect The Form
 
