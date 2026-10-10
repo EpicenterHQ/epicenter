@@ -120,8 +120,9 @@ writing, an API, a skill, or a website, or calibrating how to show an attempt.
 They demonstrate the relationship between articulation and concrete expression
 without prescribing a format, number of versions, or sequence.
 
-For substantial prose work, use [writing-voice](../writing-voice/SKILL.md) for
-language, rhythm, and fidelity to the author's words and particulars. Trying
-new wording can help the author discover what they mean; it does not permit
+For prose drafting and revisions, use [writing-voice](../writing-voice/SKILL.md)
+for language, rhythm, fidelity to the author's words and particulars, and
+contextual revision comparisons, including short passages. Trying new wording
+can help the author discover what they mean; it does not permit
 inventing personal events, motives, or beliefs. Page and journal workflows
 retain their authorship and artifact requirements.

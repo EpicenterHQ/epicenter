@@ -1,6 +1,6 @@
 ---
 name: writing-voice
-description: Shape prose so it sounds unmistakably like Braden, with conversational precision and recognizable phrasing, rhythm, and judgment. Use for substantial drafting or revision, an ear pass, and explicit voice or tone work in prose, UI copy, documentation, or messages. Do not use to reopen wording selected for exact use.
+description: Shape prose so it sounds unmistakably like Braden, with conversational precision and recognizable phrasing, rhythm, and judgment, and present revisions in context. Use for substantial drafting or revision, an ear pass, explicit voice or tone work, and comparing prose revisions, including short replies and exact selections. Present selected wording without reopening or repolishing it.
 ---
 
 # Writing Voice
@@ -35,13 +35,50 @@ Repair transcription errors and obstructive phrasing without treating every
 is a virtue by itself.
 
 Choose the register from the piece's purpose and Braden's reactions. Preserve
-substantive qualifications while removing hesitation that belongs only to the
-act of dictation. Preserve the degree of conviction too: changing “I would
+the author's substantive qualifications while removing hesitation that belongs
+only to the act of dictation. Preserve the degree of conviction too: changing “I would
 argue” into “I wonder whether” can weaken the thought even when its subject
 stays the same. Do not strengthen real uncertainty into certainty either.
+Do not add hesitation or qualifications to make an argument more defensible;
+page and journal authorship governs when editorial objections enter the work.
 A direct argument can present a position for examination
 without turning it into his personal belief. Personal writing can remain
 unresolved without narrating every step of the conversation that produced it.
+
+## Show Revisions In Context
+
+When collaborating on a prose draft or delivering a revision to it, prefer
+**Marked changes**: deletions struck through and additions underlined. Include
+the preceding and following paragraph wherever they exist; extend the context
+when needed to judge a transition. Leave unchanged context unmarked. Show the
+marked passage directly in chat when it renders legibly; clearly label additions
+if underlining is unsupported.
+
+For a substantial overhaul whose dense markup obscures the revised passage,
+add a clean **Before / After** comparison. Use side-by-side columns when they
+are readable and working; otherwise stack the clean passages. If using an
+inline visualization, read the available visualize skill and open on Marked
+changes, with the clean comparison secondary. Do not require an interactive
+surface for an ordinary edit. The clean after passage is the exact candidate
+wording.
+
+Read the version being revised and keep its pre-edit text available for the
+comparison; this does not add old wording to the document. Use the same baseline
+and scope for marked and clean views, and name an older baseline when comparing
+with earlier wording. For several alternatives, share the baseline and show
+each candidate's marked changes. For scattered edits, show the changed passages
+with their local context rather than repeating the whole document. Clearly
+distinguish a proposal, a current chat draft, and a saved file revision; an
+existing action-preview label can supply that state.
+
+Show the comparison when proposing changes and after saving them, including
+exact selections. Apply already authorized edits directly; visibility does not
+add an approval step or require new alternatives. Choosing among first drafts
+does not create a before: draft A is not the earlier version of draft C. When
+revising a selected draft, compare against its actual earlier wording. For a
+reply, show the relevant conversation context without duplicating the whole
+thread. Preserve the workflow's selection and sending boundaries. An explicit
+request for a different output shape wins.
 
 ## Hear The Whole Passage
 
