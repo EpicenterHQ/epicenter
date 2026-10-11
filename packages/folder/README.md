@@ -759,9 +759,23 @@ written. A save result never assigns the draft.
 
 Each write is guarded by the bytes the previous one saved, starting from the
 capture the session began with. A change made elsewhere, such as a Git pull,
-another tab, or an agent, is `Conflict`, and the other change stays. The
-application decides what the person sees: reload theirs, or keep theirs by
-starting a new session from a fresh `get` and requesting the draft again.
+another tab, or an agent, is `Conflict`, and the other change stays.
+
+`table.merge(path, { base, ours })` then merges the draft with that change
+the way sync merges a file (ADR-0514): `base` is the row the session last
+saved or read, `ours` the draft, and the file as it is now is theirs.
+Independent fields and body lines combine and are written over their version
+at once, guarded by its bytes (`saved`). What does not combine is `held`:
+fields or a body both changed, or the whole file when it was deleted
+elsewhere or is no longer a valid row or text. Its `conflicts` are the same
+`SyncConflict`s sync reviews, and `resolve(choices)` settles one
+`SyncChoice` for each and writes the result guarded by the bytes the merge
+read, or refuses with `InvalidChoices`, naming each problem. A further change
+made elsewhere is `Conflict` again. `{ restore: false }` refuses to bring
+back a file deleted elsewhere. `files.merge` does the same for any text
+file, by the folder's own rules: a row by field and body, `kv.json` by key,
+other text by line. `@epicenter/svelte/edit-session` runs this for an
+editing session.
 
 `onState` reports the latest request: `saving`, `saved`, or the `error` that
 stopped it. Every state carries `file`, the capture the session last

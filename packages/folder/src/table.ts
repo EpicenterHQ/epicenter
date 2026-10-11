@@ -44,7 +44,6 @@ import {
 	type TableDeleteError,
 	type TableEnumerationError,
 	TableError,
-	type TableReadError,
 	type TableRenameError,
 	type TableReplaceError,
 } from './errors.js';
@@ -140,10 +139,11 @@ export type FileTable<TFields> = {
 	merge(
 		path: string,
 		versions: { readonly base: Row<TFields>; readonly ours: Row<TFields> },
+		options?: { readonly restore?: boolean },
 	): Promise<
 		Result<
 			SaveMerge,
-			TableReadError | Extract<TableError, { name: 'InvalidValues' }>
+			FileError | Extract<TableError, { name: 'InvalidValues' }>
 		>
 	>;
 };
@@ -359,7 +359,7 @@ export function createTable<TFields>(
 				onState,
 			});
 		},
-		async merge(path, { base, ours }) {
+		async merge(path, { base, ours }, options) {
 			const texts = [base, ours].map((row) =>
 				writeRow(table, row as Parameters<typeof writeRow>[1]),
 			);
@@ -370,6 +370,7 @@ export function createTable<TFields>(
 				{ storage, definition: { kv: {}, tables: { [name]: table } } },
 				path,
 				{ base: baseText ?? '', ours: oursText ?? '' },
+				options,
 			);
 		},
 	};

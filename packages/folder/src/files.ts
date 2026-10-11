@@ -20,7 +20,7 @@ import {
 	ownCapture,
 } from './capture.js';
 import type { FolderDefinition } from './definition.js';
-import type { FileError, MoveError, TableReadError } from './errors.js';
+import type { FileError, MoveError } from './errors.js';
 import { mergeSave, type SaveMerge } from './save-merge.js';
 import { applyOne, replaceCaptured } from './storage.js';
 
@@ -95,7 +95,8 @@ export type FolderFiles = {
 	merge(
 		path: string,
 		versions: { readonly base: string; readonly ours: string },
-	): Promise<Result<SaveMerge, TableReadError>>;
+		options?: { readonly restore?: boolean },
+	): Promise<Result<SaveMerge, FileError>>;
 };
 
 export function createFiles({
@@ -173,8 +174,8 @@ export function createFiles({
 		},
 		overwrite: (path, content) =>
 			save({ kind: 'overwrite', path, bytes: ownBytes(content) }),
-		merge: (path, versions) =>
-			mergeSave({ storage, definition }, path, versions),
+		merge: (path, versions, options) =>
+			mergeSave({ storage, definition }, path, versions, options),
 		autosave(file, { onState }) {
 			const owned = ownCapture(file);
 			return createAutosave({

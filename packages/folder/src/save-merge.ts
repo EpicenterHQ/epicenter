@@ -13,8 +13,8 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
 import { type FileCapture, fileCapture, hashBytes } from './capture.js';
 import type { FolderDefinition } from './definition.js';
-import { type FileError, TableError, type TableReadError } from './errors.js';
-import type { SyncError } from './git/errors.js';
+import type { FileError } from './errors.js';
+import { SyncError } from './git/errors.js';
 import { mergeFile, type SyncConflict } from './git/sync.js';
 import { applyOne } from './storage.js';
 
@@ -47,34 +47,51 @@ export async function mergeSave(
 	},
 	path: string,
 	versions: { readonly base: string; readonly ours: string },
-): Promise<Result<SaveMerge, TableReadError>> {
+	{
+		restore = true,
+	}: {
+		/** False when a file deleted elsewhere must stay deleted. */
+		readonly restore?: boolean;
+	} = {},
+): Promise<Result<SaveMerge, FileError>> {
 	const read = await storage.read(path);
 	if (read.error !== null && read.error.name !== 'NotFound')
 		return Err(read.error);
-	let theirs: { file: FileCapture; text: string } | undefined;
+	let over: FileCapture | undefined;
+	let theirs: string | null = null;
 	if (read.error === null) {
-		const file = fileCapture(path, read.data.sha256);
+		over = fileCapture(path, read.data.sha256);
 		try {
-			theirs = { file, text: utf8.decode(read.data.bytes) };
+			theirs = utf8.decode(read.data.bytes);
 		} catch {
-			return TableError.InvalidUtf8(file);
+			return Ok(heldBytes(storage, over, versions, read.data.bytes));
 		}
 	}
-	const over = theirs?.file;
-	const merged = await mergeFile(definition, path, {
-		...versions,
-		theirs: theirs?.text ?? null,
-	});
+	const merged = await mergeFile(definition, path, { ...versions, theirs });
+	/**
+	 * `text`, or their exact bytes when `text` is only their version in the
+	 * standard form: a row merged with itself is written that way.
+	 */
+	const theirsWhenSame = async (text: string | null) => {
+		if (text === null || theirs === null) return text;
+		const same = await mergeFile(definition, path, {
+			base: theirs,
+			ours: theirs,
+			theirs,
+		});
+		return same.kind === 'merged' && same.text === text ? theirs : text;
+	};
 	if (merged.kind === 'merged') {
 		const { data: file, error } = await publish(
 			storage,
 			path,
 			over,
-			merged.text,
+			await theirsWhenSame(merged.text),
 		);
 		if (error !== null) return Err(error);
 		return Ok({ kind: 'saved', file });
 	}
+	const file = merged.conflicts.find(({ kind }) => kind === 'file');
 	return Ok(
 		Object.freeze({
 			kind: 'held',
@@ -82,10 +99,74 @@ export async function mergeSave(
 			async resolve(choices: unknown) {
 				const { data: text, error } = merged.settle(choices);
 				if (error !== null) return Err(error);
-				return publish(storage, path, over, text);
+				if (!restore && over === undefined && text !== null)
+					return SyncError.InvalidChoices({
+						problems: [
+							{
+								conflictId: file?.id,
+								reason: 'disallowed',
+								message:
+									'This file was deleted elsewhere and cannot be restored here',
+							},
+						],
+					});
+				return publish(storage, path, over, await theirsWhenSame(text));
 			},
 		}),
 	);
+}
+
+/**
+ * A file that is no longer text, against the draft: one whole-file unit.
+ * Their bytes can be kept or the file replaced, never edited as text.
+ */
+function heldBytes(
+	storage: Pick<FolderStorage, 'apply'>,
+	over: FileCapture,
+	versions: { readonly base: string; readonly ours: string },
+	bytes: Uint8Array,
+): SaveMerge {
+	const conflict: SyncConflict = Object.freeze({
+		id: JSON.stringify(['file', over.path]),
+		kind: 'file',
+		path: over.path,
+		base: Object.freeze({ present: true, value: versions.base }),
+		local: Object.freeze({ present: true, value: versions.ours }),
+		incoming: Object.freeze({ present: true, value: bytes.slice() }),
+	});
+	return Object.freeze({
+		kind: 'held',
+		conflicts: Object.freeze([conflict]),
+		async resolve(choices: unknown) {
+			const choice =
+				typeof choices === 'object' &&
+				choices !== null &&
+				Object.hasOwn(choices, conflict.id)
+					? (choices as Record<string, unknown>)[conflict.id]
+					: undefined;
+			const { kind, side, value } = (choice ?? {}) as {
+				kind?: unknown;
+				side?: unknown;
+				value?: unknown;
+			};
+			if (kind === 'take' && side === 'incoming') return Ok(over);
+			if (kind === 'take' && side === 'local')
+				return publish(storage, over.path, over, versions.ours);
+			if (kind === 'replace' && typeof value === 'string')
+				return publish(storage, over.path, over, value);
+			if (kind === 'remove') return publish(storage, over.path, over, null);
+			return SyncError.InvalidChoices({
+				problems: [
+					{
+						conflictId: conflict.id,
+						reason: choice === undefined ? 'missing' : 'malformed',
+						message:
+							'Keep their file, use yours, replace it with text, or remove it',
+					},
+				],
+			});
+		},
+	});
 }
 
 /**
