@@ -1,33 +1,66 @@
 /**
  * Edit Session Merge Tests
  *
- * Drives a text session over a stand-in file that another writer can change
- * between saves, with the text source's real line merge.
+ * Drives a session over a stand-in text file that another writer can change
+ * between saves. The stand-in's `merge` records what the session asks and
+ * answers as each test chooses; the folder's own merge rules are tested in
+ * `@epicenter/folder` (`file-merge.test.ts`).
  *
  * Key behaviors:
- * - A change made elsewhere to other lines merges with the draft and saves,
- *   against the value the session last saved rather than the one it opened
- * - Lines both changed become a review with one part; applying a side saves
- *   it over the newer file, guarded by its bytes, and unlocks input
+ * - A save refused by a change elsewhere asks the folder to merge from the
+ *   value the session last saved, not the one it opened
+ * - What the folder wrote becomes the draft, with no review
+ * - Held parts become a review that locks input; Apply writes and unlocks
+ * - A refused Apply keeps the review; a further change starts a new one
  */
 import './svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
-import type { FileCapture, FolderFiles, SaveState } from '@epicenter/folder';
+import {
+	type FileCapture,
+	FileError,
+	type SaveMerge,
+	type SaveState,
+	type SyncConflict,
+	SyncError,
+} from '@epicenter/folder';
 import { Ok } from 'wellcrafted/result';
 
-const { createEditSession, textSource } = await import(
-	'./edit-session.svelte.ts'
-);
+const { createEditSession } = await import('./edit-session.svelte.ts');
 
 type Failure = { name: string; message: string; actualSha256?: string };
 
-/** One text file, its bytes named by a counter, saved through a guarded stand-in autosave. */
-function storedText(initial: string) {
+const TITLE: SyncConflict = {
+	id: 'title',
+	kind: 'body',
+	path: 'notes.txt',
+	base: { present: true, value: 'a' },
+	local: { present: true, value: 'mine' },
+	incoming: { present: true, value: 'theirs' },
+};
+
+/** One text file whose bytes are named by a counter, and a folder stand-in over it. */
+function storedText(
+	initial: string,
+	answer: (versions: { base: string; ours: string }) => SaveMerge,
+) {
 	const file = { text: initial, version: 0 };
+	const asked: { base: string; ours: string }[] = [];
 	const capture = (): FileCapture => ({
 		path: 'notes.txt',
 		sha256: String(file.version),
 	});
+	/** Write `text` if the file is still at `over`. */
+	const write = (over: FileCapture | undefined, text: string) => {
+		if (over !== undefined && over.sha256 !== String(file.version))
+			return FileError.Conflict({
+				path: 'notes.txt',
+				expectedSha256: over.sha256,
+				actualSha256: String(file.version),
+			});
+		file.text = text;
+		file.version += 1;
+		return Ok(capture());
+	};
 	const source = {
 		autosave(
 			from: FileCapture,
@@ -42,23 +75,11 @@ function storedText(initial: string) {
 				request(value: string) {
 					last = last.then(async () => {
 						await Promise.resolve();
+						const { data, error } = write(confirmed, value);
 						const next: SaveState<Failure> =
-							confirmed.sha256 === String(file.version)
-								? (() => {
-										file.text = value;
-										file.version += 1;
-										confirmed = capture();
-										return { status: 'saved', file: confirmed };
-									})()
-								: {
-										status: 'error',
-										file: confirmed,
-										error: {
-											name: 'Conflict',
-											message: 'changed elsewhere',
-											actualSha256: String(file.version),
-										},
-									};
+							error === null
+								? { status: 'saved', file: (confirmed = data) }
+								: { status: 'error', file: confirmed, error };
 						onState(next);
 						return next;
 					});
@@ -72,57 +93,105 @@ function storedText(initial: string) {
 		async recreate() {
 			return Ok(capture());
 		},
-		merge: textSource({} as FolderFiles).merge,
+		async merge(_path: string, versions: { base: string; ours: string }) {
+			asked.push(versions);
+			return Ok(answer(versions));
+		},
 	};
 	return {
 		session: createEditSession(source, { file: capture(), value: initial }),
+		asked,
 		/** Another writer replaces the file. */
 		writeElsewhere(text: string) {
-			file.text = text;
-			file.version += 1;
+			write(undefined, text);
 		},
+		/** What a folder's guarded write would do with `text` over the file as it is now. */
+		writeOver(over: FileCapture, text: string) {
+			return write(over, text);
+		},
+		capture,
 		get text() {
 			return file.text;
 		},
 	};
 }
 
-test('a change elsewhere to other lines merges against the last saved value, not the opened one', async () => {
-	const stored = storedText('a\nb\nc\n');
-	stored.session.edit(() => 'A\nb\nc\n');
+test('a change elsewhere is merged from the last saved value, and what the folder wrote becomes the draft', async () => {
+	const stored = storedText('a', () => {
+		stored.writeElsewhere('merged');
+		return { kind: 'saved', file: stored.capture() };
+	});
+	stored.session.edit(() => 'b');
 	expect((await stored.session.settled()).status).toBe('saved');
 
-	stored.writeElsewhere('A\nb\nC\n');
-	stored.session.edit(() => 'A2\nb\nc\n');
+	stored.writeElsewhere('theirs');
+	stored.session.edit(() => 'c');
 	const state = await stored.session.settled();
 
+	expect(stored.asked).toEqual([{ base: 'b', ours: 'c' }]);
 	expect(state.status).toBe('saved');
 	expect(stored.session.review).toBeUndefined();
-	expect(stored.text).toBe('A2\nb\nC\n');
-	expect(stored.session.draft).toBe('A2\nb\nC\n');
+	expect(stored.session.draft).toBe('merged');
 });
 
-test('lines both changed become one review part, and applying a side saves it over the newer file', async () => {
-	const stored = storedText('a\nb\n');
-	stored.writeElsewhere('theirs\nb\n');
-	stored.session.edit(() => 'mine\nb\n');
+test('held parts become a review that locks input, and Apply writes the choices and unlocks', async () => {
+	const stored = storedText('a', () => {
+		const over = stored.capture();
+		return {
+			kind: 'held',
+			conflicts: [TITLE],
+			async resolve() {
+				return stored.writeOver(over, 'chosen');
+			},
+		};
+	});
+	stored.writeElsewhere('theirs');
+	stored.session.edit(() => 'mine');
 	await stored.session.settled();
 
 	const review = stored.session.review;
-	expect(review?.conflicts.map(({ kind }) => kind)).toEqual(['body']);
+	expect(review?.conflicts).toEqual([TITLE]);
 	expect(stored.session.locked).toBe(true);
-	expect(stored.text).toBe('theirs\nb\n');
+	expect(stored.text).toBe('theirs');
 
-	const conflict = review?.conflicts[0];
-	if (review === undefined || conflict === undefined)
-		throw new Error('Expected a review with one part');
-	const applied = await review.apply({
-		[conflict.id]: { kind: 'take', side: 'incoming' },
-	});
-	expect(applied.error).toBeNull();
-	expect((await stored.session.settled()).status).toBe('saved');
+	expect((await review?.apply({}))?.error).toBeNull();
 	expect(stored.session.review).toBeUndefined();
 	expect(stored.session.locked).toBe(false);
-	expect(stored.session.draft).toBe('theirs\nb\n');
-	expect(stored.text).toBe('theirs\nb\n');
+	expect(stored.session.draft).toBe('chosen');
+	expect(stored.text).toBe('chosen');
+});
+
+test('a refused Apply keeps the review, and a further change elsewhere starts a new one', async () => {
+	let refuse = true;
+	const stored = storedText('a', () => {
+		const over = stored.capture();
+		return {
+			kind: 'held',
+			conflicts: [TITLE],
+			async resolve() {
+				if (refuse)
+					return SyncError.InvalidChoices({
+						problems: [
+							{ conflictId: 'title', reason: 'missing', message: 'Choose' },
+						],
+					});
+				return stored.writeOver(over, 'chosen');
+			},
+		};
+	});
+	stored.writeElsewhere('theirs');
+	stored.session.edit(() => 'mine');
+	await stored.session.settled();
+	const first = stored.session.review;
+
+	expect((await first?.apply({}))?.error?.name).toBe('InvalidChoices');
+	expect(stored.session.review).toBe(first);
+
+	refuse = false;
+	stored.writeElsewhere('theirs again');
+	expect((await first?.apply({}))?.error?.name).toBe('Conflict');
+	await stored.session.settled();
+	expect(stored.session.review).toBeDefined();
+	expect(stored.session.review).not.toBe(first);
+	expect(stored.asked).toHaveLength(2);
 });

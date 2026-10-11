@@ -504,7 +504,8 @@ test('Files opens a todo as its exact text, and a conflict there offers the same
 	session.input(session.draft.replace('title: Milk', 'title: Mine'));
 	const state = await session.settled();
 	expect(state.status === 'error' && state.error.name).toBe('Conflict');
-	expect(session.review?.conflicts.map(({ kind }) => kind)).toEqual(['body']);
+	// A todo opened as text still merges by field, as sync merges it.
+	expect(session.review?.conflicts.map(({ kind }) => kind)).toEqual(['field']);
 	expect(await todos.keepMine(openSession(todos))).toBeUndefined();
 	await session.settled();
 	expect(await text(todos, path)).toBe(session.draft);

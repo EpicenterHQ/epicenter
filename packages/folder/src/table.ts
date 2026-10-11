@@ -44,6 +44,7 @@ import {
 	type TableDeleteError,
 	type TableEnumerationError,
 	TableError,
+	type TableReadError,
 	type TableRenameError,
 	type TableReplaceError,
 } from './errors.js';
@@ -53,8 +54,8 @@ import {
 	rowPath,
 	rowStemOf,
 } from './paths.js';
-import { mergeRow, type RowMerge } from './row-merge.js';
-import { formatRow, parseRow, type Row, writeRow } from './row-text.js';
+import { parseRow, type Row, writeRow } from './row-text.js';
+import { mergeSave, type SaveMerge } from './save-merge.js';
 import { applyOne, replaceCaptured } from './storage.js';
 
 /**
@@ -130,17 +131,21 @@ export type FileTable<TFields> = {
 		options: { onState(state: SaveState<RowSaveError>): void },
 	): Autosave<Row<TFields>, RowSaveError>;
 	/**
-	 * Merge three versions of one row by field and body, as sync does
-	 * (ADR-0514): equal values agree, a side unchanged from `base` yields to
-	 * the other, and the body merges by line. A version that cannot be
-	 * written, or does not read back as a row of this table, makes the whole
-	 * row one unit. Writes nothing.
+	 * Merge a session's save with a change made elsewhere to the row file at
+	 * `path`, by field and body as sync merges it (ADR-0514). `base` is the
+	 * row the file held when the session last saved or read it, `ours` the
+	 * draft. What merges is written over the file as it is now, guarded by
+	 * its bytes; what does not is held for a person (`SaveMerge`).
 	 */
-	merge(versions: {
-		readonly base: Row<TFields>;
-		readonly ours: Row<TFields>;
-		readonly theirs: Row<TFields>;
-	}): Promise<RowMerge>;
+	merge(
+		path: string,
+		versions: { readonly base: Row<TFields>; readonly ours: Row<TFields> },
+	): Promise<
+		Result<
+			SaveMerge,
+			TableReadError | Extract<TableError, { name: 'InvalidValues' }>
+		>
+	>;
 };
 
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -354,15 +359,18 @@ export function createTable<TFields>(
 				onState,
 			});
 		},
-		async merge({ base, ours, theirs }) {
-			const text = (row: Row<TFields>) => {
-				const { data, error } = formatRow(table, row as never);
-				return error === null ? data : undefined;
-			};
-			const [b, o, t] = [text(base), text(ours), text(theirs)];
-			if (b === undefined || o === undefined || t === undefined)
-				return { kind: 'whole' };
-			return mergeRow(table, { base: b, ours: o, theirs: t });
+		async merge(path, { base, ours }) {
+			const texts = [base, ours].map((row) =>
+				writeRow(table, row as Parameters<typeof writeRow>[1]),
+			);
+			for (const { error: issues } of texts)
+				if (issues !== null) return TableError.InvalidValues({ issues });
+			const [baseText, oursText] = texts.map(({ data }) => data?.text ?? '');
+			return mergeSave(
+				{ storage, definition: { kv: {}, tables: { [name]: table } } },
+				path,
+				{ base: baseText ?? '', ours: oursText ?? '' },
+			);
 		},
 	};
 }

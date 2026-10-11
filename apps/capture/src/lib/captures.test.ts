@@ -328,7 +328,7 @@ test('a valid row whose Thoughts layout is ambiguous opens as text too', async (
 	expect(openText(captures).draft).toBe(ambiguous);
 });
 
-test('Edit as text shows the exact file, and a conflict there offers the same choices', async () => {
+test('Edit as text shows the exact file, and Keep mine there keeps their other changes', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'text');
@@ -340,7 +340,12 @@ test('Edit as text shows the exact file, and a conflict there offers the same ch
 	expect(state.status === 'error' && state.error.name).toBe('Conflict');
 	expect(await captures.keepMine(session)).toBeUndefined();
 	await session.settled();
-	expect(await harness.text(PATH)).toBe(`${HAND}- mine\n`);
+	// The capture merges by field and body, as sync merges it: the body both
+	// changed is mine, and their removal of `custom` stands.
+	const saved = await harness.text(PATH);
+	expect(saved).toEndWith('- mine\n');
+	expect(saved).not.toContain('custom: kept');
+	expect(session.draft).toBe(saved);
 });
 
 // ============================================================================

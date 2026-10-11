@@ -12,7 +12,7 @@
 	what to fix.
 -->
 <script lang="ts">
-	import type { SaveState } from '@epicenter/folder';
+	import type { SaveState, SyncChoiceProblem } from '@epicenter/folder';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
 	import type { SaveReview } from './edit-session.svelte.js';
@@ -52,14 +52,22 @@
 
 	let choosing = $state(false);
 	let applying = $state(false);
+	/** What the folder refused in the last Apply, for the review it answered. */
+	let refused = $state.raw<{ id: string; problems: readonly SyncChoiceProblem[] }>();
 
 	async function apply(choices: Parameters<SaveReview['apply']>[0]) {
-		if (review === undefined) return;
+		const answered = review;
+		if (answered === undefined) return;
 		applying = true;
-		const { error } = await review.apply(choices);
+		const { error } = await answered.apply(choices);
 		applying = false;
-		if (error !== null)
-			toast.error('Could not save your choices', { description: error.message });
+		if (error === null) return;
+		if (error.name === 'InvalidChoices' && 'problems' in error)
+			refused = {
+				id: answered.id,
+				problems: error.problems as readonly SyncChoiceProblem[],
+			};
+		else toast.error('Could not save your choices', { description: error.message });
 	}
 
 	async function choose(run: () => Promise<string | undefined>) {
@@ -89,6 +97,7 @@
 					<SyncReview
 						attempt={review}
 						pending={applying}
+						problems={refused?.id === review.id ? refused.problems : []}
 						labels={{ local: 'Your edit', incoming: 'Saved elsewhere' }}
 						description="Changes that do not overlap were combined. Choose what to keep for these parts, or cancel to keep yours or reload theirs."
 						applyLabel="Apply"

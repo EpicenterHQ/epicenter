@@ -368,6 +368,96 @@ function heldRow(
 }
 
 /**
+ * One text file's three versions under sync's rules: root `kv.json` by key,
+ * a row of a declared table by field and body, any other text file by line.
+ * What cannot be settled is held: a unit both changed differently, or the
+ * whole file when a side has none, a version does not read, or lines compete.
+ */
+async function holdFile(
+	definition: FolderDefinition | undefined,
+	path: string,
+	texts: TextVersions,
+): Promise<
+	| { readonly kind: 'merged'; readonly text: string | null }
+	| { readonly kind: 'held'; readonly held: Held }
+> {
+	if (path === KV_PATH) {
+		const merged = reconcileKv(texts, new Map());
+		if (merged.kind === 'merged') return merged;
+		return {
+			kind: 'held',
+			held:
+				merged.kind === 'conflict'
+					? heldSettings(definition, texts, merged.conflicts)
+					: heldFile(path, texts),
+		};
+	}
+	const table = tableAt(definition, path);
+	if (table === undefined) {
+		// Any other text file merges by line; what does not is one unit.
+		if (texts.ours !== null && texts.theirs !== null) {
+			const text = await mergeLines({
+				base: texts.base ?? '',
+				ours: texts.ours,
+				theirs: texts.theirs,
+			});
+			if (text !== undefined) return { kind: 'merged', text };
+		}
+		return { kind: 'held', held: heldFile(path, texts) };
+	}
+	const merged = await mergeRow(table, texts);
+	if (merged.kind === 'merged') {
+		const { data: written, error } = writeRow(
+			table,
+			merged.row as Parameters<typeof writeRow>[1],
+		);
+		if (error === null) return { kind: 'merged', text: written.text };
+	}
+	return {
+		kind: 'held',
+		held:
+			merged.kind === 'conflict'
+				? heldRow(table, path, merged.row, merged.fields, merged.body)
+				: heldFile(path, texts),
+	};
+}
+
+/**
+ * One file's three versions merged as sync merges it, for a caller with no
+ * Git history, such as an edit session whose save met a change made
+ * elsewhere. `merged` is the file's text, `null` for no file. `held` names
+ * the units a person chooses; `settle(choices)` answers the file's text
+ * under one choice for each, `null` to leave no file, or every problem at
+ * once, reading `choices` once. Writes nothing.
+ */
+export type FileMerge =
+	| { readonly kind: 'merged'; readonly text: string | null }
+	| {
+			readonly kind: 'held';
+			readonly conflicts: readonly SyncConflict[];
+			settle(choices: unknown): Result<string | null, SyncError>;
+	  };
+
+export async function mergeFile(
+	definition: FolderDefinition | undefined,
+	path: string,
+	texts: TextVersions,
+): Promise<FileMerge> {
+	const merged = await holdFile(definition, path, texts);
+	if (merged.kind === 'merged') return merged;
+	const { conflicts } = merged.held;
+	const paths = new Map([[path, merged.held]]);
+	return Object.freeze({
+		kind: 'held',
+		conflicts: Object.freeze([...conflicts]),
+		settle(choices: unknown) {
+			const { data, error } = settle(paths, conflicts, choices);
+			return error === null ? Ok(data.get(path) ?? null) : Err(error);
+		},
+	});
+}
+
+/**
  * The merge rules sync adds to a Git merge, for one merge. `settled` gives
  * held paths their chosen text, so the same commits merge again with every
  * conflict answered. `held` collects what the merge could not settle.
@@ -384,45 +474,9 @@ export function syncMerge(
 	const mergePath: MergePath = async (path, texts) => {
 		if (settled.has(path))
 			return { kind: 'merged', text: settled.get(path) ?? null };
-		if (path === KV_PATH) {
-			const merged = reconcileKv(texts, new Map());
-			if (merged.kind === 'merged') return merged;
-			held.set(
-				path,
-				merged.kind === 'conflict'
-					? heldSettings(definition, texts, merged.conflicts)
-					: heldFile(path, texts),
-			);
-			return { kind: 'held' };
-		}
-		const table = tableAt(definition, path);
-		if (table === undefined) {
-			// Any other text file merges by line; what does not is one unit.
-			if (texts.ours !== null && texts.theirs !== null) {
-				const text = await mergeLines({
-					base: texts.base ?? '',
-					ours: texts.ours,
-					theirs: texts.theirs,
-				});
-				if (text !== undefined) return { kind: 'merged', text };
-			}
-			held.set(path, heldFile(path, texts));
-			return { kind: 'held' };
-		}
-		const merged = await mergeRow(table, texts);
-		if (merged.kind === 'merged') {
-			const { data: written, error } = writeRow(
-				table,
-				merged.row as Parameters<typeof writeRow>[1],
-			);
-			if (error === null) return { kind: 'merged', text: written.text };
-		}
-		held.set(
-			path,
-			merged.kind === 'conflict'
-				? heldRow(table, path, merged.row, merged.fields, merged.body)
-				: heldFile(path, texts),
-		);
+		const merged = await holdFile(definition, path, texts);
+		if (merged.kind === 'merged') return merged;
+		held.set(path, merged.held);
 		return { kind: 'held' };
 	};
 

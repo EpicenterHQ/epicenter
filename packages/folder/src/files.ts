@@ -19,7 +19,9 @@ import {
 	ownBytes,
 	ownCapture,
 } from './capture.js';
-import type { FileError, MoveError } from './errors.js';
+import type { FolderDefinition } from './definition.js';
+import type { FileError, MoveError, TableReadError } from './errors.js';
+import { mergeSave, type SaveMerge } from './save-merge.js';
 import { applyOne, replaceCaptured } from './storage.js';
 
 /**
@@ -82,12 +84,27 @@ export type FolderFiles = {
 	): Autosave<string | Uint8Array, FileError | AutosaveError>;
 	mkdir(path: string): Promise<Result<undefined, FileError>>;
 	rmdir(path: string): Promise<Result<undefined, FileError>>;
+	/**
+	 * Merge a session's save with a change made elsewhere to the text file
+	 * at `path`, by the folder's own rules as sync merges it (ADR-0514): a
+	 * row by field and body, `kv.json` by key, any other text by line. `base`
+	 * is what the file held when the session last saved or read it, `ours`
+	 * the draft. What merges is written over the file as it is now, guarded
+	 * by its bytes; what does not is held for a person (`SaveMerge`).
+	 */
+	merge(
+		path: string,
+		versions: { readonly base: string; readonly ours: string },
+	): Promise<Result<SaveMerge, TableReadError>>;
 };
 
 export function createFiles({
 	storage,
+	definition,
 }: {
 	storage: FolderStorage;
+	/** Which rows and settings `merge` reads by field and key. */
+	definition?: FolderDefinition;
 }): FolderFiles {
 	/** Publish one write and return the capture of the bytes that were given. */
 	async function save(
@@ -156,6 +173,8 @@ export function createFiles({
 		},
 		overwrite: (path, content) =>
 			save({ kind: 'overwrite', path, bytes: ownBytes(content) }),
+		merge: (path, versions) =>
+			mergeSave({ storage, definition }, path, versions),
 		autosave(file, { onState }) {
 			const owned = ownCapture(file);
 			return createAutosave({

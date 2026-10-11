@@ -31,22 +31,19 @@
  * session when the person leaves the file.
  */
 import {
-	type AnyRow,
 	type Autosave,
 	type AutosaveError,
 	type FileCapture,
 	type FileError,
 	type FileTable,
 	type FolderFiles,
-	mergeLines,
 	type Row,
 	type RowReadError,
 	rowStemOf,
+	type SaveMerge,
 	type SaveState,
-	type SyncChoice,
 	type SyncChoices,
 	type SyncConflict,
-	type SyncVersion,
 	wellFormed,
 } from '@epicenter/folder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
@@ -59,10 +56,6 @@ export const SessionError = defineErrors({
 	}),
 	/** The app let this session go; it changes nothing more. */
 	Released: () => ({ message: 'This file is no longer open here.' }),
-	/** A review was applied without a usable choice for every part. */
-	Unsettled: () => ({
-		message: 'Choose what to keep for every part before applying.',
-	}),
 });
 export type SessionError = InferErrors<typeof SessionError>;
 
@@ -88,24 +81,6 @@ export type Reread<TValue, TOther> =
 			readonly detail: TOther;
 	  };
 
-/**
- * Three versions of a session's value merged, the way sync merges a file:
- *
- * - `merged`: every change combined.
- * - `conflict`: parts both sides changed differently, as sync conflicts;
- *   `settle` answers the value under one choice for each, or `undefined`
- *   when a conflict has no usable choice.
- * - `whole`: a version cannot be merged by part.
- */
-export type Merge<TValue> =
-	| { readonly kind: 'merged'; readonly value: TValue }
-	| {
-			readonly kind: 'conflict';
-			readonly conflicts: readonly SyncConflict[];
-			settle(choices: SyncChoices): TValue | undefined;
-	  }
-	| { readonly kind: 'whole' };
-
 /** How a session reaches its kind of file. */
 export type EditSource<TValue, TError extends Failure, TOther> = {
 	autosave(
@@ -114,15 +89,15 @@ export type EditSource<TValue, TError extends Failure, TOther> = {
 	): Autosave<TValue, TError>;
 	reread(path: string): Promise<Result<Reread<TValue, TOther>, Failure>>;
 	recreate(path: string, value: TValue): Promise<Result<FileCapture, Failure>>;
-	/** Merge `ours` and `theirs` from `base`. Without it, every change elsewhere is the person's to choose. */
+	/**
+	 * Merge the draft with a change made elsewhere and write what merges, as
+	 * the folder does (`table.merge`, `files.merge`). Without it, every
+	 * change elsewhere is the person's to choose.
+	 */
 	merge?(
 		path: string,
-		versions: {
-			readonly base: TValue;
-			readonly ours: TValue;
-			readonly theirs: TValue;
-		},
-	): Promise<Merge<TValue>>;
+		versions: { readonly base: TValue; readonly ours: TValue },
+	): Promise<Result<SaveMerge, Failure>>;
 };
 
 /**
@@ -135,59 +110,13 @@ export type EditSource<TValue, TError extends Failure, TOther> = {
 export type SaveReview = {
 	readonly id: string;
 	readonly conflicts: readonly SyncConflict[];
+	/** Write the choices; a refusal names its problems and keeps the review. */
 	apply(choices: SyncChoices): Promise<Result<undefined, Failure>>;
 	cancel(): void;
 };
 
 function captureOf({ path, sha256 }: FileCapture): FileCapture {
 	return { path, sha256 };
-}
-
-const absent: SyncVersion = Object.freeze({ present: false });
-const versionOf = (value: unknown): SyncVersion =>
-	value === undefined ? absent : Object.freeze({ present: true, value });
-
-/** A sync-shaped conflict over one part of the file at `path`, local being the draft. */
-function partConflict(
-	path: string,
-	part: { kind: 'field'; field: string } | { kind: 'body' },
-	versions: { base: unknown; ours: unknown; theirs: unknown },
-): SyncConflict {
-	return Object.freeze({
-		id: JSON.stringify(
-			part.kind === 'field' ? [part.kind, path, part.field] : [part.kind, path],
-		),
-		path,
-		...part,
-		base: versionOf(versions.base),
-		local: versionOf(versions.ours),
-		incoming: versionOf(versions.theirs),
-	});
-}
-
-/**
- * The value a choice gives a part: a side's version, a replacement, or
- * absence; `invalid` when there is no own, usable choice.
- */
-function chosen(
-	conflict: SyncConflict,
-	choices: SyncChoices,
-): { value: unknown } | 'remove' | 'invalid' {
-	const choice: SyncChoice | undefined = Object.hasOwn(choices, conflict.id)
-		? choices[conflict.id]
-		: undefined;
-	switch (choice?.kind) {
-		case 'take': {
-			const version = conflict[choice.side];
-			return version.present ? { value: version.value } : 'remove';
-		}
-		case 'replace':
-			return { value: choice.value };
-		case 'remove':
-			return 'remove';
-		default:
-			return 'invalid';
-	}
 }
 
 export function createEditSession<TValue, TError extends Failure, TOther>(
@@ -301,45 +230,68 @@ export function createEditSession<TValue, TError extends Failure, TOther>(
 	}
 
 	/**
-	 * Merge the draft with a change made elsewhere. Combined changes save
-	 * over the newer file at once; competing parts become `review`. A file
-	 * that is gone or cannot be merged is left as the conflict it is.
+	 * Show the file as a write left it: the draft becomes what it holds now.
+	 * A file that is gone or no longer this session's kind is left for the
+	 * next save to report.
+	 */
+	async function showWritten(
+		path: string,
+	): Promise<Result<undefined, Failure>> {
+		const { data: found, error } = await source.reread(path);
+		if (released) return SessionError.Released();
+		if (error !== null) return Err(error);
+		if (found.kind === 'value') replace(found.file, found.value);
+		return Ok(undefined);
+	}
+
+	/**
+	 * Merge the draft with a change made elsewhere. The folder writes what
+	 * merges, and the draft becomes the result; competing parts become
+	 * `review`. A file that is gone or no longer this session's kind is left
+	 * as the conflict it is.
 	 */
 	function reconcile() {
 		const running = run(async () => {
 			const merge = source.merge;
 			if (merge === undefined || review !== undefined) return Ok(undefined);
-			const { data: found, error } = await source.reread(state.file.path);
+			const path = state.file.path;
+			const { data: found, error } = await source.reread(path);
 			if (released) return SessionError.Released();
 			if (error !== null) return Err(error);
 			if (found.kind !== 'value') return Ok(undefined);
-			const theirs = found;
-			const merged = await merge(theirs.file.path, {
+			const { data: merged, error: mergeError } = await merge(path, {
 				base: base.value,
 				ours: $state.snapshot(draft) as TValue,
-				theirs: theirs.value,
 			});
 			if (released) return SessionError.Released();
-			if (merged.kind === 'merged') {
-				replace(theirs.file, theirs.value, merged.value);
-				request();
-			} else if (merged.kind === 'conflict') {
-				review = Object.freeze({
-					id: crypto.randomUUID(),
-					conflicts: merged.conflicts,
-					apply: (choices: SyncChoices) =>
-						run(async () => {
-							const value = merged.settle(choices);
-							if (value === undefined) return SessionError.Unsettled();
-							replace(theirs.file, theirs.value, value);
-							request();
-							return Ok(undefined);
-						}),
-					cancel() {
+			if (mergeError !== null) return Err(mergeError);
+			if (merged.kind === 'saved') return showWritten(path);
+			const shown: SaveReview = Object.freeze({
+				id: crypto.randomUUID(),
+				conflicts: merged.conflicts,
+				async apply(choices: SyncChoices) {
+					const applied = await run(async () => {
+						const { error: refused } = await merged.resolve(choices);
+						if (released) return SessionError.Released();
+						if (refused !== null) return Err(refused);
+						return showWritten(path);
+					});
+					// The file changed again: merge with that version instead.
+					if (
+						applied.error !== null &&
+						applied.error.name !== 'InvalidChoices' &&
+						review === shown
+					) {
 						review = undefined;
-					},
-				});
-			}
+						void reconcile();
+					}
+					return applied;
+				},
+				cancel() {
+					if (review === shown) review = undefined;
+				},
+			});
+			review = shown;
 			return Ok(undefined);
 		});
 		merging = running;
@@ -418,30 +370,25 @@ export function createEditSession<TValue, TError extends Failure, TOther>(
 				if (released) return SessionError.Released();
 				if (error !== null) return Err(error);
 				if (found.kind === 'value' && source.merge !== undefined) {
-					const merged = await source.merge(path, {
+					const { data: merged, error: mergeError } = await source.merge(path, {
 						base: base.value,
 						ours: $state.snapshot(draft) as TValue,
-						theirs: found.value,
 					});
 					if (released) return SessionError.Released();
-					const mine =
-						merged.kind === 'merged'
-							? merged.value
-							: merged.kind === 'conflict'
-								? merged.settle(
-										Object.fromEntries(
-											merged.conflicts.map(({ id }) => [
-												id,
-												{ kind: 'take', side: 'local' } as const,
-											]),
-										),
-									)
-								: undefined;
-					if (mine !== undefined) {
-						replace(found.file, found.value, mine);
-						request();
-						return Ok(undefined);
+					if (mergeError !== null) return Err(mergeError);
+					if (merged.kind === 'held') {
+						const { error: refused } = await merged.resolve(
+							Object.fromEntries(
+								merged.conflicts.map(({ id }) => [
+									id,
+									{ kind: 'take', side: 'local' } as const,
+								]),
+							),
+						);
+						if (released) return SessionError.Released();
+						if (refused !== null) return Err(refused);
 					}
+					return showWritten(path);
 				}
 				if (found.kind !== 'gone') {
 					start(found.file, found.kind === 'value' ? found.value : base.value);
@@ -537,43 +484,7 @@ export function rowSource<TFields>(
 			const { data: created, error } = await table.create(row, { stem });
 			return error === null ? Ok(captureOf(created)) : Err(error);
 		},
-		async merge(path, versions) {
-			const merged = await table.merge(versions);
-			if (merged.kind === 'whole') return merged;
-			if (merged.kind === 'merged')
-				return { kind: 'merged', value: merged.row as Row<TFields> };
-			const conflicts = [
-				...merged.fields.map(({ field, base, ours, theirs }) =>
-					partConflict(path, { kind: 'field', field }, { base, ours, theirs }),
-				),
-				...(merged.body === undefined
-					? []
-					: [partConflict(path, { kind: 'body' }, merged.body)]),
-			];
-			return {
-				kind: 'conflict',
-				conflicts,
-				settle(choices) {
-					const row: AnyRow = {
-						fields: { ...merged.row.fields },
-						body: merged.row.body,
-					};
-					for (const conflict of conflicts) {
-						const pick = chosen(conflict, choices);
-						if (pick === 'invalid') return undefined;
-						if (conflict.kind === 'body') {
-							if (pick === 'remove' || typeof pick.value !== 'string')
-								return undefined;
-							row.body = pick.value;
-						} else if (conflict.kind === 'field') {
-							if (pick === 'remove') delete row.fields[conflict.field];
-							else row.fields[conflict.field] = pick.value;
-						}
-					}
-					return row as Row<TFields>;
-				},
-			};
-		},
+		merge: (path, versions) => table.merge(path, versions),
 	};
 }
 
@@ -616,22 +527,7 @@ export function textSource(
 			}
 		},
 		recreate: (path, text) => files.create(path, text),
-		async merge(path, versions) {
-			const merged = await mergeLines(versions);
-			if (merged !== undefined) return { kind: 'merged', value: merged };
-			const conflict = partConflict(path, { kind: 'body' }, versions);
-			return {
-				kind: 'conflict',
-				conflicts: [conflict],
-				settle(choices) {
-					const pick = chosen(conflict, choices);
-					if (pick === 'invalid' || pick === 'remove') return undefined;
-					return typeof pick.value === 'string'
-						? wellFormed(pick.value)
-						: undefined;
-				},
-			};
-		},
+		merge: (path, versions) => files.merge(path, versions),
 	};
 }
 
