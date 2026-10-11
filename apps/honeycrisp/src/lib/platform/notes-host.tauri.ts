@@ -11,18 +11,23 @@
  *
  * A folder that cannot be opened is an error on screen. There is no other
  * store to fall back to: this entry refuses outside the desktop app.
+ *
+ * `hostClose` is the shell's close signal: a close or quit waits a bounded
+ * moment for this page's saves in flight, and never asks.
  */
 import { openFolder } from '@epicenter/folder/tauri';
 import { honeycrispDefinition } from '../data.js';
 import { setUpFolder } from './first-open.js';
-import { openGuarded, openShellServices } from './shell.tauri.js';
+import { openShellServices } from './shell.tauri.js';
 import {
 	HONEYCRISP_FOLDER_ID,
 	type NotesHost,
-	type OpenNotes,
+	type OpenHost,
 } from './types.js';
 
-async function acquire(): Promise<NotesHost> {
+export { hostClose } from './shell.tauri.js';
+
+export const openHost: OpenHost = async (): Promise<NotesHost> => {
 	const { data: folder, error } = await openFolder({
 		id: HONEYCRISP_FOLDER_ID,
 		definition: honeycrispDefinition,
@@ -40,7 +45,4 @@ async function acquire(): Promise<NotesHost> {
 		await folder.close();
 		throw cause;
 	}
-}
-
-export const openNotes: OpenNotes = (options) =>
-	openGuarded({ ...options, acquire });
+};

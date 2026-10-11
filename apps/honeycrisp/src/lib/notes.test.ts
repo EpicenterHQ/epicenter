@@ -25,11 +25,17 @@
  *   saved last; a refused delete shows the file again in a new session
  * - Close waits for a whole action, such as a folder delete, not only the
  *   write running when it began
- * - The close fence stops input, and settling counts a draft that could not
- *   save
+ * - Closing flushes: the held autosave snapshot lands, a hung save cannot
+ *   hold the close past its bound, and a draft whose save failed does not
+ *   hold it at all
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import {
+	type FlushOutcome,
+	flushOnClose,
+	type HostCloseSignal,
+} from '@epicenter/svelte/flush-on-close';
 import {
 	type NotesFolderFixture,
 	noteText,
@@ -552,26 +558,75 @@ test('a refused delete after renaming the open note shows it again at its new pa
 // Closing
 // ============================================================================
 
-test('the close fence stops input, and settling counts a draft that could not save', async () => {
+/**
+ * The page's close wiring over `notes`, as `+page.svelte` makes it, with a
+ * host whose one close signal the test sends. `close` answers how the flush
+ * ended, as the shell's acknowledgement would follow it.
+ */
+function flushingOnClose(notes: Notes, ms?: number) {
+	let respond: (() => Promise<FlushOutcome>) | undefined;
+	const hostClose: HostCloseSignal = (run) => {
+		respond = run;
+		return () => {
+			respond = undefined;
+		};
+	};
+	const stop = flushOnClose(() => notes.flush(), { hostClose, ms });
+	return {
+		async close(): Promise<FlushOutcome> {
+			await until(() => respond !== undefined, 'the close signal to listen');
+			const outcome = await respond?.();
+			stop();
+			if (outcome === undefined) throw new Error('No close signal');
+			return outcome;
+		},
+	};
+}
+
+test('a close sends the held snapshot and waits for it to land', async () => {
 	const { notes, disk } = await open();
 	const session = await openNote(notes);
+	const page = flushingOnClose(notes);
+	disk.hold();
+	session.edit((row) => {
+		row.body = 'Running.\n';
+	});
+	await until(() => disk.held().length === 1, 'the first write to start');
+	session.edit((row) => {
+		row.body = 'Held behind it.\n';
+	});
+	const closing = page.close();
+	disk.release({ all: true });
+	expect(await closing).toBe('flushed');
+	expect(disk.text(A)).toContain('Held behind it.\n');
+});
+
+test('a close goes ahead within its bound when a save hangs', async () => {
+	const { notes, disk } = await open();
+	const session = await openNote(notes);
+	const page = flushingOnClose(notes, 40);
+	disk.hold();
+	session.edit((row) => {
+		row.body = 'Never lands.\n';
+	});
+	const started = performance.now();
+	expect(await page.close()).toBe('timed-out');
+	expect(performance.now() - started).toBeLessThan(500);
+	disk.release({ all: true });
+});
+
+test('a draft whose save failed does not hold a close', async () => {
+	const { notes, disk } = await open();
+	const session = await openNote(notes);
+	const page = flushingOnClose(notes);
 	disk.failWrites();
 	session.edit((row) => {
 		row.body = 'Mine.\n';
 	});
-	const release = notes.fenceInput();
-	expect(session.locked).toBe(true);
-	session.edit((row) => {
-		row.body = 'Typed while closing.\n';
-	});
-	expect(session.draft.body).toBe('Mine.\n');
-	expect(await notes.createNote()).toContain('closing');
-	expect(await notes.settleAll()).toBe(1);
-	release();
+	expect((await session.settled()).status).toBe('error');
+	expect(await page.close()).toBe('flushed');
+	// Closing never asks and takes no input away.
 	expect(session.locked).toBe(false);
-	disk.failWrites(false);
-	session.retry();
-	expect(await notes.settleAll()).toBe(0);
 });
 
 test('close waits for a running save, and a second call shares it', async () => {

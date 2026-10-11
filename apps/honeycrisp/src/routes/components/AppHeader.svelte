@@ -140,8 +140,7 @@
 			</dl>
 			<div class="flex items-center gap-2 border-t px-3 py-2">
 				<Button variant="outline" size="sm" onclick={() => void notes.check()}>Check again</Button>
-				<!-- The popover is outside the app's inert root. -->
-				<Button variant="ghost" size="sm" disabled={notes.git.activity.commit.active || notes.fenced} onclick={commitNow}>
+				<Button variant="ghost" size="sm" disabled={notes.git.activity.commit.active} onclick={commitNow}>
 					Commit saved files
 				</Button>
 			</div>

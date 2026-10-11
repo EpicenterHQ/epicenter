@@ -18,12 +18,10 @@
 	let filesOpen = $state(false);
 	let terminalOpen = $state(false);
 
-	// Drafts live only in this window. Three things can end it, and each is held
-	// back while the open item's save runs or failed:
-	// - a reload or in-page navigation: cancelled here, and the webview asks first;
-	// - closing the window or quitting the app: the shell asks the page, which
-	//   answers from `+page.svelte` before these notes exist. While it answers,
-	//   `notes.fenced` holds back every input and action here.
+	// Drafts live only in this window. A reload or in-page navigation is held
+	// back while the open item's save runs or failed, and the webview asks
+	// first. Closing the window or quitting never asks: `+page.svelte` flushes
+	// a save in flight for a bounded moment, then the app exits.
 	beforeNavigate(({ cancel }) => {
 		if (notes.unsettled > 0) cancel();
 	});
@@ -72,9 +70,7 @@
 	}}
 />
 
-<!-- While a close is being answered nothing here takes input. The editors stay
-     mounted, so Keep editing returns to the same text and undo history. -->
-<div class="flex h-dvh flex-col overflow-hidden" inert={notes.fenced}>
+<div class="flex h-dvh flex-col overflow-hidden">
 	<AppHeader
 		{notes}
 		{filesOpen}

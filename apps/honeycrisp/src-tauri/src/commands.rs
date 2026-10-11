@@ -12,9 +12,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, Runtime, State, Webview};
+use tauri::{Runtime, State, Webview};
 
-use crate::close::{CloseGate, Decision};
+use crate::flush::CloseFlush;
 use crate::history::{self, FileRevision};
 use crate::reveal;
 use crate::terminal::{Terminal, TerminalReply};
@@ -23,13 +23,8 @@ use crate::terminal::{Terminal, TerminalReply};
 /// commands serve.
 pub const WINDOW: &str = "main";
 
-/// The event the page receives when a close or quit was held back. Its
-/// payload is the `Ask` to answer.
-pub const CLOSE_REQUESTED: &str = "close-requested";
-
 /// What the shell holds for its window.
 pub struct Shell {
-    pub gate: CloseGate,
     pub terminal: Arc<Terminal>,
 }
 
@@ -53,82 +48,20 @@ async fn blocking<T: Send + 'static>(
         .map_err(|cause| cause.to_string())
 }
 
-/// Whether a close or quit must wait. When it must, the page is sent the
-/// request to answer; nothing here approves on the page's behalf.
-pub fn hold<R: Runtime>(app: &AppHandle<R>) -> bool {
-    // No shell state means setup never finished: no page holds a folder.
-    let Some(shell) = app.try_state::<Shell>() else {
-        return false;
-    };
-    match shell.gate.request_close() {
-        Decision::Proceed => false,
-        Decision::Ask(ask) => {
-            // A page that cannot be reached is still asked next time.
-            let _ = app.emit_to(WINDOW, CLOSE_REQUESTED, ask);
-            true
-        }
-    }
-}
-
 // ============================================================================
-// Close consent
+// Closing
 // ============================================================================
 
+/// The page's flush on close is done: its held snapshot and running saves
+/// landed, or its own budget ran out. The waiting close goes ahead.
 #[tauri::command]
-pub fn close_register<R: Runtime>(
+pub fn flush_done<R: Runtime>(
     webview: Webview<R>,
-    shell: State<'_, Shell>,
-) -> Result<u64, String> {
-    notes_window(&webview)?;
-    shell
-        .gate
-        .register_page()
-        .map_err(|refusal| refusal.to_string())
-}
-
-#[tauri::command]
-pub fn close_opened<R: Runtime>(
-    webview: Webview<R>,
-    shell: State<'_, Shell>,
-    generation: u64,
+    flush: State<'_, CloseFlush>,
 ) -> Result<(), String> {
     notes_window(&webview)?;
-    shell
-        .gate
-        .page_opened(generation)
-        .map_err(|refusal| refusal.to_string())
-}
-
-/// The page agrees to this close. The app exits once the gate accepts it.
-#[tauri::command]
-pub fn close_approve<R: Runtime>(
-    app: AppHandle<R>,
-    webview: Webview<R>,
-    shell: State<'_, Shell>,
-    generation: u64,
-    request: u64,
-) -> Result<(), String> {
-    notes_window(&webview)?;
-    shell
-        .gate
-        .approve(generation, request)
-        .map_err(|refusal| refusal.to_string())?;
-    app.exit(0);
+    flush.acknowledge();
     Ok(())
-}
-
-#[tauri::command]
-pub fn close_decline<R: Runtime>(
-    webview: Webview<R>,
-    shell: State<'_, Shell>,
-    generation: u64,
-    request: u64,
-) -> Result<(), String> {
-    notes_window(&webview)?;
-    shell
-        .gate
-        .decline(generation, request)
-        .map_err(|refusal| refusal.to_string())
 }
 
 // ============================================================================

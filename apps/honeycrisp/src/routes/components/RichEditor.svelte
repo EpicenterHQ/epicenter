@@ -302,7 +302,6 @@
 						}}
 					>
 						<Input class="h-8" placeholder="https://example.com" aria-label="Link address" bind:value={linkHref} />
-						<!-- The popover is outside the app's inert root. -->
 						<Button type="submit" size="sm" disabled={session.locked}>{linkHref.trim() === '' ? 'Remove' : 'Apply'}</Button>
 					</form>
 				</Popover.Content>

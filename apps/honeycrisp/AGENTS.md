@@ -86,42 +86,30 @@ against the code. The constraints below apply to every edit here.
 
 ## Closing
 
-- Once the page holds its folder, every native close needs that page's
-  answer to that request. Nothing else approves one: not a draft count, not
-  a timeout, not a page that stopped answering, not the shell itself. Do not
-  add a native prompt that discards on the page's behalf.
-- The page registers with the shell before it opens the folder, listens
-  before it says the folder is open, and says so before the notes exist.
-  `openGuarded` in `src/lib/platform/shell.tauri.ts` keeps that order; do not
-  open the desktop folder around it.
-- An approval names its page generation and its request. Keep both checks in
-  `src-tauri/src/close.rs`, and keep **Keep editing** an explicit decline.
-- Input is fenced before drafts are counted and stays fenced while the
-  approval is on its way. `notes.fenceInput()` is the one switch: sessions
-  lock, notes actions and the terminal refuse to run,
-  and `NotesView` is `inert`. A new way to change a file must check it, and
-  a control in a menu, popover, or dialog must also be `disabled`, because
-  those render outside the inert root. Do not unmount the editors to fence
-  them: that loses undo history.
-- Release the fence only for **Keep editing** and for the two gate refusals
-  listed in `APPROVAL_NOT_TAKEN` in `shell.tauri.ts`. Those are the texts of
-  `Refusal::StalePage` and `Refusal::NoSuchRequest` in `close.rs`; change
-  them together. "the app is already closing", any other text, and any other
-  failure keep the fence.
-- Route every way out through the gate: the window's close request, the run
-  loop's exit request, and the macOS Quit menu item, which stays custom
-  because the predefined one cannot be prevented.
-- A macOS system quit (Dock, logout, Apple Event) is AppKit's `terminate:`,
-  which Tao's delegate does not answer. `src-tauri/src/quit.rs` adds only
-  `applicationShouldTerminate:` to Tao's existing delegate class during
-  setup. It always cancels and calls `app.exit(0)`, so the gate decides.
-  Do not let it return anything but cancel, keep state, take a lock, or
-  replace the delegate. If the delegate class changes or already answers the
-  question, the app must fail to start; do not make it skip the guard.
-- After any Tauri, Tao, or macOS upgrade, rerun `bun run test:quit` and
-  `evidence/native-quit/late-method-probe.rs`, and record the results in
-  `evidence/native-quit/README.md`. The startup checks cannot see whether
-  AppKit still asks a method added after the delegate was set.
+- Closing never asks. Closing the window, Cmd+Q, and the run loop's exit
+  request each send the page `flush-on-close` once; the page flushes for a
+  bounded moment and acknowledges with `flush_done`, and the shell exits on
+  that acknowledgement or after one second, whichever comes first
+  (`src-tauri/src/flush.rs`). Do not add a prompt, a "Keep editing", an input
+  fence, or anything else that waits on a person or on the page's consent.
+- The flush protects saves in flight only: `notes.flush()` waits for
+  `admissions.quiet()` and then the open session's `settled()`, which sends
+  an autosave snapshot held behind a running write. A draft whose save
+  failed is not held back; the save bar said so when it failed. The page
+  wires it with `flushOnClose` from `@epicenter/svelte/flush-on-close` in
+  `src/routes/+page.svelte`, and the desktop leaf's `hostClose` in
+  `src/lib/platform/shell.tauri.ts` always acknowledges, even when the flush
+  failed or ran out of time.
+- Keep the custom macOS Quit menu item. The predefined one calls AppKit's
+  `terminate:`, which skips the exit request and so the flush.
+- A system quit (the Dock, a logout, a shutdown, an Apple Event) reaches the
+  run loop only as `RunEvent::Exit`: Tao's application delegate implements
+  `applicationWillTerminate:` and not `applicationShouldTerminate:`. The page
+  cannot be reached then, so only writes the folder plugin already accepted
+  are drained. Do not add `applicationShouldTerminate:` to hold such a quit;
+  that would cancel logouts and shutdowns.
+- The browser keeps its own leave prompt: `onbeforeunload` while a save is
+  running or failed, in `NotesView.svelte`. `pagehide` starts the same flush.
 
 ## The boundary
 
@@ -163,11 +151,7 @@ against the code. The constraints below apply to every edit here.
 - A commit failure is a Git fact. Do not turn one into a save error, and do
   not make a save wait for a commit.
 - `bun run test` must not need Rust. Tests that need the shell live in
-  `src-tauri` and `native-tests/` and run with `bun run test:native`. The
-  quit harness, `src-tauri/examples/quit`, opens a window and needs a macOS
-  login session, so it runs only on its own (`bun run test:quit`). It quits
-  its own process in a fresh directory. Never point it at the default folder,
-  and never quit another app to test.
+  `src-tauri` and run with `bun run test:native`.
 
 ## Words a person reads
 
