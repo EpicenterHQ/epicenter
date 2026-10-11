@@ -111,7 +111,8 @@ and TypeBox's `Compile` decides whether a value conforms. A bare
 `Type.Object(...)`, `Type.Enum(...)`, or `Type.Any()` is a field, in
 `defineTable` and in `kv`, with the exact `Static<>` TypeBox gives it. A
 `Type.Refine(...)` or codec is refused: its callback cannot be written to a
-file.
+file. Declared as a field, its type is refused where it is written; nested
+inside another schema, preparation refuses it.
 
 The `field.*` helpers are wrappers for the common cases. Each returns a native
 schema and sets one enumerable keyword on it, `x-field`, which says which
@@ -248,12 +249,15 @@ Preparation refuses, with the table, field, and path named:
   application replaced. TypeBox passes every value for a format it does not
   know, so a misspelled format would check nothing. Only `format` at a schema
   position counts: inside `default`, `const`, `enum`, `examples`, or an
-  `x-field` hint it is data, and a property named `format` is a field.
+  `x-field` hint it is data, and a property named `format` is a field;
+- a `$ref` that TypeBox's resolver cannot follow to a schema inside the
+  field. Such a field would fail every value, so every row would read as
+  invalid. The reason names the reference.
 
 TypeBox's hidden `~` keywords are dropped, except that an optional field keeps
 `~optional`, hidden as TypeBox keeps it; `isOptional` reads it. A misspelled
 keyword such as `maxLenght` is inert, as JSON Schema treats any unknown
-keyword, and an unresolvable `$ref` fails every value where it is read.
+keyword.
 
 A body conversion is not a field. It stays in code, carried by reference on the
 prepared table, and a storage that cannot keep one refuses it.

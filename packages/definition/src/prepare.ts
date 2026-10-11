@@ -22,6 +22,7 @@
 import { type TSchema, Type } from 'typebox';
 import { Compile } from 'typebox/compile';
 import { Format } from 'typebox/format';
+import { Resolve } from 'typebox/schema';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result, trySync } from 'wellcrafted/result';
 import { DATA_ADDRESS_CEILINGS, isDataId, isTableName } from './addresses.js';
@@ -476,7 +477,10 @@ const SCHEMA_KEYWORDS = new Set([
  * - finite numbers;
  * - a `format` only from the portable set, at a schema position. TypeBox
  *   passes every value for a format it does not know, so a misspelled format
- *   would check nothing.
+ *   would check nothing;
+ * - a `$ref` that resolves, the way TypeBox resolves it, to a schema inside
+ *   the field. A reference to nothing fails every value, so every row would
+ *   read as invalid.
  *
  * TypeBox's own hidden `~` keywords are allowed and left behind; a visible
  * `~` key is refused, so optionality has one spelling in a file: `required`.
@@ -487,6 +491,9 @@ function schemaProblem(declared: object): string | undefined {
 		node: unknown,
 		path: string,
 		position: 'schema' | 'data',
+		// The nearest schema with an `$id`, which a `#` reference resolves
+		// against, as TypeBox's compiler does; the field itself without one.
+		base: object = declared,
 	): string | undefined => {
 		if (typeof node === 'function') return `${path} holds a runtime callback`;
 		if (typeof node === 'number' && !Number.isFinite(node))
@@ -500,6 +507,12 @@ function schemaProblem(declared: object): string | undefined {
 		seen.add(node);
 		try {
 			const array = Array.isArray(node);
+			const scope =
+				position === 'schema' &&
+				!array &&
+				typeof (node as { $id?: unknown }).$id === 'string'
+					? node
+					: base;
 			for (const key of Object.getOwnPropertyNames(node)) {
 				if (array && key === 'length') continue;
 				const descriptor = Object.getOwnPropertyDescriptor(node, key)!;
@@ -539,6 +552,11 @@ function schemaProblem(declared: object): string | undefined {
 						if (stock === undefined || Format.Get(value) !== stock)
 							return `${at} is not a portable format: '${value}'`;
 					}
+					if (key === '$ref' && typeof value === 'string') {
+						const problem = referenceProblem(declared, scope, value);
+						if (problem !== undefined)
+							return `${at} names '${value}', ${problem}`;
+					}
 					if (SCHEMA_KEYWORDS.has(key)) next = 'schema';
 					else if (SCHEMA_MAP_KEYWORDS.has(key)) {
 						next = 'schema';
@@ -548,9 +566,9 @@ function schemaProblem(declared: object): string | undefined {
 				const problem =
 					children === 'values' && isPlainObject(value)
 						? Object.keys(value)
-								.map((name) => visit(value[name], `${at}.${name}`, next))
+								.map((name) => visit(value[name], `${at}.${name}`, next, scope))
 								.find((found) => found !== undefined)
-						: visit(value, at, next);
+						: visit(value, at, next, scope);
 				if (problem !== undefined) return problem;
 			}
 			if (array && Object.keys(node).length !== (node as unknown[]).length)
@@ -561,6 +579,33 @@ function schemaProblem(declared: object): string | undefined {
 		return undefined;
 	};
 	return visit(declared, '$', 'schema');
+}
+
+/**
+ * Why `ref` does not lead to a schema inside the field, or `undefined` when it
+ * does. TypeBox resolves a `#` reference against the nearest schema with an
+ * `$id` and any other against the whole field; this asks the same resolver.
+ */
+function referenceProblem(
+	field: object,
+	scope: object,
+	ref: string,
+): string | undefined {
+	// A reference that is not a URI resolves to nothing.
+	const { data: target } = trySync({
+		try: () =>
+			Resolve.Ref(
+				(ref.startsWith('#') ? scope : field) as Parameters<
+					typeof Resolve.Ref
+				>[0],
+				ref,
+			),
+		catch: () => Ok(undefined),
+	});
+	if (target === undefined) return 'which nothing in this field defines';
+	if (typeof target !== 'boolean' && !isPlainObject(target))
+		return 'which is not a schema';
+	return undefined;
 }
 
 /**

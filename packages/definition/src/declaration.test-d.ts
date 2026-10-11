@@ -11,8 +11,9 @@
  * admitted without making a field optional. `prepareData` returns the type it
  * was given.
  *
- * A refinement or codec still type-checks as a schema; preparation refuses it
- * at run time (see `prepare.test.ts`), so none is declared here.
+ * A refinement or codec declared as a field is refused by its type here, and
+ * one nested inside another schema by preparation at run time (see
+ * `prepare.test.ts`).
  *
  * See `./field/field.test-d.ts` for the helpers' own types.
  */
@@ -189,6 +190,20 @@ defineTable({
 	fields: {
 		// @ts-expect-error 'id' is reserved: every row already has one
 		id: Type.String(),
+	},
+});
+
+// A refinement, codec, or guard holds a callback no file can, so preparation
+// refuses one; its type is refused where it is declared, at the field.
+const nonEmpty = (value: string) => value.length > 0;
+defineTable({
+	fields: {
+		// @ts-expect-error a refinement is a callback, not JSON Schema
+		title: Type.Refine(Type.String(), nonEmpty),
+		// @ts-expect-error over a helper as well
+		note: Type.Refine(field.string(), nonEmpty),
+		// @ts-expect-error a codec is a callback too
+		when: Type.Decode(Type.String(), (value) => new Date(value)),
 	},
 });
 

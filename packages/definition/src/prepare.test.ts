@@ -27,8 +27,9 @@
  * - What a file cannot hold is refused with the path that holds it: a
  *   refinement, guard, or codec, any function, an accessor, a hidden keyword,
  *   a symbol key, a non-finite number, a hole, a non-plain object, a schema
- *   that contains itself, and a `format` outside the portable set where it is
- *   a keyword. No callback is run to decide
+ *   that contains itself, a `format` outside the portable set where it is
+ *   a keyword, and a `$ref` that leads to no schema in the field. No callback
+ *   is run to decide
  * - The schema alone decides conformance; a hint that is absent, wrong, or
  *   unknown changes the editor and nothing else
  * - Every field holds a present value to JSON before its schema runs
@@ -986,6 +987,46 @@ test('a format outside the portable set is refused where it is a keyword, and is
 	expect(admits(kv, 'named', { format: 1 })).toBe(false);
 	expect(admits(kv, 'portable', 'a@epicenter.so')).toBe(true);
 	expect(admits(kv, 'portable', 'not an email')).toBe(false);
+});
+
+test('a reference to a definition the field does not hold is refused, naming the reference', () => {
+	expect(refusalOf({ $ref: 'Missing' })).toBe(
+		"$.$ref names 'Missing', which nothing in this field defines",
+	);
+	expect(
+		refusalOf({
+			$defs: { text: { type: 'string' } },
+			$ref: '#/$defs/txt',
+		}),
+	).toBe("$.$ref names '#/$defs/txt', which nothing in this field defines");
+	expect(
+		refusalOf(
+			Type.Object({ next: Type.Union([Type.Ref('Node'), Type.Null()]) }),
+		),
+	).toBe(
+		"$.properties.next.anyOf.0.$ref names 'Node', which nothing in this field defines",
+	);
+	// A pointer to a value that is not a schema resolves to nothing usable.
+	expect(
+		refusalOf({ $defs: { n: { type: 'string' } }, $ref: '#/$defs/n/type' }),
+	).toBe("$.$ref names '#/$defs/n/type', which is not a schema");
+
+	// Resolved references stand, whether by `$id` or by pointer, and a `$ref`
+	// inside data is a value.
+	const kv = expectOk(
+		prepareKv({
+			chain: Node,
+			pointer: {
+				$defs: { text: { type: 'string', minLength: 2 } },
+				$ref: '#/$defs/text',
+			},
+			data: { const: { $ref: 'Missing' } },
+		}),
+	).kv;
+	expect(admits(kv, 'chain', { value: 1, next: null })).toBe(true);
+	expect(admits(kv, 'pointer', 'ab')).toBe(true);
+	expect(admits(kv, 'pointer', 'a')).toBe(false);
+	expect(admits(kv, 'data', { $ref: 'Missing' })).toBe(true);
 });
 
 test('a prepared field is the JSON of its declaration, so the field in memory is the field a file holds', () => {

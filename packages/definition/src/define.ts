@@ -6,12 +6,28 @@ import type {
 	TableDeclaration,
 } from './declaration.js';
 
-/** Field validation shared with KV; identity remains reserved. */
+/**
+ * A schema whose type says it holds a callback: a refinement, codec, or
+ * guard. Preparation refuses one at run time because a file cannot hold it
+ * (ADR-0525). Only the field's own type is read; one nested inside an object
+ * or union is refused by preparation alone.
+ */
+type CallbackSchema =
+	| { readonly '~refine': unknown }
+	| { readonly '~codec': unknown }
+	| { readonly '~guard': unknown };
+
+/**
+ * Field validation shared with KV: identity remains reserved, and a field is
+ * a schema JSON can hold.
+ */
 export type ValidateFields<T extends FieldMap> = {
 	[K in keyof T]: K extends string
 		? Lowercase<K> extends 'id'
 			? `'${K}' is reserved for row identity`
-			: T[K]
+			: T[K] extends CallbackSchema
+				? `'${K}' holds a callback, which JSON Schema cannot; check it after reading`
+				: T[K]
 		: T[K];
 };
 
