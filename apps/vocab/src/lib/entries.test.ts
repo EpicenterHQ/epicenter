@@ -360,7 +360,7 @@ test('a change made elsewhere is a conflict, and Reload theirs shows it without 
 	expect(await context.text(session.path)).toContain('note: after');
 });
 
-test('Keep mine saves the draft over a change made elsewhere', async () => {
+test('Keep mine takes the draft where both changed and keeps what changed elsewhere in other fields', async () => {
 	await using context = await setup();
 	const { entries } = context;
 	const { entry, session } = await openWord(entries, 'lucid');
@@ -371,7 +371,7 @@ test('Keep mine saves the draft over a change made elsewhere', async () => {
 	expect((await session.settled()).status).toBe('saved');
 	const saved = await context.text(session.path);
 	expect(saved).toContain('note: mine');
-	expect(saved).toContain('stage: new');
+	expect(saved).toContain('stage: usable');
 });
 
 test('a word deleted elsewhere is a conflict: Keep mine creates it again from the draft', async () => {

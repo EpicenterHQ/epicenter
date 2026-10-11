@@ -41,6 +41,7 @@
 	{/if}
 	<SaveBar
 		save={session.state}
+		review={session.review}
 		hideWhenSaved
 		onRetry={() => session.retry()}
 		onKeepMine={() => entries.keepMine(session)}

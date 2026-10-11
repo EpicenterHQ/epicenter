@@ -37,8 +37,9 @@ against the code. The constraints below apply to every edit here.
   session's.
 - Every write is guarded by bytes this page read or saved: the session's
   autosave, `replace` on the row a list read, and `move`/`remove` on a
-  capture. A change made elsewhere is the conflict prompt (Reload theirs /
-  Keep mine), never overwritten silently. `create` is the only unguarded
+  capture. A change made elsewhere merges with the draft by field and
+  line first; parts both changed are the person's to choose (the review,
+  then Reload theirs / Keep mine), never overwritten silently. `create` is the only unguarded
   write and refuses an occupied path.
 - A field command on a row that is not open (pin, trash, restore, folder
   assignment, folder name) is a guarded `replace` of the row the list read,

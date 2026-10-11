@@ -7,13 +7,21 @@
  * once; one write runs at a time and only the latest request waits, so rapid
  * typing writes the latest draft. A save never assigns the draft. Every write
  * is guarded by the bytes the session last saved, so a change made elsewhere,
- * or a deleted file, is `Conflict`, and the person chooses:
+ * or a deleted file, is `Conflict`.
  *
- * - `keepMine`: read the file again and save the draft over what is there,
- *   or create it again when it was deleted.
+ * A change made elsewhere is merged first, against the value the session
+ * last saved, the way sync merges (ADR-0514): independent changes combine
+ * and the draft saves over the newer file with no question. Parts both
+ * changed differently become `review`, which shows the person only those
+ * parts; input waits until they apply or cancel it. Only a file that is
+ * gone, or cannot be merged, is left for the person to choose:
+ *
+ * - `keepMine`: read the file again and save the draft over it, keeping
+ *   what changed elsewhere in parts the draft did not change; or create it
+ *   again when it was deleted.
  * - `reloadTheirs`: read the file again and replace the draft with it.
  *
- * Nothing retries on its own; `retry` requests the draft again.
+ * Nothing else retries on its own; `retry` requests the draft again.
  *
  * Commands (`keepMine`, `reloadTheirs`, `rename`) run one at a time and lock
  * input while they run, so no edit lands between a command's read and its
@@ -23,16 +31,22 @@
  * session when the person leaves the file.
  */
 import {
+	type AnyRow,
 	type Autosave,
 	type AutosaveError,
 	type FileCapture,
 	type FileError,
 	type FileTable,
 	type FolderFiles,
+	mergeLines,
 	type Row,
 	type RowReadError,
 	rowStemOf,
 	type SaveState,
+	type SyncChoice,
+	type SyncChoices,
+	type SyncConflict,
+	type SyncVersion,
 	wellFormed,
 } from '@epicenter/folder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
@@ -45,6 +59,10 @@ export const SessionError = defineErrors({
 	}),
 	/** The app let this session go; it changes nothing more. */
 	Released: () => ({ message: 'This file is no longer open here.' }),
+	/** A review was applied without a usable choice for every part. */
+	Unsettled: () => ({
+		message: 'Choose what to keep for every part before applying.',
+	}),
 });
 export type SessionError = InferErrors<typeof SessionError>;
 
@@ -70,6 +88,24 @@ export type Reread<TValue, TOther> =
 			readonly detail: TOther;
 	  };
 
+/**
+ * Three versions of a session's value merged, the way sync merges a file:
+ *
+ * - `merged`: every change combined.
+ * - `conflict`: parts both sides changed differently, as sync conflicts;
+ *   `settle` answers the value under one choice for each, or `undefined`
+ *   when a conflict has no usable choice.
+ * - `whole`: a version cannot be merged by part.
+ */
+export type Merge<TValue> =
+	| { readonly kind: 'merged'; readonly value: TValue }
+	| {
+			readonly kind: 'conflict';
+			readonly conflicts: readonly SyncConflict[];
+			settle(choices: SyncChoices): TValue | undefined;
+	  }
+	| { readonly kind: 'whole' };
+
 /** How a session reaches its kind of file. */
 export type EditSource<TValue, TError extends Failure, TOther> = {
 	autosave(
@@ -78,10 +114,80 @@ export type EditSource<TValue, TError extends Failure, TOther> = {
 	): Autosave<TValue, TError>;
 	reread(path: string): Promise<Result<Reread<TValue, TOther>, Failure>>;
 	recreate(path: string, value: TValue): Promise<Result<FileCapture, Failure>>;
+	/** Merge `ours` and `theirs` from `base`. Without it, every change elsewhere is the person's to choose. */
+	merge?(
+		path: string,
+		versions: {
+			readonly base: TValue;
+			readonly ours: TValue;
+			readonly theirs: TValue;
+		},
+	): Promise<Merge<TValue>>;
+};
+
+/**
+ * The parts of a draft that compete with a change made elsewhere, for the
+ * shared review (`@epicenter/svelte/sync-review`). `local` is the draft,
+ * `incoming` the file as it is now. Applying saves the chosen value over
+ * that file, guarded by its bytes; cancelling leaves the conflict for
+ * Keep mine or Reload theirs.
+ */
+export type SaveReview = {
+	readonly id: string;
+	readonly conflicts: readonly SyncConflict[];
+	apply(choices: SyncChoices): Promise<Result<undefined, Failure>>;
+	cancel(): void;
 };
 
 function captureOf({ path, sha256 }: FileCapture): FileCapture {
 	return { path, sha256 };
+}
+
+const absent: SyncVersion = Object.freeze({ present: false });
+const versionOf = (value: unknown): SyncVersion =>
+	value === undefined ? absent : Object.freeze({ present: true, value });
+
+/** A sync-shaped conflict over one part of the file at `path`, local being the draft. */
+function partConflict(
+	path: string,
+	part: { kind: 'field'; field: string } | { kind: 'body' },
+	versions: { base: unknown; ours: unknown; theirs: unknown },
+): SyncConflict {
+	return Object.freeze({
+		id: JSON.stringify(
+			part.kind === 'field' ? [part.kind, path, part.field] : [part.kind, path],
+		),
+		path,
+		...part,
+		base: versionOf(versions.base),
+		local: versionOf(versions.ours),
+		incoming: versionOf(versions.theirs),
+	});
+}
+
+/**
+ * The value a choice gives a part: a side's version, a replacement, or
+ * absence; `invalid` when there is no own, usable choice.
+ */
+function chosen(
+	conflict: SyncConflict,
+	choices: SyncChoices,
+): { value: unknown } | 'remove' | 'invalid' {
+	const choice: SyncChoice | undefined = Object.hasOwn(choices, conflict.id)
+		? choices[conflict.id]
+		: undefined;
+	switch (choice?.kind) {
+		case 'take': {
+			const version = conflict[choice.side];
+			return version.present ? { value: version.value } : 'remove';
+		}
+		case 'replace':
+			return { value: choice.value };
+		case 'remove':
+			return 'remove';
+		default:
+			return 'invalid';
+	}
 }
 
 export function createEditSession<TValue, TError extends Failure, TOther>(
@@ -90,6 +196,19 @@ export function createEditSession<TValue, TError extends Failure, TOther>(
 	{ locked: lockedOutside = () => false }: { locked?: () => boolean } = {},
 ) {
 	let draft = $state(opened.value);
+	/**
+	 * The value the file held at `state.file`, as this session last saved or
+	 * read it: the base a change made elsewhere merges from.
+	 */
+	let base: { sha256: string; value: TValue } = {
+		sha256: opened.file.sha256,
+		value: opened.value,
+	};
+	/** The latest value handed to the autosave. */
+	let requested = opened.value;
+	let review = $state.raw<SaveReview | undefined>();
+	/** The merge started for the latest change made elsewhere, until it ends. */
+	let merging: Promise<unknown> | undefined;
 	let state = $state.raw<SaveState<TError>>({
 		status: 'saved',
 		file: captureOf(opened.file),
@@ -99,29 +218,56 @@ export function createEditSession<TValue, TError extends Failure, TOther>(
 	let command = $state.raw<Promise<unknown> | undefined>();
 	let released = $state(false);
 	let save!: Autosave<TValue, TError>;
-	start(opened.file);
+	start(opened.file, opened.value);
 
-	/** A new autosave from `file`. A replaced autosave's late states are ignored. */
-	function start(file: FileCapture) {
+	/**
+	 * A new autosave from `file`, which holds `value`. A replaced autosave's
+	 * late states are ignored.
+	 */
+	function start(file: FileCapture, value: TValue) {
+		base = { sha256: file.sha256, value };
+		review = undefined;
 		state = { status: 'saved', file: captureOf(file) };
 		const session = source.autosave(file, {
 			onState(next) {
-				if (save === session) state = next;
+				if (save !== session) return;
+				state = next;
+				// `saved` follows the latest request once nothing waits, so the
+				// file now holds exactly what was last requested.
+				if (next.status === 'saved' && next.file.sha256 !== base.sha256)
+					base = { sha256: next.file.sha256, value: requested };
+				// Admitted now, so `settled` and any command wait for the merge.
+				if (changedElsewhere(next)) void reconcile();
 			},
 		});
 		save = session;
 	}
 
-	function request() {
-		save.request($state.snapshot(draft) as TValue);
+	/** A save refused because the file changed, when this source can merge. */
+	function changedElsewhere(next: SaveState<TError>): boolean {
+		if (next.status !== 'error' || next.error.name !== 'Conflict') return false;
+		const { actualSha256 } = next.error as { actualSha256?: string };
+		return actualSha256 !== undefined && source.merge !== undefined;
 	}
 
-	const locked = () => released || command !== undefined || lockedOutside();
+	function request() {
+		requested = $state.snapshot(draft) as TValue;
+		save.request(requested);
+	}
+
+	const locked = () =>
+		released ||
+		command !== undefined ||
+		review !== undefined ||
+		lockedOutside();
 
 	/** Run one command with input locked. Refused while another runs or once released. */
 	async function run<T>(
 		work: () => Promise<Result<T, Failure>>,
 	): Promise<Result<T, Failure>> {
+		// A command the person asked for waits for a merge already running,
+		// rather than being refused as busy.
+		while (merging !== undefined) await merging;
 		if (released) return SessionError.Released();
 		if (command !== undefined) return SessionError.Busy();
 		const running = (async () => {
@@ -138,15 +284,69 @@ export function createEditSession<TValue, TError extends Failure, TOther>(
 	}
 
 	async function settled(): Promise<SaveState<TError>> {
-		while (command !== undefined) await command.catch(() => {});
-		return save.settled();
+		for (;;) {
+			while (command !== undefined) await command.catch(() => {});
+			const current = save;
+			const latest = await save.settled();
+			// A save refused by a change elsewhere starts a merge; wait for it too.
+			if (command === undefined && save === current) return latest;
+		}
 	}
 
-	/** Show what a read found in place of the draft. */
-	function replace(file: FileCapture, value: TValue) {
-		draft = value;
+	/** Show `shown` in place of the draft, over `file`, which holds `value`. */
+	function replace(file: FileCapture, value: TValue, shown: TValue = value) {
+		draft = shown;
 		generation += 1;
-		start(file);
+		start(file, value);
+	}
+
+	/**
+	 * Merge the draft with a change made elsewhere. Combined changes save
+	 * over the newer file at once; competing parts become `review`. A file
+	 * that is gone or cannot be merged is left as the conflict it is.
+	 */
+	function reconcile() {
+		const running = run(async () => {
+			const merge = source.merge;
+			if (merge === undefined || review !== undefined) return Ok(undefined);
+			const { data: found, error } = await source.reread(state.file.path);
+			if (released) return SessionError.Released();
+			if (error !== null) return Err(error);
+			if (found.kind !== 'value') return Ok(undefined);
+			const theirs = found;
+			const merged = await merge(theirs.file.path, {
+				base: base.value,
+				ours: $state.snapshot(draft) as TValue,
+				theirs: theirs.value,
+			});
+			if (released) return SessionError.Released();
+			if (merged.kind === 'merged') {
+				replace(theirs.file, theirs.value, merged.value);
+				request();
+			} else if (merged.kind === 'conflict') {
+				review = Object.freeze({
+					id: crypto.randomUUID(),
+					conflicts: merged.conflicts,
+					apply: (choices: SyncChoices) =>
+						run(async () => {
+							const value = merged.settle(choices);
+							if (value === undefined) return SessionError.Unsettled();
+							replace(theirs.file, theirs.value, value);
+							request();
+							return Ok(undefined);
+						}),
+					cancel() {
+						review = undefined;
+					},
+				});
+			}
+			return Ok(undefined);
+		});
+		merging = running;
+		void running.finally(() => {
+			if (merging === running) merging = undefined;
+		});
+		return running;
 	}
 
 	return {
@@ -167,6 +367,10 @@ export function createEditSession<TValue, TError extends Failure, TOther>(
 		/** Input is refused now: a command runs, the app locked it, or it was released. */
 		get locked() {
 			return locked();
+		},
+		/** The competing parts awaiting the person's choice, if a merge left any. */
+		get review() {
+			return review;
 		},
 		/**
 		 * Change the draft and save it: `change` mutates the draft or returns
@@ -201,25 +405,57 @@ export function createEditSession<TValue, TError extends Failure, TOther>(
 				return found;
 			});
 		},
-		/** Keep mine: save the draft over whatever the file holds now, or create it again. */
+		/**
+		 * Keep mine: save the draft over the file as it is now, taking the
+		 * draft for every part both changed and keeping what changed elsewhere
+		 * in the other parts; a file that cannot be merged is replaced by the
+		 * draft. A deleted file is created again.
+		 */
 		keepMine(): Promise<Result<undefined, Failure>> {
 			return run(async () => {
 				const path = state.file.path;
 				const { data: found, error } = await source.reread(path);
 				if (released) return SessionError.Released();
 				if (error !== null) return Err(error);
+				if (found.kind === 'value' && source.merge !== undefined) {
+					const merged = await source.merge(path, {
+						base: base.value,
+						ours: $state.snapshot(draft) as TValue,
+						theirs: found.value,
+					});
+					if (released) return SessionError.Released();
+					const mine =
+						merged.kind === 'merged'
+							? merged.value
+							: merged.kind === 'conflict'
+								? merged.settle(
+										Object.fromEntries(
+											merged.conflicts.map(({ id }) => [
+												id,
+												{ kind: 'take', side: 'local' } as const,
+											]),
+										),
+									)
+								: undefined;
+					if (mine !== undefined) {
+						replace(found.file, found.value, mine);
+						request();
+						return Ok(undefined);
+					}
+				}
 				if (found.kind !== 'gone') {
-					start(found.file);
+					start(found.file, found.kind === 'value' ? found.value : base.value);
 					request();
 					return Ok(undefined);
 				}
+				requested = $state.snapshot(draft) as TValue;
 				const { data: created, error: createError } = await source.recreate(
 					path,
-					$state.snapshot(draft) as TValue,
+					requested,
 				);
 				if (createError !== null) return Err(createError);
 				// Created from the draft as it is now; input was locked meanwhile.
-				start(created);
+				start(created, requested);
 				return Ok(undefined);
 			});
 		},
@@ -250,7 +486,7 @@ export function createEditSession<TValue, TError extends Failure, TOther>(
 				const failed = state.status === 'error';
 				const { data: moved, error } = await move(state.file);
 				if (error !== null) return Err(error);
-				start(moved);
+				start(moved, base.value);
 				if (failed && !released) request();
 				return Ok(undefined);
 			});
@@ -301,6 +537,43 @@ export function rowSource<TFields>(
 			const { data: created, error } = await table.create(row, { stem });
 			return error === null ? Ok(captureOf(created)) : Err(error);
 		},
+		async merge(path, versions) {
+			const merged = await table.merge(versions);
+			if (merged.kind === 'whole') return merged;
+			if (merged.kind === 'merged')
+				return { kind: 'merged', value: merged.row as Row<TFields> };
+			const conflicts = [
+				...merged.fields.map(({ field, base, ours, theirs }) =>
+					partConflict(path, { kind: 'field', field }, { base, ours, theirs }),
+				),
+				...(merged.body === undefined
+					? []
+					: [partConflict(path, { kind: 'body' }, merged.body)]),
+			];
+			return {
+				kind: 'conflict',
+				conflicts,
+				settle(choices) {
+					const row: AnyRow = {
+						fields: { ...merged.row.fields },
+						body: merged.row.body,
+					};
+					for (const conflict of conflicts) {
+						const pick = chosen(conflict, choices);
+						if (pick === 'invalid') return undefined;
+						if (conflict.kind === 'body') {
+							if (pick === 'remove' || typeof pick.value !== 'string')
+								return undefined;
+							row.body = pick.value;
+						} else if (conflict.kind === 'field') {
+							if (pick === 'remove') delete row.fields[conflict.field];
+							else row.fields[conflict.field] = pick.value;
+						}
+					}
+					return row as Row<TFields>;
+				},
+			};
+		},
 	};
 }
 
@@ -343,6 +616,22 @@ export function textSource(
 			}
 		},
 		recreate: (path, text) => files.create(path, text),
+		async merge(path, versions) {
+			const merged = await mergeLines(versions);
+			if (merged !== undefined) return { kind: 'merged', value: merged };
+			const conflict = partConflict(path, { kind: 'body' }, versions);
+			return {
+				kind: 'conflict',
+				conflicts: [conflict],
+				settle(choices) {
+					const pick = chosen(conflict, choices);
+					if (pick === 'invalid' || pick === 'remove') return undefined;
+					return typeof pick.value === 'string'
+						? wellFormed(pick.value)
+						: undefined;
+				},
+			};
+		},
 	};
 }
 

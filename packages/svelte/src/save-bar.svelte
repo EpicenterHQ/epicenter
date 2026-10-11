@@ -1,7 +1,10 @@
 <!--
 	One edit session's save state, and the conflict prompt.
 
-	A change made elsewhere asks "Reload theirs" or "Keep mine". A file
+	A change made elsewhere is merged by the session first. When parts
+	compete, `review` shows only those parts in the shared review grid, and
+	Cancel falls back to "Reload theirs" or "Keep mine". Otherwise a change
+	made elsewhere that cannot be merged asks "Reload theirs" or "Keep mine". A file
 	deleted elsewhere asks "Discard" or "Keep mine", which creates it again
 	from the draft; without `onKeepMine` only Discard is offered. Any other
 	failed save offers "Try again", and a save whose reply was lost "Save
@@ -12,6 +15,8 @@
 	import type { SaveState } from '@epicenter/folder';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
+	import type { SaveReview } from './edit-session.svelte.js';
+	import SyncReview from './sync-review.svelte';
 
 	type Failure = {
 		readonly name: string;
@@ -22,6 +27,7 @@
 
 	let {
 		save,
+		review,
 		onRetry,
 		onReloadTheirs,
 		onKeepMine,
@@ -30,6 +36,8 @@
 		class: className = '',
 	}: {
 		save: SaveState<Failure>;
+		/** The session's competing parts, while a merge waits for the person. */
+		review?: SaveReview;
 		onRetry: () => void;
 		/** Answers what the person is told, if anything. */
 		onReloadTheirs: () => Promise<string | undefined>;
@@ -43,6 +51,16 @@
 	} = $props();
 
 	let choosing = $state(false);
+	let applying = $state(false);
+
+	async function apply(choices: Parameters<SaveReview['apply']>[0]) {
+		if (review === undefined) return;
+		applying = true;
+		const { error } = await review.apply(choices);
+		applying = false;
+		if (error !== null)
+			toast.error('Could not save your choices', { description: error.message });
+	}
 
 	async function choose(run: () => Promise<string | undefined>) {
 		choosing = true;
@@ -62,7 +80,24 @@
 		class="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b px-4 py-1.5 text-xs {className}"
 		data-testid="save-bar"
 	>
-		{#if error?.name === 'Conflict'}
+		{#if review}
+			<span class="text-destructive" role="alert">
+				This changed elsewhere. Your edits are kept here and not saved.
+			</span>
+			<div class="w-full py-2">
+				{#key review.id}
+					<SyncReview
+						attempt={review}
+						pending={applying}
+						labels={{ local: 'Your edit', incoming: 'Saved elsewhere' }}
+						description="Changes that do not overlap were combined. Choose what to keep for these parts, or cancel to keep yours or reload theirs."
+						applyLabel="Apply"
+						onCancel={() => review?.cancel()}
+						onApply={(_, choices) => void apply(choices)}
+					/>
+				{/key}
+			</div>
+		{:else if error?.name === 'Conflict'}
 			<span class="text-destructive" role="alert">
 				{gone
 					? 'This was deleted elsewhere. Your edits are kept here and not saved.'

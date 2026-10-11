@@ -426,20 +426,17 @@ test('a save sends the whole row as one replacement guarded by the bytes this pa
 	await host.close();
 });
 
-test('an edit made elsewhere is a conflict and is not overwritten', async () => {
+test('an edit made elsewhere to other lines combines with the draft, and neither is overwritten', async () => {
 	put(PATH, SAVED);
 	const { host, captures } = await opened();
 	const { session, form } = await openOne(captures);
-	const theirs = `${SAVED}- from another window\n`;
-	put(PATH, theirs);
+	put(PATH, `${SAVED}- from another window\n`);
 
 	form.inputText('Mine');
 	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('Conflict');
-	expect(text(PATH)).toBe(theirs);
-	expect(await captures.keepMine(session)).toBeUndefined();
-	await session.settled();
-	expect(text(PATH)).toBe(`${withText('Mine')}`);
+	expect(state.status).toBe('saved');
+	expect(session.review).toBeUndefined();
+	expect(text(PATH)).toBe(`${withText('Mine')}- from another window\n`);
 	await captures.close();
 	await host.close();
 });

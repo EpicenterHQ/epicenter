@@ -275,7 +275,7 @@ test('a change made elsewhere is a conflict, and Reload theirs shows it without 
 	expect(await text(todos, session.path)).toContain('done: false');
 });
 
-test('Keep mine saves the draft over a change made elsewhere', async () => {
+test('Keep mine takes the draft where both changed and keeps what changed elsewhere in other fields', async () => {
 	const { todos } = await open();
 	const session = await addTodo(todos, 'Milk');
 	await writeElsewhere(
@@ -291,7 +291,7 @@ test('Keep mine saves the draft over a change made elsewhere', async () => {
 	expect((await session.settled()).status).toBe('saved');
 	const saved = await text(todos, session.path);
 	expect(saved).toContain('title: Mine');
-	expect(saved).toContain('done: false');
+	expect(saved).toContain('done: true');
 });
 
 test('a file deleted elsewhere is a conflict: Keep mine creates it again from the draft', async () => {
@@ -501,9 +501,10 @@ test('Files opens a todo as its exact text, and a conflict there offers the same
 	const session = textSession(todos);
 	expect(session.draft).toBe((await text(todos, path))!);
 	await writeElsewhere(todos, path, '---\ntitle: Theirs\ndone: false\n---\n');
-	session.input(`${session.draft}mine\n`);
+	session.input(session.draft.replace('title: Milk', 'title: Mine'));
 	const state = await session.settled();
 	expect(state.status === 'error' && state.error.name).toBe('Conflict');
+	expect(session.review?.conflicts.map(({ kind }) => kind)).toEqual(['body']);
 	expect(await todos.keepMine(openSession(todos))).toBeUndefined();
 	await session.settled();
 	expect(await text(todos, path)).toBe(session.draft);

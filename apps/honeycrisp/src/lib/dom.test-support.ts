@@ -73,6 +73,14 @@ for (const name of [
 				: value,
 	});
 }
+// Every other DOM interface the runtime lacks, such as `HTMLMediaElement`.
+for (const name of Object.getOwnPropertyNames(window))
+	if (/^[A-Z]/.test(name) && !(name in globalThis))
+		Object.defineProperty(globalThis, name, {
+			configurable: true,
+			writable: true,
+			value: (window as unknown as Record<string, unknown>)[name],
+		});
 // The UI library asks for the color scheme; jsdom answers no query.
 window.matchMedia ??= ((query: string) => ({
 	matches: false,

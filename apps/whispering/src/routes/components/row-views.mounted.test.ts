@@ -111,7 +111,7 @@ test('typing in a transcript’s view edits the draft of the path it shows, and 
 	expect(saveState(target)).toBe('saved');
 });
 
-test('a change made elsewhere shows the conflict prompt; Keep mine saves the draft, Reload theirs shows theirs', async () => {
+test('a change made elsewhere to the same lines shows the review; after Cancel, Keep mine saves the draft and Reload theirs shows theirs', async () => {
 	const { library, target, root } = await open({ [A]: transcript('Alpha.\n') });
 	await show(library, A);
 	const body = () =>
@@ -125,7 +125,10 @@ test('a change made elsewhere shows the conflict prompt; Keep mine saves the dra
 	await settle(library);
 	expect(saveState(target)).toBe('error');
 	expect(target.textContent).toContain('This changed elsewhere');
+	expect(target.textContent).toContain('Choose what to keep');
 
+	click(target, 'Cancel');
+	flushSync();
 	click(target, 'Keep mine');
 	await settle(library);
 	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nMine.\n');
@@ -134,6 +137,8 @@ test('a change made elsewhere shows the conflict prompt; Keep mine saves the dra
 	await writeFile(join(root, A), transcript('Theirs again.\n'));
 	type(body(), 'Mine again.\n');
 	await settle(library);
+	click(target, 'Cancel');
+	flushSync();
 	click(target, 'Reload theirs');
 	await settle(library);
 	expect(body()?.value).toBe('Theirs again.\n');

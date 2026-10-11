@@ -260,9 +260,14 @@ keeps you on the item.
 - Each edit saves at once. One save runs at a time and only the latest edit
   waits, so fast typing writes your latest text, not every keystroke. A save
   never changes what is on screen.
-- A save stops with a prompt when the file changed elsewhere since this item
-  last saved or read it: **Reload theirs** shows their version in place of
-  your edits; **Keep mine** saves your edits over it. When the file was
+- When the file changed elsewhere since this item last saved or read it,
+  the save merges your edits with that version first. Changes to different
+  fields, or to different lines, combine and save with no question. When
+  both changed the same field or lines, a review shows only those parts,
+  with your edit, the version saved elsewhere, and a result; **Apply** saves
+  your choices over that version. **Cancel** leaves **Reload theirs**, which
+  shows their version in place of your edits, and **Keep mine**, which keeps
+  your edits where both changed and their changes everywhere else. When the file was
   deleted elsewhere, the choices are **Discard**, which closes the item, and
   **Keep mine**, which creates the file again from your edits. Nothing is
   written until you choose.

@@ -60,6 +60,14 @@ for (const name of [
 		value: name === 'window' ? window : window[name as keyof typeof window],
 	});
 }
+// Every other DOM interface the runtime lacks, such as `HTMLMediaElement`.
+for (const name of Object.getOwnPropertyNames(window))
+	if (/^[A-Z]/.test(name) && !(name in globalThis))
+		Object.defineProperty(globalThis, name, {
+			configurable: true,
+			writable: true,
+			value: (window as unknown as Record<string, unknown>)[name],
+		});
 window.matchMedia ??= ((query: string) => ({
 	matches: false,
 	media: query,

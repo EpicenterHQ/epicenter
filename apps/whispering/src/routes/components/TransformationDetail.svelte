@@ -279,6 +279,7 @@
 	{#if draft.kind === 'row' || draft.kind === 'text'}
 		<SaveBar
 			save={draft.session.state}
+			review={draft.session.review}
 			onRetry={() => draft.session.retry()}
 			onReloadTheirs={() => library.reloadTheirs(draft.session)}
 			gone={!library.canKeepMine(draft.session)}

@@ -117,6 +117,7 @@
 
 	<SaveBar
 		save={session.state}
+		review={session.review}
 		onRetry={() => session.retry()}
 		onKeepMine={() => notes.keepMine(session)}
 		onReloadTheirs={() => notes.reloadTheirs(session)}

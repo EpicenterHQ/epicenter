@@ -128,6 +128,7 @@
 
 	<SaveBar
 		save={session.state}
+		review={session.review}
 		class="rounded-md border"
 		onRetry={() => session.retry()}
 		onKeepMine={() => captures.keepMine(session)}

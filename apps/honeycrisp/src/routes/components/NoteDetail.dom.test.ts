@@ -160,7 +160,7 @@ test('different Source text replaces the rich-text document, and typing goes on 
 	expect(session.draft.body).toBe('Different again\n');
 });
 
-test('a change made elsewhere asks first; Reload theirs remounts the rich-text view on their text', async () => {
+test('a change made elsewhere asks about the title both changed; after Cancel, Reload theirs remounts the rich-text view on their text', async () => {
 	const { session, target, put } = await view();
 	const rich = richOf(target);
 	put('notes/a.md', noteText({ title: 'Theirs', body: 'Their body.\n' }));
@@ -168,6 +168,9 @@ test('a change made elsewhere asks first; Reload theirs remounts the rich-text v
 	await session.settled();
 	await tick();
 	expect(target.textContent).toContain('This changed elsewhere');
+	expect(session.review?.conflicts.map(({ kind }) => kind)).toEqual(['field']);
+	click(target, 'Cancel');
+	flushSync();
 	expect(buttonNamed(target, 'Keep mine')).toBeDefined();
 	click(target, 'Reload theirs');
 	await until(() => session.draft.fields.title === 'Theirs', 'the reload');
@@ -178,12 +181,14 @@ test('a change made elsewhere asks first; Reload theirs remounts the rich-text v
 	expect(target.textContent).not.toContain('This changed elsewhere');
 });
 
-test('Keep mine saves the draft over a change made elsewhere', async () => {
+test('after Cancel, Keep mine saves the draft over a change made elsewhere', async () => {
 	const { session, target, put, text } = await view();
 	put('notes/a.md', noteText({ title: 'Theirs' }));
 	type(titleOf(target), 'Mine');
 	await session.settled();
 	await tick();
+	click(target, 'Cancel');
+	flushSync();
 	click(target, 'Keep mine');
 	await until(
 		() => text('notes/a.md')?.includes('title: Mine') === true,

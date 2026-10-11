@@ -1,6 +1,8 @@
 <!--
 	The review for one `folder.sync` attempt (ADR-0514, ADR-0516): a row per
 	conflict, grouped by file, with the two captured versions and the result.
+	An edit session's `review` uses the same grid for a save that met a
+	change made elsewhere, with its own labels, heading, and apply label.
 
 	The review is modal: the page shows it in place of everything else while
 	the attempt waits. It holds that attempt's choices and nothing else, only
@@ -63,7 +65,10 @@
 	}
 </script>
 
-<script lang="ts">
+<script
+	lang="ts"
+	generics="TAttempt extends Pick<SyncAttempt, 'id' | 'conflicts'>"
+>
 	import type {
 		SyncAttempt,
 		SyncChoice,
@@ -79,20 +84,26 @@
 		pending = false,
 		problems = [],
 		labels = { local: 'This device', incoming: 'Remote' },
+		heading = 'Choose what to keep',
+		description = 'These changes conflict with the remote. Nothing is saved until you apply.',
+		applyLabel = 'Apply and sync',
 		onCancel,
 		onApply,
 	}: {
 		/** The captured attempt the choices answer. */
-		attempt: SyncAttempt;
+		attempt: TAttempt;
 		/** A resolution is running: every control waits. */
 		pending?: boolean;
 		/** What the folder refused in the last Apply, shown beside each row. */
 		problems?: readonly SyncChoiceProblem[];
 		/** What a person calls each side. */
 		labels?: { readonly local: string; readonly incoming: string };
+		heading?: string;
+		description?: string;
+		applyLabel?: string;
 		/** Discard the attempt and its choices. */
 		onCancel: () => void;
-		onApply: (attempt: SyncAttempt, choices: SyncChoices) => void;
+		onApply: (attempt: TAttempt, choices: SyncChoices) => void;
 	} = $props();
 
 	// Replace-only: every edit assigns a new object, so a submitted object
@@ -211,11 +222,8 @@
 	}}
 >
 	<header>
-		<h2 class="text-base font-medium">Choose what to keep</h2>
-		<p class="text-muted-foreground text-sm">
-			These changes conflict with the remote. Nothing is saved until you
-			apply.
-		</p>
+		<h2 class="text-base font-medium">{heading}</h2>
+		<p class="text-muted-foreground text-sm">{description}</p>
 	</header>
 
 	{#each general as problem (problem.message)}
@@ -303,7 +311,7 @@
 		</span>
 		<div class="flex gap-2">
 			<Button variant="outline" disabled={pending} onclick={onCancel}>Cancel</Button>
-			<Button type="submit" disabled={pending || !complete}>Apply and sync</Button>
+			<Button type="submit" disabled={pending || !complete}>{applyLabel}</Button>
 		</div>
 	</footer>
 </form>

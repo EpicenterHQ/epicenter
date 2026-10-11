@@ -101,6 +101,7 @@
 	{:else if row}
 		<SaveBar
 			save={row.state}
+			review={row.review}
 			onRetry={() => row.retry()}
 			onReloadTheirs={() => library.reloadTheirs(row)}
 			gone={!library.canKeepMine(row)}
@@ -127,6 +128,7 @@
 	{:else if text}
 		<SaveBar
 			save={text.session.state}
+			review={text.session.review}
 			onRetry={() => text.session.retry()}
 			onReloadTheirs={() => library.reloadTheirs(text.session)}
 			gone={!library.canKeepMine(text.session)}

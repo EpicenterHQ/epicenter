@@ -10,8 +10,9 @@
  * Key behaviors:
  * - The note is read-only until focusing it opens the word; each keystroke
  *   then saves
- * - A change made elsewhere asks Reload theirs or Keep mine; a word deleted
- *   elsewhere asks Discard or Keep mine
+ * - A change made elsewhere merges first: only the note both changed is
+ *   asked about, and Keep mine after Cancel keeps their other changes; a
+ *   word deleted elsewhere asks Discard or Keep mine
  * - A stage pressed on a word that is not open saves it as listed
  * - Delete asks first; Cancel changes nothing, and confirming deletes it
  * - Opening another word after a failed save asks to discard it
@@ -121,7 +122,7 @@ test('the note is read-only until focusing it opens the word, and each keystroke
 	expect(await context.file('lucid')).toContain('note: clear');
 });
 
-test('a change made elsewhere asks Reload theirs or Keep mine', async () => {
+test('a change made elsewhere to the note asks about the note only, and keeps their other changes', async () => {
 	await using context = await setup(['lucid']);
 	const { target } = context;
 	const note = context.field('lucid');
@@ -134,21 +135,43 @@ test('a change made elsewhere asks Reload theirs or Keep mine', async () => {
 	);
 	type(note, 'mine');
 	await until(
-		() => target.textContent?.includes('This changed elsewhere') ?? false,
-		'the conflict',
+		() =>
+			target.querySelector('form[aria-label="Review sync changes"]') !== null,
+		'the review',
 	);
-
-	click(target, 'Reload theirs');
+	const parts = [...target.querySelectorAll('[role="group"]')].map((group) =>
+		group.getAttribute('aria-label'),
+	);
+	expect(parts).toEqual(['note']);
+	const useTheirs = [...target.querySelectorAll('button')].filter(
+		(button) => button.textContent?.trim() === 'Use this',
+	)[1];
+	if (useTheirs === undefined) throw new Error('No Use this for their note');
+	click(target, useTheirs);
+	flushSync();
+	click(target, 'Apply');
+	await until(() => context.entries.unsaved === false, 'the save');
 	await until(() => note?.value === 'theirs', 'their note');
-	expect(await context.file('lucid')).toBe(theirs('usable'));
+	const chose = await context.file('lucid');
+	expect(chose).toContain('note: theirs');
+	expect(chose).toContain('stage: usable');
 
 	expectOk(
-		await context.folder.files.overwrite(context.path('lucid'), theirs('new')),
+		await context.folder.files.overwrite(
+			context.path('lucid'),
+			theirs('new').replace('note: theirs', 'note: elsewhere'),
+		),
 	);
 	type(note, 'mine again');
 	await until(
+		() =>
+			target.querySelector('form[aria-label="Review sync changes"]') !== null,
+		'the second review',
+	);
+	click(target, 'Cancel');
+	await until(
 		() => target.textContent?.includes('This changed elsewhere') ?? false,
-		'the second conflict',
+		'the fallback choices',
 	);
 	click(target, 'Keep mine');
 	await until(
@@ -156,7 +179,9 @@ test('a change made elsewhere asks Reload theirs or Keep mine', async () => {
 		'the prompt to close',
 	);
 	await until(() => context.entries.unsaved === false, 'the save');
-	expect(await context.file('lucid')).toContain('note: mine again');
+	const saved = await context.file('lucid');
+	expect(saved).toContain('note: mine again');
+	expect(saved).toContain('stage: new');
 });
 
 test('a word deleted elsewhere asks Discard or Keep mine; Keep mine creates it again', async () => {

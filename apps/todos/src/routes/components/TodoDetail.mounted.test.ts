@@ -201,6 +201,18 @@ function saveBarButtons(root: ParentNode) {
 	return [...bar.querySelectorAll('button')].map((b) => b.textContent?.trim());
 }
 
+/** Wait for the merge to show the parts both changed, then cancel it for Reload theirs or Keep mine. */
+async function cancelReview(
+	target: ParentNode,
+	session: { readonly review: unknown },
+) {
+	await eventually(() => session.review !== undefined);
+	flushSync();
+	expect(saveBarButtons(target)).toContain('Apply');
+	click(target, 'Cancel');
+	flushSync();
+}
+
 test("typing saves at once, and each todo gets its own view: A then B then A mounts new controls, A's left-over controls admit nothing, and each input saves at its own path", async () => {
 	const { todos, target, get, selected, shown, reading } = await setup();
 	await todos.create('A');
@@ -280,6 +292,7 @@ test('another writer\'s change is a conflict on the next edit, and "Reload their
 	type(title, 'Mine');
 	await eventually(() => session.state.status === 'error');
 	expect(find(ALERT)?.textContent).toContain('changed elsewhere');
+	await cancelReview(target, session);
 	expect(saveBarButtons(target)).toEqual(['Reload theirs', 'Keep mine']);
 	expect(title.value).toBe('Mine');
 	expect(await text(path)).toBe(ROW('Theirs'));
@@ -298,7 +311,7 @@ test('another writer\'s change is a conflict on the next edit, and "Reload their
 	expect((await reading(path)).fields.title).toBe('After');
 });
 
-test('another writer\'s change is a conflict on the next edit, and "Keep mine" saves the draft over it', async () => {
+test('another writer\'s change is a conflict on the next edit, and "Keep mine" saves the draft where both changed and keeps their other changes', async () => {
 	const { todos, target, get, find, selected, shown, overwrite, reading } =
 		await setup();
 	await todos.create('Milk');
@@ -312,6 +325,7 @@ test('another writer\'s change is a conflict on the next edit, and "Keep mine" s
 	await overwrite(path, ROW('Theirs'));
 	type(title, 'Mine');
 	await eventually(() => session.state.status === 'error');
+	await cancelReview(target, session);
 	expect(saveBarButtons(target)).toEqual(['Reload theirs', 'Keep mine']);
 
 	click(target, 'Keep mine');
@@ -319,9 +333,10 @@ test('another writer\'s change is a conflict on the next edit, and "Keep mine" s
 	expect(selected()).toBe(session);
 	expect(title.value).toBe('Mine');
 	expect(find(ALERT)).toBeNull();
+	// Their version cleared the notes, which this draft did not change.
 	expect(await reading(path)).toEqual({
 		fields: { title: 'Mine', done: false },
-		body: 'My notes\n',
+		body: '',
 	});
 });
 
@@ -411,6 +426,7 @@ test("returning to the window shows another writer's change when nothing is unsa
 			session.state.status === 'error' &&
 			find(ALERT)?.textContent?.includes('changed elsewhere') === true,
 	);
+	await cancelReview(target, session);
 	expect(saveBarButtons(target)).toEqual(['Reload theirs', 'Keep mine']);
 	click(target, 'Reload theirs');
 	await eventually(() => session.state.status === 'saved');
@@ -670,6 +686,7 @@ test('a save bar button left from an earlier view answers nothing for the todo o
 	await overwrite(path, ROW('Theirs'));
 	type(get(CONTENTS), ROW('Mine'));
 	await eventually(() => file.state.status === 'error');
+	await cancelReview(target, file);
 	const retired = button(target, 'Reload theirs');
 	click(target, 'Keep mine');
 	await eventually(() => file.state.status === 'saved');

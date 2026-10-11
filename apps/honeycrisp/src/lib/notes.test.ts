@@ -182,7 +182,7 @@ test('a change made elsewhere is a conflict; Reload theirs shows it without writ
 	expect(disk.text(A)).toContain('Theirs.\n');
 });
 
-test('Keep mine saves the draft over a change made elsewhere', async () => {
+test('Keep mine takes the draft where both changed and keeps what changed elsewhere in other fields', async () => {
 	const { notes, disk } = await open();
 	const session = await openNote(notes);
 	disk.put(A, noteText({ title: 'Theirs', body: 'Theirs.\n' }));
@@ -193,7 +193,7 @@ test('Keep mine saves the draft over a change made elsewhere', async () => {
 	expect(await notes.keepMine(session)).toBeUndefined();
 	expect((await session.settled()).status).toBe('saved');
 	expect(disk.text(A)).toContain('Mine.\n');
-	expect(disk.text(A)).toContain('Alpha');
+	expect(disk.text(A)).toContain('title: Theirs');
 });
 
 test('a note deleted elsewhere: Keep mine creates it again from the draft', async () => {

@@ -61,6 +61,7 @@
 
 	<SaveBar
 		save={session.state}
+		review={session.review}
 		onRetry={() => session.retry()}
 		onKeepMine={() => todos.keepMine(session)}
 		onReloadTheirs={() => todos.reloadTheirs(session)}

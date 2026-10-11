@@ -73,6 +73,7 @@
 		/>
 		<SaveBar
 			save={row.state}
+			review={row.review}
 			hideWhenSaved
 			onRetry={() => row.retry()}
 			onReloadTheirs={() => library.reloadTheirs(row)}
@@ -88,6 +89,7 @@
 		</p>
 		<SaveBar
 			save={draft.session.state}
+			review={draft.session.review}
 			hideWhenSaved
 			onRetry={() => draft.session.retry()}
 			onReloadTheirs={() => library.reloadTheirs(draft.session)}

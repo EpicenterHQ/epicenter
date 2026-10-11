@@ -57,6 +57,7 @@
 	{#if session}
 		<SaveBar
 			save={session.state}
+			review={session.review}
 		hideWhenSaved
 		class="mt-2"
 			onRetry={() => session.retry()}

@@ -59,9 +59,14 @@ are not UTF-8 text are listed apart and not opened.
   that opens a code fence and would absorb the Thoughts section, say) is not
   applied, the reason is shown, and the text returns to what is saved. Edit
   as text to write unfinished Markdown.
-- A save stops with a prompt when the file changed elsewhere since this
-  window last saved or read it: **Reload theirs** shows their version in
-  place of your text; **Keep mine** saves your text over it. When the file
+- When the file changed elsewhere since this window last saved or read it,
+  the save merges your text with that version first. Changes to different
+  fields, or to different lines, combine and save with no question. When
+  both changed the same field or lines, a review shows only those parts,
+  with your edit, the version saved elsewhere, and a result; **Apply** saves
+  your choices over that version. **Cancel** leaves **Reload theirs**, which
+  shows their version in place of your text, and **Keep mine**, which keeps
+  your text where both changed and their changes everywhere else. When the file
   was deleted elsewhere, the choices are **Discard**, which closes the
   capture, and **Keep mine**, which creates the file again from your text.
   Nothing is written until you choose.

@@ -98,12 +98,15 @@ test('the capture text and Add a thought save through the open session', async (
 	expect(harness.target.textContent).toContain('Saved to');
 });
 
-test('a change made elsewhere asks: Keep mine saves the text on screen over it', async () => {
+test('a change made elsewhere to the text shows the review; after Cancel, Keep mine saves the text on screen over it', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	await harness.writeElsewhere(PATH, `---\ncapturedAt: ${AT}\n---\n\nTheirs\n`);
 	type(field('capture-text'), 'Mine');
 	await settle(harness);
 	expect(harness.target.textContent).toContain('This changed elsewhere');
+	expect(harness.target.textContent).toContain('Choose what to keep');
+	click(button('Cancel'));
+	flushSync();
 	click(button('Keep mine'));
 	await Bun.sleep(5);
 	await settle(harness);
@@ -111,12 +114,14 @@ test('a change made elsewhere asks: Keep mine saves the text on screen over it',
 	expect(harness.target.textContent).toContain('Saved to');
 });
 
-test('a change made elsewhere asks: Reload theirs shows theirs in the same view', async () => {
+test('a change made elsewhere to the text: after Cancel, Reload theirs shows theirs in the same view', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
 	await harness.writeElsewhere(PATH, theirs);
 	type(field('capture-text'), 'Mine');
 	await settle(harness);
+	click(button('Cancel'));
+	flushSync();
 	click(button('Reload theirs'));
 	await Bun.sleep(5);
 	await settle(harness);
@@ -157,6 +162,8 @@ test('a thought typed and not added stays visible to copy when Reload theirs bri
 	);
 	type(field('capture-text'), 'Mine');
 	await settle(harness);
+	click(button('Cancel'));
+	flushSync();
 	click(button('Reload theirs'));
 	await Bun.sleep(5);
 	await settle(harness);
