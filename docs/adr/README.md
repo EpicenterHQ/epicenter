@@ -764,3 +764,4 @@ When you add an ADR, add its row here.
 | [0525](0525-a-field-is-plain-json-schema.md) | A field is plain JSON Schema | Accepted |
 | [0526](0526-a-field-is-required-unless-declared-optional.md) | A field is required unless declared optional | Accepted |
 | [0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) | A data folder may keep its declaration as TypeScript | Accepted |
+| [0529](0529-closing-an-app-never-asks-and-flushes-saves-in-flight-for-a-bounded-moment.md) | Closing an app never asks and flushes saves in flight for a bounded moment | Proposed (withdraws the quit prompts in 0461 and 0476; desktop acceptance unbuilt) |

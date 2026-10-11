@@ -1,4 +1,4 @@
-# 0528. Closing an app never asks and flushes saves in flight for a bounded moment
+# 0529. Closing an app never asks and flushes saves in flight for a bounded moment
 
 - **Status:** Proposed
 - **Date:** 2026-10-11

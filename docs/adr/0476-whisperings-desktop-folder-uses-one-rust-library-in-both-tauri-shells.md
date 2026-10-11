@@ -70,7 +70,7 @@ folder simultaneously; the second process reports that it is already open.
 Switching shells releases that ownership and reopens the same saved files.
 
 Hiding a retained page preserves drafts. Closing a page or quitting never
-asks (ADR-0528): the page gets a bounded flush of its saves in flight, then
+asks (ADR-0529): the page gets a bounded flush of its saves in flight, then
 the shell exits and drains admitted saves and history. A failed save, an
 active recording, and an unfinished transcription are lost on quit. History
 failure remains separate and can be left for the next launch; it never
