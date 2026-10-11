@@ -4,7 +4,7 @@
  * It serves the built page on loopback and answers the operations a page
  * cannot do itself: the terminal, revealing the folder, transcription and
  * text requests over this device's two connections, the microphone chosen on
- * this device, fixture audio, and the close handshake with the shell.
+ * this device, and fixture audio.
  *
  * It does not own the data folder. The desktop shell's Rust owner opens the
  * directory, publishes files, and records history, and the page reaches it
@@ -72,11 +72,6 @@ export type HostOptions = {
 	readonly fixturePath: string | undefined;
 	readonly env: Readonly<Record<string, string | undefined>>;
 	readonly log: (message: string) => void;
-	/**
-	 * Called when the window may close, which is only when the page said so.
-	 * The entry point tells the shell.
-	 */
-	readonly onCloseApproved?: () => void;
 	/** Injected in tests; transcription and transformation requests leave through it. */
 	readonly fetch?: (input: string, init?: RequestInit) => Promise<Response>;
 };
@@ -180,8 +175,6 @@ const PAGE_POLICY = [
 	"frame-ancestors 'none'",
 ].join('; ');
 
-const PING_MS = 15_000;
-
 const json = (body: unknown, status = 200) =>
 	new Response(JSON.stringify(body), {
 		status,
@@ -209,7 +202,6 @@ export async function createHost(options: HostOptions) {
 	const device = createDeviceFile(
 		join(root, '.git', 'epicenter', 'whispering', 'device.json'),
 	);
-	const encoder = new TextEncoder();
 
 	// Arming at launch touches nothing: the counters are numbers, and the branch
 	// lock waits until the page says the owner has opened the folder.
@@ -272,87 +264,6 @@ export async function createHost(options: HostOptions) {
 
 	const readOnly: Partial<Record<Operation, string>> =
 		environment === undefined ? {} : { transcription: ENVIRONMENT_CONNECTION };
-
-	// --- events -------------------------------------------------------------
-
-	type Listener = (line: string) => void;
-	const listeners = new Set<Listener>();
-	const broadcast = (event: unknown) => {
-		const line = `${JSON.stringify(encode(event))}\n`;
-		for (const listener of listeners) listener(line);
-	};
-	const ping = setInterval(() => broadcast({ type: 'ping' }), PING_MS);
-
-	/** The close question and pings. Folder changes reach the page from its owner. */
-	function events(): Response {
-		let listener: Listener | undefined;
-		const stream = new ReadableStream<Uint8Array>({
-			start(controller) {
-				listener = (line) => {
-					try {
-						controller.enqueue(encoder.encode(line));
-					} catch {
-						if (listener) listeners.delete(listener);
-					}
-				};
-				listeners.add(listener);
-				// A close asked while the stream was down is still waiting for an answer.
-				if (closePending)
-					listener(`${JSON.stringify({ type: 'close-requested' })}\n`);
-			},
-			cancel() {
-				if (listener) listeners.delete(listener);
-			},
-		});
-		return new Response(stream, {
-			headers: {
-				'content-type': 'application/x-ndjson; charset=utf-8',
-				'cache-control': 'no-store',
-			},
-		});
-	}
-
-	// --- closing ------------------------------------------------------------
-	//
-	// Unsaved typing and captured audio live only in the page, so only the page
-	// can say whether closing loses anything. The shell asks through here before
-	// it closes the window or quits, and closes only when this approves.
-
-	// Approval is never inferred, from anything. A page can be saving through
-	// the folder's owner and holding unsaved work while its event stream is
-	// slow, dropped, or has not connected yet, so whether a stream is or ever
-	// was open says nothing about what the page holds. The host approves a close only on the page's
-	// own authenticated `proceed`. A request with no stream to carry it waits
-	// and is delivered when one connects.
-
-	/** A close request the page has not settled with proceed or cancel. */
-	let closePending = false;
-
-	function approveClose() {
-		closePending = false;
-		options.onCloseApproved?.();
-	}
-
-	/** The shell wants to close. Ask the page, now or when its stream connects. */
-	function closeRequested() {
-		closePending = true;
-		broadcast({ type: 'close-requested' });
-	}
-
-	function closeAnswered(payload: Record<string, unknown>) {
-		switch (payload.decision) {
-			case 'proceed':
-				approveClose();
-				return { closing: true };
-			case 'asking':
-				return { closing: false };
-			case 'cancel':
-				closePending = false;
-				return { closing: false };
-			default:
-				throw new Error('A close answer is proceed, asking, or cancel');
-		}
-	}
 
 	// --- application operations --------------------------------------------
 
@@ -551,8 +462,6 @@ export async function createHost(options: HostOptions) {
 				return preferences();
 			case 'set-preferences':
 				return setPreferences(payload);
-			case 'close':
-				return closeAnswered(payload);
 			case 'fixture':
 				return fixture();
 			case 'inject':
@@ -662,8 +571,6 @@ export async function createHost(options: HostOptions) {
 			return page(url.pathname);
 		}
 		if (!authorized(request)) return json({ fault: 'Unauthorized' }, 401);
-		if (url.pathname === '/bridge/events' && request.method === 'GET')
-			return events();
 		if (request.method !== 'POST')
 			return json({ fault: 'Method not allowed' }, 405);
 		let body: Record<string, unknown>;
@@ -687,18 +594,15 @@ export async function createHost(options: HostOptions) {
 	return {
 		root,
 		handle,
-		closeRequested,
 		/** The bound port, so requests under another host name are refused. */
 		listening(bound: number) {
 			port = bound;
 		},
 		/**
-		 * Stop the event stream and remove what a debug host put in the folder.
-		 * The folder is the shell's to close; nothing here saves or commits.
+		 * Remove what a debug host put in the folder. The folder is the shell's
+		 * to close; nothing here saves or commits.
 		 */
 		async close() {
-			clearInterval(ping);
-			listeners.clear();
 			await injection?.release();
 		},
 	};

@@ -6,8 +6,9 @@
  * folder contract through `@epicenter/folder`. A folder is opened in exactly
  * two places, each naming its entry: the browser workspace opens browser
  * storage, and the desktop workspace attaches to the desktop shell's owner.
- * The only other Tauri import is the one question the workspace opener asks,
- * whether the page is inside a desktop app. The recording workflow is
+ * The only other Tauri imports are the one question the workspace opener asks,
+ * whether the page is inside a desktop app, and the desktop workspace's
+ * close signal from the shell. The recording workflow is
  * file-backed, so it may not reach the Yjs store either. This reads the
  * sources, so a violation names its file.
  *
@@ -63,7 +64,7 @@ function importers(matches: (specifier: string) => boolean) {
 	return found;
 }
 
-test('the page imports no Node or Bun module, and Tauri only to ask where it is running', () => {
+test('the page imports no Node or Bun module, and Tauri only in the workspace', () => {
 	expect(
 		importers(
 			(specifier) =>
@@ -74,11 +75,15 @@ test('the page imports no Node or Bun module, and Tauri only to ask where it is 
 				specifier.includes('/native/'),
 		),
 	).toEqual([]);
-	// The one Tauri API the page names: the opener asks whether it is inside a
-	// desktop app. Commands and events are the folder adapter's, not the page's.
+	// The Tauri APIs the page names: the opener asks whether it is inside a
+	// desktop app, and the desktop workspace hears the shell's close signal
+	// and answers it. Folder commands and events are the folder adapter's.
 	expect(
-		importers((specifier) => specifier.startsWith('@tauri-apps/')),
-	).toEqual(['lib/workspace/index.ts imports @tauri-apps/api/core']);
+		importers((specifier) => specifier.startsWith('@tauri-apps/')).sort(),
+	).toEqual([
+		'lib/workspace/desktop.ts imports @tauri-apps/api/event',
+		'lib/workspace/index.ts imports @tauri-apps/api/core',
+	]);
 });
 
 test('a folder is opened only by the two workspaces, each through its own entry', () => {
@@ -150,6 +155,7 @@ const FOLDER_ENTRIES = new Set([
 	'@epicenter/svelte/open-item',
 	'@epicenter/svelte/admissions',
 	'@epicenter/svelte/save-bar',
+	'@epicenter/svelte/flush-on-close',
 ]);
 
 test('the page imports no Yjs store, sync, or account module', () => {
@@ -160,8 +166,8 @@ test('the page imports no Yjs store, sync, or account module', () => {
 				specifier.startsWith('@y/') ||
 				specifier.startsWith('@epicenter/sync') ||
 				// The page uses only the folder-file entries of `@epicenter/svelte`:
-				// edit sessions, open-item slots, admissions, and the save bar.
-				// None holds a store.
+				// edit sessions, open-item slots, admissions, the save bar, and
+				// flushing on close. None holds a store.
 				(specifier.startsWith('@epicenter/svelte') &&
 					!FOLDER_ENTRIES.has(specifier)) ||
 				specifier.startsWith('@epicenter/auth') ||
@@ -188,7 +194,7 @@ test('the app layout is the only place a session is opened', () => {
 	expect(callers('openSession')).toEqual(['lib/session.svelte.ts']);
 	expect(callers('createSession')).toEqual(['lib/session.svelte.ts']);
 	expect(callers('createLibrary')).toEqual(['lib/session.svelte.ts']);
-	expect(callers('createLeaveGuard')).toEqual(['lib/session.svelte.ts']);
+	expect(callers('flushOnClose')).toEqual(['lib/session.svelte.ts']);
 	// `openSession` takes the opener as a value; nothing else calls it.
 	expect(callers('openWorkspace')).toEqual([]);
 });

@@ -12,6 +12,7 @@ import type {
 	FolderTerminal,
 	OpenFolderError,
 } from '@epicenter/folder';
+import type { HostCloseSignal } from '@epicenter/svelte/flush-on-close';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import type { CaptureDevice, MicrophonePreference } from '../capture.js';
@@ -58,7 +59,7 @@ export const WorkspaceError = defineErrors({
 	}),
 	/**
 	 * The page is inside a desktop app that did not start the Whispering host,
-	 * so it has no terminal, transcription, or close handshake. Nothing is
+	 * so it has no terminal or transcription. Nothing is
 	 * opened: a folder alone is not the app.
 	 */
 	HostMissing: () => ({
@@ -109,8 +110,6 @@ export type RecordingWriteHook = <T>(
 	write: RecordingWrite,
 	run: () => Promise<T>,
 ) => Promise<T>;
-
-export type CloseDecision = 'proceed' | 'asking' | 'cancel';
 
 export type Workspace = {
 	readonly kind: 'native' | 'browser';
@@ -178,28 +177,12 @@ export type Workspace = {
 		): Promise<string | undefined>;
 	};
 	/**
-	 * The desktop shell asks before it closes the window or quits, because only
-	 * the page knows what is unsaved. The page answers `proceed` to let it
-	 * close, `asking` while it shows its own confirmation, or `cancel` to stay
-	 * open. Undefined in a browser tab, where the browser owns leaving.
+	 * The desktop shell's close signal: the page flushes its saves in flight
+	 * and answers, and the shell exits on that answer or after its own wait.
+	 * It never asks whether to close. Undefined in a browser tab, where
+	 * `pagehide` starts the same flush.
 	 */
-	readonly closing:
-		| {
-				onRequest(listener: () => void): () => void;
-				/**
-				 * Rejects when the answer was not delivered. The host may still have
-				 * taken it: a rejected `proceed` is not a refusal to quit.
-				 */
-				answer(decision: CloseDecision): Promise<void>;
-				/**
-				 * The shell tried to close but the host is gone, so it could not ask
-				 * through it. The page must keep the window and say why.
-				 */
-				onRequestWithoutHost(listener: () => void): () => void;
-				/** With the host gone, the one way to tell the shell to quit. */
-				quitWithoutHost(): void;
-		  }
-		| undefined;
+	readonly hostClose: HostCloseSignal | undefined;
 	/** Whether debug controls are offered. */
 	readonly debugControls: boolean;
 	/** Failure injection, in a debug desktop shell only. */

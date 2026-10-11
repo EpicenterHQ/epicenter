@@ -14,19 +14,19 @@
 //! waits for the port it reports, loads the page from it, and stops it on
 //! exit. The host is told where the folder is; it is never asked.
 //!
-//! Work that is not saved yet lives only in the page, so the shell never closes
-//! on its own judgement. A window close, Command-Q, or any other exit request
-//! is held back and turned into a question: the shell writes a close request to
-//! the host's standard input, the host asks the page, and the host prints an
-//! approval line when the window may close. On macOS a quit from the system
-//! itself (the Dock, a logout, an Apple Event) is turned into such an exit
-//! request first; see `quit.rs`.
+//! Closing never asks. A window close, the Quit menu item (Command-Q), and any
+//! other exit request is held back once: the shell sends the page one close
+//! event, the page sends the saves it has in flight and answers, and the shell
+//! exits on that answer or after one second, whichever comes first. With no
+//! app page open, it exits at once. A save that failed, an unanswered
+//! transcript, and a live recording end with the page.
 //!
-//! A host that has stopped approves nothing: the page still holds its unsaved
-//! work. The shell then keeps the window, raises an event in the page, and
-//! exits only when the page navigates to the quit address, which the shell
-//! refuses to load and reads as the person's choice to quit. The one exit
-//! without any answer is when no app page was ever opened.
+//! A quit from macOS itself (the Dock's Quit, a logout, restart, or shutdown,
+//! an Apple Event) reaches the shell only as `RunEvent::Exit`: Tao answers
+//! AppKit's `applicationWillTerminate:` and sends no exit request first. The
+//! page is not asked then. Only writes the folder's owner had already accepted
+//! are finished; anything still in the page is lost. This keeps Whispering
+//! from ever cancelling a logout or shutdown.
 //!
 //! On exit the folder's owner refuses new work, lets the saves and commits it
 //! had admitted finish, and releases the folder. It commits nothing of its own.
@@ -35,7 +35,7 @@
 //! injection. A release shell never does, whatever the environment says.
 
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -45,19 +45,23 @@ use std::time::{Duration, Instant};
 
 use tauri::ipc::CapabilityBuilder;
 use tauri::{
-    App, AppHandle, Manager, RunEvent, Runtime, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    App, AppHandle, Emitter, Listener, Manager, RunEvent, Runtime, WebviewUrl,
+    WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, ScopeConfig};
 
-#[cfg(target_os = "macos")]
-mod quit;
-
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
-/// What the shell writes to the host's standard input to ask whether it may close.
-const CLOSE_REQUEST: &str = "{\"type\":\"close-requested\"}";
 #[cfg(target_os = "macos")]
 const QUIT_MENU_ID: &str = "quit";
+
+/// Sent to the page when the window closes or the app quits.
+const CLOSE_REQUESTED: &str = "whispering://close-requested";
+/// The page's one answer: its saves in flight have landed, or its own,
+/// shorter wait for them ran out.
+const CLOSE_FLUSHED: &str = "whispering://close-flushed";
+/// How long the shell waits for that answer before it exits anyway.
+const CLOSE_FLUSH_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The one window. The folder is registered for this label and no other.
 const MAIN_WINDOW: &str = "main";
@@ -72,24 +76,22 @@ struct HostProcess {
     stdin: Option<ChildStdin>,
 }
 
-/// Raised in the page when a close was attempted and the host could not be
-/// asked. The page keeps the window and explains (`src/lib/workspace/desktop.ts`).
-const CLOSE_BLOCKED_SCRIPT: &str = "window.dispatchEvent(new Event('whispering:close-blocked'));";
-/// The address the page navigates to, once the host is gone, to say "quit".
-/// The shell never loads it.
-const QUIT_PATH: &str = "/__whispering__/quit";
-
 #[derive(Default)]
 struct HostState {
     process: Mutex<Option<HostProcess>>,
-    /// Set only by an explicit answer: the page's approval relayed by the host,
-    /// the page's own quit signal once the host is gone, or a close before any
-    /// page was opened. A host that stopped is never an approval.
-    close_approved: AtomicBool,
-    /// The host's output ended or it no longer accepts a request.
-    host_gone: AtomicBool,
-    /// The app page was opened, so unsaved work may exist in it.
+}
+
+/// Where a close or quit stands.
+#[derive(Default)]
+struct Closing {
+    /// The app page was opened, so it may have saves in flight.
     page_opened: AtomicBool,
+    /// The page was sent the close event and the shell is waiting.
+    flushing: AtomicBool,
+    /// The wait is over: the next exit request goes through.
+    flushed: AtomicBool,
+    /// Where the page's answer goes while the shell waits.
+    answer: Mutex<Option<mpsc::SyncSender<()>>>,
 }
 
 /// The app's embedded configuration and permissions. One expansion, shared by
@@ -99,41 +101,23 @@ fn context<R: Runtime>() -> tauri::Context<R> {
 }
 
 pub fn run() {
-    build(None)
-        .expect("failed to build Whispering")
-        .run(|app, event| {
-            on_run_event(app, &event);
-        });
-}
-
-/// The app, built and not yet running. Its setup (the quit guard first, then
-/// the menu, the folder and its owner, the host, and the window) runs once
-/// `App::run` starts the event loop, before Tauri sends `RunEvent::Ready`.
-///
-/// `page` is what the host serves as the page. `run` passes `None`, so the
-/// host serves the page it is built with. `examples/quit` passes its fixture
-/// page and changes nothing else.
-pub fn build(page: Option<PathBuf>) -> tauri::Result<App> {
     tauri::Builder::default()
         // Shuts the folder down when the app exits; see the module comment.
         .plugin(tauri_plugin_epicenter_folder::init())
         .manage(HostState::default())
+        .manage(Closing::default())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                let app = window.app_handle();
-                if !close_is_approved(app) {
+                if !may_exit(window.app_handle()) {
                     api.prevent_close();
-                    request_close(app);
                 }
             }
         })
-        .setup(move |app| {
-            // First, before anything a quit could lose exists.
-            #[cfg(target_os = "macos")]
-            quit::install(app.handle())?;
+        .setup(|app| {
             #[cfg(target_os = "macos")]
             install_menu(app)?;
-            match start(app, page.as_deref()) {
+            hear_close_answers(app.handle());
+            match start(app) {
                 Ok(started) => open_app_window(app, started.port, &started.token)?,
                 Err(error) => {
                     eprintln!("[whispering] could not start: {error}");
@@ -143,27 +127,87 @@ pub fn build(page: Option<PathBuf>) -> tauri::Result<App> {
             Ok(())
         })
         .build(context())
+        .expect("failed to build Whispering")
+        .run(|app, event| match event {
+            // Every `AppHandle::exit` arrives here, including the one that
+            // ends the flush below.
+            RunEvent::ExitRequested { api, .. } => {
+                if !may_exit(app) {
+                    api.prevent_exit();
+                }
+            }
+            RunEvent::Exit => stop_host(app),
+            _ => {}
+        });
 }
 
-/// The app's handling of its run events. Returns whether it held back an exit
-/// request; `examples/quit` reports that.
-pub fn on_run_event(app: &AppHandle, event: &RunEvent) -> bool {
-    match event {
-        // Every `AppHandle::exit` arrives here, approved or not. On macOS a
-        // quit from the system does too, through `quit.rs`.
-        RunEvent::ExitRequested { api, .. } => {
-            if close_is_approved(app) {
-                return false;
-            }
-            api.prevent_exit();
-            request_close(app);
-            true
+/// Whether a window close or exit request may go ahead now. The first one
+/// with an app page open may not: the page is sent the close event, and the
+/// app exits once it answers or `CLOSE_FLUSH_TIMEOUT` runs out. Requests made
+/// while it waits are held too.
+fn may_exit(app: &AppHandle) -> bool {
+    let closing = app.state::<Closing>();
+    if closing.flushed.load(Ordering::SeqCst) {
+        return true;
+    }
+    if !closing.page_opened.load(Ordering::SeqCst) {
+        closing.flushed.store(true, Ordering::SeqCst);
+        return true;
+    }
+    if !closing.flushing.swap(true, Ordering::SeqCst) {
+        flush_then_exit(app);
+    }
+    false
+}
+
+/// Send the page the close event, wait for its answer within the bound, and
+/// exit. A page that cannot be sent the event is not waited for.
+fn flush_then_exit(app: &AppHandle) {
+    let closing = app.state::<Closing>();
+    let (sender, answers) = mpsc::sync_channel(1);
+    *closing.answer.lock().unwrap() = Some(sender);
+    if let Err(error) = app.emit_to(MAIN_WINDOW, CLOSE_REQUESTED, ()) {
+        eprintln!("[whispering] could not tell the page the app is closing: {error}");
+        closing.answer.lock().unwrap().take();
+    }
+    let app = app.clone();
+    thread::spawn(move || {
+        if wait_for_flush(&answers, CLOSE_FLUSH_TIMEOUT) == Flush::TimedOut {
+            eprintln!("[whispering] the page did not answer the close in time; exiting");
         }
-        RunEvent::Exit => {
-            stop_host(app);
-            false
+        app.state::<Closing>().flushed.store(true, Ordering::SeqCst);
+        app.exit(0);
+    });
+}
+
+/// Hand the page's answer to the wait under way, if there is one. The page
+/// emits it with `@tauri-apps/api/event`, which reaches every listener.
+fn hear_close_answers<R: Runtime>(app: &AppHandle<R>) {
+    let handle = app.clone();
+    app.listen(CLOSE_FLUSHED, move |_| {
+        let answer = handle.state::<Closing>().answer.lock().unwrap().take();
+        if let Some(answer) = answer {
+            let _ = answer.send(());
         }
-        _ => false,
+    });
+}
+
+/// How the wait for the page's answer ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Flush {
+    /// The page answered.
+    Answered,
+    /// The page did not answer within the bound.
+    TimedOut,
+    /// Nothing could answer: the event was never delivered.
+    Unreachable,
+}
+
+fn wait_for_flush(answers: &mpsc::Receiver<()>, bound: Duration) -> Flush {
+    match answers.recv_timeout(bound) {
+        Ok(()) => Flush::Answered,
+        Err(mpsc::RecvTimeoutError::Timeout) => Flush::TimedOut,
+        Err(mpsc::RecvTimeoutError::Disconnected) => Flush::Unreachable,
     }
 }
 
@@ -173,9 +217,9 @@ pub fn on_run_event(app: &AppHandle, event: &RunEvent) -> bool {
 ///
 /// When any of it fails the host is stopped and no window is granted anything.
 /// The window that opens then is the failure page, which can reach no folder.
-fn start(app: &App, page: Option<&Path>) -> Result<StartedHost, String> {
+fn start(app: &App) -> Result<StartedHost, String> {
     let root = data_root(app)?;
-    let started = start_host(app, &root, page)?;
+    let started = start_host(app, &root)?;
     let granted = register_folder(app.handle(), root).and_then(|()| {
         app.add_capability(folder_capability(started.port))
             .map_err(|error| format!("let the window use the folder: {error}"))
@@ -264,7 +308,9 @@ fn register_folder<R: Runtime>(app: &AppHandle<R>, root: PathBuf) -> Result<(), 
 /// command at all without this. A page from any other origin or port, a local
 /// page such as the failure page, and any other window are not covered.
 ///
-/// The permissions are the owner's commands and listening for its events.
+/// The permissions are the owner's commands, listening for its events, and
+/// emitting events, which carries the page's answer to a close
+/// (`CLOSE_FLUSHED`).
 fn folder_capability(port: u16) -> CapabilityBuilder {
     CapabilityBuilder::new(FOLDER_CAPABILITY)
         .local(false)
@@ -273,11 +319,13 @@ fn folder_capability(port: u16) -> CapabilityBuilder {
         .permission("epicenter-folder:default")
         .permission("core:event:allow-listen")
         .permission("core:event:allow-unlisten")
+        .permission("core:event:allow-emit")
 }
 
-/// The default macOS menu's Quit item can end the process without asking. This
-/// menu's Quit goes through the same close request as the window, and keeps
-/// the Edit and Window items a text field and a window need.
+/// The default macOS menu's Quit item calls AppKit's `terminate:`, which ends
+/// the app with no exit request, so the page is never sent the close event.
+/// This menu's Quit asks for an ordinary exit, which flushes like a window
+/// close, and keeps the Edit and Window items a text field and a window need.
 #[cfg(target_os = "macos")]
 fn install_menu(app: &App) -> tauri::Result<()> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -306,91 +354,11 @@ fn install_menu(app: &App) -> tauri::Result<()> {
         .build()?;
     app.set_menu(menu)?;
     app.on_menu_event(|app, event| {
-        if event.id().as_ref() == QUIT_MENU_ID {
-            request_close(app);
+        if event.id().as_ref() == QUIT_MENU_ID && may_exit(app) {
+            app.exit(0);
         }
     });
     Ok(())
-}
-
-fn close_is_approved(app: &AppHandle) -> bool {
-    app.state::<HostState>()
-        .close_approved
-        .load(Ordering::SeqCst)
-}
-
-/// What a close request does when the host cannot relay it.
-#[derive(Debug, PartialEq, Eq)]
-enum WithoutHost {
-    /// No app page was ever opened, so nothing unsaved exists anywhere.
-    Exit,
-    /// A page is open and may hold unsaved work: keep the window and tell it.
-    KeepWindowAndTellPage,
-}
-
-fn without_host(page_opened: bool) -> WithoutHost {
-    if page_opened {
-        WithoutHost::KeepWindowAndTellPage
-    } else {
-        WithoutHost::Exit
-    }
-}
-
-/// Ask the page, through the host, whether the shell may close.
-///
-/// A host that is gone approves nothing. The page still holds whatever was not
-/// saved, so the window stays and the page is told a close was attempted; it
-/// shows its own confirmation and answers with the quit address. Only when no
-/// page was ever opened (the host never started) does the shell exit directly.
-fn request_close(app: &AppHandle) {
-    let state = app.state::<HostState>();
-    if state.close_approved.load(Ordering::SeqCst) {
-        app.exit(0);
-        return;
-    }
-    let asked = !state.host_gone.load(Ordering::SeqCst) && {
-        let mut process = state.process.lock().expect("host state lock poisoned");
-        match process.as_mut().and_then(|host| host.stdin.as_mut()) {
-            Some(stdin) => writeln!(stdin, "{CLOSE_REQUEST}")
-                .and_then(|()| stdin.flush())
-                .is_ok(),
-            None => false,
-        }
-    };
-    if asked {
-        return;
-    }
-    state.host_gone.store(true, Ordering::SeqCst);
-    match without_host(state.page_opened.load(Ordering::SeqCst)) {
-        WithoutHost::Exit => {
-            state.close_approved.store(true, Ordering::SeqCst);
-            app.exit(0);
-        }
-        WithoutHost::KeepWindowAndTellPage => {
-            if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-                if let Err(error) = window.eval(CLOSE_BLOCKED_SCRIPT) {
-                    eprintln!("[whispering] could not tell the page a close was blocked: {error}");
-                }
-            }
-        }
-    }
-}
-
-/// Whether the page is saying "quit" by navigating to the quit address.
-fn is_quit_signal(url: &tauri::Url, port: u16) -> bool {
-    is_host_url(url, port) && url.path() == QUIT_PATH
-}
-
-/// Whether a line the host printed is its approval to close.
-fn is_close_approval(line: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(line.trim())
-        .ok()
-        .and_then(|value| {
-            value
-                .get("closeApproved")
-                .and_then(serde_json::Value::as_bool)
-        })
-        == Some(true)
 }
 
 struct StartedHost {
@@ -401,12 +369,9 @@ struct StartedHost {
 /// Start the host with the folder the shell chose. The host is given that
 /// directory and reports only its port: where the folder is was never its to
 /// decide, so nothing it prints is read as a path.
-fn start_host(app: &App, root: &Path, page: Option<&Path>) -> Result<StartedHost, String> {
+fn start_host(app: &App, root: &Path) -> Result<StartedHost, String> {
     let token = launch_token()?;
     let mut command = host_command(app)?;
-    if let Some(page) = page {
-        command.env("WHISPERING_UI_DIST", page);
-    }
     command
         .env("WHISPERING_DATA_ROOT", root)
         .env("WHISPERING_HOST_TOKEN", &token)
@@ -437,10 +402,8 @@ fn start_host(app: &App, root: &Path, page: Option<&Path>) -> Result<StartedHost
         }
     };
 
-    // The host prints one JSON line when it is listening. After that the only
-    // line that means anything is its approval to close; the rest is drained
+    // The host prints one JSON line when it is listening. The rest is drained
     // so the host can never block on a full pipe.
-    let handle = app.handle().clone();
     let (sender, receiver) = mpsc::sync_channel::<Result<String, String>>(1);
     thread::spawn(move || {
         let mut reader = BufReader::new(stdout);
@@ -453,24 +416,8 @@ fn start_host(app: &App, root: &Path, page: Option<&Path>) -> Result<StartedHost
         let _ = sender.send(first);
         loop {
             line.clear();
-            match reader.read_line(&mut line) {
-                Ok(0) | Err(_) => {
-                    // The host is gone. That approves nothing: the page may
-                    // still hold unsaved work.
-                    handle
-                        .state::<HostState>()
-                        .host_gone
-                        .store(true, Ordering::SeqCst);
-                    break;
-                }
-                Ok(_) if is_close_approval(&line) => {
-                    handle
-                        .state::<HostState>()
-                        .close_approved
-                        .store(true, Ordering::SeqCst);
-                    handle.exit(0);
-                }
-                Ok(_) => {}
+            if matches!(reader.read_line(&mut line), Ok(0) | Err(_)) {
+                break;
             }
         }
     });
@@ -581,27 +528,14 @@ fn open_app_window(app: &App, port: u16, token: &str) -> Result<(), Box<dyn std:
         origin = serde_json::to_string(&origin)?,
         token = serde_json::to_string(token)?,
     );
-    let handle = app.handle().clone();
     WebviewWindowBuilder::new(app, MAIN_WINDOW, WebviewUrl::External(url))
         .title("Whispering")
         .inner_size(1180.0, 780.0)
         .min_inner_size(720.0, 480.0)
         .initialization_script(script)
-        .on_navigation(move |url| {
-            if is_quit_signal(url, port) {
-                // Honored only once the host is gone; while it lives, the page
-                // answers through it. The address is never loaded either way.
-                let state = handle.state::<HostState>();
-                if state.host_gone.load(Ordering::SeqCst) {
-                    state.close_approved.store(true, Ordering::SeqCst);
-                    handle.exit(0);
-                }
-                return false;
-            }
-            is_host_url(url, port)
-        })
+        .on_navigation(move |url| is_host_url(url, port))
         .build()?;
-    app.state::<HostState>()
+    app.state::<Closing>()
         .page_opened
         .store(true, Ordering::SeqCst);
     Ok(())
@@ -686,36 +620,59 @@ mod tests {
     }
 
     #[test]
-    fn only_an_explicit_approval_line_closes() {
-        assert!(is_close_approval("{\"closeApproved\":true}\n"));
-        assert!(!is_close_approval("{\"closeApproved\":false}"));
-        assert!(!is_close_approval("{\"ready\":true,\"port\":4000}"));
-        assert!(!is_close_approval("closeApproved"));
-        assert!(!is_close_approval(""));
+    fn the_wait_ends_on_the_answer() {
+        let (sender, answers) = mpsc::sync_channel(1);
+        sender.send(()).unwrap();
+        let started = Instant::now();
+        assert_eq!(wait_for_flush(&answers, Duration::from_secs(5)), Flush::Answered);
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]
-    fn a_missing_host_exits_only_before_any_page_was_opened() {
-        assert_eq!(without_host(false), WithoutHost::Exit);
-        assert_eq!(without_host(true), WithoutHost::KeepWindowAndTellPage);
+    fn the_wait_ends_at_its_bound_without_an_answer() {
+        let (_sender, answers) = mpsc::sync_channel::<()>(1);
+        let started = Instant::now();
+        assert_eq!(
+            wait_for_flush(&answers, Duration::from_millis(50)),
+            Flush::TimedOut
+        );
+        let waited = started.elapsed();
+        assert!(waited >= Duration::from_millis(50));
+        assert!(waited < Duration::from_secs(1));
     }
 
     #[test]
-    fn only_the_quit_address_on_the_host_origin_is_a_quit_signal() {
-        let quit: tauri::Url = "http://127.0.0.1:4000/__whispering__/quit".parse().unwrap();
-        let page: tauri::Url = "http://127.0.0.1:4000/".parse().unwrap();
-        let elsewhere: tauri::Url = "https://example.com/__whispering__/quit".parse().unwrap();
-        assert!(is_quit_signal(&quit, 4000));
-        assert!(!is_quit_signal(&quit, 4001));
-        assert!(!is_quit_signal(&page, 4000));
-        assert!(!is_quit_signal(&elsewhere, 4000));
+    fn the_wait_ends_at_once_when_nothing_can_answer() {
+        let (sender, answers) = mpsc::sync_channel::<()>(1);
+        drop(sender);
+        let started = Instant::now();
+        assert_eq!(
+            wait_for_flush(&answers, Duration::from_secs(5)),
+            Flush::Unreachable
+        );
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]
-    fn the_close_request_is_one_json_line() {
-        let value: serde_json::Value = serde_json::from_str(CLOSE_REQUEST).unwrap();
-        assert_eq!(value["type"], "close-requested");
-        assert!(!CLOSE_REQUEST.contains('\n'));
+    fn the_pages_answer_event_reaches_the_wait() {
+        let app = mock_builder()
+            .manage(Closing::default())
+            .build(context::<MockRuntime>())
+            .expect("mock app");
+        hear_close_answers(app.handle());
+        // An answer with no wait under way is dropped.
+        app.emit(CLOSE_FLUSHED, ()).unwrap();
+
+        let (sender, answers) = mpsc::sync_channel(1);
+        *app.state::<Closing>().answer.lock().unwrap() = Some(sender);
+        // As the page sends it: `emit` from `@tauri-apps/api/event`.
+        app.emit(CLOSE_FLUSHED, ()).unwrap();
+
+        assert_eq!(
+            wait_for_flush(&answers, Duration::from_secs(5)),
+            Flush::Answered
+        );
+        assert!(app.state::<Closing>().answer.lock().unwrap().is_none());
     }
 
     #[test]
@@ -840,6 +797,7 @@ mod tests {
                 "epicenter-folder:default",
                 "core:event:allow-listen",
                 "core:event:allow-unlisten",
+                "core:event:allow-emit",
             ]
         );
     }

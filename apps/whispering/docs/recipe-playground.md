@@ -91,7 +91,7 @@ endpoints that count every request:
   before sending, refuses a second run per recipe, saves once across failed,
   lost, and concurrent saves without a second request, refuses to overwrite
   another file, does not restore a discarded answer, retries only over the
-  same connection, holds the close guard, survives navigation in the session,
+  same connection, raises the leave warning, survives navigation in the session,
   and never blocks recording deletion.
 
 ## Browser acceptance

@@ -32,8 +32,8 @@ import {
 import { whisperingDefinition } from './definition.js';
 import { TranscriptionError } from './transcription.js';
 import { TransformationError } from './transformation.js';
+import type { FlushOutcome } from '@epicenter/svelte/flush-on-close';
 import type {
-	CloseDecision,
 	RecordingWriteHook,
 	Workspace,
 } from './workspace/types.js';
@@ -295,10 +295,8 @@ export async function openTestWorkspace({
 
 	const transformed: TransformRequest[] = [];
 	const transcribed: TranscribeRequest[] = [];
-	const answers: CloseDecision[] = [];
-	const closeListeners = new Set<() => void>();
-	/** A close the shell asked for while nothing was listening. */
-	let closeAsked = false;
+	/** Who hears the shell's close signal: the session's flush, while it is open. */
+	const closeListeners = new Set<() => Promise<FlushOutcome>>();
 	const terminalRuns: string[] = [];
 	let cwd = '/';
 	let opens = 0;
@@ -364,22 +362,9 @@ export async function openTestWorkspace({
 			return Ok({ text: `Transformed: ${request.input.trim()}` });
 		},
 		transformNote: 'test',
-		closing: {
-			// As the desktop workspace does: a request with nobody listening is
-			// kept and handed to the first listener.
-			onRequest(listener) {
-				closeListeners.add(listener);
-				if (closeAsked) {
-					closeAsked = false;
-					listener();
-				}
-				return () => closeListeners.delete(listener);
-			},
-			async answer(decision) {
-				answers.push(decision);
-			},
-			onRequestWithoutHost: () => () => {},
-			quitWithoutHost() {},
+		hostClose(respond) {
+			closeListeners.add(respond);
+			return () => closeListeners.delete(respond);
 		},
 		connections: device.member,
 		preferences: {
@@ -411,12 +396,14 @@ export async function openTestWorkspace({
 		transcribed,
 		/** The device's stored connections, keys included, and its earlier key. */
 		device,
-		answers,
 		closeListeners,
-		/** The shell asks to close, as the workspace delivers it: now, or kept. */
-		requestClose() {
-			if (closeListeners.size === 0) closeAsked = true;
-			for (const listener of closeListeners) listener();
+		/**
+		 * The shell's close signal, as the desktop workspace delivers it: each
+		 * listener flushes, and its outcome is the acknowledgement the shell
+		 * waits for. Nothing listening answers nothing.
+		 */
+		requestClose(): Promise<FlushOutcome[]> {
+			return Promise.all([...closeListeners].map((respond) => respond()));
 		},
 		terminalRuns,
 		get opens() {

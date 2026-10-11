@@ -23,8 +23,7 @@ src/              the page      the UI; attaches to the folder, fetches the host
      ▼                  │                ▼
 ┌── host (Bun) ─────┐  ┌┴─ page (WebView) ──┐   the data folder
 │ page, terminal,   │◄─│ fetch /bridge/app  │   and its .git
-│ requests, key,    │  │ Bearer <token>     │        ▲
-│ close relay       │─►│ event stream       │        │
+│ requests, key     │  │ Bearer <token>     │        ▲
 └─────────┬─────────┘  └────────────────────┘        │
           └── an ordinary program in that directory ─┘
 ```
@@ -44,7 +43,7 @@ tracks.
 
 This is not the end of the host. The page is still served by it, and the
 terminal, revealing the folder, the provider requests, the connections and
-their keys, fixture audio, and the close relay still live there. A new native ability that is not the
+their keys, and fixture audio still live there. A new native ability that is not the
 folder is a host operation in `native/`, exposed through the workspace type
 with a browser implementation or an explicit `undefined`.
 
@@ -107,10 +106,10 @@ What Whispering adds on top:
   land, and a connection's base URL and key change in one write.
 
 Short file commands, including settings saves and file creation or deletion,
-start independently. The library joins their completion promises. Quit
-preparation awaits those accepted
-commands and the drafts' saves before deciding what remains unsaved. Recording
-publication and provider work keep their own pending states and discard choices.
+start independently. The library joins their completion promises. Flushing on
+close awaits those accepted commands and the drafts' saves, within a bound.
+Recording publication and provider work keep their own pending states and
+discard choices.
 
 ## The storage boundary
 
@@ -181,9 +180,10 @@ The shell settles four things, in this order, before the window exists
    which Tauri treats as a remote origin with no commands at all. One
    capability, added at runtime because the port is not known until then,
    grants the `main` window, on exactly `http://127.0.0.1:<port>/*`, the
-   owner's commands (`epicenter-folder:default`) and listening for its events
-   (`core:event:allow-listen`, `core:event:allow-unlisten`). `tauri.conf.json`
-   lists no capability.
+   owner's commands (`epicenter-folder:default`), listening for events
+   (`core:event:allow-listen`, `core:event:allow-unlisten`), and emitting the
+   page's answer to a close (`core:event:allow-emit`). `tauri.conf.json` lists
+   no capability.
 
 So the page cannot choose a directory: it names a scope, and the shell decided
 what that scope is. Another window, a page from another origin or port, and a
@@ -199,25 +199,23 @@ reach no folder.
 ```text
 routes/+layout.svelte      opens one session on mount, closes it on destroy
 └── AppShell               sets the session in context; header, navigation,
-    │                      unsaved notices, Files, Terminal, close prompt
+    │                      unsaved notices, Files, Terminal
     ├── /                  +page.svelte            recorder and latest recording
     ├── /recordings        recordings/+page.svelte list, details, raw files
     └── /transformations   transformations/+page.svelte
 ```
 
 `src/lib/session.svelte.ts` is the owner. A session is the workspace, the
-product state over it (`library.svelte.ts`), the close guard, and what the
+product state over it (`library.svelte.ts`), its flush on close, and what the
 shell is showing. The layout holds one opening (`mountSession`) and nothing
 else does: pages call `getSession()` and never open a workspace. There is no
 module-level store, so a session exists only while a layout holds it, and
 releasing the layout releases the folder. `src/lib/page-boundary.test.ts` reads
 the sources and fails if anything but the layout holds an opening.
 
-A session exists only once it has started: the folder was read, the device's
-connections were read (or their read failed and says so), and the close guard
-is listening. An opening that fails leaves no
-session. The same holder then answers the shell's close question, so the
-window showing the refusal can be closed; see "Closing".
+A session exists only once it has started: the folder was read, and the
+device's connections were read (or their read failed and says so). An opening
+that fails closes what it opened and leaves no session.
 
 Because the pages are routes under that one layout, a page change is a
 re-render inside the same session. The live recording, pending captures,
@@ -228,10 +226,10 @@ navigation. What a
 page keeps in its own component (which tab is showing) is the only thing a page
 change resets.
 
-Leaving is guarded in one place, the shell. `beforeNavigate` holds a navigation
-only when it unloads the document and something is held; a navigation between
-routes is never held. The desktop close handshake below is answered by the
-session's guard, above the routes, for the same reason.
+Leaving is warned about in one place, the shell. `beforeNavigate` holds a
+navigation only when it unloads the document and something is held, which in a
+browser tab raises the browser's leave warning; a navigation between routes is
+never held. Closing the desktop app never asks; see "Closing".
 
 The host serves `index.html` for any path that is not a file, so
 `/recordings` and `/transformations` open directly and survive a refresh.
@@ -239,14 +237,13 @@ The host serves `index.html` for any path that is not a file, so
 ## The bridge
 
 The bridge is the page's link to the host. It carries Whispering's own
-operations and the close question, and nothing of the folder: there is no
+operations, and nothing of the folder: there is no
 folder route, no generic method call, no file change sent as data, and no Git
 snapshot pushed over it. Tables, KV, conditional publication, and history are
 the shared adapter's calls to the shell's owner.
 
 ```text
 POST /bridge/app      { op, payload }   -> { ok: <value> } | { fault: "<message>" }
-GET  /bridge/events   newline-delimited JSON: "close-requested" and pings
 ```
 
 `src/lib/bridge/http.ts` is the page's end and `native/host.ts` the host's.
@@ -261,7 +258,7 @@ to the shell's own commands (`ipc:`), and to nothing else.
 
 `/bridge/app` operations: `info`, `terminal`, `reveal`, `transcribe`,
 `transform`, `connections`, `set-connection`, `adopt-legacy-key`,
-`preferences`, `set-preferences`, `close`, and, in a debug shell only,
+`preferences`, `set-preferences`, and, in a debug shell only,
 `fixture`, `inject`, `injection`, `injection-launch`, `obstruct`, and
 `unobstruct`.
 
@@ -435,8 +432,8 @@ are not compared, so an edited row is still this recording.
 
 `audioNotSaved`, `rowNotSaved`, `refused`, and `unchecked` (a retry that could
 not read the folder) are not confirmed publications. They stay unresolved, are
-reported as not saved, hold the app open, and **Try again** starts from the
-retry table above.
+reported as not saved, raise the browser's leave warning, and **Try again**
+starts from the retry table above. Quitting the desktop app drops them.
 
 So a retry keeps the recording's identity, cannot create a second recording,
 and never replaces a file it did not just read and recognize as its own. A
@@ -484,7 +481,7 @@ which writes `text_runs/`. From there a run ends one of three ways:
 | --- | --- | --- |
 | Saved | Nothing. The row is in its table. | |
 | Failed: the endpoint refused, was unreachable, answered wrongly, the transport threw, the connection moved, or the host's reply was lost | Nothing was received. The run is listed as failed. After a lost reply the endpoint may still have been called. | Only when the person asks. Sends the same request, under the same stem, only while the text connection is still the base URL in the snapshot and, for a transcript, while the folder still has that transcript text and its recording. Otherwise it stays failed and says why. |
-| Unsaved: the answer arrived and its row is not written (a pasted-text answer waiting for Save, or a write that failed) | The text, in the window. It blocks closing. | Writes the row. The endpoint is not called. |
+| Unsaved: the answer arrived and its row is not written (a pasted-text answer waiting for Save, or a write that failed) | The text, in the window. Leaving a browser tab warns; quitting drops it. | Writes the row. The endpoint is not called. |
 
 One recipe holds at most one pasted-text run that is running or unsaved; a
 new run on pasted text is refused until it is saved or discarded, so a
@@ -577,162 +574,55 @@ Renaming a file moves an open draft with it once its saves land
 (`session.rename`); a closed file moves as it is now. Recording and
 transformation files keep their names. Deleting an open file releases its
 session, waits for its saves, and deletes what its last save confirmed. While
-the app decides whether to close, every session is locked; closing waits for
-running saves and releases them.
+the library closes, every session is locked; closing waits for running saves
+and releases them.
 
 ## Closing
 
-Unsaved work lives only in the page, so the shell never decides to close on its
-own. It holds back a window close and every exit request (Command-Q is a menu
-item it owns, so that path cannot bypass it) and asks:
+Closing never asks. A save in flight is the one thing a close protects; a draft
+whose save failed, an unanswered transcript, and a live recording end with the
+page, and the save bar and notices already say so before the person quits.
 
 ```text
-shell   writes {"type":"close-requested"} to the host's standard input
-host    sends a close-requested event to the page
-page    saves what can be saved, then answers POST /bridge/app { op: "close" }
-          proceed   nothing is held, or the person chose Discard and quit
-          asking    it is showing its confirmation
-          cancel    the person chose Keep working
-host    prints {"closeApproved":true} when the answer is proceed
-shell   exits; the owner settles the folder, and the host is stopped
+shell   on a window close, the Quit menu item (Command-Q), or an exit request:
+          holds it back once and emits whispering://close-requested to the page
+page    flushes (`flushOnClose`): sends each draft's held snapshot and waits
+          for admitted work and running saves, at most 800 ms
+page    emits whispering://close-flushed
+shell   exits on that answer, or after 1 second without one
 ```
 
-On macOS a quit can also come from the system: the Dock's Quit, a logout,
-restart, or shutdown, and an Apple Event send AppKit's `terminate:`, which Tao
-would let end the app with no exit request at all. `src-tauri/src/quit.rs`
-adds `applicationShouldTerminate:` to Tao's delegate class first in setup,
-before the menu, host, or window, and the app does not start if that class is
-not what the guard was checked against. The method always cancels AppKit's
-quit and asks for an ordinary exit, which is held and asked like any other.
-So a logout or restart is always cancelled while Whispering runs, even with
-nothing unsaved; the person starts it again once Whispering has exited.
-`evidence/native-quit/README.md` records the gap, the guard, its harness
-(`src-tauri/examples/quit`), and what to rerun after a macOS, Tauri, or Tao
-upgrade.
+The page's side is `flushOnClose` from `@epicenter/svelte/flush-on-close`,
+started by the session once it has started (`createSession` in
+`src/lib/session.svelte.ts`) and stopped when the session closes. The flush is
+`library.flush()`: `admissions.quiet()` and every open draft's `settled()`,
+which sends the snapshot autosave is holding behind a running write. It starts
+nothing new and retries nothing, so a failed save is not waited for. A browser
+tab has no shell; there the same flush starts on `pagehide`, and cannot be
+waited for.
 
-`src/lib/leave.svelte.ts` is the page's side, over the workspace's `closing`
-capability; a browser workspace has none and relies on the browser's leave
-warning. The session creates the guard, so it answers from every page and
-stops with the session. The page acknowledges every request with `asking` before it does
-anything else, and treats a failure to find out what is held as holding
-something.
+The signal and its answer are Tauri events (`src/lib/workspace/desktop.ts` and
+`src-tauri/src/lib.rs`), not host operations, so they reach the page whether
+or not the host is running. The shell's capability for the page adds only
+`core:event:allow-emit` for the answer. A page that is not listening (one still
+starting, or one whose opening failed) is not answered for: the shell waits out
+its second and exits. With no app page at all (the failure page), the shell
+exits at once.
 
-When a request arrives, before anything is awaited, the library stops
-admitting new work (`pauseAdmission`): no capture starts or stops, no request,
-retry, file change, terminal command, commit, or typing. Work it had already
-accepted continues: saves settle, and a request already sent is shown as
-running and holds the close. A transformation whose reads were under way is
-counted as running, and is not sent once admission has stopped. The prompt
-covers the page from that moment, so nothing on screen takes input either.
-"Keep working" admits work again. Sending `proceed` commits the quit: admission
-never resumes, "Keep working" is no longer offered, and an answer that could
-not be delivered leaves the page frozen with one action, quitting again. A
-lost reply may still have been taken, so it is never read as a refusal.
-
-Approval is never inferred. The host approves only on the page's authenticated
-`proceed`. Whether the page's event stream is open, or ever was, says nothing
-about what the page holds: a page can record and save while that stream has not
-connected. So a request with no stream to carry it waits and is delivered when
-one connects, and a page that does not answer keeps the window open. If the
-page itself stops responding, Force Quit is the way out.
-
-The desktop workspace owns that stream (`src/lib/workspace/desktop.ts`). It
-opens one, reconnects when it drops, and hands a close question to whoever is
-listening. A question that arrives before the session's guard is listening is
-kept and delivered when it does; the host repeats an unanswered question to
-every stream that connects.
-
-A host that has stopped is not approval either, because the page still holds
-its work. The shell then keeps the window and raises a `whispering:close-blocked`
-event in the page, which shows the same confirmation. Choosing to quit
-navigates to `/__whispering__/quit`; the shell refuses to load that address
-and, only while the host is gone, exits on it. The shell exits with no answer
-at all only when the app never started and the window is the failure page.
-None of this adds a Tauri command: the question and the answer travel over the
-host's standard streams and the authenticated bridge, and the host-gone
-fallback uses a page event and a refused navigation.
-
-With the host gone the folder is still open, since the shell owns it. Changes
-to recordings, transcripts, and other files can still be saved, a pending
-recording can still be tried again, and a commit can still be made. What is
-gone is what the host did: the terminal, new transcription and transformation
-requests, reveal, the key, and the relay of this question. The prompt says
-exactly that and reads what is held live, so it shrinks as things are saved.
-It promises nothing about any one save, which can fail for its own reasons
-with or without the host. Quitting in this state is always the person's
-explicit choice, even when nothing is held, because nothing can relay an
-answer for them.
-
-### While the session is starting
-
-Opening starts the workspace, reads the folder, and reads the device's
-connections. A connection that is not set up stays that way; opening creates
-no file and sends nothing.
-The close guard is not created until startup has settled
-(`createSession` in `src/lib/session.svelte.ts`): until then there is an
-opening, not a session, and nothing answers the shell, not even `asking`.
-
-A close asked in that time is not dropped. The host keeps an unanswered
-request and repeats it to every stream that connects, and the desktop
-workspace keeps one that arrives while nobody is listening, over the stream or
-as the shell's host-gone event, and hands it to the first listener. When the
-session has started, its guard receives the kept request and decides as it
-would for any other: from a session that has finished starting.
-
-If the start fails, the library and the workspace are closed first. Only a
-completed close permits the answer described next to take over. If cleanup
-also fails, the opening preserves both causes and approves no close. A layout
-released while its session is still starting gets the same cleanup and no
-answer at all.
-
-One request is not carried across: a close attempted with the host already
-gone, during a start that then fails. The shell raises that event once per
-attempt and nothing repeats it, so the person closes again.
-
-### When opening failed
-
-The shell marks the page as opened when the window is built, before the page
-has attached to anything. If the workspace then cannot be opened (the host
-does not answer, the owner refuses the window, or the two name different
-directories), or the session cannot start, there is no session and no guard,
-and the shell would wait forever for an answer to a close.
-
-So the holder of the opening answers instead (`mountSession` in
-`src/lib/session.svelte.ts`, `answerCloseWithNothingOpen` in
-`src/lib/workspace/closing.ts`). A returned refusal or an
-`OpeningReleasedError` proves that nothing remains open. Only then is each
-close the person asks for answered `proceed` through the host, or with the
-quit address when the host is gone. A failed cleanup or an unexpected
-rejection from the opener proves no such thing and installs no answer.
-
-Whatever the failure, the failure page in Whispering's shell offers a Quit
-button. Pressing it answers `proceed` through the host and, if the host does
-not take it, navigates to the quit address as well; the page says when
-neither was confirmed. It refuses while the opening is under way and after
-the layout is released, and nothing listens for it. `closing.ts` reaches only
-the bridge, so this works when the desktop workspace's own module is what
-failed to load. A browser tab and a desktop app that injected no host token
-offer no Quit.
-
-It is narrow on purpose:
-
-- It answers requests. It never closes anything unasked and has no timer.
-- It does not run while an opening is under way, which includes the session's
-  first read and connections read. A close asked then waits: for the session's
-  guard if the opening succeeds, for this answer if it fails, and in that case
-  only after everything the opening had opened was closed.
-- It does not run while a session exists, and it is stopped when the layout
-  is released, so it can never answer for a session that holds work.
-- It uses the same authenticated `close` operation and the same quit address
-  as the guard. The shell gained no command and no privilege for it.
-- A desktop app that injected no host token is not Whispering's shell and
-  asks no close question, and a browser tab has the browser's own; neither is
-  answered.
+Command-Q is the shell's own menu item, because the predefined Quit calls
+AppKit's `terminate:`, which skips the exit request. On macOS a quit from the
+system (the Dock's Quit, a logout, restart, or shutdown, an Apple Event) goes
+through Tao's `applicationWillTerminate:` straight to `RunEvent::Exit`, with
+no exit request first; tao 0.37 implements no `applicationShouldTerminate:`.
+The page is not reached then: only writes the folder's owner had already
+accepted are finished, and whatever was still in the page in that instant is
+lost. Whispering accepts that, and so never cancels a logout or shutdown.
 
 When the shell exits, the owner refuses new work, lets the saves and commits
 it had already admitted finish, and releases the folder. Checkpoints already
 inside Git protection finish; waiting automatic requests are cancelled.
-Shutdown makes no final commit, so those saves can remain uncommitted. Closing the page's folder handle only detaches the window.
+Shutdown makes no final commit, so those saves can remain uncommitted. Closing
+the page's folder handle only detaches the window.
 
 ## History
 

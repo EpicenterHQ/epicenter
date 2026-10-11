@@ -417,61 +417,31 @@ the open window. They are not written anywhere else.
 
 ### Closing and quitting
 
-Closing the window (the close button or Command-W) and quitting (Command-Q,
-the Whispering menu, or on macOS Quit in the Dock, a logout, restart, or
-shutdown) all ask the window first:
+Closing the window (the close button or Command-W) and quitting (Command-Q or
+the Whispering menu) never ask. Whispering sends any typing that is waiting to
+be saved, waits for saves already underway, and closes. It waits at most about
+a second; a save that is still running after that may not land.
 
-- When nothing is held, typing that can still be saved is saved and the app
-  closes with no prompt.
-- When something is held (a recording in progress, a recording that is not in
-  the folder, a transcript or transformation result whose file was not written,
-  a result on pasted text not saved yet, a running transcription or
-  transformation, or edits whose save failed, conflicted, or was not
-  confirmed),
-  the app stays open and shows what would be lost. **Keep working** closes the
-  prompt and changes nothing. **Discard and quit** closes the app and drops
-  what was held.
+What was only in the window is lost when it closes: a recording in progress, a
+recording that is not in the folder, a transcript or transformation result
+whose file was not written, a result on pasted text not saved yet, a running
+transcription or transformation, and edits whose save failed, conflicted, or
+was not confirmed. The status and the save bar already say when something is
+not saved, so save it, copy it, or try again before you quit.
 
-Only leaving the app asks. Moving between Home, Recordings, and
-Transformations never does, because nothing is lost by it.
+On macOS, Quit in the Dock, a logout, restart, or shutdown closes Whispering
+without sending waiting typing first. Saves the folder had already started
+still finish. Whispering never stops a logout or shutdown.
 
-The app closes only on an explicit answer from the window. A window that is
-busy or slow keeps the app open until it answers; closing again only asks
-again.
+Moving between Home, Recordings, and Transformations keeps everything, since
+nothing is lost by it.
 
-A logout, restart, or shutdown is always stopped while Whispering is open,
-even when nothing is held: Whispering asks the window as for any quit, and the
-logout does not continue on its own. Start it again once Whispering has
-closed.
-
-If Whispering's host process stops while the window is open, the terminal,
-Reveal folder, and new transcription and transformation requests stop working
-until you restart the app. Saving does not stop: the folder belongs to the
-window's shell, so changes to recordings, transcripts, and other files can
-still be saved, a pending recording can still be tried again, and **Commit
-now** still works. A save can still fail for its own reasons, such as a full
-disk, exactly as it can at any other time.
-
-What the window can no longer do is be asked through the host whether it may
-close. Closing or quitting then shows a prompt that says so and lists what is
-still only in the window. The list follows what you save, and **Keep working**
-lets you save, play a pending recording, or copy text out first. The app stays
-open until you choose **Discard and quit** (or **Quit** when nothing is held);
-in this state it never closes without that choice.
-
-If the folder could not be opened at all and the window shows "Could not open
-the recordings folder", nothing is open and nothing can be unsaved, so closing
-or quitting just closes it.
-
-This covers an ordinary close or quit. It does not cover the process being
-ended from outside: Force Quit, `kill`, a crash, or power loss discard whatever
-was only in the window, and nothing can recover it afterwards. Force Quit is
-also the only way out if the window itself stops responding, or is closed
-while it is still opening the folder and never finishes, since a window that
-cannot answer is never closed on its behalf.
+Force Quit, `kill`, a crash, or power loss end the app without waiting for
+anything.
 
 In a browser tab (`bun dev:whispering:ui`) the browser's own leave warning
-applies instead.
+appears while something is only in the window. Closing the tab starts sending
+waiting typing, but the tab cannot wait for it.
 
 ### Editing and conflicts
 

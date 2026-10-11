@@ -175,7 +175,7 @@ async function open({
 		},
 		transform: async ({ input }) => Ok({ text: input }),
 		transformNote: 'test',
-		closing: undefined,
+		hostClose: undefined,
 		connections: device.member,
 		preferences: {
 			microphone: async () => undefined,
@@ -1002,7 +1002,7 @@ test('recording and transformation files keep their names, and a transcript keep
 // Leaving and closing
 // ============================================================================
 
-test('quit preparation awaits a file command through publication before approving', async () => {
+test('a flush awaits a file command through publication', async () => {
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	const { library, root } = await open({
@@ -1013,16 +1013,16 @@ test('quit preparation awaits a file command through publication before approvin
 	});
 	const creating = library.createFile('', 'created.txt');
 	await reached.promise;
-	let approved = false;
-	const preparing = library.prepareToLeave().then((safe) => {
-		approved = safe;
-		return safe;
+	let flushed = false;
+	const flushing = library.flush().then(() => {
+		flushed = true;
 	});
 	await Bun.sleep(10);
-	expect(approved).toBe(false);
+	expect(flushed).toBe(false);
 	release.resolve();
 	expect(await creating).toBeUndefined();
-	expect(await preparing).toBe(true);
+	await flushing;
+	expect(flushed).toBe(true);
 	expect(await readFile(join(root, 'created.txt'), 'utf8')).toBe('');
 });
 

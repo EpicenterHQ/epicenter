@@ -12,7 +12,6 @@
  *   Keep mine; a recording deleted elsewhere offers only Discard
  * - a row file whose text is not a valid row opens as its text with its
  *   issues, and its fields open once the text reads
- * - controls are disabled while the app decides whether to close
  * - bodies show in LF and save in the file's line endings; a title and a
  *   model save from their own controls, an emptied model as none
  *
@@ -78,7 +77,7 @@ async function show(library: Library, path: string) {
 
 /** Let saves and the views settle. */
 async function settle(library: Library) {
-	await library.prepareToLeave();
+	await library.flush();
 	flushSync();
 }
 
@@ -196,28 +195,6 @@ test('a transformation that does not read opens as its text with its issues, and
 			?.value,
 	).toBe('Tidy.\n');
 	expect(await readFile(join(root, RECIPE), 'utf8')).toContain('model: null');
-});
-
-test('a recording’s controls are disabled while the app decides whether to close', async () => {
-	const { library, target } = await open({
-		[RECORDING]: recording('Take', 'Notes.\n'),
-	});
-	await show(library, RECORDING);
-	const title = () =>
-		field<HTMLInputElement>(target, 'input[aria-label="Recording title"]');
-	expect(title()?.disabled).toBe(false);
-
-	library.pauseAdmission();
-	flushSync();
-	expect(title()?.disabled).toBe(true);
-	expect(
-		field<HTMLTextAreaElement>(target, 'textarea[aria-label="Notes"]')
-			?.disabled,
-	).toBe(true);
-
-	library.resumeAdmission();
-	flushSync();
-	expect(title()?.disabled).toBe(false);
 });
 
 test('a transformation’s title, model, and instructions save from their own controls, in the file’s line endings', async () => {

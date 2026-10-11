@@ -188,7 +188,7 @@ export async function openBrowserWorkspace(): Promise<
 			return answered;
 		},
 		transformNote: `Requests are sent from this browser tab over the text connection in Settings, so its endpoint must allow requests from ${location.origin} (CORS). Most hosted providers refuse that; a local endpoint or the desktop app works.`,
-		closing: undefined,
+		hostClose: undefined,
 		// One synchronous read and write per change, so a key never sits beside
 		// a base URL it was not saved for.
 		connections: {

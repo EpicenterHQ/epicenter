@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Button } from '@epicenter/ui/button';
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
@@ -18,23 +17,10 @@
 
 	// The mounted layout acquires the folder, once, and every page below shares
 	// it: a route change renders another page inside the same session. Importing
-	// modules opens nothing, and no page opens a folder of its own. If the
-	// folder cannot be opened, the same holder lets the window be closed.
-	const { opening, quit, release } = mountSession();
+	// modules opens nothing, and no page opens a folder of its own.
+	const { opening, release } = mountSession();
 
 	onDestroy(release);
-
-	// The failed window's own quit, pressed by the person. Nothing answers for
-	// them: a failure that proves nothing about what was left open is never
-	// approved without this press.
-	let quitting = $state(false);
-	let quitProblem = $state<string | undefined>();
-	async function quitApp() {
-		if (quit === undefined) return;
-		quitting = true;
-		quitProblem = await quit();
-		quitting = false;
-	}
 </script>
 
 {#snippet failed(message: string)}
@@ -42,16 +28,6 @@
 		<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
 		<Empty.Title>Could not open the recordings folder</Empty.Title>
 		<Empty.Description>{message}</Empty.Description>
-		{#if quit}
-			<Empty.Content>
-				<Button variant="outline" disabled={quitting} onclick={() => void quitApp()} data-testid="failed-quit">
-					Quit Whispering
-				</Button>
-				{#if quitProblem}
-					<p class="text-sm text-muted-foreground" role="status">{quitProblem}</p>
-				{/if}
-			</Empty.Content>
-		{/if}
 	</Empty.Root>
 {/snippet}
 

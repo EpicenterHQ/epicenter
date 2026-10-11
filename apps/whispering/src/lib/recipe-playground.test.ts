@@ -377,13 +377,12 @@ test('a recipe runs on pasted text with no recordings; the answer is held until 
 			text: 'Transformed: so um this is pasted text',
 		},
 	});
-	// Nothing is written until the person saves, and the app is held open.
+	// Nothing is written until the person saves, and leaving warns.
 	expect(await names(root, TEXT_RUNS)).toEqual([]);
 	expect(library.transformationRuns).toEqual([]);
-	expect(library.unsavedWork).toContain(
-		'1 result on pasted text arrived and is not saved.',
-	);
-	expect(await library.prepareToLeave()).toBe(false);
+	expect(library.holdsUnsavedWork).toBe(true);
+	await library.flush();
+	expect(library.holdsUnsavedWork).toBe(true);
 	expect(filesLineOf(library).label).toBe('1 result on pasted text not saved');
 
 	await library.saveTextRun(held.id);
@@ -585,7 +584,7 @@ test('a failed run is retried from its snapshot only while the text connection i
 	await library.transformText(path, PASTED);
 	const failed = library.textRuns[0]!;
 	expect(failed.state.kind).toBe('failed');
-	// Nothing was received, so nothing holds the app open.
+	// Nothing was received, so leaving does not warn.
 	expect(library.holdsUnsavedWork).toBe(false);
 	refuse = false;
 
@@ -670,10 +669,12 @@ test('the pasted text and a held result stay with the session, and the result ke
 	expect(library.textRuns).toHaveLength(1);
 	expect(session.blocksNavigation({ willUnload: true })).toBe(true);
 	expect(session.blocksNavigation({ willUnload: false })).toBe(false);
-	expect(await library.prepareToLeave()).toBe(false);
+	await library.flush();
+	expect(library.holdsUnsavedWork).toBe(true);
 
 	library.discardTransformationRun(library.textRuns[0]!.id);
-	expect(await library.prepareToLeave()).toBe(true);
+	await library.flush();
+	expect(library.holdsUnsavedWork).toBe(false);
 });
 
 test('a text_runs/ file that does not read never holds up a recording’s deletion, and a failed listing is reported, not shown empty', async () => {

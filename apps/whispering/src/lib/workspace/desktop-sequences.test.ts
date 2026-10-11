@@ -114,7 +114,7 @@ function holdNextApply(kind: string) {
 	return { reached: reached.promise, release: () => held.resolve() };
 }
 
-test('a save whose reply was lost and cannot be read back stays unknown, holds the close, and Save again writes the draft', async () => {
+test('a save whose reply was lost and cannot be read back stays unknown, warns before leaving, and Save again writes the draft', async () => {
 	const { library, session } = await open({ [PATH]: SEED });
 	owner.control.loseReplies = 1;
 	owner.control.failReads.add(PATH);
@@ -123,10 +123,9 @@ test('a save whose reply was lost and cannot be read back stays unknown, holds t
 	const state = await session.settled();
 	expect(state.status === 'error' && state.error.name).toBe('Unconfirmed');
 	expect(owner.text(PATH)).toContain('Tidy it.');
-	expect(library.unsavedWork).toEqual([
-		`${PATH} has edits whose last save was not confirmed.`,
-	]);
-	expect(await library.prepareToLeave()).toBe(false);
+	expect(library.holdsUnsavedWork).toBe(true);
+	await library.flush();
+	expect(library.holdsUnsavedWork).toBe(true);
 
 	owner.control.failReads.delete(PATH);
 	session.retry();
@@ -209,5 +208,6 @@ test('a deletion whose reply was lost says so and recreates nothing', async () =
 	);
 	expect(owner.text(PATH)).toBeUndefined();
 	expect(kinds()).toEqual(['remove']);
-	expect(await library.prepareToLeave()).toBe(true);
+	await library.flush();
+	expect(library.holdsUnsavedWork).toBe(false);
 });

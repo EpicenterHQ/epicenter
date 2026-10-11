@@ -3,16 +3,17 @@
  *
  * Drives session startup, navigation policy, and release over a real folder.
  * These tests do not mount routes; layout ownership is checked separately in
- * `page-boundary.test.ts`. Held-work details belong to library and leave tests.
+ * `page-boundary.test.ts`. Held-work details belong to the library tests, and
+ * what a close flushes to `editing.test.ts`.
  *
  * Key behaviors:
  * - Opening a session opens the folder once; closing it releases it once
  * - Internal navigation is allowed even while the session holds unsaved work
  * - A navigation that unloads the document is held back only while something
  *   exists only in the window
- * - The close guard belongs to the session and stops listening when it closes
- * - A failed opening is answered for only when it was refused, or proves that
- *   everything it opened was closed; any other rejection leaves closes unanswered
+ * - The session flushes on the shell's close signal from when it has started
+ *   until it closes; a failed opening leaves nothing listening
+ * - A layout released before its session starts closes what it opened
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -27,12 +28,9 @@ import {
 	type TestWorkspaceOptions,
 } from './workspace.test-support.js';
 
-const {
-	mountSession,
-	openSession,
-	OpeningNotReleasedError,
-	OpeningReleasedError,
-} = await import('./session.svelte.ts');
+const { mountSession, openSession, OpeningNotReleasedError } = await import(
+	'./session.svelte.ts'
+);
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -103,13 +101,8 @@ test('a session whose first read fails releases the folder it opened', async () 
 		(cause: unknown) => cause,
 	);
 
-	// The rejection says the close completed, and carries the read's own error.
-	expect(rejected).toBeInstanceOf(OpeningReleasedError);
-	expect((rejected as InstanceType<typeof OpeningReleasedError>).startup).toBe(
-		lost,
-	);
-	expect((rejected as Error).cause).toBe(lost);
-	expect((rejected as Error).message).toBe('the folder host went away');
+	// The close completed, and the rejection is the read's own error.
+	expect(rejected).toBe(lost);
 	expect(test.closes).toBe(1);
 	expect(test.closeListeners.size).toBe(0);
 });
@@ -131,190 +124,27 @@ test('a workspace that cannot be opened is returned as the refusal, and no sessi
 });
 
 // ============================================================================
-// What the layout holds, and who answers a close
+// What the layout holds
 // ============================================================================
 
-/** Counts when answering for a failed opening starts and stops. */
-function closeAnswerer() {
-	const counts = { started: 0, stopped: 0 };
-	return {
-		counts,
-		answerClose: () => {
-			counts.started += 1;
-			return () => {
-				counts.stopped += 1;
-			};
-		},
-	};
-}
-
-const refusal = () => {
-	const { error: notPermitted } = OpenFolderError.WindowNotPermitted({
-		scope: 'so.epicenter.whispering',
-		window: 'main',
-	});
-	return WorkspaceError.DesktopFolder({ refusal: notPermitted });
-};
-
-test('while a session exists, only its guard answers a close: nothing answers for it unseen', async () => {
-	const test = await openTestWorkspace({ failAudioWrites: 1 });
-	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(test.open, answerClose);
-	const session = expectOk(await mounted.opening);
+test('the mounted session flushes on the shell’s close signal, and stops when released', async () => {
+	const test = await openTestWorkspace();
 	cleanups.push(test.remove);
-	// Something held only in the window.
-	await session.library.startRecording();
-	await session.library.stopRecording();
-	expect(session.library.pending).toHaveLength(1);
+	const mounted = mountSession(test.open);
+	const session = expectOk(await mounted.opening);
+	cleanups.push(() => session.close());
 
-	// The shell asks. The session's own guard is the listener, and it does not approve.
-	expect(test.closeListeners.size).toBe(1);
-	for (const listener of test.closeListeners) listener();
-	await Bun.sleep(50);
-	expect(test.answers).toEqual(['asking']);
-	expect(session.leave.asking).toBe(true);
-	expect(counts).toEqual({ started: 0, stopped: 0 });
+	expect(await test.requestClose()).toEqual(['flushed']);
 
-	mounted.release();
 	mounted.release();
 	await session.close();
-	expect(test.closes).toBe(1);
 	expect(test.closeListeners.size).toBe(0);
-	expect(counts).toEqual({ started: 0, stopped: 0 });
-});
-
-test('a refused opening starts answering closes only once it has settled, and release stops it', async () => {
-	const settle = deferred<ReturnType<typeof refusal>>();
-	const { counts, answerClose } = closeAnswerer();
-
-	const mounted = mountSession(() => settle.promise, answerClose);
-	// Still opening: a close asked now is not answered by anyone yet.
-	await Bun.sleep(10);
-	expect(counts).toEqual({ started: 0, stopped: 0 });
-
-	settle.resolve(refusal());
-	expect(expectErr(await mounted.opening).name).toBe('DesktopFolder');
-	await Bun.sleep(0);
-	expect(counts).toEqual({ started: 1, stopped: 0 });
-
-	mounted.release();
-	mounted.release();
-	expect(counts).toEqual({ started: 1, stopped: 1 });
-});
-
-test('an opening that fails after its folder opened is also a failed opening: the folder is released, then closes are answered', async () => {
-	const test = await openTestWorkspace();
-	cleanups.push(test.remove);
-	const { folder } = test.workspace;
-	const unreadable: Workspace = {
-		...test.workspace,
-		folder: {
-			...folder,
-			kv: {
-				...folder.kv,
-				get: () => Promise.reject(new Error('the first read failed')),
-			},
-		},
-	};
-	const { counts, answerClose } = closeAnswerer();
-
-	const mounted = mountSession(async () => Ok(unreadable), answerClose);
-	await expect(mounted.opening).rejects.toThrow('the first read failed');
-	await Bun.sleep(0);
-
-	// No session and no guard is left listening, so nothing else would answer.
+	expect(await test.requestClose()).toEqual([]);
 	expect(test.closes).toBe(1);
-	expect(test.closeListeners.size).toBe(0);
-	expect(counts).toEqual({ started: 1, stopped: 0 });
-	mounted.release();
-	expect(counts).toEqual({ started: 1, stopped: 1 });
-});
-
-test('an opener that throws partway through acquiring is never answered for, even with a close pending', async () => {
-	// The real folder is open: the opener acquired it, then threw before
-	// returning a workspace, as when releasing a mismatched folder fails.
-	const test = await openTestWorkspace();
-	cleanups.push(test.remove);
-	cleanups.push(() => test.workspace.close());
-	const thrown = new Error('closing the mismatched folder failed');
-	const acquiring = deferred<void>();
-	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(async () => {
-		await acquiring.promise;
-		throw thrown;
-	}, answerClose);
-	// The person asks to close while the opening is under way.
-	test.requestClose();
-
-	acquiring.resolve();
-	const rejected = await mounted.opening.then(
-		() => undefined,
-		(cause: unknown) => cause,
-	);
-	expect(rejected).toBe(thrown);
-	await Bun.sleep(20);
-
-	// Nothing proves the folder was released, so neither the pending close
-	// nor a later one is answered.
-	expect(test.closes).toBe(0);
-	test.requestClose();
-	await Bun.sleep(20);
-	expect(test.answers).toEqual([]);
-	expect(counts).toEqual({ started: 0, stopped: 0 });
-	mounted.release();
-	expect(counts).toEqual({ started: 0, stopped: 0 });
-});
-
-test('an opening that fails without proof answers no close by itself, and quits only when the person presses Quit', async () => {
-	const acquiring = deferred<void>();
-	const { counts, answerClose } = closeAnswerer();
-	let quits = 0;
-	const mounted = mountSession(
-		async () => {
-			await acquiring.promise;
-			throw new Error('the desktop workspace could not be loaded');
-		},
-		answerClose,
-		async () => {
-			quits += 1;
-			return undefined;
-		},
-	);
-	if (mounted.quit === undefined) throw new Error('expected a quit');
-
-	// Still opening: Quit is refused, so nothing can answer for work under way.
-	expect(await mounted.quit()).toBeDefined();
-	expect(quits).toBe(0);
-
-	acquiring.resolve();
-	await expect(mounted.opening).rejects.toThrow('could not be loaded');
-	await Bun.sleep(0);
-	// Nothing proves the folder was released: no close is answered unseen.
-	expect(counts).toEqual({ started: 0, stopped: 0 });
-
-	expect(await mounted.quit()).toBeUndefined();
-	expect(quits).toBe(1);
-
-	mounted.release();
-	expect(await mounted.quit()).toBeDefined();
-	expect(quits).toBe(1);
-});
-
-test('a layout that went away before its opening failed never starts answering', async () => {
-	const settle = deferred<ReturnType<typeof refusal>>();
-	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(() => settle.promise, answerClose);
-
-	mounted.release();
-	settle.resolve(refusal());
-	await mounted.opening;
-	await Bun.sleep(0);
-
-	expect(counts).toEqual({ started: 0, stopped: 0 });
 });
 
 // ============================================================================
-// A close asked while the session is still starting
+// While the session is starting
 // ============================================================================
 
 /**
@@ -362,89 +192,32 @@ async function starting() {
 	};
 }
 
-/** Wait for something another task does. */
-async function until(condition: () => boolean, what: string) {
-	for (let waited = 0; waited < 300; waited++) {
-		if (condition()) return;
-		await Bun.sleep(10);
-	}
-	throw new Error(`timed out waiting for ${what}`);
-}
-
-test('a close asked while the first read is pending is not answered until the session has started, and then its guard decides', async () => {
+test('nothing flushes on close until the session has started', async () => {
 	const { test, open, begun, finish } = await starting();
-	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(open, answerClose);
+	const mounted = mountSession(open);
 	await begun();
 
-	// The person asks to close, more than once, while the session is starting.
-	test.requestClose();
-	test.requestClose();
-	await Bun.sleep(60);
-
-	// Nobody is listening yet and nobody has answered: not even `asking`.
-	expect(test.closeListeners.size).toBe(0);
-	expect(test.answers).toEqual([]);
-	expect(counts).toEqual({ started: 0, stopped: 0 });
+	// The window closes while the first read is pending: nothing is listening,
+	// so the shell does not wait for this page.
+	expect(await test.requestClose()).toEqual([]);
 	expect(await Bun.file(`${test.root}/kv.json`).exists()).toBe(false);
 
 	finish();
 	const session = expectOk(await mounted.opening);
 	cleanups.push(() => session.close());
-
-	// The kept request reached the session's guard once it existed. The
-	// session has started and holds nothing, so the guard lets it close.
-	await until(() => test.answers.length === 2, 'the guard to answer');
-	expect(test.answers).toEqual(['asking', 'proceed']);
 	expect(test.closeListeners.size).toBe(1);
-	expect(await Bun.file(`${test.root}/kv.json`).exists()).toBe(false);
-	expect(session.library.connections?.transcription?.model).toBe(
-		'verification-model',
-	);
-	// It was the guard's answer. Nothing answered for the opening unseen.
-	expect(counts).toEqual({ started: 0, stopped: 0 });
+	expect(await test.requestClose()).toEqual(['flushed']);
 	mounted.release();
 });
 
-test('a start that fails with a close pending answers nothing until everything it opened is released, and then hands over', async () => {
+test('a start that fails closes what it opened and leaves nothing listening', async () => {
 	const { test, open, begun, failWith } = await starting();
-	// The workspace takes a moment to close, as a folder with work under way does.
-	const closing = deferred<void>();
-	const release = test.workspace.close;
-	let closeBegan = false;
-	const slowToClose = async () => {
-		const opened = await open();
-		return Ok({
-			...expectOk(opened),
-			async close() {
-				closeBegan = true;
-				await closing.promise;
-				await release();
-			},
-		});
-	};
-	const seen: { closes: number; answers: number }[] = [];
-	const mounted = mountSession(slowToClose, () => {
-		seen.push({ closes: test.closes, answers: test.answers.length });
-		return () => {};
-	});
+	const mounted = mountSession(open);
 	await begun();
-	test.requestClose();
 
 	failWith(new Error('the first read failed'));
-	await until(() => closeBegan, 'the failed session to start closing');
-	await Bun.sleep(40);
-	// The read has failed, but the folder is not released yet: still nothing answers.
-	expect(seen).toEqual([]);
-	expect(test.answers).toEqual([]);
-
-	closing.resolve();
 	await expect(mounted.opening).rejects.toThrow('the first read failed');
-	await Bun.sleep(0);
-
-	// Only now does the failed-opening answer take over, with the folder
-	// released, no guard ever having listened, and no answer given before it.
-	expect(seen).toEqual([{ closes: 1, answers: 0 }]);
+	expect(test.closes).toBe(1);
 	expect(test.closeListeners.size).toBe(0);
 	mounted.release();
 });
@@ -481,12 +254,10 @@ async function unreleased(opening: Promise<unknown>) {
 	return rejected;
 }
 
-test('a start that fails and cannot release what it opened keeps both reasons and never answers a close', async () => {
+test('a start that fails and cannot release what it opened keeps both reasons', async () => {
 	const { test, open, begun, failWith } = await startingUnreleasable();
-	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(open, answerClose);
+	const mounted = mountSession(open);
 	await begun();
-	test.requestClose();
 
 	failWith(new Error('the first read failed'));
 	const rejected = await unreleased(mounted.opening);
@@ -503,36 +274,23 @@ test('a start that fails and cannot release what it opened keeps both reasons an
 	);
 	expect(rejected.message).not.toContain('sk-secret');
 
-	// The folder is still held. Nothing listens, and nothing answers for it,
-	// not the close asked while starting and not one asked now.
+	// The folder is still held, and nothing listens for a close.
 	expect(test.closes).toBe(0);
 	expect(test.closeListeners.size).toBe(0);
-	test.requestClose();
-	await Bun.sleep(20);
-	expect(test.answers).toEqual([]);
-	expect(counts).toEqual({ started: 0, stopped: 0 });
-
 	mounted.release();
-	await Bun.sleep(0);
-	expect(test.answers).toEqual([]);
-	expect(counts).toEqual({ started: 0, stopped: 0 });
 });
 
-test('a layout released while starting, whose closing then fails, answers nothing', async () => {
+test('a layout released while starting, whose closing then fails, reports both reasons', async () => {
 	const { test, open, begun, finish } = await startingUnreleasable();
-	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(open, answerClose);
+	const mounted = mountSession(open);
 	await begun();
 
 	mounted.release();
-	test.requestClose();
 	finish();
 
 	const rejected = await unreleased(mounted.opening);
 	expect((rejected.startup as Error).message).toContain('released');
-	await Bun.sleep(20);
-	expect(test.answers).toEqual([]);
-	expect(counts).toEqual({ started: 0, stopped: 0 });
+	expect(test.closeListeners.size).toBe(0);
 });
 
 test('a workspace released before its session starts, whose closing fails, reports that too', async () => {
@@ -541,7 +299,6 @@ test('a workspace released before its session starts, whose closing fails, repor
 	const test = await openTestWorkspace();
 	cleanups.push(test.remove);
 	cleanups.push(() => test.workspace.close());
-	const { counts, answerClose } = closeAnswerer();
 	const mounted = mountSession(async () => {
 		await opened.promise;
 		return Ok({
@@ -551,7 +308,7 @@ test('a workspace released before its session starts, whose closing fails, repor
 				throw new Error('the owner did not confirm the release');
 			},
 		});
-	}, answerClose);
+	});
 
 	mounted.release();
 	opened.resolve();
@@ -559,18 +316,14 @@ test('a workspace released before its session starts, whose closing fails, repor
 	const rejected = await unreleased(mounted.opening);
 	expect((rejected.startup as Error).message).toContain('released');
 	expect(closed).toBe(1);
-	await Bun.sleep(0);
-	expect(counts).toEqual({ started: 0, stopped: 0 });
 });
 
-test('a layout released while its session is starting leaves nothing listening and nothing open, and answers nothing', async () => {
+test('a layout released while its session is starting leaves nothing listening and nothing open', async () => {
 	const { test, open, begun, finish } = await starting();
-	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(open, answerClose);
+	const mounted = mountSession(open);
 	await begun();
 
 	mounted.release();
-	test.requestClose();
 	finish();
 
 	await expect(mounted.opening).rejects.toThrow('released');
@@ -579,8 +332,6 @@ test('a layout released while its session is starting leaves nothing listening a
 	expect(await Bun.file(`${test.root}/kv.json`).exists()).toBe(false);
 	expect(test.closes).toBe(1);
 	expect(test.closeListeners.size).toBe(0);
-	expect(test.answers).toEqual([]);
-	expect(counts).toEqual({ started: 0, stopped: 0 });
 });
 
 test('a layout released while its workspace is still opening closes that workspace without starting a session', async () => {
@@ -602,11 +353,10 @@ test('a layout released while its workspace is still opening closes that workspa
 		},
 	};
 	const opened = deferred<void>();
-	const { counts, answerClose } = closeAnswerer();
 	const mounted = mountSession(async () => {
 		await opened.promise;
 		return Ok(counted);
-	}, answerClose);
+	});
 
 	mounted.release();
 	opened.resolve();
@@ -615,5 +365,4 @@ test('a layout released while its workspace is still opening closes that workspa
 	expect(reads).toBe(0);
 	expect(test.closes).toBe(1);
 	expect(test.closeListeners.size).toBe(0);
-	expect(counts).toEqual({ started: 0, stopped: 0 });
 });
