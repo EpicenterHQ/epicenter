@@ -257,7 +257,11 @@ export type FileError = { name: "InvalidPath"; path: string; reason: string } | 
 { name: "Denied"; reason: string };
 
 export type FileListing = {
-	/**  Every regular file, including files outside portable scope. */
+	/**
+	 *  Every entry that is not a directory, including files outside portable
+	 *  scope, symbolic links, and special entries, none of them followed. A
+	 *  read refuses what is not a regular file.
+	 */
 	files: ListedFile[],
 	/**  Every directory, including empty ones. */
 	directories: string[],

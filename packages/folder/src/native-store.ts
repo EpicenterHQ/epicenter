@@ -44,20 +44,20 @@
  * A multi-file batch applies ordered steps. When a step fails, the result
  * reports which steps reached the folder; nothing is rolled back.
  */
-import type { Stats } from 'node:fs';
+import { constants, type Stats } from 'node:fs';
 import {
 	link,
 	lstat,
 	mkdir,
+	open,
 	readdir,
-	readFile,
 	realpath,
 	rename,
 	rmdir,
 	unlink,
 	writeFile,
 } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type {
 	CapturedFiles,
@@ -81,6 +81,66 @@ function entryKind(stats: Stats): string {
 	if (stats.isFIFO()) return 'a named pipe';
 	if (stats.isSocket()) return 'a socket';
 	return 'a special file';
+}
+
+/**
+ * Open without following a final symbolic link and without waiting for a
+ * pipe's writer. Windows has neither flag, and opens as usual.
+ */
+const UNFOLLOWED =
+	constants.O_RDONLY |
+	(constants.O_NOFOLLOW ?? 0) |
+	(constants.O_NONBLOCK ?? 0);
+
+/**
+ * The bytes of the regular file at `absolute`, or what is there instead.
+ * Another program may have replaced the file since it was inspected: a link
+ * is not followed, and a pipe or device is not read, since a read of one
+ * could wait forever. Absence and other failures throw, as `readFile` does.
+ */
+async function readRegular(
+	absolute: string,
+): Promise<Uint8Array | 'link' | 'special'> {
+	let handle: Awaited<ReturnType<typeof open>>;
+	try {
+		handle = await open(absolute, UNFOLLOWED);
+	} catch (cause) {
+		if (codeOf(cause) === 'ELOOP') return 'link';
+		throw cause;
+	}
+	try {
+		if (!(await handle.stat()).isFile()) return 'special';
+		return new Uint8Array(await handle.readFile());
+	} finally {
+		await handle.close();
+	}
+}
+
+/** How a listing spells a name: UTF-8, with each invalid sequence as U+FFFD. */
+const lossy = new TextDecoder();
+const strict = new TextDecoder('utf-8', { fatal: true });
+
+function isUtf8(bytes: Uint8Array): boolean {
+	try {
+		strict.decode(bytes);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Whether `directory` holds an entry whose name is not UTF-8 and which a
+ * listing spells `name`. That spelling names no file, so a read of it is
+ * refused rather than reported absent.
+ */
+async function holdsUndecodable(
+	directory: string,
+	name: string,
+): Promise<boolean> {
+	if (!name.includes('\uFFFD')) return false;
+	const raw = await readdir(directory, { encoding: 'buffer' }).catch(() => []);
+	return raw.some((bytes) => !isUtf8(bytes) && lossy.decode(bytes) === name);
 }
 
 export function createNativeFileBoundary(root: string): FileBoundary {
@@ -127,8 +187,14 @@ export function createNativeFileBoundary(root: string): FileBoundary {
 			try {
 				stats = await lstat(next);
 			} catch (cause) {
-				if (codeOf(cause) === 'ENOENT') return Ok('absent');
-				return FileError.Io({ path, operation: 'inspect', cause });
+				if (codeOf(cause) !== 'ENOENT')
+					return FileError.Io({ path, operation: 'inspect', cause });
+				if (await holdsUndecodable(directory, name))
+					return FileError.InvalidPath({
+						path,
+						reason: 'the name on disk is not UTF-8, so no folder path names it',
+					});
+				return Ok('absent');
 			}
 			if (stats.isSymbolicLink())
 				return FileError.InvalidPath({
@@ -162,7 +228,17 @@ export function createNativeFileBoundary(root: string): FileBoundary {
 		if (kind === 'absent') return Ok(undefined);
 		if (kind === 'directory') return FileError.NotAFile({ path });
 		try {
-			const bytes = new Uint8Array(await readFile(absolute(path)));
+			const bytes = await readRegular(absolute(path));
+			if (bytes === 'link')
+				return FileError.InvalidPath({
+					path,
+					reason: 'the path passes through a symbolic link',
+				});
+			if (bytes === 'special')
+				return FileError.InvalidPath({
+					path,
+					reason: 'the path is not a regular file',
+				});
 			return Ok({ bytes, sha256: await hashBytes(bytes) });
 		} catch (cause) {
 			if (codeOf(cause) === 'ENOENT') return Ok(undefined);
@@ -473,21 +549,36 @@ export function createNativeFileBoundary(root: string): FileBoundary {
 				};
 	}
 
+	/**
+	 * Walk by the names' bytes, so an entry whose name is not UTF-8 is still
+	 * inspected and descended into. It is listed by its lossy spelling, which
+	 * a read refuses.
+	 */
 	async function walk(
-		directory: string,
+		directory: Buffer,
 		prefix: string,
 		files: { path: string; size: number }[],
 		directories: string[],
 	) {
-		const entries = await readdir(directory, { withFileTypes: true });
-		for (const entry of entries) {
-			const path = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
-			if (prefix === '' && entry.name === '.git') continue;
-			if (entry.isDirectory()) {
+		for (const bytes of await readdir(directory, { encoding: 'buffer' })) {
+			const name = lossy.decode(bytes);
+			const path = prefix === '' ? name : `${prefix}/${name}`;
+			if (prefix === '' && name === '.git') continue;
+			const entry = Buffer.concat([directory, Buffer.from(sep), bytes]);
+			let stats: Stats;
+			try {
+				stats = await lstat(entry);
+			} catch (cause) {
+				// Removed since it was named: it is not there to list.
+				if (codeOf(cause) === 'ENOENT') continue;
+				throw cause;
+			}
+			if (stats.isDirectory()) {
 				directories.push(path);
-				await walk(join(directory, entry.name), path, files, directories);
-			} else if (entry.isFile()) {
-				const stats = await lstat(join(directory, entry.name));
+				await walk(entry, path, files, directories);
+			} else {
+				// A link or special entry is listed so a read can refuse it; its
+				// size is its own, never its target's.
 				files.push({ path, size: stats.size });
 			}
 		}
@@ -497,7 +588,7 @@ export function createNativeFileBoundary(root: string): FileBoundary {
 		const files: { path: string; size: number }[] = [];
 		const directories: string[] = [];
 		try {
-			await walk(root, '', files, directories);
+			await walk(Buffer.from(root), '', files, directories);
 		} catch (cause) {
 			return FileError.Io({ path: '', operation: 'enumerate', cause });
 		}
@@ -630,7 +721,11 @@ export function createNativeFileBoundary(root: string): FileBoundary {
 				for (const { path } of listing.files) {
 					if (!isPortablePath(path)) continue;
 					try {
-						files.set(path, new Uint8Array(await readFile(absolute(path))));
+						const bytes = await readRegular(absolute(path));
+						// History holds regular files only: a link or special
+						// entry, listed or swapped in since, is left out.
+						if (typeof bytes === 'string') continue;
+						files.set(path, bytes);
 					} catch (cause) {
 						// Another program removed it after enumeration: absent from this capture.
 						if (codeOf(cause) === 'ENOENT') continue;

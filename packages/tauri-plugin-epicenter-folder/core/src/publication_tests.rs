@@ -194,11 +194,16 @@ fn private_git_traversal_and_links_are_refused_and_outside_files_untouched() {
         std::fs::read(root.join(".git/config")).unwrap(),
         config_before
     );
+    // Links are listed so nothing present is hidden, and never followed: the
+    // directory `link` points at contributes nothing.
     let listing = owner.list().unwrap();
-    assert!(
-        listing.files.is_empty(),
-        "links are not listed: {listing:?}"
-    );
+    let listed: Vec<&str> = listing
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect();
+    assert_eq!(listed, vec!["alias.txt", "link"], "{listing:?}");
+    assert!(listing.directories.is_empty(), "{listing:?}");
 }
 
 #[cfg(unix)]

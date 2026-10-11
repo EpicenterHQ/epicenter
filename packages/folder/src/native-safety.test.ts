@@ -16,6 +16,9 @@
  * - A table lists every `.md` name it holds: a symbolic link is
  *   `InvalidPath`, a directory `NotAFile`, a pipe `InvalidPath`, and none is
  *   followed or opened
+ * - A whole-folder listing names links and pipes among the files, unfollowed,
+ *   and a capture leaves them out; a name that is not UTF-8 is listed by its
+ *   lossy spelling, which a read refuses (on a filesystem that holds one)
  * - Whole-folder commits refuse repositories they would misrepresent
  *   (tracked or untracked symbolic links and executables, normalizing or
  *   filter attributes, `core.autocrlf`, nested Git data) before touching the
@@ -214,6 +217,66 @@ describe('native listings name what reads refuse', () => {
 			['ok', 'ok'],
 			...(pipe ? [['pipe', 'InvalidPath']] : []),
 		]);
+	});
+
+	test('a name that is not UTF-8 is listed by its lossy spelling, and a read of that spelling is refused, not absent', async () => {
+		const root = await scratch('native-list-bytes-');
+		await mkdir(join(root, 'todos'));
+		await writeFile(join(root, 'todos', 'ok.md'), 'ok');
+		try {
+			await writeFile(
+				Buffer.from(`${join(root, 'todos')}/caf\xe9.md`, 'latin1'),
+				'bytes',
+			);
+		} catch {
+			// APFS and some other filesystems refuse such a name; Linux holds one.
+			return;
+		}
+		const boundary = createNativeFileBoundary(root);
+		expect(expectOk(await boundary.children('todos')).files).toEqual([
+			'caf�.md',
+			'ok.md',
+		]);
+		expect(
+			expectOk(await boundary.list()).files.map((file) => file.path),
+		).toEqual(['todos/caf�.md', 'todos/ok.md']);
+		expect(expectErr(await boundary.read('todos/caf�.md'))).toMatchObject({
+			name: 'InvalidPath',
+			reason: 'the name on disk is not UTF-8, so no folder path names it',
+		});
+	});
+
+	test('a whole-folder listing names a link and a pipe among the files without following either, and a capture leaves them out', async () => {
+		const root = await scratch('native-list-all-');
+		const outside = await scratch('native-list-all-outside-');
+		await mkdir(join(root, 'todos'));
+		await writeFile(join(root, 'todos', 'ok.md'), 'ok');
+		await writeFile(join(outside, 'secret.md'), 'secret');
+		await symlink(join(outside, 'secret.md'), join(root, 'todos', 'linked.md'));
+		await symlink(outside, join(root, 'elsewhere'));
+		const pipe =
+			spawnSync('mkfifo', [join(root, 'todos', 'pipe.md')]).status === 0;
+		const boundary = createNativeFileBoundary(root);
+
+		const listing = expectOk(await boundary.list());
+		expect(listing.files.map((file) => file.path)).toEqual([
+			'elsewhere',
+			'todos/linked.md',
+			'todos/ok.md',
+			...(pipe ? ['todos/pipe.md'] : []),
+		]);
+		// A link's size is its own, never its target's.
+		expect(
+			listing.files.find((file) => file.path === 'todos/linked.md')?.size,
+		).toBe((await lstat(join(root, 'todos', 'linked.md'))).size);
+		expect(listing.directories).toEqual(['todos']);
+		expect(expectErr(await boundary.read('todos/linked.md')).name).toBe(
+			'InvalidPath',
+		);
+
+		const captured = expectOk(await boundary.capture());
+		expect([...captured.files.keys()]).toEqual(['todos/ok.md']);
+		expect(captured.unreadable).toEqual([]);
 	});
 });
 

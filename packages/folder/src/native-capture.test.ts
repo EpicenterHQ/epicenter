@@ -40,13 +40,13 @@ let failList: string | undefined;
 mock.module('node:fs/promises', () => ({
 	...real,
 	default: real,
-	async readFile(...args: Parameters<typeof real.readFile>) {
+	async open(...args: Parameters<typeof real.open>) {
 		if (beforeRead !== undefined && String(args[0]) === beforeRead.path) {
 			const { run } = beforeRead;
 			beforeRead = undefined;
 			await run();
 		}
-		return real.readFile(...args);
+		return real.open(...args);
 	},
 	async readdir(...args: Parameters<typeof real.readdir>) {
 		if (failList !== undefined && String(args[0]) === failList) {

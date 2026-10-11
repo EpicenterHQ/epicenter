@@ -51,10 +51,16 @@ use specta::Type;
 
 use crate::paths::{ancestors, path_problem};
 
+#[cfg(all(test, unix))]
+mod entries_tests;
 mod exchange;
 
 #[cfg(test)]
 thread_local! {
+    /// Runs just before a read opens the path it inspected, on the reading
+    /// thread, with that absolute path: another program's swap.
+    pub(crate) static BEFORE_READ: std::cell::RefCell<Option<Box<dyn Fn(&Path)>>> =
+        std::cell::RefCell::new(None);
     /// Runs just before a replacement's exchange, on the thread applying it,
     /// with the absolute path it replaces: another program's last move.
     pub(crate) static BEFORE_EXCHANGE: std::cell::RefCell<Option<Box<dyn Fn(&Path)>>> =
@@ -87,7 +93,9 @@ pub struct ListedFile {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Type)]
 pub struct FileListing {
-    /// Every regular file, including files outside portable scope.
+    /// Every entry that is not a directory, including files outside portable
+    /// scope, symbolic links, and special entries, none of them followed. A
+    /// read refuses what is not a regular file.
     pub files: Vec<ListedFile>,
     /// Every directory, including empty ones.
     pub directories: Vec<String>,
@@ -360,6 +368,35 @@ fn entry_kind(found: &fs::Metadata) -> &'static str {
     "a special file"
 }
 
+/// Open a file for reading without following a final symbolic link and
+/// without waiting for a pipe's writer. Elsewhere, the standard open.
+#[cfg(unix)]
+fn open_unfollowed(path: &Path) -> io::Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+}
+
+#[cfg(not(unix))]
+fn open_unfollowed(path: &Path) -> io::Result<fs::File> {
+    fs::File::open(path)
+}
+
+/// Whether an open failed because `O_NOFOLLOW` met a symbolic link.
+fn is_link_refusal(cause: &io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        cause.raw_os_error() == Some(libc::ELOOP)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = cause;
+        false
+    }
+}
+
 fn invalid(path: &str) -> Result<(), FileError> {
     match path_problem(path) {
         None => Ok(()),
@@ -414,12 +451,26 @@ impl Files {
                 Err(cause) => return Err(io(path, "list the directory of", &cause)),
             };
             let mut spelled = false;
+            let mut undecodable = false;
             for entry in entries {
                 let entry = entry.map_err(|cause| io(path, "list the directory of", &cause))?;
-                if entry.file_name().to_str() == Some(name) {
-                    spelled = true;
-                    break;
+                let found = entry.file_name();
+                match found.to_str() {
+                    Some(found) if found == *name => {
+                        spelled = true;
+                        break;
+                    }
+                    Some(_) => {}
+                    // A listing spells this entry lossily; that spelling names
+                    // no file, so a read must not report it absent.
+                    None => undecodable |= found.to_string_lossy() == *name,
                 }
+            }
+            if !spelled && undecodable {
+                return Err(FileError::InvalidPath {
+                    path: path.to_string(),
+                    reason: "the name on disk is not UTF-8, so no folder path names it".to_string(),
+                });
             }
             if !spelled {
                 return match fs::symlink_metadata(directory.join(name)) {
@@ -506,14 +557,39 @@ impl Files {
             }
             Kind::File => {}
         }
-        match fs::read(self.absolute(path)) {
-            Ok(bytes) => {
-                let sha256 = sha256(&bytes);
-                Ok(Some(FileRead { bytes, sha256 }))
+        let absolute = self.absolute(path);
+        #[cfg(test)]
+        BEFORE_READ.with(|hook| {
+            if let Some(hook) = hook.borrow().as_ref() {
+                hook(&absolute);
             }
-            Err(cause) if cause.kind() == ErrorKind::NotFound => Ok(None),
-            Err(cause) => Err(io(path, "read", &cause)),
+        });
+        // Another program may have put a link or a pipe here since it was
+        // inspected. The open neither follows the one nor waits on the other,
+        // and the opened entry is checked again.
+        let refused = |reason: &str| FileError::InvalidPath {
+            path: path.to_string(),
+            reason: reason.to_string(),
+        };
+        let mut file = match open_unfollowed(&absolute) {
+            Ok(file) => file,
+            Err(cause) if cause.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(cause) if is_link_refusal(&cause) => {
+                return Err(refused("the path passes through a symbolic link"))
+            }
+            Err(cause) => return Err(io(path, "read", &cause)),
+        };
+        match file.metadata() {
+            Ok(found) if found.is_file() => {}
+            Ok(_) => return Err(refused("the path is not a regular file")),
+            Err(cause) => return Err(io(path, "read", &cause)),
         }
+        let mut bytes = Vec::new();
+        if let Err(cause) = io::Read::read_to_end(&mut file, &mut bytes) {
+            return Err(io(path, "read", &cause));
+        }
+        let sha256 = sha256(&bytes);
+        Ok(Some(FileRead { bytes, sha256 }))
     }
 
     fn current_sha256(&self, path: &str) -> Result<Option<String>, FileError> {
@@ -873,9 +949,9 @@ impl Files {
             let enumerate = |cause: io::Error| io("", "enumerate", &cause);
             for entry in fs::read_dir(&directory).map_err(enumerate)? {
                 let entry = entry.map_err(enumerate)?;
-                let name = entry.file_name();
-                // A name that is not UTF-8 has no folder path.
-                let Some(name) = name.to_str() else { continue };
+                // A name that is not UTF-8 is listed by its lossy spelling,
+                // which a read refuses.
+                let name = entry.file_name().to_string_lossy().into_owned();
                 if prefix.is_empty() && name == ".git" {
                     continue;
                 }
@@ -884,7 +960,9 @@ impl Files {
                 if kind.is_dir() {
                     pending.push((entry.path(), format!("{path}/")));
                     listing.directories.push(path);
-                } else if kind.is_file() {
+                } else {
+                    // A link or special entry is listed so a read can refuse
+                    // it; its size is its own, never its target's.
                     let size = entry.metadata().map_err(enumerate)?.len();
                     listing.files.push(ListedFile { path, size });
                 }
@@ -921,16 +999,16 @@ impl Files {
         let mut children = Children::default();
         for entry in fs::read_dir(target).map_err(list)? {
             let entry = entry.map_err(list)?;
-            let name = entry.file_name();
-            let Some(name) = name.to_str() else { continue };
+            // A name that is not UTF-8 is listed by its lossy spelling, and a
+            // link or special entry is listed, so a read can refuse either.
+            let name = entry.file_name().to_string_lossy().into_owned();
             if directory.is_empty() && name == ".git" {
                 continue;
             }
-            // A link or special entry is listed so a read can refuse it.
             if entry.file_type().map_err(list)?.is_dir() {
-                children.directories.push(name.to_string());
+                children.directories.push(name);
             } else {
-                children.files.push(name.to_string());
+                children.files.push(name);
             }
         }
         children.files.sort();

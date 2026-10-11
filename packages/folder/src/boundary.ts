@@ -23,7 +23,11 @@ export type FileRead = {
 };
 
 export type FileListing = {
-	/** Every regular file, including files outside portable scope. */
+	/**
+	 * Every entry that is not a directory, including files outside portable
+	 * scope, symbolic links, and special entries, none of them followed. A
+	 * read refuses what is not a regular file.
+	 */
 	readonly files: readonly { readonly path: string; readonly size: number }[];
 	/** Every directory, including empty ones kept for the shell. */
 	readonly directories: readonly string[];

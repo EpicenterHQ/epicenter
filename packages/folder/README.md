@@ -461,8 +461,9 @@ top-level `$schema` (which only helps an editor offer completion), `title`,
 with every `required` name declared, and `kv` without `required`. A table
 without `required` has only optional fields. Any other key, a visible `~` key
 on a field, or a field preparation refuses, such as one with an unknown
-`format`, is `InvalidDeclaration`. The older `{ fields }` shape is refused;
-there is no migration.
+`format` or a `$ref` that names nothing in the field, is
+`InvalidDeclaration`. The older `{ fields }` shape is refused; there is no
+migration.
 
 It writes nothing: no Git repository, marker, lock, or declaration, and it
 loads no native addon. It can read a folder an application has open, or one
@@ -563,11 +564,18 @@ refuses removing the file or a directory above it; a Chrome 142 probe showed
 that, and other engines are unverified. Bytes another program writes in that
 last window are still replaced: the hash check stays best effort.
 
-`list()` inventories the whole folder's regular files and directories;
-`children(directory)` lists one level and accepts `''` for the root. It names
-every entry: real subdirectories in `directories`, and everything else in
-`files`, including a symbolic link or special entry that a read refuses. `open(path)` returns a stable `Blob` for
-consumption, without holding a file descriptor. `mkdir(path)` creates missing
+`list()` inventories the whole folder; `children(directory)` lists one level
+and accepts `''` for the root. Both name every entry: real subdirectories in
+`directories`, and everything else in `files`, including a symbolic link or
+special entry such as a named pipe. Neither is followed: a link's listed size
+is its own, and a read of either is `InvalidPath`. A name that is not UTF-8,
+which Linux allows, is listed by its lossy spelling, with U+FFFD for each
+invalid sequence; a read of that spelling is `InvalidPath`, because no folder
+path names the file. On macOS and Linux, a read opens the path without
+following a link or waiting on a pipe, and checks again what it opened, so a file replaced by
+either after it was inspected is refused rather than followed or left
+waiting. Commits capture regular files only. `open(path)` returns a stable
+`Blob` for consumption, without holding a file descriptor. `mkdir(path)` creates missing
 parents; `rmdir(path)` removes an empty directory. These directory operations
 do not request history through the file publisher.
 
@@ -1257,6 +1265,15 @@ or a normalizing attribute on a source file. Reads and file saves still work.
 helpers build common ones. A folder refuses a table that declares a body
 conversion, because a row's body is the file's Markdown text. An opener given
 such a definition returns `InvalidDefinition` before it acquires anything.
+
+`epicenter.json` holds each table, and `kv`, as one JSON Schema object whose
+properties are the fields. A field's references must mean the same there as
+in the field alone, so a folder also refuses two fields of one table that
+define the same `$id`, such as two recursive types both named `Node`, and a
+`#` reference outside any `$id`, which the file would resolve against the
+table. Rename one definition, or give the field an `$id`. Definitions are not
+renamed when they are published, so the file holds exactly the fields a
+reader prepares.
 
 A definition is `{ title?, kv, tables }` and nothing else. `defineFolder`
 throws on an `id`; an opener given an untyped definition with one returns
