@@ -10,8 +10,9 @@
  * - A directory without `epicenter.json` is `NotDataFolder`; a declaration
  *   that is not UTF-8 JSON, is not the declaration grammar (an unknown key, a
  *   `required` naming no property, a visible `~optional`), or declares a field
- *   a folder cannot keep (an unknown format) is `InvalidDeclaration`; a
- *   missing root is `NotFound`, a file root `NotADirectory`
+ *   a folder cannot keep (an unknown format, a `$ref` naming nothing, an `$id`
+ *   two fields define) is `InvalidDeclaration`; a missing root is `NotFound`,
+ *   a file root `NotADirectory`
  * - A hand-written declaration with optional fields reads sparse rows as
  *   valid, and an absent required field as missing
  * - A symbolically linked table directory is that table's refusal, never
@@ -184,6 +185,36 @@ test('a field with an unknown format is InvalidDeclaration, naming the field', a
 	expect(refused).toMatchObject({ name: 'InvalidDeclaration' });
 	expect(refused.message).toContain('todos.due');
 	expect(refused.message).toContain('date-tme');
+});
+
+test('a field whose $ref names nothing, or that would resolve differently in the file, is InvalidDeclaration, naming the reference', async () => {
+	const node = {
+		$defs: {
+			Node: {
+				$id: 'Node',
+				type: 'object',
+				properties: { next: { anyOf: [{ $ref: 'Node' }, { type: 'null' }] } },
+			},
+		},
+		$ref: 'Node',
+	};
+	for (const [fields, says] of [
+		[{ chain: { $ref: 'Node' } }, ['todos.chain', "'Node'"]],
+		[
+			{ text: { $defs: { t: { type: 'string' } }, $ref: '#/$defs/txt' } },
+			['todos.text', "'#/$defs/txt'"],
+		],
+		[{ a: node, b: node }, ["'todos.a' and 'todos.b'", "$id 'Node'"]],
+	] as const) {
+		const root = await scratch();
+		await writeFile(
+			join(root, DECLARATION_PATH),
+			declaration({ todos: objectSchema(fields) }),
+		);
+		const refused = expectErr(await readFolder(root));
+		expect(refused).toMatchObject({ name: 'InvalidDeclaration' });
+		for (const said of says) expect(refused.message).toContain(said);
+	}
 });
 
 test('a hand-written declaration with optional fields reads sparse rows as valid and an absent required field as missing', async () => {

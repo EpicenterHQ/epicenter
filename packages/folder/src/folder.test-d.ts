@@ -80,6 +80,16 @@ const nested = defineFolder({
 });
 type Note = CreateRowOf<typeof nested.tables.notes>;
 
+// A refinement's type says it holds a callback, which a folder setting cannot.
+declare const refined: ReturnType<typeof field.string> & {
+	readonly '~refine': readonly unknown[];
+};
+defineFolder({
+	// @ts-expect-error A refinement is not JSON Schema.
+	kv: { theme: refined },
+	tables: {},
+});
+
 // Only a table `defineFolder` prepared is read or formatted without a folder.
 const rawTodos = defineTable({
 	fields: {

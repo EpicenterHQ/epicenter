@@ -17,6 +17,8 @@
 import {
 	type DataSchema,
 	type DeclaredTable,
+	type FieldMap,
+	KV_ROOT,
 	prepareSchema,
 	type ValidateFields,
 } from '@epicenter/definition';
@@ -77,13 +79,111 @@ export function prepareFolderDefinition<TDefinition extends FolderDefinition>(
 ): Result<TDefinition, { readonly reason: string }> {
 	const { data: prepared, error: schemaError } = prepareSchema(definition);
 	if (schemaError !== null) return Err({ reason: schemaError.message });
+	const kvProblem = publicationProblem(KV_ROOT, prepared.kv);
+	if (kvProblem !== undefined) return Err({ reason: kvProblem });
 	for (const [name, table] of Object.entries(prepared.tables)) {
 		if (table.body !== undefined)
 			return Err({
 				reason: `Table '${name}' declares a body codec. A file folder stores the body as Markdown text; remove the codec from this definition.`,
 			});
+		const problem = publicationProblem(name, table.fields);
+		if (problem !== undefined) return Err({ reason: problem });
 	}
 	return Ok(prepared);
+}
+
+/** Keywords whose value is data, never a schema. */
+const DATA_KEYWORDS = new Set(['default', 'const', 'enum', 'examples']);
+/** Keywords whose value maps names to schemas. */
+const SCHEMA_MAP_KEYWORDS = new Set([
+	'properties',
+	'patternProperties',
+	'$defs',
+	'definitions',
+	'dependentSchemas',
+	'dependencies',
+]);
+/** The base TypeBox resolves an `$id` against when nothing encloses it. */
+const NO_BASE = 'http://unknown/';
+
+/**
+ * Why one bucket's fields, published together as one object schema in
+ * `epicenter.json` (ADR-0517), would resolve their references differently
+ * there than each field does alone, or `undefined` when they agree.
+ *
+ * Each field is validated on its own, but the file holds the bucket as one
+ * JSON Schema document. Two things change meaning in that document: an `$id`
+ * that two fields define, such as the name of a recursive type, names two
+ * schemas, which a JSON Schema validator refuses for the whole table; and a
+ * `#` reference outside any `$id` resolves against the table instead of the
+ * field. Both are refused rather than rewritten, so the file holds exactly
+ * the fields a reader prepares.
+ */
+function publicationProblem(
+	bucket: string,
+	fields: FieldMap,
+): string | undefined {
+	const owners = new Map<string, string>();
+	for (const [name, field] of Object.entries(fields)) {
+		const where = `'${bucket}.${name}'`;
+		const visit = (
+			node: unknown,
+			base: string | undefined,
+		): string | undefined => {
+			if (typeof node !== 'object' || node === null) return undefined;
+			if (Array.isArray(node)) {
+				for (const item of node) {
+					const problem = visit(item, base);
+					if (problem !== undefined) return problem;
+				}
+				return undefined;
+			}
+			const schema = node as Record<string, unknown>;
+			let scope = base;
+			if (typeof schema.$id === 'string') {
+				scope = resolved(schema.$id, base);
+				const owner = owners.get(scope);
+				if (owner === name)
+					return `Field ${where} defines the $id '${schema.$id}' twice. epicenter.json holds a table as one JSON Schema, where an $id names one schema; rename one of them.`;
+				if (owner !== undefined)
+					return `Fields '${bucket}.${owner}' and ${where} both define the $id '${schema.$id}'. epicenter.json holds a table as one JSON Schema, where an $id names one schema; rename one of them.`;
+				owners.set(scope, name);
+			}
+			if (
+				typeof schema.$ref === 'string' &&
+				schema.$ref.startsWith('#') &&
+				scope === undefined
+			)
+				return `Field ${where} refers to '${schema.$ref}' outside any $id. In epicenter.json '#' is the whole table, not the field; give the field an $id.`;
+			for (const [key, value] of Object.entries(schema)) {
+				if (DATA_KEYWORDS.has(key)) continue;
+				const children =
+					SCHEMA_MAP_KEYWORDS.has(key) &&
+					typeof value === 'object' &&
+					value !== null &&
+					!Array.isArray(value)
+						? Object.values(value)
+						: [value];
+				for (const child of children) {
+					const problem = visit(child, scope);
+					if (problem !== undefined) return problem;
+				}
+			}
+			return undefined;
+		};
+		const problem = visit(field, undefined);
+		if (problem !== undefined) return problem;
+	}
+	return undefined;
+}
+
+/** An `$id` as an absolute URI against its enclosing one, as TypeBox reads it. */
+function resolved(id: string, base: string | undefined): string {
+	try {
+		return new URL(id, base ?? NO_BASE).href;
+	} catch {
+		return id;
+	}
 }
 
 /**

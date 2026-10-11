@@ -220,6 +220,7 @@ test('a definition with a runtime callback is refused before any folder opens, s
 	expect(() =>
 		defineFolder({
 			kv: {
+				// @ts-expect-error The type refuses it too; this is an untyped caller.
 				value: {
 					type: 'string',
 					'~refine': [{ refine: () => true, message: 'local validation' }],

@@ -20,6 +20,8 @@
  * - The prepared-table type is not a proof: a table rebuilt with a cloned
  *   field compiles, and reading a value through that field throws until
  *   `defineFolder` prepares it again
+ * - A table publishes as one JSON Schema, so two fields defining one `$id`
+ *   and a `#` reference outside any `$id` are refused
  *
  * See also:
  * - `packages/definition/src/prepare.test.ts` for preparation itself
@@ -357,4 +359,88 @@ test('a prepared table rebuilt with a cloned field still type-checks, and readin
 		title: 'Milk',
 		done: false,
 	});
+});
+
+test('a table is one JSON Schema in epicenter.json, so its fields cannot reuse an $id or point at the table root', () => {
+	// What `Type.Cyclic({ [name]: ... }, name)` declares, as a file holds it.
+	const cyclic = (name: string) => ({
+		$defs: {
+			[name]: {
+				$id: name,
+				type: 'object',
+				properties: {
+					value: { type: 'number' },
+					next: { anyOf: [{ $ref: name }, { type: 'null' }] },
+				},
+				required: ['value', 'next'],
+			},
+		},
+		$ref: name,
+	});
+	const tableOf = (fields: Record<string, object>) => ({
+		kv: {},
+		tables: { chains: defineTable({ fields: fields as never }) },
+	});
+
+	// Two fields that each define `Node` publish two schemas with one `$id`,
+	// which a JSON Schema validator refuses for the whole table.
+	expect(
+		expectErr(
+			prepareFolderDefinition(
+				tableOf({ a: cyclic('Node'), b: cyclic('Node') }),
+			),
+		).reason,
+	).toBe(
+		"Fields 'chains.a' and 'chains.b' both define the $id 'Node'. epicenter.json holds a table as one JSON Schema, where an $id names one schema; rename one of them.",
+	);
+	expect(
+		expectErr(
+			prepareFolderDefinition({
+				kv: { a: cyclic('Node'), b: cyclic('Node') },
+				tables: {},
+			}),
+		).reason,
+	).toContain("Fields 'kv.a' and 'kv.b' both define the $id 'Node'");
+	// A `#` pointer outside any `$id` is the field's root in memory and the
+	// table's root in the file.
+	expect(
+		expectErr(
+			prepareFolderDefinition(
+				tableOf({
+					text: { $defs: { t: { type: 'string' } }, $ref: '#/$defs/t' },
+				}),
+			),
+		).reason,
+	).toBe(
+		"Field 'chains.text' refers to '#/$defs/t' outside any $id. In epicenter.json '#' is the whole table, not the field; give the field an $id.",
+	);
+
+	// Distinct names, the same name in two tables, and a pointer under an
+	// `$id` all publish as standalone schemas.
+	expectOk(
+		prepareFolderDefinition(tableOf({ a: cyclic('Node'), b: cyclic('Other') })),
+	);
+	expectOk(
+		prepareFolderDefinition({
+			kv: { chain: cyclic('Node') },
+			tables: {
+				one: defineTable({ fields: { chain: cyclic('Node') } }),
+				two: defineTable({ fields: { chain: cyclic('Node') } }),
+			},
+		}),
+	);
+	expectOk(
+		prepareFolderDefinition(
+			tableOf({
+				text: {
+					$id: 'text',
+					$defs: { t: { type: 'string' } },
+					$ref: '#/$defs/t',
+				},
+				// A `$ref` or `$id` held as data is a value.
+				data: { const: { $id: 'Node', $ref: '#/nowhere' } },
+				chain: cyclic('Node'),
+			}),
+		),
+	);
 });
