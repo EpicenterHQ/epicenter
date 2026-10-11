@@ -188,7 +188,7 @@ export type MoveError = InferErrors<typeof MoveError>;
  * Failures of reading a row or `kv.json` as text and of preparing a
  * structured write. None of them published anything. An address a folder does not admit is
  * `FileError.InvalidPath`, and an occupied destination is `FileError.Exists`:
- * a table has no naming or collision rule of its own (ADR-0462).
+ * a table has no naming or collision rule of its own (ADR-0457).
  */
 export const TableError = defineErrors({
 	/**

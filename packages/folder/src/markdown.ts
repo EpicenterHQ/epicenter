@@ -1,6 +1,6 @@
 /**
  * Markdown row framing: where a row file's frontmatter and body are
- * (ADR-0462).
+ * (ADR-0518, ADR-0519).
  *
  * Row text is the whole file: an opening `---` line, a YAML mapping with
  * string keys, a closing `---` line, and a body. Framing only locates those

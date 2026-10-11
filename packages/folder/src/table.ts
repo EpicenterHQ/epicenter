@@ -1,5 +1,5 @@
 /**
- * File-backed tables: Markdown rows at `<table>/<stem>.md` (ADR-0457, ADR-0462).
+ * File-backed tables: Markdown rows at `<table>/<stem>.md` (ADR-0457, ADR-0518).
  *
  * Every read goes through `parseRow` and every write through `formatRow`
  * (`row-text.ts`), so what a table writes it always reads back as the same
