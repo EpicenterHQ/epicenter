@@ -17,6 +17,7 @@
 		"./edit-session": "./src/edit-session.svelte.ts",
 		"./open-item": "./src/open-item.svelte.ts",
 		"./admissions": "./src/admissions.svelte.ts",
+		"./flush-on-close": "./src/flush-on-close.ts",
 		"./save-bar": "./src/save-bar.svelte",
 		"./sync": "./src/sync.svelte.ts",
 		"./sync-line": "./src/sync-line.ts",
