@@ -93,7 +93,7 @@ are not UTF-8 text are listed apart and not opened.
   it fails, a "History was not recorded" notice says so and offers the commit
   again, with Git's own message under "Show technical details". It never
   undoes a save. Committing is refused, like every other action, while
-  Capture closes or Epicenter quits or restarts.
+  Capture closes.
 
 ## Unsaved text is protected
 
@@ -110,21 +110,19 @@ included, until you add it or clear it.
 - Reloading, closing the tab, or leaving the app asks first while any of it
   exists. The reload shortcut is refused with a message.
 - On the desktop, closing the Capture window hides it; the page and its text
-  stay loaded. When Epicenter quits or restarts, it asks the window first.
-  The window stops taking input at once and waits for actions and saves
-  already in progress. A failed save is not sent again. If nothing is left, it
-  says so. Otherwise it offers **Keep working** or **Discard and quit** (or
-  **Discard and restart**). Text not added yet, such as a new thought, is
-  never added on its own because Epicenter is quitting. Neither choice
-  changes your text: if another window keeps Epicenter open, everything is
-  as it was.
+  stay loaded. Quitting Epicenter, or restarting it for an account change,
+  does not ask. Epicenter gives the window about a second to let the saves it
+  has in flight land (see [Quitting and restarting](#quitting-and-restarting)),
+  then leaves. A failed save is not sent again, and text not added yet, such
+  as a new thought, is not added: both are lost on quit. The save bar already
+  said the save failed.
 - If Epicenter closes the folder, the window says saving cannot be
   confirmed. Your text stays so you can copy or download it.
 - If Epicenter's background service stops, the window says so. Saving does
   not depend on that service and carries on; reloading the window may not
   work until Epicenter restarts.
 
-Nothing persists unsaved text across a reload or a quit you confirm.
+Nothing persists unsaved text across a reload you confirm or a quit.
 
 ## Captures from before this version
 
@@ -249,60 +247,37 @@ shows the reason.
 
 ### Quitting and restarting
 
-Epicenter asks its windows before it quits, or restarts for an account
-change, over the departure wire that `@epicenter/epicenter/departure`
-publishes (`apps/epicenter/src/departure-wire.ts`). That module states the
-wire and its page rules. The page answers through the shared client
-`@epicenter/epicenter/departure/page`, bound to this window by
-`@epicenter/epicenter/departure/window`, and attaches the store's
-`captures.departure` to it. The host runs one round for every window it
-serves and decides; this page answers only for its own drafts.
+Quitting never asks. Before Epicenter quits, or restarts for an account
+change, it sends this window one flush signal and waits about a second for
+the answer (`@epicenter/epicenter/page-close`, the host's
+`src-tauri/src/close_flush.rs`). The page registers once the captures exist
+(`flushOnClose` from `@epicenter/svelte/flush-on-close`).
 
 | Host to page | Page to host |
 | --- | --- |
-| Event `departure-changed`, sent to this window: read the status again | `invoke('departure_status')`, which returns the status |
-| | `invoke('departure_answer', { generation, round, answer })`: `asking`, then `ready` or `cancel` |
+| Event `flush-on-close`, sent to this window | `invoke('flush_done')` once `captures.flush()` ends or 800 ms pass |
 | Event `host-stopped`, sent to this window | None. The page shows the notice above. |
 
-What the shared client does for this page:
-
-- It registers its listener on this window, then reads the status. The folder
-  opens only once a status is known; if registration or that read fails, the
-  page says so and offers Try again.
-- A round it has not handled fences every input and action before anything
-  is awaited. With nothing unsaved, it answers `ready`. Otherwise it answers
-  `asking`, then settles: every admitted save and action finishes, and a
-  failed save is not sent again. With nothing left, it answers `ready`.
-  Otherwise the person chooses Keep working (`cancel`) or Discard and quit,
-  or restart (`ready`). Neither choice closes, discards, or changes what the
-  page holds.
-- A round that arrives while the folder opens fences the store as it
-  attaches; a page whose folder did not open answers `ready`, and its Try
-  again stays disabled until the round ends.
-- The same round with no vote means Quit was pressed again: a page still
-  deciding sends `asking` again, and never asks the person a second time. A
-  newer round is taken up while the page stays fenced.
-- Once the page has answered `ready` or `cancel` for a round, any read of that
-  round that does not show its answer (lost, or reset by Quit pressed again)
-  sends the same answer again, with no new question and nothing changed.
-- Only an `idle` status newer than the round gives the page back. `granted`,
-  `leaving`, and a `discarded` vote keep it fenced and close the question. A
-  lost or refused answer never gives it back; a nudge, Check again, or focus
-  while fenced reads the status again. Older statuses are ignored.
-- Settling waits for every action the page admitted (a create, an import,
-  Keep mine, Reload theirs, and a delete from the saves it waits for through
-  the delete itself) and for the open capture's saves. Closing the page waits
-  for the same.
-
-Which quit paths the host routes through a round, and what it does for a
-window that stays silent, are the host's; see `apps/epicenter`.
+- `captures.flush()` waits for every action the page admitted (a create, an
+  import, Keep mine, Reload theirs, a delete) and for the open capture's
+  saves, including the latest snapshot waiting behind a running write. It
+  takes no input away and asks nothing.
+- A save that hangs does not hold the quit: the page answers after 800 ms,
+  and Epicenter leaves after about a second either way.
+- A failed save, a conflict, and unadded text are not held back. They are
+  lost on quit.
+- Quitting from the Dock, logging out, or shutting down reaches Epicenter as
+  AppKit's own quit, which skips the flush. Saves the folder owner already
+  accepted still land.
+- In a browser, `pagehide` starts the same flush, and the leave warning
+  covers a reload or a closed tab while a save runs or has failed.
 
 ## Layout
 
 | Path | Role |
 | --- | --- |
-| `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is its contract, `folder.browser.ts` opens the OPFS folder, `folder.epicenter-host.ts` attaches to the shell's directory and opens the shared departure client over this window's port. `auth.*.ts` is used only by the old-data export. |
-| `src/lib/captures.svelte.ts` | The store: the timeline and its repair list, how a capture loads, the one open capture in the shared open-item slot (`@epicenter/svelte/open-item`) with its edit session, refusals, the conflict commands, create, delete, import, and commit counted by the shared admissions (`@epicenter/svelte/admissions`), departure, and close. |
+| `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is its contract, `folder.browser.ts` opens the OPFS folder, `folder.epicenter-host.ts` attaches to the shell's directory and exports the host's flush and stop signals for this window. `auth.*.ts` is used only by the old-data export. |
+| `src/lib/captures.svelte.ts` | The store: the timeline and its repair list, how a capture loads, the one open capture in the shared open-item slot (`@epicenter/svelte/open-item`) with its edit session, refusals, the conflict commands, create, delete, import, and commit counted by the shared admissions (`@epicenter/svelte/admissions`), the close flush, and close. |
 | `src/lib/capture-form.svelte.ts` | The capture view's form over an open capture's row session: the body read as text and thoughts, each change encoded over the body and saved, and the new thought and thought edit not saved yet. |
 | `src/lib/item-actions.ts` | Opening, leaving, and deleting with the confirmation each may need. A discard names the session the store answered `unsaved` with. |
 | `src/lib/recovery/` | Opens the old account store for an export. Loaded only from the recovery screen. |
@@ -330,11 +305,10 @@ them.
 
 | Test | What it checks |
 | --- | --- |
-| `src/lib/captures.test.ts` | The store over a real browser folder: creating and listing, whole-row saves that keep undeclared metadata, rapid typing writing only the latest draft, a draft that is not a valid capture never written, a change the body cannot hold refused, the conflict prompt (Reload theirs, Keep mine) and deleted elsewhere (Keep mine recreates, Discard closes), repair as text and reopening as a capture, leaving with a failed save or an unadded thought, guarded delete after the saves land, adopting on return, a stale thought edit, departure, close, and import. |
-| `src/lib/platform/folder.epicenter-host.test.ts` | The desktop leaf over the real folder adapter and the real store, with the shell's `invoke` and events scripted: refusals fail the open, departure is heard on this window only, closing detaches once and waits for saves, a save is one guarded replacement, an outside edit is a conflict, a lost reply is checked by a read, a failed commit and a closed folder are reported, and an interrupted import is finished by a retry. It does not run the Rust owner. |
-| `src/lib/platform/departure.test.ts` | The real store behind the shared departure client: a ready vote or a discard changes nothing it holds, and its open capture comes back unchanged after another page cancels. The client's own rules are tested in `apps/epicenter/src/departure-page.test.ts`. |
-| `src/lib/platform-selection.test.ts` | Which leaf each build bundles: the desktop bundle has the desktop adapter, of the host package only its departure wire, page client, and window port, and no browser adapter, browser storage, Git implementation, or Node module; the browser bundle has the browser adapter and no desktop adapter, generated bindings, or departure gate. |
-| `src/lib/components/capture-detail.mounted.test.ts`, `timeline.mounted.test.ts` | The real views mounted in jsdom over the real store: text and thoughts save, the conflict prompt's buttons, Discard and Keep mine after a delete elsewhere, repair as text with live issues and Open as capture, input refused while quitting, the New capture text box, and the repair list's Edit as text. jsdom has no layout, focus, selection, or IME. |
+| `src/lib/captures.test.ts` | The store over a real browser folder: creating and listing, whole-row saves that keep undeclared metadata, rapid typing writing only the latest draft, a draft that is not a valid capture never written, a change the body cannot hold refused, the conflict prompt (Reload theirs, Keep mine) and deleted elsewhere (Keep mine recreates, Discard closes), repair as text and reopening as a capture, leaving with a failed save or an unadded thought, guarded delete after the saves land, adopting on return, a stale thought edit, the close flush (held snapshot, hung save, failed save), close, and import. |
+| `src/lib/platform/folder.epicenter-host.test.ts` | The desktop leaf over the real folder adapter and the real store, with the shell's `invoke` and events scripted: refusals fail the open, the host's flush and stop are heard on this window only and the flush is answered after the held snapshot lands, closing detaches once and waits for saves, a save is one guarded replacement, an outside edit is a conflict, a lost reply is checked by a read, a failed commit and a closed folder are reported, and an interrupted import is finished by a retry. It does not run the Rust owner. |
+| `src/lib/platform-selection.test.ts` | Which leaf each build bundles: the desktop bundle has the desktop adapter, of the host package only its page side of the close flush, and no browser adapter, browser storage, Git implementation, or Node module; the browser bundle has the browser adapter and no desktop adapter, generated bindings, or host signals. |
+| `src/lib/components/capture-detail.mounted.test.ts`, `timeline.mounted.test.ts` | The real views mounted in jsdom over the real store: text and thoughts save, the conflict prompt's buttons, Discard and Keep mine after a delete elsewhere, repair as text with live issues and Open as capture, the New capture text box, and the repair list's Edit as text. jsdom has no layout, focus, selection, or IME. |
 
 The Rust owner, its watcher, its lock, and its history are tested in
 `packages/tauri-plugin-epicenter-folder` and in
@@ -400,5 +374,5 @@ shared edit sessions, and dropped several promises of the version before it:
 - The save bar uses the wording every Epicenter app shares: "This changed
   elsewhere" rather than "This capture changed elsewhere", and a failed save
   names the failure in the bar instead of under "Show technical details".
-- A commit is refused while Capture closes or Epicenter quits or restarts,
-  and says so, as every other action does.
+- A commit is refused while Capture closes, and says so, as every other
+  action does.

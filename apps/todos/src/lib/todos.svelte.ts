@@ -28,7 +28,6 @@
  * attempt is applied or cancelled, and nothing about it is remembered. Afterward the
  * listings and the open item are read again as on return.
  */
-import type { DepartureParticipant } from '@epicenter/epicenter/departure/page';
 import type {
 	AutosaveError,
 	CommitAndPushResult,
@@ -149,12 +148,6 @@ export type RecoveryAttempt =
 /** What the terminal close left unsaved. */
 export type CloseOutcome = { readonly unsettled: readonly string[] };
 
-/** Why input or a command was refused while Epicenter asks to quit or restart. */
-export const DEPARTING =
-	'Epicenter is asking to quit or restart, so nothing is changed now. Your edits are kept.';
-/** Why a pull or merge stopped after its fetch: Epicenter asked to leave meanwhile. */
-const WITHDRAWN =
-	'Epicenter asked to quit or restart after the fetch, so nothing was applied. Try again after it finishes or is cancelled.';
 const CLOSING = 'Todos is closing, so nothing was changed.';
 const BUSY = 'Another change is still in progress. Try again when it finishes.';
 /** Why a new file did not open: the open one holds changes it could not save. */
@@ -270,20 +263,14 @@ export function createTodos(folder: TodosFolder) {
 	const leaving = new AbortController();
 	/**
 	 * Work started and not finished: Git commands, recoveries, file actions,
-	 * conflict commands, and terminal commands. A departure's drain and
-	 * `close` wait for it.
+	 * conflict commands, and terminal commands. A close flush and `close`
+	 * wait for it.
 	 */
 	const admissions = createAdmissions();
 	let recovering = $state(false);
 	let lastRecovery = $state.raw<
 		(RecoveryAttempt & { readonly at: number }) | undefined
 	>();
-	/**
-	 * Epicenter asks to quit or restart. From `departure.fence` until
-	 * `departure.resume`, no action starts and the open item takes no input;
-	 * saves already requested go on.
-	 */
-	let departing = $state(false);
 	/** The title typed for a new todo and not yet added. */
 	let newTitle = $state('');
 	/**
@@ -298,23 +285,15 @@ export function createTodos(folder: TodosFolder) {
 		// Its own state is the controller's to check: an Apply runs while
 		// the review locks everything else.
 		refused: () =>
-			closing !== undefined
-				? CLOSING
-				: departing
-					? DEPARTING
-					: recovering
-						? BUSY
-						: undefined,
+			closing !== undefined ? CLOSING : recovering ? BUSY : undefined,
 	});
 
 	/** Whether the open item refuses input now. */
-	const locked = () =>
-		departing || recovering || syncs.locked || closing !== undefined;
+	const locked = () => recovering || syncs.locked || closing !== undefined;
 
 	/** Why no action starts now, if one does not. */
 	function refused(): string | undefined {
 		if (closing !== undefined) return CLOSING;
-		if (departing) return DEPARTING;
 		if (recovering || syncs.locked) return BUSY;
 		return undefined;
 	}
@@ -401,16 +380,9 @@ export function createTodos(folder: TodosFolder) {
 							stderr: 'The folder is closed\n',
 							exitCode: 1,
 						})
-					: departing
-						? Promise.resolve({
-								stdout: '',
-								stderr: `${DEPARTING}\n`,
-								exitCode: 1,
-							})
-						: admissions.admit(() => shell.exec(command, options)),
+					: admissions.admit(() => shell.exec(command, options)),
 		},
 		() => check(),
-		() => departing,
 	);
 
 	/** One listing pass. A pass that a newer one overtook, or that answers after close began, changes nothing. */
@@ -561,40 +533,19 @@ export function createTodos(folder: TodosFolder) {
 			if (locked()) return;
 			newTitle = title;
 		},
-		get departing() {
-			return departing;
-		},
 		/** The open item's path while its draft holds a save that failed. */
 		get failedSavePath() {
 			const state = slot.session?.state;
 			return state?.status === 'error' ? state.file.path : undefined;
 		},
 		/**
-		 * The page's part in leaving Epicenter
-		 * (`@epicenter/epicenter/departure/page`). `fence` runs before anything
-		 * is awaited; `settle` lets running work and saves finish and answers
-		 * how many things would be lost: a draft it could not save, and a typed
-		 * title; `resume` gives everything back.
+		 * Let saves in flight land: running work and the open item's held
+		 * snapshot. Starts nothing and refuses nothing; a draft whose save
+		 * failed stays as it is. The page bounds the wait on close.
 		 */
-		departure: {
-			/** Whether leaving would lose anything: an unsaved draft, a typed title, or running work. */
-			get holdsUnsaved() {
-				return slot.unsaved || newTitle.trim() !== '' || admissions.busy;
-			},
-			fence() {
-				departing = true;
-			},
-			async settle(): Promise<number> {
-				await admissions.quiet();
-				const state = await slot.session?.settled();
-				return (
-					(state?.status === 'error' ? 1 : 0) + (newTitle.trim() === '' ? 0 : 1)
-				);
-			},
-			resume() {
-				departing = false;
-			},
-		} satisfies DepartureParticipant,
+		async flush(): Promise<void> {
+			await Promise.all([admissions.quiet(), slot.session?.settled()]);
+		},
 		refresh,
 		/** The person's "Check again", and returning to the window. */
 		check,
@@ -826,11 +777,6 @@ export function createTodos(folder: TodosFolder) {
 			async (): Promise<CommitAndPushResult> => {
 				if (closing !== undefined)
 					return { commit: { status: 'closed' }, push: { status: 'closed' } };
-				if (departing)
-					return {
-						commit: { status: 'blocked', reason: DEPARTING },
-						push: { status: 'skipped', reason: DEPARTING },
-					};
 				return folder.git.commitAndPush({ signal: leaving.signal });
 			},
 		),
@@ -838,27 +784,18 @@ export function createTodos(folder: TodosFolder) {
 		fetch: admissions.command(
 			async (): ReturnType<TodosFolder['git']['fetch']> => {
 				if (closing !== undefined) return GitError.Closed();
-				if (departing)
-					return GitError.Failed({ operation: 'fetch', cause: DEPARTING });
 				return folder.git.fetch({ signal: leaving.signal });
 			},
 		),
-		/**
-		 * Fetch, then apply the remote only as a clean fast-forward. A quit or
-		 * restart asked for after the fetch withdraws the rest and says so.
-		 */
+		/** Fetch, then apply the remote only as a clean fast-forward. */
 		pull: admissions.command(
 			async (): Promise<Result<PullOutcome, PullError | GitError>> => {
 				if (closing !== undefined) return GitError.Closed();
-				if (departing)
-					return GitError.Failed({ operation: 'pull', cause: DEPARTING });
 				const { error: fetchedError } = await folder.git.fetch({
 					signal: leaving.signal,
 				});
 				if (closing !== undefined) return GitError.Closed();
 				if (fetchedError) return Err(fetchedError);
-				if (departing)
-					return GitError.Failed({ operation: 'pull', cause: WITHDRAWN });
 				const pulled = await folder.git.pullFastForward();
 				await check();
 				return pulled;
@@ -873,15 +810,11 @@ export function createTodos(folder: TodosFolder) {
 				Result<MergeOutcome, MergeError | PullError | GitError>
 			> => {
 				if (closing !== undefined) return GitError.Closed();
-				if (departing)
-					return GitError.Failed({ operation: 'merge', cause: DEPARTING });
 				const { error: fetchedError } = await folder.git.fetch({
 					signal: leaving.signal,
 				});
 				if (closing !== undefined) return GitError.Closed();
 				if (fetchedError) return Err(fetchedError);
-				if (departing)
-					return GitError.Failed({ operation: 'merge', cause: WITHDRAWN });
 				const merged = await folder.git.mergeIncoming();
 				await check();
 				return merged;
@@ -937,7 +870,7 @@ export function createTodos(folder: TodosFolder) {
 		recoverIncoming: admissions.command(async (): Promise<RecoveryAttempt> => {
 			if (closing !== undefined)
 				return { kind: 'ran', result: GitError.Closed() };
-			if (departing || recovering) return { kind: 'busy' };
+			if (recovering) return { kind: 'busy' };
 			recovering = true;
 			let attempt: RecoveryAttempt;
 			try {

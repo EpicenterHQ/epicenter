@@ -33,7 +33,6 @@ import {
 	type LegacyBundle,
 	runLegacyImport,
 } from '@epicenter/capture/legacy';
-import type { DepartureParticipant } from '@epicenter/epicenter/departure/page';
 import {
 	type CommitOutcome,
 	type RowReadError,
@@ -107,9 +106,6 @@ export type Repair = {
 	readonly problem: string;
 };
 
-/** Why input or an action was refused while Epicenter asks to quit or restart. */
-export const DEPARTING =
-	'Epicenter is asking to quit or restart, so nothing is changed now. Your text is kept.';
 const CLOSING = 'Capture is closing, so nothing was changed.';
 
 /**
@@ -198,19 +194,16 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 	const trackGit = createSubscriber((update) => folder.git.subscribe(update));
 	/** The Epicenter service that served this page has stopped. */
 	let serviceStopped = $state(false);
-	/** Epicenter asks to quit or restart: no action starts, and the open capture takes no input. */
-	let departing = $state(false);
 	let closing: Promise<void> | undefined;
 	let refreshSequence = 0;
-	/** Commands admitted and not finished: a departure and `close` wait for them. */
+	/** Commands admitted and not finished: a close flush and `close` wait for them. */
 	const { command, quiet, ...admissions } = createAdmissions();
 
-	const locked = () => departing || closing !== undefined;
+	const locked = () => closing !== undefined;
 
 	/** Why no action starts now, if one does not. */
 	function refused(): string | undefined {
 		if (closing !== undefined) return CLOSING;
-		if (departing) return DEPARTING;
 		return undefined;
 	}
 
@@ -398,7 +391,7 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 		markServiceStopped() {
 			serviceStopped = true;
 		},
-		/** Leaving or closing refuses input and actions. */
+		/** Closing refuses input and actions. */
 		get fenced() {
 			return locked();
 		},
@@ -546,7 +539,7 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 				}
 			},
 		),
-		/** Commit what is saved. Refused, as other actions are, while closing or departing. */
+		/** Commit what is saved. Refused, as other actions are, while closing. */
 		commit: command(async (): Promise<CommitOutcome> => {
 			const why = refused();
 			if (why !== undefined) return { status: 'blocked', reason: why };
@@ -554,27 +547,13 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 		}),
 
 		/**
-		 * The page's part in leaving Epicenter. `fence` runs before anything is
-		 * awaited; `settle` lets running actions and saves finish and answers
-		 * how many things would be lost; `resume` gives everything back.
+		 * Let saves in flight land: running actions and the open capture's held
+		 * snapshot. Starts nothing and refuses nothing; a draft whose save
+		 * failed stays as it is. The page bounds the wait on close.
 		 */
-		departure: {
-			/** Whether leaving would lose anything: the open capture, the New capture text, running actions. */
-			get holdsUnsaved() {
-				return slot.unsaved || newCapture !== '' || admissions.busy;
-			},
-			fence() {
-				departing = true;
-			},
-			async settle(): Promise<number> {
-				await quiet();
-				await slot.session?.settled();
-				return (slot.unsaved ? 1 : 0) + (newCapture === '' ? 0 : 1);
-			},
-			resume() {
-				departing = false;
-			},
-		} satisfies DepartureParticipant,
+		async flush(): Promise<void> {
+			await Promise.all([quiet(), slot.session?.settled()]);
+		},
 
 		/**
 		 * Let running actions and the open capture's saves finish before the

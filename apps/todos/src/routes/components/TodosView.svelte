@@ -14,10 +14,8 @@
 	import FileBrowser from './FileBrowser.svelte';
 	import FolderTerminal from './FolderTerminal.svelte';
 	import TodoList from './TodoList.svelte';
-	import DepartureNotice from './DepartureNotice.svelte';
-	import type { Departure } from '@epicenter/epicenter/departure/page';
 
-	let { todos, departure }: { todos: Todos; departure?: Departure } = $props();
+	let { todos }: { todos: Todos } = $props();
 
 	// Drafts live only in this open page. While any editor has typing, a save
 	// in flight, a failed save, or a conflict, leaving is cancelled; for a
@@ -107,9 +105,6 @@
 		onToggleFiles={toggleFiles}
 		onToggleTerminal={() => void toggleTerminal()}
 	/>
-	{#if departure}
-		<DepartureNotice {departure} {todos} />
-	{/if}
 	<IncomingBanner {todos} />
 
 	{#if todos.syncAttempt !== undefined}

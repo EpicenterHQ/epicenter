@@ -2,13 +2,13 @@
  * The seam between the Capture UI and where its folder lives.
  *
  * `#platform/folder` resolves at build time. The Epicenter host leaf attaches
- * to a real directory the desktop shell owns and answers the host when it
- * quits or restarts; the browser leaf opens a logical folder in OPFS and has
- * no such gate. Neither leaf imports the other's storage.
+ * to a real directory the desktop shell owns and hears the host's flush
+ * before it quits or restarts; the browser leaf opens a logical folder in
+ * OPFS and has no host. Neither leaf imports the other's storage.
  */
 
 import type { CaptureFields } from '@epicenter/capture';
-import type { Departure } from '@epicenter/epicenter/departure/page';
+import type { HostCloseSignal } from '@epicenter/svelte/flush-on-close';
 import type {
 	FileTable,
 	FolderFiles,
@@ -45,8 +45,11 @@ export type CaptureHost = {
 export type OpenCaptureHost = () => Promise<CaptureHost>;
 
 /**
- * The host's question before it quits or restarts, for this window. Started
- * before the folder opens, so no round is missed. `undefined` in a browser,
- * where the leave warning covers a reload or a closed tab.
+ * What the desktop host tells this window: its flush before it quits or
+ * restarts, and that the Bun service which served the page stopped. Neither
+ * exists in a browser.
  */
-export type OpenDeparture = () => Departure | undefined;
+export type HostSignals = {
+	readonly close?: HostCloseSignal;
+	readonly stopped?: (listener: () => void) => Promise<() => void>;
+};

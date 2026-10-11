@@ -25,12 +25,14 @@
  *   last; a file changed elsewhere since is not deleted
  * - Returning adopts a newer version of an open capture that holds nothing
  *   unsaved, and a thought edit whose thought changed keeps its text
- * - A departure refuses input, settles saves, counts what would be lost, and
- *   gives everything back; close waits for saves
+ * - A close flush sends the held snapshot and waits for it, ends within its
+ *   bound when a save hangs, and is not held by a failed save; close waits
+ *   for saves
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readLegacyBundle } from '@epicenter/capture/legacy';
+import { flushWithin } from '@epicenter/svelte/flush-on-close';
 import fixture from '../../fixtures/legacy-bundle.json';
 import {
 	openCapture,
@@ -467,7 +469,7 @@ test('deleting waits for the open capture saves and deletes what it saved last',
 	expect(captures.timeline).toEqual([]);
 });
 
-test('a departure and close wait for a delete that is still waiting on a save', async () => {
+test('a close flush and close wait for a delete that is still waiting on a save', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'capture');
@@ -480,9 +482,8 @@ test('a departure and close wait for a delete that is still waiting on a save', 
 		order.push('deleted');
 		return problem;
 	});
-	captures.departure.fence();
-	const settling = captures.departure.settle().then(() => {
-		order.push('settled');
+	const settling = captures.flush().then(() => {
+		order.push('flushed');
 	});
 	const closing = captures.close().then(() => {
 		order.push('closed');
@@ -582,45 +583,56 @@ test('deleting or moving a thought from a list that changed meanwhile says why',
 });
 
 // ============================================================================
-// Departure and closing
+// Flushing on close, and closing
 // ============================================================================
 
-test('a departure refuses input, settles saves, counts what would be lost, and gives everything back', async () => {
+test('a close flush sends the held snapshot and waits for it to land', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const { captures } = harness;
+	await captures.open('one', 'capture');
+	const { form } = openCapture(captures);
+	const { held, release } = harness.holdNextMarkdownWrite();
+	form.inputText('Sent');
+	await held;
+	// Held behind the running write: only a flush that waits sees it land.
+	form.inputText('Typed last');
+	const flushing = flushWithin(() => captures.flush(), 5_000);
+	release();
+	expect(await flushing).toBe('flushed');
+	expect(await harness.text(PATH)).toContain('\nTyped last\n');
+});
+
+test('a close flush ends within its bound when a save hangs', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'capture');
 	const { session, form } = openCapture(captures);
-	form.inputText('Saves on its own');
-	form.inputNewThought('Held');
-	captures.inputNewCapture('A new capture, not added');
-
-	captures.departure.fence();
-	expect(captures.fenced).toBe(true);
-	expect(session.locked).toBe(true);
-	form.inputText('refused');
-	form.inputNewThought('refused');
-	captures.inputNewCapture('refused');
-	expect(await captures.create()).toContain('quit or restart');
-	// The new thought and the New capture text would be lost.
-	expect(await captures.departure.settle()).toBe(2);
-	expect(await harness.text(PATH)).toContain('\nSaves on its own\n');
-
-	captures.departure.resume();
-	expect(session.locked).toBe(false);
-	expect(form.newThought).toBe('Held');
-	expect(captures.newCapture).toBe('A new capture, not added');
-	expect(form.addThought()).toBe(true);
-	expect((await session.settled()).status).toBe('saved');
+	const { held, release } = harness.holdNextMarkdownWrite();
+	form.inputText('Never lands');
+	await held;
+	const started = performance.now();
+	expect(await flushWithin(() => captures.flush(), 50)).toBe('timed-out');
+	expect(performance.now() - started).toBeLessThan(1_000);
+	release();
+	await session.settled();
 });
 
-test('a commit is refused while departing or closing, as other actions are', async () => {
+test('a draft whose save failed does not hold a close flush', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const { captures } = harness;
+	await captures.open('one', 'capture');
+	const { session, form } = openCapture(captures);
+	harness.failNextWrite(PATH);
+	form.inputText('Mine');
+	expect((await session.settled()).status).toBe('error');
+	expect(await flushWithin(() => captures.flush(), 1_000)).toBe('flushed');
+	// Nothing was retried or discarded: the save bar still shows the failure.
+	expect(session.state.status).toBe('error');
+	expect(captures.fenced).toBe(false);
+});
+
+test('a commit is refused while closing, as other actions are', async () => {
 	const { captures } = await open({ [PATH]: HAND });
-	captures.departure.fence();
-	expect(await captures.commit()).toEqual({
-		status: 'blocked',
-		reason: expect.stringContaining('quit or restart'),
-	});
-	captures.departure.resume();
 	void captures.close();
 	expect(await captures.commit()).toEqual({
 		status: 'blocked',

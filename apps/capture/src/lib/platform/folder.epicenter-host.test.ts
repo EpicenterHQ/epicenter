@@ -10,8 +10,9 @@
  * Key behaviors:
  * - Outside the shell, a refused window, an unregistered scope, and a missing
  *   plugin each fail the open with a reason, and leave no listener behind
- * - The page names the Capture scope and is told the directory; departure is
- *   heard on this window only
+ * - The page names the Capture scope and is told the directory; the host's
+ *   flush and stop are heard on this window only, and the flush is answered
+ *   with `flush_done` once its saves land
  * - Closing detaches this page once, and a sibling page keeps saving
  * - A save sends the whole row as one replacement guarded by the bytes this
  *   page last saved, and keeps undeclared metadata
@@ -26,16 +27,16 @@
  * See also:
  * - `packages/folder/src/tauri.test.ts` for what the adapter decides
  * - `packages/folder/src/tauri-native.test.ts` for the real Rust owner
- * - `departure.test.ts` for the departure wire
  */
 import '../svelte-modules.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { readLegacyBundle } from '@epicenter/capture/legacy';
 import {
-	DEPARTURE_CHANGED_EVENT,
-	DEPARTURE_STATUS_COMMAND,
+	FLUSH_DONE_COMMAND,
+	FLUSH_ON_CLOSE_EVENT,
 	HOST_STOPPED_EVENT,
-} from '@epicenter/epicenter/departure';
+} from '@epicenter/epicenter/page-close';
+import { flushOnClose } from '@epicenter/svelte/flush-on-close';
 import { expectOk } from 'wellcrafted/testing';
 import type {
 	FileChange as Change,
@@ -185,15 +186,12 @@ function own({ cmd, args }: Call): unknown {
 	}
 }
 
-/** The departure status the host reports; this file only reads it. */
-const IDLE = { version: 1, generation: 1, phase: 'idle' };
-
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => inShell,
 	async invoke(name: string, args: Record<string, unknown> = {}) {
 		const call = { cmd: name.replace(PLUGIN, ''), args };
 		calls.push(call);
-		if (name === DEPARTURE_STATUS_COMMAND) return IDLE;
+		if (name === FLUSH_DONE_COMMAND) return null;
 		const override = overrides[call.cmd];
 		return override ? override(call, () => own(call)) : own(call);
 	},
@@ -225,7 +223,7 @@ mock.module('@tauri-apps/api/webviewWindow', () => ({
 	}),
 }));
 
-const { openCaptureHost, openDeparture } = await import(
+const { openCaptureHost, hostSignals } = await import(
 	'./folder.epicenter-host.js'
 );
 const { createCaptures } = await import('../captures.svelte.ts');
@@ -360,28 +358,49 @@ test('the page names the Capture scope and is told the directory', async () => {
 	await host.close();
 });
 
-test('departure is heard on this window only, registered before its first status read', async () => {
-	const departure = openDeparture();
-	if (!departure) throw new Error('the desktop leaf has a departure gate');
-	await departure.start();
-	// Targeted at this window, not any window's global listener.
-	expect([...windowListeners.keys()].sort()).toEqual(
-		[DEPARTURE_CHANGED_EVENT, FOCUS, HOST_STOPPED_EVENT].sort(),
-	);
-	expect(listeners.has(DEPARTURE_CHANGED_EVENT)).toBe(false);
-	expect(calls.map((call) => call.cmd)).toEqual([DEPARTURE_STATUS_COMMAND]);
-	expect(departure.known).toBe(true);
-	expect(departure.fenced).toBe(false);
-
+test('the host flush is heard on this window only and answered once the held snapshot lands', async () => {
+	put(PATH, SAVED);
+	const { host, captures } = await opened();
+	const { session, form } = await openOne(captures);
+	const stop = flushOnClose(() => captures.flush(), {
+		hostClose: hostSignals.close,
+	});
 	let stopped = 0;
-	departure.onHostStopped(() => stopped++);
+	const stopHearing = await hostSignals.stopped?.(() => stopped++);
+	await Bun.sleep(0);
+	// Targeted at this window, not any window's global listener.
+	expect(windowListeners.get(FLUSH_ON_CLOSE_EVENT)?.size).toBe(1);
+	expect(listeners.has(FLUSH_ON_CLOSE_EVENT)).toBe(false);
+
+	const landing = Promise.withResolvers<void>();
+	overrides.apply = async (_call, reply) => {
+		await landing.promise;
+		return reply();
+	};
+	form.inputText('Sent');
+	form.inputText('Typed last');
+	calls = [];
+	for (const listener of windowListeners.get(FLUSH_ON_CLOSE_EVENT) ?? [])
+		listener();
+	await Bun.sleep(5);
+	expect(sent(FLUSH_DONE_COMMAND)).toEqual([]);
+	delete overrides.apply;
+	landing.resolve();
+	await session.settled();
+	await Bun.sleep(5);
+	expect(sent(FLUSH_DONE_COMMAND)).toHaveLength(1);
+	expect(text(PATH)).toBe(withText('Typed last'));
+
 	for (const listener of windowListeners.get(HOST_STOPPED_EVENT) ?? [])
 		listener();
 	expect(stopped).toBe(1);
-	departure.destroy();
+	stop();
+	stopHearing?.();
 	expect(
 		[...windowListeners.values()].reduce((count, set) => count + set.size, 0),
 	).toBe(0);
+	await captures.close();
+	await host.close();
 });
 
 test('closing detaches this page once, and a sibling page keeps saving', async () => {
@@ -478,7 +497,7 @@ test('a save whose reply is lost and did not land stays unknown until it is save
 	delete overrides.apply;
 	expect(lost.status === 'error' && lost.error.name).toBe('Unconfirmed');
 	expect(text(PATH)).toBe(SAVED);
-	expect(await captures.departure.settle()).toBe(1);
+	expect(captures.unsettled).toBe(1);
 
 	session.retry();
 	expect((await session.settled()).status).toBe('saved');

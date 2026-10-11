@@ -136,7 +136,6 @@
 	<FileNameBar
 		prefix={directory === '' ? '' : `${directory}/`}
 		{name}
-		disabled={todos.departing}
 		onRename={(next) => todos.rename(path, next)}
 		onDelete={() => void confirmDelete(todos, path)}
 	/>

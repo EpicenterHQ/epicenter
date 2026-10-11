@@ -9,9 +9,9 @@
 			"epicenter-host": "./src/lib/platform/folder.epicenter-host.ts",
 			"default": "./src/lib/platform/folder.browser.ts"
 		},
-		"#platform/departure": {
-			"epicenter-host": "./src/lib/platform/departure.epicenter-host.ts",
-			"default": "./src/lib/platform/departure.browser.ts"
+		"#platform/close": {
+			"epicenter-host": "./src/lib/platform/close.epicenter-host.ts",
+			"default": "./src/lib/platform/close.browser.ts"
 		}
 	},
 	"scripts": {

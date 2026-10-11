@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-flush-done"
+description = "Enables the flush_done command without any pre-configured scope."
+commands.allow = ["flush_done"]
+
+[[permission]]
+identifier = "deny-flush-done"
+description = "Denies the flush_done command without any pre-configured scope."
+commands.deny = ["flush_done"]

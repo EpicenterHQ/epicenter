@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
-	"identifier": "departure-production",
-	"description": "Capture and Todos read and answer the host's quit or restart round.",
+	"identifier": "close-flush-production",
+	"description": "Capture and Todos hear the host's flush before it quits or restarts, and say when they are done.",
 	"local": false,
 	"windows": ["capture", "todos"],
 	"remote": {
@@ -10,7 +10,6 @@
 	"permissions": [
 		"core:event:allow-listen",
 		"core:event:allow-unlisten",
-		"allow-departure-status",
-		"allow-departure-answer"
+		"allow-flush-done"
 	]
 }

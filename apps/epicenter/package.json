@@ -6,9 +6,7 @@
 	"type": "module",
 	"exports": {
 		".": "./src/host.ts",
-		"./departure": "./src/departure-wire.ts",
-		"./departure/page": "./src/departure-page.svelte.ts",
-		"./departure/window": "./src/departure-window.ts"
+		"./page-close": "./src/page-close.ts"
 	},
 	"scripts": {
 		"build": "bun run scripts/with-build-lock.ts bun run build:apps",

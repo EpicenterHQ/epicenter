@@ -21,10 +21,11 @@ const CALLBACK_URL = 'epicenter://auth/callback';
  * One boot Account. Explicit authentication prepares credentials for a new process.
  *
  * Changing accounts restarts every page the host serves, so it first asks Rust
- * to settle Capture and Todos (`prepareRelaunch`). Until Rust grants that, the
- * current authority, cell, and credential keep working, and a refusal costs
- * only the candidate. After the grant the change is committed: dispose, write
- * the cell, revoke the replaced credential, restart.
+ * for a restart (`prepareRelaunch`). Rust grants it without asking the pages;
+ * they flush their saves in flight when the grant is finished. Until the
+ * grant arrives, the current authority, cell, and credential keep working,
+ * and a refusal costs only the candidate. After the grant the change is
+ * committed: dispose, write the cell, revoke the replaced credential, restart.
  */
 export function createDesktopAuthAuthority({
 	authCell,

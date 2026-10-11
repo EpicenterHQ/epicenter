@@ -71,28 +71,22 @@ describe('#platform/folder', () => {
 			expect(modules.some(folderModule('tauri.ts'))).toBe(true);
 			expect(modules.some(folderModule('tauri-adapter.ts'))).toBe(true);
 			expect(modules.some(folderModule('native/bindings.gen.ts'))).toBe(true);
-			// The departure leaf reaches the host's published wire, its window
-			// port, and this window's Tauri API, never the host's Bun entry.
+			// The close leaf reaches the host's published page side and this
+			// window's Tauri API, never the host's Bun entry.
 			expect(
-				modules.some((path) =>
-					path.endsWith('platform/departure.epicenter-host.ts'),
-				),
+				modules.some((path) => path.endsWith('platform/close.epicenter-host.ts')),
 			).toBe(true);
-			for (const published of ['departure-wire.ts', 'departure-window.ts'])
-				expect(
-					modules.some((path) =>
-						path.endsWith(`apps/epicenter/src/${published}`),
-					),
-				).toBe(true);
+			expect(
+				modules.some((path) => path.endsWith('apps/epicenter/src/page-close.ts')),
+			).toBe(true);
 			expect(
 				modules.some((path) => /@tauri-apps\/api\/.*webviewWindow/.test(path)),
 			).toBe(true);
 			expect(
 				modules.filter(
 					(path) =>
-						/apps\/epicenter\/src\/(?!departure-(wire|window)\.ts$)/.test(
-							path,
-						) || /platform\/departure\.browser\.ts$/.test(path),
+						/apps\/epicenter\/src\/(?!page-close\.ts$)/.test(path) ||
+						/platform\/close\.browser\.ts$/.test(path),
 				),
 			).toEqual([]);
 			expect(
@@ -122,13 +116,13 @@ describe('#platform/folder', () => {
 			expect(modules.some((path) => path.includes('isomorphic-git'))).toBe(
 				true,
 			);
-			// The browser has no departure port and reaches nothing of the host's.
+			// The browser has no host close signal and reaches nothing of the host's.
 			expect(
-				modules.some((path) => path.endsWith('platform/departure.browser.ts')),
+				modules.some((path) => path.endsWith('platform/close.browser.ts')),
 			).toBe(true);
 			expect(
 				modules.filter((path) =>
-					/apps\/epicenter\/|platform\/departure\.epicenter-host\.ts$|@tauri-apps\/api\/.*webviewWindow/.test(
+					/apps\/epicenter\/|platform\/close\.epicenter-host\.ts$|@tauri-apps\/api\/.*webviewWindow/.test(
 						path,
 					),
 				),

@@ -113,40 +113,24 @@ failed save, or a save still running.
 
 - Closing the Todos window hides it. The page stays loaded, so unsaved input
   and the terminal's output are still there when you open Todos again.
-- Quitting Epicenter, or restarting it for an account change, asks this page
-  first, over the host's departure wire (`@epicenter/epicenter/departure`),
-  through the shared page client (`@epicenter/epicenter/departure/page`).
-  From that moment the page takes no typing and starts no action, Git
-  command, or terminal command. A page holding nothing unsaved answers at
-  once. Otherwise it shows its window, saves what typing would have saved,
-  and waits for those saves to finish. If something still cannot be saved (a
-  failed, unconfirmed, or conflicted save, or the title of a new todo you have
-  not added), the window lists it, names
-  whether Epicenter is quitting or restarting, and offers "Keep working" or
-  "Quit anyway" ("Restart anyway"). Nothing is added, retried, or discarded
-  for you; leaving anyway only tells Epicenter this window is ready. A choice
-  counts only for the quit or restart it was shown for.
-- A Git command or terminal command already running when Epicenter asks is
-  waited for. A pull or merge whose fetch finishes after the request applies
-  nothing and says so. The terminal keeps its typed command, history, and
-  output meanwhile, and Enter runs nothing; its typed command is not counted
-  as unsaved.
-- Todos opens its folder only once it is listening for a quit or restart and
-  has read from Epicenter whether one is running. If it cannot listen, or
-  cannot read that status, it shows "Todos is waiting for Epicenter" with
-  Retry, and nothing is open or editable meanwhile; returning to the window,
-  or a quit or restart beginning, also reads again.
-- If the quit or restart is cancelled, by you or by another window, the
-  page takes typing again with all unsaved input, failed saves, and typed
-  titles as they were. Quitting again during the same quit asks the page again, without a
-  second prompt. Until Epicenter says the quit is over, the page stays
-  waiting, even if an answer to Epicenter was lost.
+- Quitting Epicenter, or restarting it for an account change, does not ask.
+  Epicenter sends this page one flush signal (`@epicenter/epicenter/page-close`)
+  and waits about a second. The page lets the saves it has in flight land:
+  running actions, Git commands, terminal commands, and the open item's latest
+  snapshot (`todos.flush`, bounded by `@epicenter/svelte/flush-on-close`).
+  Then Epicenter leaves. Input that still cannot be saved (a failed,
+  unconfirmed, or conflicted save, or the title of a new todo you have not
+  added) is lost; the save bar already said the save failed.
+- A save that hangs does not hold the quit: the page stops waiting after
+  800 ms and Epicenter after about a second.
+- Quitting from the Dock, logging out, or shutting down reaches Epicenter
+  only as AppKit's own quit, which skips the flush. Saves Epicenter already
+  accepted still land; a snapshot still waiting in the page does not.
 - A host restart after a crash, a forced kill, or a system shutdown that does
-  not ask Epicenter ends the page without asking. Input that was not saved
-  is lost. Nothing persists them. Saved files are on disk and reopen as they
-  were.
-- The browser demo has none of this: leaving the tab keeps its own leave
-  warning.
+  not ask Epicenter ends the page at once. Input that was not saved is lost.
+  Nothing persists it. Saved files are on disk and reopen as they were.
+- In the browser, leaving the tab keeps its own leave warning, and
+  `pagehide` starts the same flush without waiting for it.
 - On quit, the Rust Folder owner fences new work, drains accepted local saves
   and commits, stops network work, and releases the directory lock. A forced
   kill can leave saved files uncommitted; the next commit includes them.
@@ -408,10 +392,10 @@ todo; `todos/a.MD` is an ordinary file.
 | Path | Role |
 | --- | --- |
 | `src/lib/definition.ts` | The inert `defineFolder` declaration, written with the shared `defineTable` and `field` vocabulary. It names no folder. |
-| `src/routes/+page.svelte` | Opens the Todos owner. Inside Epicenter it starts the shared departure client (`@epicenter/epicenter/departure/page`) and opens the folder only once a status is known, attaching `todos.departure` the moment it exists (`openForDeparture`). |
-| `src/lib/platform/` | The `#platform/departure` seam: the host leaf is the shared Tauri window port (`@epicenter/epicenter/departure/window`); the browser leaf has no port. And the `#platform/folder` seam: `types.ts` is its contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens the OPFS folder through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the host's directory through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The mounted page calls it; importing it opens nothing. |
+| `src/routes/+page.svelte` | Opens the Todos owner, then flushes its saves in flight on close (`@epicenter/svelte/flush-on-close`): on Epicenter's flush signal inside Epicenter, and on `pagehide`. |
+| `src/lib/platform/` | The `#platform/close` seam: the host leaf hears Epicenter's flush signal (`@epicenter/epicenter/page-close`); the browser leaf has none. And the `#platform/folder` seam: `types.ts` is its contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens the OPFS folder through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the host's directory through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The mounted page calls it; importing it opens nothing. |
 | `src/lib/files.ts` | File browser rows, and which files open as editable text. |
-| `src/lib/todos.svelte.ts` | Todo and folder listings, the rows named for repair, the one open item (`@epicenter/svelte/open-item`) and its edit session (`@epicenter/svelte/edit-session`), conflict choices, and file actions, each counted by `@epicenter/svelte/admissions` so close and departure wait for it. |
+| `src/lib/todos.svelte.ts` | Todo and folder listings, the rows named for repair, the one open item (`@epicenter/svelte/open-item`) and its edit session (`@epicenter/svelte/edit-session`), conflict choices, and file actions, each counted by `@epicenter/svelte/admissions` so close and the close flush wait for it. |
 | `src/lib/terminal.svelte.ts` | The terminal session that outlives the terminal pane, over the folder's own `folder.terminal()`. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
 | `src/routes/components/` | Header, file browser, list, the detail pane (`Detail`: `TodoDetail` or `FileView`, each with the shared `SaveBar` from `@epicenter/svelte/save-bar`), and terminal. |

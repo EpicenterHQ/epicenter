@@ -99,7 +99,6 @@
 			todos.syncing ||
 			todos.syncAttempt !== undefined ||
 			todos.recovering ||
-			todos.departing ||
 			todos.git.activity.commit.active ||
 			todos.git.activity.push.active ||
 			todos.git.activity.pull.active ||

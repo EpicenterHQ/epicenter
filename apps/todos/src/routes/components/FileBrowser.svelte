@@ -144,9 +144,7 @@
 	/** Enter or leaving the field applies the name; Escape or an unchanged name cancels. */
 	async function commit(value: string) {
 		const current = editing;
-		// While Epicenter asks to quit or restart, the field and its typed name
-		// stay as they are; disabling it blurs it, which commits nothing.
-		if (current === undefined || committing || todos.departing) return;
+		if (current === undefined || committing) return;
 		const name = value;
 		const directory = current.kind === 'rename' ? dirname(current.path) : current.directory;
 		if (name === '' || (current.kind === 'rename' && name === basename(current.path))) {
@@ -205,7 +203,6 @@
 			aria-label={label}
 			autocomplete="off"
 			spellcheck={false}
-			disabled={todos.departing}
 			{@attach (node: HTMLInputElement) => {
 				node.focus();
 				// Select the name before its extension, as file managers do.

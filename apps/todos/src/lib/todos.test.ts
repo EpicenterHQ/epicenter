@@ -23,10 +23,13 @@
  * - A list toggle on a closed todo is guarded by the version the list read
  * - Renaming or deleting a todo moves or removes only its Markdown file
  * - Close waits for running work, and every close call shares one completion
+ * - A close flush sends the held snapshot and waits for it, within its bound
+ *   when a save hangs, and a draft whose save failed does not hold it
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
+import { flushWithin } from '@epicenter/svelte/flush-on-close';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
@@ -243,6 +246,57 @@ test('a failed save keeps the draft; Try again saves it', async () => {
 	session.retry();
 	expect((await session.settled()).status).toBe('saved');
 	expect(await text(todos, session.path)).toContain('title: Bread');
+});
+
+// ============================================================================
+// Flushing on close
+// ============================================================================
+
+test('a close flush sends the held snapshot and waits for it to land', async () => {
+	const { todos, holdNextMarkdownWrite } = await open();
+	const session = await addTodo(todos, 'Milk');
+	const { held, release } = holdNextMarkdownWrite();
+	session.edit((row) => {
+		row.fields.title = 'M';
+	});
+	await held;
+	// Held behind the running write: only a flush that waits sees it land.
+	session.edit((row) => {
+		row.fields.title = 'Milk!!';
+	});
+	const flushing = flushWithin(() => todos.flush(), 5_000);
+	release();
+	expect(await flushing).toBe('flushed');
+	expect(await text(todos, session.path)).toContain('Milk!!');
+});
+
+test('a close flush ends within its bound when a save hangs', async () => {
+	const { todos, holdNextMarkdownWrite } = await open();
+	const session = await addTodo(todos, 'Milk');
+	const { held, release } = holdNextMarkdownWrite();
+	session.edit((row) => {
+		row.fields.title = 'Never lands';
+	});
+	await held;
+	const started = performance.now();
+	expect(await flushWithin(() => todos.flush(), 50)).toBe('timed-out');
+	expect(performance.now() - started).toBeLessThan(1_000);
+	release();
+	await session.settled();
+});
+
+test('a draft whose save failed does not hold a close flush', async () => {
+	const { todos, failNextWrite } = await open();
+	const session = await addTodo(todos, 'Milk');
+	failNextWrite(session.path);
+	session.edit((row) => {
+		row.fields.title = 'Bread';
+	});
+	expect((await session.settled()).status).toBe('error');
+	expect(await flushWithin(() => todos.flush(), 1_000)).toBe('flushed');
+	// Nothing was retried or discarded: the draft stays as the save bar shows it.
+	expect(session.draft.fields.title).toBe('Bread');
+	expect(session.state.status).toBe('error');
 });
 
 // ============================================================================
@@ -928,7 +982,6 @@ test('close waits for a closed-file rename whose read is still running', async (
 	const release = hold.resolve;
 	const renaming = todos.rename('notes.txt', 'renamed.txt');
 	await reading.promise;
-	expect(todos.departure.holdsUnsaved).toBe(true);
 	let closed = false;
 	const closing = todos.close().then(() => {
 		closed = true;
