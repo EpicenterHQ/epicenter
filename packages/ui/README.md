@@ -119,7 +119,7 @@ retained panel stays hidden and its controls remain alive.
 A structured panel still renders only while the current row is valid. Its setters
 check current row and application eligibility because input may arrive before
 Svelte removes a leaving control. The common ownership pattern is recorded in
-[ADR-0507](../../docs/adr/0507-editor-views-compose-current-input-and-own-only-interaction-state.md).
+[ADR-0523](../../docs/adr/0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md).
 
 ### Loading and Empty State Guidelines
 

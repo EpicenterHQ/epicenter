@@ -18,7 +18,7 @@ keys such as `source`, `issues`, or `defaults`.
 
 `folder.kv` reads one fixed `kv.json`. Usable stored values live under `values`,
 separate from snapshot metadata. It uses the same parse-error and field-issue
-shapes as table interpretation in ADR-0462.
+shapes as table interpretation did before ADR-0518.
 
 ```ts
 type KvReading<TValues> = {

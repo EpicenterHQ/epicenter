@@ -10,9 +10,9 @@
 Epicenter stores ordinary files so a human or coding agent can inspect what
 happened and repair it. That access should shape the guarantees we pursue.
 
-The folder API keeps malformed row text accessible, reports field issues,
-and patches assigned fields without reconstructing the whole file from a
-partial reading. Applications can still accumulate checks aimed at preventing
+The folder API keeps the text of an invalid row accessible, reports each
+issue with its line, and guards every save of an existing row by the bytes it last confirmed.
+Applications can still accumulate checks aimed at preventing
 inconsistent relationships. Honeycrisp refuses folder deletion when any note's
 folder cannot be read, then clears each member note's `folderId` before removing
 the folder. Another program can change those relationships afterward anyway.
@@ -33,25 +33,30 @@ data. Repair need not restore the previous state: reassigning a note whose
 folder was deleted can be a sufficient correction.
 
 **Edits protect information from accidental loss.**
-Change only what was requested, retain unrelated source, and keep unsaved input
-when publication fails or remains unknown. Keep per-file conditions and
-exclusive destinations that prevent accidental replacement. Refuse a structured
-patch when locating the change requires guessing or discarding source; keep
-raw-text repair available. Intentional deletion and whole-file replacement
-retain their explicit contracts.
+Change only what was requested, retain unknown keys and the body, and keep
+unsaved input when publication fails or remains unknown. A save may rewrite
+frontmatter formatting into its standard form; it may not drop a value. Keep
+per-file conditions and exclusive destinations that prevent accidental
+replacement, and keep raw-text repair available. Intentional deletion and
+whole-file replacement retain their explicit contracts.
 
-In the [complete-row editing direction](0504-row-editors-own-complete-input-and-one-publication-queue.md),
-an omitted field intentionally disappears from a complete replacement. Preserve
-unknown metadata by carrying the complete adopted value into that replacement,
-never by reconstructing from partial validated fields or implicitly merging
-disk keys. Last-publication-wins can replace another writer's intervening
-changes; Git only provides recovery for versions actually retained by commits.
+A table save writes the complete row, so a field the row omits disappears
+from the file. Unknown keys survive because a read under [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md)
+returns the complete row, unknown keys included, and the application edits
+that row; nothing reconstructs a row from partially validated fields or merges
+keys from disk.
 
-A storage failure leaves accepted row input publicly accessible. Applications
-submit edits immediately to the owner rather than maintaining a second whole-row
-draft. Explicit reload adopts disk content; failure leaves the retained input
-and save outcome unchanged. A field-local buffer remains useful where a control
-holds input that a complete document cannot represent.
+The application owns the draft in an edit session ([ADR-0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md)). Each
+save is guarded by the bytes the session's previous save confirmed
+([ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md)), so a change made elsewhere, or a deleted file, stops the
+save as `Conflict` and overwrites nothing. The person chooses **Reload theirs**,
+which replaces the draft with the file, or **Keep mine**, which saves the draft
+over the file or creates it again. A failed or unconfirmed save leaves the draft
+on screen. A field-local buffer remains useful where a control holds input that
+the row cannot represent yet.
+
+A row that does not read as valid is opened as text and repaired there; there is
+no partial row (ADR-0518).
 
 **Partial workflows leave completed edits saved and report their outcomes.**
 Distinguish success, refusal, and uncertainty. Before adding a refusal,
@@ -73,11 +78,10 @@ that with the current reassignment to `null`, which clears membership. Reusing
 an old ID for a different folder would also reattach those notes. Choose and
 state the intended behavior before changing the operation and its dialog.
 
-This criterion does not make every operation unconditional. Structured `create`
-and `update` validate supplied values. Complete-row editors accept readable
-invalid rows for raw repair and representable schema-invalid input for
-publication through one owner. Ordinary source-preserving patches retain their
-separate contracts.
+This criterion does not make every operation unconditional. `create` and a
+table edit session write only valid rows; a draft that fails the schema is
+reported and never written. An invalid row is repaired through a text session
+over `files`, which saves exactly what is typed.
 Git preserves versions actually captured by commits; an automatic commit
 request does not establish a retained copy. Path, credential, and Git
 publication protections keep their existing owners.

@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-11
-- **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (rows are documents; this is the other shape), [ADR-0487](0487-kv-commands-distinguish-creation-from-current-source-updates.md) (the create/update split this replaces), [ADR-0499](0499-kv-sets-replace-one-top-level-value-and-storage-owners-compose-writes.md) (the same `set(key, value)` shape for the live App KV), [ADR-0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) (refusal without retry, with one scoped exception here)
-- **Unbuilt:** application adoption (Whispering reads two legacy keys), and amending ADR-0487 and ADR-0499 to this decision.
+- **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (rows are documents; this is the other shape), [ADR-0487](0487-kv-commands-distinguish-creation-from-current-source-updates.md) (the create/update split this replaces), [ADR-0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) (refusal without retry, with one scoped exception here)
+- **Unbuilt:** application adoption (Whispering reads two legacy keys), and amending ADR-0487 to this decision.
 
 ## Context
 

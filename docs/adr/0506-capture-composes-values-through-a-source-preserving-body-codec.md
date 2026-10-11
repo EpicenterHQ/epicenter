@@ -2,12 +2,12 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-06
-- **Relates:** [ADR-0504](0504-row-editors-own-complete-input-and-one-publication-queue.md), the complete row editor, and [ADR-0432](0432-captures-hold-ordered-thoughts-beneath-a-dated-timeline.md), Capture's text and ordered thoughts.
+- **Relates:** [ADR-0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md), the row edit session Capture edits through, and [ADR-0432](0432-captures-hold-ordered-thoughts-beneath-a-dated-timeline.md), Capture's text and ordered thoughts.
 
 ## Context
 
-Capture currently switches between Source and interpreted controls for one open
-file. Capture's previous operations produced a whole file that the draft framed
+Capture switched between Source and interpreted controls for one open file.
+Capture's earlier operations produced a whole file that the draft framed
 again to extract a body. That crossed
 Folder's frontmatter boundary twice.
 
@@ -34,43 +34,49 @@ indentation and the body's line ending. An unchanged list keeps its bytes.
 const { data: body, error } = captureBody.encode({
   text: currentCapture.text,
   thoughts: currentCapture.thoughts.map((text, i) => i === index ? input : text),
-}, editor.row.body);
+}, session.draft.body);
 if (error !== null) {
   // Show the refusal; immediate controls return to accepted content.
   // An explicit Save form retains its unsubmitted input.
   return;
 }
-editor.set({ ...editor.row, body });
+session.edit((row) => {
+  row.body = body;
+});
 ```
 
-Spreading the current editor row preserves its other fields. Folder owns
-frontmatter, validation, accepted input, and publication. The Files workspace
-edits complete source for repair, through an explicit handoff from Capture.
-Immediate controls discard input refused before admission and show its reason.
-An explicit thought Save form retains unsubmitted input; accepted input whose
-publication fails remains in the editor.
+`session` is the open capture's row edit session (`RowSession` from
+`@epicenter/svelte/edit-session`), and `apps/capture/src/lib/capture-form.svelte.ts`
+is the form over it. Editing the draft in place leaves its other fields
+unchanged, and each edit saves at once. Folder owns frontmatter, validation,
+and the guarded save ([ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md), [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md)). A change the
+body cannot hold is refused before it reaches the draft, its reason is shown,
+and the control returns to the draft's text. A new thought or a thought edit
+stays in its form until it is added or saved; a draft whose save fails stays
+on screen.
 
-A delayed editing session holds its starting list and selected index. It may
-commit only while that list is still current. The draft produces a new list for
-each observed source generation, including when source changes away and back to
-the same bytes. Delete confirmation also keeps the list it showed. A form has
-its own edit-instance identity, and destroyed controls cannot act on a later
-session. These are interaction rules; the codec knows no sessions.
+A thought edit holds its index and the thought it started from, and saves only
+while that thought is still at that index; otherwise it is refused and its text
+stays in the form. Delete and reorder name the list they were shown and are
+refused when the draft's list has changed since: decoding produces a new list
+each time the draft's body changes, including after Reload theirs. Each thought
+edit has its own identity, so input meant for an earlier edit cannot reach a
+later one. These are interaction rules; the codec knows no sessions.
 
 Encoding verifies that the resulting Markdown reads as the intended text and
 thoughts. For a body without a Thoughts section, appending one preserves the
 existing text bytes and consumes its trailing separator lines. Decode reports
 that text without those separators, matching the existing append behavior.
 
-[ADR-0507](0507-editor-views-compose-current-input-and-own-only-interaction-state.md)
-separates Files source editing from Capture structured editing. Capture does not
-switch a mounted editor to Source when its body codec becomes unavailable. It
-shows the reason and offers explicit repair navigation while retaining accepted
-input and unfinished forms. The current in-detail Source tab remains to migrate.
+Capture has no Source tab and no Files workspace. When the codec cannot decode
+the draft's body, the capture view shows the reason and offers **Edit as text**,
+which opens the complete file, frontmatter included, in a text session;
+**Open as capture** returns once the text reads as a capture.
 
 ## Consequences
 
-Capture's write path uses only the row editor and its one publication queue.
+Capture's structured write path uses only the row edit session and its guarded
+autosave.
 The codec needs source spans only to locate regions; thoughts are plain strings.
 It holds no provenance map, original item identity, or thought input union.
 
@@ -87,6 +93,7 @@ representable; the app asks for text when adding or saving a thought.
   callers learn operation-shaped inputs instead of composing ordinary values.
 - Persistent thought IDs. Thoughts belong to a Markdown list, and a current
   position plus an editing-session check identifies the intended entry.
-- Giving Files and Capture independent active save queues for the same file.
-  A workspace handoff settles publication before another editor opens; accepted
-  input and unfinished forms remain explicitly owned.
+- Giving a structured view and a text view independent active save queues for
+  the same file. One item is open at a time, and leaving it waits for its
+  saves and releases its session (ADR-0523), so the structured and text
+  sessions never save the same file at once.

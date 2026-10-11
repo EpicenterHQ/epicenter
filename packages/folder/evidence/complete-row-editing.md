@@ -34,7 +34,8 @@ input. A failure pauses publication until explicit Retry (superseded by the
 package wave above: later input now saves at once). Flush only waits;
 Reload deliberately reads the file and adopts nothing on a failed read.
 External writers use last-publication-wins. Open row editors no longer watch or
-automatically adopt file changes. See [ADR 0504](../../../docs/adr/0504-row-editors-own-complete-input-and-one-publication-queue.md).
+automatically adopt file changes. This retained-owner design was later removed;
+applications now own drafts in edit sessions under [ADR-0523](../../../docs/adr/0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md).
 
 Capture, Honeycrisp, Todos, Vocab, and Whispering have been rewritten around
 that owner. Their whole-row drafts, delayed submission timers, submitted-value
@@ -84,8 +85,10 @@ scope and was not changed by this execution.
 
 Raw logs, independent reviews, input hashes, guarded integration manifest, and
 pre-cutover backups are retained in `/tmp/row-editor-collapse-20261005/`.
-The current source contract is in ADR 0504 and the Folder README. Earlier evidence
-below is retained for provenance rather than treated as current acceptance.
+The contract at the time was ADR 0504, since deleted; the current contract is
+[ADR-0523](../../../docs/adr/0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md)
+and the Folder README. Earlier evidence below is retained for provenance rather
+than treated as current acceptance.
 
 ## Historical migration evidence
 
@@ -94,8 +97,8 @@ and browser results describe that earlier source, not the current collapse.
 
 
 Status: In progress. This records implementation evidence, not acceptance of
-unfinished work. The accepted contract is ADR 0504 and the final flattened row
-union in `specs/20261005T015758-complete-row-editing.md`.
+unfinished work. The contract at the time was ADR 0504 and the final flattened
+row union in `specs/20261005T015758-complete-row-editing.md`, both since deleted.
 
 ## Current acceptance checkpoint
 

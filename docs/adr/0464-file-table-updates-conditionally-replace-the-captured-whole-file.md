@@ -25,7 +25,8 @@ them: the `tables.<name>` method row of
 (`inspect(source)`, `update(stem, change)`, `replace(snapshot, source)`) and
 the premise in [ADR-0479](0479-file-mutation-methods-express-publication-intent.md)
 that the table API receives a captured entry for edits. Where they differ,
-this record and ADR-0462 describe the current table methods.
+this record describes the table methods. [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) later
+removed `update` and reads every row through one pipeline.
 
 | Method | Table preparation and publication |
 | --- | --- |
@@ -78,7 +79,7 @@ neither the row nor the guard.
 preserves current unrelated text, including unknown keys, comments, quoting,
 ordering, byte-order marks, and untouched newline spans. A field-only update
 does not reserialize the body. Validation of a supplied field does not require
-unrelated stored fields to conform. Current text must parse under ADR-0462
+unrelated stored fields to conform. Current text must parse
 before any structured patch, including a body-only update. Parsing refusal and
 unsafe patching of successfully parsed text are distinct preparation failures.
 Both refuse without writing. A body assignment replaces the body deliberately;
@@ -116,7 +117,7 @@ recovery evidence. `Unconfirmed`, partial progress, I/O failures, and thrown
 calls never trigger automatic replay. No retry count or transform callback is
 exposed.
 
-`create`, `update`, and `replace` return the compact receipt ADR-0462 defines,
+`create`, `update`, and `replace` return a compact receipt,
 `{ stem, path, text, sha256 }`, for the submitted bytes. It is not a later
 reread and carries no reading. `rename` and `delete` return `undefined`. Table
 updates and replacements check no sibling filenames and infer no attachment
@@ -159,11 +160,10 @@ pending-ref journal is required solely to complete history.
   not force forwarding: a wrapper that passes `{}` of its own drops its
   caller's guard, and neither the type nor the runtime can tell.
 - KV preparation and publication follow their own contract; this row decision
-  does not change KV commands. The current retained canonical editor still uses
-  unconditional overwrite under ADR-0479. The [complete-row editor replacement](0504-row-editors-own-complete-input-and-one-publication-queue.md)
-  instead publishes through `table.replace(stem, text, {})`, so disappearance
-  before publication is reported rather than recreating the row. That editor
-  replacement is unbuilt; this record's ordinary mutation methods remain.
+  does not change KV commands. The retained canonical editor and its
+  unconditional overwrite are gone. An edit session under [ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md)
+  guards each save by the capture its previous save confirmed, so
+  disappearance before publication is `Conflict` rather than a recreated row.
 
 ## Considered alternatives
 

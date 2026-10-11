@@ -714,10 +714,8 @@ When you add an ADR, add its row here.
 | [0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) | SQLite is a local capability for derived or transactional state | Proposed (file-backed application stores and derived indexes unbuilt) |
 | [0460](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md) | Vocab and Whispering are Braden Wong's apps built on Epicenter | Proposed (personal-domain homes and Whispering ID migration unbuilt) |
 | [0461](0461-portable-data-folders-live-under-local-and-derived-account-scopes.md) | Portable data folders group by Local or account owner | Proposed (Whispering Local default implemented; account folders and explicit transfers unbuilt) |
-| [0462](0462-file-table-entries-carry-source-and-use-issues-for-conformance.md) | Table snapshots expose usable fields and source diagnostics | Proposed |
 | [0463](0463-queryable-exports-contain-completed-sqlite-snapshots.md) | Completed SQLite query exports are deferred | Proposed (historical proposal; SQL export has no caller and is not planned work) |
 | [0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) | File table updates conditionally replace the captured whole file | Proposed |
-| [0465](0465-editors-keep-unsaved-source-separate-from-the-saved-baseline.md) | Editors keep unsaved source separate from the saved baseline | Proposed (file-backed editor lifecycle unbuilt) |
 | [0466](0466-opened-media-provides-stable-input-bytes.md) | Opened media provides stable input bytes | Proposed (stable media reads and transcription migration unbuilt) |
 | [0467](0467-file-workflows-report-each-operations-outcome.md) | File workflows report each operation's outcome | Accepted |
 | [0468](0468-file-saves-succeed-independently-of-automatic-commits.md) | File saves succeed independently of automatic commits | Accepted (busy-attempt skipping amended by 0505, proposed) |
@@ -735,7 +733,6 @@ When you add an ADR, add its row here.
 | [0482](0482-folder-mutations-publish-one-file-at-a-time.md) | Folder mutations publish one file at a time | Accepted |
 | [0483](0483-honeycrisp-shares-one-canonical-editor-per-open-row.md) | Honeycrisp shares one canonical editor per open row | Superseded by 0523 |
 | [0484](0484-conflict-presentation-follows-the-edit-being-resolved.md) | Conflict presentation follows the edit being resolved | Proposed (consistent editor presentation unbuilt) |
-| [0485](0485-applications-choose-editor-observation-and-save-policies.md) | Applications choose editor observation and save policies | Proposed |
 | [0486](0486-folder-domain-methods-share-accounted-storage.md) | Folder domain methods share accounted storage | Proposed |
 | [0487](0487-kv-commands-distinguish-creation-from-current-source-updates.md) | One KV file exposes stored values; applications own defaults | Proposed |
 | [0488](0488-cloud-folders-use-independent-git-histories.md) | Cloud folders pair with independent private GitHub repositories | Proposed (unbuilt; GitHub connection, private creation, account pairing, credential and browser gates; first-party hosting evidence retained) |
@@ -751,19 +748,18 @@ When you add an ADR, add its row here.
 | [0501](0501-store-checkout-push-pull-and-its-baseline-are-removed.md) | Store checkout Pull/Push and its baseline are removed | Proposed (checkout removed; generic folder queries unbuilt; no replacement checkout or SQL export planned) |
 | [0502](0502-whispering-connections-own-request-destinations-and-credentials.md) | Whispering connections own request destinations and credentials | Accepted (cross-application execution and folder-independent credential storage unbuilt) |
 | [0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md) | File-authoritative workflows preserve information and tolerate repairable states | Proposed (application refusal review and simpler Honeycrisp folder deletion unbuilt) |
-| [0504](0504-row-editors-own-complete-input-and-one-publication-queue.md) | Row editors own complete input and one publication queue | Proposed (implementation and verification complete) |
 | [0505](0505-automatic-commits-carry-one-coalesced-request-until-the-folder-is-free.md) | Automatic commits carry one coalesced request until the folder is free | Proposed (amends 0468) |
 | [0506](0506-capture-composes-values-through-a-source-preserving-body-codec.md) | Capture composes values through a source-preserving body codec | Proposed |
-| [0507](0507-editor-views-compose-current-input-and-own-only-interaction-state.md) | Editor views compose current input and own only interaction state | Proposed |
 | [0509](0509-folder-remotes-and-http-fetch-have-separate-contracts.md) | Folder remotes and HTTP fetch have separate contracts | Proposed |
+| [0510](0510-authored-dataset-locations-are-independent-of-sign-in.md) | Authored dataset locations are independent of sign-in | Proposed (stable-location startup, transition of existing scoped folders, connection controls, and account-change acceptance unbuilt) |
 | [0512](0512-ai-reply-is-independent-of-openai-protocol-compatibility.md) | AI reply is independent of OpenAI protocol compatibility | Proposed (Zhongwen adoption and authenticated browser bridge unbuilt) |
-| [0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) | Snapshot saves serialize writes and retain only the latest pending text | Proposed (commits for late-confirmed saves unbuilt) |
+| [0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) | Snapshot saves serialize writes and retain only the latest pending text | Accepted (commits for late-confirmed saves unbuilt) |
 | [0517](0517-a-data-folder-can-live-inside-any-repository.md) | A data folder can live inside any repository | Proposed (epicenter.json discovery in apps, opener refusal inside a host, extraction tooling, and submodule-hosted opening unbuilt) |
-| [0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) | A row is read through one pipeline and repaired as text | Proposed (kv.json unbuilt) |
-| [0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) | Row frontmatter is YAML every common reader reads identically | Proposed (continuous cross-reader check unbuilt) |
+| [0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) | A row is read through one pipeline and repaired as text | Accepted (kv.json unbuilt) |
+| [0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) | Row frontmatter is YAML every common reader reads identically | Accepted (continuous cross-reader check unbuilt) |
 | [0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) | The CLI acts on a data folder by its path | Accepted (running outside an Epicenter checkout unbuilt) |
 | [0521](0521-a-data-folder-syncs-with-its-git-origin-through-a-provider.md) | A data folder syncs with its Git origin through a provider | Proposed (provider interface, repository-addressed GitHub transfers, listing by epicenter.json, and Artifacts provider unbuilt) |
-| [0522](0522-settings-are-independent-keys-set-one-at-a-time.md) | Settings are independent keys set one at a time | Proposed (application adoption and amending 0487 and 0499 unbuilt) |
-| [0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md) | Applications own drafts in edit sessions and leave one open item | Proposed (keyed slot for several open items unbuilt) |
-| [0525](0525-a-field-is-plain-json-schema.md) | A field is plain JSON Schema | Proposed |
-| [0526](0526-a-field-is-required-unless-declared-optional.md) | A field is required unless declared optional | Proposed |
+| [0522](0522-settings-are-independent-keys-set-one-at-a-time.md) | Settings are independent keys set one at a time | Proposed (application adoption and amending 0487 unbuilt) |
+| [0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md) | Applications own drafts in edit sessions and leave one open item | Accepted (keyed slot for several open items unbuilt) |
+| [0525](0525-a-field-is-plain-json-schema.md) | A field is plain JSON Schema | Accepted |
+| [0526](0526-a-field-is-required-unless-declared-optional.md) | A field is required unless declared optional | Accepted |

@@ -143,14 +143,14 @@ each other and which source information survives.
 
 ## File editor views
 
-Use [ADR-0507](../../../../docs/adr/0507-editor-views-compose-current-input-and-own-only-interaction-state.md)
-for workspace ownership and [the input patterns](input-ownership.md) for the
+Use [ADR-0523](../../../../docs/adr/0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md)
+for draft ownership and [the input patterns](input-ownership.md) for the
 choice between immediate editing and explicit submission.
 
-Files opens complete file text. A product list opens structured controls.
-Invalid files have a visible reason and an explicit repair route to Files;
-repairing text does not switch a mounted editor's interpretation. Do not add
-per-record Source/Fields tabs, raw mode, or automatic Source fallback.
+A product list opens structured controls. An invalid file shows its reason and
+opens as text, as below; repairing text does not switch a mounted editor's
+interpretation. Do not add per-record Source/Fields tabs, raw mode, or automatic
+Source fallback.
 
 The app owns each open file's draft in an edit session from
 `@epicenter/svelte/edit-session`: `createRowSession` for a valid row,

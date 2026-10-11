@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-30
 - **Relates:** [ADR-0480](0480-file-tables-own-only-their-markdown-row-files.md) proposes single-file rows; [ADR-0477](0477-file-folder-operations-tolerate-repairable-layout-disorder.md) bounds native layout guarantees.
-- **Implementation:** literal stem addressing with no portable-name rule, stem-addressed byte-preserving `rename(stem, nextStem, options)`, and the ADR-0462 snapshot contract in `@epicenter/folder`, consumed by Todos, Whispering, Honeycrisp, Capture, and Vocab.
+- **Implementation:** literal stem addressing with no portable-name rule, stem-addressed byte-preserving `rename(stem, nextStem, options)`, and the one read pipeline of ADR-0518 in `@epicenter/folder`, consumed by Todos, Whispering, Honeycrisp, Capture, and Vocab.
 - **Unbuilt:** nothing in `@epicenter/folder`. Reference repair stays a separate application capability, as below.
 
 ## Context
@@ -127,7 +127,7 @@ a separate application capability.
 Every representable literal stem is a row address, including an empty stem
 for `.md`, leading dots and trailing spaces. Folder scope and row membership
 checks remain; names produce no content issues or application reference gate.
-ADR-0462 separates captured source from parsing and field conformance.
+ADR-0518 reads a row's text, not its name, so a stem is never a row issue.
 Transfer may refuse paths the destination cannot represent; it does not
 retroactively invalidate the source name.
 

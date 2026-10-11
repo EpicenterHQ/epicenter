@@ -1,8 +1,8 @@
 # 0519. Row frontmatter is YAML every common reader reads identically
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-11
-- **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (the one writer), [ADR-0462](0462-file-table-entries-carry-source-and-use-issues-for-conformance.md) (row text and source)
+- **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (the one writer)
 - **Unbuilt:** a check that runs the cross-reader corpus in continuous integration, and readers beyond PyYAML and Ruby's Psych (Go `yaml.v2`, Java SnakeYAML) in that corpus.
 
 ## Context
