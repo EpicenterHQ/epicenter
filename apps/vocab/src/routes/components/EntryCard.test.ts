@@ -11,8 +11,8 @@
  * - The note is read-only until focusing it opens the word; each keystroke
  *   then saves
  * - A change made elsewhere merges first: only the note both changed is
- *   asked about, and Keep mine after Cancel keeps their other changes; a
- *   word deleted elsewhere asks Discard or Keep mine
+ *   reviewed, and Apply with either side keeps their other changes; a word
+ *   deleted elsewhere is reviewed too, and using your edit creates it again
  * - A stage pressed on a word that is not open saves it as listed
  * - Delete asks first; Cancel changes nothing, and confirming deletes it
  * - Opening another word after a failed save asks to discard it
@@ -109,6 +109,35 @@ async function setup(texts: string[]) {
 	};
 }
 
+const reviewGroups = (target: HTMLElement) => [
+	...target.querySelectorAll(
+		'form[aria-label="Review sync changes"] [role="group"]',
+	),
+];
+
+/** The names of the parts the review asks about. */
+const reviewedParts = (target: HTMLElement) =>
+	reviewGroups(target).map((group) => group.getAttribute('aria-label'));
+
+/** Press "Use this" on one side of every part in the review, then Apply. */
+function applyEvery(
+	target: HTMLElement,
+	side: 'Your edit' | 'Saved elsewhere',
+) {
+	const groups = reviewGroups(target);
+	if (groups.length === 0) throw new Error('Nothing is in review');
+	for (const group of groups) {
+		const buttons = [...group.querySelectorAll('button')].filter(
+			(button) => button.textContent?.trim() === 'Use this',
+		);
+		const button = buttons[side === 'Your edit' ? 0 : 1];
+		if (button === undefined) throw new Error(`No Use this for ${side}`);
+		click(target, button);
+	}
+	flushSync();
+	click(target, 'Apply');
+}
+
 const theirs = (stage: string) =>
 	`---\ntext: lucid\nnote: theirs\nstage: ${stage}\ncreatedAt: 2026-10-03T00:00:00.000Z\n---\n`;
 
@@ -139,17 +168,8 @@ test('a change made elsewhere to the note asks about the note only, and keeps th
 			target.querySelector('form[aria-label="Review sync changes"]') !== null,
 		'the review',
 	);
-	const parts = [...target.querySelectorAll('[role="group"]')].map((group) =>
-		group.getAttribute('aria-label'),
-	);
-	expect(parts).toEqual(['note']);
-	const useTheirs = [...target.querySelectorAll('button')].filter(
-		(button) => button.textContent?.trim() === 'Use this',
-	)[1];
-	if (useTheirs === undefined) throw new Error('No Use this for their note');
-	click(target, useTheirs);
-	flushSync();
-	click(target, 'Apply');
+	expect(reviewedParts(target)).toEqual(['note']);
+	applyEvery(target, 'Saved elsewhere');
 	await until(() => context.entries.unsaved === false, 'the save');
 	await until(() => note?.value === 'theirs', 'their note');
 	const chose = await context.file('lucid');
@@ -168,15 +188,12 @@ test('a change made elsewhere to the note asks about the note only, and keeps th
 			target.querySelector('form[aria-label="Review sync changes"]') !== null,
 		'the second review',
 	);
-	click(target, 'Cancel');
+	expect(reviewedParts(target)).toEqual(['note']);
+	applyEvery(target, 'Your edit');
 	await until(
-		() => target.textContent?.includes('This changed elsewhere') ?? false,
-		'the fallback choices',
-	);
-	click(target, 'Keep mine');
-	await until(
-		() => !(target.textContent?.includes('This changed elsewhere') ?? true),
-		'the prompt to close',
+		() =>
+			target.querySelector('form[aria-label="Review sync changes"]') === null,
+		'the review to close',
 	);
 	await until(() => context.entries.unsaved === false, 'the save');
 	const saved = await context.file('lucid');
@@ -184,7 +201,7 @@ test('a change made elsewhere to the note asks about the note only, and keeps th
 	expect(saved).toContain('stage: new');
 });
 
-test('a word deleted elsewhere asks Discard or Keep mine; Keep mine creates it again', async () => {
+test('a word deleted elsewhere is reviewed; using your edit creates it again, using theirs leaves it deleted', async () => {
 	await using context = await setup(['lucid']);
 	const { folder, target } = context;
 	const path = context.path('lucid');
@@ -195,7 +212,7 @@ test('a word deleted elsewhere asks Discard or Keep mine; Keep mine creates it a
 		() => target.textContent?.includes('This was deleted elsewhere') ?? false,
 		'the conflict',
 	);
-	click(target, 'Keep mine');
+	applyEvery(target, 'Your edit');
 	await until(
 		() =>
 			context.entries.unsaved === false &&
@@ -214,7 +231,7 @@ test('a word deleted elsewhere asks Discard or Keep mine; Keep mine creates it a
 		() => target.textContent?.includes('This was deleted elsewhere') ?? false,
 		'the second conflict',
 	);
-	click(target, 'Discard');
+	applyEvery(target, 'Saved elsewhere');
 	await until(() => context.entries.opened === undefined, 'the word to close');
 	expect(await fileText(folder, path)).toBeUndefined();
 });

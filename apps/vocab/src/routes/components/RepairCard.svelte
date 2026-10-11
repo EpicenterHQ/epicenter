@@ -44,7 +44,6 @@
 		review={session.review}
 		hideWhenSaved
 		onRetry={() => session.retry()}
-		onKeepMine={() => entries.keepMine(session)}
-		onReloadTheirs={() => entries.reloadTheirs(session)}
+		onResolve={(choices) => entries.resolve(session, choices)}
 	/>
 </section>

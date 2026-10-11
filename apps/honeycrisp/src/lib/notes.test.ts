@@ -9,10 +9,11 @@
  * Key behaviors:
  * - Opening a note writes nothing; each edit saves at once, and rapid edits
  *   write only the latest draft
- * - A change made elsewhere is a conflict: Reload theirs shows it, Keep mine
- *   saves the draft over it, and nothing is written until the person chooses
- * - A note deleted elsewhere is a conflict too: Keep mine creates it again,
- *   Discard closes it
+ * - A change made elsewhere merges with the draft; what both changed waits
+ *   in the session's review, and nothing is written until the person answers
+ *   it: their version, or the draft, part by part
+ * - A note deleted elsewhere is a review too: the draft creates it again,
+ *   their version leaves it deleted and closes it
  * - A draft that is not a valid row is never written
  * - A note whose text is not a valid row is named for repair, opens as text,
  *   saves as typed, and opens as a note once repaired
@@ -30,13 +31,14 @@
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import type { SyncChoices } from '@epicenter/folder';
 import {
 	type NotesFolderFixture,
 	noteText,
 	openNotesFolder,
 	until,
 } from './folder.test-support.js';
-import type { Notes } from './notes.svelte.js';
+import type { Notes, Session } from './notes.svelte.js';
 
 const { createNotes } = await import('./notes.svelte.ts');
 
@@ -76,6 +78,18 @@ function textSession(notes: Notes) {
 async function openNote(notes: Notes, path = A) {
 	expect((await notes.open(path)).kind).toBe('done');
 	return noteSession(notes);
+}
+
+/** One choice for every part of `session`'s review, all from `side`. */
+function choicesFrom(
+	session: Session,
+	side: 'local' | 'incoming',
+): SyncChoices {
+	const conflicts = session.review?.conflicts;
+	if (conflicts === undefined) throw new Error('Expected a review');
+	return Object.fromEntries(
+		conflicts.map((conflict) => [conflict.id, { kind: 'take', side }]),
+	);
 }
 
 const writesTo = (disk: NotesFolderFixture, path: string) =>
@@ -163,17 +177,42 @@ test('a failed save keeps the draft, and Try again saves it', async () => {
 // Conflicts
 // ============================================================================
 
-test('a change made elsewhere is a conflict; Reload theirs shows it without writing', async () => {
+test('a change made elsewhere to another field merges with no question', async () => {
 	const { notes, disk } = await open();
 	const session = await openNote(notes);
-	disk.put(A, noteText({ title: 'Theirs', body: 'Theirs.\n' }));
+	disk.put(A, noteText({ title: 'Theirs', body: 'One.\n' }));
+	session.edit((row) => {
+		row.body = 'Mine.\n';
+	});
+	expect((await session.settled()).status).toBe('saved');
+	expect(session.review).toBeUndefined();
+	expect(session.draft.fields.title).toBe('Theirs');
+	expect(session.draft.body).toBe('Mine.\n');
+	expect(disk.text(A)).toContain('title: Theirs');
+	expect(disk.text(A)).toContain('Mine.\n');
+});
+
+test('what both changed waits in a review; taking theirs shows the file and remounts the rich-text view', async () => {
+	const { notes, disk } = await open();
+	const session = await openNote(notes);
+	const theirs = noteText({ title: 'Theirs', body: 'Theirs.\n' });
+	disk.put(A, theirs);
 	session.edit((row) => {
 		row.body = 'Mine.\n';
 	});
 	const settled = await session.settled();
 	expect(settled.status === 'error' && settled.error.name).toBe('Conflict');
+	expect(session.review?.conflicts.map((conflict) => conflict.kind)).toEqual([
+		'body',
+	]);
+	// Nothing is written until the person answers.
+	expect(disk.text(A)).toBe(theirs);
+	expect(session.draft.body).toBe('Mine.\n');
 	const generation = session.generation;
-	expect(await notes.reloadTheirs(session)).toBeUndefined();
+	expect(
+		await notes.resolve(session, choicesFrom(session, 'incoming')),
+	).toBeUndefined();
+	expect(session.review).toBeUndefined();
 	expect(session.draft.fields.title).toBe('Theirs');
 	expect(session.draft.body).toBe('Theirs.\n');
 	// The rich-text view remounts on this.
@@ -182,21 +221,25 @@ test('a change made elsewhere is a conflict; Reload theirs shows it without writ
 	expect(disk.text(A)).toContain('Theirs.\n');
 });
 
-test('Keep mine takes the draft where both changed and keeps what changed elsewhere in other fields', async () => {
+test('taking my edit where both changed keeps what changed elsewhere in other fields', async () => {
 	const { notes, disk } = await open();
 	const session = await openNote(notes);
 	disk.put(A, noteText({ title: 'Theirs', body: 'Theirs.\n' }));
 	session.edit((row) => {
 		row.body = 'Mine.\n';
 	});
-	expect((await session.settled()).status).toBe('error');
-	expect(await notes.keepMine(session)).toBeUndefined();
+	await session.settled();
+	expect(
+		await notes.resolve(session, choicesFrom(session, 'local')),
+	).toBeUndefined();
 	expect((await session.settled()).status).toBe('saved');
+	expect(session.draft.fields.title).toBe('Theirs');
+	expect(session.draft.body).toBe('Mine.\n');
 	expect(disk.text(A)).toContain('Mine.\n');
 	expect(disk.text(A)).toContain('title: Theirs');
 });
 
-test('a note deleted elsewhere: Keep mine creates it again from the draft', async () => {
+test('a note deleted elsewhere: taking my edit creates it again from the draft', async () => {
 	const { notes, disk } = await open();
 	const session = await openNote(notes);
 	disk.drop(A);
@@ -209,14 +252,21 @@ test('a note deleted elsewhere: Keep mine creates it again from the draft', asyn
 			settled.error.name === 'Conflict' &&
 			settled.error.actualSha256,
 	).toBeUndefined();
+	const conflicts = session.review?.conflicts ?? [];
+	expect(conflicts).toHaveLength(1);
+	expect(conflicts[0]?.kind === 'file' && conflicts[0].incoming.present).toBe(
+		false,
+	);
 	expect(disk.text(A)).toBeUndefined();
-	expect(await notes.keepMine(session)).toBeUndefined();
+	expect(
+		await notes.resolve(session, choicesFrom(session, 'local')),
+	).toBeUndefined();
 	expect((await session.settled()).status).toBe('saved');
 	expect(disk.text(A)).toContain('Still mine.\n');
 	expect(notes.notes.some((note) => note.path === A)).toBe(true);
 });
 
-test('a note deleted elsewhere: Discard closes it without writing', async () => {
+test('a note deleted elsewhere: taking theirs leaves it deleted and closes it', async () => {
 	const { notes, disk } = await open();
 	const session = await openNote(notes);
 	disk.drop(A);
@@ -224,22 +274,31 @@ test('a note deleted elsewhere: Discard closes it without writing', async () => 
 		row.body = 'Mine.\n';
 	});
 	await session.settled();
-	expect(await notes.reloadTheirs(session)).toBeUndefined();
+	expect(
+		await notes.resolve(session, choicesFrom(session, 'incoming')),
+	).toBeUndefined();
 	expect(notes.opened).toBeUndefined();
 	expect(disk.text(A)).toBeUndefined();
 	expect(notes.notes.some((note) => note.path === A)).toBe(false);
 });
 
-test('Reload theirs of a note made invalid elsewhere opens its text for repair', async () => {
+test('a note made invalid elsewhere: taking theirs keeps its text and opens it for repair', async () => {
 	const { notes, disk } = await open();
 	const session = await openNote(notes);
-	disk.put(A, '---\ntitle: [broken\n---\nTheirs.\n');
+	const broken = '---\ntitle: [broken\n---\nTheirs.\n';
+	disk.put(A, broken);
 	session.edit((row) => {
 		row.body = 'Mine.\n';
 	});
 	await session.settled();
-	expect(await notes.reloadTheirs(session)).toBeUndefined();
-	expect(textSession(notes).draft).toBe('---\ntitle: [broken\n---\nTheirs.\n');
+	expect(session.review?.conflicts.map((conflict) => conflict.kind)).toEqual([
+		'file',
+	]);
+	expect(
+		await notes.resolve(session, choicesFrom(session, 'incoming')),
+	).toBeUndefined();
+	expect(textSession(notes).draft).toBe(broken);
+	expect(disk.text(A)).toBe(broken);
 });
 
 test('returning to the window lists again and an idle open note takes the newer file', async () => {
@@ -335,7 +394,7 @@ test('opening the open note again changes nothing, even when its save failed', a
 	expect(session.draft.body).toBe('Mine.\n');
 });
 
-test('a discard after Reload theirs reopened the item applies to the session the open answered', async () => {
+test('a discard after a resolved review reopened the item applies to the session the open answered', async () => {
 	const { notes, disk } = await open();
 	const before = await openNote(notes);
 	disk.put(A, '---\ntitle: [broken\n---\nTheirs.\n');
@@ -343,7 +402,9 @@ test('a discard after Reload theirs reopened the item applies to the session the
 		row.body = 'Mine.\n';
 	});
 	await before.settled();
-	expect(await notes.reloadTheirs(before)).toBeUndefined();
+	expect(
+		await notes.resolve(before, choicesFrom(before, 'incoming')),
+	).toBeUndefined();
 	const text = textSession(notes);
 	disk.failWrites();
 	text.input('---\ntitle: [still broken\n---\nMine.\n');

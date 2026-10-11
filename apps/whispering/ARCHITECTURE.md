@@ -561,9 +561,17 @@ draft. A draft that is not a valid row is refused as `InvalidValues` and
 never written. Text typed into a field is kept well formed: a lone surrogate
 becomes U+FFFD, as a file holds it. Every write is guarded by the bytes the
 session last saved, so a change made elsewhere, or a deleted file, is
-`Conflict`, and the save bar asks: Reload theirs or Keep mine. Keep mine
-recreates a file deleted elsewhere, except a recording, whose audio may be
-gone too: for that it offers only Discard. Returning to the window takes a
+`Conflict`. The session then asks the folder to merge the draft with the
+file: a row field by field, text by line. Changes that do not overlap are
+written with no question, and the draft becomes the result. Parts both
+changed, a file deleted elsewhere, and a file that no longer reads as a row
+become the session's review, which the save bar shows with "Your edit" and
+"Saved elsewhere" for each part. Apply answers every part at once
+(`library.resolveReview`); there is no Cancel, because the draft is waiting
+to be saved. A recording's session merges with `restore: false`: one
+deleted elsewhere is never created again, since its audio may be gone too,
+so the folder refuses Your edit beside that part and Saved elsewhere closes
+it. Returning to the window takes a
 newer version of a draft that holds nothing unsaved; otherwise the next save
 reports the change. The lists are read when the page opens, after the app's
 own actions, and on return (window focus, or the page becoming visible); a
@@ -808,7 +816,7 @@ attached and says so (`injection-launch`).
 | `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove, moving an earlier build's key. Pure; stores nothing. |
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
 | `src/lib/post-processing.ts` | What the post-processing choice is now, read against the listed transformations and the recipe resolver. It runs nothing. |
-| `src/lib/library.svelte.ts` | Product state: lists, selections, open drafts, pending captures, settings, and the conflict commands. |
+| `src/lib/library.svelte.ts` | Product state: lists, selections, open drafts, pending captures, settings, and the command that answers a draft's review. |
 | `src/lib/drafts.svelte.ts` | The open files, one edit session each. |
 | `src/lib/runs.svelte.ts` | Transcription and recipe runs, and `createOnce` for their result rows. |
 | `src/lib/deletion.ts` | What a deletion removes, captured from fresh reads, and the removal. |

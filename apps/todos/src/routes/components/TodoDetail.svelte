@@ -63,8 +63,7 @@
 		save={session.state}
 		review={session.review}
 		onRetry={() => session.retry()}
-		onKeepMine={() => todos.keepMine(session)}
-		onReloadTheirs={() => todos.reloadTheirs(session)}
+		onResolve={(choices) => todos.resolve(session, choices)}
 	/>
 
 	<div class="flex min-h-48 flex-1 flex-col px-3 py-3 sm:px-4">

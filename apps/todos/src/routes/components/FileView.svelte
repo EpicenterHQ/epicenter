@@ -93,8 +93,7 @@
 			save={session.state}
 			review={session.review}
 			onRetry={() => session.retry()}
-			onKeepMine={() => todos.keepMine(session)}
-			onReloadTheirs={() => todos.reloadTheirs(session)}
+			onResolve={(choices) => todos.resolve(session, choices)}
 		/>
 		{#if issues}
 			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="row-issues">

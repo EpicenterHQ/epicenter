@@ -8,10 +8,12 @@
  * - An open draft saves each edit at once, and rapid edits write only the
  *   latest draft
  * - A draft that is not a valid row is never written
- * - A change made elsewhere is a conflict: Reload theirs shows it, Keep mine
- *   saves the draft over it, and nothing is written until the person chooses
- * - A transcript deleted elsewhere: Keep mine creates it again. A recording
- *   deleted elsewhere offers only Discard, which closes it
+ * - A change made elsewhere to other fields merges with no question. Parts
+ *   both changed become a review, and nothing more is written until the
+ *   person answers it: Saved elsewhere takes theirs, Your edit saves the draft
+ * - A transcript deleted elsewhere: Your edit creates it again. A recording
+ *   deleted elsewhere is never restored, since its audio may be gone too:
+ *   Your edit is refused, and Saved elsewhere closes it
  * - A row whose text is not a valid row opens as text with its issues, saves
  *   as typed, and opens as fields once repaired
  * - A deletion waits for the open draft's saves and deletes what the last one
@@ -38,6 +40,7 @@ import {
 	whisperingDefinition,
 } from './definition.js';
 import { describeDeletion } from './deletion.js';
+import { allFrom } from './drafts.test-support.js';
 import type { Library } from './library.svelte.js';
 import { holdCloses } from './opfs-holds.test-support.js';
 import { openTestWorkspace } from './workspace.test-support.js';
@@ -226,28 +229,70 @@ test('a failed save keeps the draft and holds the close; Try again saves it', as
 });
 
 // ============================================================================
-// The conflict prompt
+// A change made elsewhere
 // ============================================================================
 
-test('a change made elsewhere is a conflict, and Reload theirs shows it without writing', async () => {
+/** The kind of each part of `session`'s review, and the field it names. */
+function parts(session: RowSession<RecordingFields | TranscriptionFields>) {
+	return session.review?.conflicts.map((conflict) =>
+		conflict.kind === 'field'
+			? `field:${conflict.field}`
+			: conflict.kind === 'file'
+				? `file:${conflict.incoming.present ? 'present' : 'deleted'}`
+				: conflict.kind,
+	);
+}
+
+const DELETED_HERE =
+	'This file was deleted elsewhere and cannot be restored here';
+
+test('a change made elsewhere to other parts merges with no review, and the draft shows both', async () => {
 	const { library } = await open();
 	const session = await record(library);
-	const theirs = recordingText('Theirs', session.draft.fields.audioPath);
+	const saved = await text(library, session.path);
+	if (saved === undefined) throw new Error('Expected the recording saved');
+	await writeElsewhere(library, session.path, `${saved}Their notes.\n`);
+	session.edit((row) => {
+		row.fields.title = 'Mine';
+	});
+	expect((await session.settled()).status).toBe('saved');
+
+	expect(session.review).toBeUndefined();
+	expect(session.draft.fields.title).toBe('Mine');
+	expect(session.draft.body).toBe('Their notes.\n');
+	expect(await text(library, session.path)).toBe(
+		`${saved.replace(/^title: .*$/m, 'title: Mine')}Their notes.\n`,
+	);
+});
+
+test('a field both changed is a review that writes nothing, and Saved elsewhere takes theirs', async () => {
+	const { library, counter } = await open();
+	const session = await record(library);
+	const saved = await text(library, session.path);
+	if (saved === undefined) throw new Error('Expected the recording saved');
+	const theirs = saved.replace(/^title: .*$/m, 'title: Theirs');
 	await writeElsewhere(library, session.path, theirs);
 	session.edit((row) => {
 		row.fields.title = 'Mine';
 	});
 	const state = await session.settled();
 	expect(state.status === 'error' && state.error.name).toBe('Conflict');
+	expect(parts(session)).toEqual(['field:title']);
 	expect(await text(library, session.path)).toBe(theirs);
+	const writes = counter.mdWrites;
 
-	expect(await library.reloadTheirs(session)).toBeUndefined();
+	expect(
+		await library.resolveReview(session, allFrom(session, 'incoming')),
+	).toBeUndefined();
+	// Theirs is what the file holds: nothing is written.
+	expect(counter.mdWrites).toBe(writes);
+	expect(session.review).toBeUndefined();
 	expect(session.draft.fields.title).toBe('Theirs');
 	expect(session.state.status).toBe('saved');
 	expect(await text(library, session.path)).toBe(theirs);
 });
 
-test('Keep mine saves the draft over a change made elsewhere', async () => {
+test('Your edit saves the draft over a field changed elsewhere', async () => {
 	const { library } = await open();
 	const session = await record(library);
 	await writeElsewhere(
@@ -259,14 +304,17 @@ test('Keep mine saves the draft over a change made elsewhere', async () => {
 		row.fields.title = 'Mine';
 	});
 	await session.settled();
-	expect(library.canKeepMine(session)).toBe(true);
+	expect(parts(session)).toEqual(['field:title']);
 
-	expect(await library.keepMine(session)).toBeUndefined();
+	expect(
+		await library.resolveReview(session, allFrom(session, 'local')),
+	).toBeUndefined();
 	expect((await session.settled()).status).toBe('saved');
+	expect(session.review).toBeUndefined();
 	expect(await text(library, session.path)).toContain('title: Mine');
 });
 
-test('a transcript deleted elsewhere is a conflict: Keep mine creates it again from the draft', async () => {
+test('a transcript deleted elsewhere is a review of the whole file: Your edit creates it again from the draft', async () => {
 	const { library } = await open();
 	await record(library);
 	const session = await transcript(library);
@@ -274,20 +322,18 @@ test('a transcript deleted elsewhere is a conflict: Keep mine creates it again f
 	session.edit((row) => {
 		row.body = 'Mine, kept.\n';
 	});
-	const state = await session.settled();
-	expect(
-		state.status === 'error' &&
-			state.error.name === 'Conflict' &&
-			state.error.actualSha256,
-	).toBeUndefined();
+	await session.settled();
+	expect(parts(session)).toEqual(['file:deleted']);
 	expect(await text(library, session.path)).toBeUndefined();
 
-	expect(library.canKeepMine(session)).toBe(true);
-	expect(await library.keepMine(session)).toBeUndefined();
+	expect(
+		await library.resolveReview(session, allFrom(session, 'local')),
+	).toBeUndefined();
+	expect(session.review).toBeUndefined();
 	expect(await text(library, session.path)).toContain('Mine, kept.');
 });
 
-test('a recording deleted elsewhere offers only Discard, which closes it without writing', async () => {
+test('a recording deleted elsewhere is never restored: Your edit is refused with the reason shown, and Saved elsewhere closes it', async () => {
 	const { library } = await open();
 	const session = await record(library);
 	const path = session.path;
@@ -296,20 +342,28 @@ test('a recording deleted elsewhere offers only Discard, which closes it without
 		row.fields.title = 'Mine';
 	});
 	await session.settled();
+	expect(parts(session)).toEqual(['file:deleted']);
 
 	// Its audio may be gone too, so it is not created again.
-	expect(library.canKeepMine(session)).toBe(false);
-	expect(await library.keepMine(session)).toContain('cannot be restored');
+	expect(
+		await library.resolveReview(session, allFrom(session, 'local')),
+	).toBeDefined();
+	expect(session.review?.problems.map((problem) => problem.message)).toEqual([
+		DELETED_HERE,
+	]);
 	expect(await text(library, path)).toBeUndefined();
+	expect(library.draftAt(path)).toBeDefined();
 
-	expect(await library.reloadTheirs(session)).toBeUndefined();
+	expect(
+		await library.resolveReview(session, allFrom(session, 'incoming')),
+	).toBeUndefined();
 	expect(library.draftAt(path)).toBeUndefined();
 	expect(library.selection).toBeUndefined();
 	expect(await text(library, path)).toBeUndefined();
 	expect(await library.prepareToLeave()).toBe(true);
 });
 
-test('Keep mine never restores a recording deleted after its conflict was shown; only Discard is left', async () => {
+test('a recording deleted after its review was shown is never restored: the review becomes its deletion, and only Saved elsewhere is accepted', async () => {
 	const { library } = await open();
 	const session = await record(library);
 	const path = session.path;
@@ -322,35 +376,50 @@ test('Keep mine never restores a recording deleted after its conflict was shown;
 		row.fields.title = 'Mine';
 	});
 	await session.settled();
-	// Changed elsewhere, not deleted: Keep mine is offered.
-	expect(library.canKeepMine(session)).toBe(true);
+	expect(parts(session)).toEqual(['field:title']);
 
 	// Another writer deletes it before the person chooses.
 	await deleteElsewhere(library, path);
-	expect(await library.keepMine(session)).toContain('cannot be restored');
+	expect(
+		await library.resolveReview(session, allFrom(session, 'local')),
+	).toBeDefined();
+	await session.settled();
 	expect(await text(library, path)).toBeUndefined();
-	expect(library.canKeepMine(session)).toBe(false);
+	expect(parts(session)).toEqual(['file:deleted']);
 
-	expect(await library.reloadTheirs(session)).toBeUndefined();
+	expect(
+		await library.resolveReview(session, allFrom(session, 'local')),
+	).toBeDefined();
+	expect(session.review?.problems.map((problem) => problem.message)).toEqual([
+		DELETED_HERE,
+	]);
+	expect(await text(library, path)).toBeUndefined();
+
+	expect(
+		await library.resolveReview(session, allFrom(session, 'incoming')),
+	).toBeUndefined();
 	expect(library.draftAt(path)).toBeUndefined();
 	expect(await text(library, path)).toBeUndefined();
 });
 
-test('Reload theirs of a recording made invalid elsewhere opens its text with the issues', async () => {
+test('a recording made invalid elsewhere: Saved elsewhere keeps that text and opens it as text with the issues', async () => {
 	const { library } = await open();
 	const session = await record(library);
-	await writeElsewhere(library, session.path, '---\ntitle: [unclosed\n---\n');
+	const invalid = '---\ntitle: [unclosed\n---\n';
+	await writeElsewhere(library, session.path, invalid);
 	session.edit((row) => {
 		row.fields.title = 'Mine';
 	});
 	await session.settled();
+	expect(parts(session)).toEqual(['file:present']);
 
-	expect(await library.reloadTheirs(session)).toBeUndefined();
+	expect(
+		await library.resolveReview(session, allFrom(session, 'incoming')),
+	).toBeUndefined();
 	const draft = library.selection?.draft;
 	expect(draft?.kind).toBe('text');
-	expect(draft?.kind === 'text' && draft.session.draft).toBe(
-		'---\ntitle: [unclosed\n---\n',
-	);
+	expect(draft?.kind === 'text' && draft.session.draft).toBe(invalid);
+	expect(await text(library, session.path)).toBe(invalid);
 });
 
 // ============================================================================

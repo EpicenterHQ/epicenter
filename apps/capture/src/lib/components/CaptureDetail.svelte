@@ -131,8 +131,7 @@
 		review={session.review}
 		class="rounded-md border"
 		onRetry={() => session.retry()}
-		onKeepMine={() => captures.keepMine(session)}
-		onReloadTheirs={() => captures.reloadTheirs(session)}
+		onResolve={(choices) => captures.resolve(session, choices)}
 	/>
 
 	{#if form.refusal}

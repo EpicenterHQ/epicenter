@@ -11,7 +11,8 @@
  *   input behind it, so input superseded while a write runs is never written
  * - a save that failed, or whose reply was lost, stays on screen and holds the
  *   close while unresolved; Save again writes the current draft
- * - another writer's change is a conflict, and Reload theirs takes it
+ * - another writer's change to the same part is a review that writes
+ *   nothing, and Saved elsewhere takes it
  * - a deletion waits for the open draft's saves, and one whose reply was lost
  *   recreates nothing
  *
@@ -23,8 +24,7 @@ import '../svelte-modules.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import { whisperingDefinition } from '../definition.js';
-import { transformationSession } from '../drafts.test-support.js';
-import type { Library } from '../library.svelte.js';
+import { allFrom, transformationSession } from '../drafts.test-support.js';
 import { deferred, openTestWorkspace } from '../workspace.test-support.js';
 import { createScriptedOwner } from './scripted-owner.test-support.js';
 import { WHISPERING_FOLDER_ID, type Workspace } from './types.js';
@@ -168,7 +168,7 @@ test('a refused save keeps the draft on screen; Try again saves it', async () =>
 	expect(owner.text(PATH)).toContain('Mine.\n');
 });
 
-test('another writer’s change is a conflict, and Reload theirs takes it without writing', async () => {
+test('another writer’s change to the same body is a review, and Saved elsewhere takes it without writing', async () => {
 	const { library, session } = await open({ [PATH]: SEED });
 	const theirs = SEED.replace('Tidy.', 'Theirs.');
 	owner.write(PATH, theirs);
@@ -176,9 +176,14 @@ test('another writer’s change is a conflict, and Reload theirs takes it withou
 	type(session, 'Mine.\n');
 	const state = await session.settled();
 	expect(state.status === 'error' && state.error.name).toBe('Conflict');
+	expect(session.review?.conflicts.map((conflict) => conflict.kind)).toEqual([
+		'body',
+	]);
 	expect(changes()).toEqual([]);
 
-	expect(await library.reloadTheirs(session)).toBeUndefined();
+	expect(
+		await library.resolveReview(session, allFrom(session, 'incoming')),
+	).toBeUndefined();
 	expect(session.draft.body).toBe('Theirs.\n');
 	expect(changes()).toEqual([]);
 });

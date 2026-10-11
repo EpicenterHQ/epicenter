@@ -103,9 +103,7 @@
 			save={row.state}
 			review={row.review}
 			onRetry={() => row.retry()}
-			onReloadTheirs={() => library.reloadTheirs(row)}
-			gone={!library.canKeepMine(row)}
-			onKeepMine={library.canKeepMine(row) ? () => library.keepMine(row) : undefined}
+			onResolve={(choices) => library.resolveReview(row, choices)}
 		/>
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<p class="text-xs text-muted-foreground">
@@ -130,9 +128,7 @@
 			save={text.session.state}
 			review={text.session.review}
 			onRetry={() => text.session.retry()}
-			onReloadTheirs={() => library.reloadTheirs(text.session)}
-			gone={!library.canKeepMine(text.session)}
-			onKeepMine={library.canKeepMine(text.session) ? () => library.keepMine(text.session) : undefined}
+			onResolve={(choices) => library.resolveReview(text.session, choices)}
 		/>
 		{#if issues}
 			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">

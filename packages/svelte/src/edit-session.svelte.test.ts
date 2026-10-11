@@ -10,8 +10,9 @@
  * - A save refused by a change elsewhere asks the folder to merge from the
  *   value the session last saved, not the one it opened
  * - What the folder wrote becomes the draft, with no review
- * - Held parts become a review that locks input; Apply writes and unlocks
- * - A refused Apply keeps the review; a further change starts a new one
+ * - Held parts become a review that locks input; `resolve` writes and unlocks
+ * - A refused `resolve` keeps the review with its problems; a further change
+ *   elsewhere starts a new one
  */
 import './svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
@@ -90,9 +91,6 @@ function storedText(
 		async reread() {
 			return Ok({ kind: 'value' as const, file: capture(), value: file.text });
 		},
-		async recreate() {
-			return Ok(capture());
-		},
 		async merge(_path: string, versions: { base: string; ours: string }) {
 			asked.push(versions);
 			return Ok(answer(versions));
@@ -134,7 +132,7 @@ test('a change elsewhere is merged from the last saved value, and what the folde
 	expect(stored.session.draft).toBe('merged');
 });
 
-test('held parts become a review that locks input, and Apply writes the choices and unlocks', async () => {
+test('held parts become a review that locks input, and resolve writes the choices and unlocks', async () => {
 	const stored = storedText('a', () => {
 		const over = stored.capture();
 		return {
@@ -154,14 +152,14 @@ test('held parts become a review that locks input, and Apply writes the choices 
 	expect(stored.session.locked).toBe(true);
 	expect(stored.text).toBe('theirs');
 
-	expect((await review?.apply({}))?.error).toBeNull();
+	expect((await stored.session.resolve({})).data).toBe('shown');
 	expect(stored.session.review).toBeUndefined();
 	expect(stored.session.locked).toBe(false);
 	expect(stored.session.draft).toBe('chosen');
 	expect(stored.text).toBe('chosen');
 });
 
-test('a refused Apply keeps the review, and a further change elsewhere starts a new one', async () => {
+test('a refused resolve keeps the review with its problems, and a further change elsewhere starts a new one', async () => {
 	let refuse = true;
 	const stored = storedText('a', () => {
 		const over = stored.capture();
@@ -184,14 +182,17 @@ test('a refused Apply keeps the review, and a further change elsewhere starts a 
 	await stored.session.settled();
 	const first = stored.session.review;
 
-	expect((await first?.apply({}))?.error?.name).toBe('InvalidChoices');
-	expect(stored.session.review).toBe(first);
+	expect((await stored.session.resolve({})).error?.name).toBe('InvalidChoices');
+	expect(stored.session.review?.id).toBe(first?.id);
+	expect(stored.session.review?.problems).toEqual([
+		{ conflictId: 'title', reason: 'missing', message: 'Choose' },
+	]);
 
 	refuse = false;
 	stored.writeElsewhere('theirs again');
-	expect((await first?.apply({}))?.error?.name).toBe('Conflict');
+	expect((await stored.session.resolve({})).error?.name).toBe('Conflict');
 	await stored.session.settled();
 	expect(stored.session.review).toBeDefined();
-	expect(stored.session.review).not.toBe(first);
+	expect(stored.session.review?.id).not.toBe(first?.id);
 	expect(stored.asked).toHaveLength(2);
 });

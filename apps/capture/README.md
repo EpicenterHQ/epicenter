@@ -61,15 +61,19 @@ are not UTF-8 text are listed apart and not opened.
   as text to write unfinished Markdown.
 - When the file changed elsewhere since this window last saved or read it,
   the save merges your text with that version first. Changes to different
-  fields, or to different lines, combine and save with no question. When
-  both changed the same field or lines, a review shows only those parts,
-  with your edit, the version saved elsewhere, and a result; **Apply** saves
-  your choices over that version. **Cancel** leaves **Reload theirs**, which
-  shows their version in place of your text, and **Keep mine**, which keeps
-  your text where both changed and their changes everywhere else. When the file
-  was deleted elsewhere, the choices are **Discard**, which closes the
-  capture, and **Keep mine**, which creates the file again from your text.
-  Nothing is written until you choose.
+  fields, or to different lines, combine and save with no question, and the
+  capture shows the result. When both changed the same field or lines, a
+  review shows only those parts, each with **Your edit**, **Saved
+  elsewhere**, and a result. **Use this** takes one side for a part, and
+  with more than one part, **Use all from Your edit** or **Use all from
+  Saved elsewhere** takes one side for all of them. **Apply** saves every
+  answer at once over that version. There is no Cancel: your text waits in
+  the review until you apply, and leaving the capture asks to discard it.
+  A file deleted elsewhere is one part: Your edit creates the file again
+  from your text, and Saved elsewhere leaves it deleted and closes the
+  capture. A file that no longer reads as a capture is one part too: Saved
+  elsewhere keeps their text and opens it as text. Nothing is written until
+  you apply.
 - A save that fails for another reason keeps your text, names the failure,
   and offers **Try again**. A save whose reply was lost is checked with one read: if your
   text is there, it is saved. Otherwise the window says it may or may not be
@@ -77,7 +81,7 @@ are not UTF-8 text are listed apart and not opened.
 - A value the file cannot hold is never written; the bar names it, and the
   next valid change saves. Text you type is kept well formed, so a lone
   surrogate becomes U+FFFD as you type and what saves is what you see.
-- Typing is paused while Keep mine or Reload theirs runs.
+- Typing is paused while a merge or Apply runs.
 - The first save of a file written by hand rewrites its frontmatter in the
   standard form: plain YAML, `capturedAt` first, keys Capture does not
   declare kept. Comments and custom quoting in the frontmatter are not kept.
@@ -86,13 +90,12 @@ are not UTF-8 text are listed apart and not opened.
   file's line endings. Issues are read live from the text, each with its
   line.
 - A thought edit names the thought it started from. If that thought changed
-  before you save (Reload theirs, or a newer version taken on return), the
+  before you save (a review answered, or a newer version taken on return), the
   edit is not applied and its text stays in the form to copy.
 - The timeline reads the folder when the page opens, after each of your own
   actions, and when you return to the window. Returning also takes a newer
   version of the open capture when it holds nothing unsaved and no thought
-  typed and not added; otherwise the next save reports the change as a
-  conflict.
+  typed and not added; otherwise the next save merges with the change.
 - Opening and listing captures write nothing.
 - **Git is separate.** A file that saved is saved. If the commit that records
   it fails, a "History was not recorded" notice says so and offers the commit
@@ -162,7 +165,8 @@ working-copy directory (`~/Epicenter/so.epicenter.capture` in production).
 The timeline shows the directory. Edit the files with any program: Capture
 reads the folder again when the window regains focus or becomes visible. An
 open capture takes another program's edit then if it holds nothing unsaved;
-otherwise its next save asks Reload theirs or Keep mine.
+otherwise its next save merges with it, and asks only about parts both
+changed.
 
 The Epicenter desktop shell owns that directory, through the shared folder
 plugin in
@@ -295,7 +299,7 @@ What the shared client does for this page:
   lost or refused answer never gives it back; a nudge, Check again, or focus
   while fenced reads the status again. Older statuses are ignored.
 - Settling waits for every action the page admitted (a create, an import,
-  Keep mine, Reload theirs, and a delete from the saves it waits for through
+  answering a review, and a delete from the saves it waits for through
   the delete itself) and for the open capture's saves. Closing the page waits
   for the same.
 
@@ -335,11 +339,11 @@ them.
 
 | Test | What it checks |
 | --- | --- |
-| `src/lib/captures.test.ts` | The store over a real browser folder: creating and listing, whole-row saves that keep undeclared metadata, rapid typing writing only the latest draft, a draft that is not a valid capture never written, a change the body cannot hold refused, the conflict prompt (Reload theirs, Keep mine) and deleted elsewhere (Keep mine recreates, Discard closes), repair as text and reopening as a capture, leaving with a failed save or an unadded thought, guarded delete after the saves land, adopting on return, a stale thought edit, departure, close, and import. |
+| `src/lib/captures.test.ts` | The store over a real browser folder: creating and listing, whole-row saves that keep undeclared metadata, rapid typing writing only the latest draft, a draft that is not a valid capture never written, a change the body cannot hold refused, a change made elsewhere merged with no question, a review answered from either side or refused with its problem, deleted elsewhere (your edit recreates it, theirs closes it), repair as text and reopening as a capture, leaving with a failed save or an unadded thought, guarded delete after the saves land, adopting on return, a stale thought edit, departure, close, and import. |
 | `src/lib/platform/folder.epicenter-host.test.ts` | The desktop leaf over the real folder adapter and the real store, with the shell's `invoke` and events scripted: refusals fail the open, departure is heard on this window only, closing detaches once and waits for saves, a save is one guarded replacement, an outside edit is a conflict, a lost reply is checked by a read, a failed commit and a closed folder are reported, and an interrupted import is finished by a retry. It does not run the Rust owner. |
 | `src/lib/platform/departure.test.ts` | The real store behind the shared departure client: a ready vote or a discard changes nothing it holds, and its open capture comes back unchanged after another page cancels. The client's own rules are tested in `apps/epicenter/src/departure-page.test.ts`. |
 | `src/lib/platform-selection.test.ts` | Which leaf each build bundles: the desktop bundle has the desktop adapter, of the host package only its departure wire, page client, and window port, and no browser adapter, browser storage, Git implementation, or Node module; the browser bundle has the browser adapter and no desktop adapter, generated bindings, or departure gate. |
-| `src/lib/components/capture-detail.mounted.test.ts`, `timeline.mounted.test.ts` | The real views mounted in jsdom over the real store: text and thoughts save, the conflict prompt's buttons, Discard and Keep mine after a delete elsewhere, repair as text with live issues and Open as capture, input refused while quitting, the New capture text box, and the repair list's Edit as text. jsdom has no layout, focus, selection, or IME. |
+| `src/lib/components/capture-detail.mounted.test.ts`, `timeline.mounted.test.ts` | The real views mounted in jsdom over the real store: text and thoughts save, a change elsewhere combined with no question, the review's Use this and Apply from either side, after a change and after a delete elsewhere, repair as text with live issues and Open as capture, input refused while quitting, the New capture text box, and the repair list's Edit as text. jsdom has no layout, focus, selection, or IME. |
 
 The Rust owner, its watcher, its lock, and its history are tested in
 `packages/tauri-plugin-epicenter-folder` and in
@@ -348,7 +352,7 @@ checked by hand in the Epicenter shell.
 
 | Script | What it checks |
 | --- | --- |
-| `bun run --cwd apps/capture smoke:browser` | The browser build in Chromium, with two pages sharing one folder: exact saved Markdown, thought edits, keyboard submit, Edit as text, the conflict prompt across pages, leave warnings, deletion, and an import. Needs a free local port and `bun x playwright install chromium`. |
+| `bun run --cwd apps/capture smoke:browser` | The browser build in Chromium, with two pages sharing one folder: exact saved Markdown, thought edits, keyboard submit, Edit as text, the conflict review across pages, leave warnings, deletion, and an import. Needs a free local port and `bun x playwright install chromium`. |
 | `bun apps/capture/scripts/recovery-harness.ts [dir] [bundle.json]` | A standalone tool, not the desktop backend: imports a bundle into a real directory twice, through `@epicenter/folder/bun` with an explicit author and no remote, and prints both reports. Exits nonzero if the retry creates anything. Run `bun run --filter @epicenter/folder build:addon` first, or use `bun run harness:recovery` here, which does. |
 
 ## Changed promises
@@ -361,8 +365,8 @@ shared edit sessions, and dropped several promises of the version before it:
   capture opens that way from the timeline's repair list.
 - Saves no longer win over changes made elsewhere, and there is no
   Reload from file. Every save, and every delete, is guarded by the version
-  this window last saved or read; a change made elsewhere is a conflict, and
-  Reload theirs lives in the conflict prompt.
+  this window last saved or read. A save that meets a change made elsewhere
+  merges with it, and asks only about the parts both changed.
 - One capture is open at a time. Moving between captures no longer keeps
   each capture's unsaved text, unadded thought, or failed save. Leaving one
   that holds any of it asks to discard it. Only the New capture text is kept
@@ -371,7 +375,8 @@ shared edit sessions, and dropped several promises of the version before it:
   capture in the URL; reloading returns to the timeline.
 - Save as a copy is gone, from every failure. So are Put the file back,
   Let it go, Discard my changes, and Check again for a removed file: a file
-  deleted elsewhere offers Keep mine, which creates it again, or Discard.
+  deleted elsewhere shows in the review, where your edit creates it again
+  and theirs leaves it deleted.
 - Deleting no longer shows the file for review. It asks a plain
   confirmation and deletes what this window saved last; a file changed
   elsewhere is not deleted, and the capture opens again as it is now.
@@ -388,7 +393,8 @@ shared edit sessions, and dropped several promises of the version before it:
 - Imported captures are written in the same plain YAML form, and a retry
   counts a file an earlier import wrote in another form as the same capture.
 - A thought typed and not added on a capture that stops reading as one
-  (after Reload theirs brings a layout the view cannot show) can no longer be
+  (after a review answered with their version brings a layout the view
+  cannot show) can no longer be
   added when the file is repaired. It stays on screen, read-only, to copy,
   and leaving or Edit as text asks before discarding it. The same holds for a
   thought edit not saved.
@@ -398,10 +404,10 @@ shared edit sessions, and dropped several promises of the version before it:
   browser build nothing shows them.
 - A failed save's text is no longer kept for a removed file on the
   timeline. A capture whose file is gone is not listed once you leave it.
-- Reload theirs of a file that can no longer be shown the way it is open (a
-  capture file that is now binary, say) no longer keeps your text with Keep
-  mine offered. It lets your text go and opens the file again as it reads
-  now, as a capture, as text, or as could not be opened.
+- Taking Saved elsewhere for a file that can no longer be shown the way it
+  is open (a capture file that is now binary, say) lets your text go and
+  opens the file again as it reads now, as a capture, as text, or as could
+  not be opened.
 - The save bar uses the wording every Epicenter app shares: "This changed
   elsewhere" rather than "This capture changed elsewhere", and a failed save
   names the failure in the bar instead of under "Show technical details".

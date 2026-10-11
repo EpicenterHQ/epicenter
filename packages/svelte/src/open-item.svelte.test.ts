@@ -8,7 +8,7 @@
  * - Opening the item already shown does nothing
  * - A load that answers after a newer open is released and never shown
  * - A failed save answers `unsaved` with its session; only that session's discard proceeds
- * - Reload theirs closes a gone file and reopens one that cannot be shown
+ * - Resolving a review closes a file left deleted and reopens one that cannot be shown
  * - `removeOpen` releases first, removes what the last save confirmed, and reopens when refused
  * - Keyed slots open and leave independently; a slot is dropped once it shows
  *   nothing and no command on it runs, and a late load is released even when
@@ -22,7 +22,7 @@ import './svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import type { FileCapture, SaveState } from '@epicenter/folder';
 import { Err, Ok } from 'wellcrafted/result';
-import type { Reread } from './edit-session.svelte.js';
+import type { Resolved } from './edit-session.svelte.js';
 import type { OpenSession } from './open-item.svelte.js';
 
 const { createOpenItem, createOpenItems } = await import(
@@ -37,11 +37,7 @@ function fakeSession(path: string) {
 		status: 'saved',
 		file: { path, sha256: 'a'.repeat(64) },
 	};
-	let reread: Reread<unknown, unknown> = {
-		kind: 'value',
-		file: state.file,
-		value: '',
-	};
+	let resolved: Resolved = 'shown';
 	const session = {
 		released: false,
 		get path() {
@@ -57,16 +53,16 @@ function fakeSession(path: string) {
 				file: state.file,
 			};
 		},
-		willReread(next: Reread<unknown, unknown>) {
-			reread = next;
+		/** What the next `resolve` finds the file holds. */
+		willResolve(next: Resolved) {
+			resolved = next;
 		},
 		settled: async () => state,
 		release() {
 			session.released = true;
 		},
 		adopt: async () => false,
-		keepMine: async () => Ok(undefined),
-		reloadTheirs: async () => Ok(reread),
+		resolve: async () => Ok(resolved),
 	};
 	return session satisfies OpenSession;
 }
@@ -139,26 +135,22 @@ test('a failed save answers unsaved with its session, and only its discard proce
 	expect(open.item?.key).toBe('b');
 });
 
-test('Reload theirs closes a file that is gone and reopens one that cannot be shown', async () => {
+test('resolving a review closes a file left deleted and reopens one that cannot be shown', async () => {
 	const { open, loads } = slot();
 	await open.open('a');
 	const a = open.session!;
-	a.willReread({
-		kind: 'other',
-		file: { path: 'a', sha256: 'b'.repeat(64) },
-		detail: 'binary',
-	});
-	expect((await open.reloadTheirs(a))?.data).toBe('reopened');
+	a.willResolve('other');
+	expect((await open.resolve(a, {}))?.data).toBe('reopened');
 	expect(a.released).toBe(true);
 	expect(open.session).not.toBe(a);
 	expect(loads).toEqual(['a', 'a']);
 
 	const reopened = open.session!;
-	reopened.willReread({ kind: 'gone' });
-	expect((await open.reloadTheirs(reopened))?.data).toBe('closed');
+	reopened.willResolve('gone');
+	expect((await open.resolve(reopened, {}))?.data).toBe('closed');
 	expect(open.item).toBeUndefined();
 	// A session that is no longer open is not acted on.
-	expect(await open.reloadTheirs(reopened)).toBeUndefined();
+	expect(await open.resolve(reopened, {})).toBeUndefined();
 });
 
 test('removeOpen releases first, removes what was saved last, and reopens when refused', async () => {
@@ -333,31 +325,28 @@ test('a slot with a load running is kept, and a load left behind is released eve
 	expect(items.keys()).toEqual([]);
 });
 
-test('conflict commands find the slot holding their session, and act only while it is open there', async () => {
+test('resolve finds the slot holding its session, and acts only while it is open there', async () => {
 	const { items, loads } = slots();
 	await items.slot('left').open('a');
 	await items.slot('right').open('b');
 	const b = items.slot('right').session!;
 	expect(items.holding(b)).toBe('right');
-	b.willReread({
-		kind: 'other',
-		file: { path: 'b', sha256: 'b'.repeat(64) },
-		detail: 'binary',
-	});
-	expect((await items.reloadTheirs(b))?.data).toBe('reopened');
+	b.willResolve('other');
+	expect((await items.resolve(b, {}))?.data).toBe('reopened');
 	expect(b.released).toBe(true);
 	expect(loads).toEqual(['a', 'b', 'b']);
 	// No longer open anywhere: not acted on.
 	expect(items.holding(b)).toBeUndefined();
-	expect(await items.reloadTheirs(b)).toBeUndefined();
-	expect(await items.keepMine(b)).toBeUndefined();
-	expect(await items.slot('right').keepMine(b)).toBeUndefined();
+	expect(await items.resolve(b, {})).toBeUndefined();
+	expect(await items.slot('right').resolve(b, {})).toBeUndefined();
 
 	const reopened = items.slot('right').session!;
-	reopened.willReread({ kind: 'gone' });
-	expect((await items.reloadTheirs(reopened))?.data).toBe('closed');
+	reopened.willResolve('gone');
+	expect((await items.resolve(reopened, {}))?.data).toBe('closed');
 	expect(items.keys()).toEqual(['left']);
-	expect((await items.keepMine(items.slot('left').session!))?.error).toBeNull();
+	expect((await items.resolve(items.slot('left').session!, {}))?.data).toBe(
+		'shown',
+	);
 });
 
 test('a slot moves to a free key with its item and session, and refuses a taken one', async () => {

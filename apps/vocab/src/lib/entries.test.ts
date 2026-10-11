@@ -9,9 +9,11 @@
  *   stage; one exact text is one file, whoever adds it and however often
  * - The open word saves each edit at once, and rapid typing writes only the
  *   latest draft; a draft that is not a valid word is never written
- * - A change made elsewhere is a conflict: Reload theirs shows it, Keep mine
- *   saves the draft over it. A file deleted elsewhere: Keep mine creates it
- *   again, Discard closes the word
+ * - A change made elsewhere to other fields merges with no question; a field
+ *   both changed, or a file deleted elsewhere, waits in a review until one
+ *   answer covers every part. Taking theirs shows the file (a deleted word
+ *   closes, one no longer valid opens as text); taking the draft writes it,
+ *   creating a deleted word again
  * - A file that is not a valid word is named for repair, opens as text,
  *   saves as typed, and reopens as a word once its text is valid
  * - Leaving a word whose save failed answers `unsaved` until the session the
@@ -22,6 +24,8 @@
  */
 import './svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
+import type { SyncChoices, SyncSide } from '@epicenter/folder';
+import type { SaveReview } from '@epicenter/svelte/edit-session';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { Entry } from './data.js';
 import {
@@ -129,6 +133,18 @@ function textSession(entries: EntriesState) {
 	if (item?.kind !== 'text')
 		throw new Error(`Expected open text, got ${item?.kind}`);
 	return item.session;
+}
+
+/** One answer for every part of `session`'s review, each taking `side`. */
+function takeAll(
+	session: { readonly review: SaveReview | undefined },
+	side: SyncSide,
+): SyncChoices {
+	const { review } = session;
+	if (review === undefined) throw new Error('Nothing waits for an answer');
+	return Object.fromEntries(
+		review.conflicts.map(({ id }) => [id, { kind: 'take', side }]),
+	);
 }
 
 const wordText = (text: string, stage = 'new') =>
@@ -334,10 +350,29 @@ test('a failed save keeps the draft; Try again saves it', async () => {
 });
 
 // ============================================================================
-// The conflict prompt
+// Changes made elsewhere
 // ============================================================================
 
-test('a change made elsewhere is a conflict, and Reload theirs shows it without writing', async () => {
+test('a change made elsewhere to other fields merges with no question', async () => {
+	await using context = await setup();
+	const { entries } = context;
+	const { entry, session } = await openWord(entries, 'lucid');
+	const before = await context.text(session.path);
+	if (before === undefined) throw new Error('lucid has no file');
+	await context.writeElsewhere(
+		session.path,
+		before.replace('stage: new', 'stage: usable'),
+	);
+	entries.inputNote(entry.id, 'mine');
+	expect((await session.settled()).status).toBe('saved');
+	expect(session.review).toBeUndefined();
+	expect(session.draft.fields).toMatchObject({ note: 'mine', stage: 'usable' });
+	const saved = await context.text(session.path);
+	expect(saved).toContain('note: mine');
+	expect(saved).toContain('stage: usable');
+});
+
+test('a field both changed is reviewed alone; taking theirs shows the file as it is now', async () => {
 	await using context = await setup();
 	const { entries } = context;
 	const { entry, session } = await openWord(entries, 'lucid');
@@ -346,35 +381,62 @@ test('a change made elsewhere is a conflict, and Reload theirs shows it without 
 	entries.inputNote(entry.id, 'mine');
 	const state = await session.settled();
 	expect(state.status === 'error' && state.error.name).toBe('Conflict');
+	expect(
+		session.review?.conflicts.map((conflict) =>
+			conflict.kind === 'field' ? conflict.field : conflict.kind,
+		),
+	).toEqual(['note']);
 	expect(await context.text(session.path)).toBe(theirs);
 
-	expect(await entries.reloadTheirs(session)).toBeUndefined();
+	expect(
+		await entries.resolve(session, takeAll(session, 'incoming')),
+	).toBeUndefined();
+	expect(session.review).toBeUndefined();
 	expect(session.draft.fields).toMatchObject({
 		note: 'theirs',
 		stage: 'usable',
 	});
 	expect(session.state.status).toBe('saved');
+	// Their version, chosen whole, keeps the bytes they wrote.
 	expect(await context.text(session.path)).toBe(theirs);
 	entries.inputNote(entry.id, 'after');
 	expect((await session.settled()).status).toBe('saved');
 	expect(await context.text(session.path)).toContain('note: after');
 });
 
-test('Keep mine takes the draft where both changed and keeps what changed elsewhere in other fields', async () => {
+test('taking the draft where both changed keeps what changed elsewhere in other fields', async () => {
 	await using context = await setup();
 	const { entries } = context;
 	const { entry, session } = await openWord(entries, 'lucid');
 	await context.writeElsewhere(session.path, wordText('lucid', 'usable'));
 	entries.inputNote(entry.id, 'mine');
 	await session.settled();
-	expect(await entries.keepMine(session)).toBeUndefined();
+	expect(
+		await entries.resolve(session, takeAll(session, 'local')),
+	).toBeUndefined();
 	expect((await session.settled()).status).toBe('saved');
 	const saved = await context.text(session.path);
 	expect(saved).toContain('note: mine');
 	expect(saved).toContain('stage: usable');
 });
 
-test('a word deleted elsewhere is a conflict: Keep mine creates it again from the draft', async () => {
+test('an answer that leaves a conflict open is refused and keeps the review with its problems', async () => {
+	await using context = await setup();
+	const { entries } = context;
+	const { entry, session } = await openWord(entries, 'lucid');
+	const theirs = wordText('lucid', 'usable');
+	await context.writeElsewhere(session.path, theirs);
+	entries.inputNote(entry.id, 'mine');
+	await session.settled();
+	const review = session.review;
+	expect(await entries.resolve(session, {})).toBeString();
+	expect(session.review?.id).toBe(review?.id);
+	expect(session.review?.problems.length).toBeGreaterThan(0);
+	expect(session.draft.fields.note).toBe('mine');
+	expect(await context.text(session.path)).toBe(theirs);
+});
+
+test('a word deleted elsewhere is reviewed as the whole file; taking the draft creates it again', async () => {
 	await using context = await setup();
 	const { entries } = context;
 	const { entry, session } = await openWord(entries, 'lucid');
@@ -386,10 +448,15 @@ test('a word deleted elsewhere is a conflict: Keep mine creates it again from th
 			state.error.name === 'Conflict' &&
 			state.error.actualSha256,
 	).toBeUndefined();
+	expect(
+		session.review?.conflicts.map(({ kind, incoming }) => ({ kind, incoming })),
+	).toEqual([{ kind: 'file', incoming: { present: false } }]);
 	// A deleted file is never recreated by a save.
 	expect(await context.text(session.path)).toBeUndefined();
 
-	expect(await entries.keepMine(session)).toBeUndefined();
+	expect(
+		await entries.resolve(session, takeAll(session, 'local')),
+	).toBeUndefined();
 	expect(await context.text(session.path)).toContain('note: still mine');
 	expect(session.state.status).toBe('saved');
 	expect(summary(entries)).toEqual([
@@ -397,14 +464,16 @@ test('a word deleted elsewhere is a conflict: Keep mine creates it again from th
 	]);
 });
 
-test('a word deleted elsewhere: Discard closes it without writing', async () => {
+test('a word deleted elsewhere: taking theirs leaves it deleted and closes it', async () => {
 	await using context = await setup();
 	const { entries } = context;
 	const { entry, session } = await openWord(entries, 'lucid');
 	await context.deleteElsewhere(session.path);
 	entries.inputNote(entry.id, 'mine');
 	await session.settled();
-	expect(await entries.reloadTheirs(session)).toBeUndefined();
+	expect(
+		await entries.resolve(session, takeAll(session, 'incoming')),
+	).toBeUndefined();
 	expect(entries.opened).toBeUndefined();
 	expect(entries.entries).toEqual([]);
 	// The closed session takes nothing more.
@@ -463,14 +532,16 @@ test('a file that is not a valid word is named for repair, opens as text, saves 
 	]);
 });
 
-test('Reload theirs of a word made invalid elsewhere opens its text', async () => {
+test('taking theirs for a word made invalid elsewhere opens its text', async () => {
 	await using context = await setup();
 	const { entries } = context;
 	const { entry, session } = await openWord(entries, 'lucid');
 	await context.writeElsewhere(session.path, '---\ntext: [unclosed\n---\n');
 	entries.inputNote(entry.id, 'mine');
 	await session.settled();
-	expect(await entries.reloadTheirs(session)).toBeUndefined();
+	expect(
+		await entries.resolve(session, takeAll(session, 'incoming')),
+	).toBeUndefined();
 	expect(textSession(entries).draft).toBe('---\ntext: [unclosed\n---\n');
 });
 
@@ -510,7 +581,7 @@ test('opening the word already open does nothing and keeps its session', async (
 	expect(session.locked).toBe(false);
 });
 
-test('a discard after Reload theirs opened the word as text applies to the session the answer named', async () => {
+test('a discard after taking theirs opened the word as text applies to the session the answer named', async () => {
 	await using context = await setup();
 	const { entries } = context;
 	expectOk(await entries.add('candid'));
@@ -519,7 +590,9 @@ test('a discard after Reload theirs opened the word as text applies to the sessi
 	await context.writeElsewhere(session.path, invalid);
 	entries.inputNote(entry.id, 'mine');
 	await session.settled();
-	expect(await entries.reloadTheirs(session)).toBeUndefined();
+	expect(
+		await entries.resolve(session, takeAll(session, 'incoming')),
+	).toBeUndefined();
 	const text = textSession(entries);
 	context.failNextWrite(text.path);
 	text.input(`${invalid}more`);

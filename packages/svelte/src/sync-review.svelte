@@ -10,10 +10,11 @@
 	starts with no choices. Cancel calls `onCancel`, which discards the
 	attempt; nothing is remembered.
 
-	`Use this` takes a captured version exactly. Typing writes a replacement:
+	`Use all from` takes one side for every part. `Use this` takes a captured
+	version exactly. Typing writes a replacement:
 	a body, a whole file, or a field or setting whose versions are all text is
 	edited as text; any other value is edited as JSON and is not applied until
-	it parses. `Leave out` removes a setting, a field, or a file. Apply calls
+	it parses. `Leave out` removes a setting, a field, or a file that both sides still have. Apply calls
 	`onApply(attempt, choices)` once per press, only when every conflict has a
 	choice; the app calls `folder.sync.resolve` and passes back the problems an
 	`InvalidChoices` refusal names, which show beside their rows until the
@@ -45,6 +46,8 @@
 	/** How a value reads in a text area: its text, or its JSON. */
 	export function display(conflict: SyncConflict, version: SyncVersion): string {
 		if (!version.present) return '';
+		if (version.value instanceof Uint8Array)
+			return `Not text (${version.value.byteLength} bytes)`;
 		return editsText(conflict) && typeof version.value === 'string'
 			? version.value
 			: JSON.stringify(version.value, null, 2);
@@ -101,8 +104,8 @@
 		heading?: string;
 		description?: string;
 		applyLabel?: string;
-		/** Discard the attempt and its choices. */
-		onCancel: () => void;
+		/** Discard the attempt and its choices. Without it there is no Cancel. */
+		onCancel?: () => void;
 		onApply: (attempt: TAttempt, choices: SyncChoices) => void;
 	} = $props();
 
@@ -147,6 +150,13 @@
 		) as Record<string, T>;
 	}
 
+	/** Take `side` for every part. */
+	function chooseAll(side: SyncSide) {
+		choices = Object.fromEntries(
+			attempt.conflicts.map(({ id }) => [id, { kind: 'take', side }]),
+		);
+		typedJson = {};
+	}
 	function choose(id: string, choice: SyncChoice) {
 		choices = { ...choices, [id]: choice };
 		if (Object.hasOwn(typedJson, id)) typedJson = without(typedJson, id);
@@ -224,6 +234,15 @@
 	<header>
 		<h2 class="text-base font-medium">{heading}</h2>
 		<p class="text-muted-foreground text-sm">{description}</p>
+		{#if attempt.conflicts.length > 1}
+			<div class="mt-2 flex flex-wrap gap-2">
+				{#each sides as side (side)}
+					<Button variant="outline" size="sm" disabled={pending} onclick={() => chooseAll(side)}>
+						Use all from {labels[side]}
+					</Button>
+				{/each}
+			</div>
+		{/if}
 	</header>
 
 	{#each general as problem (problem.message)}
@@ -280,7 +299,7 @@
 							disabled={pending}
 							oninput={(event) => typed(conflict, event.currentTarget.value)}
 						/>
-						{#if conflict.kind !== 'body'}
+						{#if conflict.kind !== 'body' && conflict.local.present && conflict.incoming.present}
 							<Button
 								variant="ghost"
 								size="sm"
@@ -310,7 +329,9 @@
 			{/if}
 		</span>
 		<div class="flex gap-2">
-			<Button variant="outline" disabled={pending} onclick={onCancel}>Cancel</Button>
+			{#if onCancel}
+				<Button variant="outline" disabled={pending} onclick={onCancel}>Cancel</Button>
+			{/if}
 			<Button type="submit" disabled={pending || !complete}>{applyLabel}</Button>
 		</div>
 	</footer>

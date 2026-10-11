@@ -54,14 +54,6 @@ type SessionState = SaveState<RowSaveError | FileError | AutosaveError>;
 
 import type { Todos } from './todos.svelte.js';
 
-/** The open item's session, whatever kind. */
-function openSession(todos: Todos) {
-	const item = todos.opened;
-	if (item?.kind !== 'todo' && item?.kind !== 'text')
-		throw new Error(`Expected an open session, got ${item?.kind}`);
-	return item.session;
-}
-
 const { createTodos } = await import('./todos.svelte.ts');
 
 const originalFetch = globalThis.fetch;
@@ -543,14 +535,16 @@ test('recovery waits for the open todo: a failed save stops it, typing while it 
 	expect(todos.git.pendingIncoming).toEqual(pending);
 	expect(await text(todos, MILK)).toBe(before);
 
-	// Reload theirs drops the failed input; typing arrives while the update
-	// is written.
-	expect(await todos.reloadTheirs(openSession(todos))).toBeUndefined();
-	expect(todoSession(todos)).toBe(milk);
-	expect(milk.draft.body).toBe('');
-	expect(milk.state.status).toBe('saved');
+	// Reading the todo again drops the failed input in a new session; typing
+	// arrives while the update is written.
+	await todos.reload();
+	const shown = todoSession(todos);
+	expect(shown).not.toBe(milk);
+	expect(milk.locked).toBe(true);
+	expect(shown.draft.body).toBe('');
+	expect(shown.state.status).toBe('saved');
 	expect(await text(todos, MILK)).toBe(before);
-	typing.during = () => typeNotes(milk, 'typed during recovery\n');
+	typing.during = () => typeNotes(shown, 'typed during recovery\n');
 	const recovered = await todos.recoverIncoming();
 	expect(recovered).toMatchObject({
 		kind: 'ran',
@@ -558,8 +552,8 @@ test('recovery waits for the open todo: a failed save stops it, typing while it 
 	});
 
 	// The typing was refused, not saved over the row; the todo shows the update.
-	expect(milk.draft.fields.title).toBe('Buy oat milk');
-	expect(milk.draft.body).toBe('Two cartons.\n');
-	expect(milk.state.status).toBe('saved');
+	expect(shown.draft.fields.title).toBe('Buy oat milk');
+	expect(shown.draft.body).toBe('Two cartons.\n');
+	expect(shown.state.status).toBe('saved');
 	expect(await text(todos, MILK)).toBe(MILK_REMOTE);
 }, 60_000);

@@ -38,9 +38,12 @@ against the code. The constraints below apply to every edit here.
 - Every write is guarded by bytes this page read or saved: the session's
   autosave, `replace` on the row a list read, and `move`/`remove` on a
   capture. A change made elsewhere merges with the draft by field and
-  line first; parts both changed are the person's to choose (the review,
-  then Reload theirs / Keep mine), never overwritten silently. `create` is the only unguarded
-  write and refuses an occupied path.
+  line first, with no question. Parts both changed, and a file deleted
+  elsewhere, wait in the session's review; Apply answers all of them at
+  once through `notes.resolve`, and nothing is overwritten silently. The
+  review has no Cancel; leaving the item asks to discard the draft as for
+  any unsaved one. `create` is the only unguarded write and refuses an
+  occupied path.
 - A field command on a row that is not open (pin, trash, restore, folder
   assignment, folder name) is a guarded `replace` of the row the list read,
   then a re-list. On the open note it is an edit to its draft. On a note

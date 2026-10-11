@@ -9,12 +9,14 @@
  * Key behaviors:
  * - The capture text and Add a thought save through the open capture's
  *   session
- * - A change made elsewhere shows the conflict prompt: Keep mine saves the
- *   text on screen over it, and Reload theirs shows theirs in the same view
- * - A capture deleted elsewhere offers Discard, which closes it, and Keep
- *   mine, which puts it back
+ * - A change made elsewhere that does not overlap the text on screen is
+ *   combined with no question
+ * - Text both changed shows the review: Your edit saves the text on screen
+ *   over theirs, and Saved elsewhere shows theirs in the same view
+ * - A capture deleted elsewhere shows the review: Saved elsewhere leaves it
+ *   deleted and closes it, and Your edit puts it back
  * - A thought typed and not added stays visible to copy when the capture
- *   reloads to a layout the form cannot show
+ *   resolves to a layout the form cannot show
  * - A file that is not a valid capture shows its issues as text is typed,
  *   and opens as a capture once they are fixed
  * - While Epicenter asks to quit, the text boxes take nothing
@@ -78,6 +80,40 @@ async function setup(files: Record<string, string>, mode: 'capture' | 'text') {
 	return { ...harness, target };
 }
 
+/**
+ * Press `Use this` on `side` for the one part the review shows, then Apply,
+ * and wait for the store to answer it. Answers what the person is told.
+ */
+async function apply(harness: Harness, side: 'local' | 'incoming') {
+	const choices = [...document.querySelectorAll('button')].filter(
+		(candidate) => candidate.textContent?.trim() === 'Use this',
+	);
+	// Your edit is first, then Saved elsewhere.
+	const [local, incoming, ...rest] = choices;
+	if (local === undefined || incoming === undefined || rest.length > 0)
+		throw new Error(
+			`Expected one part to choose, got ${choices.length} buttons`,
+		);
+	click(side === 'local' ? local : incoming);
+	flushSync();
+	const { captures } = harness;
+	const resolve = captures.resolve;
+	let answered: Promise<string | undefined> | undefined;
+	captures.resolve = (session, picked) => {
+		answered = resolve(session, picked);
+		return answered;
+	};
+	try {
+		click(button('Apply'));
+	} finally {
+		captures.resolve = resolve;
+	}
+	if (answered === undefined) throw new Error('Apply answered nothing');
+	const told = await answered;
+	await settle(harness);
+	return told;
+}
+
 /** Wait for the open session's saves, then let the view update. */
 async function settle(harness: Harness) {
 	const item = harness.captures.opened;
@@ -98,62 +134,69 @@ test('the capture text and Add a thought save through the open session', async (
 	expect(harness.target.textContent).toContain('Saved to');
 });
 
-test('a change made elsewhere to the text shows the review; after Cancel, Keep mine saves the text on screen over it', async () => {
+test('a change made elsewhere that does not overlap the text on screen is combined with no question', async () => {
+	const harness = await setup({ [PATH]: FILE }, 'capture');
+	await harness.writeElsewhere(PATH, `${FILE}- theirs\n`);
+	type(field('capture-text'), 'Mine');
+	await settle(harness);
+	expect(harness.target.querySelector('[role="alert"]')).toBeNull();
+	expect(field('capture-text')?.value).toBe('Mine');
+	expect(harness.target.textContent).toContain('theirs');
+	expect(await harness.text(PATH)).toBe(saved('Mine', '- first\n- theirs\n'));
+	expect(harness.target.textContent).toContain('Saved to');
+});
+
+test('text both changed shows the review, and Your edit saves the text on screen over it', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	await harness.writeElsewhere(PATH, `---\ncapturedAt: ${AT}\n---\n\nTheirs\n`);
 	type(field('capture-text'), 'Mine');
 	await settle(harness);
-	expect(harness.target.textContent).toContain('This changed elsewhere');
-	expect(harness.target.textContent).toContain('Choose what to keep');
-	click(button('Cancel'));
-	flushSync();
-	click(button('Keep mine'));
-	await Bun.sleep(5);
-	await settle(harness);
+	expect(harness.target.textContent).toContain('This changed elsewhere.');
+	expect(harness.target.textContent).toContain(
+		'Your edits are kept here and not saved.',
+	);
+	expect(() => button('Cancel')).toThrow();
+	// One part: no Use all.
+	expect(() => button('Use all from Your edit')).toThrow();
+	expect(await apply(harness, 'local')).toBeUndefined();
 	expect(await harness.text(PATH)).toBe(saved('Mine'));
+	expect(harness.target.textContent).not.toContain('This changed elsewhere.');
 	expect(harness.target.textContent).toContain('Saved to');
 });
 
-test('a change made elsewhere to the text: after Cancel, Reload theirs shows theirs in the same view', async () => {
+test('text both changed: Saved elsewhere shows theirs in the same view', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
 	await harness.writeElsewhere(PATH, theirs);
 	type(field('capture-text'), 'Mine');
 	await settle(harness);
-	click(button('Cancel'));
-	flushSync();
-	click(button('Reload theirs'));
-	await Bun.sleep(5);
-	await settle(harness);
+	expect(await apply(harness, 'incoming')).toBeUndefined();
 	expect(field('capture-text')?.value).toBe('Theirs');
 	expect(harness.target.textContent).not.toContain('first');
 	expect(await harness.text(PATH)).toBe(theirs);
 });
 
-test('a capture deleted elsewhere offers Discard, which closes it without writing', async () => {
+test('a capture deleted elsewhere: Saved elsewhere leaves it deleted and closes it', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	await harness.deleteElsewhere(PATH);
 	type(field('capture-text'), 'Mine');
 	await settle(harness);
-	expect(harness.target.textContent).toContain('deleted elsewhere');
-	click(button('Discard'));
-	await Bun.sleep(5);
+	expect(harness.target.textContent).toContain('This was deleted elsewhere.');
+	expect(await apply(harness, 'incoming')).toBeUndefined();
 	expect(harness.captures.opened).toBeUndefined();
 	expect(await harness.text(PATH)).toBeUndefined();
 });
 
-test('a capture deleted elsewhere: Keep mine puts it back from the text on screen', async () => {
+test('a capture deleted elsewhere: Your edit puts it back from the text on screen', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	await harness.deleteElsewhere(PATH);
 	type(field('capture-text'), 'Mine');
 	await settle(harness);
-	click(button('Keep mine'));
-	await Bun.sleep(5);
-	await settle(harness);
+	expect(await apply(harness, 'local')).toBeUndefined();
 	expect(await harness.text(PATH)).toBe(saved('Mine'));
 });
 
-test('a thought typed and not added stays visible to copy when Reload theirs brings a layout the form cannot show', async () => {
+test('a thought typed and not added stays visible to copy when Saved elsewhere brings a layout the form cannot show', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	type(field('new-thought'), 'my pending thought');
 	await harness.writeElsewhere(
@@ -162,11 +205,7 @@ test('a thought typed and not added stays visible to copy when Reload theirs bri
 	);
 	type(field('capture-text'), 'Mine');
 	await settle(harness);
-	click(button('Cancel'));
-	flushSync();
-	click(button('Reload theirs'));
-	await Bun.sleep(5);
-	await settle(harness);
+	expect(await apply(harness, 'incoming')).toBeUndefined();
 	expect(harness.target.textContent).toContain(
 		'cannot be edited as text and thoughts',
 	);

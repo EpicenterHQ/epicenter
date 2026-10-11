@@ -13,11 +13,13 @@
  * - Typing a title or notes saves at once. Each todo gets its own view: A
  *   then B then A mounts new controls, A's left-over controls admit nothing,
  *   and each input saves at its own path
- * - Another writer's change is a conflict on the next edit: the prompt offers
- *   "Reload theirs", which shows their version in the same session, and
- *   "Keep mine", which saves the draft over it
- * - A file deleted elsewhere offers "Discard", which closes it and writes
- *   nothing, and "Keep mine", which creates it again from the draft
+ * - Another writer's change merges with the next edit; a title both changed
+ *   shows in the save bar's review with no Cancel. Using "Saved elsewhere"
+ *   and Apply shows their version in the same session; using "Your edit"
+ *   saves the draft there and keeps their other changes
+ * - A file deleted elsewhere shows in the review as a whole file: using
+ *   "Your edit" creates it again from the draft, and using "Saved
+ *   elsewhere" leaves it deleted, closes it, and writes nothing
  * - Returning to the window shows another writer's change when nothing is
  *   unsaved, and keeps a draft that could not save
  * - Files opens a todo's complete text and the list opens its fields. A
@@ -201,16 +203,43 @@ function saveBarButtons(root: ParentNode) {
 	return [...bar.querySelectorAll('button')].map((b) => b.textContent?.trim());
 }
 
-/** Wait for the merge to show the parts both changed, then cancel it for Reload theirs or Keep mine. */
-async function cancelReview(
+/** The save bar's column label for each side of a review. */
+const SIDE = { local: 'Your edit', incoming: 'Saved elsewhere' } as const;
+
+/** Wait for the merge to show the parts both changed in the save bar. */
+async function reviewShown(
 	target: ParentNode,
 	session: { readonly review: unknown },
 ) {
-	await eventually(() => session.review !== undefined);
+	await eventually(
+		() =>
+			session.review !== undefined &&
+			target.querySelector('[data-testid="save-bar"] form') !== null,
+	);
+}
+
+/**
+ * Take every part of the review from `side` the way a person does, with
+ * "Use all from" for several parts or that side's "Use this" for one, then
+ * Apply.
+ */
+function useAll(target: ParentNode, side: keyof typeof SIDE) {
+	const bar = target.querySelector('[data-testid="save-bar"]');
+	if (bar === null) throw new Error('No save bar');
+	const [part, ...more] = bar.querySelectorAll('[role="group"]');
+	if (part === undefined) throw new Error('No part to review');
+	if (more.length > 0) click(bar, `Use all from ${SIDE[side]}`);
+	else {
+		// The grid lists "Your edit" first, then "Saved elsewhere".
+		const [local, incoming] = [...part.querySelectorAll('button')].filter(
+			(candidate) => candidate.textContent?.trim() === 'Use this',
+		);
+		const use = side === 'local' ? local : incoming;
+		if (use === undefined) throw new Error(`No "Use this" for ${SIDE[side]}`);
+		press(use);
+	}
 	flushSync();
-	expect(saveBarButtons(target)).toContain('Apply');
-	click(target, 'Cancel');
-	flushSync();
+	click(bar, 'Apply');
 }
 
 test("typing saves at once, and each todo gets its own view: A then B then A mounts new controls, A's left-over controls admit nothing, and each input saves at its own path", async () => {
@@ -268,7 +297,7 @@ test("typing saves at once, and each todo gets its own view: A then B then A mou
 	});
 });
 
-test('another writer\'s change is a conflict on the next edit, and "Reload theirs" shows their version in the same session', async () => {
+test('a title both changed shows in the save bar\'s review, and using "Saved elsewhere" shows their version in the same session', async () => {
 	const {
 		todos,
 		target,
@@ -291,13 +320,19 @@ test('another writer\'s change is a conflict on the next edit, and "Reload their
 	expect(title.value).toBe('Milk');
 	type(title, 'Mine');
 	await eventually(() => session.state.status === 'error');
-	expect(find(ALERT)?.textContent).toContain('changed elsewhere');
-	await cancelReview(target, session);
-	expect(saveBarButtons(target)).toEqual(['Reload theirs', 'Keep mine']);
+	await reviewShown(target, session);
+	expect(find(ALERT)?.textContent).toContain('This changed elsewhere.');
+	// One part, so no "Use all from"; and no Cancel.
+	expect(saveBarButtons(target)).toEqual([
+		'Use this',
+		'Use this',
+		'Leave out',
+		'Apply',
+	]);
 	expect(title.value).toBe('Mine');
 	expect(await text(path)).toBe(ROW('Theirs'));
 
-	click(target, 'Reload theirs');
+	useAll(target, 'incoming');
 	await eventually(() => session.state.status === 'saved');
 	expect(selected()).toBe(session);
 	expect(get<HTMLInputElement>(TITLE)).toBe(title);
@@ -311,7 +346,7 @@ test('another writer\'s change is a conflict on the next edit, and "Reload their
 	expect((await reading(path)).fields.title).toBe('After');
 });
 
-test('another writer\'s change is a conflict on the next edit, and "Keep mine" saves the draft where both changed and keeps their other changes', async () => {
+test('a title both changed shows in the save bar\'s review, and using "Your edit" saves the draft there and keeps their other changes', async () => {
 	const { todos, target, get, find, selected, shown, overwrite, reading } =
 		await setup();
 	await todos.create('Milk');
@@ -324,11 +359,10 @@ test('another writer\'s change is a conflict on the next edit, and "Keep mine" s
 
 	await overwrite(path, ROW('Theirs'));
 	type(title, 'Mine');
-	await eventually(() => session.state.status === 'error');
-	await cancelReview(target, session);
-	expect(saveBarButtons(target)).toEqual(['Reload theirs', 'Keep mine']);
+	await reviewShown(target, session);
+	expect(session.review?.conflicts.map(({ kind }) => kind)).toEqual(['field']);
 
-	click(target, 'Keep mine');
+	useAll(target, 'local');
 	await eventually(() => session.state.status === 'saved');
 	expect(selected()).toBe(session);
 	expect(title.value).toBe('Mine');
@@ -340,7 +374,7 @@ test('another writer\'s change is a conflict on the next edit, and "Keep mine" s
 	});
 });
 
-test('a file deleted elsewhere offers "Discard" and "Keep mine": Keep mine creates it again from the draft, and Discard closes it and writes nothing', async () => {
+test('a file deleted elsewhere shows in the review: using "Your edit" creates it again from the draft, and using "Saved elsewhere" closes it and writes nothing', async () => {
 	const {
 		todos,
 		target,
@@ -360,13 +394,13 @@ test('a file deleted elsewhere offers "Discard" and "Keep mine": Keep mine creat
 
 	await removeElsewhere(path);
 	type(title, 'Mine');
-	await eventually(() => session.state.status === 'error');
-	expect(find(ALERT)?.textContent).toContain('deleted elsewhere');
-	expect(saveBarButtons(target)).toEqual(['Discard', 'Keep mine']);
+	await reviewShown(target, session);
+	expect(find(ALERT)?.textContent).toContain('This was deleted elsewhere.');
+	expect(saveBarButtons(target)).toEqual(['Use this', 'Use this', 'Apply']);
 	expect(title.value).toBe('Mine');
 	expect(await text(path)).toBeUndefined();
 
-	click(target, 'Keep mine');
+	useAll(target, 'local');
 	await eventually(() => session.state.status === 'saved');
 	expect(selected()).toBe(session);
 	expect(find(ALERT)).toBeNull();
@@ -379,11 +413,12 @@ test('a file deleted elsewhere offers "Discard" and "Keep mine": Keep mine creat
 	expect((await session.settled()).status).toBe('saved');
 	expect((await reading(path)).fields.title).toBe('Mine again');
 
-	// Deleted again: Discard closes the todo and writes nothing.
+	// Deleted again: using their side leaves it deleted, closes the todo,
+	// and writes nothing.
 	await removeElsewhere(path);
 	type(title, 'Lost');
-	await eventually(() => session.state.status === 'error');
-	click(target, 'Discard');
+	await reviewShown(target, session);
+	useAll(target, 'incoming');
 	await eventually(() => todos.opened === undefined);
 	expect(find(TITLE)).toBeNull();
 	expect(target.textContent).toContain('Select a todo');
@@ -419,16 +454,11 @@ test("returning to the window shows another writer's change when nothing is unsa
 	expect(title.value).toBe('Mine');
 	expect(await text(path)).toBe(ROW('Theirs again'));
 
-	// Try again meets their change: the conflict prompt asks.
+	// Try again meets their change: the title both changed shows in the review.
 	click(target, 'Try again');
-	await eventually(
-		() =>
-			session.state.status === 'error' &&
-			find(ALERT)?.textContent?.includes('changed elsewhere') === true,
-	);
-	await cancelReview(target, session);
-	expect(saveBarButtons(target)).toEqual(['Reload theirs', 'Keep mine']);
-	click(target, 'Reload theirs');
+	await reviewShown(target, session);
+	expect(find(ALERT)?.textContent).toContain('This changed elsewhere.');
+	useAll(target, 'incoming');
 	await eventually(() => session.state.status === 'saved');
 	expect(title.value).toBe('Theirs again');
 });
@@ -685,10 +715,9 @@ test('a save bar button left from an earlier view answers nothing for the todo o
 	const file = selectedText();
 	await overwrite(path, ROW('Theirs'));
 	type(get(CONTENTS), ROW('Mine'));
-	await eventually(() => file.state.status === 'error');
-	await cancelReview(target, file);
-	const retired = button(target, 'Reload theirs');
-	click(target, 'Keep mine');
+	await reviewShown(target, file);
+	const retired = button(target, 'Apply');
+	useAll(target, 'local');
 	await eventually(() => file.state.status === 'saved');
 
 	await todos.open(path, 'todos');
@@ -702,6 +731,7 @@ test('a save bar button left from an earlier view answers nothing for the todo o
 	expect(selected()).toBe(session);
 	expect(session.draft.fields.title).toBe('Newer');
 	expect(session.state.status).toBe('error');
+	expect(session.review).toBeDefined();
 });
 
 test('list completion while Files shows the same todo changes nothing there; opened as a todo, completion and reopening keep its notes and undeclared keys', async () => {

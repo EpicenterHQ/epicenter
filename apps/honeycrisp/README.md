@@ -147,14 +147,14 @@ is overwritten without your say.
 
 | What happened | What Honeycrisp does |
 | --- | --- |
-| Another program changed the file | Nothing happens until your next save. That save merges your edits with their version first: changes to different fields, or to different lines, combine and save with no question. When both changed the same field or lines, it stops with **This changed elsewhere** and shows only those parts; **Apply** saves your choices. **Cancel** leaves **Reload theirs**, which shows their version in place of your edits, and **Keep mine**, which keeps your edits where both changed and their changes everywhere else. If their version no longer reads the way the item opened (a note whose text is not a valid note, or a file that is no longer text), Reload theirs opens it again as what it is now. Nothing is written until you choose. Returning to the window, or running a terminal command, reads the lists again; an open note that holds nothing unsaved takes the newer file, and its undo history starts over. |
-| Another program deleted the file | Your next save stops with **This was deleted elsewhere**: **Discard** closes the note, and **Keep mine** creates the file again from your edits. |
+| Another program changed the file | Nothing happens until your next save. That save merges your edits with their version first: changes to different fields, or to different lines, combine and save with no question. When both changed the same field or lines, it stops with **This changed elsewhere** and shows only those parts, your edit beside the version saved elsewhere. Choose one for each part, then **Apply** saves all of them at once; there is no Cancel. Your edits that did not overlap are kept either way. If their version no longer reads the way the item opened (a note whose text is not a valid note, or a file that is no longer text), the whole file is the one part; choosing theirs opens it again as what it is now. Nothing is written until you apply. Returning to the window, or running a terminal command, reads the lists again; an open note that holds nothing unsaved takes the newer file, and its undo history starts over. |
+| Another program deleted the file | Your next save stops with **This was deleted elsewhere** and shows the whole file as one part. Applying your edit creates the file again from it; applying theirs leaves it deleted and closes the note. |
 | You typed while a save was running | The newer typing saves next. |
 | A value is not valid for a note | It is not written; the bar names what to fix, and the next valid edit saves. |
 | A save failed | Your text stays, with **Try again**. |
-| A save got no reply | It is shown as not confirmed, with **Save again**. If it did land, that save returns the conflict prompt with your own version as theirs. |
-| You rename or delete the open item | Its saves finish first, and the rename or delete acts on what it saved last. Typing is paused while a rename, Keep mine, or Reload theirs runs. Edits made while the delete confirmation is open are saved first, then the file is deleted. A file changed elsewhere since is refused, and the open item shows it again as it is now. |
-| You open another item while a save failed or conflicted | Honeycrisp asks **Discard unsaved changes?** Discarding lets that draft go; cancelling keeps the item open. Opening the item already open does nothing and does not ask. |
+| A save got no reply | It is shown as not confirmed, with **Save again**. If it did land, **Save again** finds your own version in the file and merges with it with no question. |
+| You rename or delete the open item | Its saves finish first, and the rename or delete acts on what it saved last. Typing is paused while a rename runs, and while a change made elsewhere is merged or waits for **Apply**. Edits made while the delete confirmation is open are saved first, then the file is deleted. A file changed elsewhere since is refused, and the open item shows it again as it is now. |
+| You open another item while a save failed or waits for **Apply** | Honeycrisp asks **Discard unsaved changes?** Discarding lets that draft go; cancelling keeps the item open. Opening the item already open does nothing and does not ask. |
 
 Unsaved text exists only in the open window. Closing the window, quitting the
 app (including Cmd+Q), and reloading the page are held back while the open
@@ -348,8 +348,8 @@ and `src-tauri/src/tests.rs` runs the same two through the folder plugin.
 | A save that fails: your text stays editable, with **Try again** | `chmod a-w notes`, then edit a note | `chmod u+w notes`, then **Try again** |
 | A commit that fails while the file stays saved | `touch .git/refs/heads/main.lock`, then edit a note | `rm .git/refs/heads/main.lock`, then **Commit saved files** |
 | An outside edit reaches an idle note | With a note open and saved, edit `notes/<id>.md` in the terminal | The note shows the new text |
-| A change made elsewhere: merged, or asked about | Open the folder in two windows, type in a note's title in one, and change the same note in the other before the first window regains focus | A different field merges with no question; the same title shows the review, then **Apply**, or **Cancel** for **Reload theirs** or **Keep mine** |
-| A note file deleted under you: nothing writes it back until you choose | With a note open, `rm notes/<id>.md`, then type in it | **Keep mine**, or **Discard** |
+| A change made elsewhere: merged, or asked about | Open the folder in two windows, type in a note's title in one, and change the same note in the other before the first window regains focus | A different field merges with no question; the same title shows the review: choose a side, then **Apply** |
+| A note file deleted under you: nothing writes it back until you choose | With a note open, `rm notes/<id>.md`, then type in it | Your edit and **Apply** to create it again, or theirs and **Apply** to leave it deleted |
 
 What cannot be produced by hand in the running app is a save held open or
 slowed on purpose, so that typing lands while it runs, or a reply lost after
@@ -403,11 +403,11 @@ edit sessions, and dropped several promises of the version before it:
 
 - An open note no longer saves last-writer-wins over changes made elsewhere,
   and there is no **Reload file** button. Every save is guarded; a change
-  made elsewhere is a conflict, and Reload theirs lives in the conflict
-  prompt. Returning to the window still never replaces an open note's text.
+  made elsewhere merges with your edits, and what both changed waits for
+  your choice. Returning to the window still never replaces an open note's text.
 - A note deleted elsewhere is no longer kept with **Save as a note** at a new
-  name when its path is taken. **Keep mine** creates it again at its own
-  path, and **Discard** closes it.
+  name when its path is taken. Applying your edit creates it again at its own
+  path, and applying theirs closes it.
 - One item is open at a time. Switching no longer keeps each file's editor
   and text; leaving an item whose save failed asks to discard it.
 - Change reports from the folder no longer reread the lists while you work.
@@ -429,9 +429,8 @@ edit sessions, and dropped several promises of the version before it:
   tracking that went with it.
 - The first save of a hand-written note rewrites its frontmatter as plain
   YAML; comments and custom quoting are not kept.
-- Reload theirs on a file that is no longer text, or on a note whose text no
-  longer reads as a note, no longer keeps your draft with a notice. It takes
-  their version and opens the file again as what it is now (its text for
-  repair, or why it cannot be opened), so Keep mine is no longer offered
-  afterwards.
+- Choosing theirs for a file that is no longer text, or for a note whose text
+  no longer reads as a note, no longer keeps your draft with a notice. It
+  takes their version and opens the file again as what it is now (its text
+  for repair, or why it cannot be opened).
 - Returning to the window, or a terminal command, now takes a newer file into an open note that holds nothing unsaved, so a pull in the terminal is not met as a conflict. Its rich-text undo history starts over when that happens.

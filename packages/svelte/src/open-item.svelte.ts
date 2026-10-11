@@ -10,10 +10,10 @@
  * newer open, leave, or forget of its slot is released and never shown.
  * Opening the item already shown does nothing.
  *
- * The conflict commands act only on the session they are given, and only
- * while it is open in its slot. Reload theirs closes an item whose file is
- * gone, and opens again through the loader when the file can no longer be
- * shown as the session's value. `removeOpen` releases the session, waits for
+ * `resolve` acts only on the session it is given, and only while it is
+ * open in its slot. It answers that session's review; an item whose file
+ * was left deleted closes, and one whose file can no longer be shown as the
+ * session's value opens again through the loader. `removeOpen` releases the session, waits for
  * its saves, and removes what the last one confirmed.
  *
  * `createOpenItems` keeps a slot per key, for a page with several items open
@@ -23,10 +23,10 @@
  * What an item is, how it loads, listings, refusals, and what a person is
  * told stay with the app.
  */
-import type { FileCapture, SaveState } from '@epicenter/folder';
+import type { FileCapture, SaveState, SyncChoices } from '@epicenter/folder';
 import { SvelteMap } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { Reread } from './edit-session.svelte.js';
+import type { Resolved } from './edit-session.svelte.js';
 
 type Failure = { readonly name: string; readonly message: string };
 
@@ -37,8 +37,7 @@ export type OpenSession = {
 	settled(): Promise<SaveState<Failure>>;
 	release(): void;
 	adopt(): Promise<boolean>;
-	keepMine(): Promise<Result<undefined, Failure>>;
-	reloadTheirs(): Promise<Result<Reread<unknown, unknown>, Failure>>;
+	resolve(choices: SyncChoices): Promise<Result<Resolved, Failure>>;
 };
 
 /** What the slot shows: an item still loading, or the open item. */
@@ -55,7 +54,7 @@ export type Opening<TSession> =
 	/** A newer open, leave, forget, or close of the slot took over; nothing more was done. */
 	| { readonly kind: 'superseded' };
 
-/** What Reload theirs did. */
+/** What resolving the open item's review did to it. */
 export type Reloaded = 'shown' | 'closed' | 'reopened';
 
 /** How a slot loads, compares, and judges its items. */
@@ -206,31 +205,25 @@ function createSlot<TKey, TItem, TSession extends OpenSession>({
 		},
 		/** Read the open item again as it is now, in a new session; nothing unsent is asked about. */
 		reload,
-		/** Keep mine for `session`; `undefined` when it is no longer the open one. */
-		async keepMine(
-			session: TSession,
-		): Promise<Result<undefined, Failure> | undefined> {
-			if (current() !== session) return undefined;
-			return session.keepMine();
-		},
 		/**
-		 * Reload theirs for `session`: show the file as it is now. A file that
-		 * is gone closes; one that cannot be shown as the session's value
-		 * opens again through the loader. `undefined` when it is no longer the
-		 * open one.
+		 * Answer `session`'s review with `choices`. A file left deleted closes
+		 * the item; one that can no longer be shown as the session's value
+		 * opens again through the loader. `undefined` when `session` is no
+		 * longer the open one.
 		 */
-		async reloadTheirs(
+		async resolve(
 			session: TSession,
+			choices: SyncChoices,
 		): Promise<Result<Reloaded, Failure> | undefined> {
 			if (current() !== session) return undefined;
-			const { data: found, error } = await session.reloadTheirs();
+			const { data: resolved, error } = await session.resolve(choices);
 			if (error !== null) return Err(error);
 			if (current() !== session) return undefined;
-			if (found.kind === 'gone') {
+			if (resolved === 'gone') {
 				forget();
 				return Ok('closed');
 			}
-			if (found.kind === 'other') {
+			if (resolved === 'other') {
 				await reload();
 				return Ok('reopened');
 			}
@@ -370,24 +363,13 @@ export function createOpenItems<
 				if (now() === undefined) return false;
 				return run(name, (it) => it.reload());
 			},
-			/** Keep mine for `session`; `undefined` when it is no longer the open one. */
-			async keepMine(
+			/** Answer `session`'s review; `undefined` when it is no longer the open one. */
+			async resolve(
 				session: TSession,
-			): Promise<Result<undefined, Failure> | undefined> {
-				if (now()?.session !== session) return undefined;
-				return run(name, (it) => it.keepMine(session));
-			},
-			/**
-			 * Reload theirs for `session`: show the file as it is now. A file that
-			 * is gone closes; one that cannot be shown as the session's value
-			 * opens again through the loader. `undefined` when it is no longer the
-			 * open one.
-			 */
-			async reloadTheirs(
-				session: TSession,
+				choices: SyncChoices,
 			): Promise<Result<Reloaded, Failure> | undefined> {
 				if (now()?.session !== session) return undefined;
-				return run(name, (it) => it.reloadTheirs(session));
+				return run(name, (it) => it.resolve(session, choices));
 			},
 			/** Take a newer version of the open item when it holds nothing unsaved. */
 			async adopt(): Promise<boolean> {
@@ -443,19 +425,15 @@ export function createOpenItems<
 			slots.set(to, entry);
 			return true;
 		},
-		/** Keep mine for `session`, in whichever slot has it open; `undefined` when none does. */
-		async keepMine(
+		/** Answer `session`'s review, in whichever slot has it open; `undefined` when none does. */
+		async resolve(
 			session: TSession,
-		): Promise<Result<undefined, Failure> | undefined> {
-			const name = holding(session);
-			return name === undefined ? undefined : slot(name).keepMine(session);
-		},
-		/** Reload theirs for `session`, in whichever slot has it open; `undefined` when none does. */
-		async reloadTheirs(
-			session: TSession,
+			choices: SyncChoices,
 		): Promise<Result<Reloaded, Failure> | undefined> {
 			const name = holding(session);
-			return name === undefined ? undefined : slot(name).reloadTheirs(session);
+			return name === undefined
+				? undefined
+				: slot(name).resolve(session, choices);
 		},
 		/** Take a newer version of each open item that holds nothing unsaved. */
 		async adopt(): Promise<void> {

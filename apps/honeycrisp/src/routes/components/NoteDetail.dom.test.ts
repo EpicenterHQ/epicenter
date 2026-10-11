@@ -13,9 +13,10 @@
  * - Rich-text typing reaches the draft through ProseMirror's own DOM reading,
  *   saves, and stays undoable after the save lands
  * - Different Source text replaces the rich-text document
- * - A change made elsewhere asks Reload theirs or Keep mine; Reload theirs
- *   remounts the rich-text view on their text, Keep mine saves the draft
- * - A note deleted elsewhere asks Discard or Keep mine
+ * - A part both changed shows in the review; Apply with theirs remounts the
+ *   rich-text view on their text, Apply with the draft saves it
+ * - A note deleted elsewhere shows in the review, and the draft creates it
+ *   again
  * - While the app answers a close, the controls take no input
  */
 import '../../lib/dom.test-support.ts';
@@ -101,6 +102,21 @@ const titleOf = (target: ParentNode) =>
 const undoButton = (target: ParentNode) =>
 	only<HTMLButtonElement>(target, 'button[aria-label="Undo"]');
 
+/** Click "Use this" for one side of the review's only part: the draft's comes first. */
+function useThis(target: ParentNode, side: 'local' | 'incoming') {
+	const buttons = [...target.querySelectorAll('button')].filter(
+		(button) => button.textContent?.trim() === 'Use this',
+	);
+	expect(buttons).toHaveLength(2);
+	buttons[side === 'local' ? 0 : 1]?.dispatchEvent(
+		new MouseEvent('click', { bubbles: true }),
+	);
+	flushSync();
+	expect(buttons[side === 'local' ? 0 : 1]?.getAttribute('aria-pressed')).toBe(
+		'true',
+	);
+}
+
 test('typing a title saves it, and switching tabs or typing keeps the one rich-text view', async () => {
 	const { session, target, text } = await view();
 	const rich = richOf(target);
@@ -160,7 +176,7 @@ test('different Source text replaces the rich-text document, and typing goes on 
 	expect(session.draft.body).toBe('Different again\n');
 });
 
-test('a change made elsewhere asks about the title both changed; after Cancel, Reload theirs remounts the rich-text view on their text', async () => {
+test('a title both changed shows a review; using theirs and Apply remounts the rich-text view on their text', async () => {
 	const { session, target, put } = await view();
 	const rich = richOf(target);
 	put('notes/a.md', noteText({ title: 'Theirs', body: 'Their body.\n' }));
@@ -169,11 +185,11 @@ test('a change made elsewhere asks about the title both changed; after Cancel, R
 	await tick();
 	expect(target.textContent).toContain('This changed elsewhere');
 	expect(session.review?.conflicts.map(({ kind }) => kind)).toEqual(['field']);
-	click(target, 'Cancel');
-	flushSync();
-	expect(buttonNamed(target, 'Keep mine')).toBeDefined();
-	click(target, 'Reload theirs');
-	await until(() => session.draft.fields.title === 'Theirs', 'the reload');
+	// Apply answers the review; there is no way to put it off.
+	expect(buttonNamed(target, 'Cancel')).toBeUndefined();
+	useThis(target, 'incoming');
+	click(target, 'Apply');
+	await until(() => session.draft.fields.title === 'Theirs', 'the answer');
 	await tick();
 	expect(titleOf(target).value).toBe('Theirs');
 	expect(richOf(target)).not.toBe(rich);
@@ -181,18 +197,17 @@ test('a change made elsewhere asks about the title both changed; after Cancel, R
 	expect(target.textContent).not.toContain('This changed elsewhere');
 });
 
-test('after Cancel, Keep mine saves the draft over a change made elsewhere', async () => {
+test('using my edit and Apply saves the draft where both changed', async () => {
 	const { session, target, put, text } = await view();
 	put('notes/a.md', noteText({ title: 'Theirs' }));
 	type(titleOf(target), 'Mine');
 	await session.settled();
 	await tick();
-	click(target, 'Cancel');
-	flushSync();
-	click(target, 'Keep mine');
+	useThis(target, 'local');
+	click(target, 'Apply');
 	await until(
 		() => text('notes/a.md')?.includes('title: Mine') === true,
-		'Keep mine',
+		'the answer to be saved',
 	);
 	await session.settled();
 	await tick();
@@ -200,15 +215,15 @@ test('after Cancel, Keep mine saves the draft over a change made elsewhere', asy
 	expect(target.textContent).toContain('Saved to');
 });
 
-test('a note deleted elsewhere asks Discard or Keep mine', async () => {
+test('a note deleted elsewhere shows a review; using my edit and Apply creates it again', async () => {
 	const { session, target, drop, text } = await view();
 	drop('notes/a.md');
 	type(titleOf(target), 'Kept');
 	await session.settled();
 	await tick();
 	expect(target.textContent).toContain('This was deleted elsewhere');
-	expect(buttonNamed(target, 'Discard')).toBeDefined();
-	click(target, 'Keep mine');
+	useThis(target, 'local');
+	click(target, 'Apply');
 	await until(
 		() => text('notes/a.md')?.includes('title: Kept') === true,
 		'the file to be created again',

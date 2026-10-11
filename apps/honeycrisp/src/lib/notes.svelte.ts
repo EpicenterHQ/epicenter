@@ -18,10 +18,12 @@
  * answers `unsaved` with that session, and the view asks). Opening the item
  * already open, the way it is open, does nothing.
  *
- * Every save is guarded by the bytes the session last saved, so a change
- * made elsewhere is a conflict the person resolves: Reload theirs or Keep
- * mine. Returning to the window never replaces an open note's draft, so its
- * rich-text undo history survives; the next save reports the change.
+ * Every save is guarded by the bytes the session last saved. A change made
+ * elsewhere merges with the draft by field and by line; what both changed,
+ * or a file deleted elsewhere, waits in the session's review until the
+ * person resolves it. Returning to the window never replaces an open note's
+ * draft, so its rich-text undo history survives; the next save meets the
+ * change.
  *
  * A field change from a list (pin, folder, Recently Deleted, a folder's
  * name) goes into the open note's draft when that note is open, and is
@@ -35,6 +37,7 @@ import type {
 	MoveError,
 	RowReadError,
 	StoredRow,
+	SyncChoices,
 	TableError,
 } from '@epicenter/folder';
 import { parseRow, rowPath } from '@epicenter/folder';
@@ -655,32 +658,25 @@ export function createNotes(host: NotesHost) {
 		check,
 		open,
 		/**
-		 * Reload theirs for `session`, the open item's: show the file as it is
-		 * now. A file that is gone closes; one that no longer reads the way it
+		 * Answer the review of `session`, the open item's, with one choice per
+		 * part. A file left deleted closes; one that no longer reads the way it
 		 * opened (a note whose text is not a valid row, a file that is no
 		 * longer text) opens again as what it is now. Answers what the person
 		 * is told, if anything.
 		 */
-		reloadTheirs: admissions.command(
-			async (session: Session): Promise<string | undefined> => {
+		resolve: admissions.command(
+			async (
+				session: Session,
+				choices: SyncChoices,
+			): Promise<string | undefined> => {
 				const why = refused();
 				if (why !== undefined) return why;
-				const reloaded = await slot.reloadTheirs(session);
-				if (reloaded === undefined) return undefined;
-				if (reloaded.error !== null) return describeError(reloaded.error);
+				const resolved = await slot.resolve(session, choices);
+				if (resolved === undefined) return undefined;
 				await refresh();
-				return undefined;
-			},
-		),
-		/** Keep mine for `session`, the open item's: save the draft over the file, or create it again. */
-		keepMine: admissions.command(
-			async (session: Session): Promise<string | undefined> => {
-				const why = refused();
-				if (why !== undefined) return why;
-				const kept = await slot.keepMine(session);
-				if (kept === undefined) return undefined;
-				await refresh();
-				return kept.error === null ? undefined : describeError(kept.error);
+				return resolved.error === null
+					? undefined
+					: describeError(resolved.error);
 			},
 		),
 		/** Discard the open item's draft and close it. Nothing is written. */

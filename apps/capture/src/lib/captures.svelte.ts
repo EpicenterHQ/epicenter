@@ -17,8 +17,9 @@
  * (`open` and `leave` answer `unsaved` with the session, and the view asks).
  *
  * Returning to the window takes a newer version of the open capture when its
- * session holds nothing unsaved. Otherwise the next save reports the change
- * as a conflict, and the person keeps theirs or reloads.
+ * session holds nothing unsaved. Otherwise the next save merges with the
+ * change: independent changes are written with no question, and parts both
+ * changed, or a file deleted elsewhere, wait in a review the person answers.
  */
 
 import {
@@ -40,6 +41,7 @@ import {
 	rowPath,
 	rowStemOf,
 	type StoredRow,
+	type SyncChoices,
 } from '@epicenter/folder';
 import { createAdmissions } from '@epicenter/svelte/admissions';
 import {
@@ -445,35 +447,23 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 			return left;
 		},
 		/**
-		 * Reload theirs for `session`, the open capture's: show the file as it
-		 * is now. A file that is gone closes; one the session can no longer
-		 * show (a capture whose text is no longer a valid row) opens again as
-		 * it reads now. Answers what the person is told, if anything.
+		 * Answer the review of `session`, the open capture's, with one choice
+		 * for each part. A file left deleted closes; one the session can no
+		 * longer show (a capture whose text is no longer a valid row) opens
+		 * again as it reads now. Answers what the person is told, if anything.
 		 */
-		reloadTheirs: command(
+		resolve: command(
 			async (
 				session: RowSession<CaptureFields> | TextSession,
+				choices: SyncChoices,
 			): Promise<string | undefined> => {
 				const why = refused();
 				if (why !== undefined) return why;
-				const reloaded = await slot.reloadTheirs(session);
-				if (reloaded === undefined) return undefined;
-				if (reloaded.error !== null) return describeError(reloaded.error);
+				const resolved = await slot.resolve(session, choices);
+				if (resolved === undefined) return undefined;
+				if (resolved.error !== null) return describeError(resolved.error);
 				await refresh();
 				return undefined;
-			},
-		),
-		/** Keep mine for `session`, the open capture's: save the draft over the file, or create it again. */
-		keepMine: command(
-			async (
-				session: RowSession<CaptureFields> | TextSession,
-			): Promise<string | undefined> => {
-				const why = refused();
-				if (why !== undefined) return why;
-				const kept = await slot.keepMine(session);
-				if (kept === undefined) return undefined;
-				await refresh();
-				return kept.error === null ? undefined : describeError(kept.error);
 			},
 		),
 

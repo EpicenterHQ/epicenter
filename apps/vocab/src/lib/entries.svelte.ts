@@ -21,7 +21,12 @@
  */
 
 import { InstantString } from '@epicenter/app/field';
-import { type FolderFiles, hashBytes, wellFormed } from '@epicenter/folder';
+import {
+	type FolderFiles,
+	hashBytes,
+	type SyncChoices,
+	wellFormed,
+} from '@epicenter/folder';
 import { createAdmissions } from '@epicenter/svelte/admissions';
 import {
 	createRowSession,
@@ -290,18 +295,14 @@ export function createEntriesState({
 		return error === null ? undefined : describeError(error);
 	}
 
-	async function reloadTheirs(session: Session): Promise<string | undefined> {
-		const reloaded = await slot.reloadTheirs(session);
-		if (reloaded === undefined) return undefined;
+	async function resolve(
+		session: Session,
+		choices: SyncChoices,
+	): Promise<string | undefined> {
+		const resolved = await slot.resolve(session, choices);
+		if (resolved === undefined) return undefined;
 		await refresh();
-		return reloaded.error === null ? undefined : describeError(reloaded.error);
-	}
-
-	async function keepMine(session: Session): Promise<string | undefined> {
-		const kept = await slot.keepMine(session);
-		if (kept === undefined) return undefined;
-		await refresh();
-		return kept.error === null ? undefined : describeError(kept.error);
+		return resolved.error === null ? undefined : describeError(resolved.error);
 	}
 
 	async function remove(entry: Entry): Promise<string | undefined> {
@@ -384,14 +385,13 @@ export function createEntriesState({
 		 */
 		setStage: change(setStage),
 		/**
-		 * Reload theirs for `session`, the open word's: show the file as it is
-		 * now. A file that is gone closes; one that is no longer a valid word
-		 * opens again as text, or as why it cannot be shown. Answers what the
-		 * learner is told, if anything.
+		 * Answer every conflict in `session`'s review at once, the open word's.
+		 * The word then shows the result; one deleted elsewhere that stays
+		 * deleted closes, and one that is no longer a valid word opens again as
+		 * text, or as why it cannot be shown. A refused answer keeps the review
+		 * with its problems. Answers what the learner is told, if anything.
 		 */
-		reloadTheirs: change(reloadTheirs),
-		/** Keep mine for `session`, the open word's: save the draft over the file, or create it again. */
-		keepMine: change(keepMine),
+		resolve: change(resolve),
 		/**
 		 * Delete `entry`. The open word's session is released first and its last
 		 * saves land, so the delete removes what this page saved last; a closed

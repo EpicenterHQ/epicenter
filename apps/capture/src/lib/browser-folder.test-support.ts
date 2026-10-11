@@ -8,7 +8,9 @@
  * `svelte-dom.test-support.js`); this module loads `captures.svelte.ts`.
  */
 import { captureDefinition } from '@epicenter/capture';
+import type { SyncChoices, SyncSide } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
+import type { SaveReview } from '@epicenter/svelte/edit-session';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	createTestStorage,
@@ -160,4 +162,20 @@ export function openText(captures: Captures) {
 	if (item?.kind !== 'text')
 		throw new Error(`Expected open text, got ${item?.kind}`);
 	return item.session;
+}
+
+/**
+ * One choice for every part of `session`'s review, all from `side`: the
+ * person's draft (`local`) or the file as it is now (`incoming`). Throws
+ * when nothing waits for a choice.
+ */
+export function takeAll(
+	session: { readonly review: SaveReview | undefined },
+	side: SyncSide,
+): SyncChoices {
+	const { review } = session;
+	if (review === undefined) throw new Error('Expected a review');
+	return Object.fromEntries(
+		review.conflicts.map((conflict) => [conflict.id, { kind: 'take', side }]),
+	);
 }

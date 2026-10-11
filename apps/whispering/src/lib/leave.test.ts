@@ -642,7 +642,7 @@ test('while the person decides nothing new starts, and keep working admits work 
 	expect(session.draft.body).toBe('Typed before the close.\n');
 	expect(session.state.status).toBe('saved');
 	expect(await library.editSource(session.path)).toContain('closing');
-	expect(await library.reloadTheirs(session)).toContain('closing');
+	expect(await library.resolveReview(session, {})).toContain('closing');
 	expect(await library.createFile('', 'note.md')).toContain('closing');
 	expect(await Bun.file(join(root, 'note.md')).exists()).toBe(false);
 	library.terminal.command = 'echo hi';

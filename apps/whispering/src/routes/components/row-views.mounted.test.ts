@@ -8,8 +8,10 @@
  *
  * Key behaviors:
  * - typing in a view edits the draft of the path it shows, and saves it
- * - a change made elsewhere shows the conflict prompt: Reload theirs and
- *   Keep mine; a recording deleted elsewhere offers only Discard
+ * - a change made elsewhere to the same lines shows the review, with no
+ *   Cancel: Your edit saves the draft, Saved elsewhere shows theirs; a
+ *   recording deleted elsewhere is never restored: Your edit is refused with
+ *   the reason beside it, and Saved elsewhere closes it
  * - a row file whose text is not a valid row opens as its text with its
  *   issues, and its fields open once the text reads
  * - controls are disabled while the app decides whether to close
@@ -85,6 +87,34 @@ async function settle(library: Library) {
 const field = <T extends Element>(target: ParentNode, selector: string) =>
 	target.querySelector<T>(selector);
 
+/**
+ * Press `Use this` on `side` for the one part the review shows, then Apply,
+ * and let the answer settle.
+ */
+async function apply(
+	library: Library,
+	target: ParentNode,
+	side: 'local' | 'incoming',
+) {
+	const uses = [...target.querySelectorAll('button')].filter(
+		(candidate) => candidate.textContent?.trim() === 'Use this',
+	);
+	expect(uses).toHaveLength(2);
+	// Your edit is first, then Saved elsewhere.
+	uses[side === 'local' ? 0 : 1]?.dispatchEvent(
+		new window.MouseEvent('click', { bubbles: true }),
+	);
+	flushSync();
+	click(target, 'Apply');
+	await settle(library);
+}
+
+/** The labels of the save bar's buttons. */
+const barButtons = (target: ParentNode) =>
+	[...target.querySelectorAll('[data-testid="save-bar"] button')].map(
+		(button) => button.textContent?.trim(),
+	);
+
 /** The save bar's state as the person reads it: a problem, saving, or saved. */
 function saveState(target: ParentNode) {
 	const bar = target.querySelector('[data-testid="save-bar"]');
@@ -111,7 +141,7 @@ test('typing in a transcript’s view edits the draft of the path it shows, and 
 	expect(saveState(target)).toBe('saved');
 });
 
-test('a change made elsewhere to the same lines shows the review; after Cancel, Keep mine saves the draft and Reload theirs shows theirs', async () => {
+test('a change made elsewhere to the same lines shows the review with no Cancel: Your edit saves the draft, and Saved elsewhere shows theirs', async () => {
 	const { library, target, root } = await open({ [A]: transcript('Alpha.\n') });
 	await show(library, A);
 	const body = () =>
@@ -125,29 +155,30 @@ test('a change made elsewhere to the same lines shows the review; after Cancel, 
 	await settle(library);
 	expect(saveState(target)).toBe('error');
 	expect(target.textContent).toContain('This changed elsewhere');
+	expect(target.textContent).toContain(
+		'Your edits are kept here and not saved',
+	);
 	expect(target.textContent).toContain('Choose what to keep');
+	expect(barButtons(target)).toEqual(['Use this', 'Use this', 'Apply']);
+	expect(await readFile(join(root, A), 'utf8')).toBe(transcript('Theirs.\n'));
 
-	click(target, 'Cancel');
-	flushSync();
-	click(target, 'Keep mine');
-	await settle(library);
+	await apply(library, target, 'local');
 	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nMine.\n');
 	expect(saveState(target)).toBe('saved');
 
 	await writeFile(join(root, A), transcript('Theirs again.\n'));
 	type(body(), 'Mine again.\n');
 	await settle(library);
-	click(target, 'Cancel');
-	flushSync();
-	click(target, 'Reload theirs');
-	await settle(library);
+	expect(saveState(target)).toBe('error');
+	await apply(library, target, 'incoming');
 	expect(body()?.value).toBe('Theirs again.\n');
+	expect(saveState(target)).toBe('saved');
 	expect(await readFile(join(root, A), 'utf8')).toBe(
 		transcript('Theirs again.\n'),
 	);
 });
 
-test('a recording deleted elsewhere offers only Discard, which closes it', async () => {
+test('a recording deleted elsewhere is never restored: Your edit is refused with the reason beside it, and Saved elsewhere closes it', async () => {
 	const { library, target, root } = await open({
 		[RECORDING]: recording('Take', 'Notes.\n'),
 	});
@@ -157,13 +188,18 @@ test('a recording deleted elsewhere offers only Discard, which closes it', async
 	await settle(library);
 
 	expect(target.textContent).toContain('This was deleted elsewhere');
-	const labels = [
-		...target.querySelectorAll('[data-testid="save-bar"] button'),
-	].map((button) => button.textContent?.trim());
-	expect(labels).toEqual(['Discard']);
+	expect(barButtons(target)).toEqual(['Use this', 'Use this', 'Apply']);
 
-	click(target, 'Discard');
-	await settle(library);
+	await apply(library, target, 'local');
+	expect(target.textContent).toContain(
+		'This file was deleted elsewhere and cannot be restored here',
+	);
+	expect(
+		target.querySelector('[data-testid="recording-detail"]'),
+	).not.toBeNull();
+	expect(await Bun.file(join(root, RECORDING)).exists()).toBe(false);
+
+	await apply(library, target, 'incoming');
 	expect(library.selection).toBeUndefined();
 	expect(target.querySelector('[data-testid="recording-detail"]')).toBeNull();
 	expect(await Bun.file(join(root, RECORDING)).exists()).toBe(false);

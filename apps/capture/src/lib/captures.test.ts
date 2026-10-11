@@ -12,15 +12,17 @@
  * - Each change to the open capture saves the whole row at once, keeping
  *   metadata Capture does not declare; rapid typing writes the latest draft
  * - A draft that is not a valid capture is never written
- * - A change made elsewhere is a conflict: Reload theirs shows it, Keep mine
- *   saves the draft over it; a file deleted elsewhere: Keep mine creates it
- *   again, Discard closes it
+ * - A save that meets a change made elsewhere merges with it: independent
+ *   changes are written with no question; parts both changed wait in a
+ *   review, and `resolve` writes one choice for each. A file deleted
+ *   elsewhere is one part: taking the draft creates it again, taking the
+ *   deletion closes it
  * - A file that is not a valid capture opens as text, saves as typed, and
  *   reopens as a capture once repaired
  * - Leaving a capture whose save failed, or with a thought typed and not
  *   added, answers `unsaved` until the person discards that session; opening
- *   the capture already shown does nothing; a discard after Reload theirs
- *   reopened it applies to the session answered
+ *   the capture already shown does nothing; a discard after resolving
+ *   reopened it as text applies to the session answered
  * - Deleting waits for the open capture's saves and deletes what it saved
  *   last; a file changed elsewhere since is not deleted
  * - Returning adopts a newer version of an open capture that holds nothing
@@ -36,6 +38,7 @@ import {
 	openCapture,
 	openCaptures,
 	openText,
+	takeAll,
 } from './browser-folder.test-support.js';
 
 type Opened = Awaited<ReturnType<typeof openCaptures>>;
@@ -191,10 +194,27 @@ test('a change the body cannot hold is refused with the reason, and nothing is w
 });
 
 // ============================================================================
-// The conflict prompt
+// A change made elsewhere
 // ============================================================================
 
-test('a change made elsewhere is a conflict, and Reload theirs shows it without writing', async () => {
+test('a save merges with an independent change made elsewhere and asks nothing', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const { captures } = harness;
+	await captures.open('one', 'capture');
+	const { session, form } = openCapture(captures);
+	await harness.writeElsewhere(PATH, `${HAND}- theirs\n`);
+	form.inputText('Mine');
+	expect((await session.settled()).status).toBe('saved');
+	expect(session.review).toBeUndefined();
+	expect(form.text).toBe('Mine');
+	expect(form.thoughts).toEqual(['first\nnested line', 'theirs']);
+	const saved = await harness.text(PATH);
+	expect(saved).toContain('\nMine\n');
+	expect(saved).toContain('- theirs\n');
+	expect(saved).toContain('custom: kept');
+});
+
+test('a body both changed waits in a review; taking theirs shows it and keeps the independent field change', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'capture');
@@ -204,19 +224,29 @@ test('a change made elsewhere is a conflict, and Reload theirs shows it without 
 	form.inputText('Mine');
 	const state = await session.settled();
 	expect(state.status === 'error' && state.error.name).toBe('Conflict');
+	expect(session.review?.conflicts.map((conflict) => conflict.kind)).toEqual([
+		'body',
+	]);
+	// Nothing is written until the review is answered.
 	expect(await harness.text(PATH)).toBe(theirs);
 
-	expect(await captures.reloadTheirs(session)).toBeUndefined();
+	expect(
+		await captures.resolve(session, takeAll(session, 'incoming')),
+	).toBeUndefined();
+	expect(session.review).toBeUndefined();
 	expect(form.text).toBe('Theirs');
+	expect(form.thoughts).toEqual([]);
 	expect(session.state.status).toBe('saved');
+	// Their text already holds everything chosen: their body and their
+	// removal of `custom`.
 	expect(await harness.text(PATH)).toBe(theirs);
-	// The session saves again from what it reloaded.
+	// The session saves again from what it resolved.
 	form.inputText('After');
 	expect((await session.settled()).status).toBe('saved');
 	expect(await harness.text(PATH)).toContain('\nAfter\n');
 });
 
-test('Keep mine saves the draft over a change made elsewhere', async () => {
+test('a body both changed: taking the draft saves it over the change made elsewhere', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'capture');
@@ -227,14 +257,33 @@ test('Keep mine saves the draft over a change made elsewhere', async () => {
 	);
 	form.inputText('Mine');
 	await session.settled();
-	expect(await captures.keepMine(session)).toBeUndefined();
+	expect(
+		await captures.resolve(session, takeAll(session, 'local')),
+	).toBeUndefined();
 	expect((await session.settled()).status).toBe('saved');
+	expect(session.review).toBeUndefined();
 	const saved = await harness.text(PATH);
 	expect(saved).toContain('\nMine\n');
 	expect(saved).toContain('- first\n  nested line');
 });
 
-test('a file deleted elsewhere is a conflict: Keep mine creates it again from the draft', async () => {
+test('a choice the folder refuses keeps the review with its problem', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const { captures } = harness;
+	await captures.open('one', 'capture');
+	const { session, form } = openCapture(captures);
+	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
+	await harness.writeElsewhere(PATH, theirs);
+	form.inputText('Mine');
+	await session.settled();
+	const review = session.review;
+	expect(await captures.resolve(session, {})).toBeString();
+	expect(session.review?.id).toBe(review?.id);
+	expect(session.review?.problems.length).toBeGreaterThan(0);
+	expect(await harness.text(PATH)).toBe(theirs);
+});
+
+test('a file deleted elsewhere waits in a review; taking the draft creates it again', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'capture');
@@ -247,17 +296,22 @@ test('a file deleted elsewhere is a conflict: Keep mine creates it again from th
 			state.error.name === 'Conflict' &&
 			state.error.actualSha256,
 	).toBeUndefined();
-	// A save never recreates a deleted file.
+	expect(session.review?.conflicts).toEqual([
+		expect.objectContaining({ kind: 'file', incoming: { present: false } }),
+	]);
+	// A save never recreates a deleted file on its own.
 	expect(await harness.text(PATH)).toBeUndefined();
 
-	expect(await captures.keepMine(session)).toBeUndefined();
+	expect(
+		await captures.resolve(session, takeAll(session, 'local')),
+	).toBeUndefined();
 	expect(await harness.text(PATH)).toContain('\nStill mine\n');
 	expect(session.state.status).toBe('saved');
 	form.inputText('After');
 	expect((await session.settled()).status).toBe('saved');
 });
 
-test('a file deleted elsewhere: Discard closes it without writing', async () => {
+test('a file deleted elsewhere: taking the deletion closes it without writing', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'capture');
@@ -265,7 +319,9 @@ test('a file deleted elsewhere: Discard closes it without writing', async () => 
 	await harness.deleteElsewhere(PATH);
 	form.inputText('Mine');
 	await session.settled();
-	expect(await captures.reloadTheirs(session)).toBeUndefined();
+	expect(
+		await captures.resolve(session, takeAll(session, 'incoming')),
+	).toBeUndefined();
 	expect(captures.opened).toBeUndefined();
 	// The closed session takes nothing more.
 	form.inputText('Late');
@@ -274,7 +330,7 @@ test('a file deleted elsewhere: Discard closes it without writing', async () => 
 	expect(captures.timeline).toEqual([]);
 });
 
-test('Reload theirs of a capture made invalid elsewhere opens its text with the issues', async () => {
+test('a capture made invalid elsewhere: taking their text opens it as text with the issues', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'capture');
@@ -282,7 +338,12 @@ test('Reload theirs of a capture made invalid elsewhere opens its text with the 
 	await harness.writeElsewhere(PATH, '---\ncapturedAt: [unclosed\n---\n');
 	form.inputText('Mine');
 	await session.settled();
-	expect(await captures.reloadTheirs(session)).toBeUndefined();
+	expect(session.review?.conflicts.map((conflict) => conflict.kind)).toEqual([
+		'file',
+	]);
+	expect(
+		await captures.resolve(session, takeAll(session, 'incoming')),
+	).toBeUndefined();
 	expect(openText(captures).draft).toBe('---\ncapturedAt: [unclosed\n---\n');
 });
 
@@ -328,7 +389,7 @@ test('a valid row whose Thoughts layout is ambiguous opens as text too', async (
 	expect(openText(captures).draft).toBe(ambiguous);
 });
 
-test('Edit as text shows the exact file, and Keep mine there keeps their other changes', async () => {
+test('Edit as text shows the exact file, and taking the draft there keeps their other changes', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'text');
@@ -338,14 +399,16 @@ test('Edit as text shows the exact file, and Keep mine there keeps their other c
 	session.input(`${session.draft}- mine\n`);
 	const state = await session.settled();
 	expect(state.status === 'error' && state.error.name).toBe('Conflict');
-	expect(await captures.keepMine(session)).toBeUndefined();
+	expect(
+		await captures.resolve(session, takeAll(session, 'local')),
+	).toBeUndefined();
 	await session.settled();
 	// The capture merges by field and body, as sync merges it: the body both
 	// changed is mine, and their removal of `custom` stands.
 	const saved = await harness.text(PATH);
 	expect(saved).toEndWith('- mine\n');
 	expect(saved).not.toContain('custom: kept');
-	expect(session.draft).toBe(saved);
+	expect<string | undefined>(session.draft).toBe(saved);
 });
 
 // ============================================================================
@@ -412,7 +475,7 @@ test('opening the capture already shown does nothing, even when it holds unsaved
 	expect(counter.mdWrites).toBe(before);
 });
 
-test('a discard after Reload theirs reopened the capture applies to the session answered', async () => {
+test('a discard after resolving reopened the capture as text applies to the session answered', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'capture');
@@ -422,7 +485,9 @@ test('a discard after Reload theirs reopened the capture applies to the session 
 	row.form.inputText('Mine');
 	await row.session.settled();
 	// The row session cannot show the file now, so it opens again as text.
-	expect(await captures.reloadTheirs(row.session)).toBeUndefined();
+	expect(
+		await captures.resolve(row.session, takeAll(row.session, 'incoming')),
+	).toBeUndefined();
 	const text = openText(captures);
 	harness.failNextWrite(PATH);
 	text.input(`${invalid}more\n`);
@@ -533,7 +598,7 @@ test('returning adopts a newer version of an open capture that holds nothing uns
 	expect(session.state.status).toBe('saved');
 });
 
-test('returning leaves a capture with a thought typed and not added; its next save is the conflict', async () => {
+test('returning leaves a capture with a thought typed and not added; its next save meets the change in a review', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'capture');
@@ -545,6 +610,9 @@ test('returning leaves a capture with a thought typed and not added; its next sa
 	expect(form.addThought()).toBe(true);
 	const state = await session.settled();
 	expect(state.status === 'error' && state.error.name).toBe('Conflict');
+	expect(session.review?.conflicts.map((conflict) => conflict.kind)).toEqual([
+		'body',
+	]);
 });
 
 test('a thought edit whose thought changed meanwhile is refused and keeps its text', async () => {

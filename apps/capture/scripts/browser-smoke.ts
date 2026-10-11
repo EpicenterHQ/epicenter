@@ -238,8 +238,9 @@ try {
 	await openFromTimeline(first, 'Dinner with Sebastian');
 	assert.equal(await source(first), edited);
 
-	// 6. Another page edits the file. The first page's next save asks, and
-	// Reload theirs shows the other page's text.
+	// 6. Another page edits the file. The first page's next save changed the
+	// same text, so it shows the review, and taking Saved elsewhere shows the
+	// other page's text.
 	const second = await context.newPage();
 	second.on('pageerror', (error) => errors.push(`second: ${error.message}`));
 	await second.goto(app);
@@ -247,20 +248,29 @@ try {
 	await second.getByLabel('Capture text').fill('Changed in the other window');
 	await saved(second);
 	await first.getByLabel('Capture text').fill('Mine');
-	await first.getByText('This capture changed elsewhere').waitFor();
-	await first.getByRole('button', { name: 'Reload theirs' }).click();
+	await first.getByText('This changed elsewhere.').waitFor();
+	// Your edit's Use this comes first, then Saved elsewhere's.
+	await first
+		.getByRole('button', { name: 'Use this', exact: true })
+		.nth(1)
+		.click();
+	await first.getByRole('button', { name: 'Apply', exact: true }).click();
 	await first.waitForFunction(
 		() =>
 			(document.querySelector('#capture-text') as HTMLTextAreaElement)
 				?.value === 'Changed in the other window',
 	);
 
-	// 7. Keep mine saves over a change made elsewhere.
+	// 7. Taking Your edit saves it over a change made elsewhere.
 	await first.getByLabel('Capture text').fill('Saved over it');
 	await saved(first);
 	await second.getByLabel('Capture text').fill('Second again');
-	await second.getByText('This capture changed elsewhere').waitFor();
-	await second.getByRole('button', { name: 'Keep mine' }).click();
+	await second.getByText('This changed elsewhere.').waitFor();
+	await second
+		.getByRole('button', { name: 'Use this', exact: true })
+		.first()
+		.click();
+	await second.getByRole('button', { name: 'Apply', exact: true }).click();
 	await saved(second);
 	await first
 		.getByRole('button', { name: 'Edit as text', exact: true })
@@ -349,7 +359,7 @@ try {
 
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, the conflict prompt across two pages, a leave warning for unadded text, an ambiguous capture opened as text, deletion, and an idempotent import from a bundle file.',
+		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, the conflict review across two pages, a leave warning for unadded text, an ambiguous capture opened as text, deletion, and an idempotent import from a bundle file.',
 	);
 } catch (cause) {
 	console.error(cause);

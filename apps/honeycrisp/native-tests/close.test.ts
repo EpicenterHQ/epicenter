@@ -389,8 +389,7 @@ test('a rich-text edit whose save failed is kept, with its undo history, when th
 	expect(await gate.close()).toBe('held');
 	await until(() => prompts.length === 1, 'the prompt');
 	// Nothing is chosen for the person while the close is being answered.
-	expect(await notes.reloadTheirs(draft)).toContain('closing');
-	expect(await notes.keepMine(draft)).toContain('closing');
+	expect(await notes.resolve(draft, {})).toContain('closing');
 	prompts[0]?.choose(false);
 	await until(() => gate.accepted('decline').length === 1, 'the decline');
 	expect(draft.draft.body).toBe(mine);

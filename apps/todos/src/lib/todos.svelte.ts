@@ -49,7 +49,7 @@ import type {
 } from '@epicenter/folder';
 import {
 	GitError,
-	MergeError,
+	type MergeError,
 	rowPath,
 	rowStemOf,
 	SyncError,
@@ -601,32 +601,25 @@ export function createTodos(folder: TodosFolder) {
 		open,
 		reload,
 		/**
-		 * Reload theirs for `session`, the open item's: show the file as it is
-		 * now. A file that is gone closes; one that can no longer be shown as
-		 * the session's value (a todo whose text is not a valid row, a file
-		 * that is no longer text) opens again as it is now. Answers what the
-		 * person is told, if anything.
+		 * Answer `session`'s review, the open item's, with `choices`. A file
+		 * left deleted closes; one that can no longer be shown as the session's
+		 * value (a todo whose text is not a valid row, a file that is no longer
+		 * text) opens again as it is now. Answers what the person is told, if
+		 * anything.
 		 */
-		reloadTheirs: admissions.command(
-			async (session: Session): Promise<string | undefined> => {
+		resolve: admissions.command(
+			async (
+				session: Session,
+				choices: SyncChoices,
+			): Promise<string | undefined> => {
 				const why = refused();
 				if (why !== undefined) return why;
-				const reloaded = await slot.reloadTheirs(session);
-				if (reloaded === undefined) return undefined;
-				if (reloaded.error !== null) return describeError(reloaded.error);
+				const resolved = await slot.resolve(session, choices);
+				if (resolved === undefined) return undefined;
 				await refresh();
-				return undefined;
-			},
-		),
-		/** Keep mine for `session`, the open item's: save the draft over the file, or create it again. */
-		keepMine: admissions.command(
-			async (session: Session): Promise<string | undefined> => {
-				const why = refused();
-				if (why !== undefined) return why;
-				const kept = await slot.keepMine(session);
-				if (kept === undefined) return undefined;
-				await refresh();
-				return kept.error === null ? undefined : describeError(kept.error);
+				return resolved.error === null
+					? undefined
+					: describeError(resolved.error);
 			},
 		),
 		/** Add a todo and open it. */

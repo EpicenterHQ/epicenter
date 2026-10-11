@@ -38,7 +38,7 @@ import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { toneWav } from './capture.js';
 import type { RecordingFields, TranscriptionFields } from './definition.js';
-import { transcriptSession } from './drafts.test-support.js';
+import { allFrom, transcriptSession } from './drafts.test-support.js';
 import {
 	captureDeletions,
 	DEFAULT_SORT,
@@ -651,7 +651,7 @@ test('a transcript is edited in its own draft beside its recording, which stays 
 	expect(library.draftAt('notes.md')).toBeUndefined();
 });
 
-test('a transcript changed outside is listed, and its open draft reports the change as a conflict on the next save', async () => {
+test('a transcript changed outside is listed, and its open draft shows the competing body for review on the next save; Your edit saves it', async () => {
 	const { library, root } = await history();
 	await library.open(path('standup'));
 	await library.openTranscript(TRANSCRIPT);
@@ -673,8 +673,13 @@ test('a transcript changed outside is listed, and its open draft reports the cha
 	});
 	const state = await session.settled();
 	expect(state.status === 'error' && state.error.name).toBe('Conflict');
+	expect(session.review?.conflicts.map((conflict) => conflict.kind)).toEqual([
+		'body',
+	]);
 	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toBe(outside);
-	expect(await library.keepMine(session)).toBeUndefined();
+	expect(
+		await library.resolveReview(session, allFrom(session, 'local')),
+	).toBeUndefined();
 	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toContain(
 		'What I typed.',
 	);

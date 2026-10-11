@@ -108,9 +108,7 @@
 			save={draft.session.state}
 			review={draft.session.review}
 			onRetry={() => draft.session.retry()}
-			onReloadTheirs={() => library.reloadTheirs(draft.session)}
-			gone={!library.canKeepMine(draft.session)}
-			onKeepMine={library.canKeepMine(draft.session) ? () => library.keepMine(draft.session) : undefined}
+			onResolve={(choices) => library.resolveReview(draft.session, choices)}
 		/>
 	{/if}
 

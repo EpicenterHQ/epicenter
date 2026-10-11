@@ -76,9 +76,7 @@
 			review={row.review}
 			hideWhenSaved
 			onRetry={() => row.retry()}
-			onReloadTheirs={() => library.reloadTheirs(row)}
-			gone={!library.canKeepMine(row)}
-			onKeepMine={library.canKeepMine(row) ? () => library.keepMine(row) : undefined}
+			onResolve={(choices) => library.resolveReview(row, choices)}
 		/>
 	{:else}
 		<p class="max-h-64 overflow-y-auto rounded border p-2 whitespace-pre-wrap" data-testid="transcript-text-readonly">{text}</p>
@@ -92,9 +90,7 @@
 			review={draft.session.review}
 			hideWhenSaved
 			onRetry={() => draft.session.retry()}
-			onReloadTheirs={() => library.reloadTheirs(draft.session)}
-			gone={!library.canKeepMine(draft.session)}
-			onKeepMine={library.canKeepMine(draft.session) ? () => library.keepMine(draft.session) : undefined}
+			onResolve={(choices) => library.resolveReview(draft.session, choices)}
 		/>
 	{:else if draft?.kind === 'failed'}
 		<p class="text-xs text-destructive" role="alert">

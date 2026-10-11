@@ -2,7 +2,8 @@
 	One open note, in its row session. Its title, folder, pin, rich text, and
 	Source change the session's draft, and each change saves at once. The view
 	is mounted once per session; the rich-text view remounts only when a read
-	replaces the draft (Reload theirs), so its undo history survives saves.
+	replaces the draft (a merge with a change made elsewhere, or the review's
+	answer), so its undo history survives saves.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -119,8 +120,7 @@
 		save={session.state}
 		review={session.review}
 		onRetry={() => session.retry()}
-		onKeepMine={() => notes.keepMine(session)}
-		onReloadTheirs={() => notes.reloadTheirs(session)}
+		onResolve={(choices) => notes.resolve(session, choices)}
 	/>
 
 	<Tabs.Root bind:value={tab} class="flex min-h-0 flex-1 flex-col">

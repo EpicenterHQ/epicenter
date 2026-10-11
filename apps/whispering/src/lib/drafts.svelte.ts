@@ -31,7 +31,6 @@ import {
 	type TextSession,
 } from '@epicenter/svelte/edit-session';
 import { createOpenItems } from '@epicenter/svelte/open-item';
-import { Err } from 'wellcrafted/result';
 import { audioMimeTypeOf } from './audio-format.js';
 import {
 	RECORDINGS,
@@ -86,16 +85,6 @@ type Loaded =
 	  };
 
 export type DraftSession = Extract<Draft, { session: unknown }>['session'];
-
-/**
- * Why Keep mine does not create a recording deleted elsewhere: its audio may
- * be gone too, so the recording is not restored.
- */
-export const RECORDING_GONE = {
-	name: 'RecordingGone',
-	message:
-		'This recording was deleted elsewhere; its audio may be gone too, so it cannot be restored. Discard it instead.',
-} as const;
 
 /** How a row file opens: as fields when its text reads as a row, or as text. */
 export type OpenAs = 'row' | 'text';
@@ -161,11 +150,15 @@ export function createDrafts(
 					return readRow(folder.tables.recordings, table, stem, (stored) => ({
 						kind: 'row',
 						table,
-						// Keep mine never creates a recording deleted elsewhere.
+						// A recording deleted elsewhere is never restored: its audio
+						// may be gone too, so its review can only leave it deleted.
 						session: createEditSession(
 							{
 								...rowSource(folder.tables.recordings),
-								recreate: async () => Err(RECORDING_GONE),
+								merge: (path, versions) =>
+									folder.tables.recordings.merge(path, versions, {
+										restore: false,
+									}),
 							},
 							{ file: stored, value: stored.row },
 							{ locked },

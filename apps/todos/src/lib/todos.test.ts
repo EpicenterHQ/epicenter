@@ -7,10 +7,11 @@
  * Key behaviors:
  * - An open todo saves each edit at once, and rapid edits write the latest
  *   draft, never every intermediate one
- * - A change made elsewhere is a conflict: Reload theirs shows it, Keep mine
- *   saves the draft over it, and nothing is written until the person chooses
- * - A file deleted elsewhere is a conflict too: Keep mine creates it again
- *   from the draft, Discard closes it
+ * - A change made elsewhere merges with the draft; the parts both changed
+ *   wait in a review, and nothing is written until the person answers every
+ *   part at once
+ * - A file deleted elsewhere is a review too: taking the draft creates it
+ *   again, taking theirs leaves it deleted and closes it
  * - A draft that is not a valid row is never written
  * - A todo whose text is not a valid row opens as text with its issues,
  *   saves as typed, and reopens as a todo once repaired
@@ -26,6 +27,7 @@
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import type { SyncChoices } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -39,12 +41,19 @@ import { holdCloses } from './opfs-holds.test-support.js';
 import type { TodosFolder } from './platform/types.js';
 import type { Todos } from './todos.svelte.js';
 
-/** The open item's session, whatever kind. */
-function openSession(todos: Todos) {
-	const item = todos.opened;
-	if (item?.kind !== 'todo' && item?.kind !== 'text')
-		throw new Error(`Expected an open session, got ${item?.kind}`);
-	return item.session;
+/** A choice for every part of `session`'s review, each taken from `side`. */
+function allFrom(
+	session: {
+		readonly review:
+			| { readonly conflicts: readonly { readonly id: string }[] }
+			| undefined;
+	},
+	side: 'local' | 'incoming',
+): SyncChoices {
+	if (session.review === undefined) throw new Error('Expected a review');
+	return Object.fromEntries(
+		session.review.conflicts.map(({ id }) => [id, { kind: 'take', side }]),
+	);
 }
 
 const { createTodos } = await import('./todos.svelte.ts');
@@ -246,10 +255,10 @@ test('a failed save keeps the draft; Try again saves it', async () => {
 });
 
 // ============================================================================
-// The conflict prompt
+// The review of a change made elsewhere
 // ============================================================================
 
-test('a change made elsewhere is a conflict, and Reload theirs shows it without writing', async () => {
+test('a title both changed waits in a review, and taking theirs shows their version in the same session', async () => {
 	const { todos } = await open();
 	const session = await addTodo(todos, 'Milk');
 	const theirs = '---\ntitle: Theirs\ndone: true\n---\nfrom elsewhere\n';
@@ -261,8 +270,12 @@ test('a change made elsewhere is a conflict, and Reload theirs shows it without 
 	expect(state.status === 'error' && state.error.name).toBe('Conflict');
 	expect(await text(todos, session.path)).toBe(theirs);
 
-	expect(await todos.reloadTheirs(openSession(todos))).toBeUndefined();
+	expect(session.review?.conflicts.map(({ kind }) => kind)).toEqual(['field']);
+	expect(
+		await todos.resolve(session, allFrom(session, 'incoming')),
+	).toBeUndefined();
 	const reloaded = todoSession(todos);
+	expect(reloaded).toBe(session);
 	expect(reloaded.draft.fields).toEqual({ title: 'Theirs', done: true });
 	expect(reloaded.draft.body).toBe('from elsewhere\n');
 	expect(reloaded.state.status).toBe('saved');
@@ -275,7 +288,7 @@ test('a change made elsewhere is a conflict, and Reload theirs shows it without 
 	expect(await text(todos, session.path)).toContain('done: false');
 });
 
-test('Keep mine takes the draft where both changed and keeps what changed elsewhere in other fields', async () => {
+test('taking the draft where both changed keeps what changed elsewhere in other fields', async () => {
 	const { todos } = await open();
 	const session = await addTodo(todos, 'Milk');
 	await writeElsewhere(
@@ -287,14 +300,16 @@ test('Keep mine takes the draft where both changed and keeps what changed elsewh
 		row.fields.title = 'Mine';
 	});
 	await session.settled();
-	expect(await todos.keepMine(openSession(todos))).toBeUndefined();
+	expect(
+		await todos.resolve(session, allFrom(session, 'local')),
+	).toBeUndefined();
 	expect((await session.settled()).status).toBe('saved');
 	const saved = await text(todos, session.path);
 	expect(saved).toContain('title: Mine');
 	expect(saved).toContain('done: true');
 });
 
-test('a file deleted elsewhere is a conflict: Keep mine creates it again from the draft', async () => {
+test('a file deleted elsewhere waits in a review, and taking the draft creates it again', async () => {
 	const { todos } = await open();
 	const session = await addTodo(todos, 'Milk');
 	await deleteElsewhere(todos, session.path);
@@ -310,8 +325,13 @@ test('a file deleted elsewhere is a conflict: Keep mine creates it again from th
 	).toBeUndefined();
 	// A deleted file is never recreated by a save.
 	expect(await text(todos, session.path)).toBeUndefined();
+	expect(session.review?.conflicts).toMatchObject([
+		{ kind: 'file', incoming: { present: false } },
+	]);
 
-	expect(await todos.keepMine(openSession(todos))).toBeUndefined();
+	expect(
+		await todos.resolve(session, allFrom(session, 'local')),
+	).toBeUndefined();
 	expect(await text(todos, session.path)).toContain('title: Still mine');
 	expect(session.state.status).toBe('saved');
 	session.edit((row) => {
@@ -320,7 +340,7 @@ test('a file deleted elsewhere is a conflict: Keep mine creates it again from th
 	expect((await session.settled()).status).toBe('saved');
 });
 
-test('a file deleted elsewhere: Discard closes it without writing', async () => {
+test('a file deleted elsewhere: taking theirs leaves it deleted and closes it', async () => {
 	const { todos } = await open();
 	const session = await addTodo(todos, 'Milk');
 	await deleteElsewhere(todos, session.path);
@@ -328,7 +348,9 @@ test('a file deleted elsewhere: Discard closes it without writing', async () => 
 		row.fields.title = 'Mine';
 	});
 	await session.settled();
-	expect(await todos.reloadTheirs(openSession(todos))).toBeUndefined();
+	expect(
+		await todos.resolve(session, allFrom(session, 'incoming')),
+	).toBeUndefined();
 	expect(todos.opened).toBeUndefined();
 	expect(await text(todos, session.path)).toBeUndefined();
 	// The closed session takes nothing more.
@@ -339,7 +361,7 @@ test('a file deleted elsewhere: Discard closes it without writing', async () => 
 	expect(await text(todos, session.path)).toBeUndefined();
 });
 
-test('Reload theirs of a todo made invalid elsewhere opens its text with the issues', async () => {
+test('taking theirs for a todo made invalid elsewhere opens its text with the issues', async () => {
 	const { todos } = await open();
 	const session = await addTodo(todos, 'Milk');
 	await writeElsewhere(todos, session.path, '---\ntitle: [unclosed\n---\n');
@@ -347,12 +369,15 @@ test('Reload theirs of a todo made invalid elsewhere opens its text with the iss
 		row.fields.title = 'Mine';
 	});
 	await session.settled();
-	expect(await todos.reloadTheirs(openSession(todos))).toBeUndefined();
+	expect(session.review?.conflicts.map(({ kind }) => kind)).toEqual(['file']);
+	expect(
+		await todos.resolve(session, allFrom(session, 'incoming')),
+	).toBeUndefined();
 	expect(todos.current).toEqual({ path: session.path, workspace: 'todos' });
 	expect(textSession(todos).draft).toBe('---\ntitle: [unclosed\n---\n');
 });
 
-test('input is locked while Keep mine runs, so a recreated file holds the draft on screen', async () => {
+test('input is locked while a review waits and while its answer is written, so a recreated file holds the draft on screen', async () => {
 	const { todos } = await open();
 	const session = await addTodo(todos, 'Milk');
 	await deleteElsewhere(todos, session.path);
@@ -360,7 +385,8 @@ test('input is locked while Keep mine runs, so a recreated file holds the draft 
 		row.fields.title = 'Mine';
 	});
 	await session.settled();
-	const keeping = todos.keepMine(session);
+	expect(session.locked).toBe(true);
+	const keeping = todos.resolve(session, allFrom(session, 'local'));
 	expect(session.locked).toBe(true);
 	session.edit((row) => {
 		row.fields.title = 'Refused';
@@ -370,7 +396,7 @@ test('input is locked while Keep mine runs, so a recreated file holds the draft 
 	expect(await text(todos, session.path)).toContain('title: Mine');
 });
 
-test('Keep mine saves over a file that is no longer text', async () => {
+test('taking the draft saves over a file that is no longer text', async () => {
 	const { todos } = await open();
 	const session = await addTodo(todos, 'Milk');
 	expectOk(
@@ -383,12 +409,15 @@ test('Keep mine saves over a file that is no longer text', async () => {
 		row.fields.title = 'Mine';
 	});
 	await session.settled();
-	expect(await todos.keepMine(session)).toBeUndefined();
+	expect(session.review?.conflicts.map(({ kind }) => kind)).toEqual(['file']);
+	expect(
+		await todos.resolve(session, allFrom(session, 'local')),
+	).toBeUndefined();
 	await session.settled();
 	expect(await text(todos, session.path)).toContain('title: Mine');
 });
 
-test('Reload theirs of a file that is no longer text opens it again as it is now', async () => {
+test('taking theirs for a file that is no longer text opens it again as it is now', async () => {
 	const { todos } = await open();
 	const session = await addTodo(todos, 'Milk');
 	expectOk(
@@ -401,12 +430,13 @@ test('Reload theirs of a file that is no longer text opens it again as it is now
 		row.fields.title = 'Mine';
 	});
 	await session.settled();
-	expect(await todos.reloadTheirs(session)).toBeUndefined();
+	const choices = allFrom(session, 'incoming');
+	expect(await todos.resolve(session, choices)).toBeUndefined();
 	// A todo row that is not text cannot load as a todo; the detail says why.
 	expect(todos.opened?.kind).toBe('failed');
 	expect(todos.current).toEqual({ path: session.path, workspace: 'todos' });
-	// The conflicted session was released: Keep mine for it does nothing.
-	expect(await todos.keepMine(session)).toBeUndefined();
+	// The reviewed session was released: answering it again does nothing.
+	expect(await todos.resolve(session, choices)).toBeUndefined();
 	expect(session.locked).toBe(true);
 
 	// Opened from Files, the same file reloads as file details.
@@ -423,7 +453,7 @@ test('Reload theirs of a file that is no longer text opens it again as it is now
 	);
 	file.input('mine');
 	await file.settled();
-	expect(await todos.reloadTheirs(file)).toBeUndefined();
+	expect(await todos.resolve(file, allFrom(file, 'incoming'))).toBeUndefined();
 	expect(todos.opened).toMatchObject({ kind: 'binary', path: session.path });
 });
 
@@ -493,7 +523,7 @@ test('a row that is not a valid todo is named for repair, opens as text, saves a
 	expect(todos.entries.map((entry) => entry.path)).toEqual([path]);
 });
 
-test('Files opens a todo as its exact text, and a conflict there offers the same choices', async () => {
+test('Files opens a todo as its exact text, and a change made elsewhere there reviews the same parts', async () => {
 	const { todos } = await open();
 	const row = await addTodo(todos, 'Milk');
 	const path = row.path;
@@ -506,9 +536,12 @@ test('Files opens a todo as its exact text, and a conflict there offers the same
 	expect(state.status === 'error' && state.error.name).toBe('Conflict');
 	// A todo opened as text still merges by field, as sync merges it.
 	expect(session.review?.conflicts.map(({ kind }) => kind)).toEqual(['field']);
-	expect(await todos.keepMine(openSession(todos))).toBeUndefined();
+	expect(
+		await todos.resolve(session, allFrom(session, 'local')),
+	).toBeUndefined();
 	await session.settled();
 	expect(await text(todos, path)).toBe(session.draft);
+	expect(session.draft).toContain('title: Mine');
 });
 
 // ============================================================================
@@ -576,7 +609,7 @@ test('opening the item already shown does nothing, even when its save failed', a
 	expect(milk.locked).toBe(false);
 });
 
-test('a discard after Reload theirs swapped the session applies to the session the open answered', async () => {
+test('a discard after taking theirs swapped the session applies to the session the open answered', async () => {
 	const { todos, failNextWrite } = await open();
 	const bread = await addTodo(todos, 'Bread');
 	const milk = await addTodo(todos, 'Milk');
@@ -585,13 +618,13 @@ test('a discard after Reload theirs swapped the session applies to the session t
 		row.fields.title = 'Mine';
 	});
 	await milk.settled();
-	expect(await todos.reloadTheirs(milk)).toBeUndefined();
+	expect(await todos.resolve(milk, allFrom(milk, 'incoming'))).toBeUndefined();
 	const repair = textSession(todos);
 	failNextWrite(milk.path);
 	repair.input('---\ntitle: still broken\n---\n');
 	await repair.settled();
 
-	// The session the view held before Reload theirs is not the one asked about.
+	// The session the view held before its review was answered is not the one asked about.
 	expect(await todos.open(bread.path, 'todos', { discard: milk })).toEqual({
 		kind: 'unsaved',
 		session: repair,
@@ -602,7 +635,7 @@ test('a discard after Reload theirs swapped the session applies to the session t
 	expect(todoSession(todos).path).toBe(bread.path);
 });
 
-test('a renamed open todo keeps its place: opening it at its new path does nothing, and Reload theirs finds it there', async () => {
+test('a renamed open todo keeps its place: opening it at its new path does nothing, and taking theirs finds it there', async () => {
 	const { todos } = await open();
 	const session = await addTodo(todos, 'Milk');
 	expect(await todos.rename(session.path, 'renamed.md')).toBeUndefined();
@@ -616,7 +649,9 @@ test('a renamed open todo keeps its place: opening it at its new path does nothi
 		row.fields.title = 'Mine';
 	});
 	await session.settled();
-	expect(await todos.reloadTheirs(session)).toBeUndefined();
+	expect(
+		await todos.resolve(session, allFrom(session, 'incoming')),
+	).toBeUndefined();
 	expect(textSession(todos).path).toBe('todos/renamed.md');
 	expect(todos.current).toEqual({
 		path: 'todos/renamed.md',

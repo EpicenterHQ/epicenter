@@ -33,6 +33,7 @@ import type {
 	KvReading,
 	RowReadError,
 	StoredRow,
+	SyncChoices,
 	TableListing,
 } from '@epicenter/folder';
 import { parseRow, rowPath, rowStemOf } from '@epicenter/folder';
@@ -40,7 +41,7 @@ import { ancestorsOf, dirname, joinPath } from '@epicenter/folder/file-browser';
 import { createAdmissions } from '@epicenter/svelte/admissions';
 import { customAlphabet } from 'nanoid';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Err, type Result } from 'wellcrafted/result';
 import type { ActiveCapture, CapturedAudio } from './capture.js';
 import type {
 	ConnectionChange,
@@ -73,7 +74,6 @@ import {
 	createDrafts,
 	type Draft,
 	type DraftSession,
-	RECORDING_GONE,
 	rowTableOf,
 	sessionOf,
 } from './drafts.svelte.js';
@@ -497,32 +497,6 @@ export function createLibrary(workspace: Workspace) {
 		return undefined;
 	}
 
-	/** The open draft whose session is `session`. */
-	function draftWith(session: DraftSession): Draft | undefined {
-		const path = drafts.holding(session);
-		return path === undefined ? undefined : drafts.get(path);
-	}
-
-	/**
-	 * Recording sessions whose Keep mine found the file deleted. Their
-	 * sessions refuse to create it again (`drafts.svelte.ts`), so only
-	 * Discard is offered from then on.
-	 */
-	const gone = new SvelteSet<DraftSession>();
-
-	/** Whether a recording row's file is known to be gone: its audio may be gone too, so it is not recreated. */
-	function recordingGone(session: DraftSession) {
-		const draft = draftWith(session);
-		if (draft?.kind !== 'row' || draft.table !== RECORDINGS) return false;
-		if (gone.has(session)) return true;
-		const { state } = session;
-		return (
-			state.status === 'error' &&
-			state.error.name === 'Conflict' &&
-			state.error.actualSha256 === undefined
-		);
-	}
-
 	/** Everything held only in this window, in the words the leave prompt shows. */
 	function unsavedWork(): string[] {
 		const held: string[] = [];
@@ -927,48 +901,27 @@ export function createLibrary(workspace: Workspace) {
 			return drafts.get(path)?.kind === 'text' ? STILL_TEXT : undefined;
 		}),
 		/**
-		 * Reload theirs for `session`: show the file as it is now. A row whose
-		 * text is no longer valid opens as text, a file that is no longer text
-		 * opens as what it is, and a file that is gone closes. Answers what the
-		 * person is told, if anything.
+		 * Answer `session`'s review with one choice for every part. The draft
+		 * shows what was written; a file left deleted closes, and a file that is
+		 * no longer this kind opens again as what it is. A recording deleted
+		 * elsewhere can only stay deleted: its audio may be gone too. Answers
+		 * what the person is told, if anything.
 		 */
-		reloadTheirs: command(
-			async (session: DraftSession): Promise<string | undefined> => {
+		resolveReview: command(
+			async (
+				session: DraftSession,
+				choices: SyncChoices,
+			): Promise<string | undefined> => {
 				const why = refused();
 				if (why !== undefined) return why;
-				const reloaded = await drafts.reloadTheirs(session);
-				if (reloaded === undefined) return undefined;
-				if (reloaded.error !== null) return describeError(reloaded.error);
+				const resolved = await drafts.resolve(session, choices);
+				if (resolved === undefined) return undefined;
 				await refresh();
-				return undefined;
+				return resolved.error === null
+					? undefined
+					: describeError(resolved.error);
 			},
 		),
-		/**
-		 * Keep mine for `session`: save the draft over the file, or create it
-		 * again. A recording deleted elsewhere is not created again, since its
-		 * audio may be gone too.
-		 */
-		keepMine: command(
-			async (session: DraftSession): Promise<string | undefined> => {
-				const why = refused();
-				if (why !== undefined) return why;
-				// A recording's session refuses to create its file again; see `drafts.svelte.ts`.
-				const kept = await drafts.keepMine(session);
-				if (kept === undefined) return undefined;
-				if (kept.error?.name === RECORDING_GONE.name) gone.add(session);
-				await refresh();
-				return kept.error === null ? undefined : describeError(kept.error);
-			},
-		),
-		/** Whether Keep mine is offered for `session`: not for a recording known to be deleted elsewhere. */
-		canKeepMine(session: DraftSession) {
-			return !recordingGone(session);
-		},
-		/** Discard `session`'s draft and close it. Nothing is written. */
-		discard(session: DraftSession) {
-			const path = drafts.holding(session);
-			if (path !== undefined) drafts.slot(path).forget(session);
-		},
 
 		async startRecording() {
 			if (recorder.phase !== 'idle' || refused() !== undefined) return;

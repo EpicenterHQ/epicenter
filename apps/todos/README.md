@@ -236,7 +236,7 @@ holds the rest:
 | Files button (Ctrl+B) | Shows or hides the file browser: a pane on wide screens, a drawer on narrow ones. |
 | Folder path (desktop) | The directory the todos are in. Click to copy it. |
 | Status button | Shows the most important current fact, shortened on narrow screens. Open it for where the folder is, saved files, uncommitted changes, the last commit, the remote, and the last pull as separate lines with the times they were observed, plus "Check again" and "Fetch". When the last remote check saw commits on both sides, it says the histories diverged; Todos only fast-forwards, so local commits are kept until the histories are resolved. |
-| Sync | Waits for the open todo's saves, commits the saved files, fetches, merges, and pushes (`folder.sync`, ADR-0514). Edits to different fields, or to different lines of the notes, merge on their own; a merged todo is rewritten in the standard form. When both sides changed the same title, done, notes, or a whole todo (one side deleted it, or a version is not a valid todo), the review replaces the workspace and nothing is written until you apply your choices. The review is modal: the open todo and the Git buttons take no input until you apply or cancel, and Cancel forgets the attempt and your choices. Afterwards the lists and the open todo are read again: a todo with nothing unsaved shows the result, and one holding a draft it could not save keeps it until you Keep mine or Reload theirs. Off when the folder has no remote. |
+| Sync | Waits for the open todo's saves, commits the saved files, fetches, merges, and pushes (`folder.sync`, ADR-0514). Edits to different fields, or to different lines of the notes, merge on their own; a merged todo is rewritten in the standard form. When both sides changed the same title, done, notes, or a whole todo (one side deleted it, or a version is not a valid todo), the review replaces the workspace and nothing is written until you apply your choices. The review is modal: the open todo and the Git buttons take no input until you apply or cancel, and Cancel forgets the attempt and your choices. Afterwards the lists and the open todo are read again: a todo with nothing unsaved shows the result, and one holding a draft it could not save keeps it; its next save merges with the result. Off when the folder has no remote. |
 | Pull (desktop) | Fetches, then applies the remote only as a clean fast-forward. A refusal is shown as "Pull stopped" with the reason, and in the status details. Off when the folder has no remote. |
 | Merge incoming changes (desktop) | Shown when the last check saw commits on both sides. Merges the fetched remote into the committed folder in one commit; a conflict refuses and writes nothing. Nothing is pushed. |
 | Commit and push (desktop) | Commits the saved files and pushes. Unsaved typing is not included. Reads "Commit" when the folder has no remote. |
@@ -262,15 +262,20 @@ keeps you on the item.
   never changes what is on screen.
 - When the file changed elsewhere since this item last saved or read it,
   the save merges your edits with that version first. Changes to different
-  fields, or to different lines, combine and save with no question. When
-  both changed the same field or lines, a review shows only those parts,
-  with your edit, the version saved elsewhere, and a result; **Apply** saves
-  your choices over that version. **Cancel** leaves **Reload theirs**, which
-  shows their version in place of your edits, and **Keep mine**, which keeps
-  your edits where both changed and their changes everywhere else. When the file was
-  deleted elsewhere, the choices are **Discard**, which closes the item, and
-  **Keep mine**, which creates the file again from your edits. Nothing is
-  written until you choose.
+  fields, or to different lines, combine and save with no question, and the
+  editor shows the result.
+- When both changed the same field or lines, the save bar shows a review of
+  only those parts: **Your edit**, **Saved elsewhere**, and a result. Pick
+  **Use this** on either side for each part, or **Use all from** one side
+  when there are several, and **Apply** saves every answer at once over that
+  version. Your other edits and their other changes are kept either way.
+  When the file was deleted elsewhere, or is no longer a valid todo or no
+  longer text, the review shows the whole file: your edit saves it again
+  from your version, and their side leaves it as it is now. A deleted file
+  then closes; a todo that no longer reads as one opens as its text. Nothing
+  is written until you apply, and typing waits until then.
+- The review has no Cancel. To drop your edits instead, open another item:
+  Todos asks "Discard unsaved changes?" as for any edit it could not save.
 - A save that fails for another reason keeps your edits and offers **Try
   again**. When a save's reply is lost, the folder reads the file once: if it
   holds what was sent, the save counts as saved. Otherwise the bar says it may
@@ -280,7 +285,7 @@ keeps you on the item.
   the plain editor is kept well formed, so a lone surrogate becomes U+FFFD as
   you type and what saves is what you see.
 - Rename and delete wait for the open item's saves and act on what it saved
-  last. Typing is paused while a rename, Keep mine, or Reload theirs runs.
+  last. Typing is paused while a rename or an applied review runs.
   Renaming an item whose save failed moves what was saved and saves your
   edits at the new name. Edits made while the delete confirmation is open are
   saved first, then the file is deleted.
@@ -334,11 +339,12 @@ without the push.
    checking" or "Check failed" instead of claiming a clean folder when the last
    observation is out of date or failed; focus and "Check again" check again.
 2. Edit the title or notes. Each edit saves the todo's standard form at once.
-   Change the file in another tab or program, then edit again: the save stops
-   with **Reload theirs** and **Keep mine**. See "Editing and conflicts".
+   Change the file in another tab or program, then edit again: edits to
+   other fields merge with no question, and a field you both changed shows
+   in a review with **Apply**. See "Editing and conflicts".
 3. Open the file browser. Folders expand and collapse; every text file, a
    todo's Markdown included, opens as its text and saves as you type, with
-   the same conflict prompt. A file that is not UTF-8 text, or is over 1 MB,
+   the same review. A file that is not UTF-8 text, or is over 1 MB,
    shows its type and size and is never saved as text. Right-click a row, or
    use its "…" button, for Open, Rename, Copy path, and Delete; on a folder,
    New file and New folder. With a row focused, arrow keys move and expand,
@@ -399,10 +405,11 @@ that still does not parse saves as typed and stays under "Needs repair". A
 todo that parses but has a bad field, such as `done: soon`, is named the same
 way. Once the text reads as a todo, **Open as todo** opens its fields. A todo
 whose text stops reading as a todo while it is open stays as you left it;
-**Reload theirs** opens its text instead. When the file is no longer UTF-8
-text, **Keep mine** saves your version over it, and **Reload theirs** opens
-it as it is now: file details from Files, or why it cannot open from the
-todo list.
+its next save shows a review of the whole file, where using the version
+saved elsewhere opens its text instead. When the file is no longer UTF-8
+text, using your edit saves your version over it, and using the version saved
+elsewhere opens it as it is now: file details from Files, or why it cannot
+open from the todo list.
 
 Any file name works for a todo, including a leading dot, a trailing space,
 punctuation, and `todos/.md` itself. Only `.md` in lowercase makes a file a
@@ -416,7 +423,7 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/routes/+page.svelte` | Opens the Todos owner. Inside Epicenter it starts the shared departure client (`@epicenter/epicenter/departure/page`) and opens the folder only once a status is known, attaching `todos.departure` the moment it exists (`openForDeparture`). |
 | `src/lib/platform/` | The `#platform/departure` seam: the host leaf is the shared Tauri window port (`@epicenter/epicenter/departure/window`); the browser leaf has no port. And the `#platform/folder` seam: `types.ts` is its contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens the OPFS folder through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the host's directory through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The mounted page calls it; importing it opens nothing. |
 | `src/lib/files.ts` | File browser rows, and which files open as editable text. |
-| `src/lib/todos.svelte.ts` | Todo and folder listings, the rows named for repair, the one open item (`@epicenter/svelte/open-item`) and its edit session (`@epicenter/svelte/edit-session`), conflict choices, and file actions, each counted by `@epicenter/svelte/admissions` so close and departure wait for it. |
+| `src/lib/todos.svelte.ts` | Todo and folder listings, the rows named for repair, the one open item (`@epicenter/svelte/open-item`) and its edit session (`@epicenter/svelte/edit-session`), review answers (`todos.resolve`), and file actions, each counted by `@epicenter/svelte/admissions` so close and departure wait for it. |
 | `src/lib/terminal.svelte.ts` | The terminal session that outlives the terminal pane, over the folder's own `folder.terminal()`. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
 | `src/routes/components/` | Header, file browser, list, the detail pane (`Detail`: `TodoDetail` or `FileView`, each with the shared `SaveBar` from `@epicenter/svelte/save-bar`), and terminal. |
@@ -456,7 +463,7 @@ several promises of the version before it:
 
 - An open todo no longer saves last-writer-wins over changes made elsewhere,
   and there is no **Reload** button. Every save is guarded, a change made
-  elsewhere is a conflict, and Reload theirs lives in the conflict prompt.
+  elsewhere merges with your edits, and what both changed shows in a review.
 - One item is open at a time. Switching no longer keeps each file's unsaved
   input in its own editor, and there is no handoff between the todo list
   and Files: leaving an item whose save failed asks to discard it.
@@ -468,9 +475,9 @@ several promises of the version before it:
 - Rename and delete no longer refuse while a save failed; a conflict still
   refuses them through the version guard.
 - Typing during a rename is paused instead of saved at the new name.
-- Reload theirs of a file that is no longer text opens it again as it is
-  now, which ends its conflicted session, instead of keeping the session
-  open with a message. Keep mine is offered before you choose.
+- Using the version saved elsewhere for a file that is no longer text opens
+  it again as it is now, which ends its session, instead of keeping the
+  session open with a message. Your edit is offered beside it in the review.
 - The browser demo no longer has Pull, Merge incoming changes, or Commit and
   push. Sync replaces them: it merges diverged history that Pull refused,
   merges a todo both sides changed by field and notes, and asks before

@@ -481,12 +481,19 @@ selected. Selecting another item leaves the drafts it replaces once their
 saves land.
 
 - Every save is guarded by the version this window last saved. When the file
-  changed elsewhere, nothing is written and the save line asks: **Reload
-  theirs** shows the file as it is now (a text file that is no longer text
-  opens as what it is), **Keep mine** saves your version over it. When the
-  file was deleted elsewhere, **Keep mine** creates it again from
-  your version and **Discard** closes it. A recording deleted elsewhere offers
-  only **Discard**, because its audio may be gone too.
+  changed elsewhere, your changes and theirs are combined: a field or line
+  only one side changed is saved with no question. Parts you both changed
+  show in a review under the save line, with **Your edit** and **Saved
+  elsewhere** side by side. Pick one for each part (or **Use all from** one
+  side when there are several), then **Apply** saves them all at once. There
+  is no Cancel: your edits stay on screen, unsaved, until you apply.
+- A file deleted elsewhere shows the same review for the whole file. **Your
+  edit** creates it again from your version; **Saved elsewhere** leaves it
+  deleted and closes it. A recording deleted elsewhere can only stay
+  deleted, because its audio may be gone too: choosing **Your edit** is
+  refused, and the reason shows beside it.
+- A row file that no longer reads as a row after a change elsewhere: **Saved
+  elsewhere** keeps that text and opens it as text with what to fix.
 - A save that failed, or whose reply never arrived, keeps your edits on screen.
   **Try again** (or **Save again**) saves them; your next edit saves too.
 - Leaving an item whose save failed or conflicted asks "Discard unsaved
@@ -601,12 +608,12 @@ afplay /tmp/whispering-restore/recordings/<recording-id>.wav
 This build edits files through the folder's edit sessions. These promises of
 the earlier build changed:
 
-- A change made elsewhere is a conflict, not overwritten. The next save of
-  an open recording, transcript, or transformation used to write over another
-  program's change unless you chose **Reload from file**. Now it asks
-  **Reload theirs** or **Keep mine**.
-- A file deleted elsewhere can be created again from your version (Keep
-  mine), except a recording. It used to be never created again.
+- A change made elsewhere is not overwritten. The next save of an open
+  recording, transcript, or transformation used to write over another
+  program's change unless you chose **Reload from file**. Now changes that do
+  not overlap are combined, and you choose for each part you both changed.
+- A file deleted elsewhere can be created again from your version (**Your
+  edit**), except a recording. It used to be never created again.
 - No "Keep both". A conflicting text file used to offer writing your
   version to `conflicts/<name>-<time>.md`.
 - No paused autosave. The debug menu's "Pause autosave" is gone; every

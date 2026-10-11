@@ -61,8 +61,7 @@
 		hideWhenSaved
 		class="mt-2"
 			onRetry={() => session.retry()}
-			onKeepMine={() => entries.keepMine(session)}
-			onReloadTheirs={() => entries.reloadTheirs(session)}
+			onResolve={(choices) => entries.resolve(session, choices)}
 		/>
 	{/if}
 </article>
