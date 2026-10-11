@@ -77,10 +77,12 @@ test('the page imports no Node or Bun module, and Tauri only in the workspace', 
 	).toEqual([]);
 	// The Tauri APIs the page names: the opener asks whether it is inside a
 	// desktop app, and the desktop workspace hears the shell's close signal
-	// and answers it. Folder commands and events are the folder adapter's.
+	// and answers it with `flush_done`. Folder commands and events are the
+	// folder adapter's.
 	expect(
 		importers((specifier) => specifier.startsWith('@tauri-apps/')).sort(),
 	).toEqual([
+		'lib/workspace/desktop.ts imports @tauri-apps/api/core',
 		'lib/workspace/desktop.ts imports @tauri-apps/api/event',
 		'lib/workspace/index.ts imports @tauri-apps/api/core',
 	]);

@@ -29,7 +29,8 @@
  */
 
 import { openFolder } from '@epicenter/folder/tauri';
-import { emit, listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type BridgeConnection, createHttpBridge } from '../bridge/http.js';
 import {
@@ -73,8 +74,8 @@ type ShellRun = {
 
 /** Sent by the shell when the window closes or the app quits (`src-tauri/src/lib.rs`). */
 const CLOSE_REQUESTED = 'whispering://close-requested';
-/** The page's one answer: its flush has finished or run out of time. */
-const CLOSE_FLUSHED = 'whispering://close-flushed';
+/** The page's one answer, a shell command: its flush has finished or run out of time. */
+const FLUSH_DONE = 'flush_done';
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -178,7 +179,7 @@ export async function openDesktopWorkspace(
 		hostClose: (respond) =>
 			listen(CLOSE_REQUESTED, async () => {
 				await respond();
-				await emit(CLOSE_FLUSHED);
+				await invoke(FLUSH_DONE);
 			}),
 		// The host holds the keys and answers with what is set, never a key.
 		connections: {

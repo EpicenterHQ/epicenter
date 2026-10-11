@@ -33,14 +33,14 @@ let calls: Call[] = [];
 /** The shell's replies by command. A reply that throws is a refusal. */
 let replies: Record<string, (call: Call) => unknown> = {};
 const listeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
-/** Events the page emitted, by name, in order. */
-let emitted: string[] = [];
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => inShell,
 	async invoke(cmd: string, args: Record<string, unknown> = {}) {
 		const name = cmd.replace('plugin:epicenter-folder|', '');
 		calls.push({ cmd: name, args });
+		// The page's answer to a close: the shell takes it and returns nothing.
+		if (name === 'flush_done') return null;
 		const reply = replies[name];
 		if (reply === undefined) throw new Error(`no scripted reply for ${name}`);
 		return reply({ cmd: name, args });
@@ -52,9 +52,6 @@ mock.module('@tauri-apps/api/event', () => ({
 		listeners.set(name, set);
 		set.add(callback);
 		return () => set.delete(callback);
-	},
-	async emit(name: string) {
-		emitted.push(name);
 	},
 }));
 
@@ -153,7 +150,6 @@ afterEach(async () => {
 	calls = [];
 	replies = {};
 	listeners.clear();
-	emitted = [];
 	const scope = globalThis as { window?: unknown; location?: unknown };
 	delete scope.window;
 	delete scope.location;
@@ -514,12 +510,12 @@ test('the shell’s close signal reaches the page as a Tauri event, and the page
 	await settle();
 	expect(flushes).toBe(1);
 	// Still flushing: no answer yet.
-	expect(emitted).toEqual([]);
+	expect(sent('flush_done')).toEqual([]);
 
 	flush.resolve('flushed');
-	await until(() => emitted.length === 1, 'the page to answer');
-	expect(emitted).toEqual(['whispering://close-flushed']);
-	// The signal and its answer are Tauri events; the host is not involved.
+	await until(() => sent('flush_done').length === 1, 'the page to answer');
+	// The signal is a Tauri event and the answer a shell command; the host is
+	// not involved.
 	expect(served.operationsAsked.map((call) => call.op)).toEqual(['info']);
 
 	stop();
@@ -559,7 +555,7 @@ test('a host that stops answering does not close the folder: the page keeps savi
 	expect(transcribeError?.name).toBe('HostUnavailable');
 	// The close signal does not pass through the host.
 	shellCloses();
-	await until(() => emitted.length === 1, 'the page to answer');
+	await until(() => sent('flush_done').length === 1, 'the page to answer');
 	stop();
 	await workspace.close();
 	expect(sent('detach')).toHaveLength(1);

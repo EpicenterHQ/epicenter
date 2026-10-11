@@ -181,9 +181,9 @@ The shell settles four things, in this order, before the window exists
    capability, added at runtime because the port is not known until then,
    grants the `main` window, on exactly `http://127.0.0.1:<port>/*`, the
    owner's commands (`epicenter-folder:default`), listening for events
-   (`core:event:allow-listen`, `core:event:allow-unlisten`), and emitting the
-   page's answer to a close (`core:event:allow-emit`). `tauri.conf.json` lists
-   no capability.
+   (`core:event:allow-listen`, `core:event:allow-unlisten`), and the shell's
+   own `flush_done`, the page's answer to a close (`allow-flush-done`).
+   `tauri.conf.json` lists no capability.
 
 So the page cannot choose a directory: it names a scope, and the shell decided
 what that scope is. Another window, a page from another origin or port, and a
@@ -588,7 +588,7 @@ shell   on a window close, the Quit menu item (Command-Q), or an exit request:
           holds it back once and emits whispering://close-requested to the page
 page    flushes (`flushOnClose`): sends each draft's held snapshot and waits
           for admitted work and running saves, at most 800 ms
-page    emits whispering://close-flushed
+page    invokes the shell's flush_done command
 shell   exits on that answer, or after 1 second without one
 ```
 
@@ -601,10 +601,11 @@ nothing new and retries nothing, so a failed save is not waited for. A browser
 tab has no shell; there the same flush starts on `pagehide`, and cannot be
 waited for.
 
-The signal and its answer are Tauri events (`src/lib/workspace/desktop.ts` and
-`src-tauri/src/lib.rs`), not host operations, so they reach the page whether
-or not the host is running. The shell's capability for the page adds only
-`core:event:allow-emit` for the answer. A page that is not listening (one still
+The signal is a Tauri event and the answer a shell command
+(`src/lib/workspace/desktop.ts` and `src-tauri/src/lib.rs`), not host
+operations, so they work whether or not the host is running. The shell's
+capability grants `flush_done` to the `main` window on the host's origin
+alone, and the command checks the window again. A page that is not listening (one still
 starting, or one whose opening failed) is not answered for: the shell waits out
 its second and exits. With no app page at all (the failure page), the shell
 exits at once.

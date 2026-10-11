@@ -14,8 +14,8 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   browser workspace alone, and `@epicenter/folder/tauri` by the desktop
   workspace alone. Other native services use shared typed invoke bindings
   imported only by the desktop workspace. The only direct Tauri imports are
-  `isTauri` in the workspace opener and the close event's `listen` and `emit`
-  in the desktop workspace. `src/lib/page-boundary.test.ts` enforces
+  `isTauri` in the workspace opener, and in the desktop workspace the close
+  event's `listen` and its answer, the shell's `flush_done` command. `src/lib/page-boundary.test.ts` enforces
   these boundaries; keep it passing without granting native reach to components.
 - **One folder, one owner.** On the desktop the data folder is owned by the
   shell's `tauri-plugin-epicenter-folder` and by nothing else. The page

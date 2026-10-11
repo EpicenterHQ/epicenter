@@ -45,7 +45,7 @@ use std::time::{Duration, Instant};
 
 use tauri::ipc::CapabilityBuilder;
 use tauri::{
-    App, AppHandle, Emitter, Listener, Manager, RunEvent, Runtime, WebviewUrl,
+    App, AppHandle, Emitter, Manager, RunEvent, Runtime, State, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, ScopeConfig};
@@ -55,11 +55,10 @@ const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(target_os = "macos")]
 const QUIT_MENU_ID: &str = "quit";
 
-/// Sent to the page when the window closes or the app quits.
+/// Sent to the page when the window closes or the app quits. The page answers
+/// with the `flush_done` command once its saves in flight have landed, or its
+/// own, shorter wait for them ran out.
 const CLOSE_REQUESTED: &str = "whispering://close-requested";
-/// The page's one answer: its saves in flight have landed, or its own,
-/// shorter wait for them ran out.
-const CLOSE_FLUSHED: &str = "whispering://close-flushed";
 /// How long the shell waits for that answer before it exits anyway.
 const CLOSE_FLUSH_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -106,6 +105,7 @@ pub fn run() {
         .plugin(tauri_plugin_epicenter_folder::init())
         .manage(HostState::default())
         .manage(Closing::default())
+        .invoke_handler(tauri::generate_handler![flush_done])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if !may_exit(window.app_handle()) {
@@ -116,7 +116,6 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             install_menu(app)?;
-            hear_close_answers(app.handle());
             match start(app) {
                 Ok(started) => open_app_window(app, started.port, &started.token)?,
                 Err(error) => {
@@ -180,16 +179,17 @@ fn flush_then_exit(app: &AppHandle) {
     });
 }
 
-/// Hand the page's answer to the wait under way, if there is one. The page
-/// emits it with `@tauri-apps/api/event`, which reaches every listener.
-fn hear_close_answers<R: Runtime>(app: &AppHandle<R>) {
-    let handle = app.clone();
-    app.listen(CLOSE_FLUSHED, move |_| {
-        let answer = handle.state::<Closing>().answer.lock().unwrap().take();
-        if let Some(answer) = answer {
-            let _ = answer.send(());
-        }
-    });
+/// The page's answer to a close: hand it to the wait under way, if there is
+/// one. Only the main window's answer counts; the capability grants the
+/// command to no other window, and this checks again.
+#[tauri::command]
+fn flush_done<R: Runtime>(window: WebviewWindow<R>, closing: State<'_, Closing>) {
+    if window.label() != MAIN_WINDOW {
+        return;
+    }
+    if let Some(answer) = closing.answer.lock().unwrap().take() {
+        let _ = answer.send(());
+    }
 }
 
 /// How the wait for the page's answer ended.
@@ -308,9 +308,8 @@ fn register_folder<R: Runtime>(app: &AppHandle<R>, root: PathBuf) -> Result<(), 
 /// command at all without this. A page from any other origin or port, a local
 /// page such as the failure page, and any other window are not covered.
 ///
-/// The permissions are the owner's commands, listening for its events, and
-/// emitting events, which carries the page's answer to a close
-/// (`CLOSE_FLUSHED`).
+/// The permissions are the owner's commands, listening for its events (and
+/// the shell's close event), and `flush_done`, the page's answer to a close.
 fn folder_capability(port: u16) -> CapabilityBuilder {
     CapabilityBuilder::new(FOLDER_CAPABILITY)
         .local(false)
@@ -319,7 +318,7 @@ fn folder_capability(port: u16) -> CapabilityBuilder {
         .permission("epicenter-folder:default")
         .permission("core:event:allow-listen")
         .permission("core:event:allow-unlisten")
-        .permission("core:event:allow-emit")
+        .permission("allow-flush-done")
 }
 
 /// The default macOS menu's Quit item calls AppKit's `terminate:`, which ends
@@ -653,26 +652,57 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(1));
     }
 
+    /// `flush_done` as the page at `url` in `window` would send it.
+    fn answer_close(window: &WebviewWindow<MockRuntime>, url: &str) -> Result<(), Value> {
+        tauri::test::get_ipc_response(
+            window,
+            InvokeRequest {
+                cmd: "flush_done".to_string(),
+                callback: CallbackFn(0),
+                error: CallbackFn(1),
+                url: url.parse().unwrap(),
+                body: InvokeBody::Json(json!({})),
+                headers: Default::default(),
+                invoke_key: INVOKE_KEY.to_string(),
+            },
+        )
+        .map(|_| ())
+        .map_err(|error| error.clone())
+    }
+
     #[test]
-    fn the_pages_answer_event_reaches_the_wait() {
+    fn only_the_main_windows_answer_reaches_the_wait() {
         let app = mock_builder()
             .manage(Closing::default())
+            .invoke_handler(tauri::generate_handler![flush_done])
             .build(context::<MockRuntime>())
             .expect("mock app");
-        hear_close_answers(app.handle());
-        // An answer with no wait under way is dropped.
-        app.emit(CLOSE_FLUSHED, ()).unwrap();
-
+        let main = WebviewWindowBuilder::new(&app, MAIN_WINDOW, Default::default())
+            .build()
+            .expect("main window");
+        let other = WebviewWindowBuilder::new(&app, "other", Default::default())
+            .build()
+            .expect("other window");
+        let host = "http://127.0.0.1:4000/";
         let (sender, answers) = mpsc::sync_channel(1);
         *app.state::<Closing>().answer.lock().unwrap() = Some(sender);
-        // As the page sends it: `emit` from `@tauri-apps/api/event`.
-        app.emit(CLOSE_FLUSHED, ()).unwrap();
 
+        // Without the capability the page cannot answer at all.
+        assert!(answer_close(&main, host).is_err());
+        app.add_capability(folder_capability(4000)).unwrap();
+        // Another window, and another origin, are not granted the command.
+        assert!(answer_close(&other, host).is_err());
+        assert!(answer_close(&main, "http://127.0.0.1:4001/").is_err());
+        assert!(app.state::<Closing>().answer.lock().unwrap().is_some());
+
+        answer_close(&main, host).expect("the main window answers");
         assert_eq!(
             wait_for_flush(&answers, Duration::from_secs(5)),
             Flush::Answered
         );
         assert!(app.state::<Closing>().answer.lock().unwrap().is_none());
+        // An answer with no wait under way changes nothing.
+        answer_close(&main, host).expect("a late answer is accepted and ignored");
     }
 
     #[test]
@@ -797,7 +827,7 @@ mod tests {
                 "epicenter-folder:default",
                 "core:event:allow-listen",
                 "core:event:allow-unlisten",
-                "core:event:allow-emit",
+                "allow-flush-done",
             ]
         );
     }
