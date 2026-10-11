@@ -5,6 +5,7 @@ import { defineStore, defineTable, field } from '@epicenter/app';
 import { openLocal } from '@epicenter/app/open';
 import { invoke } from '@tauri-apps/api/core';
 import { unwrap } from 'wellcrafted/result';
+
 try {
 	const { cycle, document } = await invoke<{
 		cycle: number;

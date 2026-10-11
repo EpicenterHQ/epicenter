@@ -8,13 +8,13 @@
  */
 
 import type { CaptureFields } from '@epicenter/capture';
-import type { HostCloseSignal } from '@epicenter/svelte/flush-on-close';
 import type {
 	FileTable,
 	FolderFiles,
 	FolderGit,
 	FolderLocation,
 } from '@epicenter/folder';
+import type { HostCloseSignal } from '@epicenter/svelte/flush-on-close';
 
 /**
  * The folder both leaves open. The browser names its scoped OPFS directory after

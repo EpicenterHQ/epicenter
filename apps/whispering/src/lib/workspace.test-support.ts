@@ -16,6 +16,7 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileError, type FileTable, openFolder } from '@epicenter/folder/bun';
+import type { FlushOutcome } from '@epicenter/svelte/flush-on-close';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { createFixtureDevice, toneWav } from './capture.js';
@@ -32,11 +33,7 @@ import {
 import { whisperingDefinition } from './definition.js';
 import { TranscriptionError } from './transcription.js';
 import { TransformationError } from './transformation.js';
-import type { FlushOutcome } from '@epicenter/svelte/flush-on-close';
-import type {
-	RecordingWriteHook,
-	Workspace,
-} from './workspace/types.js';
+import type { RecordingWriteHook, Workspace } from './workspace/types.js';
 
 type TransformRequest = Parameters<Workspace['transform']>[0];
 type TranscribeRequest = Parameters<Workspace['transcribe']>[0];

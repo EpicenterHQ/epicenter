@@ -43,7 +43,5 @@ export function onHostClose(
 
 /** Run `listener` when the Bun host that served this page stops. */
 export function onHostStopped(listener: () => void): Promise<() => void> {
-	return getCurrentWebviewWindow().listen(HOST_STOPPED_EVENT, () =>
-		listener(),
-	);
+	return getCurrentWebviewWindow().listen(HOST_STOPPED_EVENT, () => listener());
 }

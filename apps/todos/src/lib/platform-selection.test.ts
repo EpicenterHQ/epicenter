@@ -74,10 +74,14 @@ describe('#platform/folder', () => {
 			// The close leaf reaches the host's published page side and this
 			// window's Tauri API, never the host's Bun entry.
 			expect(
-				modules.some((path) => path.endsWith('platform/close.epicenter-host.ts')),
+				modules.some((path) =>
+					path.endsWith('platform/close.epicenter-host.ts'),
+				),
 			).toBe(true);
 			expect(
-				modules.some((path) => path.endsWith('apps/epicenter/src/page-close.ts')),
+				modules.some((path) =>
+					path.endsWith('apps/epicenter/src/page-close.ts'),
+				),
 			).toBe(true);
 			expect(
 				modules.some((path) => /@tauri-apps\/api\/.*webviewWindow/.test(path)),
