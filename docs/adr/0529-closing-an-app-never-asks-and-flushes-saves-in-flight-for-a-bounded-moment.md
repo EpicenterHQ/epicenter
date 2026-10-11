@@ -25,7 +25,7 @@ write, which the folder plugin's exit drain cannot see.
 ## Decision
 
 Closing or force-closing an app just closes it. Nothing asks, fences input, or
-waits on a person.
+waits on a person, with one exception: a recording in progress.
 
 - On quit, and on a window close that ends the page, the host sends each page
   that holds file-backed drafts one close signal and waits for one
@@ -34,8 +34,17 @@ waits on a person.
   `settled()`, which sends the held snapshot, bounded to 800 ms by
   `flushOnClose` (`@epicenter/svelte/flush-on-close`), then acknowledges. A
   hung save, a failed save, or a page that never answers cannot hold the quit.
-- A draft whose save failed or conflicted, text not added, an unanswered
-  transcript, and a live recording are lost on quit.
+- A draft whose save failed or conflicted, text not added, and an unanswered
+  transcript are lost on quit.
+- While a recording is in progress, the first quit or close shows one native
+  dialog, "A recording is in progress. Quit anyway?", with Quit and Cancel.
+  Cancel keeps the app open and recording; Quit continues to the flush and
+  exit. The page tells the shell when a recording starts and stops, as one
+  boolean (`set_recording`), granted only to the window that records; the
+  shell reads it synchronously when a quit arrives. Only Whispering records:
+  its standalone shell holds the flag. Epicenter's hosted Whispering opens no
+  session today, and Capture and Todos hold no recordings, so Epicenter has no
+  such dialog.
 - The Rust folder plugin still drains the writes it accepted on
   `RunEvent::Exit`.
 - In a browser, `pagehide` starts the same flush without waiting, and the
@@ -46,8 +55,9 @@ waits on a person.
   `applicationWillTerminate:`, so the Dock's Quit, logout, shutdown, and a
   `quit` Apple event reach the app as `RunEvent::Exit` on the main thread,
   where a page's IPC cannot be served. Those quits drain only the writes the
-  folder plugin already accepted; a snapshot still waiting in a page is lost.
-  The apps no longer cancel a logout or shutdown.
+  folder plugin already accepted; a snapshot still waiting in a page is lost,
+  and a recording in progress is lost without the dialog. The apps no longer
+  cancel a logout or shutdown.
 - An Epicenter account change still asks Bun's `prepare-relaunch`, which Rust
   now grants at once; `relaunch` flushes the pages, then restarts.
 
@@ -71,3 +81,7 @@ are deleted.
   and event delivery are unverified.
 - **Prompt only when a save failed.** Brings back the consent round for the
   one case the save bar already reported.
+- **Lose a live recording without asking.** A recording is not a draft with a
+  save bar: nothing tells the person it is not saved yet, and Cmd-Q while
+  dictating is an easy slip. One native dialog, gated by one boolean, is the
+  smallest guard.
