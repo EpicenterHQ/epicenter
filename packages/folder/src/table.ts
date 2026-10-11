@@ -53,7 +53,8 @@ import {
 	rowPath,
 	rowStemOf,
 } from './paths.js';
-import { parseRow, type Row, writeRow } from './row-text.js';
+import { mergeRow, type RowMerge } from './row-merge.js';
+import { formatRow, parseRow, type Row, writeRow } from './row-text.js';
 import { applyOne, replaceCaptured } from './storage.js';
 
 /**
@@ -128,6 +129,18 @@ export type FileTable<TFields> = {
 		file: FileCapture,
 		options: { onState(state: SaveState<RowSaveError>): void },
 	): Autosave<Row<TFields>, RowSaveError>;
+	/**
+	 * Merge three versions of one row by field and body, as sync does
+	 * (ADR-0514): equal values agree, a side unchanged from `base` yields to
+	 * the other, and the body merges by line. A version that cannot be
+	 * written, or does not read back as a row of this table, makes the whole
+	 * row one unit. Writes nothing.
+	 */
+	merge(versions: {
+		readonly base: Row<TFields>;
+		readonly ours: Row<TFields>;
+		readonly theirs: Row<TFields>;
+	}): Promise<RowMerge>;
 };
 
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -340,6 +353,16 @@ export function createTable<TFields>(
 				write: ({ bytes }, over) => replaceCaptured(storage, over, bytes),
 				onState,
 			});
+		},
+		async merge({ base, ours, theirs }) {
+			const text = (row: Row<TFields>) => {
+				const { data, error } = formatRow(table, row as never);
+				return error === null ? data : undefined;
+			};
+			const [b, o, t] = [text(base), text(ours), text(theirs)];
+			if (b === undefined || o === undefined || t === undefined)
+				return { kind: 'whole' };
+			return mergeRow(table, { base: b, ours: o, theirs: t });
 		},
 	};
 }

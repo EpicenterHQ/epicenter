@@ -107,6 +107,7 @@ export type {
 	SyncObservation,
 } from './git/history.js';
 export type { HttpFetch } from './git/http.js';
+export { mergeLines } from './git/merge-lines.js';
 export { commitSubject, escapePath, type PathChange } from './git/messages.js';
 export type { Author, CommitSummary } from './git/objects.js';
 export type {
@@ -133,6 +134,12 @@ export {
 	rowPath,
 	rowStemOf,
 } from './paths.js';
+export type {
+	AnyRow,
+	BodyConflict,
+	FieldConflict,
+	RowMerge,
+} from './row-merge.js';
 export {
 	formatRow,
 	type Issue,
