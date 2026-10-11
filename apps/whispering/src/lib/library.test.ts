@@ -176,6 +176,7 @@ async function open({
 		transform: async ({ input }) => Ok({ text: input }),
 		transformNote: 'test',
 		hostClose: undefined,
+		setRecording: undefined,
 		connections: device.member,
 		preferences: {
 			microphone: async () => undefined,

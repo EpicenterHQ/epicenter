@@ -55,12 +55,17 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   for saves in flight (`flushOnClose` from `@epicenter/svelte/flush-on-close`),
   and the shell exits on the page's answer or after one second. Do not add a
   prompt, a consent round, a way to cancel a close, or a wait that is not
-  bounded. A save that failed and work held only in the page are lost on quit;
+  bounded. The one exception is a recording in progress: the page tells the
+  shell when one starts and stops (`set_recording`, one boolean), and while one
+  is in progress the shell shows one native dialog ("A recording is in
+  progress. Quit anyway?", Quit or Cancel) before the flush. Do not widen it
+  to other unsaved work or move it into the page. A save that failed and work
+  held only in the page are lost on quit;
   the save bar and notices already say so. Keep the custom Quit menu item: the
   predefined one calls AppKit's `terminate:`, which skips the exit request. A
   quit from macOS itself (the Dock, a logout, shutdown, an Apple Event) reaches
-  the shell only as `RunEvent::Exit` and does not reach the page; only writes
-  the folder's owner had accepted are finished. Do not hook
+  the shell only as `RunEvent::Exit` and does not reach the page or the
+  recording dialog; only writes the folder's owner had accepted are finished. Do not hook
   `applicationShouldTerminate:` to change that: Whispering never cancels a
   logout or shutdown.
 - **A lost reply is not a refusal.** When a native service does not answer, the page

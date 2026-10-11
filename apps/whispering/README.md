@@ -418,20 +418,26 @@ the open window. They are not written anywhere else.
 ### Closing and quitting
 
 Closing the window (the close button or Command-W) and quitting (Command-Q or
-the Whispering menu) never ask. Whispering sends any typing that is waiting to
-be saved, waits for saves already underway, and closes. It waits at most about
-a second; a save that is still running after that may not land.
+the Whispering menu) never ask, with one exception. Whispering sends any typing
+that is waiting to be saved, waits for saves already underway, and closes. It
+waits at most about a second; a save that is still running after that may not
+land.
 
-What was only in the window is lost when it closes: a recording in progress, a
-recording that is not in the folder, a transcript or transformation result
+The exception is a recording in progress. Closing or quitting then asks once:
+"A recording is in progress. Quit anyway?" **Cancel** keeps Whispering open and
+still recording. **Quit** closes as above, and the recording is lost.
+
+What was only in the window is lost when it closes: a recording that is not in
+the folder, a transcript or transformation result
 whose file was not written, a result on pasted text not saved yet, a running
 transcription or transformation, and edits whose save failed, conflicted, or
 was not confirmed. The status and the save bar already say when something is
 not saved, so save it, copy it, or try again before you quit.
 
 On macOS, Quit in the Dock, a logout, restart, or shutdown closes Whispering
-without sending waiting typing first. Saves the folder had already started
-still finish. Whispering never stops a logout or shutdown.
+without sending waiting typing first, and without asking about a recording in
+progress, which is lost. Saves the folder had already started still finish.
+Whispering never stops a logout or shutdown.
 
 Moving between Home, Recordings, and Transformations keeps everything, since
 nothing is lost by it.

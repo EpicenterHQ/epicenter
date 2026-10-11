@@ -183,6 +183,12 @@ export type Workspace = {
 	 * `pagehide` starts the same flush.
 	 */
 	readonly hostClose: HostCloseSignal | undefined;
+	/**
+	 * Tell the desktop shell whether a recording is in progress, each time
+	 * that changes. While one is, the shell confirms a quit with one native
+	 * dialog. Undefined in a browser tab, which has no shell to tell.
+	 */
+	readonly setRecording: ((recording: boolean) => void) | undefined;
 	/** Whether debug controls are offered. */
 	readonly debugControls: boolean;
 	/** Failure injection, in a debug desktop shell only. */

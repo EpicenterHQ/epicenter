@@ -294,6 +294,8 @@ export async function openTestWorkspace({
 	const transcribed: TranscribeRequest[] = [];
 	/** Who hears the shell's close signal: the session's flush, while it is open. */
 	const closeListeners = new Set<() => Promise<FlushOutcome>>();
+	/** What the page told the shell about recording, in order. */
+	const recordingSaid: boolean[] = [];
 	const terminalRuns: string[] = [];
 	let cwd = '/';
 	let opens = 0;
@@ -359,6 +361,9 @@ export async function openTestWorkspace({
 			return Ok({ text: `Transformed: ${request.input.trim()}` });
 		},
 		transformNote: 'test',
+		setRecording(recording) {
+			recordingSaid.push(recording);
+		},
 		hostClose(respond) {
 			closeListeners.add(respond);
 			return () => closeListeners.delete(respond);
@@ -394,6 +399,7 @@ export async function openTestWorkspace({
 		/** The device's stored connections, keys included, and its earlier key. */
 		device,
 		closeListeners,
+		recordingSaid,
 		/**
 		 * The shell's close signal, as the desktop workspace delivers it: each
 		 * listener flushes, and its outcome is the acknowledgement the shell

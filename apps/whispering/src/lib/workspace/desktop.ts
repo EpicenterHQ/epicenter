@@ -31,6 +31,7 @@
 import { openFolder } from '@epicenter/folder/tauri';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type BridgeConnection, createHttpBridge } from '../bridge/http.js';
 import {
@@ -76,6 +77,10 @@ type ShellRun = {
 const CLOSE_REQUESTED = 'whispering://close-requested';
 /** The page's one answer, a shell command: its flush has finished or run out of time. */
 const FLUSH_DONE = 'flush_done';
+/** Tells the shell whether a recording is in progress, so a quit can confirm. */
+const SET_RECORDING = 'set_recording';
+
+const log = createLogger('whispering/workspace');
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -176,6 +181,18 @@ export async function openDesktopWorkspace(
 		},
 		transformNote:
 			'Requests are sent by Whispering’s host, not by this window, over the text connection in Settings. Its key is never given to the window or written to the folder.',
+		setRecording(recording) {
+			invoke(SET_RECORDING, { recording }).catch((cause: unknown) => {
+				log.warn(
+					new Error(
+						'The shell was not told whether a recording is in progress.',
+						{
+							cause,
+						},
+					),
+				);
+			});
+		},
 		hostClose: (respond) =>
 			listen(CLOSE_REQUESTED, async () => {
 				await respond();

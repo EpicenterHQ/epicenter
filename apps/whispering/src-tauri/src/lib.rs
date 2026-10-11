@@ -5,8 +5,8 @@
 //! The folder has one owner, `tauri-plugin-epicenter-folder`, in this process.
 //! The shell chooses the folder's directory once, registers it with that owner
 //! for the main window, and lets that window's page call the owner's commands.
-//! The page names the folder and never a path. This crate registers no command
-//! of its own.
+//! The page names the folder and never a path. The shell's own commands are
+//! two booleans from the page: `flush_done` and `set_recording`.
 //!
 //! The child is the Bun host (`native/main.ts`): it serves the page on loopback
 //! and does what a page cannot, such as running the terminal and sending
@@ -18,15 +18,22 @@
 //! other exit request is held back once: the shell sends the page one close
 //! event, the page sends the saves it has in flight and answers, and the shell
 //! exits on that answer or after one second, whichever comes first. With no
-//! app page open, it exits at once. A save that failed, an unanswered
-//! transcript, and a live recording end with the page.
+//! app page open, it exits at once. A save that failed and an unanswered
+//! transcript end with the page.
+//!
+//! The one exception is a live recording. The page tells the shell when one
+//! starts and stops (`set_recording`). While one is in progress, the first
+//! close or quit shows one native dialog, "A recording is in progress. Quit
+//! anyway?": Cancel keeps the app open and recording; Quit goes on to the
+//! flush and exit above. The page is not asked anything.
 //!
 //! A quit from macOS itself (the Dock's Quit, a logout, restart, or shutdown,
 //! an Apple Event) reaches the shell only as `RunEvent::Exit`: Tao answers
 //! AppKit's `applicationWillTerminate:` and sends no exit request first. The
-//! page is not asked then. Only writes the folder's owner had already accepted
-//! are finished; anything still in the page is lost. This keeps Whispering
-//! from ever cancelling a logout or shutdown.
+//! page is not asked then, and a recording in progress is not confirmed: it is
+//! lost. Only writes the folder's owner had already accepted are finished;
+//! anything still in the page is lost. This keeps Whispering from ever
+//! cancelling a logout or shutdown.
 //!
 //! On exit the folder's owner refuses new work, lets the saves and commits it
 //! had admitted finish, and releases the folder. It commits nothing of its own.
@@ -91,6 +98,51 @@ struct Closing {
     flushed: AtomicBool,
     /// Where the page's answer goes while the shell waits.
     answer: Mutex<Option<mpsc::SyncSender<()>>>,
+    /// The page says a recording is in progress (`set_recording`).
+    recording: AtomicBool,
+    /// The quit-while-recording dialog is showing.
+    confirming: AtomicBool,
+    /// The person chose Quit in that dialog: the recording no longer holds a quit.
+    quit_confirmed: AtomicBool,
+}
+
+/// What a close or quit request does next.
+#[derive(Debug, PartialEq, Eq)]
+enum Next {
+    /// Let it go.
+    Exit,
+    /// Hold it; a flush or a confirmation already under way decides.
+    Hold,
+    /// Hold it and ask whether to quit during the recording.
+    Confirm,
+    /// Hold it and flush the page, then exit.
+    Flush,
+}
+
+impl Closing {
+    /// Decide a close or quit request from the flags alone. Starting a
+    /// confirmation or a flush is claimed here, so a second request holds.
+    fn next(&self) -> Next {
+        if self.flushed.load(Ordering::SeqCst) {
+            return Next::Exit;
+        }
+        if !self.page_opened.load(Ordering::SeqCst) {
+            self.flushed.store(true, Ordering::SeqCst);
+            return Next::Exit;
+        }
+        if self.recording.load(Ordering::SeqCst) && !self.quit_confirmed.load(Ordering::SeqCst) {
+            return if self.confirming.swap(true, Ordering::SeqCst) {
+                Next::Hold
+            } else {
+                Next::Confirm
+            };
+        }
+        if self.flushing.swap(true, Ordering::SeqCst) {
+            Next::Hold
+        } else {
+            Next::Flush
+        }
+    }
 }
 
 /// The app's embedded configuration and permissions. One expansion, shared by
@@ -103,9 +155,21 @@ pub fn run() {
     tauri::Builder::default()
         // Shuts the folder down when the app exits; see the module comment.
         .plugin(tauri_plugin_epicenter_folder::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(HostState::default())
         .manage(Closing::default())
-        .invoke_handler(tauri::generate_handler![flush_done])
+        .invoke_handler(tauri::generate_handler![flush_done, set_recording])
+        // A new page in the main window holds no recording until it says so.
+        .on_page_load(|webview, payload| {
+            if webview.label() == MAIN_WINDOW
+                && payload.event() == tauri::webview::PageLoadEvent::Started
+            {
+                webview
+                    .state::<Closing>()
+                    .recording
+                    .store(false, Ordering::SeqCst);
+            }
+        })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if !may_exit(window.app_handle()) {
@@ -141,22 +205,61 @@ pub fn run() {
 }
 
 /// Whether a window close or exit request may go ahead now. The first one
-/// with an app page open may not: the page is sent the close event, and the
-/// app exits once it answers or `CLOSE_FLUSH_TIMEOUT` runs out. Requests made
-/// while it waits are held too.
+/// with an app page open may not: while a recording is in progress the person
+/// is asked first (`confirm_quit`); otherwise the page is sent the close
+/// event, and the app exits once it answers or `CLOSE_FLUSH_TIMEOUT` runs out.
+/// Requests made meanwhile are held too.
 fn may_exit(app: &AppHandle) -> bool {
-    let closing = app.state::<Closing>();
-    if closing.flushed.load(Ordering::SeqCst) {
-        return true;
+    match app.state::<Closing>().next() {
+        Next::Exit => true,
+        Next::Hold => false,
+        Next::Confirm => {
+            confirm_quit(app);
+            false
+        }
+        Next::Flush => {
+            flush_then_exit(app);
+            false
+        }
     }
-    if !closing.page_opened.load(Ordering::SeqCst) {
-        closing.flushed.store(true, Ordering::SeqCst);
-        return true;
+}
+
+const QUIT_WHILE_RECORDING: &str = "A recording is in progress. Quit anyway?";
+
+/// Ask once whether to quit during a recording. Cancel keeps the app open and
+/// recording; Quit goes on to the flush and exit, as any other quit does.
+fn confirm_quit(app: &AppHandle) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+
+    let handle = app.clone();
+    app.dialog()
+        .message(QUIT_WHILE_RECORDING)
+        .title("Quit Whispering")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Quit".to_string(),
+            "Cancel".to_string(),
+        ))
+        .show(move |quit| {
+            let closing = handle.state::<Closing>();
+            if quit {
+                closing.quit_confirmed.store(true, Ordering::SeqCst);
+            }
+            closing.confirming.store(false, Ordering::SeqCst);
+            if quit && may_exit(&handle) {
+                handle.exit(0);
+            }
+        });
+}
+
+/// The page says whether a recording is in progress, each time that changes.
+/// Only the main window's word counts, as with `flush_done`.
+#[tauri::command]
+fn set_recording<R: Runtime>(window: WebviewWindow<R>, closing: State<'_, Closing>, recording: bool) {
+    if window.label() != MAIN_WINDOW {
+        return;
     }
-    if !closing.flushing.swap(true, Ordering::SeqCst) {
-        flush_then_exit(app);
-    }
-    false
+    closing.recording.store(recording, Ordering::SeqCst);
 }
 
 /// Send the page the close event, wait for its answer within the bound, and
@@ -309,7 +412,8 @@ fn register_folder<R: Runtime>(app: &AppHandle<R>, root: PathBuf) -> Result<(), 
 /// page such as the failure page, and any other window are not covered.
 ///
 /// The permissions are the owner's commands, listening for its events (and
-/// the shell's close event), and `flush_done`, the page's answer to a close.
+/// the shell's close event), `flush_done`, the page's answer to a close, and
+/// `set_recording`, which says whether a recording is in progress.
 fn folder_capability(port: u16) -> CapabilityBuilder {
     CapabilityBuilder::new(FOLDER_CAPABILITY)
         .local(false)
@@ -319,6 +423,7 @@ fn folder_capability(port: u16) -> CapabilityBuilder {
         .permission("core:event:allow-listen")
         .permission("core:event:allow-unlisten")
         .permission("allow-flush-done")
+        .permission("allow-set-recording")
 }
 
 /// The default macOS menu's Quit item calls AppKit's `terminate:`, which ends
@@ -670,6 +775,107 @@ mod tests {
         .map_err(|error| error.clone())
     }
 
+    /// A page that has opened, as the shell sees it once the app window loads.
+    fn opened() -> Closing {
+        let closing = Closing::default();
+        closing.page_opened.store(true, Ordering::SeqCst);
+        closing
+    }
+
+    #[test]
+    fn with_no_recording_a_quit_goes_straight_to_the_flush() {
+        let closing = opened();
+        assert_eq!(closing.next(), Next::Flush);
+        // Requests while it flushes are held, and none asks.
+        assert_eq!(closing.next(), Next::Hold);
+        assert!(!closing.confirming.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_recording_in_progress_asks_once_before_the_flush() {
+        let closing = opened();
+        closing.recording.store(true, Ordering::SeqCst);
+        assert_eq!(closing.next(), Next::Confirm);
+        // A second request while the dialog shows opens no second dialog.
+        assert_eq!(closing.next(), Next::Hold);
+        assert!(!closing.flushing.load(Ordering::SeqCst));
+
+        // Cancel, as the dialog's callback records it: the app stays open and
+        // the next quit asks again.
+        closing.confirming.store(false, Ordering::SeqCst);
+        assert_eq!(closing.next(), Next::Confirm);
+
+        // Quit: the recording no longer holds, and the flush follows.
+        closing.quit_confirmed.store(true, Ordering::SeqCst);
+        closing.confirming.store(false, Ordering::SeqCst);
+        assert_eq!(closing.next(), Next::Flush);
+    }
+
+    #[test]
+    fn a_recording_that_stopped_does_not_ask() {
+        let closing = opened();
+        closing.recording.store(true, Ordering::SeqCst);
+        closing.recording.store(false, Ordering::SeqCst);
+        assert_eq!(closing.next(), Next::Flush);
+    }
+
+    #[test]
+    fn with_no_app_page_nothing_asks_even_when_recording_was_said() {
+        let closing = Closing::default();
+        closing.recording.store(true, Ordering::SeqCst);
+        assert_eq!(closing.next(), Next::Exit);
+    }
+
+    /// `set_recording` as the page at `url` in `window` would send it.
+    fn say_recording(
+        window: &WebviewWindow<MockRuntime>,
+        url: &str,
+        recording: bool,
+    ) -> Result<(), Value> {
+        tauri::test::get_ipc_response(
+            window,
+            InvokeRequest {
+                cmd: "set_recording".to_string(),
+                callback: CallbackFn(0),
+                error: CallbackFn(1),
+                url: url.parse().unwrap(),
+                body: InvokeBody::Json(json!({ "recording": recording })),
+                headers: Default::default(),
+                invoke_key: INVOKE_KEY.to_string(),
+            },
+        )
+        .map(|_| ())
+        .map_err(|error| error.clone())
+    }
+
+    #[test]
+    fn only_the_main_window_sets_the_recording_flag() {
+        let app = mock_builder()
+            .manage(Closing::default())
+            .invoke_handler(tauri::generate_handler![flush_done, set_recording])
+            .build(context::<MockRuntime>())
+            .expect("mock app");
+        let main = WebviewWindowBuilder::new(&app, MAIN_WINDOW, Default::default())
+            .build()
+            .expect("main window");
+        let other = WebviewWindowBuilder::new(&app, "other", Default::default())
+            .build()
+            .expect("other window");
+        let host = "http://127.0.0.1:4000/";
+        let recording = || app.state::<Closing>().recording.load(Ordering::SeqCst);
+
+        assert!(say_recording(&main, host, true).is_err());
+        app.add_capability(folder_capability(4000)).unwrap();
+        assert!(say_recording(&other, host, true).is_err());
+        assert!(say_recording(&main, "http://127.0.0.1:4001/", true).is_err());
+        assert!(!recording());
+
+        say_recording(&main, host, true).expect("the main window says it records");
+        assert!(recording());
+        say_recording(&main, host, false).expect("and that it stopped");
+        assert!(!recording());
+    }
+
     #[test]
     fn only_the_main_windows_answer_reaches_the_wait() {
         let app = mock_builder()
@@ -828,6 +1034,7 @@ mod tests {
                 "core:event:allow-listen",
                 "core:event:allow-unlisten",
                 "allow-flush-done",
+                "allow-set-recording",
             ]
         );
     }

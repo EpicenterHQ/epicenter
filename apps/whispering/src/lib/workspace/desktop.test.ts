@@ -492,6 +492,24 @@ test('a row save whose reply the shell never sent stays unknown, and later input
 // The shell's close signal
 // ============================================================================
 
+test('whether a recording is in progress is told to the shell as one boolean', async () => {
+	setup();
+	attachable();
+	replies.set_recording = () => null;
+	const served = host();
+	const workspace = expectOk(
+		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
+	);
+	workspace.setRecording?.(true);
+	workspace.setRecording?.(false);
+	await settle();
+	expect(sent('set_recording').map((call) => call.args)).toEqual([
+		{ recording: true },
+		{ recording: false },
+	]);
+	await workspace.close();
+});
+
 test('the shell’s close signal reaches the page as a Tauri event, and the page answers once its flush ends', async () => {
 	setup();
 	attachable();

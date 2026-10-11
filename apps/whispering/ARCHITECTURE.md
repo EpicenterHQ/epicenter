@@ -182,7 +182,9 @@ The shell settles four things, in this order, before the window exists
    grants the `main` window, on exactly `http://127.0.0.1:<port>/*`, the
    owner's commands (`epicenter-folder:default`), listening for events
    (`core:event:allow-listen`, `core:event:allow-unlisten`), and the shell's
-   own `flush_done`, the page's answer to a close (`allow-flush-done`).
+   own two commands: `flush_done`, the page's answer to a close
+   (`allow-flush-done`), and `set_recording`, whether a recording is in
+   progress (`allow-set-recording`).
    `tauri.conf.json` lists no capability.
 
 So the page cannot choose a directory: it names a scope, and the shell decided
@@ -579,13 +581,17 @@ and releases them.
 
 ## Closing
 
-Closing never asks. A save in flight is the one thing a close protects; a draft
-whose save failed, an unanswered transcript, and a live recording end with the
-page, and the save bar and notices already say so before the person quits.
+Closing never asks, except once while a recording is in progress. A save in
+flight is the one thing a close protects; a draft whose save failed and an
+unanswered transcript end with the page, and the save bar and notices already
+say so before the person quits.
 
 ```text
 shell   on a window close, the Quit menu item (Command-Q), or an exit request:
-          holds it back once and emits whispering://close-requested to the page
+          while the page says a recording is in progress, holds it back and
+          shows one native dialog; Cancel keeps the app open and recording,
+          Quit goes on
+shell   holds it back once and emits whispering://close-requested to the page
 page    flushes (`flushOnClose`): sends each draft's held snapshot and waits
           for admitted work and running saves, at most 800 ms
 page    invokes the shell's flush_done command
@@ -601,6 +607,11 @@ nothing new and retries nothing, so a failed save is not waited for. A browser
 tab has no shell; there the same flush starts on `pagehide`, and cannot be
 waited for.
 
+The page tells the shell whether a recording is in progress each time that
+changes (`setRecording` in the library, `set_recording` in the shell), as one
+boolean. A new page in the main window resets it to false. The dialog is the
+dialog plugin's, shown from Rust, so the page is never asked.
+
 The signal is a Tauri event and the answer a shell command
 (`src/lib/workspace/desktop.ts` and `src-tauri/src/lib.rs`), not host
 operations, so they work whether or not the host is running. The shell's
@@ -615,8 +626,8 @@ AppKit's `terminate:`, which skips the exit request. On macOS a quit from the
 system (the Dock's Quit, a logout, restart, or shutdown, an Apple Event) goes
 through Tao's `applicationWillTerminate:` straight to `RunEvent::Exit`, with
 no exit request first; tao 0.37 implements no `applicationShouldTerminate:`.
-The page is not reached then: only writes the folder's owner had already
-accepted are finished, and whatever was still in the page in that instant is
+The page is not reached then, and a recording in progress is not confirmed:
+only writes the folder's owner had already accepted are finished, and whatever was still in the page in that instant is
 lost. Whispering accepts that, and so never cancels a logout or shutdown.
 
 When the shell exits, the owner refuses new work, lets the saves and commits
